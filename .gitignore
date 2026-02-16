@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+
+# build outputs
+build/
+dist/
+.svelte-kit/
+
+# local env files
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# runtime data (keep skills versioned, ignore chat runtime outputs)
+data/telegram-mom/*
+!data/telegram-mom/skills/
+!data/telegram-mom/skills/**
+data/sessions/
+data/settings.json
+data/*.db
+data/*.db-*
+
+# temp / cache
+.tmp/
+tmp/
+.cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

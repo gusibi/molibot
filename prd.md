@@ -1,0 +1,367 @@
+# Molibot PRD (V1)
+
+## 1. Product Goal
+Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegram + CLI + Web** in V1.
+
+## 2. Target Users
+- Solo builders and small teams who want one AI assistant across channels.
+- Users who prefer simple interaction over complex automation.
+
+## 3. V1 Scope
+
+### Must Have (P0)
+| ID | Feature | Priority | Phase | Acceptance Criteria |
+|---|---|---|---|---|
+| P0-01 | Unified message router | P0 | V1 | Incoming messages from Telegram/CLI/Web are normalized and processed by one core pipeline |
+| P0-02 | Telegram adapter | P0 | V1 | Bot receives user text and returns assistant response with stable delivery/retry |
+| P0-03 | CLI adapter | P0 | V1 | `molibot cli` supports interactive multi-turn conversation |
+| P0-04 | Web chat | P0 | V1 | Browser chat supports send/receive and response streaming |
+| P0-05 | Session persistence | P0 | V1 | Conversation history persists in SQLite and can be restored by session |
+| P0-06 | Basic guardrails | P0 | V1 | Request size limit, rate limiting, and secrets via env vars |
+| P0-07 | Operational baseline | P0 | V1 | Health endpoint, structured logs, and startup checks are implemented |
+
+### Should Have (P1)
+| ID | Feature | Priority | Phase | Acceptance Criteria |
+|---|---|---|---|---|
+| P1-01 | Conversation summary compression | P1 | Post V1 | Old turns summarized to keep prompt size bounded |
+| P1-02 | Redis cache/rate state | P1 | Post V1 | Hot session and throttling moved from in-memory to Redis |
+| P1-03 | Basic tool call wrapper | P1 | Post V1 | 1-2 tools can be called via normalized interface |
+| P1-04 | Telegram mom parity core | P1 | V1.1 | Telegram bot supports per-chat runner, stop/cancel, tool-calling (`read/bash/edit/write/attach`), attachment ingestion, and event-file scheduling (immediate/one-shot/periodic) |
+| P1-05 | Global skills registry for mom runtime | P1 | V1.1 | Runner loads reusable skills from `<workspace>/skills/**/SKILL.md` and exposes skill catalog/rules in system prompt |
+
+### Later (P2)
+| ID | Feature | Priority | Phase | Acceptance Criteria |
+|---|---|---|---|---|
+| P2-01 | New channels (WhatsApp/Lark/Slack) | P2 | V2 | New adapters added without core pipeline change |
+| P2-02 | Cross-channel identity linking | P2 | V2 | User can merge identities across channels |
+| P2-03 | Long-term memory (vector DB) | P2 | V2 | Retrieval-augmented memory improves continuity |
+| P2-04 | Admin dashboard | P2 | V2 | Operator can inspect sessions/errors and run controls |
+
+## 4. Out of Scope (V1)
+- WhatsApp/Lark/Slack production integration.
+- Autonomous multi-step agent planning loops.
+- Enterprise permission model and RBAC.
+
+## 5. Technical Approach (Plain Language)
+- Build one central backend that understands a single message format.
+- Every channel gets a thin adapter: transform inbound message into unified format, then transform response back.
+- Telegram adapter is implemented with `grammY` to reduce webhook/update handling complexity.
+- Use pi-mono runtime for LLM interaction.
+- Store conversations in SQLite so users can continue sessions.
+
+## 6. Dependencies and Decisions Needed
+- Telegram Bot token and webhook URL.
+- Telegram bot library: `grammY` (`grammy` npm package).
+- LLM provider/API key configuration.
+- Deployment environment (single VM or container platform).
+
+## 7. Complexity Assessment
+- Overall: **Medium**.
+- Highest risk: stable channel delivery and production error handling.
+
+## 8. Release Definition (V1)
+V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web with consistent behavior and persisted session history.
+
+## 9. Documentation Structure (Current)
+- `readme.md`: project entry and document navigation.
+- `prd.md`: product scope, priority, and acceptance criteria.
+- `architecture.md`: V1 architecture and sprint plan.
+- `features.md`: implementation status and change log.
+- `AGENTS.md`: collaboration and process constraints.
+
+## 10. Implementation Status (2026-02-11)
+- Completed:
+  - Shared message router with validation and rate limit.
+  - Telegram adapter using `grammY`.
+  - CLI adapter and Web adapter (HTTP API + static page).
+  - SQLite persistence for conversations and messages.
+  - Real pi-mono assistant runtime wiring (`@mariozechner/pi-agent-core` + `@mariozechner/pi-ai`), no mock branch.
+- Remaining for full V1 quality:
+  - Add automated tests and deployment packaging.
+
+## 11. Current Blocker
+- Build verification is blocked in current environment because npm registry hosts are unreachable (`ENOTFOUND`), so dependencies cannot be installed locally in this session.
+
+## 12. Compatibility Update (2026-02-11)
+- SQLite implementation switched from `better-sqlite3` to Node built-in `node:sqlite` to avoid native addon compile failures on modern Node versions (for example Node 25 on arm64 macOS).
+
+## 13. Provider & Telegram Config (2026-02-11)
+- Model response can now be controlled via `.env` in two modes:
+  - `AI_PROVIDER_MODE=pi`: use pi-mono provider/model settings.
+  - `AI_PROVIDER_MODE=custom`: use custom OpenAI-compatible host/key/model.
+- Telegram access control can be configured via `.env`:
+  - `TELEGRAM_BOT_TOKEN` for bot auth.
+  - `TELEGRAM_ALLOWED_CHAT_IDS` for optional chat whitelist.
+
+## 14. Web UI Decision (2026-02-11)
+- Replaced custom hand-written web chat page with official `@mariozechner/pi-web-ui` based page.
+- Web UI now uses provider keys from browser-side prompt/storage (IndexedDB), while Telegram/CLI continue using server `.env` provider settings.
+
+## 15. Web UI Runtime Diagnostics (2026-02-11)
+- Added explicit startup diagnostics in Web UI page so failures no longer appear as blank/black screen.
+- If `pi-web-ui` module load/init fails, the page now displays actionable checks and logs error details to console.
+
+## 16. Web UI Delivery Path Update (2026-02-11)
+- Switched Web UI delivery from browser CDN dynamic imports to local Vite app build, aligned with `pi-web-ui` example workflow.
+- This removes runtime MIME/CDN resolution failures and makes Web UI behavior deterministic.
+
+## 17. Build & Dev Fixes (2026-02-11)
+- Type fixes:
+  - `PI_MODEL_PROVIDER` now validated against `KnownProvider` set before calling `getModel`.
+  - SQLite row mapping now uses explicit runtime conversion instead of unsafe direct cast.
+- Developer workflow:
+  - `npm run dev` now launches backend and Web dev server together.
+- Dev workflow now uses managed parallel startup (`concurrently`) for backend + web, avoiding orphaned background processes from shell ampersand startup.
+- Backend startup now reports clear `EADDRINUSE` guidance for port conflicts.
+
+## 18. SvelteKit Migration (2026-02-11)
+- Web app migrated from custom Vite-only entry to SvelteKit.
+- `pi-web-ui` is mounted in SvelteKit client page (`+page.svelte`, SSR disabled).
+- Build output target is `build` via root `adapter-node` config.
+- SvelteKit frontend/backend now use a single root `package.json`; install/build run from repository root.
+- Verification note: web dependency install/build in this environment is currently blocked by npm registry DNS/network failures (`ENOTFOUND registry.npmjs.org`).
+
+## 19. Single-Process SvelteKit Unification (2026-02-11)
+- Development runtime unified to one process (`npm run dev` -> SvelteKit only).
+- API endpoints moved into SvelteKit server routes (`/api/chat`, `/api/stream`, `/health`).
+- Telegram bootstrap moved into SvelteKit server lifecycle (`hooks.server.ts` + shared runtime).
+- Web build switched to SvelteKit `adapter-node` for server-side API support in production.
+- Web runtime stabilization: switched `pi-web-ui` page integration from dynamic imports to static imports and explicitly optimized related deps in Vite to avoid Lit class-field runtime issues in dev.
+- Added compatibility workaround for current `pi-web-ui` + Lit runtime: clear known shadowing fields on `ChatPanel` instance before first update to prevent crash.
+- Web scripts now run `svelte-kit sync` before `vite dev/build` to ensure generated tsconfig is present.
+- Runtime compatibility fix: disable Lit `class-field-shadowing` warning at component-constructor level for `pi-web-ui` elements (`pi-chat-panel`, `agent-interface`, `artifacts-panel`, etc.) to prevent white-screen crash in dev.
+- Web dev runtime now runs in production mode to prevent Lit dev build hard-throw behavior (`class-field-shadowing`) triggered by current `pi-web-ui` package output.
+
+## 20. Settings Management UI (2026-02-11)
+- Added Web settings page at `/settings`.
+- Added settings API (`GET/PUT /api/settings`) for AI provider and Telegram bot config.
+- Settings are persisted in SQLite (`app_settings`) and applied to runtime.
+- AI provider changes apply to new requests immediately; Telegram config triggers runtime reload attempt.
+
+## 21. Chat Model UX Constraint (2026-02-11)
+- Web chat should not expose the full built-in `pi-web-ui` model catalog.
+- V1 behavior: hide model selector in chat and keep model selection controlled through Molibot settings/config only.
+- Web chat inference path should proxy through backend runtime APIs so the configured provider/model in Settings (including custom provider mode) is actually used.
+- UX correction: keep model/thinking controls available in chat UI, while ensuring backend runtime settings remain the effective inference source.
+- Reliability correction: Web chat must initialize custom provider storage and degrade gracefully when editor refs are temporarily unavailable (no silent send failure).
+
+## 22. Settings UX & Provider Management (2026-02-11)
+- Settings IA split:
+  - `/settings`: hub page.
+  - `/settings/ai`: AI provider mode, default provider/model, and custom provider list management.
+  - `/settings/telegram`: Telegram-only settings.
+- AI provider requirements:
+  - PI provider must be selectable via dropdown (not free text).
+  - Support multiple custom providers (add/remove/edit).
+  - Support explicit default custom provider selection.
+  - Runtime inference must use selected defaults immediately after save.
+- Data compatibility requirement:
+  - Web local storage schema upgrades must be versioned so newly added object stores are created for existing users without manual data reset.
+  - When client cache/state is stale, rollout may require DB namespace bump to guarantee deterministic schema recreation.
+
+## 23. Persistence Strategy Update (2026-02-11)
+- Backend persistence is file-based JSON only (no SQLite/database runtime dependency).
+- Settings persistence:
+  - Single file: `data/settings.json`.
+- Session/message persistence:
+  - Session index file: `data/sessions/index.json`.
+  - One session per file: `data/sessions/<conversationId>.json`.
+- Browser persistence:
+  - Do not use IndexedDB for Molibot state; Web UI storage is in-memory only and backend is source of truth.
+- Web session UX:
+  - Session list and session detail must be read from backend JSON session files via server APIs.
+  - Web chat must support selecting an existing backend session and creating a new backend session.
+  - Session title should be derived from the first user message summary and stored server-side.
+- Model selector UX:
+  - Chat-page model switcher must be sourced only from backend-configured providers/models.
+  - Built-in third-party model catalogs that are not backend-configured must not be shown.
+- Response UX:
+  - Assistant response should enter visible streaming state immediately after send, with perceptible incremental rendering instead of delayed one-shot appearance.
+  - Chat UI must remain realtime even if underlying UI-library subscriptions are unstable; app-level fallback update hooks are required.
+
+## 24. Telegram Mom Parity Track (2026-02-11)
+- Objective:
+  - Upgrade Telegram adapter from simple chat relay to a full per-chat agent runtime aligned with `example/pi-mono/packages/mom` core behavior.
+- Current implementation status:
+  - Core modules are implemented under `src/lib/server/mom/*` (runner/store/tools/events/tools).
+  - Default runtime path in `src/lib/server/adapters/telegram.ts` now runs mom-t flow with `grammy`.
+  - Runtime config is still sourced from Web settings (`telegramBotToken`, `telegramAllowedChatIds`) and hot-reloaded through existing settings update path.
+  - Added structured server observability logs across telegram adapter + runner to make each request traceable end-to-end in runtime logs.
+  - Added operator-facing chat-id introspection via Telegram `/chatid` command and startup whitelist logs.
+  - Dev server startup now actively bootstraps runtime once (ping `/api/settings`) to avoid missing Telegram status logs before first manual request.
+  - Runner now performs provider/config preflight and returns human-readable Telegram errors (no process panic) when API key/provider config is missing.
+  - Runner now emits AI call trace telemetry (model/api/baseUrl/path/key presence, stream start, assistant usage/content counts) for provider-call debugging.
+  - Custom provider request URL assembly now honors configured `path` when deriving SDK `baseURL` (fixes OpenRouter-style `/v1/chat/completions` routing).
+  - Telegram response UX cleanup: suppress duplicate status fallbacks on no-op edits, reduce tool-detail chatter to error-only, and sanitize ANSI escape sequences in tool outputs.
+  - Runtime logs now default to key events only; full verbose tracing remains available via `MOM_LOG_VERBOSE=1`.
+  - Event watcher now listens to both global workspace events and per-chat scratch events (`data/telegram-mom/<chatId>/scratch/data/telegram-mom/events`) to match local reminder write paths.
+  - Telegram system prompt is upgraded with mom-style operational guidance (environment, Telegram formatting, event creation guarantees, and reminder scheduling rules).
+  - One-shot/immediate scheduled events now deliver the event `text` directly to Telegram chat, avoiding LLM paraphrase/confirmation drift.
+  - Event files are retained after execution and updated with `status` metadata (completed/skipped/error, completion time, run count) instead of being deleted.
+  - Tool path resolution now guards against duplicated scratch prefixes to avoid nested directories like `.../scratch/data/telegram-mom/<chatId>/scratch/...`.
+  - Existing duplicated nested scratch data for active chat(s) can be safely migrated in-place to canonical scratch root without overwriting conflicts.
+  - AI custom provider config now supports multi-model per provider (`models[]`) with explicit `defaultModel` and `supportedRoles` metadata.
+  - Added provider capability test endpoint to verify provider connectivity and detect whether the target model supports `developer` role.
+  - Telegram mom stream path now performs role-compatibility fallback: if provider does not support `developer`, map `developer` messages to `system` before upstream request.
+  - AI settings UI is upgraded to split-pane workflow: left searchable provider list and right detail panel for provider fields, multi-model editing, default model selection, and capability testing.
+  - Role-compatibility fallback now also handles `systemPrompt` by lowering it into explicit `system` message when provider lacks `developer` support, eliminating adapter-internal developer-role injection risks.
+  - Added global skills support aligned to mom model: runner now discovers `data/telegram-mom/skills/**/SKILL.md` and injects available skills plus usage protocol into system prompt each run.
+  - Skill storage is unified at workspace scope (`<workspace>/skills`), removing chat-level skill location guidance from Telegram prompt.
+  - Installed initial workspace skill `find-skills` at `data/telegram-mom/skills/find-skills/SKILL.md` to validate runtime discovery path.
+  - Under current root-start runtime (cwd=`/Users/zongxiaocheng/github/molipibot`), active workspace resolves to `data/telegram-mom`; skill files must exist under `data/telegram-mom/skills/` to be discovered at runtime.
+  - Path semantics clarification:
+    - Service process cwd: `/Users/zongxiaocheng/github/molipibot`
+    - Telegram workspace dir: `/Users/zongxiaocheng/github/molipibot/data/telegram-mom`
+    - Per-chat tool cwd: `/Users/zongxiaocheng/github/molipibot/data/telegram-mom/<chatId>/scratch`
+    - Per-chat scratch as tool cwd is intentional and kept as-is for chat-level workspace isolation.
+- Remaining parity gaps (next round):
+  - Rich context compaction/retry controls equivalent to mom `AgentSession` settings.
+  - Telegram history backfill equivalent to Slack channel backfill flow.
+  - Add deeper observability and staged rollback toggles for safer production iteration.
+
+## 25. Backend Full Merge into SvelteKit (2026-02-12)
+- Code layout decision:
+  - Backend source is fully hosted inside SvelteKit project at `src/lib/server/*`.
+  - Legacy `web/` app directory is removed to avoid dual-tree drift.
+- Integration decision:
+  - SvelteKit server routes/hooks import backend modules via `$lib/server/*` only.
+  - Root `svelte.config.js` no longer defines `$backend` alias to parent directory.
+- Runtime workflow:
+  - Root runtime/build commands are unified (`npm run dev`, `npm run build`, `npm run start`).
+  - Root CLI command runs merged backend entry (`tsx src/lib/server/index.ts --cli`).
+- Expected impact:
+  - Eliminates split-brain project layout (root + `web/`).
+  - Reduces cross-project path coupling and future refactor risk for server code.
+
+## 26. Web Build Compatibility Update (2026-02-12)
+- Problem:
+  - Browser build pulled Node-only dependencies via client imports of `@mariozechner/pi-ai`/`@mariozechner/pi-agent-core`/`@mariozechner/pi-web-ui`, causing Vite/Rollup failure around `@smithy/node-http-handler`.
+- Decision:
+  - Web chat page is implemented as pure Svelte UI that calls backend APIs (`/api/chat`, `/api/sessions`, `/api/settings`) directly.
+  - Keep provider/runtime complexity on server side (`src/lib/server/*`), not in browser bundle.
+- Outcome:
+  - `npm run build` succeeds in root SvelteKit layout.
+
+## 27. Telegram Session Commands (2026-02-12)
+- New command set:
+  - `/new`: create and switch to a new Telegram chat session context.
+  - `/clear`: clear current active session context only.
+  - `/sessions`: list current sessions and active session; support switching via `/sessions <index|sessionId>`.
+  - `/delete_sessions`: list deletable sessions and support deletion via `/delete_sessions <index|sessionId>`.
+  - `/help`: show command catalog and session usage.
+- Context storage model:
+  - Per-chat multi-session contexts are stored under `data/telegram-mom/<chatId>/contexts/<sessionId>.json`.
+  - Active session pointer is stored in `data/telegram-mom/<chatId>/active_session.txt`.
+  - Legacy single-context file `data/telegram-mom/<chatId>/context.json` is auto-migrated to `contexts/default.json`.
+- Runtime behavior:
+  - Runner instances are keyed by `chatId + sessionId`.
+  - Switching session changes which context file is loaded/saved for subsequent prompts.
+
+## 28. Telegram Busy Handling Update (2026-02-12)
+- Behavior change:
+  - When a message arrives while Telegram runner is processing, it is queued instead of being rejected.
+  - User receives queue feedback with pending count.
+- Control:
+  - `/stop` still aborts current running task.
+  - Queued tasks continue to execute in per-chat FIFO order.
+
+## 29. Telegram Text Attachment Format Rule (2026-02-12)
+- Rule:
+  - Text attachments sent to Telegram must use `.txt`, `.md`, or `.html` extension only.
+  - Other text-like extensions are not allowed for outbound Telegram attachments.
+- Enforcement:
+  - Runtime upload path detects likely text files and auto-normalizes unsupported suffixes to `.txt` before sending.
+  - Runner system prompt now explicitly instructs agent to use only `.txt/.md/.html` for text files.
+
+## 30. Telegram Skills Inspection Command (2026-02-12)
+- New command:
+  - `/skills`: list currently loaded skills from workspace skill registry.
+- Output content:
+  - skill count
+  - each skill's `name`, `description`, and `SKILL.md` file path
+  - loader diagnostics (missing/duplicate/invalid metadata) when present
+- Source of truth:
+  - Reuses `loadSkillsFromWorkspace()` in `src/lib/server/mom/skills.ts`.
+
+## 31. Delayed Reminder Execution Policy (2026-02-12)
+- Policy:
+  - Any delayed reminder request (for example "2 minutes later") must be implemented by creating a one-shot event file in watched events directories.
+  - Runtime must not execute delayed reminders by waiting in-process.
+- Enforcement:
+  - Runner system prompt explicitly forbids wait/sleep style shell waiting for delayed tasks.
+  - `bash` tool rejects wait commands (`sleep`, `timeout`, `wait`, ping-loop pattern) and returns guidance to create one-shot events.
+
+## 32. Telegram Text-First Output Policy (2026-02-12)
+- Policy:
+  - Non-essential file sending should be avoided.
+  - If generated output is text and fits Telegram message size constraints, bot should send it as normal text message.
+- Enforcement:
+  - Telegram upload path detects likely-text buffers and sends plain text first.
+  - File upload (`sendDocument`) is reserved for non-text/binary content or oversized text payloads.
+
+## 33. Runner Prompt Baseline Alignment (2026-02-12)
+- Goal:
+  - Align Telegram mom runner prompt to upstream baseline from `example/pi-mono/packages/mom/src/agent.ts` to reduce prompt drift.
+- Scope:
+  - Keep upstream structure and instructions as primary baseline.
+  - Only adapt environment-specific details:
+    - Slack semantics -> Telegram semantics.
+    - channel path model -> chat/session path model.
+    - watched event locations include workspace + chat-scratch directories.
+    - one-shot/immediate lifecycle follows current runtime behavior (status retained, not auto-delete).
+    - text-first Telegram output policy remains enforced.
+
+## 34. Workspace Path Safety Guard (2026-02-12)
+- Problem:
+  - LLM tool calls could write absolute paths outside runtime workspace roots (example: `/tmp/events/...`), causing "scheduled" reminders that are never watched.
+- Requirement:
+  - Mom file tools must only operate inside allowed workspace roots.
+- Enforcement:
+  - `read/write/edit/attach` reject resolved paths outside chat scratch dir and workspace dir.
+  - Prompt explicitly forbids writing reminder/event files to `/tmp` or other external directories.
+
+## 35. Mom Tools Architecture Upgrade (2026-02-12)
+- Goal:
+  - Align local mom tool implementation style with upstream `example/pi-mono/packages/mom/src/tools` to improve maintainability and behavior consistency.
+- Scope:
+  - Replace monolithic tool file with modular structure:
+    - `bash.ts`, `read.ts`, `write.ts`, `edit.ts`, `attach.ts`
+    - shared `path.ts` and `truncate.ts`
+  - Keep existing Telegram/runtime-specific constraints (workspace path guard, delayed-wait prohibition, text-first Telegram output policy).
+- Behavior upgrades:
+  - `read` supports image payload return and richer truncation/continuation hints.
+  - `bash` provides structured tail truncation details and stores full output when truncated.
+
+## 36. Reminder Event Normalization (2026-02-12)
+- Problem:
+  - Model may write reminder content as plain text (for example `2026-... 你好`) instead of valid event JSON, leading to non-triggering reminders.
+- Requirement:
+  - Reminder writes must end as valid one-shot JSON event files in watched events directories.
+- Enforcement:
+  - `write` tool detects reminder shorthand content and normalizes it into one-shot event JSON.
+  - Normalized files are written under workspace events directory with `.json` extension.
+
+## 37. Skills Install Path Canonicalization (2026-02-15)
+- Problem:
+  - When tools run in per-chat scratch (`data/telegram-mom/<chatId>/scratch`), writing skills with relative path `data/telegram-mom/skills/...` can create nested duplicate paths under scratch.
+- Requirement:
+  - Skills must be installed only in workspace-level directory `data/telegram-mom/skills`.
+- Enforcement:
+  - Runner system prompt explicitly requires absolute path usage for skills (`<workspace>/skills/<name>`).
+  - Tool path resolver normalizes mistaken `data/telegram-mom/skills/...` relative inputs (from scratch) back to canonical workspace skills path.
+
+## 38. Workspace Absolute Path Semantics (2026-02-15)
+- Problem:
+  - If runtime workspace root is stored as relative path (`data/telegram-mom`), assistant output may claim "absolute path" while still showing relative text.
+- Requirement:
+  - Runtime workspace root used by Telegram mom components must be absolute.
+- Enforcement:
+  - Telegram manager resolves workspace root via `resolve(config.dataDir, "telegram-mom")` before initializing store, prompt context, and skills listing.
+
+## 39. Repository Ignore Hygiene (2026-02-16)
+- Goal:
+  - Keep repository commits clean and reproducible by excluding generated artifacts and local-only files.
+- Scope:
+  - Ignore dependency directories, build outputs, local env variants, runtime data outputs, logs, and editor/OS transient files.
+- Acceptance:
+  - Fresh local runs do not pollute git status with generated runtime/build files.

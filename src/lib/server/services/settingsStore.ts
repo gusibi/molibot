@@ -1,0 +1,159 @@
+import {
+  defaultRuntimeSettings,
+  type CustomProviderConfig,
+  isKnownProvider,
+  type ProviderMode,
+  type RuntimeSettings
+} from "../config.js";
+import { readJsonFile, storagePaths, writeJsonFile } from "../db/sqlite.js";
+
+interface RawSettings {
+  providerMode?: string;
+  piModelProvider?: string;
+  piModelName?: string;
+  customProviders?: unknown;
+  defaultCustomProviderId?: string;
+  systemPrompt?: string;
+  telegramBotToken?: string;
+  telegramAllowedChatIds?: string[] | string;
+  customAiBaseUrl?: string;
+  customAiApiKey?: string;
+  customAiModel?: string;
+  customAiPath?: string;
+}
+
+type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
+const DEFAULT_ROLES: ModelRole[] = ["system", "user", "assistant", "tool"];
+const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
+
+function sanitizeRoles(input: unknown): ModelRole[] {
+  if (!Array.isArray(input)) return [...DEFAULT_ROLES];
+  const out: ModelRole[] = [];
+  const dedup = new Set<string>();
+  for (const raw of input) {
+    const value = String(raw ?? "").trim();
+    if (!ROLE_SET.has(value) || dedup.has(value)) continue;
+    dedup.add(value);
+    out.push(value as ModelRole);
+  }
+  return out.length > 0 ? out : [...DEFAULT_ROLES];
+}
+
+function sanitizeModels(item: Record<string, unknown>): { models: string[]; defaultModel: string } {
+  const legacySingle = String(item.model ?? "").trim();
+  const rawModels = Array.isArray(item.models) ? item.models : [];
+  const models = rawModels.map((v) => String(v).trim()).filter(Boolean);
+  if (models.length === 0 && legacySingle) {
+    models.push(legacySingle);
+  }
+
+  const defaultModelRaw = String(item.defaultModel ?? "").trim();
+  const defaultModel = models.includes(defaultModelRaw) ? defaultModelRaw : (models[0] ?? "");
+  return { models, defaultModel };
+}
+
+function sanitizeMode(input: unknown): ProviderMode {
+  return String(input ?? "").toLowerCase() === "custom" ? "custom" : "pi";
+}
+
+function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
+  if (!Array.isArray(input)) return [];
+
+  const out: CustomProviderConfig[] = [];
+  const dedup = new Set<string>();
+
+  for (const row of input) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const id = String(item.id ?? "").trim() || `custom-${Math.random().toString(36).slice(2, 8)}`;
+    if (dedup.has(id)) continue;
+    dedup.add(id);
+
+    const { models, defaultModel } = sanitizeModels(item);
+
+    out.push({
+      id,
+      name: String(item.name ?? "").trim() || id,
+      baseUrl: String(item.baseUrl ?? "").trim(),
+      apiKey: String(item.apiKey ?? "").trim(),
+      models,
+      defaultModel,
+      supportedRoles: sanitizeRoles(item.supportedRoles),
+      path: String(item.path ?? "").trim() || "/v1/chat/completions"
+    });
+  }
+
+  return out;
+}
+
+function sanitizeList(input: unknown): string[] {
+  if (Array.isArray(input)) {
+    return input.map((v) => String(v).trim()).filter(Boolean);
+  }
+  if (typeof input === "string") {
+    return input
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function migrateLegacyCustomProvider(raw: RawSettings): CustomProviderConfig[] {
+  const baseUrl = String(raw.customAiBaseUrl ?? "").trim();
+  const apiKey = String(raw.customAiApiKey ?? "").trim();
+  const model = String(raw.customAiModel ?? "").trim();
+  const path = String(raw.customAiPath ?? "").trim() || "/v1/chat/completions";
+  if (!baseUrl && !apiKey && !model) return [];
+
+  return [
+    {
+      id: "custom-legacy",
+      name: "Custom (legacy)",
+      baseUrl,
+      apiKey,
+      models: model ? [model] : [],
+      defaultModel: model,
+      supportedRoles: [...DEFAULT_ROLES],
+      path
+    }
+  ];
+}
+
+function sanitize(raw: RawSettings): RuntimeSettings {
+  const piProviderRaw = String(raw.piModelProvider ?? defaultRuntimeSettings.piModelProvider).trim();
+  const providers = sanitizeCustomProviders(raw.customProviders);
+  const customProviders = providers.length > 0 ? providers : migrateLegacyCustomProvider(raw);
+
+  let defaultCustomProviderId = String(raw.defaultCustomProviderId ?? "").trim();
+  if (!customProviders.some((p) => p.id === defaultCustomProviderId)) {
+    defaultCustomProviderId = customProviders[0]?.id ?? "";
+  }
+
+  return {
+    providerMode: sanitizeMode(raw.providerMode ?? defaultRuntimeSettings.providerMode),
+    piModelProvider: isKnownProvider(piProviderRaw)
+      ? piProviderRaw
+      : defaultRuntimeSettings.piModelProvider,
+    piModelName: String(raw.piModelName ?? defaultRuntimeSettings.piModelName).trim() ||
+      defaultRuntimeSettings.piModelName,
+    customProviders,
+    defaultCustomProviderId,
+    systemPrompt:
+      String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
+      defaultRuntimeSettings.systemPrompt,
+    telegramBotToken: String(raw.telegramBotToken ?? defaultRuntimeSettings.telegramBotToken).trim(),
+    telegramAllowedChatIds: sanitizeList(raw.telegramAllowedChatIds)
+  };
+}
+
+export class SettingsStore {
+  load(): RuntimeSettings {
+    const raw = readJsonFile<RawSettings>(storagePaths.settingsFile, {});
+    return sanitize(raw);
+  }
+
+  save(settings: RuntimeSettings): void {
+    writeJsonFile(storagePaths.settingsFile, settings);
+  }
+}

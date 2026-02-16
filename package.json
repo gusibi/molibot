@@ -1,0 +1,37 @@
+{
+  "name": "molibot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "svelte-kit sync && vite dev --mode production",
+    "build": "svelte-kit sync && vite build",
+    "start": "node build",
+    "cli": "tsx src/lib/server/index.ts --cli"
+  },
+  "dependencies": {
+    "@mariozechner/mini-lit": "^0.2.0",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "grammy": "^1.38.3",
+    "@mariozechner/pi-agent-core": "latest",
+    "@mariozechner/pi-ai": "latest",
+    "@mariozechner/pi-web-ui": "latest",
+    "lit": "^3.3.1",
+    "svelte": "^5.38.10",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-node": "^5.2.12",
+    "@sveltejs/kit": "^2.48.1",
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@types/express": "^4.17.21",
+    "@types/node": "^24.3.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^7.1.6"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
