@@ -12,39 +12,40 @@ Molibot 是一个基于 pi-mono 的极简多端 AI 助手，V1 支持 Telegram +
 | `readme.md` | 项目入口与文档导航 | 不确定从哪里开始时看 |
 
 ## 当前架构（单进程 SvelteKit）
-- `npm run dev` 只启动一个进程：SvelteKit
+- `molibot`（或 `molibot dev`）只启动一个进程：SvelteKit
 - SvelteKit 同时承载：
   - Web UI
   - API：`/api/chat`、`/api/stream`、`/api/settings`、`/health`
   - Telegram bot 启动
-- CLI 仍独立命令：`npm run cli`
+- CLI 仍独立命令：`molibot cli`
 
 ## Web 设置页
 - 地址：`/settings`
 - 可以配置：
   - AI provider（`pi` / `custom`、模型、key、host）
   - Telegram token 和允许的 chat id 列表
-- 设置保存到 JSON（`data/settings.json`），AI 配置立即生效，Telegram 会自动尝试重载。
+- 设置保存到 JSON（默认 `~/.molibot/settings.json`），AI 配置立即生效，Telegram 会自动尝试重载。
 
 ## 安装
 ```bash
 npm install
+npm link
 ```
 
 ## 启动
 ```bash
-npm run dev
+molibot
 ```
 
 ## 构建与运行
 ```bash
-npm run build
-npm run start
+molibot build
+molibot start
 ```
 
 ## 目录结构
 - `src/lib/server/runtime.ts`: 共享 runtime（router + settings + telegram bootstrap）
-- `src/lib/server/services/settingsStore.ts`: 设置持久化（JSON `data/settings.json`）
+- `src/lib/server/services/settingsStore.ts`: 设置持久化（JSON，默认 `~/.molibot/settings.json`）
 - `src/lib/server/services/assistant.ts`: 模型调用（读取运行时设置）
 - `src/routes/+page.svelte`: 聊天页
 - `src/routes/settings/+page.svelte`: 设置页

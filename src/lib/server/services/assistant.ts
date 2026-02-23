@@ -57,9 +57,10 @@ function toOpenAIMessages(history: ConversationMessage[], settings: RuntimeSetti
 }
 
 function getProviderModel(provider: CustomProviderConfig): string {
+  const modelIds = provider.models.map((m) => m.id).filter(Boolean);
   const selected = provider.defaultModel?.trim();
-  if (selected && provider.models.includes(selected)) return selected;
-  return provider.models[0]?.trim() || "";
+  if (selected && modelIds.includes(selected)) return selected;
+  return modelIds[0]?.trim() || "";
 }
 
 async function callCustomProvider(

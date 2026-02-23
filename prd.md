@@ -365,3 +365,186 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - Ignore dependency directories, build outputs, local env variants, runtime data outputs, logs, and editor/OS transient files.
 - Acceptance:
   - Fresh local runs do not pollute git status with generated runtime/build files.
+
+## 40. Home Workspace + Global Launch Command (2026-02-16)
+- Problem:
+  - Local startup is coupled to repository scripts (`npm run dev`) and runtime data defaults to repo-local `data/`, which is inconvenient for global usage.
+- Requirement:
+  - Support startup via global `molibot` command after `npm link`.
+  - Default runtime data root must be `~/.molibot`.
+  - Telegram workspace path must be `~/.molibot/moli-t` (future channels follow same pattern, e.g. Lark `~/.molibot/moli-l`).
+- Enforcement:
+  - Add npm `bin` entry for `molibot` command with subcommands `dev/start/build/cli`.
+  - Change config defaults (`DATA_DIR`, settings/sessions files) to resolve under `~/.molibot` with `~` expansion.
+  - Set Telegram manager workspace root to `<DATA_DIR>/moli-t` and align prompt/path docs accordingly.
+
+## 41. Legacy Telegram Data Migration (2026-02-16)
+- Goal:
+  - Preserve existing Telegram runtime state while switching workspace from repo-local path to home workspace path.
+- Scope:
+  - Migrate old directory `/Users/zongxiaocheng/github/molipibot/data/telegram-mom/` to `~/.molibot/moli-t/`.
+- Acceptance:
+  - Migrated directory includes chats/events/skills and passes basic parity check (source vs target file count).
+
+## 42. Legacy Settings Migration Completion (2026-02-16)
+- Problem:
+  - Previous migration covered only Telegram sub-workspace and missed root runtime settings file.
+- Requirement:
+  - Keep existing runtime settings when moving default data root to `~/.molibot`.
+- Enforcement:
+  - Copy legacy `/Users/zongxiaocheng/github/molipibot/data/settings.json` to `~/.molibot/settings.json` and verify content parity.
+
+## 43. Telegram Native Formatting Compatibility (2026-02-16)
+- Problem:
+  - Assistant outputs may contain generic markdown that Telegram clients do not render correctly when sent as plain text.
+- Requirement:
+  - Outbound Telegram messages should use Telegram-supported rich-text format and remain readable even when formatting parse fails.
+- Enforcement:
+  - Convert common markdown patterns to Telegram HTML before sending/editing (`parse_mode=HTML`).
+  - If Telegram rejects formatted payload, automatically resend/edit as plain text fallback.
+
+## 44. Startup Readiness Without First Web Request (2026-02-16)
+- Problem:
+  - In dev mode, Telegram runtime initialization could be deferred until first HTTP page/API request, delaying bot availability.
+- Requirement:
+  - Service startup should make Telegram bot immediately usable without opening web pages.
+- Enforcement:
+  - Initialize runtime directly during Vite server bootstrap via SSR module loading (`ssrLoadModule`) instead of relying on a self-HTTP ping endpoint.
+
+## 45. In-Chat Model Switch Command (2026-02-16)
+- Problem:
+  - Switching active model currently depends on web settings workflow, which is inefficient for Telegram-first operation.
+- Requirement:
+  - Telegram users can inspect configured models and switch active model directly in chat.
+- Enforcement:
+  - Add `/models` command to list all configured model choices and current active selection.
+  - Add `/models <index|key>` to switch model via runtime settings update path (persisted settings + immediate effect).
+
+## 46. Telegram Voice Message Recognition (2026-02-16)
+- Problem:
+  - Voice/audio messages are received as attachments but not converted into usable text for assistant reasoning.
+- Requirement:
+  - Telegram voice/audio messages should be transcribed into text and treated as normal user input when STT config is available.
+- Enforcement:
+  - Add `voice`/`audio` handling in Telegram inbound parser.
+  - Integrate OpenAI-compatible transcription API (`/audio/transcriptions`) with configurable base URL/API key/model.
+  - Keep graceful fallback when STT is not configured or transcription fails.
+
+## 47. Multimodal Model Capability Registry (2026-02-16)
+- Problem:
+  - Existing provider config stores only plain model strings, lacking capability metadata needed for modality-specific routing.
+- Requirement:
+  - Model records must support capability tags (text, vision, stt, tts, tool) and allow multiple models per provider.
+- Enforcement:
+  - Upgrade custom provider model schema to object records (`id + tags`) with backward compatibility for legacy string arrays.
+
+## 48. Capability-Based Model Routing Controls (2026-02-16)
+- Problem:
+  - Runtime cannot deterministically choose the right model for text, image understanding, speech-to-text, and text-to-speech tasks.
+- Requirement:
+  - Add explicit routing configuration for key use cases and expose controls in settings UI.
+- Enforcement:
+  - Add route keys: `textModelKey`, `visionModelKey`, `sttModelKey`, `ttsModelKey`.
+  - AI settings page must provide dedicated selectors for these routes and persist them.
+  - Runtime should consume route keys when choosing execution model (for example image requests use vision route).
+
+## 49. Explicit Per-Model Test Selection (2026-02-16)
+- Problem:
+  - Provider-level test button can be ambiguous when a provider has multiple models.
+- Requirement:
+  - Operator must be able to choose the exact model being tested at click time.
+- Enforcement:
+  - Add per-model test actions in settings UI so each model row can be tested independently.
+
+## 50. Supported Roles Must Be Model-Scoped (2026-02-19)
+- Problem:
+  - Provider-level `supportedRoles` cannot represent different role compatibility when one provider has multiple models.
+- Requirement:
+  - `supportedRoles` must be stored on each model record (`customProviders[].models[].supportedRoles`), and runtime role checks must read from the selected model.
+- Enforcement:
+  - Remove provider-level `supportedRoles` from canonical schema.
+  - Keep backward-compatible migration for old settings by copying legacy provider roles into models when model roles are missing.
+  - AI settings page displays and updates supported roles per model (from per-model test action).
+
+## 51. STT Endpoint Path Must Respect Provider Config (2026-02-19)
+- Problem:
+  - Some OpenAI-compatible providers (for example Groq) require base URL plus explicit versioned path; hardcoded STT suffix can generate wrong URLs.
+- Requirement:
+  - Telegram voice transcription requests must use configured provider path when STT route points to a custom provider model.
+- Enforcement:
+  - Build STT request URL from `baseUrl + path` (fallback to `/v1/audio/transcriptions` only when path is absent).
+  - On queue/event uncaught failures, log error stack for deterministic debugging.
+
+## 52. Voice STT Failure Must Reply to User (2026-02-19)
+- Problem:
+  - When voice transcription fails, user may receive no actionable feedback and cannot quickly correct settings.
+- Requirement:
+  - Telegram bot must always send a clear failure message to user for voice/audio STT errors, including next-step hints.
+- Enforcement:
+  - On STT HTTP/transport/config failure, send immediate chat reply with failure reason and configuration guidance.
+  - Keep a non-blocking fallback so message flow continues even when transcription is unavailable.
+
+## 53. Runner Must Not Access Message Context in Constructor (2026-02-19)
+- Problem:
+  - Constructor-time access to per-message context (`ctx`) can crash runner creation and block all queued jobs.
+- Requirement:
+  - Runner constructor must remain context-free; message-specific logic only executes in `run(ctx)`.
+- Enforcement:
+  - Initialize constructor model with deterministic baseline (text route).
+  - Keep vision/text switch in runtime path based on actual inbound message payload.
+
+## 54. Missing Active Model API Key Must Not Crash Process (2026-02-19)
+- Problem:
+  - If routing points to a provider without available API key, current runtime can throw deep in provider SDK and terminate Node process.
+- Requirement:
+  - Before prompting, runner must validate API key availability for the actual selected model and return actionable user feedback.
+- Enforcement:
+  - Add active-model key preflight in `run(ctx)` and return readable settings error via Telegram message.
+  - Resolve API keys by requested provider identity directly (custom provider id or provider env var), avoiding mismatch-based false negatives.
+
+## 55. Prompt-Guided Continuation + Route Auto-Heal (2026-02-19)
+- Problem:
+  - If model/tool/media handling fails, assistant may stop at generic capability disclaimer instead of progressing task.
+- Requirement:
+  - System prompt must enforce a recovery workflow (diagnose, fallback, exact config hints, continue task).
+  - Runtime should auto-select usable configured models when explicit route/default selection is missing or invalid.
+- Enforcement:
+  - Add mandatory failure-recovery protocol into Telegram runner system prompt.
+  - For text/vision: auto-fallback to first usable custom provider model.
+  - For STT: when `sttModelKey` is unavailable, auto-fallback to first custom model tagged `stt`.
+
+## 56. Runtime-First Diagnostics for STT Claims (2026-02-19)
+- Problem:
+  - Assistant text may claim missing provider config even when runtime has valid STT routing, causing user confusion.
+- Requirement:
+  - STT execution path must be verifiable from runtime logs, and assistant responses should avoid fabricated config diagnosis.
+- Enforcement:
+  - Emit explicit STT target/success logs (URL/model/key-presence metadata-safe).
+  - Prompt rules must require runtime-first diagnosis and prohibit asking for API keys/config files unless runtime emitted corresponding error.
+
+## 57. Transcribed Voice Must Be Treated as Text Input (2026-02-19)
+- Problem:
+  - Even when STT succeeds, assistant may still respond with “cannot process audio” disclaimers.
+- Requirement:
+  - Successful voice transcription must be explicitly marked and handled as normal text reasoning input.
+- Enforcement:
+  - Prefix transcribed content with `[voice transcript]` marker in inbound message text.
+  - Add prompt rule: when transcript marker exists, assistant must not claim inability to transcribe/play audio.
+
+## 58. AI Settings Editor Must Have Deterministic Interaction (2026-02-19)
+- Problem:
+  - Nested state mutations in settings UI can fail to trigger stable reactive updates, making actions like `+ Add Model` appear unavailable or ineffective.
+- Requirement:
+  - Provider/model CRUD and per-model edits must always apply immediately in UI with deterministic reactivity.
+- Enforcement:
+  - Replace nested in-place mutation with immutable updates keyed by provider id.
+  - Apply the same update path to add/delete model, tag toggles, and per-model test result writes.
+
+## 59. Add-Model Must Show Editable Draft Row Immediately (2026-02-19)
+- Problem:
+  - UI normalization removed empty model ids too early, so clicking `+ Add Model` appeared to do nothing.
+- Requirement:
+  - Adding a model must immediately render an editable empty row for model name input.
+- Enforcement:
+  - Keep empty-id draft rows in UI state until user fills model id or deletes the row.
+  - Default-model selection should derive from non-empty ids only.

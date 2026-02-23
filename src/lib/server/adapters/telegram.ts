@@ -40,7 +40,8 @@ class ChannelQueue {
         await job();
       } catch (error) {
         momError("telegram", "queue_job_failed", {
-          error: error instanceof Error ? error.message : String(error)
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
         });
       }
     }
@@ -56,12 +57,31 @@ interface StatusSession {
   isWorking: boolean;
 }
 
+interface ModelOption {
+  key: string;
+  label: string;
+  patch: Partial<RuntimeSettings>;
+}
+
+interface SttTarget {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  path: string;
+}
+
+interface TranscriptionResult {
+  text: string | null;
+  errorMessage: string | null;
+}
+
 export class TelegramManager {
   private static readonly TELEGRAM_TEXT_SOFT_LIMIT = 3800;
+  private static readonly CHAT_EVENTS_RELATIVE_DIR = ["data", "moli-t", "events"] as const;
   private bot: Bot | undefined;
   private currentToken = "";
   private botUsername = "";
-  private readonly workspaceDir = resolve(config.dataDir, "telegram-mom");
+  private readonly workspaceDir = resolve(config.dataDir, "moli-t");
   private readonly store = new TelegramMomStore(this.workspaceDir);
   private readonly sessions: SessionStore;
   private readonly runners: RunnerPool;
@@ -70,8 +90,115 @@ export class TelegramManager {
   private readonly events: EventsWatcher[] = [];
   private readonly watchedChatEventDirs = new Set<string>();
 
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  private escapeHtmlAttr(value: string): string {
+    return this.escapeHtml(value).replace(/"/g, "&quot;");
+  }
+
+  private markdownToTelegramHtml(input: string): string {
+    const normalized = input.replace(/\r\n?/g, "\n");
+    const tokens: string[] = [];
+    const saveToken = (content: string): string => {
+      const idx = tokens.push(content) - 1;
+      return `\u0000${idx}\u0000`;
+    };
+
+    let out = normalized;
+
+    out = out.replace(/```(?:[^\n`]*)\n([\s\S]*?)```/g, (_m, code: string) =>
+      saveToken(`<pre><code>${this.escapeHtml(code.replace(/\n$/, ""))}</code></pre>`)
+    );
+
+    out = out.replace(/`([^`\n]+)`/g, (_m, code: string) =>
+      saveToken(`<code>${this.escapeHtml(code)}</code>`)
+    );
+
+    out = out.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, label: string, url: string) =>
+      saveToken(`<a href="${this.escapeHtmlAttr(url)}">${this.escapeHtml(label)}</a>`)
+    );
+
+    out = this.escapeHtml(out);
+
+    out = out.replace(/^\s*#{1,6}\s+(.+)$/gm, "<b>$1</b>");
+    out = out.replace(/^\s*[-*]\s+/gm, "• ");
+    out = out.replace(/\*\*([^*\n][^*\n]*?)\*\*/g, "<b>$1</b>");
+    out = out.replace(/(^|[^\w])_([^_\n][^_\n]*?)_/g, "$1<i>$2</i>");
+    out = out.replace(/(^|[^\*])\*([^*\n][^*\n]*?)\*/g, "$1<i>$2</i>");
+    out = out.replace(/~~([^~\n][^~\n]*?)~~/g, "<s>$1</s>");
+
+    out = out.replace(/\u0000(\d+)\u0000/g, (_m, rawIdx: string) => tokens[Number(rawIdx)] ?? "");
+    return out;
+  }
+
+  private formatTelegramText(text: string): { text: string; parseMode?: "HTML" } {
+    const normalized = text.replace(/\r\n?/g, "\n");
+    const looksLikeMarkdown =
+      /```|`|\*\*|~~|\[[^\]]+\]\(https?:\/\/|^\s*#{1,6}\s+/m.test(normalized) ||
+      /(^|[^\*])\*[^*\n][^*\n]*\*/.test(normalized) ||
+      /(^|[^\w])_[^_\n][^_\n]*_/.test(normalized);
+
+    if (!looksLikeMarkdown) {
+      return { text: normalized };
+    }
+
+    return { text: this.markdownToTelegramHtml(normalized), parseMode: "HTML" };
+  }
+
+  private async sendText(
+    bot: Bot,
+    chatId: string,
+    text: string,
+    options?: Record<string, unknown>
+  ): Promise<{ message_id: number }> {
+    const payload = this.formatTelegramText(text);
+    try {
+      const sendOptions = payload.parseMode
+        ? { ...(options ?? {}), parse_mode: payload.parseMode }
+        : { ...(options ?? {}) };
+      return (await bot.api.sendMessage(chatId, payload.text, sendOptions as never)) as { message_id: number };
+    } catch (error) {
+      if (payload.parseMode) {
+        momWarn("telegram", "send_message_parse_fallback_plain", {
+          chatId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return (await bot.api.sendMessage(chatId, text, (options ?? {}) as never)) as { message_id: number };
+      }
+      throw error;
+    }
+  }
+
+  private async editText(bot: Bot, chatId: string, messageId: number, text: string): Promise<void> {
+    const payload = this.formatTelegramText(text);
+    try {
+      if (payload.parseMode) {
+        await bot.api.editMessageText(chatId, messageId, payload.text, { parse_mode: payload.parseMode } as never);
+        return;
+      }
+      await bot.api.editMessageText(chatId, messageId, payload.text);
+    } catch (error) {
+      if (payload.parseMode) {
+        momWarn("telegram", "edit_message_parse_fallback_plain", {
+          chatId,
+          messageId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        await bot.api.editMessageText(chatId, messageId, text);
+        return;
+      }
+      throw error;
+    }
+  }
+
   constructor(
     private readonly getSettings: () => RuntimeSettings,
+    private readonly updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
     sessionStore?: SessionStore
   ) {
     this.sessions = sessionStore ?? new SessionStore();
@@ -244,6 +371,49 @@ export class TelegramManager {
       await ctx.reply(this.skillsText());
     });
 
+    bot.command("models", async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      if (allowed.size > 0 && !allowed.has(chatId)) return;
+      if (this.running.has(chatId)) {
+        await ctx.reply("Already working. Send /stop first, then switch models.");
+        return;
+      }
+
+      const rawArg = this.readCommandArg(ctx.msg?.text, "/models");
+      if (!rawArg) {
+        await ctx.reply(this.modelsText());
+        return;
+      }
+
+      if (!this.updateSettings) {
+        await ctx.reply("Model switching is unavailable in current runtime.");
+        return;
+      }
+
+      const settings = this.getSettings();
+      const options = this.buildModelOptions(settings);
+      const selected = this.resolveModelSelection(rawArg, options);
+      if (!selected) {
+        await ctx.reply(`Invalid model selector: ${rawArg}\n\n${this.modelsText()}`);
+        return;
+      }
+
+      const updated = this.updateSettings(selected.patch);
+      await ctx.reply(
+        [
+          `Switched model to: ${selected.label}`,
+          `Mode: ${updated.providerMode}`,
+          `Use /models to check current active model.`
+        ].join("\n")
+      );
+      momLog("telegram", "model_switched_via_command", {
+        chatId,
+        selector: rawArg,
+        selectedKey: selected.key,
+        providerMode: updated.providerMode
+      });
+    });
+
     bot.on("message", async (ctx) => {
       const chatId = String(ctx.chat.id);
       const userId = String(ctx.msg?.from?.id ?? "unknown");
@@ -339,7 +509,17 @@ export class TelegramManager {
 
       queue.enqueue(async () => {
         momLog("telegram", "queue_job_start", { runId, chatId });
-        await this.processEvent(event, bot);
+        try {
+          await this.processEvent(event, bot);
+        } catch (error) {
+          momError("telegram", "queue_job_uncaught", {
+            runId,
+            chatId,
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+          });
+          await this.sendText(bot, chatId, "Internal error.");
+        }
         momLog("telegram", "queue_job_end", { runId, chatId });
       });
     });
@@ -400,7 +580,7 @@ export class TelegramManager {
   }
 
   private ensureChatEventsWatcher(chatId: string): void {
-    const eventsDir = join(this.store.getScratchDir(chatId), "data", "telegram-mom", "events");
+    const eventsDir = join(this.store.getScratchDir(chatId), ...TelegramManager.CHAT_EVENTS_RELATIVE_DIR);
     if (this.watchedChatEventDirs.has(eventsDir)) return;
     this.watchedChatEventDirs.add(eventsDir);
     this.addEventsWatcher(eventsDir, "chat-scratch", chatId);
@@ -450,23 +630,33 @@ export class TelegramManager {
 
     queue.enqueue(async () => {
       momLog("telegram", "event_job_start", { runId, chatId: event.chatId, filename });
-      if (event.type === "one-shot" || event.type === "immediate") {
-        await this.deliverDirectEventMessage(event, runId, filename);
-      } else {
-        const synthetic: TelegramInboundEvent = {
+      try {
+        if (event.type === "one-shot" || event.type === "immediate") {
+          await this.deliverDirectEventMessage(event, runId, filename);
+        } else {
+          const synthetic: TelegramInboundEvent = {
+            chatId: event.chatId,
+            chatType: "private",
+            messageId: syntheticMessageId,
+            userId: "EVENT",
+            userName: "EVENT",
+            text: `[EVENT:${filename}:${event.type}:${event.schedule}] ${event.text}`,
+            ts: (Date.now() / 1000).toFixed(6),
+            attachments: [],
+            imageContents: [],
+            isEvent: true
+          };
+          (synthetic as TelegramInboundEvent & { runId?: string }).runId = runId;
+          await this.processEvent(synthetic, this.bot!);
+        }
+      } catch (error) {
+        momError("telegram", "event_job_uncaught", {
+          runId,
           chatId: event.chatId,
-          chatType: "private",
-          messageId: syntheticMessageId,
-          userId: "EVENT",
-          userName: "EVENT",
-          text: `[EVENT:${filename}:${event.type}:${event.schedule}] ${event.text}`,
-          ts: (Date.now() / 1000).toFixed(6),
-          attachments: [],
-          imageContents: [],
-          isEvent: true
-        };
-        (synthetic as TelegramInboundEvent & { runId?: string }).runId = runId;
-        await this.processEvent(synthetic, this.bot!);
+          filename,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        });
       }
       momLog("telegram", "event_job_end", { runId, chatId: event.chatId, filename });
     });
@@ -475,7 +665,7 @@ export class TelegramManager {
   private async deliverDirectEventMessage(event: MomEvent, runId: string, filename: string): Promise<void> {
     if (!this.bot) return;
 
-    const sent = await this.bot.api.sendMessage(event.chatId, event.text);
+    const sent = await this.sendText(this.bot, event.chatId, event.text);
     this.store.logBotResponse(event.chatId, event.text, sent.message_id);
 
     momLog("telegram", "event_direct_sent", {
@@ -533,7 +723,7 @@ export class TelegramManager {
       const display = status.isWorking ? `${text} ...` : text;
       if (status.statusMessageId) {
         try {
-          await bot.api.editMessageText(chatId, status.statusMessageId, display);
+          await this.editText(bot, chatId, status.statusMessageId, display);
           momLog("telegram", "status_edited", {
             runId,
             chatId,
@@ -560,7 +750,7 @@ export class TelegramManager {
         }
       }
 
-      const sent = await bot.api.sendMessage(chatId, display);
+      const sent = await this.sendText(bot, chatId, display);
       status.statusMessageId = sent.message_id;
       momLog("telegram", "status_sent", {
         runId,
@@ -596,7 +786,7 @@ export class TelegramManager {
       },
       respondInThread: async (text) => {
         if (!status.statusMessageId) return;
-        const sent = await bot.api.sendMessage(chatId, text, {
+        const sent = await this.sendText(bot, chatId, text, {
           reply_parameters: { message_id: status.statusMessageId }
         });
         status.threadMessageIds.push(sent.message_id);
@@ -660,7 +850,7 @@ export class TelegramManager {
               rawName,
               textLength: Array.from(text).length
             });
-            await bot.api.sendMessage(chatId, text);
+            await this.sendText(bot, chatId, text);
             return;
           }
         }
@@ -779,6 +969,8 @@ export class TelegramManager {
       "/sessions <index|sessionId> - switch active session",
       "/delete_sessions - list sessions and delete usage",
       "/delete_sessions <index|sessionId> - delete a session",
+      "/models - list configured models and active model",
+      "/models <index|key> - switch active model",
       "/skills - list currently loaded skills",
       "/help - show this help",
       "",
@@ -816,6 +1008,103 @@ export class TelegramManager {
       }
     }
 
+    return lines.join("\n");
+  }
+
+  private currentModelKey(settings: RuntimeSettings): string {
+    if (settings.modelRouting.textModelKey?.trim()) {
+      return settings.modelRouting.textModelKey.trim();
+    }
+    if (settings.providerMode === "custom") {
+      const id = settings.defaultCustomProviderId || settings.customProviders[0]?.id || "";
+      const provider = settings.customProviders.find((p) => p.id === id) ?? settings.customProviders[0];
+      const modelIds = (provider?.models ?? []).map((m) => m.id).filter(Boolean);
+      const model = provider?.defaultModel || modelIds[0] || "";
+      return id ? `custom|${id}|${model}` : `pi|${settings.piModelProvider}|${settings.piModelName}`;
+    }
+    return `pi|${settings.piModelProvider}|${settings.piModelName}`;
+  }
+
+  private buildModelOptions(settings: RuntimeSettings): ModelOption[] {
+    const options: ModelOption[] = [
+      {
+        key: `pi|${settings.piModelProvider}|${settings.piModelName}`,
+        label: `[PI] ${settings.piModelProvider} / ${settings.piModelName}`,
+        patch: {
+          providerMode: "pi",
+          piModelProvider: settings.piModelProvider,
+          piModelName: settings.piModelName,
+          modelRouting: {
+            ...settings.modelRouting,
+            textModelKey: `pi|${settings.piModelProvider}|${settings.piModelName}`
+          }
+        }
+      }
+    ];
+
+    for (const provider of settings.customProviders) {
+      const modelIds = provider.models.map((m) => m.id).filter(Boolean);
+      const models = modelIds.length > 0 ? modelIds : (provider.defaultModel ? [provider.defaultModel] : []);
+      for (const model of models) {
+        const updatedProviders = settings.customProviders.map((row) =>
+          row.id === provider.id ? { ...row, defaultModel: model } : row
+        );
+        options.push({
+          key: `custom|${provider.id}|${model}`,
+          label: `[Custom] ${provider.name} / ${model}`,
+          patch: {
+            providerMode: "custom",
+            defaultCustomProviderId: provider.id,
+            customProviders: updatedProviders,
+            modelRouting: {
+              ...settings.modelRouting,
+              textModelKey: `custom|${provider.id}|${model}`
+            }
+          }
+        });
+      }
+    }
+
+    return options;
+  }
+
+  private resolveModelSelection(selector: string, options: ModelOption[]): ModelOption | null {
+    const raw = selector.trim();
+    if (!raw) return null;
+
+    const asIndex = Number.parseInt(raw, 10);
+    if (Number.isFinite(asIndex) && asIndex >= 1 && asIndex <= options.length) {
+      return options[asIndex - 1] ?? null;
+    }
+
+    return options.find((o) => o.key === raw) ?? null;
+  }
+
+  private modelsText(): string {
+    const settings = this.getSettings();
+    const options = this.buildModelOptions(settings);
+    const activeKey = this.currentModelKey(settings);
+    const lines = [
+      `Provider mode: ${settings.providerMode}`,
+      `Configured model options: ${options.length}`,
+      ""
+    ];
+
+    if (options.length === 0) {
+      lines.push("(no configured models)");
+    } else {
+      for (let i = 0; i < options.length; i += 1) {
+        const option = options[i];
+        const marker = option.key === activeKey ? " (active)" : "";
+        lines.push(`${i + 1}. ${option.label}${marker}`);
+        lines.push(`   - key: ${option.key}`);
+      }
+    }
+
+    lines.push("");
+    lines.push("Switch model:");
+    lines.push("/models <index>");
+    lines.push("/models <key>");
     return lines.join("\n");
   }
 
@@ -864,11 +1153,157 @@ export class TelegramManager {
 
   private mimeFromFilename(filename: string): string | undefined {
     const lower = filename.toLowerCase();
+    if (lower.endsWith(".ogg") || lower.endsWith(".oga")) return "audio/ogg";
+    if (lower.endsWith(".mp3")) return "audio/mpeg";
+    if (lower.endsWith(".wav")) return "audio/wav";
+    if (lower.endsWith(".m4a")) return "audio/mp4";
     if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
     if (lower.endsWith(".png")) return "image/png";
     if (lower.endsWith(".gif")) return "image/gif";
     if (lower.endsWith(".webp")) return "image/webp";
     return undefined;
+  }
+
+  private resolveAudioExt(mimeType?: string): string {
+    const lower = String(mimeType || "").toLowerCase();
+    if (lower.includes("ogg")) return ".ogg";
+    if (lower.includes("mpeg") || lower.includes("mp3")) return ".mp3";
+    if (lower.includes("wav")) return ".wav";
+    if (lower.includes("mp4") || lower.includes("m4a")) return ".m4a";
+    return ".ogg";
+  }
+
+  private normalizeApiPath(path: string | undefined, fallback: string): string {
+    const raw = String(path ?? fallback).trim() || fallback;
+    return raw.startsWith("/") ? raw : `/${raw}`;
+  }
+
+  private buildApiUrl(baseUrl: string, path: string | undefined, fallbackPath: string): string {
+    const base = baseUrl.replace(/\/+$/, "");
+    const normalizedPath = this.normalizeApiPath(path, fallbackPath);
+    return `${base}${normalizedPath}`;
+  }
+
+  private parseModelKey(key: string): { mode: "pi" | "custom"; provider: string; model: string } | null {
+    const raw = key.trim();
+    if (!raw) return null;
+    const [mode, provider, ...rest] = raw.split("|");
+    if ((mode !== "pi" && mode !== "custom") || !provider || rest.length === 0) return null;
+    const model = rest.join("|").trim();
+    if (!model) return null;
+    return { mode, provider: provider.trim(), model };
+  }
+
+  private resolveSttTarget(): SttTarget | null {
+    const settings = this.getSettings();
+    const routed = this.parseModelKey(settings.modelRouting.sttModelKey);
+    if (routed?.mode === "custom") {
+      const provider = settings.customProviders.find((p) => p.id === routed.provider);
+      if (provider?.baseUrl && provider.apiKey && routed.model) {
+        return {
+          baseUrl: provider.baseUrl,
+          apiKey: provider.apiKey,
+          model: routed.model,
+          path: provider.path
+        };
+      }
+    }
+
+    // Auto-heal fallback: if stt route is missing/invalid, pick first custom model tagged as stt.
+    for (const provider of settings.customProviders) {
+      if (!provider.baseUrl?.trim() || !provider.apiKey?.trim()) continue;
+      const sttModel = provider.models.find((m) => m.id?.trim() && Array.isArray(m.tags) && m.tags.includes("stt"));
+      if (!sttModel) continue;
+      return {
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        model: sttModel.id,
+        path: provider.path
+      };
+    }
+
+    if (!config.telegramSttApiKey || !config.telegramSttModel) return null;
+    return {
+      baseUrl: config.telegramSttBaseUrl,
+      apiKey: config.telegramSttApiKey,
+      model: config.telegramSttModel,
+      path: "/v1/audio/transcriptions"
+    };
+  }
+
+  private async transcribeAudio(data: Buffer, filename: string, mimeType?: string): Promise<TranscriptionResult> {
+    const target = this.resolveSttTarget();
+    if (!target) {
+      return {
+        text: null,
+        errorMessage: "STT 未配置。请在 AI Settings 里选择可用的 STT 模型并填写 API 配置。"
+      };
+    }
+
+    const url = this.buildApiUrl(target.baseUrl, target.path, "/v1/audio/transcriptions");
+    momLog("telegram", "voice_transcription_target", {
+      url,
+      model: target.model,
+      hasApiKey: Boolean(target.apiKey)
+    });
+    const form = new FormData();
+    form.append("model", target.model);
+    if (config.telegramSttLanguage) {
+      form.append("language", config.telegramSttLanguage);
+    }
+    if (config.telegramSttPrompt) {
+      form.append("prompt", config.telegramSttPrompt);
+    }
+    form.append("file", new Blob([data], { type: mimeType || "audio/ogg" }), filename);
+
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${target.apiKey}`
+        },
+        body: form
+      });
+      if (!resp.ok) {
+        const body = await resp.text();
+        const hint = resp.status === 404
+          ? "端点可能不正确，请检查 provider baseUrl/path（例如是否缺少 /v1）。"
+          : "请检查 API Key、模型名、以及 provider 路径配置。";
+        momWarn("telegram", "voice_transcription_http_error", {
+          url,
+          status: resp.status,
+          statusText: resp.statusText,
+          body: body.slice(0, 240)
+        });
+        return {
+          text: null,
+          errorMessage: `语音转写失败（HTTP ${resp.status} ${resp.statusText}）。${hint}`
+        };
+      }
+
+      const payload = (await resp.json()) as { text?: unknown };
+      const text = String(payload.text ?? "").trim();
+      if (!text) {
+        return {
+          text: null,
+          errorMessage: "语音转写接口返回成功，但没有返回文本内容。请检查模型兼容性。"
+        };
+      }
+      momLog("telegram", "voice_transcription_success", {
+        model: target.model,
+        transcriptLength: text.length
+      });
+      return { text, errorMessage: null };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      momWarn("telegram", "voice_transcription_failed", {
+        error: message
+      });
+      return {
+        text: null,
+        errorMessage: `语音转写请求异常：${message}`
+      };
+    }
   }
 
   private async downloadTelegramFile(token: string, fileId: string): Promise<Buffer | null> {
@@ -907,7 +1342,7 @@ export class TelegramManager {
     }
 
     let cleaned = (chatType === "group" || chatType === "supergroup") ? this.stripMention(rawText) : rawText.trim();
-    if (!cleaned && !msg.document && !msg.photo) {
+    if (!cleaned && !msg.document && !msg.photo && !msg.voice && !msg.audio) {
       momLog("telegram", "message_ignored_empty", { chatId, messageId: msg.message_id });
       return null;
     }
@@ -915,6 +1350,8 @@ export class TelegramManager {
     const ts = `${msg.date}.${String(msg.message_id).padStart(6, "0")}`;
     const attachments: TelegramInboundEvent["attachments"] = [];
     const imageContents: TelegramInboundEvent["imageContents"] = [];
+    let voiceTranscript: string | null = null;
+    let voiceTranscriptionError: string | null = null;
 
     if (msg.document?.file_id) {
       const filename = msg.document.file_name || `${msg.document.file_id}.bin`;
@@ -943,8 +1380,55 @@ export class TelegramManager {
       }
     }
 
+    if (msg.voice?.file_id) {
+      const ext = this.resolveAudioExt(msg.voice.mime_type);
+      const filename = `${msg.voice.file_id}${ext}`;
+      const data = await this.downloadTelegramFile(token, msg.voice.file_id);
+      if (data) {
+        const saved = this.store.saveAttachment(chatId, filename, ts, data);
+        attachments.push(saved);
+        const transcription = await this.transcribeAudio(data, filename, msg.voice.mime_type);
+        voiceTranscript = transcription.text;
+        voiceTranscriptionError = transcription.errorMessage;
+      }
+    }
+
+    if (msg.audio?.file_id) {
+      const ext = this.resolveAudioExt(msg.audio.mime_type);
+      const filename = msg.audio.file_name || `${msg.audio.file_id}${ext}`;
+      const data = await this.downloadTelegramFile(token, msg.audio.file_id);
+      if (data) {
+        const saved = this.store.saveAttachment(chatId, filename, ts, data);
+        attachments.push(saved);
+        if (!voiceTranscript) {
+          const transcription = await this.transcribeAudio(data, filename, msg.audio.mime_type);
+          voiceTranscript = transcription.text;
+          voiceTranscriptionError = transcription.errorMessage;
+        }
+      }
+    }
+
+    if (voiceTranscript) {
+      cleaned = cleaned
+        ? `${cleaned}\n\n[voice transcript]\n${voiceTranscript}`
+        : `[voice transcript]\n${voiceTranscript}`;
+    }
+
     if (!cleaned) {
-      cleaned = "(attachment)";
+      if (msg.voice || msg.audio) {
+        cleaned = "(voice message received; transcription unavailable)";
+        if (voiceTranscriptionError) {
+          await ctx.reply(
+            [
+              "语音识别失败，已降级为未转写消息。",
+              voiceTranscriptionError,
+              "建议：检查 STT provider 的 baseUrl/path/model 是否正确。"
+            ].join("\n")
+          );
+        }
+      } else {
+        cleaned = "(attachment)";
+      }
     }
 
     return {

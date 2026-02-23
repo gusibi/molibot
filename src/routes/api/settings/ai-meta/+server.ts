@@ -18,16 +18,24 @@ export const GET: RequestHandler = async () => {
     name: "",
     baseUrl: "",
     apiKey: "",
-    models: [],
+    models: [
+      {
+        id: "",
+        tags: ["text"],
+        supportedRoles: ["system", "user", "assistant", "tool"]
+      }
+    ],
     defaultModel: "",
-    supportedRoles: ["system", "user", "assistant", "tool"],
     path: "/v1/chat/completions"
   };
+
+  const capabilityTags = ["text", "vision", "stt", "tts", "tool"];
 
   return json({
     ok: true,
     providers,
     providerModels,
-    customTemplate
+    customTemplate,
+    capabilityTags
   });
 };

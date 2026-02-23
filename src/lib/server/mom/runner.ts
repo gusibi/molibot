@@ -20,10 +20,55 @@ function resolvePiModel(settings: RuntimeSettings): Model<any> {
   );
 }
 
+function parseModelKey(key: string): { mode: "pi" | "custom"; provider: string; model: string } | null {
+  const raw = key.trim();
+  if (!raw) return null;
+  const [mode, provider, ...rest] = raw.split("|");
+  if ((mode !== "pi" && mode !== "custom") || !provider || rest.length === 0) return null;
+  const model = rest.join("|").trim();
+  if (!model) return null;
+  return { mode, provider: provider.trim(), model };
+}
+
+function resolvePiModelByKey(provider: string, modelId: string): Model<any> | null {
+  const models = getModels(provider as any);
+  const found = models.find((m) => m.id === modelId);
+  return found ?? null;
+}
+
+function isCustomProviderUsable(provider: CustomProviderConfig): boolean {
+  return Boolean(provider.baseUrl?.trim() && provider.apiKey?.trim());
+}
+
+function pickCustomModelId(provider: CustomProviderConfig, useCase: "text" | "vision"): string {
+  const rows = provider.models.filter((m) => Boolean(m.id?.trim()));
+  if (rows.length === 0) return "";
+
+  if (useCase === "vision") {
+    const vision = rows.find((m) => Array.isArray(m.tags) && m.tags.includes("vision"));
+    if (vision?.id) return vision.id;
+  }
+
+  const byDefault = rows.find((m) => m.id === provider.defaultModel);
+  if (byDefault?.id) return byDefault.id;
+  return rows[0]?.id ?? "";
+}
+
+function findFirstUsableCustom(settings: RuntimeSettings, useCase: "text" | "vision"): Model<any> | null {
+  for (const provider of settings.customProviders) {
+    if (!isCustomProviderUsable(provider)) continue;
+    const modelId = pickCustomModelId(provider, useCase);
+    if (!modelId) continue;
+    return resolveCustomModel(provider, modelId);
+  }
+  return null;
+}
+
 function getProviderModel(provider: CustomProviderConfig): string {
+  const modelIds = provider.models.map((m) => m.id).filter(Boolean);
   const selected = provider.defaultModel?.trim();
-  if (selected && provider.models.includes(selected)) return selected;
-  return provider.models[0]?.trim() || "";
+  if (selected && modelIds.includes(selected)) return selected;
+  return modelIds[0]?.trim() || "";
 }
 
 function getSelectedCustomProvider(
@@ -35,6 +80,25 @@ function getSelectedCustomProvider(
       (p) => p.id === settings.defaultCustomProviderId,
     ) ?? settings.customProviders[0]
   );
+}
+
+function getCustomProviderById(settings: RuntimeSettings, providerId: string): CustomProviderConfig | undefined {
+  return settings.customProviders.find((p) => p.id === providerId);
+}
+
+function getCustomModelRoles(settings: RuntimeSettings): string[] {
+  const routed = parseModelKey(settings.modelRouting.textModelKey);
+  if (routed?.mode === "custom") {
+    const provider = getCustomProviderById(settings, routed.provider);
+    const model = provider?.models.find((m) => m.id === routed.model);
+    if (model?.supportedRoles?.length) return model.supportedRoles;
+  }
+
+  const selected = getSelectedCustomProvider(settings);
+  if (!selected) return [];
+  const modelId = getProviderModel(selected);
+  const model = selected.models.find((m) => m.id === modelId);
+  return model?.supportedRoles ?? [];
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -62,34 +126,57 @@ function buildOpenAIBaseUrl(baseUrl: string, path: string | undefined): string {
   return `${base}${dir}`;
 }
 
-function resolveModel(settings: RuntimeSettings): Model<any> {
-  if (settings.providerMode === "custom") {
-    const selected = getSelectedCustomProvider(settings);
-    const modelId = selected ? getProviderModel(selected) : "";
-    if (selected?.baseUrl && modelId) {
-      const computedBaseUrl = buildOpenAIBaseUrl(
-        selected.baseUrl,
-        selected.path,
-      );
-      return {
-        id: modelId,
-        name: selected.name || modelId,
-        api: "openai-completions",
-        provider: selected.id || "custom-provider",
-        baseUrl: computedBaseUrl,
-        reasoning: true,
-        input: ["text", "image"],
-        cost: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-        },
-        contextWindow: 200000,
-        maxTokens: 8192,
-      };
+function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Model<any> {
+  const computedBaseUrl = buildOpenAIBaseUrl(
+    selected.baseUrl,
+    selected.path,
+  );
+  return {
+    id: modelId,
+    name: selected.name || modelId,
+    api: "openai-completions",
+    provider: selected.id || "custom-provider",
+    baseUrl: computedBaseUrl,
+    reasoning: true,
+    input: ["text", "image"],
+    cost: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    },
+    contextWindow: 200000,
+    maxTokens: 8192,
+  };
+}
+
+function resolveModel(settings: RuntimeSettings, useCase: "text" | "vision" = "text"): Model<any> {
+  const routedKey = useCase === "vision"
+    ? settings.modelRouting.visionModelKey
+    : settings.modelRouting.textModelKey;
+  const routed = parseModelKey(routedKey);
+  if (routed) {
+    if (routed.mode === "pi") {
+      const pi = resolvePiModelByKey(routed.provider, routed.model);
+      if (pi) return pi;
+    } else {
+      const provider = getCustomProviderById(settings, routed.provider);
+      if (provider && isCustomProviderUsable(provider) && routed.model) {
+        return resolveCustomModel(provider, routed.model);
+      }
     }
   }
+
+  if (settings.providerMode === "custom") {
+    const selected = getSelectedCustomProvider(settings);
+    const modelId = selected ? pickCustomModelId(selected, useCase) : "";
+    if (selected && isCustomProviderUsable(selected) && modelId) {
+      return resolveCustomModel(selected, modelId);
+    }
+  }
+
+  const anyCustom = findFirstUsableCustom(settings, useCase);
+  if (anyCustom) return anyCustom;
 
   return resolvePiModel(settings);
 }
@@ -131,11 +218,9 @@ function resolveApiKeyForModel(
   model: Model<any>,
   settings: RuntimeSettings,
 ): string | undefined {
-  if (settings.providerMode === "custom") {
-    const selected = getSelectedCustomProvider(settings);
-    if (selected && model.provider === selected.id) {
-      return selected.apiKey?.trim() || undefined;
-    }
+  const mapped = settings.customProviders.find((p) => p.id === model.provider);
+  if (mapped) {
+    return mapped.apiKey?.trim() || undefined;
   }
 
   const envVar = envVarForProvider(model.provider);
@@ -191,12 +276,10 @@ function mapUnsupportedDeveloperRole(
   settings: RuntimeSettings,
   context: any,
 ): any {
-  if (settings.providerMode !== "custom") return context;
-  const selected = getSelectedCustomProvider(settings);
-  if (!selected) return context;
-  const roles = Array.isArray(selected.supportedRoles)
-    ? selected.supportedRoles
-    : [];
+  const routed = parseModelKey(settings.modelRouting.textModelKey);
+  const shouldCheckCustom = settings.providerMode === "custom" || routed?.mode === "custom";
+  if (!shouldCheckCustom) return context;
+  const roles = getCustomModelRoles(settings);
   if (roles.includes("developer")) return context;
 
   if (
@@ -232,11 +315,12 @@ function buildSystemPrompt(
   sessionId: string,
   memory: string,
 ): string {
+  const workspaceName = workspaceDir.split("/").filter(Boolean).at(-1) ?? "moli-t";
   const chatDir = `${workspaceDir}/${chatId}`;
   const scratchDir = `${chatDir}/scratch`;
   const sessionContextFile = `${chatDir}/contexts/${sessionId}.json`;
   const workspaceEventsDir = `${workspaceDir}/events`;
-  const scratchEventsDir = `${scratchDir}/data/telegram-mom/events`;
+  const scratchEventsDir = `${scratchDir}/data/${workspaceName}/events`;
   const skillsDir = `${workspaceDir}/skills`;
   const { skills, diagnostics } = loadSkillsFromWorkspace(workspaceDir);
   const availableSkills = formatSkillsForPrompt(skills);
@@ -260,11 +344,11 @@ Do NOT use HTML formatting.
 You are running directly on the host machine.
 - Bash working directory for tools: ${scratchDir}
 - Be careful with system modifications
-- When writing files in scratch, use relative paths from scratch (do not prepend data/telegram-mom/${chatId}/scratch again)
+- When writing files in scratch, use relative paths from scratch (do not prepend ${scratchDir} again)
 - Global workspace root: ${workspaceDir}
 - Global skills directory (canonical): ${skillsDir}
 - For skill installation/updates, always use absolute paths under ${skillsDir}.
-- Never create skills via relative path like data/telegram-mom/skills from scratch; it creates nested duplicate directories.
+- Never create skills via relative path like data/${workspaceName}/skills from scratch; it creates nested duplicate directories.
 
 ## Telegram Response Rules
 - Keep the main reply concise and user-facing.
@@ -277,6 +361,21 @@ You are running directly on the host machine.
 - Do not promise a reminder is scheduled unless the event file is actually created.
 - When a reminder/event is created, include scheduled time and filename.
 - Do not claim a skill was used unless you actually read its SKILL.md and executed its scripts.
+
+## Failure Recovery Protocol (Mandatory)
+- Never stop at "I can't do this". You must continue with a best-effort recovery path.
+- If audio/image/tool/model/config fails:
+  1. State root cause in one sentence.
+  2. Propose the next executable fallback you can do now.
+  3. Provide exact fields user should adjust (provider/baseUrl/path/model/apiKey/route key).
+  4. Continue task with available inputs instead of ending the conversation.
+- For voice messages without transcript:
+  - Ask for short text summary and offer concrete next steps.
+  - Do not end with a generic capability disclaimer only.
+- Do not ask user to provide API keys/config files unless runtime explicitly reports missing key/config.
+- Treat provider/key/path status as runtime-owned; avoid inventing "missing config file" diagnoses.
+- If input includes a [voice transcript] section, treat it as already-transcribed text.
+- In that case, never claim "cannot transcribe/play audio" and proceed with normal text reasoning.
 
 ## Workspace Layout
 ${workspaceDir}/
@@ -291,7 +390,7 @@ ${workspaceDir}/
     │   └── ${sessionId}.json    # Active session context
     ├── attachments/             # User-shared files
     └── scratch/                 # Tool working directory
-        └── data/telegram-mom/events/   # Chat-local watched events
+        └── data/${workspaceName}/events/   # Chat-local watched events
 
 ## Skills (Custom CLI Tools)
 You can create reusable CLI tools for recurring tasks (APIs, data processing, automation, etc.).
@@ -431,7 +530,7 @@ export class TelegramMomRunner implements RunnerLike {
     private readonly getSettings: () => RuntimeSettings,
   ) {
     const settings = this.getSettings();
-    const model = resolveModel(settings);
+    const model = resolveModel(settings, "text");
     const initialPrompt = buildSystemPrompt(
       this.store.getWorkspaceDir(),
       this.chatId,
@@ -472,28 +571,21 @@ export class TelegramMomRunner implements RunnerLike {
       },
       getApiKey: async (provider: string) => {
         const settingsNow = this.getSettings();
-        const modelNow = resolveModel(settingsNow);
-        const selectedCustom =
-          settingsNow.providerMode === "custom"
-            ? getSelectedCustomProvider(settingsNow)
-            : undefined;
-        if (modelNow.provider !== provider) {
-          momWarn("runner", "api_key_provider_mismatch", {
-            chatId: this.chatId,
-            requestedProvider: provider,
-            modelProvider: modelNow.provider,
-          });
-          return undefined;
+        const selectedCustom = settingsNow.customProviders.find((p) => p.id === provider);
+        let key: string | undefined;
+        if (selectedCustom) {
+          key = selectedCustom.apiKey?.trim() || undefined;
+        } else {
+          const envVar = envVarForProvider(provider);
+          key = envVar ? process.env[envVar]?.trim() || undefined : undefined;
         }
-        const key = resolveApiKeyForModel(modelNow, settingsNow);
         momLog("runner", "api_key_resolve", {
           chatId: this.chatId,
           provider,
           providerMode: settingsNow.providerMode,
           hasKey: Boolean(key),
           keyFingerprint: keyFingerprint(key),
-          customProviderId: selectedCustom?.id,
-          customProviderName: selectedCustom?.name,
+          customProviderId: selectedCustom?.id
         });
         return key;
       },
@@ -566,13 +658,27 @@ export class TelegramMomRunner implements RunnerLike {
       return { stopReason: "error", errorMessage: settingsError };
     }
 
-    const selectedModel = resolveModel(settings);
-    const selectedCustom =
-      settings.providerMode === "custom"
-        ? getSelectedCustomProvider(settings)
-        : undefined;
+    const prefersVision = Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0;
+    const selectedModel = resolveModel(settings, prefersVision ? "vision" : "text");
+    const selectedCustom = settings.customProviders.find((p) => p.id === selectedModel.provider);
     const resolvedKey = resolveApiKeyForModel(selectedModel, settings);
-    this.agent.setModel(resolveModel(settings));
+    if (!resolvedKey) {
+      const keyError =
+        `AI settings error: missing API key for active model provider '${selectedModel.provider}'. ` +
+        "Please check current model routing and provider key configuration.";
+      momWarn("runner", "active_model_missing_api_key", {
+        runId,
+        chatId: this.chatId,
+        providerMode: settings.providerMode,
+        modelProvider: selectedModel.provider,
+        modelId: selectedModel.id
+      });
+      await ctx.setTyping(true);
+      await ctx.setWorking(false);
+      await ctx.replaceMessage(keyError);
+      return { stopReason: "error", errorMessage: keyError };
+    }
+    this.agent.setModel(resolveModel(settings, prefersVision ? "vision" : "text"));
     momLog("runner", "model_selected", {
       runId,
       chatId: this.chatId,

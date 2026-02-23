@@ -19,6 +19,9 @@ const KEY_LOG_EVENTS = new Set<string>([
   "process_start",
   "process_runner_done",
   "process_end",
+  // stt observability
+  "voice_transcription_target",
+  "voice_transcription_success",
   // runner critical path
   // "run_start",
   // "model_selected",

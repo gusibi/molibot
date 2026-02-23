@@ -26,6 +26,7 @@ data/sessions/
 data/settings.json
 data/*.db
 data/*.db-*
+data-bak/*
 
 # temp / cache
 .tmp/

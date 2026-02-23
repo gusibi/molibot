@@ -9,7 +9,7 @@
     customProviders: Array<{
       id: string;
       name: string;
-      models: string[];
+      models: Array<{ id: string; tags: string[] }>;
       defaultModel: string;
     }>;
   }
@@ -141,9 +141,11 @@
 
     for (const provider of settings.customProviders) {
       for (const model of provider.models ?? []) {
+        const modelId = typeof model === "string" ? model : model.id;
+        if (!modelId) continue;
         options.push({
-          key: `custom|${provider.id}|${model}`,
-          label: `[Custom] ${provider.name} / ${model}`
+          key: `custom|${provider.id}|${modelId}`,
+          label: `[Custom] ${provider.name} / ${modelId}`
         });
       }
     }
@@ -154,7 +156,9 @@
     if (settings.providerMode === "custom") {
       const id = settings.defaultCustomProviderId || settings.customProviders[0]?.id || "";
       const provider = settings.customProviders.find((p) => p.id === id) ?? settings.customProviders[0];
-      const model = provider?.defaultModel || provider?.models?.[0] || "";
+      const firstModel = provider?.models?.[0];
+      const firstModelId = typeof firstModel === "string" ? firstModel : firstModel?.id;
+      const model = provider?.defaultModel || firstModelId || "";
       return id ? `custom|${id}|${model}` : `pi|${settings.piModelProvider}|${settings.piModelName}`;
     }
     return `pi|${settings.piModelProvider}|${settings.piModelName}`;
@@ -171,7 +175,13 @@
           providerMode: "custom",
           defaultCustomProviderId: customId,
           customProviders: runtimeSettings.customProviders.map((p) =>
-            p.id === customId ? { ...p, defaultModel: customModel || p.defaultModel || p.models[0] || "" } : p
+            p.id === customId
+              ? {
+                  ...p,
+                  defaultModel:
+                    customModel || p.defaultModel || (typeof p.models[0] === "string" ? p.models[0] : p.models[0]?.id) || ""
+                }
+              : p
           )
         };
       } else {

@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "molibot": "./bin/molibot.js"
+  },
   "scripts": {
     "dev": "svelte-kit sync && vite dev --mode production",
     "build": "svelte-kit sync && vite build",

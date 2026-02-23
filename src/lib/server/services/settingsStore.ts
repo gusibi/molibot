@@ -1,5 +1,7 @@
 import {
   defaultRuntimeSettings,
+  type ModelCapabilityTag,
+  type ProviderModelConfig,
   type CustomProviderConfig,
   isKnownProvider,
   type ProviderMode,
@@ -13,6 +15,12 @@ interface RawSettings {
   piModelName?: string;
   customProviders?: unknown;
   defaultCustomProviderId?: string;
+  modelRouting?: {
+    textModelKey?: string;
+    visionModelKey?: string;
+    sttModelKey?: string;
+    ttsModelKey?: string;
+  };
   systemPrompt?: string;
   telegramBotToken?: string;
   telegramAllowedChatIds?: string[] | string;
@@ -25,6 +33,8 @@ interface RawSettings {
 type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
 const DEFAULT_ROLES: ModelRole[] = ["system", "user", "assistant", "tool"];
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
+const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "stt", "tts", "tool"]);
+const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
 
 function sanitizeRoles(input: unknown): ModelRole[] {
   if (!Array.isArray(input)) return [...DEFAULT_ROLES];
@@ -39,16 +49,50 @@ function sanitizeRoles(input: unknown): ModelRole[] {
   return out.length > 0 ? out : [...DEFAULT_ROLES];
 }
 
-function sanitizeModels(item: Record<string, unknown>): { models: string[]; defaultModel: string } {
+function sanitizeModelTags(input: unknown): ModelCapabilityTag[] {
+  if (!Array.isArray(input)) return [...DEFAULT_MODEL_TAGS];
+  const out: ModelCapabilityTag[] = [];
+  const dedup = new Set<string>();
+  for (const raw of input) {
+    const value = String(raw ?? "").trim();
+    if (!CAPABILITY_SET.has(value) || dedup.has(value)) continue;
+    dedup.add(value);
+    out.push(value as ModelCapabilityTag);
+  }
+  return out.length > 0 ? out : [...DEFAULT_MODEL_TAGS];
+}
+
+function sanitizeModels(
+  item: Record<string, unknown>,
+  providerRoles: ModelRole[]
+): { models: ProviderModelConfig[]; defaultModel: string } {
   const legacySingle = String(item.model ?? "").trim();
   const rawModels = Array.isArray(item.models) ? item.models : [];
-  const models = rawModels.map((v) => String(v).trim()).filter(Boolean);
+  const models: ProviderModelConfig[] = [];
+  for (const row of rawModels) {
+    if (typeof row === "string") {
+      const id = row.trim();
+      if (id) models.push({ id, tags: [...DEFAULT_MODEL_TAGS], supportedRoles: [...providerRoles] });
+      continue;
+    }
+    if (!row || typeof row !== "object") continue;
+    const obj = row as Record<string, unknown>;
+    const id = String(obj.id ?? obj.model ?? "").trim();
+    if (!id) continue;
+    models.push({
+      id,
+      tags: sanitizeModelTags(obj.tags),
+      supportedRoles: sanitizeRoles(obj.supportedRoles ?? providerRoles)
+    });
+  }
+
   if (models.length === 0 && legacySingle) {
-    models.push(legacySingle);
+    models.push({ id: legacySingle, tags: [...DEFAULT_MODEL_TAGS], supportedRoles: [...providerRoles] });
   }
 
   const defaultModelRaw = String(item.defaultModel ?? "").trim();
-  const defaultModel = models.includes(defaultModelRaw) ? defaultModelRaw : (models[0] ?? "");
+  const ids = models.map((m) => m.id);
+  const defaultModel = ids.includes(defaultModelRaw) ? defaultModelRaw : (ids[0] ?? "");
   return { models, defaultModel };
 }
 
@@ -69,7 +113,8 @@ function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
     if (dedup.has(id)) continue;
     dedup.add(id);
 
-    const { models, defaultModel } = sanitizeModels(item);
+    const providerRoles = sanitizeRoles(item.supportedRoles);
+    const { models, defaultModel } = sanitizeModels(item, providerRoles);
 
     out.push({
       id,
@@ -78,7 +123,6 @@ function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
       apiKey: String(item.apiKey ?? "").trim(),
       models,
       defaultModel,
-      supportedRoles: sanitizeRoles(item.supportedRoles),
       path: String(item.path ?? "").trim() || "/v1/chat/completions"
     });
   }
@@ -112,9 +156,8 @@ function migrateLegacyCustomProvider(raw: RawSettings): CustomProviderConfig[] {
       name: "Custom (legacy)",
       baseUrl,
       apiKey,
-      models: model ? [model] : [],
+      models: model ? [{ id: model, tags: ["text"], supportedRoles: [...DEFAULT_ROLES] }] : [],
       defaultModel: model,
-      supportedRoles: [...DEFAULT_ROLES],
       path
     }
   ];
@@ -139,6 +182,12 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       defaultRuntimeSettings.piModelName,
     customProviders,
     defaultCustomProviderId,
+    modelRouting: {
+      textModelKey: String(raw.modelRouting?.textModelKey ?? "").trim(),
+      visionModelKey: String(raw.modelRouting?.visionModelKey ?? "").trim(),
+      sttModelKey: String(raw.modelRouting?.sttModelKey ?? "").trim(),
+      ttsModelKey: String(raw.modelRouting?.ttsModelKey ?? "").trim()
+    },
     systemPrompt:
       String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
       defaultRuntimeSettings.systemPrompt,

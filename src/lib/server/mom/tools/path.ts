@@ -7,19 +7,19 @@ export function resolveToolPath(baseDir: string, input: string): string {
 
   // Tools run under chat scratch dir; normalize accidentally duplicated prefixes.
   const normalizedInput = input.replace(/\\/g, "/").replace(/^\.\//, "");
-  const duplicatedScratchPrefix = normalizedInput.match(/^data\/telegram-mom\/[^/]+\/scratch\/(.+)$/);
+  const duplicatedScratchPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-t)\/[^/]+\/scratch\/(.+)$/);
   if (duplicatedScratchPrefix?.[1]) {
     return resolve(baseDir, duplicatedScratchPrefix[1]);
   }
 
   // Normalize common skill path mistakes when tools run inside chat scratch.
   // Example:
-  //   cwd: .../data/telegram-mom/<chatId>/scratch
-  //   input: data/telegram-mom/skills/brave-search/SKILL.md
+  //   cwd: .../.molibot/moli-t/<chatId>/scratch
+  //   input: data/moli-t/skills/brave-search/SKILL.md
   // Should resolve to:
-  //   .../data/telegram-mom/skills/brave-search/SKILL.md
-  const workspaceFromScratch = normalizedBase.match(/^(.*\/data\/telegram-mom)\/[^/]+\/scratch(?:\/.*)?$/)?.[1];
-  const workspaceSkillsPrefix = normalizedInput.match(/^data\/telegram-mom\/skills(?:\/(.*))?$/);
+  //   .../.molibot/moli-t/skills/brave-search/SKILL.md
+  const workspaceFromScratch = normalizedBase.match(/^(.*)\/[^/]+\/scratch(?:\/.*)?$/)?.[1];
+  const workspaceSkillsPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-t)\/skills(?:\/(.*))?$/);
   if (workspaceFromScratch && workspaceSkillsPrefix) {
     const suffix = workspaceSkillsPrefix[1] ?? "";
     return resolve(workspaceFromScratch, "skills", suffix);

@@ -3,15 +3,21 @@
 
   type ProviderMode = "pi" | "custom";
   type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
+  type ModelCapabilityTag = "text" | "vision" | "stt" | "tts" | "tool";
+
+  interface ProviderModelForm {
+    id: string;
+    tags: ModelCapabilityTag[];
+    supportedRoles: ModelRole[];
+  }
 
   interface CustomProviderForm {
     id: string;
     name: string;
     baseUrl: string;
     apiKey: string;
-    models: string[];
+    models: ProviderModelForm[];
     defaultModel: string;
-    supportedRoles: ModelRole[];
     path: string;
   }
 
@@ -21,12 +27,19 @@
     piModelName: string;
     defaultCustomProviderId: string;
     customProviders: CustomProviderForm[];
+    modelRouting: {
+      textModelKey: string;
+      visionModelKey: string;
+      sttModelKey: string;
+      ttsModelKey: string;
+    };
     systemPrompt: string;
   }
 
   interface MetaResponse {
     providers: Array<{ id: string; name: string }>;
     providerModels: Record<string, string[]>;
+    capabilityTags: ModelCapabilityTag[];
   }
 
   interface ProviderTestResult {
@@ -38,7 +51,7 @@
 
   let loading = true;
   let saving = false;
-  let testingProviderId = "";
+  let testingModelKey = "";
   let selectedProviderId = "";
   let providerSearch = "";
   let error = "";
@@ -46,6 +59,7 @@
 
   let providers: Array<{ id: string; name: string }> = [];
   let providerModels: Record<string, string[]> = {};
+  let capabilityTags: ModelCapabilityTag[] = ["text", "vision", "stt", "tts", "tool"];
 
   let form: AIForm = {
     providerMode: "pi",
@@ -53,6 +67,12 @@
     piModelName: "claude-sonnet-4-20250514",
     defaultCustomProviderId: "",
     customProviders: [],
+    modelRouting: {
+      textModelKey: "",
+      visionModelKey: "",
+      sttModelKey: "",
+      ttsModelKey: ""
+    },
     systemPrompt: "You are Molibot, a concise and helpful assistant."
   };
 
@@ -65,20 +85,43 @@
       apiKey: "",
       models: [],
       defaultModel: "",
-      supportedRoles: ["system", "user", "assistant", "tool"],
       path: "/v1/chat/completions"
     };
   }
 
-  function ensureProviderDefaults(provider: CustomProviderForm): void {
-    provider.models = provider.models.map((m) => m.trim()).filter(Boolean);
-    if (provider.models.length === 0) {
-      provider.defaultModel = "";
-    } else if (!provider.models.includes(provider.defaultModel)) {
-      provider.defaultModel = provider.models[0];
+  function modelIds(provider: CustomProviderForm): string[] {
+    return provider.models.map((m) => m.id.trim()).filter(Boolean);
+  }
+
+  function ensureModelDefaults(model: ProviderModelForm): void {
+    model.id = model.id.trim();
+    model.tags = Array.isArray(model.tags) ? model.tags.filter((t) => capabilityTags.includes(t)) : ["text"];
+    if (model.tags.length === 0) model.tags = ["text"];
+    if (!Array.isArray(model.supportedRoles) || model.supportedRoles.length === 0) {
+      model.supportedRoles = ["system", "user", "assistant", "tool"];
     }
-    if (!Array.isArray(provider.supportedRoles) || provider.supportedRoles.length === 0) {
-      provider.supportedRoles = ["system", "user", "assistant", "tool"];
+  }
+
+  function ensureProviderDefaults(provider: CustomProviderForm): void {
+    provider.models = provider.models.map((m) => {
+      const normalized: ProviderModelForm = typeof (m as unknown) === "string"
+        ? { id: String(m), tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"] }
+        : {
+            id: String((m as ProviderModelForm).id ?? ""),
+            tags: Array.isArray((m as ProviderModelForm).tags) ? (m as ProviderModelForm).tags : ["text"],
+            supportedRoles: Array.isArray((m as ProviderModelForm).supportedRoles)
+              ? (m as ProviderModelForm).supportedRoles
+              : ["system", "user", "assistant", "tool"]
+          };
+      ensureModelDefaults(normalized);
+      return normalized;
+    });
+
+    const ids = modelIds(provider);
+    if (ids.length === 0) {
+      provider.defaultModel = "";
+    } else if (!ids.includes(provider.defaultModel)) {
+      provider.defaultModel = ids[0];
     }
   }
 
@@ -112,6 +155,7 @@
     form.customProviders = [...form.customProviders, provider];
     selectedProviderId = provider.id;
     ensureDefaultCustomProvider();
+    ensureRoutingDefaults();
   }
 
   function removeCustomProvider(id: string): void {
@@ -125,17 +169,56 @@
     ensureDefaultCustomProvider();
   }
 
-  function addModel(provider: CustomProviderForm): void {
-    provider.models = [...provider.models, ""];
+  function updateProviderById(
+    providerId: string,
+    updater: (provider: CustomProviderForm) => CustomProviderForm
+  ): void {
+    form.customProviders = form.customProviders.map((row) => {
+      if (row.id !== providerId) return row;
+      const next = updater({
+        ...row,
+        models: Array.isArray(row.models) ? [...row.models] : []
+      });
+      ensureProviderDefaults(next);
+      return next;
+    });
+    ensureDefaultCustomProvider();
+    ensureRoutingDefaults();
   }
 
-  function removeModel(provider: CustomProviderForm, index: number): void {
-    provider.models = provider.models.filter((_, i) => i !== index);
-    ensureProviderDefaults(provider);
+  function addModel(providerId: string): void {
+    updateProviderById(providerId, (provider) => ({
+      ...provider,
+      models: [
+        ...provider.models,
+        { id: "", tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool"] }
+      ]
+    }));
+  }
+
+  function removeModel(providerId: string, index: number): void {
+    updateProviderById(providerId, (provider) => ({
+      ...provider,
+      models: provider.models.filter((_, i) => i !== index)
+    }));
   }
 
   function setAsDefaultProvider(id: string): void {
     form.defaultCustomProviderId = id;
+  }
+
+  function toggleTag(providerId: string, modelIndex: number, tag: ModelCapabilityTag): void {
+    updateProviderById(providerId, (provider) => {
+      const models = provider.models.map((m, i) => {
+        if (i !== modelIndex) return m;
+        const set = new Set(m.tags);
+        if (set.has(tag)) set.delete(tag);
+        else set.add(tag);
+        const tags = Array.from(set) as ModelCapabilityTag[];
+        return { ...m, tags: tags.length > 0 ? tags : ["text"] };
+      });
+      return { ...provider, models };
+    });
   }
 
   function filteredCustomProviders(): CustomProviderForm[] {
@@ -145,7 +228,7 @@
       return (
         p.name.toLowerCase().includes(keyword) ||
         p.id.toLowerCase().includes(keyword) ||
-        p.models.some((m) => m.toLowerCase().includes(keyword))
+        p.models.some((m) => m.id.toLowerCase().includes(keyword))
       );
     });
   }
@@ -154,16 +237,67 @@
     return form.customProviders.find((p) => p.id === selectedProviderId);
   }
 
-  async function testProvider(provider: CustomProviderForm): Promise<void> {
-    testingProviderId = provider.id;
+  function allModelOptions(): Array<{ key: string; label: string; tags: ModelCapabilityTag[] }> {
+    const out: Array<{ key: string; label: string; tags: ModelCapabilityTag[] }> = [
+      {
+        key: `pi|${form.piModelProvider}|${form.piModelName}`,
+        label: `[PI] ${form.piModelProvider} / ${form.piModelName}`,
+        tags: ["text", "vision"]
+      }
+    ];
+
+    for (const cp of form.customProviders) {
+      for (const m of cp.models) {
+        out.push({
+          key: `custom|${cp.id}|${m.id}`,
+          label: `[Custom] ${cp.name} / ${m.id}`,
+          tags: m.tags
+        });
+      }
+    }
+
+    return out;
+  }
+
+  function routingOptions(requiredTag: ModelCapabilityTag): Array<{ key: string; label: string }> {
+    return allModelOptions()
+      .filter((m) => m.tags.includes(requiredTag) || requiredTag === "text")
+      .map((m) => ({ key: m.key, label: m.label }));
+  }
+
+  function ensureRoutingDefaults(): void {
+    const all = allModelOptions();
+    const allKeys = new Set(all.map((m) => m.key));
+
+    const textFallback = all[0]?.key ?? "";
+    if (!allKeys.has(form.modelRouting.textModelKey)) form.modelRouting.textModelKey = textFallback;
+
+    const vision = routingOptions("vision");
+    if (!vision.some((v) => v.key === form.modelRouting.visionModelKey)) {
+      form.modelRouting.visionModelKey = vision[0]?.key ?? "";
+    }
+
+    const stt = routingOptions("stt");
+    if (!stt.some((v) => v.key === form.modelRouting.sttModelKey)) {
+      form.modelRouting.sttModelKey = stt[0]?.key ?? "";
+    }
+
+    const tts = routingOptions("tts");
+    if (!tts.some((v) => v.key === form.modelRouting.ttsModelKey)) {
+      form.modelRouting.ttsModelKey = tts[0]?.key ?? "";
+    }
+  }
+
+  async function testProviderModel(providerId: string, modelId: string): Promise<void> {
+    const provider = form.customProviders.find((p) => p.id === providerId);
+    if (!provider) return;
+    const targetModel = modelId.trim();
+    if (!targetModel) return;
+    testingModelKey = `${providerId}|${targetModel}`;
     error = "";
     message = "";
     try {
       ensureProviderDefaults(provider);
-      const targetModel = provider.defaultModel || provider.models[0] || "";
-      if (!targetModel) {
-        throw new Error("Please add at least one model, then set a default model.");
-      }
 
       const res = await fetch("/api/settings/provider-test", {
         method: "POST",
@@ -179,12 +313,17 @@
       const data = (await res.json()) as ProviderTestResult & { error?: string };
       if (!res.ok) throw new Error(data.error || "Provider test failed");
 
-      provider.supportedRoles = data.supportedRoles;
-      message = `[${provider.name}] ${data.message}`;
+      updateProviderById(providerId, (current) => ({
+        ...current,
+        models: current.models.map((m) =>
+          m.id.trim() === targetModel ? { ...m, supportedRoles: data.supportedRoles } : m
+        )
+      }));
+      message = `[${provider.name} / ${targetModel}] ${data.message}`;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
-      testingProviderId = "";
+      testingModelKey = "";
     }
   }
 
@@ -206,9 +345,10 @@
 
       providers = metaData.providers ?? [];
       providerModels = metaData.providerModels ?? {};
+      capabilityTags = metaData.capabilityTags ?? capabilityTags;
 
       const s = settingsData.settings;
-      const loadedProviders = (s.customProviders ?? []) as CustomProviderForm[];
+      const loadedProviders = (s.customProviders ?? []) as Array<CustomProviderForm & { supportedRoles?: ModelRole[] }>;
 
       form = {
         providerMode: s.providerMode,
@@ -218,20 +358,50 @@
         customProviders: loadedProviders.map((cp) => ({
           ...cp,
           models: Array.isArray(cp.models)
-            ? cp.models
-            : (cp as unknown as { model?: string }).model
-              ? [String((cp as unknown as { model?: string }).model)]
-              : [],
-          defaultModel: cp.defaultModel ?? "",
-          supportedRoles: Array.isArray(cp.supportedRoles)
-            ? cp.supportedRoles
-            : ["system", "user", "assistant", "tool"]
+            ? cp.models.map((m: unknown) => {
+                if (typeof m === "string") {
+                  return {
+                    id: m,
+                    tags: ["text"] as ModelCapabilityTag[],
+                    supportedRoles: Array.isArray(cp.supportedRoles) && cp.supportedRoles.length > 0
+                      ? cp.supportedRoles
+                      : ["system", "user", "assistant", "tool"]
+                  };
+                }
+                const obj = (m ?? {}) as { id?: unknown; tags?: unknown };
+                const tags = Array.isArray(obj.tags)
+                  ? obj.tags.map((t) => String(t) as ModelCapabilityTag).filter((t) => capabilityTags.includes(t))
+                  : ["text"];
+                const roles = Array.isArray((obj as { supportedRoles?: unknown }).supportedRoles)
+                  ? ((obj as { supportedRoles: unknown[] }).supportedRoles
+                    .map((r) => String(r) as ModelRole)
+                    .filter((r) => ["system", "user", "assistant", "tool", "developer"].includes(r)))
+                  : [];
+                return {
+                  id: String(obj.id ?? ""),
+                  tags: tags.length > 0 ? tags : ["text"],
+                  supportedRoles: roles.length > 0
+                    ? roles
+                    : (Array.isArray(cp.supportedRoles) && cp.supportedRoles.length > 0
+                      ? cp.supportedRoles
+                      : ["system", "user", "assistant", "tool"])
+                };
+              })
+            : [],
+          defaultModel: cp.defaultModel ?? ""
         })),
+        modelRouting: {
+          textModelKey: s.modelRouting?.textModelKey ?? "",
+          visionModelKey: s.modelRouting?.visionModelKey ?? "",
+          sttModelKey: s.modelRouting?.sttModelKey ?? "",
+          ttsModelKey: s.modelRouting?.ttsModelKey ?? ""
+        },
         systemPrompt: s.systemPrompt
       };
 
       ensureDefaultCustomProvider();
       onPiProviderChanged();
+      ensureRoutingDefaults();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -246,6 +416,7 @@
 
     try {
       ensureDefaultCustomProvider();
+      ensureRoutingDefaults();
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -269,7 +440,7 @@
   <header class="header">
     <div>
       <h1>AI Providers</h1>
-      <p class="subtitle">Manage provider configs, model lists, and role capabilities.</p>
+      <p class="subtitle">Configure providers, model tags, and routing by capability.</p>
     </div>
     <div class="links">
       <a href="/settings">Back</a>
@@ -310,6 +481,42 @@
           </label>
 
           <label>
+            Text model
+            <select bind:value={form.modelRouting.textModelKey}>
+              {#each routingOptions("text") as row}
+                <option value={row.key}>{row.label}</option>
+              {/each}
+            </select>
+          </label>
+
+          <label>
+            Vision model
+            <select bind:value={form.modelRouting.visionModelKey}>
+              {#each routingOptions("vision") as row}
+                <option value={row.key}>{row.label}</option>
+              {/each}
+            </select>
+          </label>
+
+          <label>
+            Speech-to-text model
+            <select bind:value={form.modelRouting.sttModelKey}>
+              {#each routingOptions("stt") as row}
+                <option value={row.key}>{row.label}</option>
+              {/each}
+            </select>
+          </label>
+
+          <label>
+            Text-to-speech model
+            <select bind:value={form.modelRouting.ttsModelKey}>
+              {#each routingOptions("tts") as row}
+                <option value={row.key}>{row.label}</option>
+              {/each}
+            </select>
+          </label>
+
+          <label>
             System prompt
             <textarea rows="3" bind:value={form.systemPrompt}></textarea>
           </label>
@@ -323,11 +530,7 @@
             <button type="button" on:click={addCustomProvider}>+ Add</button>
           </div>
 
-          <input
-            class="search"
-            bind:value={providerSearch}
-            placeholder="Search provider or model..."
-          />
+          <input class="search" bind:value={providerSearch} placeholder="Search provider or model..." />
 
           <div class="provider-list">
             {#if filteredCustomProviders().length === 0}
@@ -394,340 +597,125 @@
             <section class="models-panel">
               <div class="models-head">
                 <h3>Models</h3>
-                <button type="button" on:click={() => addModel(cp)}>+ Add Model</button>
+                <button type="button" on:click={() => addModel(cp.id)}>+ Add Model</button>
               </div>
 
               {#if cp.models.length === 0}
                 <p class="hint">No model configured yet.</p>
               {/if}
 
-              {#each cp.models as _, index}
-                <div class="model-row">
-                  <input bind:value={cp.models[index]} placeholder="provider/model-name" />
-                  <button type="button" class="danger" on:click={() => removeModel(cp, index)}>Delete</button>
+              {#each cp.models as model, index}
+                <div class="model-row" style="display:grid; grid-template-columns: 1fr auto auto; gap:8px; align-items:center;">
+                  <input bind:value={model.id} placeholder="provider/model-name" />
+                  <button
+                    type="button"
+                    on:click={() => testProviderModel(cp.id, model.id)}
+                    disabled={!model.id.trim() || testingModelKey === `${cp.id}|${model.id.trim()}`}
+                  >
+                    {testingModelKey === `${cp.id}|${model.id.trim()}` ? "Testing..." : "Test"}
+                  </button>
+                  <button type="button" class="danger" on:click={() => removeModel(cp.id, index)}>Delete</button>
+                </div>
+                <div class="tags" style="display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 12px 0;">
+                  {#each capabilityTags as tag}
+                    <label style="display:flex; align-items:center; gap:4px;">
+                      <input type="checkbox" checked={model.tags.includes(tag)} on:change={() => toggleTag(cp.id, index, tag)} />
+                      <span>{tag}</span>
+                    </label>
+                  {/each}
                 </div>
               {/each}
 
               <label>
                 Default model
                 <select bind:value={cp.defaultModel}>
-                  {#each cp.models as model}
-                    <option value={model}>{model}</option>
+                  {#each modelIds(cp) as modelId}
+                    <option value={modelId}>{modelId}</option>
                   {/each}
                 </select>
               </label>
             </section>
 
-            <section class="roles-panel">
-              <div class="roles-head">
-                <h3>Role Support</h3>
-                <button type="button" on:click={() => testProvider(cp)} disabled={testingProviderId === cp.id}>
-                  {testingProviderId === cp.id ? 'Testing...' : 'Test Provider'}
-                </button>
-              </div>
-
-              <div class="roles">
-                {#each cp.supportedRoles as role}
-                  <span class="chip">{role}</span>
+            <section class="role-panel">
+              <h3>Supported roles (by model)</h3>
+              {#if cp.models.length === 0}
+                <p class="hint">No model yet.</p>
+              {:else}
+                {#each cp.models as model}
+                  {#if model.id.trim()}
+                    <div class="row">
+                      <strong>{model.id}</strong>
+                      <div class="chips">
+                        {#each model.supportedRoles as role}
+                          <span class="chip">{role}</span>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
                 {/each}
-              </div>
-
-              <p class="hint">Test checks connectivity and whether this model accepts <code>developer</code> role.</p>
+              {/if}
+              <p class="hint">Use each model's Test button to refresh its supported roles.</p>
             </section>
           {:else}
-            <p class="hint">Select or add a provider from the left panel.</p>
+            <p class="hint">Select a provider from the left list.</p>
           {/if}
         </div>
       </section>
 
-      <div class="footer-actions">
+      <footer class="actions">
         <button type="submit" disabled={saving}>{saving ? "Saving..." : "Save AI Settings"}</button>
-        {#if message}
-          <p class="ok">{message}</p>
-        {/if}
-        {#if error}
-          <p class="err">{error}</p>
-        {/if}
-      </div>
+      </footer>
     </form>
+
+    {#if message}
+      <p class="ok">{message}</p>
+    {/if}
+    {#if error}
+      <p class="err">{error}</p>
+    {/if}
   {/if}
 </div>
 
 <style>
-  :global(html, body, #svelte) {
-    margin: 0;
-    background: radial-gradient(1200px 800px at 0% 0%, #1c2738 0%, #0b0f15 50%, #080b11 100%);
-    color: #e5ecf5;
-    font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-  }
-
-  .page {
-    max-width: 1320px;
-    margin: 0 auto;
-    padding: 24px;
-  }
-
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 18px;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 28px;
-    letter-spacing: 0.2px;
-  }
-
-  .subtitle {
-    margin: 4px 0 0;
-    color: #9eb1c7;
-    font-size: 13px;
-  }
-
-  .links {
-    display: flex;
-    gap: 12px;
-  }
-
-  a {
-    color: #a8c5ff;
-    text-decoration: none;
-  }
-
-  .shell {
-    display: grid;
-    gap: 14px;
-  }
-
-  .global-panel,
-  .workspace-panel,
-  .models-panel,
-  .roles-panel {
-    border: 1px solid #2d3b51;
-    background: linear-gradient(180deg, #141c29 0%, #101722 100%);
-    border-radius: 14px;
-  }
-
-  .global-panel {
-    padding: 14px;
-  }
-
-  .global-grid {
-    display: grid;
-    gap: 10px;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .workspace-panel {
-    display: grid;
-    grid-template-columns: 320px 1fr;
-    min-height: 620px;
-    overflow: hidden;
-  }
-
-  .sidebar {
-    border-right: 1px solid #2d3b51;
-    padding: 14px;
-    display: grid;
-    grid-template-rows: auto auto 1fr;
-    gap: 10px;
-  }
-
-  .sidebar-head,
-  .detail-head,
-  .models-head,
-  .roles-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .search {
-    width: 100%;
-  }
-
-  .provider-list {
-    display: grid;
-    gap: 8px;
-    align-content: start;
-    max-height: 500px;
-    overflow: auto;
-    padding-right: 4px;
-  }
-
-  .provider-item {
-    width: 100%;
-    text-align: left;
-    border-radius: 10px;
-    border: 1px solid #2d3b51;
-    padding: 10px;
-    background: #0e151f;
-    display: grid;
-    gap: 6px;
-    cursor: pointer;
-  }
-
-  .provider-item.active {
-    border-color: #4f7ccf;
-    background: #122034;
-    box-shadow: inset 0 0 0 1px rgba(115, 164, 255, 0.2);
-  }
-
-  .item-main {
-    display: grid;
-    gap: 2px;
-  }
-
-  .item-id {
-    color: #88a0bc;
-    font-size: 12px;
-  }
-
-  .item-meta {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    color: #9eb1c7;
-    font-size: 12px;
-  }
-
-  .badge {
-    font-size: 11px;
-    color: #7de7a2;
-    border: 1px solid #2e7a4a;
-    padding: 2px 6px;
-    border-radius: 999px;
-  }
-
-  .detail {
-    padding: 16px;
-    display: grid;
-    gap: 12px;
-    align-content: start;
-  }
-
-  .detail-grid {
-    display: grid;
-    gap: 10px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .full {
-    grid-column: 1 / -1;
-  }
-
-  .models-panel,
-  .roles-panel {
-    padding: 12px;
-  }
-
-  .model-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .roles {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .chip {
-    border-radius: 999px;
-    border: 1px solid #35517a;
-    background: #16263c;
-    color: #c6daf8;
-    padding: 4px 10px;
-    font-size: 12px;
-  }
-
-  .footer-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-
-  label {
-    display: grid;
-    gap: 6px;
-    font-size: 13px;
-    color: #c8d7eb;
-  }
-
-  input,
-  select,
-  textarea,
-  button {
-    background: #0b111a;
-    color: #e5ecf5;
-    border: 1px solid #2f3f56;
-    border-radius: 10px;
-    padding: 9px 11px;
-    font: inherit;
-  }
-
-  textarea {
-    resize: vertical;
-  }
-
-  button {
-    cursor: pointer;
-    width: fit-content;
-  }
-
-  button:hover {
-    border-color: #47689b;
-  }
-
-  .danger {
-    border-color: #6f3940;
-    color: #f0b4bc;
-  }
-
-  .hint {
-    margin: 0;
-    color: #8ea3bf;
-    font-size: 13px;
-  }
-
-  .ok {
-    color: #7de7a2;
-    margin: 0;
-  }
-
-  .err {
-    color: #ff9ea9;
-    margin: 0;
-  }
-
-  .row {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  @media (max-width: 980px) {
-    .global-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .workspace-panel {
-      grid-template-columns: 1fr;
-    }
-
-    .sidebar {
-      border-right: none;
-      border-bottom: 1px solid #2d3b51;
-    }
-
-    .detail-grid {
-      grid-template-columns: 1fr;
-    }
+  .page { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  .header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .subtitle { color: #4b5563; margin: 4px 0 0 0; }
+  .links { display: flex; gap: 12px; }
+  .shell { display: grid; gap: 14px; }
+  .global-panel, .workspace-panel, .detail, .sidebar, .actions, .ok, .err { border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
+  .global-panel, .actions, .ok, .err { padding: 12px; }
+  .global-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .workspace-panel { display: grid; grid-template-columns: 320px 1fr; min-height: 560px; overflow: hidden; }
+  .sidebar { border: none; border-right: 1px solid #e5e7eb; border-radius: 0; padding: 12px; }
+  .detail { border: none; border-radius: 0; padding: 12px; }
+  .sidebar-head, .detail-head, .models-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .provider-list { margin-top: 10px; display: grid; gap: 8px; }
+  .provider-item { text-align: left; border: 1px solid #e5e7eb; border-radius: 10px; padding: 8px; background: #fff; }
+  .provider-item.active { border-color: #2563eb; background: #eff6ff; }
+  .item-main { display: flex; flex-direction: column; gap: 2px; }
+  .item-id { font-size: 12px; color: #6b7280; }
+  .item-meta { display: flex; gap: 8px; font-size: 12px; color: #6b7280; margin-top: 6px; }
+  .badge { color: #1d4ed8; font-weight: 700; }
+  .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+  .full { grid-column: 1 / -1; }
+  .models-panel, .role-panel { margin-top: 14px; padding-top: 10px; border-top: 1px solid #e5e7eb; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .chip { font-size: 12px; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; }
+  label { display: grid; gap: 6px; font-size: 13px; }
+  input, select, textarea, button { font: inherit; }
+  input, select, textarea { padding: 8px; border: 1px solid #d1d5db; border-radius: 8px; }
+  textarea { min-height: 80px; resize: vertical; }
+  button { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; background: #f9fafb; cursor: pointer; }
+  button.danger { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+  .search { width: 100%; margin-top: 8px; }
+  .actions { display: flex; justify-content: flex-end; }
+  .ok { color: #166534; }
+  .err { color: #b91c1c; }
+  .hint { color: #6b7280; }
+  .row { display: flex; gap: 8px; }
+  @media (max-width: 960px) {
+    .global-grid, .detail-grid { grid-template-columns: 1fr; }
+    .workspace-panel { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid #e5e7eb; }
   }
 </style>

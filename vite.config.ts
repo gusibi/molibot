@@ -8,21 +8,21 @@ export default defineConfig({
       name: "molibot-runtime-bootstrap",
       configureServer(server) {
         server.httpServer?.once("listening", () => {
-          const addr = server.httpServer?.address();
-          const port = typeof addr === "object" && addr ? addr.port : 3000;
-          const url = `http://127.0.0.1:${port}/api/settings`;
-
           setTimeout(() => {
-            void fetch(url)
-              .then(async (res) => {
-                const body = await res.text();
-                console.log(`[dev-bootstrap] runtime init ping -> ${url} (${res.status})`);
-                if (!res.ok) {
-                  console.warn(`[dev-bootstrap] runtime init response body: ${body.slice(0, 240)}`);
+            void server
+              .ssrLoadModule("/src/lib/server/runtime.ts")
+              .then((mod) => {
+                if (typeof mod.getRuntime === "function") {
+                  mod.getRuntime();
+                  console.log("[dev-bootstrap] runtime initialized via ssrLoadModule");
+                  return;
                 }
+                throw new Error("getRuntime export not found");
               })
               .catch((error) => {
-                console.warn(`[dev-bootstrap] runtime init ping failed: ${error instanceof Error ? error.message : String(error)}`);
+                console.warn(
+                  `[dev-bootstrap] runtime init failed: ${error instanceof Error ? error.message : String(error)}`
+                );
               });
           }, 200);
         });

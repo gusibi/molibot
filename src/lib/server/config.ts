@@ -1,4 +1,5 @@
 import path from "node:path";
+import os from "node:os";
 import dotenv from "dotenv";
 import type { KnownProvider } from "@mariozechner/pi-ai";
 
@@ -7,15 +8,28 @@ dotenv.config();
 export type ProviderMode = "pi" | "custom";
 
 export type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
+export type ModelCapabilityTag = "text" | "vision" | "stt" | "tts" | "tool";
+
+export interface ProviderModelConfig {
+  id: string;
+  tags: ModelCapabilityTag[];
+  supportedRoles: ModelRole[];
+}
+
+export interface ModelRoutingConfig {
+  textModelKey: string;
+  visionModelKey: string;
+  sttModelKey: string;
+  ttsModelKey: string;
+}
 
 export interface CustomProviderConfig {
   id: string;
   name: string;
   baseUrl: string;
   apiKey: string;
-  models: string[];
+  models: ProviderModelConfig[];
   defaultModel: string;
-  supportedRoles: ModelRole[];
   path: string;
 }
 
@@ -25,6 +39,7 @@ export interface RuntimeSettings {
   piModelName: string;
   customProviders: CustomProviderConfig[];
   defaultCustomProviderId: string;
+  modelRouting: ModelRoutingConfig;
   systemPrompt: string;
   telegramBotToken: string;
   telegramAllowedChatIds: string[];
@@ -89,12 +104,36 @@ export function isKnownProvider(value: string): value is KnownProvider {
   return KNOWN_PROVIDERS.has(value as KnownProvider);
 }
 
+function expandHomePath(input: string): string {
+  if (!input.startsWith("~")) return input;
+  if (input === "~") return os.homedir();
+  if (input.startsWith("~/")) return path.join(os.homedir(), input.slice(2));
+  return input;
+}
+
+const defaultDataDir = path.join(os.homedir(), ".molibot");
+const resolvedDataDir = expandHomePath(process.env.DATA_DIR ?? defaultDataDir);
+
 export const config = {
   port: intFromEnv("PORT", 3000),
-  dataDir: process.env.DATA_DIR ?? path.join(".", "data"),
-  settingsFile: process.env.SETTINGS_FILE ?? path.join(".", "data", "settings.json"),
-  sessionsDir: process.env.SESSIONS_DIR ?? path.join(".", "data", "sessions"),
-  sessionsIndexFile: process.env.SESSIONS_INDEX_FILE ?? path.join(".", "data", "sessions", "index.json"),
+  dataDir: resolvedDataDir,
+  settingsFile: expandHomePath(process.env.SETTINGS_FILE ?? path.join(resolvedDataDir, "settings.json")),
+  sessionsDir: expandHomePath(process.env.SESSIONS_DIR ?? path.join(resolvedDataDir, "sessions")),
+  sessionsIndexFile: expandHomePath(
+    process.env.SESSIONS_INDEX_FILE ?? path.join(resolvedDataDir, "sessions", "index.json")
+  ),
+  telegramSttBaseUrl:
+    (process.env.TELEGRAM_STT_BASE_URL ??
+      process.env.CUSTOM_AI_BASE_URL ??
+      "https://api.openai.com/v1").trim(),
+  telegramSttApiKey:
+    (process.env.TELEGRAM_STT_API_KEY ??
+      process.env.OPENAI_API_KEY ??
+      process.env.CUSTOM_AI_API_KEY ??
+      "").trim(),
+  telegramSttModel: (process.env.TELEGRAM_STT_MODEL ?? "whisper-1").trim(),
+  telegramSttLanguage: (process.env.TELEGRAM_STT_LANGUAGE ?? "").trim(),
+  telegramSttPrompt: (process.env.TELEGRAM_STT_PROMPT ?? "").trim(),
   rateLimitPerMinute: intFromEnv("RATE_LIMIT_PER_MINUTE", 30),
   maxMessageChars: intFromEnv("MAX_MESSAGE_CHARS", 4000)
 };
@@ -107,9 +146,14 @@ const envCustomProvider: CustomProviderConfig = {
   name: "Custom (env)",
   baseUrl: process.env.CUSTOM_AI_BASE_URL ?? "",
   apiKey: process.env.CUSTOM_AI_API_KEY ?? "",
-  models: (process.env.CUSTOM_AI_MODEL ?? "").trim() ? [String(process.env.CUSTOM_AI_MODEL).trim()] : [],
+  models: (process.env.CUSTOM_AI_MODEL ?? "").trim()
+    ? [{
+        id: String(process.env.CUSTOM_AI_MODEL).trim(),
+        tags: ["text", "vision", "stt", "tts"],
+        supportedRoles: ["system", "user", "assistant", "tool", "developer"]
+      }]
+    : [],
   defaultModel: process.env.CUSTOM_AI_MODEL ?? "",
-  supportedRoles: ["system", "user", "assistant", "tool", "developer"],
   path: process.env.CUSTOM_AI_PATH ?? "/v1/chat/completions"
 };
 
@@ -124,6 +168,12 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   piModelName: process.env.PI_MODEL_NAME ?? "claude-sonnet-4-20250514",
   customProviders: defaultCustomProviders,
   defaultCustomProviderId: defaultCustomProviders[0]?.id ?? "",
+  modelRouting: {
+    textModelKey: "",
+    visionModelKey: "",
+    sttModelKey: "",
+    ttsModelKey: ""
+  },
   systemPrompt:
     process.env.MOLIBOT_SYSTEM_PROMPT ??
     "You are Molibot, a concise and helpful assistant.",

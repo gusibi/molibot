@@ -1,7 +1,9 @@
 import {
   defaultRuntimeSettings,
   isKnownProvider,
+  type ProviderModelConfig,
   type ModelRole,
+  type ModelCapabilityTag,
   type CustomProviderConfig,
   type ProviderMode,
   type RuntimeSettings
@@ -29,6 +31,8 @@ declare global {
 }
 
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
+const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "stt", "tts", "tool"]);
+const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
 
 function sanitizeRoles(input: unknown): ModelRole[] {
   if (!Array.isArray(input)) return ["system", "user", "assistant", "tool"];
@@ -41,6 +45,19 @@ function sanitizeRoles(input: unknown): ModelRole[] {
     out.push(role as ModelRole);
   }
   return out.length > 0 ? out : ["system", "user", "assistant", "tool"];
+}
+
+function sanitizeModelTags(input: unknown): ModelCapabilityTag[] {
+  if (!Array.isArray(input)) return [...DEFAULT_MODEL_TAGS];
+  const out: ModelCapabilityTag[] = [];
+  const dedup = new Set<string>();
+  for (const row of input) {
+    const value = String(row ?? "").trim();
+    if (!CAPABILITY_SET.has(value) || dedup.has(value)) continue;
+    dedup.add(value);
+    out.push(value as ModelCapabilityTag);
+  }
+  return out.length > 0 ? out : [...DEFAULT_MODEL_TAGS];
 }
 
 function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSettings): RuntimeSettings {
@@ -69,10 +86,39 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
       ? ((row as { models: unknown[] }).models ?? [])
       : [];
     const legacyModel = String((row as { model?: unknown }).model ?? "").trim();
-    const models = rawModels.map((m) => String(m).trim()).filter(Boolean);
-    if (models.length === 0 && legacyModel) models.push(legacyModel);
+    const models: ProviderModelConfig[] = [];
+    for (const m of rawModels) {
+      if (typeof m === "string") {
+        const id = m.trim();
+        if (id) {
+          models.push({
+            id,
+            tags: [...DEFAULT_MODEL_TAGS],
+            supportedRoles: sanitizeRoles((row as { supportedRoles?: unknown }).supportedRoles)
+          });
+        }
+        continue;
+      }
+      if (!m || typeof m !== "object") continue;
+      const modelObj = m as { id?: unknown; model?: unknown; tags?: unknown; supportedRoles?: unknown };
+      const id = String(modelObj.id ?? modelObj.model ?? "").trim();
+      if (!id) continue;
+      models.push({
+        id,
+        tags: sanitizeModelTags(modelObj.tags),
+        supportedRoles: sanitizeRoles(modelObj.supportedRoles ?? (row as { supportedRoles?: unknown }).supportedRoles)
+      });
+    }
+    if (models.length === 0 && legacyModel) {
+      models.push({
+        id: legacyModel,
+        tags: [...DEFAULT_MODEL_TAGS],
+        supportedRoles: sanitizeRoles((row as { supportedRoles?: unknown }).supportedRoles)
+      });
+    }
+    const modelIds = models.map((m) => m.id);
     const defaultModelRaw = String((row as { defaultModel?: unknown }).defaultModel ?? "").trim();
-    const defaultModel = models.includes(defaultModelRaw) ? defaultModelRaw : (models[0] ?? "");
+    const defaultModel = modelIds.includes(defaultModelRaw) ? defaultModelRaw : (modelIds[0] ?? "");
     customProviders.push({
       id,
       name: String(row.name ?? "").trim() || id,
@@ -80,7 +126,6 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
       apiKey: String(row.apiKey ?? "").trim(),
       models,
       defaultModel,
-      supportedRoles: sanitizeRoles((row as { supportedRoles?: unknown }).supportedRoles),
       path: String(row.path ?? "").trim() || "/v1/chat/completions"
     });
   }
@@ -89,6 +134,13 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   if (!next.customProviders.some((p) => p.id === next.defaultCustomProviderId)) {
     next.defaultCustomProviderId = next.customProviders[0]?.id ?? "";
   }
+
+  next.modelRouting = {
+    textModelKey: String((next as { modelRouting?: { textModelKey?: unknown } }).modelRouting?.textModelKey ?? "").trim(),
+    visionModelKey: String((next as { modelRouting?: { visionModelKey?: unknown } }).modelRouting?.visionModelKey ?? "").trim(),
+    sttModelKey: String((next as { modelRouting?: { sttModelKey?: unknown } }).modelRouting?.sttModelKey ?? "").trim(),
+    ttsModelKey: String((next as { modelRouting?: { ttsModelKey?: unknown } }).modelRouting?.ttsModelKey ?? "").trim()
+  };
 
   next.systemPrompt = String(next.systemPrompt ?? "").trim() || defaultRuntimeSettings.systemPrompt;
   next.telegramBotToken = String(next.telegramBotToken ?? "").trim();
@@ -115,7 +167,17 @@ export function getRuntime(): RuntimeState {
     const currentSettings = { value: settings };
     const assistant = new AssistantService(() => currentSettings.value);
     const router = new MessageRouter(sessions, assistant);
-    const telegram = new TelegramManager(() => currentSettings.value, sessions);
+    const applySettingsPatch = (patch: Partial<RuntimeSettings>): RuntimeSettings => {
+      state.settings = sanitizeSettings(patch, state.settings);
+      currentSettings.value = state.settings;
+      state.settingsStore.save(state.settings);
+      state.telegram.apply({
+        token: state.settings.telegramBotToken,
+        allowedChatIds: state.settings.telegramAllowedChatIds
+      });
+      return state.settings;
+    };
+    const telegram = new TelegramManager(() => currentSettings.value, applySettingsPatch, sessions);
 
     const state: RuntimeState = {
       sessions,
@@ -124,16 +186,7 @@ export function getRuntime(): RuntimeState {
       settingsStore,
       settings,
       getSettings: () => state.settings,
-      updateSettings: (patch) => {
-        state.settings = sanitizeSettings(patch, state.settings);
-        currentSettings.value = state.settings;
-        state.settingsStore.save(state.settings);
-        state.telegram.apply({
-          token: state.settings.telegramBotToken,
-          allowedChatIds: state.settings.telegramAllowedChatIds
-        });
-        return state.settings;
-      }
+      updateSettings: applySettingsPatch
     };
 
     state.telegram.apply({

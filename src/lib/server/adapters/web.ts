@@ -28,8 +28,8 @@ function registerWebAssets(app: Express): void {
         [
           "Web UI is not built yet.",
           "Run one of these:",
-          "- npm run dev   (for local development)",
-          "- npm run build (then restart backend)",
+          "- molibot        (for local development)",
+          "- molibot build  (then restart backend)",
         ].join("\n")
       );
   });
