@@ -103,6 +103,7 @@
 | ENG-92 | Server background startup script with fixed log output | Done | Added `bin/start-molibot.sh` to run `molibot` with `nohup` in background and persist logs to configurable file path |
 | ENG-93 | Server lifecycle scripts + ops docs | Done | Added `bin/stop-molibot.sh`, `bin/status-molibot.sh`, `bin/restart-molibot.sh`; upgraded start script with PID file management; documented all commands in `readme.md` |
 | ENG-94 | Unified service-control script with subcommands | Done | Added `bin/molibot-service.sh` (`start/stop/status/restart`) as single operational entrypoint; legacy scripts now forward to the unified script |
+| ENG-95 | Telegram multi-bot runtime + settings UI | Done | Added `telegramBots[]` settings schema and `/settings/telegram` multi-bot editor; runtime now starts one Telegram manager per bot with isolated workspace path and legacy single-bot migration fallback |
 
 ## In Progress
 | ID | Feature | Status | Notes |
@@ -118,6 +119,7 @@
 | BL-04 | Vector memory | Backlog | Post V1 |
 
 ## Update Log
+- 2026-02-25: Added Telegram multi-bot support end-to-end: settings schema now supports `telegramBots[]`, Telegram settings page supports add/remove/edit multiple bots, runtime applies all bots concurrently, and each bot uses isolated workspace state under `~/.molibot/moli-t/bots/<botId>`.
 - 2026-02-25: Consolidated server process management into single script `bin/molibot-service.sh` with subcommands (`start/stop/status/restart`) and kept legacy per-action scripts as compatibility wrappers.
 - 2026-02-25: Added server lifecycle scripts (`start/stop/status/restart`) for Molibot background process management, introduced PID file control (`~/.molibot/molibot.pid`), and documented all operations in `readme.md`.
 - 2026-02-25: Added `bin/start-molibot.sh` for one-command background startup (`nohup + disown`) with default log file `~/logs/molibot.log` and optional `MOLIBOT_LOG_FILE` override.

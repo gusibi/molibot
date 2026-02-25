@@ -619,3 +619,21 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
     - `restart`
   - Keep existing per-action scripts as wrappers to preserve backward compatibility.
   - Update `readme.md` to recommend unified entry as the default operations path.
+
+## 66. Telegram Multi-Bot Configuration (2026-02-25)
+- Problem:
+  - `/settings/telegram` currently supports only one bot token, but operations may require multiple Telegram bots running in parallel.
+- Requirement:
+  - Support configuring and running multiple Telegram bots from one Molibot runtime process.
+  - Keep backward compatibility with legacy single-bot settings (`telegramBotToken`, `telegramAllowedChatIds`).
+- Enforcement:
+  - Add runtime settings schema `telegramBots[]` where each item contains:
+    - `id`
+    - `name`
+    - `token`
+    - `allowedChatIds[]`
+  - Update `/settings/telegram` UI to manage bot list (add/remove/edit).
+  - Runtime should apply all configured bots concurrently:
+    - One `TelegramManager` instance per bot.
+    - Isolated bot workspace path: `<DATA_DIR>/moli-t/bots/<botId>`.
+  - Keep legacy fields readable/writable via migration fallback to first bot for old data compatibility.

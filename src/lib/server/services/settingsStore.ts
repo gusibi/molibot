@@ -3,6 +3,7 @@ import {
   type ModelCapabilityTag,
   type ProviderModelConfig,
   type CustomProviderConfig,
+  type TelegramBotConfig,
   isKnownProvider,
   type ProviderMode,
   type RuntimeSettings
@@ -22,6 +23,7 @@ interface RawSettings {
     ttsModelKey?: string;
   };
   systemPrompt?: string;
+  telegramBots?: unknown;
   telegramBotToken?: string;
   telegramAllowedChatIds?: string[] | string;
   customAiBaseUrl?: string;
@@ -143,6 +145,34 @@ function sanitizeList(input: unknown): string[] {
   return [];
 }
 
+function sanitizeTelegramBots(input: unknown): TelegramBotConfig[] {
+  if (!Array.isArray(input)) return [];
+
+  const out: TelegramBotConfig[] = [];
+  const dedup = new Set<string>();
+
+  for (const row of input) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const token = String(item.token ?? "").trim();
+    if (!token) continue;
+
+    const idRaw = String(item.id ?? "").trim();
+    const id = idRaw || `bot-${Math.random().toString(36).slice(2, 8)}`;
+    if (dedup.has(id)) continue;
+    dedup.add(id);
+
+    out.push({
+      id,
+      name: String(item.name ?? "").trim() || id,
+      token,
+      allowedChatIds: sanitizeList(item.allowedChatIds)
+    });
+  }
+
+  return out;
+}
+
 function migrateLegacyCustomProvider(raw: RawSettings): CustomProviderConfig[] {
   const baseUrl = String(raw.customAiBaseUrl ?? "").trim();
   const apiKey = String(raw.customAiApiKey ?? "").trim();
@@ -173,6 +203,21 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     defaultCustomProviderId = customProviders[0]?.id ?? "";
   }
 
+  const telegramBotsFromList = sanitizeTelegramBots(raw.telegramBots);
+  const fallbackToken = String(raw.telegramBotToken ?? defaultRuntimeSettings.telegramBotToken).trim();
+  const fallbackAllowed = sanitizeList(raw.telegramAllowedChatIds);
+  const telegramBots = telegramBotsFromList.length > 0
+    ? telegramBotsFromList
+    : (fallbackToken
+        ? [{
+            id: "default",
+            name: "Default Bot",
+            token: fallbackToken,
+            allowedChatIds: fallbackAllowed
+          }]
+        : []);
+  const primaryBot = telegramBots[0];
+
   return {
     providerMode: sanitizeMode(raw.providerMode ?? defaultRuntimeSettings.providerMode),
     piModelProvider: isKnownProvider(piProviderRaw)
@@ -191,8 +236,9 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     systemPrompt:
       String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
       defaultRuntimeSettings.systemPrompt,
-    telegramBotToken: String(raw.telegramBotToken ?? defaultRuntimeSettings.telegramBotToken).trim(),
-    telegramAllowedChatIds: sanitizeList(raw.telegramAllowedChatIds)
+    telegramBots,
+    telegramBotToken: primaryBot?.token ?? "",
+    telegramAllowedChatIds: primaryBot?.allowedChatIds ?? []
   };
 }
 

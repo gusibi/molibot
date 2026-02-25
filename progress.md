@@ -8,3 +8,10 @@
 - 右侧详情支持：字段编辑、多模型增删、默认模型、支持角色展示、Provider 测试。
 - 实现 Telegram pi 调用 developer 角色不兼容兜底映射。
 - 验证：`npm run build` 通过；`npm --prefix web run build` 仍因既有依赖打包问题失败（`@smithy/node-http-handler` browser externalization）。
+
+## 2026-02-25
+- 新增 `telegramBots[]` 配置结构（兼容旧单 bot 字段回填）。
+- Runtime 改为多实例应用：按 bot id 维护 `TelegramManager` Map，配置变更时增量启动/停止对应 bot。
+- Telegram 设置页改为多 bot 列表编辑（增删 bot、bot id/name/token/allowed chat ids）。
+- 修复 Telegram 配置热更新边界：token 相同但 allowed chat ids 变化时也会重载。
+- 验证：`npm run build` 通过。

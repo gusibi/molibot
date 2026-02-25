@@ -80,13 +80,15 @@ interface TranscriptionResult {
 export class TelegramManager {
   private static readonly TELEGRAM_TEXT_SOFT_LIMIT = 3800;
   private static readonly CHAT_EVENTS_RELATIVE_DIR = ["data", "moli-t", "events"] as const;
-  private bot: Bot | undefined;
-  private currentToken = "";
-  private botUsername = "";
-  private readonly workspaceDir = resolve(config.dataDir, "moli-t");
-  private readonly store = new TelegramMomStore(this.workspaceDir);
+  private readonly workspaceDir: string;
+  private readonly store: TelegramMomStore;
   private readonly sessions: SessionStore;
   private readonly runners: RunnerPool;
+  private readonly instanceId: string;
+  private bot: Bot | undefined;
+  private currentToken = "";
+  private currentAllowedChatIdsKey = "";
+  private botUsername = "";
   private readonly chatQueues = new Map<string, ChannelQueue>();
   private readonly running = new Set<string>();
   private readonly events: EventsWatcher[] = [];
@@ -201,18 +203,24 @@ export class TelegramManager {
   constructor(
     private readonly getSettings: () => RuntimeSettings,
     private readonly updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
-    sessionStore?: SessionStore
+    sessionStore?: SessionStore,
+    options?: { workspaceDir?: string; instanceId?: string }
   ) {
+    this.workspaceDir = options?.workspaceDir ?? resolve(config.dataDir, "moli-t");
+    this.instanceId = options?.instanceId ?? "default";
+    this.store = new TelegramMomStore(this.workspaceDir);
     this.sessions = sessionStore ?? new SessionStore();
     this.runners = new RunnerPool(this.store, this.getSettings);
   }
 
   apply(cfg: TelegramConfig): void {
     const token = cfg.token.trim();
+    const allowedChatIds = cfg.allowedChatIds.map((v) => v.trim()).filter(Boolean);
+    const allowedChatIdsKey = JSON.stringify([...allowedChatIds].sort());
 
     momLog("telegram", "apply", {
       hasToken: Boolean(token),
-      allowedChatCount: cfg.allowedChatIds.length
+      allowedChatCount: allowedChatIds.length
     });
 
     if (!token) {
@@ -221,14 +229,14 @@ export class TelegramManager {
       return;
     }
 
-    if (this.bot && this.currentToken === token) {
+    if (this.bot && this.currentToken === token && this.currentAllowedChatIdsKey === allowedChatIdsKey) {
       momLog("telegram", "apply_noop_same_token");
       return;
     }
 
     this.stop();
 
-    const allowed = new Set(cfg.allowedChatIds.map((v) => v.trim()).filter(Boolean));
+    const allowed = new Set(allowedChatIds);
     momLog("telegram", "allowed_chat_ids_loaded", {
       mode: allowed.size > 0 ? "whitelist" : "all_chats",
       allowedChatIds: Array.from(allowed)
@@ -486,7 +494,10 @@ export class TelegramManager {
 
       try {
         const activeSessionId = this.store.getActiveSession(chatId);
-        const conv = this.sessions.getOrCreateConversation("telegram", `chat:${chatId}:${activeSessionId}`);
+        const conv = this.sessions.getOrCreateConversation(
+          "telegram",
+          this.getSessionConversationKey(chatId, activeSessionId)
+        );
         this.sessions.appendMessage(conv.id, event.isEvent ? "system" : "user", event.text);
         momLog("telegram", "session_user_appended", {
           runId,
@@ -564,6 +575,7 @@ export class TelegramManager {
 
     this.bot = bot;
     this.currentToken = token;
+    this.currentAllowedChatIdsKey = allowedChatIdsKey;
     this.startEventsWatchers(allowed);
   }
 
@@ -581,9 +593,18 @@ export class TelegramManager {
       this.bot.stop();
       this.bot = undefined;
       this.currentToken = "";
+      this.currentAllowedChatIdsKey = "";
       this.botUsername = "";
       momLog("telegram", "adapter_stopped");
     }
+  }
+
+  private getSessionConversationKey(chatId: string, sessionId: string): string {
+    return `bot:${this.instanceId}:chat:${chatId}:${sessionId}`;
+  }
+
+  private getEventConversationKey(chatId: string): string {
+    return `bot:${this.instanceId}:chat:${chatId}`;
   }
 
   private startEventsWatchers(allowed: Set<string>): void {
@@ -693,7 +714,7 @@ export class TelegramManager {
     });
 
     try {
-      const conv = this.sessions.getOrCreateConversation("telegram", `chat:${event.chatId}`);
+      const conv = this.sessions.getOrCreateConversation("telegram", this.getEventConversationKey(event.chatId));
       this.sessions.appendMessage(conv.id, "assistant", event.text);
       momLog("telegram", "session_event_direct_appended", {
         runId,
@@ -897,7 +918,10 @@ export class TelegramManager {
       const finalAssistantText = status.accumulatedText.trim();
       if (finalAssistantText) {
         try {
-          const conv = this.sessions.getOrCreateConversation("telegram", `chat:${chatId}:${sessionId}`);
+          const conv = this.sessions.getOrCreateConversation(
+            "telegram",
+            this.getSessionConversationKey(chatId, sessionId)
+          );
           this.sessions.appendMessage(conv.id, "assistant", finalAssistantText);
           momLog("telegram", "session_assistant_appended", {
             runId,

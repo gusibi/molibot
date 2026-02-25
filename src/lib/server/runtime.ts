@@ -1,10 +1,13 @@
+import { resolve } from "node:path";
 import {
+  config,
   defaultRuntimeSettings,
   isKnownProvider,
   type ProviderModelConfig,
   type ModelRole,
   type ModelCapabilityTag,
   type CustomProviderConfig,
+  type TelegramBotConfig,
   type ProviderMode,
   type RuntimeSettings
 } from "./config.js";
@@ -18,7 +21,7 @@ import { SettingsStore } from "./services/settingsStore.js";
 interface RuntimeState {
   sessions: SessionStore;
   router: MessageRouter;
-  telegram: TelegramManager;
+  telegramManagers: Map<string, TelegramManager>;
   settingsStore: SettingsStore;
   settings: RuntimeSettings;
   getSettings: () => RuntimeSettings;
@@ -58,6 +61,32 @@ function sanitizeModelTags(input: unknown): ModelCapabilityTag[] {
     out.push(value as ModelCapabilityTag);
   }
   return out.length > 0 ? out : [...DEFAULT_MODEL_TAGS];
+}
+
+function sanitizeTelegramBots(input: unknown): TelegramBotConfig[] {
+  if (!Array.isArray(input)) return [];
+
+  const out: TelegramBotConfig[] = [];
+  const dedup = new Set<string>();
+  for (const row of input) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const token = String(item.token ?? "").trim();
+    if (!token) continue;
+    const idRaw = String(item.id ?? "").trim();
+    const id = idRaw || `bot-${Math.random().toString(36).slice(2, 8)}`;
+    if (dedup.has(id)) continue;
+    dedup.add(id);
+    out.push({
+      id,
+      name: String(item.name ?? "").trim() || id,
+      token,
+      allowedChatIds: Array.isArray(item.allowedChatIds)
+        ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
+        : []
+    });
+  }
+  return out;
 }
 
 function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSettings): RuntimeSettings {
@@ -143,17 +172,58 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   };
 
   next.systemPrompt = String(next.systemPrompt ?? "").trim() || defaultRuntimeSettings.systemPrompt;
-  next.telegramBotToken = String(next.telegramBotToken ?? "").trim();
+  const sanitizedBots = sanitizeTelegramBots(next.telegramBots);
+  const legacyToken = String(next.telegramBotToken ?? "").trim();
+  const legacyAllowed = Array.isArray(next.telegramAllowedChatIds)
+    ? next.telegramAllowedChatIds.map((v) => String(v).trim()).filter(Boolean)
+    : current.telegramAllowedChatIds;
+  next.telegramBots = sanitizedBots.length > 0
+    ? sanitizedBots
+    : (legacyToken
+        ? [{
+            id: "default",
+            name: "Default Bot",
+            token: legacyToken,
+            allowedChatIds: legacyAllowed
+          }]
+        : []);
 
-  if (Array.isArray(next.telegramAllowedChatIds)) {
-    next.telegramAllowedChatIds = next.telegramAllowedChatIds
-      .map((v) => String(v).trim())
-      .filter(Boolean);
-  } else {
-    next.telegramAllowedChatIds = current.telegramAllowedChatIds;
-  }
+  next.telegramBotToken = next.telegramBots[0]?.token ?? "";
+  next.telegramAllowedChatIds = next.telegramBots[0]?.allowedChatIds ?? [];
 
   return next;
+}
+
+function applyTelegramBots(state: RuntimeState, applySettingsPatch: (patch: Partial<RuntimeSettings>) => RuntimeSettings): void {
+  const bots = state.settings.telegramBots.filter((bot) => bot.token.trim());
+  const expectedIds = new Set(bots.map((bot) => bot.id));
+
+  for (const [id, manager] of state.telegramManagers.entries()) {
+    if (expectedIds.has(id)) continue;
+    manager.stop();
+    state.telegramManagers.delete(id);
+  }
+
+  for (const bot of bots) {
+    let manager = state.telegramManagers.get(bot.id);
+    if (!manager) {
+      manager = new TelegramManager(
+        () => state.settings,
+        applySettingsPatch,
+        state.sessions,
+        {
+          instanceId: bot.id,
+          workspaceDir: resolve(config.dataDir, "moli-t", "bots", bot.id)
+        }
+      );
+      state.telegramManagers.set(bot.id, manager);
+    }
+
+    manager.apply({
+      token: bot.token,
+      allowedChatIds: bot.allowedChatIds
+    });
+  }
 }
 
 export function getRuntime(): RuntimeState {
@@ -171,28 +241,23 @@ export function getRuntime(): RuntimeState {
       state.settings = sanitizeSettings(patch, state.settings);
       currentSettings.value = state.settings;
       state.settingsStore.save(state.settings);
-      state.telegram.apply({
-        token: state.settings.telegramBotToken,
-        allowedChatIds: state.settings.telegramAllowedChatIds
-      });
+      applyTelegramBots(state, applySettingsPatch);
       return state.settings;
     };
-    const telegram = new TelegramManager(() => currentSettings.value, applySettingsPatch, sessions);
 
     const state: RuntimeState = {
       sessions,
       router,
-      telegram,
+      telegramManagers: new Map<string, TelegramManager>(),
       settingsStore,
       settings,
       getSettings: () => state.settings,
       updateSettings: applySettingsPatch
     };
 
-    state.telegram.apply({
-      token: state.settings.telegramBotToken,
-      allowedChatIds: state.settings.telegramAllowedChatIds
-    });
+    state.settings = sanitizeSettings({}, state.settings);
+    currentSettings.value = state.settings;
+    applyTelegramBots(state, applySettingsPatch);
 
     globalThis.__molibotRuntime = state;
   }

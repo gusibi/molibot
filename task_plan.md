@@ -17,3 +17,10 @@ Add Telegram commands for session lifecycle (`/new`, `/clear`, `/sessions`, `/de
 
 ## Status
 **Completed** - commands implemented and `npm run build` passes.
+
+## 2026-02-25 Addendum: Telegram Multi-Bot
+- [x] Phase 1: Analyze single-bot constraints in settings/runtime/adapter
+- [x] Phase 2: Introduce `telegramBots[]` schema with legacy migration compatibility
+- [x] Phase 3: Refactor runtime to manage multiple Telegram managers concurrently
+- [x] Phase 4: Upgrade `/settings/telegram` to multi-bot list UI
+- [x] Phase 5: Build verification + docs updates (`features.md`, `prd.md`)

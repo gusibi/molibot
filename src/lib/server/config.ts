@@ -33,6 +33,13 @@ export interface CustomProviderConfig {
   path: string;
 }
 
+export interface TelegramBotConfig {
+  id: string;
+  name: string;
+  token: string;
+  allowedChatIds: string[];
+}
+
 export interface RuntimeSettings {
   providerMode: ProviderMode;
   piModelProvider: KnownProvider;
@@ -41,6 +48,8 @@ export interface RuntimeSettings {
   defaultCustomProviderId: string;
   modelRouting: ModelRoutingConfig;
   systemPrompt: string;
+  telegramBots: TelegramBotConfig[];
+  // Legacy single-bot fields kept for backward compatibility with old settings files/API payloads.
   telegramBotToken: string;
   telegramAllowedChatIds: string[];
 }
@@ -162,6 +171,17 @@ const defaultCustomProviders =
     ? [envCustomProvider]
     : [];
 
+const defaultTelegramBotToken = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
+const defaultTelegramAllowedChatIds = listFromEnv("TELEGRAM_ALLOWED_CHAT_IDS");
+const defaultTelegramBots: TelegramBotConfig[] = defaultTelegramBotToken
+  ? [{
+      id: "default",
+      name: "Default Bot",
+      token: defaultTelegramBotToken,
+      allowedChatIds: defaultTelegramAllowedChatIds
+    }]
+  : [];
+
 export const defaultRuntimeSettings: RuntimeSettings = {
   providerMode,
   piModelProvider: providerFromEnv("PI_MODEL_PROVIDER", "anthropic"),
@@ -177,6 +197,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   systemPrompt:
     process.env.MOLIBOT_SYSTEM_PROMPT ??
     "You are Molibot, a concise and helpful assistant.",
-  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
-  telegramAllowedChatIds: listFromEnv("TELEGRAM_ALLOWED_CHAT_IDS")
+  telegramBots: defaultTelegramBots,
+  telegramBotToken: defaultTelegramBotToken,
+  telegramAllowedChatIds: defaultTelegramAllowedChatIds
 };
