@@ -37,6 +37,37 @@ npm link
 molibot
 ```
 
+## 后台运维脚本（服务器）
+- 统一入口（推荐）：
+```bash
+./bin/molibot-service.sh start
+./bin/molibot-service.sh stop
+./bin/molibot-service.sh status
+./bin/molibot-service.sh restart
+```
+
+- 兼容别名（等价）：
+```bash
+./bin/start-molibot.sh
+./bin/stop-molibot.sh
+./bin/status-molibot.sh
+./bin/restart-molibot.sh
+```
+
+默认文件路径：
+- 日志：`~/logs/molibot.log`
+- PID：`~/.molibot/molibot.pid`
+
+可选覆盖（临时生效）：
+```bash
+MOLIBOT_LOG_FILE=/var/log/molibot.log MOLIBOT_PID_FILE=/var/run/molibot.pid ./bin/molibot-service.sh start
+```
+
+查看实时日志：
+```bash
+tail -f ~/logs/molibot.log
+```
+
 ## 构建与运行
 ```bash
 molibot build

@@ -580,3 +580,42 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
     - `/models <text|vision|stt|tts> <index|key>` for switching route model
   - Keep backward compatibility:
     - `/models` and `/models <index|key>` continue to target text route.
+
+## 63. Server One-Command Background Start Script (2026-02-25)
+- Problem:
+  - Manual background startup command is easy to mistype and inconvenient to repeat on server operations.
+- Requirement:
+  - Provide a reusable script that starts `molibot` in background and writes runtime logs to a deterministic file path.
+- Enforcement:
+  - Add executable script `bin/start-molibot.sh`.
+  - Script uses `nohup` and `disown`, with stdin detached and stdout/stderr redirected to one log file.
+  - Default log path is `~/logs/molibot.log`, overridable via env `MOLIBOT_LOG_FILE`.
+  - Script prints PID and active log path after startup for quick verification.
+
+## 64. Server Process Lifecycle Scripts + Runtime Docs (2026-02-25)
+- Problem:
+  - Background startup alone is insufficient for daily operations; manual process checks/stops/restarts are error-prone.
+- Requirement:
+  - Provide complete lifecycle scripts (`stop/status/restart`) and document practical usage commands in project docs.
+- Enforcement:
+  - Add executable scripts:
+    - `bin/stop-molibot.sh`: graceful stop by PID with stale-pid cleanup.
+    - `bin/status-molibot.sh`: running/stopped check via PID file.
+    - `bin/restart-molibot.sh`: stop then start.
+  - Upgrade `bin/start-molibot.sh` with PID file write and duplicate-run guard.
+  - Standardize PID path default as `~/.molibot/molibot.pid` (overridable by `MOLIBOT_PID_FILE`).
+  - Add operation guide to `readme.md` (start/stop/status/restart, tail log, env override).
+
+## 65. Unified Service Script UX (2026-02-25)
+- Problem:
+  - Multiple separate scripts increase cognitive overhead and make command recall inconsistent.
+- Requirement:
+  - Provide one command entry with subcommands for all service lifecycle actions.
+- Enforcement:
+  - Add `bin/molibot-service.sh` with subcommands:
+    - `start`
+    - `stop`
+    - `status`
+    - `restart`
+  - Keep existing per-action scripts as wrappers to preserve backward compatibility.
+  - Update `readme.md` to recommend unified entry as the default operations path.

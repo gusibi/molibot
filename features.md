@@ -100,6 +100,9 @@
 | ENG-89 | AI settings empty-model draft row support | Done | `+ Add Model` now keeps unsaved empty model rows visible (input appears immediately) instead of being filtered out during defaults normalization |
 | ENG-90 | Web app ChatGPT-style Tailwind layout refactor | Done | Rebuilt chat + settings pages (`/`, `/settings`, `/settings/ai`, `/settings/telegram`) into unified ChatGPT-style shell with Tailwind-only styling while preserving all existing behavior |
 | ENG-91 | Telegram route-scoped model switching command | Done | Upgraded `/models` to support route-specific model listing/switching for `text/vision/stt/tts` in Telegram chat |
+| ENG-92 | Server background startup script with fixed log output | Done | Added `bin/start-molibot.sh` to run `molibot` with `nohup` in background and persist logs to configurable file path |
+| ENG-93 | Server lifecycle scripts + ops docs | Done | Added `bin/stop-molibot.sh`, `bin/status-molibot.sh`, `bin/restart-molibot.sh`; upgraded start script with PID file management; documented all commands in `readme.md` |
+| ENG-94 | Unified service-control script with subcommands | Done | Added `bin/molibot-service.sh` (`start/stop/status/restart`) as single operational entrypoint; legacy scripts now forward to the unified script |
 
 ## In Progress
 | ID | Feature | Status | Notes |
@@ -115,6 +118,9 @@
 | BL-04 | Vector memory | Backlog | Post V1 |
 
 ## Update Log
+- 2026-02-25: Consolidated server process management into single script `bin/molibot-service.sh` with subcommands (`start/stop/status/restart`) and kept legacy per-action scripts as compatibility wrappers.
+- 2026-02-25: Added server lifecycle scripts (`start/stop/status/restart`) for Molibot background process management, introduced PID file control (`~/.molibot/molibot.pid`), and documented all operations in `readme.md`.
+- 2026-02-25: Added `bin/start-molibot.sh` for one-command background startup (`nohup + disown`) with default log file `~/logs/molibot.log` and optional `MOLIBOT_LOG_FILE` override.
 - 2026-02-23: Migrated web chat page UI to Tailwind CSS with modern visual refresh (toolbar, message list, composer), removed local `<style>` from `src/routes/+page.svelte`, and added Tailwind runtime wiring (`@tailwindcss/vite`, `src/app.css`, `src/routes/+layout.svelte`).
 - 2026-02-23: Upgraded web app layout to ChatGPT-style structure across chat and settings pages (left navigation shell + main workspace), removed legacy page-scoped CSS from settings pages, and kept existing settings/chat logic unchanged.
 - 2026-02-23: Added Telegram route-scoped model switch support in `/models` command: `text/vision/stt/tts` can be listed and switched independently by index or key.
