@@ -258,140 +258,102 @@
   });
 </script>
 
-<div class="page">
-  <div class="toolbar">
-    <select
-      value={activeModelKey}
-      disabled={changingModel}
-      on:change={async (e) => applyModelSelection((e.target as HTMLSelectElement).value)}
-    >
-      {#each modelOptions as m}
-        <option value={m.key}>{m.label}</option>
-      {/each}
-    </select>
-    <select value={activeSessionId} on:change={async (e) => switchSession((e.target as HTMLSelectElement).value)}>
-      {#each sessions as s}
-        <option value={s.id}>{s.title}</option>
-      {/each}
-    </select>
-    <button type="button" on:click={createSession}>New Session</button>
-    <a class="settings-link" href="/settings">Settings</a>
-  </div>
-
-  {#if status}
-    <div class="status">{status}</div>
-  {/if}
-
-  <div class="messages">
-    {#each messages as m}
-      <div class={`msg ${m.role}`}>
-        <div class="role">{m.role}</div>
-        <div class="content">{m.content}</div>
+<main class="h-screen bg-[#212121] text-slate-100">
+  <div class="grid h-full grid-cols-1 lg:grid-cols-[280px_1fr]">
+    <aside class="hidden border-r border-white/10 bg-[#171717] p-3 lg:flex lg:flex-col lg:gap-3">
+      <button
+        class="w-full cursor-pointer rounded-lg border border-white/20 px-3 py-2 text-left text-sm font-medium transition-colors duration-200 hover:bg-white/10"
+        type="button"
+        on:click={createSession}
+      >
+        + New chat
+      </button>
+      <a
+        class="cursor-pointer rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 transition-colors duration-200 hover:bg-white/10"
+        href="/settings">Settings</a
+      >
+      <div class="min-h-0 flex-1 space-y-1 overflow-y-auto">
+        {#each sessions as s}
+          <button
+            class={`w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm transition-colors duration-200 ${s.id === activeSessionId
+              ? "bg-white/15 text-white"
+              : "text-slate-300 hover:bg-white/10"}`}
+            type="button"
+            on:click={() => switchSession(s.id)}
+          >
+            {s.title}
+          </button>
+        {/each}
       </div>
-    {/each}
+      <div class="text-xs text-slate-500">Molibot Web</div>
+    </aside>
+
+    <section class="flex min-h-0 flex-col">
+      <header class="border-b border-white/10 bg-[#212121] px-4 py-3 sm:px-6">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div class="text-sm font-semibold text-slate-200">Molibot</div>
+          <div class="flex items-center gap-2 sm:ml-auto">
+            <select
+              class="w-full rounded-md border border-white/15 bg-[#2f2f2f] px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-emerald-400 sm:w-[320px]"
+              value={activeModelKey}
+              disabled={changingModel}
+              on:change={async (e) => applyModelSelection((e.target as HTMLSelectElement).value)}
+            >
+              {#each modelOptions as m}
+                <option value={m.key}>{m.label}</option>
+              {/each}
+            </select>
+            <button
+              class="cursor-pointer rounded-md border border-white/15 bg-[#2f2f2f] px-3 py-1.5 text-xs text-slate-100 transition-colors duration-200 hover:bg-[#3a3a3a] lg:hidden"
+              type="button"
+              on:click={createSession}
+            >
+              New
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div class="min-h-0 flex-1 overflow-y-auto">
+        <div class="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 sm:px-6">
+          {#if status}
+            <div class="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">{status}</div>
+          {/if}
+
+          {#if messages.length === 0}
+            <div class="rounded-xl border border-white/10 bg-[#2a2a2a] px-5 py-6 text-sm text-slate-300">
+              Start a new conversation.
+            </div>
+          {/if}
+
+          {#each messages as m}
+            <article class={`rounded-xl px-4 py-3 text-sm leading-7 ${m.role === "user"
+              ? "ml-auto w-fit max-w-[88%] bg-[#303030] text-slate-100"
+              : "w-full bg-transparent text-slate-100"}`}>
+              <div class="whitespace-pre-wrap">{m.content}</div>
+            </article>
+          {/each}
+        </div>
+      </div>
+
+      <footer class="border-t border-white/10 bg-[#212121] px-4 py-4 sm:px-6">
+        <div class="mx-auto grid w-full max-w-3xl gap-2 rounded-2xl border border-white/15 bg-[#2f2f2f] p-3 sm:grid-cols-[1fr_auto]">
+          <textarea
+            class="min-h-16 w-full resize-y rounded-xl bg-transparent px-2 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500"
+            bind:value={messageInput}
+            rows="3"
+            placeholder="Message Molibot"
+          ></textarea>
+          <button
+            class="cursor-pointer self-end rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black transition-colors duration-200 hover:bg-slate-200 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+            type="button"
+            disabled={sending}
+            on:click={sendMessage}
+          >
+            {sending ? "Sending..." : "Send"}
+          </button>
+        </div>
+      </footer>
+    </section>
   </div>
-
-  <div class="composer">
-    <textarea bind:value={messageInput} rows="3" placeholder="Type your message..."></textarea>
-    <button type="button" disabled={sending} on:click={sendMessage}>{sending ? "Sending..." : "Send"}</button>
-  </div>
-</div>
-
-<style>
-  :global(html, body, #svelte) {
-    margin: 0;
-    width: 100%;
-    height: 100%;
-    background: #0b1020;
-    color: #e5e7eb;
-  }
-
-  .page {
-    height: 100%;
-    display: grid;
-    grid-template-rows: auto auto 1fr auto;
-    gap: 12px;
-    padding: 12px;
-    box-sizing: border-box;
-  }
-
-  .toolbar {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .toolbar select,
-  .toolbar button,
-  .composer button,
-  .composer textarea {
-    background: #111827;
-    color: #e5e7eb;
-    border: 1px solid #334155;
-    border-radius: 8px;
-    padding: 8px 10px;
-    font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-
-  .settings-link {
-    color: #d1d5db;
-    text-decoration: none;
-    margin-left: auto;
-    font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-
-  .status {
-    color: #fecaca;
-    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-
-  .messages {
-    border: 1px solid #334155;
-    border-radius: 10px;
-    padding: 10px;
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    background: #0f172a;
-  }
-
-  .msg {
-    padding: 8px;
-    border-radius: 8px;
-    max-width: 80%;
-    white-space: pre-wrap;
-  }
-
-  .msg.user {
-    align-self: flex-end;
-    background: #1d4ed8;
-  }
-
-  .msg.assistant {
-    align-self: flex-start;
-    background: #1f2937;
-  }
-
-  .role {
-    font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
-    opacity: 0.8;
-    margin-bottom: 6px;
-    text-transform: uppercase;
-  }
-
-  .content {
-    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-
-  .composer {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-  }
-
-  .composer textarea {
-    resize: vertical;
-    min-height: 56px;
-  }
-</style>
+</main>

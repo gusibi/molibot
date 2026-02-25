@@ -63,6 +63,8 @@ interface ModelOption {
   patch: Partial<RuntimeSettings>;
 }
 
+type ModelRoute = "text" | "vision" | "stt" | "tts";
+
 interface SttTarget {
   baseUrl: string;
   apiKey: string;
@@ -381,7 +383,7 @@ export class TelegramManager {
 
       const rawArg = this.readCommandArg(ctx.msg?.text, "/models");
       if (!rawArg) {
-        await ctx.reply(this.modelsText());
+        await ctx.reply(this.modelsText("text"));
         return;
       }
 
@@ -390,25 +392,38 @@ export class TelegramManager {
         return;
       }
 
+      const [firstArg = "", secondArg = ""] = rawArg
+        .split(/\s+/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      const maybeRoute = this.parseModelRoute(firstArg);
+      const route: ModelRoute = maybeRoute ?? "text";
+      const selector = maybeRoute ? secondArg : rawArg;
+
       const settings = this.getSettings();
-      const options = this.buildModelOptions(settings);
-      const selected = this.resolveModelSelection(rawArg, options);
+      const options = this.buildModelOptions(settings, route);
+      if (!selector) {
+        await ctx.reply(this.modelsText(route));
+        return;
+      }
+      const selected = this.resolveModelSelection(selector, options);
       if (!selected) {
-        await ctx.reply(`Invalid model selector: ${rawArg}\n\n${this.modelsText()}`);
+        await ctx.reply(`Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
         return;
       }
 
       const updated = this.updateSettings(selected.patch);
       await ctx.reply(
         [
-          `Switched model to: ${selected.label}`,
+          `Switched ${route} model to: ${selected.label}`,
           `Mode: ${updated.providerMode}`,
-          `Use /models to check current active model.`
+          `Use /models ${route} to check current active ${route} model.`
         ].join("\n")
       );
       momLog("telegram", "model_switched_via_command", {
         chatId,
-        selector: rawArg,
+        route,
+        selector,
         selectedKey: selected.key,
         providerMode: updated.providerMode
       });
@@ -969,8 +984,10 @@ export class TelegramManager {
       "/sessions <index|sessionId> - switch active session",
       "/delete_sessions - list sessions and delete usage",
       "/delete_sessions <index|sessionId> - delete a session",
-      "/models - list configured models and active model",
-      "/models <index|key> - switch active model",
+      "/models - list text-model options and active text model",
+      "/models <index|key> - switch text model",
+      "/models <text|vision|stt|tts> - list options for a specific route",
+      "/models <text|vision|stt|tts> <index|key> - switch route model",
       "/skills - list currently loaded skills",
       "/help - show this help",
       "",
@@ -1011,10 +1028,21 @@ export class TelegramManager {
     return lines.join("\n");
   }
 
-  private currentModelKey(settings: RuntimeSettings): string {
-    if (settings.modelRouting.textModelKey?.trim()) {
-      return settings.modelRouting.textModelKey.trim();
-    }
+  private parseModelRoute(value: string): ModelRoute | null {
+    if (value === "text" || value === "vision" || value === "stt" || value === "tts") return value;
+    return null;
+  }
+
+  private currentModelKey(settings: RuntimeSettings, route: ModelRoute): string {
+    const routed = route === "text"
+      ? settings.modelRouting.textModelKey?.trim()
+      : route === "vision"
+        ? settings.modelRouting.visionModelKey?.trim()
+        : route === "stt"
+          ? settings.modelRouting.sttModelKey?.trim()
+          : settings.modelRouting.ttsModelKey?.trim();
+    if (routed) return routed;
+    if (route !== "text") return "";
     if (settings.providerMode === "custom") {
       const id = settings.defaultCustomProviderId || settings.customProviders[0]?.id || "";
       const provider = settings.customProviders.find((p) => p.id === id) ?? settings.customProviders[0];
@@ -1025,40 +1053,55 @@ export class TelegramManager {
     return `pi|${settings.piModelProvider}|${settings.piModelName}`;
   }
 
-  private buildModelOptions(settings: RuntimeSettings): ModelOption[] {
+  private buildModelOptions(settings: RuntimeSettings, route: ModelRoute): ModelOption[] {
+    const patchKey = route === "text"
+      ? "textModelKey"
+      : route === "vision"
+        ? "visionModelKey"
+        : route === "stt"
+          ? "sttModelKey"
+          : "ttsModelKey";
+
+    const supportsRoute = (tags: string[]): boolean => {
+      if (route === "text") return tags.includes("text");
+      return tags.includes(route);
+    };
+
     const options: ModelOption[] = [
-      {
-        key: `pi|${settings.piModelProvider}|${settings.piModelName}`,
-        label: `[PI] ${settings.piModelProvider} / ${settings.piModelName}`,
-        patch: {
-          providerMode: "pi",
-          piModelProvider: settings.piModelProvider,
-          piModelName: settings.piModelName,
-          modelRouting: {
-            ...settings.modelRouting,
-            textModelKey: `pi|${settings.piModelProvider}|${settings.piModelName}`
-          }
-        }
-      }
+      ...(route === "text" || route === "vision"
+        ? [{
+            key: `pi|${settings.piModelProvider}|${settings.piModelName}`,
+            label: `[PI] ${settings.piModelProvider} / ${settings.piModelName}`,
+            patch: {
+              providerMode: route === "text" ? "pi" : settings.providerMode,
+              piModelProvider: settings.piModelProvider,
+              piModelName: settings.piModelName,
+              modelRouting: {
+                ...settings.modelRouting,
+                [patchKey]: `pi|${settings.piModelProvider}|${settings.piModelName}`
+              }
+            } as Partial<RuntimeSettings>
+          }]
+        : [])
     ];
 
     for (const provider of settings.customProviders) {
-      const modelIds = provider.models.map((m) => m.id).filter(Boolean);
-      const models = modelIds.length > 0 ? modelIds : (provider.defaultModel ? [provider.defaultModel] : []);
+      const models = provider.models.filter((m) => m.id?.trim() && supportsRoute(Array.isArray(m.tags) ? m.tags : ["text"]));
       for (const model of models) {
+        const modelId = model.id.trim();
         const updatedProviders = settings.customProviders.map((row) =>
-          row.id === provider.id ? { ...row, defaultModel: model } : row
+          row.id === provider.id ? { ...row, defaultModel: modelId } : row
         );
         options.push({
-          key: `custom|${provider.id}|${model}`,
-          label: `[Custom] ${provider.name} / ${model}`,
+          key: `custom|${provider.id}|${modelId}`,
+          label: `[Custom] ${provider.name} / ${modelId}`,
           patch: {
-            providerMode: "custom",
-            defaultCustomProviderId: provider.id,
-            customProviders: updatedProviders,
+            providerMode: route === "text" ? "custom" : settings.providerMode,
+            defaultCustomProviderId: route === "text" ? provider.id : settings.defaultCustomProviderId,
+            customProviders: route === "text" ? updatedProviders : settings.customProviders,
             modelRouting: {
               ...settings.modelRouting,
-              textModelKey: `custom|${provider.id}|${model}`
+              [patchKey]: `custom|${provider.id}|${modelId}`
             }
           }
         });
@@ -1080,11 +1123,12 @@ export class TelegramManager {
     return options.find((o) => o.key === raw) ?? null;
   }
 
-  private modelsText(): string {
+  private modelsText(route: ModelRoute): string {
     const settings = this.getSettings();
-    const options = this.buildModelOptions(settings);
-    const activeKey = this.currentModelKey(settings);
+    const options = this.buildModelOptions(settings, route);
+    const activeKey = this.currentModelKey(settings, route);
     const lines = [
+      `Route: ${route}`,
       `Provider mode: ${settings.providerMode}`,
       `Configured model options: ${options.length}`,
       ""
@@ -1102,9 +1146,15 @@ export class TelegramManager {
     }
 
     lines.push("");
-    lines.push("Switch model:");
-    lines.push("/models <index>");
-    lines.push("/models <key>");
+    lines.push(`Switch ${route} model:`);
+    lines.push(`/models ${route} <index>`);
+    lines.push(`/models ${route} <key>`);
+    if (route === "text") {
+      lines.push("");
+      lines.push("Quick text switch:");
+      lines.push("/models <index>");
+      lines.push("/models <key>");
+    }
     return lines.join("\n");
   }
 

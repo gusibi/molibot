@@ -548,3 +548,35 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - Keep empty-id draft rows in UI state until user fills model id or deletes the row.
   - Default-model selection should derive from non-empty ids only.
+
+## 60. Web Chat UI Modernization with Tailwind (2026-02-23)
+- Problem:
+  - Existing web chat page style is functional but visually outdated and CSS is page-scoped/custom, which slows future UI iteration consistency.
+- Requirement:
+  - Keep existing chat/session/model/settings/send behavior unchanged while upgrading to a modern UI style implemented with Tailwind CSS utilities only.
+- Enforcement:
+  - Wire Tailwind through Vite (`@tailwindcss/vite`) and global entry (`src/app.css` via `src/routes/+layout.svelte`).
+  - Replace `src/routes/+page.svelte` custom CSS block with utility-class based layout/components.
+  - Preserve all existing page logic and API interactions (`/api/chat`, `/api/sessions`, `/api/settings`) with no behavior change.
+
+## 61. Unified ChatGPT-Style Shell Across Web Pages (2026-02-23)
+- Problem:
+  - Chat and settings pages used different layouts and interaction framing, resulting in inconsistent navigation and visual hierarchy.
+- Requirement:
+  - Use one consistent ChatGPT-style shell for chat and settings surfaces, with Tailwind-only styling and no behavior regression.
+- Enforcement:
+  - Adopt left navigation + right content workspace layout for `/`, `/settings`, `/settings/ai`, `/settings/telegram`.
+  - Replace settings page legacy `<style>` blocks with Tailwind utility classes.
+  - Keep all existing runtime actions unchanged (session switching/new chat, model selection, provider CRUD, provider test, telegram settings save).
+
+## 62. Telegram Command-Level Route Model Switching (2026-02-23)
+- Problem:
+  - Telegram `/models` previously only switched text route, while runtime supports multiple route models (`text/vision/stt/tts`).
+- Requirement:
+  - Operators must be able to inspect and switch each route model directly in Telegram without opening Web settings.
+- Enforcement:
+  - Extend `/models` command syntax to support route target:
+    - `/models <text|vision|stt|tts>` for listing route options
+    - `/models <text|vision|stt|tts> <index|key>` for switching route model
+  - Keep backward compatibility:
+    - `/models` and `/models <index|key>` continue to target text route.

@@ -60,116 +60,64 @@
   onMount(loadSettings);
 </script>
 
-<div class="page">
-  <header class="header">
-    <h1>Settings / Telegram Bot</h1>
-    <div class="links">
-      <a href="/settings">Back</a>
-      <a href="/">Chat</a>
-    </div>
-  </header>
+<main class="h-screen bg-[#212121] text-slate-100">
+  <div class="grid h-full grid-cols-1 lg:grid-cols-[260px_1fr]">
+    <aside class="hidden border-r border-white/10 bg-[#171717] p-3 lg:block">
+      <nav class="space-y-1 text-sm">
+        <a class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10" href="/">Chat</a>
+        <a class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10" href="/settings">Settings</a>
+        <a class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10" href="/settings/ai">AI</a>
+        <a class="block rounded-lg bg-white/15 px-3 py-2 font-medium text-white" href="/settings/telegram">Telegram</a>
+      </nav>
+    </aside>
 
-  {#if loading}
-    <p>Loading Telegram settings...</p>
-  {:else}
-    <form class="form" on:submit|preventDefault={save}>
-      <section>
-        <label>
-          Bot token
-          <input bind:value={form.telegramBotToken} type="password" placeholder="123456:ABCDEF..." />
-        </label>
+    <section class="min-h-0 overflow-y-auto px-4 py-6 sm:px-8">
+      <div class="mx-auto max-w-3xl space-y-4">
+        <h1 class="text-2xl font-semibold">Telegram Settings</h1>
+        <p class="text-sm text-slate-400">Configure bot token and allowed chat IDs.</p>
 
-        <label>
-          Allowed chat IDs (comma-separated)
-          <input bind:value={form.telegramAllowedChatIds} placeholder="123456789,-1001234567890" />
-        </label>
-      </section>
+        {#if loading}
+          <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">Loading Telegram settings...</div>
+        {:else}
+          <form class="space-y-4" on:submit|preventDefault={save}>
+            <section class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+              <label class="grid gap-1.5 text-sm">
+                <span class="text-slate-300">Bot token</span>
+                <input
+                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                  bind:value={form.telegramBotToken}
+                  type="password"
+                  placeholder="123456:ABCDEF..."
+                />
+              </label>
 
-      <button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Telegram Settings"}</button>
+              <label class="grid gap-1.5 text-sm">
+                <span class="text-slate-300">Allowed chat IDs (comma-separated)</span>
+                <input
+                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                  bind:value={form.telegramAllowedChatIds}
+                  placeholder="123456789,-1001234567890"
+                />
+              </label>
+            </section>
 
-      {#if message}
-        <p class="ok">{message}</p>
-      {/if}
-      {#if error}
-        <p class="err">{error}</p>
-      {/if}
-    </form>
-  {/if}
-</div>
+            <button
+              class="cursor-pointer rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black transition-colors duration-200 hover:bg-slate-200 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+              type="submit"
+              disabled={saving}
+            >
+              {saving ? "Saving..." : "Save Telegram Settings"}
+            </button>
 
-<style>
-  :global(html, body, #svelte) {
-    margin: 0;
-    background: #0b1020;
-    color: #e5e7eb;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-
-  .page {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 20px;
-  }
-
-  .header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-  }
-
-  .links {
-    display: flex;
-    gap: 12px;
-  }
-
-  a {
-    color: #93c5fd;
-    text-decoration: none;
-  }
-
-  .form {
-    display: grid;
-    gap: 14px;
-  }
-
-  section {
-    border: 1px solid #334155;
-    border-radius: 10px;
-    padding: 14px;
-    display: grid;
-    gap: 10px;
-    background: #111827;
-  }
-
-  label {
-    display: grid;
-    gap: 6px;
-    font-size: 13px;
-  }
-
-  input,
-  button {
-    background: #0f172a;
-    color: #e5e7eb;
-    border: 1px solid #334155;
-    border-radius: 8px;
-    padding: 8px 10px;
-    font: inherit;
-  }
-
-  button {
-    width: fit-content;
-    cursor: pointer;
-  }
-
-  .ok {
-    color: #34d399;
-    margin: 0;
-  }
-
-  .err {
-    color: #f87171;
-    margin: 0;
-  }
-</style>
+            {#if message}
+              <p class="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">{message}</p>
+            {/if}
+            {#if error}
+              <p class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p>
+            {/if}
+          </form>
+        {/if}
+      </div>
+    </section>
+  </div>
+</main>

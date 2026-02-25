@@ -1,70 +1,37 @@
-<div class="page">
-  <header class="header">
-    <h1>Settings</h1>
-    <a href="/">Back to Chat</a>
-  </header>
+<main class="h-screen bg-[#212121] text-slate-100">
+  <div class="grid h-full grid-cols-1 lg:grid-cols-[260px_1fr]">
+    <aside class="hidden border-r border-white/10 bg-[#171717] p-3 lg:block">
+      <nav class="space-y-1 text-sm">
+        <a class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10" href="/">Chat</a>
+        <a class="block rounded-lg bg-white/15 px-3 py-2 font-medium text-white" href="/settings">Settings</a>
+        <a class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10" href="/settings/ai">AI</a>
+        <a class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10" href="/settings/telegram">Telegram</a>
+      </nav>
+    </aside>
 
-  <div class="grid">
-    <a class="card" href="/settings/ai">
-      <h2>AI Provider</h2>
-      <p>Provider mode, default provider/model, and custom providers list.</p>
-    </a>
+    <section class="min-h-0 overflow-y-auto px-4 py-6 sm:px-8">
+      <div class="mx-auto max-w-4xl space-y-4">
+        <h1 class="text-2xl font-semibold">Settings</h1>
+        <p class="text-sm text-slate-400">Manage AI runtime and Telegram configuration.</p>
 
-    <a class="card" href="/settings/telegram">
-      <h2>Telegram Bot</h2>
-      <p>Bot token and allowed chat IDs.</p>
-    </a>
+        <div class="grid gap-3">
+          <a
+            class="block cursor-pointer rounded-xl border border-white/15 bg-[#2b2b2b] p-4 transition-colors duration-200 hover:bg-[#343434]"
+            href="/settings/ai"
+          >
+            <h2 class="text-base font-semibold">AI Provider</h2>
+            <p class="mt-1 text-sm text-slate-400">Provider mode, default provider/model, and custom providers list.</p>
+          </a>
+
+          <a
+            class="block cursor-pointer rounded-xl border border-white/15 bg-[#2b2b2b] p-4 transition-colors duration-200 hover:bg-[#343434]"
+            href="/settings/telegram"
+          >
+            <h2 class="text-base font-semibold">Telegram Bot</h2>
+            <p class="mt-1 text-sm text-slate-400">Bot token and allowed chat IDs.</p>
+          </a>
+        </div>
+      </div>
+    </section>
   </div>
-</div>
-
-<style>
-  :global(html, body, #svelte) {
-    margin: 0;
-    background: #0b1020;
-    color: #e5e7eb;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-
-  .page {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 20px;
-  }
-
-  .header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-  }
-
-  a {
-    color: #93c5fd;
-    text-decoration: none;
-  }
-
-  .grid {
-    display: grid;
-    gap: 14px;
-  }
-
-  .card {
-    display: block;
-    border: 1px solid #334155;
-    border-radius: 12px;
-    padding: 14px;
-    background: #111827;
-  }
-
-  .card h2 {
-    margin: 0 0 6px 0;
-    font-size: 16px;
-    color: #f8fafc;
-  }
-
-  .card p {
-    margin: 0;
-    color: #cbd5e1;
-    font-size: 13px;
-  }
-</style>
+</main>

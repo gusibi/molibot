@@ -98,6 +98,8 @@
 | ENG-87 | Voice-transcript marker + hard anti-disclaimer rule | Done | Voice transcripts are now explicitly prefixed with `[voice transcript]`, and prompt now forbids claiming “cannot transcribe/play audio” when transcript section is present |
 | ENG-88 | AI settings model editor reactivity fix | Done | Reworked provider/model mutations to immutable-by-id updates so `+ Add Model` / delete / tag toggle / per-model test updates always trigger UI state refresh reliably |
 | ENG-89 | AI settings empty-model draft row support | Done | `+ Add Model` now keeps unsaved empty model rows visible (input appears immediately) instead of being filtered out during defaults normalization |
+| ENG-90 | Web app ChatGPT-style Tailwind layout refactor | Done | Rebuilt chat + settings pages (`/`, `/settings`, `/settings/ai`, `/settings/telegram`) into unified ChatGPT-style shell with Tailwind-only styling while preserving all existing behavior |
+| ENG-91 | Telegram route-scoped model switching command | Done | Upgraded `/models` to support route-specific model listing/switching for `text/vision/stt/tts` in Telegram chat |
 
 ## In Progress
 | ID | Feature | Status | Notes |
@@ -113,6 +115,9 @@
 | BL-04 | Vector memory | Backlog | Post V1 |
 
 ## Update Log
+- 2026-02-23: Migrated web chat page UI to Tailwind CSS with modern visual refresh (toolbar, message list, composer), removed local `<style>` from `src/routes/+page.svelte`, and added Tailwind runtime wiring (`@tailwindcss/vite`, `src/app.css`, `src/routes/+layout.svelte`).
+- 2026-02-23: Upgraded web app layout to ChatGPT-style structure across chat and settings pages (left navigation shell + main workspace), removed legacy page-scoped CSS from settings pages, and kept existing settings/chat logic unchanged.
+- 2026-02-23: Added Telegram route-scoped model switch support in `/models` command: `text/vision/stt/tts` can be listed and switched independently by index or key.
 - 2026-02-11: Created `features.md` with V1 baseline status tracking.
 - 2026-02-11: Added implemented/planned/backlog sections aligned with `prd.md`.
 - 2026-02-11: Recorded documentation milestones for Must/Later scope and sprint plan.

@@ -436,286 +436,290 @@
   onMount(loadAll);
 </script>
 
-<div class="page">
-  <header class="header">
-    <div>
-      <h1>AI Providers</h1>
-      <p class="subtitle">Configure providers, model tags, and routing by capability.</p>
-    </div>
-    <div class="links">
-      <a href="/settings">Back</a>
-      <a href="/">Chat</a>
-    </div>
-  </header>
+<main class="h-screen bg-[#212121] text-slate-100">
+  <div class="grid h-full grid-cols-1 lg:grid-cols-[260px_1fr]">
+    <aside class="hidden border-r border-white/10 bg-[#171717] p-3 lg:block">
+      <nav class="space-y-1 text-sm">
+        <a class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10" href="/">Chat</a>
+        <a class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10" href="/settings">Settings</a>
+        <a class="block rounded-lg bg-white/15 px-3 py-2 font-medium text-white" href="/settings/ai">AI</a>
+        <a class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10" href="/settings/telegram">Telegram</a>
+      </nav>
+    </aside>
 
-  {#if loading}
-    <p>Loading AI settings...</p>
-  {:else}
-    <form class="shell" on:submit|preventDefault={save}>
-      <section class="global-panel">
-        <div class="global-grid">
-          <label>
-            Provider mode
-            <select bind:value={form.providerMode}>
-              <option value="pi">pi</option>
-              <option value="custom">custom</option>
-            </select>
-          </label>
+    <section class="min-h-0 overflow-y-auto px-4 py-6 sm:px-8">
+      <div class="mx-auto max-w-6xl space-y-4">
+        <h1 class="text-2xl font-semibold">AI Providers</h1>
+        <p class="text-sm text-slate-400">Configure providers, model tags, and routing by capability.</p>
 
-          <label>
-            PI provider
-            <select bind:value={form.piModelProvider} on:change={onPiProviderChanged}>
-              {#each providers as provider}
-                <option value={provider.id}>{provider.name}</option>
-              {/each}
-            </select>
-          </label>
+        {#if loading}
+          <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">Loading AI settings...</div>
+        {:else}
+          <form class="space-y-4" on:submit|preventDefault={save}>
+            <section class="rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+              <div class="grid gap-3 md:grid-cols-2">
+                <label class="grid gap-1.5 text-sm">
+                  <span class="text-slate-300">Provider mode</span>
+                  <select class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={form.providerMode}>
+                    <option value="pi">pi</option>
+                    <option value="custom">custom</option>
+                  </select>
+                </label>
 
-          <label>
-            PI model
-            <select bind:value={form.piModelName}>
-              {#each providerModels[form.piModelProvider] ?? [] as model}
-                <option value={model}>{model}</option>
-              {/each}
-            </select>
-          </label>
+                <label class="grid gap-1.5 text-sm">
+                  <span class="text-slate-300">PI provider</span>
+                  <select class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={form.piModelProvider} on:change={onPiProviderChanged}>
+                    {#each providers as provider}
+                      <option value={provider.id}>{provider.name}</option>
+                    {/each}
+                  </select>
+                </label>
 
-          <label>
-            Text model
-            <select bind:value={form.modelRouting.textModelKey}>
-              {#each routingOptions("text") as row}
-                <option value={row.key}>{row.label}</option>
-              {/each}
-            </select>
-          </label>
+                <label class="grid gap-1.5 text-sm">
+                  <span class="text-slate-300">PI model</span>
+                  <select class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={form.piModelName}>
+                    {#each providerModels[form.piModelProvider] ?? [] as model}
+                      <option value={model}>{model}</option>
+                    {/each}
+                  </select>
+                </label>
 
-          <label>
-            Vision model
-            <select bind:value={form.modelRouting.visionModelKey}>
-              {#each routingOptions("vision") as row}
-                <option value={row.key}>{row.label}</option>
-              {/each}
-            </select>
-          </label>
+                <label class="grid gap-1.5 text-sm">
+                  <span class="text-slate-300">Text model</span>
+                  <select class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={form.modelRouting.textModelKey}>
+                    {#each routingOptions("text") as row}
+                      <option value={row.key}>{row.label}</option>
+                    {/each}
+                  </select>
+                </label>
 
-          <label>
-            Speech-to-text model
-            <select bind:value={form.modelRouting.sttModelKey}>
-              {#each routingOptions("stt") as row}
-                <option value={row.key}>{row.label}</option>
-              {/each}
-            </select>
-          </label>
+                <label class="grid gap-1.5 text-sm">
+                  <span class="text-slate-300">Vision model</span>
+                  <select class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={form.modelRouting.visionModelKey}>
+                    {#each routingOptions("vision") as row}
+                      <option value={row.key}>{row.label}</option>
+                    {/each}
+                  </select>
+                </label>
 
-          <label>
-            Text-to-speech model
-            <select bind:value={form.modelRouting.ttsModelKey}>
-              {#each routingOptions("tts") as row}
-                <option value={row.key}>{row.label}</option>
-              {/each}
-            </select>
-          </label>
+                <label class="grid gap-1.5 text-sm">
+                  <span class="text-slate-300">Speech-to-text model</span>
+                  <select class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={form.modelRouting.sttModelKey}>
+                    {#each routingOptions("stt") as row}
+                      <option value={row.key}>{row.label}</option>
+                    {/each}
+                  </select>
+                </label>
 
-          <label>
-            System prompt
-            <textarea rows="3" bind:value={form.systemPrompt}></textarea>
-          </label>
-        </div>
-      </section>
+                <label class="grid gap-1.5 text-sm">
+                  <span class="text-slate-300">Text-to-speech model</span>
+                  <select class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={form.modelRouting.ttsModelKey}>
+                    {#each routingOptions("tts") as row}
+                      <option value={row.key}>{row.label}</option>
+                    {/each}
+                  </select>
+                </label>
 
-      <section class="workspace-panel">
-        <aside class="sidebar">
-          <div class="sidebar-head">
-            <h2>Providers</h2>
-            <button type="button" on:click={addCustomProvider}>+ Add</button>
-          </div>
-
-          <input class="search" bind:value={providerSearch} placeholder="Search provider or model..." />
-
-          <div class="provider-list">
-            {#if filteredCustomProviders().length === 0}
-              <p class="hint">No provider matched.</p>
-            {/if}
-
-            {#each filteredCustomProviders() as provider (provider.id)}
-              <button
-                type="button"
-                class="provider-item {selectedProviderId === provider.id ? 'active' : ''}"
-                on:click={() => (selectedProviderId = provider.id)}
-              >
-                <div class="item-main">
-                  <strong>{provider.name}</strong>
-                  <span class="item-id">{provider.id}</span>
-                </div>
-                <div class="item-meta">
-                  <span>{provider.models.length} model{provider.models.length === 1 ? '' : 's'}</span>
-                  {#if form.defaultCustomProviderId === provider.id}
-                    <span class="badge">DEFAULT</span>
-                  {/if}
-                </div>
-              </button>
-            {/each}
-          </div>
-        </aside>
-
-        <div class="detail">
-          {#if getSelectedProvider()}
-            {@const cp = getSelectedProvider()!}
-            <div class="detail-head">
-              <h2>{cp.name}</h2>
-              <div class="row">
-                <button type="button" on:click={() => setAsDefaultProvider(cp.id)} disabled={form.defaultCustomProviderId === cp.id}>
-                  {form.defaultCustomProviderId === cp.id ? 'Default Provider' : 'Set Default'}
-                </button>
-                <button type="button" class="danger" on:click={() => removeCustomProvider(cp.id)}>Remove</button>
+                <label class="grid gap-1.5 text-sm md:col-span-2">
+                  <span class="text-slate-300">System prompt</span>
+                  <textarea class="min-h-24 rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" rows="3" bind:value={form.systemPrompt}></textarea>
+                </label>
               </div>
-            </div>
+            </section>
 
-            <div class="detail-grid">
-              <label>
-                ID
-                <input bind:value={cp.id} />
-              </label>
-              <label>
-                Name
-                <input bind:value={cp.name} />
-              </label>
-              <label>
-                API Base URL
-                <input bind:value={cp.baseUrl} placeholder="https://api.provider.com" />
-              </label>
-              <label>
-                API Path
-                <input bind:value={cp.path} placeholder="/v1/chat/completions" />
-              </label>
-              <label class="full">
-                API Key
-                <input bind:value={cp.apiKey} type="password" />
-              </label>
-            </div>
-
-            <section class="models-panel">
-              <div class="models-head">
-                <h3>Models</h3>
-                <button type="button" on:click={() => addModel(cp.id)}>+ Add Model</button>
-              </div>
-
-              {#if cp.models.length === 0}
-                <p class="hint">No model configured yet.</p>
-              {/if}
-
-              {#each cp.models as model, index}
-                <div class="model-row" style="display:grid; grid-template-columns: 1fr auto auto; gap:8px; align-items:center;">
-                  <input bind:value={model.id} placeholder="provider/model-name" />
+            <section class="grid min-h-[560px] gap-0 overflow-hidden rounded-xl border border-white/15 bg-[#2b2b2b] lg:grid-cols-[300px_1fr]">
+              <aside class="border-b border-white/10 p-4 lg:border-b-0 lg:border-r">
+                <div class="flex items-center justify-between gap-2">
+                  <h2 class="text-sm font-semibold">Providers</h2>
                   <button
                     type="button"
-                    on:click={() => testProviderModel(cp.id, model.id)}
-                    disabled={!model.id.trim() || testingModelKey === `${cp.id}|${model.id.trim()}`}
+                    class="cursor-pointer rounded-md border border-white/15 bg-[#1f1f1f] px-3 py-1.5 text-xs transition-colors duration-200 hover:bg-[#303030]"
+                    on:click={addCustomProvider}>+ Add</button
                   >
-                    {testingModelKey === `${cp.id}|${model.id.trim()}` ? "Testing..." : "Test"}
-                  </button>
-                  <button type="button" class="danger" on:click={() => removeModel(cp.id, index)}>Delete</button>
                 </div>
-                <div class="tags" style="display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 12px 0;">
-                  {#each capabilityTags as tag}
-                    <label style="display:flex; align-items:center; gap:4px;">
-                      <input type="checkbox" checked={model.tags.includes(tag)} on:change={() => toggleTag(cp.id, index, tag)} />
-                      <span>{tag}</span>
-                    </label>
-                  {/each}
-                </div>
-              {/each}
 
-              <label>
-                Default model
-                <select bind:value={cp.defaultModel}>
-                  {#each modelIds(cp) as modelId}
-                    <option value={modelId}>{modelId}</option>
-                  {/each}
-                </select>
-              </label>
-            </section>
+                <input
+                  class="mt-3 w-full rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                  bind:value={providerSearch}
+                  placeholder="Search provider or model..."
+                />
 
-            <section class="role-panel">
-              <h3>Supported roles (by model)</h3>
-              {#if cp.models.length === 0}
-                <p class="hint">No model yet.</p>
-              {:else}
-                {#each cp.models as model}
-                  {#if model.id.trim()}
-                    <div class="row">
-                      <strong>{model.id}</strong>
-                      <div class="chips">
-                        {#each model.supportedRoles as role}
-                          <span class="chip">{role}</span>
-                        {/each}
-                      </div>
-                    </div>
+                <div class="mt-3 space-y-2">
+                  {#if filteredCustomProviders().length === 0}
+                    <p class="text-xs text-slate-500">No provider matched.</p>
                   {/if}
-                {/each}
-              {/if}
-              <p class="hint">Use each model's Test button to refresh its supported roles.</p>
+
+                  {#each filteredCustomProviders() as provider (provider.id)}
+                    <button
+                      type="button"
+                      class={`w-full cursor-pointer rounded-lg border px-3 py-2 text-left text-sm transition-colors duration-200 ${selectedProviderId === provider.id
+                        ? "border-white/30 bg-white/10 text-white"
+                        : "border-white/10 bg-[#252525] text-slate-300 hover:bg-[#303030]"}`}
+                      on:click={() => (selectedProviderId = provider.id)}
+                    >
+                      <div class="font-medium">{provider.name}</div>
+                      <div class="mt-0.5 text-xs text-slate-500">{provider.id}</div>
+                      <div class="mt-1 text-xs text-slate-400">
+                        {provider.models.length} model{provider.models.length === 1 ? "" : "s"}
+                        {#if form.defaultCustomProviderId === provider.id}
+                          • default
+                        {/if}
+                      </div>
+                    </button>
+                  {/each}
+                </div>
+              </aside>
+
+              <div class="p-4">
+                {#if getSelectedProvider()}
+                  {@const cp = getSelectedProvider()!}
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <h2 class="text-lg font-semibold">{cp.name}</h2>
+                    <div class="flex gap-2">
+                      <button
+                        type="button"
+                        class="cursor-pointer rounded-md border border-white/15 bg-[#1f1f1f] px-3 py-1.5 text-xs transition-colors duration-200 hover:bg-[#303030] disabled:cursor-not-allowed disabled:opacity-60"
+                        on:click={() => setAsDefaultProvider(cp.id)}
+                        disabled={form.defaultCustomProviderId === cp.id}
+                      >
+                        {form.defaultCustomProviderId === cp.id ? "Default Provider" : "Set Default"}
+                      </button>
+                      <button
+                        type="button"
+                        class="cursor-pointer rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300 transition-colors duration-200 hover:bg-rose-500/20"
+                        on:click={() => removeCustomProvider(cp.id)}>Remove</button
+                      >
+                    </div>
+                  </div>
+
+                  <div class="mt-3 grid gap-3 md:grid-cols-2">
+                    <label class="grid gap-1.5 text-sm">
+                      <span class="text-slate-300">ID</span>
+                      <input class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={cp.id} />
+                    </label>
+                    <label class="grid gap-1.5 text-sm">
+                      <span class="text-slate-300">Name</span>
+                      <input class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={cp.name} />
+                    </label>
+                    <label class="grid gap-1.5 text-sm">
+                      <span class="text-slate-300">API Base URL</span>
+                      <input class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={cp.baseUrl} placeholder="https://api.provider.com" />
+                    </label>
+                    <label class="grid gap-1.5 text-sm">
+                      <span class="text-slate-300">API Path</span>
+                      <input class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={cp.path} placeholder="/v1/chat/completions" />
+                    </label>
+                    <label class="grid gap-1.5 text-sm md:col-span-2">
+                      <span class="text-slate-300">API Key</span>
+                      <input class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={cp.apiKey} type="password" />
+                    </label>
+                  </div>
+
+                  <section class="mt-5 space-y-3 border-t border-white/10 pt-4">
+                    <div class="flex items-center justify-between gap-2">
+                      <h3 class="text-sm font-semibold">Models</h3>
+                      <button
+                        type="button"
+                        class="cursor-pointer rounded-md border border-white/15 bg-[#1f1f1f] px-3 py-1.5 text-xs transition-colors duration-200 hover:bg-[#303030]"
+                        on:click={() => addModel(cp.id)}>+ Add Model</button
+                      >
+                    </div>
+
+                    {#if cp.models.length === 0}
+                      <p class="text-sm text-slate-500">No model configured yet.</p>
+                    {/if}
+
+                    {#each cp.models as model, index}
+                      <div class="rounded-lg border border-white/10 bg-[#252525] p-3">
+                        <div class="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                          <input
+                            class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                            bind:value={model.id}
+                            placeholder="provider/model-name"
+                          />
+                          <button
+                            type="button"
+                            class="cursor-pointer rounded-md border border-white/15 bg-[#1f1f1f] px-3 py-2 text-xs transition-colors duration-200 hover:bg-[#303030] disabled:cursor-not-allowed disabled:opacity-60"
+                            on:click={() => testProviderModel(cp.id, model.id)}
+                            disabled={!model.id.trim() || testingModelKey === `${cp.id}|${model.id.trim()}`}
+                          >
+                            {testingModelKey === `${cp.id}|${model.id.trim()}` ? "Testing..." : "Test"}
+                          </button>
+                          <button
+                            type="button"
+                            class="cursor-pointer rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-300 transition-colors duration-200 hover:bg-rose-500/20"
+                            on:click={() => removeModel(cp.id, index)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+
+                        <div class="mt-2 flex flex-wrap gap-2">
+                          {#each capabilityTags as tag}
+                            <label class="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-[#1f1f1f] px-2 py-1 text-xs">
+                              <input type="checkbox" checked={model.tags.includes(tag)} on:change={() => toggleTag(cp.id, index, tag)} />
+                              <span>{tag}</span>
+                            </label>
+                          {/each}
+                        </div>
+                      </div>
+                    {/each}
+
+                    <label class="grid gap-1.5 text-sm">
+                      <span class="text-slate-300">Default model</span>
+                      <select class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 outline-none focus:border-emerald-400" bind:value={cp.defaultModel}>
+                        {#each modelIds(cp) as modelId}
+                          <option value={modelId}>{modelId}</option>
+                        {/each}
+                      </select>
+                    </label>
+                  </section>
+
+                  <section class="mt-5 space-y-2 border-t border-white/10 pt-4">
+                    <h3 class="text-sm font-semibold">Supported roles (by model)</h3>
+                    {#if cp.models.length === 0}
+                      <p class="text-sm text-slate-500">No model yet.</p>
+                    {:else}
+                      {#each cp.models as model}
+                        {#if model.id.trim()}
+                          <div class="flex flex-col gap-1 rounded-lg border border-white/10 bg-[#252525] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                            <strong class="text-sm">{model.id}</strong>
+                            <div class="flex flex-wrap gap-1.5">
+                              {#each model.supportedRoles as role}
+                                <span class="rounded-full border border-white/20 px-2 py-0.5 text-xs text-slate-300">{role}</span>
+                              {/each}
+                            </div>
+                          </div>
+                        {/if}
+                      {/each}
+                    {/if}
+                    <p class="text-xs text-slate-500">Use each model's Test button to refresh its supported roles.</p>
+                  </section>
+                {:else}
+                  <p class="text-sm text-slate-500">Select a provider from the left list.</p>
+                {/if}
+              </div>
             </section>
-          {:else}
-            <p class="hint">Select a provider from the left list.</p>
+
+            <footer class="flex justify-end">
+              <button
+                type="submit"
+                class="cursor-pointer rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black transition-colors duration-200 hover:bg-slate-200 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+                disabled={saving}
+              >
+                {saving ? "Saving..." : "Save AI Settings"}
+              </button>
+            </footer>
+          </form>
+
+          {#if message}
+            <p class="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">{message}</p>
           {/if}
-        </div>
-      </section>
-
-      <footer class="actions">
-        <button type="submit" disabled={saving}>{saving ? "Saving..." : "Save AI Settings"}</button>
-      </footer>
-    </form>
-
-    {#if message}
-      <p class="ok">{message}</p>
-    {/if}
-    {#if error}
-      <p class="err">{error}</p>
-    {/if}
-  {/if}
-</div>
-
-<style>
-  .page { max-width: 1200px; margin: 0 auto; padding: 20px; }
-  .header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-  .subtitle { color: #4b5563; margin: 4px 0 0 0; }
-  .links { display: flex; gap: 12px; }
-  .shell { display: grid; gap: 14px; }
-  .global-panel, .workspace-panel, .detail, .sidebar, .actions, .ok, .err { border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
-  .global-panel, .actions, .ok, .err { padding: 12px; }
-  .global-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .workspace-panel { display: grid; grid-template-columns: 320px 1fr; min-height: 560px; overflow: hidden; }
-  .sidebar { border: none; border-right: 1px solid #e5e7eb; border-radius: 0; padding: 12px; }
-  .detail { border: none; border-radius: 0; padding: 12px; }
-  .sidebar-head, .detail-head, .models-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .provider-list { margin-top: 10px; display: grid; gap: 8px; }
-  .provider-item { text-align: left; border: 1px solid #e5e7eb; border-radius: 10px; padding: 8px; background: #fff; }
-  .provider-item.active { border-color: #2563eb; background: #eff6ff; }
-  .item-main { display: flex; flex-direction: column; gap: 2px; }
-  .item-id { font-size: 12px; color: #6b7280; }
-  .item-meta { display: flex; gap: 8px; font-size: 12px; color: #6b7280; margin-top: 6px; }
-  .badge { color: #1d4ed8; font-weight: 700; }
-  .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
-  .full { grid-column: 1 / -1; }
-  .models-panel, .role-panel { margin-top: 14px; padding-top: 10px; border-top: 1px solid #e5e7eb; }
-  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-  .chip { font-size: 12px; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; }
-  label { display: grid; gap: 6px; font-size: 13px; }
-  input, select, textarea, button { font: inherit; }
-  input, select, textarea { padding: 8px; border: 1px solid #d1d5db; border-radius: 8px; }
-  textarea { min-height: 80px; resize: vertical; }
-  button { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; background: #f9fafb; cursor: pointer; }
-  button.danger { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
-  .search { width: 100%; margin-top: 8px; }
-  .actions { display: flex; justify-content: flex-end; }
-  .ok { color: #166534; }
-  .err { color: #b91c1c; }
-  .hint { color: #6b7280; }
-  .row { display: flex; gap: 8px; }
-  @media (max-width: 960px) {
-    .global-grid, .detail-grid { grid-template-columns: 1fr; }
-    .workspace-panel { grid-template-columns: 1fr; }
-    .sidebar { border-right: none; border-bottom: 1px solid #e5e7eb; }
-  }
-</style>
+          {#if error}
+            <p class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p>
+          {/if}
+        {/if}
+      </div>
+    </section>
+  </div>
+</main>
