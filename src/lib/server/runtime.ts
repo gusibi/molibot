@@ -14,6 +14,7 @@ import {
 import { TelegramManager } from "./adapters/telegram.js";
 import { MessageRouter } from "./core/messageRouter.js";
 import { initDb } from "./db/sqlite.js";
+import { MemoryGateway } from "./memory/gateway.js";
 import { AssistantService } from "./services/assistant.js";
 import { SessionStore } from "./services/sessionStore.js";
 import { SettingsStore } from "./services/settingsStore.js";
@@ -22,6 +23,8 @@ interface RuntimeState {
   sessions: SessionStore;
   router: MessageRouter;
   telegramManagers: Map<string, TelegramManager>;
+  memory: MemoryGateway;
+  memorySyncTimer: ReturnType<typeof setInterval> | null;
   settingsStore: SettingsStore;
   settings: RuntimeSettings;
   getSettings: () => RuntimeSettings;
@@ -190,6 +193,12 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
 
   next.telegramBotToken = next.telegramBots[0]?.token ?? "";
   next.telegramAllowedChatIds = next.telegramBots[0]?.allowedChatIds ?? [];
+  next.plugins = {
+    memory: {
+      enabled: Boolean(next.plugins?.memory?.enabled),
+      core: String(next.plugins?.memory?.core ?? "").trim() || defaultRuntimeSettings.plugins.memory.core
+    }
+  };
 
   return next;
 }
@@ -213,7 +222,8 @@ function applyTelegramBots(state: RuntimeState, applySettingsPatch: (patch: Part
         state.sessions,
         {
           instanceId: bot.id,
-          workspaceDir: resolve(config.dataDir, "moli-t", "bots", bot.id)
+          workspaceDir: resolve(config.dataDir, "moli-t", "bots", bot.id),
+          memory: state.memory
         }
       );
       state.telegramManagers.set(bot.id, manager);
@@ -235,8 +245,9 @@ export function getRuntime(): RuntimeState {
 
     const sessions = new SessionStore();
     const currentSettings = { value: settings };
+    const memory = new MemoryGateway(() => currentSettings.value, sessions);
     const assistant = new AssistantService(() => currentSettings.value);
-    const router = new MessageRouter(sessions, assistant);
+    const router = new MessageRouter(sessions, assistant, memory);
     const applySettingsPatch = (patch: Partial<RuntimeSettings>): RuntimeSettings => {
       state.settings = sanitizeSettings(patch, state.settings);
       currentSettings.value = state.settings;
@@ -249,6 +260,8 @@ export function getRuntime(): RuntimeState {
       sessions,
       router,
       telegramManagers: new Map<string, TelegramManager>(),
+      memory,
+      memorySyncTimer: null,
       settingsStore,
       settings,
       getSettings: () => state.settings,
@@ -257,6 +270,10 @@ export function getRuntime(): RuntimeState {
 
     state.settings = sanitizeSettings({}, state.settings);
     currentSettings.value = state.settings;
+    void state.memory.syncExternalMemories();
+    state.memorySyncTimer = setInterval(() => {
+      void state.memory.syncExternalMemories();
+    }, 60_000);
     applyTelegramBots(state, applySettingsPatch);
 
     globalThis.__molibotRuntime = state;

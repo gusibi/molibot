@@ -10,6 +10,7 @@ import { loadSkillsFromWorkspace } from "../mom/skills.js";
 import { TelegramMomStore } from "../mom/store.js";
 import type { MomContext, TelegramInboundEvent } from "../mom/types.js";
 import { SessionStore } from "../services/sessionStore.js";
+import type { MemoryGateway } from "../memory/gateway.js";
 
 export interface TelegramConfig {
   token: string;
@@ -204,13 +205,16 @@ export class TelegramManager {
     private readonly getSettings: () => RuntimeSettings,
     private readonly updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
     sessionStore?: SessionStore,
-    options?: { workspaceDir?: string; instanceId?: string }
+    options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway }
   ) {
     this.workspaceDir = options?.workspaceDir ?? resolve(config.dataDir, "moli-t");
     this.instanceId = options?.instanceId ?? "default";
     this.store = new TelegramMomStore(this.workspaceDir);
     this.sessions = sessionStore ?? new SessionStore();
-    this.runners = new RunnerPool(this.store, this.getSettings);
+    if (!options?.memory) {
+      throw new Error("TelegramManager requires MemoryGateway for unified memory operations.");
+    }
+    this.runners = new RunnerPool(this.store, this.getSettings, options.memory);
   }
 
   apply(cfg: TelegramConfig): void {

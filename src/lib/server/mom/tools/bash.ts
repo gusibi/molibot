@@ -27,6 +27,12 @@ function isDeferredWaitCommand(command: string): boolean {
   );
 }
 
+function touchesMemoryFiles(command: string): boolean {
+  const normalized = command.toLowerCase();
+  if (normalized.includes("/api/memory")) return false;
+  return /memory\.md|\/memory\//i.test(command);
+}
+
 function buildTempOutputPath(cwd: string): string {
   const dir = join(cwd, ".mom-tool-output");
   mkdirSync(dir, { recursive: true });
@@ -44,6 +50,11 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
       if (isDeferredWaitCommand(params.command)) {
         throw new Error(
           "Waiting/sleep commands are not allowed. For delayed reminders, create a one-shot event file under a watched events directory."
+        );
+      }
+      if (touchesMemoryFiles(params.command)) {
+        throw new Error(
+          "Direct memory file operations are blocked. Use the memory tool (or /api/memory gateway) for all memory reads/writes/updates."
         );
       }
 

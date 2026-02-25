@@ -40,10 +40,22 @@ function extractText(value: unknown): string | null {
 }
 
 function toOpenAIMessages(history: ConversationMessage[], settings: RuntimeSettings): OpenAIMessage[] {
+  return toOpenAIMessagesWithMemory(history, settings, "");
+}
+
+function toOpenAIMessagesWithMemory(
+  history: ConversationMessage[],
+  settings: RuntimeSettings,
+  memoryContext: string
+): OpenAIMessage[] {
+  const systemPrompt = memoryContext.trim()
+    ? `${settings.systemPrompt}\n\nRelevant memory:\n${memoryContext.trim()}`
+    : settings.systemPrompt;
+
   const messages: OpenAIMessage[] = [
     {
       role: "system",
-      content: settings.systemPrompt
+      content: systemPrompt
     }
   ];
 
@@ -65,7 +77,8 @@ function getProviderModel(provider: CustomProviderConfig): string {
 
 async function callCustomProvider(
   history: ConversationMessage[],
-  settings: RuntimeSettings
+  settings: RuntimeSettings,
+  memoryContext: string
 ): Promise<string> {
   const provider = pickDefaultCustomProvider(settings);
   if (!provider) {
@@ -91,7 +104,7 @@ async function callCustomProvider(
     },
     body: JSON.stringify({
       model,
-      messages: toOpenAIMessages(history, settings),
+      messages: toOpenAIMessagesWithMemory(history, settings, memoryContext),
       temperature: 0.2
     })
   });
@@ -122,7 +135,8 @@ function pickDefaultCustomProvider(settings: RuntimeSettings): CustomProviderCon
 async function callPiMono(
   history: ConversationMessage[],
   input: string,
-  settings: RuntimeSettings
+  settings: RuntimeSettings,
+  memoryContext: string
 ): Promise<string> {
   const models = getModels(settings.piModelProvider);
   const model = models.find((m) => m.id === settings.piModelName) ?? models[0];
@@ -151,6 +165,7 @@ async function callPiMono(
 
   const transcript = stringifyHistory(history);
   const prompt = [
+    memoryContext.trim() ? `Relevant memory:\n${memoryContext.trim()}\n` : "",
     "Conversation history:",
     transcript || "(empty)",
     "",
@@ -175,12 +190,12 @@ async function callPiMono(
 export class AssistantService {
   constructor(private readonly getSettings: () => RuntimeSettings) {}
 
-  async reply(history: ConversationMessage[], input: string): Promise<string> {
+  async reply(history: ConversationMessage[], input: string, memoryContext = ""): Promise<string> {
     const settings = this.getSettings();
     if (settings.providerMode === "custom") {
-      return callCustomProvider(history, settings);
+      return callCustomProvider(history, settings, memoryContext);
     }
 
-    return callPiMono(history, input, settings);
+    return callPiMono(history, input, settings, memoryContext);
   }
 }

@@ -25,13 +25,43 @@ export function resolveToolPath(baseDir: string, input: string): string {
     return resolve(workspaceFromScratch, "skills", suffix);
   }
 
+  // Normalize shared memory paths to DATA_DIR/memory when called from chat scratch.
+  // Example:
+  //   cwd: .../.molibot/moli-t/bots/<bot>/<chatId>/scratch
+  //   input: memory/moli-t/bots/<bot>/<chatId>/MEMORY.md
+  // Should resolve to:
+  //   .../.molibot/memory/moli-t/bots/<bot>/<chatId>/MEMORY.md
+  const memoryPrefix = normalizedInput.match(/^memory(?:\/(.*))?$/);
+  if (workspaceFromScratch && memoryPrefix) {
+    const normalizedWorkspaceFromScratch = workspaceFromScratch.replace(/\\/g, "/");
+    const marker = "/moli-t/";
+    const markerIndex = normalizedWorkspaceFromScratch.indexOf(marker);
+    const dataRoot = markerIndex > 0
+      ? normalizedWorkspaceFromScratch.slice(0, markerIndex)
+      : normalizedWorkspaceFromScratch;
+    const suffix = memoryPrefix[1] ?? "";
+    return resolve(dataRoot, "memory", suffix);
+  }
+
   return resolve(baseDir, input);
 }
 
 export function createPathGuard(cwd: string, workspaceDir: string): (filePath: string) => void {
-  const allowedRoots = [resolve(cwd), resolve(workspaceDir)];
+  const workspaceResolved = resolve(workspaceDir);
+  const normalizedWorkspace = workspaceResolved.replace(/\\/g, "/");
+  const memoryRoot = normalizedWorkspace.includes("/moli-t/")
+    ? resolve(`${normalizedWorkspace.slice(0, normalizedWorkspace.indexOf("/moli-t/"))}/memory`)
+    : resolve(workspaceResolved, "memory");
+  const allowedRoots = [resolve(cwd), workspaceResolved];
   return (filePath: string): void => {
     const resolved = resolve(filePath);
+    const memoryRel = relative(memoryRoot, resolved);
+    const isMemoryPath = memoryRel === "" || (!memoryRel.startsWith("..") && !isAbsolute(memoryRel));
+    if (isMemoryPath) {
+      throw new Error(
+        `Memory files must be managed via the memory gateway tool/API, not direct file tools. Blocked path: ${resolved}`
+      );
+    }
     const ok = allowedRoots.some((root) => {
       const rel = relative(root, resolved);
       return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));

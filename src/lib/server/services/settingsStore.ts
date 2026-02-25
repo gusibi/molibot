@@ -23,6 +23,12 @@ interface RawSettings {
     ttsModelKey?: string;
   };
   systemPrompt?: string;
+  plugins?: {
+    memory?: {
+      enabled?: boolean | string;
+      core?: string;
+    };
+  };
   telegramBots?: unknown;
   telegramBotToken?: string;
   telegramAllowedChatIds?: string[] | string;
@@ -217,6 +223,12 @@ function sanitize(raw: RawSettings): RuntimeSettings {
           }]
         : []);
   const primaryBot = telegramBots[0];
+  const memoryEnabledRaw = raw.plugins?.memory?.enabled;
+  const memoryEnabled = typeof memoryEnabledRaw === "boolean"
+    ? memoryEnabledRaw
+    : String(memoryEnabledRaw ?? "").toLowerCase() === "true";
+  const memoryCore = String(raw.plugins?.memory?.core ?? "").trim() ||
+    defaultRuntimeSettings.plugins.memory.core;
 
   return {
     providerMode: sanitizeMode(raw.providerMode ?? defaultRuntimeSettings.providerMode),
@@ -237,6 +249,12 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
       defaultRuntimeSettings.systemPrompt,
     telegramBots,
+    plugins: {
+      memory: {
+        enabled: memoryEnabled,
+        core: memoryCore
+      }
+    },
     telegramBotToken: primaryBot?.token ?? "",
     telegramAllowedChatIds: primaryBot?.allowedChatIds ?? []
   };

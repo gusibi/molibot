@@ -4,10 +4,11 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { FileAttachment, LoggedMessage } from "./types.js";
 
@@ -24,6 +25,75 @@ export class TelegramMomStore {
   constructor(private readonly workspaceDir: string) {
     ensureDir(this.workspaceDir);
     ensureDir(join(this.workspaceDir, "skills"));
+  }
+
+  private getWorkspaceMemoryRoot(): string {
+    const normalized = resolve(this.workspaceDir).replace(/\\/g, "/");
+    const marker = "/moli-t/";
+    const idx = normalized.indexOf(marker);
+    if (idx > 0) {
+      return join(normalized.slice(0, idx), "memory");
+    }
+    return join(this.workspaceDir, "memory");
+  }
+
+  private getWorkspaceMemoryRelative(): string {
+    const normalized = resolve(this.workspaceDir).replace(/\\/g, "/");
+    const marker = "/moli-t/";
+    const idx = normalized.indexOf(marker);
+    if (idx > 0) {
+      return normalized.slice(idx + 1); // remove leading slash
+    }
+    return "workspace";
+  }
+
+  private getGlobalMemoryFile(): string {
+    return join(this.getWorkspaceMemoryRoot(), "MEMORY.md");
+  }
+
+  private getChatMemoryFile(chatId: string): string {
+    return join(this.getWorkspaceMemoryRoot(), this.getWorkspaceMemoryRelative(), chatId, "MEMORY.md");
+  }
+
+  private getLegacyGlobalMemoryFile(): string {
+    return join(this.workspaceDir, "MEMORY.md");
+  }
+
+  private getLegacyChatMemoryFile(chatId: string): string {
+    return join(this.getChatDir(chatId), "MEMORY.md");
+  }
+
+  private moveMemoryFileIfNeeded(from: string, to: string): void {
+    if (!existsSync(from)) return;
+    ensureDir(dirname(to));
+    if (!existsSync(to)) {
+      try {
+        renameSync(from, to);
+        return;
+      } catch {
+        // fallback below
+      }
+    }
+    try {
+      const oldContent = readFileSync(from, "utf8").trim();
+      if (!oldContent) {
+        unlinkSync(from);
+        return;
+      }
+      const current = existsSync(to) ? readFileSync(to, "utf8").trim() : "";
+      if (!current.includes(oldContent)) {
+        const merged = [current, oldContent].filter(Boolean).join("\n\n").trim();
+        writeFileSync(to, `${merged}\n`, "utf8");
+      }
+      unlinkSync(from);
+    } catch {
+      // keep original file if migration fails
+    }
+  }
+
+  private migrateLegacyMemory(chatId: string): void {
+    this.moveMemoryFileIfNeeded(this.getLegacyGlobalMemoryFile(), this.getGlobalMemoryFile());
+    this.moveMemoryFileIfNeeded(this.getLegacyChatMemoryFile(chatId), this.getChatMemoryFile(chatId));
   }
 
   getWorkspaceDir(): string {
@@ -238,9 +308,10 @@ export class TelegramMomStore {
   }
 
   readMemory(chatId: string): string {
+    this.migrateLegacyMemory(chatId);
     const parts: string[] = [];
-    const globalPath = join(this.workspaceDir, "MEMORY.md");
-    const chatPath = join(this.getChatDir(chatId), "MEMORY.md");
+    const globalPath = this.getGlobalMemoryFile();
+    const chatPath = this.getChatMemoryFile(chatId);
 
     if (existsSync(globalPath)) {
       try {

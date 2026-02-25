@@ -40,6 +40,15 @@ export interface TelegramBotConfig {
   allowedChatIds: string[];
 }
 
+export interface MemoryPluginSettings {
+  enabled: boolean;
+  core: string;
+}
+
+export interface PluginSettings {
+  memory: MemoryPluginSettings;
+}
+
 export interface RuntimeSettings {
   providerMode: ProviderMode;
   piModelProvider: KnownProvider;
@@ -49,6 +58,7 @@ export interface RuntimeSettings {
   modelRouting: ModelRoutingConfig;
   systemPrompt: string;
   telegramBots: TelegramBotConfig[];
+  plugins: PluginSettings;
   // Legacy single-bot fields kept for backward compatibility with old settings files/API payloads.
   telegramBotToken: string;
   telegramAllowedChatIds: string[];
@@ -198,6 +208,12 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     process.env.MOLIBOT_SYSTEM_PROMPT ??
     "You are Molibot, a concise and helpful assistant.",
   telegramBots: defaultTelegramBots,
+  plugins: {
+    memory: {
+      enabled: String(process.env.MEMORY_ENABLED ?? "false").toLowerCase() === "true",
+      core: (process.env.MEMORY_CORE ?? "json-file").trim() || "json-file"
+    }
+  },
   telegramBotToken: defaultTelegramBotToken,
   telegramAllowedChatIds: defaultTelegramAllowedChatIds
 };

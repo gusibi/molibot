@@ -4,6 +4,7 @@ import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { getModels, streamSimple, type Model } from "@mariozechner/pi-ai";
 import type { RuntimeSettings, CustomProviderConfig } from "../config.js";
+import type { MemoryGateway } from "../memory/gateway.js";
 import { momError, momLog, momWarn } from "./log.js";
 import { formatSkillsForPrompt, loadSkillsFromWorkspace } from "./skills.js";
 import { TelegramMomStore } from "./store.js";
@@ -315,6 +316,17 @@ function buildSystemPrompt(
   sessionId: string,
   memory: string,
 ): string {
+  const normalizedWorkspace = workspaceDir.replace(/\\/g, "/");
+  const memoryRoot =
+    normalizedWorkspace.includes("/moli-t/")
+      ? `${normalizedWorkspace.slice(0, normalizedWorkspace.indexOf("/moli-t/"))}/memory`
+      : `${normalizedWorkspace}/memory`;
+  const memoryWorkspaceRel =
+    normalizedWorkspace.includes("/moli-t/")
+      ? normalizedWorkspace.slice(normalizedWorkspace.indexOf("/moli-t/") + 1)
+      : "workspace";
+  const globalMemoryPath = `${memoryRoot}/MEMORY.md`;
+  const chatMemoryPath = `${memoryRoot}/${memoryWorkspaceRel}/${chatId}/MEMORY.md`;
   const workspaceName = workspaceDir.split("/").filter(Boolean).at(-1) ?? "moli-t";
   const chatDir = `${workspaceDir}/${chatId}`;
   const scratchDir = `${chatDir}/scratch`;
@@ -379,12 +391,11 @@ You are running directly on the host machine.
 
 ## Workspace Layout
 ${workspaceDir}/
-├── MEMORY.md                    # Global memory (all chats)
+├── (runtime workspace files, sessions, logs, skills, events)
 ├── SYSTEM.md                    # Environment setup log
 ├── skills/                      # Global CLI tools you create
 ├── events/                      # Workspace-level events
 └── ${chatId}/                   # This chat
-    ├── MEMORY.md                # Chat-specific memory
     ├── log.jsonl                # Message history (no tool results)
     ├── contexts/
     │   └── ${sessionId}.json    # Active session context
@@ -494,8 +505,9 @@ When automations may emit many immediate events, debounce and summarize into one
 
 ## Memory
 Write to MEMORY.md files to persist context across conversations.
-- Global (${workspaceDir}/MEMORY.md): skills, preferences, project info
-- Chat (${chatDir}/MEMORY.md): chat-specific decisions and ongoing work
+- Global (${globalMemoryPath}): skills, preferences, project info
+- Chat (${chatMemoryPath}): chat-specific decisions and ongoing work
+- IMPORTANT: Do not store memory files directly under ${workspaceDir} or ${chatDir}; always use the memory root path above.
 
 ### Current Memory
 ${memory}
@@ -518,11 +530,16 @@ grep -i "topic" ${chatDir}/log.jsonl
 \`\`\`
 
 ## Tools
+- memory: Memory gateway operations (add/search/list/update/delete/flush/sync). Use this for all memory changes.
 - bash: Execute shell commands in scratch (primary execution tool)
 - read: Read files
 - write: Create/overwrite files
 - edit: Surgical file edits
 - attach: Send a local file to Telegram (use only when text message is insufficient)
+
+Memory policy:
+- Never read/write/edit MEMORY.md directly with file tools.
+- Always use the memory tool (or gateway API) for memory operations.
 `;
 }
 
@@ -535,6 +552,7 @@ export class TelegramMomRunner implements RunnerLike {
     private readonly sessionId: string,
     private readonly store: TelegramMomStore,
     private readonly getSettings: () => RuntimeSettings,
+    private readonly memory: MemoryGateway,
   ) {
     const settings = this.getSettings();
     const model = resolveModel(settings, "text");
@@ -542,7 +560,7 @@ export class TelegramMomRunner implements RunnerLike {
       this.store.getWorkspaceDir(),
       this.chatId,
       this.sessionId,
-      this.store.readMemory(this.chatId),
+      "(memory will be loaded via gateway before each run)",
     );
 
     this.agent = new Agent({
@@ -706,12 +724,19 @@ export class TelegramMomRunner implements RunnerLike {
       hasApiKey: Boolean(resolvedKey),
       apiKeyFingerprint: keyFingerprint(resolvedKey),
     });
+    await this.memory.syncExternalMemories();
+    const memoryText =
+      (await this.memory.buildPromptContext(
+        { channel: "telegram", externalUserId: this.chatId },
+        ctx.message.text,
+        12,
+      )) || "(no working memory yet)";
     this.agent.setSystemPrompt(
       buildSystemPrompt(
         this.store.getWorkspaceDir(),
         this.chatId,
         this.sessionId,
-        this.store.readMemory(this.chatId),
+        memoryText,
       ),
     );
 
@@ -720,6 +745,7 @@ export class TelegramMomRunner implements RunnerLike {
         cwd: this.store.getScratchDir(this.chatId),
         workspaceDir: this.store.getWorkspaceDir(),
         chatId: this.chatId,
+        memory: this.memory,
         uploadFile: async (filePath, title) => {
           await ctx.uploadFile(filePath, title);
         },
@@ -956,6 +982,7 @@ export class RunnerPool {
   constructor(
     private readonly store: TelegramMomStore,
     private readonly getSettings: () => RuntimeSettings,
+    private readonly memory: MemoryGateway,
   ) {}
 
   private key(chatId: string, sessionId: string): string {
@@ -971,6 +998,7 @@ export class RunnerPool {
       sessionId,
       this.store,
       this.getSettings,
+      this.memory,
     );
     this.map.set(key, runner);
     return runner;
