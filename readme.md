@@ -37,6 +37,16 @@ npm link
 molibot
 ```
 
+## 初始化工作区目录
+```bash
+molibot init
+```
+
+- 默认初始化目录：`~/.molibot`（可用 `DATA_DIR` 覆盖）
+- 会创建文件（若不存在）：
+  - `AGENTS.md`：从 `src/lib/server/mom/prompts/AGENTS.default.md` 复制默认内容
+  - `SOUL.md`、`TOOLS.md`、`BOOTSTRAP.md`、`IDENTITY.md`、`USER.md`：创建为空文件
+
 ## 后台运维脚本（服务器）
 - 统一入口（推荐）：
 ```bash

@@ -1,7 +1,31 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { basename, isAbsolute, relative, resolve } from "node:path";
+
+const GLOBAL_PROFILE_FILES = ["SOUL.md", "TOOLS.md", "BOOTSTRAP.md", "IDENTITY.md", "USER.md"] as const;
+
+function resolveDataRootFromWorkspacePath(pathLike: string): string {
+  const normalized = resolve(pathLike).replace(/\\/g, "/");
+  const marker = "/moli-t/";
+  const markerIndex = normalized.indexOf(marker);
+  if (markerIndex > 0) {
+    return resolve(normalized.slice(0, markerIndex));
+  }
+  return resolve(normalized);
+}
+
+function resolveGlobalProfilePath(baseDir: string, input: string): string | null {
+  const normalizedInput = input.replace(/\\/g, "/").replace(/^\.\//, "");
+  const fileName = basename(normalizedInput);
+  const matched = GLOBAL_PROFILE_FILES.find((name) => fileName.toLowerCase() === name.toLowerCase());
+  if (!matched) return null;
+  const dataRoot = resolveDataRootFromWorkspacePath(baseDir);
+  return resolve(dataRoot, matched);
+}
 
 export function resolveToolPath(baseDir: string, input: string): string {
   if (isAbsolute(input)) return input;
+
+  const globalProfile = resolveGlobalProfilePath(baseDir, input);
+  if (globalProfile) return globalProfile;
 
   const normalizedBase = resolve(baseDir).replace(/\\/g, "/");
 
@@ -49,10 +73,14 @@ export function resolveToolPath(baseDir: string, input: string): string {
 export function createPathGuard(cwd: string, workspaceDir: string): (filePath: string) => void {
   const workspaceResolved = resolve(workspaceDir);
   const normalizedWorkspace = workspaceResolved.replace(/\\/g, "/");
+  const dataRoot = resolveDataRootFromWorkspacePath(workspaceResolved);
   const memoryRoot = normalizedWorkspace.includes("/moli-t/")
     ? resolve(`${normalizedWorkspace.slice(0, normalizedWorkspace.indexOf("/moli-t/"))}/memory`)
     : resolve(workspaceResolved, "memory");
   const allowedRoots = [resolve(cwd), workspaceResolved];
+  const allowedGlobalProfilePaths = GLOBAL_PROFILE_FILES.map((file) =>
+    resolve(dataRoot, file),
+  );
   return (filePath: string): void => {
     const resolved = resolve(filePath);
     const memoryRel = relative(memoryRoot, resolved);
@@ -60,6 +88,18 @@ export function createPathGuard(cwd: string, workspaceDir: string): (filePath: s
     if (isMemoryPath) {
       throw new Error(
         `Memory files must be managed via the memory gateway tool/API, not direct file tools. Blocked path: ${resolved}`
+      );
+    }
+    if (allowedGlobalProfilePaths.includes(resolved)) {
+      return;
+    }
+    const resolvedBase = basename(resolved).toLowerCase();
+    const isGlobalProfileTarget = GLOBAL_PROFILE_FILES.some(
+      (file) => file.toLowerCase() === resolvedBase,
+    );
+    if (isGlobalProfileTarget) {
+      throw new Error(
+        `Global profile files must be written only under data root. Use ${allowedGlobalProfilePaths.join(", ")}. Blocked path: ${resolved}`
       );
     }
     const ok = allowedRoots.some((root) => {
