@@ -637,3 +637,20 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
     - One `TelegramManager` instance per bot.
     - Isolated bot workspace path: `<DATA_DIR>/moli-t/bots/<botId>`.
   - Keep legacy fields readable/writable via migration fallback to first bot for old data compatibility.
+
+## 67. Event Delivery Mode: Text vs Agent Execution (2026-02-25)
+- Problem:
+  - One-shot/immediate events are currently delivered as literal text by default, so task-like events (e.g. weather query instructions) cannot trigger agent execution.
+- Requirement:
+  - Event system must distinguish between:
+    - literal text delivery
+    - task execution via AI agent before replying
+- Enforcement:
+  - Add optional event field `delivery`:
+    - `text`: send `text` directly to Telegram.
+    - `agent`: treat `text` as task instruction and run AI agent first.
+  - For `one-shot` / `immediate`, default `delivery` to `agent` when omitted.
+  - Event watcher should normalize missing `delivery` to `agent` and persist it back into the event file.
+  - `write` tool must reject one-shot events whose `at` is not in the future, so invalid schedule time is corrected before file commit.
+  - Keep periodic events on agent execution path.
+  - Update runner prompt examples and event-writing guidance to include `delivery` explicitly.

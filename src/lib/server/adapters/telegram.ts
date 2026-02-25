@@ -3,7 +3,7 @@ import { basename, extname, join, resolve } from "node:path";
 import { Bot, InputFile } from "grammy";
 import type { RuntimeSettings } from "../config.js";
 import { config } from "../config.js";
-import { EventsWatcher, type MomEvent } from "../mom/events.js";
+import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../mom/events.js";
 import { createRunId, momError, momLog, momWarn } from "../mom/log.js";
 import { RunnerPool } from "../mom/runner.js";
 import { loadSkillsFromWorkspace } from "../mom/skills.js";
@@ -624,7 +624,7 @@ export class TelegramManager {
 
   private addEventsWatcher(eventsDir: string, source: "workspace" | "chat-scratch", chatId: string | null): void {
     const watcher = new EventsWatcher(eventsDir, (event, filename) => {
-      this.handleSyntheticEvent(event, filename);
+      return this.handleSyntheticEvent(event, filename);
     });
     watcher.start();
     this.events.push(watcher);
@@ -641,8 +641,26 @@ export class TelegramManager {
     return queue;
   }
 
-  private handleSyntheticEvent(event: MomEvent, filename: string): void {
-    if (!this.bot) return;
+  private resolveEventDeliveryMode(event: MomEvent): EventDeliveryMode {
+    const raw = String((event as { delivery?: unknown }).delivery ?? "")
+      .trim()
+      .toLowerCase();
+    if (raw === "text" || raw === "direct" || raw === "raw") return "text";
+    if (raw === "agent" || raw === "task" || raw === "ai") return "agent";
+    if (event.type === "periodic") return "agent";
+    // Default upgraded to agent for one-shot/immediate unless explicitly marked as text.
+    return "agent";
+  }
+
+  private buildEventSyntheticText(event: MomEvent, filename: string): string {
+    const timePart = event.type === "one-shot"
+      ? event.at
+      : (event.type === "periodic" ? event.schedule : "immediate");
+    return `[EVENT:${filename}:${event.type}:${timePart}] ${event.text}`;
+  }
+
+  private handleSyntheticEvent(event: MomEvent, filename: string): Promise<void> {
+    if (!this.bot) return Promise.resolve();
 
     const queue = this.getQueue(event.chatId);
     if (queue.size() >= 5) {
@@ -651,50 +669,58 @@ export class TelegramManager {
         filename,
         queueSize: queue.size()
       });
-      return;
+      return Promise.reject(new Error("Event dropped: queue full"));
     }
 
     const syntheticMessageId = Date.now();
     const runId = createRunId(event.chatId, syntheticMessageId);
+    const delivery = this.resolveEventDeliveryMode(event);
 
     momLog("telegram", "event_enqueued", {
       runId,
       chatId: event.chatId,
       filename,
-      eventType: event.type
+      eventType: event.type,
+      delivery
     });
 
-    queue.enqueue(async () => {
-      momLog("telegram", "event_job_start", { runId, chatId: event.chatId, filename });
-      try {
-        if (event.type === "one-shot" || event.type === "immediate") {
-          await this.deliverDirectEventMessage(event, runId, filename);
-        } else {
-          const synthetic: TelegramInboundEvent = {
+    return new Promise<void>((resolve, reject) => {
+      queue.enqueue(async () => {
+        momLog("telegram", "event_job_start", { runId, chatId: event.chatId, filename, delivery });
+        try {
+          if (delivery === "text" && (event.type === "one-shot" || event.type === "immediate")) {
+            await this.deliverDirectEventMessage(event, runId, filename);
+          } else {
+            const synthetic: TelegramInboundEvent = {
+              chatId: event.chatId,
+              chatType: "private",
+              messageId: syntheticMessageId,
+              userId: "EVENT",
+              userName: "EVENT",
+              text: this.buildEventSyntheticText(event, filename),
+              ts: (Date.now() / 1000).toFixed(6),
+              attachments: [],
+              imageContents: [],
+              isEvent: true
+            };
+            (synthetic as TelegramInboundEvent & { runId?: string }).runId = runId;
+            await this.processEvent(synthetic, this.bot!);
+          }
+          resolve();
+        } catch (error) {
+          momError("telegram", "event_job_uncaught", {
+            runId,
             chatId: event.chatId,
-            chatType: "private",
-            messageId: syntheticMessageId,
-            userId: "EVENT",
-            userName: "EVENT",
-            text: `[EVENT:${filename}:${event.type}:${event.schedule}] ${event.text}`,
-            ts: (Date.now() / 1000).toFixed(6),
-            attachments: [],
-            imageContents: [],
-            isEvent: true
-          };
-          (synthetic as TelegramInboundEvent & { runId?: string }).runId = runId;
-          await this.processEvent(synthetic, this.bot!);
+            filename,
+            delivery,
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+          });
+          reject(error);
+        } finally {
+          momLog("telegram", "event_job_end", { runId, chatId: event.chatId, filename, delivery });
         }
-      } catch (error) {
-        momError("telegram", "event_job_uncaught", {
-          runId,
-          chatId: event.chatId,
-          filename,
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined
-        });
-      }
-      momLog("telegram", "event_job_end", { runId, chatId: event.chatId, filename });
+      });
     });
   }
 

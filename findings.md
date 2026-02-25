@@ -11,3 +11,5 @@
 - Telegram 运行时原来只支持单 bot（`telegramBotToken` + `telegramAllowedChatIds`），且单 token 下 allowedChatIds 变更会被 `apply_noop_same_token` 忽略。
 - 多 bot 改造需要同时覆盖三层：配置模型（`RuntimeSettings`）、运行时实例管理（每 bot 一个 `TelegramManager`）、设置页面（列表化编辑）。
 - 为避免不同 bot 的同一 chat id 互相污染，bot 运行数据路径需隔离到 `<DATA_DIR>/moli-t/bots/<botId>`，会话索引 key 也要带上 bot 标识。
+- 事件执行路径此前对 one-shot/immediate 强制直发，导致“任务指令型事件”无法交给 AI 执行。
+- 通过新增可选字段 `delivery`（`text` / `agent`）可同时覆盖“字面提醒”和“任务执行”两类需求，并保持 JSON 结构简单。

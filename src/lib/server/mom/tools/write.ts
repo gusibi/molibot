@@ -44,6 +44,7 @@ export function createWriteTool(options: { cwd: string; workspaceDir: string; ch
     const eventPayload = {
       type: "one-shot" as const,
       chatId: options.chatId,
+      delivery: "text" as const,
       text: shorthand.text,
       at: shorthand.at
     };
@@ -51,6 +52,42 @@ export function createWriteTool(options: { cwd: string; workspaceDir: string; ch
       path: normalizedPath,
       content: `${JSON.stringify(eventPayload, null, 2)}\n`
     };
+  };
+
+  const looksLikeEventPath = (rawPath: string, label: string): boolean => {
+    const lowerPath = rawPath.toLowerCase();
+    const lowerLabel = label.toLowerCase();
+    return (
+      lowerPath.includes("/events/") ||
+      lowerPath.includes("/tmp/events/") ||
+      /(^|\/)(reminder|event)[-_]/.test(lowerPath) ||
+      lowerLabel.includes("reminder") ||
+      lowerLabel.includes("event")
+    );
+  };
+
+  const validateOneShotAt = (rawPath: string, label: string, content: string): void => {
+    if (!looksLikeEventPath(rawPath, label)) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      return;
+    }
+    if (!parsed || typeof parsed !== "object") return;
+    const event = parsed as { type?: unknown; at?: unknown };
+    if (String(event.type ?? "").trim() !== "one-shot") return;
+    const atRaw = String(event.at ?? "").trim();
+    const atMs = new Date(atRaw).getTime();
+    const nowMs = Date.now();
+    if (!Number.isFinite(atMs)) {
+      throw new Error(`Invalid one-shot event 'at': ${atRaw}`);
+    }
+    if (atMs <= nowMs) {
+      throw new Error(
+        `One-shot event 'at' must be in the future. at=${new Date(atMs).toISOString()}, now=${new Date(nowMs).toISOString()}`
+      );
+    }
   };
 
   return {
@@ -63,6 +100,7 @@ export function createWriteTool(options: { cwd: string; workspaceDir: string; ch
       const normalized = normalizeReminderWrite(requestedPath, params.label, params.content);
       const filePath = normalized?.path ?? requestedPath;
       const content = normalized?.content ?? params.content;
+      validateOneShotAt(filePath, params.label, content);
       ensureAllowedPath(filePath);
       const dir = dirname(filePath);
       const cmd = `mkdir -p ${shellEscape(dir)} && printf '%s' ${shellEscape(content)} > ${shellEscape(filePath)}`;

@@ -15,3 +15,7 @@
 - Telegram 设置页改为多 bot 列表编辑（增删 bot、bot id/name/token/allowed chat ids）。
 - 修复 Telegram 配置热更新边界：token 相同但 allowed chat ids 变化时也会重载。
 - 验证：`npm run build` 通过。
+- 事件系统新增 `delivery` 模式：`text` 直发文本，`agent` 先执行 AI 再回复；one-shot/immediate 缺省改为 `agent`。
+- `EventsWatcher` 的回调升级为支持异步，状态 `completed/error` 现在可基于异步执行结果更新。
+- 更新了 runner 事件规范示例与 write 工具提醒规范化输出（默认写入 `delivery: "text"`）。
+- 追加修复：event watcher 在读取事件时会自动补全并回写 `delivery`（缺省为 `agent`），避免磁盘文件和实际执行模式不一致。

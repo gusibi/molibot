@@ -9,31 +9,32 @@ export interface EventStatus {
   lastError?: string;
 }
 
-export interface ImmediateEvent {
-  type: "immediate";
+export type EventDeliveryMode = "text" | "agent";
+
+interface EventBase {
   chatId: string;
   text: string;
+  // text: send text directly; agent: run through AI agent first, then send result.
+  delivery?: EventDeliveryMode;
   status?: EventStatus;
+}
+
+export interface ImmediateEvent {
+  type: "immediate";
 }
 
 export interface OneShotEvent {
   type: "one-shot";
-  chatId: string;
-  text: string;
   at: string;
-  status?: EventStatus;
 }
 
 export interface PeriodicEvent {
   type: "periodic";
-  chatId: string;
-  text: string;
   schedule: string;
   timezone: string;
-  status?: EventStatus;
 }
 
-export type MomEvent = ImmediateEvent | OneShotEvent | PeriodicEvent;
+export type MomEvent = (ImmediateEvent | OneShotEvent | PeriodicEvent) & EventBase;
 
 interface CronFieldRule {
   values: Set<number> | null;
@@ -138,7 +139,7 @@ export class EventsWatcher {
 
   constructor(
     private readonly eventsDir: string,
-    private readonly onEvent: (event: MomEvent, filename: string) => void
+    private readonly onEvent: (event: MomEvent, filename: string) => Promise<void> | void
   ) {}
 
   start(): void {
@@ -211,34 +212,36 @@ export class EventsWatcher {
       if (!parsed || typeof parsed !== "object") {
         throw new Error("Invalid JSON object");
       }
+      const normalized = this.normalizeEventDelivery(parsed);
+      if (normalized.delivery !== parsed.delivery) {
+        this.updateEventFile(filename, () => normalized);
+      }
 
-      if (this.isCompleted(parsed)) {
+      if (this.isCompleted(normalized)) {
         this.cancel(filename);
         this.knownFiles.add(filename);
         return;
       }
 
-      if (parsed.type === "immediate") {
-        this.onEvent(parsed, filename);
-        this.markDone(filename, parsed, "executed");
-      } else if (parsed.type === "one-shot") {
-        const at = new Date(parsed.at).getTime();
+      if (normalized.type === "immediate") {
+        this.dispatchEvent(normalized, filename);
+      } else if (normalized.type === "one-shot") {
+        const at = new Date(normalized.at).getTime();
         if (!Number.isFinite(at) || at <= Date.now()) {
-          this.markSkipped(filename, parsed, "expired_or_invalid_time");
+          this.markSkipped(filename, normalized, "expired_or_invalid_time");
           return;
         }
         const timer = setTimeout(() => {
           this.oneShotTimers.delete(filename);
-          this.onEvent(parsed, filename);
-          this.markDone(filename, parsed, "executed");
+          this.dispatchEvent(normalized, filename);
         }, at - Date.now());
         this.oneShotTimers.set(filename, timer);
         this.knownFiles.add(filename);
-      } else if (parsed.type === "periodic") {
-        const cron = parseCron(parsed.schedule);
+      } else if (normalized.type === "periodic") {
+        const cron = parseCron(normalized.schedule);
         this.periodic.set(filename, {
           parsed: cron,
-          event: parsed,
+          event: normalized,
           filename,
           lastTick: ""
         });
@@ -266,6 +269,17 @@ export class EventsWatcher {
     }
   }
 
+  private dispatchEvent(event: MomEvent, filename: string): void {
+    Promise.resolve(this.onEvent(event, filename))
+      .then(() => {
+        this.markDone(filename, event, "executed");
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.markError(filename, message);
+      });
+  }
+
   private cancel(filename: string): void {
     const oneShot = this.oneShotTimers.get(filename);
     if (oneShot) {
@@ -279,10 +293,27 @@ export class EventsWatcher {
     return event.status?.state === "completed";
   }
 
+  private resolveDeliveryMode(event: MomEvent): EventDeliveryMode {
+    const raw = String(event.delivery ?? "").trim().toLowerCase();
+    if (raw === "text") return "text";
+    if (raw === "agent") return "agent";
+    return "agent";
+  }
+
+  private normalizeEventDelivery(event: MomEvent): MomEvent {
+    const delivery = this.resolveDeliveryMode(event);
+    if (event.delivery === delivery) return event;
+    return {
+      ...event,
+      delivery
+    };
+  }
+
   private markDone(filename: string, event: MomEvent, reason: string): void {
     const runCount = (event.status?.runCount ?? 0) + 1;
     this.updateEventFile(filename, (current) => ({
       ...current,
+      delivery: this.resolveDeliveryMode(current),
       status: {
         ...(current.status ?? {}),
         state: "completed",
@@ -298,6 +329,7 @@ export class EventsWatcher {
   private markSkipped(filename: string, event: MomEvent, reason: string): void {
     this.updateEventFile(filename, (current) => ({
       ...current,
+      delivery: this.resolveDeliveryMode(current),
       status: {
         ...(current.status ?? {}),
         state: "skipped",
@@ -313,6 +345,7 @@ export class EventsWatcher {
   private markError(filename: string, message: string): void {
     this.updateEventFile(filename, (current) => ({
       ...current,
+      delivery: this.resolveDeliveryMode(current),
       status: {
         ...(current.status ?? {}),
         state: "error",

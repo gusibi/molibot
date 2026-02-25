@@ -24,3 +24,4 @@ Add Telegram commands for session lifecycle (`/new`, `/clear`, `/sessions`, `/de
 - [x] Phase 3: Refactor runtime to manage multiple Telegram managers concurrently
 - [x] Phase 4: Upgrade `/settings/telegram` to multi-bot list UI
 - [x] Phase 5: Build verification + docs updates (`features.md`, `prd.md`)
+- [x] Phase 6: Add event delivery-mode split (`text` vs `agent`) and async event callback status flow

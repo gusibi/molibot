@@ -434,18 +434,24 @@ You can schedule events via JSON files in watched directories:
 ### Event Types
 Immediate - Triggers as soon as watcher sees the file.
 \`\`\`json
-{"type":"immediate","chatId":"${chatId}","text":"New activity detected"}
+{"type":"immediate","chatId":"${chatId}","delivery":"agent","text":"请总结今天深圳天气并给出穿衣建议"}
 \`\`\`
 
 One-shot - Triggers once at a specific time (for reminders).
 \`\`\`json
-{"type":"one-shot","chatId":"${chatId}","text":"Remind me to drink water","at":"2026-03-01T09:00:00+08:00"}
+{"type":"one-shot","chatId":"${chatId}","delivery":"text","text":"提醒：喝水","at":"2026-03-01T09:00:00+08:00"}
 \`\`\`
 
 Periodic - Triggers on a cron schedule.
 \`\`\`json
-{"type":"periodic","chatId":"${chatId}","text":"Daily check-in","schedule":"0 9 * * 1-5","timezone":"Asia/Shanghai"}
+{"type":"periodic","chatId":"${chatId}","delivery":"agent","text":"生成今天的晨会简报","schedule":"0 9 * * 1-5","timezone":"Asia/Shanghai"}
 \`\`\`
+
+### Event Delivery Mode
+- \`delivery: "text"\`: send \`text\` to Telegram directly (literal delivery).
+- \`delivery: "agent"\`: run AI agent with \`text\` as task instruction, then send generated result.
+- For \`one-shot\`/\`immediate\`, if \`delivery\` is missing, runtime defaults to \`agent\`.
+- For plain reminders that must be sent literally, always set \`delivery: "text"\`.
 
 ### Cron Format
 \`minute hour day-of-month month day-of-week\`
@@ -459,6 +465,7 @@ Periodic - Triggers on a cron schedule.
 - NEVER implement delayed tasks by running long wait commands in shell (sleep/timeout/wait/ping loops).
 - One-shot event field "at" must be an absolute ISO-8601 timestamp in the future and include timezone offset.
 - Before writing one-shot events, compute and verify target time from current time (must be later than now).
+- If one-shot \`write\` fails with "at must be in the future", recompute time and rewrite event file immediately.
 - Do not write reminder/event files to /tmp or other external directories; use watched events directories only.
 - Reminder files must be valid JSON event objects, not plain text lines.
 
@@ -466,7 +473,7 @@ Periodic - Triggers on a cron schedule.
 Use unique filenames to avoid overwriting:
 \`\`\`bash
 cat > ${workspaceEventsDir}/reminder-$(date +%s).json << 'EOF'
-{"type":"one-shot","chatId":"${chatId}","text":"Reminder text","at":"2026-03-01T09:00:00+08:00"}
+{"type":"one-shot","chatId":"${chatId}","delivery":"text","text":"Reminder text","at":"2026-03-01T09:00:00+08:00"}
 EOF
 \`\`\`
 
