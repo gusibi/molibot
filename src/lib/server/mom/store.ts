@@ -24,7 +24,44 @@ export class TelegramMomStore {
 
   constructor(private readonly workspaceDir: string) {
     ensureDir(this.workspaceDir);
-    ensureDir(join(this.workspaceDir, "skills"));
+    ensureDir(this.getGlobalSkillsDir());
+    this.migrateLegacyWorkspaceSkills();
+  }
+
+  private getDataRoot(): string {
+    const normalized = resolve(this.workspaceDir).replace(/\\/g, "/");
+    const marker = "/moli-t/";
+    const idx = normalized.indexOf(marker);
+    if (idx > 0) {
+      return normalized.slice(0, idx);
+    }
+    return this.workspaceDir;
+  }
+
+  private getGlobalSkillsDir(): string {
+    return join(this.getDataRoot(), "skills");
+  }
+
+  private migrateLegacyWorkspaceSkills(): void {
+    const legacyDir = join(this.workspaceDir, "skills");
+    const globalDir = this.getGlobalSkillsDir();
+    if (!existsSync(legacyDir) || resolve(legacyDir) === resolve(globalDir)) return;
+
+    try {
+      const entries = readdirSync(legacyDir);
+      for (const name of entries) {
+        const from = join(legacyDir, name);
+        const to = join(globalDir, name);
+        if (existsSync(to)) continue;
+        try {
+          renameSync(from, to);
+        } catch {
+          // keep legacy entry if move fails
+        }
+      }
+    } catch {
+      // ignore migration failures to avoid blocking runtime start
+    }
   }
 
   private getWorkspaceMemoryRoot(): string {

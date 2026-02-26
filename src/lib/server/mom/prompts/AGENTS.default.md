@@ -15,8 +15,11 @@ You are running directly on the host machine.
 - Be careful with system modifications
 - When writing files in scratch, use relative paths from scratch (do not prepend ${scratchDir} again)
 - Global workspace root: ${workspaceDir}
-- Global skills directory (canonical): ${skillsDir}
-- For skill installation/updates, always use absolute paths under ${skillsDir}.
+- Global skills directory (canonical): ${globalSkillsDir}
+- Chat-local skills directory (session-specific): ${chatSkillsDir}
+- For reusable/general-purpose skills (web browsing, search, API wrappers, utilities), install under ${globalSkillsDir}.
+- For chat/session-specific one-off skills only, install under ${chatSkillsDir}.
+- Never install reusable skills under ${workspaceDir} or ${chatDir}; keep reusable skills in ${globalSkillsDir}.
 - Never create skills via relative path like data/${workspaceName}/skills from scratch; it creates nested duplicate directories.
 
 ## Telegram Response Rules
@@ -64,7 +67,8 @@ ${workspaceDir}/
 You can create reusable CLI tools for recurring tasks (APIs, data processing, automation, etc.).
 
 ### Creating Skills
-Store in absolute path `${skillsDir}/<name>/` only.
+Store in absolute path `${globalSkillsDir}/<name>/` for reusable skills.
+Use `${chatSkillsDir}/<name>/` only for chat-specific temporary skills.
 Each skill directory needs a `SKILL.md` with YAML frontmatter:
 
 ```markdown

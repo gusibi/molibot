@@ -24,6 +24,7 @@ Molibot 是一个基于 pi-mono 的极简多端 AI 助手，V1 支持 Telegram +
 - 可以配置：
   - AI provider（`pi` / `custom`、模型、key、host）
   - Telegram token 和允许的 chat id 列表
+  - Skills 查看（按 global/chat/legacy 分类，显示具体安装路径）
 - 设置保存到 JSON（默认 `~/.molibot/settings.json`），AI 配置立即生效，Telegram 会自动尝试重载。
 
 ## 安装
@@ -46,6 +47,12 @@ molibot init
 - 会创建文件（若不存在）：
   - `AGENTS.md`：从 `src/lib/server/mom/prompts/AGENTS.default.md` 复制默认内容
   - `SOUL.md`、`TOOLS.md`、`BOOTSTRAP.md`、`IDENTITY.md`、`USER.md`：创建为空文件
+- 会创建全局通用技能目录：`~/.molibot/skills`（或 `${DATA_DIR}/skills`）
+
+## Skills 目录策略
+- 通用技能（如网页浏览、搜索、API 封装）放在：`${DATA_DIR}/skills`
+- 会话专用技能放在：`${DATA_DIR}/moli-t/bots/<botId>/<chatId>/skills`
+- Telegram `/skills` 会同时显示通用+会话技能，并标注 scope
 
 ## 后台运维脚本（服务器）
 - 统一入口（推荐）：

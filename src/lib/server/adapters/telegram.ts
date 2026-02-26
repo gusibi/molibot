@@ -382,7 +382,7 @@ export class TelegramManager {
     bot.command("skills", async (ctx) => {
       const chatId = String(ctx.chat.id);
       if (allowed.size > 0 && !allowed.has(chatId)) return;
-      await ctx.reply(this.skillsText());
+      await ctx.reply(this.skillsText(chatId));
     });
 
     bot.command("models", async (ctx) => {
@@ -1052,10 +1052,22 @@ export class TelegramManager {
     ].join("\n");
   }
 
-  private skillsText(): string {
-    const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir);
+  private skillsText(chatId: string): string {
+    const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId);
+    const dataRoot = this.workspaceDir.includes("/moli-t/")
+      ? this.workspaceDir.slice(0, this.workspaceDir.indexOf("/moli-t/"))
+      : this.workspaceDir;
+    const globalSkillsDir = `${dataRoot}/skills`;
+    const chatSkillsDir = `${this.workspaceDir}/${chatId}/skills`;
+    const scopeLabel: Record<string, string> = {
+      chat: "chat",
+      global: "global",
+      "workspace-legacy": "workspace-legacy"
+    };
     const lines = [
       `Workspace: ${this.workspaceDir}`,
+      `Global skills dir: ${globalSkillsDir}`,
+      `Chat skills dir: ${chatSkillsDir}`,
       `Loaded skills: ${skills.length}`,
       ""
     ];
@@ -1066,6 +1078,7 @@ export class TelegramManager {
       for (let i = 0; i < skills.length; i += 1) {
         const skill = skills[i];
         lines.push(`${i + 1}. ${skill.name}`);
+        lines.push(`   - scope: ${scopeLabel[skill.scope] ?? skill.scope}`);
         lines.push(`   - description: ${skill.description}`);
         lines.push(`   - file: ${skill.filePath}`);
       }

@@ -115,6 +115,9 @@
 | ENG-104 | AGENTS.md workspace-target guardrail | Done | Added explicit bot prompt rule: when editing AGENTS instructions, always target `${workspaceDir}/AGENTS.md`, never project-root `AGENTS.md`, and state target path in response |
 | ENG-105 | `molibot init` workspace bootstrap command | Done | Added launcher subcommand `molibot init` to initialize `${DATA_DIR:-~/.molibot}`; `AGENTS.md` is copied from `src/lib/server/mom/prompts/AGENTS.default.md`, while `SOUL.md`/`TOOLS.md`/`BOOTSTRAP.md`/`IDENTITY.md`/`USER.md` are created as empty files when missing |
 | ENG-106 | Global profile file path enforcement | Done | Strengthened tool path resolution/guard so profile files (`SOUL.md`/`TOOLS.md`/`BOOTSTRAP.md`/`IDENTITY.md`/`USER.md`) are normalized to data-root global paths and blocked from being written under chat/workspace subdirectories |
+| ENG-107 | Global profile path guard compatibility fix | Done | Fixed false rejection for valid global profile paths by normalizing absolute global profile targets before path checks and using case-insensitive path comparison on macOS/Windows |
+| ENG-108 | Two-level skills repository (global + chat) | Done | Reworked skills load/query/install logic to use `${DATA_DIR}/skills` for reusable skills and `${workspaceDir}/${chatId}/skills` for chat-specific skills, with scope-aware listing, path guard allowances, legacy workspace-skill migration, and prompt guidance updates |
+| ENG-109 | Settings skills inventory page | Done | Added `/settings/skills` UI and `/api/settings/skills` backend inventory endpoint to display installed skills grouped by scope (`global`/`chat`/`workspace-legacy`) with full file paths, bot/chat identifiers, counts, and diagnostics |
 
 ## In Progress
 | ID | Feature | Status | Notes |
@@ -130,6 +133,10 @@
 | BL-04 | Vector memory | Backlog | Post V1 |
 
 ## Update Log
+- 2026-02-25: Added Skills management visibility in Web settings: new API endpoint `GET /api/settings/skills` scans `${DATA_DIR}/skills`, `${DATA_DIR}/moli-t/bots/*/skills` and `${DATA_DIR}/moli-t/bots/*/*/skills`; new page `/settings/skills` shows grouped installed skills and concrete paths; settings navigation and dashboard cards updated to include Skills.
+- 2026-02-25: Optimized skill routing to two-level repositories: global reusable skills now live in `${DATA_DIR}/skills`, chat-specific skills live in `${workspaceDir}/${chatId}/skills`; loader now merges scopes with precedence `chat > global > workspace-legacy`, `/skills` outputs scope and both directories, path resolver allows global skills root and redirects legacy `data/moli-t/skills` references to data-root skills, and runtime store migrates legacy workspace skills to global root when possible.
+- 2026-02-25: Updated `molibot init` to create `${DATA_DIR}/skills` for global reusable skill installation.
+- 2026-02-25: Fixed `Global profile files must be written only under data root` false positives for valid targets (for example `/Users/gusi/.molibot/soul.md`) by normalizing absolute global profile paths in `resolveToolPath()` and applying case-insensitive path-key matching in guard logic on case-insensitive platforms.
 - 2026-02-25: Hardened profile-file path enforcement in `src/lib/server/mom/tools/path.ts`: relative writes targeting `SOUL.md`/`TOOLS.md`/`BOOTSTRAP.md`/`IDENTITY.md`/`USER.md` now normalize by basename to data-root global files, and guard logic now explicitly rejects those filenames when resolved under non-global paths (e.g. `.../moli-t/bots/.../<chatId>/soul.md`).
 - 2026-02-25: Corrected `molibot init` behavior: `AGENTS.md` now initializes by copying `src/lib/server/mom/prompts/AGENTS.default.md` instead of creating an empty file; other instruction files remain empty-file bootstrap.
 - 2026-02-25: Added `molibot init` command in `bin/molibot.js` to initialize `${DATA_DIR:-~/.molibot}` and create empty instruction bootstrap files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `BOOTSTRAP.md`, `IDENTITY.md`, `USER.md`); updated `readme.md` usage docs.

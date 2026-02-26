@@ -373,8 +373,9 @@ function buildPromptRenderVariables(
   const sessionContextFile = `${chatDir}/contexts/${sessionId}.json`;
   const workspaceEventsDir = `${workspaceDir}/events`;
   const scratchEventsDir = `${scratchDir}/data/${workspaceName}/events`;
-  const skillsDir = `${workspaceDir}/skills`;
-  const { skills, diagnostics } = loadSkillsFromWorkspace(workspaceDir);
+  const globalSkillsDir = `${dataRoot}/skills`;
+  const chatSkillsDir = `${chatDir}/skills`;
+  const { skills, diagnostics } = loadSkillsFromWorkspace(workspaceDir, chatId);
   const availableSkills = formatSkillsForPrompt(skills);
   const skillDiagText =
     diagnostics.length > 0
@@ -392,7 +393,8 @@ function buildPromptRenderVariables(
     sessionContextFile,
     workspaceEventsDir,
     scratchEventsDir,
-    skillsDir,
+    globalSkillsDir,
+    chatSkillsDir,
     availableSkills,
     skillDiagText,
     memoryRoot,

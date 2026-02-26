@@ -41,6 +41,7 @@ function ensureEmptyFile(path) {
 function runInit() {
   const dataDir = resolveDataDir();
   mkdirSync(dataDir, { recursive: true });
+  mkdirSync(join(dataDir, "skills"), { recursive: true });
   const defaultAgentsPath = join(rootDir, "src/lib/server/mom/prompts/AGENTS.default.md");
   const defaultAgentsContent = readFileSync(defaultAgentsPath, "utf8");
 

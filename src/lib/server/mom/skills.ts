@@ -1,11 +1,14 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+export type SkillScope = "chat" | "global" | "workspace-legacy";
+
 export interface LoadedSkill {
   name: string;
   description: string;
   filePath: string;
   baseDir: string;
+  scope: SkillScope;
 }
 
 export interface SkillLoadResult {
@@ -56,16 +59,42 @@ function findSkillFiles(rootDir: string, out: string[]): void {
   }
 }
 
-export function loadSkillsFromWorkspace(workspaceDir: string): SkillLoadResult {
-  const skillsDir = join(workspaceDir, "skills");
-  if (!existsSync(skillsDir)) return { skills: [], diagnostics: [] };
+function resolveDataRoot(workspaceDir: string): string {
+  const normalized = workspaceDir.replace(/\\/g, "/");
+  const marker = "/moli-t/";
+  const idx = normalized.indexOf(marker);
+  if (idx > 0) {
+    return normalized.slice(0, idx);
+  }
+  return workspaceDir;
+}
 
+export function loadSkillsFromWorkspace(workspaceDir: string, chatId?: string): SkillLoadResult {
   const files: string[] = [];
   const diagnostics: string[] = [];
-  findSkillFiles(skillsDir, files);
+  const dataRoot = resolveDataRoot(workspaceDir);
+  const roots: Array<{ scope: SkillScope; dir: string }> = [];
+
+  if (chatId?.trim()) {
+    roots.push({ scope: "chat", dir: join(workspaceDir, chatId.trim(), "skills") });
+  }
+  roots.push({ scope: "global", dir: join(dataRoot, "skills") });
+  roots.push({ scope: "workspace-legacy", dir: join(workspaceDir, "skills") });
+
+  const candidates: Array<{ scope: SkillScope; filePath: string }> = [];
+  for (const root of roots) {
+    if (!existsSync(root.dir)) continue;
+    const rootFiles: string[] = [];
+    findSkillFiles(root.dir, rootFiles);
+    for (const filePath of rootFiles.sort((a, b) => a.localeCompare(b))) {
+      candidates.push({ scope: root.scope, filePath });
+    }
+  }
+  if (candidates.length === 0) return { skills: [], diagnostics: [] };
 
   const deduped = new Map<string, LoadedSkill>();
-  for (const filePath of files.sort((a, b) => a.localeCompare(b))) {
+  for (const row of candidates) {
+    const filePath = row.filePath;
     let raw = "";
     try {
       raw = readFileSync(filePath, "utf8");
@@ -88,7 +117,9 @@ export function loadSkillsFromWorkspace(workspaceDir: string): SkillLoadResult {
     }
 
     if (deduped.has(name)) {
-      diagnostics.push(`Duplicate skill name "${name}" ignored at ${filePath}`);
+      diagnostics.push(
+        `Duplicate skill name "${name}" ignored at ${filePath} (already loaded from ${deduped.get(name)?.filePath})`
+      );
       continue;
     }
 
@@ -96,7 +127,8 @@ export function loadSkillsFromWorkspace(workspaceDir: string): SkillLoadResult {
       name,
       description,
       filePath,
-      baseDir: dirname(filePath)
+      baseDir: dirname(filePath),
+      scope: row.scope
     });
   }
 
@@ -111,7 +143,7 @@ export function formatSkillsForPrompt(skills: LoadedSkill[]): string {
   return skills
     .map(
       (skill) =>
-        `- ${skill.name}\n  description: ${skill.description}\n  skill_file: ${skill.filePath}\n  base_dir: ${skill.baseDir}`
+        `- ${skill.name}\n  description: ${skill.description}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}\n  base_dir: ${skill.baseDir}`
     )
     .join("\n");
 }

@@ -2,6 +2,14 @@ import { basename, isAbsolute, relative, resolve } from "node:path";
 
 const GLOBAL_PROFILE_FILES = ["SOUL.md", "TOOLS.md", "BOOTSTRAP.md", "IDENTITY.md", "USER.md"] as const;
 
+function pathCompareKey(pathLike: string): string {
+  const resolved = resolve(pathLike);
+  if (process.platform === "darwin" || process.platform === "win32") {
+    return resolved.toLowerCase();
+  }
+  return resolved;
+}
+
 function resolveDataRootFromWorkspacePath(pathLike: string): string {
   const normalized = resolve(pathLike).replace(/\\/g, "/");
   const marker = "/moli-t/";
@@ -22,10 +30,10 @@ function resolveGlobalProfilePath(baseDir: string, input: string): string | null
 }
 
 export function resolveToolPath(baseDir: string, input: string): string {
-  if (isAbsolute(input)) return input;
-
   const globalProfile = resolveGlobalProfilePath(baseDir, input);
   if (globalProfile) return globalProfile;
+
+  if (isAbsolute(input)) return input;
 
   const normalizedBase = resolve(baseDir).replace(/\\/g, "/");
 
@@ -41,12 +49,25 @@ export function resolveToolPath(baseDir: string, input: string): string {
   //   cwd: .../.molibot/moli-t/<chatId>/scratch
   //   input: data/moli-t/skills/brave-search/SKILL.md
   // Should resolve to:
-  //   .../.molibot/moli-t/skills/brave-search/SKILL.md
+  //   .../.molibot/skills/brave-search/SKILL.md
   const workspaceFromScratch = normalizedBase.match(/^(.*)\/[^/]+\/scratch(?:\/.*)?$/)?.[1];
   const workspaceSkillsPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-t)\/skills(?:\/(.*))?$/);
   if (workspaceFromScratch && workspaceSkillsPrefix) {
+    const dataRoot = resolveDataRootFromWorkspacePath(workspaceFromScratch);
     const suffix = workspaceSkillsPrefix[1] ?? "";
-    return resolve(workspaceFromScratch, "skills", suffix);
+    return resolve(dataRoot, "skills", suffix);
+  }
+
+  // Normalize chat-local skill path when explicitly referencing chat scope.
+  // Example:
+  //   input: data/moli-t/<chatId>/skills/my-task/SKILL.md
+  // Should resolve to:
+  //   .../.molibot/moli-t/<chatId>/skills/my-task/SKILL.md
+  const chatSkillsPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-t)\/([^/]+)\/skills(?:\/(.*))?$/);
+  if (workspaceFromScratch && chatSkillsPrefix) {
+    const chatId = chatSkillsPrefix[1] ?? "";
+    const suffix = chatSkillsPrefix[2] ?? "";
+    return resolve(workspaceFromScratch, chatId, "skills", suffix);
   }
 
   // Normalize shared memory paths to DATA_DIR/memory when called from chat scratch.
@@ -77,9 +98,13 @@ export function createPathGuard(cwd: string, workspaceDir: string): (filePath: s
   const memoryRoot = normalizedWorkspace.includes("/moli-t/")
     ? resolve(`${normalizedWorkspace.slice(0, normalizedWorkspace.indexOf("/moli-t/"))}/memory`)
     : resolve(workspaceResolved, "memory");
-  const allowedRoots = [resolve(cwd), workspaceResolved];
+  const globalSkillsRoot = resolve(dataRoot, "skills");
+  const allowedRoots = [resolve(cwd), workspaceResolved, globalSkillsRoot];
   const allowedGlobalProfilePaths = GLOBAL_PROFILE_FILES.map((file) =>
     resolve(dataRoot, file),
+  );
+  const allowedGlobalProfilePathKeys = new Set(
+    allowedGlobalProfilePaths.map((path) => pathCompareKey(path)),
   );
   return (filePath: string): void => {
     const resolved = resolve(filePath);
@@ -90,7 +115,7 @@ export function createPathGuard(cwd: string, workspaceDir: string): (filePath: s
         `Memory files must be managed via the memory gateway tool/API, not direct file tools. Blocked path: ${resolved}`
       );
     }
-    if (allowedGlobalProfilePaths.includes(resolved)) {
+    if (allowedGlobalProfilePathKeys.has(pathCompareKey(resolved))) {
       return;
     }
     const resolvedBase = basename(resolved).toLowerCase();

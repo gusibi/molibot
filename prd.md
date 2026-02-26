@@ -38,6 +38,9 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-13 | AGENTS workspace-target enforcement | P1 | V1.1 | Any AGENTS update operation must target `${workspaceDir}/AGENTS.md` only; project-root `AGENTS.md` must remain unchanged during bot-runtime instruction edits |
 | P1-14 | Workspace bootstrap CLI init command | P1 | V1.1 | Add `molibot init` to initialize `${DATA_DIR:-~/.molibot}`; initialize `AGENTS.md` from `src/lib/server/mom/prompts/AGENTS.default.md` and create empty `SOUL.md`/`TOOLS.md`/`BOOTSTRAP.md`/`IDENTITY.md`/`USER.md` for first-run setup |
 | P1-15 | Profile files global-path guardrail | P1 | V1.1 | Enforce that `SOUL.md`/`TOOLS.md`/`BOOTSTRAP.md`/`IDENTITY.md`/`USER.md` are written only to `${DATA_DIR}` root-level files, preventing chat/workspace-scoped duplicates like `moli-t/bots/<bot>/<chatId>/soul.md` |
+| P1-16 | Global profile path compatibility | P1 | V1.1 | Global profile path guard should accept normalized absolute targets (including case variants on case-insensitive filesystems) and avoid false blocking when writing to `${DATA_DIR}/*.md` |
+| P1-17 | Two-level skills architecture | P1 | V1.1 | Skills should be split into `${DATA_DIR}/skills` (global reusable) and `${workspaceDir}/${chatId}/skills` (chat-specific), with merged query/usage visibility, deterministic precedence, and migration support from legacy `${workspaceDir}/skills` |
+| P1-18 | Skills inventory in settings UI | P1 | V1.1 | Provide `/settings/skills` to inspect currently installed skills across scopes (`global`/`chat`/`workspace-legacy`) with explicit file paths and bot/chat context, backed by a server inventory endpoint |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
