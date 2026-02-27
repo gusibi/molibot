@@ -10,7 +10,10 @@
     "dev": "svelte-kit sync && vite dev --mode production",
     "build": "svelte-kit sync && vite build",
     "start": "node build",
-    "cli": "tsx src/lib/server/index.ts --cli"
+    "cli": "tsx src/lib/server/index.ts --cli",
+    "mory:build": "npm --prefix package/mory run build",
+    "mory:test": "npm --prefix package/mory run test",
+    "mory:smoke": "npm --prefix package/mory run smoke"
   },
   "dependencies": {
     "@mariozechner/mini-lit": "^0.2.0",

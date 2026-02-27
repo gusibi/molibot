@@ -1,0 +1,41 @@
+{
+  "name": "@molibot/mory",
+  "version": "0.1.0",
+  "description": "Filesystem-style memory primitives for AI agents (mory:// URI, path normalization, write-gate).",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./smoke": {
+      "types": "./dist/src/smoke.d.ts",
+      "import": "./dist/src/smoke.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "smoke": "npm run build && node dist/src/smoke.js",
+    "prepack": "npm run clean && npm run test"
+  },
+  "keywords": [
+    "agent-memory",
+    "memory",
+    "rag",
+    "llm",
+    "typescript"
+  ],
+  "license": "UNLICENSED"
+}

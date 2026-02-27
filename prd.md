@@ -19,6 +19,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P0-05 | Session persistence | P0 | V1 | Conversation history persists in SQLite and can be restored by session |
 | P0-06 | Basic guardrails | P0 | V1 | Request size limit, rate limiting, and secrets via env vars |
 | P0-07 | Operational baseline | P0 | V1 | Health endpoint, structured logs, and startup checks are implemented |
+| P0-08 | Telegram image response media correctness | P0 | V1 | When bot returns image files, Telegram should render them as photos (not opaque data documents) whenever payload is an image |
 
 ### Should Have (P1)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -41,6 +42,10 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-16 | Global profile path compatibility | P1 | V1.1 | Global profile path guard should accept normalized absolute targets (including case variants on case-insensitive filesystems) and avoid false blocking when writing to `${DATA_DIR}/*.md` |
 | P1-17 | Two-level skills architecture | P1 | V1.1 | Skills should be split into `${DATA_DIR}/skills` (global reusable) and `${workspaceDir}/${chatId}/skills` (chat-specific), with merged query/usage visibility, deterministic precedence, and migration support from legacy `${workspaceDir}/skills` |
 | P1-18 | Skills inventory in settings UI | P1 | V1.1 | Provide `/settings/skills` to inspect currently installed skills across scopes (`global`/`chat`/`workspace-legacy`) with explicit file paths and bot/chat context, backed by a server inventory endpoint |
+| P1-19 | Standalone mory memory SDK package | P1 | V1.1 | `package/mory` should be independently buildable/testable as a Node package, include path normalization + write-gate APIs, and provide SQLite/pgvector schema/query templates for storage integration |
+| P1-21 | Mory cognitive control modules | P1 | V1.1 | `package/mory` should provide non-integration logic modules for write scoring (`importance/novelty/utility/confidence`), conflict resolution/versioning, retrieval intent planning, episodic-to-semantic consolidation, and task-scoped workspace memory helpers with unit tests |
+| P1-20 | SOUL tone baseline governance | P1 | V1.1 | Global `SOUL.md` should enforce decisive opinions, anti-corporate phrasing, direct-answer openings, mandatory brevity, and bounded humor/profanity rules for consistent assistant voice |
+| P1-22 | Mory README capability checklist | P1 | V1.1 | `package/mory/README.md` should maintain a complete capability matrix with explicit `完成` / `TODO` status so integration work can track SDK readiness without reading source code |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -81,6 +86,9 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - `architecture.md`: V1 architecture and sprint plan.
 - `features.md`: implementation status and change log.
 - `AGENTS.md`: collaboration and process constraints.
+- Documentation sync rule: `readme.md` must reflect current implemented behavior; when implementation and docs diverge, use `features.md` + actual code/runtime behavior as source of truth and refresh README accordingly.
+- Validation status rule: distinguish clearly between `implemented` and `validated in real usage`; do not describe channels/features as “stable/available” unless they have been actually verified in this project usage context.
+- Skills provisioning rule: default behavior is manual installation by user; if project-local reusable skills are provided, README must include explicit copy/install commands to `${DATA_DIR}/skills`.
 
 ## 10. Implementation Status (2026-02-11)
 - Completed:

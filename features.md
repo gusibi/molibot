@@ -9,6 +9,7 @@
 | DOC-04 | Telegram tech decision (`grammY`) | Done | V1 Telegram adapter library fixed as `grammY` |
 | DOC-05 | Persistence tech decision (`SQLite`) | Done | V1 session/message persistence changed to SQLite |
 | DOC-06 | Documentation cleanup | Done | Removed redundant docs and added file-purpose navigation in `readme.md` |
+| DOC-07 | Global SOUL profile tone optimization | Done | Rewrote `~/.molibot/SOUL.md` with decisive, concise, non-corporate voice and explicit direct-answer constraints |
 | ENG-01 | Unified message router implementation | Done | `src/core/messageRouter.ts` with validation, rate limit, and shared pipeline |
 | ENG-02 | Telegram adapter implementation | Done | `src/adapters/telegram.ts` built with `grammY` |
 | ENG-03 | Web chat implementation | Done | SvelteKit chat page + API (`src/routes/+page.svelte`, `src/routes/api/chat/+server.ts`) with `pi-web-ui` |
@@ -118,6 +119,10 @@
 | ENG-107 | Global profile path guard compatibility fix | Done | Fixed false rejection for valid global profile paths by normalizing absolute global profile targets before path checks and using case-insensitive path comparison on macOS/Windows |
 | ENG-108 | Two-level skills repository (global + chat) | Done | Reworked skills load/query/install logic to use `${DATA_DIR}/skills` for reusable skills and `${workspaceDir}/${chatId}/skills` for chat-specific skills, with scope-aware listing, path guard allowances, legacy workspace-skill migration, and prompt guidance updates |
 | ENG-109 | Settings skills inventory page | Done | Added `/settings/skills` UI and `/api/settings/skills` backend inventory endpoint to display installed skills grouped by scope (`global`/`chat`/`workspace-legacy`) with full file paths, bot/chat identifiers, counts, and diagnostics |
+| ENG-110 | Telegram image reply delivery fix | Done | Telegram `uploadFile` now detects image payloads (extension + magic bytes) and sends via `sendPhoto`; if photo send fails, it safely falls back to `sendDocument` |
+| ENG-111 | `@molibot/mory` package completion | Done | Added standard package layout (`src/` + `test/`), independent `package.json` + build config, node:test suite, smoke script, and SQLite/pgvector SQL templates under `package/mory` |
+| ENG-112 | `@molibot/mory` cognitive control logic modules | Done | Added pure-logic modules for write scoring gate (`moryScoring`), conflict resolution/versioning (`moryConflict`), retrieval intent routing (`moryPlanner`), episodic consolidation (`moryConsolidation`), and task-scoped workspace memory helpers (`moryWorkspace`) with tests and index exports |
+| ENG-113 | `@molibot/mory` README 功能点状态清单 | Done | 将 mory 全量功能点写入 `package/mory/README.md`，按 `完成` / `TODO` 明确当前实现边界，并补充快速示例与 SQL 模板说明 |
 
 ## In Progress
 | ID | Feature | Status | Notes |
@@ -133,6 +138,15 @@
 | BL-04 | Vector memory | Backlog | Post V1 |
 
 ## Update Log
+- 2026-02-27: 更新 `package/mory/README.md` 为功能状态清单，按 `完成` / `TODO` 标注 mory 当前能力与未实现项（编排层、异步 commit、read_memory API、持久化适配器、版本化落库、检索执行器、遗忘引擎、校验器、指标、E2E）。
+- 2026-02-27: Expanded `package/mory` with cognitive-control modules: `moryScoring.ts`, `moryConflict.ts`, `moryPlanner.ts`, `moryConsolidation.ts`, `moryWorkspace.ts`; exported all new APIs via `src/index.ts`; added corresponding tests (`moryScoring/moryConflict/moryPlanner/moryConsolidation`) and validated with `npm --prefix package/mory run test` (19/19 pass).
+- 2026-02-27: Completed `package/mory` as a standalone Node package with standard structure (`src/`, `test/`, `README.md`, `package.json`, `tsconfig.build.json`), runnable build/test/smoke scripts, and root shortcuts (`npm run mory:build|mory:test|mory:smoke`).
+- 2026-02-27: Added `@molibot/mory` SQL persistence templates for memory storage: SQLite schema/upsert SQL plus PostgreSQL pgvector schema/upsert/vector-search SQL (`package/mory/src/morySql.ts`), and exported them from package entrypoint.
+- 2026-02-27: Improved `mory` write-gate batch behavior: batch cache now reflects both insert and update decisions to avoid same-batch stale-state decisions; pending IDs are now collision-safe.
+- 2026-02-27: Clarified skills provisioning policy in README: `molibot init` keeps manual-install behavior (no automatic project-skill copy), and added explicit manual install command from project `skills/` to `${DATA_DIR}/skills`.
+- 2026-02-27: Corrected README channel status wording: Telegram marked as validated in real usage; Web Chat/CLI marked as implemented but not yet personally validated in this project usage context.
+- 2026-02-27: Rebuilt `readme.md` based on current `prd.md` + implemented feature set, refreshed startup/deploy/config/Telegram commands/data layout/API docs, and removed outdated behavior descriptions.
+- 2026-02-27: Fixed Telegram outbound image behavior: image files are now delivered as photos (`sendPhoto`) instead of generic data documents when possible, with automatic document fallback for unsupported cases.
 - 2026-02-25: Added Skills management visibility in Web settings: new API endpoint `GET /api/settings/skills` scans `${DATA_DIR}/skills`, `${DATA_DIR}/moli-t/bots/*/skills` and `${DATA_DIR}/moli-t/bots/*/*/skills`; new page `/settings/skills` shows grouped installed skills and concrete paths; settings navigation and dashboard cards updated to include Skills.
 - 2026-02-25: Optimized skill routing to two-level repositories: global reusable skills now live in `${DATA_DIR}/skills`, chat-specific skills live in `${workspaceDir}/${chatId}/skills`; loader now merges scopes with precedence `chat > global > workspace-legacy`, `/skills` outputs scope and both directories, path resolver allows global skills root and redirects legacy `data/moli-t/skills` references to data-root skills, and runtime store migrates legacy workspace skills to global root when possible.
 - 2026-02-25: Updated `molibot init` to create `${DATA_DIR}/skills` for global reusable skill installation.
@@ -289,3 +303,4 @@
 - 2026-02-19: Fixed false “cannot process audio” replies after successful STT by marking transcript payload as `[voice transcript]` in inbound text and adding explicit prompt rule to treat transcript as ready-to-reason text.
 - 2026-02-19: Fixed `/settings/ai` model editor interaction reliability by switching nested provider/model edits to immutable updates keyed by provider id, resolving `+ Add Model` and related controls not reflecting changes.
 - 2026-02-19: Fixed `+ Add Model` still showing no input by removing empty-id filtering in provider defaults normalization, so draft model rows remain editable before assigning model id.
+- 2026-02-27: Rewrote global profile file `~/.molibot/SOUL.md` with stronger opinionated tone, mandatory brevity, anti-corporate style, and direct-answer opening constraints.
