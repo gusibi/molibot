@@ -140,3 +140,86 @@ export {
     shouldExpireWorkingMemory,
     toWorkingMemory,
 } from "./moryWorkspace.js";
+
+// ── Validation ────────────────────────────────────────────────────────────
+export {
+    validateCanonicalMemory,
+    validateExtractionPayload,
+    parseExtractionJson,
+} from "./moryValidation.js";
+
+export type {
+    ValidationIssue,
+    CanonicalValidationResult,
+    ExtractionPayload,
+    ExtractionValidationOptions,
+} from "./moryValidation.js";
+
+// ── Storage adapters ──────────────────────────────────────────────────────
+export {
+    InMemoryStorageAdapter,
+    NodeSqliteDriver,
+    NodePgDriver,
+    SqliteStorageAdapter,
+    PgvectorStorageAdapter,
+    createSqliteStorageAdapter,
+    createPgvectorStorageAdapter,
+} from "./moryAdapter.js";
+
+export type {
+    PersistedMemoryNode,
+    StorageAdapter,
+    ListOptions,
+    VectorSearchOptions,
+    SqliteDriver,
+    PgDriver,
+} from "./moryAdapter.js";
+
+// ── Retrieval executor ────────────────────────────────────────────────────
+export {
+    executeRetrieval,
+    readMemoryByPathResult,
+} from "./moryRetrieval.js";
+
+export type {
+    RetrieveOptions,
+    RerankedNode,
+    RetrievalResult,
+    RetrievalExecutorDeps,
+} from "./moryRetrieval.js";
+
+// ── Forget/archive engine ─────────────────────────────────────────────────
+export {
+    retentionScore,
+    planForgetting,
+    applyForgettingPolicy,
+} from "./moryForgetting.js";
+
+export type {
+    ForgettingPolicy,
+    ForgettingPlan,
+} from "./moryForgetting.js";
+
+// ── Metrics ───────────────────────────────────────────────────────────────
+export {
+    MoryMetrics,
+} from "./moryMetrics.js";
+
+export type {
+    MoryMetricsSnapshot,
+} from "./moryMetrics.js";
+
+// ── Engine orchestration ──────────────────────────────────────────────────
+export {
+    MoryEngine,
+    createReadMemoryTool,
+    canonicalizeForIngest,
+} from "./moryEngine.js";
+
+export type {
+    CommitInput,
+    IngestInput,
+    CommitItemResult,
+    CommitResult,
+    MoryEngineOptions,
+} from "./moryEngine.js";

@@ -27,6 +27,18 @@ function isDeferredWaitCommand(command: string): boolean {
   );
 }
 
+function touchesExternalScheduler(command: string): boolean {
+  const normalized = command.toLowerCase();
+  return (
+    /\bcrontab\b/.test(normalized) ||
+    /\bat\b/.test(normalized) ||
+    /\batq\b/.test(normalized) ||
+    /\batrm\b/.test(normalized) ||
+    /\blaunchctl\b/.test(normalized) ||
+    /\bschtasks\b/.test(normalized)
+  );
+}
+
 function touchesMemoryFiles(command: string): boolean {
   const normalized = command.toLowerCase();
   if (normalized.includes("/api/memory")) return false;
@@ -50,6 +62,11 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
       if (isDeferredWaitCommand(params.command)) {
         throw new Error(
           "Waiting/sleep commands are not allowed. For delayed reminders, create a one-shot event file under a watched events directory."
+        );
+      }
+      if (touchesExternalScheduler(params.command)) {
+        throw new Error(
+          "External schedulers (crontab/at/launchctl/schtasks) are not allowed. Use watched event JSON files for all reminders and recurring tasks."
         );
       }
       if (touchesMemoryFiles(params.command)) {

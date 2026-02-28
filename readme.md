@@ -78,8 +78,9 @@ molibot init
 默认初始化目录：`~/.molibot`（可用 `DATA_DIR` 覆盖）。
 
 会创建：
-- `AGENTS.md`（从 `src/lib/server/mom/prompts/AGENTS.default.md` 拷贝）
-- `SOUL.md`、`TOOLS.md`、`BOOTSTRAP.md`、`IDENTITY.md`、`USER.md`（空文件）
+- `AGENTS.md`、`SOUL.md`、`TOOLS.md`、`BOOTSTRAP.md`、`IDENTITY.md`、`USER.md`
+  - 都从 `src/lib/server/mom/prompts/*.template.md` 拷贝
+  - 这些模板基于当前全局 profile 结构，适合新用户首次初始化后继续编辑
 - `${DATA_DIR}/skills`（全局技能目录）
 
 说明：

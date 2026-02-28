@@ -12,6 +12,7 @@ const KEY_LOG_EVENTS = new Set<string>([
   "adapter_stopped",
   "events_watcher_started",
   "events_watcher_stopped",
+  "system_prompt_preview_written",
   // inbound and execution
   "message_received",
   "message_logged",

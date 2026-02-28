@@ -1,11 +1,11 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { Bot, InputFile } from "grammy";
 import type { RuntimeSettings } from "../config.js";
 import { config } from "../config.js";
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../mom/events.js";
 import { createRunId, momError, momLog, momWarn } from "../mom/log.js";
-import { RunnerPool } from "../mom/runner.js";
+import { buildSystemPromptPreview, getSystemPromptSources, RunnerPool } from "../mom/runner.js";
 import { loadSkillsFromWorkspace } from "../mom/skills.js";
 import { TelegramMomStore } from "../mom/store.js";
 import type { MomContext, TelegramInboundEvent } from "../mom/types.js";
@@ -78,6 +78,12 @@ interface TranscriptionResult {
   errorMessage: string | null;
 }
 
+interface ParsedRelativeReminder {
+  delayMs: number;
+  reminderText: string;
+  sourceText: string;
+}
+
 export class TelegramManager {
   private static readonly TELEGRAM_TEXT_SOFT_LIMIT = 3800;
   private static readonly CHAT_EVENTS_RELATIVE_DIR = ["data", "moli-t", "events"] as const;
@@ -85,6 +91,7 @@ export class TelegramManager {
   private readonly store: TelegramMomStore;
   private readonly sessions: SessionStore;
   private readonly runners: RunnerPool;
+  private readonly memory: MemoryGateway;
   private readonly instanceId: string;
   private bot: Bot | undefined;
   private currentToken = "";
@@ -94,6 +101,141 @@ export class TelegramManager {
   private readonly running = new Set<string>();
   private readonly events: EventsWatcher[] = [];
   private readonly watchedChatEventDirs = new Set<string>();
+
+  private parseRelativeReminderRequest(input: string): ParsedRelativeReminder | null {
+    const text = String(input ?? "").trim();
+    if (!text) return null;
+
+    const normalized = text.replace(/[，。！？]/g, " ").replace(/\s+/g, " ").trim();
+    const numMap: Record<string, number> = {
+      一: 1,
+      两: 2,
+      二: 2,
+      三: 3,
+      四: 4,
+      五: 5,
+      六: 6,
+      七: 7,
+      八: 8,
+      九: 9,
+      十: 10
+    };
+
+    const match = normalized.match(/(?:(\d+)|([一二两三四五六七八九十]))\s*(分钟|分|小时|钟头)\s*(后|之后)/i);
+    if (!match) return null;
+    if (!/提醒我|提醒一下|remind me/i.test(normalized)) return null;
+
+    const amount = match[1]
+      ? Number.parseInt(match[1], 10)
+      : numMap[match[2] ?? ""] ?? NaN;
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+
+    const unit = match[3];
+    const delayMs = /小时|钟头/.test(unit) ? amount * 60 * 60 * 1000 : amount * 60 * 1000;
+
+    let reminderText = normalized;
+    const remindIdx = reminderText.search(/提醒我|提醒一下|remind me(?: to)?/i);
+    if (remindIdx >= 0) {
+      reminderText = reminderText.slice(remindIdx).replace(/^(提醒我|提醒一下|remind me(?: to)?)/i, "").trim();
+    }
+    reminderText = reminderText
+      .replace(/^(在)?\s*/, "")
+      .replace(/^(去|要|记得)\s*/, (m) => m.trim())
+      .replace(/给我发(一)?条消息/gi, "")
+      .replace(/通知我/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!reminderText) {
+      reminderText = "提醒你处理刚才交代的事";
+    }
+
+    return {
+      delayMs,
+      reminderText,
+      sourceText: text
+    };
+  }
+
+  private formatIsoWithOffset(date: Date): string {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, "0");
+    const day = `${date.getDate()}`.padStart(2, "0");
+    const hours = `${date.getHours()}`.padStart(2, "0");
+    const minutes = `${date.getMinutes()}`.padStart(2, "0");
+    const seconds = `${date.getSeconds()}`.padStart(2, "0");
+    const offsetMinutes = -date.getTimezoneOffset();
+    const sign = offsetMinutes >= 0 ? "+" : "-";
+    const abs = Math.abs(offsetMinutes);
+    const offsetHours = `${Math.floor(abs / 60)}`.padStart(2, "0");
+    const offsetMins = `${abs % 60}`.padStart(2, "0");
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offsetHours}:${offsetMins}`;
+  }
+
+  private formatReminderConfirmTime(date: Date): string {
+    return new Intl.DateTimeFormat("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      month: "2-digit",
+      day: "2-digit",
+      hour12: false,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    }).format(date);
+  }
+
+  private createReminderEventFile(chatId: string, parsed: ParsedRelativeReminder): { filePath: string; fileName: string; at: string } {
+    const eventsDir = join(this.workspaceDir, "events");
+    mkdirSync(eventsDir, { recursive: true });
+    const target = new Date(Date.now() + parsed.delayMs);
+    const at = this.formatIsoWithOffset(target);
+    const fileName = `reminder-${Date.now()}.json`;
+    const filePath = join(eventsDir, fileName);
+    const event: MomEvent = {
+      type: "one-shot",
+      chatId,
+      delivery: "text",
+      text: parsed.reminderText,
+      at
+    };
+    writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+    return { filePath, fileName, at };
+  }
+
+  private async handleDeterministicReminder(bot: Bot, chatId: string, event: TelegramInboundEvent, runId: string): Promise<boolean> {
+    if (event.isEvent) return false;
+    const parsed = this.parseRelativeReminderRequest(event.text);
+    if (!parsed) return false;
+
+    const { fileName, at } = this.createReminderEventFile(chatId, parsed);
+    const confirm = `已设置提醒：${this.formatReminderConfirmTime(new Date(at))} 发你一条消息。\n\n文件名：\`${fileName}\``;
+    const sent = await this.sendText(bot, chatId, confirm);
+    this.store.logBotResponse(chatId, confirm, sent.message_id);
+
+    const sessionId = this.store.getActiveSession(chatId);
+    try {
+      const conv = this.sessions.getOrCreateConversation(
+        "telegram",
+        this.getSessionConversationKey(chatId, sessionId)
+      );
+      this.sessions.appendMessage(conv.id, "assistant", confirm);
+    } catch (error) {
+      momWarn("telegram", "session_assistant_append_failed_deterministic_reminder", {
+        runId,
+        chatId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    momLog("telegram", "deterministic_reminder_created", {
+      runId,
+      chatId,
+      sessionId,
+      fileName,
+      at,
+      reminderText: parsed.reminderText
+    });
+    return true;
+  }
 
   private escapeHtml(value: string): string {
     return value
@@ -214,7 +356,46 @@ export class TelegramManager {
     if (!options?.memory) {
       throw new Error("TelegramManager requires MemoryGateway for unified memory operations.");
     }
+    this.memory = options.memory;
     this.runners = new RunnerPool(this.store, this.getSettings, options.memory);
+  }
+
+  private async writePromptPreview(allowedChatIds: string[]): Promise<void> {
+    const chatId = allowedChatIds[0] ?? "__preview__";
+    const sessionId = allowedChatIds[0] ? this.store.getActiveSession(chatId) : "default";
+    const memoryText = allowedChatIds[0]
+      ? ((await this.memory.buildPromptContext(
+          { channel: "telegram", externalUserId: chatId },
+          "",
+          12,
+        )) || "(no working memory yet)")
+      : "(no working memory yet)";
+    const prompt = buildSystemPromptPreview(this.workspaceDir, chatId, sessionId, memoryText);
+    const sources = getSystemPromptSources(this.workspaceDir);
+    const filePath = join(this.workspaceDir, "SYSTEM_PROMPT.preview.md");
+    const header = [
+      "# System Prompt Preview",
+      "",
+      `- generated_at: ${new Date().toISOString()}`,
+      `- bot_instance: ${this.instanceId}`,
+      `- workspace_dir: ${this.workspaceDir}`,
+      `- chat_id: ${chatId}`,
+      `- session_id: ${sessionId}`,
+      `- global_sources: ${sources.global.length > 0 ? sources.global.join(", ") : "(none)"}`,
+      `- workspace_sources: ${sources.workspace.length > 0 ? sources.workspace.join(", ") : "(none)"}`,
+      "",
+      "---",
+      "",
+    ].join("\n");
+    writeFileSync(filePath, `${header}${prompt}\n`, "utf8");
+    momLog("telegram", "system_prompt_preview_written", {
+      botId: this.instanceId,
+      workspaceDir: this.workspaceDir,
+      filePath,
+      chatId,
+      sessionId,
+      promptLength: prompt.length,
+    });
   }
 
   apply(cfg: TelegramConfig): void {
@@ -528,6 +709,10 @@ export class TelegramManager {
         return;
       }
 
+      if (await this.handleDeterministicReminder(bot, chatId, event, runId)) {
+        return;
+      }
+
       const queue = this.getQueue(chatId);
       const queueBefore = queue.size();
       momLog("telegram", "queue_enqueue", { runId, chatId, queueBefore });
@@ -581,6 +766,7 @@ export class TelegramManager {
     this.currentToken = token;
     this.currentAllowedChatIdsKey = allowedChatIdsKey;
     this.startEventsWatchers(allowed);
+    void this.writePromptPreview(Array.from(allowed));
   }
 
   stop(): void {

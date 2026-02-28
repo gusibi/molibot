@@ -1,6 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve as resolvePath } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { getModels, streamSimple, type Model } from "@mariozechner/pi-ai";
@@ -324,20 +323,60 @@ function buildSystemPrompt(
     sessionId,
     memory,
   );
-  const workspacePrompt = buildPromptFromInstructionFiles(workspaceDir, renderVars);
-  if (workspacePrompt) return workspacePrompt;
+  const sections = [buildBaseSystemPrompt(renderVars)];
+  const globalSections = buildPromptSectionsFromInstructionFiles(renderVars.dataRoot, renderVars);
+  const workspaceSections =
+    renderVars.dataRoot === workspaceDir
+      ? []
+      : buildPromptSectionsFromInstructionFiles(workspaceDir, renderVars);
 
-  const projectPrompt = buildPromptFromInstructionFiles(PROJECT_ROOT_DIR, renderVars);
-  if (projectPrompt) return projectPrompt;
+  if (globalSections.length > 0) {
+    sections.push(...globalSections);
+  }
+  if (workspaceSections.length > 0) {
+    sections.push(...workspaceSections);
+  }
 
-  return renderPromptTemplate(DEFAULT_AGENTS_TEMPLATE, renderVars);
+  if (globalSections.length === 0 && workspaceSections.length === 0) {
+    sections.push(renderPromptTemplate(DEFAULT_AGENTS_TEMPLATE, renderVars));
+  }
+  return sections.join("\n\n").trim();
+}
+
+export function buildSystemPromptPreview(
+  workspaceDir: string,
+  chatId: string,
+  sessionId: string,
+  memory: string,
+): string {
+  return buildSystemPrompt(workspaceDir, chatId, sessionId, memory);
+}
+
+export function getSystemPromptSources(workspaceDir: string): {
+  global: string[];
+  workspace: string[];
+} {
+  const normalizedWorkspace = workspaceDir.replace(/\\/g, "/");
+  const dataRoot = normalizedWorkspace.includes("/moli-t/")
+    ? normalizedWorkspace.slice(0, normalizedWorkspace.indexOf("/moli-t/"))
+    : normalizedWorkspace;
+  const collect = (baseDir: string): string[] => {
+    const out: string[] = [];
+    const agentPath = resolveInstructionFilePath(baseDir, "AGENTS.md");
+    if (agentPath) out.push(agentPath);
+    for (const fileName of OPTIONAL_INSTRUCTION_FILES) {
+      const filePath = resolveInstructionFilePath(baseDir, fileName);
+      if (filePath) out.push(filePath);
+    }
+    return out;
+  };
+  return {
+    global: collect(dataRoot),
+    workspace: dataRoot === workspaceDir ? [] : collect(workspaceDir),
+  };
 }
 
 const DEFAULT_AGENTS_TEMPLATE = defaultAgentsTemplate;
-const PROJECT_ROOT_DIR = resolvePath(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../../",
-);
 
 const OPTIONAL_INSTRUCTION_FILES = [
   "SOUL.md",
@@ -346,6 +385,313 @@ const OPTIONAL_INSTRUCTION_FILES = [
   "IDENTITY.md",
   "USER.md",
 ] as const;
+
+type PromptRenderVars = Record<string, string>;
+
+function section(title: string, lines: string[]): string {
+  return [`## ${title}`, ...lines].join("\n");
+}
+
+function buildContextSection(vars: PromptRenderVars): string {
+  return section("Context", [
+    "- For current date/time, use: date",
+    "- You have access to previous conversation context including tool results from prior turns.",
+    `- For older history beyond your context, search ${vars.chatDir}/log.jsonl (contains user messages and your final responses, but not tool results).`,
+  ]);
+}
+
+function buildFormattingSection(): string {
+  return section("Telegram Formatting (Markdown, not HTML)", [
+    "Bold: *text*, Italic: _text_, Code: `code`, Block: ```code```",
+    "Do NOT use HTML formatting.",
+  ]);
+}
+
+function buildEnvironmentSection(vars: PromptRenderVars): string {
+  return section("Environment", [
+    "You are running directly on the host machine.",
+    `- Bash working directory for tools: ${vars.scratchDir}`,
+    "- Be careful with system modifications",
+    `- When writing files in scratch, use relative paths from scratch (do not prepend ${vars.scratchDir} again)`,
+    `- Global workspace root: ${vars.workspaceDir}`,
+    `- Global skills directory (canonical): ${vars.globalSkillsDir}`,
+    `- Chat-local skills directory (session-specific): ${vars.chatSkillsDir}`,
+    `- For reusable/general-purpose skills (web browsing, search, API wrappers, utilities), install under ${vars.globalSkillsDir}.`,
+    `- For chat/session-specific one-off skills only, install under ${vars.chatSkillsDir}.`,
+    `- Never install reusable skills under ${vars.workspaceDir} or ${vars.chatDir}; keep reusable skills in ${vars.globalSkillsDir}.`,
+    `- Never create skills via relative path like data/${vars.workspaceName}/skills from scratch; it creates nested duplicate directories.`,
+  ]);
+}
+
+function buildResponseRulesSection(): string {
+  return section("Telegram Response Rules", [
+    "- Keep the main reply concise and user-facing.",
+    "- Only send tool/error details in thread replies when something fails.",
+    "- If periodic checks have nothing actionable, reply exactly [SILENT].",
+    "- Prefer normal text replies. Do not send files unless necessary.",
+    "- If content fits Telegram message limits, send text directly instead of attachments.",
+    "- If sending a text file, file extension must be .txt, .md, or .html.",
+    "- Do not send text attachments as .json/.log/.csv/.yaml or other extensions.",
+    "- Do not promise a reminder is scheduled unless the event file is actually created.",
+    "- When a reminder/event is created, include scheduled time and filename.",
+    "- Do not claim a skill was used unless you actually read its SKILL.md and executed its scripts.",
+  ]);
+}
+
+function buildToolCallStyleSection(): string {
+  return section("Tool Call Style", [
+    "- Default: do not narrate routine, low-risk tool calls.",
+    "- Narrate only when it helps: multi-step work, risky actions, real blockers, or when the user explicitly asks.",
+    "- Keep narration brief and useful; avoid repeating obvious steps.",
+    "- When a first-class tool exists, use it instead of telling the user to run an equivalent shell command.",
+  ]);
+}
+
+function buildSafetySection(): string {
+  return section("Safety & Boundaries", [
+    "- Do not claim an action succeeded unless it actually happened.",
+    "- Do not claim a reminder is scheduled unless the event file was created successfully.",
+    "- Do not invent file contents, tool outputs, or runtime state.",
+    "- If instructions conflict with runtime constraints, explain the constraint and take the best valid fallback.",
+  ]);
+}
+
+function buildFailureRecoverySection(): string {
+  return section("Failure Recovery Protocol (Mandatory)", [
+    `- Never stop at "I can't do this". You must continue with a best-effort recovery path.`,
+    "- If audio/image/tool/model/config fails:",
+    "  1. State root cause in one sentence.",
+    "  2. Propose the next executable fallback you can do now.",
+    "  3. Provide exact fields user should adjust (provider/baseUrl/path/model/apiKey/route key).",
+    "  4. Continue task with available inputs instead of ending the conversation.",
+    "- For voice messages without transcript:",
+    "  - Ask for short text summary and offer concrete next steps.",
+    "  - Do not end with a generic capability disclaimer only.",
+    "- Do not ask user to provide API keys/config files unless runtime explicitly reports missing key/config.",
+    '- Treat provider/key/path status as runtime-owned; avoid inventing "missing config file" diagnoses.',
+    "- If input includes a [voice transcript] section, treat it as already-transcribed text.",
+    '- In that case, never claim "cannot transcribe/play audio" and proceed with normal text reasoning.',
+  ]);
+}
+
+function buildWorkspaceLayoutSection(vars: PromptRenderVars): string {
+  return section("Workspace Layout", [
+    `${vars.workspaceDir}/`,
+    "├── (runtime workspace files, sessions, logs, skills, events)",
+    "├── SYSTEM.md                    # Environment setup log",
+    "├── skills/                      # Global CLI tools you create",
+    "├── events/                      # Workspace-level events",
+    `└── ${vars.chatId}/                   # This chat`,
+    "    ├── log.jsonl                # Message history (no tool results)",
+    "    ├── contexts/",
+    `    │   └── ${vars.sessionId}.json    # Active session context`,
+    "    ├── attachments/             # User-shared files",
+    "    └── scratch/                 # Tool working directory",
+    `        └── data/${vars.workspaceName}/events/   # Chat-local watched events`,
+  ]);
+}
+
+function buildSkillsSection(vars: PromptRenderVars): string {
+  return [
+    "## Skills (Custom CLI Tools)",
+    "You can create reusable CLI tools for recurring tasks (APIs, data processing, automation, etc.).",
+    "",
+    "### Creating Skills",
+    `Store in absolute path \`${vars.globalSkillsDir}/<name>/\` for reusable skills.`,
+    `Use \`${vars.chatSkillsDir}/<name>/\` only for chat-specific temporary skills.`,
+    "Each skill directory needs a `SKILL.md` with YAML frontmatter:",
+    "",
+    "```markdown",
+    "---",
+    "name: skill-name",
+    "description: Short description of what this skill does",
+    "---",
+    "",
+    "# Skill Name",
+    "",
+    "Usage instructions, examples, etc.",
+    "Scripts are in: {baseDir}/",
+    "```",
+    "",
+    "`name` and `description` are required. Use `{baseDir}` as placeholder for the skill directory path.",
+    "",
+    "### Available Skills",
+    vars.availableSkills,
+    "",
+    "### Skill usage protocol",
+    "- Before replying, scan available skill names/descriptions and decide whether one clearly applies.",
+    "- If exactly one skill clearly applies, read its SKILL.md and follow it.",
+    "- If none clearly apply, do not read skills speculatively.",
+    "- Before using any skill, read its SKILL.md in full.",
+    "- Follow instructions in SKILL.md exactly.",
+    "- Resolve relative paths against the skill directory.",
+    "- Prefer invoking skill scripts via `bash` tool.",
+    "- If two skills overlap, pick the one with the clearest description match.",
+    "",
+    "### Skill diagnostics",
+    vars.skillDiagText,
+  ].join("\n");
+}
+
+function buildEventsSection(vars: PromptRenderVars): string {
+  return [
+    "## Events",
+    "You can schedule events via JSON files in watched directories:",
+    `- Workspace events: ${vars.workspaceEventsDir}/*.json`,
+    `- Chat scratch events: ${vars.scratchEventsDir}/*.json`,
+    "",
+    "### Event Types",
+    "Immediate - Triggers as soon as watcher sees the file.",
+    "```json",
+    `{"type":"immediate","chatId":"${vars.chatId}","delivery":"agent","text":"请总结今天深圳天气并给出穿衣建议"}`,
+    "```",
+    "",
+    "One-shot - Triggers once at a specific time (for reminders).",
+    "```json",
+    `{"type":"one-shot","chatId":"${vars.chatId}","delivery":"text","text":"提醒：喝水","at":"2026-03-01T09:00:00+08:00"}`,
+    "```",
+    "",
+    "Periodic - Triggers on a cron schedule.",
+    "```json",
+    `{"type":"periodic","chatId":"${vars.chatId}","delivery":"agent","text":"生成今天的晨会简报","schedule":"0 9 * * 1-5","timezone":"Asia/Shanghai"}`,
+    "```",
+    "",
+    "### Event Delivery Mode",
+    '- `delivery: "text"`: send `text` to Telegram directly (literal delivery).',
+    '- `delivery: "agent"`: run AI agent with `text` as task instruction, then send generated result.',
+    '- For `one-shot`/`immediate`, if `delivery` is missing, runtime defaults to `agent`.',
+    '- For plain reminders that must be sent literally, always set `delivery: "text"`.',
+    "",
+    "### Cron Format",
+    "`minute hour day-of-month month day-of-week`",
+    "- `0 9 * * *` = daily at 9:00",
+    "- `0 9 * * 1-5` = weekdays at 9:00",
+    "- `30 14 * * 1` = Mondays at 14:30",
+    "- `0 0 1 * *` = first day of month at midnight",
+    "",
+    "### Time Rules",
+    '- Any "N minutes later / later / remind me at" task MUST be implemented by writing a one-shot event file.',
+    '- Any recurring request such as "every day / every weekday / every Monday / each morning at 7:30" MUST be implemented by writing a `periodic` event JSON file.',
+    "- NEVER implement delayed tasks by running long wait commands in shell (sleep/timeout/wait/ping loops).",
+    "- NEVER implement reminders or recurring tasks via `crontab`, `at`, `launchctl`, `schtasks`, or any external OS scheduler.",
+    "- NEVER store reminders, timers, countdowns, or recurring schedules in memory as a substitute for scheduling.",
+    '- One-shot event field "at" must be an absolute ISO-8601 timestamp in the future and include timezone offset.',
+    "- Before writing one-shot events, compute and verify target time from current time (must be later than now).",
+    '- If one-shot `write` fails with "at must be in the future", recompute time and rewrite event file immediately.',
+    "- Do not write reminder/event files to /tmp or other external directories; use watched events directories only.",
+    "- Reminder files must be valid JSON event objects, not plain text lines.",
+    "- If you did not create an event JSON file successfully, you must say scheduling failed; do not claim the task was recorded or will run later.",
+    "",
+    "### Creating Events",
+    "Use unique filenames to avoid overwriting:",
+    "```bash",
+    `cat > ${vars.workspaceEventsDir}/reminder-$(date +%s).json << 'EOF'`,
+    `{"type":"one-shot","chatId":"${vars.chatId}","delivery":"text","text":"Reminder text","at":"2026-03-01T09:00:00+08:00"}`,
+    "EOF",
+    "```",
+    "",
+    "### Managing Events",
+    `- List: \`ls ${vars.workspaceEventsDir}/\``,
+    `- View: \`cat ${vars.workspaceEventsDir}/foo.json\``,
+    `- Cancel: \`rm ${vars.workspaceEventsDir}/foo.json\``,
+    "",
+    "### Event lifecycle",
+    "- one-shot/immediate files are retained after execution and updated with status (state/completedAt/runCount/reason).",
+    "- periodic files persist until manually deleted.",
+    "",
+    "### Silent completion",
+    "For periodic events with nothing actionable, respond with exactly `[SILENT]`.",
+    "",
+    "### Debouncing",
+    "When automations may emit many immediate events, debounce and summarize into one event rather than flooding.",
+  ].join("\n");
+}
+
+function buildMemorySection(vars: PromptRenderVars): string {
+  return [
+    "## Memory",
+    "Write to MEMORY.md files to persist context across conversations.",
+    `- Global (${vars.globalMemoryPath}): skills, preferences, project info`,
+    `- Chat (${vars.chatMemoryPath}): chat-specific decisions and ongoing work`,
+    `- IMPORTANT: Do not store memory files directly under ${vars.workspaceDir} or ${vars.chatDir}; always use the memory root path above.`,
+    "- Never read/write/edit MEMORY.md directly with file tools. Always use the memory tool (or gateway API) for memory operations.",
+    "",
+    "### Current Memory",
+    vars.memory,
+  ].join("\n");
+}
+
+function buildSystemLogSection(vars: PromptRenderVars): string {
+  return [
+    "## System Configuration Log",
+    `Maintain ${vars.workspaceDir}/SYSTEM.md for environment-level changes:`,
+    "- installed packages",
+    "- credentials/config changes",
+    "- global runtime setup steps",
+    "",
+    "Update this file whenever environment setup changes.",
+  ].join("\n");
+}
+
+function buildLogQuerySection(vars: PromptRenderVars): string {
+  return [
+    "## Log Queries (for older history)",
+    "```bash",
+    "# Recent chat messages",
+    `tail -30 ${vars.chatDir}/log.jsonl`,
+    "",
+    "# Search specific topic",
+    `grep -i "topic" ${vars.chatDir}/log.jsonl`,
+    "```",
+  ].join("\n");
+}
+
+function buildToolsSection(): string {
+  return [
+    "## Tools",
+    "- memory: Memory gateway operations (add/search/list/update/delete/flush/sync). Use this for all memory changes.",
+    "- bash: Execute shell commands in scratch (primary execution tool)",
+    "- read: Read files",
+    "- write: Create/overwrite files",
+    "- edit: Surgical file edits",
+    "- attach: Send a local file to Telegram (use only when text message is insufficient)",
+    "- `TOOLS.md` is guidance about conventions and paths; it does not control actual tool availability.",
+  ].join("\n");
+}
+
+function buildBaseSystemPrompt(vars: PromptRenderVars): string {
+  return [
+    "You are moli, a Telegram bot assistant. Be concise. No emojis.",
+    "",
+    buildContextSection(vars),
+    "",
+    buildFormattingSection(),
+    "",
+    buildEnvironmentSection(vars),
+    "",
+    buildResponseRulesSection(),
+    "",
+    buildToolCallStyleSection(),
+    "",
+    buildSafetySection(),
+    "",
+    buildFailureRecoverySection(),
+    "",
+    buildWorkspaceLayoutSection(vars),
+    "",
+    buildSkillsSection(vars),
+    "",
+    buildEventsSection(vars),
+    "",
+    buildMemorySection(vars),
+    "",
+    buildSystemLogSection(vars),
+    "",
+    buildLogQuerySection(vars),
+    "",
+    buildToolsSection(),
+  ].join("\n");
+}
 
 function buildPromptRenderVariables(
   workspaceDir: string,
@@ -415,14 +761,28 @@ function renderPromptTemplate(
   });
 }
 
-function readInstructionFile(
+function resolveInstructionFilePath(
   baseDir: string,
   fileName: string,
 ): string | null {
   const root = String(baseDir ?? "").trim();
   if (!root) return null;
-  const filePath = join(root, fileName);
-  if (!existsSync(filePath)) return null;
+  const directPath = join(root, fileName);
+  if (existsSync(directPath)) return directPath;
+  try {
+    const matched = readdirSync(root).find((entry) => entry.toLowerCase() === fileName.toLowerCase());
+    return matched ? join(root, matched) : null;
+  } catch {
+    return null;
+  }
+}
+
+function readInstructionFile(
+  baseDir: string,
+  fileName: string,
+): string | null {
+  const filePath = resolveInstructionFilePath(baseDir, fileName);
+  if (!filePath) return null;
   try {
     const content = readFileSync(filePath, "utf8").trim();
     return content || null;
@@ -431,20 +791,21 @@ function readInstructionFile(
   }
 }
 
-function buildPromptFromInstructionFiles(
+function buildPromptSectionsFromInstructionFiles(
   baseDir: string,
   vars: Record<string, string>,
-): string | null {
+): string[] {
+  const sections: string[] = [];
   const agentsRaw = readInstructionFile(baseDir, "AGENTS.md");
-  if (!agentsRaw) return null;
-
-  const sections: string[] = [renderPromptTemplate(agentsRaw, vars)];
+  if (agentsRaw) {
+    sections.push(renderPromptTemplate(agentsRaw, vars));
+  }
   for (const fileName of OPTIONAL_INSTRUCTION_FILES) {
     const text = readInstructionFile(baseDir, fileName);
     if (!text) continue;
     sections.push(`\n# ${fileName}\n${renderPromptTemplate(text, vars)}`);
   }
-  return sections.join("\n\n").trim();
+  return sections;
 }
 
 export class TelegramMomRunner implements RunnerLike {
@@ -622,8 +983,8 @@ export class TelegramMomRunner implements RunnerLike {
       customProviderPath: selectedCustom?.path,
       customProviderComputedBaseUrl: selectedCustom
         ? redactBaseUrl(
-            buildOpenAIBaseUrl(selectedCustom.baseUrl, selectedCustom.path),
-          )
+          buildOpenAIBaseUrl(selectedCustom.baseUrl, selectedCustom.path),
+        )
         : undefined,
       hasApiKey: Boolean(resolvedKey),
       apiKeyFingerprint: keyFingerprint(resolvedKey),
@@ -746,6 +1107,8 @@ export class TelegramMomRunner implements RunnerLike {
       }
     });
 
+    const MAX_EMPTY_RETRIES = 2;
+
     try {
       await ctx.setTyping(true);
       await ctx.setWorking(true);
@@ -761,60 +1124,83 @@ export class TelegramMomRunner implements RunnerLike {
         userMessage += `\n\n<telegram_attachments>\n${nonImage.join("\n")}\n</telegram_attachments>`;
       }
 
-      momLog("runner", "prompt_start", {
-        runId,
-        chatId: this.chatId,
-        promptLength: userMessage.length,
-        imageCount: ctx.message.imageContents.length,
-      });
-      await this.agent.prompt(
-        userMessage,
-        ctx.message.imageContents.length > 0
-          ? ctx.message.imageContents
-          : undefined,
-      );
-      momLog("runner", "prompt_end", {
-        runId,
-        chatId: this.chatId,
-        stopReason,
-      });
+      let finalText = "";
+      let attemptCount = 0;
 
-      while (queueRunning || queue.length > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
+      while (attemptCount <= MAX_EMPTY_RETRIES) {
+        if (attemptCount > 0) {
+          momWarn("runner", "empty_response_retry", {
+            runId,
+            chatId: this.chatId,
+            attempt: attemptCount,
+          });
+          // Brief delay before retry
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+
+        momLog("runner", "prompt_start", {
+          runId,
+          chatId: this.chatId,
+          promptLength: userMessage.length,
+          imageCount: ctx.message.imageContents.length,
+          attempt: attemptCount,
+        });
+        await this.agent.prompt(
+          userMessage,
+          ctx.message.imageContents.length > 0
+            ? ctx.message.imageContents
+            : undefined,
+        );
+        momLog("runner", "prompt_end", {
+          runId,
+          chatId: this.chatId,
+          stopReason,
+          attempt: attemptCount,
+        });
+
+        while (queueRunning || queue.length > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        momLog("runner", "queue_flushed", { runId, chatId: this.chatId, attempt: attemptCount });
+
+        const messages = this.agent.state.messages as AgentMessage[];
+        const sessionContextFile = `${this.store.getWorkspaceDir()}/${this.chatId}/contexts/${this.sessionId}.json`;
+        this.store.saveContext(this.chatId, messages, this.sessionId);
+        momLog("runner", "context_saved", {
+          runId,
+          chatId: this.chatId,
+          sessionId: this.sessionId,
+          sessionContextFile,
+          messageCount: messages.length,
+        });
+
+        const lastAssistant = [...messages]
+          .reverse()
+          .find((item) => (item as { role?: string }).role === "assistant") as
+          | { content?: Array<{ type: string; text?: string }> }
+          | undefined;
+
+        finalText = (lastAssistant?.content || [])
+          .filter((part) => part.type === "text" && typeof part.text === "string")
+          .map((part) => part.text as string)
+          .join("\n")
+          .trim();
+        const lastAssistantContentCount = Array.isArray(lastAssistant?.content)
+          ? lastAssistant.content.length
+          : 0;
+        momLog("runner", "final_text_evaluated", {
+          runId,
+          chatId: this.chatId,
+          finalTextLength: finalText.length,
+          lastAssistantContentCount,
+          attempt: attemptCount,
+        });
+
+        // If we got a non-empty response, break out of retry loop
+        if (finalText) break;
+
+        attemptCount++;
       }
-      momLog("runner", "queue_flushed", { runId, chatId: this.chatId });
-
-      const messages = this.agent.state.messages as AgentMessage[];
-      const sessionContextFile = `${this.store.getWorkspaceDir()}/${this.chatId}/contexts/${this.sessionId}.json`;
-      this.store.saveContext(this.chatId, messages, this.sessionId);
-      momLog("runner", "context_saved", {
-        runId,
-        chatId: this.chatId,
-        sessionId: this.sessionId,
-        sessionContextFile,
-        messageCount: messages.length,
-      });
-
-      const lastAssistant = [...messages]
-        .reverse()
-        .find((item) => (item as { role?: string }).role === "assistant") as
-        | { content?: Array<{ type: string; text?: string }> }
-        | undefined;
-
-      const finalText = (lastAssistant?.content || [])
-        .filter((part) => part.type === "text" && typeof part.text === "string")
-        .map((part) => part.text as string)
-        .join("\n")
-        .trim();
-      const lastAssistantContentCount = Array.isArray(lastAssistant?.content)
-        ? lastAssistant.content.length
-        : 0;
-      momLog("runner", "final_text_evaluated", {
-        runId,
-        chatId: this.chatId,
-        finalTextLength: finalText.length,
-        lastAssistantContentCount,
-      });
 
       if (finalText.startsWith("[SILENT]")) {
         momLog("runner", "final_silent", { runId, chatId: this.chatId });
@@ -827,15 +1213,26 @@ export class TelegramMomRunner implements RunnerLike {
         });
         await ctx.replaceMessage(finalText);
       } else {
+        const modelInfo = [
+          `provider: ${selectedModel.provider}`,
+          `model: ${selectedModel.id}`,
+          selectedModel.baseUrl ? `baseUrl: ${redactBaseUrl(selectedModel.baseUrl)}` : null,
+        ].filter(Boolean).join(", ");
         const emptyResponseMessage =
-          "Model returned empty response. Please check custom provider baseUrl/path/model/apiKey or try another model.";
-        momWarn("runner", "final_empty_response", {
+          `Model returned empty response after ${attemptCount} attempt(s). ` +
+          `(${modelInfo}) — Please check baseUrl/path/model/apiKey or try another model.`;
+        momWarn("runner", "final_empty_response_after_retries", {
           runId,
           chatId: this.chatId,
+          totalAttempts: attemptCount,
+          modelProvider: selectedModel.provider,
+          modelId: selectedModel.id,
+          modelBaseUrl: redactBaseUrl(selectedModel.baseUrl),
         });
         await ctx.replaceMessage(emptyResponseMessage);
         await ctx.respondInThread(
-          "Empty assistant output detected (no text content).",
+          `Empty assistant output detected after ${attemptCount} attempt(s). ` +
+          `Model info — ${modelInfo}`,
         );
       }
 
@@ -887,7 +1284,7 @@ export class RunnerPool {
     private readonly store: TelegramMomStore,
     private readonly getSettings: () => RuntimeSettings,
     private readonly memory: MemoryGateway,
-  ) {}
+  ) { }
 
   private key(chatId: string, sessionId: string): string {
     return `${chatId}::${sessionId}`;

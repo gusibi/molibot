@@ -1,66 +1,28 @@
-# Task Plan: Telegram Multi-Session Commands
+# Task Plan
 
 ## Goal
-Add Telegram commands for session lifecycle (`/new`, `/clear`, `/sessions`, `/delete_sessions`, `/help`) and support multiple switchable contexts per chat.
+对比示例项目与当前项目的 system prompt 组织方式，基于 `docs/prompt_desc.md` 的职责定义，优化仓库代码逻辑，并同步优化 `/Users/gusi/.molibot` 下的 markdown 提示词文件。
 
 ## Phases
-- [x] Phase 1: Inspect current Telegram runtime and context storage model
-- [x] Phase 2: Implement multi-session context storage with active session pointer
-- [x] Phase 3: Wire Telegram command handlers and session switching/deletion flows
-- [x] Phase 4: Adapt runner lifecycle to session-aware runner keys
-- [x] Phase 5: Build verification and docs update (`features.md`, `prd.md`)
+| Phase | Status | Notes |
+|---|---|---|
+| Inspect current prompt architecture | completed | 已对比 example、当前 runner、文档与 `~/.molibot` |
+| Decide target prompt ownership | completed | 已确定 system prompt 回到代码，profile 文件保留外部 |
+| Implement code changes | completed | `runner.ts` 改为代码持有 runtime system prompt，默认 AGENTS 模板瘦身 |
+| Update docs and md prompts | completed | 已更新 `docs/prompt_desc.md`、`features.md`、`prd.md` 与 `~/.molibot/*.md` |
+| Verify behavior | completed | 已执行 `npm run build` 通过 |
 
-## Key Decisions
-- Keep session scope per Telegram chat (`chatId`), with active session pointer persisted on disk.
-- Context file layout: `data/telegram-mom/<chatId>/contexts/<sessionId>.json`.
-- Backward compatibility: auto-migrate legacy `context.json` to `contexts/default.json`.
+## Risks
+- `/Users/gusi/.molibot` 位于工作区外，若要写入可能需要提权。
+- 需要避免破坏现有 prompt 覆盖能力或用户自定义能力。
 
-## Status
-**Completed** - commands implemented and `npm run build` passes.
+## Errors Encountered
+| Error | Attempt | Resolution |
+|---|---|---|
 
-## 2026-02-25 Addendum: Telegram Multi-Bot
-- [x] Phase 1: Analyze single-bot constraints in settings/runtime/adapter
-- [x] Phase 2: Introduce `telegramBots[]` schema with legacy migration compatibility
-- [x] Phase 3: Refactor runtime to manage multiple Telegram managers concurrently
-- [x] Phase 4: Upgrade `/settings/telegram` to multi-bot list UI
-- [x] Phase 5: Build verification + docs updates (`features.md`, `prd.md`)
-- [x] Phase 6: Add event delivery-mode split (`text` vs `agent`) and async event callback status flow
-
-## 2026-02-25 Addendum: Memory Plugin
-- [x] Phase 1: Confirm feasibility and identify settings/runtime/chat integration points
-- [x] Phase 2: Implement pluggable memory architecture (`gateway` + replaceable `core`)
-- [x] Phase 3: Add memory APIs (`add/search/flush/delete/update`)
-- [x] Phase 4: Inject memory retrieval into chat reply path
-- [x] Phase 5: Add plugin settings page with memory enable toggle
-- [x] Phase 6: Build verification + docs updates (`features.md`, `prd.md`)
-
-## 2026-02-25 Addendum: Memory v2 Strategy Execution
-- [x] Phase 1: Extend memory protocol with layered records and core capability negotiation
-- [x] Phase 2: Upgrade json-file core to hybrid search (keyword + recency)
-- [x] Phase 3: Implement incremental flush with per-conversation cursor
-- [x] Phase 4: Upgrade chat memory usage policy (manual capture + per-turn incremental flush + layered prompt context)
-- [x] Phase 5: Add human-readable memory mirrors (`MEMORY.md` + `daily/*.md`)
-- [x] Phase 6: Build verification + docs updates (`features.md`, `prd.md`)
-
-## 2026-02-25 Addendum: Memory v2 Round 2 (Governance)
-- [x] Phase 1: Add memory governance metadata (`factKey`, `hasConflict`, `expiresAt`)
-- [x] Phase 2: Implement conflict detection and expired-memory filtering in core
-- [x] Phase 3: Extend memory API with operations-friendly `list` action and TTL-aware add/update
-- [x] Phase 4: Build `/settings/memory` operations page (list/search/flush/edit/delete)
-- [x] Phase 5: Wire settings navigation to memory management page
-- [x] Phase 6: Build verification + docs updates (`features.md`, `prd.md`)
-
-## 2026-02-25 Addendum: Telegram Memory Directory Unification
-- [x] Phase 1: Move Telegram mom memory read path to `${DATA_DIR}/memory` unified root
-- [x] Phase 2: Add legacy memory file auto-migration from workspace/chat directories
-- [x] Phase 3: Update runner memory instructions to new path conventions
-- [x] Phase 4: Expand tool path guard to allow shared memory root writes
-- [x] Phase 5: Build verification + docs updates (`features.md`, `prd.md`)
-
-## 2026-02-25 Addendum: Gateway-Only Memory + Unified View
-- [x] Phase 1: Extend memory gateway/core with all-scope query and external file sync capability
-- [x] Phase 2: Add runtime periodic sync to import Telegram file memories into gateway
-- [x] Phase 3: Add Telegram `memory` tool and wire runner to gateway for memory context
-- [x] Phase 4: Block direct memory file operations in generic file/shell tools
-- [x] Phase 5: Upgrade `/settings/memory` to unified cross-scope view with sync stats
-- [x] Phase 6: Build verification + docs updates (`features.md`, `prd.md`)
+## 2026-02-28 Addendum: `package/mory` 独立 SDK 化
+- [x] Phase 1: 核对 `package/mory` 当前 README / package manifest / 适配器能力边界
+- [x] Phase 2: 为独立 SDK 补齐自带 driver 所需依赖声明
+- [x] Phase 3: 实现包内 SQLite / PostgreSQL driver 与工厂函数
+- [x] Phase 4: 补强 SQLite embedding 落库与基础向量检索
+- [x] Phase 5: 更新 README、`features.md`、`prd.md`

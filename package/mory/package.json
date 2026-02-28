@@ -21,7 +21,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "clean": "rm -rf dist",
@@ -29,6 +29,13 @@
     "test": "npm run build && node --test dist/test/**/*.test.js",
     "smoke": "npm run build && node dist/src/smoke.js",
     "prepack": "npm run clean && npm run test"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "typescript": "^5.7.2"
   },
   "keywords": [
     "agent-memory",

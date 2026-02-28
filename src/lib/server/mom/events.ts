@@ -4,6 +4,7 @@ import { join } from "node:path";
 export interface EventStatus {
   state: "pending" | "completed" | "skipped" | "error";
   completedAt?: string;
+  lastTriggeredAt?: string;
   runCount?: number;
   reason?: string;
   lastError?: string;
@@ -311,13 +312,32 @@ export class EventsWatcher {
 
   private markDone(filename: string, event: MomEvent, reason: string): void {
     const runCount = (event.status?.runCount ?? 0) + 1;
+    const triggeredAt = new Date().toISOString();
+    if (event.type === "periodic") {
+      this.updateEventFile(filename, (current) => ({
+        ...current,
+        delivery: this.resolveDeliveryMode(current),
+        status: {
+          ...(current.status ?? {}),
+          state: "pending",
+          completedAt: undefined,
+          lastTriggeredAt: triggeredAt,
+          runCount,
+          reason
+        }
+      }));
+      this.knownFiles.add(filename);
+      return;
+    }
+
     this.updateEventFile(filename, (current) => ({
       ...current,
       delivery: this.resolveDeliveryMode(current),
       status: {
         ...(current.status ?? {}),
         state: "completed",
-        completedAt: new Date().toISOString(),
+        completedAt: triggeredAt,
+        lastTriggeredAt: triggeredAt,
         runCount,
         reason
       }

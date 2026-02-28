@@ -38,31 +38,29 @@ function ensureEmptyFile(path) {
   return true;
 }
 
+function readPromptTemplate(name) {
+  const templatePath = join(rootDir, "src/lib/server/mom/prompts", name);
+  return readFileSync(templatePath, "utf8");
+}
+
 function runInit() {
   const dataDir = resolveDataDir();
   mkdirSync(dataDir, { recursive: true });
   mkdirSync(join(dataDir, "skills"), { recursive: true });
-  const defaultAgentsPath = join(rootDir, "src/lib/server/mom/prompts/AGENTS.default.md");
-  const defaultAgentsContent = readFileSync(defaultAgentsPath, "utf8");
-
-  const files = [
-    "SOUL.md",
-    "TOOLS.md",
-    "BOOTSTRAP.md",
-    "IDENTITY.md",
-    "USER.md"
-  ];
+  const templateFiles = new Map([
+    ["AGENTS.md", "AGENTS.template.md"],
+    ["SOUL.md", "SOUL.template.md"],
+    ["TOOLS.md", "TOOLS.template.md"],
+    ["BOOTSTRAP.md", "BOOTSTRAP.template.md"],
+    ["IDENTITY.md", "IDENTITY.template.md"],
+    ["USER.md", "USER.template.md"]
+  ]);
 
   const created = [];
-  const agentsPath = join(dataDir, "AGENTS.md");
-  if (ensureEmptyFile(agentsPath)) {
-    writeFileSync(agentsPath, defaultAgentsContent, "utf8");
-    created.push(agentsPath);
-  }
-
-  for (const file of files) {
+  for (const [file, templateName] of templateFiles) {
     const path = join(dataDir, file);
     if (ensureEmptyFile(path)) {
+      writeFileSync(path, readPromptTemplate(templateName), "utf8");
       created.push(path);
     }
   }
