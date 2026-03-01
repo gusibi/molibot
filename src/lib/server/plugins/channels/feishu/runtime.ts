@@ -13,6 +13,7 @@ import { MomRuntimeStore } from "../../../mom/store.js";
 import type { MomContext, ChannelInboundMessage } from "../../../mom/types.js";
 import { SessionStore } from "../../../services/sessionStore.js";
 import type { MemoryGateway } from "../../../memory/gateway.js";
+import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "./message-intake.js";
 
 export interface FeishuConfig {
     appId: string;
@@ -56,6 +57,7 @@ class ChannelQueue {
 
 export class FeishuManager {
     private static readonly CHAT_EVENTS_RELATIVE_DIR = ["events"] as const;
+    private static readonly INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
     private readonly workspaceDir: string;
     private readonly store: MomRuntimeStore;
     private readonly sessions: SessionStore;
@@ -72,6 +74,7 @@ export class FeishuManager {
 
     private readonly chatQueues = new Map<string, ChannelQueue>();
     private readonly running = new Set<string>();
+    private readonly inboundDedupe = new Map<string, number>();
     private readonly events: EventsWatcher[] = [];
     private readonly watchedChatEventDirs = new Set<string>();
 
@@ -151,6 +154,10 @@ export class FeishuManager {
             eventDispatcher: handler
         });
 
+        momLog("feishu", "adapter_started", {
+            allowedChatCount: allowed.size
+        });
+
         this.currentAppId = appId;
         this.currentAppSecret = appSecret;
         this.currentAllowedChatIdsKey = allowedChatIdsKey;
@@ -171,7 +178,13 @@ export class FeishuManager {
         }
 
         if (this.wsClient) {
-            // Unfortunately standard WS disconnect logic will need handling or just stop reference
+            try {
+                this.wsClient.close({ force: true });
+            } catch (error) {
+                momWarn("feishu", "adapter_stop_close_failed", {
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
             momLog("feishu", "adapter_stopped");
         }
 
@@ -182,65 +195,73 @@ export class FeishuManager {
         this.currentAllowedChatIdsKey = "";
     }
 
+    private markInboundMessageSeen(chatId: string, rawMessageId: string): boolean {
+        const key = `${chatId}:${rawMessageId}`;
+        const now = Date.now();
+        const expiresAt = this.inboundDedupe.get(key);
+        if (expiresAt && expiresAt > now) {
+            return false;
+        }
+
+        this.inboundDedupe.set(key, now + FeishuManager.INBOUND_DEDUPE_TTL_MS);
+
+        if (this.inboundDedupe.size > 2048) {
+            for (const [entryKey, entryExpiresAt] of this.inboundDedupe.entries()) {
+                if (entryExpiresAt <= now) {
+                    this.inboundDedupe.delete(entryKey);
+                }
+            }
+        }
+
+        return true;
+    }
+
     private async handleIncomingMessage(message: Record<string, any>, sender: Record<string, any>, allowed: Set<string>): Promise<void> {
         if (!this.client || !this.wsClient) return;
 
         const chatId = String(message.chat_id || "");
         const userId = String(sender.sender_id?.open_id || "unknown");
         const messageId = String(message.message_id || "");
-        const chatType = message.chat_type === "p2p" ? "private" : "group";
-
-        let rawText = "";
-        if (message.message_type === "text" && message.content) {
-            try {
-                const contentObj = JSON.parse(message.content);
-                rawText = contentObj.text || "";
-            } catch {
-                rawText = message.content;
-            }
-        }
 
         if (allowed.size > 0 && !allowed.has(chatId)) {
             momWarn("feishu", "message_blocked_chat", { chatId, userId, messageId });
             return;
         }
 
-        if (chatType === "group" && !message.mentions?.some((m: any) => m.name === this.instanceId || m.id?.open_id)) {
+        if (!messageId) {
+            momWarn("feishu", "message_ignored_missing_id", { chatId, userId });
+            return;
+        }
+
+        if (!this.markInboundMessageSeen(chatId, messageId)) {
+            momWarn("feishu", "message_dedup_skipped_raw", { chatId, userId, messageId });
+            return;
+        }
+
+        if (!isFeishuGroupMessageTriggered(message)) {
             momLog("feishu", "group_message_ignored_no_mention", { chatId, messageId });
             return;
         }
 
-        let cleaned = rawText.trim();
-        if (chatType === "group") {
-            cleaned = cleaned.replace(/@_user_[^\s]+\s*/g, "").trim();
-        }
-
-        if (!cleaned) {
+        const event = await toFeishuInboundEvent({
+            client: this.client,
+            getSettings: this.getSettings,
+            store: this.store,
+            message,
+            sender
+        });
+        if (!event) {
             momLog("feishu", "message_ignored_empty", { chatId, messageId });
             return;
         }
 
-        const lowered = cleaned.toLowerCase();
+        const lowered = event.text.toLowerCase();
         if (lowered.startsWith("/")) {
-            const isCommand = await this.handleCommand(chatId, cleaned);
+            const isCommand = await this.handleCommand(chatId, event.text);
             if (isCommand) {
                 return;
             }
         }
-
-        const ts = `${Math.floor(Date.now() / 1000)}.${String(Date.now() % 1000).padStart(3, "0")}`;
-
-        const event: ChannelInboundMessage = {
-            chatId,
-            chatType,
-            messageId: Number(messageId.replace(/[^0-9]/g, "").slice(0, 10)) || Date.now(),
-            userId,
-            userName: sender.sender_id?.union_id || "User",
-            text: cleaned,
-            ts,
-            attachments: [],
-            imageContents: []
-        };
 
         const runId = createRunId(chatId, event.messageId);
         (event as ChannelInboundMessage & { runId?: string }).runId = runId;
@@ -274,6 +295,17 @@ export class FeishuManager {
                 chatId,
                 error: error instanceof Error ? error.message : String(error)
             });
+        }
+
+        if ((event as ChannelInboundMessage & { transcriptionError?: string | null }).transcriptionError) {
+            await this.sendText(
+                chatId,
+                [
+                    "语音识别失败，已降级为未转写消息。",
+                    (event as ChannelInboundMessage & { transcriptionError?: string | null }).transcriptionError,
+                    "建议：检查 STT provider 的 baseUrl/path/model 是否正确。"
+                ].join("\n")
+            );
         }
 
         const queue = this.getQueue(chatId);

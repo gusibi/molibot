@@ -18,3 +18,22 @@
 - 为兼容现有配置，运行时和设置持久化应优先读取新字段 `plugins.memory.backend`，同时兼容旧字段 `plugins.memory.core`。
 - 已完成进一步拆分：外部同步不再属于 backend 接口，而是独立 importer/source；当前内建实现为 Telegram legacy memory file importer。
 - memory backend catalog 已补进 plugin catalog，设置页现在可以和 channel/provider 一样看到当前内建 backends。
+
+## 2026-03-01 Feishu Media Intake
+- 用户反馈 Feishu 当前只能识别文本，图片、语音和其他文件都进不了对话链路。
+- `src/lib/server/plugins/channels/feishu/runtime.ts` 现状是仅在 `message.message_type === "text"` 时提取内容。
+- 同文件虽然构造了 `attachments` 和 `imageContents` 字段，但 Feishu 路径从未填充它们。
+- 非文本消息因为 `cleaned` 为空，在进入 runner 之前就被 `message_ignored_empty` 逻辑丢弃。
+- 参照实现位于 `src/lib/server/plugins/channels/telegram/runtime.ts`：它已经覆盖 `document/photo/voice/audio` 下载、附件保存、图片注入、STT 转写和 transcript 注入。
+- Feishu SDK 已提供 `client.im.messageResource.get({ path: { message_id, file_key }, params: { type } })` 用于下载用户消息中的资源文件。
+- 用户现场日志显示：语音消息下载时 `file_key` 为 `file_v3_*`，但请求参数 `type=media` 返回 HTTP 400。这说明飞书音频资源并不总能按 `media` 下载，至少存在一类消息必须按 `file` 资源路径取回。
+- 因为飞书不同消息体字段与资源下载 `type` 的对应关系并不完全稳定，本轮实现补充了基于 `message_type + file_key 前缀` 的候选类型回退，而不是单一硬编码映射。
+- 本轮修复策略是复用 Telegram 的 runner 输入约定，不改 runner，只补 Feishu 入站归一化。
+
+## 2026-03-01 Feishu Duplicate Response
+- Feishu 当前不是“主动拉取消息”，而是通过 `@larksuiteoapi/node-sdk` 的 `WSClient` 订阅 `im.message.receive_v1` 事件。
+- `src/lib/server/plugins/channels/feishu/runtime.ts` 中的 `stop()` 之前没有真正关闭 `WSClient`，只是清空实例引用；如果 runtime 发生重复 `apply()`，旧连接仍可能继续收消息，形成重复处理。
+- 现有通用去重依赖 `MomRuntimeStore.logMessage(chatId, { messageId: number })`，而 Feishu 入站在 `message-intake.ts` 中把原始字符串 `message.message_id` 压缩成数字再进入该层，适配器缺少对原始 id 的幂等控制。
+- 用户截图中的两类异常其实叠加存在：
+  - `transcriptionError` 会先额外发送一条 STT 降级提示；
+  - 如果同一入站事件被重复投递或重复订阅消费，主回复会再次发送，形成“同答案出现两次”的观感。

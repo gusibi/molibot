@@ -75,6 +75,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-36 | Adapter-selectable channel prompt sections | P1 | V1.1 | Core prompt assembly should remain channel-agnostic, while each adapter supplies its own channel-specific prompt sections (Telegram/Slack/Feishu/WhatsApp) so adding a client does not require rewriting core prompt rules |
 | P1-37 | Settings task inventory UI | P1 | V1.1 | Provide `/settings/tasks` to inspect event-file tasks across workspace and chat scopes, grouped by task type and showing status, delivery, schedule, run count, and file path |
 | P1-38 | Channel plugin registry architecture | P1 | V1.1 | New messaging channels should be installable via a manifest/adapter plugin contract without modifying `runtime.ts`, runner core, prompt core, or settings persistence schema beyond plugin registration |
+| P1-39 | Feishu inbound media parity core | P1 | Delivered (2026-03-01) | Feishu channel should normalize image/audio/file messages into the same runner input contract as Telegram: attachments persisted, images injected for vision, and audio/media optionally transcribed through configured STT routing |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -742,3 +743,16 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - Adapter-specific sections may describe channel formatting/capabilities, but should remain isolated from core runtime sections.
   - Global profile templates should avoid channel-specific wording unless the note is intentionally tied to one adapter.
   - If a channel's output formatting is already enforced by adapter code, do not repeat that formatting guide in the prompt.
+
+## 69. Feishu Inbound Delivery Idempotency (2026-03-01)
+- Priority: P1
+- Problem:
+  - 用户现场出现 Feishu 同一条消息被重复响应，现有实现既依赖进程内通用日志去重，也没有在适配器 stop 阶段真正关闭旧的 WebSocket 连接。
+  - Feishu `message_id` 当前在进入通用 `ChannelInboundMessage` 前被压成数字，适配器层缺少基于原始 `message.message_id` 的幂等保护。
+- Requirement:
+  - Feishu 渠道必须保证同一条入站消息在单实例内只会被处理一次。
+  - 配置重载、runtime re-apply、实例切换时不能留下旧的事件订阅连接。
+- Enforcement:
+  - `FeishuManager.stop()` 必须显式关闭当前 `WSClient`，不能只清空引用。
+  - Feishu 适配器在下载资源/STT/入队前，必须基于原始 `chat_id + message.message_id` 做本地幂等去重。
+  - 对重复投递应记录专门日志，便于区分“真实重复消息”和“重复订阅/重复回调”。

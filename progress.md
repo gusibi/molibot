@@ -14,3 +14,10 @@
 - 2026-03-01: Memory sync was split into independent importer/source modules; gateway now composes active backend + built-in importers, and `/settings/plugins` now shows the built-in memory backend catalog.
 - 2026-03-01: Added startup diagnostics for plugin catalog, applied channel plugin instances, selected memory backend, available importers, and startup/periodic memory sync results; verified with `npm run build`.
 - 2026-03-01: Added ANSI color styling to the new startup diagnostics so runtime and memory logs are easier to distinguish in terminal output; verified with `npm run build`.
+- 2026-03-01: Diagnosed Feishu inbound-media bug: runtime only parsed `text`, dropped non-text messages before runner execution, and never populated `attachments` / `imageContents`.
+- 2026-03-01: Implemented Feishu inbound media pipeline in `src/lib/server/plugins/channels/feishu/runtime.ts`: added message content parsing, message-resource download, attachment persistence, image context injection, and STT-based transcript enrichment for audio/media messages.
+- 2026-03-01: Hardened Feishu resource download mapping after a real `400 Bad Request` sample on `type=media` with `file_v3_*`; download now retries candidate resource types (`file/media/image`) based on message type and key prefix, and logs which fallback type actually succeeds.
+- 2026-03-01: Added bounded Feishu STT retry logic in `src/lib/server/plugins/channels/feishu/message-intake.ts`: transcription now retries up to 3 times with short backoff on HTTP/request/empty-result failures before falling back to untranscribed voice input.
+- 2026-03-01: Verified the Feishu runtime changes with `npm run build`.
+- 2026-03-01: Diagnosed Feishu duplicate-response path: channel uses WebSocket event subscription rather than polling, and `FeishuManager.stop()` was not closing the previous `WSClient`, which could leave duplicate subscriptions active across repeated `apply()` calls.
+- 2026-03-01: Added Feishu adapter-local inbound dedupe keyed by raw `chatId + message.message_id`, and updated `stop()` to force-close the active `WSClient`; verified with `npm run build`.
