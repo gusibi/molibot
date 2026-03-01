@@ -16,6 +16,7 @@
     "mory:smoke": "npm --prefix package/mory run smoke"
   },
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.59.0",
     "@mariozechner/mini-lit": "^0.2.0",
     "@mariozechner/pi-agent-core": "latest",
     "@mariozechner/pi-ai": "latest",

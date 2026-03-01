@@ -40,6 +40,14 @@ export interface TelegramBotConfig {
   allowedChatIds: string[];
 }
 
+export interface FeishuBotConfig {
+  id: string;
+  name: string;
+  appId: string;
+  appSecret: string;
+  allowedChatIds: string[];
+}
+
 export interface MemoryPluginSettings {
   enabled: boolean;
   core: string;
@@ -59,6 +67,7 @@ export interface RuntimeSettings {
   systemPrompt: string;
   timezone: string;
   telegramBots: TelegramBotConfig[];
+  feishuBots: FeishuBotConfig[];
   plugins: PluginSettings;
   // Legacy single-bot fields kept for backward compatibility with old settings files/API payloads.
   telegramBotToken: string;
@@ -193,6 +202,19 @@ const defaultTelegramBots: TelegramBotConfig[] = defaultTelegramBotToken
   }]
   : [];
 
+const defaultFeishuAppId = (process.env.FEISHU_APP_ID ?? "").trim();
+const defaultFeishuAppSecret = (process.env.FEISHU_APP_SECRET ?? "").trim();
+const defaultFeishuAllowedChatIds = listFromEnv("FEISHU_ALLOWED_CHAT_IDS");
+const defaultFeishuBots: FeishuBotConfig[] = defaultFeishuAppId && defaultFeishuAppSecret
+  ? [{
+    id: "default",
+    name: "Default Feishu Bot",
+    appId: defaultFeishuAppId,
+    appSecret: defaultFeishuAppSecret,
+    allowedChatIds: defaultFeishuAllowedChatIds
+  }]
+  : [];
+
 export const defaultRuntimeSettings: RuntimeSettings = {
   providerMode,
   piModelProvider: providerFromEnv("PI_MODEL_PROVIDER", "anthropic"),
@@ -217,5 +239,6 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     }
   },
   telegramBotToken: defaultTelegramBotToken,
-  telegramAllowedChatIds: defaultTelegramAllowedChatIds
+  telegramAllowedChatIds: defaultTelegramAllowedChatIds,
+  feishuBots: defaultFeishuBots
 };

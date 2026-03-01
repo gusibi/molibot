@@ -4,6 +4,7 @@ import {
   type ProviderModelConfig,
   type CustomProviderConfig,
   type TelegramBotConfig,
+  type FeishuBotConfig,
   isKnownProvider,
   type ProviderMode,
   type RuntimeSettings
@@ -37,6 +38,7 @@ interface RawSettings {
   customAiModel?: string;
   customAiPath?: string;
   timezone?: string;
+  feishuBots?: unknown;
 }
 
 type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
@@ -180,6 +182,36 @@ function sanitizeTelegramBots(input: unknown): TelegramBotConfig[] {
   return out;
 }
 
+function sanitizeFeishuBots(input: unknown): FeishuBotConfig[] {
+  if (!Array.isArray(input)) return [];
+
+  const out: FeishuBotConfig[] = [];
+  const dedup = new Set<string>();
+
+  for (const row of input) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const appId = String(item.appId ?? "").trim();
+    const appSecret = String(item.appSecret ?? "").trim();
+    if (!appId || !appSecret) continue;
+
+    const idRaw = String(item.id ?? "").trim();
+    const id = idRaw || `feishu-${Math.random().toString(36).slice(2, 8)}`;
+    if (dedup.has(id)) continue;
+    dedup.add(id);
+
+    out.push({
+      id,
+      name: String(item.name ?? "").trim() || id,
+      appId,
+      appSecret,
+      allowedChatIds: sanitizeList(item.allowedChatIds)
+    });
+  }
+
+  return out;
+}
+
 function migrateLegacyCustomProvider(raw: RawSettings): CustomProviderConfig[] {
   const baseUrl = String(raw.customAiBaseUrl ?? "").trim();
   const apiKey = String(raw.customAiApiKey ?? "").trim();
@@ -231,6 +263,9 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const memoryCore = String(raw.plugins?.memory?.core ?? "").trim() ||
     defaultRuntimeSettings.plugins.memory.core;
 
+  const feishuBotsFromList = sanitizeFeishuBots(raw.feishuBots);
+  const feishuBots = feishuBotsFromList.length > 0 ? feishuBotsFromList : [];
+
   return {
     providerMode: sanitizeMode(raw.providerMode ?? defaultRuntimeSettings.providerMode),
     piModelProvider: isKnownProvider(piProviderRaw)
@@ -258,7 +293,8 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     },
     timezone: String(raw.timezone ?? "").trim() || Intl.DateTimeFormat().resolvedOptions().timeZone,
     telegramBotToken: primaryBot?.token ?? "",
-    telegramAllowedChatIds: primaryBot?.allowedChatIds ?? []
+    telegramAllowedChatIds: primaryBot?.allowedChatIds ?? [],
+    feishuBots
   };
 }
 

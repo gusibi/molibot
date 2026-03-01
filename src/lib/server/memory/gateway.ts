@@ -1,6 +1,7 @@
 import type { RuntimeSettings } from "../config.js";
 import type { SessionStore } from "../services/sessionStore.js";
 import { JsonFileMemoryCore } from "./jsonFileCore.js";
+import { MoryMemoryCore } from "./moryCore.js";
 import type {
   MemoryAddInput,
   MemoryCore,
@@ -21,7 +22,8 @@ export class MemoryGateway {
     sessions: SessionStore
   ) {
     this.cores = {
-      "json-file": new JsonFileMemoryCore(sessions)
+      "json-file": new JsonFileMemoryCore(sessions),
+      mory: new MoryMemoryCore(sessions)
     };
   }
 

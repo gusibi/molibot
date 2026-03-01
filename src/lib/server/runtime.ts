@@ -8,10 +8,12 @@ import {
   type ModelCapabilityTag,
   type CustomProviderConfig,
   type TelegramBotConfig,
+  type FeishuBotConfig,
   type ProviderMode,
   type RuntimeSettings
 } from "./config.js";
 import { TelegramManager } from "./adapters/telegram.js";
+import { FeishuManager } from "./adapters/feishu.js";
 import { MessageRouter } from "./core/messageRouter.js";
 import { initDb } from "./db/sqlite.js";
 import { MemoryGateway } from "./memory/gateway.js";
@@ -23,6 +25,7 @@ interface RuntimeState {
   sessions: SessionStore;
   router: MessageRouter;
   telegramManagers: Map<string, TelegramManager>;
+  feishuManagers: Map<string, FeishuManager>;
   memory: MemoryGateway;
   memorySyncTimer: ReturnType<typeof setInterval> | null;
   settingsStore: SettingsStore;
@@ -84,6 +87,34 @@ function sanitizeTelegramBots(input: unknown): TelegramBotConfig[] {
       id,
       name: String(item.name ?? "").trim() || id,
       token,
+      allowedChatIds: Array.isArray(item.allowedChatIds)
+        ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
+        : []
+    });
+  }
+  return out;
+}
+
+function sanitizeFeishuBots(input: unknown): FeishuBotConfig[] {
+  if (!Array.isArray(input)) return [];
+
+  const out: FeishuBotConfig[] = [];
+  const dedup = new Set<string>();
+  for (const row of input) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const appId = String(item.appId ?? "").trim();
+    const appSecret = String(item.appSecret ?? "").trim();
+    if (!appId || !appSecret) continue;
+    const idRaw = String(item.id ?? "").trim();
+    const id = idRaw || `feishu-${Math.random().toString(36).slice(2, 8)}`;
+    if (dedup.has(id)) continue;
+    dedup.add(id);
+    out.push({
+      id,
+      name: String(item.name ?? "").trim() || id,
+      appId,
+      appSecret,
       allowedChatIds: Array.isArray(item.allowedChatIds)
         ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
         : []
@@ -175,21 +206,24 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   };
 
   next.systemPrompt = String(next.systemPrompt ?? "").trim() || defaultRuntimeSettings.systemPrompt;
-  const sanitizedBots = sanitizeTelegramBots(next.telegramBots);
+  const sanitizedTelegramBots = sanitizeTelegramBots(next.telegramBots);
+  const sanitizedFeishuBots = sanitizeFeishuBots(next.feishuBots);
   const legacyToken = String(next.telegramBotToken ?? "").trim();
   const legacyAllowed = Array.isArray(next.telegramAllowedChatIds)
     ? next.telegramAllowedChatIds.map((v) => String(v).trim()).filter(Boolean)
     : current.telegramAllowedChatIds;
-  next.telegramBots = sanitizedBots.length > 0
-    ? sanitizedBots
+  next.telegramBots = sanitizedTelegramBots.length > 0
+    ? sanitizedTelegramBots
     : (legacyToken
-        ? [{
-            id: "default",
-            name: "Default Bot",
-            token: legacyToken,
-            allowedChatIds: legacyAllowed
-          }]
-        : []);
+      ? [{
+        id: "default",
+        name: "Default Bot",
+        token: legacyToken,
+        allowedChatIds: legacyAllowed
+      }]
+      : []);
+
+  next.feishuBots = sanitizedFeishuBots;
 
   next.telegramBotToken = next.telegramBots[0]?.token ?? "";
   next.telegramAllowedChatIds = next.telegramBots[0]?.allowedChatIds ?? [];
@@ -236,6 +270,40 @@ function applyTelegramBots(state: RuntimeState, applySettingsPatch: (patch: Part
   }
 }
 
+function applyFeishuBots(state: RuntimeState, applySettingsPatch: (patch: Partial<RuntimeSettings>) => RuntimeSettings): void {
+  const bots = state.settings.feishuBots.filter((bot) => bot.appId.trim() && bot.appSecret.trim());
+  const expectedIds = new Set(bots.map((bot) => bot.id));
+
+  for (const [id, manager] of state.feishuManagers.entries()) {
+    if (expectedIds.has(id)) continue;
+    manager.stop();
+    state.feishuManagers.delete(id);
+  }
+
+  for (const bot of bots) {
+    let manager = state.feishuManagers.get(bot.id);
+    if (!manager) {
+      manager = new FeishuManager(
+        () => state.settings,
+        applySettingsPatch,
+        state.sessions,
+        {
+          instanceId: bot.id,
+          workspaceDir: resolve(config.dataDir, "moli-f", "bots", bot.id),
+          memory: state.memory
+        }
+      );
+      state.feishuManagers.set(bot.id, manager);
+    }
+
+    manager.apply({
+      appId: bot.appId,
+      appSecret: bot.appSecret,
+      allowedChatIds: bot.allowedChatIds
+    });
+  }
+}
+
 export function getRuntime(): RuntimeState {
   if (!globalThis.__molibotRuntime) {
     initDb();
@@ -253,6 +321,7 @@ export function getRuntime(): RuntimeState {
       currentSettings.value = state.settings;
       state.settingsStore.save(state.settings);
       applyTelegramBots(state, applySettingsPatch);
+      applyFeishuBots(state, applySettingsPatch);
       return state.settings;
     };
 
@@ -260,6 +329,7 @@ export function getRuntime(): RuntimeState {
       sessions,
       router,
       telegramManagers: new Map<string, TelegramManager>(),
+      feishuManagers: new Map<string, FeishuManager>(),
       memory,
       memorySyncTimer: null,
       settingsStore,
@@ -275,6 +345,7 @@ export function getRuntime(): RuntimeState {
       void state.memory.syncExternalMemories();
     }, 60_000);
     applyTelegramBots(state, applySettingsPatch);
+    applyFeishuBots(state, applySettingsPatch);
 
     globalThis.__molibotRuntime = state;
   }

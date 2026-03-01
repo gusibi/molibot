@@ -1,12 +1,13 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/runtime";
-import type { RuntimeSettings, CustomProviderConfig, TelegramBotConfig } from "$lib/server/config";
+import type { RuntimeSettings, CustomProviderConfig, TelegramBotConfig, FeishuBotConfig } from "$lib/server/config";
 
 type SettingsBody = Partial<RuntimeSettings> & {
   telegramAllowedChatIds?: string[] | string;
   customProviders?: CustomProviderConfig[] | string;
   telegramBots?: TelegramBotConfig[] | string;
+  feishuBots?: FeishuBotConfig[] | string;
 };
 
 function normalizePatch(body: SettingsBody): Partial<RuntimeSettings> {
@@ -32,6 +33,14 @@ function normalizePatch(body: SettingsBody): Partial<RuntimeSettings> {
       patch.telegramBots = JSON.parse(body.telegramBots) as TelegramBotConfig[];
     } catch {
       patch.telegramBots = [];
+    }
+  }
+
+  if (typeof body.feishuBots === "string") {
+    try {
+      patch.feishuBots = JSON.parse(body.feishuBots) as FeishuBotConfig[];
+    } catch {
+      patch.feishuBots = [];
     }
   }
 

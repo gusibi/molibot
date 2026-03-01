@@ -137,6 +137,7 @@
 | ENG-123 | Prompt preview dynamic-section ordering cleanup | Done | Reordered `prompt.ts` so stable runtime contract sections stay ahead of high-churn runtime payloads; `available skills` / `skill diagnostics` / `current memory` now render near the end for cleaner preview diffing |
 | ENG-124 | Profile injection cleanup | Done | Stripped YAML frontmatter before injecting profile files into the runtime prompt, rewrote AGENTS injected wording to reflect already-injected context, removed the misleading “not the system prompt body” line from injected AGENTS content, and normalized bundled TOOLS paths to `${dataRoot}` |
 | ENG-125 | Channel-specific prompt sections | Done | Removed Telegram-specific delivery wording from the core prompt, introduced adapter-selectable channel prompt sections in `src/lib/server/mom/prompt-channel.ts`, and wired Telegram runtime/preview to request the Telegram section explicitly |
+| ENG-128 | Mory-backed memory gateway core switch | Done | Added `src/lib/server/memory/moryCore.ts`, registered optional `mory` provider in `MemoryGateway`, kept `json-file` as default, and exposed SDK-backed backend selection in plugin settings while preserving the existing gateway API for agent/tool/API callers |
 
 ## In Progress
 | ID | Feature | Status | Notes |
@@ -152,6 +153,7 @@
 | BL-04 | Vector memory | Backlog | Post V1 |
 
 ## Update Log
+- 2026-03-01: Added optional `mory` memory backend behind the existing memory gateway, wired provider switching through `/settings/plugins`, and surfaced the active memory core in `/settings/memory`.
 - 2026-02-28: Refactored Telegram mom system prompt into section builders and added startup prompt preview generation (`SYSTEM_PROMPT.preview.md`) per bot workspace, with log output for the preview path.
 - 2026-02-28: Fixed Telegram prompt source resolution to always load global instruction/profile files from `${DATA_DIR}` (`~/.molibot`) instead of repository root fallbacks, added case-insensitive filename matching (`SOUL.md` vs `soul.md`), and annotated startup prompt previews with exact `global_sources` / `workspace_sources`.
 - 2026-02-28: Upgraded global profile files under `~/.molibot` to a richer template structure inspired by OpenClaw: added frontmatter, clearer responsibilities, session-read guidance, and stronger separation between AGENTS/SOUL/TOOLS/USER/IDENTITY/BOOTSTRAP while preserving existing user data and collaboration rules.
