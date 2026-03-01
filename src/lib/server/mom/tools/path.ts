@@ -1,4 +1,8 @@
 import { basename, isAbsolute, relative, resolve } from "node:path";
+import {
+  resolveDataRootFromWorkspacePath,
+  resolveMemoryRootFromWorkspacePath
+} from "../workspace.js";
 
 const GLOBAL_PROFILE_FILES = ["SOUL.md", "TOOLS.md", "BOOTSTRAP.md", "IDENTITY.md", "USER.md"] as const;
 
@@ -8,16 +12,6 @@ function pathCompareKey(pathLike: string): string {
     return resolved.toLowerCase();
   }
   return resolved;
-}
-
-function resolveDataRootFromWorkspacePath(pathLike: string): string {
-  const normalized = resolve(pathLike).replace(/\\/g, "/");
-  const marker = "/moli-t/";
-  const markerIndex = normalized.indexOf(marker);
-  if (markerIndex > 0) {
-    return resolve(normalized.slice(0, markerIndex));
-  }
-  return resolve(normalized);
 }
 
 function resolveGlobalProfilePath(baseDir: string, input: string): string | null {
@@ -39,7 +33,7 @@ export function resolveToolPath(baseDir: string, input: string): string {
 
   // Tools run under chat scratch dir; normalize accidentally duplicated prefixes.
   const normalizedInput = input.replace(/\\/g, "/").replace(/^\.\//, "");
-  const duplicatedScratchPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-t)\/[^/]+\/scratch\/(.+)$/);
+  const duplicatedScratchPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-[^/]+)\/[^/]+\/scratch\/(.+)$/);
   if (duplicatedScratchPrefix?.[1]) {
     return resolve(baseDir, duplicatedScratchPrefix[1]);
   }
@@ -51,7 +45,7 @@ export function resolveToolPath(baseDir: string, input: string): string {
   // Should resolve to:
   //   .../.molibot/skills/brave-search/SKILL.md
   const workspaceFromScratch = normalizedBase.match(/^(.*)\/[^/]+\/scratch(?:\/.*)?$/)?.[1];
-  const workspaceSkillsPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-t)\/skills(?:\/(.*))?$/);
+  const workspaceSkillsPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-[^/]+)\/skills(?:\/(.*))?$/);
   if (workspaceFromScratch && workspaceSkillsPrefix) {
     const dataRoot = resolveDataRootFromWorkspacePath(workspaceFromScratch);
     const suffix = workspaceSkillsPrefix[1] ?? "";
@@ -63,7 +57,7 @@ export function resolveToolPath(baseDir: string, input: string): string {
   //   input: data/moli-t/<chatId>/skills/my-task/SKILL.md
   // Should resolve to:
   //   .../.molibot/moli-t/<chatId>/skills/my-task/SKILL.md
-  const chatSkillsPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-t)\/([^/]+)\/skills(?:\/(.*))?$/);
+  const chatSkillsPrefix = normalizedInput.match(/^data\/(?:telegram-mom|moli-[^/]+)\/([^/]+)\/skills(?:\/(.*))?$/);
   if (workspaceFromScratch && chatSkillsPrefix) {
     const chatId = chatSkillsPrefix[1] ?? "";
     const suffix = chatSkillsPrefix[2] ?? "";
@@ -78,12 +72,7 @@ export function resolveToolPath(baseDir: string, input: string): string {
   //   .../.molibot/memory/moli-t/bots/<bot>/<chatId>/MEMORY.md
   const memoryPrefix = normalizedInput.match(/^memory(?:\/(.*))?$/);
   if (workspaceFromScratch && memoryPrefix) {
-    const normalizedWorkspaceFromScratch = workspaceFromScratch.replace(/\\/g, "/");
-    const marker = "/moli-t/";
-    const markerIndex = normalizedWorkspaceFromScratch.indexOf(marker);
-    const dataRoot = markerIndex > 0
-      ? normalizedWorkspaceFromScratch.slice(0, markerIndex)
-      : normalizedWorkspaceFromScratch;
+    const dataRoot = resolveDataRootFromWorkspacePath(workspaceFromScratch);
     const suffix = memoryPrefix[1] ?? "";
     return resolve(dataRoot, "memory", suffix);
   }
@@ -93,11 +82,8 @@ export function resolveToolPath(baseDir: string, input: string): string {
 
 export function createPathGuard(cwd: string, workspaceDir: string): (filePath: string) => void {
   const workspaceResolved = resolve(workspaceDir);
-  const normalizedWorkspace = workspaceResolved.replace(/\\/g, "/");
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceResolved);
-  const memoryRoot = normalizedWorkspace.includes("/moli-t/")
-    ? resolve(`${normalizedWorkspace.slice(0, normalizedWorkspace.indexOf("/moli-t/"))}/memory`)
-    : resolve(workspaceResolved, "memory");
+  const memoryRoot = resolveMemoryRootFromWorkspacePath(workspaceResolved);
   const globalSkillsRoot = resolve(dataRoot, "skills");
   const allowedRoots = [resolve(cwd), workspaceResolved, globalSkillsRoot];
   const allowedGlobalProfilePaths = GLOBAL_PROFILE_FILES.map((file) =>

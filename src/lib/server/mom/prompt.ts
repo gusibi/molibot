@@ -6,6 +6,11 @@ import {
   type PromptChannel,
 } from "./prompt-channel.js";
 import { formatSkillsForPrompt, loadSkillsFromWorkspace } from "./skills.js";
+import {
+  resolveDataRootFromWorkspacePath,
+  resolveMemoryRootFromWorkspacePath,
+  resolveWorkspaceRelativeFromWorkspacePath
+} from "./workspace.js";
 
 const DEFAULT_AGENTS_TEMPLATE = defaultAgentsTemplate;
 
@@ -292,20 +297,13 @@ function buildPromptRenderVariables(
   memory: string,
   timezone: string,
 ): PromptRenderVars {
-  const normalizedWorkspace = workspaceDir.replace(/\\/g, "/");
-  const dataRoot = normalizedWorkspace.includes("/moli-t/")
-    ? normalizedWorkspace.slice(0, normalizedWorkspace.indexOf("/moli-t/"))
-    : normalizedWorkspace;
-  const memoryRoot = normalizedWorkspace.includes("/moli-t/")
-    ? `${dataRoot}/memory`
-    : `${normalizedWorkspace}/memory`;
-  const memoryWorkspaceRel = normalizedWorkspace.includes("/moli-t/")
-    ? normalizedWorkspace.slice(normalizedWorkspace.indexOf("/moli-t/") + 1)
-    : "workspace";
+  const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
+  const memoryRoot = resolveMemoryRootFromWorkspacePath(workspaceDir);
+  const memoryWorkspaceRel = resolveWorkspaceRelativeFromWorkspacePath(workspaceDir);
   const globalMemoryPath = `${memoryRoot}/MEMORY.md`;
   const chatMemoryPath = `${memoryRoot}/${memoryWorkspaceRel}/${chatId}/MEMORY.md`;
   const workspaceName =
-    workspaceDir.split("/").filter(Boolean).at(-1) ?? "moli-t";
+    memoryWorkspaceRel || (workspaceDir.split("/").filter(Boolean).at(-1) ?? "workspace");
   const chatDir = `${workspaceDir}/${chatId}`;
   const scratchDir = `${chatDir}/scratch`;
   const chatScratchEventsDir = `${scratchDir}/events`;
@@ -455,10 +453,7 @@ export function getSystemPromptSources(workspaceDir: string): {
   global: string[];
   workspace: string[];
 } {
-  const normalizedWorkspace = workspaceDir.replace(/\\/g, "/");
-  const dataRoot = normalizedWorkspace.includes("/moli-t/")
-    ? normalizedWorkspace.slice(0, normalizedWorkspace.indexOf("/moli-t/"))
-    : normalizedWorkspace;
+  const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
   const collect = (baseDir: string): string[] => {
     const out: string[] = [];
     const agentPath = resolveInstructionFilePath(baseDir, "AGENTS.md");

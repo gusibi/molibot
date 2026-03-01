@@ -11,6 +11,12 @@ import {
 import { dirname, join, resolve } from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { FileAttachment, LoggedMessage } from "./types.js";
+import {
+  resolveDataRootFromWorkspacePath,
+  resolveGlobalSkillsDirFromWorkspacePath,
+  resolveMemoryRootFromWorkspacePath,
+  resolveWorkspaceRelativeFromWorkspacePath
+} from "./workspace.js";
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
@@ -29,17 +35,11 @@ export class MomRuntimeStore {
   }
 
   private getDataRoot(): string {
-    const normalized = resolve(this.workspaceDir).replace(/\\/g, "/");
-    const marker = "/moli-t/";
-    const idx = normalized.indexOf(marker);
-    if (idx > 0) {
-      return normalized.slice(0, idx);
-    }
-    return this.workspaceDir;
+    return resolveDataRootFromWorkspacePath(this.workspaceDir);
   }
 
   private getGlobalSkillsDir(): string {
-    return join(this.getDataRoot(), "skills");
+    return resolveGlobalSkillsDirFromWorkspacePath(this.workspaceDir);
   }
 
   private migrateLegacyWorkspaceSkills(): void {
@@ -65,23 +65,11 @@ export class MomRuntimeStore {
   }
 
   private getWorkspaceMemoryRoot(): string {
-    const normalized = resolve(this.workspaceDir).replace(/\\/g, "/");
-    const marker = "/moli-t/";
-    const idx = normalized.indexOf(marker);
-    if (idx > 0) {
-      return join(normalized.slice(0, idx), "memory");
-    }
-    return join(this.workspaceDir, "memory");
+    return resolveMemoryRootFromWorkspacePath(this.workspaceDir);
   }
 
   private getWorkspaceMemoryRelative(): string {
-    const normalized = resolve(this.workspaceDir).replace(/\\/g, "/");
-    const marker = "/moli-t/";
-    const idx = normalized.indexOf(marker);
-    if (idx > 0) {
-      return normalized.slice(idx + 1); // remove leading slash
-    }
-    return "workspace";
+    return resolveWorkspaceRelativeFromWorkspacePath(this.workspaceDir);
   }
 
   private getGlobalMemoryFile(): string {

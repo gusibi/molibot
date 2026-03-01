@@ -76,6 +76,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-37 | Settings task inventory UI | P1 | V1.1 | Provide `/settings/tasks` to inspect event-file tasks across workspace and chat scopes, grouped by task type and showing status, delivery, schedule, run count, and file path |
 | P1-38 | Channel plugin registry architecture | P1 | V1.1 | New messaging channels should be installable via a manifest/adapter plugin contract without modifying `runtime.ts`, runner core, prompt core, or settings persistence schema beyond plugin registration |
 | P1-39 | Feishu inbound media parity core | P1 | Delivered (2026-03-01) | Feishu channel should normalize image/audio/file messages into the same runner input contract as Telegram: attachments persisted, images injected for vision, and audio/media optionally transcribed through configured STT routing |
+| P1-40 | Core-owned workspace prompt and skills semantics | P1 | Delivered (2026-03-01) | Data root, memory root, prompt source loading, and skills directory resolution should live in `mom` core and work for all channel workspaces (for example `moli-t`, `moli-f`) so plugins only add optional bot/channel-specific prompt sections |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -101,6 +102,8 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
   - Global/default editable source is `${DATA_DIR}` (`~/.molibot`), not repository-root `AGENTS.md`.
   - Workspace-specific prompt files are overlays only; they must not replace the global source convention accidentally.
   - Filename matching should tolerate case variants on case-insensitive filesystems.
+  - Global skills live under `${DATA_DIR}/skills`; chat-local skills live under `${workspaceDir}/${chatId}/skills`, regardless of channel plugin.
+  - Plugin runtimes must pass the bot workspace root into core prompt/tooling APIs; they must not substitute chat scratch directories as `workspaceDir`.
 - Future prompt work must preserve this split and avoid pushing environment/tool/event protocol details back into editable `AGENTS.md`.
 
 ## 4.2 Task Inventory Visibility (2026-02-28)

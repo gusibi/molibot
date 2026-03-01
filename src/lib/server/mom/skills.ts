@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { resolveDataRootFromWorkspacePath } from "./workspace.js";
 
 export type SkillScope = "chat" | "global" | "workspace-legacy";
 
@@ -59,20 +60,10 @@ function findSkillFiles(rootDir: string, out: string[]): void {
   }
 }
 
-function resolveDataRoot(workspaceDir: string): string {
-  const normalized = workspaceDir.replace(/\\/g, "/");
-  const marker = "/moli-t/";
-  const idx = normalized.indexOf(marker);
-  if (idx > 0) {
-    return normalized.slice(0, idx);
-  }
-  return workspaceDir;
-}
-
 export function loadSkillsFromWorkspace(workspaceDir: string, chatId?: string): SkillLoadResult {
   const files: string[] = [];
   const diagnostics: string[] = [];
-  const dataRoot = resolveDataRoot(workspaceDir);
+  const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
   const roots: Array<{ scope: SkillScope; dir: string }> = [];
 
   if (chatId?.trim()) {

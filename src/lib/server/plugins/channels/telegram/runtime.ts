@@ -11,6 +11,7 @@ import { RunnerPool } from "../../../mom/runner.js";
 import { loadSkillsFromWorkspace } from "../../../mom/skills.js";
 import { MomRuntimeStore } from "../../../mom/store.js";
 import type { ChannelInboundMessage, MomContext } from "../../../mom/types.js";
+import { resolveGlobalSkillsDirFromWorkspacePath } from "../../../mom/workspace.js";
 import { SessionStore } from "../../../services/sessionStore.js";
 import type { MemoryGateway } from "../../../memory/gateway.js";
 
@@ -1039,6 +1040,7 @@ export class TelegramManager {
 
         const name = isText ? this.normalizeTextAttachmentName(rawName) : rawName;
         const imageMime = this.detectImageMime(name, bytes);
+        const audioMime = this.detectAudioMime(name, bytes);
         momLog("telegram", "ctx_upload_file", {
           runId,
           chatId,
@@ -1046,7 +1048,8 @@ export class TelegramManager {
           rawName,
           finalName: name,
           isText,
-          imageMime: imageMime ?? null
+          imageMime: imageMime ?? null,
+          audioMime: audioMime ?? null
         });
         if (imageMime) {
           try {
@@ -1061,6 +1064,31 @@ export class TelegramManager {
               filePath,
               name,
               imageMime,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
+
+        if (audioMime) {
+          try {
+            if (audioMime === "audio/ogg") {
+              await bot.api.sendVoice(chatId, new InputFile(bytes, name), {
+                caption: name
+              });
+            } else {
+              await bot.api.sendAudio(chatId, new InputFile(bytes, name), {
+                caption: name,
+                title: name
+              });
+            }
+            return;
+          } catch (error) {
+            momWarn("telegram", "ctx_upload_audio_failed_fallback_document", {
+              runId,
+              chatId,
+              filePath,
+              name,
+              audioMime,
               error: error instanceof Error ? error.message : String(error)
             });
           }
@@ -1190,10 +1218,7 @@ export class TelegramManager {
 
   private skillsText(chatId: string): string {
     const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId);
-    const dataRoot = this.workspaceDir.includes("/moli-t/")
-      ? this.workspaceDir.slice(0, this.workspaceDir.indexOf("/moli-t/"))
-      : this.workspaceDir;
-    const globalSkillsDir = `${dataRoot}/skills`;
+    const globalSkillsDir = resolveGlobalSkillsDirFromWorkspacePath(this.workspaceDir);
     const chatSkillsDir = `${this.workspaceDir}/${chatId}/skills`;
     const scopeLabel: Record<string, string> = {
       chat: "chat",
@@ -1462,6 +1487,67 @@ export class TelegramManager {
       data[11] === 0x50
     ) {
       return "image/webp";
+    }
+
+    return undefined;
+  }
+
+  private detectAudioMime(filename: string, data: Buffer): string | undefined {
+    const fromExt = this.mimeFromFilename(filename);
+    if (fromExt?.startsWith("audio/")) {
+      return fromExt;
+    }
+
+    // OGG container ("OggS"), used by Telegram voice notes.
+    if (
+      data.length >= 4 &&
+      data[0] === 0x4f &&
+      data[1] === 0x67 &&
+      data[2] === 0x67 &&
+      data[3] === 0x53
+    ) {
+      return "audio/ogg";
+    }
+
+    // ID3-tagged MP3.
+    if (
+      data.length >= 3 &&
+      data[0] === 0x49 &&
+      data[1] === 0x44 &&
+      data[2] === 0x33
+    ) {
+      return "audio/mpeg";
+    }
+
+    // MP3 frame sync without ID3.
+    if (data.length >= 2 && data[0] === 0xff && (data[1] & 0xe0) === 0xe0) {
+      return "audio/mpeg";
+    }
+
+    // RIFF/WAVE.
+    if (
+      data.length >= 12 &&
+      data[0] === 0x52 &&
+      data[1] === 0x49 &&
+      data[2] === 0x46 &&
+      data[3] === 0x46 &&
+      data[8] === 0x57 &&
+      data[9] === 0x41 &&
+      data[10] === 0x56 &&
+      data[11] === 0x45
+    ) {
+      return "audio/wav";
+    }
+
+    // MP4/M4A family.
+    if (
+      data.length >= 12 &&
+      data[4] === 0x66 &&
+      data[5] === 0x74 &&
+      data[6] === 0x79 &&
+      data[7] === 0x70
+    ) {
+      return "audio/mp4";
     }
 
     return undefined;

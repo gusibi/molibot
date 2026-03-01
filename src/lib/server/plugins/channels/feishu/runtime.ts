@@ -11,6 +11,7 @@ import { RunnerPool } from "../../../mom/runner.js";
 import { loadSkillsFromWorkspace } from "../../../mom/skills.js";
 import { MomRuntimeStore } from "../../../mom/store.js";
 import type { MomContext, ChannelInboundMessage } from "../../../mom/types.js";
+import { resolveGlobalSkillsDirFromWorkspacePath } from "../../../mom/workspace.js";
 import { SessionStore } from "../../../services/sessionStore.js";
 import type { MemoryGateway } from "../../../memory/gateway.js";
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "./message-intake.js";
@@ -341,8 +342,8 @@ export class FeishuManager {
         const ctx: MomContext = {
             channel: "feishu",
             message: event,
-            workspaceDir: this.store.getScratchDir(chatId),
-            chatDir: this.store.getScratchDir(chatId),
+            workspaceDir: this.workspaceDir,
+            chatDir: this.store.getChatDir(chatId),
             respond: async (text: string, shouldLog = true) => {
                 if (!text.trim()) return;
                 const resp = await this.sendText(chatId, text);
@@ -582,6 +583,11 @@ export class FeishuManager {
             return true;
         }
 
+        if (cmd === "/skills") {
+            await this.sendText(chatId, this.skillsText(chatId));
+            return true;
+        }
+
         if (cmd === "/help" || cmd === "/start") {
             const help = [
                 "Available commands:",
@@ -592,7 +598,8 @@ export class FeishuManager {
                 "/sessions - list sessions and current active session",
                 "/sessions <index|sessionId> - switch active session",
                 "/delete_sessions - list sessions and delete usage",
-                "/delete_sessions <index|sessionId> - delete a session"
+                "/delete_sessions <index|sessionId> - delete a session",
+                "/skills - list currently loaded skills"
             ].join("\n");
             await this.sendText(chatId, help);
             return true;
@@ -601,11 +608,93 @@ export class FeishuManager {
         return false;
     }
 
+    private skillsText(chatId: string): string {
+        const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId);
+        const globalSkillsDir = resolveGlobalSkillsDirFromWorkspacePath(this.workspaceDir);
+        const chatSkillsDir = `${this.workspaceDir}/${chatId}/skills`;
+        const scopeLabel: Record<string, string> = {
+            chat: "chat",
+            global: "global",
+            "workspace-legacy": "workspace-legacy"
+        };
+        const lines = [
+            `Workspace: ${this.workspaceDir}`,
+            `Global skills dir: ${globalSkillsDir}`,
+            `Chat skills dir: ${chatSkillsDir}`,
+            `Loaded skills: ${skills.length}`,
+            ""
+        ];
+
+        if (skills.length === 0) {
+            lines.push("(no skills loaded)");
+        } else {
+            for (let i = 0; i < skills.length; i += 1) {
+                const skill = skills[i];
+                lines.push(`${i + 1}. ${skill.name}`);
+                lines.push(`   - scope: ${scopeLabel[skill.scope] ?? skill.scope}`);
+                lines.push(`   - description: ${skill.description}`);
+                lines.push(`   - file: ${skill.filePath}`);
+            }
+        }
+
+        if (diagnostics.length > 0) {
+            lines.push("");
+            lines.push("Diagnostics:");
+            for (const row of diagnostics) {
+                lines.push(`- ${row}`);
+            }
+        }
+
+        return lines.join("\n");
+    }
+
     private startEventsWatchers(allowed: Set<string>): void {
         // stub
     }
 
     private async writePromptPreview(allowedChatIds: string[]): Promise<void> {
-        // stub
+        const chatId = allowedChatIds[0] ?? "__preview__";
+        const sessionId = allowedChatIds[0] ? this.store.getActiveSession(chatId) : "default";
+        const memoryText = allowedChatIds[0]
+            ? ((await this.memory.buildPromptContext(
+                { channel: "feishu", externalUserId: chatId },
+                "",
+                12,
+            )) || "(no working memory yet)")
+            : "(no working memory yet)";
+        const prompt = buildSystemPromptPreview(this.workspaceDir, chatId, sessionId, memoryText, {
+            channel: "feishu"
+        });
+        const channelSections = buildPromptChannelSections("feishu");
+        const sources = getSystemPromptSources(this.workspaceDir);
+        const filePath = join(this.workspaceDir, "SYSTEM_PROMPT.preview.md");
+        const header = [
+            "# System Prompt Preview",
+            "",
+            `- generated_at: ${new Date().toISOString()}`,
+            `- bot_instance: ${this.instanceId}`,
+            `- workspace_dir: ${this.workspaceDir}`,
+            `- chat_id: ${chatId}`,
+            `- session_id: ${sessionId}`,
+            `- channel_sections: ${channelSections.length}`,
+            `- global_sources: ${sources.global.length > 0 ? sources.global.join(", ") : "(none)"}`,
+            `- workspace_sources: ${sources.workspace.length > 0 ? sources.workspace.join(", ") : "(none)"}`,
+            "",
+            "---",
+            "",
+        ].join("\n");
+        writeFileSync(
+            filePath,
+            `${header}${prompt}\n`,
+            "utf8"
+        );
+        momLog("feishu", "system_prompt_preview_written", {
+            botId: this.instanceId,
+            workspaceDir: this.workspaceDir,
+            filePath,
+            chatId,
+            sessionId,
+            promptLength: prompt.length,
+        });
     }
 }

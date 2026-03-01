@@ -37,3 +37,11 @@
 - 用户截图中的两类异常其实叠加存在：
   - `transcriptionError` 会先额外发送一条 STT 降级提示；
   - 如果同一入站事件被重复投递或重复订阅消费，主回复会再次发送，形成“同答案出现两次”的观感。
+
+## 2026-03-01 Prompt/Skills Core Ownership
+- 用户指出 system prompt 加载、skills 根目录和工作区语义不应在 Telegram / Feishu plugin 中重复实现，这类能力应收敛到 core。
+- 实查发现问题不止在 plugin 层：
+  - `FeishuManager.processEvent()` 把 `ctx.workspaceDir` 误传成了 `scratch`，直接污染 prompt 和工具路径语义。
+  - `mom/prompt.ts`、`mom/skills.ts`、`mom/store.ts`、`mom/tools/path.ts` 仍把 `/moli-t/` 当成唯一 workspace marker，导致 `moli-f` 的 data root / memory root / global skills 解析错误。
+  - Telegram `/skills` 命令自己重复推导 global skills 路径，Feishu 则没有对等能力，也没有 prompt preview，导致可观测性不一致。
+- 结论：需要把 workspace/data-root/memory-root/global-skills 的推导下沉到 shared `mom` core，只让 plugin 保留可选的 channel-specific prompt section 和 bot transport 逻辑。

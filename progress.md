@@ -21,3 +21,5 @@
 - 2026-03-01: Verified the Feishu runtime changes with `npm run build`.
 - 2026-03-01: Diagnosed Feishu duplicate-response path: channel uses WebSocket event subscription rather than polling, and `FeishuManager.stop()` was not closing the previous `WSClient`, which could leave duplicate subscriptions active across repeated `apply()` calls.
 - 2026-03-01: Added Feishu adapter-local inbound dedupe keyed by raw `chatId + message.message_id`, and updated `stop()` to force-close the active `WSClient`; verified with `npm run build`.
+- 2026-03-01: Fixed Telegram outbound audio delivery in `src/lib/server/plugins/channels/telegram/runtime.ts`: outbound attachment uploads now detect audio payloads and use `sendVoice` / `sendAudio` before falling back to `sendDocument`.
+- 2026-03-01: Centralized workspace/data-root/memory-root/global-skills resolution into shared `src/lib/server/mom/workspace.ts`, updated `prompt.ts` / `skills.ts` / `store.ts` / `tools/path.ts` to use it, corrected Feishu runtime to pass bot workspace root instead of scratch into runner context, and added Feishu prompt preview + `/skills`; verified with `npm run build`.
