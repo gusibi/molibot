@@ -1,9 +1,7 @@
 # Progress
 
-- 2026-03-01: 初始化规划文件，开始梳理 memory gateway 与 Mory SDK 接入点。
-- 2026-03-01: 完成第一轮结构检查，确认可在 gateway 层增加第二个 memory core，不需要改 agent/tool 调用面。
-- 2026-03-01: 开始检查运行时 settings 持久化和 MoryEngine API，准备设计 gateway provider 切换方案。
-- 2026-03-01: 确认 `plugins.memory.core` 已具备持久化能力，适合直接扩展为 `json-file | mory` 两种后端。
-- 2026-03-01: 确认插件设置页已具备 memory core 切换表单，只需补上 `mory` 选项和对应 gateway core。
-- 2026-03-01: 新增 `src/lib/server/memory/moryCore.ts`，把 Mory SDK 接到 memory gateway 下，默认仍走 `json-file`。
-- 2026-03-01: `/settings/plugins` 增加 `mory` 选项，`/settings/memory` 增加当前 memory core 展示。
+- 2026-03-01: 初始化分析会话，准备读取项目文档和代码结构。
+- 2026-03-01: 读取 prd/features，确认项目已计划“新增渠道无需改核心 pipeline”，并已存在 memory gateway/plugin 先例，后续分析将以 adapter/runtime/runner/prompt 耦合点为主。
+- 2026-03-01: 代码初查发现 runtime 直接持有 TelegramManager/FeishuManager，settings 的 bot 配置结构也是按平台硬编码；prompt-channel 只声明 telegram，说明新增渠道目前需要改 runtime、类型、prompt 等核心层。
+- 2026-03-01: 进一步确认 runner/store/types/memory tool 都带有 Telegram 语义，Feishu 只是复用 Telegram mom 实现；当前新增渠道并非“安装插件即可”，而是需要横切修改 runtime、settings、prompt、runner、memory。
+- 2026-03-01: 完成插件化改造分析，并在 PRD 中新增 Channel plugin registry architecture 规划项；未改动运行时代码。

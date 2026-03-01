@@ -341,3 +341,5 @@
 - 2026-02-27: Rewrote global profile file `~/.molibot/SOUL.md` with stronger opinionated tone, mandatory brevity, anti-corporate style, and direct-answer opening constraints.
 - 2026-02-28: Removed Telegram-specific wording from core mom system prompt (`prompt.ts`) and moved channel-specific formatting guidance lower in the assembled prompt; core event/tool/identity text is now channel-neutral while adapter-selected channel sections remain isolated.
 - 2026-02-28: Removed Telegram markdown-format guidance from the prompt channel layer; Telegram output formatting is now handled only by adapter-side markdown-to-HTML conversion with runtime fallback, so the model no longer sees Telegram-specific formatting rules.
+
+- 2026-03-01: Added planned item `P1-38 Channel plugin registry architecture` to formalize refactor goal: new channels should register through a plugin contract instead of changing runtime/runner/prompt core files.

@@ -220,6 +220,14 @@ export class FeishuManager {
             return;
         }
 
+        const lowered = cleaned.toLowerCase();
+        if (lowered.startsWith("/")) {
+            const isCommand = await this.handleCommand(chatId, cleaned);
+            if (isCommand) {
+                return;
+            }
+        }
+
         const ts = `${Math.floor(Date.now() / 1000)}.${String(Date.now() % 1000).padStart(3, "0")}`;
 
         const event: TelegramInboundEvent = {
@@ -340,10 +348,7 @@ export class FeishuManager {
                     await ctx.respond(text);
                     return;
                 }
-                const newId = await this.editText(currentMessageId, text, chatId);
-                if (newId) {
-                    currentMessageId = newId;
-                }
+                await this.editText(currentMessageId, text, chatId);
                 accumulatedText = text;
             },
             respondInThread: async (text: string) => {
@@ -362,15 +367,27 @@ export class FeishuManager {
         }
     }
 
+    private formatFeishuCard(text: string) {
+        return {
+            config: { wide_screen_mode: true },
+            elements: [
+                {
+                    tag: "markdown",
+                    content: text
+                }
+            ]
+        };
+    }
+
     private async sendText(chatId: string, text: string): Promise<{ message_id: string } | null> {
-        if (!this.client) return null;
+        if (!this.client || !text.trim()) return null;
         try {
             const res = await this.client.im.message.create({
                 params: { receive_id_type: "chat_id" },
                 data: {
                     receive_id: chatId,
-                    msg_type: "text",
-                    content: JSON.stringify({ text })
+                    msg_type: "interactive",
+                    content: JSON.stringify(this.formatFeishuCard(text))
                 }
             });
             return { message_id: res.data?.message_id || "" };
@@ -381,23 +398,15 @@ export class FeishuManager {
     }
 
     private async editText(messageId: string, text: string, chatId: string): Promise<string | null> {
-        if (!this.client) return null;
+        if (!this.client || !text.trim()) return null;
         try {
-            // Feishu only allows patching "interactive" messages (cards).
-            // For standard text messages, we must send a new one and recall the old one.
-            const newMsg = await this.sendText(chatId, text);
-            if (!newMsg) return null;
-
-            try {
-                // Recall the previous message
-                await this.client.im.message.delete({
-                    path: { message_id: messageId }
-                });
-            } catch (e) {
-                momWarn("feishu", "recall_message_failed", { error: String(e), messageId });
-            }
-
-            return newMsg.message_id;
+            await this.client.im.message.patch({
+                path: { message_id: messageId },
+                data: {
+                    content: JSON.stringify(this.formatFeishuCard(text))
+                }
+            });
+            return messageId;
         } catch (e) {
             momWarn("feishu", "edit_message_failed", { error: String(e) });
             return null;
@@ -412,6 +421,151 @@ export class FeishuManager {
             momLog("feishu", "queue_created", { chatId });
         }
         return queue;
+    }
+
+    private resolveSessionSelection(chatId: string, selector: string): string | null {
+        const sessions = this.store.listSessions(chatId);
+        const raw = selector.trim();
+        if (!raw) return null;
+        const asIndex = Number.parseInt(raw, 10);
+        if (Number.isFinite(asIndex) && asIndex >= 1 && asIndex <= sessions.length) {
+            return sessions[asIndex - 1] ?? null;
+        }
+        return sessions.includes(raw) ? raw : null;
+    }
+
+    private formatSessionsOverview(chatId: string): string {
+        const sessions = this.store.listSessions(chatId);
+        const active = this.store.getActiveSession(chatId);
+        const lines = [
+            `Current session: ${active}`,
+            `Total sessions: ${sessions.length}`,
+            "",
+            "Sessions:"
+        ];
+        for (let i = 0; i < sessions.length; i += 1) {
+            const id = sessions[i];
+            lines.push(`${i + 1}. ${id}${id === active ? " (current)" : ""}`);
+        }
+        lines.push("");
+        lines.push("Switch: /sessions <index|sessionId>");
+        lines.push("Delete: /delete_sessions <index|sessionId>");
+        return lines.join("\n");
+    }
+
+    private async handleCommand(chatId: string, text: string): Promise<boolean> {
+        const parts = text.split(/\s+/);
+        const cmd = parts[0]?.toLowerCase() || "";
+        const rawArg = parts.slice(1).join(" ").trim();
+
+        if (cmd === "/chatid") {
+            await this.sendText(chatId, `chat_id: ${chatId}`);
+            return true;
+        }
+
+        if (cmd === "/stop") {
+            const activeSessionId = this.store.getActiveSession(chatId);
+            if (this.running.has(chatId)) {
+                const runner = this.runners.get(chatId, activeSessionId);
+                runner.abort();
+                momLog("feishu", "stop_requested", { chatId, sessionId: activeSessionId });
+                await this.sendText(chatId, "Stopping...");
+            } else {
+                await this.sendText(chatId, "Nothing running.");
+            }
+            return true;
+        }
+
+        if (cmd === "/new") {
+            if (this.running.has(chatId)) {
+                await this.sendText(chatId, "Already working. Send /stop first, then /new.");
+                return true;
+            }
+            const sessionId = this.store.createSession(chatId);
+            this.runners.reset(chatId, sessionId);
+            await this.sendText(chatId, `Created and switched to new session: ${sessionId}`);
+            momLog("feishu", "session_new", { chatId, sessionId });
+            return true;
+        }
+
+        if (cmd === "/clear") {
+            if (this.running.has(chatId)) {
+                await this.sendText(chatId, "Already working. Send /stop first, then /clear.");
+                return true;
+            }
+            const sessionId = this.store.getActiveSession(chatId);
+            this.store.clearSessionContext(chatId, sessionId);
+            this.runners.reset(chatId, sessionId);
+            await this.sendText(chatId, `Cleared context for session: ${sessionId}`);
+            momLog("feishu", "session_clear", { chatId, sessionId });
+            return true;
+        }
+
+        if (cmd === "/sessions") {
+            if (this.running.has(chatId)) {
+                await this.sendText(chatId, "Already working. Send /stop first, then switch sessions.");
+                return true;
+            }
+            if (rawArg) {
+                const picked = this.resolveSessionSelection(chatId, rawArg);
+                if (!picked) {
+                    await this.sendText(chatId, "Invalid session selector. Use /sessions to list available sessions.");
+                    return true;
+                }
+                this.store.setActiveSession(chatId, picked);
+                await this.sendText(chatId, `Switched to session: ${picked}`);
+                return true;
+            }
+            await this.sendText(chatId, this.formatSessionsOverview(chatId));
+            return true;
+        }
+
+        if (cmd === "/delete_sessions") {
+            if (this.running.has(chatId)) {
+                await this.sendText(chatId, "Already working. Send /stop first, then delete sessions.");
+                return true;
+            }
+            if (!rawArg) {
+                await this.sendText(chatId, `${this.formatSessionsOverview(chatId)}\n\nDelete usage: /delete_sessions <index|sessionId>`);
+                return true;
+            }
+            const picked = this.resolveSessionSelection(chatId, rawArg);
+            if (!picked) {
+                await this.sendText(chatId, "Invalid session selector.");
+                return true;
+            }
+            try {
+                const result = this.store.deleteSession(chatId, picked);
+                this.runners.reset(chatId, result.deleted);
+                await this.sendText(chatId, `Deleted session: ${result.deleted}\nCurrent session: ${result.active}\nRemaining: ${result.remaining.length}`);
+            } catch (error) {
+                await this.sendText(chatId, error instanceof Error ? error.message : String(error));
+            }
+            return true;
+        }
+
+        if (cmd === "/models") {
+            await this.sendText(chatId, "Feishu model switching via command is not fully implemented yet. Please use the Web UI or Telegram to switch active models.");
+            return true;
+        }
+
+        if (cmd === "/help" || cmd === "/start") {
+            const help = [
+                "Available commands:",
+                "/chatid - show current chat id",
+                "/stop - stop current running task",
+                "/new - create and switch to a new session",
+                "/clear - clear context of current session",
+                "/sessions - list sessions and current active session",
+                "/sessions <index|sessionId> - switch active session",
+                "/delete_sessions - list sessions and delete usage",
+                "/delete_sessions <index|sessionId> - delete a session"
+            ].join("\n");
+            await this.sendText(chatId, help);
+            return true;
+        }
+
+        return false;
     }
 
     private startEventsWatchers(allowed: Set<string>): void {
