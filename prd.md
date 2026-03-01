@@ -48,7 +48,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-11 | File-driven runner instruction stack | P1 | V1.1 | Telegram runner system prompt should be code-owned at runtime, then merge instruction/profile files from `${DATA_DIR}` (`~/.molibot`) and optional workspace-local overlays; fallback order must be `data-root global files` -> `workspace-local overlays` -> bundled default template |
 | P1-12 | Auto-maintained instruction profile files | P1 | V1.1 | Bot prompt should define automatic maintenance for `USER.md`/`SOUL.md`/`TOOLS.md`/`IDENTITY.md`/`BOOTSTRAP.md` based on explicit conversation triggers, with high-risk confirmation gate and deterministic priority conflict rules |
 | P1-13 | AGENTS workspace-target enforcement | P1 | V1.1 | Any AGENTS update operation must target `${workspaceDir}/AGENTS.md` only; project-root `AGENTS.md` must remain unchanged during bot-runtime instruction edits |
-| P1-14 | Workspace bootstrap CLI init command | P1 | V1.1 | Add `molibot init` to initialize `${DATA_DIR:-~/.molibot}`; initialize `AGENTS.md` from `src/lib/server/mom/prompts/AGENTS.default.md` and create empty `SOUL.md`/`TOOLS.md`/`BOOTSTRAP.md`/`IDENTITY.md`/`USER.md` for first-run setup |
+| P1-14 | Workspace bootstrap CLI init command | P1 | V1.1 | Add `molibot init` to initialize `${DATA_DIR:-~/.molibot}`; bootstrap `AGENTS.md` / `SOUL.md` / `TOOLS.md` / `BOOTSTRAP.md` / `IDENTITY.md` / `USER.md` from bundled `src/lib/server/mom/prompts/*.template.md` files |
 | P1-15 | Profile files global-path guardrail | P1 | V1.1 | Enforce that `SOUL.md`/`TOOLS.md`/`BOOTSTRAP.md`/`IDENTITY.md`/`USER.md` are written only to `${DATA_DIR}` root-level files, preventing chat/workspace-scoped duplicates like `moli-t/bots/<bot>/<chatId>/soul.md` |
 | P1-16 | Global profile path compatibility | P1 | V1.1 | Global profile path guard should accept normalized absolute targets (including case variants on case-insensitive filesystems) and avoid false blocking when writing to `${DATA_DIR}/*.md` |
 | P1-17 | Two-level skills architecture | P1 | V1.1 | Skills should be split into `${DATA_DIR}/skills` (global reusable) and `${workspaceDir}/${chatId}/skills` (chat-specific), with merged query/usage visibility, deterministic precedence, and migration support from legacy `${workspaceDir}/skills` |
@@ -65,7 +65,13 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-28 | Mory extraction validation and observability | P1 | V1.1 | SDK should include strict extraction payload validators and lightweight observability metrics for write outcomes, conflicts, retrieval hit/miss, and token cost |
 | P1-29 | Mory full-loop composition E2E | P1 | V1.1 | Add composition-level E2E tests that cover commit -> read -> retrieve -> forgetting loop to ensure module interoperability |
 | P1-30 | Global profile template governance | P1 | V1.1 | `${DATA_DIR}` profile files (`AGENTS.md` / `SOUL.md` / `TOOLS.md` / `USER.md` / `IDENTITY.md` / `BOOTSTRAP.md`) should keep a stable template structure with clear per-file ownership, lightweight frontmatter metadata, and preserved user-specific content during future rewrites |
-| P1-31 | Init bootstrap from bundled profile templates | P1 | V1.1 | `molibot init` should bootstrap `${DATA_DIR}` by copying bundled `src/lib/server/mom/prompts/*.template.md` files instead of creating empty companion profiles, while keeping `AGENTS.default.md` reserved for runtime fallback only |
+| P1-31 | Init bootstrap from bundled profile templates | P1 | V1.1 | `molibot init` should bootstrap `${DATA_DIR}` by copying bundled `src/lib/server/mom/prompts/*.template.md` files instead of creating empty companion profiles, with `AGENTS.template.md` also serving as the runtime fallback AGENTS context when no profile files exist |
+| P1-32 | Remove duplicated AGENTS template artifact | P1 | V1.1 | Runtime fallback and install-time bootstrap should converge on a single bundled `AGENTS.template.md`, and the legacy duplicated `AGENTS.default.md` file should be removed |
+| P1-33 | Prompt builder module isolation | P1 | V1.1 | Telegram mom system prompt assembly should live in a dedicated module (`src/lib/server/mom/prompt.ts`) rather than inside `runner.ts`, and code-owned prompt sections should focus on runtime contract instead of repeating editable persona/style rules |
+| P1-34 | Prompt preview stable-before-dynamic ordering | P1 | V1.1 | System prompt output should place stable runtime contract sections before high-churn payload sections like current memory and skill inventory, so prompt previews are easier to inspect and diff |
+| P1-35 | Runtime profile injection sanitization | P1 | V1.1 | Profile file injection should strip YAML frontmatter, avoid injecting human-only meta guidance that conflicts with runtime reality, and normalize path placeholders such as `${dataRoot}` before insertion into the system prompt |
+| P1-36 | Adapter-selectable channel prompt sections | P1 | V1.1 | Core prompt assembly should remain channel-agnostic, while each adapter supplies its own channel-specific prompt sections (Telegram/Slack/Feishu/WhatsApp) so adding a client does not require rewriting core prompt rules |
+| P1-37 | Settings task inventory UI | P1 | V1.1 | Provide `/settings/tasks` to inspect event-file tasks across workspace and chat scopes, grouped by task type and showing status, delivery, schedule, run count, and file path |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -85,13 +91,18 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
   - Runtime-owned system prompt lives in code and is rebuilt each run from current workspace, chat, session, skills, and memory state.
   - `AGENTS.md` and related profile files under `${DATA_DIR}` (`~/.molibot`) are user-editable bootstrap/profile context, not the source of truth for runtime protocol details.
 - Default prompt files should stay narrow in responsibility:
-  - `AGENTS.default.md`: durable operating rules and file-governance defaults.
+  - `AGENTS.template.md`: durable operating rules and file-governance defaults.
   - `SOUL.md` / `TOOLS.md` / `IDENTITY.md` / `USER.md` / `BOOTSTRAP.md`: single-purpose profile/bootstrap files.
 - Prompt source resolution rules:
   - Global/default editable source is `${DATA_DIR}` (`~/.molibot`), not repository-root `AGENTS.md`.
   - Workspace-specific prompt files are overlays only; they must not replace the global source convention accidentally.
   - Filename matching should tolerate case variants on case-insensitive filesystems.
 - Future prompt work must preserve this split and avoid pushing environment/tool/event protocol details back into editable `AGENTS.md`.
+
+## 4.2 Task Inventory Visibility (2026-02-28)
+- Operators need a settings view for runtime event tasks without shell access.
+- Task inventory should read both workspace event files and chat-local scratch event files under `${DATA_DIR}/moli-t/bots/**`.
+- UI should group tasks by event `type` (`one-shot` / `periodic` / `immediate`) and show table-friendly operational fields: status, delivery mode, schedule/`at`, run count, file path, and last error.
 
 ## 5. Technical Approach (Plain Language)
 - Build one central backend that understands a single message format.
@@ -708,3 +719,15 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `write` tool must reject one-shot events whose `at` is not in the future, so invalid schedule time is corrected before file commit.
   - Keep periodic events on agent execution path.
   - Update runner prompt examples and event-writing guidance to include `delivery` explicitly.
+
+## 68. Channel-Specific Prompt Layering (2026-02-28)
+- Problem:
+  - Core system prompt still leaks Telegram-specific wording, making future Slack/Feishu/WhatsApp adapters harder to add cleanly.
+- Requirement:
+  - Keep runtime-owned prompt sections channel-neutral by default.
+  - Inject channel-specific formatting or delivery guidance only from the active adapter/channel layer.
+- Enforcement:
+  - Core prompt must not hard-code a specific client name in identity, tool descriptions, or event delivery explanations.
+  - Adapter-specific sections may describe channel formatting/capabilities, but should remain isolated from core runtime sections.
+  - Global profile templates should avoid channel-specific wording unless the note is intentionally tied to one adapter.
+  - If a channel's output formatting is already enforced by adapter code, do not repeat that formatting guide in the prompt.

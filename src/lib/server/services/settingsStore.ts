@@ -36,6 +36,7 @@ interface RawSettings {
   customAiApiKey?: string;
   customAiModel?: string;
   customAiPath?: string;
+  timezone?: string;
 }
 
 type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
@@ -215,13 +216,13 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const telegramBots = telegramBotsFromList.length > 0
     ? telegramBotsFromList
     : (fallbackToken
-        ? [{
-            id: "default",
-            name: "Default Bot",
-            token: fallbackToken,
-            allowedChatIds: fallbackAllowed
-          }]
-        : []);
+      ? [{
+        id: "default",
+        name: "Default Bot",
+        token: fallbackToken,
+        allowedChatIds: fallbackAllowed
+      }]
+      : []);
   const primaryBot = telegramBots[0];
   const memoryEnabledRaw = raw.plugins?.memory?.enabled;
   const memoryEnabled = typeof memoryEnabledRaw === "boolean"
@@ -255,6 +256,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
         core: memoryCore
       }
     },
+    timezone: String(raw.timezone ?? "").trim() || Intl.DateTimeFormat().resolvedOptions().timeZone,
     telegramBotToken: primaryBot?.token ?? "",
     telegramAllowedChatIds: primaryBot?.allowedChatIds ?? []
   };

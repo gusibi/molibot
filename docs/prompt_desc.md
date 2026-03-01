@@ -1,6 +1,6 @@
 ## Molibot 当前落地结论（2026-02-28）
-- `src/lib/server/mom/runner.ts` 负责构建 runtime-owned system prompt，承载环境、工具、技能、事件、memory 等系统级规则。
-- `src/lib/server/mom/prompts/AGENTS.default.md` 仅作为默认 bootstrap `AGENTS.md` 模板，聚焦行为规则、文件职责、更新策略。
+- `src/lib/server/mom/prompt.ts` 负责构建 runtime-owned system prompt，承载环境、工具、技能、事件、memory 等系统级规则。
+- `src/lib/server/mom/prompts/AGENTS.template.md` 作为默认 bootstrap `AGENTS.md` 模板，同时也是无任何外部 profile 文件时的运行时兜底 `AGENTS` 上下文来源，聚焦行为规则、文件职责、更新策略。
 - `/Users/gusi/.molibot/AGENTS.md` 应只保留长期行为规则与协作约束，不应继续堆放运行时环境、工具、事件协议等 system prompt 级内容。
 - `/Users/gusi/.molibot/SOUL.md`、`TOOLS.md`、`IDENTITY.md`、`USER.md`、`BOOTSTRAP.md` 应各自保持单一职责，避免让 `AGENTS.md` 一份文件承担全部 profile 信息。
 
@@ -179,7 +179,7 @@ file creation:
 
 ```
 
-**File:** docs/reference/AGENTS.default.md (L54-58)
+**File:** docs/reference/AGENTS.template.md (L54-58)
 ```markdown
 ## Soul (required)
 
@@ -291,7 +291,7 @@ are filtered out to keep the sub-agent context small).
 
 ```
 
-**File:** docs/reference/AGENTS.default.md (L54-58)
+**File:** docs/reference/AGENTS.template.md (L54-58)
 ```markdown
 ## Soul (required)
 
@@ -535,7 +535,7 @@ are filtered out to keep the sub-agent context small).
 
 ```
 
-**File:** docs/reference/AGENTS.default.md (L54-58)
+**File:** docs/reference/AGENTS.template.md (L54-58)
 ```markdown
 ## Soul (required)
 

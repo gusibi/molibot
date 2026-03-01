@@ -84,6 +84,9 @@ molibot init
 - `${DATA_DIR}/skills`（全局技能目录）
 
 说明：
+- 运行时在极端兜底场景下，也会使用 `src/lib/server/mom/prompts/AGENTS.template.md` 作为默认 `AGENTS` 上下文来源。
+
+说明：
 - `molibot init` 不会自动安装项目内置 skills；是否安装由用户自行决定。
 
 ## Skills 安装（手动）

@@ -57,6 +57,7 @@ export interface RuntimeSettings {
   defaultCustomProviderId: string;
   modelRouting: ModelRoutingConfig;
   systemPrompt: string;
+  timezone: string;
   telegramBots: TelegramBotConfig[];
   plugins: PluginSettings;
   // Legacy single-bot fields kept for backward compatibility with old settings files/API payloads.
@@ -167,10 +168,10 @@ const envCustomProvider: CustomProviderConfig = {
   apiKey: process.env.CUSTOM_AI_API_KEY ?? "",
   models: (process.env.CUSTOM_AI_MODEL ?? "").trim()
     ? [{
-        id: String(process.env.CUSTOM_AI_MODEL).trim(),
-        tags: ["text", "vision", "stt", "tts"],
-        supportedRoles: ["system", "user", "assistant", "tool", "developer"]
-      }]
+      id: String(process.env.CUSTOM_AI_MODEL).trim(),
+      tags: ["text", "vision", "stt", "tts"],
+      supportedRoles: ["system", "user", "assistant", "tool", "developer"]
+    }]
     : [],
   defaultModel: process.env.CUSTOM_AI_MODEL ?? "",
   path: process.env.CUSTOM_AI_PATH ?? "/v1/chat/completions"
@@ -185,11 +186,11 @@ const defaultTelegramBotToken = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
 const defaultTelegramAllowedChatIds = listFromEnv("TELEGRAM_ALLOWED_CHAT_IDS");
 const defaultTelegramBots: TelegramBotConfig[] = defaultTelegramBotToken
   ? [{
-      id: "default",
-      name: "Default Bot",
-      token: defaultTelegramBotToken,
-      allowedChatIds: defaultTelegramAllowedChatIds
-    }]
+    id: "default",
+    name: "Default Bot",
+    token: defaultTelegramBotToken,
+    allowedChatIds: defaultTelegramAllowedChatIds
+  }]
   : [];
 
 export const defaultRuntimeSettings: RuntimeSettings = {
@@ -207,6 +208,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   systemPrompt:
     process.env.MOLIBOT_SYSTEM_PROMPT ??
     "You are Molibot, a concise and helpful assistant.",
+  timezone: (process.env.MOLIBOT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone).trim() || Intl.DateTimeFormat().resolvedOptions().timeZone,
   telegramBots: defaultTelegramBots,
   plugins: {
     memory: {
