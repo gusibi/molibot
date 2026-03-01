@@ -53,20 +53,19 @@ export interface MemorySyncResult {
   importedCount: number;
 }
 
-export interface MemoryCoreCapabilities {
+export interface MemoryBackendCapabilities {
   supportsHybridSearch: boolean;
   supportsVectorSearch: boolean;
   supportsIncrementalFlush: boolean;
   supportsLayeredMemory: boolean;
 }
 
-export interface MemoryCore {
-  capabilities(): MemoryCoreCapabilities;
+export interface MemoryBackend {
+  capabilities(): MemoryBackendCapabilities;
   add(scope: MemoryScope, input: MemoryAddInput): Promise<MemoryRecord>;
   search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]>;
   searchAll(input: MemorySearchInput): Promise<MemoryRecord[]>;
   delete(scope: MemoryScope, id: string): Promise<boolean>;
   update(scope: MemoryScope, id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null>;
   flush(scope: MemoryScope): Promise<MemoryFlushResult>;
-  syncExternalMemories(): Promise<MemorySyncResult>;
 }

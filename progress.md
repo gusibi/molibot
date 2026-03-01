@@ -10,3 +10,7 @@
 - 2026-03-01: 第四阶段第一步完成：新增外部插件 catalog 发现机制，内置插件仍保留在代码目录；runtime 现可枚举 `${DATA_DIR}/plugins/channels|providers` 下的 manifest，并通过 `/api/settings/plugins` 与插件设置页展示状态。
 - 2026-03-01: Built-in Telegram/Feishu channel implementations moved under plugin-owned directories and startup is now gated by per-instance `enabled` flags in `channels.<plugin>.instances[]`.
 - 2026-03-01: Built-in Telegram/Feishu channel implementations moved under plugin-owned directories and startup is now gated by per-instance `enabled` flags in `channels.<plugin>.instances[]`.
+- 2026-03-01: Memory abstraction renamed from `core` to `backend`; added built-in memory backend registry, kept legacy `plugins.memory.core` config compatibility, updated settings UI copy, and verified with `npm run build`.
+- 2026-03-01: Memory sync was split into independent importer/source modules; gateway now composes active backend + built-in importers, and `/settings/plugins` now shows the built-in memory backend catalog.
+- 2026-03-01: Added startup diagnostics for plugin catalog, applied channel plugin instances, selected memory backend, available importers, and startup/periodic memory sync results; verified with `npm run build`.
+- 2026-03-01: Added ANSI color styling to the new startup diagnostics so runtime and memory logs are easier to distinguish in terminal output; verified with `npm run build`.

@@ -28,6 +28,7 @@ interface RawSettings {
   plugins?: {
     memory?: {
       enabled?: boolean | string;
+      backend?: string;
       core?: string;
     };
   };
@@ -326,8 +327,8 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const memoryEnabled = typeof memoryEnabledRaw === "boolean"
     ? memoryEnabledRaw
     : String(memoryEnabledRaw ?? "").toLowerCase() === "true";
-  const memoryCore = String(raw.plugins?.memory?.core ?? "").trim() ||
-    defaultRuntimeSettings.plugins.memory.core;
+  const memoryBackend = String(raw.plugins?.memory?.backend ?? raw.plugins?.memory?.core ?? "").trim() ||
+    defaultRuntimeSettings.plugins.memory.backend;
 
   const feishuBotsFromList = sanitizeFeishuBots(raw.feishuBots);
   const feishuBots = feishuBotsFromList.length > 0 ? feishuBotsFromList : [];
@@ -356,7 +357,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     plugins: {
       memory: {
         enabled: memoryEnabled,
-        core: memoryCore
+        backend: memoryBackend
       }
     },
     timezone: String(raw.timezone ?? "").trim() || Intl.DateTimeFormat().resolvedOptions().timeZone,

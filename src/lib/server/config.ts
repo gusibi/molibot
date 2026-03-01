@@ -62,13 +62,13 @@ export interface ChannelPluginSettings {
 
 export type ChannelSettingsMap = Record<string, ChannelPluginSettings>;
 
-export interface MemoryPluginSettings {
+export interface MemoryBackendSettings {
   enabled: boolean;
-  core: string;
+  backend: string;
 }
 
 export interface PluginSettings {
-  memory: MemoryPluginSettings;
+  memory: MemoryBackendSettings;
 }
 
 export interface RuntimeSettings {
@@ -283,7 +283,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   plugins: {
     memory: {
       enabled: String(process.env.MEMORY_ENABLED ?? "false").toLowerCase() === "true",
-      core: (process.env.MEMORY_CORE ?? "json-file").trim() || "json-file"
+      backend: (process.env.MEMORY_BACKEND ?? process.env.MEMORY_CORE ?? "json-file").trim() || "json-file"
     }
   },
   telegramBotToken: defaultTelegramBotToken,

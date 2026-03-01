@@ -23,16 +23,7 @@ const memorySchema = Type.Object({
 
 type MemoryAction = "add" | "search" | "list" | "update" | "delete" | "flush" | "sync";
 
-function looksLikeScheduledTaskText(input: string): boolean {
-  const text = input.trim().toLowerCase();
-  if (!text) return false;
-  return (
-    /(\d+\s*分钟后|五分钟后|十分钟后|半小时后|一小时后)/i.test(input) ||
-    /(remind me|later|定时任务|提醒我|每天|每周|每月|早上|晚上|明天|后天)/i.test(input) ||
-    /\b\d{1,2}:\d{2}\b/.test(text) ||
-    /\b(cron|schedule|scheduled|one-shot|periodic|event)\b/.test(text)
-  );
-}
+
 
 export function createMemoryTool(options: {
   memory: MemoryGateway;
@@ -43,7 +34,7 @@ export function createMemoryTool(options: {
     name: "memory",
     label: "memory",
     description:
-      "Manage memory via gateway. Use this instead of reading/writing MEMORY.md files directly.",
+      "Manage memory via gateway. Use this instead of reading/writing MEMORY.md files directly. WARNING: DO NOT use this tool for scheduling reminders or future tasks, use create_event tool instead.",
     parameters: memorySchema,
     execute: async (_toolCallId, params) => {
       const action = params.action as MemoryAction;
@@ -60,11 +51,6 @@ export function createMemoryTool(options: {
       if (action === "add") {
         const content = String(params.content ?? "").trim();
         if (!content) throw new Error("content is required for action=add");
-        if (looksLikeScheduledTaskText(content)) {
-          throw new Error(
-            "Scheduled reminders/tasks must not be stored in memory. Create a watched event JSON file instead."
-          );
-        }
         const item = await options.memory.add(scope, {
           content,
           tags: Array.isArray(params.tags) ? params.tags : [],

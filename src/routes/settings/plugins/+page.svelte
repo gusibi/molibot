@@ -3,11 +3,11 @@
 
   interface PluginForm {
     memoryEnabled: boolean;
-    memoryCore: string;
+    memoryBackend: string;
   }
 
   interface CatalogEntry {
-    kind: "channel" | "provider";
+    kind: "channel" | "provider" | "memory-backend";
     key: string;
     name: string;
     version: string;
@@ -25,10 +25,11 @@
   let error = "";
   let channelPlugins: CatalogEntry[] = [];
   let providerPlugins: CatalogEntry[] = [];
+  let memoryBackendCatalog: CatalogEntry[] = [];
 
   let form: PluginForm = {
     memoryEnabled: false,
-    memoryCore: "json-file",
+    memoryBackend: "json-file",
   };
 
   async function loadSettings(): Promise<void> {
@@ -40,8 +41,8 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
       form.memoryEnabled = Boolean(data.settings?.plugins?.memory?.enabled);
-      form.memoryCore = String(
-        data.settings?.plugins?.memory?.core ?? "json-file",
+      form.memoryBackend = String(
+        data.settings?.plugins?.memory?.backend ?? data.settings?.plugins?.memory?.core ?? "json-file",
       );
 
       const pluginRes = await fetch("/api/settings/plugins");
@@ -53,6 +54,9 @@
         : [];
       providerPlugins = Array.isArray(pluginData.catalog?.providers)
         ? pluginData.catalog.providers
+        : [];
+      memoryBackendCatalog = Array.isArray(pluginData.catalog?.memoryBackends)
+        ? pluginData.catalog.memoryBackends
         : [];
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -73,7 +77,7 @@
           plugins: {
             memory: {
               enabled: form.memoryEnabled,
-              core: form.memoryCore || "json-file",
+              backend: form.memoryBackend || "json-file",
             },
           },
         }),
@@ -155,7 +159,7 @@
               class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
             >
               <h2 class="text-sm font-semibold text-slate-200">
-                Memory Plugin
+                Memory Backend
               </h2>
 
               <label class="flex items-center gap-3 text-sm text-slate-300">
@@ -164,21 +168,61 @@
               </label>
 
               <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">Memory core</span>
+                <span class="text-slate-300">Memory backend</span>
                 <select
                   class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
-                  bind:value={form.memoryCore}
+                  bind:value={form.memoryBackend}
                 >
-                  <option value="json-file">json-file (built-in)</option>
-                  <option value="mory">mory (SDK-backed)</option>
+                  <option value="json-file">json-file (built-in backend)</option>
+                  <option value="mory">mory (SDK-backed backend)</option>
                 </select>
               </label>
 
               <p class="text-xs leading-5 text-slate-400">
-                json-file keeps the current flat-file memory behavior. mory
-                switches the gateway to the SDK-backed SQLite memory engine
-                without changing the agent-facing API.
+                This is a memory backend switch, not a channel plugin. `json-file`
+                keeps the current flat-file behavior. `mory` switches the gateway
+                to the SDK-backed SQLite engine without changing the agent-facing API.
               </p>
+
+              <div class="space-y-2 pt-2">
+                {#each memoryBackendCatalog as backend}
+                  <div
+                    class="rounded-lg border border-white/10 bg-[#1f1f1f] px-3 py-3 text-sm"
+                  >
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="font-semibold text-slate-100"
+                        >{backend.name}</span
+                      >
+                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                        >{backend.key}</span
+                      >
+                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                        >{backend.source}</span
+                      >
+                      <span
+                        class={`rounded px-2 py-0.5 text-xs ${
+                          backend.status === "error"
+                            ? "bg-rose-500/15 text-rose-300"
+                            : backend.status === "active"
+                              ? "bg-emerald-500/15 text-emerald-300"
+                              : "bg-amber-500/15 text-amber-300"
+                        }`}
+                      >
+                        {backend.status}
+                      </span>
+                      <span class="text-xs text-slate-500"
+                        >v{backend.version}</span
+                      >
+                    </div>
+
+                    {#if backend.description}
+                      <p class="mt-2 text-xs text-slate-400">
+                        {backend.description}
+                      </p>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
             </section>
 
             <section

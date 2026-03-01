@@ -6,15 +6,14 @@ import { readJsonFile, storagePaths, writeJsonFile } from "../db/sqlite.js";
 import type { Channel } from "../types/message.js";
 import type {
   MemoryAddInput,
-  MemoryCore,
-  MemoryCoreCapabilities,
+  MemoryBackend,
+  MemoryBackendCapabilities,
   MemoryFlushResult,
   MemoryLayer,
   MemoryRecord,
   MemoryScope,
   MemorySearchMode,
   MemorySearchInput,
-  MemorySyncResult,
   MemoryUpdateInput
 } from "./types.js";
 
@@ -144,17 +143,7 @@ function safeSegment(input: string): string {
   return input.replace(/[^a-zA-Z0-9_-]+/g, "_");
 }
 
-function parseMemoryTextLines(text: string): string[] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !line.startsWith("#"))
-    .map((line) => line.startsWith("- ") ? line.slice(2).trim() : line)
-    .filter(Boolean);
-}
-
-export class JsonFileMemoryCore implements MemoryCore {
+export class JsonFileMemoryBackend implements MemoryBackend {
   private readonly filePath: string;
 
   constructor(
@@ -164,7 +153,7 @@ export class JsonFileMemoryCore implements MemoryCore {
     this.filePath = filePath ?? path.join(storagePaths.dataDir, "memory", "entries.json");
   }
 
-  capabilities(): MemoryCoreCapabilities {
+  capabilities(): MemoryBackendCapabilities {
     return {
       supportsHybridSearch: true,
       supportsVectorSearch: false,
@@ -417,44 +406,4 @@ export class JsonFileMemoryCore implements MemoryCore {
     };
   }
 
-  async syncExternalMemories(): Promise<MemorySyncResult> {
-    const memoryRoot = path.join(storagePaths.dataDir, "memory");
-    const telegramBotsRoot = path.join(memoryRoot, "moli-t", "bots");
-    if (!fs.existsSync(telegramBotsRoot)) {
-      return { scannedFiles: 0, importedCount: 0 };
-    }
-
-    let scannedFiles = 0;
-    let importedCount = 0;
-    const botDirs = fs.readdirSync(telegramBotsRoot, { withFileTypes: true }).filter((d) => d.isDirectory());
-    for (const botDir of botDirs) {
-      const botId = botDir.name;
-      const botPath = path.join(telegramBotsRoot, botId);
-      const chatDirs = fs.readdirSync(botPath, { withFileTypes: true }).filter((d) => d.isDirectory());
-      for (const chatDir of chatDirs) {
-        const chatId = chatDir.name;
-        const chatMemoryFile = path.join(botPath, chatId, "MEMORY.md");
-        if (!fs.existsSync(chatMemoryFile)) continue;
-        scannedFiles += 1;
-        const raw = fs.readFileSync(chatMemoryFile, "utf8");
-        const lines = parseMemoryTextLines(raw);
-        for (const line of lines) {
-          const before = await this.search({ channel: "telegram", externalUserId: chatId }, { query: line, mode: "keyword", limit: 1 });
-          if (before.some((item) => normalizeContent(item.content).toLowerCase() === normalizeContent(line).toLowerCase())) {
-            continue;
-          }
-          await this.add(
-            { channel: "telegram", externalUserId: chatId },
-            {
-              content: line,
-              tags: ["imported", "telegram-file", `bot:${botId}`],
-              layer: "long_term"
-            }
-          );
-          importedCount += 1;
-        }
-      }
-    }
-    return { scannedFiles, importedCount };
-  }
 }

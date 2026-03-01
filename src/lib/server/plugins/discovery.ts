@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { config, KNOWN_PROVIDER_LIST } from "../config.js";
 import { builtInChannelPlugins } from "../channels/registry.js";
+import { builtInMemoryBackends } from "../memory/registry.js";
 import type {
   ExternalPluginLoadResult,
   InstalledPluginCatalogEntry,
@@ -111,6 +112,18 @@ function buildBuiltInProviderCatalog(): InstalledPluginCatalogEntry[] {
   }));
 }
 
+function buildBuiltInMemoryBackendCatalog(): InstalledPluginCatalogEntry[] {
+  return builtInMemoryBackends.map((backend) => ({
+    kind: "memory-backend",
+    key: backend.key,
+    name: backend.name,
+    version: "built-in",
+    description: backend.description,
+    source: "built-in",
+    status: "active"
+  }));
+}
+
 export function discoverPlugins(): ExternalPluginLoadResult {
   const channels = [
     ...buildBuiltInChannelCatalog(),
@@ -122,7 +135,9 @@ export function discoverPlugins(): ExternalPluginLoadResult {
     ...discoverExternalCatalogEntries("provider")
   ];
 
-  const catalog: PluginCatalog = { channels, providers };
+  const memoryBackends = buildBuiltInMemoryBackendCatalog();
+
+  const catalog: PluginCatalog = { channels, providers, memoryBackends };
 
   const providerPlugins: ProviderPlugin[] = providers.map((provider) => ({
     key: provider.key,

@@ -23,7 +23,7 @@
   let channel = "";
   let userId = "";
   let memoryEnabled = false;
-  let activeCore = "json-file";
+  let activeBackend = "json-file";
 
   async function loadRuntimeMemorySettings(): Promise<void> {
     const res = await fetch("/api/settings");
@@ -31,7 +31,9 @@
     if (!data.ok)
       throw new Error(data.error || "Failed to load memory settings");
     memoryEnabled = Boolean(data.settings?.plugins?.memory?.enabled);
-    activeCore = String(data.settings?.plugins?.memory?.core ?? "json-file");
+    activeBackend = String(
+      data.settings?.plugins?.memory?.backend ?? data.settings?.plugins?.memory?.core ?? "json-file",
+    );
   }
 
   async function listMemory(): Promise<void> {
@@ -200,7 +202,7 @@
           <span
             class="rounded border border-white/15 bg-[#2b2b2b] px-3 py-1.5 text-slate-300"
           >
-            active core {activeCore}
+            active backend {activeBackend}
           </span>
           <a
             class="rounded border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-sky-300 hover:bg-sky-500/20"

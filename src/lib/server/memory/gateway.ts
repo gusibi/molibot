@@ -1,11 +1,12 @@
 import type { RuntimeSettings } from "../config.js";
 import type { SessionStore } from "../services/sessionStore.js";
-import { JsonFileMemoryCore } from "./jsonFileCore.js";
-import { MoryMemoryCore } from "./moryCore.js";
+import { builtInMemoryImporters } from "./importerRegistry.js";
+import type { MemoryImporter } from "./importers.js";
+import { builtInMemoryBackends, type MemoryBackendDefinition } from "./registry.js";
 import type {
   MemoryAddInput,
-  MemoryCore,
-  MemoryCoreCapabilities,
+  MemoryBackend,
+  MemoryBackendCapabilities,
   MemoryFlushResult,
   MemoryRecord,
   MemoryScope,
@@ -15,56 +16,73 @@ import type {
 } from "./types.js";
 
 export class MemoryGateway {
-  private readonly cores: Record<string, MemoryCore>;
+  private readonly backends: Record<string, MemoryBackend>;
+  private readonly backendDefinitions: MemoryBackendDefinition[];
+  private readonly importers: MemoryImporter[];
 
   constructor(
     private readonly getSettings: () => RuntimeSettings,
     sessions: SessionStore
   ) {
-    this.cores = {
-      "json-file": new JsonFileMemoryCore(sessions),
-      mory: new MoryMemoryCore(sessions)
-    };
+    this.backendDefinitions = builtInMemoryBackends;
+    this.backends = Object.fromEntries(
+      this.backendDefinitions.map((backend) => [backend.key, backend.create(sessions)])
+    );
+    this.importers = builtInMemoryImporters;
   }
 
   isEnabled(): boolean {
     return this.getSettings().plugins.memory.enabled;
   }
 
-  private getCore(): MemoryCore {
+  private getBackend(): MemoryBackend {
     const settings = this.getSettings();
-    const key = settings.plugins.memory.core || "json-file";
-    return this.cores[key] ?? this.cores["json-file"];
+    const key = settings.plugins.memory.backend || "json-file";
+    return this.backends[key] ?? this.backends["json-file"];
   }
 
-  capabilities(): MemoryCoreCapabilities | null {
+  getActiveBackendKey(): string {
+    const settings = this.getSettings();
+    const requested = settings.plugins.memory.backend || "json-file";
+    return this.backends[requested] ? requested : "json-file";
+  }
+
+  listAvailableBackendKeys(): string[] {
+    return this.backendDefinitions.map((backend) => backend.key);
+  }
+
+  listImporterKeys(): string[] {
+    return this.importers.map((importer) => importer.key);
+  }
+
+  capabilities(): MemoryBackendCapabilities | null {
     if (!this.isEnabled()) return null;
-    return this.getCore().capabilities();
+    return this.getBackend().capabilities();
   }
 
   async add(scope: MemoryScope, input: MemoryAddInput): Promise<MemoryRecord | null> {
     if (!this.isEnabled()) return null;
-    return this.getCore().add(scope, input);
+    return this.getBackend().add(scope, input);
   }
 
   async search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]> {
     if (!this.isEnabled()) return [];
-    return this.getCore().search(scope, input);
+    return this.getBackend().search(scope, input);
   }
 
   async searchAll(input: MemorySearchInput): Promise<MemoryRecord[]> {
     if (!this.isEnabled()) return [];
-    return this.getCore().searchAll(input);
+    return this.getBackend().searchAll(input);
   }
 
   async delete(scope: MemoryScope, id: string): Promise<boolean> {
     if (!this.isEnabled()) return false;
-    return this.getCore().delete(scope, id);
+    return this.getBackend().delete(scope, id);
   }
 
   async update(scope: MemoryScope, id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null> {
     if (!this.isEnabled()) return null;
-    return this.getCore().update(scope, id, input);
+    return this.getBackend().update(scope, id, input);
   }
 
   async flush(scope: MemoryScope): Promise<MemoryFlushResult> {
@@ -76,7 +94,7 @@ export class MemoryGateway {
         updatedCursorConversations: 0
       };
     }
-    return this.getCore().flush(scope);
+    return this.getBackend().flush(scope);
   }
 
   async buildPromptContext(scope: MemoryScope, query: string, limit = 5): Promise<string> {
@@ -103,6 +121,19 @@ export class MemoryGateway {
 
   async syncExternalMemories(): Promise<MemorySyncResult> {
     if (!this.isEnabled()) return { scannedFiles: 0, importedCount: 0 };
-    return this.getCore().syncExternalMemories();
+    const backend = this.getBackend();
+    let scannedFiles = 0;
+    let importedCount = 0;
+
+    for (const importer of this.importers) {
+      const result = await importer.sync({
+        add: (scope, input) => backend.add(scope, input),
+        search: (scope, input) => backend.search(scope, input)
+      });
+      scannedFiles += result.scannedFiles;
+      importedCount += result.importedCount;
+    }
+
+    return { scannedFiles, importedCount };
   }
 }

@@ -1,6 +1,6 @@
 import type { ChannelPlugin } from "../channels/registry.js";
 
-export type InstalledPluginKind = "channel" | "provider";
+export type InstalledPluginKind = "channel" | "provider" | "memory-backend";
 export type InstalledPluginSource = "built-in" | "external";
 export type InstalledPluginStatus = "active" | "error" | "discovered";
 
@@ -36,6 +36,7 @@ export interface InstalledPluginCatalogEntry {
 export interface PluginCatalog {
   channels: InstalledPluginCatalogEntry[];
   providers: InstalledPluginCatalogEntry[];
+  memoryBackends: InstalledPluginCatalogEntry[];
 }
 
 export interface ExternalPluginLoadResult {

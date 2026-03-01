@@ -44,6 +44,65 @@ declare global {
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "stt", "tts", "tool"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
+const ANSI_RESET = "\x1b[0m";
+const ANSI_BOLD = "\x1b[1m";
+const ANSI_CYAN = "\x1b[36m";
+const ANSI_BLUE = "\x1b[34m";
+const ANSI_GREEN = "\x1b[32m";
+const ANSI_YELLOW = "\x1b[33m";
+const ANSI_RED = "\x1b[31m";
+
+function color(text: string, code: string): string {
+  return `${code}${text}${ANSI_RESET}`;
+}
+
+function colorStatus(status: string): string {
+  if (status === "active") return color(status, ANSI_GREEN);
+  if (status === "error") return color(status, ANSI_RED);
+  if (status === "discovered") return color(status, ANSI_YELLOW);
+  return status;
+}
+
+function runtimeLabel(name: string): string {
+  return color(`[${name}]`, `${ANSI_BOLD}${ANSI_CYAN}`);
+}
+
+function memoryLabel(name: string): string {
+  return color(`[${name}]`, `${ANSI_BOLD}${ANSI_BLUE}`);
+}
+
+function formatList(values: string[]): string {
+  return values.length > 0 ? values.join(", ") : "(none)";
+}
+
+function logPluginCatalog(state: RuntimeState): void {
+  const channelSummary = state.pluginCatalog.channels
+    .map((plugin) => `${plugin.key}:${colorStatus(plugin.status)}`)
+    .join(", ");
+  const providerSummary = state.pluginCatalog.providers
+    .map((plugin) => `${plugin.key}:${colorStatus(plugin.status)}`)
+    .join(", ");
+  const memoryBackendSummary = state.pluginCatalog.memoryBackends
+    .map((backend) => `${backend.key}:${colorStatus(backend.status)}`)
+    .join(", ");
+
+  console.log(
+    `${runtimeLabel("runtime")} plugin_catalog channels=[${channelSummary || "(none)"}] providers=[${providerSummary || "(none)"}] memory_backends=[${memoryBackendSummary || "(none)"}]`
+  );
+}
+
+function logMemoryStartup(state: RuntimeState): void {
+  console.log(
+    `${memoryLabel("memory")} startup enabled=${state.memory.isEnabled() ? color("true", ANSI_GREEN) : color("false", ANSI_YELLOW)} selected_backend=${color(state.memory.getActiveBackendKey(), `${ANSI_BOLD}${ANSI_GREEN}`)} available_backends=[${formatList(state.memory.listAvailableBackendKeys())}] importers=[${formatList(state.memory.listImporterKeys())}]`
+  );
+}
+
+function logChannelPluginApplication(state: RuntimeState, applied: Array<{ key: string; instances: string[] }>): void {
+  const summary = applied
+    .map(({ key, instances }) => `${color(key, `${ANSI_BOLD}${ANSI_GREEN}`)}(${instances.length}):[${formatList(instances)}]`)
+    .join(" ");
+  console.log(`${runtimeLabel("runtime")} channel_plugins_applied ${summary || "(none)"}`);
+}
 
 function sanitizeRoles(input: unknown): ModelRole[] {
   if (!Array.isArray(input)) return ["system", "user", "assistant", "tool"];
@@ -301,7 +360,11 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   next.plugins = {
     memory: {
       enabled: Boolean(next.plugins?.memory?.enabled),
-      core: String(next.plugins?.memory?.core ?? "").trim() || defaultRuntimeSettings.plugins.memory.core
+      backend: String(
+        (next.plugins?.memory as { backend?: string; core?: string } | undefined)?.backend ??
+        (next.plugins?.memory as { backend?: string; core?: string } | undefined)?.core ??
+        ""
+      ).trim() || defaultRuntimeSettings.plugins.memory.backend
     }
   };
 
@@ -319,6 +382,9 @@ function applyChannelPlugins(state: RuntimeState, applySettingsPatch: (patch: Pa
   const loaded = discoverPlugins();
   state.pluginCatalog = loaded.catalog;
   state.providerPlugins = loaded.providerPlugins;
+  logPluginCatalog(state);
+
+  const applied: Array<{ key: string; instances: string[] }> = [];
 
   for (const plugin of loaded.channelPlugins) {
     const instances = plugin.listInstances(state.settings);
@@ -340,7 +406,14 @@ function applyChannelPlugins(state: RuntimeState, applySettingsPatch: (patch: Pa
       }
       manager.apply(instance.config);
     }
+
+    applied.push({
+      key: plugin.key,
+      instances: instances.map((instance) => instance.id)
+    });
   }
+
+  logChannelPluginApplication(state, applied);
 }
 
 export function getRuntime(): RuntimeState {
@@ -367,7 +440,7 @@ export function getRuntime(): RuntimeState {
       sessions,
       router,
       channelManagers: new Map<string, Map<string, ChannelManager>>(),
-      pluginCatalog: { channels: [], providers: [] },
+      pluginCatalog: { channels: [], providers: [], memoryBackends: [] },
       providerPlugins: [],
       memory,
       memorySyncTimer: null,
@@ -379,9 +452,28 @@ export function getRuntime(): RuntimeState {
 
     state.settings = sanitizeSettings({}, state.settings);
     currentSettings.value = state.settings;
-    void state.memory.syncExternalMemories();
+    logMemoryStartup(state);
+    void state.memory.syncExternalMemories()
+      .then((result) => {
+        console.log(
+          `${memoryLabel("memory")} startup_sync scanned_files=${color(String(result.scannedFiles), ANSI_CYAN)} imported=${color(String(result.importedCount), result.importedCount > 0 ? ANSI_GREEN : ANSI_YELLOW)}`
+        );
+      })
+      .catch((error) => {
+        console.error(`${memoryLabel("memory")} ${color("startup_sync_failed", `${ANSI_BOLD}${ANSI_RED}`)}`, error);
+      });
     state.memorySyncTimer = setInterval(() => {
-      void state.memory.syncExternalMemories();
+      void state.memory.syncExternalMemories()
+        .then((result) => {
+          if (result.scannedFiles > 0 || result.importedCount > 0) {
+            console.log(
+              `${memoryLabel("memory")} periodic_sync scanned_files=${color(String(result.scannedFiles), ANSI_CYAN)} imported=${color(String(result.importedCount), result.importedCount > 0 ? ANSI_GREEN : ANSI_YELLOW)}`
+            );
+          }
+        })
+        .catch((error) => {
+          console.error(`${memoryLabel("memory")} ${color("periodic_sync_failed", `${ANSI_BOLD}${ANSI_RED}`)}`, error);
+        });
     }, 60_000);
     applyChannelPlugins(state, applySettingsPatch);
 
