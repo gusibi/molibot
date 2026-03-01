@@ -18,7 +18,7 @@ function ensureDir(dir: string): void {
   }
 }
 
-export class TelegramMomStore {
+export class MomRuntimeStore {
   private readonly dedupe = new Map<string, number>();
   private readonly defaultSessionId = "default";
 

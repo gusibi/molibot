@@ -9,6 +9,7 @@ import { createReadTool } from "./read.js";
 import { createWriteTool } from "./write.js";
 
 export function createMomTools(options: {
+  channel: string;
   cwd: string;
   workspaceDir: string;
   chatId: string;
@@ -17,7 +18,7 @@ export function createMomTools(options: {
   uploadFile: (filePath: string, title?: string) => Promise<void>;
 }): AgentTool<any>[] {
   return [
-    createMemoryTool({ memory: options.memory, chatId: options.chatId }),
+    createMemoryTool({ memory: options.memory, channel: options.channel, chatId: options.chatId }),
     createReadTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
     createBashTool(options.cwd),
     createEditTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),

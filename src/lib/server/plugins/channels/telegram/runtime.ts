@@ -1,18 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { Bot, InputFile } from "grammy";
-import type { RuntimeSettings } from "../config.js";
-import { config } from "../config.js";
-import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../mom/events.js";
-import { createRunId, momError, momLog, momWarn } from "../mom/log.js";
-import { buildPromptChannelSections } from "../mom/prompt-channel.js";
-import { buildSystemPromptPreview, getSystemPromptSources } from "../mom/prompt.js";
-import { RunnerPool } from "../mom/runner.js";
-import { loadSkillsFromWorkspace } from "../mom/skills.js";
-import { TelegramMomStore } from "../mom/store.js";
-import type { MomContext, TelegramInboundEvent } from "../mom/types.js";
-import { SessionStore } from "../services/sessionStore.js";
-import type { MemoryGateway } from "../memory/gateway.js";
+import type { RuntimeSettings } from "../../../config.js";
+import { config } from "../../../config.js";
+import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../../mom/events.js";
+import { createRunId, momError, momLog, momWarn } from "../../../mom/log.js";
+import { buildPromptChannelSections } from "../../../mom/prompt-channel.js";
+import { buildSystemPromptPreview, getSystemPromptSources } from "../../../mom/prompt.js";
+import { RunnerPool } from "../../../mom/runner.js";
+import { loadSkillsFromWorkspace } from "../../../mom/skills.js";
+import { MomRuntimeStore } from "../../../mom/store.js";
+import type { ChannelInboundMessage, MomContext } from "../../../mom/types.js";
+import { SessionStore } from "../../../services/sessionStore.js";
+import type { MemoryGateway } from "../../../memory/gateway.js";
 
 export interface TelegramConfig {
   token: string;
@@ -95,7 +95,7 @@ export class TelegramManager {
     ["data", "telegram-mom", "events"]
   ] as const;
   private readonly workspaceDir: string;
-  private readonly store: TelegramMomStore;
+  private readonly store: MomRuntimeStore;
   private readonly sessions: SessionStore;
   private readonly runners: RunnerPool;
   private readonly memory: MemoryGateway;
@@ -224,13 +224,13 @@ export class TelegramManager {
   ) {
     this.workspaceDir = options?.workspaceDir ?? resolve(config.dataDir, "moli-t");
     this.instanceId = options?.instanceId ?? "default";
-    this.store = new TelegramMomStore(this.workspaceDir);
+    this.store = new MomRuntimeStore(this.workspaceDir);
     this.sessions = sessionStore ?? new SessionStore();
     if (!options?.memory) {
       throw new Error("TelegramManager requires MemoryGateway for unified memory operations.");
     }
     this.memory = options.memory;
-    this.runners = new RunnerPool(this.store, this.getSettings, options.memory);
+    this.runners = new RunnerPool("telegram", this.store, this.getSettings, options.memory);
   }
 
   private async writePromptPreview(allowedChatIds: string[]): Promise<void> {
@@ -530,7 +530,7 @@ export class TelegramManager {
       }
 
       const runId = createRunId(chatId, event.messageId);
-      (event as TelegramInboundEvent & { runId?: string }).runId = runId;
+      (event as ChannelInboundMessage & { runId?: string }).runId = runId;
 
       const logged = this.store.logMessage(chatId, {
         date: new Date((ctx.msg?.date ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
@@ -810,7 +810,7 @@ export class TelegramManager {
           if (delivery === "text" && (event.type === "one-shot" || event.type === "immediate")) {
             await this.deliverDirectEventMessage(event, runId, filename);
           } else {
-            const synthetic: TelegramInboundEvent = {
+            const synthetic: ChannelInboundMessage = {
               chatId: event.chatId,
               chatType: "private",
               messageId: syntheticMessageId,
@@ -822,7 +822,7 @@ export class TelegramManager {
               imageContents: [],
               isEvent: true
             };
-            (synthetic as TelegramInboundEvent & { runId?: string }).runId = runId;
+            (synthetic as ChannelInboundMessage & { runId?: string }).runId = runId;
             await this.processEvent(synthetic, this.bot!);
           }
           resolve();
@@ -876,12 +876,12 @@ export class TelegramManager {
     }
   }
 
-  private async processEvent(event: TelegramInboundEvent, bot: Bot): Promise<void> {
+  private async processEvent(event: ChannelInboundMessage, bot: Bot): Promise<void> {
     const chatId = event.chatId;
     this.ensureChatEventsWatcher(chatId);
     const sessionId = event.sessionId || this.store.getActiveSession(chatId);
     const runner = this.runners.get(chatId, sessionId);
-    const runId = (event as TelegramInboundEvent & { runId?: string }).runId ?? createRunId(chatId, event.messageId);
+    const runId = (event as ChannelInboundMessage & { runId?: string }).runId ?? createRunId(chatId, event.messageId);
     this.running.add(chatId);
 
     momLog("telegram", "process_start", {
@@ -942,6 +942,7 @@ export class TelegramManager {
     };
 
     const ctx: MomContext = {
+      channel: "telegram",
       message: event,
       workspaceDir: this.workspaceDir,
       chatDir: this.store.getChatDir(chatId),
@@ -1629,12 +1630,12 @@ export class TelegramManager {
     }
   }
 
-  private async toInboundEvent(ctx: any, token: string): Promise<TelegramInboundEvent | null> {
+  private async toInboundEvent(ctx: any, token: string): Promise<ChannelInboundMessage | null> {
     const msg = ctx.msg;
     if (!msg) return null;
 
     const chatId = String(ctx.chat.id);
-    const chatType = (ctx.chat.type || "private") as TelegramInboundEvent["chatType"];
+    const chatType = (ctx.chat.type || "private") as ChannelInboundMessage["chatType"];
     const rawText = String(msg.text || msg.caption || "");
 
     const replyToBot = Boolean(msg.reply_to_message?.from?.is_bot);
@@ -1650,8 +1651,8 @@ export class TelegramManager {
     }
 
     const ts = `${msg.date}.${String(msg.message_id).padStart(6, "0")}`;
-    const attachments: TelegramInboundEvent["attachments"] = [];
-    const imageContents: TelegramInboundEvent["imageContents"] = [];
+    const attachments: ChannelInboundMessage["attachments"] = [];
+    const imageContents: ChannelInboundMessage["imageContents"] = [];
     let voiceTranscript: string | null = null;
     let voiceTranscriptionError: string | null = null;
 

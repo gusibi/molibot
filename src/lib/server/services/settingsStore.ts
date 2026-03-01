@@ -1,4 +1,5 @@
 import {
+  type ChannelSettingsMap,
   defaultRuntimeSettings,
   type ModelCapabilityTag,
   type ProviderModelConfig,
@@ -31,6 +32,7 @@ interface RawSettings {
     };
   };
   telegramBots?: unknown;
+  channels?: unknown;
   telegramBotToken?: string;
   telegramAllowedChatIds?: string[] | string;
   customAiBaseUrl?: string;
@@ -212,6 +214,70 @@ function sanitizeFeishuBots(input: unknown): FeishuBotConfig[] {
   return out;
 }
 
+function sanitizeChannels(
+  input: unknown,
+  telegramBots: TelegramBotConfig[],
+  feishuBots: FeishuBotConfig[]
+): ChannelSettingsMap {
+  const channels: ChannelSettingsMap = {};
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const hasExplicitTelegram = Object.prototype.hasOwnProperty.call(source, "telegram");
+  const hasExplicitFeishu = Object.prototype.hasOwnProperty.call(source, "feishu");
+
+  for (const [key, rawValue] of Object.entries(source)) {
+    if (!rawValue || typeof rawValue !== "object") continue;
+    const rawInstances = Array.isArray((rawValue as { instances?: unknown }).instances)
+      ? ((rawValue as { instances: unknown[] }).instances ?? [])
+      : [];
+    const instances = rawInstances
+      .map((row) => {
+        if (!row || typeof row !== "object") return null;
+        const item = row as Record<string, unknown>;
+        const id = String(item.id ?? "").trim();
+        if (!id) return null;
+        const credentialsSource = item.credentials && typeof item.credentials === "object"
+          ? item.credentials as Record<string, unknown>
+          : {};
+        return {
+          id,
+          name: String(item.name ?? "").trim() || id,
+          enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+          credentials: Object.fromEntries(
+            Object.entries(credentialsSource)
+              .map(([credKey, credValue]) => [credKey, String(credValue ?? "").trim()])
+              .filter(([, credValue]) => Boolean(credValue))
+          ),
+          allowedChatIds: sanitizeList(item.allowedChatIds)
+        };
+      })
+      .filter(Boolean) as ChannelSettingsMap[string]["instances"];
+
+    channels[key] = { instances };
+  }
+
+  channels.telegram = channels.telegram ?? (hasExplicitTelegram ? channels.telegram : undefined) ?? {
+    instances: telegramBots.map((bot) => ({
+      id: bot.id,
+      name: bot.name,
+      enabled: true,
+      credentials: { token: bot.token },
+      allowedChatIds: bot.allowedChatIds
+    }))
+  };
+
+  channels.feishu = channels.feishu ?? (hasExplicitFeishu ? channels.feishu : undefined) ?? {
+    instances: feishuBots.map((bot) => ({
+      id: bot.id,
+      name: bot.name,
+      enabled: true,
+      credentials: { appId: bot.appId, appSecret: bot.appSecret },
+      allowedChatIds: bot.allowedChatIds
+    }))
+  };
+
+  return channels;
+}
+
 function migrateLegacyCustomProvider(raw: RawSettings): CustomProviderConfig[] {
   const baseUrl = String(raw.customAiBaseUrl ?? "").trim();
   const apiKey = String(raw.customAiApiKey ?? "").trim();
@@ -265,6 +331,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
 
   const feishuBotsFromList = sanitizeFeishuBots(raw.feishuBots);
   const feishuBots = feishuBotsFromList.length > 0 ? feishuBotsFromList : [];
+  const channels = sanitizeChannels(raw.channels, telegramBots, feishuBots);
 
   return {
     providerMode: sanitizeMode(raw.providerMode ?? defaultRuntimeSettings.providerMode),
@@ -284,6 +351,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     systemPrompt:
       String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
       defaultRuntimeSettings.systemPrompt,
+    channels,
     telegramBots,
     plugins: {
       memory: {

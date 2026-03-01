@@ -105,6 +105,13 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Task inventory should read both workspace event files and chat-local scratch event files under `${DATA_DIR}/moli-t/bots/**`.
 - UI should group tasks by event `type` (`one-shot` / `periodic` / `immediate`) and show table-friendly operational fields: status, delivery mode, schedule/`at`, run count, file path, and last error.
 
+## 4.3 Channel Plugin Refactor Staging (2026-03-01)
+- Stage 1 focuses on removing Telegram-specific naming from mom runtime core (`types/store/runner/tools`) without changing channel behavior.
+- Stage 2 replaces platform-specific runtime lifecycle branches with a unified channel registry, while temporarily keeping built-in Telegram/Feishu plugins and existing settings schema.
+- Stage 3 introduces a generic persisted `channels` configuration shape as the internal source of truth, while retaining compatibility with legacy `telegramBots` / `feishuBots` payloads during migration.
+- Stage 4 keeps built-in channel plugins in the repository under dedicated plugin directories, and each plugin instance must support explicit enable/disable control so runtime only loads configured active instances at startup.
+- A later stage will move channel/provider registration and persistence to fully pluggable manifests so adding a new channel/provider no longer requires editing runtime core files.
+
 ## 5. Technical Approach (Plain Language)
 - Build one central backend that understands a single message format.
 - Every channel gets a thin adapter: transform inbound message into unified format, then transform response back.
@@ -130,6 +137,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - `prd.md`: product scope, priority, and acceptance criteria.
 - `architecture.md`: V1 architecture and sprint plan.
 - `features.md`: implementation status and change log.
+- `docs/plugin-development.md`: plugin development contract, lifecycle, config shape, and current discovery/runtime boundaries.
 - `AGENTS.md`: collaboration and process constraints.
 - Documentation sync rule: `readme.md` must reflect current implemented behavior; when implementation and docs diverge, use `features.md` + actual code/runtime behavior as source of truth and refresh README accordingly.
 - Validation status rule: distinguish clearly between `implemented` and `validated in real usage`; do not describe channels/features as “stable/available” unless they have been actually verified in this project usage context.

@@ -4,6 +4,7 @@
   interface FeishuBotForm {
     id: string;
     name: string;
+    enabled: boolean;
     appId: string;
     appSecret: string;
     allowedChatIds: string;
@@ -27,6 +28,7 @@
     return {
       id: createBotId(),
       name: "",
+      enabled: false,
       appId: "",
       appSecret: "",
       allowedChatIds: ""
@@ -42,13 +44,16 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
 
-      const fromList = Array.isArray(data.settings.feishuBots) ? data.settings.feishuBots : [];
+      const fromList = Array.isArray(data.settings?.channels?.feishu?.instances)
+        ? data.settings.channels.feishu.instances
+        : [];
       if (fromList.length > 0) {
-        bots = fromList.map((bot: { id?: string; name?: string; appId?: string; appSecret?: string; allowedChatIds?: string[] }) => ({
+        bots = fromList.map((bot: { id?: string; name?: string; enabled?: boolean; credentials?: { appId?: string; appSecret?: string }; allowedChatIds?: string[] }) => ({
           id: bot.id ?? createBotId(),
           name: bot.name ?? "",
-          appId: bot.appId ?? "",
-          appSecret: bot.appSecret ?? "",
+          enabled: bot.enabled ?? true,
+          appId: bot.credentials?.appId ?? "",
+          appSecret: bot.credentials?.appSecret ?? "",
           allowedChatIds: (bot.allowedChatIds ?? []).join(",")
         }));
       } else {
@@ -70,18 +75,25 @@
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          feishuBots: bots
-            .map((bot) => ({
-              id: bot.id.trim(),
-              name: bot.name.trim(),
-              appId: bot.appId.trim(),
-              appSecret: bot.appSecret.trim(),
-              allowedChatIds: bot.allowedChatIds
-                .split(",")
-                .map((v) => v.trim())
-                .filter(Boolean)
-            }))
-            .filter((bot) => bot.id && bot.appId && bot.appSecret)
+          channels: {
+            feishu: {
+              instances: bots
+                .map((bot) => ({
+                  id: bot.id.trim(),
+                  name: bot.name.trim(),
+                  enabled: Boolean(bot.enabled),
+                  credentials: {
+                    appId: bot.appId.trim(),
+                    appSecret: bot.appSecret.trim()
+                  },
+                  allowedChatIds: bot.allowedChatIds
+                    .split(",")
+                    .map((v) => v.trim())
+                    .filter(Boolean)
+                }))
+                .filter((bot) => bot.id)
+            }
+          }
         })
       });
       const data = await res.json();
@@ -163,6 +175,11 @@
                     bind:value={bot.name}
                     placeholder="Feishu Bot"
                   />
+                </label>
+
+                <label class="flex items-center gap-3 text-sm text-slate-300">
+                  <input bind:checked={bot.enabled} type="checkbox" />
+                  Enable this plugin instance
                 </label>
 
                 <label class="grid gap-1.5 text-sm">

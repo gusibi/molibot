@@ -6,9 +6,11 @@ export interface FileAttachment {
   isImage: boolean;
 }
 
-export interface TelegramInboundEvent {
+export type ChannelChatType = "private" | "group" | "supergroup" | "channel";
+
+export interface ChannelInboundMessage {
   chatId: string;
-  chatType: "private" | "group" | "supergroup" | "channel";
+  chatType: ChannelChatType;
   messageId: number;
   userId: string;
   userName?: string;
@@ -37,7 +39,8 @@ export interface RunResult {
 }
 
 export interface MomContext {
-  message: TelegramInboundEvent;
+  channel: string;
+  message: ChannelInboundMessage;
   workspaceDir: string;
   chatDir: string;
   respond: (text: string, shouldLog?: boolean) => Promise<void>;

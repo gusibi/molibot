@@ -1,18 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
-import type { RuntimeSettings } from "../config.js";
-import { config } from "../config.js";
-import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../mom/events.js";
-import { createRunId, momError, momLog, momWarn } from "../mom/log.js";
-import { buildPromptChannelSections } from "../mom/prompt-channel.js";
-import { buildSystemPromptPreview, getSystemPromptSources } from "../mom/prompt.js";
-import { RunnerPool } from "../mom/runner.js";
-import { loadSkillsFromWorkspace } from "../mom/skills.js";
-import { TelegramMomStore } from "../mom/store.js"; // We can reuse the same store logic for now as it just uses file system scratch dir
-import type { MomContext, TelegramInboundEvent } from "../mom/types.js";
-import { SessionStore } from "../services/sessionStore.js";
-import type { MemoryGateway } from "../memory/gateway.js";
+import type { RuntimeSettings } from "../../../config.js";
+import { config } from "../../../config.js";
+import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../../mom/events.js";
+import { createRunId, momError, momLog, momWarn } from "../../../mom/log.js";
+import { buildPromptChannelSections } from "../../../mom/prompt-channel.js";
+import { buildSystemPromptPreview, getSystemPromptSources } from "../../../mom/prompt.js";
+import { RunnerPool } from "../../../mom/runner.js";
+import { loadSkillsFromWorkspace } from "../../../mom/skills.js";
+import { MomRuntimeStore } from "../../../mom/store.js";
+import type { MomContext, ChannelInboundMessage } from "../../../mom/types.js";
+import { SessionStore } from "../../../services/sessionStore.js";
+import type { MemoryGateway } from "../../../memory/gateway.js";
 
 export interface FeishuConfig {
     appId: string;
@@ -57,7 +57,7 @@ class ChannelQueue {
 export class FeishuManager {
     private static readonly CHAT_EVENTS_RELATIVE_DIR = ["events"] as const;
     private readonly workspaceDir: string;
-    private readonly store: TelegramMomStore; // Reuse the file system based store
+    private readonly store: MomRuntimeStore;
     private readonly sessions: SessionStore;
     private readonly runners: RunnerPool;
     private readonly memory: MemoryGateway;
@@ -83,13 +83,13 @@ export class FeishuManager {
     ) {
         this.workspaceDir = options?.workspaceDir ?? resolve(config.dataDir, "moli-f");
         this.instanceId = options?.instanceId ?? "default";
-        this.store = new TelegramMomStore(this.workspaceDir); // TelegramMomStore is just a wrapper around file storage
+        this.store = new MomRuntimeStore(this.workspaceDir);
         this.sessions = sessionStore ?? new SessionStore();
         if (!options?.memory) {
             throw new Error("FeishuManager requires MemoryGateway for unified memory operations.");
         }
         this.memory = options.memory;
-        this.runners = new RunnerPool(this.store, this.getSettings, options.memory);
+        this.runners = new RunnerPool("feishu", this.store, this.getSettings, options.memory);
     }
 
     apply(cfg: FeishuConfig): void {
@@ -230,7 +230,7 @@ export class FeishuManager {
 
         const ts = `${Math.floor(Date.now() / 1000)}.${String(Date.now() % 1000).padStart(3, "0")}`;
 
-        const event: TelegramInboundEvent = {
+        const event: ChannelInboundMessage = {
             chatId,
             chatType,
             messageId: Number(messageId.replace(/[^0-9]/g, "").slice(0, 10)) || Date.now(),
@@ -243,7 +243,7 @@ export class FeishuManager {
         };
 
         const runId = createRunId(chatId, event.messageId);
-        (event as TelegramInboundEvent & { runId?: string }).runId = runId;
+        (event as ChannelInboundMessage & { runId?: string }).runId = runId;
 
         const logged = this.store.logMessage(chatId, {
             date: new Date().toISOString(),
@@ -295,7 +295,7 @@ export class FeishuManager {
         });
     }
 
-    private async processEvent(event: TelegramInboundEvent): Promise<void> {
+    private async processEvent(event: ChannelInboundMessage): Promise<void> {
         if (!this.client) return;
         const chatId = event.chatId;
         const activeSessionId = event.sessionId || this.store.getActiveSession(chatId);
@@ -307,6 +307,7 @@ export class FeishuManager {
         let accumulatedText = "";
 
         const ctx: MomContext = {
+            channel: "feishu",
             message: event,
             workspaceDir: this.store.getScratchDir(chatId),
             chatDir: this.store.getScratchDir(chatId),

@@ -6,10 +6,25 @@
     memoryCore: string;
   }
 
+  interface CatalogEntry {
+    kind: "channel" | "provider";
+    key: string;
+    name: string;
+    version: string;
+    description?: string;
+    source: "built-in" | "external";
+    status: "active" | "error" | "discovered";
+    manifestPath?: string;
+    entryPath?: string;
+    error?: string;
+  }
+
   let loading = true;
   let saving = false;
   let message = "";
   let error = "";
+  let channelPlugins: CatalogEntry[] = [];
+  let providerPlugins: CatalogEntry[] = [];
 
   let form: PluginForm = {
     memoryEnabled: false,
@@ -28,6 +43,17 @@
       form.memoryCore = String(
         data.settings?.plugins?.memory?.core ?? "json-file",
       );
+
+      const pluginRes = await fetch("/api/settings/plugins");
+      const pluginData = await pluginRes.json();
+      if (!pluginData.ok)
+        throw new Error(pluginData.error || "Failed to load plugin catalog");
+      channelPlugins = Array.isArray(pluginData.catalog?.channels)
+        ? pluginData.catalog.channels
+        : [];
+      providerPlugins = Array.isArray(pluginData.catalog?.providers)
+        ? pluginData.catalog.providers
+        : [];
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -153,6 +179,142 @@
                 switches the gateway to the SDK-backed SQLite memory engine
                 without changing the agent-facing API.
               </p>
+            </section>
+
+            <section
+              class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
+            >
+              <div class="space-y-1">
+                <h2 class="text-sm font-semibold text-slate-200">
+                  Channel Plugins
+                </h2>
+                <p class="text-xs leading-5 text-slate-400">
+                  Built-in channel plugins live in the codebase. External
+                  channel plugins are discovered from
+                  <code>${"{DATA_DIR}"}/plugins/channels/*/plugin.json</code>.
+                </p>
+              </div>
+
+              <div class="space-y-2">
+                {#each channelPlugins as plugin}
+                  <div
+                    class="rounded-lg border border-white/10 bg-[#1f1f1f] px-3 py-3 text-sm"
+                  >
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="font-semibold text-slate-100"
+                        >{plugin.name}</span
+                      >
+                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                        >{plugin.key}</span
+                      >
+                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                        >{plugin.source}</span
+                      >
+                      <span
+                        class={`rounded px-2 py-0.5 text-xs ${
+                          plugin.status === "error"
+                            ? "bg-rose-500/15 text-rose-300"
+                            : plugin.status === "active"
+                              ? "bg-emerald-500/15 text-emerald-300"
+                              : "bg-amber-500/15 text-amber-300"
+                        }`}
+                      >
+                        {plugin.status}
+                      </span>
+                      <span class="text-xs text-slate-500"
+                        >v{plugin.version}</span
+                      >
+                    </div>
+
+                    {#if plugin.description}
+                      <p class="mt-2 text-xs text-slate-400">
+                        {plugin.description}
+                      </p>
+                    {/if}
+                    {#if plugin.manifestPath}
+                      <p class="mt-2 text-xs text-slate-500">
+                        manifest: {plugin.manifestPath}
+                      </p>
+                    {/if}
+                    {#if plugin.entryPath}
+                      <p class="mt-1 text-xs text-slate-500">
+                        entry: {plugin.entryPath}
+                      </p>
+                    {/if}
+                    {#if plugin.error}
+                      <p class="mt-2 text-xs text-rose-300">{plugin.error}</p>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </section>
+
+            <section
+              class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
+            >
+              <div class="space-y-1">
+                <h2 class="text-sm font-semibold text-slate-200">
+                  Provider Plugins
+                </h2>
+                <p class="text-xs leading-5 text-slate-400">
+                  Built-in providers come from the current codebase. External
+                  provider manifests are discovered from
+                  <code>${"{DATA_DIR}"}/plugins/providers/*/plugin.json</code>.
+                </p>
+              </div>
+
+              <div class="space-y-2">
+                {#each providerPlugins as plugin}
+                  <div
+                    class="rounded-lg border border-white/10 bg-[#1f1f1f] px-3 py-3 text-sm"
+                  >
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="font-semibold text-slate-100"
+                        >{plugin.name}</span
+                      >
+                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                        >{plugin.key}</span
+                      >
+                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                        >{plugin.source}</span
+                      >
+                      <span
+                        class={`rounded px-2 py-0.5 text-xs ${
+                          plugin.status === "error"
+                            ? "bg-rose-500/15 text-rose-300"
+                            : plugin.status === "active"
+                              ? "bg-emerald-500/15 text-emerald-300"
+                              : "bg-amber-500/15 text-amber-300"
+                        }`}
+                      >
+                        {plugin.status}
+                      </span>
+                      <span class="text-xs text-slate-500"
+                        >v{plugin.version}</span
+                      >
+                    </div>
+
+                    {#if plugin.description}
+                      <p class="mt-2 text-xs text-slate-400">
+                        {plugin.description}
+                      </p>
+                    {/if}
+                    {#if plugin.manifestPath}
+                      <p class="mt-2 text-xs text-slate-500">
+                        manifest: {plugin.manifestPath}
+                      </p>
+                    {/if}
+                    {#if plugin.entryPath}
+                      <p class="mt-1 text-xs text-slate-500">
+                        entry: {plugin.entryPath}
+                      </p>
+                    {/if}
+                    {#if plugin.error}
+                      <p class="mt-2 text-xs text-rose-300">{plugin.error}</p>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
             </section>
 
             <button

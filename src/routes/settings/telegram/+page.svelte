@@ -4,6 +4,7 @@
   interface TelegramBotForm {
     id: string;
     name: string;
+    enabled: boolean;
     token: string;
     allowedChatIds: string;
   }
@@ -29,6 +30,7 @@
     return {
       id: createBotId(),
       name: "",
+      enabled: false,
       token: "",
       allowedChatIds: "",
     };
@@ -43,20 +45,22 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
 
-      const fromList = Array.isArray(data.settings.telegramBots)
-        ? data.settings.telegramBots
+      const fromList = Array.isArray(data.settings?.channels?.telegram?.instances)
+        ? data.settings.channels.telegram.instances
         : [];
       if (fromList.length > 0) {
         bots = fromList.map(
           (bot: {
             id?: string;
             name?: string;
-            token?: string;
+            enabled?: boolean;
+            credentials?: { token?: string };
             allowedChatIds?: string[];
           }) => ({
             id: bot.id ?? createBotId(),
             name: bot.name ?? "",
-            token: bot.token ?? "",
+            enabled: bot.enabled ?? true,
+            token: bot.credentials?.token ?? "",
             allowedChatIds: (bot.allowedChatIds ?? []).join(","),
           }),
         );
@@ -67,6 +71,7 @@
               {
                 id: "default",
                 name: "Default Bot",
+                enabled: true,
                 token,
                 allowedChatIds: (
                   data.settings.telegramAllowedChatIds ?? []
@@ -91,17 +96,24 @@
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          telegramBots: bots
-            .map((bot) => ({
-              id: bot.id.trim(),
-              name: bot.name.trim(),
-              token: bot.token.trim(),
-              allowedChatIds: bot.allowedChatIds
-                .split(",")
-                .map((v) => v.trim())
-                .filter(Boolean),
-            }))
-            .filter((bot) => bot.id && bot.token),
+          channels: {
+            telegram: {
+              instances: bots
+                .map((bot) => ({
+                  id: bot.id.trim(),
+                  name: bot.name.trim(),
+                  enabled: Boolean(bot.enabled),
+                  credentials: {
+                    token: bot.token.trim(),
+                  },
+                  allowedChatIds: bot.allowedChatIds
+                    .split(",")
+                    .map((v) => v.trim())
+                    .filter(Boolean),
+                }))
+                .filter((bot) => bot.id),
+            },
+          },
         }),
       });
       const data = await res.json();
@@ -221,6 +233,11 @@
                     bind:value={bot.name}
                     placeholder="Marketing Bot"
                   />
+                </label>
+
+                <label class="flex items-center gap-3 text-sm text-slate-300">
+                  <input bind:checked={bot.enabled} type="checkbox" />
+                  Enable this plugin instance
                 </label>
 
                 <label class="grid gap-1.5 text-sm">

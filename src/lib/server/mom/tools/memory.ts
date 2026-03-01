@@ -36,6 +36,7 @@ function looksLikeScheduledTaskText(input: string): boolean {
 
 export function createMemoryTool(options: {
   memory: MemoryGateway;
+  channel: string;
   chatId: string;
 }): AgentTool<typeof memorySchema> {
   return {
@@ -46,7 +47,7 @@ export function createMemoryTool(options: {
     parameters: memorySchema,
     execute: async (_toolCallId, params) => {
       const action = params.action as MemoryAction;
-      const scope = { channel: "telegram", externalUserId: options.chatId };
+      const scope = { channel: options.channel, externalUserId: options.chatId };
 
       if (action === "sync") {
         const result = await options.memory.syncExternalMemories();

@@ -7,7 +7,7 @@ import type { RuntimeSettings, CustomProviderConfig } from "../config.js";
 import type { MemoryGateway } from "../memory/gateway.js";
 import { momError, momLog, momWarn } from "./log.js";
 import { buildSystemPrompt } from "./prompt.js";
-import { TelegramMomStore } from "./store.js";
+import { MomRuntimeStore } from "./store.js";
 import { createMomTools } from "./tools/index.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 
@@ -310,14 +310,15 @@ function mapUnsupportedDeveloperRole(
   };
 }
 
-export class TelegramMomRunner implements RunnerLike {
+export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
   private running = false;
 
   constructor(
+    private readonly channel: string,
     private readonly chatId: string,
     private readonly sessionId: string,
-    private readonly store: TelegramMomStore,
+    private readonly store: MomRuntimeStore,
     private readonly getSettings: () => RuntimeSettings,
     private readonly memory: MemoryGateway,
   ) {
@@ -328,7 +329,7 @@ export class TelegramMomRunner implements RunnerLike {
       this.chatId,
       this.sessionId,
       "(memory will be loaded via gateway before each run)",
-      { channel: "telegram", timezone: settings.timezone },
+      { channel: this.channel as "telegram" | "feishu", timezone: settings.timezone },
     );
 
     this.agent = new Agent({
@@ -495,7 +496,7 @@ export class TelegramMomRunner implements RunnerLike {
     await this.memory.syncExternalMemories();
     const memoryText =
       (await this.memory.buildPromptContext(
-        { channel: "telegram", externalUserId: this.chatId },
+        { channel: this.channel, externalUserId: this.chatId },
         ctx.message.text,
         12,
       )) || "(no working memory yet)";
@@ -505,12 +506,13 @@ export class TelegramMomRunner implements RunnerLike {
         this.chatId,
         this.sessionId,
         memoryText,
-        { channel: "telegram", timezone: settings.timezone },
+        { channel: this.channel as "telegram" | "feishu", timezone: settings.timezone },
       ),
     );
 
     this.agent.setTools(
       createMomTools({
+        channel: ctx.channel,
         cwd: this.store.getScratchDir(this.chatId),
         workspaceDir: this.store.getWorkspaceDir(),
         chatId: this.chatId,
@@ -626,7 +628,7 @@ export class TelegramMomRunner implements RunnerLike {
         .filter((a) => !a.isImage)
         .map((a) => `${ctx.workspaceDir}/${a.local}`);
       if (nonImage.length > 0) {
-        userMessage += `\n\n<telegram_attachments>\n${nonImage.join("\n")}\n</telegram_attachments>`;
+          userMessage += `\n\n<channel_attachments>\n${nonImage.join("\n")}\n</channel_attachments>`;
       }
 
       let finalText = "";
@@ -783,10 +785,11 @@ export class TelegramMomRunner implements RunnerLike {
 }
 
 export class RunnerPool {
-  private readonly map = new Map<string, TelegramMomRunner>();
+  private readonly map = new Map<string, MomRunner>();
 
   constructor(
-    private readonly store: TelegramMomStore,
+    private readonly channel: string,
+    private readonly store: MomRuntimeStore,
     private readonly getSettings: () => RuntimeSettings,
     private readonly memory: MemoryGateway,
   ) { }
@@ -795,11 +798,12 @@ export class RunnerPool {
     return `${chatId}::${sessionId}`;
   }
 
-  get(chatId: string, sessionId: string): TelegramMomRunner {
+  get(chatId: string, sessionId: string): MomRunner {
     const key = this.key(chatId, sessionId);
     const existing = this.map.get(key);
     if (existing) return existing;
-    const runner = new TelegramMomRunner(
+    const runner = new MomRunner(
+      this.channel,
       chatId,
       sessionId,
       this.store,

@@ -48,6 +48,20 @@ export interface FeishuBotConfig {
   allowedChatIds: string[];
 }
 
+export interface ChannelInstanceSettings {
+  id: string;
+  name: string;
+  enabled: boolean;
+  credentials: Record<string, string>;
+  allowedChatIds: string[];
+}
+
+export interface ChannelPluginSettings {
+  instances: ChannelInstanceSettings[];
+}
+
+export type ChannelSettingsMap = Record<string, ChannelPluginSettings>;
+
 export interface MemoryPluginSettings {
   enabled: boolean;
   core: string;
@@ -66,6 +80,7 @@ export interface RuntimeSettings {
   modelRouting: ModelRoutingConfig;
   systemPrompt: string;
   timezone: string;
+  channels: ChannelSettingsMap;
   telegramBots: TelegramBotConfig[];
   feishuBots: FeishuBotConfig[];
   plugins: PluginSettings;
@@ -215,6 +230,31 @@ const defaultFeishuBots: FeishuBotConfig[] = defaultFeishuAppId && defaultFeishu
   }]
   : [];
 
+function mapTelegramBotsToChannelSettings(bots: TelegramBotConfig[]): ChannelInstanceSettings[] {
+  return bots.map((bot) => ({
+    id: bot.id,
+    name: bot.name,
+    enabled: true,
+    credentials: {
+      token: bot.token
+    },
+    allowedChatIds: bot.allowedChatIds
+  }));
+}
+
+function mapFeishuBotsToChannelSettings(bots: FeishuBotConfig[]): ChannelInstanceSettings[] {
+  return bots.map((bot) => ({
+    id: bot.id,
+    name: bot.name,
+    enabled: true,
+    credentials: {
+      appId: bot.appId,
+      appSecret: bot.appSecret
+    },
+    allowedChatIds: bot.allowedChatIds
+  }));
+}
+
 export const defaultRuntimeSettings: RuntimeSettings = {
   providerMode,
   piModelProvider: providerFromEnv("PI_MODEL_PROVIDER", "anthropic"),
@@ -231,6 +271,14 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     process.env.MOLIBOT_SYSTEM_PROMPT ??
     "You are Molibot, a concise and helpful assistant.",
   timezone: (process.env.MOLIBOT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone).trim() || Intl.DateTimeFormat().resolvedOptions().timeZone,
+  channels: {
+    telegram: {
+      instances: mapTelegramBotsToChannelSettings(defaultTelegramBots)
+    },
+    feishu: {
+      instances: mapFeishuBotsToChannelSettings(defaultFeishuBots)
+    }
+  },
   telegramBots: defaultTelegramBots,
   plugins: {
     memory: {
