@@ -45,3 +45,14 @@
   - `mom/prompt.ts`、`mom/skills.ts`、`mom/store.ts`、`mom/tools/path.ts` 仍把 `/moli-t/` 当成唯一 workspace marker，导致 `moli-f` 的 data root / memory root / global skills 解析错误。
   - Telegram `/skills` 命令自己重复推导 global skills 路径，Feishu 则没有对等能力，也没有 prompt preview，导致可观测性不一致。
 - 结论：需要把 workspace/data-root/memory-root/global-skills 的推导下沉到 shared `mom` core，只让 plugin 保留可选的 channel-specific prompt section 和 bot transport 逻辑。
+
+## 2026-03-01 Memory Duplicate / Delete Regression
+- `src/lib/server/runtime.ts` 中 memory external sync 确实存在定时任务：每 60 秒执行一次 `syncExternalMemories()`，日志里的 `periodic_sync` 属于这个定时器。
+- `src/routes/api/memory/+server.ts` 当前在所有 memory action 前都调用 `memory.syncExternalMemories()`，这会让单纯的 list/search/delete 也触发导入副作用。
+- `src/lib/server/memory/importers/telegramFileImporter.ts` 的 legacy 导入源是 `${DATA_DIR}/memory/moli-t/bots/<bot>/<chatId>/MEMORY.md`；只要源文件还在，且 backend 中查不到同内容，就会再次导入。
+- `src/lib/server/memory/moryCore.ts` 之前没有和 `json-file` backend 对齐的 exact-content dedupe，所以历史上可能已经写入大量重复记录。
+- `/settings/memory` 页面删除后刷新又出现，不是前端假象，核心原因是删除后再次 list 会先触发 sync，而 legacy `MEMORY.md` 又把同内容重新导回来了。
+
+## 2026-03-02 Remaining Mory Detail Gaps
+- `mory` / `json-file` backend 之前只在 `add()` 路径做 exact-content dedupe，`update()` 仍然可以把一条 memory 改成另一条已存在的内容，从而重新制造重复。
+- `src/lib/server/mom/tools/memory.ts` 的 schema/execute 分支没有同步暴露 `compact`，导致 web API 已有去重能力但 agent 工具侧无法调用，能力面不一致。

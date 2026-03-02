@@ -8,6 +8,7 @@ import type {
   MemoryAddInput,
   MemoryBackend,
   MemoryBackendCapabilities,
+  MemoryCompactResult,
   MemoryFlushResult,
   MemoryLayer,
   MemoryRecord,
@@ -305,6 +306,11 @@ export class JsonFileMemoryBackend implements MemoryBackend {
     return row;
   }
 
+  async get(scope: MemoryScope, id: string): Promise<MemoryRecord | null> {
+    const data = this.loadData();
+    return data.items.find((item) => this.inScope(item, scope) && item.id === id) ?? null;
+  }
+
   async search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]> {
     const data = this.loadData();
     return this.scoreAndSlice(
@@ -334,10 +340,30 @@ export class JsonFileMemoryBackend implements MemoryBackend {
     const data = this.loadData();
     const found = data.items.find((item) => this.inScope(item, scope) && item.id === id);
     if (!found) return null;
+    const nextContent = typeof input.content === "string" ? normalizeContent(input.content) : found.content;
+    if (!nextContent) throw new Error("Memory content cannot be empty.");
+    const duplicate = data.items.find((item) =>
+      this.inScope(item, scope) &&
+      item.id !== id &&
+      item.layer === found.layer &&
+      normalizeContent(item.content).toLowerCase() === nextContent.toLowerCase()
+    );
+    if (duplicate) {
+      duplicate.tags = normalizeTags([
+        ...(duplicate.tags ?? []),
+        ...(Array.isArray(input.tags) ? input.tags : found.tags ?? [])
+      ]);
+      if (typeof input.expiresAt !== "undefined" || input.expiresAt === null) {
+        duplicate.expiresAt = normalizeExpiresAt(input.expiresAt) ?? duplicate.expiresAt;
+      }
+      duplicate.updatedAt = new Date().toISOString();
+      data.items = data.items.filter((item) => item.id !== id);
+      this.reconcileConflicts(data);
+      this.saveData(data);
+      return duplicate;
+    }
     if (typeof input.content === "string") {
-      const next = normalizeContent(input.content);
-      if (!next) throw new Error("Memory content cannot be empty.");
-      found.content = next;
+      found.content = nextContent;
     }
     if (Array.isArray(input.tags)) {
       found.tags = normalizeTags(input.tags);
@@ -403,6 +429,45 @@ export class JsonFileMemoryBackend implements MemoryBackend {
       addedCount: added.length,
       memories: added,
       updatedCursorConversations
+    };
+  }
+
+  async compact(scope?: MemoryScope): Promise<MemoryCompactResult> {
+    const data = this.loadData();
+    const nextItems: MemoryRecord[] = [];
+    const seen = new Set<string>();
+    let scannedCount = 0;
+    let removedCount = 0;
+    const affectedScopes = new Set<string>();
+
+    const candidates = data.items
+      .slice()
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.createdAt.localeCompare(a.createdAt));
+
+    for (const item of candidates) {
+      if (scope && !this.inScope(item, scope)) {
+        nextItems.push(item);
+        continue;
+      }
+      scannedCount += 1;
+      const dedupeKey = `${item.channel}:${item.externalUserId}:${item.layer}:${normalizeContent(item.content).toLowerCase()}`;
+      if (seen.has(dedupeKey)) {
+        removedCount += 1;
+        affectedScopes.add(`${item.channel}:${item.externalUserId}`);
+        continue;
+      }
+      seen.add(dedupeKey);
+      nextItems.push(item);
+    }
+
+    data.items = nextItems.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.createdAt.localeCompare(a.createdAt));
+    this.reconcileConflicts(data);
+    this.saveData(data);
+
+    return {
+      scannedCount,
+      removedCount,
+      scopesAffected: affectedScopes.size
     };
   }
 

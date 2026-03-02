@@ -2,7 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/runtime";
 
-type MemoryAction = "add" | "search" | "flush" | "delete" | "update" | "list";
+type MemoryAction = "add" | "search" | "flush" | "delete" | "update" | "list" | "sync" | "compact";
 
 interface MemoryBody {
   action?: MemoryAction;
@@ -37,7 +37,6 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const { memory } = getRuntime();
-  const sync = await memory.syncExternalMemories();
   const scope = scopeOf(body);
 
   if (action === "add") {
@@ -49,7 +48,7 @@ export const POST: RequestHandler = async ({ request }) => {
       tags: Array.isArray(body.tags) ? body.tags : [],
       expiresAt: typeof body.expiresAt === "string" ? body.expiresAt : undefined
     });
-    return json({ ok: true, item, sync, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
+    return json({ ok: true, item, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
   }
 
   if (action === "search") {
@@ -63,10 +62,10 @@ export const POST: RequestHandler = async ({ request }) => {
         })
       : await memory.searchAll({
           query: String(body.query ?? ""),
-          limit: body.limit ?? 500,
+        limit: body.limit ?? 500,
           mode: "hybrid"
         });
-    return json({ ok: true, items, sync, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
+    return json({ ok: true, items, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
   }
 
   if (action === "list") {
@@ -80,22 +79,22 @@ export const POST: RequestHandler = async ({ request }) => {
         })
       : await memory.searchAll({
           query: "",
-          limit: body.limit ?? 500,
+        limit: body.limit ?? 500,
           mode: "recent"
         });
-    return json({ ok: true, items, sync, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
+    return json({ ok: true, items, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
   }
 
   if (action === "flush") {
     const result = await memory.flush(scope);
-    return json({ ok: true, result, sync, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
+    return json({ ok: true, result, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
   }
 
   if (action === "delete") {
     const id = String(body.id ?? "").trim();
     if (!id) return json({ ok: false, error: "id is required" }, { status: 400 });
     const deleted = await memory.delete(scope, id);
-    return json({ ok: true, deleted, sync, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
+    return json({ ok: true, deleted, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
   }
 
   if (action === "update") {
@@ -106,7 +105,19 @@ export const POST: RequestHandler = async ({ request }) => {
       tags: Array.isArray(body.tags) ? body.tags : undefined,
       expiresAt: body.expiresAt === null ? null : (typeof body.expiresAt === "string" ? body.expiresAt : undefined)
     });
-    return json({ ok: true, item, sync, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
+    return json({ ok: true, item, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
+  }
+
+  if (action === "sync") {
+    const sync = await memory.syncExternalMemories();
+    return json({ ok: true, sync, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
+  }
+
+  if (action === "compact") {
+    const channel = String(body.channel ?? "").trim();
+    const userId = String(body.userId ?? "").trim();
+    const result = channel && userId ? await memory.compact(scope) : await memory.compact();
+    return json({ ok: true, result, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
   }
 
   return json({ ok: false, error: `Unsupported action: ${action}` }, { status: 400 });

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { storagePaths } from "../../db/sqlite.js";
+import { isImportSuppressed } from "../importTombstones.js";
 import type { MemoryImportSink, MemoryImporter } from "../importers.js";
 
 function normalizeContent(input: string): string {
@@ -50,6 +51,7 @@ export const telegramFileMemoryImporter: MemoryImporter = {
 
         for (const line of lines) {
           const normalized = normalizeContent(line).toLowerCase();
+          if (isImportSuppressed(scope, "long_term", line)) continue;
           if (existingContents.has(normalized)) continue;
           await sink.add(scope, {
             content: line,

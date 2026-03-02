@@ -48,6 +48,12 @@ export interface MemoryFlushResult {
   updatedCursorConversations: number;
 }
 
+export interface MemoryCompactResult {
+  scannedCount: number;
+  removedCount: number;
+  scopesAffected: number;
+}
+
 export interface MemorySyncResult {
   scannedFiles: number;
   importedCount: number;
@@ -62,10 +68,12 @@ export interface MemoryBackendCapabilities {
 
 export interface MemoryBackend {
   capabilities(): MemoryBackendCapabilities;
+  get(scope: MemoryScope, id: string): Promise<MemoryRecord | null>;
   add(scope: MemoryScope, input: MemoryAddInput): Promise<MemoryRecord>;
   search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]>;
   searchAll(input: MemorySearchInput): Promise<MemoryRecord[]>;
   delete(scope: MemoryScope, id: string): Promise<boolean>;
   update(scope: MemoryScope, id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null>;
   flush(scope: MemoryScope): Promise<MemoryFlushResult>;
+  compact(scope?: MemoryScope): Promise<MemoryCompactResult>;
 }

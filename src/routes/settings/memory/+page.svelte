@@ -15,6 +15,8 @@
 
   let loading = true;
   let flushing = false;
+  let compacting = false;
+  let syncing = false;
   let searchText = "";
   let message = "";
   let error = "";
@@ -54,11 +56,32 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load memory");
       items = Array.isArray(data.items) ? data.items : [];
-      syncInfo = `sync scanned ${Number(data.sync?.scannedFiles ?? 0)} file(s), imported ${Number(data.sync?.importedCount ?? 0)}`;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
+    }
+  }
+
+  async function syncMemory(): Promise<void> {
+    syncing = true;
+    message = "";
+    error = "";
+    try {
+      const res = await fetch("/api/memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync" }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Sync failed");
+      syncInfo = `sync scanned ${Number(data.sync?.scannedFiles ?? 0)} file(s), imported ${Number(data.sync?.importedCount ?? 0)}`;
+      message = "External memory sync completed.";
+      await listMemory();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      syncing = false;
     }
   }
 
@@ -75,12 +98,32 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Flush failed");
       message = `Flush done: scanned ${data.result?.scannedMessages ?? 0}, added ${data.result?.addedCount ?? 0}.`;
-      syncInfo = `sync scanned ${Number(data.sync?.scannedFiles ?? 0)} file(s), imported ${Number(data.sync?.importedCount ?? 0)}`;
       await listMemory();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
       flushing = false;
+    }
+  }
+
+  async function compactMemory(): Promise<void> {
+    compacting = true;
+    message = "";
+    error = "";
+    try {
+      const res = await fetch("/api/memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "compact", channel, userId }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Compact failed");
+      message = `Dedup completed: scanned ${data.result?.scannedCount ?? 0}, removed ${data.result?.removedCount ?? 0}, affected scopes ${data.result?.scopesAffected ?? 0}.`;
+      await listMemory();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      compacting = false;
     }
   }
 
@@ -213,7 +256,7 @@
         </div>
 
         <div
-          class="grid gap-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4 sm:grid-cols-[120px_220px_1fr_auto_auto]"
+          class="grid gap-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4 sm:grid-cols-[120px_220px_1fr_auto_auto_auto_auto]"
         >
           <input
             class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm"
@@ -235,11 +278,25 @@
             on:click={listMemory}>Search</button
           >
           <button
+            class="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-300 hover:bg-sky-500/20 disabled:opacity-60"
+            on:click={syncMemory}
+            disabled={syncing}
+          >
+            {syncing ? "Syncing..." : "Sync Files"}
+          </button>
+          <button
             class="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
             on:click={flushMemory}
             disabled={flushing}
           >
             {flushing ? "Flushing..." : "Flush"}
+          </button>
+          <button
+            class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300 hover:bg-amber-500/20 disabled:opacity-60"
+            on:click={compactMemory}
+            disabled={compacting}
+          >
+            {compacting ? "Deduping..." : "Deduplicate"}
           </button>
         </div>
 

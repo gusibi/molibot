@@ -7,6 +7,7 @@ import type {
   MemoryAddInput,
   MemoryBackend,
   MemoryBackendCapabilities,
+  MemoryCompactResult,
   MemoryFlushResult,
   MemoryRecord,
   MemoryScope,
@@ -14,6 +15,10 @@ import type {
   MemorySyncResult,
   MemoryUpdateInput
 } from "./types.js";
+import {
+  clearImportedMemorySuppression,
+  suppressImportedMemory
+} from "./importTombstones.js";
 
 export class MemoryGateway {
   private readonly backends: Record<string, MemoryBackend>;
@@ -62,6 +67,7 @@ export class MemoryGateway {
 
   async add(scope: MemoryScope, input: MemoryAddInput): Promise<MemoryRecord | null> {
     if (!this.isEnabled()) return null;
+    clearImportedMemorySuppression(scope, input.layer ?? "long_term", input.content);
     return this.getBackend().add(scope, input);
   }
 
@@ -77,12 +83,26 @@ export class MemoryGateway {
 
   async delete(scope: MemoryScope, id: string): Promise<boolean> {
     if (!this.isEnabled()) return false;
-    return this.getBackend().delete(scope, id);
+    const existing = await this.getBackend().get(scope, id);
+    const deleted = await this.getBackend().delete(scope, id);
+    if (deleted && existing) {
+      suppressImportedMemory(scope, existing.layer, existing.content);
+    }
+    return deleted;
   }
 
   async update(scope: MemoryScope, id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null> {
     if (!this.isEnabled()) return null;
-    return this.getBackend().update(scope, id, input);
+    const existing = await this.getBackend().get(scope, id);
+    const updated = await this.getBackend().update(scope, id, input);
+    if (existing && typeof input.content === "string") {
+      const nextContent = normalizeMemoryContent(input.content);
+      if (nextContent && normalizeMemoryContent(existing.content).toLowerCase() !== nextContent.toLowerCase()) {
+        suppressImportedMemory(scope, existing.layer, existing.content);
+        clearImportedMemorySuppression(scope, existing.layer, input.content);
+      }
+    }
+    return updated;
   }
 
   async flush(scope: MemoryScope): Promise<MemoryFlushResult> {
@@ -97,12 +117,19 @@ export class MemoryGateway {
     return this.getBackend().flush(scope);
   }
 
+  async compact(scope?: MemoryScope): Promise<MemoryCompactResult> {
+    if (!this.isEnabled()) {
+      return { scannedCount: 0, removedCount: 0, scopesAffected: 0 };
+    }
+    return this.getBackend().compact(scope);
+  }
+
   async buildPromptContext(scope: MemoryScope, query: string, limit = 5): Promise<string> {
     if (!this.isEnabled()) return "";
-    const rows = await this.search(scope, { query, limit, mode: "hybrid" });
+    const rows = dedupeMemoryRows(await this.search(scope, { query, limit: Math.max(limit * 4, 20), mode: "hybrid" }));
     if (rows.length === 0) return "";
-    const longTerm = rows.filter((row) => row.layer === "long_term");
-    const daily = rows.filter((row) => row.layer === "daily");
+    const longTerm = rows.filter((row) => row.layer === "long_term").slice(0, limit);
+    const daily = rows.filter((row) => row.layer === "daily").slice(0, limit);
     const sections: string[] = [];
     if (longTerm.length > 0) {
       sections.push(
@@ -136,4 +163,20 @@ export class MemoryGateway {
 
     return { scannedFiles, importedCount };
   }
+}
+
+function dedupeMemoryRows(rows: MemoryRecord[]): MemoryRecord[] {
+  const seen = new Set<string>();
+  const deduped: MemoryRecord[] = [];
+  for (const row of rows) {
+    const key = `${row.layer}:${normalizeMemoryContent(row.content).toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(row);
+  }
+  return deduped;
+}
+
+function normalizeMemoryContent(input: string): string {
+  return input.replace(/\s+/g, " ").trim();
 }

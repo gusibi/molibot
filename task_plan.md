@@ -46,3 +46,25 @@
   - 在 `runtime.ts` 的 stop 生命周期里主动关闭当前 `WSClient`。
   - 在 Feishu 适配器入站最前面增加 raw message id 去重，避免重复资源下载、STT 和重复 runner 执行。
   - 保留通用 `store.logMessage()` 作为第二层兜底。
+
+## 2026-03-01 Memory Dedup And Delete Reliability
+- Goal: 修复 `mory` backend 重复记忆写入、清理已存在重复记录，并让 `/settings/memory` 删除后不再被 legacy `MEMORY.md` 自动回灌。
+- Discovery:
+  - runtime 的 periodic sync 每 60 秒执行一次外部记忆导入。
+  - `/api/memory` 当前对所有 action 都先执行 `syncExternalMemories()`，导致列表和删除请求也会触发导入。
+  - `telegramFileImporter` 只检查“当前 backend 里是否存在相同内容”，但删除后 legacy 文件仍在，后续同步会再次导入。
+  - `mory` backend 之前没有内容级去重，历史上已经产生重复数据，需要额外清理。
+- Plan:
+  - 为 memory backend 增加 compact/dedupe 能力，清理同 scope/layer/content 的历史重复项。
+  - 为 importer 增加删除抑制（tombstone）能力，避免 legacy `MEMORY.md` 回灌已删除内容。
+  - 调整 `/api/memory`，不再对 list/search/delete/update 无条件触发同步；把同步保留给显式导入相关操作。
+  - 更新 `/settings/memory` 增加可见的 dedupe/compact 操作，并验证删除和刷新行为。
+
+## 2026-03-02 Mory Follow-up Audit
+- Goal: 再检查一轮 `mory` 是否还有类似“功能表面存在，但边界语义没闭环”的细节问题。
+- Discovery:
+  - `update()` 路径此前没有套用和 `add()` 一样的 exact-content dedupe 语义。
+  - `memory` agent tool 没有暴露 `compact`，和 `/api/memory`/`/settings/memory` 的能力不一致。
+- Plan:
+  - 给 `mory` 和 `json-file` backend 的 `update()` 增加 duplicate-merge 行为。
+  - 给 `src/lib/server/mom/tools/memory.ts` 增加 `compact` action。

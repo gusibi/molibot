@@ -10,7 +10,8 @@ const memorySchema = Type.Object({
     Type.Literal("update"),
     Type.Literal("delete"),
     Type.Literal("flush"),
-    Type.Literal("sync")
+    Type.Literal("sync"),
+    Type.Literal("compact")
   ]),
   content: Type.Optional(Type.String()),
   query: Type.Optional(Type.String()),
@@ -21,7 +22,7 @@ const memorySchema = Type.Object({
   limit: Type.Optional(Type.Number())
 });
 
-type MemoryAction = "add" | "search" | "list" | "update" | "delete" | "flush" | "sync";
+type MemoryAction = "add" | "search" | "list" | "update" | "delete" | "flush" | "sync" | "compact";
 
 
 
@@ -115,6 +116,14 @@ export function createMemoryTool(options: {
         const result = await options.memory.flush(scope);
         return {
           content: [{ type: "text", text: `Flush complete: scanned=${result.scannedMessages}, added=${result.addedCount}` }],
+          details: { result }
+        };
+      }
+
+      if (action === "compact") {
+        const result = await options.memory.compact(scope);
+        return {
+          content: [{ type: "text", text: `Memory deduplicated: scanned=${result.scannedCount}, removed=${result.removedCount}, scopes=${result.scopesAffected}` }],
           details: { result }
         };
       }

@@ -12,6 +12,7 @@ import type {
   MemoryAddInput,
   MemoryBackend,
   MemoryBackendCapabilities,
+  MemoryCompactResult,
   MemoryFlushResult,
   MemoryLayer,
   MemoryRecord,
@@ -309,6 +310,30 @@ export class MoryMemoryBackend implements MemoryBackend {
     if (!content) throw new Error("Memory content is required.");
 
     const layer = input.layer ?? "long_term";
+    const existingRows = await this.listScopeRecords(scope, 2000);
+    const existing = existingRows.find((row) =>
+      row.layer === layer && normalizeContent(row.content).toLowerCase() === content.toLowerCase()
+    );
+    if (existing) {
+      const mergedTags = normalizeTags([...(existing.tags ?? []), ...(input.tags ?? [])]);
+      const nextExpiresAt = normalizeExpiresAt(input.expiresAt) ?? existing.expiresAt ?? defaultExpiresAt(layer);
+      const meta: MoryRecordMeta = {
+        channel: scope.channel,
+        externalUserId: scope.externalUserId,
+        layer,
+        tags: mergedTags,
+        expiresAt: nextExpiresAt,
+        factKey: parseFactKey(content) ?? existing.factKey,
+        sourceSessionId: input.sourceSessionId ?? existing.sourceSessionId
+      };
+      const updated = await this.storage.update(userId, existing.id, {
+        detail: JSON.stringify(meta),
+        updatedAt: new Date().toISOString(),
+        conflictFlag: false
+      });
+      return updated ? toRecord(updated, scope) : existing;
+    }
+
     const nowIso = new Date().toISOString();
     const expiresAt = normalizeExpiresAt(input.expiresAt) ?? defaultExpiresAt(layer);
     const memory = {
@@ -355,6 +380,15 @@ export class MoryMemoryBackend implements MemoryBackend {
     return toRecord(updated ?? row, scope);
   }
 
+  async get(scope: MemoryScope, id: string): Promise<MemoryRecord | null> {
+    await this.ensureInit();
+    const userId = this.rememberScope(scope);
+    const row = await this.storage.readById(userId, id);
+    if (!row || row.archivedAt) return null;
+    const record = toRecord(row, scope);
+    return isExpired(record, Date.now()) ? null : record;
+  }
+
   async search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]> {
     const rows = await this.listScopeRecords(scope, Math.max(Number(input.limit ?? 50) * 4, 100));
     return this.scoreAndSlice(rows, input);
@@ -392,6 +426,32 @@ export class MoryMemoryBackend implements MemoryBackend {
     const nextExpiresAt = typeof input.expiresAt !== "undefined" || input.expiresAt === null
       ? normalizeExpiresAt(input.expiresAt)
       : current.expiresAt;
+    const sibling = (await this.listScopeRecords(scope, 2000)).find((row) =>
+      row.id !== id &&
+      row.layer === current.layer &&
+      normalizeContent(row.content).toLowerCase() === nextContent.toLowerCase()
+    );
+
+    if (sibling) {
+      const mergedTags = normalizeTags([...(sibling.tags ?? []), ...nextTags]);
+      const mergedExpiresAt = nextExpiresAt ?? sibling.expiresAt;
+      const siblingMeta: MoryRecordMeta = {
+        channel: scope.channel,
+        externalUserId: scope.externalUserId,
+        layer: sibling.layer,
+        tags: mergedTags,
+        expiresAt: mergedExpiresAt,
+        factKey: parseFactKey(nextContent) ?? sibling.factKey,
+        sourceSessionId: sibling.sourceSessionId ?? current.sourceSessionId
+      };
+      const updatedSibling = await this.storage.update(userId, sibling.id, {
+        detail: JSON.stringify(siblingMeta),
+        updatedAt: new Date().toISOString(),
+        conflictFlag: false
+      });
+      await this.storage.archive(userId, [id]);
+      return updatedSibling ? toRecord(updatedSibling, scope) : sibling;
+    }
 
     const meta: MoryRecordMeta = {
       channel: scope.channel,
@@ -462,6 +522,66 @@ export class MoryMemoryBackend implements MemoryBackend {
       memories: added,
       updatedCursorConversations
     };
+  }
+
+  async compact(scope?: MemoryScope): Promise<MemoryCompactResult> {
+    await this.ensureInit();
+    const scopes = scope ? [scope] : Object.values(this.loadScopeIndex().scopes);
+    let scannedCount = 0;
+    let removedCount = 0;
+    let scopesAffected = 0;
+
+    for (const currentScope of scopes) {
+      const userId = this.rememberScope(currentScope);
+      const rows = await this.storage.list(userId, { includeArchived: false, limit: 10000 });
+      const records = rows
+        .map((row) => toRecord(row, currentScope))
+        .filter((row) => !isExpired(row, Date.now()))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.createdAt.localeCompare(a.createdAt));
+
+      const seen = new Set<string>();
+      const duplicateIds: string[] = [];
+      const tagsByKey = new Map<string, string[]>();
+      const survivorIdByKey = new Map<string, string>();
+
+      for (const record of records) {
+        scannedCount += 1;
+        const key = `${record.layer}:${normalizeContent(record.content).toLowerCase()}`;
+        if (!tagsByKey.has(key)) tagsByKey.set(key, [...record.tags]);
+        else tagsByKey.set(key, normalizeTags([...(tagsByKey.get(key) ?? []), ...record.tags]));
+
+        if (seen.has(key)) {
+          duplicateIds.push(record.id);
+          continue;
+        }
+        seen.add(key);
+        survivorIdByKey.set(key, record.id);
+      }
+
+      if (duplicateIds.length === 0) continue;
+      scopesAffected += 1;
+      removedCount += await this.storage.archive(userId, duplicateIds);
+
+      for (const record of records) {
+        const key = `${record.layer}:${normalizeContent(record.content).toLowerCase()}`;
+        if (survivorIdByKey.get(key) !== record.id) continue;
+        const mergedTags = tagsByKey.get(key) ?? record.tags;
+        if (mergedTags.length === record.tags.length && mergedTags.every((tag, idx) => tag === record.tags[idx])) continue;
+        await this.storage.update(userId, record.id, {
+          detail: JSON.stringify({
+            channel: record.channel,
+            externalUserId: record.externalUserId,
+            layer: record.layer,
+            tags: mergedTags,
+            expiresAt: record.expiresAt,
+            factKey: record.factKey,
+            sourceSessionId: record.sourceSessionId
+          })
+        });
+      }
+    }
+
+    return { scannedCount, removedCount, scopesAffected };
   }
 
 }
