@@ -1,203 +1,153 @@
 # Molibot
 
-Molibot 是一个多端 AI 助手项目，当前入口实现覆盖：
+<p align="center">
+  <img src="./Voldemomo_compressed.jpg" alt="Molibot logo" width="160" />
+</p>
+
+<p align="center">
+  A simpler OpenClaw-style personal AI assistant.
+</p>
+
+Molibot 是 [OpenClaw](https://github.com/openclaw/openclaw) 风格的个人 AI 助手精简版。
+
+它保留了 “your personal AI assistant” 这个方向，但去掉了更重的外壳，收敛成一个更适合本地运行、长期调教和自己维护的版本。当前支持这些入口：
+
 - Telegram Bot
-- Web Chat (SvelteKit)
-- CLI (`molibot cli`)
+- Feishu Bot
+- Web Chat（SvelteKit）
+- CLI
 
-## 当前状态（基于 `prd.md` + `features.md`）
+## Status
 
-已验证可用：
-- Telegram Bot（当前主用通道）
+当前状态：
 
-部分实现但未在本项目实际使用中验证：
-- Web Chat (SvelteKit)
-- CLI (`molibot cli`)
+- 已实际验证主用通道：Telegram
+- 已实现并可启动：Feishu、Web Chat、CLI
+- 当前核心形态：单仓库、单进程 SvelteKit、服务端统一 runtime
 
-已完成核心能力：
-- 统一消息路由（Telegram / Web / CLI）
-- Telegram mom-t 运行时（队列、可中断、多会话、事件调度、工具调用）
-- Web 聊天与流式回复
-- CLI 多轮对话
-- JSON 文件持久化（settings / sessions）
-- 多 Bot Telegram 配置
-- 多模型路由（text / vision / stt / tts）
-- 语音转写（OpenAI-compatible STT）
-- Skills 两级仓库（global + chat）
-- Memory 插件（gateway + json-file core）
+## Features
 
-最近修复：
-- Telegram 图片回复优先使用 `sendPhoto`，避免图片被当成不可预览的数据文件发送。
+已经具备的核心能力：
 
-## 技术架构
+- 多通道接入：Telegram、Feishu、Web、CLI
+- 统一 agent runtime：消息进入同一套 runner / tools / prompt / memory 流程
+- 多模型路由：`text` / `vision` / `stt` / `tts`
+- 语音转写：OpenAI-compatible STT
+- 图片理解：渠道图片会进入 vision 输入
+- 文件处理：渠道附件会保存到工作区并暴露给 agent
+- 多会话支持：新建、切换、清理、删除会话
+- Skills 体系：全局技能 + chat 局部技能
+- Memory 插件：统一 gateway，支持可替换 backend
+- Web 设置中心：AI、Telegram、Feishu、Memory、Skills、Plugins
 
-单进程 SvelteKit：
-- 前端页面：`/`、`/settings/*`
-- 服务端 API：`/api/*`
-- Telegram Runtime：在服务端生命周期中启动
+当前实现上的一个重要边界：
 
-关键目录：
-- `src/lib/server/app/`：启动装配与全局 runtime 入口
-- `src/lib/server/agent/`：Agent 运行时核心（prompt、runner、tools、workspace）
-- `src/lib/server/channels/`：Telegram / Feishu 等渠道接入
-- `src/lib/server/memory/`：Memory gateway、backends、importers
-- `src/lib/server/sessions/`：会话持久化
-- `src/lib/server/settings/`：运行时设置读写
-- `src/lib/server/providers/`：模型/provider 调用适配
-- `src/routes/`：Web 页面与 API 路由
-- `bin/`：`molibot` 启动器与服务运维脚本
+- Telegram 的运行时能力最完整
+- Feishu 已支持文件/图片/音频入站与出站，但线程化回复、typing 状态这类体验能力还没有做深
 
-说明：
-- 保留 `src/lib/server/` 这一层，作为 SvelteKit 下明确的“服务端专用模块”边界，避免后端 runtime / channel / memory 代码被前端页面误引入。
+## Architecture
 
-## 目录说明
+Molibot 现在是单进程 SvelteKit 架构：
 
-### `src/`
-- `routes/`：SvelteKit 页面与 API 路由入口。
-- `lib/`：项目内可复用模块。
+- `src/routes/*` 提供 Web 页面和 API
+- `src/lib/server/*` 放服务端专用 runtime
+- Telegram / Feishu 在服务端生命周期中启动
+- Web Chat 和 CLI 复用同一套后端能力
 
-### `src/lib/`
-- `server/`：服务端专用模块边界；放 runtime、渠道、memory、settings 等后端能力。
-- `shared/`：前后端都可能复用的稳定类型或纯工具。
+核心后端模块：
 
-### `src/lib/server/`
-- `app/`：应用启动、环境配置、runtime 装配。
-- `agent/`：Agent 内核，包含 prompt、runner、workspace、tools、events。
-- `channels/`：各消息渠道适配与运行时。
-- `memory/`：统一 memory gateway、backend、importer。
-- `sessions/`：会话持久化与会话文件读写。
-- `settings/`：运行时设置 schema、默认值、持久化。
-- `providers/`：模型/provider 调用适配。
-- `infra/`：基础设施能力，如 rate limit、存储 helper。
-- `plugins/`：插件发现与插件元数据，不承载具体内建渠道实现。
-- `adapters/`：保留的通用适配入口（例如 CLI/Web 入口胶水层）。
+- `app`：启动、环境配置、runtime 装配
+- `agent`：prompt、runner、tools、workspace、events
+- `channels`：Telegram / Feishu / shared channel logic
+- `memory`：memory gateway、backend、importers
+- `sessions`：会话持久化
+- `settings`：运行时设置 schema、默认值、存储
+- `providers`：模型/provider 调用适配
+- `infra`：基础设施能力
 
-### `src/lib/server/channels/`
-- `telegram/`：Telegram 渠道实现。`runtime.ts` 保留主编排；`queue.ts`、`formatting.ts`、`stt.ts`、`types.ts` 放低风险叶子逻辑。
-- `feishu/`：Feishu 渠道实现。`runtime.ts` 保留主编排；`message-intake.ts`、`messaging.ts`、`queue.ts` 放渠道叶子逻辑。
-- `shared/`：被多个渠道复用的共享路由或辅助逻辑。
-- `registry.ts`：内建渠道注册表。
+保留 `src/lib/server/` 这一层是刻意的：它明确表达“这些模块只能在服务端使用”，避免 runtime 代码被前端误引用。
 
-### `src/lib/shared/`
-- `types/`：跨模块共享类型；当前主要放消息模型。
+## Getting Started
 
-## 安装
+### Requirements
+
+- Node.js `>= 22`
+- npm
+
+### Install
 
 ```bash
 npm install
 npm link
 ```
 
-Node 要求：`>= 22`
+### Configure
 
-## 启动与构建
+从模板复制环境变量文件：
 
-开发：
 ```bash
-molibot
-# 等价于 molibot dev
+cp .env.example .env
 ```
 
-生产构建：
-```bash
-molibot build
-molibot start
-```
+最常用的配置项：
 
-CLI 模式：
-```bash
-molibot cli
-```
+- `PORT`：Web 服务端口，默认 `3000`
+- `DATA_DIR`：数据根目录，默认 `~/.molibot`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_ALLOWED_CHAT_IDS`
+- `AI_PROVIDER_MODE=pi|custom`
+- `PI_MODEL_PROVIDER` / `PI_MODEL_NAME`
+- `CUSTOM_AI_BASE_URL` / `CUSTOM_AI_API_KEY` / `CUSTOM_AI_MODEL` / `CUSTOM_AI_PATH`
+- `TELEGRAM_STT_BASE_URL` / `TELEGRAM_STT_API_KEY` / `TELEGRAM_STT_MODEL`
 
-## 初始化工作区
+说明：
+
+- 运行时最终以 `${DATA_DIR}/settings.json` 为准
+- Web Settings 页面会覆盖并持久化运行时设置
+
+### Initialize Workspace
+
+首次建议执行：
 
 ```bash
 molibot init
 ```
 
-默认初始化目录：`~/.molibot`（可用 `DATA_DIR` 覆盖）。
+这会在 `${DATA_DIR:-~/.molibot}` 下初始化：
 
-会创建：
-- `AGENTS.md`、`SOUL.md`、`TOOLS.md`、`BOOTSTRAP.md`、`IDENTITY.md`、`USER.md`
-  - 都从 `src/lib/server/agent/prompts/*.template.md` 拷贝
-  - 这些模板基于当前全局 profile 结构，适合新用户首次初始化后继续编辑
-- `${DATA_DIR}/skills`（全局技能目录）
+- `AGENTS.md`
+- `SOUL.md`
+- `TOOLS.md`
+- `BOOTSTRAP.md`
+- `IDENTITY.md`
+- `USER.md`
+- `skills/`
 
-说明：
-- 运行时在极端兜底场景下，也会使用 `src/lib/server/agent/prompts/AGENTS.template.md` 作为默认 `AGENTS` 上下文来源。
+## Usage
 
-说明：
-- `molibot init` 不会自动安装项目内置 skills；是否安装由用户自行决定。
-
-## Skills 安装（手动）
-
-如果你想使用项目目录内常用 skills（`/Users/gusi/Github/molipibot/skills`），可手动复制到全局 skills 目录：
+### Development
 
 ```bash
-cp -R /Users/gusi/Github/molipibot/skills/. ~/.molibot/skills/
+molibot
+# 等价于:
+# molibot dev
 ```
 
-如果你使用自定义 `DATA_DIR`，请替换目标路径为 `${DATA_DIR}/skills`。
+### Production
 
-## Web 管理页面
-
-- `/settings`：设置总览
-- `/settings/ai`：Provider / Models / 路由（text/vision/stt/tts）
-- `/settings/telegram`：多 Bot 配置
-- `/settings/plugins`：插件开关（含 memory）
-- `/settings/memory`：memory 管理
-- `/settings/skills`：skills 清单（global/chat/workspace-legacy）
-
-## Telegram 命令
-
-- `/chatid`：查看当前 chat id 与白名单状态
-- `/stop`：停止当前运行任务
-- `/new`：新建并切换 session
-- `/clear`：清空当前 session 上下文
-- `/sessions`：列出并查看当前 session
-- `/sessions <index|sessionId>`：切换 session
-- `/delete_sessions`：查看可删除 session
-- `/delete_sessions <index|sessionId>`：删除 session
-- `/models`：查看 text 路由模型
-- `/models <index|key>`：切换 text 模型
-- `/models <text|vision|stt|tts>`：查看指定路由模型
-- `/models <text|vision|stt|tts> <index|key>`：切换指定路由模型
-- `/skills`：查看当前加载技能
-- `/help`：命令帮助
-
-## 配置（.env）
-
-从 `.env.example` 复制：
 ```bash
-cp .env.example .env
+molibot build
+molibot start
 ```
 
-常用项：
-- `PORT`：Web 服务端口（默认 `3000`）
-- `DATA_DIR`：数据根目录（默认 `~/.molibot`）
-- `TELEGRAM_BOT_TOKEN`：Telegram Bot Token
-- `TELEGRAM_ALLOWED_CHAT_IDS`：可选白名单（逗号分隔）
-- `AI_PROVIDER_MODE=pi|custom`
-- `PI_MODEL_PROVIDER` / `PI_MODEL_NAME`
-- `CUSTOM_AI_BASE_URL` / `CUSTOM_AI_API_KEY` / `CUSTOM_AI_MODEL` / `CUSTOM_AI_PATH`
-- `TELEGRAM_STT_BASE_URL` / `TELEGRAM_STT_API_KEY` / `TELEGRAM_STT_MODEL`
-- `MEMORY_ENABLED` / `MEMORY_CORE`
+### CLI
 
-说明：运行时设置最终以 `${DATA_DIR}/settings.json` 为准（Web 设置页可在线修改并持久化）。
+```bash
+molibot cli
+```
 
-## 数据目录结构（默认 `~/.molibot`）
+### Local Service Scripts
 
-- `settings.json`：运行时设置
-- `sessions/`：Web/多端会话持久化
-- `moli-t/`：Telegram 运行区
-  - `bots/<botId>/<chatId>/scratch/`：会话工作目录
-  - `bots/<botId>/<chatId>/contexts/`：session context
-- `skills/`：全局 skills
-- `memory/`：统一 memory 文件根目录
-
-## 服务运维（后台）
-
-推荐统一脚本：
 ```bash
 ./bin/molibot-service.sh start
 ./bin/molibot-service.sh stop
@@ -205,41 +155,128 @@ cp .env.example .env
 ./bin/molibot-service.sh restart
 ```
 
-兼容别名：
-```bash
-./bin/start-molibot.sh
-./bin/stop-molibot.sh
-./bin/status-molibot.sh
-./bin/restart-molibot.sh
+## Web UI
+
+主要页面：
+
+- `/`：Web Chat
+- `/settings`：设置总览
+- `/settings/ai`：模型、Provider、路由
+- `/settings/telegram`：Telegram Bot 配置
+- `/settings/feishu`：Feishu Bot 配置
+- `/settings/plugins`：插件与 memory backend
+- `/settings/memory`：memory 管理
+- `/settings/skills`：skills 清单
+- `/settings/tasks`：任务查看
+
+## Telegram Commands
+
+- `/chatid`
+- `/stop`
+- `/new`
+- `/clear`
+- `/sessions`
+- `/sessions <index|sessionId>`
+- `/delete_sessions`
+- `/delete_sessions <index|sessionId>`
+- `/models`
+- `/models <index|key>`
+- `/models <text|vision|stt|tts>`
+- `/models <text|vision|stt|tts> <index|key>`
+- `/skills`
+- `/help`
+
+## Data Layout
+
+默认数据目录：`~/.molibot`
+
+主要结构：
+
+```text
+~/.molibot/
+  settings.json
+  sessions/
+  skills/
+  memory/
+  moli-t/
+  moli-f/
 ```
 
-默认：
-- 日志：`~/logs/molibot.log`
-- PID：`~/.molibot/molibot.pid`
+其中：
 
-实时日志：
-```bash
-tail -f ~/logs/molibot.log
+- `sessions/`：Web / 多端会话持久化
+- `skills/`：全局 skills
+- `memory/`：统一 memory 根目录
+- `moli-t/`：Telegram 运行区
+- `moli-f/`：Feishu 运行区
+
+## Project Structure
+
+```text
+src/
+  routes/
+  lib/
+    shared/
+    server/
+      app/
+      agent/
+      channels/
+      infra/
+      memory/
+      providers/
+      sessions/
+      settings/
+bin/
+package/
+docs/
 ```
 
-## API 概览
+目录说明：
+
+- `src/routes/`：SvelteKit 页面与 API
+- `src/lib/shared/`：跨端共享类型或纯工具
+- `src/lib/server/`：服务端 runtime 主体
+- `bin/`：`molibot` 启动器与运维脚本
+- `package/mory/`：独立 memory SDK 包
+- `docs/`：补充设计与开发文档
+
+## API
+
+当前主要接口：
 
 - `GET /health`
 - `POST /api/chat`
 - `POST /api/stream`
-- `GET|PUT /api/settings`
+- `GET /api/settings`
+- `PUT /api/settings`
 - `GET /api/sessions`
-- `GET|DELETE /api/sessions/:id`
+- `GET /api/sessions/:id`
+- `DELETE /api/sessions/:id`
 - `POST /api/memory`
 
-## 文档索引
+## Skills
 
-- `AGENTS.md`：协作规则（包含“每次改动后更新 features/prd”）
+`molibot init` 只会初始化 skills 目录，不会自动安装项目里的示例 skills。
+
+如果你想把仓库内 `skills/` 安装到全局目录，可以手动复制：
+
+```bash
+cp -R /Users/gusi/Github/molipibot/skills/. ~/.molibot/skills/
+```
+
+如果你使用自定义 `DATA_DIR`，请改成 `${DATA_DIR}/skills`。
+
+## Documentation
+
 - `prd.md`：产品范围、优先级、验收标准
-- `features.md`：已实现能力和更新日志
+- `features.md`：已实现能力与更新日志
 - `architecture.md`：架构说明
+- `docs/plugin-development.md`：插件开发说明
+- `AGENTS.md`：协作规则
 
-## 已知事项
+## Known Limitations
 
-- `prd.md` 早期部分仍保留过往 SQLite 表述；当前实现已切换为 JSON 持久化（以 `features.md` 与代码为准）。
-- 若在本机遇到 npm 网络不可达（`ENOTFOUND`），会影响首次依赖安装与构建。
+- Telegram 是当前最完整、最稳定的通道
+- Feishu 已补齐基础媒体收发，但交互体验还没有像 Telegram 那样细化
+- Web Chat 和 CLI 已实现，但 README 中不把它们表述成“已充分实战验证”
+- 历史文档中少量早期表述可能仍保留旧设计，优先以 `features.md` 和当前代码为准
