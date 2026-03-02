@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { getRuntime } from "$lib/server/runtime";
+import { getRuntime } from "$lib/server/app/runtime";
 
 interface ChatBody {
   userId?: string;

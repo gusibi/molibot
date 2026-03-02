@@ -1,4 +1,4 @@
-import { startCli } from "./adapters/cli.js";
+import { startCli } from "../adapters/cli.js";
 import { getRuntime } from "./runtime.js";
 
 function main(): void {

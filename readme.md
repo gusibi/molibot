@@ -37,7 +37,13 @@ Molibot 是一个多端 AI 助手项目，当前入口实现覆盖：
 - Telegram Runtime：在服务端生命周期中启动
 
 关键目录：
-- `src/lib/server/`：后端核心（runtime、telegram adapter、mom、memory、settings）
+- `src/lib/server/app/`：启动装配与全局 runtime 入口
+- `src/lib/server/agent/`：Agent 运行时核心（prompt、runner、tools、workspace）
+- `src/lib/server/channels/`：Telegram / Feishu 等渠道接入
+- `src/lib/server/memory/`：Memory gateway、backends、importers
+- `src/lib/server/sessions/`：会话持久化
+- `src/lib/server/settings/`：运行时设置读写
+- `src/lib/server/providers/`：模型/provider 调用适配
 - `src/routes/`：Web 页面与 API 路由
 - `bin/`：`molibot` 启动器与服务运维脚本
 
@@ -79,12 +85,12 @@ molibot init
 
 会创建：
 - `AGENTS.md`、`SOUL.md`、`TOOLS.md`、`BOOTSTRAP.md`、`IDENTITY.md`、`USER.md`
-  - 都从 `src/lib/server/mom/prompts/*.template.md` 拷贝
+  - 都从 `src/lib/server/agent/prompts/*.template.md` 拷贝
   - 这些模板基于当前全局 profile 结构，适合新用户首次初始化后继续编辑
 - `${DATA_DIR}/skills`（全局技能目录）
 
 说明：
-- 运行时在极端兜底场景下，也会使用 `src/lib/server/mom/prompts/AGENTS.template.md` 作为默认 `AGENTS` 上下文来源。
+- 运行时在极端兜底场景下，也会使用 `src/lib/server/agent/prompts/AGENTS.template.md` 作为默认 `AGENTS` 上下文来源。
 
 说明：
 - `molibot init` 不会自动安装项目内置 skills；是否安装由用户自行决定。

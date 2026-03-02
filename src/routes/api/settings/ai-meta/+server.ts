@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getModels } from "@mariozechner/pi-ai";
-import { KNOWN_PROVIDER_LIST, type CustomProviderConfig } from "$lib/server/config";
+import { KNOWN_PROVIDER_LIST, type CustomProviderConfig } from "$lib/server/settings";
 
 export const GET: RequestHandler = async () => {
   const providers = KNOWN_PROVIDER_LIST.map((provider) => ({

@@ -1,5 +1,5 @@
 import type { Handle } from "@sveltejs/kit";
-import { getRuntime } from "$lib/server/runtime";
+import { getRuntime } from "$lib/server/app/runtime";
 
 // Bootstrap shared runtime once per process.
 getRuntime();

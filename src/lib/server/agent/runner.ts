@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { getModels, streamSimple, type Model } from "@mariozechner/pi-ai";
-import type { RuntimeSettings, CustomProviderConfig } from "../config.js";
+import type { RuntimeSettings, CustomProviderConfig } from "../settings/index.js";
 import type { MemoryGateway } from "../memory/gateway.js";
 import { momError, momLog, momWarn } from "./log.js";
 import { buildSystemPrompt } from "./prompt.js";

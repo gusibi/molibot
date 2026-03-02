@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { getRuntime } from "$lib/server/runtime";
+import { getRuntime } from "$lib/server/app/runtime";
 
 type MemoryAction = "add" | "search" | "flush" | "delete" | "update" | "list" | "sync" | "compact";
 

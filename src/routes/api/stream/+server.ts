@@ -1,5 +1,5 @@
 import type { RequestHandler } from "@sveltejs/kit";
-import { getRuntime } from "$lib/server/runtime";
+import { getRuntime } from "$lib/server/app/runtime";
 
 export const GET: RequestHandler = async ({ url }) => {
   const userId = url.searchParams.get("userId")?.trim() || "web-anonymous";

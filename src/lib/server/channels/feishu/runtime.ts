@@ -1,19 +1,19 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
-import type { RuntimeSettings } from "../../../config.js";
-import { config } from "../../../config.js";
-import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../../mom/events.js";
-import { createRunId, momError, momLog, momWarn } from "../../../mom/log.js";
-import { buildPromptChannelSections } from "../../../mom/prompt-channel.js";
-import { buildSystemPromptPreview, getSystemPromptSources } from "../../../mom/prompt.js";
-import { RunnerPool } from "../../../mom/runner.js";
-import { loadSkillsFromWorkspace } from "../../../mom/skills.js";
-import { MomRuntimeStore } from "../../../mom/store.js";
-import type { MomContext, ChannelInboundMessage } from "../../../mom/types.js";
-import { resolveGlobalSkillsDirFromWorkspacePath } from "../../../mom/workspace.js";
-import { SessionStore } from "../../../services/sessionStore.js";
-import type { MemoryGateway } from "../../../memory/gateway.js";
+import { config } from "../../app/env.js";
+import type { RuntimeSettings } from "../../settings/index.js";
+import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
+import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
+import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
+import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
+import { RunnerPool } from "../../agent/runner.js";
+import { loadSkillsFromWorkspace } from "../../agent/skills.js";
+import { MomRuntimeStore } from "../../agent/store.js";
+import type { MomContext, ChannelInboundMessage } from "../../agent/types.js";
+import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.js";
+import { SessionStore } from "../../sessions/store.js";
+import type { MemoryGateway } from "../../memory/gateway.js";
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "./message-intake.js";
 
 export interface FeishuConfig {

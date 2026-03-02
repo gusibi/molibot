@@ -1,5 +1,5 @@
 import readline from "node:readline";
-import { MessageRouter } from "../core/messageRouter.js";
+import { MessageRouter } from "../channels/shared/messageRouter.js";
 
 export function startCli(router: MessageRouter): void {
   const rl = readline.createInterface({

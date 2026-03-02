@@ -8,10 +8,10 @@
 ## Phases
 | Step | Status | Notes |
 | --- | --- | --- |
-| Scan repository structure | in_progress | Top-level and key backend directories first |
-| Map module responsibilities | pending | Identify what each area actually does |
-| Design target structure | pending | Prefer business/domain-first organization |
-| Recommend migration path | pending | Reduce churn and breakage |
+| Scan repository structure | complete | Top-level and key backend directories inspected |
+| Map module responsibilities | complete | `app/agent/channels/memory/sessions/settings/providers` boundaries defined |
+| Design target structure | complete | Adopted module-first `src/lib/server/*` layout |
+| Recommend migration path | complete | Phase 1-3 executed and verified by build |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |

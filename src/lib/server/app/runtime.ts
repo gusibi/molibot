@@ -1,5 +1,4 @@
 import {
-  config,
   defaultRuntimeSettings,
   isKnownProvider,
   type ProviderModelConfig,
@@ -11,16 +10,17 @@ import {
   type FeishuBotConfig,
   type ProviderMode,
   type RuntimeSettings
-} from "./config.js";
-import { builtInChannelPlugins, type ChannelManager, type ChannelRuntimeDeps } from "./channels/registry.js";
-import { MessageRouter } from "./core/messageRouter.js";
-import { initDb } from "./db/sqlite.js";
-import { MemoryGateway } from "./memory/gateway.js";
-import { discoverPlugins } from "./plugins/discovery.js";
-import type { PluginCatalog, ProviderPlugin } from "./plugins/types.js";
-import { AssistantService } from "./services/assistant.js";
-import { SessionStore } from "./services/sessionStore.js";
-import { SettingsStore } from "./services/settingsStore.js";
+} from "../settings/index.js";
+import { config } from "./env.js";
+import { builtInChannelPlugins, type ChannelManager, type ChannelRuntimeDeps } from "../channels/registry.js";
+import { MessageRouter } from "../channels/shared/messageRouter.js";
+import { initDb } from "../infra/db/storage.js";
+import { MemoryGateway } from "../memory/gateway.js";
+import { discoverPlugins } from "../plugins/discovery.js";
+import type { PluginCatalog, ProviderPlugin } from "../plugins/types.js";
+import { AssistantService } from "../providers/assistantService.js";
+import { SessionStore } from "../sessions/store.js";
+import { SettingsStore } from "../settings/store.js";
 
 interface RuntimeState {
   sessions: SessionStore;

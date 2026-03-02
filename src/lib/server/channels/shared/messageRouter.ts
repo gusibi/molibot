@@ -1,10 +1,10 @@
-import { config } from "../config.js";
-import type { MemoryGateway } from "../memory/gateway.js";
-import type { MemoryAddInput } from "../memory/types.js";
-import { AssistantService } from "../services/assistant.js";
-import { RateLimiter } from "../services/rateLimiter.js";
-import { SessionStore } from "../services/sessionStore.js";
-import type { InboundMessage } from "../types/message.js";
+import { config } from "../../app/env.js";
+import type { MemoryGateway } from "../../memory/gateway.js";
+import type { MemoryAddInput } from "../../memory/types.js";
+import { AssistantService } from "../../providers/assistantService.js";
+import { RateLimiter } from "../../infra/rateLimiter.js";
+import { SessionStore } from "../../sessions/store.js";
+import type { InboundMessage } from "../../../shared/types/message.js";
 
 export interface HandleResult {
   ok: boolean;

@@ -1,7 +1,7 @@
 import { Agent } from "@mariozechner/pi-agent-core";
 import { getModels } from "@mariozechner/pi-ai";
-import type { CustomProviderConfig, RuntimeSettings } from "../config.js";
-import type { ConversationMessage } from "../types/message.js";
+import type { CustomProviderConfig, RuntimeSettings } from "../settings/index.js";
+import type { ConversationMessage } from "../../shared/types/message.js";
 
 type OpenAIRole = "system" | "user" | "assistant";
 

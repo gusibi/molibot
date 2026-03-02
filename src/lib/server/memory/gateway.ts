@@ -1,5 +1,5 @@
-import type { RuntimeSettings } from "../config.js";
-import type { SessionStore } from "../services/sessionStore.js";
+import type { RuntimeSettings } from "../settings/index.js";
+import type { SessionStore } from "../sessions/store.js";
 import { builtInMemoryImporters } from "./importerRegistry.js";
 import type { MemoryImporter } from "./importers.js";
 import { builtInMemoryBackends, type MemoryBackendDefinition } from "./registry.js";

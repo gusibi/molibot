@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { config } from "../config.js";
+import { config } from "../../app/env.js";
 
 export const storagePaths = {
   dataDir: path.resolve(config.dataDir),

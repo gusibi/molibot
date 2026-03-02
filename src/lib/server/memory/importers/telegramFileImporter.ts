@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { storagePaths } from "../../db/sqlite.js";
+import { storagePaths } from "../../infra/db/storage.js";
 import { isImportSuppressed } from "../importTombstones.js";
 import type { MemoryImportSink, MemoryImporter } from "../importers.js";
 

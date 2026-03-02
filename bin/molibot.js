@@ -39,7 +39,7 @@ function ensureEmptyFile(path) {
 }
 
 function readPromptTemplate(name) {
-  const templatePath = join(rootDir, "src/lib/server/mom/prompts", name);
+  const templatePath = join(rootDir, "src/lib/server/agent/prompts", name);
   return readFileSync(templatePath, "utf8");
 }
 

@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { config, KNOWN_PROVIDER_LIST } from "../config.js";
+import { config } from "../app/env.js";
+import { KNOWN_PROVIDER_LIST } from "../settings/index.js";
 import { builtInChannelPlugins } from "../channels/registry.js";
 import { builtInMemoryBackends } from "../memory/registry.js";
 import type {

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
-import { readJsonFile, storagePaths, writeJsonFile } from "../db/sqlite.js";
-import type { Channel, Conversation, ConversationMessage, Role } from "../types/message.js";
+import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
+import type { Channel, Conversation, ConversationMessage, Role } from "../../shared/types/message.js";
 
 interface SessionsIndex {
   byUserKey: Record<string, string[]>;

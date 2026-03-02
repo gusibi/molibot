@@ -9,8 +9,8 @@ import {
   isKnownProvider,
   type ProviderMode,
   type RuntimeSettings
-} from "../config.js";
-import { readJsonFile, storagePaths, writeJsonFile } from "../db/sqlite.js";
+} from "../settings/index.js";
+import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
 
 interface RawSettings {
   providerMode?: string;

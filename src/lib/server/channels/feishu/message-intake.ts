@@ -1,9 +1,10 @@
 import type { Readable } from "node:stream";
 import type * as lark from "@larksuiteoapi/node-sdk";
-import { config, type RuntimeSettings } from "../../../config.js";
-import { momLog, momWarn } from "../../../mom/log.js";
-import type { ChannelInboundMessage } from "../../../mom/types.js";
-import { MomRuntimeStore } from "../../../mom/store.js";
+import { config } from "../../app/env.js";
+import type { RuntimeSettings } from "../../settings/index.js";
+import { momLog, momWarn } from "../../agent/log.js";
+import type { ChannelInboundMessage } from "../../agent/types.js";
+import { MomRuntimeStore } from "../../agent/store.js";
 
 interface SttTarget {
   baseUrl: string;

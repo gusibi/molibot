@@ -23,3 +23,20 @@
 - The strongest organizing signal in the current product is domain/business capability, not technical layer. Existing visible domains are: `ai`, `channels`, `memory`, `skills`, `tasks`, `sessions`, and `workspace/runtime`.
 - `mom` should likely be renamed or wrapped under a product-specific name such as `agent-runtime` or `workspace-runtime`; otherwise every future contributor has to learn upstream lore before understanding the codebase.
 - `package/mory` should remain separate as an SDK package, but in the app layer its integration should live under an explicit domain path such as `domains/memory/backends/mory`.
+
+## Applied Migration
+- Phase 1 was executed with no behavior change target:
+  - `runtime.ts` and `index.ts` moved under `src/lib/server/app/`
+  - `mom` moved to `src/lib/server/agent/`
+  - built-in Telegram/Feishu implementations moved to `src/lib/server/channels/`
+  - `sessionStore`, `settingsStore`, and `assistant` moved to `sessions/`, `settings/`, and `providers/`
+- `npm run build` succeeded after import/path updates, so the phase-1 directory migration is build-clean.
+- Phase 2 was executed next:
+  - former `config.ts` was split into `src/lib/server/app/env.ts` and `src/lib/server/settings/{schema,defaults}.ts`
+  - shared router moved from `src/lib/server/core/messageRouter.ts` to `src/lib/server/channels/shared/messageRouter.ts`
+- `npm run build` also succeeded after the phase-2 boundary split.
+- Phase 3 extraction was also applied:
+  - `rateLimiter.ts` moved to `src/lib/server/infra/rateLimiter.ts`
+  - storage helpers moved to `src/lib/server/infra/db/storage.ts`
+  - shared message contracts moved to `src/lib/shared/types/message.ts`
+- `npm run build` succeeded after the infra/shared extraction as well.

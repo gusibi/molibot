@@ -1,9 +1,9 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import type { SessionStore } from "../services/sessionStore.js";
-import { readJsonFile, storagePaths, writeJsonFile } from "../db/sqlite.js";
-import type { Channel } from "../types/message.js";
+import type { SessionStore } from "../sessions/store.js";
+import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
+import type { Channel } from "../../shared/types/message.js";
 import type {
   MemoryAddInput,
   MemoryBackend,

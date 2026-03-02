@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readJsonFile, storagePaths, writeJsonFile } from "../db/sqlite.js";
+import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
 import type { MemoryLayer, MemoryScope } from "./types.js";
 
 interface ImportTombstoneRecord {

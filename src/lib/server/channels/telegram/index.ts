@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
-import type { RuntimeSettings } from "../../../config.js";
-import { config } from "../../../config.js";
-import type { ChannelPlugin, ChannelPluginInstance } from "../../../channels/registry.js";
+import { config } from "../../app/env.js";
+import type { RuntimeSettings } from "../../settings/index.js";
+import type { ChannelPlugin, ChannelPluginInstance } from "../registry.js";
 import { TelegramManager, type TelegramConfig } from "./runtime.js";
 
 function listInstances(settings: RuntimeSettings): ChannelPluginInstance<TelegramConfig>[] {

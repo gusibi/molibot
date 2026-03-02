@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import express from "express";
 import type { Express } from "express";
-import { config } from "../config.js";
-import { MessageRouter } from "../core/messageRouter.js";
+import { config } from "../app/env.js";
+import { MessageRouter } from "../channels/shared/messageRouter.js";
 
 interface ChatBody {
   userId?: string;

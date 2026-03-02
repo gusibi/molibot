@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import type { ModelRole } from "$lib/server/config";
+import type { ModelRole } from "$lib/server/settings";
 
 interface ProviderTestBody {
   baseUrl?: string;

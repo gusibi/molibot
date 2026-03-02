@@ -1,4 +1,4 @@
-import type { SessionStore } from "../services/sessionStore.js";
+import type { SessionStore } from "../sessions/store.js";
 import { JsonFileMemoryBackend } from "./jsonFileCore.js";
 import { MoryMemoryBackend } from "./moryCore.js";
 import type { MemoryBackend } from "./types.js";

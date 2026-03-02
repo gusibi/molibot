@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { config } from "$lib/server/config";
+import { config } from "$lib/server/app/env";
 
 type SkillScope = "global" | "chat" | "workspace-legacy";
 

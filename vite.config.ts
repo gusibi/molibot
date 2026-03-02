@@ -12,7 +12,7 @@ export default defineConfig({
         server.httpServer?.once("listening", () => {
           setTimeout(() => {
             void server
-              .ssrLoadModule("/src/lib/server/runtime.ts")
+              .ssrLoadModule("/src/lib/server/app/runtime.ts")
               .then((mod) => {
                 if (typeof mod.getRuntime === "function") {
                   mod.getRuntime();

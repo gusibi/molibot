@@ -1,8 +1,8 @@
-import { type RuntimeSettings } from "../config.js";
+import { type RuntimeSettings } from "../settings/index.js";
 import type { MemoryGateway } from "../memory/gateway.js";
-import type { SessionStore } from "../services/sessionStore.js";
-import { feishuChannelPlugin } from "../plugins/channels/feishu/index.js";
-import { telegramChannelPlugin } from "../plugins/channels/telegram/index.js";
+import type { SessionStore } from "../sessions/store.js";
+import { feishuChannelPlugin } from "./feishu/index.js";
+import { telegramChannelPlugin } from "./telegram/index.js";
 
 export interface ChannelManager {
   apply(config: unknown): void;

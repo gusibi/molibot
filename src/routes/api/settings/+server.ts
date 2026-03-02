@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { getRuntime } from "$lib/server/runtime";
-import type { RuntimeSettings, CustomProviderConfig, TelegramBotConfig, FeishuBotConfig } from "$lib/server/config";
+import { getRuntime } from "$lib/server/app/runtime";
+import type { RuntimeSettings, CustomProviderConfig, TelegramBotConfig, FeishuBotConfig } from "$lib/server/settings";
 
 type SettingsBody = Partial<RuntimeSettings> & {
   telegramAllowedChatIds?: string[] | string;
