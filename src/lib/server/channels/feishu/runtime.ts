@@ -14,7 +14,9 @@ import type { MomContext, ChannelInboundMessage } from "../../agent/types.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.js";
 import { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
+import { deleteFeishuMessage, editFeishuText, sendFeishuFile, sendFeishuText } from "./messaging.js";
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "./message-intake.js";
+import { ChannelQueue } from "../shared/queue.js";
 
 export interface FeishuConfig {
     appId: string;
@@ -22,40 +24,8 @@ export interface FeishuConfig {
     allowedChatIds: string[];
 }
 
-class ChannelQueue {
-    private readonly queue: Array<() => Promise<void>> = [];
-    private processing = false;
-
-    enqueue(job: () => Promise<void>): void {
-        this.queue.push(job);
-        void this.run();
-    }
-
-    size(): number {
-        return this.queue.length;
-    }
-
-    private async run(): Promise<void> {
-        if (this.processing) return;
-        this.processing = true;
-
-        while (this.queue.length > 0) {
-            const job = this.queue.shift();
-            if (!job) continue;
-            try {
-                await job();
-            } catch (error) {
-                momError("feishu", "queue_job_failed", {
-                    error: error instanceof Error ? error.message : String(error),
-                    stack: error instanceof Error ? error.stack : undefined
-                });
-            }
-        }
-
-        this.processing = false;
-    }
-}
-
+// Orchestrates Feishu-specific inbound handling, command flow, and runner lifecycle.
+// Leaf concerns like queueing, message send/edit, and intake parsing live in sibling files.
 export class FeishuManager {
     private static readonly CHAT_EVENTS_RELATIVE_DIR = ["events"] as const;
     private static readonly INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
@@ -299,7 +269,8 @@ export class FeishuManager {
         }
 
         if ((event as ChannelInboundMessage & { transcriptionError?: string | null }).transcriptionError) {
-            await this.sendText(
+            await sendFeishuText(
+                this.client,
                 chatId,
                 [
                     "语音识别失败，已降级为未转写消息。",
@@ -323,7 +294,7 @@ export class FeishuManager {
                     chatId,
                     error: error instanceof Error ? error.message : String(error)
                 });
-                await this.sendText(chatId, "Internal error.");
+                await sendFeishuText(this.client, chatId, "Internal error.");
             }
         });
     }
@@ -346,7 +317,7 @@ export class FeishuManager {
             chatDir: this.store.getChatDir(chatId),
             respond: async (text: string, shouldLog = true) => {
                 if (!text.trim()) return;
-                const resp = await this.sendText(chatId, text);
+                const resp = await sendFeishuText(this.client, chatId, text);
                 if (resp && resp.message_id) {
                     currentMessageId = resp.message_id;
                 }
@@ -382,7 +353,7 @@ export class FeishuManager {
                     await ctx.respond(text);
                     return;
                 }
-                await this.editText(currentMessageId, text, chatId);
+                await editFeishuText(this.client, currentMessageId, text);
                 accumulatedText = text;
             },
             respondInThread: async (text: string) => {
@@ -390,8 +361,16 @@ export class FeishuManager {
             },
             setTyping: async () => { },
             setWorking: async () => { },
-            deleteMessage: async () => { },
-            uploadFile: async () => { }
+            deleteMessage: async () => {
+                await deleteFeishuMessage(this.client, currentMessageId);
+                currentMessageId = null;
+                accumulatedText = "";
+            },
+            uploadFile: async (filePath: string, title?: string) => {
+                const filename = title || filePath.split("/").pop() || "file";
+                const bytes = readFileSync(filePath);
+                await sendFeishuFile(this.client, chatId, bytes, filename);
+            }
         };
 
         try {
@@ -401,56 +380,10 @@ export class FeishuManager {
         }
     }
 
-    private formatFeishuCard(text: string) {
-        return {
-            config: { wide_screen_mode: true },
-            elements: [
-                {
-                    tag: "markdown",
-                    content: text
-                }
-            ]
-        };
-    }
-
-    private async sendText(chatId: string, text: string): Promise<{ message_id: string } | null> {
-        if (!this.client || !text.trim()) return null;
-        try {
-            const res = await this.client.im.message.create({
-                params: { receive_id_type: "chat_id" },
-                data: {
-                    receive_id: chatId,
-                    msg_type: "interactive",
-                    content: JSON.stringify(this.formatFeishuCard(text))
-                }
-            });
-            return { message_id: res.data?.message_id || "" };
-        } catch (e) {
-            momWarn("feishu", "send_message_failed", { error: String(e) });
-            return null;
-        }
-    }
-
-    private async editText(messageId: string, text: string, chatId: string): Promise<string | null> {
-        if (!this.client || !text.trim()) return null;
-        try {
-            await this.client.im.message.patch({
-                path: { message_id: messageId },
-                data: {
-                    content: JSON.stringify(this.formatFeishuCard(text))
-                }
-            });
-            return messageId;
-        } catch (e) {
-            momWarn("feishu", "edit_message_failed", { error: String(e) });
-            return null;
-        }
-    }
-
     private getQueue(chatId: string): ChannelQueue {
         let queue = this.chatQueues.get(chatId);
         if (!queue) {
-            queue = new ChannelQueue();
+            queue = new ChannelQueue("feishu");
             this.chatQueues.set(chatId, queue);
             momLog("feishu", "queue_created", { chatId });
         }
@@ -493,7 +426,7 @@ export class FeishuManager {
         const rawArg = parts.slice(1).join(" ").trim();
 
         if (cmd === "/chatid") {
-            await this.sendText(chatId, `chat_id: ${chatId}`);
+            await sendFeishuText(this.client, chatId, `chat_id: ${chatId}`);
             return true;
         }
 
@@ -503,88 +436,88 @@ export class FeishuManager {
                 const runner = this.runners.get(chatId, activeSessionId);
                 runner.abort();
                 momLog("feishu", "stop_requested", { chatId, sessionId: activeSessionId });
-                await this.sendText(chatId, "Stopping...");
+                await sendFeishuText(this.client, chatId, "Stopping...");
             } else {
-                await this.sendText(chatId, "Nothing running.");
+                await sendFeishuText(this.client, chatId, "Nothing running.");
             }
             return true;
         }
 
         if (cmd === "/new") {
             if (this.running.has(chatId)) {
-                await this.sendText(chatId, "Already working. Send /stop first, then /new.");
+                await sendFeishuText(this.client, chatId, "Already working. Send /stop first, then /new.");
                 return true;
             }
             const sessionId = this.store.createSession(chatId);
             this.runners.reset(chatId, sessionId);
-            await this.sendText(chatId, `Created and switched to new session: ${sessionId}`);
+            await sendFeishuText(this.client, chatId, `Created and switched to new session: ${sessionId}`);
             momLog("feishu", "session_new", { chatId, sessionId });
             return true;
         }
 
         if (cmd === "/clear") {
             if (this.running.has(chatId)) {
-                await this.sendText(chatId, "Already working. Send /stop first, then /clear.");
+                await sendFeishuText(this.client, chatId, "Already working. Send /stop first, then /clear.");
                 return true;
             }
             const sessionId = this.store.getActiveSession(chatId);
             this.store.clearSessionContext(chatId, sessionId);
             this.runners.reset(chatId, sessionId);
-            await this.sendText(chatId, `Cleared context for session: ${sessionId}`);
+            await sendFeishuText(this.client, chatId, `Cleared context for session: ${sessionId}`);
             momLog("feishu", "session_clear", { chatId, sessionId });
             return true;
         }
 
         if (cmd === "/sessions") {
             if (this.running.has(chatId)) {
-                await this.sendText(chatId, "Already working. Send /stop first, then switch sessions.");
+                await sendFeishuText(this.client, chatId, "Already working. Send /stop first, then switch sessions.");
                 return true;
             }
             if (rawArg) {
                 const picked = this.resolveSessionSelection(chatId, rawArg);
                 if (!picked) {
-                    await this.sendText(chatId, "Invalid session selector. Use /sessions to list available sessions.");
+                    await sendFeishuText(this.client, chatId, "Invalid session selector. Use /sessions to list available sessions.");
                     return true;
                 }
                 this.store.setActiveSession(chatId, picked);
-                await this.sendText(chatId, `Switched to session: ${picked}`);
+                await sendFeishuText(this.client, chatId, `Switched to session: ${picked}`);
                 return true;
             }
-            await this.sendText(chatId, this.formatSessionsOverview(chatId));
+            await sendFeishuText(this.client, chatId, this.formatSessionsOverview(chatId));
             return true;
         }
 
         if (cmd === "/delete_sessions") {
             if (this.running.has(chatId)) {
-                await this.sendText(chatId, "Already working. Send /stop first, then delete sessions.");
+                await sendFeishuText(this.client, chatId, "Already working. Send /stop first, then delete sessions.");
                 return true;
             }
             if (!rawArg) {
-                await this.sendText(chatId, `${this.formatSessionsOverview(chatId)}\n\nDelete usage: /delete_sessions <index|sessionId>`);
+                await sendFeishuText(this.client, chatId, `${this.formatSessionsOverview(chatId)}\n\nDelete usage: /delete_sessions <index|sessionId>`);
                 return true;
             }
             const picked = this.resolveSessionSelection(chatId, rawArg);
             if (!picked) {
-                await this.sendText(chatId, "Invalid session selector.");
+                await sendFeishuText(this.client, chatId, "Invalid session selector.");
                 return true;
             }
             try {
                 const result = this.store.deleteSession(chatId, picked);
                 this.runners.reset(chatId, result.deleted);
-                await this.sendText(chatId, `Deleted session: ${result.deleted}\nCurrent session: ${result.active}\nRemaining: ${result.remaining.length}`);
+                await sendFeishuText(this.client, chatId, `Deleted session: ${result.deleted}\nCurrent session: ${result.active}\nRemaining: ${result.remaining.length}`);
             } catch (error) {
-                await this.sendText(chatId, error instanceof Error ? error.message : String(error));
+                await sendFeishuText(this.client, chatId, error instanceof Error ? error.message : String(error));
             }
             return true;
         }
 
         if (cmd === "/models") {
-            await this.sendText(chatId, "Feishu model switching via command is not fully implemented yet. Please use the Web UI or Telegram to switch active models.");
+            await sendFeishuText(this.client, chatId, "Feishu model switching via command is not fully implemented yet. Please use the Web UI or Telegram to switch active models.");
             return true;
         }
 
         if (cmd === "/skills") {
-            await this.sendText(chatId, this.skillsText(chatId));
+            await sendFeishuText(this.client, chatId, this.skillsText(chatId));
             return true;
         }
 
@@ -601,7 +534,7 @@ export class FeishuManager {
                 "/delete_sessions <index|sessionId> - delete a session",
                 "/skills - list currently loaded skills"
             ].join("\n");
-            await this.sendText(chatId, help);
+            await sendFeishuText(this.client, chatId, help);
             return true;
         }
 

@@ -45,8 +45,10 @@ src/
 | 2 | `src/lib/server/services/rateLimiter.ts` | `src/lib/server/infra/rateLimiter.ts` or `app/guardrails/` | Keep guardrail utility out of generic service bucket | Done |
 | 3 | `src/lib/server/db/sqlite.ts` | `src/lib/server/infra/db/*` | Isolate persistence helpers from business modules | Done |
 | 3 | `src/lib/server/types/message.ts` | `src/lib/shared/types/message.ts` or `sessions/types.ts` | Keep cross-module types in stable shared/module-local home | Done |
-| 4 | `src/lib/server/channels/telegram/runtime.ts` | `src/lib/server/channels/telegram/{runtime,commands,scheduling,transport,attachments}/*` | Split oversized file by responsibility | Planned |
-| 4 | `src/lib/server/channels/feishu/runtime.ts` | `src/lib/server/channels/feishu/{runtime,commands,transport}/*` | Mirror clearer ownership for Feishu runtime | Planned |
+| 4 | duplicated `src/lib/server/channels/{telegram,feishu}/queue.ts` | `src/lib/server/channels/shared/queue.ts` | Remove identical per-channel queue logic before deeper runtime splitting | Done |
+| 4 | duplicated Telegram/Feishu STT core logic | `src/lib/server/channels/shared/stt.ts` + channel-local thin wrappers | Share provider target resolution and transcription HTTP flow while keeping channel-specific normalization local | Done |
+| 4 | `src/lib/server/channels/telegram/runtime.ts` | `src/lib/server/channels/telegram/{runtime,commands,scheduling,transport,attachments}/*` | Split oversized file by responsibility | In Progress |
+| 4 | `src/lib/server/channels/feishu/runtime.ts` | `src/lib/server/channels/feishu/{runtime,commands,transport}/*` | Mirror clearer ownership for Feishu runtime | In Progress |
 
 ## Execution Order
 1. Phase 1: rename/move modules and fix imports.
@@ -59,5 +61,6 @@ src/
 - Phase 1 completed on 2026-03-02.
 - Phase 2 completed on 2026-03-02.
 - Phase 3 core infra extraction completed on 2026-03-02.
+- Phase 4 shared leaf extraction completed for duplicated channel queue/STT logic on 2026-03-02.
 - Verification completed with `npm run build`.
-- Next recommended step: split oversized Telegram and Feishu runtime files by responsibility.
+- Next recommended step: stop at the current split depth unless a specific command-flow hotspot starts causing maintenance errors.

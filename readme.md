@@ -47,6 +47,40 @@ Molibot 是一个多端 AI 助手项目，当前入口实现覆盖：
 - `src/routes/`：Web 页面与 API 路由
 - `bin/`：`molibot` 启动器与服务运维脚本
 
+说明：
+- 保留 `src/lib/server/` 这一层，作为 SvelteKit 下明确的“服务端专用模块”边界，避免后端 runtime / channel / memory 代码被前端页面误引入。
+
+## 目录说明
+
+### `src/`
+- `routes/`：SvelteKit 页面与 API 路由入口。
+- `lib/`：项目内可复用模块。
+
+### `src/lib/`
+- `server/`：服务端专用模块边界；放 runtime、渠道、memory、settings 等后端能力。
+- `shared/`：前后端都可能复用的稳定类型或纯工具。
+
+### `src/lib/server/`
+- `app/`：应用启动、环境配置、runtime 装配。
+- `agent/`：Agent 内核，包含 prompt、runner、workspace、tools、events。
+- `channels/`：各消息渠道适配与运行时。
+- `memory/`：统一 memory gateway、backend、importer。
+- `sessions/`：会话持久化与会话文件读写。
+- `settings/`：运行时设置 schema、默认值、持久化。
+- `providers/`：模型/provider 调用适配。
+- `infra/`：基础设施能力，如 rate limit、存储 helper。
+- `plugins/`：插件发现与插件元数据，不承载具体内建渠道实现。
+- `adapters/`：保留的通用适配入口（例如 CLI/Web 入口胶水层）。
+
+### `src/lib/server/channels/`
+- `telegram/`：Telegram 渠道实现。`runtime.ts` 保留主编排；`queue.ts`、`formatting.ts`、`stt.ts`、`types.ts` 放低风险叶子逻辑。
+- `feishu/`：Feishu 渠道实现。`runtime.ts` 保留主编排；`message-intake.ts`、`messaging.ts`、`queue.ts` 放渠道叶子逻辑。
+- `shared/`：被多个渠道复用的共享路由或辅助逻辑。
+- `registry.ts`：内建渠道注册表。
+
+### `src/lib/shared/`
+- `types/`：跨模块共享类型；当前主要放消息模型。
+
 ## 安装
 
 ```bash

@@ -14,79 +14,18 @@ import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.js";
 import { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
+import { editTelegramText, sendTelegramText } from "./formatting.js";
+import { ChannelQueue } from "../shared/queue.js";
+import { transcribeTelegramAudio } from "./stt.js";
+import type { ModelOption, ModelRoute, ParsedRelativeReminder, StatusSession } from "./types.js";
 
 export interface TelegramConfig {
   token: string;
   allowedChatIds: string[];
 }
 
-class ChannelQueue {
-  private readonly queue: Array<() => Promise<void>> = [];
-  private processing = false;
-
-  enqueue(job: () => Promise<void>): void {
-    this.queue.push(job);
-    void this.run();
-  }
-
-  size(): number {
-    return this.queue.length;
-  }
-
-  private async run(): Promise<void> {
-    if (this.processing) return;
-    this.processing = true;
-
-    while (this.queue.length > 0) {
-      const job = this.queue.shift();
-      if (!job) continue;
-      try {
-        await job();
-      } catch (error) {
-        momError("telegram", "queue_job_failed", {
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined
-        });
-      }
-    }
-
-    this.processing = false;
-  }
-}
-
-interface StatusSession {
-  statusMessageId: number | null;
-  threadMessageIds: number[];
-  accumulatedText: string;
-  isWorking: boolean;
-}
-
-interface ModelOption {
-  key: string;
-  label: string;
-  patch: Partial<RuntimeSettings>;
-}
-
-type ModelRoute = "text" | "vision" | "stt" | "tts";
-
-interface SttTarget {
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  path: string;
-}
-
-interface TranscriptionResult {
-  text: string | null;
-  errorMessage: string | null;
-}
-
-interface ParsedRelativeReminder {
-  delayMs: number;
-  reminderText: string;
-  sourceText: string;
-}
-
+// Orchestrates Telegram-specific command flow, event handling, and runner lifecycle.
+// Leaf concerns like queueing, text formatting, and STT live in sibling files.
 export class TelegramManager {
   private static readonly TELEGRAM_TEXT_SOFT_LIMIT = 3800;
   private static readonly CHAT_EVENTS_RELATIVE_DIR = ["events"] as const;
@@ -110,112 +49,6 @@ export class TelegramManager {
   private readonly events: EventsWatcher[] = [];
   private readonly watchedChatEventDirs = new Set<string>();
 
-
-  private escapeHtml(value: string): string {
-    return value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-  }
-
-  private escapeHtmlAttr(value: string): string {
-    return this.escapeHtml(value).replace(/"/g, "&quot;");
-  }
-
-  private markdownToTelegramHtml(input: string): string {
-    const normalized = input.replace(/\r\n?/g, "\n");
-    const tokens: string[] = [];
-    const saveToken = (content: string): string => {
-      const idx = tokens.push(content) - 1;
-      return `\u0000${idx}\u0000`;
-    };
-
-    let out = normalized;
-
-    out = out.replace(/```(?:[^\n`]*)\n([\s\S]*?)```/g, (_m, code: string) =>
-      saveToken(`<pre><code>${this.escapeHtml(code.replace(/\n$/, ""))}</code></pre>`)
-    );
-
-    out = out.replace(/`([^`\n]+)`/g, (_m, code: string) =>
-      saveToken(`<code>${this.escapeHtml(code)}</code>`)
-    );
-
-    out = out.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, label: string, url: string) =>
-      saveToken(`<a href="${this.escapeHtmlAttr(url)}">${this.escapeHtml(label)}</a>`)
-    );
-
-    out = this.escapeHtml(out);
-
-    out = out.replace(/^\s*#{1,6}\s+(.+)$/gm, "<b>$1</b>");
-    out = out.replace(/^\s*[-*]\s+/gm, "• ");
-    out = out.replace(/\*\*([^*\n][^*\n]*?)\*\*/g, "<b>$1</b>");
-    out = out.replace(/(^|[^\w])_([^_\n][^_\n]*?)_/g, "$1<i>$2</i>");
-    out = out.replace(/(^|[^\*])\*([^*\n][^*\n]*?)\*/g, "$1<i>$2</i>");
-    out = out.replace(/~~([^~\n][^~\n]*?)~~/g, "<s>$1</s>");
-
-    out = out.replace(/\u0000(\d+)\u0000/g, (_m, rawIdx: string) => tokens[Number(rawIdx)] ?? "");
-    return out;
-  }
-
-  private formatTelegramText(text: string): { text: string; parseMode?: "HTML" } {
-    const normalized = text.replace(/\r\n?/g, "\n");
-    const looksLikeMarkdown =
-      /```|`|\*\*|~~|\[[^\]]+\]\(https?:\/\/|^\s*#{1,6}\s+/m.test(normalized) ||
-      /(^|[^\*])\*[^*\n][^*\n]*\*/.test(normalized) ||
-      /(^|[^\w])_[^_\n][^_\n]*_/.test(normalized);
-
-    if (!looksLikeMarkdown) {
-      return { text: normalized };
-    }
-
-    return { text: this.markdownToTelegramHtml(normalized), parseMode: "HTML" };
-  }
-
-  private async sendText(
-    bot: Bot,
-    chatId: string,
-    text: string,
-    options?: Record<string, unknown>
-  ): Promise<{ message_id: number }> {
-    const payload = this.formatTelegramText(text);
-    try {
-      const sendOptions = payload.parseMode
-        ? { ...(options ?? {}), parse_mode: payload.parseMode }
-        : { ...(options ?? {}) };
-      return (await bot.api.sendMessage(chatId, payload.text, sendOptions as never)) as { message_id: number };
-    } catch (error) {
-      if (payload.parseMode) {
-        momWarn("telegram", "send_message_parse_fallback_plain", {
-          chatId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        return (await bot.api.sendMessage(chatId, text, (options ?? {}) as never)) as { message_id: number };
-      }
-      throw error;
-    }
-  }
-
-  private async editText(bot: Bot, chatId: string, messageId: number, text: string): Promise<void> {
-    const payload = this.formatTelegramText(text);
-    try {
-      if (payload.parseMode) {
-        await bot.api.editMessageText(chatId, messageId, payload.text, { parse_mode: payload.parseMode } as never);
-        return;
-      }
-      await bot.api.editMessageText(chatId, messageId, payload.text);
-    } catch (error) {
-      if (payload.parseMode) {
-        momWarn("telegram", "edit_message_parse_fallback_plain", {
-          chatId,
-          messageId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        await bot.api.editMessageText(chatId, messageId, text);
-        return;
-      }
-      throw error;
-    }
-  }
 
   constructor(
     private readonly getSettings: () => RuntimeSettings,
@@ -613,7 +446,7 @@ export class TelegramManager {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined
           });
-          await this.sendText(bot, chatId, "Internal error.");
+          await sendTelegramText(bot, chatId, "Internal error.");
         }
         momLog("telegram", "queue_job_end", { runId, chatId });
       });
@@ -754,7 +587,7 @@ export class TelegramManager {
   private getQueue(chatId: string): ChannelQueue {
     let queue = this.chatQueues.get(chatId);
     if (!queue) {
-      queue = new ChannelQueue();
+      queue = new ChannelQueue("telegram");
       this.chatQueues.set(chatId, queue);
       momLog("telegram", "queue_created", { chatId });
     }
@@ -847,7 +680,7 @@ export class TelegramManager {
   private async deliverDirectEventMessage(event: MomEvent, runId: string, filename: string): Promise<void> {
     if (!this.bot) return;
 
-    const sent = await this.sendText(this.bot, event.chatId, event.text);
+        const sent = await sendTelegramText(this.bot, event.chatId, event.text);
     this.store.logBotResponse(event.chatId, event.text, sent.message_id);
 
     momLog("telegram", "event_direct_sent", {
@@ -905,7 +738,7 @@ export class TelegramManager {
       const display = status.isWorking ? `${text} ...` : text;
       if (status.statusMessageId) {
         try {
-          await this.editText(bot, chatId, status.statusMessageId, display);
+          await editTelegramText(bot, chatId, status.statusMessageId, display);
           momLog("telegram", "status_edited", {
             runId,
             chatId,
@@ -932,7 +765,7 @@ export class TelegramManager {
         }
       }
 
-      const sent = await this.sendText(bot, chatId, display);
+      const sent = await sendTelegramText(bot, chatId, display);
       status.statusMessageId = sent.message_id;
       momLog("telegram", "status_sent", {
         runId,
@@ -969,7 +802,7 @@ export class TelegramManager {
       },
       respondInThread: async (text) => {
         if (!status.statusMessageId) return;
-        const sent = await this.sendText(bot, chatId, text, {
+        const sent = await sendTelegramText(bot, chatId, text, {
           reply_parameters: { message_id: status.statusMessageId }
         });
         status.threadMessageIds.push(sent.message_id);
@@ -1033,7 +866,7 @@ export class TelegramManager {
               rawName,
               textLength: Array.from(text).length
             });
-            await this.sendText(bot, chatId, text);
+            await sendTelegramText(bot, chatId, text);
             return;
           }
         }
@@ -1562,138 +1395,6 @@ export class TelegramManager {
     return ".ogg";
   }
 
-  private normalizeApiPath(path: string | undefined, fallback: string): string {
-    const raw = String(path ?? fallback).trim() || fallback;
-    return raw.startsWith("/") ? raw : `/${raw}`;
-  }
-
-  private buildApiUrl(baseUrl: string, path: string | undefined, fallbackPath: string): string {
-    const base = baseUrl.replace(/\/+$/, "");
-    const normalizedPath = this.normalizeApiPath(path, fallbackPath);
-    return `${base}${normalizedPath}`;
-  }
-
-  private parseModelKey(key: string): { mode: "pi" | "custom"; provider: string; model: string } | null {
-    const raw = key.trim();
-    if (!raw) return null;
-    const [mode, provider, ...rest] = raw.split("|");
-    if ((mode !== "pi" && mode !== "custom") || !provider || rest.length === 0) return null;
-    const model = rest.join("|").trim();
-    if (!model) return null;
-    return { mode, provider: provider.trim(), model };
-  }
-
-  private resolveSttTarget(): SttTarget | null {
-    const settings = this.getSettings();
-    const routed = this.parseModelKey(settings.modelRouting.sttModelKey);
-    if (routed?.mode === "custom") {
-      const provider = settings.customProviders.find((p) => p.id === routed.provider);
-      if (provider?.baseUrl && provider.apiKey && routed.model) {
-        return {
-          baseUrl: provider.baseUrl,
-          apiKey: provider.apiKey,
-          model: routed.model,
-          path: provider.path
-        };
-      }
-    }
-
-    // Auto-heal fallback: if stt route is missing/invalid, pick first custom model tagged as stt.
-    for (const provider of settings.customProviders) {
-      if (!provider.baseUrl?.trim() || !provider.apiKey?.trim()) continue;
-      const sttModel = provider.models.find((m) => m.id?.trim() && Array.isArray(m.tags) && m.tags.includes("stt"));
-      if (!sttModel) continue;
-      return {
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-        model: sttModel.id,
-        path: provider.path
-      };
-    }
-
-    if (!config.telegramSttApiKey || !config.telegramSttModel) return null;
-    return {
-      baseUrl: config.telegramSttBaseUrl,
-      apiKey: config.telegramSttApiKey,
-      model: config.telegramSttModel,
-      path: "/v1/audio/transcriptions"
-    };
-  }
-
-  private async transcribeAudio(data: Buffer, filename: string, mimeType?: string): Promise<TranscriptionResult> {
-    const target = this.resolveSttTarget();
-    if (!target) {
-      return {
-        text: null,
-        errorMessage: "STT 未配置。请在 AI Settings 里选择可用的 STT 模型并填写 API 配置。"
-      };
-    }
-
-    const url = this.buildApiUrl(target.baseUrl, target.path, "/v1/audio/transcriptions");
-    momLog("telegram", "voice_transcription_target", {
-      url,
-      model: target.model,
-      hasApiKey: Boolean(target.apiKey)
-    });
-    const form = new FormData();
-    form.append("model", target.model);
-    if (config.telegramSttLanguage) {
-      form.append("language", config.telegramSttLanguage);
-    }
-    if (config.telegramSttPrompt) {
-      form.append("prompt", config.telegramSttPrompt);
-    }
-    form.append("file", new Blob([data], { type: mimeType || "audio/ogg" }), filename);
-
-    try {
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${target.apiKey}`
-        },
-        body: form
-      });
-      if (!resp.ok) {
-        const body = await resp.text();
-        const hint = resp.status === 404
-          ? "端点可能不正确，请检查 provider baseUrl/path（例如是否缺少 /v1）。"
-          : "请检查 API Key、模型名、以及 provider 路径配置。";
-        momWarn("telegram", "voice_transcription_http_error", {
-          url,
-          status: resp.status,
-          statusText: resp.statusText,
-          body: body.slice(0, 240)
-        });
-        return {
-          text: null,
-          errorMessage: `语音转写失败（HTTP ${resp.status} ${resp.statusText}）。${hint}`
-        };
-      }
-
-      const payload = (await resp.json()) as { text?: unknown };
-      const text = String(payload.text ?? "").trim();
-      if (!text) {
-        return {
-          text: null,
-          errorMessage: "语音转写接口返回成功，但没有返回文本内容。请检查模型兼容性。"
-        };
-      }
-      momLog("telegram", "voice_transcription_success", {
-        model: target.model,
-        transcriptLength: text.length
-      });
-      return { text, errorMessage: null };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      momWarn("telegram", "voice_transcription_failed", {
-        error: message
-      });
-      return {
-        text: null,
-        errorMessage: `语音转写请求异常：${message}`
-      };
-    }
-  }
 
   private async downloadTelegramFile(token: string, fileId: string): Promise<Buffer | null> {
     if (!this.bot) return null;
@@ -1776,7 +1477,7 @@ export class TelegramManager {
       if (data) {
         const saved = this.store.saveAttachment(chatId, filename, ts, data);
         attachments.push(saved);
-        const transcription = await this.transcribeAudio(data, filename, msg.voice.mime_type);
+        const transcription = await transcribeTelegramAudio(this.getSettings(), data, filename, msg.voice.mime_type);
         voiceTranscript = transcription.text;
         voiceTranscriptionError = transcription.errorMessage;
       }
@@ -1790,7 +1491,7 @@ export class TelegramManager {
         const saved = this.store.saveAttachment(chatId, filename, ts, data);
         attachments.push(saved);
         if (!voiceTranscript) {
-          const transcription = await this.transcribeAudio(data, filename, msg.audio.mime_type);
+          const transcription = await transcribeTelegramAudio(this.getSettings(), data, filename, msg.audio.mime_type);
           voiceTranscript = transcription.text;
           voiceTranscriptionError = transcription.errorMessage;
         }

@@ -40,3 +40,31 @@
   - storage helpers moved to `src/lib/server/infra/db/storage.ts`
   - shared message contracts moved to `src/lib/shared/types/message.ts`
 - `npm run build` succeeded after the infra/shared extraction as well.
+
+## Additional Cleanup
+- `src/lib/memoryStorageBackend.ts` was confirmed unused by repository-wide search and deleted.
+- Keeping `src/lib/server/` is still the right call: it gives a strong server-only boundary for runtime/channel/memory code in a SvelteKit app. The problem was internal organization under `server`, not the existence of the `server` layer itself.
+
+## Telegram Runtime Refactor
+- The first Telegram split should stay shallow because this repository is likely to keep receiving AI-assisted edits.
+- A low-risk extraction was applied:
+  - `formatting.ts` now owns Telegram markdown-to-HTML formatting and send/edit helpers
+  - `queue.ts` now owns the per-chat async queue implementation
+  - `stt.ts` now owns STT route resolution and transcription HTTP calls
+  - `types.ts` now owns small runtime-local helper types
+- This reduced `src/lib/server/channels/telegram/runtime.ts` from 1835 lines to 1534 lines without changing the runtime's orchestration shape.
+
+## Shared Channel Duplication
+- Telegram and Feishu carried near-identical queue implementations that differed only by log channel name. That duplication is now removed in favor of `src/lib/server/channels/shared/queue.ts`.
+- Telegram `stt.ts` and Feishu `message-intake.ts` duplicated the same STT provider-target resolution and OpenAI-compatible transcription request flow. That common core now belongs in `src/lib/server/channels/shared/stt.ts`.
+- Image/attachment intake was intentionally not deduplicated. Although both channels eventually produce `attachments`/`imageContents`, the upstream message payloads, file-download APIs, and media-type heuristics are still channel-specific enough that extracting them now would increase risk rather than reduce it.
+
+## Feishu Media Gap
+- Telegram outbound media support was already complete: `uploadFile` could send text, image, audio, and generic documents.
+- Feishu outbound media support was previously missing entirely because `MomContext.uploadFile` in `src/lib/server/channels/feishu/runtime.ts` was an empty stub.
+- That gap is now closed with channel-local helpers:
+  - small text files can be sent as normal Feishu text cards
+  - images upload via `im.image.create` and send as `msg_type: "image"`
+  - uploaded audio/video first attempt channel-native `audio` / `media` messages and fall back to `file`
+  - generic files upload via `im.file.create` and send as `msg_type: "file"`
+- Feishu still keeps `setTyping` and true thread-targeted replies as no-ops/same-message fallbacks. Those are separate capability decisions, not blockers for file/media delivery.
