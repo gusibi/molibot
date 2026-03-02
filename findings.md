@@ -1,58 +1,25 @@
 # Findings
 
-## Documents
-- `prd.md` 已明确目标：新增渠道不应改核心 pipeline（P2-01）。
-- `prd.md` 已记录 prompt 侧需要 adapter-selectable channel sections（P1-36），说明当前系统已经意识到 channel-specific prompt 是一个耦合点。
-- `features.md` 显示当前 memory 已经做成 gateway/plugin 模式，可作为渠道插件化的参考设计。
+## Repository Scan
+- Root project is a SvelteKit app plus server runtime, CLI entry, Telegram runtime, and a nested `package/mory` package.
+- `README.md` says the current backend core is concentrated in `src/lib/server/`.
+- Build artifacts and generated directories (`build`, `dist`, `.svelte-kit`, `node_modules`) exist in repo/worktree and add visual noise during manual inspection.
 
-## Current Coupling
-- Runtime 启动层直接 import 并管理 `TelegramManager` / `FeishuManager`，新增渠道必须改 `runtime.ts`、settings 类型、apply 流程。
-- 配置模型按平台写死：`RuntimeSettings` 直接包含 `telegramBots` / `feishuBots`，设置 API 和前端设置页也按平台拆开。
-- mom 运行时上下文仍以 Telegram 为默认真相：`TelegramInboundEvent`、`TelegramMomStore`、`RunnerPool`、memory tool 中都有 `channel: "telegram"` 硬编码。
-- `prompt-channel.ts` 只声明 `telegram`，说明 prompt 插槽虽已抽出，但插件协议还没成立。
-- Feishu 适配层大量复用 Telegram 命名/类型/存储，属于“复制一份再改”的接入，不是正式插件边界。
+## Naming / Boundary Findings
+- `src/lib/server/` is acting as a catch-all backend root instead of a cleanly partitioned application layer. It currently mixes runtime bootstrap, business orchestration, channel adapters, prompt/runtime internals, memory backends, plugin discovery, and storage helpers.
+- `mom` is not random project-specific naming. It is inherited from the upstream `pi-mono` package and stands for `Master Of Mischief`, an agent runtime capable of tools, prompts, memory injection, and workspace execution.
+- `package/mory` is a separate SDK-style package for memory orchestration/storage, while `src/lib/server/memory` is the host application's memory gateway/backend integration layer. The two are related but sit at different architectural levels.
+- `plugins/channels/*` and `channels/registry.ts` overlap conceptually: one directory contains concrete channel implementations while another contains channel plugin contracts/registration. This split is technically valid but hard to read because the naming does not reveal the distinction.
+- `core/messageRouter.ts` still reflects the earlier “unified chat router” architecture, while Telegram/Feishu now use the richer `mom` runtime directly. That means the repo contains both an older generic path and a newer agent-runtime path.
 
-## Memory Architecture
-- `memory` 现有结构更适合定义为 backend/driver 层，而不是复用 channel plugin 协议：它有统一 gateway 和稳定 CRUD/search/flush 接口，但没有 channel manager 那种实例生命周期。
-- 适合插件化的是 memory 存储后端，例如 `json-file`、`mory`、未来的远程 memory service；不适合插件化的是 memory 领域模型、prompt 注入语义、冲突治理规则。
-- 为兼容现有配置，运行时和设置持久化应优先读取新字段 `plugins.memory.backend`，同时兼容旧字段 `plugins.memory.core`。
-- 已完成进一步拆分：外部同步不再属于 backend 接口，而是独立 importer/source；当前内建实现为 Telegram legacy memory file importer。
-- memory backend catalog 已补进 plugin catalog，设置页现在可以和 channel/provider 一样看到当前内建 backends。
+## Structural Hotspots
+- `src/lib/server/plugins/channels/telegram/runtime.ts` is very large (1835 lines). It currently mixes transport integration, queueing, formatting, event watching, prompt preview generation, model switching commands, file handling, and runtime/session orchestration in one file.
+- `src/lib/server/plugins/channels/feishu/runtime.ts` is also large (700 lines) and appears to mirror part of the Telegram runtime shape.
+- `src/lib/server/runtime.ts` is the composition root but also contains substantial settings sanitization and logging logic. This makes the real bootstrap path harder to see.
+- `src/lib/server/config.ts` carries environment loading, settings types, defaults, and channel-settings mapping. It is both schema and bootstrap config assembler.
+- Route structure is comparatively clearer than backend structure: `/settings/*` and `/api/settings/*` already hint at business domains like AI, Telegram, Feishu, Memory, Skills, Tasks.
 
-## 2026-03-01 Feishu Media Intake
-- 用户反馈 Feishu 当前只能识别文本，图片、语音和其他文件都进不了对话链路。
-- `src/lib/server/plugins/channels/feishu/runtime.ts` 现状是仅在 `message.message_type === "text"` 时提取内容。
-- 同文件虽然构造了 `attachments` 和 `imageContents` 字段，但 Feishu 路径从未填充它们。
-- 非文本消息因为 `cleaned` 为空，在进入 runner 之前就被 `message_ignored_empty` 逻辑丢弃。
-- 参照实现位于 `src/lib/server/plugins/channels/telegram/runtime.ts`：它已经覆盖 `document/photo/voice/audio` 下载、附件保存、图片注入、STT 转写和 transcript 注入。
-- Feishu SDK 已提供 `client.im.messageResource.get({ path: { message_id, file_key }, params: { type } })` 用于下载用户消息中的资源文件。
-- 用户现场日志显示：语音消息下载时 `file_key` 为 `file_v3_*`，但请求参数 `type=media` 返回 HTTP 400。这说明飞书音频资源并不总能按 `media` 下载，至少存在一类消息必须按 `file` 资源路径取回。
-- 因为飞书不同消息体字段与资源下载 `type` 的对应关系并不完全稳定，本轮实现补充了基于 `message_type + file_key 前缀` 的候选类型回退，而不是单一硬编码映射。
-- 本轮修复策略是复用 Telegram 的 runner 输入约定，不改 runner，只补 Feishu 入站归一化。
-
-## 2026-03-01 Feishu Duplicate Response
-- Feishu 当前不是“主动拉取消息”，而是通过 `@larksuiteoapi/node-sdk` 的 `WSClient` 订阅 `im.message.receive_v1` 事件。
-- `src/lib/server/plugins/channels/feishu/runtime.ts` 中的 `stop()` 之前没有真正关闭 `WSClient`，只是清空实例引用；如果 runtime 发生重复 `apply()`，旧连接仍可能继续收消息，形成重复处理。
-- 现有通用去重依赖 `MomRuntimeStore.logMessage(chatId, { messageId: number })`，而 Feishu 入站在 `message-intake.ts` 中把原始字符串 `message.message_id` 压缩成数字再进入该层，适配器缺少对原始 id 的幂等控制。
-- 用户截图中的两类异常其实叠加存在：
-  - `transcriptionError` 会先额外发送一条 STT 降级提示；
-  - 如果同一入站事件被重复投递或重复订阅消费，主回复会再次发送，形成“同答案出现两次”的观感。
-
-## 2026-03-01 Prompt/Skills Core Ownership
-- 用户指出 system prompt 加载、skills 根目录和工作区语义不应在 Telegram / Feishu plugin 中重复实现，这类能力应收敛到 core。
-- 实查发现问题不止在 plugin 层：
-  - `FeishuManager.processEvent()` 把 `ctx.workspaceDir` 误传成了 `scratch`，直接污染 prompt 和工具路径语义。
-  - `mom/prompt.ts`、`mom/skills.ts`、`mom/store.ts`、`mom/tools/path.ts` 仍把 `/moli-t/` 当成唯一 workspace marker，导致 `moli-f` 的 data root / memory root / global skills 解析错误。
-  - Telegram `/skills` 命令自己重复推导 global skills 路径，Feishu 则没有对等能力，也没有 prompt preview，导致可观测性不一致。
-- 结论：需要把 workspace/data-root/memory-root/global-skills 的推导下沉到 shared `mom` core，只让 plugin 保留可选的 channel-specific prompt section 和 bot transport 逻辑。
-
-## 2026-03-01 Memory Duplicate / Delete Regression
-- `src/lib/server/runtime.ts` 中 memory external sync 确实存在定时任务：每 60 秒执行一次 `syncExternalMemories()`，日志里的 `periodic_sync` 属于这个定时器。
-- `src/routes/api/memory/+server.ts` 当前在所有 memory action 前都调用 `memory.syncExternalMemories()`，这会让单纯的 list/search/delete 也触发导入副作用。
-- `src/lib/server/memory/importers/telegramFileImporter.ts` 的 legacy 导入源是 `${DATA_DIR}/memory/moli-t/bots/<bot>/<chatId>/MEMORY.md`；只要源文件还在，且 backend 中查不到同内容，就会再次导入。
-- `src/lib/server/memory/moryCore.ts` 之前没有和 `json-file` backend 对齐的 exact-content dedupe，所以历史上可能已经写入大量重复记录。
-- `/settings/memory` 页面删除后刷新又出现，不是前端假象，核心原因是删除后再次 list 会先触发 sync，而 legacy `MEMORY.md` 又把同内容重新导回来了。
-
-## 2026-03-02 Remaining Mory Detail Gaps
-- `mory` / `json-file` backend 之前只在 `add()` 路径做 exact-content dedupe，`update()` 仍然可以把一条 memory 改成另一条已存在的内容，从而重新制造重复。
-- `src/lib/server/mom/tools/memory.ts` 的 schema/execute 分支没有同步暴露 `compact`，导致 web API 已有去重能力但 agent 工具侧无法调用，能力面不一致。
+## Refactor Direction
+- The strongest organizing signal in the current product is domain/business capability, not technical layer. Existing visible domains are: `ai`, `channels`, `memory`, `skills`, `tasks`, `sessions`, and `workspace/runtime`.
+- `mom` should likely be renamed or wrapped under a product-specific name such as `agent-runtime` or `workspace-runtime`; otherwise every future contributor has to learn upstream lore before understanding the codebase.
+- `package/mory` should remain separate as an SDK package, but in the app layer its integration should live under an explicit domain path such as `domains/memory/backends/mory`.

@@ -10,6 +10,7 @@
     layer: "long_term" | "daily";
     hasConflict?: boolean;
     expiresAt?: string;
+    sourceSessionId?: string;
     updatedAt: string;
   }
 
@@ -18,6 +19,7 @@
   let compacting = false;
   let syncing = false;
   let searchText = "";
+  let allScopes = true;
   let message = "";
   let error = "";
   let syncInfo = "";
@@ -49,6 +51,7 @@
           action: searchText.trim() ? "search" : "list",
           channel,
           userId,
+          allScopes,
           query: searchText.trim(),
           limit: 200,
         }),
@@ -114,7 +117,7 @@
       const res = await fetch("/api/memory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "compact", channel, userId }),
+        body: JSON.stringify({ action: "compact", channel, userId, allScopes }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Compact failed");
@@ -232,8 +235,9 @@
       <div class="mx-auto max-w-5xl space-y-4">
         <h1 class="text-2xl font-semibold">Memory Management</h1>
         <p class="text-sm text-slate-400">
-          Search, flush, edit and delete runtime memories. Conflicts are marked
-          for review.
+          Search, flush, edit and delete runtime memories. Settings page defaults
+          to all scopes so you can inspect everything in one place. Conflicts are
+          marked for review.
         </p>
 
         <div class="flex flex-wrap gap-2 text-xs">
@@ -273,6 +277,10 @@
             bind:value={searchText}
             placeholder="Search memory content..."
           />
+          <label class="flex items-center gap-2 rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm text-slate-300">
+            <input bind:checked={allScopes} type="checkbox" />
+            All scopes
+          </label>
           <button
             class="rounded-lg border border-white/20 bg-[#1f1f1f] px-3 py-2 text-sm hover:bg-[#343434]"
             on:click={listMemory}>Search</button
@@ -332,7 +340,7 @@
           <div
             class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300"
           >
-            No memory found.
+            No memory found. Toggle scope filters or run Sync Files if you expect imported memory.
           </div>
         {:else}
           <div class="space-y-3">
@@ -344,12 +352,17 @@
                   class="flex items-center justify-between gap-3 text-xs text-slate-400"
                 >
                   <div class="flex items-center gap-2">
-                    <span class="rounded border border-white/20 px-2 py-0.5"
-                      >{item.channel}:{item.externalUserId}</span
-                    >
+                    <span class="rounded border border-white/20 px-2 py-0.5">
+                      source {item.channel}:{item.externalUserId}
+                    </span>
                     <span class="rounded border border-white/20 px-2 py-0.5"
                       >{item.layer}</span
                     >
+                    {#if item.sourceSessionId}
+                      <span class="rounded border border-white/20 px-2 py-0.5">
+                        session {item.sourceSessionId}
+                      </span>
+                    {/if}
                     {#if item.hasConflict}
                       <span
                         class="rounded border border-amber-500/50 bg-amber-500/10 px-2 py-0.5 text-amber-300"

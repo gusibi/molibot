@@ -8,6 +8,7 @@ interface MemoryBody {
   action?: MemoryAction;
   channel?: string;
   userId?: string;
+  allScopes?: boolean;
   query?: string;
   content?: string;
   tags?: string[];
@@ -38,6 +39,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const { memory } = getRuntime();
   const scope = scopeOf(body);
+  const allScopes = Boolean(body.allScopes);
 
   if (action === "add") {
     if (!String(body.content ?? "").trim()) {
@@ -52,34 +54,30 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   if (action === "search") {
-    const channel = String(body.channel ?? "").trim();
-    const userId = String(body.userId ?? "").trim();
-    const items = channel && userId
-      ? await memory.search(scope, {
+    const items = allScopes
+      ? await memory.searchAll({
           query: String(body.query ?? ""),
-          limit: body.limit,
+          limit: body.limit ?? 500,
           mode: "hybrid"
         })
-      : await memory.searchAll({
+      : await memory.search(scope, {
           query: String(body.query ?? ""),
-        limit: body.limit ?? 500,
+          limit: body.limit,
           mode: "hybrid"
         });
     return json({ ok: true, items, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
   }
 
   if (action === "list") {
-    const channel = String(body.channel ?? "").trim();
-    const userId = String(body.userId ?? "").trim();
-    const items = channel && userId
-      ? await memory.search(scope, {
+    const items = allScopes
+      ? await memory.searchAll({
           query: "",
-          limit: body.limit ?? 200,
+          limit: body.limit ?? 500,
           mode: "recent"
         })
-      : await memory.searchAll({
+      : await memory.search(scope, {
           query: "",
-        limit: body.limit ?? 500,
+          limit: body.limit ?? 200,
           mode: "recent"
         });
     return json({ ok: true, items, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
@@ -114,9 +112,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   if (action === "compact") {
-    const channel = String(body.channel ?? "").trim();
-    const userId = String(body.userId ?? "").trim();
-    const result = channel && userId ? await memory.compact(scope) : await memory.compact();
+    const result = allScopes ? await memory.compact() : await memory.compact(scope);
     return json({ ok: true, result, enabled: memory.isEnabled(), capabilities: memory.capabilities() });
   }
 

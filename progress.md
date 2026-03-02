@@ -1,27 +1,11 @@
 # Progress
 
-- 2026-03-01: 初始化分析会话，准备读取项目文档和代码结构。
-- 2026-03-01: 读取 prd/features，确认项目已计划“新增渠道无需改核心 pipeline”，并已存在 memory gateway/plugin 先例，后续分析将以 adapter/runtime/runner/prompt 耦合点为主。
-- 2026-03-01: 代码初查发现 runtime 直接持有 TelegramManager/FeishuManager，settings 的 bot 配置结构也是按平台硬编码；prompt-channel 只声明 telegram，说明新增渠道目前需要改 runtime、类型、prompt 等核心层。
-- 2026-03-01: 进一步确认 runner/store/types/memory tool 都带有 Telegram 语义，Feishu 只是复用 Telegram mom 实现；当前新增渠道并非“安装插件即可”，而是需要横切修改 runtime、settings、prompt、runner、memory。
-- 2026-03-01: 完成插件化改造分析，并在 PRD 中新增 Channel plugin registry architecture 规划项；未改动运行时代码。
-- 2026-03-01: 第一阶段完成：mom runtime 已去 Telegram 语义化（ChannelInboundMessage/MomRuntimeStore/MomRunner），第二阶段完成：runtime 已切到统一 built-in channel registry，构建通过。
-- 2026-03-01: 第三阶段完成：设置持久化新增通用 `channels.<plugin>.instances[]` schema，registry 已从该 schema 读取 Telegram/Feishu 实例，同时兼容旧字段 `telegramBots` / `feishuBots`；构建通过。
-- 2026-03-01: 第四阶段第一步完成：新增外部插件 catalog 发现机制，内置插件仍保留在代码目录；runtime 现可枚举 `${DATA_DIR}/plugins/channels|providers` 下的 manifest，并通过 `/api/settings/plugins` 与插件设置页展示状态。
-- 2026-03-01: Built-in Telegram/Feishu channel implementations moved under plugin-owned directories and startup is now gated by per-instance `enabled` flags in `channels.<plugin>.instances[]`.
-- 2026-03-01: Built-in Telegram/Feishu channel implementations moved under plugin-owned directories and startup is now gated by per-instance `enabled` flags in `channels.<plugin>.instances[]`.
-- 2026-03-01: Memory abstraction renamed from `core` to `backend`; added built-in memory backend registry, kept legacy `plugins.memory.core` config compatibility, updated settings UI copy, and verified with `npm run build`.
-- 2026-03-01: Memory sync was split into independent importer/source modules; gateway now composes active backend + built-in importers, and `/settings/plugins` now shows the built-in memory backend catalog.
-- 2026-03-01: Added startup diagnostics for plugin catalog, applied channel plugin instances, selected memory backend, available importers, and startup/periodic memory sync results; verified with `npm run build`.
-- 2026-03-01: Added ANSI color styling to the new startup diagnostics so runtime and memory logs are easier to distinguish in terminal output; verified with `npm run build`.
-- 2026-03-01: Diagnosed Feishu inbound-media bug: runtime only parsed `text`, dropped non-text messages before runner execution, and never populated `attachments` / `imageContents`.
-- 2026-03-01: Implemented Feishu inbound media pipeline in `src/lib/server/plugins/channels/feishu/runtime.ts`: added message content parsing, message-resource download, attachment persistence, image context injection, and STT-based transcript enrichment for audio/media messages.
-- 2026-03-01: Hardened Feishu resource download mapping after a real `400 Bad Request` sample on `type=media` with `file_v3_*`; download now retries candidate resource types (`file/media/image`) based on message type and key prefix, and logs which fallback type actually succeeds.
-- 2026-03-01: Added bounded Feishu STT retry logic in `src/lib/server/plugins/channels/feishu/message-intake.ts`: transcription now retries up to 3 times with short backoff on HTTP/request/empty-result failures before falling back to untranscribed voice input.
-- 2026-03-01: Verified the Feishu runtime changes with `npm run build`.
-- 2026-03-01: Diagnosed Feishu duplicate-response path: channel uses WebSocket event subscription rather than polling, and `FeishuManager.stop()` was not closing the previous `WSClient`, which could leave duplicate subscriptions active across repeated `apply()` calls.
-- 2026-03-01: Added Feishu adapter-local inbound dedupe keyed by raw `chatId + message.message_id`, and updated `stop()` to force-close the active `WSClient`; verified with `npm run build`.
-- 2026-03-01: Fixed Telegram outbound audio delivery in `src/lib/server/plugins/channels/telegram/runtime.ts`: outbound attachment uploads now detect audio payloads and use `sendVoice` / `sendAudio` before falling back to `sendDocument`.
-- 2026-03-01: Centralized workspace/data-root/memory-root/global-skills resolution into shared `src/lib/server/mom/workspace.ts`, updated `prompt.ts` / `skills.ts` / `store.ts` / `tools/path.ts` to use it, corrected Feishu runtime to pass bot workspace root instead of scratch into runner context, and added Feishu prompt preview + `/skills`; verified with `npm run build`.
-- 2026-03-01: Diagnosed current memory regression: `mory` backend lacked content-level duplicate suppression, `/api/memory` auto-synced before every action, and deleted imported records were being reintroduced from legacy `MEMORY.md` during the next refresh.
-- 2026-03-02: Completed a second-pass memory audit and fixed two remaining closure gaps: `update()` in both backends now merges into an existing identical record instead of creating a new duplicate, and the mom `memory` tool now exposes `compact` for agent-side dedupe parity with the web/API flow.
+## 2026-03-02
+- Started repository structure analysis.
+- Read root `AGENTS.md`, project `README.md`, and `package.json`.
+- Captured initial scope and scan findings for later synthesis.
+- Inspected `src/lib/server` subdirectories and key files: `runtime.ts`, `core/messageRouter.ts`, `channels/registry.ts`, `memory/gateway.ts`, `services/sessionStore.ts`.
+- Confirmed `mom` naming origin from `example/pi-mono/packages/mom/README.md`; this is an inherited agent runtime name, not a Molibot business term.
+- Confirmed `package/mory` is an independent memory SDK package distinct from the app-level memory gateway in `src/lib/server/memory`.
+- Measured hotspot file sizes and confirmed the main maintainability issue is boundary collapse inside channel runtime files, especially Telegram.
+- Verified that route/page structure already exposes stable product domains that can be reused as the primary organizing principle for a cleaner backend layout.

@@ -16,6 +16,7 @@ const memorySchema = Type.Object({
   content: Type.Optional(Type.String()),
   query: Type.Optional(Type.String()),
   id: Type.Optional(Type.String()),
+  allScopes: Type.Optional(Type.Boolean()),
   tags: Type.Optional(Type.Array(Type.String())),
   layer: Type.Optional(Type.Union([Type.Literal("long_term"), Type.Literal("daily")])),
   expiresAt: Type.Optional(Type.String()),
@@ -40,6 +41,7 @@ export function createMemoryTool(options: {
     execute: async (_toolCallId, params) => {
       const action = params.action as MemoryAction;
       const scope = { channel: options.channel, externalUserId: options.chatId };
+      const allScopes = Boolean(params.allScopes);
 
       if (action === "sync") {
         const result = await options.memory.syncExternalMemories();
@@ -65,11 +67,17 @@ export function createMemoryTool(options: {
       }
 
       if (action === "search") {
-        const rows = await options.memory.search(scope, {
-          query: String(params.query ?? ""),
-          limit: Number.isFinite(params.limit) ? params.limit : 20,
-          mode: "hybrid"
-        });
+        const rows = allScopes
+          ? await options.memory.searchAll({
+              query: String(params.query ?? ""),
+              limit: Number.isFinite(params.limit) ? params.limit : 20,
+              mode: "hybrid"
+            })
+          : await options.memory.search(scope, {
+              query: String(params.query ?? ""),
+              limit: Number.isFinite(params.limit) ? params.limit : 20,
+              mode: "hybrid"
+            });
         return {
           content: [{ type: "text", text: rows.length ? rows.map((r, i) => `${i + 1}. [${r.layer}] ${r.content}`).join("\n") : "(no memory found)" }],
           details: { rows }
@@ -77,11 +85,17 @@ export function createMemoryTool(options: {
       }
 
       if (action === "list") {
-        const rows = await options.memory.search(scope, {
-          query: "",
-          limit: Number.isFinite(params.limit) ? params.limit : 100,
-          mode: "recent"
-        });
+        const rows = allScopes
+          ? await options.memory.searchAll({
+              query: "",
+              limit: Number.isFinite(params.limit) ? params.limit : 100,
+              mode: "recent"
+            })
+          : await options.memory.search(scope, {
+              query: "",
+              limit: Number.isFinite(params.limit) ? params.limit : 100,
+              mode: "recent"
+            });
         return {
           content: [{ type: "text", text: rows.length ? rows.map((r, i) => `${i + 1}. [${r.layer}] ${r.content}`).join("\n") : "(no memory found)" }],
           details: { rows }
@@ -121,7 +135,7 @@ export function createMemoryTool(options: {
       }
 
       if (action === "compact") {
-        const result = await options.memory.compact(scope);
+        const result = allScopes ? await options.memory.compact() : await options.memory.compact(scope);
         return {
           content: [{ type: "text", text: `Memory deduplicated: scanned=${result.scannedCount}, removed=${result.removedCount}, scopes=${result.scopesAffected}` }],
           details: { result }
