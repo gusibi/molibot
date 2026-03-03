@@ -14,6 +14,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Telegram runtime 的 system prompt 需要模块化构建，并在服务启动时输出一份实际拼装结果供人工检查，避免 prompt 变更后只有运行时隐式生效、无法快速验证。
 - `bin/molibot-service.sh` 的 `status` 仅代表该脚本管理的后台实例，不等同于系统内不存在其他手动启动或开发模式运行中的 Molibot 进程。
 - `periodic` 事件的正确语义是长期保留并按 cron 重复触发，不能在首次执行后写成 `status.state="completed"` 并从 watcher 调度表移除。
+- `periodic` 事件除了长期保留外，还必须像 one-shot 一样持续写回执行元数据，至少包含最近一次触发时间、累计执行次数，以及最近一次错误状态，方便在设置页和事件文件里直接核对运行情况。
 - Telegram agent 的调度落地必须唯一走 watched event JSON 文件；不得退化为 memory 记录，也不得绕过 runtime 事件系统直接写入 OS 级调度器（如 `crontab` / `at` / `launchctl` / `schtasks`）。
 - `package/mory` 作为独立 SDK 应当自带可用数据库 driver 与安装依赖；不能只提供 `SqliteDriver` / `PgDriver` 接口再把真实驱动实现完全留给外部宿主。
 - `package/mory/README.md` 必须按“独立 SDK 用户文档”编写，清晰覆盖安装要求、SQLite quick start、pgvector 接入、核心 API 用法（`ingest/commit/retrieve/readByPath`）以及宿主仍需提供的能力边界。
@@ -104,6 +105,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-64 | Verification-aware native vision routing | P1 | Delivered (2026-03-03) | Agent routing should send image payloads natively only when the selected custom text model or dedicated vision-route model has `vision` both declared and verification-passed; otherwise it should fall back to attachment-based handling instead of blindly invoking native vision |
 | P1-65 | Audio-input capability groundwork | P1 | Delivered (2026-03-03) | Model configuration should support an explicit `audio_input` capability tag and verification placeholder state even before native audio prompt transport is wired, so later audio routing can build on declared capability metadata without another schema migration |
 | P1-66 | Core prompt identity neutrality | P1 | Delivered (2026-03-04) | The base system prompt should not hardcode a bot/persona name; assistant identity must come from configured profile files (`IDENTITY.md`, `SOUL.md`) so agent personas are not overridden by runtime boilerplate |
+| P1-67 | Verification-aware audio fallback routing | P1 | Delivered (2026-03-04) | Agent routing should make audio handling explicit from `audio_input` and `stt` metadata: until native audio transport exists, the runner must log why direct audio is unavailable, prefer declared STT fallback routes, and otherwise preserve voice-placeholder behavior with a visible notice |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -178,6 +180,15 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
   - declared `audio_input`: informational/config-only,
   - actual execution: existing STT-first fallback path.
 - A later stage should enable native audio routing only after the SDK/runtime can pass audio content end-to-end.
+
+## 4.8 Verification-Aware Audio Fallback Routing (2026-03-04)
+- `runner.ts` now computes audio routing before any transcription starts.
+- Decision order:
+  - no audio attachments: do nothing;
+  - active text model has `audio_input=passed`: treat native audio as desired, but still fall back because runtime transport is unavailable;
+  - declared STT route with `passed`: use it;
+  - declared STT route with `untested`/missing verification: still use it as best-effort fallback;
+  - no STT target: keep the existing voice placeholder text and emit a user-facing notice instead of pretending transcription happened.
 
 ## 5. Technical Approach (Plain Language)
 - Build one central backend that understands a single message format.

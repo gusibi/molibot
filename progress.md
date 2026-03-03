@@ -11,3 +11,4 @@
 - 已移除 `prompt.ts` 中硬编码的 `Voldemomo` 身份句，核心 system prompt 现在保持中性，agent 身份改由 `IDENTITY.md` / `SOUL.md` 决定。
 - 已完成第二阶段 vision 路由：`runner.ts` 现在会根据 custom model 的 `vision` verification 决定是否发送 native image payload，否则降级为附件式处理。
 - 已完成 `audio_input` 配置层铺设：settings schema、sanitize、provider test、providers UI 均已支持该标签，但运行时仍保持 STT 路径，等待后续 native audio transport 能力。
+- 已完成音频显式路由决策：`runner.ts` 现在会先判断 `audio_input` / `stt` capability metadata，再决定走 STT fallback 还是保留 voice placeholder，并把降级原因写入日志。

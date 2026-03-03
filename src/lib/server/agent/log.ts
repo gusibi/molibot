@@ -21,6 +21,7 @@ const KEY_LOG_EVENTS = new Set<string>([
   "process_runner_done",
   "process_end",
   // stt observability
+  "audio_route_decision",
   "voice_transcription_target",
   "voice_transcription_success",
   // runner critical path

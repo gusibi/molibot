@@ -266,7 +266,7 @@ export class EventsWatcher {
       if (entry.lastTick === key) continue;
       if (!cronMatches(entry.parsed, now)) continue;
       entry.lastTick = key;
-      this.onEvent(entry.event, entry.filename);
+      this.dispatchEvent(entry.event, entry.filename);
     }
   }
 
@@ -311,7 +311,6 @@ export class EventsWatcher {
   }
 
   private markDone(filename: string, event: MomEvent, reason: string): void {
-    const runCount = (event.status?.runCount ?? 0) + 1;
     const triggeredAt = new Date().toISOString();
     if (event.type === "periodic") {
       this.updateEventFile(filename, (current) => ({
@@ -322,7 +321,7 @@ export class EventsWatcher {
           state: "pending",
           completedAt: undefined,
           lastTriggeredAt: triggeredAt,
-          runCount,
+          runCount: (current.status?.runCount ?? 0) + 1,
           reason
         }
       }));
@@ -338,7 +337,7 @@ export class EventsWatcher {
         state: "completed",
         completedAt: triggeredAt,
         lastTriggeredAt: triggeredAt,
-        runCount,
+        runCount: (current.status?.runCount ?? event.status?.runCount ?? 0) + 1,
         reason
       }
     }));

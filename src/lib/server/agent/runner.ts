@@ -9,7 +9,7 @@ import { currentModelKey } from "../settings/modelSwitch.js";
 import { momError, momLog, momWarn } from "./log.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { MomRuntimeStore } from "./store.js";
-import { transcribeAudioViaConfiguredProvider } from "./stt.js";
+import { resolveSttTarget, transcribeAudioViaConfiguredProvider } from "./stt.js";
 import { createMomTools } from "./tools/index.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
@@ -237,6 +237,16 @@ function supportsVisionNatively(
   return Array.isArray(selection.model.input) && selection.model.input.includes("image");
 }
 
+function supportsAudioInputConfigured(
+  selection: ResolvedModelSelection
+): boolean {
+  if (selection.source !== "custom") return false;
+  return Boolean(
+    selection.configuredModel?.tags?.includes("audio_input") &&
+    selection.configuredModel?.verification?.audio_input === "passed"
+  );
+}
+
 function decideVisionRouting(settings: RuntimeSettings, hasImages: boolean): {
   selection: ResolvedModelSelection;
   sendImagesNatively: boolean;
@@ -277,6 +287,73 @@ function decideVisionRouting(settings: RuntimeSettings, hasImages: boolean): {
     sendImagesNatively: false,
     mode: "fallback",
     reason: "no_verified_native_vision"
+  };
+}
+
+function decideAudioRouting(settings: RuntimeSettings, hasAudio: boolean): {
+  shouldTranscribe: boolean;
+  mode: "none" | "stt" | "fallback";
+  reason: string;
+  userNotice?: string;
+} {
+  if (!hasAudio) {
+    return {
+      shouldTranscribe: false,
+      mode: "none",
+      reason: "no_audio"
+    };
+  }
+
+  const textSelection = resolveModelSelection(settings, "text");
+  const nativeAudioConfigured = supportsAudioInputConfigured(textSelection);
+  const sttTarget = resolveSttTarget(settings);
+
+  if (nativeAudioConfigured && sttTarget) {
+    return {
+      shouldTranscribe: true,
+      mode: "stt",
+      reason: "audio_input_verified_but_transport_unavailable"
+    };
+  }
+
+  if (nativeAudioConfigured && !sttTarget) {
+    return {
+      shouldTranscribe: false,
+      mode: "fallback",
+      reason: "audio_input_verified_but_no_stt_fallback",
+      userNotice: "当前主模型已声明并验证 `audio_input`，但 runtime 还不支持原生音频直传，且未配置可用的 STT 模型。"
+    };
+  }
+
+  if (sttTarget?.declared && sttTarget.verification === "passed") {
+    return {
+      shouldTranscribe: true,
+      mode: "stt",
+      reason: "stt_route_verified"
+    };
+  }
+
+  if (sttTarget?.declared && (sttTarget.verification === "untested" || sttTarget.verification === "missing")) {
+    return {
+      shouldTranscribe: true,
+      mode: "stt",
+      reason: "stt_route_declared_unverified"
+    };
+  }
+
+  if (sttTarget) {
+    return {
+      shouldTranscribe: true,
+      mode: "stt",
+      reason: "builtin_stt_fallback"
+    };
+  }
+
+  return {
+    shouldTranscribe: false,
+    mode: "fallback",
+    reason: "no_stt_target",
+    userNotice: "收到语音消息，但当前没有可用的 STT 路由；系统将保留语音占位文本而不做转写。"
   };
 }
 
@@ -407,13 +484,24 @@ function ensureAudioFilename(filename: string, mimeType?: string | null): string
   return `${trimmed}${resolveAudioExt(mimeType)}`;
 }
 
-async function enrichMessageTextWithAudio(ctx: MomContext, settings: RuntimeSettings): Promise<{
+async function enrichMessageTextWithAudio(
+  ctx: MomContext,
+  settings: RuntimeSettings,
+  audioDecision: { shouldTranscribe: boolean; reason: string; userNotice?: string }
+): Promise<{
   text: string;
   transcriptionErrors: string[];
 }> {
   const audioAttachments = ctx.message.attachments.filter((item) => item.isAudio);
   if (audioAttachments.length === 0) {
     return { text: ctx.message.text, transcriptionErrors: [] };
+  }
+
+  if (!audioDecision.shouldTranscribe) {
+    return {
+      text: ctx.message.text,
+      transcriptionErrors: audioDecision.userNotice ? [audioDecision.userNotice] : []
+    };
   }
 
   const transcripts: string[] = [];
@@ -648,7 +736,21 @@ export class MomRunner implements RunnerLike {
       return { stopReason: "error", errorMessage: settingsError };
     }
 
-    const enrichedInput = await enrichMessageTextWithAudio(ctx, settings);
+    const audioDecision = decideAudioRouting(
+      settings,
+      ctx.message.attachments.some((item) => item.isAudio)
+    );
+    momLog("runner", "audio_route_decision", {
+      runId,
+      chatId: this.chatId,
+      sessionId: this.sessionId,
+      mode: audioDecision.mode,
+      reason: audioDecision.reason,
+      audioRouteKey: currentModelKey(settings, "stt"),
+      hasAudioInput: ctx.message.attachments.some((item) => item.isAudio),
+    });
+
+    const enrichedInput = await enrichMessageTextWithAudio(ctx, settings, audioDecision);
     if (enrichedInput.transcriptionErrors.length > 0) {
       await ctx.respondInThread(
         [
@@ -704,6 +806,9 @@ export class MomRunner implements RunnerLike {
       visionRoutingReason: visionDecision.reason,
       nativeVisionEnabled: visionDecision.sendImagesNatively,
       visionRouteKey: currentModelKey(settings, "vision"),
+      audioRoutingMode: audioDecision.mode,
+      audioRoutingReason: audioDecision.reason,
+      sttRouteKey: currentModelKey(settings, "stt"),
       hasApiKey: Boolean(resolvedKey),
       apiKeyFingerprint: keyFingerprint(resolvedKey),
     });

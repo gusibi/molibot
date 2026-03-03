@@ -2,7 +2,7 @@ import { config } from "../app/env.js";
 import { momLog, momWarn } from "./log.js";
 import type { RuntimeSettings } from "../settings/index.js";
 
-interface SttTarget {
+export interface SttTarget {
   baseUrl: string;
   apiKey: string;
   model: string;

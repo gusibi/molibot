@@ -8,3 +8,4 @@
 - 现有 bot 目录已经天然适合放 bot 级覆盖文件，但 agent 应新增为数据根目录下的独立目录，而不是放进 channel 目录。
 - 第二阶段 vision 路由已经明确：主 text 模型若 `vision` 已声明且验证通过，则直传图片；否则才尝试 dedicated vision route；再不满足就降级为附件路径，不发送 native image payload。
 - 当前底层 `pi-ai/pi-agent-core` 调用栈只看到 `text` / `image` 输入通道，没有统一可用的 native audio prompt 输入接口，所以 `audio_input` 目前只能先落在配置层，不能直接接入主模型路由。
+- 已补上 audio routing decision layer：运行时现在会显式记录“audio_input 已验证但 transport 未接通”与“STT route 已声明/未声明”的分支原因，但执行层依然保守地走 STT 或占位文本，不会伪装成已支持 native audio。
