@@ -50,7 +50,7 @@ interface RawSettings {
 type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
 const DEFAULT_ROLES: ModelRole[] = ["system", "user", "assistant", "tool"];
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
-const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "stt", "tts", "tool"]);
+const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const CAPABILITY_VERIFICATION_SET: ReadonlySet<string> = new Set(["untested", "passed", "failed"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
 

@@ -19,7 +19,7 @@ interface ProviderTestResult {
 }
 
 const BASE_ROLES: ModelRole[] = ["system", "user", "assistant", "tool"];
-const TESTABLE_CAPABILITY_SET = new Set<ModelCapabilityTag>(["text", "vision", "stt", "tts", "tool"]);
+const TESTABLE_CAPABILITY_SET = new Set<ModelCapabilityTag>(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const SAMPLE_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0yoAAAAASUVORK5CYII=";
 
@@ -87,7 +87,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
     if (!connectivity.ok) {
       for (const tag of declaredTags) {
-        verification[tag] = tag === "tool" || tag === "stt" || tag === "tts" ? "untested" : "failed";
+        verification[tag] = tag === "tool" || tag === "stt" || tag === "tts" || tag === "audio_input"
+          ? "untested"
+          : "failed";
       }
       const result: ProviderTestResult = {
         ok: false,

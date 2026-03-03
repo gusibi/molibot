@@ -3,7 +3,7 @@ import type { KnownProvider } from "@mariozechner/pi-ai";
 export type ProviderMode = "pi" | "custom";
 
 export type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
-export type ModelCapabilityTag = "text" | "vision" | "stt" | "tts" | "tool";
+export type ModelCapabilityTag = "text" | "vision" | "audio_input" | "stt" | "tts" | "tool";
 export type ModelCapabilityVerification = "untested" | "passed" | "failed";
 
 export interface ProviderModelConfig {

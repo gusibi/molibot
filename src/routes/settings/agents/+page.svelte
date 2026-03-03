@@ -7,6 +7,7 @@
     description: string;
     enabled: boolean;
     profileFiles: AgentFiles;
+    isNew: boolean;
   }
 
   type AgentFiles = Record<string, string>;
@@ -38,7 +39,8 @@
       name: "",
       description: "",
       enabled: true,
-      profileFiles: emptyFiles()
+      profileFiles: emptyFiles(),
+      isNew: true
     };
   }
 
@@ -68,7 +70,8 @@
           name: agent.name ?? "",
           description: agent.description ?? "",
           enabled: agent.enabled ?? true,
-          profileFiles: await loadAgentFiles(agent.id)
+          profileFiles: await loadAgentFiles(agent.id),
+          isNew: false
         }))
       );
       if (agents.length === 0) {
@@ -94,6 +97,12 @@
   }
 
   async function removeAgent(agentId: string): Promise<void> {
+    const confirmed =
+      typeof window === "undefined"
+        ? true
+        : window.confirm(`Delete agent "${agentId}"? This cannot be undone.`);
+    if (!confirmed) return;
+
     const settingsRes = await fetch("/api/settings");
     const settingsData = await settingsRes.json();
     const referenced = Object.values(settingsData.settings?.channels ?? {}).some((channel: any) =>
@@ -230,11 +239,17 @@
             <label class="grid gap-1.5 text-sm">
               <span class="text-slate-300">Agent ID</span>
               <input
-                class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
-                  bind:value={selectedAgent.id}
-                  placeholder="moli"
-                />
+                class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                bind:value={selectedAgent.id}
+                placeholder="moli"
+                disabled={!selectedAgent.isNew}
+              />
             </label>
+            {#if !selectedAgent.isNew}
+              <p class="text-xs text-slate-500">
+                Agent ID is locked after creation to keep references stable.
+              </p>
+            {/if}
 
             <label class="grid gap-1.5 text-sm">
               <span class="text-slate-300">Agent Name</span>

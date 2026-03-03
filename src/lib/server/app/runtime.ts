@@ -45,7 +45,7 @@ declare global {
 }
 
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
-const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "stt", "tts", "tool"]);
+const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
 const ANSI_RESET = "\x1b[0m";
 const ANSI_BOLD = "\x1b[1m";
@@ -335,7 +335,7 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
         Object.entries(rawVerification)
           .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
           .filter(([key, value]) =>
-            ["text", "vision", "stt", "tts", "tool"].includes(key) &&
+            ["text", "vision", "audio_input", "stt", "tts", "tool"].includes(key) &&
             ["untested", "passed", "failed"].includes(value)
           )
       ) as ProviderModelConfig["verification"];

@@ -3,7 +3,13 @@
 
     type ProviderMode = "pi" | "custom";
     type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
-    type ModelCapabilityTag = "text" | "vision" | "stt" | "tts" | "tool";
+    type ModelCapabilityTag =
+        | "text"
+        | "vision"
+        | "audio_input"
+        | "stt"
+        | "tts"
+        | "tool";
     type ModelCapabilityVerification = "untested" | "passed" | "failed";
 
     interface ProviderModelForm {
@@ -67,6 +73,7 @@
     let capabilityTags: ModelCapabilityTag[] = [
         "text",
         "vision",
+        "audio_input",
         "stt",
         "tts",
         "tool",
@@ -882,6 +889,12 @@
                                                     outside that set stay
                                                     `untested` until we add
                                                     deeper probes.
+                                                    `audio_input` is config-only
+                                                    for now; runtime audio
+                                                    handling still falls back to
+                                                    STT because native audio
+                                                    prompt transport is not
+                                                    wired yet.
                                                 </p>
                                             </div>
                                         {/if}

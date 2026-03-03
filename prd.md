@@ -100,7 +100,10 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-61 | Agent-owned multimodal preprocessing boundary | P1 | Delivered (2026-03-03) | Channel adapters should normalize raw text/image/audio/file inputs only; the agent runner should decide STT execution, transcript injection, model routing, and recognition-failure fallback |
 | P1-62 | Provider capability verification states | P1 | Delivered (2026-03-03) | Custom model configuration should preserve manual capability tags as the routing source of truth while storing lightweight per-capability verification status (`untested` / `passed` / `failed`) from provider probes for operator review |
 | P1-63 | Agent-level identity layer and bot linkage | P1 | Delivered (2026-03-03) | Settings should expose reusable `agents`, allow Telegram/Feishu bot instances to bind an `agentId`, edit agent/bot Markdown prompt files in-page, and load prompt sources in `global -> agent -> bot` order |
+| P1-64 | Prompt profile override semantics | P1 | Delivered (2026-03-03) | Profile files with the same logical slot should resolve by override, not concatenation: `bot` overrides `agent`, and `agent` overrides `global`, so only one version of each file participates in the final prompt |
 | P1-64 | Verification-aware native vision routing | P1 | Delivered (2026-03-03) | Agent routing should send image payloads natively only when the selected custom text model or dedicated vision-route model has `vision` both declared and verification-passed; otherwise it should fall back to attachment-based handling instead of blindly invoking native vision |
+| P1-65 | Audio-input capability groundwork | P1 | Delivered (2026-03-03) | Model configuration should support an explicit `audio_input` capability tag and verification placeholder state even before native audio prompt transport is wired, so later audio routing can build on declared capability metadata without another schema migration |
+| P1-66 | Core prompt identity neutrality | P1 | Delivered (2026-03-04) | The base system prompt should not hardcode a bot/persona name; assistant identity must come from configured profile files (`IDENTITY.md`, `SOUL.md`) so agent personas are not overridden by runtime boilerplate |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -168,6 +171,13 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
   - Else, if the dedicated `vision` route model is custom and `vision` is both declared and `passed`, use that route for native image input.
   - Else, do not send native image payloads; expose image files as normal attachments so the agent can degrade through file/tool-based handling.
 - Audio/STT routing remains unchanged in this stage.
+
+## 4.7 Audio Routing Staging (2026-03-03)
+- `audio_input` is now a first-class model capability tag in settings, but runtime transport is not yet wired to send raw audio parts into the main model.
+- Until native audio prompt transport exists, audio handling remains:
+  - declared `audio_input`: informational/config-only,
+  - actual execution: existing STT-first fallback path.
+- A later stage should enable native audio routing only after the SDK/runtime can pass audio content end-to-end.
 
 ## 5. Technical Approach (Plain Language)
 - Build one central backend that understands a single message format.

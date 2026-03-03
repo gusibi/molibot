@@ -50,9 +50,10 @@ function buildEnvironmentSection(vars: PromptRenderVars): string {
     `- Bash working directory for tools: ${vars.scratchDir}`,
     "- Be careful with system modifications",
     `- When writing files in scratch, use relative paths from scratch (do not prepend ${vars.scratchDir} again)`,
-    `- Global workspace root: ${vars.workspaceDir}`,
+    `- Active bot runtime root: ${vars.workspaceDir}`,
     `- Global skills directory (canonical): ${vars.globalSkillsDir}`,
     `- Chat-local skills directory (session-specific): ${vars.chatSkillsDir}`,
+    `- Never assume directories like /workspace or /workspace/testbed exist. Always use the exact absolute paths provided in this prompt.`,
     `- For reusable/general-purpose skills (web browsing, search, API wrappers, utilities), install under ${vars.globalSkillsDir}.`,
     `- For chat/session-specific one-off skills only, install under ${vars.chatSkillsDir}.`,
     `- Never install reusable skills under ${vars.workspaceDir} or ${vars.chatDir}; keep reusable skills in ${vars.globalSkillsDir}.`,
@@ -89,12 +90,12 @@ function buildFailureRecoverySection(): string {
 }
 
 function buildWorkspaceLayoutSection(vars: PromptRenderVars): string {
-  return section("Workspace Layout", [
+  return section("Bot Runtime Layout", [
     `${vars.workspaceDir}/`,
-    "├── (runtime workspace files, sessions, logs, skills, events)",
+    "├── (bot runtime files, sessions, logs, skills, events)",
     "├── SYSTEM.md                    # Environment setup log",
     "├── skills/                      # Global CLI tools you create",
-    "├── events/                      # Workspace-level events",
+    "├── events/                      # Bot-level events",
     `└── ${vars.chatId}/                   # This chat`,
     "    ├── log.jsonl                # Message history (no tool results)",
     "    ├── contexts/",
@@ -267,7 +268,7 @@ function buildBaseSystemPromptWithOptions(
     ? buildPromptChannelSections(options.channel)
     : [];
   return [
-    "You are Voldemomo, an assistant operating through the active channel runtime.",
+    "You are an assistant operating through the active channel runtime.",
     "",
     buildContextSection(vars),
     "",
@@ -311,7 +312,7 @@ function buildPromptRenderVariables(
   const globalMemoryPath = `${memoryRoot}/MEMORY.md`;
   const chatMemoryPath = `${memoryRoot}/${memoryWorkspaceRel}/${chatId}/MEMORY.md`;
   const workspaceName =
-    memoryWorkspaceRel || (workspaceDir.split("/").filter(Boolean).at(-1) ?? "workspace");
+    memoryWorkspaceRel || (workspaceDir.split("/").filter(Boolean).at(-1) ?? "bot-root");
   const chatDir = `${workspaceDir}/${chatId}`;
   const scratchDir = `${chatDir}/scratch`;
   const chatScratchEventsDir = `${scratchDir}/events`;
@@ -395,19 +396,40 @@ function buildPromptSectionsFromInstructionFiles(
   baseDir: string,
   vars: PromptRenderVars,
   files?: readonly string[],
-): string[] {
-  const sections: string[] = [];
+): Map<string, string> {
+  const sections = new Map<string, string>();
   const orderedFiles = files ?? ["AGENTS.md", ...OPTIONAL_INSTRUCTION_FILES];
   for (const fileName of orderedFiles) {
     const text = readInstructionFile(baseDir, fileName);
     if (!text) continue;
     if (fileName === "AGENTS.md") {
-      sections.push(renderPromptTemplate(text, vars));
+      sections.set(fileName, renderPromptTemplate(text, vars));
       continue;
     }
-    sections.push(`\n# ${fileName}\n${renderPromptTemplate(text, vars)}`);
+    sections.set(fileName, `\n# ${fileName}\n${renderPromptTemplate(text, vars)}`);
   }
   return sections;
+}
+
+function mergePromptSectionMaps(
+  ...maps: Array<Map<string, string>>
+): string[] {
+  const orderedFiles = ["AGENTS.md", ...OPTIONAL_INSTRUCTION_FILES];
+  const merged = new Map<string, string>();
+
+  for (const fileName of orderedFiles) {
+    for (const map of maps) {
+      const value = map.get(fileName);
+      if (value) {
+        merged.set(fileName, value);
+        break;
+      }
+    }
+  }
+
+  return orderedFiles
+    .map((fileName) => merged.get(fileName))
+    .filter((value): value is string => Boolean(value));
 }
 
 function resolveAgentIdForWorkspace(
@@ -449,23 +471,22 @@ export function buildSystemPrompt(
       renderVars,
       AGENT_PROFILE_FILES
     )
-    : [];
+    : new Map<string, string>();
   const botSections =
     renderVars.dataRoot === workspaceDir
-      ? []
+      ? new Map<string, string>()
       : buildPromptSectionsFromInstructionFiles(workspaceDir, renderVars, BOT_PROFILE_FILES);
+  const resolvedSections = mergePromptSectionMaps(
+    botSections,
+    agentSections,
+    globalSections
+  );
 
-  if (globalSections.length > 0) {
-    sections.push(...globalSections);
-  }
-  if (agentSections.length > 0) {
-    sections.push(...agentSections);
-  }
-  if (botSections.length > 0) {
-    sections.push(...botSections);
+  if (resolvedSections.length > 0) {
+    sections.push(...resolvedSections);
   }
 
-  if (globalSections.length === 0 && agentSections.length === 0 && botSections.length === 0) {
+  if (resolvedSections.length === 0) {
     sections.push(renderPromptTemplate(DEFAULT_AGENTS_TEMPLATE, renderVars));
   }
   return sections.join("\n\n").trim();

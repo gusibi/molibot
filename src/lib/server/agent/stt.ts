@@ -7,6 +7,9 @@ interface SttTarget {
   apiKey: string;
   model: string;
   path: string;
+  providerId: string;
+  verification: "untested" | "passed" | "failed" | "missing";
+  declared: boolean;
 }
 
 export interface TranscriptionResult {
@@ -45,16 +48,20 @@ function parseModelKey(key: string): { mode: "pi" | "custom"; provider: string; 
   return { mode, provider: provider.trim(), model };
 }
 
-function resolveSttTarget(settings: RuntimeSettings): SttTarget | null {
+export function resolveSttTarget(settings: RuntimeSettings): SttTarget | null {
   const routed = parseModelKey(settings.modelRouting.sttModelKey);
   if (routed?.mode === "custom") {
     const provider = settings.customProviders.find((p) => p.id === routed.provider);
+    const configuredModel = provider?.models.find((m) => m.id === routed.model);
     if (provider?.baseUrl && provider.apiKey && routed.model) {
       return {
         baseUrl: provider.baseUrl,
         apiKey: provider.apiKey,
         model: routed.model,
-        path: provider.path
+        path: provider.path,
+        providerId: provider.id,
+        verification: configuredModel?.verification?.stt ?? "missing",
+        declared: Boolean(configuredModel?.tags?.includes("stt"))
       };
     }
   }
@@ -67,7 +74,10 @@ function resolveSttTarget(settings: RuntimeSettings): SttTarget | null {
       baseUrl: provider.baseUrl,
       apiKey: provider.apiKey,
       model: sttModel.id,
-      path: provider.path
+      path: provider.path,
+      providerId: provider.id,
+      verification: sttModel.verification?.stt ?? "missing",
+      declared: true
     };
   }
 
@@ -76,7 +86,10 @@ function resolveSttTarget(settings: RuntimeSettings): SttTarget | null {
     baseUrl: config.telegramSttBaseUrl,
     apiKey: config.telegramSttApiKey,
     model: config.telegramSttModel,
-    path: "/v1/audio/transcriptions"
+    path: "/v1/audio/transcriptions",
+    providerId: "builtin-telegram-stt",
+    verification: "untested",
+    declared: true
   };
 }
 

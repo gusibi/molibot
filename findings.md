@@ -7,3 +7,4 @@
 - bot 工作区已经存在 `SYSTEM_PROMPT.preview.md`，适合作为改造后的验证点。
 - 现有 bot 目录已经天然适合放 bot 级覆盖文件，但 agent 应新增为数据根目录下的独立目录，而不是放进 channel 目录。
 - 第二阶段 vision 路由已经明确：主 text 模型若 `vision` 已声明且验证通过，则直传图片；否则才尝试 dedicated vision route；再不满足就降级为附件路径，不发送 native image payload。
+- 当前底层 `pi-ai/pi-agent-core` 调用栈只看到 `text` / `image` 输入通道，没有统一可用的 native audio prompt 输入接口，所以 `audio_input` 目前只能先落在配置层，不能直接接入主模型路由。
