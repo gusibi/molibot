@@ -4,11 +4,13 @@ export type ProviderMode = "pi" | "custom";
 
 export type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
 export type ModelCapabilityTag = "text" | "vision" | "stt" | "tts" | "tool";
+export type ModelCapabilityVerification = "untested" | "passed" | "failed";
 
 export interface ProviderModelConfig {
   id: string;
   tags: ModelCapabilityTag[];
   supportedRoles: ModelRole[];
+  verification?: Partial<Record<ModelCapabilityTag, ModelCapabilityVerification>>;
 }
 
 export interface ModelRoutingConfig {
@@ -43,10 +45,18 @@ export interface FeishuBotConfig {
   allowedChatIds: string[];
 }
 
+export interface AgentSettings {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
 export interface ChannelInstanceSettings {
   id: string;
   name: string;
   enabled: boolean;
+  agentId?: string;
   credentials: Record<string, string>;
   allowedChatIds: string[];
 }
@@ -75,6 +85,7 @@ export interface RuntimeSettings {
   modelRouting: ModelRoutingConfig;
   systemPrompt: string;
   timezone: string;
+  agents: AgentSettings[];
   channels: ChannelSettingsMap;
   telegramBots: TelegramBotConfig[];
   feishuBots: FeishuBotConfig[];

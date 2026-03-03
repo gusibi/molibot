@@ -1,23 +1,31 @@
 # Task Plan
 
 ## Goal
-- Add a unified and safe model-switch path for Molibot.
-- Avoid direct AI-driven edits to the runtime settings file.
-- Support the same switching flow across Telegram, Feishu, API, and agent tools.
-- Add persistent AI token accounting and expose aggregated usage analytics in Settings.
-- Keep first-run startup robust on new machines, especially for the Mory SQLite backend.
+为设置页新增 `Agent` 管理能力，支持：
+- 维护 agent 列表与 bot-agent 关联
+- 在设置页直接编辑 agent/bot 级 Markdown 文件
+- prompt 加载时按 `global -> agent -> bot` 规则读取
 
 ## Phases
-| Step | Status | Notes |
-| --- | --- | --- |
-| Inspect current model-switch implementation | complete | Web/API, Telegram `/models`, runtime settings persistence, and agent tool boundaries verified |
-| Record safety findings and target design | complete | Confirmed current safe path is `updateSettings`, but agent `bash` can still bypass file guards |
-| Implement shared switch service and guardrails | complete | Extracted selection/build logic into shared module, added agent tool, and blocked direct settings-file shell edits |
-| Wire channels and API to shared switch flow | complete | Telegram and Feishu commands plus a narrow switch API now reuse the shared model-switch service |
-| Add runtime token accounting and settings analytics | complete | Added append-only usage tracker, request-path recording, usage API, and `/settings/ai` dashboard |
-| Fix Mory first-run bootstrap on clean machines | complete | Ensured memory/SQLite parent dirs exist before opening the Mory database so startup no longer fails on a fresh machine |
-| Verify build and update docs | complete | Updated `features.md`, `prd.md`, and progress records after successful `npm run build` |
+| Phase | Status | Notes |
+|---|---|---|
+| 1. Inspect current settings/runtime structure | completed | 已确认 schema、存储、UI 和 prompt 装配入口 |
+| 2. Design agent data model and file layout | completed | 已确定兼容现有 channel/bot 的 `agents/` 方案 |
+| 3. Implement backend settings and file APIs | completed | 已完成 agent 元数据、文件读写、bot 关联 |
+| 4. Implement settings UI pages/forms | completed | 已完成 `/settings/agents` + Telegram/Feishu bot 关联和 bot 文件编辑 |
+| 5. Update prompt loading and preview generation | completed | 已切换为 `global -> agent -> bot` |
+| 6. Validate and update docs | completed | 已完成构建验证与 `features.md` / `prd.md` 同步 |
+
+## Key Decisions
+- `moli-t` / `moli-f` 继续视为 channel runtime，不承担 agent 语义。
+- `agents/` 作为数据目录下的新平级目录。
+- bot 页面只负责绑定 `agentId` 和编辑 bot 级覆盖文件；agent 页面负责编辑 agent 文件。
+
+## Risks
+- 现有 settings 兼容性：需要保证旧配置仍可读。
+- 文件编辑 UX：需要避免保存空文件导致 prompt 来源混乱。
+- prompt 预览依赖多处路径逻辑，改动后必须验证。
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
-| --- | --- | --- |
+|---|---|---|

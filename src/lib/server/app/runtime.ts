@@ -1,4 +1,5 @@
 import {
+  type AgentSettings,
   defaultRuntimeSettings,
   isKnownProvider,
   type ProviderModelConfig,
@@ -186,6 +187,27 @@ function sanitizeFeishuBots(input: unknown): FeishuBotConfig[] {
   return out;
 }
 
+function sanitizeAgents(input: unknown): AgentSettings[] {
+  if (!Array.isArray(input)) return [];
+
+  const out: AgentSettings[] = [];
+  const dedup = new Set<string>();
+  for (const row of input) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const id = String(item.id ?? "").trim();
+    if (!id || dedup.has(id)) continue;
+    dedup.add(id);
+    out.push({
+      id,
+      name: String(item.name ?? "").trim() || id,
+      description: String(item.description ?? "").trim(),
+      enabled: item.enabled === undefined ? true : Boolean(item.enabled)
+    });
+  }
+  return out;
+}
+
 function sanitizeChannels(
   input: unknown,
   telegramBots: TelegramBotConfig[],
@@ -220,6 +242,7 @@ function sanitizeChannels(
           id,
           name: String(item.name ?? "").trim() || id,
           enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+          agentId: String(item.agentId ?? "").trim(),
           credentials,
           allowedChatIds: Array.isArray(item.allowedChatIds)
             ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
@@ -236,6 +259,7 @@ function sanitizeChannels(
       id: bot.id,
       name: bot.name,
       enabled: true,
+      agentId: "",
       credentials: { token: bot.token },
       allowedChatIds: bot.allowedChatIds
     }))
@@ -246,6 +270,7 @@ function sanitizeChannels(
       id: bot.id,
       name: bot.name,
       enabled: true,
+      agentId: "",
       credentials: { appId: bot.appId, appSecret: bot.appSecret },
       allowedChatIds: bot.allowedChatIds
     }))
@@ -294,13 +319,31 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
         continue;
       }
       if (!m || typeof m !== "object") continue;
-      const modelObj = m as { id?: unknown; model?: unknown; tags?: unknown; supportedRoles?: unknown };
+      const modelObj = m as {
+        id?: unknown;
+        model?: unknown;
+        tags?: unknown;
+        supportedRoles?: unknown;
+        verification?: unknown;
+      };
       const id = String(modelObj.id ?? modelObj.model ?? "").trim();
       if (!id) continue;
+      const rawVerification = modelObj.verification && typeof modelObj.verification === "object"
+        ? modelObj.verification as Record<string, unknown>
+        : {};
+      const verification = Object.fromEntries(
+        Object.entries(rawVerification)
+          .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
+          .filter(([key, value]) =>
+            ["text", "vision", "stt", "tts", "tool"].includes(key) &&
+            ["untested", "passed", "failed"].includes(value)
+          )
+      ) as ProviderModelConfig["verification"];
       models.push({
         id,
         tags: sanitizeModelTags(modelObj.tags),
-        supportedRoles: sanitizeRoles(modelObj.supportedRoles ?? (row as { supportedRoles?: unknown }).supportedRoles)
+        supportedRoles: sanitizeRoles(modelObj.supportedRoles ?? (row as { supportedRoles?: unknown }).supportedRoles),
+        verification: Object.keys(verification ?? {}).length > 0 ? verification : undefined
       });
     }
     if (models.length === 0 && legacyModel) {
@@ -337,6 +380,7 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   };
 
   next.systemPrompt = String(next.systemPrompt ?? "").trim() || defaultRuntimeSettings.systemPrompt;
+  next.agents = sanitizeAgents(next.agents ?? current.agents);
   const sanitizedTelegramBots = sanitizeTelegramBots(next.telegramBots);
   const sanitizedFeishuBots = sanitizeFeishuBots(next.feishuBots);
   const legacyToken = String(next.telegramBotToken ?? "").trim();

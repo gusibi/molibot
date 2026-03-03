@@ -97,6 +97,10 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-58 | Unified safe runtime model switching | P1 | Delivered (2026-03-03) | Model switching should be exposed through one validated runtime update path shared by channels/API/agent tools, with Feishu command parity and explicit guardrails against direct settings-file edits by the agent |
 | P1-59 | Runtime token usage accounting and settings visibility | P1 | Delivered (2026-03-03) | Each AI request should persist token usage with provider/model metadata, and `/settings/ai` should show today/yesterday/7-day/30-day totals plus daily/weekly/monthly breakdowns and per-model usage summaries |
 | P1-60 | Mory backend first-run bootstrap robustness | P1 | Delivered (2026-03-03) | New-machine startup must not fail just because `${DATA_DIR}/memory` or the SQLite parent directory does not exist before the Mory backend initializes |
+| P1-61 | Agent-owned multimodal preprocessing boundary | P1 | Delivered (2026-03-03) | Channel adapters should normalize raw text/image/audio/file inputs only; the agent runner should decide STT execution, transcript injection, model routing, and recognition-failure fallback |
+| P1-62 | Provider capability verification states | P1 | Delivered (2026-03-03) | Custom model configuration should preserve manual capability tags as the routing source of truth while storing lightweight per-capability verification status (`untested` / `passed` / `failed`) from provider probes for operator review |
+| P1-63 | Agent-level identity layer and bot linkage | P1 | Delivered (2026-03-03) | Settings should expose reusable `agents`, allow Telegram/Feishu bot instances to bind an `agentId`, edit agent/bot Markdown prompt files in-page, and load prompt sources in `global -> agent -> bot` order |
+| P1-64 | Verification-aware native vision routing | P1 | Delivered (2026-03-03) | Agent routing should send image payloads natively only when the selected custom text model or dedicated vision-route model has `vision` both declared and verification-passed; otherwise it should fall back to attachment-based handling instead of blindly invoking native vision |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -137,6 +141,33 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Stage 3 introduces a generic persisted `channels` configuration shape as the internal source of truth, while retaining compatibility with legacy `telegramBots` / `feishuBots` payloads during migration.
 - Stage 4 keeps built-in channel plugins in the repository under dedicated plugin directories, and each plugin instance must support explicit enable/disable control so runtime only loads configured active instances at startup.
 - A later stage will move channel/provider registration and persistence to fully pluggable manifests so adding a new channel/provider no longer requires editing runtime core files.
+
+## 4.4 Multimodal Boundary Clarification (2026-03-03)
+- Channel adapters own transport concerns only: platform intake, trigger checks, file download, attachment persistence, and outbound delivery.
+- Channel adapters must not perform content-understanding steps such as STT, OCR, or model-route choice.
+- The agent runner owns multimodal interpretation:
+  - whether audio should be transcribed,
+  - which text/vision/STT model path to use,
+  - how transcripts are injected into prompts,
+  - and how recognition failures are surfaced or degraded.
+- The inbound contract should preserve raw multimodal inputs instead of eagerly collapsing audio into channel-generated text.
+
+## 4.5 Capability Verification Policy (2026-03-03)
+- Manual model tags remain the routing source of truth in V1.1.
+- Automatic provider tests are advisory: they annotate declared capabilities with verification state, but do not silently rewrite operator intent.
+- First-stage automatic verification is intentionally shallow:
+  - `text`: connectivity probe,
+  - `vision`: lightweight image-input probe,
+  - `tool` / `stt` / `tts`: remain `untested` until dedicated probes are implemented.
+- Future runtime fallback decisions may use verification state, but initial rollout is operator-facing visibility only.
+
+## 4.6 Verification-Aware Vision Routing (2026-03-03)
+- Stage 2 applies verification to `vision` only.
+- Image-routing order:
+  - If the active text model is custom and `vision` is both declared and `passed`, send images directly to that main model.
+  - Else, if the dedicated `vision` route model is custom and `vision` is both declared and `passed`, use that route for native image input.
+  - Else, do not send native image payloads; expose image files as normal attachments so the agent can degrade through file/tool-based handling.
+- Audio/STT routing remains unchanged in this stage.
 
 ## 5. Technical Approach (Plain Language)
 - Build one central backend that understands a single message format.

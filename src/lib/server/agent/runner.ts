@@ -5,9 +5,11 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { getModels, streamSimple, type Model } from "@mariozechner/pi-ai";
 import type { RuntimeSettings, CustomProviderConfig } from "../settings/index.js";
 import type { MemoryGateway } from "../memory/gateway.js";
+import { currentModelKey } from "../settings/modelSwitch.js";
 import { momError, momLog, momWarn } from "./log.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { MomRuntimeStore } from "./store.js";
+import { transcribeAudioViaConfiguredProvider } from "./stt.js";
 import { createMomTools } from "./tools/index.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
@@ -54,16 +56,6 @@ function pickCustomModelId(provider: CustomProviderConfig, useCase: "text" | "vi
   const byDefault = rows.find((m) => m.id === provider.defaultModel);
   if (byDefault?.id) return byDefault.id;
   return rows[0]?.id ?? "";
-}
-
-function findFirstUsableCustom(settings: RuntimeSettings, useCase: "text" | "vision"): Model<any> | null {
-  for (const provider of settings.customProviders) {
-    if (!isCustomProviderUsable(provider)) continue;
-    const modelId = pickCustomModelId(provider, useCase);
-    if (!modelId) continue;
-    return resolveCustomModel(provider, modelId);
-  }
-  return null;
 }
 
 function getProviderModel(provider: CustomProviderConfig): string {
@@ -152,7 +144,18 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
   };
 }
 
-function resolveModel(settings: RuntimeSettings, useCase: "text" | "vision" = "text"): Model<any> {
+interface ResolvedModelSelection {
+  model: Model<any>;
+  source: "pi" | "custom";
+  providerId: string;
+  modelId: string;
+  configuredModel?: CustomProviderConfig["models"][number];
+}
+
+function resolveModelSelection(
+  settings: RuntimeSettings,
+  useCase: "text" | "vision" = "text"
+): ResolvedModelSelection {
   const routedKey = useCase === "vision"
     ? settings.modelRouting.visionModelKey
     : settings.modelRouting.textModelKey;
@@ -160,11 +163,24 @@ function resolveModel(settings: RuntimeSettings, useCase: "text" | "vision" = "t
   if (routed) {
     if (routed.mode === "pi") {
       const pi = resolvePiModelByKey(routed.provider, routed.model);
-      if (pi) return pi;
+      if (pi) {
+        return {
+          model: pi,
+          source: "pi",
+          providerId: routed.provider,
+          modelId: routed.model
+        };
+      }
     } else {
       const provider = getCustomProviderById(settings, routed.provider);
       if (provider && isCustomProviderUsable(provider) && routed.model) {
-        return resolveCustomModel(provider, routed.model);
+        return {
+          model: resolveCustomModel(provider, routed.model),
+          source: "custom",
+          providerId: provider.id,
+          modelId: routed.model,
+          configuredModel: provider.models.find((m) => m.id === routed.model)
+        };
       }
     }
   }
@@ -173,14 +189,95 @@ function resolveModel(settings: RuntimeSettings, useCase: "text" | "vision" = "t
     const selected = getSelectedCustomProvider(settings);
     const modelId = selected ? pickCustomModelId(selected, useCase) : "";
     if (selected && isCustomProviderUsable(selected) && modelId) {
-      return resolveCustomModel(selected, modelId);
+      return {
+        model: resolveCustomModel(selected, modelId),
+        source: "custom",
+        providerId: selected.id,
+        modelId,
+        configuredModel: selected.models.find((m) => m.id === modelId)
+      };
     }
   }
 
-  const anyCustom = findFirstUsableCustom(settings, useCase);
-  if (anyCustom) return anyCustom;
+  for (const provider of settings.customProviders) {
+    if (!isCustomProviderUsable(provider)) continue;
+    const modelId = pickCustomModelId(provider, useCase);
+    if (!modelId) continue;
+    return {
+      model: resolveCustomModel(provider, modelId),
+      source: "custom",
+      providerId: provider.id,
+      modelId,
+      configuredModel: provider.models.find((m) => m.id === modelId)
+    };
+  }
 
-  return resolvePiModel(settings);
+  const pi = resolvePiModel(settings);
+  return {
+    model: pi,
+    source: "pi",
+    providerId: settings.piModelProvider,
+    modelId: pi.id
+  };
+}
+
+function resolveModel(settings: RuntimeSettings, useCase: "text" | "vision" = "text"): Model<any> {
+  return resolveModelSelection(settings, useCase).model;
+}
+
+function supportsVisionNatively(
+  selection: ResolvedModelSelection
+): boolean {
+  if (selection.source === "custom") {
+    return Boolean(
+      selection.configuredModel?.tags?.includes("vision") &&
+      selection.configuredModel?.verification?.vision === "passed"
+    );
+  }
+  return Array.isArray(selection.model.input) && selection.model.input.includes("image");
+}
+
+function decideVisionRouting(settings: RuntimeSettings, hasImages: boolean): {
+  selection: ResolvedModelSelection;
+  sendImagesNatively: boolean;
+  mode: "text" | "vision" | "fallback";
+  reason: string;
+} {
+  const textSelection = resolveModelSelection(settings, "text");
+  if (!hasImages) {
+    return {
+      selection: textSelection,
+      sendImagesNatively: false,
+      mode: "text",
+      reason: "no_images"
+    };
+  }
+
+  if (supportsVisionNatively(textSelection)) {
+    return {
+      selection: textSelection,
+      sendImagesNatively: true,
+      mode: "text",
+      reason: "text_model_verified_vision"
+    };
+  }
+
+  const visionSelection = resolveModelSelection(settings, "vision");
+  if (supportsVisionNatively(visionSelection)) {
+    return {
+      selection: visionSelection,
+      sendImagesNatively: true,
+      mode: "vision",
+      reason: "vision_route_verified"
+    };
+  }
+
+  return {
+    selection: textSelection,
+    sendImagesNatively: false,
+    mode: "fallback",
+    reason: "no_verified_native_vision"
+  };
 }
 
 function envVarForProvider(provider: string): string | null {
@@ -274,6 +371,98 @@ function extractTextFromResult(result: unknown): string {
   return parts.join("\n") || JSON.stringify(result);
 }
 
+function normalizeAudioMimeType(mimeType?: string | null): string {
+  const value = String(mimeType || "").toLowerCase().trim();
+  if (!value || value === "application/octet-stream") return "audio/ogg";
+  if (value.includes("opus")) return "audio/ogg";
+  if (value.includes("ogg")) return "audio/ogg";
+  if (value.includes("mpeg") || value.includes("mp3")) return "audio/mpeg";
+  if (value.includes("wav")) return "audio/wav";
+  if (value.includes("mp4") || value.includes("m4a")) return "audio/mp4";
+  if (value.includes("aac")) return "audio/aac";
+  if (value.includes("webm")) return "audio/webm";
+  if (value.includes("flac")) return "audio/flac";
+  return "audio/ogg";
+}
+
+function resolveAudioExt(mimeType?: string | null): string {
+  const value = String(mimeType || "").toLowerCase();
+  if (value.includes("opus")) return ".opus";
+  if (value.includes("ogg")) return ".ogg";
+  if (value.includes("mpeg") || value.includes("mp3")) return ".mp3";
+  if (value.includes("wav")) return ".wav";
+  if (value.includes("mp4") || value.includes("m4a")) return ".m4a";
+  if (value.includes("aac")) return ".aac";
+  if (value.includes("webm")) return ".webm";
+  if (value.includes("flac")) return ".flac";
+  return ".ogg";
+}
+
+function ensureAudioFilename(filename: string, mimeType?: string | null): string {
+  const trimmed = filename.trim() || "audio-message";
+  const lower = trimmed.toLowerCase();
+  if (/\.(flac|mp3|mp4|mpeg|mpga|m4a|ogg|opus|wav|webm|aac)$/.test(lower)) {
+    return trimmed;
+  }
+  return `${trimmed}${resolveAudioExt(mimeType)}`;
+}
+
+async function enrichMessageTextWithAudio(ctx: MomContext, settings: RuntimeSettings): Promise<{
+  text: string;
+  transcriptionErrors: string[];
+}> {
+  const audioAttachments = ctx.message.attachments.filter((item) => item.isAudio);
+  if (audioAttachments.length === 0) {
+    return { text: ctx.message.text, transcriptionErrors: [] };
+  }
+
+  const transcripts: string[] = [];
+  const transcriptionErrors: string[] = [];
+
+  for (const attachment of audioAttachments) {
+    const fullPath = join(ctx.workspaceDir, attachment.local);
+    let data: Buffer;
+    try {
+      data = readFileSync(fullPath);
+    } catch (error) {
+      transcriptionErrors.push(
+        `无法读取语音附件 ${attachment.original}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      continue;
+    }
+
+    const mimeType = normalizeAudioMimeType(attachment.mimeType);
+    const filename = ensureAudioFilename(attachment.original, mimeType);
+    const transcription = await transcribeAudioViaConfiguredProvider({
+      channel: ctx.channel,
+      settings,
+      data,
+      filename,
+      mimeType,
+      maxAttempts: 3,
+      retryDelayMs: 800
+    });
+
+    if (transcription.text) {
+      transcripts.push(transcription.text);
+    } else if (transcription.errorMessage) {
+      transcriptionErrors.push(transcription.errorMessage);
+    }
+  }
+
+  let text = ctx.message.text;
+  if (transcripts.length > 0) {
+    const transcriptSection = `[voice transcript]\n${transcripts.join("\n\n")}`;
+    text = text.trim()
+      ? `${text}\n\n${transcriptSection}`
+      : transcriptSection;
+  } else if (!text.trim()) {
+    text = "(voice message received; transcription unavailable)";
+  }
+
+  return { text, transcriptionErrors };
+}
+
 function mapUnsupportedDeveloperRole(
   settings: RuntimeSettings,
   context: any,
@@ -332,7 +521,11 @@ export class MomRunner implements RunnerLike {
       this.chatId,
       this.sessionId,
       "(memory will be loaded via gateway before each run)",
-      { channel: this.channel as "telegram" | "feishu", timezone: settings.timezone },
+      {
+        channel: this.channel as "telegram" | "feishu",
+        timezone: settings.timezone,
+        settings
+      },
     );
 
     this.agent = new Agent({
@@ -455,8 +648,22 @@ export class MomRunner implements RunnerLike {
       return { stopReason: "error", errorMessage: settingsError };
     }
 
-    const prefersVision = Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0;
-    const selectedModel = resolveModel(settings, prefersVision ? "vision" : "text");
+    const enrichedInput = await enrichMessageTextWithAudio(ctx, settings);
+    if (enrichedInput.transcriptionErrors.length > 0) {
+      await ctx.respondInThread(
+        [
+          "语音识别失败，已降级为未转写消息。",
+          ...enrichedInput.transcriptionErrors,
+          "建议：检查 STT provider 的 baseUrl/path/model 是否正确。"
+        ].join("\n")
+      );
+    }
+
+    const visionDecision = decideVisionRouting(
+      settings,
+      Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0
+    );
+    const selectedModel = visionDecision.selection.model;
     const selectedCustom = settings.customProviders.find((p) => p.id === selectedModel.provider);
     const resolvedKey = resolveApiKeyForModel(selectedModel, settings);
     if (!resolvedKey) {
@@ -475,7 +682,7 @@ export class MomRunner implements RunnerLike {
       await ctx.replaceMessage(keyError);
       return { stopReason: "error", errorMessage: keyError };
     }
-    this.agent.setModel(resolveModel(settings, prefersVision ? "vision" : "text"));
+    this.agent.setModel(selectedModel);
     momLog("runner", "model_selected", {
       runId,
       chatId: this.chatId,
@@ -493,6 +700,10 @@ export class MomRunner implements RunnerLike {
           buildOpenAIBaseUrl(selectedCustom.baseUrl, selectedCustom.path),
         )
         : undefined,
+      visionRoutingMode: visionDecision.mode,
+      visionRoutingReason: visionDecision.reason,
+      nativeVisionEnabled: visionDecision.sendImagesNatively,
+      visionRouteKey: currentModelKey(settings, "vision"),
       hasApiKey: Boolean(resolvedKey),
       apiKeyFingerprint: keyFingerprint(resolvedKey),
     });
@@ -500,7 +711,7 @@ export class MomRunner implements RunnerLike {
     const memoryText =
       (await this.memory.buildPromptContext(
         { channel: this.channel, externalUserId: this.chatId },
-        ctx.message.text,
+        enrichedInput.text,
         12,
       )) || "(no working memory yet)";
     this.agent.setSystemPrompt(
@@ -509,7 +720,11 @@ export class MomRunner implements RunnerLike {
         this.chatId,
         this.sessionId,
         memoryText,
-        { channel: this.channel as "telegram" | "feishu", timezone: settings.timezone },
+        {
+          channel: this.channel as "telegram" | "feishu",
+          timezone: settings.timezone,
+          settings
+        },
       ),
     );
 
@@ -641,9 +856,9 @@ export class MomRunner implements RunnerLike {
       const now = new Date();
       const timestamp = now.toISOString();
 
-      let userMessage = `[${timestamp}] [${ctx.message.userName || ctx.message.userId}]: ${ctx.message.text}`;
+      let userMessage = `[${timestamp}] [${ctx.message.userName || ctx.message.userId}]: ${enrichedInput.text}`;
       const nonImage = ctx.message.attachments
-        .filter((a) => !a.isImage)
+        .filter((a) => !a.isImage || !visionDecision.sendImagesNatively)
         .map((a) => `${ctx.workspaceDir}/${a.local}`);
       if (nonImage.length > 0) {
           userMessage += `\n\n<channel_attachments>\n${nonImage.join("\n")}\n</channel_attachments>`;
@@ -667,12 +882,14 @@ export class MomRunner implements RunnerLike {
           runId,
           chatId: this.chatId,
           promptLength: userMessage.length,
-          imageCount: ctx.message.imageContents.length,
+          imageCount: visionDecision.sendImagesNatively ? ctx.message.imageContents.length : 0,
+          rawImageCount: ctx.message.imageContents.length,
+          visionRoutingMode: visionDecision.mode,
           attempt: attemptCount,
         });
         await this.agent.prompt(
           userMessage,
-          ctx.message.imageContents.length > 0
+          visionDecision.sendImagesNatively && ctx.message.imageContents.length > 0
             ? ctx.message.imageContents
             : undefined,
         );

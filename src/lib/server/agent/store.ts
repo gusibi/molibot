@@ -266,7 +266,13 @@ export class MomRuntimeStore {
     return { deleted: id, active, remaining };
   }
 
-  saveAttachment(chatId: string, filename: string, ts: string, content: Buffer): FileAttachment {
+  saveAttachment(
+    chatId: string,
+    filename: string,
+    ts: string,
+    content: Buffer,
+    meta?: { mediaType?: FileAttachment["mediaType"]; mimeType?: string }
+  ): FileAttachment {
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_") || "file.bin";
     const millis = Math.floor(parseFloat(ts) * 1000);
     const local = `${chatId}/attachments/${millis}_${safeName}`;
@@ -276,11 +282,51 @@ export class MomRuntimeStore {
 
     const lower = safeName.toLowerCase();
     const isImage = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp");
+    const isAudio =
+      lower.endsWith(".ogg") ||
+      lower.endsWith(".oga") ||
+      lower.endsWith(".mp3") ||
+      lower.endsWith(".wav") ||
+      lower.endsWith(".m4a") ||
+      lower.endsWith(".aac") ||
+      lower.endsWith(".opus") ||
+      lower.endsWith(".webm") ||
+      lower.endsWith(".flac");
+    const inferredMediaType = isImage ? "image" : isAudio ? "audio" : "file";
+    const mediaType = meta?.mediaType ?? inferredMediaType;
+    const inferredMimeType =
+      inferredMediaType === "image"
+        ? lower.endsWith(".png")
+          ? "image/png"
+          : lower.endsWith(".gif")
+            ? "image/gif"
+            : lower.endsWith(".webp")
+              ? "image/webp"
+              : "image/jpeg"
+        : inferredMediaType === "audio"
+          ? lower.endsWith(".mp3")
+            ? "audio/mpeg"
+            : lower.endsWith(".wav")
+              ? "audio/wav"
+              : lower.endsWith(".m4a")
+                ? "audio/mp4"
+                : lower.endsWith(".aac")
+                  ? "audio/aac"
+                  : lower.endsWith(".webm")
+                    ? "audio/webm"
+                    : lower.endsWith(".flac")
+                      ? "audio/flac"
+                      : "audio/ogg"
+          : undefined;
+    const mimeType = meta?.mimeType ?? inferredMimeType;
 
     return {
       original: filename,
       local,
-      isImage
+      mediaType,
+      mimeType,
+      isImage: mediaType === "image",
+      isAudio: mediaType === "audio"
     };
   }
 

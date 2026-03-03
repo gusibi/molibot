@@ -4,6 +4,7 @@ import { config } from "../../app/env.js";
 
 export const storagePaths = {
   dataDir: path.resolve(config.dataDir),
+  agentsDir: path.resolve(config.dataDir, "agents"),
   settingsFile: path.resolve(config.settingsFile),
   memoryDir: path.resolve(config.dataDir, "memory"),
   sessionsDir: path.resolve(config.sessionsDir),
@@ -30,6 +31,7 @@ export function writeJsonFile(filePath: string, value: unknown): void {
 
 export function initDb(): void {
   fs.mkdirSync(storagePaths.dataDir, { recursive: true });
+  fs.mkdirSync(storagePaths.agentsDir, { recursive: true });
   fs.mkdirSync(storagePaths.memoryDir, { recursive: true });
   fs.mkdirSync(storagePaths.sessionsDir, { recursive: true });
 

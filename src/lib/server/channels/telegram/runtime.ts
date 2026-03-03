@@ -24,7 +24,6 @@ import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
 import { editTelegramText, sendTelegramText } from "./formatting.js";
 import { ChannelQueue } from "../shared/queue.js";
-import { transcribeTelegramAudio } from "./stt.js";
 import type { ModelOption, ModelRoute, ParsedRelativeReminder, StatusSession } from "./types.js";
 
 export interface TelegramConfig {
@@ -33,7 +32,7 @@ export interface TelegramConfig {
 }
 
 // Orchestrates Telegram-specific command flow, event handling, and runner lifecycle.
-// Leaf concerns like queueing, text formatting, and STT live in sibling files.
+// Leaf concerns like queueing and text formatting live in sibling files.
 export class TelegramManager {
   private static readonly TELEGRAM_TEXT_SOFT_LIMIT = 3800;
   private static readonly CHAT_EVENTS_RELATIVE_DIR = ["events"] as const;
@@ -93,10 +92,14 @@ export class TelegramManager {
       )) || "(no working memory yet)")
       : "(no working memory yet)";
     const prompt = buildSystemPromptPreview(this.workspaceDir, chatId, sessionId, memoryText, {
-      channel: "telegram"
+      channel: "telegram",
+      settings: this.getSettings()
     });
     const channelSections = buildPromptChannelSections("telegram");
-    const sources = getSystemPromptSources(this.workspaceDir);
+    const sources = getSystemPromptSources(this.workspaceDir, {
+      channel: "telegram",
+      settings: this.getSettings()
+    });
     const filePath = join(this.workspaceDir, "SYSTEM_PROMPT.preview.md");
     const header = [
       "# System Prompt Preview",
@@ -108,7 +111,8 @@ export class TelegramManager {
       `- session_id: ${sessionId}`,
       `- channel_sections: ${channelSections.length}`,
       `- global_sources: ${sources.global.length > 0 ? sources.global.join(", ") : "(none)"}`,
-      `- workspace_sources: ${sources.workspace.length > 0 ? sources.workspace.join(", ") : "(none)"}`,
+      `- agent_sources: ${sources.agent.length > 0 ? sources.agent.join(", ") : "(none)"}`,
+      `- bot_sources: ${sources.bot.length > 0 ? sources.bot.join(", ") : "(none)"}`,
       "",
       "---",
       "",
@@ -1377,18 +1381,23 @@ export class TelegramManager {
     const ts = `${msg.date}.${String(msg.message_id).padStart(6, "0")}`;
     const attachments: ChannelInboundMessage["attachments"] = [];
     const imageContents: ChannelInboundMessage["imageContents"] = [];
-    let voiceTranscript: string | null = null;
-    let voiceTranscriptionError: string | null = null;
 
     if (msg.document?.file_id) {
       const filename = msg.document.file_name || `${msg.document.file_id}.bin`;
       const data = await this.downloadTelegramFile(token, msg.document.file_id);
       if (data) {
-        const saved = this.store.saveAttachment(chatId, filename, ts, data);
+        const mime = msg.document.mime_type || this.mimeFromFilename(filename);
+        const saved = this.store.saveAttachment(chatId, filename, ts, data, {
+          mediaType: mime?.startsWith("image/")
+            ? "image"
+            : mime?.startsWith("audio/")
+              ? "audio"
+              : "file",
+          mimeType: mime
+        });
         attachments.push(saved);
 
-        const mime = this.mimeFromFilename(filename);
-        if (mime) {
+        if (saved.isImage && mime) {
           imageContents.push({ type: "image", mimeType: mime, data: data.toString("base64") });
         }
       }
@@ -1400,7 +1409,10 @@ export class TelegramManager {
         const filename = `${largest.file_id}.jpg`;
         const data = await this.downloadTelegramFile(token, largest.file_id);
         if (data) {
-          const saved = this.store.saveAttachment(chatId, filename, ts, data);
+          const saved = this.store.saveAttachment(chatId, filename, ts, data, {
+            mediaType: "image",
+            mimeType: "image/jpeg"
+          });
           attachments.push(saved);
           imageContents.push({ type: "image", mimeType: "image/jpeg", data: data.toString("base64") });
         }
@@ -1412,11 +1424,11 @@ export class TelegramManager {
       const filename = `${msg.voice.file_id}${ext}`;
       const data = await this.downloadTelegramFile(token, msg.voice.file_id);
       if (data) {
-        const saved = this.store.saveAttachment(chatId, filename, ts, data);
+        const saved = this.store.saveAttachment(chatId, filename, ts, data, {
+          mediaType: "audio",
+          mimeType: this.detectAudioMime(filename, data) || msg.voice.mime_type || "audio/ogg"
+        });
         attachments.push(saved);
-        const transcription = await transcribeTelegramAudio(this.getSettings(), data, filename, msg.voice.mime_type);
-        voiceTranscript = transcription.text;
-        voiceTranscriptionError = transcription.errorMessage;
       }
     }
 
@@ -1425,34 +1437,17 @@ export class TelegramManager {
       const filename = msg.audio.file_name || `${msg.audio.file_id}${ext}`;
       const data = await this.downloadTelegramFile(token, msg.audio.file_id);
       if (data) {
-        const saved = this.store.saveAttachment(chatId, filename, ts, data);
+        const saved = this.store.saveAttachment(chatId, filename, ts, data, {
+          mediaType: "audio",
+          mimeType: this.detectAudioMime(filename, data) || msg.audio.mime_type || this.mimeFromFilename(filename)
+        });
         attachments.push(saved);
-        if (!voiceTranscript) {
-          const transcription = await transcribeTelegramAudio(this.getSettings(), data, filename, msg.audio.mime_type);
-          voiceTranscript = transcription.text;
-          voiceTranscriptionError = transcription.errorMessage;
-        }
       }
-    }
-
-    if (voiceTranscript) {
-      cleaned = cleaned
-        ? `${cleaned}\n\n[voice transcript]\n${voiceTranscript}`
-        : `[voice transcript]\n${voiceTranscript}`;
     }
 
     if (!cleaned) {
       if (msg.voice || msg.audio) {
         cleaned = "(voice message received; transcription unavailable)";
-        if (voiceTranscriptionError) {
-          await ctx.reply(
-            [
-              "语音识别失败，已降级为未转写消息。",
-              voiceTranscriptionError,
-              "建议：检查 STT provider 的 baseUrl/path/model 是否正确。"
-            ].join("\n")
-          );
-        }
       } else {
         cleaned = "(attachment)";
       }

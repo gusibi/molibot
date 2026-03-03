@@ -231,7 +231,6 @@ export class FeishuManager {
 
         const event = await toFeishuInboundEvent({
             client: this.client,
-            getSettings: this.getSettings,
             store: this.store,
             message,
             sender
@@ -281,18 +280,6 @@ export class FeishuManager {
                 chatId,
                 error: error instanceof Error ? error.message : String(error)
             });
-        }
-
-        if ((event as ChannelInboundMessage & { transcriptionError?: string | null }).transcriptionError) {
-            await sendFeishuText(
-                this.client,
-                chatId,
-                [
-                    "语音识别失败，已降级为未转写消息。",
-                    (event as ChannelInboundMessage & { transcriptionError?: string | null }).transcriptionError,
-                    "建议：检查 STT provider 的 baseUrl/path/model 是否正确。"
-                ].join("\n")
-            );
         }
 
         const queue = this.getQueue(chatId);
@@ -701,10 +688,14 @@ export class FeishuManager {
             )) || "(no working memory yet)")
             : "(no working memory yet)";
         const prompt = buildSystemPromptPreview(this.workspaceDir, chatId, sessionId, memoryText, {
-            channel: "feishu"
+            channel: "feishu",
+            settings: this.getSettings()
         });
         const channelSections = buildPromptChannelSections("feishu");
-        const sources = getSystemPromptSources(this.workspaceDir);
+        const sources = getSystemPromptSources(this.workspaceDir, {
+            channel: "feishu",
+            settings: this.getSettings()
+        });
         const filePath = join(this.workspaceDir, "SYSTEM_PROMPT.preview.md");
         const header = [
             "# System Prompt Preview",
@@ -716,7 +707,8 @@ export class FeishuManager {
             `- session_id: ${sessionId}`,
             `- channel_sections: ${channelSections.length}`,
             `- global_sources: ${sources.global.length > 0 ? sources.global.join(", ") : "(none)"}`,
-            `- workspace_sources: ${sources.workspace.length > 0 ? sources.workspace.join(", ") : "(none)"}`,
+            `- agent_sources: ${sources.agent.length > 0 ? sources.agent.join(", ") : "(none)"}`,
+            `- bot_sources: ${sources.bot.length > 0 ? sources.bot.join(", ") : "(none)"}`,
             "",
             "---",
             "",

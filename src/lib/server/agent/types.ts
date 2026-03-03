@@ -1,9 +1,14 @@
 import type { ImageContent } from "@mariozechner/pi-ai";
 
+export type AttachmentMediaType = "image" | "audio" | "file";
+
 export interface FileAttachment {
   original: string;
   local: string;
+  mediaType: AttachmentMediaType;
+  mimeType?: string;
   isImage: boolean;
+  isAudio: boolean;
 }
 
 export type ChannelChatType = "private" | "group" | "supergroup" | "channel";

@@ -42,7 +42,7 @@
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
       form.memoryEnabled = Boolean(data.settings?.plugins?.memory?.enabled);
       form.memoryBackend = String(
-        data.settings?.plugins?.memory?.backend ?? data.settings?.plugins?.memory?.core ?? "json-file",
+        (data.settings?.plugins?.memory as any)?.backend ?? (data.settings?.plugins?.memory as any)?.core ?? "json-file",
       );
 
       const pluginRes = await fetch("/api/settings/plugins");
@@ -97,51 +97,7 @@
   onMount(loadSettings);
 </script>
 
-<main class="h-screen bg-[#212121] text-slate-100">
-  <div class="grid h-full grid-cols-1 lg:grid-cols-[260px_1fr]">
-    <aside class="hidden border-r border-white/10 bg-[#171717] p-3 lg:block">
-      <nav class="space-y-1 text-sm">
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/">Chat</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings">Settings</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/ai">AI</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/telegram">Telegram</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/feishu">Feishu</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/tasks">Tasks</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/skills">Skills</a
-        >
-        <a
-          class="block rounded-lg bg-white/15 px-3 py-2 font-medium text-white"
-          href="/settings/plugins">Plugins</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/memory">Memory</a
-        >
-      </nav>
-    </aside>
-
-    <section class="min-h-0 overflow-y-auto px-4 py-6 sm:px-8">
-      <div class="mx-auto max-w-3xl space-y-4">
+<div class="mx-auto max-w-3xl space-y-6 px-6 py-8 sm:px-10 sm:py-12">
         <h1 class="text-2xl font-semibold">Plugin Settings</h1>
         <p class="text-sm text-slate-400">
           Enable or disable optional runtime plugins.
@@ -386,6 +342,4 @@
           </form>
         {/if}
       </div>
-    </section>
-  </div>
-</main>
+    

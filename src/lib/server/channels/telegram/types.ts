@@ -10,11 +10,6 @@ export interface StatusSession {
 export type ModelOption = SharedModelOption;
 export type ModelRoute = SharedModelRoute;
 
-export interface TranscriptionResult {
-  text: string | null;
-  errorMessage: string | null;
-}
-
 export interface ParsedRelativeReminder {
   delayMs: number;
   reminderText: string;

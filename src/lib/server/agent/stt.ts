@@ -1,6 +1,6 @@
-import { config } from "../../app/env.js";
-import { momLog, momWarn } from "../../agent/log.js";
-import type { RuntimeSettings } from "../../settings/index.js";
+import { config } from "../app/env.js";
+import { momLog, momWarn } from "./log.js";
+import type { RuntimeSettings } from "../settings/index.js";
 
 interface SttTarget {
   baseUrl: string;
@@ -14,7 +14,7 @@ export interface TranscriptionResult {
   errorMessage: string | null;
 }
 
-interface SharedSttOptions {
+interface SttOptions {
   channel: string;
   settings: RuntimeSettings;
   data: Buffer;
@@ -88,7 +88,7 @@ export async function transcribeAudioViaConfiguredProvider({
   mimeType,
   maxAttempts = 1,
   retryDelayMs = 0
-}: SharedSttOptions): Promise<TranscriptionResult> {
+}: SttOptions): Promise<TranscriptionResult> {
   const target = resolveSttTarget(settings);
   if (!target) {
     return {
@@ -117,7 +117,11 @@ export async function transcribeAudioViaConfiguredProvider({
     if (config.telegramSttPrompt) {
       form.append("prompt", config.telegramSttPrompt);
     }
-    form.append("file", new Blob([data], { type: mimeType || "audio/ogg" }), filename);
+    form.append(
+      "file",
+      new Blob([new Uint8Array(data)], { type: mimeType || "audio/ogg" }),
+      filename
+    );
 
     try {
       const resp = await fetch(url, {

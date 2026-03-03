@@ -1,12 +1,8 @@
 import type { Readable } from "node:stream";
 import type * as lark from "@larksuiteoapi/node-sdk";
-import type { RuntimeSettings } from "../../settings/index.js";
+import { momLog, momWarn } from "../../agent/log.js";
 import type { ChannelInboundMessage } from "../../agent/types.js";
 import { MomRuntimeStore } from "../../agent/store.js";
-import { transcribeAudioViaConfiguredProvider, type TranscriptionResult } from "../shared/stt.js";
-
-const FEISHU_STT_MAX_ATTEMPTS = 3;
-const FEISHU_STT_RETRY_DELAY_MS = 800;
 
 interface ParsedFeishuContent {
   rawText: string;
@@ -15,9 +11,7 @@ interface ParsedFeishuContent {
   resourceType: "file" | "image" | "media" | null;
 }
 
-export type FeishuInboundEvent = ChannelInboundMessage & {
-  transcriptionError?: string | null;
-};
+export type FeishuInboundEvent = ChannelInboundMessage;
 
 function parseJsonContent(raw: unknown): Record<string, any> | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
@@ -97,6 +91,13 @@ function mimeFromFilename(filename: string): string | null {
   if (lower.endsWith(".webp")) return "image/webp";
   if (lower.endsWith(".bmp")) return "image/bmp";
   if (lower.endsWith(".tiff") || lower.endsWith(".tif")) return "image/tiff";
+  if (lower.endsWith(".ogg") || lower.endsWith(".oga") || lower.endsWith(".opus")) return "audio/ogg";
+  if (lower.endsWith(".mp3")) return "audio/mpeg";
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".m4a") || lower.endsWith(".mp4")) return "audio/mp4";
+  if (lower.endsWith(".aac")) return "audio/aac";
+  if (lower.endsWith(".webm")) return "audio/webm";
+  if (lower.endsWith(".flac")) return "audio/flac";
   return null;
 }
 
@@ -111,48 +112,6 @@ function resolveAudioExt(mimeType?: string | null): string {
   if (value.includes("webm")) return ".webm";
   if (value.includes("flac")) return ".flac";
   return ".opus";
-}
-
-function normalizeAudioMimeType(mimeType?: string | null): string {
-  const value = String(mimeType || "").toLowerCase().trim();
-  if (!value || value === "application/octet-stream") return "audio/ogg";
-  if (value.includes("opus")) return "audio/ogg";
-  if (value.includes("ogg")) return "audio/ogg";
-  if (value.includes("mpeg") || value.includes("mp3")) return "audio/mpeg";
-  if (value.includes("wav")) return "audio/wav";
-  if (value.includes("mp4") || value.includes("m4a")) return "audio/mp4";
-  if (value.includes("aac")) return "audio/aac";
-  if (value.includes("webm")) return "audio/webm";
-  if (value.includes("flac")) return "audio/flac";
-  return "audio/ogg";
-}
-
-function ensureAudioFilename(filename: string, mimeType?: string | null): string {
-  const trimmed = filename.trim() || "feishu-audio";
-  const lower = trimmed.toLowerCase();
-  if (/\.(flac|mp3|mp4|mpeg|mpga|m4a|ogg|opus|wav|webm)$/.test(lower)) {
-    return trimmed;
-  }
-  return `${trimmed}${resolveAudioExt(mimeType)}`;
-}
-
-async function transcribeAudio(
-  getSettings: () => RuntimeSettings,
-  data: Buffer,
-  filename: string,
-  mimeType?: string
-): Promise<TranscriptionResult> {
-  const normalizedMimeType = normalizeAudioMimeType(mimeType);
-  const normalizedFilename = ensureAudioFilename(filename, normalizedMimeType);
-  return transcribeAudioViaConfiguredProvider({
-    channel: "feishu",
-    settings: getSettings(),
-    data,
-    filename: normalizedFilename,
-    mimeType: normalizedMimeType,
-    maxAttempts: FEISHU_STT_MAX_ATTEMPTS,
-    retryDelayMs: FEISHU_STT_RETRY_DELAY_MS
-  });
 }
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -285,12 +244,11 @@ export function isFeishuGroupMessageTriggered(message: Record<string, any>): boo
 
 export async function toFeishuInboundEvent(input: {
   client: lark.Client;
-  getSettings: () => RuntimeSettings;
   store: MomRuntimeStore;
   message: Record<string, any>;
   sender: Record<string, any>;
 }): Promise<FeishuInboundEvent | null> {
-  const { client, getSettings, store, message, sender } = input;
+  const { client, store, message, sender } = input;
   const chatId = String(message.chat_id || "");
   const messageId = String(message.message_id || "");
   const chatType = message.chat_type === "p2p" ? "private" : "group";
@@ -307,8 +265,6 @@ export async function toFeishuInboundEvent(input: {
 
   const attachments: ChannelInboundMessage["attachments"] = [];
   const imageContents: ChannelInboundMessage["imageContents"] = [];
-  let voiceTranscript: string | null = null;
-  let transcriptionError: string | null = null;
 
   if (parsed.fileKey && parsed.resourceType) {
     const resource = await downloadFeishuMessageResource(
@@ -318,49 +274,37 @@ export async function toFeishuInboundEvent(input: {
       parsed.resourceType,
       String(message.message_type || "")
     );
+
     if (resource) {
       const guessedName =
         parsed.fileName ||
         resource.filename ||
         `${parsed.fileKey}${parsed.resourceType === "image"
           ? ".png"
-          : parsed.resourceType === "media"
+          : String(resource.contentType || "").startsWith("audio/")
             ? resolveAudioExt(resource.contentType)
             : ".bin"
         }`;
-      const saved = store.saveAttachment(chatId, guessedName, ts, resource.data);
+      const mimeType = resource.contentType || mimeFromFilename(guessedName) || undefined;
+      const mediaType = parsed.resourceType === "image"
+        ? "image"
+        : mimeType?.startsWith("audio/") || message.message_type === "audio"
+          ? "audio"
+          : "file";
+      const saved = store.saveAttachment(chatId, guessedName, ts, resource.data, {
+        mediaType,
+        mimeType
+      });
       attachments.push(saved);
 
-      const imageMime = resource.contentType || mimeFromFilename(guessedName);
-      if (parsed.resourceType === "image" && imageMime) {
-        imageContents.push({ type: "image", mimeType: imageMime, data: resource.data.toString("base64") });
-      }
-
-      const shouldTranscribe =
-        parsed.resourceType === "media" ||
-        message.message_type === "audio" ||
-        message.message_type === "media";
-      if (shouldTranscribe) {
-        const transcription = await transcribeAudio(
-          getSettings,
-          resource.data,
-          ensureAudioFilename(guessedName, resource.contentType),
-          normalizeAudioMimeType(resource.contentType)
-        );
-        voiceTranscript = transcription.text;
-        transcriptionError = transcription.errorMessage;
+      if (saved.isImage && mimeType) {
+        imageContents.push({ type: "image", mimeType, data: resource.data.toString("base64") });
       }
     }
   }
 
-  if (voiceTranscript) {
-    cleaned = cleaned
-      ? `${cleaned}\n\n[voice transcript]\n${voiceTranscript}`
-      : `[voice transcript]\n${voiceTranscript}`;
-  }
-
   if (!cleaned) {
-    if (message.message_type === "audio" || message.message_type === "media") {
+    if (attachments.some((item) => item.isAudio)) {
       cleaned = "(voice message received; transcription unavailable)";
     } else if (attachments.length > 0) {
       cleaned = "(attachment)";
@@ -380,7 +324,6 @@ export async function toFeishuInboundEvent(input: {
     text: cleaned,
     ts,
     attachments,
-    imageContents,
-    transcriptionError
+    imageContents
   };
 }

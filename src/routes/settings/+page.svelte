@@ -1,129 +1,141 @@
-<main class="h-screen bg-[#212121] text-slate-100">
-  <div class="grid h-full grid-cols-1 lg:grid-cols-[260px_1fr]">
-    <aside class="hidden border-r border-white/10 bg-[#171717] p-3 lg:block">
-      <nav class="space-y-1 text-sm">
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/">Chat</a
-        >
-        <a
-          class="block rounded-lg bg-white/15 px-3 py-2 font-medium text-white"
-          href="/settings">Settings</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/ai">AI</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/ai#usage">Usage</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/telegram">Telegram</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/feishu">Feishu</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/tasks">Tasks</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/skills">Skills</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/plugins">Plugins</a
-        >
-        <a
-          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
-          href="/settings/memory">Memory</a
-        >
-      </nav>
-    </aside>
+<script lang="ts">
+</script>
 
-    <section class="min-h-0 overflow-y-auto px-4 py-6 sm:px-8">
-      <div class="mx-auto max-w-4xl space-y-4">
-        <h1 class="text-2xl font-semibold">Settings</h1>
-        <p class="text-sm text-slate-400">
-          Manage AI runtime and Telegram configuration.
-        </p>
-
-        <div class="grid gap-3">
-          <a
-            class="block cursor-pointer rounded-xl border border-white/15 bg-[#2b2b2b] p-4 transition-colors duration-200 hover:bg-[#343434]"
-            href="/settings/ai"
-          >
-            <h2 class="text-base font-semibold">AI Provider</h2>
-            <p class="mt-1 text-sm text-slate-400">
-              Provider mode, default provider/model, custom providers, and token usage stats.
-            </p>
-          </a>
-
-          <a
-            class="block cursor-pointer rounded-xl border border-white/15 bg-[#2b2b2b] p-4 transition-colors duration-200 hover:bg-[#343434]"
-            href="/settings/telegram"
-          >
-            <h2 class="text-base font-semibold">Telegram Bot</h2>
-            <p class="mt-1 text-sm text-slate-400">
-              Bot token and allowed chat IDs.
-            </p>
-          </a>
-
-          <a
-            class="block cursor-pointer rounded-xl border border-white/15 bg-[#2b2b2b] p-4 transition-colors duration-200 hover:bg-[#343434]"
-            href="/settings/feishu"
-          >
-            <h2 class="text-base font-semibold">Feishu Bot</h2>
-            <p class="mt-1 text-sm text-slate-400">
-              App ID, App Secret and allowed chat IDs.
-            </p>
-          </a>
-
-          <a
-            class="block cursor-pointer rounded-xl border border-white/15 bg-[#2b2b2b] p-4 transition-colors duration-200 hover:bg-[#343434]"
-            href="/settings/tasks"
-          >
-            <h2 class="text-base font-semibold">Tasks</h2>
-            <p class="mt-1 text-sm text-slate-400">
-              View scheduled event tasks by type, scope, and execution status.
-            </p>
-          </a>
-
-          <a
-            class="block cursor-pointer rounded-xl border border-white/15 bg-[#2b2b2b] p-4 transition-colors duration-200 hover:bg-[#343434]"
-            href="/settings/skills"
-          >
-            <h2 class="text-base font-semibold">Skills</h2>
-            <p class="mt-1 text-sm text-slate-400">
-              View installed global and chat-level skills with concrete paths.
-            </p>
-          </a>
-
-          <a
-            class="block cursor-pointer rounded-xl border border-white/15 bg-[#2b2b2b] p-4 transition-colors duration-200 hover:bg-[#343434]"
-            href="/settings/plugins"
-          >
-            <h2 class="text-base font-semibold">Plugins</h2>
-            <p class="mt-1 text-sm text-slate-400">
-              Optional features like Memory on/off and core selection.
-            </p>
-          </a>
-
-          <a
-            class="block cursor-pointer rounded-xl border border-white/15 bg-[#2b2b2b] p-4 transition-colors duration-200 hover:bg-[#343434]"
-            href="/settings/memory"
-          >
-            <h2 class="text-base font-semibold">Memory</h2>
-            <p class="mt-1 text-sm text-slate-400">
-              Review, search, flush and curate memory records.
-            </p>
-          </a>
-        </div>
-      </div>
-    </section>
+<div class="mx-auto max-w-4xl space-y-8 px-6 py-8 sm:px-10 sm:py-12">
+  <div>
+    <h1 class="text-3xl font-bold tracking-tight text-white">
+      Settings Overview
+    </h1>
+    <p class="mt-2 text-base text-slate-400">
+      Manage AI runtime, agent logic, and connected bot channels.
+    </p>
   </div>
-</main>
+
+  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <a
+      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
+      href="/settings/ai/routing"
+    >
+      <div>
+        <h2
+          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
+        >
+          AI Engine
+        </h2>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Configure model routing, system prompts, and custom providers.
+        </p>
+      </div>
+      <div
+        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+      >
+        Configure &rarr;
+      </div>
+    </a>
+
+    <a
+      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
+      href="/settings/agents"
+    >
+      <div>
+        <h2
+          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
+        >
+          Agents
+        </h2>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Define reusable agent identities and edit their Markdown files.
+        </p>
+      </div>
+      <div
+        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+      >
+        Manage Agents &rarr;
+      </div>
+    </a>
+
+    <a
+      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
+      href="/settings/memory"
+    >
+      <div>
+        <h2
+          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
+        >
+          Agent Memory
+        </h2>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Review, search, flush, and curate assistant memory records.
+        </p>
+      </div>
+      <div
+        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+      >
+        Manage Memory &rarr;
+      </div>
+    </a>
+
+    <a
+      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
+      href="/settings/telegram"
+    >
+      <div>
+        <h2
+          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
+        >
+          Bot Channels
+        </h2>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Set up Telegram & Feishu connections.
+        </p>
+      </div>
+      <div
+        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+      >
+        Setup Bots &rarr;
+      </div>
+    </a>
+
+    <a
+      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
+      href="/settings/skills"
+    >
+      <div>
+        <h2
+          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
+        >
+          Skills & Tasks
+        </h2>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Explore installed skills and scheduled cron tasks.
+        </p>
+      </div>
+      <div
+        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+      >
+        Explore &rarr;
+      </div>
+    </a>
+
+    <a
+      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
+      href="/settings/plugins"
+    >
+      <div>
+        <h2
+          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
+        >
+          System Plugins
+        </h2>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Toggle core features like the memory backend storage engine.
+        </p>
+      </div>
+      <div
+        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+      >
+        System Setup &rarr;
+      </div>
+    </a>
+  </div>
+</div>

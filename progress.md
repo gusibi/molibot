@@ -1,51 +1,11 @@
 # Progress
 
 ## 2026-03-03
-- Started a focused safety refactor for runtime model switching.
-- Verified current switch paths:
-  - Web page uses `PUT /api/settings`
-  - Telegram `/models` already persists through `updateSettings`
-  - Feishu `/models` is not implemented
-- Verified current risk boundary:
-  - direct file tools are path-guarded
-  - `bash` can still bypass and modify the settings file if the model decides to do so
-- Chose implementation direction: extract a shared server-side model-switch service, reuse it from Telegram/Feishu/API, add an agent tool for safe switching, and block direct shell edits of the settings file.
-- Implemented shared model-switch module in `src/lib/server/settings/modelSwitch.ts` and reused it from Telegram `/models`, Feishu `/models`, the new narrow API route, and the new agent `switch_model` tool.
-- Updated `MomRunner` tool wiring so agent sessions can switch models through runtime settings rather than file edits.
-- Hardened generic agent `bash` to reject direct operations against the runtime settings file.
-- Ran `npm run build`; build completed successfully after the unified model-switch refactor.
-- Added append-only AI usage tracking under `~/.molibot/usage/ai-usage.jsonl` with per-request channel/provider/model/api/input/output/cache/total token fields.
-- Wired usage recording into both request paths:
-  - `AssistantService` for web/API chat requests
-  - `MomRunner` for Telegram/Feishu agent runs
-- Added `GET /api/settings/usage` and rendered token analytics in `/settings/ai`, including today/yesterday/last-7-days/last-30-days windows plus daily/weekly/monthly and per-model breakdowns.
-- Ran `npm run build`; build completed successfully after the usage tracking and settings dashboard work.
-- Investigated new-machine startup failure in the Mory backend path and confirmed the SQLite DB file could be opened before `${DATA_DIR}/memory` existed.
-- Hardened startup in three layers: global `initDb()` now creates `${DATA_DIR}/memory`, `MoryMemoryBackend` creates the DB parent directory before opening storage, and the package-level `NodeSqliteDriver` also creates parent directories for file-backed SQLite paths.
-- Ran `npm run build`; build completed successfully after the Mory first-run bootstrap fix.
-
-## 2026-03-02
-- Started repository structure analysis.
-- Read root `AGENTS.md`, project `README.md`, and `package.json`.
-- Captured initial scope and scan findings for later synthesis.
-- Inspected `src/lib/server` subdirectories and key files: `runtime.ts`, `core/messageRouter.ts`, `channels/registry.ts`, `memory/gateway.ts`, `services/sessionStore.ts`.
-- Confirmed `mom` naming origin from `example/pi-mono/packages/mom/README.md`; this is an inherited agent runtime name, not a Molibot business term.
-- Confirmed `package/mory` is an independent memory SDK package distinct from the app-level memory gateway in `src/lib/server/memory`.
-- Measured hotspot file sizes and confirmed the main maintainability issue is boundary collapse inside channel runtime files, especially Telegram.
-- Verified that route/page structure already exposes stable product domains that can be reused as the primary organizing principle for a cleaner backend layout.
-- Created `docs/structure-migration-plan.md` with target layout, migration table, and phased execution order.
-- Executed structure migration phase 1: moved `app`, `agent`, `channels`, `sessions`, `settings`, and `providers` modules into their new homes and repaired imports.
-- Ran `npm run build`; build completed successfully after the directory migration.
-- Executed structure migration phase 2: split env/path config from runtime settings schema/defaults and moved shared router ownership under `channels/shared`.
-- Ran `npm run build` again; build completed successfully after the phase-2 boundary cleanup.
-- Executed infra/shared extraction: moved rate limiter, storage helpers, and cross-module message types into `infra` and `shared`.
-- Ran `npm run build` again; build completed successfully after the phase-3 extraction.
-- Confirmed `src/lib/memoryStorageBackend.ts` had no remaining imports and removed it as dead code.
-- Performed the first controlled split of Telegram runtime by extracting queue, formatting, STT, and helper types into sibling files.
-- Ran `npm run build`; build completed successfully after the Telegram low-risk extraction.
-- Extracted duplicated Telegram/Feishu queue logic into `src/lib/server/channels/shared/queue.ts` and rewired both runtimes to use it with channel-specific log labels.
-- Extracted shared STT target resolution + HTTP transcription flow into `src/lib/server/channels/shared/stt.ts`; Telegram now uses a thin wrapper and Feishu keeps only local audio normalization plus retry settings.
-- Ran `npm run build`; build completed successfully after the shared queue/STT extraction.
-- Audited channel attachment/media paths end-to-end: confirmed Telegram inbound/outbound file handling was already wired, and identified Feishu outbound media as the remaining stub (`uploadFile`).
-- Implemented Feishu outbound media helpers in `src/lib/server/channels/feishu/messaging.ts` and connected runtime `uploadFile`/`deleteMessage` hooks.
-- Ran `npm run build`; build completed successfully after the Feishu outbound media implementation.
+- 启动复杂任务的文件化计划。
+- 已读取技能说明、`features.md`、`prd.md`。
+- 已确认当前目录语义：`moli-t` / `moli-f` 是 channel runtime，不是 agent 层。
+- 下一步：继续定位 settings schema、prompt 加载实现和 bot 工作区路径生成逻辑。
+- 已完成 settings schema 扩展：新增 `agents` 与 bot `agentId` 关联字段，并加入 agent/bot profile 文件读写 API。
+- 已完成 `/settings/agents` 页面，以及 Telegram/Feishu bot 页面中的 agent 选择和 bot 级 Markdown 编辑。
+- 已完成 runtime prompt 分层加载与 preview 来源展示调整，顺序为 `global -> agent -> bot`。
+- 已完成第二阶段 vision 路由：`runner.ts` 现在会根据 custom model 的 `vision` verification 决定是否发送 native image payload，否则降级为附件式处理。

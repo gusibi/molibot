@@ -1,5 +1,6 @@
 import type { KnownProvider } from "@mariozechner/pi-ai";
 import {
+  type AgentSettings,
   isKnownProvider,
   type ChannelInstanceSettings,
   type CustomProviderConfig,
@@ -30,6 +31,7 @@ function mapTelegramBotsToChannelSettings(bots: TelegramBotConfig[]): ChannelIns
     id: bot.id,
     name: bot.name,
     enabled: true,
+    agentId: "",
     credentials: {
       token: bot.token
     },
@@ -42,6 +44,7 @@ function mapFeishuBotsToChannelSettings(bots: FeishuBotConfig[]): ChannelInstanc
     id: bot.id,
     name: bot.name,
     enabled: true,
+    agentId: "",
     credentials: {
       appId: bot.appId,
       appSecret: bot.appSecret
@@ -98,6 +101,8 @@ const defaultFeishuBots: FeishuBotConfig[] = defaultFeishuAppId && defaultFeishu
   }]
   : [];
 
+const defaultAgents: AgentSettings[] = [];
+
 export const defaultRuntimeSettings: RuntimeSettings = {
   providerMode,
   piModelProvider: providerFromEnv("PI_MODEL_PROVIDER", "anthropic"),
@@ -116,6 +121,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   timezone:
     (process.env.MOLIBOT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone).trim() ||
     Intl.DateTimeFormat().resolvedOptions().timeZone,
+  agents: defaultAgents,
   channels: {
     telegram: {
       instances: mapTelegramBotsToChannelSettings(defaultTelegramBots)

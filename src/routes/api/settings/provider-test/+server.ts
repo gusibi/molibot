@@ -1,12 +1,13 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import type { ModelRole } from "$lib/server/settings";
+import type { ModelCapabilityTag, ModelCapabilityVerification, ModelRole } from "$lib/server/settings";
 
 interface ProviderTestBody {
   baseUrl?: string;
   apiKey?: string;
   path?: string;
   model?: string;
+  tags?: ModelCapabilityTag[];
 }
 
 interface ProviderTestResult {
@@ -14,9 +15,13 @@ interface ProviderTestResult {
   status: number | null;
   message: string;
   supportedRoles: ModelRole[];
+  verification: Partial<Record<ModelCapabilityTag, ModelCapabilityVerification>>;
 }
 
 const BASE_ROLES: ModelRole[] = ["system", "user", "assistant", "tool"];
+const TESTABLE_CAPABILITY_SET = new Set<ModelCapabilityTag>(["text", "vision", "stt", "tts", "tool"]);
+const SAMPLE_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0yoAAAAASUVORK5CYII=";
 
 function normalizePath(path: string | undefined): string {
   const raw = String(path ?? "/v1/chat/completions").trim();
@@ -56,6 +61,9 @@ export const POST: RequestHandler = async ({ request }) => {
   const apiKey = String(body.apiKey ?? "").trim();
   const path = normalizePath(body.path);
   const model = String(body.model ?? "").trim();
+  const declaredTags = Array.isArray(body.tags)
+    ? body.tags.filter((tag): tag is ModelCapabilityTag => TESTABLE_CAPABILITY_SET.has(tag as ModelCapabilityTag))
+    : [];
 
   if (!baseUrl || !apiKey || !model) {
     return json({ ok: false, error: "baseUrl, apiKey and model are required" }, { status: 400 });
@@ -75,15 +83,23 @@ export const POST: RequestHandler = async ({ request }) => {
       messages: minimalMessages
     });
 
+    const verification: Partial<Record<ModelCapabilityTag, ModelCapabilityVerification>> = {};
+
     if (!connectivity.ok) {
+      for (const tag of declaredTags) {
+        verification[tag] = tag === "tool" || tag === "stt" || tag === "tts" ? "untested" : "failed";
+      }
       const result: ProviderTestResult = {
         ok: false,
         status: connectivity.status,
         message: connectivity.text.slice(0, 500),
-        supportedRoles: [...BASE_ROLES]
+        supportedRoles: [...BASE_ROLES],
+        verification
       };
       return json(result, { status: 200 });
     }
+
+    verification.text = "passed";
 
     const developerProbe = await runRequest(url, apiKey, {
       ...basePayload,
@@ -93,13 +109,44 @@ export const POST: RequestHandler = async ({ request }) => {
     const supportsDeveloper = developerProbe.ok;
     const supportedRoles: ModelRole[] = supportsDeveloper ? [...BASE_ROLES, "developer"] : [...BASE_ROLES];
 
+    if (declaredTags.includes("vision")) {
+      const visionProbe = await runRequest(url, apiKey, {
+        ...basePayload,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Reply with the single word ok." },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/png;base64,${SAMPLE_PNG_BASE64}`
+                }
+              }
+            ]
+          }
+        ]
+      });
+      verification.vision = visionProbe.ok ? "passed" : "failed";
+    }
+
+    for (const tag of declaredTags) {
+      if (verification[tag]) continue;
+      verification[tag] = "untested";
+    }
+
+    const verificationSummary = declaredTags.length > 0
+      ? declaredTags.map((tag) => `${tag}:${verification[tag] ?? "untested"}`).join(", ")
+      : "no declared capability checks";
+
     const result: ProviderTestResult = {
       ok: true,
       status: developerProbe.status,
       message: supportsDeveloper
-        ? "Connectivity ok, developer role supported."
-        : "Connectivity ok, developer role not supported.",
-      supportedRoles
+        ? `Connectivity ok, developer role supported. Capability checks: ${verificationSummary}.`
+        : `Connectivity ok, developer role not supported. Capability checks: ${verificationSummary}.`,
+      supportedRoles,
+      verification
     };
     return json(result);
   } catch (error) {
@@ -108,7 +155,8 @@ export const POST: RequestHandler = async ({ request }) => {
         ok: false,
         status: null,
         message: error instanceof Error ? error.message : String(error),
-        supportedRoles: [...BASE_ROLES]
+        supportedRoles: [...BASE_ROLES],
+        verification: {}
       } satisfies ProviderTestResult
     );
   }

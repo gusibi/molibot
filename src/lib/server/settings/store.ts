@@ -1,7 +1,9 @@
 import {
+  type AgentSettings,
   type ChannelSettingsMap,
   defaultRuntimeSettings,
   type ModelCapabilityTag,
+  type ModelCapabilityVerification,
   type ProviderModelConfig,
   type CustomProviderConfig,
   type TelegramBotConfig,
@@ -33,6 +35,7 @@ interface RawSettings {
     };
   };
   telegramBots?: unknown;
+  agents?: unknown;
   channels?: unknown;
   telegramBotToken?: string;
   telegramAllowedChatIds?: string[] | string;
@@ -48,6 +51,7 @@ type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
 const DEFAULT_ROLES: ModelRole[] = ["system", "user", "assistant", "tool"];
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "stt", "tts", "tool"]);
+const CAPABILITY_VERIFICATION_SET: ReadonlySet<string> = new Set(["untested", "passed", "failed"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
 
 function sanitizeRoles(input: unknown): ModelRole[] {
@@ -76,6 +80,21 @@ function sanitizeModelTags(input: unknown): ModelCapabilityTag[] {
   return out.length > 0 ? out : [...DEFAULT_MODEL_TAGS];
 }
 
+function sanitizeVerification(
+  input: unknown
+): Partial<Record<ModelCapabilityTag, ModelCapabilityVerification>> | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const source = input as Record<string, unknown>;
+  const out: Partial<Record<ModelCapabilityTag, ModelCapabilityVerification>> = {};
+  for (const [rawKey, rawValue] of Object.entries(source)) {
+    const key = String(rawKey).trim();
+    const value = String(rawValue ?? "").trim();
+    if (!CAPABILITY_SET.has(key) || !CAPABILITY_VERIFICATION_SET.has(value)) continue;
+    out[key as ModelCapabilityTag] = value as ModelCapabilityVerification;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function sanitizeModels(
   item: Record<string, unknown>,
   providerRoles: ModelRole[]
@@ -96,7 +115,8 @@ function sanitizeModels(
     models.push({
       id,
       tags: sanitizeModelTags(obj.tags),
-      supportedRoles: sanitizeRoles(obj.supportedRoles ?? providerRoles)
+      supportedRoles: sanitizeRoles(obj.supportedRoles ?? providerRoles),
+      verification: sanitizeVerification(obj.verification)
     });
   }
 
@@ -155,6 +175,29 @@ function sanitizeList(input: unknown): string[] {
       .filter(Boolean);
   }
   return [];
+}
+
+function sanitizeAgents(input: unknown): AgentSettings[] {
+  if (!Array.isArray(input)) return [];
+
+  const out: AgentSettings[] = [];
+  const dedup = new Set<string>();
+
+  for (const row of input) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const id = String(item.id ?? "").trim();
+    if (!id || dedup.has(id)) continue;
+    dedup.add(id);
+    out.push({
+      id,
+      name: String(item.name ?? "").trim() || id,
+      description: String(item.description ?? "").trim(),
+      enabled: item.enabled === undefined ? true : Boolean(item.enabled)
+    });
+  }
+
+  return out;
 }
 
 function sanitizeTelegramBots(input: unknown): TelegramBotConfig[] {
@@ -243,6 +286,7 @@ function sanitizeChannels(
           id,
           name: String(item.name ?? "").trim() || id,
           enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+          agentId: String(item.agentId ?? "").trim(),
           credentials: Object.fromEntries(
             Object.entries(credentialsSource)
               .map(([credKey, credValue]) => [credKey, String(credValue ?? "").trim()])
@@ -261,6 +305,7 @@ function sanitizeChannels(
       id: bot.id,
       name: bot.name,
       enabled: true,
+      agentId: "",
       credentials: { token: bot.token },
       allowedChatIds: bot.allowedChatIds
     }))
@@ -271,6 +316,7 @@ function sanitizeChannels(
       id: bot.id,
       name: bot.name,
       enabled: true,
+      agentId: "",
       credentials: { appId: bot.appId, appSecret: bot.appSecret },
       allowedChatIds: bot.allowedChatIds
     }))
@@ -333,6 +379,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const feishuBotsFromList = sanitizeFeishuBots(raw.feishuBots);
   const feishuBots = feishuBotsFromList.length > 0 ? feishuBotsFromList : [];
   const channels = sanitizeChannels(raw.channels, telegramBots, feishuBots);
+  const agents = sanitizeAgents(raw.agents);
 
   return {
     providerMode: sanitizeMode(raw.providerMode ?? defaultRuntimeSettings.providerMode),
@@ -352,6 +399,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     systemPrompt:
       String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
       defaultRuntimeSettings.systemPrompt,
+    agents,
     channels,
     telegramBots,
     plugins: {

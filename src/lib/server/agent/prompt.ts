@@ -1,11 +1,17 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import defaultAgentsTemplate from "./prompts/AGENTS.template.md?raw";
+import {
+  AGENT_PROFILE_FILES,
+  BOT_PROFILE_FILES,
+  getAgentDir
+} from "./profiles.js";
 import {
   buildPromptChannelSections,
   type PromptChannel,
 } from "./prompt-channel.js";
 import { formatSkillsForPrompt, loadSkillsFromWorkspace } from "./skills.js";
+import type { RuntimeSettings } from "../settings/index.js";
 import {
   resolveDataRootFromWorkspacePath,
   resolveMemoryRootFromWorkspacePath,
@@ -20,6 +26,7 @@ const OPTIONAL_INSTRUCTION_FILES = [
   "BOOTSTRAP.md",
   "IDENTITY.md",
   "USER.md",
+  "SONG.md"
 ] as const;
 
 type PromptRenderVars = Record<string, string>;
@@ -249,6 +256,7 @@ function buildBaseSystemPrompt(vars: PromptRenderVars): string {
 
 interface PromptBuildOptions {
   channel?: PromptChannel;
+  settings?: RuntimeSettings;
 }
 
 function buildBaseSystemPromptWithOptions(
@@ -386,18 +394,31 @@ function readInstructionFile(baseDir: string, fileName: string): string | null {
 function buildPromptSectionsFromInstructionFiles(
   baseDir: string,
   vars: PromptRenderVars,
+  files?: readonly string[],
 ): string[] {
   const sections: string[] = [];
-  const agentsRaw = readInstructionFile(baseDir, "AGENTS.md");
-  if (agentsRaw) {
-    sections.push(renderPromptTemplate(agentsRaw, vars));
-  }
-  for (const fileName of OPTIONAL_INSTRUCTION_FILES) {
+  const orderedFiles = files ?? ["AGENTS.md", ...OPTIONAL_INSTRUCTION_FILES];
+  for (const fileName of orderedFiles) {
     const text = readInstructionFile(baseDir, fileName);
     if (!text) continue;
+    if (fileName === "AGENTS.md") {
+      sections.push(renderPromptTemplate(text, vars));
+      continue;
+    }
     sections.push(`\n# ${fileName}\n${renderPromptTemplate(text, vars)}`);
   }
   return sections;
+}
+
+function resolveAgentIdForWorkspace(
+  workspaceDir: string,
+  settings: RuntimeSettings | undefined,
+  channel: PromptChannel | undefined
+): string {
+  if (!settings || !channel) return "";
+  const botId = basename(resolve(workspaceDir));
+  const instances = settings.channels?.[channel]?.instances ?? [];
+  return instances.find((instance) => instance.id === botId)?.agentId?.trim() ?? "";
 }
 
 export function buildSystemPrompt(
@@ -421,19 +442,30 @@ export function buildSystemPrompt(
     renderVars.dataRoot,
     renderVars,
   );
-  const workspaceSections =
+  const agentId = resolveAgentIdForWorkspace(workspaceDir, options?.settings, options?.channel);
+  const agentSections = agentId
+    ? buildPromptSectionsFromInstructionFiles(
+      getAgentDir(agentId),
+      renderVars,
+      AGENT_PROFILE_FILES
+    )
+    : [];
+  const botSections =
     renderVars.dataRoot === workspaceDir
       ? []
-      : buildPromptSectionsFromInstructionFiles(workspaceDir, renderVars);
+      : buildPromptSectionsFromInstructionFiles(workspaceDir, renderVars, BOT_PROFILE_FILES);
 
   if (globalSections.length > 0) {
     sections.push(...globalSections);
   }
-  if (workspaceSections.length > 0) {
-    sections.push(...workspaceSections);
+  if (agentSections.length > 0) {
+    sections.push(...agentSections);
+  }
+  if (botSections.length > 0) {
+    sections.push(...botSections);
   }
 
-  if (globalSections.length === 0 && workspaceSections.length === 0) {
+  if (globalSections.length === 0 && agentSections.length === 0 && botSections.length === 0) {
     sections.push(renderPromptTemplate(DEFAULT_AGENTS_TEMPLATE, renderVars));
   }
   return sections.join("\n\n").trim();
@@ -449,23 +481,28 @@ export function buildSystemPromptPreview(
   return buildSystemPrompt(workspaceDir, chatId, sessionId, memory, options);
 }
 
-export function getSystemPromptSources(workspaceDir: string): {
+export function getSystemPromptSources(
+  workspaceDir: string,
+  options?: PromptBuildOptions
+): {
   global: string[];
-  workspace: string[];
+  agent: string[];
+  bot: string[];
 } {
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
-  const collect = (baseDir: string): string[] => {
+  const collect = (baseDir: string, files?: readonly string[]): string[] => {
     const out: string[] = [];
-    const agentPath = resolveInstructionFilePath(baseDir, "AGENTS.md");
-    if (agentPath) out.push(agentPath);
-    for (const fileName of OPTIONAL_INSTRUCTION_FILES) {
+    const orderedFiles = files ?? ["AGENTS.md", ...OPTIONAL_INSTRUCTION_FILES];
+    for (const fileName of orderedFiles) {
       const filePath = resolveInstructionFilePath(baseDir, fileName);
       if (filePath) out.push(filePath);
     }
     return out;
   };
+  const agentId = resolveAgentIdForWorkspace(workspaceDir, options?.settings, options?.channel);
   return {
     global: collect(dataRoot),
-    workspace: dataRoot === workspaceDir ? [] : collect(workspaceDir),
+    agent: agentId ? collect(getAgentDir(agentId), AGENT_PROFILE_FILES) : [],
+    bot: dataRoot === workspaceDir ? [] : collect(workspaceDir, BOT_PROFILE_FILES),
   };
 }
