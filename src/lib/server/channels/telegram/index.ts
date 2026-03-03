@@ -27,6 +27,7 @@ export const telegramChannelPlugin: ChannelPlugin<TelegramConfig> = {
     new TelegramManager(deps.getSettings, deps.updateSettings, deps.sessions, {
       instanceId: instance.id,
       workspaceDir: instance.workspaceDir,
-      memory: deps.memory
+      memory: deps.memory,
+      usageTracker: deps.usageTracker
     })
 };

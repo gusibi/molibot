@@ -6,7 +6,9 @@ import { createEditTool } from "./edit.js";
 import { createEventTool } from "./event.js";
 import { createMemoryTool } from "./memory.js";
 import { createReadTool } from "./read.js";
+import { createSwitchModelTool } from "./switchModel.js";
 import { createWriteTool } from "./write.js";
+import type { RuntimeSettings } from "../../settings/index.js";
 
 export function createMomTools(options: {
   channel: string;
@@ -15,10 +17,13 @@ export function createMomTools(options: {
   chatId: string;
   timezone: string;
   memory: MemoryGateway;
+  getSettings: () => RuntimeSettings;
+  updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
   uploadFile: (filePath: string, title?: string) => Promise<void>;
 }): AgentTool<any>[] {
   return [
     createMemoryTool({ memory: options.memory, channel: options.channel, chatId: options.chatId }),
+    createSwitchModelTool({ getSettings: options.getSettings, updateSettings: options.updateSettings }),
     createReadTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
     createBashTool(options.cwd),
     createEditTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),

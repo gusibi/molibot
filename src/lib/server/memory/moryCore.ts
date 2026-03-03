@@ -221,6 +221,7 @@ export class MoryMemoryBackend implements MemoryBackend {
     this.dbPath = path.join(storagePaths.dataDir, "memory", "mory.sqlite");
     this.indexPath = path.join(storagePaths.dataDir, "memory", "mory-scopes.json");
     this.cursorPath = path.join(storagePaths.dataDir, "memory", "mory-cursors.json");
+    fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
     this.storage = createSqliteStorageAdapter(this.dbPath);
     this.engine = new MoryEngine({ storage: this.storage });
   }

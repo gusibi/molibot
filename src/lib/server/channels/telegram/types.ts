@@ -1,4 +1,4 @@
-import type { RuntimeSettings } from "../../settings/index.js";
+import type { ModelOption as SharedModelOption, ModelRoute as SharedModelRoute } from "../../settings/modelSwitch.js";
 
 export interface StatusSession {
   statusMessageId: number | null;
@@ -7,13 +7,8 @@ export interface StatusSession {
   isWorking: boolean;
 }
 
-export interface ModelOption {
-  key: string;
-  label: string;
-  patch: Partial<RuntimeSettings>;
-}
-
-export type ModelRoute = "text" | "vision" | "stt" | "tts";
+export type ModelOption = SharedModelOption;
+export type ModelRoute = SharedModelRoute;
 
 export interface TranscriptionResult {
   text: string | null;

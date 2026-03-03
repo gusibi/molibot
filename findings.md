@@ -1,5 +1,13 @@
 # Findings
 
+## 2026-03-03 Model Switching
+- Web chat model switching already goes through `PUT /api/settings` and then `runtime.updateSettings(...)`; it does not directly edit the settings file.
+- Telegram `/models` already contains a good model-selection workflow, but the logic is embedded in `src/lib/server/channels/telegram/runtime.ts` instead of being reused as a shared service.
+- Feishu `/models` is currently a stub and explicitly tells the user to switch via Web UI or Telegram.
+- Runtime settings are persisted to the global settings file (`~/.molibot/settings.json` by default) through `SettingsStore.save`.
+- Agent `read/write/edit` tools cannot directly touch the settings file because of `createPathGuard`, but `bash` can still bypass that restriction today because it does not block settings-file operations.
+- The right safety boundary is not “let AI edit config carefully”; it is “give AI a narrow model-switch tool/API that validates route and model key against configured options, then calls `updateSettings` internally.”
+
 ## Repository Scan
 - Root project is a SvelteKit app plus server runtime, CLI entry, Telegram runtime, and a nested `package/mory` package.
 - `README.md` says the current backend core is concentrated in `src/lib/server/`.

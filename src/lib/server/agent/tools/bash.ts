@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import { config } from "../../app/env.js";
 import { execCommand, stripAnsi } from "./helpers.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateTail, type TruncationResult } from "./truncate.js";
 
@@ -45,6 +46,16 @@ function touchesMemoryFiles(command: string): boolean {
   return /memory\.md|\/memory\//i.test(command);
 }
 
+function touchesSettingsFile(command: string): boolean {
+  const normalized = command.toLowerCase();
+  const fullSettingsPath = config.settingsFile.replace(/\\/g, "/").toLowerCase();
+  return (
+    normalized.includes(fullSettingsPath) ||
+    normalized.includes("~/.molibot/settings.json") ||
+    normalized.includes("/.molibot/settings.json")
+  );
+}
+
 function buildTempOutputPath(cwd: string): string {
   const dir = join(cwd, ".mom-tool-output");
   mkdirSync(dir, { recursive: true });
@@ -72,6 +83,11 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
       if (touchesMemoryFiles(params.command)) {
         throw new Error(
           "Direct memory file operations are blocked. Use the memory tool (or /api/memory gateway) for all memory reads/writes/updates."
+        );
+      }
+      if (touchesSettingsFile(params.command)) {
+        throw new Error(
+          "Direct runtime settings-file operations are blocked. Use the switch_model tool or a settings API/runtime update path instead of editing settings.json."
         );
       }
 

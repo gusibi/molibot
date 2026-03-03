@@ -3,6 +3,13 @@ import { basename, extname, join, resolve } from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
 import { config } from "../../app/env.js";
 import type { RuntimeSettings } from "../../settings/index.js";
+import {
+    buildModelOptions,
+    currentModelKey,
+    parseModelRoute,
+    switchModelSelection,
+    type ModelRoute
+} from "../../settings/modelSwitch.js";
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
@@ -14,6 +21,7 @@ import type { MomContext, ChannelInboundMessage } from "../../agent/types.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.js";
 import { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
+import type { AiUsageTracker } from "../../usage/tracker.js";
 import { deleteFeishuMessage, editFeishuText, sendFeishuFile, sendFeishuText } from "./messaging.js";
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "./message-intake.js";
 import { ChannelQueue } from "../shared/queue.js";
@@ -53,7 +61,7 @@ export class FeishuManager {
         private readonly getSettings: () => RuntimeSettings,
         private readonly updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
         sessionStore?: SessionStore,
-        options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway }
+        options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway; usageTracker: AiUsageTracker }
     ) {
         this.workspaceDir = options?.workspaceDir ?? resolve(config.dataDir, "moli-f");
         this.instanceId = options?.instanceId ?? "default";
@@ -63,7 +71,14 @@ export class FeishuManager {
             throw new Error("FeishuManager requires MemoryGateway for unified memory operations.");
         }
         this.memory = options.memory;
-        this.runners = new RunnerPool("feishu", this.store, this.getSettings, options.memory);
+        this.runners = new RunnerPool(
+            "feishu",
+            this.store,
+            this.getSettings,
+            this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
+            options.usageTracker,
+            options.memory
+        );
     }
 
     apply(cfg: FeishuConfig): void {
@@ -512,7 +527,58 @@ export class FeishuManager {
         }
 
         if (cmd === "/models") {
-            await sendFeishuText(this.client, chatId, "Feishu model switching via command is not fully implemented yet. Please use the Web UI or Telegram to switch active models.");
+            if (this.running.has(chatId)) {
+                await sendFeishuText(this.client, chatId, "Already working. Send /stop first, then switch models.");
+                return true;
+            }
+            if (!rawArg) {
+                await sendFeishuText(this.client, chatId, this.modelsText("text"));
+                return true;
+            }
+            if (!this.updateSettings) {
+                await sendFeishuText(this.client, chatId, "Model switching is unavailable in current runtime.");
+                return true;
+            }
+            const [firstArg = "", secondArg = ""] = rawArg
+                .split(/\s+/)
+                .map((x) => x.trim())
+                .filter(Boolean);
+            const maybeRoute = parseModelRoute(firstArg);
+            const route: ModelRoute = maybeRoute ?? "text";
+            const selector = maybeRoute ? secondArg : rawArg;
+            const settings = this.getSettings();
+            const options = buildModelOptions(settings, route);
+            if (!selector) {
+                await sendFeishuText(this.client, chatId, this.modelsText(route));
+                return true;
+            }
+            const selected = options.find((option, index) => String(index + 1) === selector || option.key === selector);
+            if (!selected) {
+                await sendFeishuText(this.client, chatId, `Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
+                return true;
+            }
+            const switched = switchModelSelection({
+                settings,
+                route,
+                selector,
+                updateSettings: this.updateSettings
+            });
+            if (!switched) {
+                await sendFeishuText(this.client, chatId, `Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
+                return true;
+            }
+            await sendFeishuText(this.client, chatId, [
+                `Switched ${route} model to: ${switched.selected.label}`,
+                `Mode: ${switched.settings.providerMode}`,
+                `Use /models ${route} to check current active ${route} model.`
+            ].join("\n"));
+            momLog("feishu", "model_switched_via_command", {
+                chatId,
+                route,
+                selector,
+                selectedKey: switched.selected.key,
+                providerMode: switched.settings.providerMode
+            });
             return true;
         }
 
@@ -532,6 +598,10 @@ export class FeishuManager {
                 "/sessions <index|sessionId> - switch active session",
                 "/delete_sessions - list sessions and delete usage",
                 "/delete_sessions <index|sessionId> - delete a session",
+                "/models - list text-model options and active text model",
+                "/models <index|key> - switch text model",
+                "/models <text|vision|stt|tts> - list options for a specific route",
+                "/models <text|vision|stt|tts> <index|key> - switch route model",
                 "/skills - list currently loaded skills"
             ].join("\n");
             await sendFeishuText(this.client, chatId, help);
@@ -539,6 +609,41 @@ export class FeishuManager {
         }
 
         return false;
+    }
+
+    private modelsText(route: ModelRoute): string {
+        const settings = this.getSettings();
+        const options = buildModelOptions(settings, route);
+        const activeKey = currentModelKey(settings, route);
+        const lines = [
+            `Route: ${route}`,
+            `Provider mode: ${settings.providerMode}`,
+            `Configured model options: ${options.length}`,
+            ""
+        ];
+
+        if (options.length === 0) {
+            lines.push("(no configured models)");
+        } else {
+            for (let i = 0; i < options.length; i += 1) {
+                const option = options[i];
+                const marker = option.key === activeKey ? " (active)" : "";
+                lines.push(`${i + 1}. ${option.label}${marker}`);
+                lines.push(`   - key: ${option.key}`);
+            }
+        }
+
+        lines.push("");
+        lines.push(`Switch ${route} model:`);
+        lines.push(`/models ${route} <index>`);
+        lines.push(`/models ${route} <key>`);
+        if (route === "text") {
+            lines.push("");
+            lines.push("Quick text switch:");
+            lines.push("/models <index>");
+            lines.push("/models <key>");
+        }
+        return lines.join("\n");
     }
 
     private skillsText(chatId: string): string {

@@ -21,6 +21,7 @@ import type { PluginCatalog, ProviderPlugin } from "../plugins/types.js";
 import { AssistantService } from "../providers/assistantService.js";
 import { SessionStore } from "../sessions/store.js";
 import { SettingsStore } from "../settings/store.js";
+import { AiUsageTracker } from "../usage/tracker.js";
 
 interface RuntimeState {
   sessions: SessionStore;
@@ -32,6 +33,7 @@ interface RuntimeState {
   memorySyncTimer: ReturnType<typeof setInterval> | null;
   settingsStore: SettingsStore;
   settings: RuntimeSettings;
+  usageTracker: AiUsageTracker;
   getSettings: () => RuntimeSettings;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
 }
@@ -376,7 +378,8 @@ function applyChannelPlugins(state: RuntimeState, applySettingsPatch: (patch: Pa
     getSettings: () => state.settings,
     updateSettings: applySettingsPatch,
     sessions: state.sessions,
-    memory: state.memory
+    memory: state.memory,
+    usageTracker: state.usageTracker
   };
 
   const loaded = discoverPlugins();
@@ -425,8 +428,9 @@ export function getRuntime(): RuntimeState {
 
     const sessions = new SessionStore();
     const currentSettings = { value: settings };
+    const usageTracker = new AiUsageTracker();
     const memory = new MemoryGateway(() => currentSettings.value, sessions);
-    const assistant = new AssistantService(() => currentSettings.value);
+    const assistant = new AssistantService(() => currentSettings.value, usageTracker);
     const router = new MessageRouter(sessions, assistant, memory);
     const applySettingsPatch = (patch: Partial<RuntimeSettings>): RuntimeSettings => {
       state.settings = sanitizeSettings(patch, state.settings);
@@ -446,6 +450,7 @@ export function getRuntime(): RuntimeState {
       memorySyncTimer: null,
       settingsStore,
       settings,
+      usageTracker,
       getSettings: () => state.settings,
       updateSettings: applySettingsPatch
     };

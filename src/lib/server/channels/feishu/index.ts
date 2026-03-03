@@ -28,6 +28,7 @@ export const feishuChannelPlugin: ChannelPlugin<FeishuConfig> = {
     new FeishuManager(deps.getSettings, deps.updateSettings, deps.sessions, {
       instanceId: instance.id,
       workspaceDir: instance.workspaceDir,
-      memory: deps.memory
+      memory: deps.memory,
+      usageTracker: deps.usageTracker
     })
 };

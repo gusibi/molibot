@@ -3,6 +3,13 @@ import { basename, extname, join, resolve } from "node:path";
 import { Bot, InputFile } from "grammy";
 import { config } from "../../app/env.js";
 import type { RuntimeSettings } from "../../settings/index.js";
+import {
+  buildModelOptions,
+  currentModelKey as getCurrentModelKey,
+  parseModelRoute,
+  resolveModelSelection,
+  switchModelSelection
+} from "../../settings/modelSwitch.js";
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
@@ -14,6 +21,7 @@ import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.js";
 import { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
+import type { AiUsageTracker } from "../../usage/tracker.js";
 import { editTelegramText, sendTelegramText } from "./formatting.js";
 import { ChannelQueue } from "../shared/queue.js";
 import { transcribeTelegramAudio } from "./stt.js";
@@ -54,7 +62,7 @@ export class TelegramManager {
     private readonly getSettings: () => RuntimeSettings,
     private readonly updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
     sessionStore?: SessionStore,
-    options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway }
+    options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway; usageTracker: AiUsageTracker }
   ) {
     this.workspaceDir = options?.workspaceDir ?? resolve(config.dataDir, "moli-t");
     this.instanceId = options?.instanceId ?? "default";
@@ -64,7 +72,14 @@ export class TelegramManager {
       throw new Error("TelegramManager requires MemoryGateway for unified memory operations.");
     }
     this.memory = options.memory;
-    this.runners = new RunnerPool("telegram", this.store, this.getSettings, options.memory);
+    this.runners = new RunnerPool(
+      "telegram",
+      this.store,
+      this.getSettings,
+      this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
+      options.usageTracker,
+      options.memory
+    );
   }
 
   private async writePromptPreview(allowedChatIds: string[]): Promise<void> {
@@ -304,27 +319,36 @@ export class TelegramManager {
         .split(/\s+/)
         .map((x) => x.trim())
         .filter(Boolean);
-      const maybeRoute = this.parseModelRoute(firstArg);
+      const maybeRoute = parseModelRoute(firstArg);
       const route: ModelRoute = maybeRoute ?? "text";
       const selector = maybeRoute ? secondArg : rawArg;
 
       const settings = this.getSettings();
-      const options = this.buildModelOptions(settings, route);
+      const options = buildModelOptions(settings, route);
       if (!selector) {
         await ctx.reply(this.modelsText(route));
         return;
       }
-      const selected = this.resolveModelSelection(selector, options);
+      const selected = resolveModelSelection(selector, options);
       if (!selected) {
         await ctx.reply(`Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
         return;
       }
 
-      const updated = this.updateSettings(selected.patch);
+      const switched = switchModelSelection({
+        settings,
+        route,
+        selector,
+        updateSettings: this.updateSettings
+      });
+      if (!switched) {
+        await ctx.reply(`Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
+        return;
+      }
       await ctx.reply(
         [
-          `Switched ${route} model to: ${selected.label}`,
-          `Mode: ${updated.providerMode}`,
+          `Switched ${route} model to: ${switched.selected.label}`,
+          `Mode: ${switched.settings.providerMode}`,
           `Use /models ${route} to check current active ${route} model.`
         ].join("\n")
       );
@@ -332,8 +356,8 @@ export class TelegramManager {
         chatId,
         route,
         selector,
-        selectedKey: selected.key,
-        providerMode: updated.providerMode
+        selectedKey: switched.selected.key,
+        providerMode: switched.settings.providerMode
       });
     });
 
@@ -1089,99 +1113,12 @@ export class TelegramManager {
     return lines.join("\n");
   }
 
-  private parseModelRoute(value: string): ModelRoute | null {
-    if (value === "text" || value === "vision" || value === "stt" || value === "tts") return value;
-    return null;
-  }
-
   private currentModelKey(settings: RuntimeSettings, route: ModelRoute): string {
-    const routed = route === "text"
-      ? settings.modelRouting.textModelKey?.trim()
-      : route === "vision"
-        ? settings.modelRouting.visionModelKey?.trim()
-        : route === "stt"
-          ? settings.modelRouting.sttModelKey?.trim()
-          : settings.modelRouting.ttsModelKey?.trim();
-    if (routed) return routed;
-    if (route !== "text") return "";
-    if (settings.providerMode === "custom") {
-      const id = settings.defaultCustomProviderId || settings.customProviders[0]?.id || "";
-      const provider = settings.customProviders.find((p) => p.id === id) ?? settings.customProviders[0];
-      const modelIds = (provider?.models ?? []).map((m) => m.id).filter(Boolean);
-      const model = provider?.defaultModel || modelIds[0] || "";
-      return id ? `custom|${id}|${model}` : `pi|${settings.piModelProvider}|${settings.piModelName}`;
-    }
-    return `pi|${settings.piModelProvider}|${settings.piModelName}`;
+    return getCurrentModelKey(settings, route);
   }
 
   private buildModelOptions(settings: RuntimeSettings, route: ModelRoute): ModelOption[] {
-    const patchKey = route === "text"
-      ? "textModelKey"
-      : route === "vision"
-        ? "visionModelKey"
-        : route === "stt"
-          ? "sttModelKey"
-          : "ttsModelKey";
-
-    const supportsRoute = (tags: string[]): boolean => {
-      if (route === "text") return tags.includes("text");
-      return tags.includes(route);
-    };
-
-    const options: ModelOption[] = [
-      ...(route === "text" || route === "vision"
-        ? [{
-          key: `pi|${settings.piModelProvider}|${settings.piModelName}`,
-          label: `[PI] ${settings.piModelProvider} / ${settings.piModelName}`,
-          patch: {
-            providerMode: route === "text" ? "pi" : settings.providerMode,
-            piModelProvider: settings.piModelProvider,
-            piModelName: settings.piModelName,
-            modelRouting: {
-              ...settings.modelRouting,
-              [patchKey]: `pi|${settings.piModelProvider}|${settings.piModelName}`
-            }
-          } as Partial<RuntimeSettings>
-        }]
-        : [])
-    ];
-
-    for (const provider of settings.customProviders) {
-      const models = provider.models.filter((m) => m.id?.trim() && supportsRoute(Array.isArray(m.tags) ? m.tags : ["text"]));
-      for (const model of models) {
-        const modelId = model.id.trim();
-        const updatedProviders = settings.customProviders.map((row) =>
-          row.id === provider.id ? { ...row, defaultModel: modelId } : row
-        );
-        options.push({
-          key: `custom|${provider.id}|${modelId}`,
-          label: `[Custom] ${provider.name} / ${modelId}`,
-          patch: {
-            providerMode: route === "text" ? "custom" : settings.providerMode,
-            defaultCustomProviderId: route === "text" ? provider.id : settings.defaultCustomProviderId,
-            customProviders: route === "text" ? updatedProviders : settings.customProviders,
-            modelRouting: {
-              ...settings.modelRouting,
-              [patchKey]: `custom|${provider.id}|${modelId}`
-            }
-          }
-        });
-      }
-    }
-
-    return options;
-  }
-
-  private resolveModelSelection(selector: string, options: ModelOption[]): ModelOption | null {
-    const raw = selector.trim();
-    if (!raw) return null;
-
-    const asIndex = Number.parseInt(raw, 10);
-    if (Number.isFinite(asIndex) && asIndex >= 1 && asIndex <= options.length) {
-      return options[asIndex - 1] ?? null;
-    }
-
-    return options.find((o) => o.key === raw) ?? null;
+    return buildModelOptions(settings, route);
   }
 
   private modelsText(route: ModelRoute): string {

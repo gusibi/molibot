@@ -49,6 +49,53 @@
     supportedRoles: ModelRole[];
   }
 
+  interface UsageTotals {
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    totalTokens: number;
+  }
+
+  interface ModelUsageSummary extends UsageTotals {
+    provider: string;
+    model: string;
+    api: string;
+  }
+
+  interface WindowSummary {
+    startDate: string;
+    endDate: string;
+    totals: UsageTotals;
+    models: ModelUsageSummary[];
+  }
+
+  interface BucketSummary {
+    bucket: string;
+    startDate?: string;
+    endDate?: string;
+    totals: UsageTotals;
+    models: ModelUsageSummary[];
+  }
+
+  interface UsageStatsResponse {
+    timezone: string;
+    generatedAt: string;
+    totals: UsageTotals;
+    windows: {
+      today: WindowSummary;
+      yesterday: WindowSummary;
+      last7Days: WindowSummary;
+      last30Days: WindowSummary;
+    };
+    breakdowns: {
+      daily: BucketSummary[];
+      weekly: BucketSummary[];
+      monthly: BucketSummary[];
+    };
+  }
+
   let loading = true;
   let saving = false;
   let testingModelKey = "";
@@ -56,6 +103,9 @@
   let providerSearch = "";
   let error = "";
   let message = "";
+  let usageLoading = true;
+  let usageError = "";
+  let usageStats: UsageStatsResponse | null = null;
 
   let providers: Array<{ id: string; name: string }> = [];
   let providerModels: Record<string, string[]> = {};
@@ -310,6 +360,38 @@
       .map((m) => ({ key: m.key, label: m.label }));
   }
 
+  function formatNumber(value: number): string {
+    return new Intl.NumberFormat("en-US").format(value ?? 0);
+  }
+
+  function topModels(models: ModelUsageSummary[], limit = 5): ModelUsageSummary[] {
+    return models.slice(0, limit);
+  }
+
+  function windowTitle(key: "today" | "yesterday" | "last7Days" | "last30Days"): string {
+    if (key === "today") return "Today";
+    if (key === "yesterday") return "Yesterday";
+    if (key === "last7Days") return "Last 7 Days";
+    return "Last 30 Days";
+  }
+
+  async function loadUsage(): Promise<void> {
+    usageLoading = true;
+    usageError = "";
+    try {
+      const res = await fetch("/api/settings/usage");
+      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || "Failed to load usage stats");
+      }
+      usageStats = data.stats as UsageStatsResponse;
+    } catch (e) {
+      usageError = e instanceof Error ? e.message : String(e);
+    } finally {
+      usageLoading = false;
+    }
+  }
+
   function ensureRoutingDefaults(): void {
     const all = allModelOptions();
     const allKeys = new Set(all.map((m) => m.key));
@@ -386,9 +468,10 @@
     message = "";
 
     try {
-      const [settingsRes, metaRes] = await Promise.all([
+      const [settingsRes, metaRes, usageRes] = await Promise.all([
         fetch("/api/settings"),
         fetch("/api/settings/ai-meta"),
+        fetch("/api/settings/usage"),
       ]);
 
       const settingsData = await settingsRes.json();
@@ -396,10 +479,13 @@
         ok: boolean;
         error?: string;
       };
+      const usageData = await usageRes.json();
       if (!settingsData.ok)
         throw new Error(settingsData.error || "Failed to load settings");
       if (!metaData.ok)
         throw new Error(metaData.error || "Failed to load AI metadata");
+      if (!usageData.ok)
+        throw new Error(usageData.error || "Failed to load usage stats");
 
       providers = metaData.providers ?? [];
       providerModels = metaData.providerModels ?? {};
@@ -478,10 +564,14 @@
       ensureDefaultCustomProvider();
       onPiProviderChanged();
       ensureRoutingDefaults();
+      usageStats = usageData.stats as UsageStatsResponse;
+      usageError = "";
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
+      usageError = error;
     } finally {
       loading = false;
+      usageLoading = false;
     }
   }
 
@@ -929,6 +1019,139 @@
             </p>
           {/if}
         {/if}
+
+        <section
+          id="usage"
+          class="space-y-4 rounded-2xl border border-white/10 bg-[#2b2b2b] p-5"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <h2 class="text-lg font-semibold">Token Usage</h2>
+              <p class="mt-1 text-sm text-slate-400">
+                Per-request token usage is recorded and aggregated by day, week, and month.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="cursor-pointer rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm transition-colors duration-200 hover:bg-[#303030]"
+              on:click={loadUsage}
+              disabled={usageLoading}
+            >
+              {usageLoading ? "Refreshing..." : "Refresh Usage"}
+            </button>
+          </div>
+
+          {#if usageError}
+            <p
+              class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300"
+            >
+              {usageError}
+            </p>
+          {:else if usageStats}
+            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {#each (["today", "yesterday", "last7Days", "last30Days"] as const) as key}
+                <div class="rounded-xl border border-white/10 bg-[#252525] p-4">
+                  <div class="text-sm font-medium text-slate-300">{windowTitle(key)}</div>
+                  <div class="mt-2 text-2xl font-semibold">{formatNumber(usageStats.windows[key].totals.totalTokens)}</div>
+                  <div class="mt-1 text-xs text-slate-500">
+                    {usageStats.windows[key].startDate} to {usageStats.windows[key].endDate}
+                  </div>
+                  <div class="mt-3 space-y-1 text-xs text-slate-400">
+                    <div>Requests: {formatNumber(usageStats.windows[key].totals.requests)}</div>
+                    <div>Input: {formatNumber(usageStats.windows[key].totals.inputTokens)}</div>
+                    <div>Output: {formatNumber(usageStats.windows[key].totals.outputTokens)}</div>
+                    <div>Cache Read: {formatNumber(usageStats.windows[key].totals.cacheReadTokens)}</div>
+                    <div>Cache Write: {formatNumber(usageStats.windows[key].totals.cacheWriteTokens)}</div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+
+            <div class="grid gap-4 xl:grid-cols-3">
+              <div class="rounded-xl border border-white/10 bg-[#252525] p-4">
+                <h3 class="text-sm font-semibold">Daily</h3>
+                <div class="mt-3 space-y-2">
+                  {#each usageStats.breakdowns.daily as bucket}
+                    <div class="rounded-lg border border-white/10 bg-[#1f1f1f] px-3 py-2 text-sm">
+                      <div class="flex items-center justify-between gap-3">
+                        <span>{bucket.bucket}</span>
+                        <span class="text-slate-300">{formatNumber(bucket.totals.totalTokens)}</span>
+                      </div>
+                      <div class="mt-1 text-xs text-slate-500">Requests: {formatNumber(bucket.totals.requests)}</div>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+
+              <div class="rounded-xl border border-white/10 bg-[#252525] p-4">
+                <h3 class="text-sm font-semibold">Weekly</h3>
+                <div class="mt-3 space-y-2">
+                  {#each usageStats.breakdowns.weekly as bucket}
+                    <div class="rounded-lg border border-white/10 bg-[#1f1f1f] px-3 py-2 text-sm">
+                      <div class="flex items-center justify-between gap-3">
+                        <span>{bucket.startDate} to {bucket.endDate}</span>
+                        <span class="text-slate-300">{formatNumber(bucket.totals.totalTokens)}</span>
+                      </div>
+                      <div class="mt-1 text-xs text-slate-500">Requests: {formatNumber(bucket.totals.requests)}</div>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+
+              <div class="rounded-xl border border-white/10 bg-[#252525] p-4">
+                <h3 class="text-sm font-semibold">Monthly</h3>
+                <div class="mt-3 space-y-2">
+                  {#each usageStats.breakdowns.monthly as bucket}
+                    <div class="rounded-lg border border-white/10 bg-[#1f1f1f] px-3 py-2 text-sm">
+                      <div class="flex items-center justify-between gap-3">
+                        <span>{bucket.bucket}</span>
+                        <span class="text-slate-300">{formatNumber(bucket.totals.totalTokens)}</span>
+                      </div>
+                      <div class="mt-1 text-xs text-slate-500">Requests: {formatNumber(bucket.totals.requests)}</div>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-white/10 bg-[#252525] p-4">
+              <h3 class="text-sm font-semibold">Top Models in Last 30 Days</h3>
+              <div class="mt-3 overflow-x-auto">
+                <table class="min-w-full text-left text-sm">
+                  <thead class="text-slate-400">
+                    <tr class="border-b border-white/10">
+                      <th class="px-3 py-2 font-medium">Model</th>
+                      <th class="px-3 py-2 font-medium">Requests</th>
+                      <th class="px-3 py-2 font-medium">Input</th>
+                      <th class="px-3 py-2 font-medium">Output</th>
+                      <th class="px-3 py-2 font-medium">Cache Read</th>
+                      <th class="px-3 py-2 font-medium">Cache Write</th>
+                      <th class="px-3 py-2 font-medium">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each topModels(usageStats.windows.last30Days.models, 12) as row}
+                      <tr class="border-b border-white/5">
+                        <td class="px-3 py-2">
+                          <div class="font-medium text-slate-200">{row.model}</div>
+                          <div class="text-xs text-slate-500">{row.provider} / {row.api}</div>
+                        </td>
+                        <td class="px-3 py-2">{formatNumber(row.requests)}</td>
+                        <td class="px-3 py-2">{formatNumber(row.inputTokens)}</td>
+                        <td class="px-3 py-2">{formatNumber(row.outputTokens)}</td>
+                        <td class="px-3 py-2">{formatNumber(row.cacheReadTokens)}</td>
+                        <td class="px-3 py-2">{formatNumber(row.cacheWriteTokens)}</td>
+                        <td class="px-3 py-2 font-medium text-slate-200">{formatNumber(row.totalTokens)}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {:else}
+            <p class="text-sm text-slate-500">No usage data yet.</p>
+          {/if}
+        </section>
       </div>
     </section>
   </div>

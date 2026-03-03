@@ -1,5 +1,29 @@
 # Progress
 
+## 2026-03-03
+- Started a focused safety refactor for runtime model switching.
+- Verified current switch paths:
+  - Web page uses `PUT /api/settings`
+  - Telegram `/models` already persists through `updateSettings`
+  - Feishu `/models` is not implemented
+- Verified current risk boundary:
+  - direct file tools are path-guarded
+  - `bash` can still bypass and modify the settings file if the model decides to do so
+- Chose implementation direction: extract a shared server-side model-switch service, reuse it from Telegram/Feishu/API, add an agent tool for safe switching, and block direct shell edits of the settings file.
+- Implemented shared model-switch module in `src/lib/server/settings/modelSwitch.ts` and reused it from Telegram `/models`, Feishu `/models`, the new narrow API route, and the new agent `switch_model` tool.
+- Updated `MomRunner` tool wiring so agent sessions can switch models through runtime settings rather than file edits.
+- Hardened generic agent `bash` to reject direct operations against the runtime settings file.
+- Ran `npm run build`; build completed successfully after the unified model-switch refactor.
+- Added append-only AI usage tracking under `~/.molibot/usage/ai-usage.jsonl` with per-request channel/provider/model/api/input/output/cache/total token fields.
+- Wired usage recording into both request paths:
+  - `AssistantService` for web/API chat requests
+  - `MomRunner` for Telegram/Feishu agent runs
+- Added `GET /api/settings/usage` and rendered token analytics in `/settings/ai`, including today/yesterday/last-7-days/last-30-days windows plus daily/weekly/monthly and per-model breakdowns.
+- Ran `npm run build`; build completed successfully after the usage tracking and settings dashboard work.
+- Investigated new-machine startup failure in the Mory backend path and confirmed the SQLite DB file could be opened before `${DATA_DIR}/memory` existed.
+- Hardened startup in three layers: global `initDb()` now creates `${DATA_DIR}/memory`, `MoryMemoryBackend` creates the DB parent directory before opening storage, and the package-level `NodeSqliteDriver` also creates parent directories for file-backed SQLite paths.
+- Ran `npm run build`; build completed successfully after the Mory first-run bootstrap fix.
+
 ## 2026-03-02
 - Started repository structure analysis.
 - Read root `AGENTS.md`, project `README.md`, and `package.json`.

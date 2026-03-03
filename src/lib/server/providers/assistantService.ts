@@ -2,12 +2,27 @@ import { Agent } from "@mariozechner/pi-agent-core";
 import { getModels } from "@mariozechner/pi-ai";
 import type { CustomProviderConfig, RuntimeSettings } from "../settings/index.js";
 import type { ConversationMessage } from "../../shared/types/message.js";
+import type { AiUsageTracker } from "../usage/tracker.js";
 
 type OpenAIRole = "system" | "user" | "assistant";
 
 interface OpenAIMessage {
   role: OpenAIRole;
   content: string;
+}
+
+interface ProviderReply {
+  text: string;
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    totalTokens?: number;
+  };
+  provider: string;
+  model: string;
+  api: string;
 }
 
 function stringifyHistory(history: ConversationMessage[]): string {
@@ -79,7 +94,7 @@ async function callCustomProvider(
   history: ConversationMessage[],
   settings: RuntimeSettings,
   memoryContext: string
-): Promise<string> {
+): Promise<ProviderReply> {
   const provider = pickDefaultCustomProvider(settings);
   if (!provider) {
     throw new Error("No custom provider configured");
@@ -116,6 +131,13 @@ async function callCustomProvider(
 
   const data = (await response.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+      prompt_tokens_details?: { cached_tokens?: number };
+      completion_tokens_details?: { reasoning_tokens?: number };
+    };
   };
 
   const text = data.choices?.[0]?.message?.content?.trim();
@@ -123,7 +145,19 @@ async function callCustomProvider(
     throw new Error("Custom provider returned empty content");
   }
 
-  return text;
+  return {
+    text,
+    provider: provider.id,
+    model,
+    api: "openai-completions",
+    usage: {
+      input: data.usage?.prompt_tokens ?? 0,
+      output: data.usage?.completion_tokens ?? 0,
+      cacheRead: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+      cacheWrite: 0,
+      totalTokens: data.usage?.total_tokens ?? 0
+    }
+  };
 }
 
 function pickDefaultCustomProvider(settings: RuntimeSettings): CustomProviderConfig | null {
@@ -137,7 +171,7 @@ async function callPiMono(
   input: string,
   settings: RuntimeSettings,
   memoryContext: string
-): Promise<string> {
+): Promise<ProviderReply> {
   const models = getModels(settings.piModelProvider);
   const model = models.find((m) => m.id === settings.piModelName) ?? models[0];
   if (!model) {
@@ -174,28 +208,75 @@ async function callPiMono(
   ].join("\n");
 
   const result = await agent.prompt(prompt);
+  const stateMessages = agent.state.messages as Array<{
+    role?: string;
+    api?: string;
+    provider?: string;
+    model?: string;
+    usage?: {
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      totalTokens?: number;
+    };
+    content?: Array<{ type?: string; text?: string }>;
+  }>;
+  const lastAssistant = [...stateMessages].reverse().find((msg) => msg.role === "assistant");
 
   const direct = extractText(result);
   if (direct && direct.trim().length > 0) {
-    return direct.trim();
+    return {
+      text: direct.trim(),
+      provider: lastAssistant?.provider ?? model.provider,
+      model: lastAssistant?.model ?? model.id,
+      api: lastAssistant?.api ?? model.api,
+      usage: lastAssistant?.usage
+    };
   }
 
   if (streamed.trim().length > 0) {
-    return streamed.trim();
+    return {
+      text: streamed.trim(),
+      provider: lastAssistant?.provider ?? model.provider,
+      model: lastAssistant?.model ?? model.id,
+      api: lastAssistant?.api ?? model.api,
+      usage: lastAssistant?.usage
+    };
   }
 
   throw new Error("pi-mono returned empty assistant response");
 }
 
 export class AssistantService {
-  constructor(private readonly getSettings: () => RuntimeSettings) {}
+  constructor(
+    private readonly getSettings: () => RuntimeSettings,
+    private readonly usageTracker?: AiUsageTracker
+  ) {}
 
   async reply(history: ConversationMessage[], input: string, memoryContext = ""): Promise<string> {
     const settings = this.getSettings();
+    let reply: ProviderReply;
     if (settings.providerMode === "custom") {
-      return callCustomProvider(history, settings, memoryContext);
+      reply = await callCustomProvider(history, settings, memoryContext);
+    } else {
+      reply = await callPiMono(history, input, settings, memoryContext);
     }
 
-    return callPiMono(history, input, settings, memoryContext);
+    if (this.usageTracker && reply.usage) {
+      this.usageTracker.record({
+        channel: "web",
+        provider: reply.provider,
+        model: reply.model,
+        api: reply.api,
+        inputTokens: reply.usage.input,
+        outputTokens: reply.usage.output,
+        cacheReadTokens: reply.usage.cacheRead,
+        cacheWriteTokens: reply.usage.cacheWrite,
+        totalTokens: reply.usage.totalTokens
+      });
+    }
+
+    return reply.text;
   }
 }

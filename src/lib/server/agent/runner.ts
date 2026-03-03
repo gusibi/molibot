@@ -10,6 +10,7 @@ import { buildSystemPrompt } from "./prompt.js";
 import { MomRuntimeStore } from "./store.js";
 import { createMomTools } from "./tools/index.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
+import type { AiUsageTracker } from "../usage/tracker.js";
 
 function resolvePiModel(settings: RuntimeSettings): Model<any> {
   const models = getModels(settings.piModelProvider);
@@ -320,6 +321,8 @@ export class MomRunner implements RunnerLike {
     private readonly sessionId: string,
     private readonly store: MomRuntimeStore,
     private readonly getSettings: () => RuntimeSettings,
+    private readonly updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
+    private readonly usageTracker: AiUsageTracker,
     private readonly memory: MemoryGateway,
   ) {
     const settings = this.getSettings();
@@ -518,6 +521,8 @@ export class MomRunner implements RunnerLike {
         chatId: this.chatId,
         timezone: settings.timezone,
         memory: this.memory,
+        getSettings: this.getSettings,
+        updateSettings: this.updateSettings,
         uploadFile: async (filePath, title) => {
           await ctx.uploadFile(filePath, title);
         },
@@ -595,6 +600,19 @@ export class MomRunner implements RunnerLike {
           contentCount: Array.isArray(msg.content) ? msg.content.length : 0,
           usage: msg.usage,
         });
+        if (msg.usage) {
+          this.usageTracker.record({
+            channel: this.channel,
+            provider: msg.provider ?? selectedModel.provider,
+            model: msg.model ?? selectedModel.id,
+            api: msg.api ?? selectedModel.api,
+            inputTokens: msg.usage.input,
+            outputTokens: msg.usage.output,
+            cacheReadTokens: msg.usage.cacheRead,
+            cacheWriteTokens: msg.usage.cacheWrite,
+            totalTokens: msg.usage.totalTokens
+          });
+        }
 
         const text = (msg.content || [])
           .filter(
@@ -791,6 +809,8 @@ export class RunnerPool {
     private readonly channel: string,
     private readonly store: MomRuntimeStore,
     private readonly getSettings: () => RuntimeSettings,
+    private readonly updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
+    private readonly usageTracker: AiUsageTracker,
     private readonly memory: MemoryGateway,
   ) { }
 
@@ -808,6 +828,8 @@ export class RunnerPool {
       sessionId,
       this.store,
       this.getSettings,
+      this.updateSettings,
+      this.usageTracker,
       this.memory,
     );
     this.map.set(key, runner);

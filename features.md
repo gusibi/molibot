@@ -158,6 +158,11 @@
 | ENG-125 | Channel-specific prompt sections | Done | Removed Telegram-specific delivery wording from the core prompt, introduced adapter-selectable channel prompt sections in `src/lib/server/agent/prompt-channel.ts`, and wired Telegram runtime/preview to request the Telegram section explicitly |
 | ENG-128 | Mory-backed memory gateway core switch | Done | Added `src/lib/server/memory/moryCore.ts`, registered optional `mory` provider in `MemoryGateway`, kept `json-file` as default, and exposed SDK-backed backend selection in plugin settings while preserving the existing gateway API for agent/tool/API callers |
 | ENG-129 | Feishu inbound media parsing and STT intake | Done | Feishu runtime now downloads inbound image/audio/file resources, persists attachments, injects images into runner context, and appends STT transcripts for audio/media messages instead of treating Feishu as text-only |
+| ENG-140 | Unified safe model-switch service | Done | Added shared `settings/modelSwitch.ts`, narrow `/api/settings/model-switch`, Telegram + Feishu `/models` parity, and agent `switch_model` tool so runtime model changes no longer need direct settings-file edits |
+| ENG-141 | Agent settings-file shell guard | Done | Hardened agent `bash` tool to block direct access to the runtime settings file and steer model changes onto the validated switch tool/API path |
+| ENG-142 | Runtime AI token usage tracker | Done | Added append-only JSONL usage logging under `~/.molibot/usage/ai-usage.jsonl`, recorded per-request provider/model/input/output/cache/total tokens from both web and channel agent paths, and exposed aggregated stats through `/api/settings/usage` |
+| ENG-143 | AI settings usage dashboard | Done | `/settings/ai` now shows today/yesterday/7-day/30-day token totals, daily/weekly/monthly breakdowns, and top per-model usage summaries sourced from the backend usage tracker |
+| ENG-144 | Mory first-run directory bootstrap fix | Done | Ensured `${DATA_DIR}/memory` and SQLite parent directories are created before opening the Mory database, preventing new-machine startup failure `unable to open database file` |
 
 ## In Progress
 | ID | Feature | Status | Notes |
@@ -173,6 +178,9 @@
 | BL-04 | Vector memory | Backlog | Post V1 |
 
 ## Update Log
+- 2026-03-03: Fixed new-machine Mory startup failure. `initDb()` now creates `${DATA_DIR}/memory`, `MoryMemoryBackend` ensures the DB parent directory exists, and `package/mory`'s `NodeSqliteDriver` now creates parent directories for file-backed SQLite paths before opening the database. Verified with `npm run build`.
+- 2026-03-03: Added runtime AI token accounting. Introduced `src/lib/server/usage/tracker.ts` with append-only JSONL storage under `~/.molibot/usage/ai-usage.jsonl`, recorded usage from both `AssistantService` (web/API path) and `MomRunner` (Telegram/Feishu agent path), added `GET /api/settings/usage`, and surfaced token analytics in `/settings/ai`. Verified with `npm run build`.
+- 2026-03-03: Added a unified safe runtime model-switch path. Extracted shared model option/switch logic into `src/lib/server/settings/modelSwitch.ts`, added narrow API `POST /api/settings/model-switch`, wired Telegram and Feishu `/models` commands to the shared flow, added agent `switch_model` tool, and blocked direct `settings.json` shell edits in the generic `bash` tool. Verified with `npm run build`.
 - 2026-03-02: Added concise responsibility comments to Telegram/Feishu runtime entry files and expanded README with a directory guide for the new module layout.
 - 2026-03-02: Extracted duplicated Telegram/Feishu channel queue and STT core logic into `src/lib/server/channels/shared/{queue,stt}.ts`; Telegram and Feishu now keep only thin channel wrappers plus Feishu-specific audio filename/MIME normalization. Verified with `npm run build`.
 - 2026-03-02: Performed low-risk Feishu runtime modularization: extracted `queue.ts` and `messaging.ts` from `src/lib/server/channels/feishu/runtime.ts` while keeping the main runtime as the orchestration entry. Verified with `npm run build`.

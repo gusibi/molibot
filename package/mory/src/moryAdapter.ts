@@ -4,6 +4,8 @@
  * Storage adapter contracts + in-memory + SQL executors.
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { createRequire } from "node:module";
 import {
@@ -223,6 +225,9 @@ export class NodeSqliteDriver implements SqliteDriver {
   private readonly db: DatabaseSync;
 
   constructor(filename = ":memory:") {
+    if (filename !== ":memory:") {
+      fs.mkdirSync(path.dirname(path.resolve(filename)), { recursive: true });
+    }
     this.db = new DatabaseSync(filename);
     this.db.exec("PRAGMA journal_mode = WAL;");
   }

@@ -1,17 +1,22 @@
 # Task Plan
 
 ## Goal
-- Analyze the current Molibot repository structure.
-- Explain unclear directories/modules, especially `src/lib/server` and `mom`.
-- Propose a clearer target structure organized by business domain and functional boundaries.
+- Add a unified and safe model-switch path for Molibot.
+- Avoid direct AI-driven edits to the runtime settings file.
+- Support the same switching flow across Telegram, Feishu, API, and agent tools.
+- Add persistent AI token accounting and expose aggregated usage analytics in Settings.
+- Keep first-run startup robust on new machines, especially for the Mory SQLite backend.
 
 ## Phases
 | Step | Status | Notes |
 | --- | --- | --- |
-| Scan repository structure | complete | Top-level and key backend directories inspected |
-| Map module responsibilities | complete | `app/agent/channels/memory/sessions/settings/providers` boundaries defined |
-| Design target structure | complete | Adopted module-first `src/lib/server/*` layout |
-| Recommend migration path | complete | Phase 1-3 executed and verified by build |
+| Inspect current model-switch implementation | complete | Web/API, Telegram `/models`, runtime settings persistence, and agent tool boundaries verified |
+| Record safety findings and target design | complete | Confirmed current safe path is `updateSettings`, but agent `bash` can still bypass file guards |
+| Implement shared switch service and guardrails | complete | Extracted selection/build logic into shared module, added agent tool, and blocked direct settings-file shell edits |
+| Wire channels and API to shared switch flow | complete | Telegram and Feishu commands plus a narrow switch API now reuse the shared model-switch service |
+| Add runtime token accounting and settings analytics | complete | Added append-only usage tracker, request-path recording, usage API, and `/settings/ai` dashboard |
+| Fix Mory first-run bootstrap on clean machines | complete | Ensured memory/SQLite parent dirs exist before opening the Mory database so startup no longer fails on a fresh machine |
+| Verify build and update docs | complete | Updated `features.md`, `prd.md`, and progress records after successful `npm run build` |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |

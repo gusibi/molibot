@@ -5,6 +5,7 @@ import { config } from "../../app/env.js";
 export const storagePaths = {
   dataDir: path.resolve(config.dataDir),
   settingsFile: path.resolve(config.settingsFile),
+  memoryDir: path.resolve(config.dataDir, "memory"),
   sessionsDir: path.resolve(config.sessionsDir),
   sessionsIndexFile: path.resolve(config.sessionsIndexFile)
 };
@@ -29,6 +30,7 @@ export function writeJsonFile(filePath: string, value: unknown): void {
 
 export function initDb(): void {
   fs.mkdirSync(storagePaths.dataDir, { recursive: true });
+  fs.mkdirSync(storagePaths.memoryDir, { recursive: true });
   fs.mkdirSync(storagePaths.sessionsDir, { recursive: true });
 
   if (!fs.existsSync(storagePaths.settingsFile)) {

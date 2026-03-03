@@ -16,6 +16,10 @@
         >
         <a
           class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
+          href="/settings/ai#usage">Usage</a
+        >
+        <a
+          class="block rounded-lg px-3 py-2 text-slate-300 transition-colors duration-200 hover:bg-white/10"
           href="/settings/telegram">Telegram</a
         >
         <a
@@ -55,7 +59,7 @@
           >
             <h2 class="text-base font-semibold">AI Provider</h2>
             <p class="mt-1 text-sm text-slate-400">
-              Provider mode, default provider/model, and custom providers list.
+              Provider mode, default provider/model, custom providers, and token usage stats.
             </p>
           </a>
 
