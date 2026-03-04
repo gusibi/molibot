@@ -8,6 +8,7 @@ import { telegramChannelPlugin } from "./telegram/index.js";
 export interface ChannelManager {
   apply(config: unknown): void;
   stop(): void;
+  triggerTask?(event: unknown, filename: string): Promise<void>;
 }
 
 export interface ChannelRuntimeDeps {

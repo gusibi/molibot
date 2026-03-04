@@ -1,6 +1,8 @@
 import type { Bot } from "grammy";
 import { momWarn } from "../../agent/log.js";
 
+const SEND_RETRY_DELAYS_MS = [0, 500, 1500] as const;
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -68,21 +70,73 @@ export async function sendTelegramText(
   options?: Record<string, unknown>
 ): Promise<{ message_id: number }> {
   const payload = formatTelegramText(text);
+  const sendOptions = payload.parseMode
+    ? { ...(options ?? {}), parse_mode: payload.parseMode }
+    : { ...(options ?? {}) };
+
   try {
-    const sendOptions = payload.parseMode
-      ? { ...(options ?? {}), parse_mode: payload.parseMode }
-      : { ...(options ?? {}) };
-    return (await bot.api.sendMessage(chatId, payload.text, sendOptions as never)) as { message_id: number };
+    return await sendTelegramWithRetry(bot, chatId, payload.text, sendOptions, "formatted");
   } catch (error) {
     if (payload.parseMode) {
       momWarn("telegram", "send_message_parse_fallback_plain", {
         chatId,
         error: error instanceof Error ? error.message : String(error)
       });
-      return (await bot.api.sendMessage(chatId, text, (options ?? {}) as never)) as { message_id: number };
+      return await sendTelegramWithRetry(bot, chatId, text, options ?? {}, "plain");
     }
     throw error;
   }
+}
+
+async function sendTelegramWithRetry(
+  bot: Bot,
+  chatId: string,
+  text: string,
+  options: Record<string, unknown>,
+  mode: "formatted" | "plain"
+): Promise<{ message_id: number }> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < SEND_RETRY_DELAYS_MS.length; attempt += 1) {
+    const delayMs = SEND_RETRY_DELAYS_MS[attempt];
+    if (delayMs > 0) {
+      await wait(delayMs);
+    }
+
+    try {
+      return (await bot.api.sendMessage(chatId, text, options as never)) as { message_id: number };
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableTelegramSendError(error) || attempt === SEND_RETRY_DELAYS_MS.length - 1) {
+        throw error;
+      }
+      momWarn("telegram", "send_message_retry_scheduled", {
+        chatId,
+        mode,
+        attempt: attempt + 1,
+        nextDelayMs: SEND_RETRY_DELAYS_MS[attempt + 1],
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "Telegram send failed"));
+}
+
+function isRetryableTelegramSendError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return (
+    message.includes("Network request for") ||
+    message.includes("fetch failed") ||
+    message.includes("ETIMEDOUT") ||
+    message.includes("ECONNRESET") ||
+    message.includes("socket hang up") ||
+    message.includes("network")
+  );
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function editTelegramText(bot: Bot, chatId: string, messageId: number, text: string): Promise<void> {

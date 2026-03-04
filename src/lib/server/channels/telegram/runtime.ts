@@ -705,6 +705,14 @@ export class TelegramManager {
     });
   }
 
+  async triggerTask(event: unknown, filename: string): Promise<void> {
+    const task = event as MomEvent;
+    if (!task || typeof task !== "object" || typeof task.chatId !== "string" || typeof task.text !== "string") {
+      throw new Error("Invalid task payload");
+    }
+    return this.handleSyntheticEvent(task, filename);
+  }
+
   private async deliverDirectEventMessage(event: MomEvent, runId: string, filename: string): Promise<void> {
     if (!this.bot) return;
 
