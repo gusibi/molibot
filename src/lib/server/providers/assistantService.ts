@@ -3,6 +3,7 @@ import { getModels } from "@mariozechner/pi-ai";
 import type { CustomProviderConfig, RuntimeSettings } from "../settings/index.js";
 import type { ConversationMessage } from "../../shared/types/message.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
+import { getProviderModel } from "./modelResolver.js";
 
 type OpenAIRole = "system" | "user" | "assistant";
 
@@ -83,13 +84,6 @@ function toOpenAIMessagesWithMemory(
   return messages;
 }
 
-function getProviderModel(provider: CustomProviderConfig): string {
-  const modelIds = provider.models.map((m) => m.id).filter(Boolean);
-  const selected = provider.defaultModel?.trim();
-  if (selected && modelIds.includes(selected)) return selected;
-  return modelIds[0]?.trim() || "";
-}
-
 async function callCustomProvider(
   history: ConversationMessage[],
   settings: RuntimeSettings,
@@ -161,9 +155,10 @@ async function callCustomProvider(
 }
 
 function pickDefaultCustomProvider(settings: RuntimeSettings): CustomProviderConfig | null {
-  if (settings.customProviders.length === 0) return null;
-  const selected = settings.customProviders.find((p) => p.id === settings.defaultCustomProviderId);
-  return selected ?? settings.customProviders[0] ?? null;
+  const enabledProviders = settings.customProviders.filter((p) => p.enabled !== false);
+  if (enabledProviders.length === 0) return null;
+  const selected = enabledProviders.find((p) => p.id === settings.defaultCustomProviderId);
+  return selected ?? enabledProviders[0] ?? null;
 }
 
 async function callPiMono(

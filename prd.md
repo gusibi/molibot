@@ -108,6 +108,11 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-65 | Audio-input capability groundwork | P1 | Delivered (2026-03-03) | Model configuration should support an explicit `audio_input` capability tag and verification placeholder state even before native audio prompt transport is wired, so later audio routing can build on declared capability metadata without another schema migration |
 | P1-66 | Core prompt identity neutrality | P1 | Delivered (2026-03-04) | The base system prompt should not hardcode a bot/persona name; assistant identity must come from configured profile files (`IDENTITY.md`, `SOUL.md`) so agent personas are not overridden by runtime boilerplate |
 | P1-67 | Verification-aware audio fallback routing | P1 | Delivered (2026-03-04) | Agent routing should make audio handling explicit from `audio_input` and `stt` metadata: until native audio transport exists, the runner must log why direct audio is unavailable, prefer declared STT fallback routes, and otherwise preserve voice-placeholder behavior with a visible notice |
+| P1-68 | Built-in provider settings parity | P1 | Delivered (2026-03-04) | Built-in PI providers should be configurable from Settings via same-ID entries for credentials/model metadata, while request protocol remains provider-native (not forced into OpenAI-compatible baseUrl/path), with env fallback when Settings credentials are absent |
+| P1-69 | Provider resolver ownership alignment | P1 | Delivered (2026-03-04) | Provider/model resolution and key fallback logic should be owned under `src/lib/server/providers/*`; agent runtime should consume provider resolver APIs instead of embedding provider-specific routing internals |
+| P1-70 | OAuth provider runtime credential chain | P1 | Delivered (2026-03-04) | Built-in OAuth providers should resolve credentials at runtime from settings/env/auth-file chain, support token refresh through provider SDK utilities, and avoid env-only hard failures for `openai-codex` / `google-gemini-cli` / related OAuth providers |
+| P1-71 | Providers settings UI type separation | P1 | Delivered (2026-03-04) | `/settings/ai/providers` should separate Built-in and Custom provider configuration into distinct UI sections so native built-ins are not mistaken for OpenAI-compatible endpoint configs that require `baseUrl/path` |
+| P1-72 | Built-in provider authentication playbook in UI | P1 | Delivered (2026-03-04) | Built-in provider detail pages should display provider-specific auth instructions (OAuth command flow, token/key source, env fallback, and docs links) so users can complete onboarding without leaving Settings blindly |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -833,3 +838,15 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `FeishuManager.stop()` 必须显式关闭当前 `WSClient`，不能只清空引用。
   - Feishu 适配器在下载资源/STT/入队前，必须基于原始 `chat_id + message.message_id` 做本地幂等去重。
   - 对重复投递应记录专门日志，便于区分“真实重复消息”和“重复订阅/重复回调”。
+
+## 70. 历史图片消息降级兼容（2026-03-04）
+- Priority: P1
+- Problem:
+  - 当前会话只对“本次新入站图片”做 vision 路由决策，但历史上下文中如果保留了 `type=image` 内容，切换到不支持图片的文本模型时仍可能把历史图片内容透传到 provider，导致请求报错或失败。
+- Requirement:
+  - 模型不支持已验证 vision 能力时，发送前必须自动降级历史消息中的图片内容。
+  - 纯文本模型应可继续基于已有文字上下文对话，不因旧图片记录阻塞会话。
+- Enforcement:
+  - 在 runner 的最终 stream context 组装阶段，按“当前选中模型能力”统一过滤 `image/input_image/image_url` 消息片段。
+  - 优先保留同条消息中的文本片段；若该条仅含图片，则改写为简短占位文本，避免发送空 content。
+  - 增加日志字段记录本次请求是否允许图片、清洗了多少图片片段/消息，便于回溯。

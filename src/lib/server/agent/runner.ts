@@ -2,10 +2,24 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { getModels, streamSimple, type Model } from "@mariozechner/pi-ai";
-import type { RuntimeSettings, CustomProviderConfig } from "../settings/index.js";
+import { streamSimple } from "@mariozechner/pi-ai";
+import type { RuntimeSettings } from "../settings/index.js";
 import type { MemoryGateway } from "../memory/gateway.js";
 import { currentModelKey } from "../settings/modelSwitch.js";
+import {
+  buildOpenAIBaseUrl,
+  getCustomProviderById,
+  getProviderModel,
+  getSelectedCustomProvider,
+  isOAuthProvider,
+  parseModelKey,
+  resolveApiKeyForProviderRuntime,
+  resolveApiKeyForModelRuntime,
+  resolveModel,
+  resolveModelSelection,
+  type ResolvedModelSelection,
+  validateAiProviderSettings
+} from "../providers/modelResolver.js";
 import { momError, momLog, momWarn } from "./log.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { MomRuntimeStore } from "./store.js";
@@ -13,72 +27,6 @@ import { resolveSttTarget, transcribeAudioViaConfiguredProvider } from "./stt.js
 import { createMomTools } from "./tools/index.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
-
-function resolvePiModel(settings: RuntimeSettings): Model<any> {
-  const models = getModels(settings.piModelProvider);
-  const found = models.find((m) => m.id === settings.piModelName);
-  if (found) return found;
-  if (models[0]) return models[0];
-  throw new Error(
-    `No models available for provider '${settings.piModelProvider}'`,
-  );
-}
-
-function parseModelKey(key: string): { mode: "pi" | "custom"; provider: string; model: string } | null {
-  const raw = key.trim();
-  if (!raw) return null;
-  const [mode, provider, ...rest] = raw.split("|");
-  if ((mode !== "pi" && mode !== "custom") || !provider || rest.length === 0) return null;
-  const model = rest.join("|").trim();
-  if (!model) return null;
-  return { mode, provider: provider.trim(), model };
-}
-
-function resolvePiModelByKey(provider: string, modelId: string): Model<any> | null {
-  const models = getModels(provider as any);
-  const found = models.find((m) => m.id === modelId);
-  return found ?? null;
-}
-
-function isCustomProviderUsable(provider: CustomProviderConfig): boolean {
-  return Boolean(provider.baseUrl?.trim() && provider.apiKey?.trim());
-}
-
-function pickCustomModelId(provider: CustomProviderConfig, useCase: "text" | "vision"): string {
-  const rows = provider.models.filter((m) => Boolean(m.id?.trim()));
-  if (rows.length === 0) return "";
-
-  if (useCase === "vision") {
-    const vision = rows.find((m) => Array.isArray(m.tags) && m.tags.includes("vision"));
-    if (vision?.id) return vision.id;
-  }
-
-  const byDefault = rows.find((m) => m.id === provider.defaultModel);
-  if (byDefault?.id) return byDefault.id;
-  return rows[0]?.id ?? "";
-}
-
-function getProviderModel(provider: CustomProviderConfig): string {
-  const modelIds = provider.models.map((m) => m.id).filter(Boolean);
-  const selected = provider.defaultModel?.trim();
-  if (selected && modelIds.includes(selected)) return selected;
-  return modelIds[0]?.trim() || "";
-}
-
-function getSelectedCustomProvider(
-  settings: RuntimeSettings,
-): CustomProviderConfig | undefined {
-  if (settings.customProviders.length === 0) return undefined;
-  return (
-    settings.customProviders.find(
-      (p) => p.id === settings.defaultCustomProviderId,
-    ) ?? settings.customProviders[0]
-  );
-}
-
-function getCustomProviderById(settings: RuntimeSettings, providerId: string): CustomProviderConfig | undefined {
-  return settings.customProviders.find((p) => p.id === providerId);
-}
 
 function getCustomModelRoles(settings: RuntimeSettings): string[] {
   const routed = parseModelKey(settings.modelRouting.textModelKey);
@@ -93,136 +41,6 @@ function getCustomModelRoles(settings: RuntimeSettings): string[] {
   const modelId = getProviderModel(selected);
   const model = selected.models.find((m) => m.id === modelId);
   return model?.supportedRoles ?? [];
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/$/, "");
-}
-
-function normalizePath(path: string | undefined): string {
-  const raw = (path || "/v1/chat/completions").trim();
-  if (!raw) return "/v1/chat/completions";
-  return raw.startsWith("/") ? raw : `/${raw}`;
-}
-
-function buildOpenAIBaseUrl(baseUrl: string, path: string | undefined): string {
-  const base = normalizeBaseUrl(baseUrl);
-  const normalizedPath = normalizePath(path);
-  const chatCompletionsSuffix = "/chat/completions";
-
-  if (normalizedPath.endsWith(chatCompletionsSuffix)) {
-    const prefix = normalizedPath.slice(0, -chatCompletionsSuffix.length);
-    return `${base}${prefix}`;
-  }
-
-  const slash = normalizedPath.lastIndexOf("/");
-  const dir = slash > 0 ? normalizedPath.slice(0, slash) : "";
-  return `${base}${dir}`;
-}
-
-function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Model<any> {
-  const computedBaseUrl = buildOpenAIBaseUrl(
-    selected.baseUrl,
-    selected.path,
-  );
-  return {
-    id: modelId,
-    name: selected.name || modelId,
-    api: "openai-completions",
-    provider: selected.id || "custom-provider",
-    baseUrl: computedBaseUrl,
-    reasoning: true,
-    input: ["text", "image"],
-    cost: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-    },
-    contextWindow: 200000,
-    maxTokens: 8192,
-  };
-}
-
-interface ResolvedModelSelection {
-  model: Model<any>;
-  source: "pi" | "custom";
-  providerId: string;
-  modelId: string;
-  configuredModel?: CustomProviderConfig["models"][number];
-}
-
-function resolveModelSelection(
-  settings: RuntimeSettings,
-  useCase: "text" | "vision" = "text"
-): ResolvedModelSelection {
-  const routedKey = useCase === "vision"
-    ? settings.modelRouting.visionModelKey
-    : settings.modelRouting.textModelKey;
-  const routed = parseModelKey(routedKey);
-  if (routed) {
-    if (routed.mode === "pi") {
-      const pi = resolvePiModelByKey(routed.provider, routed.model);
-      if (pi) {
-        return {
-          model: pi,
-          source: "pi",
-          providerId: routed.provider,
-          modelId: routed.model
-        };
-      }
-    } else {
-      const provider = getCustomProviderById(settings, routed.provider);
-      if (provider && isCustomProviderUsable(provider) && routed.model) {
-        return {
-          model: resolveCustomModel(provider, routed.model),
-          source: "custom",
-          providerId: provider.id,
-          modelId: routed.model,
-          configuredModel: provider.models.find((m) => m.id === routed.model)
-        };
-      }
-    }
-  }
-
-  if (settings.providerMode === "custom") {
-    const selected = getSelectedCustomProvider(settings);
-    const modelId = selected ? pickCustomModelId(selected, useCase) : "";
-    if (selected && isCustomProviderUsable(selected) && modelId) {
-      return {
-        model: resolveCustomModel(selected, modelId),
-        source: "custom",
-        providerId: selected.id,
-        modelId,
-        configuredModel: selected.models.find((m) => m.id === modelId)
-      };
-    }
-  }
-
-  for (const provider of settings.customProviders) {
-    if (!isCustomProviderUsable(provider)) continue;
-    const modelId = pickCustomModelId(provider, useCase);
-    if (!modelId) continue;
-    return {
-      model: resolveCustomModel(provider, modelId),
-      source: "custom",
-      providerId: provider.id,
-      modelId,
-      configuredModel: provider.models.find((m) => m.id === modelId)
-    };
-  }
-
-  const pi = resolvePiModel(settings);
-  return {
-    model: pi,
-    source: "pi",
-    providerId: settings.piModelProvider,
-    modelId: pi.id
-  };
-}
-
-function resolveModel(settings: RuntimeSettings, useCase: "text" | "vision" = "text"): Model<any> {
-  return resolveModelSelection(settings, useCase).model;
 }
 
 function supportsVisionNatively(
@@ -357,54 +175,6 @@ function decideAudioRouting(settings: RuntimeSettings, hasAudio: boolean): {
   };
 }
 
-function envVarForProvider(provider: string): string | null {
-  switch (provider) {
-    case "anthropic":
-      return "ANTHROPIC_API_KEY";
-    case "openai":
-    case "openai-codex":
-      return "OPENAI_API_KEY";
-    case "google":
-    case "google-antigravity":
-    case "google-gemini-cli":
-      return "GOOGLE_API_KEY";
-    case "xai":
-      return "XAI_API_KEY";
-    case "groq":
-      return "GROQ_API_KEY";
-    case "cerebras":
-      return "CEREBRAS_API_KEY";
-    case "openrouter":
-      return "OPENROUTER_API_KEY";
-    case "mistral":
-      return "MISTRAL_API_KEY";
-    case "zai":
-      return "ZAI_API_KEY";
-    case "minimax":
-    case "minimax-cn":
-      return "MINIMAX_API_KEY";
-    case "huggingface":
-      return "HUGGINGFACE_API_KEY";
-    default:
-      return null;
-  }
-}
-
-function resolveApiKeyForModel(
-  model: Model<any>,
-  settings: RuntimeSettings,
-): string | undefined {
-  const mapped = settings.customProviders.find((p) => p.id === model.provider);
-  if (mapped) {
-    return mapped.apiKey?.trim() || undefined;
-  }
-
-  const envVar = envVarForProvider(model.provider);
-  if (!envVar) return undefined;
-  const value = process.env[envVar]?.trim();
-  return value || undefined;
-}
-
 function redactBaseUrl(baseUrl: string): string {
   if (!baseUrl) return baseUrl;
   return baseUrl.replace(/\/\/([^/@]+)@/, "//***@");
@@ -414,27 +184,6 @@ function keyFingerprint(key: string | undefined): string {
   if (!key) return "none";
   if (key.length <= 8) return `len=${key.length}`;
   return `${key.slice(0, 4)}...${key.slice(-2)}(len=${key.length})`;
-}
-
-function validateRuntimeSettings(settings: RuntimeSettings): string | null {
-  if (settings.providerMode === "custom") {
-    const selected = getSelectedCustomProvider(settings);
-    const modelId = selected ? getProviderModel(selected) : "";
-    if (!selected) {
-      return "AI settings error: providerMode=custom but no custom provider configured.";
-    }
-    if (!selected.baseUrl?.trim() || !selected.apiKey?.trim() || !modelId) {
-      return "AI settings error: custom provider requires baseUrl, apiKey, and at least one model.";
-    }
-    return null;
-  }
-
-  const model = resolvePiModel(settings);
-  const envVar = envVarForProvider(model.provider);
-  if (envVar && !process.env[envVar]?.trim()) {
-    return `AI settings error: missing ${envVar} for provider '${model.provider}'.`;
-  }
-  return null;
 }
 
 function extractTextFromResult(result: unknown): string {
@@ -588,6 +337,68 @@ function mapUnsupportedDeveloperRole(
   };
 }
 
+function supportsVisionForStreamModel(settings: RuntimeSettings, selectedModel: { provider?: string; id?: string; input?: string[] }): boolean {
+  const providerId = String(selectedModel?.provider ?? "").trim();
+  const modelId = String(selectedModel?.id ?? "").trim();
+  if (!providerId || !modelId) {
+    return Array.isArray(selectedModel?.input) && selectedModel.input.includes("image");
+  }
+
+  const customProvider = getCustomProviderById(settings, providerId);
+  if (!customProvider) {
+    return Array.isArray(selectedModel?.input) && selectedModel.input.includes("image");
+  }
+
+  const configuredModel = customProvider.models.find((model) => model.id === modelId);
+  if (!configuredModel) return false;
+  return Boolean(
+    configuredModel.tags?.includes("vision") &&
+    configuredModel.verification?.vision === "passed"
+  );
+}
+
+function stripUnsupportedImagePartsFromContext(context: any): {
+  context: any;
+  removedParts: number;
+  touchedMessages: number;
+} {
+  if (!context || typeof context !== "object" || !Array.isArray(context.messages)) {
+    return { context, removedParts: 0, touchedMessages: 0 };
+  }
+
+  let removedParts = 0;
+  let touchedMessages = 0;
+  const messages = context.messages.map((msg: any) => {
+    if (!msg || typeof msg !== "object") return msg;
+    if (!Array.isArray(msg.content)) return msg;
+
+    const kept = msg.content.filter((part: any) => {
+      if (!part || typeof part !== "object") return true;
+      const type = String(part.type ?? "").toLowerCase();
+      if (type === "image" || type === "input_image" || type === "image_url") return false;
+      if (part.image_url) return false;
+      return true;
+    });
+
+    const removed = msg.content.length - kept.length;
+    if (removed <= 0) return msg;
+    removedParts += removed;
+    touchedMessages += 1;
+
+    if (kept.length > 0) return { ...msg, content: kept };
+    return {
+      ...msg,
+      content: "(history image omitted because current model does not support vision)"
+    };
+  });
+
+  return {
+    context: { ...context, messages },
+    removedParts,
+    touchedMessages
+  };
+}
+
 export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
   private running = false;
@@ -625,10 +436,15 @@ export class MomRunner implements RunnerLike {
       },
       streamFn: (selectedModel, context, opts) => {
         const settingsNow = this.getSettings();
-        const patchedContext = mapUnsupportedDeveloperRole(
+        const rolePatchedContext = mapUnsupportedDeveloperRole(
           settingsNow,
           context,
         );
+        const allowImageContent = supportsVisionForStreamModel(settingsNow, selectedModel as any);
+        const imagePatched = allowImageContent
+          ? { context: rolePatchedContext, removedParts: 0, touchedMessages: 0 }
+          : stripUnsupportedImagePartsFromContext(rolePatchedContext);
+        const patchedContext = imagePatched.context;
         momLog("runner", "llm_stream_start", {
           chatId: this.chatId,
           provider: selectedModel.provider,
@@ -640,6 +456,9 @@ export class MomRunner implements RunnerLike {
           hasTools:
             Array.isArray(patchedContext.tools) &&
             patchedContext.tools.length > 0,
+          allowImageContent,
+          strippedImageParts: imagePatched.removedParts,
+          strippedImageMessages: imagePatched.touchedMessages
         });
         return streamSimple(
           selectedModel as any,
@@ -649,14 +468,8 @@ export class MomRunner implements RunnerLike {
       },
       getApiKey: async (provider: string) => {
         const settingsNow = this.getSettings();
-        const selectedCustom = settingsNow.customProviders.find((p) => p.id === provider);
-        let key: string | undefined;
-        if (selectedCustom) {
-          key = selectedCustom.apiKey?.trim() || undefined;
-        } else {
-          const envVar = envVarForProvider(provider);
-          key = envVar ? process.env[envVar]?.trim() || undefined : undefined;
-        }
+        const selectedCustom = getCustomProviderById(settingsNow, provider);
+        const key = await resolveApiKeyForProviderRuntime(provider, settingsNow);
         momLog("runner", "api_key_resolve", {
           chatId: this.chatId,
           provider,
@@ -723,7 +536,7 @@ export class MomRunner implements RunnerLike {
     };
 
     const settings = this.getSettings();
-    const settingsError = validateRuntimeSettings(settings);
+    const settingsError = validateAiProviderSettings(settings);
     if (settingsError) {
       momWarn("runner", "settings_error", {
         runId,
@@ -767,11 +580,14 @@ export class MomRunner implements RunnerLike {
     );
     const selectedModel = visionDecision.selection.model;
     const selectedCustom = settings.customProviders.find((p) => p.id === selectedModel.provider);
-    const resolvedKey = resolveApiKeyForModel(selectedModel, settings);
+    const resolvedKey = await resolveApiKeyForModelRuntime(selectedModel, settings);
     if (!resolvedKey) {
+      const oauthHint = isOAuthProvider(selectedModel.provider)
+        ? " For OAuth providers, run `npx @mariozechner/pi-ai login <provider>` and place `auth.json` under `${DATA_DIR}` (or set `PI_AI_AUTH_FILE`)."
+        : "";
       const keyError =
         `AI settings error: missing API key for active model provider '${selectedModel.provider}'. ` +
-        "Please check current model routing and provider key configuration.";
+        `Please check current model routing and provider key configuration.${oauthHint}`;
       momWarn("runner", "active_model_missing_api_key", {
         runId,
         chatId: this.chatId,
@@ -797,7 +613,7 @@ export class MomRunner implements RunnerLike {
       customProviderId: selectedCustom?.id,
       customProviderName: selectedCustom?.name,
       customProviderPath: selectedCustom?.path,
-      customProviderComputedBaseUrl: selectedCustom
+      customProviderComputedBaseUrl: selectedCustom?.baseUrl?.trim()
         ? redactBaseUrl(
           buildOpenAIBaseUrl(selectedCustom.baseUrl, selectedCustom.path),
         )

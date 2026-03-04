@@ -23,6 +23,7 @@ export interface ModelRoutingConfig {
 export interface CustomProviderConfig {
   id: string;
   name: string;
+  enabled: boolean;
   baseUrl: string;
   apiKey: string;
   models: ProviderModelConfig[];

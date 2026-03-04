@@ -51,7 +51,7 @@ function parseModelKey(key: string): { mode: "pi" | "custom"; provider: string; 
 export function resolveSttTarget(settings: RuntimeSettings): SttTarget | null {
   const routed = parseModelKey(settings.modelRouting.sttModelKey);
   if (routed?.mode === "custom") {
-    const provider = settings.customProviders.find((p) => p.id === routed.provider);
+    const provider = settings.customProviders.find((p) => p.id === routed.provider && p.enabled !== false);
     const configuredModel = provider?.models.find((m) => m.id === routed.model);
     if (provider?.baseUrl && provider.apiKey && routed.model) {
       return {
@@ -67,6 +67,7 @@ export function resolveSttTarget(settings: RuntimeSettings): SttTarget | null {
   }
 
   for (const provider of settings.customProviders) {
+    if (provider.enabled === false) continue;
     if (!provider.baseUrl?.trim() || !provider.apiKey?.trim()) continue;
     const sttModel = provider.models.find((m) => m.id?.trim() && Array.isArray(m.tags) && m.tags.includes("stt"));
     if (!sttModel) continue;

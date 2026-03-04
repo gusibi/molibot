@@ -14,6 +14,7 @@
     interface CustomProviderForm {
         id: string;
         name: string;
+        enabled: boolean;
         baseUrl: string;
         apiKey: string;
         models: ProviderModelForm[];
@@ -79,6 +80,26 @@
         }
     }
 
+    function enabledBuiltinProviderIds(): string[] {
+        return form.customProviders
+            .filter((p) => p.enabled && providers.some((row) => row.id === p.id))
+            .map((p) => p.id);
+    }
+
+    function visiblePiProviders(): Array<{ id: string; name: string }> {
+        const enabledIds = new Set(enabledBuiltinProviderIds());
+        const filtered = providers.filter((p) => enabledIds.has(p.id));
+        if (filtered.length > 0) return filtered;
+        return providers.filter((p) => p.id === form.piModelProvider);
+    }
+
+    function ensurePiProviderEnabled(): void {
+        const visible = visiblePiProviders();
+        if (!visible.some((p) => p.id === form.piModelProvider)) {
+            form.piModelProvider = visible[0]?.id ?? form.piModelProvider;
+        }
+    }
+
     function allModelOptions(): Array<{
         key: string;
         label: string;
@@ -96,7 +117,7 @@
             },
         ];
 
-        for (const cp of form.customProviders) {
+        for (const cp of form.customProviders.filter((p) => p.enabled)) {
             for (const m of cp.models) {
                 out.push({
                     key: `custom|${cp.id}|${m.id}`,
@@ -183,6 +204,7 @@
                 defaultCustomProviderId: s.defaultCustomProviderId ?? "",
                 customProviders: loadedProviders.map((cp) => ({
                     ...cp,
+                    enabled: cp.enabled !== false,
                     models: Array.isArray(cp.models)
                         ? cp.models.map((m: any) => ({
                               id: String(m.id ?? m),
@@ -204,6 +226,7 @@
             };
 
             onPiProviderChanged();
+            ensurePiProviderEnabled();
             ensureRoutingDefaults();
         } catch (e) {
             error = e instanceof Error ? e.message : String(e);
@@ -291,7 +314,7 @@
                             on:change={onPiProviderChanged}
                             disabled={form.providerMode === "custom"}
                         >
-                            {#each providers as provider}
+                            {#each visiblePiProviders() as provider}
                                 <option value={provider.id}
                                     >{provider.name}</option
                                 >
@@ -315,6 +338,12 @@
                         <span class="text-xs text-slate-500"
                             >Used if routing keys fail to match a known model.</span
                         >
+                        {#if visiblePiProviders().length === 0}
+                            <span class="text-xs text-amber-300"
+                                >No enabled built-in provider. Enable at least
+                                one in Providers page.</span
+                            >
+                        {/if}
                     </label>
                 </div>
             </section>

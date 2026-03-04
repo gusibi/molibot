@@ -359,6 +359,7 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
     customProviders.push({
       id,
       name: String(row.name ?? "").trim() || id,
+      enabled: (row as { enabled?: unknown }).enabled === undefined ? true : Boolean((row as { enabled?: unknown }).enabled),
       baseUrl: String(row.baseUrl ?? "").trim(),
       apiKey: String(row.apiKey ?? "").trim(),
       models,
@@ -368,8 +369,9 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   }
   next.customProviders = customProviders;
   next.defaultCustomProviderId = String(next.defaultCustomProviderId ?? "").trim();
-  if (!next.customProviders.some((p) => p.id === next.defaultCustomProviderId)) {
-    next.defaultCustomProviderId = next.customProviders[0]?.id ?? "";
+  const enabledCustomProviders = next.customProviders.filter((p) => p.enabled !== false);
+  if (!enabledCustomProviders.some((p) => p.id === next.defaultCustomProviderId)) {
+    next.defaultCustomProviderId = enabledCustomProviders[0]?.id ?? next.customProviders[0]?.id ?? "";
   }
 
   next.modelRouting = {

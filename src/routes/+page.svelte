@@ -9,6 +9,7 @@
     customProviders: Array<{
       id: string;
       name: string;
+      enabled: boolean;
       models: Array<{ id: string; tags: string[] }>;
       defaultModel: string;
     }>;
@@ -139,7 +140,7 @@
       }
     ];
 
-    for (const provider of settings.customProviders) {
+    for (const provider of settings.customProviders.filter((p) => p.enabled)) {
       for (const model of provider.models ?? []) {
         const modelId = typeof model === "string" ? model : model.id;
         if (!modelId) continue;
@@ -154,8 +155,9 @@
 
   function computeActiveModelKey(settings: RuntimeSettings): string {
     if (settings.providerMode === "custom") {
-      const id = settings.defaultCustomProviderId || settings.customProviders[0]?.id || "";
-      const provider = settings.customProviders.find((p) => p.id === id) ?? settings.customProviders[0];
+      const enabledProviders = settings.customProviders.filter((p) => p.enabled);
+      const id = settings.defaultCustomProviderId || enabledProviders[0]?.id || "";
+      const provider = enabledProviders.find((p) => p.id === id) ?? enabledProviders[0];
       const firstModel = provider?.models?.[0];
       const firstModelId = typeof firstModel === "string" ? firstModel : firstModel?.id;
       const model = provider?.defaultModel || firstModelId || "";
