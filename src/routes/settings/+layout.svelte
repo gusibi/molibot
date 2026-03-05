@@ -13,40 +13,58 @@
         {
             title: "AI Engine",
             links: [
-                { href: "/settings/ai/routing", label: "Routing & Prompt" },
-                { href: "/settings/ai/providers", label: "Providers & Models" },
-                { href: "/settings/ai/usage", label: "Usage Stats" },
+                { href: "/settings/ai/routing", label: "Routing & Prompt", exact: true },
+                { href: "/settings/ai/providers", label: "Providers & Models", exact: true },
+                { href: "/settings/ai/usage", label: "Usage Stats", exact: true },
             ],
         },
         {
             title: "Channels",
             links: [
-                { href: "/settings/telegram", label: "Telegram Bot" },
-                { href: "/settings/feishu", label: "Feishu Bot" },
+                { href: "/settings/telegram", label: "Telegram Bot", exact: true },
+                { href: "/settings/feishu", label: "Feishu Bot", exact: true },
             ],
         },
         {
             title: "Agent Data",
             links: [
-                { href: "/settings/agents", label: "Agents" },
-                { href: "/settings/memory", label: "Memory" },
-                { href: "/settings/skills", label: "Skills" },
-                { href: "/settings/tasks", label: "Tasks" },
+                { href: "/settings/agents", label: "Agents", exact: true },
+                { href: "/settings/memory", label: "Memory", exact: true },
+                { href: "/settings/skills", label: "Skills", exact: true },
+                { href: "/settings/tasks", label: "Tasks", exact: true },
             ],
         },
         {
             title: "System",
-            links: [{ href: "/settings/plugins", label: "Plugins & Core" }],
+            links: [{ href: "/settings/plugins", label: "Plugins & Core", exact: true }],
         },
     ];
 
-    $: currentPath = $page.url.pathname;
+    function normalizePath(path: string): string {
+        if (path.length > 1 && path.endsWith("/")) return path.slice(0, -1);
+        return path;
+    }
 
-    function isActive(href: string, exact: boolean = false) {
+    function isActive(pathname: string, href: string, exact: boolean = false) {
+        const path = normalizePath(pathname);
+        const target = normalizePath(href);
         if (exact) {
-            return currentPath === href;
+            return path === target;
         }
-        return currentPath.startsWith(href);
+        return path === target || path.startsWith(`${target}/`);
+    }
+
+    function navLinkClass(
+        pathname: string,
+        href: string,
+        exact: boolean = false,
+    ): string {
+        const base =
+            "block rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200";
+        const state = isActive(pathname, href, exact)
+            ? "bg-emerald-500/10 text-emerald-400"
+            : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200";
+        return `${base} ${state}`;
     }
 </script>
 
@@ -64,32 +82,40 @@
                 </h2>
             </div>
 
-            <nav class="flex-1 space-y-6 overflow-y-auto pr-2">
-                {#each navGroups as group}
-                    <div class="space-y-2">
-                        <h3
-                            class="px-3 text-xs font-semibold uppercase tracking-wider text-slate-500"
-                        >
-                            {group.title}
-                        </h3>
-                        <div class="space-y-0.5">
-                            {#each group.links as link}
-                                <a
-                                    href={link.href}
-                                    class="block rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 {isActive(
-                                        link.href,
-                                        (link as any).exact,
-                                    )
-                                        ? 'bg-emerald-500/10 text-emerald-400'
-                                        : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200'}"
-                                >
-                                    {link.label}
-                                </a>
-                            {/each}
+            {#key $page.url.pathname}
+                <nav class="flex-1 space-y-6 overflow-y-auto pr-2">
+                    {#each navGroups as group}
+                        <div class="space-y-2">
+                            <h3
+                                class="px-3 text-xs font-semibold uppercase tracking-wider text-slate-500"
+                            >
+                                {group.title}
+                            </h3>
+                            <div class="space-y-0.5">
+                                {#each group.links as link}
+                                    <a
+                                        href={link.href}
+                                        class={navLinkClass(
+                                            $page.url.pathname,
+                                            link.href,
+                                            (link as any).exact,
+                                        )}
+                                        aria-current={isActive(
+                                            $page.url.pathname,
+                                            link.href,
+                                            (link as any).exact,
+                                        )
+                                            ? "page"
+                                            : undefined}
+                                    >
+                                        {link.label}
+                                    </a>
+                                {/each}
+                            </div>
                         </div>
-                    </div>
-                {/each}
-            </nav>
+                    {/each}
+                </nav>
+            {/key}
         </aside>
 
         <!-- Main Content -->

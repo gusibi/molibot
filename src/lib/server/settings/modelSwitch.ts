@@ -31,8 +31,9 @@ export function currentModelKey(settings: RuntimeSettings, route: ModelRoute): s
   if (routed) return routed;
   if (route !== "text") return "";
   if (settings.providerMode === "custom") {
-    const id = settings.defaultCustomProviderId || settings.customProviders[0]?.id || "";
-    const provider = settings.customProviders.find((p) => p.id === id) ?? settings.customProviders[0];
+    const enabledProviders = settings.customProviders.filter((p) => p.enabled !== false);
+    const id = settings.defaultCustomProviderId || enabledProviders[0]?.id || "";
+    const provider = enabledProviders.find((p) => p.id === id) ?? enabledProviders[0];
     const modelIds = (provider?.models ?? []).map((m) => m.id).filter(Boolean);
     const model = provider?.defaultModel || modelIds[0] || "";
     return id ? `custom|${id}|${model}` : `pi|${settings.piModelProvider}|${settings.piModelName}`;
@@ -72,7 +73,7 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
       : [])
   ];
 
-  for (const provider of settings.customProviders) {
+  for (const provider of settings.customProviders.filter((p) => p.enabled !== false)) {
     const models = provider.models.filter((m) => m.id?.trim() && supportsRoute(Array.isArray(m.tags) ? m.tags : ["text"]));
     for (const model of models) {
       const modelId = model.id.trim();

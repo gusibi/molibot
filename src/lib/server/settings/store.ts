@@ -153,6 +153,7 @@ function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
     out.push({
       id,
       name: String(item.name ?? "").trim() || id,
+      enabled: item.enabled === undefined ? !isKnownProvider(id) : Boolean(item.enabled),
       baseUrl: String(item.baseUrl ?? "").trim(),
       apiKey: String(item.apiKey ?? "").trim(),
       models,
@@ -336,6 +337,7 @@ function migrateLegacyCustomProvider(raw: RawSettings): CustomProviderConfig[] {
     {
       id: "custom-legacy",
       name: "Custom (legacy)",
+      enabled: true,
       baseUrl,
       apiKey,
       models: model ? [{ id: model, tags: ["text"], supportedRoles: [...DEFAULT_ROLES] }] : [],
@@ -351,8 +353,9 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const customProviders = providers.length > 0 ? providers : migrateLegacyCustomProvider(raw);
 
   let defaultCustomProviderId = String(raw.defaultCustomProviderId ?? "").trim();
-  if (!customProviders.some((p) => p.id === defaultCustomProviderId)) {
-    defaultCustomProviderId = customProviders[0]?.id ?? "";
+  const enabledCustomProviders = customProviders.filter((p) => p.enabled !== false);
+  if (!enabledCustomProviders.some((p) => p.id === defaultCustomProviderId)) {
+    defaultCustomProviderId = enabledCustomProviders[0]?.id ?? customProviders[0]?.id ?? "";
   }
 
   const telegramBotsFromList = sanitizeTelegramBots(raw.telegramBots);

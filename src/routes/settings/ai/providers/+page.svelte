@@ -24,6 +24,7 @@
     interface CustomProviderForm {
         id: string;
         name: string;
+        enabled: boolean;
         baseUrl: string;
         apiKey: string;
         models: ProviderModelForm[];
@@ -62,13 +63,182 @@
         >;
     }
 
+    type ProviderTab = "builtin" | "custom";
+    type BuiltinAuthMode = "oauth" | "api_key" | "platform";
+
+    interface BuiltinAuthGuide {
+        mode: BuiltinAuthMode;
+        modeLabel: string;
+        summary: string;
+        command?: string;
+        tokenHint?: string;
+        envVar?: string;
+        steps: string[];
+        links?: Array<{ label: string; url: string }>;
+    }
+
     let loading = true;
     let saving = false;
     let testingModelKey = "";
     let selectedProviderId = "";
+    let activeProviderTab: ProviderTab = "builtin";
     let providerSearch = "";
     let error = "";
     let message = "";
+    let builtinProviders: Array<{ id: string; name: string }> = [];
+    let builtinProviderModels: Record<string, string[]> = {};
+    const oauthBuiltinProviderIds = new Set([
+        "openai-codex",
+        "google-gemini-cli",
+        "google-antigravity",
+        "github-copilot",
+    ]);
+
+    function providerEnvVar(provider: string): string | undefined {
+        switch (provider) {
+            case "anthropic":
+                return "ANTHROPIC_API_KEY";
+            case "openai":
+            case "openai-codex":
+                return "OPENAI_API_KEY";
+            case "google":
+            case "google-antigravity":
+            case "google-gemini-cli":
+                return "GOOGLE_API_KEY";
+            case "xai":
+                return "XAI_API_KEY";
+            case "groq":
+                return "GROQ_API_KEY";
+            case "cerebras":
+                return "CEREBRAS_API_KEY";
+            case "openrouter":
+                return "OPENROUTER_API_KEY";
+            case "mistral":
+                return "MISTRAL_API_KEY";
+            case "zai":
+                return "ZAI_API_KEY";
+            case "minimax":
+            case "minimax-cn":
+                return "MINIMAX_API_KEY";
+            case "huggingface":
+                return "HUGGINGFACE_API_KEY";
+            default:
+                return undefined;
+        }
+    }
+
+    function builtinAuthGuide(providerId: string): BuiltinAuthGuide {
+        if (providerId === "openai-codex") {
+            return {
+                mode: "oauth",
+                modeLabel: "OAuth 登录",
+                summary:
+                    "使用 pi-ai 的设备登录流程获取 OpenAI Codex 授权，不需要在本页填写固定 API Key。",
+                command: "npx @mariozechner/pi-ai login openai-codex",
+                tokenHint:
+                    "登录后会写入 auth.json；运行时会自动读取并按需刷新 token。",
+                steps: [
+                    "在终端执行登录命令并按提示完成浏览器授权。",
+                    "确认 auth.json 位于 DATA_DIR（默认 ~/.molibot）或通过 PI_AI_AUTH_FILE 指定路径。",
+                    "返回本页仅管理模型与默认路由，无需填写 baseUrl/path。",
+                ],
+                links: [{ label: "OpenAI 平台", url: "https://platform.openai.com/" }],
+            };
+        }
+        if (providerId === "google-gemini-cli") {
+            return {
+                mode: "oauth",
+                modeLabel: "OAuth 登录",
+                summary:
+                    "Gemini CLI 使用 Google OAuth 授权链，优先使用 auth.json，不建议手填 API Key。",
+                command: "npx @mariozechner/pi-ai login google-gemini-cli",
+                tokenHint:
+                    "token 保存在 auth.json；运行时会自动读取并在过期时刷新。",
+                steps: [
+                    "执行登录命令并在浏览器完成 Google 账号授权。",
+                    "把 auth.json 放到 DATA_DIR（默认 ~/.molibot）或设置 PI_AI_AUTH_FILE。",
+                    "授权完成后在本页只需配置模型与能力标签。",
+                ],
+                links: [{ label: "Google AI Studio", url: "https://aistudio.google.com/" }],
+            };
+        }
+        if (providerId === "google-antigravity") {
+            return {
+                mode: "oauth",
+                modeLabel: "OAuth 登录",
+                summary:
+                    "该提供商走 Google OAuth 授权，不通过 OpenAI 兼容 key/path 模式。",
+                command: "npx @mariozechner/pi-ai login google-antigravity",
+                tokenHint:
+                    "token 信息存储在 auth.json，并在运行时自动刷新。",
+                steps: [
+                    "执行登录命令，完成浏览器设备授权流程。",
+                    "确保 auth.json 在 DATA_DIR 或通过 PI_AI_AUTH_FILE 指向文件。",
+                    "返回本页管理模型映射与默认模型。",
+                ],
+                links: [{ label: "Google Cloud", url: "https://console.cloud.google.com/" }],
+            };
+        }
+        if (providerId === "github-copilot") {
+            return {
+                mode: "oauth",
+                modeLabel: "OAuth 登录",
+                summary:
+                    "GitHub Copilot 通过 GitHub 账号 OAuth 授权，不是静态 API Key 方案。",
+                command: "npx @mariozechner/pi-ai login github-copilot",
+                tokenHint:
+                    "授权后 token 保存在 auth.json，runner 会自动读取。",
+                steps: [
+                    "执行命令后按终端提示完成 GitHub 登录授权。",
+                    "确认 auth.json 的存放位置（DATA_DIR 或 PI_AI_AUTH_FILE）。",
+                    "本页只维护模型清单、能力标注和默认模型。",
+                ],
+                links: [{ label: "GitHub Copilot", url: "https://github.com/features/copilot" }],
+            };
+        }
+        if (providerId === "azure-openai-responses") {
+            return {
+                mode: "platform",
+                modeLabel: "平台凭据",
+                summary:
+                    "Azure OpenAI 通常需要 endpoint + deployment + key/credential 组合，不是单一 API Key。",
+                steps: [
+                    "在 Azure Portal 创建 OpenAI 资源并拿到 endpoint/deployment/key。",
+                    "在运行环境配置 Azure 所需环境变量；本页只支持有限 key 覆盖。",
+                    "建议先在服务端环境完成 Azure 配置，再在本页维护模型元数据。",
+                ],
+                links: [{ label: "Azure OpenAI 文档", url: "https://learn.microsoft.com/azure/ai-services/openai/" }],
+            };
+        }
+
+        const envVar = providerEnvVar(providerId);
+        if (envVar) {
+            return {
+                mode: "api_key",
+                modeLabel: "API Key",
+                summary:
+                    "该 provider 使用 API Key 认证。你可以在本页填写覆盖值，或通过环境变量提供。",
+                envVar,
+                steps: [
+                    "去 provider 控制台创建/复制 API Key。",
+                    "二选一：在本页填写 API Key，或在运行环境设置对应环境变量。",
+                    "保存后用模型测试或实际对话验证。",
+                ],
+            };
+        }
+
+        return {
+            mode: "platform",
+            modeLabel: "平台凭据",
+            summary:
+                "该内置 provider 可能依赖平台侧凭据或多字段认证，请参考其官方文档配置运行环境。",
+            steps: [
+                "先确认该 provider 在 pi-ai 中需要的认证字段。",
+                "在运行环境完成必要凭据配置。",
+                "本页继续用于模型元数据和默认模型管理。",
+            ],
+        };
+    }
 
     let capabilityTags: ModelCapabilityTag[] = [
         "text",
@@ -99,6 +269,7 @@
         return {
             id,
             name: "New Provider",
+            enabled: true,
             baseUrl: "",
             apiKey: "",
             models: [],
@@ -107,8 +278,32 @@
         };
     }
 
+    function newBuiltinProvider(providerId: string): CustomProviderForm {
+        const models = (builtinProviderModels[providerId] ?? []).map((id) => ({
+            id,
+            tags: ["text"] as ModelCapabilityTag[],
+            supportedRoles: ["system", "user", "assistant", "tool"],
+        }));
+        return {
+            id: providerId,
+            name: `[Built-in] ${providerId}`,
+            enabled: false,
+            baseUrl: "",
+            apiKey: "",
+            models,
+            defaultModel: models[0]?.id ?? "",
+            path: "/v1/chat/completions",
+        };
+    }
+
     function modelIds(provider: CustomProviderForm): string[] {
         return provider.models.map((m) => m.id.trim()).filter(Boolean);
+    }
+
+    function hasUsableProviderConfig(provider: CustomProviderForm): boolean {
+        if (!provider.enabled) return false;
+        if (isBuiltinProvider(provider)) return true;
+        return Boolean(provider.baseUrl.trim() && provider.apiKey.trim());
     }
 
     function ensureModelDefaults(model: ProviderModelForm): void {
@@ -188,11 +383,15 @@
         }
 
         if (
-            !form.customProviders.some(
+            !form.customProviders
+                .filter((p) => p.enabled)
+                .some(
                 (p) => p.id === form.defaultCustomProviderId,
             )
         ) {
-            form.defaultCustomProviderId = form.customProviders[0].id;
+            form.defaultCustomProviderId =
+                form.customProviders.find((p) => p.enabled)?.id ??
+                form.customProviders[0].id;
         }
 
         if (
@@ -208,10 +407,13 @@
         const provider = newCustomProvider();
         form.customProviders = [...form.customProviders, provider];
         selectedProviderId = provider.id;
+        activeProviderTab = "custom";
         ensureDefaultCustomProvider();
     }
 
     function removeCustomProvider(id: string): void {
+        const target = form.customProviders.find((p) => p.id === id);
+        if (target && isBuiltinProvider(target)) return;
         form.customProviders = form.customProviders.filter((p) => p.id !== id);
         if (form.defaultCustomProviderId === id) {
             form.defaultCustomProviderId = form.customProviders[0]?.id ?? "";
@@ -220,6 +422,20 @@
             selectedProviderId = form.customProviders[0]?.id ?? "";
         }
         ensureDefaultCustomProvider();
+        const selected = getSelectedProvider();
+        if (selected) {
+            activeProviderTab = providerTabOf(selected);
+            return;
+        }
+        if (providersForTab(activeProviderTab).length > 0) {
+            selectedProviderId = providersForTab(activeProviderTab)[0].id;
+            return;
+        }
+        const fallbackTab = activeProviderTab === "builtin" ? "custom" : "builtin";
+        if (providersForTab(fallbackTab).length > 0) {
+            activeProviderTab = fallbackTab;
+            selectedProviderId = providersForTab(fallbackTab)[0].id;
+        }
     }
 
     function updateProviderById(
@@ -261,6 +477,7 @@
 
     function setAsDefaultProvider(id: string): void {
         form.defaultCustomProviderId = id;
+        updateProviderById(id, (provider) => ({ ...provider, enabled: true }));
     }
 
     function toggleTag(
@@ -287,10 +504,50 @@
         });
     }
 
+    function setProviderEnabled(providerId: string, enabled: boolean): void {
+        updateProviderById(providerId, (provider) => ({ ...provider, enabled }));
+        if (!enabled && form.defaultCustomProviderId === providerId) {
+            ensureDefaultCustomProvider();
+        }
+    }
+
+    function mergeBuiltinProviders(
+        rows: CustomProviderForm[],
+    ): CustomProviderForm[] {
+        const byId = new Map(rows.map((row) => [row.id, row]));
+        const merged: CustomProviderForm[] = [];
+
+        for (const builtin of builtinProviders) {
+            const existing = byId.get(builtin.id);
+            if (existing) {
+                merged.push({
+                    ...existing,
+                    name:
+                        existing.name?.trim() ||
+                        `[Built-in] ${builtin.id}`,
+                    enabled: existing.enabled === true,
+                });
+            } else {
+                merged.push(newBuiltinProvider(builtin.id));
+            }
+        }
+
+        for (const row of rows) {
+            if (builtinProviders.some((b) => b.id === row.id)) continue;
+            merged.push({
+                ...row,
+                enabled: row.enabled !== false,
+            });
+        }
+
+        return merged;
+    }
+
     function filteredCustomProviders(): CustomProviderForm[] {
         const keyword = providerSearch.trim().toLowerCase();
-        if (!keyword) return form.customProviders;
-        return form.customProviders.filter((p) => {
+        const tabProviders = providersForTab(activeProviderTab);
+        if (!keyword) return tabProviders;
+        return tabProviders.filter((p) => {
             return (
                 p.name.toLowerCase().includes(keyword) ||
                 p.id.toLowerCase().includes(keyword) ||
@@ -301,6 +558,42 @@
 
     function getSelectedProvider(): CustomProviderForm | undefined {
         return form.customProviders.find((p) => p.id === selectedProviderId);
+    }
+
+    function getSelectedProviderInActiveTab():
+        | CustomProviderForm
+        | undefined {
+        const selected = getSelectedProvider();
+        if (selected && providerTabOf(selected) === activeProviderTab) {
+            return selected;
+        }
+        return filteredCustomProviders()[0];
+    }
+
+    function providerTabOf(provider: CustomProviderForm): ProviderTab {
+        return isBuiltinProvider(provider) ? "builtin" : "custom";
+    }
+
+    function providersForTab(tab: ProviderTab): CustomProviderForm[] {
+        return form.customProviders.filter((p) => providerTabOf(p) === tab);
+    }
+
+    function isBuiltinProvider(provider: CustomProviderForm): boolean {
+        return builtinProviders.some((row) => row.id === provider.id);
+    }
+
+    function isOauthBuiltinProvider(provider: CustomProviderForm): boolean {
+        return (
+            isBuiltinProvider(provider) &&
+            oauthBuiltinProviderIds.has(provider.id)
+        );
+    }
+
+    function switchProviderTab(tab: ProviderTab): void {
+        activeProviderTab = tab;
+        const selected = getSelectedProvider();
+        if (selected && providerTabOf(selected) === tab) return;
+        selectedProviderId = providersForTab(tab)[0]?.id ?? "";
     }
 
     async function testProviderModel(
@@ -384,6 +677,11 @@
                 throw new Error(metaData.error || "Failed to load AI metadata");
 
             capabilityTags = metaData.capabilityTags ?? capabilityTags;
+            builtinProviders = Array.isArray(metaData.providers)
+                ? metaData.providers
+                : [];
+            builtinProviderModels =
+                metaData.providerModels ?? builtinProviderModels;
 
             const s = settingsData.settings;
             const loadedProviders = (s.customProviders ?? []) as Array<
@@ -395,8 +693,13 @@
                 piModelProvider: s.piModelProvider,
                 piModelName: s.piModelName,
                 defaultCustomProviderId: s.defaultCustomProviderId ?? "",
-                customProviders: loadedProviders.map((cp) => ({
+                customProviders: mergeBuiltinProviders(
+                    loadedProviders.map((cp) => ({
                     ...cp,
+                    enabled:
+                        builtinProviders.some((b) => b.id === cp.id)
+                            ? cp.enabled === true
+                            : cp.enabled !== false,
                     models: Array.isArray(cp.models)
                         ? cp.models.map((m: any) => {
                               if (typeof m === "string") {
@@ -453,6 +756,7 @@
                         : [],
                     defaultModel: cp.defaultModel ?? "",
                 })),
+                ),
                 modelRouting: {
                     textModelKey: s.modelRouting?.textModelKey ?? "",
                     visionModelKey: s.modelRouting?.visionModelKey ?? "",
@@ -463,6 +767,16 @@
             };
 
             ensureDefaultCustomProvider();
+            const selected = getSelectedProvider();
+            if (selected) {
+                activeProviderTab = providerTabOf(selected);
+            } else if (providersForTab("builtin").length > 0) {
+                activeProviderTab = "builtin";
+                selectedProviderId = providersForTab("builtin")[0].id;
+            } else if (providersForTab("custom").length > 0) {
+                activeProviderTab = "custom";
+                selectedProviderId = providersForTab("custom")[0].id;
+            }
         } catch (e) {
             error = e instanceof Error ? e.message : String(e);
         } finally {
@@ -538,11 +852,12 @@
     <div class="flex items-center justify-between gap-3">
         <header>
             <h1 class="text-3xl font-bold tracking-tight text-white">
-                Custom Providers
+                Providers
             </h1>
             <p class="mt-2 text-sm text-slate-400">
-                Configure custom API-compliant AI endpoints, credentials, and
-                supported internal tags.
+                Built-in providers and custom providers are configured
+                separately. Built-in providers use native pi-ai protocols;
+                custom providers use OpenAI-compatible endpoint settings.
             </p>
         </header>
     </div>
@@ -567,16 +882,52 @@
                         <h2
                             class="text-sm font-semibold uppercase tracking-wider text-slate-500"
                         >
-                            Providers List
+                            Provider Type
                         </h2>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
                         <button
                             type="button"
-                            class="flex cursor-pointer items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/20"
-                            on:click={addCustomProvider}
+                            class={`cursor-pointer rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                                activeProviderTab === "builtin"
+                                    ? "border-sky-500/40 bg-sky-500/15 text-sky-200"
+                                    : "border-white/10 bg-black/20 text-slate-300 hover:bg-white/5"
+                            }`}
+                            on:click={() => switchProviderTab("builtin")}
                         >
-                            + Create
+                            Built-in
+                        </button>
+                        <button
+                            type="button"
+                            class={`cursor-pointer rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                                activeProviderTab === "custom"
+                                    ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
+                                    : "border-white/10 bg-black/20 text-slate-300 hover:bg-white/5"
+                            }`}
+                            on:click={() => switchProviderTab("custom")}
+                        >
+                            Custom
                         </button>
                     </div>
+
+                    {#if activeProviderTab === "builtin"}
+                        <div
+                            class="rounded-xl border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-xs text-sky-200"
+                        >
+                            Built-in providers are always listed below. Use the
+                            `Enabled` switch inside each provider to control
+                            availability.
+                        </div>
+                    {:else}
+                        <button
+                            type="button"
+                            class="flex cursor-pointer items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/20"
+                            on:click={addCustomProvider}
+                        >
+                            + Create Custom Provider
+                        </button>
+                    {/if}
 
                     <div class="relative">
                         <input
@@ -598,7 +949,7 @@
                         {#each filteredCustomProviders() as provider (provider.id)}
                             <button
                                 type="button"
-                                class={`flex cursor-pointer flex-col gap-1 rounded-xl border px-4 py-3 text-left transition-all ${
+                                    class={`flex cursor-pointer flex-col gap-1 rounded-xl border px-4 py-3 text-left transition-all ${
                                     selectedProviderId === provider.id
                                         ? "border-emerald-500/30 bg-emerald-500/10 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
                                         : "border-white/5 bg-white/[0.01] hover:border-white/15 hover:bg-white/[0.03]"
@@ -630,6 +981,28 @@
                                             Default
                                         </span>
                                     {/if}
+                                    <span
+                                        class={`rounded px-2 py-0.5 text-[10px] uppercase font-bold ${
+                                            provider.enabled
+                                                ? "bg-emerald-500/20 text-emerald-300"
+                                                : "bg-slate-500/20 text-slate-300"
+                                        }`}
+                                    >
+                                        {provider.enabled
+                                            ? "Enabled"
+                                            : "Disabled"}
+                                    </span>
+                                    <span
+                                        class={`rounded px-2 py-0.5 text-[10px] uppercase font-bold ${
+                                            hasUsableProviderConfig(provider)
+                                                ? "bg-cyan-500/20 text-cyan-200"
+                                                : "bg-amber-500/20 text-amber-200"
+                                        }`}
+                                    >
+                                        {hasUsableProviderConfig(provider)
+                                            ? "Available"
+                                            : "Unavailable"}
+                                    </span>
                                 </div>
                             </button>
                         {/each}
@@ -642,8 +1015,8 @@
                 <div
                     class="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 shadow-sm"
                 >
-                    {#if getSelectedProvider()}
-                        {@const cp = getSelectedProvider()!}
+                    {#if getSelectedProviderInActiveTab()}
+                        {@const cp = getSelectedProviderInActiveTab()!}
 
                         <div
                             class="flex flex-wrap items-center justify-between gap-4 border-b border-white/5 pb-5"
@@ -655,24 +1028,42 @@
                             </h2>
 
                             <div class="flex flex-wrap gap-2">
+                                <label
+                                    class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-300"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={cp.enabled}
+                                        on:change={(e) =>
+                                            setProviderEnabled(
+                                                cp.id,
+                                                (e.currentTarget as HTMLInputElement)
+                                                    .checked,
+                                            )}
+                                    />
+                                    Enabled
+                                </label>
                                 <button
                                     type="button"
                                     class="cursor-pointer rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-300 transition-all hover:bg-white/10 disabled:opacity-50"
                                     on:click={() => setAsDefaultProvider(cp.id)}
                                     disabled={form.defaultCustomProviderId ===
-                                        cp.id}
+                                        cp.id || !cp.enabled}
                                 >
                                     {form.defaultCustomProviderId === cp.id
                                         ? "Targeted as Default"
                                         : "Set as Default"}
                                 </button>
-                                <button
-                                    type="button"
-                                    class="cursor-pointer rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-rose-300 transition-all hover:bg-rose-500/20"
-                                    on:click={() => removeCustomProvider(cp.id)}
-                                >
-                                    Delete
-                                </button>
+                                {#if !isBuiltinProvider(cp)}
+                                    <button
+                                        type="button"
+                                        class="cursor-pointer rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-rose-300 transition-all hover:bg-rose-500/20"
+                                        on:click={() =>
+                                            removeCustomProvider(cp.id)}
+                                    >
+                                        Delete
+                                    </button>
+                                {/if}
                             </div>
                         </div>
 
@@ -684,6 +1075,7 @@
                                 <input
                                     class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50"
                                     bind:value={cp.id}
+                                    disabled={isBuiltinProvider(cp)}
                                 />
                             </label>
 
@@ -696,44 +1088,132 @@
                                     bind:value={cp.name}
                                 />
                             </label>
-
-                            <label
-                                class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
-                            >
-                                <span class="font-medium text-slate-300"
-                                    >API Base URL</span
+                            {#if isBuiltinProvider(cp)}
+                                {@const authGuide = builtinAuthGuide(cp.id)}
+                                <div
+                                    class="rounded-xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-xs leading-5 text-sky-200 md:col-span-2"
                                 >
-                                <input
-                                    class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
-                                    bind:value={cp.baseUrl}
-                                    placeholder="https://api.openai.com"
-                                />
-                            </label>
-
-                            <label
-                                class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
-                            >
-                                <span class="font-medium text-slate-300"
-                                    >Path Endpoint</span
+                                    Built-in provider detected. Request protocol
+                                    is managed by pi-ai natively, so `baseUrl`
+                                    and `path` are ignored here.
+                                </div>
+                                <div
+                                    class="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-xs leading-5 text-slate-200 md:col-span-2"
                                 >
-                                <input
-                                    class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
-                                    bind:value={cp.path}
-                                    placeholder="/v1/chat/completions"
-                                />
-                            </label>
-
-                            <label class="grid gap-2 text-sm md:col-span-2">
-                                <span class="font-medium text-slate-300"
-                                    >API Signature / Key</span
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="font-semibold text-white"
+                                            >认证方式：</span
+                                        >
+                                        <span
+                                            class="rounded border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-200"
+                                        >
+                                            {authGuide.modeLabel}
+                                        </span>
+                                    </div>
+                                    <p class="mt-2 text-slate-300">
+                                        {authGuide.summary}
+                                    </p>
+                                    {#if authGuide.command}
+                                        <p class="mt-2 text-slate-300">
+                                            登录命令：
+                                            <code>{authGuide.command}</code>
+                                        </p>
+                                    {/if}
+                                    {#if authGuide.tokenHint}
+                                        <p class="mt-2 text-slate-400">
+                                            {authGuide.tokenHint}
+                                        </p>
+                                    {/if}
+                                    {#if authGuide.envVar}
+                                        <p class="mt-2 text-slate-300">
+                                            环境变量：
+                                            <code>{authGuide.envVar}</code>
+                                        </p>
+                                    {/if}
+                                    <ol class="mt-2 list-decimal space-y-1 pl-5 text-slate-300">
+                                        {#each authGuide.steps as step}
+                                            <li>{step}</li>
+                                        {/each}
+                                    </ol>
+                                    {#if authGuide.links && authGuide.links.length > 0}
+                                        <div class="mt-2 flex flex-wrap gap-2">
+                                            {#each authGuide.links as link}
+                                                <a
+                                                    class="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-[11px] text-sky-200 hover:bg-sky-500/20"
+                                                    href={link.url}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                >
+                                                    {link.label}
+                                                </a>
+                                            {/each}
+                                        </div>
+                                    {/if}
+                                </div>
+                                {#if isOauthBuiltinProvider(cp)}
+                                    <div
+                                        class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs leading-5 text-amber-200 md:col-span-2"
+                                    >
+                                        OAuth provider: static API key input is
+                                        hidden by design. Use the command above,
+                                        then keep <code>auth.json</code> under
+                                        <code>${"{DATA_DIR}"}</code> (or set
+                                        <code>PI_AI_AUTH_FILE</code>).
+                                    </div>
+                                {:else}
+                                    <label
+                                        class="grid gap-2 text-sm md:col-span-2"
+                                    >
+                                        <span class="font-medium text-slate-300"
+                                            >API Key Override (Optional)</span
+                                        >
+                                        <input
+                                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 font-mono text-sm tracking-widest outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                            bind:value={cp.apiKey}
+                                            type="password"
+                                            placeholder="Leave empty to use env/OAuth source"
+                                        />
+                                    </label>
+                                {/if}
+                            {:else}
+                                <label
+                                    class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
                                 >
-                                <input
-                                    class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 font-mono text-sm tracking-widest outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
-                                    bind:value={cp.apiKey}
-                                    type="password"
-                                    placeholder="sk-..."
-                                />
-                            </label>
+                                    <span class="font-medium text-slate-300"
+                                        >API Base URL</span
+                                    >
+                                    <input
+                                        class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                        bind:value={cp.baseUrl}
+                                        placeholder="https://api.openai.com"
+                                    />
+                                </label>
+
+                                <label
+                                    class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
+                                >
+                                    <span class="font-medium text-slate-300"
+                                        >Path Endpoint</span
+                                    >
+                                    <input
+                                        class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                        bind:value={cp.path}
+                                        placeholder="/v1/chat/completions"
+                                    />
+                                </label>
+
+                                <label class="grid gap-2 text-sm md:col-span-2">
+                                    <span class="font-medium text-slate-300"
+                                        >API Signature / Key</span
+                                    >
+                                    <input
+                                        class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 font-mono text-sm tracking-widest outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                        bind:value={cp.apiKey}
+                                        type="password"
+                                        placeholder="sk-..."
+                                    />
+                                </label>
+                            {/if}
                         </div>
 
                         <!-- Models Header -->
@@ -749,6 +1229,7 @@
                                 type="button"
                                 class="cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white transition-all hover:bg-white/10 hover:shadow"
                                 on:click={() => addModel(cp.id)}
+                                disabled={!cp.enabled}
                             >
                                 + Add Model
                             </button>
@@ -782,23 +1263,35 @@
                                             />
                                         </label>
 
-                                        <button
-                                            type="button"
-                                            class="col-span-1 cursor-pointer rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold text-sky-400 transition-colors hover:bg-sky-500/20 disabled:opacity-50 sm:col-span-1"
-                                            on:click={() =>
-                                                testProviderModel(
-                                                    cp.id,
-                                                    model.id,
-                                                )}
-                                            disabled={!model.id.trim() ||
-                                                testingModelKey ===
-                                                    `${cp.id}|${model.id.trim()}`}
-                                        >
-                                            {testingModelKey ===
-                                            `${cp.id}|${model.id.trim()}`
-                                                ? "Pinging..."
-                                                : "Test Connection"}
-                                        </button>
+                                        {#if !isBuiltinProvider(cp)}
+                                            <button
+                                                type="button"
+                                                class="col-span-1 cursor-pointer rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold text-sky-400 transition-colors hover:bg-sky-500/20 disabled:opacity-50 sm:col-span-1"
+                                                on:click={() =>
+                                                    testProviderModel(
+                                                        cp.id,
+                                                        model.id,
+                                                    )}
+                                                disabled={!cp.enabled ||
+                                                    !model.id.trim() ||
+                                                    testingModelKey ===
+                                                        `${cp.id}|${model.id.trim()}`}
+                                            >
+                                                {testingModelKey ===
+                                                `${cp.id}|${model.id.trim()}`
+                                                    ? "Pinging..."
+                                                    : "Test Connection"}
+                                            </button>
+                                        {:else}
+                                            <button
+                                                type="button"
+                                                class="col-span-1 cursor-not-allowed rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-400 sm:col-span-1"
+                                                disabled={true}
+                                                title="Built-in providers use native APIs; OpenAI compatibility test is not applicable."
+                                            >
+                                                Native Provider
+                                            </button>
+                                        {/if}
 
                                         <button
                                             type="button"
@@ -914,6 +1407,7 @@
                                 <select
                                     class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 outline-none transition-colors focus:border-emerald-500/50"
                                     bind:value={cp.defaultModel}
+                                    disabled={!cp.enabled}
                                 >
                                     <option value="">(None)</option>
                                     {#each modelIds(cp) as modelId}
@@ -945,7 +1439,7 @@
                                 >
                                     {saving
                                         ? "Deploying..."
-                                        : "Save Custom Provider"}
+                                        : "Save Provider Settings"}
                                 </button>
                             </div>
                         </div>
@@ -982,8 +1476,13 @@
                             <p
                                 class="mt-2 max-w-[250px] text-sm text-slate-400"
                             >
-                                Choose a provider from the sidebar or define a
-                                new one to begin configuration.
+                                {#if activeProviderTab === "builtin"}
+                                    Choose a built-in provider from the sidebar
+                                    or add one above.
+                                {:else}
+                                    Choose a custom provider from the sidebar
+                                    or create a new one to begin configuration.
+                                {/if}
                             </p>
                         </div>
                     {/if}

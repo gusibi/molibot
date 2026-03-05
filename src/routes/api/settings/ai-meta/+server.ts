@@ -16,6 +16,7 @@ export const GET: RequestHandler = async () => {
   const customTemplate: CustomProviderConfig = {
     id: "",
     name: "",
+    enabled: true,
     baseUrl: "",
     apiKey: "",
     models: [
