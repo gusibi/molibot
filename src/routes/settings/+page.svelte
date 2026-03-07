@@ -77,6 +77,27 @@
 
     <a
       class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
+      href="/settings/web"
+    >
+      <div>
+        <h2
+          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
+        >
+          Web Profiles
+        </h2>
+        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+          Manage web profile instances, agent binding, and profile-level markdown overrides.
+        </p>
+      </div>
+      <div
+        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+      >
+        Manage Web &rarr;
+      </div>
+    </a>
+
+    <a
+      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
       href="/settings/telegram"
     >
       <div>

@@ -767,7 +767,7 @@ export class MomRunner implements RunnerLike {
       this.sessionId,
       "(memory will be loaded via gateway before each run)",
       {
-        channel: this.channel as "telegram" | "feishu",
+        channel: this.channel as "telegram" | "feishu" | "web",
         timezone: settings.timezone,
         settings
       },
@@ -1017,7 +1017,7 @@ export class MomRunner implements RunnerLike {
         this.sessionId,
         memoryText,
         {
-          channel: this.channel as "telegram" | "feishu",
+          channel: this.channel as "telegram" | "feishu" | "web",
           timezone: settings.timezone,
           settings
         },

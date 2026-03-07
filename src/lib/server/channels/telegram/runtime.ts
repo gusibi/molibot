@@ -55,6 +55,7 @@ export class TelegramManager {
   private readonly running = new Set<string>();
   private readonly events: EventsWatcher[] = [];
   private readonly watchedChatEventDirs = new Set<string>();
+  private authDisabled = false;
 
 
   constructor(
@@ -133,23 +134,25 @@ export class TelegramManager {
   }
 
   apply(cfg: TelegramConfig): void {
+    this.authDisabled = false;
     const token = cfg.token.trim();
     const allowedChatIds = cfg.allowedChatIds.map((v) => v.trim()).filter(Boolean);
     const allowedChatIdsKey = JSON.stringify([...allowedChatIds].sort());
 
     momLog("telegram", "apply", {
+      botId: this.instanceId,
       hasToken: Boolean(token),
       allowedChatCount: allowedChatIds.length
     });
 
     if (!token) {
       this.stop();
-      momWarn("telegram", "disabled_no_token");
+      momWarn("telegram", "disabled_no_token", { botId: this.instanceId });
       return;
     }
 
     if (this.bot && this.currentToken === token && this.currentAllowedChatIdsKey === allowedChatIdsKey) {
-      momLog("telegram", "apply_noop_same_token");
+      momLog("telegram", "apply_noop_same_token", { botId: this.instanceId });
       return;
     }
 
@@ -157,6 +160,7 @@ export class TelegramManager {
 
     const allowed = new Set(allowedChatIds);
     momLog("telegram", "allowed_chat_ids_loaded", {
+      botId: this.instanceId,
       mode: allowed.size > 0 ? "whitelist" : "all_chats",
       allowedChatIds: Array.from(allowed)
     });
@@ -498,9 +502,12 @@ export class TelegramManager {
         momLog("telegram", "adapter_started", { botUsername: this.botUsername || "unknown" });
       })
       .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
         momError("telegram", "adapter_start_failed", {
-          error: error instanceof Error ? error.message : String(error)
+          botId: this.instanceId,
+          error: message
         });
+        this.disableInstanceOnAuthFailure(message);
       });
 
     this.bot = bot;
@@ -508,6 +515,42 @@ export class TelegramManager {
     this.currentAllowedChatIdsKey = allowedChatIdsKey;
     this.startEventsWatchers(allowed);
     void this.writePromptPreview(Array.from(allowed));
+  }
+
+  private disableInstanceOnAuthFailure(errorMessage: string): void {
+    if (this.authDisabled) return;
+    if (!this.updateSettings) return;
+    if (!/401/i.test(errorMessage) || !/unauthorized/i.test(errorMessage)) return;
+
+    const settings = this.getSettings();
+    const telegram = settings.channels?.telegram;
+    if (!telegram || !Array.isArray(telegram.instances)) return;
+
+    const nextInstances = telegram.instances.map((instance) => {
+      if (instance.id !== this.instanceId) return instance;
+      if (instance.enabled === false) return instance;
+      return { ...instance, enabled: false };
+    });
+
+    const changed = nextInstances.some(
+      (instance, index) => instance.enabled !== telegram.instances[index]?.enabled
+    );
+    if (!changed) return;
+
+    this.authDisabled = true;
+    this.updateSettings({
+      channels: {
+        ...settings.channels,
+        telegram: {
+          instances: nextInstances
+        }
+      }
+    });
+
+    momWarn("telegram", "instance_disabled_auth_failed", {
+      botId: this.instanceId,
+      reason: "telegram_api_401_unauthorized"
+    });
   }
 
   stop(): void {

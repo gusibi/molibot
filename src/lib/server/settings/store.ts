@@ -1,3 +1,4 @@
+import { DatabaseSync } from "node:sqlite";
 import {
   type AgentSettings,
   type ChannelSettingsMap,
@@ -13,6 +14,9 @@ import {
   type RuntimeSettings
 } from "../settings/index.js";
 import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
+
+type DynamicSettingKey = "customProviders" | "channels" | "agents";
+const DYNAMIC_SETTING_KEYS: DynamicSettingKey[] = ["customProviders", "channels", "agents"];
 
 interface RawSettings {
   providerMode?: string;
@@ -326,6 +330,40 @@ function sanitizeChannels(
   return channels;
 }
 
+function deriveTelegramBotsFromChannels(channels: ChannelSettingsMap): TelegramBotConfig[] {
+  const instances = channels.telegram?.instances ?? [];
+  const out: TelegramBotConfig[] = [];
+  for (const instance of instances) {
+    const token = String(instance.credentials?.token ?? "").trim();
+    if (!token) continue;
+    out.push({
+      id: instance.id,
+      name: instance.name || instance.id,
+      token,
+      allowedChatIds: Array.isArray(instance.allowedChatIds) ? instance.allowedChatIds : []
+    });
+  }
+  return out;
+}
+
+function deriveFeishuBotsFromChannels(channels: ChannelSettingsMap): FeishuBotConfig[] {
+  const instances = channels.feishu?.instances ?? [];
+  const out: FeishuBotConfig[] = [];
+  for (const instance of instances) {
+    const appId = String(instance.credentials?.appId ?? "").trim();
+    const appSecret = String(instance.credentials?.appSecret ?? "").trim();
+    if (!appId || !appSecret) continue;
+    out.push({
+      id: instance.id,
+      name: instance.name || instance.id,
+      appId,
+      appSecret,
+      allowedChatIds: Array.isArray(instance.allowedChatIds) ? instance.allowedChatIds : []
+    });
+  }
+  return out;
+}
+
 function migrateLegacyCustomProvider(raw: RawSettings): CustomProviderConfig[] {
   const baseUrl = String(raw.customAiBaseUrl ?? "").trim();
   const apiKey = String(raw.customAiApiKey ?? "").trim();
@@ -371,7 +409,6 @@ function sanitize(raw: RawSettings): RuntimeSettings {
         allowedChatIds: fallbackAllowed
       }]
       : []);
-  const primaryBot = telegramBots[0];
   const memoryEnabledRaw = raw.plugins?.memory?.enabled;
   const memoryEnabled = typeof memoryEnabledRaw === "boolean"
     ? memoryEnabledRaw
@@ -382,6 +419,9 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const feishuBotsFromList = sanitizeFeishuBots(raw.feishuBots);
   const feishuBots = feishuBotsFromList.length > 0 ? feishuBotsFromList : [];
   const channels = sanitizeChannels(raw.channels, telegramBots, feishuBots);
+  const effectiveTelegramBots = telegramBots.length > 0 ? telegramBots : deriveTelegramBotsFromChannels(channels);
+  const effectiveFeishuBots = feishuBots.length > 0 ? feishuBots : deriveFeishuBotsFromChannels(channels);
+  const primaryBot = effectiveTelegramBots[0];
   const agents = sanitizeAgents(raw.agents);
 
   return {
@@ -404,7 +444,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       defaultRuntimeSettings.systemPrompt,
     agents,
     channels,
-    telegramBots,
+    telegramBots: effectiveTelegramBots,
     plugins: {
       memory: {
         enabled: memoryEnabled,
@@ -414,17 +454,320 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     timezone: String(raw.timezone ?? "").trim() || Intl.DateTimeFormat().resolvedOptions().timeZone,
     telegramBotToken: primaryBot?.token ?? "",
     telegramAllowedChatIds: primaryBot?.allowedChatIds ?? [],
-    feishuBots
+    feishuBots: effectiveFeishuBots
   };
 }
 
 export class SettingsStore {
+  private openDynamicDb(): DatabaseSync {
+    const db = new DatabaseSync(storagePaths.settingsDbFile);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS settings_dynamic (
+        key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS settings_agents (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS settings_channel_instances (
+        channel_key TEXT NOT NULL,
+        id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        agent_id TEXT NOT NULL,
+        credentials_json TEXT NOT NULL,
+        allowed_chat_ids_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (channel_key, id)
+      );
+      CREATE TABLE IF NOT EXISTS settings_custom_providers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        base_url TEXT NOT NULL,
+        api_key TEXT NOT NULL,
+        default_model TEXT NOT NULL,
+        path TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS settings_custom_provider_models (
+        provider_id TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        tags_json TEXT NOT NULL,
+        supported_roles_json TEXT NOT NULL,
+        verification_json TEXT NOT NULL,
+        order_index INTEGER NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (provider_id, model_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_settings_channel_instances_channel ON settings_channel_instances(channel_key);
+      CREATE INDEX IF NOT EXISTS idx_settings_provider_models_provider ON settings_custom_provider_models(provider_id);
+      CREATE INDEX IF NOT EXISTS idx_settings_provider_models_order ON settings_custom_provider_models(provider_id, order_index);
+    `);
+    return db;
+  }
+
+  private parseDynamicValue<T>(value: string, fallback: T): T {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private loadLegacyDynamicSettings(db: DatabaseSync): Partial<RawSettings> {
+    const dynamic: Partial<RawSettings> = {};
+    const rows = db.prepare("SELECT key, value_json FROM settings_dynamic").all() as Array<{ key: string; value_json: string }>;
+    for (const row of rows) {
+      if (row.key === "customProviders") {
+        dynamic.customProviders = this.parseDynamicValue(row.value_json, []);
+      } else if (row.key === "channels") {
+        dynamic.channels = this.parseDynamicValue(row.value_json, {});
+      } else if (row.key === "agents") {
+        dynamic.agents = this.parseDynamicValue(row.value_json, []);
+      }
+    }
+    return dynamic;
+  }
+
+  private loadDynamicSettings(): Partial<RawSettings> {
+    const db = this.openDynamicDb();
+    try {
+      const legacy = this.loadLegacyDynamicSettings(db);
+
+      const agentsRows = db.prepare("SELECT id, name, description, enabled FROM settings_agents ORDER BY id ASC").all() as Array<{
+        id: string;
+        name: string;
+        description: string;
+        enabled: number;
+      }>;
+      const agents = agentsRows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        enabled: Boolean(row.enabled)
+      }));
+
+      const channelRows = db.prepare(`
+        SELECT channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json
+        FROM settings_channel_instances
+        ORDER BY channel_key ASC, id ASC
+      `).all() as Array<{
+        channel_key: string;
+        id: string;
+        name: string;
+        enabled: number;
+        agent_id: string;
+        credentials_json: string;
+        allowed_chat_ids_json: string;
+      }>;
+      const channels: ChannelSettingsMap = {};
+      for (const row of channelRows) {
+        channels[row.channel_key] = channels[row.channel_key] ?? { instances: [] };
+        channels[row.channel_key].instances.push({
+          id: row.id,
+          name: row.name || row.id,
+          enabled: Boolean(row.enabled),
+          agentId: row.agent_id || "",
+          credentials: this.parseDynamicValue(row.credentials_json, {}),
+          allowedChatIds: this.parseDynamicValue(row.allowed_chat_ids_json, [])
+        });
+      }
+
+      const providerRows = db.prepare(`
+        SELECT id, name, enabled, base_url, api_key, default_model, path
+        FROM settings_custom_providers
+        ORDER BY id ASC
+      `).all() as Array<{
+        id: string;
+        name: string;
+        enabled: number;
+        base_url: string;
+        api_key: string;
+        default_model: string;
+        path: string;
+      }>;
+      const modelRows = db.prepare(`
+        SELECT provider_id, model_id, tags_json, supported_roles_json, verification_json
+        FROM settings_custom_provider_models
+        ORDER BY provider_id ASC, order_index ASC, model_id ASC
+      `).all() as Array<{
+        provider_id: string;
+        model_id: string;
+        tags_json: string;
+        supported_roles_json: string;
+        verification_json: string;
+      }>;
+      const modelsByProvider = new Map<string, ProviderModelConfig[]>();
+      for (const row of modelRows) {
+        const list = modelsByProvider.get(row.provider_id) ?? [];
+        list.push({
+          id: row.model_id,
+          tags: this.parseDynamicValue(row.tags_json, []),
+          supportedRoles: this.parseDynamicValue(row.supported_roles_json, []),
+          verification: this.parseDynamicValue(row.verification_json, undefined)
+        });
+        modelsByProvider.set(row.provider_id, list);
+      }
+      const customProviders = providerRows.map((row) => ({
+        id: row.id,
+        name: row.name || row.id,
+        enabled: Boolean(row.enabled),
+        baseUrl: row.base_url,
+        apiKey: row.api_key,
+        models: modelsByProvider.get(row.id) ?? [],
+        defaultModel: row.default_model,
+        path: row.path
+      }));
+
+      return {
+        agents: agents.length > 0 ? agents : legacy.agents,
+        channels: Object.keys(channels).length > 0 ? channels : legacy.channels,
+        customProviders: customProviders.length > 0 ? customProviders : legacy.customProviders
+      };
+    } finally {
+      db.close();
+    }
+  }
+
+  private saveDynamicSettings(settings: RuntimeSettings, keys: DynamicSettingKey[] = DYNAMIC_SETTING_KEYS): void {
+    const db = this.openDynamicDb();
+    try {
+      const now = new Date().toISOString();
+      db.exec("BEGIN");
+
+      if (keys.includes("agents")) {
+        db.exec("DELETE FROM settings_agents");
+        const insertAgent = db.prepare(`
+          INSERT INTO settings_agents (id, name, description, enabled, updated_at)
+          VALUES (?, ?, ?, ?, ?)
+        `);
+        for (const agent of settings.agents) {
+          insertAgent.run(agent.id, agent.name, agent.description ?? "", agent.enabled ? 1 : 0, now);
+        }
+      }
+
+      if (keys.includes("channels")) {
+        db.exec("DELETE FROM settings_channel_instances");
+        const insertChannel = db.prepare(`
+          INSERT INTO settings_channel_instances
+            (channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const [channelKey, channel] of Object.entries(settings.channels ?? {})) {
+          for (const instance of channel.instances ?? []) {
+            insertChannel.run(
+              channelKey,
+              instance.id,
+              instance.name || instance.id,
+              instance.enabled ? 1 : 0,
+              instance.agentId ?? "",
+              JSON.stringify(instance.credentials ?? {}),
+              JSON.stringify(instance.allowedChatIds ?? []),
+              now
+            );
+          }
+        }
+      }
+
+      if (keys.includes("customProviders")) {
+        db.exec("DELETE FROM settings_custom_provider_models");
+        db.exec("DELETE FROM settings_custom_providers");
+        const insertProvider = db.prepare(`
+          INSERT INTO settings_custom_providers
+            (id, name, enabled, base_url, api_key, default_model, path, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertModel = db.prepare(`
+          INSERT INTO settings_custom_provider_models
+            (provider_id, model_id, tags_json, supported_roles_json, verification_json, order_index, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const provider of settings.customProviders) {
+          insertProvider.run(
+            provider.id,
+            provider.name || provider.id,
+            provider.enabled ? 1 : 0,
+            provider.baseUrl,
+            provider.apiKey,
+            provider.defaultModel,
+            provider.path,
+            now
+          );
+          for (let index = 0; index < provider.models.length; index += 1) {
+            const model = provider.models[index];
+            insertModel.run(
+              provider.id,
+              model.id,
+              JSON.stringify(model.tags ?? []),
+              JSON.stringify(model.supportedRoles ?? []),
+              JSON.stringify(model.verification ?? null),
+              index,
+              now
+            );
+          }
+        }
+      }
+
+      db.exec("COMMIT");
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // ignore rollback failure
+      }
+      throw error;
+    } finally {
+      db.close();
+    }
+  }
+
+  private toStaticSettings(settings: RuntimeSettings): RawSettings {
+    return {
+      providerMode: settings.providerMode,
+      piModelProvider: settings.piModelProvider,
+      piModelName: settings.piModelName,
+      defaultCustomProviderId: settings.defaultCustomProviderId,
+      modelRouting: {
+        textModelKey: settings.modelRouting.textModelKey,
+        visionModelKey: settings.modelRouting.visionModelKey,
+        sttModelKey: settings.modelRouting.sttModelKey,
+        ttsModelKey: settings.modelRouting.ttsModelKey
+      },
+      systemPrompt: settings.systemPrompt,
+      plugins: {
+        memory: {
+          enabled: settings.plugins.memory.enabled,
+          backend: settings.plugins.memory.backend
+        }
+      },
+      timezone: settings.timezone,
+      telegramBotToken: settings.telegramBotToken,
+      telegramAllowedChatIds: settings.telegramAllowedChatIds
+    };
+  }
+
   load(): RuntimeSettings {
-    const raw = readJsonFile<RawSettings>(storagePaths.settingsFile, {});
-    return sanitize(raw);
+    const rawStatic = readJsonFile<RawSettings>(storagePaths.settingsFile, {});
+    const rawDynamic = this.loadDynamicSettings();
+    const merged: RawSettings = {
+      ...rawStatic,
+      customProviders: rawDynamic.customProviders ?? rawStatic.customProviders,
+      channels: rawDynamic.channels ?? rawStatic.channels,
+      agents: rawDynamic.agents ?? rawStatic.agents
+    };
+    const settings = sanitize(merged);
+    this.saveDynamicSettings(settings);
+    return settings;
   }
 
   save(settings: RuntimeSettings): void {
-    writeJsonFile(storagePaths.settingsFile, settings);
+    writeJsonFile(storagePaths.settingsFile, this.toStaticSettings(settings));
+    this.saveDynamicSettings(settings);
   }
 }

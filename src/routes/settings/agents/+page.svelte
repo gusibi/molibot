@@ -21,6 +21,7 @@
 
   let agents: AgentItem[] = [];
   let selectedAgentId = "";
+  let savedSnapshots: Record<string, string> = {};
 
   function createAgentId(): string {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -42,6 +43,22 @@
       profileFiles: emptyFiles(),
       isNew: true
     };
+  }
+
+  function normalizeAgent(agent: AgentItem): AgentItem {
+    return {
+      ...agent,
+      id: agent.id.trim(),
+      name: agent.name.trim(),
+      description: agent.description.trim(),
+      enabled: Boolean(agent.enabled),
+      profileFiles: Object.fromEntries(fileNames.map((fileName) => [fileName, String(agent.profileFiles[fileName] ?? "")])),
+      isNew: agent.isNew
+    };
+  }
+
+  function agentSnapshot(agent: AgentItem): string {
+    return JSON.stringify(normalizeAgent(agent));
   }
 
   async function loadAgentFiles(agentId: string): Promise<AgentFiles> {
@@ -78,6 +95,7 @@
         const next = createAgent();
         agents = [next];
       }
+      savedSnapshots = Object.fromEntries(agents.map((agent) => [agent.id, agentSnapshot(agent)]));
       selectedAgentId = agents[0]?.id ?? "";
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -86,13 +104,34 @@
     }
   }
 
+  async function ensureCurrentSavedBeforeSwitch(): Promise<boolean> {
+    const current = agents.find((agent) => agent.id === selectedAgentId);
+    if (!current) return true;
+    const baseline = savedSnapshots[current.id];
+    const dirty = agentSnapshot(current) !== baseline;
+    if (!dirty) return true;
+    if (typeof window === "undefined") return false;
+    const shouldSave = window.confirm("当前 Agent 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Agent。");
+    if (!shouldSave) return false;
+    return save();
+  }
+
   async function selectAgent(agentId: string): Promise<void> {
+    if (agentId === selectedAgentId) return;
+    const ok = await ensureCurrentSavedBeforeSwitch();
+    if (!ok) return;
     selectedAgentId = agentId;
   }
 
-  function addAgent(): void {
+  async function addAgent(): Promise<void> {
+    const ok = await ensureCurrentSavedBeforeSwitch();
+    if (!ok) return;
     const next = createAgent();
     agents = [...agents, next];
+    savedSnapshots = {
+      ...savedSnapshots,
+      [next.id]: agentSnapshot(next)
+    };
     selectedAgentId = next.id;
   }
 
@@ -103,65 +142,92 @@
         : window.confirm(`Delete agent "${agentId}"? This cannot be undone.`);
     if (!confirmed) return;
 
-    const settingsRes = await fetch("/api/settings");
-    const settingsData = await settingsRes.json();
-    const referenced = Object.values(settingsData.settings?.channels ?? {}).some((channel: any) =>
-      Array.isArray(channel?.instances) && channel.instances.some((instance: any) => instance.agentId === agentId)
-    );
-    if (referenced) {
-      error = "This agent is still linked to one or more bots. Unlink it first.";
-      return;
+    const target = agents.find((agent) => agent.id === agentId);
+    if (target && !target.isNew) {
+      const res = await fetch("/api/settings/agent", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: agentId })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        error = data.error || `Failed to delete agent ${agentId}`;
+        return;
+      }
     }
 
     agents = agents.filter((agent) => agent.id !== agentId);
+    savedSnapshots = Object.fromEntries(Object.entries(savedSnapshots).filter(([id]) => id !== agentId));
     if (agents.length === 0) {
       const next = createAgent();
       agents = [next];
+      savedSnapshots = {
+        ...savedSnapshots,
+        [next.id]: agentSnapshot(next)
+      };
     }
     selectedAgentId = agents[0]?.id ?? "";
   }
 
-  async function save(): Promise<void> {
+  async function save(): Promise<boolean> {
+    const selected = agents.find((agent) => agent.id === selectedAgentId) ?? agents[0];
+    if (!selected) return false;
+
     saving = true;
     error = "";
     message = "";
     try {
-      const normalizedAgents = agents
-        .map((agent) => ({
-          id: agent.id.trim(),
-          name: agent.name.trim(),
-          description: agent.description.trim(),
-          enabled: Boolean(agent.enabled),
-          profileFiles: agent.profileFiles
-        }))
-        .filter((agent) => agent.id);
+      const normalized = normalizeAgent(selected);
+      if (!normalized.id) throw new Error("Agent ID is required");
 
-      const settingsRes = await fetch("/api/settings", {
+      const settingsRes = await fetch("/api/settings/agent", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agents: normalizedAgents })
+        body: JSON.stringify({
+          previousId: selected.isNew ? "" : selected.id,
+          agent: {
+            id: normalized.id,
+            name: normalized.name,
+            description: normalized.description,
+            enabled: normalized.enabled
+          }
+        })
       });
       const settingsData = await settingsRes.json();
       if (!settingsData.ok) throw new Error(settingsData.error || "Failed to save agents");
 
-      for (const agent of normalizedAgents) {
-        const res = await fetch("/api/settings/profile-files", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            scope: "agent",
-            agentId: agent.id,
-            files: agent.profileFiles
-          })
-        });
-        const data = await res.json();
-        if (!data.ok) throw new Error(data.error || `Failed to save files for ${agent.id}`);
-      }
+      const res = await fetch("/api/settings/profile-files", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: "agent",
+          agentId: normalized.id,
+          files: normalized.profileFiles
+        })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || `Failed to save files for ${normalized.id}`);
 
-      message = "Agent settings and Markdown files saved.";
-      await loadSettings();
+      agents = agents.map((agent) => {
+        if (agent.id !== selected.id) return agent;
+        return {
+          ...normalized,
+          isNew: false
+        };
+      });
+      if (selected.id !== normalized.id) {
+        selectedAgentId = normalized.id;
+      }
+      savedSnapshots = {
+        ...savedSnapshots,
+        [normalized.id]: agentSnapshot({ ...normalized, isNew: false })
+      };
+
+      message = `Saved agent: ${normalized.name || normalized.id}`;
+      return true;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
+      return false;
     } finally {
       saving = false;
     }
@@ -169,6 +235,9 @@
 
   $: selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   $: selectedFiles = selectedAgent?.profileFiles ?? emptyFiles();
+  $: selectedAgentDirty = selectedAgent
+    ? agentSnapshot(selectedAgent) !== (savedSnapshots[selectedAgent.id] ?? "")
+    : false;
 
   onMount(loadSettings);
 </script>
@@ -300,8 +369,11 @@
             type="submit"
             disabled={saving}
           >
-            {saving ? "Saving..." : "Save Agent"}
+            {saving ? "Saving..." : "Save This Agent"}
           </button>
+          {#if selectedAgentDirty}
+            <p class="text-xs text-amber-300">Current agent has unsaved changes.</p>
+          {/if}
 
           {#if message}
             <p class="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">

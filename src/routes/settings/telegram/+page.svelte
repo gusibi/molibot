@@ -28,6 +28,7 @@
   let bots: TelegramBotForm[] = [];
   let agents: AgentItem[] = [];
   let selectedBotId = "";
+  let savedSnapshots: Record<string, string> = {};
 
   function createBotId(): string {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -51,6 +52,30 @@
       profileFiles: emptyBotFiles(),
       isNew: true
     };
+  }
+
+  function normalizeBot(bot: TelegramBotForm): TelegramBotForm {
+    return {
+      ...bot,
+      id: bot.id.trim(),
+      name: bot.name.trim(),
+      enabled: Boolean(bot.enabled),
+      agentId: bot.agentId.trim(),
+      token: bot.token.trim(),
+      allowedChatIds: bot.allowedChatIds
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .join(","),
+      profileFiles: Object.fromEntries(
+        botFileNames.map((fileName) => [fileName, String(bot.profileFiles[fileName] ?? "")])
+      ),
+      isNew: bot.isNew
+    };
+  }
+
+  function botSnapshot(bot: TelegramBotForm): string {
+    return JSON.stringify(normalizeBot(bot));
   }
 
   async function loadBotFiles(botId: string): Promise<Record<string, string>> {
@@ -117,6 +142,7 @@
           profileFiles: await loadBotFiles(bot.id)
         }))
       );
+      savedSnapshots = Object.fromEntries(bots.map((bot) => [bot.id, botSnapshot(bot)]));
       selectedBotId = bots[0]?.id ?? "";
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -125,92 +151,164 @@
     }
   }
 
-  function selectBot(botId: string): void {
+  async function ensureCurrentSavedBeforeSwitch(): Promise<boolean> {
+    const current = bots.find((bot) => bot.id === selectedBotId);
+    if (!current) return true;
+    const baseline = savedSnapshots[current.id];
+    const dirty = botSnapshot(current) !== baseline;
+    if (!dirty) return true;
+    if (typeof window === "undefined") return false;
+    const shouldSave = window.confirm("当前 Bot 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Bot。");
+    if (!shouldSave) return false;
+    return save();
+  }
+
+  async function selectBot(botId: string): Promise<void> {
+    if (botId === selectedBotId) return;
+    const ok = await ensureCurrentSavedBeforeSwitch();
+    if (!ok) return;
     selectedBotId = botId;
   }
 
-  function addBot(): void {
+  async function addBot(): Promise<void> {
+    const ok = await ensureCurrentSavedBeforeSwitch();
+    if (!ok) return;
     const next = createEmptyBot();
     bots = [...bots, next];
+    savedSnapshots = {
+      ...savedSnapshots,
+      [next.id]: botSnapshot(next)
+    };
     selectedBotId = next.id;
   }
 
-  function removeBot(botId: string): void {
+  async function removeBot(botId: string): Promise<void> {
     const confirmed =
       typeof window === "undefined"
         ? true
         : window.confirm(`Delete bot "${botId}"? This cannot be undone.`);
     if (!confirmed) return;
 
+    const target = bots.find((bot) => bot.id === botId);
+    if (target && !target.isNew) {
+      const res = await fetch("/api/settings/channel-instance", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel: "telegram",
+          id: botId
+        })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        error = data.error || `Failed to delete bot ${botId}`;
+        return;
+      }
+    }
+
     bots = bots.filter((bot) => bot.id !== botId);
+    savedSnapshots = Object.fromEntries(Object.entries(savedSnapshots).filter(([id]) => id !== botId));
     if (bots.length === 0) {
       const next = createEmptyBot();
       bots = [next];
+      savedSnapshots = {
+        ...savedSnapshots,
+        [next.id]: botSnapshot(next)
+      };
     }
     selectedBotId = bots[0]?.id ?? "";
   }
 
-  async function save(): Promise<void> {
+  function resolveSelectedBot(): TelegramBotForm | undefined {
+    const exact = bots.find((bot) => bot.id === selectedBotId);
+    if (exact) return exact;
+    const unsaved = bots.find((bot) => !(bot.id in savedSnapshots));
+    if (unsaved) return unsaved;
+    return bots[0];
+  }
+
+  async function save(): Promise<boolean> {
+    const selected = resolveSelectedBot();
+    if (!selected) return false;
+
     saving = true;
     error = "";
     message = "";
     try {
-      const normalizedBots = bots
-        .map((bot) => ({
-          id: bot.id.trim(),
-          name: bot.name.trim(),
-          enabled: Boolean(bot.enabled),
-          agentId: bot.agentId.trim(),
-          credentials: {
-            token: bot.token.trim()
-          },
-          allowedChatIds: bot.allowedChatIds
-            .split(",")
-            .map((v) => v.trim())
-            .filter(Boolean),
-          profileFiles: bot.profileFiles
-        }))
-        .filter((bot) => bot.id);
+      const normalized = normalizeBot(selected);
+      if (!normalized.id) throw new Error("Bot ID is required");
 
-      const res = await fetch("/api/settings", {
+      const res = await fetch("/api/settings/channel-instance", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channels: {
-            telegram: {
-              instances: normalizedBots.map(({ profileFiles, ...bot }) => bot)
-            }
+          channel: "telegram",
+          previousId: selected.isNew ? "" : selected.id,
+          instance: {
+            id: normalized.id,
+            name: normalized.name,
+            enabled: normalized.enabled,
+            agentId: normalized.agentId,
+            credentials: { token: normalized.token },
+            allowedChatIds: normalized.allowedChatIds
+              .split(",")
+              .map((v) => v.trim())
+              .filter(Boolean)
           }
         })
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to save Telegram settings");
 
-      for (const bot of normalizedBots) {
-        const fileRes = await fetch("/api/settings/profile-files", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            scope: "bot",
-            channel: "telegram",
-            botId: bot.id,
-            files: bot.profileFiles
-          })
-        });
-        const fileData = await fileRes.json();
-        if (!fileData.ok) throw new Error(fileData.error || `Failed to save bot files for ${bot.id}`);
-      }
+      const fileRes = await fetch("/api/settings/profile-files", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: "bot",
+          channel: "telegram",
+          botId: normalized.id,
+          files: normalized.profileFiles
+        })
+      });
+      const fileData = await fileRes.json();
+      if (!fileData.ok) throw new Error(fileData.error || `Failed to save bot files for ${normalized.id}`);
 
-      message = "Telegram settings, agent links, and bot Markdown files saved.";
-      await loadSettings();
+      bots = bots.map((bot) => {
+        if (bot.id !== selected.id) return bot;
+        return {
+          ...normalized,
+          isNew: false
+        };
+      });
+      if (selected.id !== normalized.id) {
+        bots = bots.map((bot) => (bot.id === selected.id ? { ...bot, id: normalized.id } : bot));
+        selectedBotId = normalized.id;
+      }
+      savedSnapshots = {
+        ...savedSnapshots,
+        [normalized.id]: botSnapshot({ ...normalized, isNew: false })
+      };
+
+      message = `Saved bot: ${normalized.name || normalized.id}`;
+      return true;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
+      return false;
     } finally {
       saving = false;
     }
   }
 
   $: selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0];
+  $: if (selectedBotId && !bots.some((bot) => bot.id === selectedBotId)) {
+    const resolved = resolveSelectedBot();
+    if (resolved) {
+      selectedBotId = resolved.id;
+    }
+  }
+  $: selectedBotDirty = selectedBot
+    ? botSnapshot(selectedBot) !== (savedSnapshots[selectedBot.id] ?? "")
+    : false;
 
   onMount(loadSettings);
 </script>
@@ -367,8 +465,11 @@
             type="submit"
             disabled={saving}
           >
-            {saving ? "Saving..." : "Save Telegram Settings"}
+            {saving ? "Saving..." : "Save This Bot"}
           </button>
+          {#if selectedBotDirty}
+            <p class="text-xs text-amber-300">Current bot has unsaved changes.</p>
+          {/if}
 
           {#if message}
             <p class="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">

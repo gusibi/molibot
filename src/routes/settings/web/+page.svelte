@@ -7,88 +7,75 @@
     enabled: boolean;
   }
 
-  interface FeishuBotForm {
+  interface WebProfileForm {
     id: string;
     name: string;
     enabled: boolean;
     agentId: string;
-    appId: string;
-    appSecret: string;
-    allowedChatIds: string;
     profileFiles: Record<string, string>;
     isNew: boolean;
   }
 
-  const botFileNames = ["BOT.md", "SOUL.md", "IDENTITY.md", "SONG.md"];
+  const profileFileNames = ["BOT.md", "SOUL.md", "IDENTITY.md", "SONG.md"];
 
   let loading = true;
   let saving = false;
   let message = "";
   let error = "";
 
-  let bots: FeishuBotForm[] = [];
+  let profiles: WebProfileForm[] = [];
   let agents: AgentItem[] = [];
-  let selectedBotId = "";
+  let selectedProfileId = "";
   let savedSnapshots: Record<string, string> = {};
 
-  function createBotId(): string {
+  function createProfileId(): string {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return `feishu-${crypto.randomUUID().slice(0, 8)}`;
+      return `web-${crypto.randomUUID().slice(0, 8)}`;
     }
-    return `feishu-${Math.random().toString(36).slice(2, 10)}`;
+    return `web-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  function emptyBotFiles(): Record<string, string> {
-    return Object.fromEntries(botFileNames.map((fileName) => [fileName, ""]));
+  function emptyProfileFiles(): Record<string, string> {
+    return Object.fromEntries(profileFileNames.map((fileName) => [fileName, ""]));
   }
 
-  function createEmptyBot(): FeishuBotForm {
+  function createEmptyProfile(): WebProfileForm {
     return {
-      id: createBotId(),
+      id: createProfileId(),
       name: "",
-      enabled: false,
+      enabled: true,
       agentId: "",
-      appId: "",
-      appSecret: "",
-      allowedChatIds: "",
-      profileFiles: emptyBotFiles(),
+      profileFiles: emptyProfileFiles(),
       isNew: true
     };
   }
 
-  function normalizeBot(bot: FeishuBotForm): FeishuBotForm {
+  function normalizeProfile(profile: WebProfileForm): WebProfileForm {
     return {
-      ...bot,
-      id: bot.id.trim(),
-      name: bot.name.trim(),
-      enabled: Boolean(bot.enabled),
-      agentId: bot.agentId.trim(),
-      appId: bot.appId.trim(),
-      appSecret: bot.appSecret.trim(),
-      allowedChatIds: bot.allowedChatIds
-        .split(",")
-        .map((v) => v.trim())
-        .filter(Boolean)
-        .join(","),
+      ...profile,
+      id: profile.id.trim(),
+      name: profile.name.trim(),
+      enabled: Boolean(profile.enabled),
+      agentId: profile.agentId.trim(),
       profileFiles: Object.fromEntries(
-        botFileNames.map((fileName) => [fileName, String(bot.profileFiles[fileName] ?? "")])
+        profileFileNames.map((fileName) => [fileName, String(profile.profileFiles[fileName] ?? "")])
       ),
-      isNew: bot.isNew
+      isNew: profile.isNew
     };
   }
 
-  function botSnapshot(bot: FeishuBotForm): string {
-    return JSON.stringify(normalizeBot(bot));
+  function profileSnapshot(profile: WebProfileForm): string {
+    return JSON.stringify(normalizeProfile(profile));
   }
 
-  async function loadBotFiles(botId: string): Promise<Record<string, string>> {
-    if (!botId) return emptyBotFiles();
+  async function loadProfileFiles(profileId: string): Promise<Record<string, string>> {
+    if (!profileId) return emptyProfileFiles();
     const res = await fetch(
-      `/api/settings/profile-files?scope=bot&channel=feishu&botId=${encodeURIComponent(botId)}`
+      `/api/settings/profile-files?scope=bot&channel=web&botId=${encodeURIComponent(profileId)}`
     );
     const data = await res.json();
-    if (!data.ok) throw new Error(data.error || `Failed to load bot files for ${botId}`);
-    return Object.assign(emptyBotFiles(), data.files ?? {});
+    if (!data.ok) throw new Error(data.error || `Failed to load profile files for ${profileId}`);
+    return Object.assign(emptyProfileFiles(), data.files ?? {});
   }
 
   async function loadSettings(): Promise<void> {
@@ -101,39 +88,43 @@
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
 
       agents = Array.isArray(data.settings?.agents) ? data.settings.agents : [];
-      const fromList = Array.isArray(data.settings?.channels?.feishu?.instances)
-        ? data.settings.channels.feishu.instances
+      const fromList = Array.isArray(data.settings?.channels?.web?.instances)
+        ? data.settings.channels.web.instances
         : [];
 
       const mapped = fromList.length > 0
-        ? fromList.map((bot: {
+        ? fromList.map((profile: {
             id?: string;
             name?: string;
             enabled?: boolean;
             agentId?: string;
-            credentials?: { appId?: string; appSecret?: string };
-            allowedChatIds?: string[];
           }) => ({
-            id: bot.id ?? createBotId(),
-            name: bot.name ?? "",
-            enabled: bot.enabled ?? true,
-            agentId: bot.agentId ?? "",
-            appId: bot.credentials?.appId ?? "",
-            appSecret: bot.credentials?.appSecret ?? "",
-            allowedChatIds: (bot.allowedChatIds ?? []).join(","),
-            profileFiles: emptyBotFiles(),
+            id: profile.id ?? createProfileId(),
+            name: profile.name ?? "",
+            enabled: profile.enabled ?? true,
+            agentId: profile.agentId ?? "",
+            profileFiles: emptyProfileFiles(),
             isNew: false
           }))
-        : [createEmptyBot()];
+        : [{
+            id: "default",
+            name: "Default Web",
+            enabled: true,
+            agentId: "",
+            profileFiles: emptyProfileFiles(),
+            isNew: false
+          }];
 
-      bots = await Promise.all(
-        mapped.map(async (bot) => ({
-          ...bot,
-          profileFiles: await loadBotFiles(bot.id)
+      profiles = await Promise.all(
+        mapped.map(async (profile) => ({
+          ...profile,
+          profileFiles: await loadProfileFiles(profile.id)
         }))
       );
-      savedSnapshots = Object.fromEntries(bots.map((bot) => [bot.id, botSnapshot(bot)]));
-      selectedBotId = bots[0]?.id ?? "";
+      savedSnapshots = Object.fromEntries(
+        profiles.map((profile) => [profile.id, profileSnapshot(profile)])
+      );
+      selectedProfileId = profiles[0]?.id ?? "";
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -142,138 +133,132 @@
   }
 
   async function ensureCurrentSavedBeforeSwitch(): Promise<boolean> {
-    const current = bots.find((bot) => bot.id === selectedBotId);
+    const current = profiles.find((profile) => profile.id === selectedProfileId);
     if (!current) return true;
     const baseline = savedSnapshots[current.id];
-    const dirty = botSnapshot(current) !== baseline;
+    const dirty = profileSnapshot(current) !== baseline;
     if (!dirty) return true;
     if (typeof window === "undefined") return false;
-    const shouldSave = window.confirm("当前 Bot 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Bot。");
+    const shouldSave = window.confirm("当前 Profile 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Profile。");
     if (!shouldSave) return false;
     return save();
   }
 
-  async function selectBot(botId: string): Promise<void> {
-    if (botId === selectedBotId) return;
+  async function selectProfile(profileId: string): Promise<void> {
+    if (profileId === selectedProfileId) return;
     const ok = await ensureCurrentSavedBeforeSwitch();
     if (!ok) return;
-    selectedBotId = botId;
+    selectedProfileId = profileId;
   }
 
-  async function addBot(): Promise<void> {
+  async function addProfile(): Promise<void> {
     const ok = await ensureCurrentSavedBeforeSwitch();
     if (!ok) return;
-    const next = createEmptyBot();
-    bots = [...bots, next];
+    const next = createEmptyProfile();
+    profiles = [...profiles, next];
     savedSnapshots = {
       ...savedSnapshots,
-      [next.id]: botSnapshot(next)
+      [next.id]: profileSnapshot(next)
     };
-    selectedBotId = next.id;
+    selectedProfileId = next.id;
   }
 
-  async function removeBot(botId: string): Promise<void> {
+  async function removeProfile(profileId: string): Promise<void> {
     const confirmed =
       typeof window === "undefined"
         ? true
-        : window.confirm(`Delete bot "${botId}"? This cannot be undone.`);
+        : window.confirm(`Delete web profile "${profileId}"? This cannot be undone.`);
     if (!confirmed) return;
 
-    const target = bots.find((bot) => bot.id === botId);
+    const target = profiles.find((profile) => profile.id === profileId);
     if (target && !target.isNew) {
       const res = await fetch("/api/settings/channel-instance", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channel: "feishu",
-          id: botId
+          channel: "web",
+          id: profileId
         })
       });
       const data = await res.json();
       if (!data.ok) {
-        error = data.error || `Failed to delete bot ${botId}`;
+        error = data.error || `Failed to delete profile ${profileId}`;
         return;
       }
     }
 
-    bots = bots.filter((bot) => bot.id !== botId);
-    savedSnapshots = Object.fromEntries(Object.entries(savedSnapshots).filter(([id]) => id !== botId));
-    if (bots.length === 0) {
-      const next = createEmptyBot();
-      bots = [next];
+    profiles = profiles.filter((profile) => profile.id !== profileId);
+    savedSnapshots = Object.fromEntries(Object.entries(savedSnapshots).filter(([id]) => id !== profileId));
+    if (profiles.length === 0) {
+      const next = createEmptyProfile();
+      profiles = [next];
       savedSnapshots = {
         ...savedSnapshots,
-        [next.id]: botSnapshot(next)
+        [next.id]: profileSnapshot(next)
       };
     }
-    selectedBotId = bots[0]?.id ?? "";
+    selectedProfileId = profiles[0]?.id ?? "";
   }
 
   async function save(): Promise<boolean> {
-    const selected = bots.find((bot) => bot.id === selectedBotId) ?? bots[0];
+    const selected = profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0];
     if (!selected) return false;
 
     saving = true;
     error = "";
     message = "";
     try {
-      const normalized = normalizeBot(selected);
-      if (!normalized.id) throw new Error("Bot ID is required");
+      const normalized = normalizeProfile(selected);
+      if (!normalized.id) throw new Error("Profile ID is required");
 
       const res = await fetch("/api/settings/channel-instance", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          channel: "feishu",
+          channel: "web",
           previousId: selected.isNew ? "" : selected.id,
           instance: {
             id: normalized.id,
             name: normalized.name,
             enabled: normalized.enabled,
             agentId: normalized.agentId,
-            credentials: {
-              appId: normalized.appId,
-              appSecret: normalized.appSecret
-            },
-            allowedChatIds: normalized.allowedChatIds
-              .split(",")
-              .map((v) => v.trim())
-              .filter(Boolean)
+            credentials: {},
+            allowedChatIds: []
           }
         })
       });
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Failed to save Feishu settings");
+      if (!data.ok) throw new Error(data.error || "Failed to save Web profiles");
 
       const fileRes = await fetch("/api/settings/profile-files", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scope: "bot",
-          channel: "feishu",
+          channel: "web",
           botId: normalized.id,
           files: normalized.profileFiles
         })
       });
       const fileData = await fileRes.json();
-      if (!fileData.ok) throw new Error(fileData.error || `Failed to save bot files for ${normalized.id}`);
+      if (!fileData.ok) throw new Error(fileData.error || `Failed to save profile files for ${normalized.id}`);
 
-      bots = bots.map((bot) => {
-        if (bot.id !== selected.id) return bot;
+      profiles = profiles.map((profile) => {
+        if (profile.id !== selected.id) return profile;
         return {
           ...normalized,
           isNew: false
         };
       });
       if (selected.id !== normalized.id) {
-        selectedBotId = normalized.id;
+        selectedProfileId = normalized.id;
       }
       savedSnapshots = {
         ...savedSnapshots,
-        [normalized.id]: botSnapshot({ ...normalized, isNew: false })
+        [normalized.id]: profileSnapshot({ ...normalized, isNew: false })
       };
 
-      message = `Saved bot: ${normalized.name || normalized.id}`;
+      message = `Saved profile: ${normalized.name || normalized.id}`;
       return true;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -283,9 +268,9 @@
     }
   }
 
-  $: selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0];
-  $: selectedBotDirty = selectedBot
-    ? botSnapshot(selectedBot) !== (savedSnapshots[selectedBot.id] ?? "")
+  $: selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0];
+  $: selectedProfileDirty = selectedProfile
+    ? profileSnapshot(selectedProfile) !== (savedSnapshots[selectedProfile.id] ?? "")
     : false;
 
   onMount(loadSettings);
@@ -293,103 +278,103 @@
 
 <div class="mx-auto max-w-7xl space-y-6 px-6 py-8 sm:px-10 sm:py-12">
   <div>
-    <h1 class="text-2xl font-semibold">Feishu Settings</h1>
+    <h1 class="text-2xl font-semibold">Web Profiles</h1>
     <p class="text-sm text-slate-400">
-      Configure Feishu bots, link them to agents, and edit bot-level Markdown overrides.
+      Configure web runtime profiles, link agents, and edit profile-level Markdown overrides.
     </p>
   </div>
 
   {#if loading}
     <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
-      Loading Feishu settings...
+      Loading web profiles...
     </div>
   {:else}
     <div class="grid gap-6 lg:grid-cols-[280px_1fr]">
       <section class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
         <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-slate-200">Bots</h2>
+          <h2 class="text-sm font-semibold text-slate-200">Profiles</h2>
           <button
             class="cursor-pointer rounded-md border border-white/20 bg-white/5 px-2 py-1 text-xs text-slate-200 hover:bg-white/10"
             type="button"
-            on:click={addBot}
+            on:click={addProfile}
           >
-            Add Bot
+            Add Profile
           </button>
         </div>
 
         <div class="space-y-2">
-          {#each bots as bot (bot.id)}
+          {#each profiles as profile (profile.id)}
             <button
               class={`flex w-full items-start justify-between rounded-lg border px-3 py-2 text-left text-sm ${
-                selectedBot?.id === bot.id
+                selectedProfile?.id === profile.id
                   ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-200"
                   : "border-white/10 bg-[#1f1f1f] text-slate-300 hover:border-white/20"
               }`}
               type="button"
-              on:click={() => selectBot(bot.id)}
+              on:click={() => selectProfile(profile.id)}
             >
               <span>
-                <span class="block font-medium">{bot.name || bot.id}</span>
-                <span class="block text-xs text-slate-400">{bot.id}</span>
+                <span class="block font-medium">{profile.name || profile.id}</span>
+                <span class="block text-xs text-slate-400">{profile.id}</span>
               </span>
-              <span class={`text-[10px] ${bot.enabled ? "text-emerald-300" : "text-slate-500"}`}>
-                {bot.enabled ? "ON" : "OFF"}
+              <span class={`text-[10px] ${profile.enabled ? "text-emerald-300" : "text-slate-500"}`}>
+                {profile.enabled ? "ON" : "OFF"}
               </span>
             </button>
           {/each}
         </div>
       </section>
 
-      {#if selectedBot}
+      {#if selectedProfile}
         <form class="space-y-4" on:submit|preventDefault={save}>
           <section class="space-y-4 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
             <div class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-slate-200">Bot Configuration</h2>
+              <h2 class="text-sm font-semibold text-slate-200">Profile Configuration</h2>
               <button
                 class="cursor-pointer rounded-md border border-rose-500/50 bg-rose-500/10 px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/20"
                 type="button"
-                on:click={() => removeBot(selectedBot.id)}
+                on:click={() => removeProfile(selectedProfile.id)}
               >
-                Remove Bot
+                Remove Profile
               </button>
             </div>
 
             <div class="grid gap-3 md:grid-cols-2">
               <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">Bot ID</span>
+                <span class="text-slate-300">Profile ID</span>
                 <input
                   class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
-                  bind:value={selectedBot.id}
-                  placeholder="feishu-bot"
-                  disabled={!selectedBot.isNew}
+                  bind:value={selectedProfile.id}
+                  placeholder="marketing-web"
+                  disabled={!selectedProfile.isNew}
                 />
               </label>
 
               <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">Bot Name</span>
+                <span class="text-slate-300">Profile Name</span>
                 <input
                   class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
-                  bind:value={selectedBot.name}
-                  placeholder="Feishu Bot"
+                  bind:value={selectedProfile.name}
+                  placeholder="Marketing Web"
                 />
               </label>
             </div>
-            {#if !selectedBot.isNew}
+            {#if !selectedProfile.isNew}
               <p class="text-xs text-slate-500">
-                Bot ID is locked after creation to keep workspace paths and references stable.
+                Profile ID is locked after creation to keep workspace paths and references stable.
               </p>
             {/if}
 
             <label class="flex items-center gap-3 text-sm text-slate-300">
-              <input bind:checked={selectedBot.enabled} type="checkbox" />
-              Enable this plugin instance
+              <input bind:checked={selectedProfile.enabled} type="checkbox" />
+              Enable this profile instance
             </label>
 
             <label class="grid gap-1.5 text-sm">
               <span class="text-slate-300">Linked Agent</span>
               <select
                 class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
-                bind:value={selectedBot.agentId}
+                bind:value={selectedProfile.agentId}
               >
                 <option value="">No agent (global fallback only)</option>
                 {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
@@ -397,52 +382,22 @@
                 {/each}
               </select>
             </label>
-
-            <div class="grid gap-3 md:grid-cols-2">
-              <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">App ID</span>
-                <input
-                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
-                  bind:value={selectedBot.appId}
-                  placeholder="cli_a72xxxxxxxxxxxxx"
-                />
-              </label>
-
-              <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">App Secret</span>
-                <input
-                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
-                  bind:value={selectedBot.appSecret}
-                  type="password"
-                  placeholder="2Uxxxxxxxxxxxxx"
-                />
-              </label>
-            </div>
-
-            <label class="grid gap-1.5 text-sm">
-              <span class="text-slate-300">Allowed chat IDs (comma-separated)</span>
-              <input
-                class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
-                bind:value={selectedBot.allowedChatIds}
-                placeholder="ou_xxxxxxxx"
-              />
-            </label>
           </section>
 
           <section class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
             <div>
-              <h3 class="text-sm font-semibold text-slate-200">Bot Markdown Overrides</h3>
+              <h3 class="text-sm font-semibold text-slate-200">Profile Markdown Overrides</h3>
               <p class="mt-1 text-xs text-slate-400">
                 Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.
               </p>
             </div>
 
-            {#each botFileNames as fileName}
+            {#each profileFileNames as fileName}
               <label class="grid gap-1.5 text-sm">
                 <span class="text-slate-300">{fileName}</span>
                 <textarea
                   class="min-h-[160px] rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 font-mono text-sm outline-none focus:border-emerald-400"
-                  bind:value={selectedBot.profileFiles[fileName]}
+                  bind:value={selectedProfile.profileFiles[fileName]}
                   placeholder={`Edit ${fileName} here`}
                 ></textarea>
               </label>
@@ -454,10 +409,10 @@
             type="submit"
             disabled={saving}
           >
-            {saving ? "Saving..." : "Save This Bot"}
+            {saving ? "Saving..." : "Save This Profile"}
           </button>
-          {#if selectedBotDirty}
-            <p class="text-xs text-amber-300">Current bot has unsaved changes.</p>
+          {#if selectedProfileDirty}
+            <p class="text-xs text-amber-300">Current profile has unsaved changes.</p>
           {/if}
 
           {#if message}

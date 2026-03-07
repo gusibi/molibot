@@ -1,6 +1,11 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import {
+  sanitizeWebProfileId,
+  sanitizeWebUserId,
+  toWebExternalUserId
+} from "$lib/server/web/identity";
 
 interface SessionSummary {
   id: string;
@@ -10,9 +15,11 @@ interface SessionSummary {
 }
 
 export const GET: RequestHandler = async ({ url }) => {
-  const userId = url.searchParams.get("userId")?.trim() || "web-anonymous";
+  const userId = sanitizeWebUserId(url.searchParams.get("userId"));
+  const profileId = sanitizeWebProfileId(url.searchParams.get("profileId"));
+  const externalUserId = toWebExternalUserId(userId, profileId);
   const { sessions } = getRuntime();
-  const listRaw = sessions.listConversations("web", userId);
+  const listRaw = sessions.listConversations("web", externalUserId);
 
   const list: SessionSummary[] = listRaw.map((s) => ({
     id: s.id,
@@ -25,16 +32,18 @@ export const GET: RequestHandler = async ({ url }) => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-  let body: { userId?: string };
+  let body: { userId?: string; profileId?: string };
   try {
-    body = (await request.json()) as { userId?: string };
+    body = (await request.json()) as { userId?: string; profileId?: string };
   } catch {
     body = {};
   }
 
-  const userId = body.userId?.trim() || "web-anonymous";
+  const userId = sanitizeWebUserId(body.userId);
+  const profileId = sanitizeWebProfileId(body.profileId);
+  const externalUserId = toWebExternalUserId(userId, profileId);
   const { sessions } = getRuntime();
-  const session = sessions.createWebConversation(userId);
+  const session = sessions.createWebConversation(externalUserId);
 
   return json({
     ok: true,

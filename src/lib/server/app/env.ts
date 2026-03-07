@@ -24,6 +24,8 @@ export const config = {
   port: intFromEnv("PORT", 3000),
   dataDir: resolvedDataDir,
   settingsFile: expandHomePath(process.env.SETTINGS_FILE ?? path.join(resolvedDataDir, "settings.json")),
+  settingsDbFile: expandHomePath(process.env.SETTINGS_DB_FILE ?? path.join(resolvedDataDir, "settings.sqlite")),
+  webWorkspaceDir: expandHomePath(process.env.WEB_WORKSPACE_DIR ?? path.join(resolvedDataDir, "moli-w")),
   sessionsDir: expandHomePath(process.env.SESSIONS_DIR ?? path.join(resolvedDataDir, "sessions")),
   sessionsIndexFile: expandHomePath(
     process.env.SESSIONS_INDEX_FILE ?? path.join(resolvedDataDir, "sessions", "index.json")

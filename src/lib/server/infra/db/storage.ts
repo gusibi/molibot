@@ -6,7 +6,9 @@ export const storagePaths = {
   dataDir: path.resolve(config.dataDir),
   agentsDir: path.resolve(config.dataDir, "agents"),
   settingsFile: path.resolve(config.settingsFile),
+  settingsDbFile: path.resolve(config.settingsDbFile),
   memoryDir: path.resolve(config.dataDir, "memory"),
+  webWorkspaceDir: path.resolve(config.webWorkspaceDir),
   sessionsDir: path.resolve(config.sessionsDir),
   sessionsIndexFile: path.resolve(config.sessionsIndexFile)
 };
@@ -33,6 +35,7 @@ export function initDb(): void {
   fs.mkdirSync(storagePaths.dataDir, { recursive: true });
   fs.mkdirSync(storagePaths.agentsDir, { recursive: true });
   fs.mkdirSync(storagePaths.memoryDir, { recursive: true });
+  fs.mkdirSync(storagePaths.webWorkspaceDir, { recursive: true });
   fs.mkdirSync(storagePaths.sessionsDir, { recursive: true });
 
   if (!fs.existsSync(storagePaths.settingsFile)) {

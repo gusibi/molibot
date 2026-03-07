@@ -124,6 +124,18 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     Intl.DateTimeFormat().resolvedOptions().timeZone,
   agents: defaultAgents,
   channels: {
+    web: {
+      instances: [
+        {
+          id: "default",
+          name: "Default Web",
+          enabled: true,
+          agentId: "",
+          credentials: {},
+          allowedChatIds: []
+        }
+      ]
+    },
     telegram: {
       instances: mapTelegramBotsToChannelSettings(defaultTelegramBots)
     },

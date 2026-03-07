@@ -112,6 +112,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-69 | Settings navigation active-state correctness | P1 | Delivered (2026-03-06) | Settings sidebar tab highlight should always follow the current page route, with normalized path matching and exact-tab matching for sibling pages to avoid stale active colors when switching tabs |
 | P1-70 | Provider enable state persistence on save | P1 | Delivered (2026-03-06) | Saving settings must preserve `customProviders[].enabled` in runtime persistence path so built-in/custom provider toggle state survives refresh and default custom provider resolution remains consistent with enabled providers |
 | P1-71 | Vision-to-text fallback for unsupported image models | P1 | Delivered (2026-03-06) | When the active reply model cannot accept native image input, the agent runner should mirror the voice-transcript fallback path: resolve a usable vision route, convert each image into structured text analysis, inject that text into the user prompt, emit explicit notices instead of letting text-only models guess from attachment paths, and strip any historical `image` parts from session context before calling a text-only model |
+| P1-72 | Settings single-entity save and unsaved-switch guard | P1 | Delivered (2026-03-07) | Agents/Web Profiles/Telegram/Feishu settings pages should save only the selected entity (single agent/bot/profile), switching selection with unsaved edits must prompt the operator to save first, and editing a new entity ID must keep selection bound to that draft (no fallback save to `default`) |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -837,3 +838,193 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `FeishuManager.stop()` 必须显式关闭当前 `WSClient`，不能只清空引用。
   - Feishu 适配器在下载资源/STT/入队前，必须基于原始 `chat_id + message.message_id` 做本地幂等去重。
   - 对重复投递应记录专门日志，便于区分“真实重复消息”和“重复订阅/重复回调”。
+
+## 70. Web Settings + Chat UX Productization (2026-03-07)
+- Priority: P1
+- Stage: Phase 3 (Building) -> Phase 4 (Polish)
+- Problem:
+  - 设置页把 `Chat` 放在左侧设置导航顶部，交互语义像“设置内部菜单跳转”，用户点击后直接离开设置，体验生硬且容易误触。
+  - Chat 页当前在交互和布局上接近草稿态，移动端会话操作弱、消息发送和状态反馈不完整，难以作为稳定主工作台。
+- Requirement:
+  - 设置页必须把“返回 Chat”从设置菜单中解耦，改为明确的工作区返回动作，并在移动端提供可达的设置导航。
+  - Chat 页必须升级为可持续使用的工作台：会话导航、输入体验、状态反馈、信息层级要完整且一致。
+- Enforcement:
+  - `src/routes/settings/+layout.svelte`：
+    - 删除侧栏 `General` 中的 `Chat` 导航项。
+    - 在设置壳层提供显式 `Back To Chat` 入口（桌面与移动端均可用）。
+    - 增加粘性页面头部，展示当前设置子页面上下文。
+    - 在 `lg` 以下提供可展开的设置导航，避免移动端“无导航”问题。
+  - `src/routes/+page.svelte`：
+    - 完整重构布局为可用的 Chat 工作区（桌面主区 + 移动端抽屉会话列表）。
+    - 增加会话搜索、快捷提示词、加载/思考状态、自动滚动。
+  - 输入框支持 `Enter` 发送、`Shift+Enter` 换行，并自适应高度。
+  - 保持现有后端 API 合约不变（`/api/chat`、`/api/sessions`、`/api/settings`）。
+
+## 71. Web Channel Workspace Unification with Telegram/Feishu (2026-03-07)
+- Priority: P1
+- Stage: Phase 3 (Building)
+- Problem:
+  - 当前 Web 会话数据仍落在通用 `sessions/` 目录，缺乏像 `moli-t` / `moli-f` 这样明确的 channel workspace 边界。
+  - 用户希望 Web 只是统一 runtime 的一个入口，而不是特殊逻辑分支；Web 也应具备独立目录承载 session/context 等数据。
+- Requirement:
+  - 为 Web 渠道建立独立 workspace（默认 `~/.molibot/moli-w`），并将 Web session/context 数据统一落在该目录下。
+  - 历史 Web 数据需平滑迁移，不可丢失现有对话。
+- Enforcement:
+  - 增加可配置项 `WEB_WORKSPACE_DIR`（默认 `${DATA_DIR}/moli-w`）。
+  - `SessionStore` 对 `channel=web` 的读写必须改用 `moli-w` 目录（按用户分层）和独立 index 文件。
+  - 保留 Telegram/Feishu 当前路径策略不变，避免跨渠道回归。
+  - 旧 `sessions/` 中 Web 记录在访问时自动迁移到 `moli-w`，迁移后继续保持 API 行为一致。
+
+## 72. Web Feature Parity with Telegram Runtime (2026-03-07)
+- Priority: P1
+- Stage: Phase 3 (Building) -> Phase 4 (Polish)
+- Problem:
+  - 当前 Web 聊天入口虽然可用，但和 Telegram 渠道能力不一致：缺少语音/图片输入链路、缺少 profile-agent 绑定入口、缺少 system prompt 可视化预览、缺少运营视角的 user/profile 切换。
+  - Web 在会话分桶上仅按 user 维度，无法像 bot 渠道那样按“实例 + 用户”隔离上下文。
+- Requirement:
+  - Web 入口必须具备与 Telegram 关键运营能力一致的基础集：语音/图片输入、agent 选择、prompt 预览、用户切换。
+  - Web 会话维度改为 `profile + user`，避免不同 profile 互相污染。
+- Enforcement:
+  - `/api/chat` 对 Web 请求改为 runner 路径，支持 multipart 文件（image/audio）并复用 runner 的 STT/vision 路由行为。
+  - 新增 `settings.channels.web.instances[]` 的默认实例和 agent 绑定能力，Web profile 的 `agentId` 与 prompt 构建保持同一机制。
+  - 新增 `/api/web/system-prompt` 用于返回 prompt 文本及来源文件列表（global/agent/bot）。
+  - `/api/sessions` 和 `/api/chat` 的 Web externalUserId 必须包含 `profileId + userId` 组合键。
+  - Chat 页新增操作控件：profile 切换、user 切换/新增、agent 选择、附件上传、prompt 预览面板。
+
+## 73. Dedicated Web Profiles Settings Page (2026-03-07)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 虽然 Web profile 能力已接入 runtime/chat，但缺少专门设置页，运营只能在聊天页临时调整，配置不可视化且不稳定。
+- Requirement:
+  - 在 `/settings` 体系中提供独立 `Web Profiles` 页面，体验与 Telegram/Feishu 配置页一致，支持 profile 生命周期管理和 profile-level Markdown 文件管理。
+- Enforcement:
+  - 新增 `/settings/web` 页面，支持：
+    - profile 列表、选择、新增、删除。
+    - profile 字段编辑（id/name/enabled/agentId）。
+    - profile markdown 文件编辑与保存（`BOT.md`/`SOUL.md`/`IDENTITY.md`/`SONG.md`）。
+  - `settings` 左侧导航和 overview 卡片必须出现 `Web Profiles` 入口。
+  - profile 文件路径映射必须与 Web workspace 一致（`moli-w/bots/<profileId>`）。
+
+## 74. Chat User Identity Locking (2026-03-07)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - Chat 页允许在会话进行中直接切换/新增 user，会导致同一会话上下文身份漂移（A/B 用户混写），影响会话语义一致性与数据可信度。
+  - Chat 页控制项过多（user、agent、session 并列操作），核心聊天路径认知成本过高。
+- Requirement:
+  - 会话进行中不得随意切换 user；user 只能在创建新对话（New Chat）时选择。
+  - Chat 页主交互聚焦为：选 session / 新建 session；不在主面板暴露 user 切换与 profile-agent 操作。
+- Enforcement:
+  - 移除 Chat 页常驻 `user switch/add user` 控件。
+  - 新增 `New Chat` 弹窗，支持输入或选择 user，并在确认后创建新 session。
+  - 当前会话期间 user 视为锁定，仅显示不允许直接切换。
+  - 在 Chat UI 中增加高可见性的 `Locked User` 状态条（侧栏与主头部），避免误判当前会话身份归属。
+
+## 75. Web Session Naming and Ownership Clarity (2026-03-07)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 左侧 session 列表缺少明确归属信息，运营视角无法快速判断当前会话属于哪个 user。
+  - session 名称目前依赖初始标题，缺少对“对话主题变化”的可维护能力，且缺少手动更正入口。
+- Requirement:
+  - session 名称应作为“对话摘要标题”展示，并允许手动修改。
+  - Chat 展示层应优先显示 profile name（人类可读），而不是内部复合 userId/externalUserId。
+- Enforcement:
+  - 会话创建后继续保留首轮消息生成标题逻辑，作为默认摘要标题基线。
+  - 新增后端 session 重命名 API（按 `conversationId + channel + externalUserId` 校验归属后更新 title）。
+  - Chat 左侧列表支持 inline rename（键盘 Enter 保存 / Escape 取消），避免额外跳转。
+  - 左侧 session 列表和 Chat 头部身份状态条必须展示 profile name，并可附带 profileId 作为技术标识。
+  - raw userId 仅用于会话分桶与 API 参数，不作为主要 UI 身份标签暴露。
+
+## 76. Telegram Multi-Bot Startup Error Attribution (2026-03-07)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 多 Telegram 实例并行时，`adapter_start_failed` 仅记录错误文本（例如 `401 Unauthorized`），缺少实例归属，难以快速定位是哪个 bot token 失效。
+- Requirement:
+  - Telegram 启动/配置相关关键日志必须包含 bot 实例标识，支持运维快速定界。
+- Enforcement:
+  - `apply`、`disabled_no_token`、`apply_noop_same_token`、`allowed_chat_ids_loaded`、`adapter_start_failed` 日志统一附带 `botId`。
+  - 排障流程要求先按 `botId` 定位实例，再校验该实例 token（`getMe`）与 enabled 状态。
+
+## 77. Telegram Per-Bot Fault Isolation on Auth Failure (2026-03-07)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 多 bot 运行时，单个 token 失效会持续产生启动失败噪音，运维感知上接近“整个 Telegram 渠道都坏了”。
+- Requirement:
+  - 单 bot 启动认证失败必须按实例隔离处理，只禁用故障 bot，不影响其余 bot 与主服务。
+- Enforcement:
+  - 当 Telegram 启动错误命中 `401 Unauthorized` 时，运行时自动将对应 `botId` 的 `channels.telegram.instances[].enabled` 置为 `false` 并持久化。
+  - 自动禁用后输出结构化告警日志（含 `botId` 和 reason），用于后续人工修复 token 后再手动启用。
+  - 不得因为单实例认证失败而停止其他已启用且凭证有效的 Telegram 实例启动流程。
+
+## 78. Web Chat Realtime Voice Input Control (2026-03-07)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - Chat 页将音频入口设计成“选择音频文件上传”，对真实对话场景不友好；用户很难在外部文件系统管理语音附件。
+- Requirement:
+  - Web Chat 必须提供实时录音控件，语音交互走“录音即发送”路径，而非音频文件选择路径。
+  - 图片仍保留附件选择方式。
+- Enforcement:
+  - Chat composer 的文件选择器仅接受 `image/*`，不再接受 `audio/*`。
+  - 新增录音按钮：第一次点击开始录音，第二次点击停止录音并自动发送当前语音。
+  - 录音过程需有明显状态反馈（录音中/时长），并在组件销毁时释放麦克风资源。
+  - 发送链路继续复用现有 `/api/chat` multipart 流程，确保 runner 的 STT/语音处理路径不变。
+
+## 79. Settings Save Consistency Across Concurrent Runtime Processes (2026-03-07)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 在多运行进程并存（例如多个 dev/server 实例）时，设置保存若基于旧内存快照整份写回，可能把其他页面刚改过的配置回滚到历史版本（典型表现：保存 Web Profiles 后 Telegram bots 数量和内容回退）。
+- Requirement:
+  - 设置 patch 保存必须基于磁盘最新状态合并，避免“旧进程快照覆盖新数据”。
+- Enforcement:
+  - `updateSettings` 每次执行时先读取最新 `settings.json`，再应用 patch 并保存。
+  - 禁止用进程启动时的长期内存副本直接作为唯一 merge 基线。
+  - 对跨页面局部 patch（如仅 `channels.web`）必须保证其他 channel/provider 配置保持最新值不被回退。
+
+## 80. Hybrid Settings Persistence Strategy (2026-03-07)
+- Priority: P1
+- Stage: Phase 3 (Building) -> Phase 4 (Polish)
+- Problem:
+  - 单一 `settings.json` 在配置规模增长后会持续膨胀，且全量读写放大并发覆盖风险。
+  - 像 providers / channels / agents 这类高频增删改、数量不可控的数据不适合继续放在整文件里。
+- Requirement:
+  - 采用混合存储：
+    - 稳定引导字段保留在 `settings.json`；
+    - 高动态域迁移到 SQLite，按域或按记录更新，避免全量覆盖。
+- Enforcement:
+  - SQLite 动态域至少包含：`customProviders`、`channels`、`agents`。
+  - `settings.json` 仅保留 bootstrap 级字段（provider mode、pi defaults、routing、systemPrompt、plugins、timezone、legacy fallback）。
+  - 设置读取路径必须执行 “DB 覆盖 JSON 动态域” 合并逻辑。
+  - 设置保存路径必须避免动态大对象整文件写回，动态域走 SQLite upsert。
+
+## 81. Channel-Scoped Patch Isolation in Settings Updates (2026-03-07)
+- Priority: P0
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 保存单个 channel 子域（如 `channels.web`）时，若后端把 `channels` 当整对象替换，会误删其他 channel（如 Telegram/Feishu）实例。
+- Requirement:
+  - settings patch 必须按 channel key 级别合并，不能因局部 patch 清空同级其他 channel 数据。
+- Enforcement:
+  - `channels` sanitize/merge 逻辑必须以当前完整 channel map 为基线，仅覆盖 patch 中出现的 channel key。
+  - 对 `channels.web` 和 `channels.telegram` 的单独保存应互不影响，回归测试需覆盖双向场景。
+
+## 82. Relational Dynamic Settings Schema (2026-03-07)
+- Priority: P1
+- Stage: Phase 3 (Building)
+- Problem:
+  - 将动态域塞成单条 JSON（即使在 SQLite）仍有“读写放大”和局部更新不透明的问题。
+- Requirement:
+  - 动态配置改为关系表按实体存储，读取时组装，写入时按实体批量事务更新。
+- Enforcement:
+  - 至少落地以下表：
+    - `settings_agents`（每个 agent 一行）
+    - `settings_channel_instances`（每个 channel instance 一行，含 `channel_key` 区分 web/telegram/feishu）
+    - `settings_custom_providers`（每个 provider 一行）
+    - `settings_custom_provider_models`（每个 provider model 一行）
+  - Runtime load 必须支持“表 -> 内存对象”重建；保存必须在事务中完成，防止半写状态。
+  - 允许保留 legacy 动态 JSON 表作为迁移 fallback，但不能继续作为主存储路径。

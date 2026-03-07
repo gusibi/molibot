@@ -214,10 +214,19 @@ function sanitizeChannels(
   feishuBots: FeishuBotConfig[],
   current: ChannelSettingsMap
 ): ChannelSettingsMap {
-  const channels: ChannelSettingsMap = {};
+  const channels: ChannelSettingsMap = Object.fromEntries(
+    Object.entries(current ?? {}).map(([key, value]) => [
+      key,
+      {
+        instances: (value?.instances ?? []).map((instance) => ({
+          ...instance,
+          credentials: { ...(instance.credentials ?? {}) },
+          allowedChatIds: [...(instance.allowedChatIds ?? [])]
+        }))
+      }
+    ])
+  );
   const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
-  const hasExplicitTelegram = Object.prototype.hasOwnProperty.call(source, "telegram");
-  const hasExplicitFeishu = Object.prototype.hasOwnProperty.call(source, "feishu");
 
   for (const [key, rawValue] of Object.entries(source)) {
     if (!rawValue || typeof rawValue !== "object") continue;
@@ -254,7 +263,7 @@ function sanitizeChannels(
     channels[key] = { instances };
   }
 
-  channels.telegram = channels.telegram ?? (hasExplicitTelegram ? current.telegram : undefined) ?? {
+  channels.telegram = channels.telegram ?? {
     instances: telegramBots.map((bot) => ({
       id: bot.id,
       name: bot.name,
@@ -265,7 +274,7 @@ function sanitizeChannels(
     }))
   };
 
-  channels.feishu = channels.feishu ?? (hasExplicitFeishu ? current.feishu : undefined) ?? {
+  channels.feishu = channels.feishu ?? {
     instances: feishuBots.map((bot) => ({
       id: bot.id,
       name: bot.name,
@@ -479,7 +488,11 @@ export function getRuntime(): RuntimeState {
     const assistant = new AssistantService(() => currentSettings.value, usageTracker);
     const router = new MessageRouter(sessions, assistant, memory);
     const applySettingsPatch = (patch: Partial<RuntimeSettings>): RuntimeSettings => {
-      state.settings = sanitizeSettings(patch, state.settings);
+      // Always merge patches on top of the latest persisted settings snapshot.
+      // This prevents stale in-memory runtime copies (for example another long-lived dev process)
+      // from overwriting newer channel/provider data with historical values.
+      const latestPersisted = state.settingsStore.load();
+      state.settings = sanitizeSettings(patch, latestPersisted);
       currentSettings.value = state.settings;
       state.settingsStore.save(state.settings);
       applyChannelPlugins(state, applySettingsPatch);

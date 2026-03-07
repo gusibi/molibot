@@ -124,6 +124,8 @@ export function getBotDir(channel: string, botId: string): string {
     ? "moli-t"
     : normalizedChannel === "feishu"
       ? "moli-f"
+      : normalizedChannel === "web"
+        ? "moli-w"
       : normalizedChannel;
   return path.join(storagePaths.dataDir, channelDir, "bots", normalizedBotId);
 }
