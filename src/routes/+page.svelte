@@ -48,12 +48,8 @@
     "检查我现在模型和路由配置有没有明显风险"
   ];
 
-  const LS_USER = "molibot-web-user-id";
-  const LS_USERS = "molibot-web-user-options";
   const LS_PROFILE = "molibot-web-profile-id";
 
-  let userId = "web-anonymous";
-  let userOptions: string[] = [];
   let activeProfileId = "default";
   let activeProfileName = "Default Web";
   let profileNameById: Record<string, string> = {};
@@ -90,7 +86,7 @@
   let promptSources: PromptSources = { global: [], agent: [], bot: [] };
 
   let showNewChatDialog = false;
-  let newChatUserId = "";
+  let newChatProfileId = "default";
 
   let messagesContainer: HTMLDivElement | null = null;
   let composerEl: HTMLTextAreaElement | null = null;
@@ -101,36 +97,11 @@
     return s.title.toLowerCase().includes(q);
   });
 
-  function sanitizeUserId(value: string): string {
-    const normalized = String(value ?? "").trim();
-    return normalized || "web-anonymous";
-  }
-
-  function readJsonFromStorage<T>(key: string, fallback: T): T {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return fallback;
-      return JSON.parse(raw) as T;
-    } catch {
-      return fallback;
-    }
-  }
-
   function persistIdentity(): void {
     try {
-      localStorage.setItem(LS_USER, userId);
-      localStorage.setItem(LS_USERS, JSON.stringify(userOptions));
       localStorage.setItem(LS_PROFILE, activeProfileId);
     } catch {
       // ignore storage failures
-    }
-  }
-
-  function ensureUserOption(id: string): void {
-    const next = sanitizeUserId(id);
-    if (!next) return;
-    if (!userOptions.includes(next)) {
-      userOptions = [next, ...userOptions].slice(0, 12);
     }
   }
 
@@ -197,9 +168,7 @@
   }
 
   async function loadSessions(): Promise<void> {
-    const response = await fetch(
-      `/api/sessions?userId=${encodeURIComponent(userId)}&profileId=${encodeURIComponent(activeProfileId)}`
-    );
+    const response = await fetch(`/api/sessions?profileId=${encodeURIComponent(activeProfileId)}`);
     const payload = await response.json();
     if (!response.ok || !payload?.ok) {
       throw new Error(payload?.error || "Failed to load sessions");
@@ -218,7 +187,7 @@
     const response = await fetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, profileId: activeProfileId })
+      body: JSON.stringify({ profileId: activeProfileId })
     });
     const payload = await response.json();
     if (!response.ok || !payload?.ok) {
@@ -237,7 +206,7 @@
     loadingMessages = true;
     try {
       const response = await fetch(
-        `/api/sessions/${encodeURIComponent(activeSessionId)}?userId=${encodeURIComponent(userId)}&profileId=${encodeURIComponent(activeProfileId)}`
+        `/api/sessions/${encodeURIComponent(activeSessionId)}?profileId=${encodeURIComponent(activeProfileId)}`
       );
       const payload = await response.json();
       if (!response.ok || !payload?.ok) {
@@ -287,7 +256,7 @@
       const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, profileId: activeProfileId, title: nextTitle })
+        body: JSON.stringify({ profileId: activeProfileId, title: nextTitle })
       });
       const payload = await response.json();
       if (!response.ok || !payload?.ok) {
@@ -307,7 +276,7 @@
     const response = await fetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, profileId: activeProfileId })
+      body: JSON.stringify({ profileId: activeProfileId })
     });
     const payload = await response.json();
     if (!response.ok || !payload?.ok) {
@@ -318,9 +287,12 @@
     status = "";
   }
 
-  async function startNewChatWithUser(selectedUserId: string): Promise<void> {
-    userId = sanitizeUserId(selectedUserId);
-    ensureUserOption(userId);
+  async function startNewChatWithProfile(selectedProfileId: string): Promise<void> {
+    const nextProfileId = String(selectedProfileId ?? "").trim();
+    if (nextProfileId) {
+      activeProfileId = nextProfileId;
+      activeProfileName = normalizeProfileName(profileNameById[activeProfileId], activeProfileId);
+    }
     persistIdentity();
 
     activeSessionId = "";
@@ -330,13 +302,13 @@
   }
 
   function openNewChatDialog(): void {
-    newChatUserId = userId;
+    newChatProfileId = activeProfileId;
     showNewChatDialog = true;
   }
 
   async function confirmNewChat(): Promise<void> {
     try {
-      await startNewChatWithUser(newChatUserId);
+      await startNewChatWithProfile(newChatProfileId);
       showNewChatDialog = false;
     } catch (error) {
       status = error instanceof Error ? error.message : String(error);
@@ -461,7 +433,6 @@
       let response: Response;
       if (filesToSend.length > 0) {
         const form = new FormData();
-        form.append("userId", userId);
         form.append("profileId", activeProfileId);
         form.append("conversationId", activeSessionId);
         form.append("message", text);
@@ -473,7 +444,7 @@
         response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId, profileId: activeProfileId, conversationId: activeSessionId, message: text })
+          body: JSON.stringify({ profileId: activeProfileId, conversationId: activeSessionId, message: text })
         });
       }
 
@@ -507,7 +478,7 @@
     promptSources = { global: [], agent: [], bot: [] };
     try {
       const response = await fetch(
-        `/api/web/system-prompt?userId=${encodeURIComponent(userId)}&profileId=${encodeURIComponent(activeProfileId)}&sessionId=${encodeURIComponent(activeSessionId)}&query=${encodeURIComponent(messageInput.trim())}`
+        `/api/web/system-prompt?profileId=${encodeURIComponent(activeProfileId)}&sessionId=${encodeURIComponent(activeSessionId)}&query=${encodeURIComponent(messageInput.trim())}`
       );
       const payload = await response.json();
       if (!response.ok || !payload?.ok) {
@@ -587,7 +558,6 @@
 
     try {
       const form = new FormData();
-      form.append("userId", userId);
       form.append("profileId", activeProfileId);
       form.append("conversationId", activeSessionId);
       form.append("message", "");
@@ -698,9 +668,6 @@
 
   onMount(async () => {
     try {
-      userId = sanitizeUserId(localStorage.getItem(LS_USER) ?? "web-anonymous");
-      userOptions = readJsonFromStorage<string[]>(LS_USERS, []).map(sanitizeUserId).filter(Boolean);
-      ensureUserOption(userId);
       activeProfileId = String(localStorage.getItem(LS_PROFILE) ?? "default") || "default";
 
       runtimeSettings = await fetchRuntimeSettings();
@@ -1053,22 +1020,18 @@
     <div class="absolute inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
       <div class="w-full max-w-lg rounded-2xl border border-white/15 bg-[#101820] p-4">
         <h2 class="text-base font-semibold text-white">Start New Chat</h2>
-        <p class="mt-1 text-xs text-slate-400">Only here you can choose the user identity. Once created, this chat keeps that user.</p>
-        <p class="mt-1 text-xs text-emerald-200/80">Current Profile: {activeProfileName}</p>
+        <p class="mt-1 text-xs text-slate-400">Choose the Web Profile for this new chat session.</p>
 
         <label class="mt-4 grid gap-1.5 text-sm">
-          <span class="text-slate-300">User ID</span>
-          <input
+          <span class="text-slate-300">Web Profile</span>
+          <select
             class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
-            bind:value={newChatUserId}
-            list="known-users"
-            placeholder="web-anonymous"
-          />
-          <datalist id="known-users">
-            {#each userOptions as option}
-              <option value={option}></option>
+            bind:value={newChatProfileId}
+          >
+            {#each Object.entries(profileNameById) as [profileId, profileName]}
+              <option value={profileId}>{profileName} ({profileId})</option>
             {/each}
-          </datalist>
+          </select>
         </label>
 
         <div class="mt-4 flex justify-end gap-2">
