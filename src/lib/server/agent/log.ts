@@ -24,6 +24,9 @@ const KEY_LOG_EVENTS = new Set<string>([
   "audio_route_decision",
   "voice_transcription_target",
   "voice_transcription_success",
+  "image_fallback_decision",
+  "image_analysis_target",
+  "image_analysis_success",
   // runner critical path
   // "run_start",
   // "model_selected",

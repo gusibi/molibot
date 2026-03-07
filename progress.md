@@ -1,14 +1,16 @@
-# Progress
+# Progress Log
 
-## 2026-03-03
-- 启动复杂任务的文件化计划。
-- 已读取技能说明、`features.md`、`prd.md`。
-- 已确认当前目录语义：`moli-t` / `moli-f` 是 channel runtime，不是 agent 层。
-- 下一步：继续定位 settings schema、prompt 加载实现和 bot 工作区路径生成逻辑。
-- 已完成 settings schema 扩展：新增 `agents` 与 bot `agentId` 关联字段，并加入 agent/bot profile 文件读写 API。
-- 已完成 `/settings/agents` 页面，以及 Telegram/Feishu bot 页面中的 agent 选择和 bot 级 Markdown 编辑。
-- 已完成 runtime prompt 分层加载与 preview 来源展示调整，顺序为 `global -> agent -> bot`。
-- 已移除 `prompt.ts` 中硬编码的 `Voldemomo` 身份句，核心 system prompt 现在保持中性，agent 身份改由 `IDENTITY.md` / `SOUL.md` 决定。
-- 已完成第二阶段 vision 路由：`runner.ts` 现在会根据 custom model 的 `vision` verification 决定是否发送 native image payload，否则降级为附件式处理。
-- 已完成 `audio_input` 配置层铺设：settings schema、sanitize、provider test、providers UI 均已支持该标签，但运行时仍保持 STT 路径，等待后续 native audio transport 能力。
-- 已完成音频显式路由决策：`runner.ts` 现在会先判断 `audio_input` / `stt` capability metadata，再决定走 STT fallback 还是保留 voice placeholder，并把降级原因写入日志。
+## 2026-03-06
+- 初始化任务规划文件，明确目标为“图片 fallback 与语音 fallback 对齐”。
+- 已完成 runner 中图片/语音链路对比，确认图片当前缺少真正的“转文本”环节。
+- 已新增 `src/lib/server/agent/vision-fallback.ts`，并把图片分析 fallback 接入 `src/lib/server/agent/runner.ts`。
+- 已同步更新日志观测与系统提示词，让 `[image analysis #N: ...]` 作为可直接推理的输入。
+- 文档已更新：`features.md` 记录实现能力与变更日志，`prd.md` 新增交付项 `P1-71`。
+- 遇到一次 `features.md` 更新日志补丁上下文未命中，已通过重新读取目标区段后修复。
+- 已执行 `npm install` 补齐本 worktree 缺失依赖；随后执行 `npm run build`，构建通过。
+- 构建过程中仅出现既有的 Node SQLite experimental warning 与若干 TypeBox circular dependency warning，本次改动未引入新的构建失败。
+
+## 2026-03-07
+- 通过检查 `/Users/gusi/.molibot/moli-t/bots/molipi_bot/7706709760/contexts/s-mmdo7f94.json` 确认根因：当前用户消息已经包含 `[image analysis #1: ...]` 文本，但同一 session 历史里仍残留 `type:"image"` 的 `toolResult`，导致后续文本模型请求继续携带 image content 并报 `400 Model do not support image input`。
+- 已修复 `src/lib/server/agent/runner.ts`：custom model 的 `input` 能力不再默认伪装成支持 image；发送到 `streamSimple()` 前会为 text-only model 清理上下文中的历史 image parts。
+- 下一步：重新触发一次相同 session 或新 session 图片问答，确认不再出现同类 400。

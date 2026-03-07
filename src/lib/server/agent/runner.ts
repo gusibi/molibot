@@ -10,6 +10,7 @@ import { momError, momLog, momWarn } from "./log.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { MomRuntimeStore } from "./store.js";
 import { resolveSttTarget, transcribeAudioViaConfiguredProvider } from "./stt.js";
+import { describeImageViaConfiguredProvider, resolveVisionFallbackTarget } from "./vision-fallback.js";
 import { createMomTools } from "./tools/index.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
@@ -125,6 +126,11 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
     selected.baseUrl,
     selected.path,
   );
+  const configuredModel = selected.models.find((m) => m.id === modelId);
+  const supportsVerifiedVision = Boolean(
+    configuredModel?.tags?.includes("vision") &&
+    configuredModel?.verification?.vision === "passed"
+  );
   return {
     id: modelId,
     name: selected.name || modelId,
@@ -132,7 +138,7 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
     provider: selected.id || "custom-provider",
     baseUrl: computedBaseUrl,
     reasoning: true,
-    input: ["text", "image"],
+    input: supportsVerifiedVision ? ["text", "image"] : ["text"],
     cost: {
       input: 0,
       output: 0,
@@ -141,6 +147,34 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
     },
     contextWindow: 200000,
     maxTokens: 8192,
+  };
+}
+
+function stripImagePartsForTextOnlyModel(selectedModel: Model<any>, context: any): any {
+  const supportsImage = Array.isArray(selectedModel.input) && selectedModel.input.includes("image");
+  if (supportsImage) return context;
+  if (!context || typeof context !== "object" || !Array.isArray(context.messages)) return context;
+
+  const messages = context.messages.map((message: any) => {
+    if (!message || typeof message !== "object" || !Array.isArray(message.content)) return message;
+
+    const filtered = message.content.filter((part: any) => part?.type !== "image");
+    if (filtered.length > 0) {
+      return { ...message, content: filtered };
+    }
+
+    const hadImage = message.content.some((part: any) => part?.type === "image");
+    if (!hadImage) return message;
+
+    return {
+      ...message,
+      content: [{ type: "text", text: "[image omitted from context for text-only model]" }]
+    };
+  });
+
+  return {
+    ...context,
+    messages
   };
 }
 
@@ -357,6 +391,69 @@ function decideAudioRouting(settings: RuntimeSettings, hasAudio: boolean): {
   };
 }
 
+function decideImageFallbackRouting(
+  settings: RuntimeSettings,
+  hasImages: boolean,
+  visionDecision: { sendImagesNatively: boolean; reason: string }
+): {
+  shouldAnalyze: boolean;
+  mode: "none" | "native" | "vision" | "fallback";
+  reason: string;
+  userNotice?: string;
+} {
+  if (!hasImages) {
+    return {
+      shouldAnalyze: false,
+      mode: "none",
+      reason: "no_images"
+    };
+  }
+
+  if (visionDecision.sendImagesNatively) {
+    return {
+      shouldAnalyze: false,
+      mode: "native",
+      reason: visionDecision.reason
+    };
+  }
+
+  const target = resolveVisionFallbackTarget(settings);
+  if (!target) {
+    return {
+      shouldAnalyze: false,
+      mode: "fallback",
+      reason: "no_vision_target",
+      userNotice: "收到图片消息，但当前没有可用的 vision fallback 路由；系统将保留图片附件占位信息而不做内容识别。"
+    };
+  }
+
+  if (!target.declared) {
+    return {
+      shouldAnalyze: false,
+      mode: "fallback",
+      reason: "vision_target_not_declared",
+      userNotice: "收到图片消息，但当前选中的图片模型没有声明 `vision` 能力；系统将保留图片附件占位信息而不做内容识别。"
+    };
+  }
+
+  if (target.verification === "failed") {
+    return {
+      shouldAnalyze: false,
+      mode: "fallback",
+      reason: "vision_target_failed_verification",
+      userNotice: "收到图片消息，但当前可用的 vision 模型验证失败；系统将保留图片附件占位信息而不做内容识别。"
+    };
+  }
+
+  return {
+    shouldAnalyze: true,
+    mode: "vision",
+    reason: target.verification === "passed"
+      ? "vision_fallback_verified"
+      : "vision_fallback_declared_unverified"
+  };
+}
+
 function envVarForProvider(provider: string): string | null {
   switch (provider) {
     case "anthropic":
@@ -487,19 +584,20 @@ function ensureAudioFilename(filename: string, mimeType?: string | null): string
 async function enrichMessageTextWithAudio(
   ctx: MomContext,
   settings: RuntimeSettings,
-  audioDecision: { shouldTranscribe: boolean; reason: string; userNotice?: string }
+  audioDecision: { shouldTranscribe: boolean; reason: string; userNotice?: string },
+  baseText: string = ctx.message.text
 ): Promise<{
   text: string;
   transcriptionErrors: string[];
 }> {
   const audioAttachments = ctx.message.attachments.filter((item) => item.isAudio);
   if (audioAttachments.length === 0) {
-    return { text: ctx.message.text, transcriptionErrors: [] };
+    return { text: baseText, transcriptionErrors: [] };
   }
 
   if (!audioDecision.shouldTranscribe) {
     return {
-      text: ctx.message.text,
+      text: baseText,
       transcriptionErrors: audioDecision.userNotice ? [audioDecision.userNotice] : []
     };
   }
@@ -538,7 +636,7 @@ async function enrichMessageTextWithAudio(
     }
   }
 
-  let text = ctx.message.text;
+  let text = baseText;
   if (transcripts.length > 0) {
     const transcriptSection = `[voice transcript]\n${transcripts.join("\n\n")}`;
     text = text.trim()
@@ -549,6 +647,65 @@ async function enrichMessageTextWithAudio(
   }
 
   return { text, transcriptionErrors };
+}
+
+async function enrichMessageTextWithImages(
+  ctx: MomContext,
+  settings: RuntimeSettings,
+  imageDecision: { shouldAnalyze: boolean; reason: string; userNotice?: string },
+  baseText: string
+): Promise<{
+  text: string;
+  analysisErrors: string[];
+}> {
+  const imageAttachments = ctx.message.attachments.filter((item) => item.isImage);
+  const imageContents = Array.isArray(ctx.message.imageContents) ? ctx.message.imageContents : [];
+  if (imageAttachments.length === 0 || imageContents.length === 0) {
+    return { text: baseText, analysisErrors: [] };
+  }
+
+  if (!imageDecision.shouldAnalyze) {
+    return {
+      text: baseText,
+      analysisErrors: imageDecision.userNotice ? [imageDecision.userNotice] : []
+    };
+  }
+
+  const analyses: string[] = [];
+  const analysisErrors: string[] = [];
+  const pairCount = Math.min(imageAttachments.length, imageContents.length);
+
+  for (let index = 0; index < pairCount; index += 1) {
+    const attachment = imageAttachments[index];
+    const image = imageContents[index];
+    const label = attachment?.original?.trim() || `image-${index + 1}`;
+    const analysis = await describeImageViaConfiguredProvider({
+      channel: ctx.channel,
+      settings,
+      image,
+      label,
+      maxAttempts: 3,
+      retryDelayMs: 800
+    });
+
+    if (analysis.text) {
+      analyses.push(`[image analysis #${index + 1}: ${label}]\n${analysis.text}`);
+    } else if (analysis.errorMessage) {
+      analysisErrors.push(`${label}: ${analysis.errorMessage}`);
+    }
+  }
+
+  let text = baseText;
+  if (analyses.length > 0) {
+    const imageSection = analyses.join("\n\n");
+    text = text.trim()
+      ? `${text}\n\n${imageSection}`
+      : imageSection;
+  } else if (!text.trim()) {
+    text = "(image message received; analysis unavailable)";
+  }
+
+  return { text, analysisErrors };
 }
 
 function mapUnsupportedDeveloperRole(
@@ -625,9 +782,13 @@ export class MomRunner implements RunnerLike {
       },
       streamFn: (selectedModel, context, opts) => {
         const settingsNow = this.getSettings();
-        const patchedContext = mapUnsupportedDeveloperRole(
+        const developerPatchedContext = mapUnsupportedDeveloperRole(
           settingsNow,
           context,
+        );
+        const patchedContext = stripImagePartsForTextOnlyModel(
+          selectedModel as Model<any>,
+          developerPatchedContext,
         );
         momLog("runner", "llm_stream_start", {
           chatId: this.chatId,
@@ -750,12 +911,12 @@ export class MomRunner implements RunnerLike {
       hasAudioInput: ctx.message.attachments.some((item) => item.isAudio),
     });
 
-    const enrichedInput = await enrichMessageTextWithAudio(ctx, settings, audioDecision);
-    if (enrichedInput.transcriptionErrors.length > 0) {
+    const audioEnrichedInput = await enrichMessageTextWithAudio(ctx, settings, audioDecision);
+    if (audioEnrichedInput.transcriptionErrors.length > 0) {
       await ctx.respondInThread(
         [
           "语音识别失败，已降级为未转写消息。",
-          ...enrichedInput.transcriptionErrors,
+          ...audioEnrichedInput.transcriptionErrors,
           "建议：检查 STT provider 的 baseUrl/path/model 是否正确。"
         ].join("\n")
       );
@@ -765,6 +926,36 @@ export class MomRunner implements RunnerLike {
       settings,
       Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0
     );
+    const imageDecision = decideImageFallbackRouting(
+      settings,
+      Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0,
+      visionDecision
+    );
+    momLog("runner", "image_fallback_decision", {
+      runId,
+      chatId: this.chatId,
+      sessionId: this.sessionId,
+      mode: imageDecision.mode,
+      reason: imageDecision.reason,
+      visionRouteKey: currentModelKey(settings, "vision"),
+      hasImages: Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0,
+    });
+    const enrichedInput = await enrichMessageTextWithImages(
+      ctx,
+      settings,
+      imageDecision,
+      audioEnrichedInput.text
+    );
+    if (enrichedInput.analysisErrors.length > 0) {
+      await ctx.respondInThread(
+        [
+          "图片识别不可用，已降级为仅保留图片附件占位信息。",
+          ...enrichedInput.analysisErrors,
+          "建议：检查 vision provider 的 baseUrl/path/model，以及模型是否声明 `vision` 能力。"
+        ].join("\n")
+      );
+    }
+
     const selectedModel = visionDecision.selection.model;
     const selectedCustom = settings.customProviders.find((p) => p.id === selectedModel.provider);
     const resolvedKey = resolveApiKeyForModel(selectedModel, settings);

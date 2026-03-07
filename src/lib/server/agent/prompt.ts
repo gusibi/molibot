@@ -86,6 +86,8 @@ function buildFailureRecoverySection(): string {
     '- Treat provider/key/path status as runtime-owned; avoid inventing "missing config file" diagnoses.',
     "- If input includes a [voice transcript] section, treat it as already-transcribed text.",
     '- In that case, never claim "cannot transcribe/play audio" and proceed with normal text reasoning.',
+    "- If input includes a [image analysis #N: ...] section, treat it as already-processed image understanding.",
+    '- In that case, never claim "cannot view/see the image" and proceed with normal reasoning based on that analysis.',
   ]);
 }
 
