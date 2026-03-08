@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="540" viewBox="0 0 1200 540">
+  <defs>
+    <style>
+      .title { font: 700 28px sans-serif; fill: #0f172a; }
+      .label { font: 600 18px sans-serif; fill: #0f172a; }
+      .text { font: 500 14px sans-serif; fill: #334155; }
+      .box { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 14; }
+      .core { fill: #ecfeff; stroke: #06b6d4; stroke-width: 2; rx: 14; }
+      .node { fill: #f1f5f9; stroke: #94a3b8; stroke-width: 2; rx: 12; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,4 L0,8 z" fill="#64748b" />
+    </marker>
+  </defs>
+
+  <rect x="20" y="20" width="1160" height="500" fill="#ffffff" stroke="#e2e8f0" stroke-width="2" rx="18" />
+  <text x="50" y="65" class="title">Molibot Architecture</text>
+
+  <rect class="box" x="60" y="120" width="220" height="260" />
+  <text x="90" y="155" class="label">Chat Entrypoints</text>
+  <text x="90" y="190" class="text">Web Chat</text>
+  <text x="90" y="220" class="text">Telegram Bot</text>
+  <text x="90" y="250" class="text">Feishu Bot</text>
+  <text x="90" y="280" class="text">CLI</text>
+
+  <rect class="core" x="360" y="170" width="260" height="160" />
+  <text x="395" y="220" class="label">Molibot Runtime</text>
+  <text x="395" y="250" class="text">Unified Agent Loop</text>
+  <text x="395" y="276" class="text">Shared Pipeline</text>
+
+  <rect class="node" x="700" y="90" width="220" height="90" />
+  <text x="730" y="125" class="label">Model Routing</text>
+  <text x="730" y="150" class="text">text / vision / stt / tts</text>
+
+  <rect class="node" x="700" y="200" width="220" height="80" />
+  <text x="730" y="248" class="label">Tools</text>
+
+  <rect class="node" x="700" y="300" width="220" height="80" />
+  <text x="730" y="348" class="label">Memory</text>
+
+  <rect class="node" x="960" y="140" width="180" height="80" />
+  <text x="990" y="188" class="label">Sessions</text>
+
+  <rect class="node" x="960" y="260" width="180" height="120" />
+  <text x="980" y="302" class="label">Profile Files</text>
+  <text x="980" y="330" class="text">global -&gt; agent</text>
+  <text x="980" y="352" class="text">-&gt; bot/profile</text>
+
+  <line x1="280" y1="250" x2="360" y2="250" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
+  <line x1="620" y1="220" x2="700" y2="135" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
+  <line x1="620" y1="245" x2="700" y2="240" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
+  <line x1="620" y1="280" x2="700" y2="340" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
+  <line x1="920" y1="135" x2="960" y2="175" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
+  <line x1="920" y1="340" x2="960" y2="320" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)" />
+</svg>

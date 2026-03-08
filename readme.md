@@ -54,14 +54,18 @@ flowchart LR
     D[CLI] --> R
 
     R --> P[Agent Loop]
-    P --> M[Model Routing<br/>text/vision/stt/tts]
+    P --> M["Model Routing: text / vision / stt / tts"]
     P --> T[Tools]
     P --> MM[Memory]
     P --> S[Sessions]
     P --> F[Profile Files]
 
-    F --> L[global -> agent -> bot/profile]
+    F --> L["Prompt Layers: global -> agent -> bot/profile"]
 ```
+
+If Mermaid is not rendered in your viewer, use this static diagram:
+
+![Molibot Architecture](./docs/images/molibot-architecture.svg)
 
 ## Feature Snapshot
 

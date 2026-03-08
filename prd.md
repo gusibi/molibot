@@ -116,6 +116,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-73 | Web chat identity model simplification (profile-only) | P1 | Delivered (2026-03-07) | Web chat should remove user-ID selection entirely and use Web Profile as the only session identity dimension in UI flow, so New Chat only picks profile and no opaque user-id input appears |
 | P1-74 | README visual information architecture polish | P1 | Delivered (2026-03-08) | README should present a clear first-screen story with hero, concise highlights, architecture diagram, feature snapshot, and quick-start-first onboarding while keeping all capability claims grounded in actual implementation status |
 | P1-75 | README scannability and navigation polish | P1 | Delivered (2026-03-08) | README should add fast navigation and status cues (table of contents, badges, and concise surface matrix) so first-time readers can locate setup/usage sections in seconds |
+| P1-76 | README architecture rendering compatibility fallback | P1 | Delivered (2026-03-08) | Architecture section should remain visible even in environments without Mermaid rendering by keeping Mermaid syntax compatibility-friendly and providing a local static diagram fallback |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -1084,3 +1085,14 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - QQ channel 发送逻辑中，`replyToId` 应固定为当前入站消息 ID（或降级主动消息），不得动态覆盖为 bot 输出消息 ID。
   - 通用附件分类层必须把 `.amr/.silk` 归入 audio，保持跨 channel STT 判定一致性。
+
+## 87. Credential Field Visibility Toggle in Settings (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 凭证输入框默认掩码会阻碍人工核对，输入错误时难以快速定位（尤其是长 token/secret）。
+- Requirement:
+  - Bot 渠道设置页应支持凭证字段一键 `Show/Hide`，在不离开页面的情况下校验输入值。
+- Enforcement:
+  - Telegram token、Feishu App Secret、QQ App Secret 字段均需提供可切换可见性的按钮。
+  - 切换逻辑仅影响前端显示，不改变保存 payload、后端存储和日志脱敏策略。

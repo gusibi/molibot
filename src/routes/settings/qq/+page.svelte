@@ -30,6 +30,7 @@
   let agents: AgentItem[] = [];
   let selectedBotId = "";
   let savedSnapshots: Record<string, string> = {};
+  let showClientSecret = false;
 
   function createBotId(): string {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -410,12 +411,21 @@
 
               <label class="grid gap-1.5 text-sm">
                 <span class="text-slate-300">App Secret</span>
-                <input
-                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
-                  bind:value={selectedBot.clientSecret}
-                  type="password"
-                  placeholder="Your QQ Client Secret"
-                />
+                <div class="flex items-center gap-2">
+                  <input
+                    class="flex-1 rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                    bind:value={selectedBot.clientSecret}
+                    type={showClientSecret ? "text" : "password"}
+                    placeholder="Your QQ Client Secret"
+                  />
+                  <button
+                    class="rounded-md border border-white/20 bg-white/5 px-2 py-2 text-xs text-slate-200 hover:bg-white/10"
+                    type="button"
+                    on:click={() => (showClientSecret = !showClientSecret)}
+                  >
+                    {showClientSecret ? "Hide" : "Show"}
+                  </button>
+                </div>
               </label>
             </div>
 

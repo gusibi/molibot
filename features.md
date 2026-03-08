@@ -106,6 +106,7 @@
 | DOC-08 | README full onboarding refresh | Done | Rewrote `readme.md` into a concise end-to-end guide: install, configure, startup modes, first-time setup sequence, Web/Telegram usage, settings index, data layout, and environment variables |
 | DOC-09 | README visual story upgrade | Done | Refactored README presentation with a stronger hero, key highlights, architecture diagram, feature snapshot, and a cleaner quick-start-first narrative inspired by modern agent project documentation style |
 | DOC-10 | README scannability enhancement | Done | Added badges, table of contents, and product surface matrix to improve first-screen readability and make key sections discoverable faster |
+| DOC-11 | README architecture rendering fallback | Done | Simplified Mermaid syntax for compatibility and added a local static SVG architecture diagram fallback so readers can always see the architecture even when Mermaid rendering is unavailable |
 | ENG-128 | Memory sync deduplication | Done | Added exact-content deduplication to `mory` memory writes and prompt-context rendering so periodic sync/import noise does not duplicate `Current Memory` entries |
 | ENG-129 | Memory update dedupe and compact tool parity | Done | Updating a memory to content that already exists now merges into the survivor instead of creating a duplicate, and the mom `memory` tool now exposes `compact` so agent-side dedupe uses the same capability as the web API |
 | ENG-130 | Explicit all-scope memory queries | Done | Memory API, settings page, and mom memory tool now require explicit `allScopes` to query or compact across all scopes; default behavior stays limited to the current scope |
@@ -204,6 +205,7 @@
 | BL-04 | Vector memory | Backlog | Post V1 |
 
 ## Update Log
+- 2026-03-08: Fixed README architecture visibility issue reported by user. Replaced Mermaid HTML line-break label with plain-text labels and added a static fallback image `docs/images/molibot-architecture.svg` directly under the Mermaid block.
 - 2026-03-08: Enhanced README scannability with status badges, a table of contents, and a concise product-surface matrix (`Web/Telegram/Feishu/CLI`) so readers can quickly understand maturity and entry points.
 - 2026-03-08: Reworked `readme.md` visual structure by referencing the presentation style of similar lightweight assistant projects (hero + highlights + architecture diagram + feature snapshot + quick start). Kept claims aligned to actual Molibot capabilities and current implementation boundaries.
 - 2026-03-07: Simplified Web Chat identity model to profile-only. Removed `userId` from chat-page local storage/state and request payloads, removed User ID input from New Chat dialog, and kept session creation scoped only by selected Web Profile.
@@ -490,3 +492,4 @@
 - 2026-03-08: Added QQ inbound media intake baseline in `src/lib/server/channels/qq/runtime.ts`: attachments are now downloaded from `attachments[].url` / `voice_wav_url`, saved via `store.saveAttachment`, images are injected into `imageContents`, and media-only inbound events are no longer dropped as empty text.
 - 2026-03-08: Fixed QQ reply `msg_id` misuse in `src/lib/server/channels/qq/runtime.ts`: channel no longer chains bot-generated message IDs as subsequent reply targets, preventing `40034024 msg_id invalid/unauthorized` storms on multi-chunk outputs.
 - 2026-03-08: Improved QQ voice intake compatibility by treating `.amr` / `.silk` as audio in both QQ intake (`runtime.ts`) and attachment classification (`src/lib/server/agent/store.ts`), so runner audio route can detect voice input instead of `no_audio`.
+- 2026-03-08: Added credential visibility toggles (Show/Hide) in bot settings pages for Telegram token, Feishu App Secret, and QQ App Secret to support manual verification of sensitive input values without leaving settings.
