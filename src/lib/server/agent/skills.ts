@@ -10,11 +10,16 @@ export interface LoadedSkill {
   filePath: string;
   baseDir: string;
   scope: SkillScope;
+  mcpServers: string[];
 }
 
 export interface SkillLoadResult {
   skills: LoadedSkill[];
   diagnostics: string[];
+}
+
+interface SkillLoadOptions {
+  disabledSkillPaths?: string[];
 }
 
 function stripQuotes(value: string): string {
@@ -46,6 +51,29 @@ function parseFrontmatter(content: string): Record<string, string> | null {
   return data;
 }
 
+function parseStringList(raw: string | undefined): string[] {
+  const source = String(raw ?? "").trim();
+  if (!source) return [];
+
+  if (source.startsWith("[") && source.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(source) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => String(item ?? "").trim())
+          .filter(Boolean);
+      }
+    } catch {
+      // fall through to csv parsing
+    }
+  }
+
+  return source
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function findSkillFiles(rootDir: string, out: string[]): void {
   const entries = readdirSync(rootDir, { withFileTypes: true });
   for (const entry of entries) {
@@ -60,9 +88,18 @@ function findSkillFiles(rootDir: string, out: string[]): void {
   }
 }
 
-export function loadSkillsFromWorkspace(workspaceDir: string, chatId?: string): SkillLoadResult {
+export function loadSkillsFromWorkspace(
+  workspaceDir: string,
+  chatId?: string,
+  options?: SkillLoadOptions
+): SkillLoadResult {
   const files: string[] = [];
   const diagnostics: string[] = [];
+  const disabled = new Set(
+    (options?.disabledSkillPaths ?? [])
+      .map((row) => String(row ?? "").trim())
+      .filter(Boolean)
+  );
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
   const roots: Array<{ scope: SkillScope; dir: string }> = [];
 
@@ -86,6 +123,7 @@ export function loadSkillsFromWorkspace(workspaceDir: string, chatId?: string): 
   const deduped = new Map<string, LoadedSkill>();
   for (const row of candidates) {
     const filePath = row.filePath;
+    if (disabled.has(filePath)) continue;
     let raw = "";
     try {
       raw = readFileSync(filePath, "utf8");
@@ -119,7 +157,8 @@ export function loadSkillsFromWorkspace(workspaceDir: string, chatId?: string): 
       description,
       filePath,
       baseDir: dirname(filePath),
-      scope: row.scope
+      scope: row.scope,
+      mcpServers: parseStringList(fm.mcpServers ?? fm.mcp_servers)
     });
   }
 
@@ -134,7 +173,31 @@ export function formatSkillsForPrompt(skills: LoadedSkill[]): string {
   return skills
     .map(
       (skill) =>
-        `- ${skill.name}\n  description: ${skill.description}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}\n  base_dir: ${skill.baseDir}`
+        `- ${skill.name}\n  description: ${skill.description}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}\n  base_dir: ${skill.baseDir}${
+          skill.mcpServers.length > 0 ? `\n  mcp_servers: ${skill.mcpServers.join(", ")}` : ""
+        }`
     )
     .join("\n");
+}
+
+export function resolveRequestedMcpServerIds(skills: LoadedSkill[], inputText: string): string[] {
+  const text = inputText.toLowerCase();
+  const matched = new Set<string>();
+  for (const skill of skills) {
+    if (skill.mcpServers.length === 0) continue;
+    const normalizedName = skill.name.trim().toLowerCase();
+    if (!normalizedName) continue;
+    const explicitPatterns = [
+      `$${normalizedName}`,
+      `/skill ${normalizedName}`,
+      `skill:${normalizedName}`,
+      `技能:${normalizedName}`
+    ];
+    const explicitlyInvoked = explicitPatterns.some((pattern) => text.includes(pattern));
+    if (!explicitlyInvoked) continue;
+    for (const serverId of skill.mcpServers) {
+      matched.add(serverId);
+    }
+  }
+  return Array.from(matched.values());
 }

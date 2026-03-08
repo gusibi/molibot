@@ -9,6 +9,8 @@
     filePath: string;
     baseDir: string;
     scope: SkillScope;
+    enabled: boolean;
+    mcpServers: string[];
     botId?: string;
     chatId?: string;
   }
@@ -21,6 +23,7 @@
   let diagnostics: string[] = [];
   let items: SkillItem[] = [];
   let count = { global: 0, chat: 0, bot: 0 };
+  let saving = new Set<string>();
 
   function byScope(scope: SkillScope): SkillItem[] {
     return items
@@ -50,6 +53,32 @@
       error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
+    }
+  }
+
+  async function setSkillEnabled(filePath: string, enabled: boolean): Promise<void> {
+    error = "";
+    message = "";
+    const prev = items;
+    items = items.map((item) => item.filePath === filePath ? { ...item, enabled } : item);
+    saving = new Set([...saving, filePath]);
+    try {
+      const disabledSkillPaths = items.filter((item) => !item.enabled).map((item) => item.filePath);
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disabledSkillPaths })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Failed to save skill status");
+      message = "Skill status updated.";
+    } catch (e) {
+      items = prev;
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      const next = new Set(saving);
+      next.delete(filePath);
+      saving = next;
     }
   }
 
@@ -133,11 +162,27 @@
                 <article
                   class="rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
                 >
-                  <p class="text-sm font-semibold">{item.name}</p>
+                  <div class="flex items-start justify-between gap-3">
+                    <p class="text-sm font-semibold">{item.name}</p>
+                    <label class="inline-flex items-center gap-2 text-xs text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={item.enabled}
+                        disabled={saving.has(item.filePath)}
+                        on:change={(event) => setSkillEnabled(item.filePath, (event.target as HTMLInputElement).checked)}
+                      />
+                      <span>{item.enabled ? "Enabled" : "Disabled"}</span>
+                    </label>
+                  </div>
                   <p class="mt-1 text-sm text-slate-400">{item.description}</p>
                   <p class="mt-2 text-xs text-slate-400">
                     Path: {item.filePath}
                   </p>
+                  {#if item.mcpServers?.length > 0}
+                    <p class="mt-1 text-xs text-emerald-300">
+                      MCP: {item.mcpServers.join(", ")}
+                    </p>
+                  {/if}
                 </article>
               {/each}
             {/if}
@@ -156,7 +201,18 @@
                 <article
                   class="rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
                 >
-                  <p class="text-sm font-semibold">{item.name}</p>
+                  <div class="flex items-start justify-between gap-3">
+                    <p class="text-sm font-semibold">{item.name}</p>
+                    <label class="inline-flex items-center gap-2 text-xs text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={item.enabled}
+                        disabled={saving.has(item.filePath)}
+                        on:change={(event) => setSkillEnabled(item.filePath, (event.target as HTMLInputElement).checked)}
+                      />
+                      <span>{item.enabled ? "Enabled" : "Disabled"}</span>
+                    </label>
+                  </div>
                   <p class="mt-1 text-sm text-slate-400">{item.description}</p>
                   <p class="mt-2 text-xs text-slate-400">
                     Bot: {item.botId || "-"} | Chat: {item.chatId || "-"}
@@ -164,6 +220,11 @@
                   <p class="mt-1 text-xs text-slate-400">
                     Path: {item.filePath}
                   </p>
+                  {#if item.mcpServers?.length > 0}
+                    <p class="mt-1 text-xs text-emerald-300">
+                      MCP: {item.mcpServers.join(", ")}
+                    </p>
+                  {/if}
                 </article>
               {/each}
             {/if}
@@ -182,7 +243,18 @@
                 <article
                   class="rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
                 >
-                  <p class="text-sm font-semibold">{item.name}</p>
+                  <div class="flex items-start justify-between gap-3">
+                    <p class="text-sm font-semibold">{item.name}</p>
+                    <label class="inline-flex items-center gap-2 text-xs text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={item.enabled}
+                        disabled={saving.has(item.filePath)}
+                        on:change={(event) => setSkillEnabled(item.filePath, (event.target as HTMLInputElement).checked)}
+                      />
+                      <span>{item.enabled ? "Enabled" : "Disabled"}</span>
+                    </label>
+                  </div>
                   <p class="mt-1 text-sm text-slate-400">{item.description}</p>
                   <p class="mt-2 text-xs text-slate-400">
                     Bot: {item.botId || "-"}
@@ -190,6 +262,11 @@
                   <p class="mt-1 text-xs text-slate-400">
                     Path: {item.filePath}
                   </p>
+                  {#if item.mcpServers?.length > 0}
+                    <p class="mt-1 text-xs text-emerald-300">
+                      MCP: {item.mcpServers.join(", ")}
+                    </p>
+                  {/if}
                 </article>
               {/each}
             {/if}

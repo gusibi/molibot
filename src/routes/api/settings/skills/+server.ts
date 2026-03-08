@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
+import { getRuntime } from "$lib/server/app/runtime";
 
 type SkillScope = "global" | "chat" | "bot";
 
@@ -12,6 +13,8 @@ interface SkillItem {
   filePath: string;
   baseDir: string;
   scope: SkillScope;
+  enabled: boolean;
+  mcpServers: string[];
   botId?: string;
   chatId?: string;
 }
@@ -88,12 +91,30 @@ function parseSkillFile(
     filePath,
     baseDir: dirname(filePath),
     scope,
+    enabled: true,
+    mcpServers: (() => {
+      const raw = String(fm.mcpServers ?? fm.mcp_servers ?? "").trim();
+      if (!raw) return [];
+      if (raw.startsWith("[") && raw.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(raw) as unknown;
+          if (Array.isArray(parsed)) {
+            return parsed.map((item) => String(item ?? "").trim()).filter(Boolean);
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return raw.split(",").map((item) => item.trim()).filter(Boolean);
+    })(),
     botId,
     chatId
   };
 }
 
 export const GET: RequestHandler = async () => {
+  const { getSettings } = getRuntime();
+  const disabledSet = new Set(getSettings().disabledSkillPaths ?? []);
   const dataRoot = resolve(config.dataDir);
   const globalSkillsDir = join(dataRoot, "skills");
   const botsRoot = join(dataRoot, "moli-t", "bots");
@@ -145,6 +166,10 @@ export const GET: RequestHandler = async () => {
     chat: items.filter((i) => i.scope === "chat").length,
     bot: items.filter((i) => i.scope === "bot").length
   };
+
+  for (const item of items) {
+    item.enabled = !disabledSet.has(item.filePath);
+  }
 
   return json({
     ok: true,

@@ -4,6 +4,7 @@ import { getRuntime } from "$lib/server/app/runtime";
 import type {
   RuntimeSettings,
   CustomProviderConfig,
+  McpServerConfig,
   TelegramBotConfig,
   FeishuBotConfig,
   QQBotConfig,
@@ -17,6 +18,8 @@ type SettingsBody = Partial<RuntimeSettings> & {
   feishuBots?: FeishuBotConfig[] | string;
   qqBots?: QQBotConfig[] | string;
   agents?: AgentSettings[] | string;
+  mcpServers?: McpServerConfig[] | Record<string, unknown> | string;
+  disabledSkillPaths?: string[] | string;
 };
 
 function normalizePatch(body: SettingsBody): Partial<RuntimeSettings> {
@@ -66,6 +69,27 @@ function normalizePatch(body: SettingsBody): Partial<RuntimeSettings> {
       patch.agents = JSON.parse(body.agents) as AgentSettings[];
     } catch {
       patch.agents = [];
+    }
+  }
+
+  if (typeof body.mcpServers === "string") {
+    try {
+      (patch as unknown as { mcpServers?: unknown }).mcpServers = JSON.parse(body.mcpServers) as unknown;
+    } catch {
+      patch.mcpServers = [];
+    }
+  } else if (body.mcpServers && typeof body.mcpServers === "object") {
+    (patch as unknown as { mcpServers?: unknown }).mcpServers = body.mcpServers as unknown;
+  }
+
+  if (typeof body.disabledSkillPaths === "string") {
+    try {
+      patch.disabledSkillPaths = JSON.parse(body.disabledSkillPaths) as string[];
+    } catch {
+      patch.disabledSkillPaths = body.disabledSkillPaths
+        .split("\n")
+        .map((v) => v.trim())
+        .filter(Boolean);
     }
   }
 

@@ -6,6 +6,7 @@ import {
   type CustomProviderConfig,
   type FeishuBotConfig,
   type QQBotConfig,
+  type McpServerConfig,
   type ProviderMode,
   type RuntimeSettings,
   type TelegramBotConfig
@@ -25,6 +26,88 @@ function providerFromEnv(name: string, fallback: KnownProvider): KnownProvider {
   if (isKnownProvider(raw)) return raw;
   console.warn(`[config] Unknown provider '${raw}' in ${name}; fallback to '${fallback}'.`);
   return fallback;
+}
+
+function parseEnvMcpServers(): McpServerConfig[] {
+  const raw = String(process.env.MOLIBOT_MCP_SERVERS ?? "").trim();
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const rows: Array<{ id: string; value: Record<string, unknown> }> = Array.isArray(parsed)
+      ? parsed
+        .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object")
+        .map((row) => ({ id: String(row.id ?? "").trim(), value: row }))
+      : (parsed && typeof parsed === "object")
+        ? Object.entries(parsed as Record<string, unknown>)
+          .filter(([, row]) => Boolean(row) && typeof row === "object")
+          .map(([id, row]) => ({ id: String(id).trim(), value: row as Record<string, unknown> }))
+        : [];
+    if (rows.length === 0) return [];
+
+    const out: McpServerConfig[] = [];
+    const dedup = new Set<string>();
+    for (const row of rows) {
+      const item = row.value;
+      const id = row.id || String(item.id ?? "").trim() || `mcp-${Math.random().toString(36).slice(2, 8)}`;
+      if (dedup.has(id)) continue;
+      dedup.add(id);
+
+      const transportRaw = String(item.transport ?? item.type ?? "stdio").trim().toLowerCase();
+      const transport = transportRaw === "http" ? "http" : "stdio";
+
+      const stdioRaw = item.stdio && typeof item.stdio === "object"
+        ? item.stdio as Record<string, unknown>
+        : {};
+      const command = String(stdioRaw.command ?? item.command ?? "").trim();
+      const args = Array.isArray(stdioRaw.args)
+        ? stdioRaw.args.map((value) => String(value ?? "").trim()).filter(Boolean)
+        : [];
+      const envRaw = stdioRaw.env && typeof stdioRaw.env === "object"
+        ? stdioRaw.env as Record<string, unknown>
+        : {};
+      const env = Object.fromEntries(
+        Object.entries(envRaw)
+          .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
+          .filter(([key]) => Boolean(key))
+      );
+      const httpRaw = item.http && typeof item.http === "object"
+        ? item.http as Record<string, unknown>
+        : {};
+      const headersRaw = httpRaw.headers && typeof httpRaw.headers === "object"
+        ? httpRaw.headers as Record<string, unknown>
+        : {};
+      const headers = Object.fromEntries(
+        Object.entries(headersRaw)
+          .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
+          .filter(([key]) => Boolean(key))
+      );
+      const url = String(httpRaw.url ?? item.url ?? "").trim();
+      if (transport === "stdio" && !command) continue;
+      if (transport === "http" && !url) continue;
+
+      out.push({
+        id,
+        name: String(item.name ?? "").trim() || id,
+        enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+        transport,
+        stdio: {
+          command,
+          args,
+          env,
+          cwd: String(stdioRaw.cwd ?? "").trim()
+        },
+        http: {
+          url,
+          headers
+        },
+        toolNamePrefix: String(item.toolNamePrefix ?? "").trim()
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 function mapTelegramBotsToChannelSettings(bots: TelegramBotConfig[]): ChannelInstanceSettings[] {
@@ -131,6 +214,7 @@ const defaultQQBots: QQBotConfig[] = defaultQQAppId && defaultQQClientSecret
   : [];
 
 const defaultAgents: AgentSettings[] = [];
+const defaultMcpServers = parseEnvMcpServers();
 
 export const defaultRuntimeSettings: RuntimeSettings = {
   providerMode,
@@ -174,6 +258,8 @@ export const defaultRuntimeSettings: RuntimeSettings = {
       instances: mapQQBotsToChannelSettings(defaultQQBots)
     }
   },
+  mcpServers: defaultMcpServers,
+  disabledSkillPaths: [],
   telegramBots: defaultTelegramBots,
   qqBots: defaultQQBots,
   plugins: {

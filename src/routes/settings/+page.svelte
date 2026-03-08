@@ -6,7 +6,7 @@
     <h1 class="text-3xl font-bold tracking-tight text-white">
       Settings Overview
     </h1>
-    <p class="mt-2 text-base text-slate-400">
+    <p class="mt-2 text-base text-[var(--muted-foreground)]">
       Manage AI runtime, agent logic, and connected bot channels.
     </p>
   </div>
@@ -22,7 +22,7 @@
         >
           AI Engine
         </h2>
-        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
           Configure model routing, system prompts, and custom providers.
         </p>
       </div>
@@ -43,7 +43,7 @@
         >
           Agents
         </h2>
-        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
           Define reusable agent identities and edit their Markdown files.
         </p>
       </div>
@@ -64,7 +64,7 @@
         >
           Agent Memory
         </h2>
-        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
           Review, search, flush, and curate assistant memory records.
         </p>
       </div>
@@ -85,7 +85,7 @@
         >
           Web Profiles
         </h2>
-        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
           Manage web profile instances, agent binding, and profile-level markdown overrides.
         </p>
       </div>
@@ -106,7 +106,7 @@
         >
           Bot Channels
         </h2>
-        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
           Set up Telegram, Feishu, and QQ connections.
         </p>
       </div>
@@ -127,7 +127,7 @@
         >
           Skills & Tasks
         </h2>
-        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
           Explore installed skills and scheduled cron tasks.
         </p>
       </div>
@@ -135,6 +135,27 @@
         class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
       >
         Explore &rarr;
+      </div>
+    </a>
+
+    <a
+      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
+      href="/settings/mcp"
+    >
+      <div>
+        <h2
+          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
+        >
+          MCP Servers
+        </h2>
+        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
+          Configure MCP endpoints for skill-scoped tool extensions.
+        </p>
+      </div>
+      <div
+        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+      >
+        Configure MCP &rarr;
       </div>
     </a>
 
@@ -148,7 +169,7 @@
         >
           System Plugins
         </h2>
-        <p class="mt-2 text-sm leading-relaxed text-slate-400">
+        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
           Toggle core features like the memory backend storage engine.
         </p>
       </div>

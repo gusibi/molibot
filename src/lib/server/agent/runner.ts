@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { getModels, streamSimple, type Model } from "@mariozechner/pi-ai";
@@ -12,6 +12,8 @@ import { MomRuntimeStore } from "./store.js";
 import { resolveSttTarget, transcribeAudioViaConfiguredProvider } from "./stt.js";
 import { describeImageViaConfiguredProvider, resolveVisionFallbackTarget } from "./vision-fallback.js";
 import { createMomTools } from "./tools/index.js";
+import { getMcpToolsForRuntime } from "./mcp.js";
+import { loadSkillsFromWorkspace } from "./skills.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
 
@@ -257,6 +259,45 @@ function resolveModelSelection(
 
 function resolveModel(settings: RuntimeSettings, useCase: "text" | "vision" = "text"): Model<any> {
   return resolveModelSelection(settings, useCase).model;
+}
+
+function hasExplicitSkillInvocation(
+  skills: Array<{ name: string }>,
+  inputText: string
+): boolean {
+  const text = inputText.toLowerCase();
+  for (const skill of skills) {
+    const normalizedName = String(skill.name ?? "").trim().toLowerCase();
+    if (!normalizedName) continue;
+    const explicitPatterns = [
+      `$${normalizedName}`,
+      `/skill ${normalizedName}`,
+      `skill:${normalizedName}`,
+      `技能:${normalizedName}`
+    ];
+    if (explicitPatterns.some((pattern) => text.includes(pattern))) return true;
+  }
+  return false;
+}
+
+function buildPromptRefreshKey(
+  settings: RuntimeSettings,
+  channel: string,
+  workspaceDir: string
+): string {
+  const botId = basename(workspaceDir);
+  const instances = settings.channels?.[channel]?.instances ?? [];
+  const activeInstance = instances.find((instance) => instance.id === botId);
+  return JSON.stringify({
+    channel,
+    botId,
+    botAgentId: String(activeInstance?.agentId ?? "").trim(),
+    botInstanceEnabled: activeInstance?.enabled !== false,
+    timezone: settings.timezone,
+    systemPrompt: settings.systemPrompt,
+    disabledSkillPaths: settings.disabledSkillPaths,
+    mcpServers: settings.mcpServers
+  });
 }
 
 function supportsVisionNatively(
@@ -748,6 +789,9 @@ function mapUnsupportedDeveloperRole(
 export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
   private running = false;
+  private selectedMcpServerIds = new Set<string>();
+  private promptRefreshKey = "";
+  private systemPromptReady = false;
 
   constructor(
     private readonly channel: string,
@@ -1004,41 +1048,121 @@ export class MomRunner implements RunnerLike {
       apiKeyFingerprint: keyFingerprint(resolvedKey),
     });
     await this.memory.syncExternalMemories();
-    const memoryText =
-      (await this.memory.buildPromptContext(
-        { channel: this.channel, externalUserId: this.chatId },
-        enrichedInput.text,
-        12,
-      )) || "(no working memory yet)";
-    this.agent.setSystemPrompt(
-      buildSystemPrompt(
-        this.store.getWorkspaceDir(),
-        this.chatId,
-        this.sessionId,
-        memoryText,
-        {
-          channel: this.channel as "telegram" | "feishu" | "qq" | "web",
-          timezone: settings.timezone,
-          settings
-        },
-      ),
-    );
-
-    this.agent.setTools(
-      createMomTools({
-        channel: ctx.channel,
-        cwd: this.store.getScratchDir(this.chatId),
-        workspaceDir: this.store.getWorkspaceDir(),
+    const nextPromptKey = buildPromptRefreshKey(settings, this.channel, this.store.getWorkspaceDir());
+    if (!this.systemPromptReady || this.promptRefreshKey !== nextPromptKey) {
+      const memoryText =
+        (await this.memory.buildPromptContext(
+          { channel: this.channel, externalUserId: this.chatId },
+          enrichedInput.text,
+          12,
+        )) || "(no working memory yet)";
+      this.agent.setSystemPrompt(
+        buildSystemPrompt(
+          this.store.getWorkspaceDir(),
+          this.chatId,
+          this.sessionId,
+          memoryText,
+          {
+            channel: this.channel as "telegram" | "feishu" | "qq" | "web",
+            timezone: settings.timezone,
+            settings
+          },
+        ),
+      );
+      this.promptRefreshKey = nextPromptKey;
+      this.systemPromptReady = true;
+      momLog("runner", "system_prompt_refreshed", {
+        runId,
         chatId: this.chatId,
-        timezone: settings.timezone,
-        memory: this.memory,
-        getSettings: this.getSettings,
-        updateSettings: this.updateSettings,
-        uploadFile: async (filePath, title) => {
-          await ctx.uploadFile(filePath, title);
-        },
-      }),
-    );
+        sessionId: this.sessionId
+      });
+    } else {
+      momLog("runner", "system_prompt_reused", {
+        runId,
+        chatId: this.chatId,
+        sessionId: this.sessionId
+      });
+    }
+
+    const { skills } = loadSkillsFromWorkspace(this.store.getWorkspaceDir(), this.chatId, {
+      disabledSkillPaths: settings.disabledSkillPaths
+    });
+    const skillExplicitlyInvoked = hasExplicitSkillInvocation(skills, enrichedInput.text);
+    const resolveScopedMcpServers = (): RuntimeSettings["mcpServers"] => {
+      const settingsNow = this.getSettings();
+      const selectedIds = this.selectedMcpServerIds;
+      if (selectedIds.size > 0) {
+        return (settingsNow.mcpServers ?? []).filter((server) =>
+          server.enabled && selectedIds.has(server.id)
+        );
+      }
+      if (skillExplicitlyInvoked) {
+        return (settingsNow.mcpServers ?? []).filter((server) => server.enabled);
+      }
+      return [];
+    };
+
+    let localTools: ReturnType<typeof createMomTools> = [];
+    const refreshLoadedMcpTools = async (): Promise<{ serverCount: number; toolCount: number }> => {
+      const scoped = resolveScopedMcpServers();
+      const mcpTools = await getMcpToolsForRuntime(scoped, {
+        workspaceDir: this.store.getWorkspaceDir(),
+        onWarn: (event, extra) => {
+          momWarn("runner", event, {
+            runId,
+            chatId: this.chatId,
+            sessionId: this.sessionId,
+            ...extra
+          });
+        }
+      });
+      this.agent.setTools([...localTools, ...mcpTools]);
+      return {
+        serverCount: scoped.length,
+        toolCount: mcpTools.length
+      };
+    };
+
+    localTools = createMomTools({
+      channel: ctx.channel,
+      cwd: this.store.getScratchDir(this.chatId),
+      workspaceDir: this.store.getWorkspaceDir(),
+      chatId: this.chatId,
+      timezone: settings.timezone,
+      memory: this.memory,
+      getSettings: this.getSettings,
+      updateSettings: this.updateSettings,
+      getSelectedMcpServerIds: () => new Set(this.selectedMcpServerIds),
+      setSelectedMcpServerIds: (next) => {
+        this.selectedMcpServerIds = new Set(next);
+      },
+      refreshLoadedMcpTools,
+      uploadFile: async (filePath, title) => {
+        await ctx.uploadFile(filePath, title);
+      },
+    });
+    const scopedMcpServers = resolveScopedMcpServers();
+
+    const mcpTools = await getMcpToolsForRuntime(scopedMcpServers, {
+      workspaceDir: this.store.getWorkspaceDir(),
+      onWarn: (event, extra) => {
+        momWarn("runner", event, {
+          runId,
+          chatId: this.chatId,
+          sessionId: this.sessionId,
+          ...extra
+        });
+      }
+    });
+    momLog("runner", "mcp_tools_loaded", {
+      runId,
+      chatId: this.chatId,
+      sessionId: this.sessionId,
+      skillExplicitlyInvoked,
+      mcpServerCount: scopedMcpServers.filter((server) => server.enabled).length,
+      mcpToolCount: mcpTools.length
+    });
+    this.agent.setTools([...localTools, ...mcpTools]);
 
     let stopReason: "stop" | "aborted" | "error" = "stop";
     let errorMessage: string | undefined;

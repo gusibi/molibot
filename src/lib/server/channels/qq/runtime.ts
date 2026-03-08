@@ -427,8 +427,10 @@ export class QQManager {
       }
     }
 
-    if (text.startsWith("/")) {
-      const handled = await this.handleCommand(chatId, text, { mode: kind, id: chatId, replyToId: messageId });
+    const loweredText = text.trim().toLowerCase();
+    const commandText = loweredText === "stop" ? "/stop" : text;
+    if (commandText.startsWith("/")) {
+      const handled = await this.handleCommand(chatId, commandText, { mode: kind, id: chatId, replyToId: messageId });
       if (handled) return;
     }
 
@@ -623,6 +625,17 @@ export class QQManager {
     return queue;
   }
 
+  private stopChatWork(chatId: string): { aborted: boolean } {
+    const activeSessionId = this.store.getActiveSession(chatId);
+    if (!this.running.has(chatId)) return { aborted: false };
+    const runner = this.runners.get(chatId, activeSessionId);
+    runner.abort();
+    // Release command-side busy guard immediately; queued jobs are kept intact.
+    this.running.delete(chatId);
+    momLog("qq", "stop_requested", { chatId, sessionId: activeSessionId });
+    return { aborted: true };
+  }
+
   private resolveSessionSelection(chatId: string, selector: string): string | null {
     const sessions = this.store.listSessions(chatId);
     const raw = selector.trim();
@@ -668,11 +681,8 @@ export class QQManager {
     }
 
     if (cmd === "/stop") {
-      const activeSessionId = this.store.getActiveSession(chatId);
-      if (this.running.has(chatId)) {
-        const runner = this.runners.get(chatId, activeSessionId);
-        runner.abort();
-        momLog("qq", "stop_requested", { chatId, sessionId: activeSessionId });
+      const result = this.stopChatWork(chatId);
+      if (result.aborted) {
         await this.replyCommand(target, "Stopping...");
       } else {
         await this.replyCommand(target, "Nothing running.");
@@ -875,7 +885,9 @@ export class QQManager {
   }
 
   private skillsText(chatId: string): string {
-    const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId);
+    const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId, {
+      disabledSkillPaths: this.getSettings().disabledSkillPaths
+    });
     const globalSkillsDir = resolveGlobalSkillsDirFromWorkspacePath(this.workspaceDir);
     const botSkillsDir = `${this.workspaceDir}/skills`;
     const chatSkillsDir = `${this.workspaceDir}/${chatId}/skills`;

@@ -246,6 +246,7 @@ function buildToolsSection(): string {
   return [
     "## Tools",
     "- memory: Memory gateway operations (add/search/list/update/delete/flush/sync). Use this for all memory changes.",
+    "- load_mcp: List/load/unload MCP servers for this chat session. If required MCP is missing, this tool will return a clear error.",
     "- bash: Execute shell commands in scratch (primary execution tool)",
     "- read: Read files",
     "- write: Create/overwrite files",
@@ -253,6 +254,22 @@ function buildToolsSection(): string {
     "- create_event: Schedule events/reminders. Always use this instead of writing event JSON files manually.",
     "- attach: Send a local file through the active channel adapter (use only when direct text delivery is insufficient)",
     "- `TOOLS.md` is guidance about conventions and paths; it does not control actual tool availability.",
+  ].join("\n");
+}
+
+function buildMcpAccessSection(settings?: RuntimeSettings): string {
+  const servers = (settings?.mcpServers ?? []).filter((server) => server.enabled);
+  const serverList =
+    servers.length > 0
+      ? servers.map((server) => `- ${server.id} (${server.transport})`).join("\n")
+      : "(none)";
+  return [
+    "## MCP Access",
+    "- MCP capability exists but is hidden unless you explicitly invoke a skill (`$skill-name`, `/skill skill-name`, `skill:skill-name`, `技能:skill-name`).",
+    "- Skill files do not require any special MCP frontmatter fields.",
+    "- If a task requires MCP but the required MCP server/tool is unavailable, clearly report the missing MCP server/tool in your response.",
+    "- Enabled MCP servers:",
+    serverList
   ].join("\n");
 }
 
@@ -294,6 +311,8 @@ function buildBaseSystemPromptWithOptions(
     buildLogQuerySection(vars),
     "",
     buildToolsSection(),
+    "",
+    buildMcpAccessSection(options?.settings),
     ...(channelSections.length > 0 ? ["", ...channelSections] : []),
     "",
     buildSkillsProtocolSection(vars),
@@ -310,6 +329,7 @@ function buildPromptRenderVariables(
   sessionId: string,
   memory: string,
   timezone: string,
+  settings?: RuntimeSettings,
 ): PromptRenderVars {
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
   const memoryRoot = resolveMemoryRootFromWorkspacePath(workspaceDir);
@@ -326,7 +346,9 @@ function buildPromptRenderVariables(
   const globalSkillsDir = `${dataRoot}/skills`;
   const botSkillsDir = `${workspaceDir}/skills`;
   const chatSkillsDir = `${chatDir}/skills`;
-  const { skills, diagnostics } = loadSkillsFromWorkspace(workspaceDir, chatId);
+  const { skills, diagnostics } = loadSkillsFromWorkspace(workspaceDir, chatId, {
+    disabledSkillPaths: settings?.disabledSkillPaths ?? []
+  });
   const availableSkills = formatSkillsForPrompt(skills);
   const skillDiagText =
     diagnostics.length > 0
@@ -465,6 +487,7 @@ export function buildSystemPrompt(
     sessionId,
     memory,
     timezone,
+    options?.settings,
   );
   const sections = [buildBaseSystemPromptWithOptions(renderVars, options)];
   const globalSections = buildPromptSectionsFromInstructionFiles(

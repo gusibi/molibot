@@ -4,6 +4,7 @@ import { createAttachTool } from "./attach.js";
 import { createBashTool } from "./bash.js";
 import { createEditTool } from "./edit.js";
 import { createEventTool } from "./event.js";
+import { createLoadMcpTool } from "./loadMcp.js";
 import { createMemoryTool } from "./memory.js";
 import { createReadTool } from "./read.js";
 import { createSwitchModelTool } from "./switchModel.js";
@@ -19,11 +20,20 @@ export function createMomTools(options: {
   memory: MemoryGateway;
   getSettings: () => RuntimeSettings;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
+  getSelectedMcpServerIds: () => Set<string>;
+  setSelectedMcpServerIds: (next: Set<string>) => void;
+  refreshLoadedMcpTools: () => Promise<{ serverCount: number; toolCount: number }>;
   uploadFile: (filePath: string, title?: string) => Promise<void>;
 }): AgentTool<any>[] {
   return [
     createMemoryTool({ memory: options.memory, channel: options.channel, chatId: options.chatId }),
     createSwitchModelTool({ getSettings: options.getSettings, updateSettings: options.updateSettings }),
+    createLoadMcpTool({
+      getSettings: options.getSettings,
+      getSelectedServerIds: options.getSelectedMcpServerIds,
+      setSelectedServerIds: options.setSelectedMcpServerIds,
+      refreshLoadedMcpTools: options.refreshLoadedMcpTools
+    }),
     createReadTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
     createBashTool(options.cwd),
     createEditTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),

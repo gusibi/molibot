@@ -240,9 +240,10 @@ export class FeishuManager {
             return;
         }
 
-        const lowered = event.text.toLowerCase();
-        if (lowered.startsWith("/")) {
-            const isCommand = await this.handleCommand(chatId, event.text);
+        const lowered = event.text.trim().toLowerCase();
+        const commandText = lowered === "stop" ? "/stop" : event.text;
+        if (lowered.startsWith("/") || lowered === "stop") {
+            const isCommand = await this.handleCommand(chatId, commandText);
             if (isCommand) {
                 return;
             }
@@ -392,6 +393,17 @@ export class FeishuManager {
         return queue;
     }
 
+    private stopChatWork(chatId: string): { aborted: boolean } {
+        const activeSessionId = this.store.getActiveSession(chatId);
+        if (!this.running.has(chatId)) return { aborted: false };
+        const runner = this.runners.get(chatId, activeSessionId);
+        runner.abort();
+        // Release command-side busy guard immediately; queued jobs are kept intact.
+        this.running.delete(chatId);
+        momLog("feishu", "stop_requested", { chatId, sessionId: activeSessionId });
+        return { aborted: true };
+    }
+
     private resolveSessionSelection(chatId: string, selector: string): string | null {
         const sessions = this.store.listSessions(chatId);
         const raw = selector.trim();
@@ -433,11 +445,8 @@ export class FeishuManager {
         }
 
         if (cmd === "/stop") {
-            const activeSessionId = this.store.getActiveSession(chatId);
-            if (this.running.has(chatId)) {
-                const runner = this.runners.get(chatId, activeSessionId);
-                runner.abort();
-                momLog("feishu", "stop_requested", { chatId, sessionId: activeSessionId });
+            const result = this.stopChatWork(chatId);
+            if (result.aborted) {
                 await sendFeishuText(this.client, chatId, "Stopping...");
             } else {
                 await sendFeishuText(this.client, chatId, "Nothing running.");
@@ -634,7 +643,9 @@ export class FeishuManager {
     }
 
     private skillsText(chatId: string): string {
-        const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId);
+        const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId, {
+            disabledSkillPaths: this.getSettings().disabledSkillPaths
+        });
         const globalSkillsDir = resolveGlobalSkillsDirFromWorkspacePath(this.workspaceDir);
         const botSkillsDir = `${this.workspaceDir}/skills`;
         const chatSkillsDir = `${this.workspaceDir}/${chatId}/skills`;

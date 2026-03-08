@@ -85,6 +85,30 @@ export interface PluginSettings {
   memory: MemoryBackendSettings;
 }
 
+export type McpTransport = "stdio" | "http";
+
+export interface McpStdioConfig {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd: string;
+}
+
+export interface McpHttpConfig {
+  url: string;
+  headers: Record<string, string>;
+}
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  transport: McpTransport;
+  stdio: McpStdioConfig;
+  http: McpHttpConfig;
+  toolNamePrefix: string;
+}
+
 export interface RuntimeSettings {
   providerMode: ProviderMode;
   piModelProvider: KnownProvider;
@@ -96,6 +120,8 @@ export interface RuntimeSettings {
   timezone: string;
   agents: AgentSettings[];
   channels: ChannelSettingsMap;
+  mcpServers: McpServerConfig[];
+  disabledSkillPaths: string[];
   telegramBots: TelegramBotConfig[];
   feishuBots: FeishuBotConfig[];
   qqBots: QQBotConfig[];

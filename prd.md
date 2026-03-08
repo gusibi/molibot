@@ -118,6 +118,9 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-75 | README scannability and navigation polish | P1 | Delivered (2026-03-08) | README should add fast navigation and status cues (table of contents, badges, and concise surface matrix) so first-time readers can locate setup/usage sections in seconds |
 | P1-76 | README architecture rendering compatibility fallback | P1 | Delivered (2026-03-08) | Architecture section should remain visible even in environments without Mermaid rendering by keeping Mermaid syntax compatibility-friendly and providing a local static diagram fallback |
 | P1-77 | Web UI theme tokenization + i18n switch foundation | P1 | Delivered (2026-03-08) | Web chat and settings UI should support light/dark/system theme switching and zh/en language switching with local persistence, while visual colors are driven by one replaceable theme token file (`src/styles/theme.css`) so future theme swaps do not require page-level code rewrites; themed light/dark modes must keep readable text/input contrast across all settings subpages, including AI Engine / Channels / Agent Data / System sections, and should allow palette refreshes such as Solar Dusk without touching page business logic; selection states (selected vs unselected) and form borders must remain visually distinguishable under both themes |
+| P1-78 | MCP server integration for agent toolchain | P1 | Delivered (2026-03-08) | Runtime settings should support configurable MCP stdio servers, runner should automatically load MCP tools and merge them with built-in tools, and MCP failures should degrade gracefully without breaking normal chat execution |
+| P1-79 | Skill-gated MCP exposure and settings panel | P1 | Delivered (2026-03-08) | MCP configuration should be manageable in Settings UI, and MCP tools must remain hidden by default: only skills that explicitly declare MCP dependencies and are explicitly invoked may enable scoped MCP tools for a run |
+| P1-80 | Settings Overview dark-mode accessibility contrast | P1 | Delivered (2026-03-08) | Settings Overview cards should keep WCAG-friendly readable description contrast in dark mode by using theme-aware text tokens instead of fixed low-contrast slate grays, while preserving existing layout and palette behavior |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -1110,4 +1113,131 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - bot 工作区（`${DATA_DIR}/moli-*/bots/<botId>`）启动时禁止执行会移动/清空 `${workspaceDir}/skills` 的迁移操作。
   - 统一 scope 命名为 `global` / `bot` / `chat`，移除对 `workspace-legacy` 的对外展示。
-  - `buildSystemPrompt` 中必须同时声明并展示 `global` 与 `bot` skills 目录，避免“只看得到一个目录”的误导。
+- `buildSystemPrompt` 中必须同时声明并展示 `global` 与 `bot` skills 目录，避免“只看得到一个目录”的误导。
+
+## 89. Agent MCP Toolchain Support (2026-03-08)
+- Priority: P1
+- Stage: Phase 3 (Building) -> Phase 4 (Polish)
+- Problem:
+  - 当前 agent 仅支持内置工具（`read/bash/edit/write/...`），无法直接接入 MCP server 工具生态。
+  - 许多第三方工具链以 MCP 提供，缺少 MCP 会导致功能扩展成本高、重复造轮子。
+- Requirement:
+  - Runtime settings 支持配置多个 MCP server（至少支持 `stdio` 传输）。
+  - Runner 在每次执行前自动加载可用 MCP tools，并与本地工具一起注入 agent。
+  - MCP server 连接/调用失败时应降级为告警，不得阻断基础对话与本地工具执行。
+- Enforcement:
+  - 新增 `mcpServers` 配置结构并持久化到 settings。
+  - MCP tool 名称必须做本地唯一化前缀，避免与内置工具重名冲突。
+- MCP 工具返回内容需标准化到 agent 可渲染内容块（至少文本，支持图片直传）。
+
+## 90. Skill-Gated MCP Exposure Model (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 即使接入 MCP，如果在每轮默认加载所有 MCP 工具，agent 会在无显式意图时获得过宽能力面，且与“skills 扩展”定位冲突。
+  - 运营上需要可视化管理 MCP server，避免手改 JSON。
+- Requirement:
+  - MCP server 提供设置页可视化增删改（ID、启用状态、stdio command/args/cwd/env、tool 前缀）。
+  - MCP 工具默认不暴露；只有当 skill frontmatter 显式声明 MCP 依赖，且本轮输入显式调用该 skill 时，才按 skill 声明的 server 范围注入 MCP tools。
+  - 未命中 skill 或未显式调用 skill 时，agent 不得看到/调用 MCP tools。
+- Enforcement:
+  - skill frontmatter 支持 `mcpServers` / `mcp_servers` 字段。
+  - runner 在 `setTools` 前按“显式 skill 调用 -> skill 声明 server id -> settings 中对应 server”链路选择性注入。
+  - `/settings/skills` 应显示 skill 的 MCP 绑定信息，便于审计。
+
+## 91. MCP Settings JSON-First UX + HTTP Server Support (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - MCP 设置页若拆分太多字段（command/args/env 等）会显著增加使用门槛，用户更常见的输入方式是直接粘贴可复用 JSON。
+  - 仅支持 stdio 传输不够，常见 MCP 部署形态包含 HTTP endpoint，需要原生支持。
+- Requirement:
+  - `/settings/mcp` 以单一 JSON 输入为主，支持粘贴 `{ "mcpServers": { ... } }` 或直接 server object map。
+  - 页面需要自动解析 JSON 并展示 server 列表，列表中提供每个 server 的启用/关闭开关。
+  - settings/runtime/MCP client 需同时支持 `stdio` 与 `http` 传输类型。
+- Enforcement:
+  - settings sanitize/store/API 必须兼容 array 与 object-map 两种 `mcpServers` 结构并归一化存储。
+  - MCP client 在 `transport=http` 时使用 HTTP transport 连接，并保留失败降级（warning-only）语义。
+  - UI 不再强制用户逐字段编辑 MCP 参数，避免复杂配置流程。
+
+## 92. MCP Use Via Skill Prompt (No Skill Schema Changes) (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 让 skills frontmatter 承担 MCP 声明（如 `mcpServers`）会改变现有 skill 使用习惯与格式预期，违背“skills 逻辑保持稳定”的目标。
+- Requirement:
+  - 保持现有 skills 框架与 `SKILL.md` 必填字段不变（仅 `name` / `description`）。
+  - 当用户显式调用 skill 时，系统可用已启用 MCP 工具；不要求 skill frontmatter 提前绑定 MCP server。
+  - 当任务/skill 要求使用的 MCP server/tool 不存在或不可用时，需给出明确错误提示（指出缺失项）。
+- Enforcement:
+  - runner 的 MCP 注入不依赖 frontmatter MCP 字段。
+  - system prompt 明确声明“缺失 MCP 必须报错”规则，避免静默失败。
+  - 未显式调用 skill 时，MCP 保持隐藏，不默认暴露。
+
+## 93. Runtime MCP Loader Tool (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 仅靠被动注入策略，agent 在“需要某个 MCP 时”缺少显式控制入口，不利于按 server 精准启用与排障。
+- Requirement:
+  - 新增内置工具 `load_mcp`，支持 `list/load/unload/clear`。
+  - `load` 时可按 `serverId` 精准启用 MCP；`unload/clear` 可关闭已加载 MCP。
+  - 如果 `serverId` 不存在或被禁用，必须直接返回明确错误信息。
+- Enforcement:
+  - `load_mcp` 操作后应刷新当前会话的 MCP 工具可用集，避免“已加载但不可调用”状态。
+  - 不修改 skills 文件格式与 frontmatter 约束。
+
+## 94. Skills Temporary Disable Toggle (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 当前 skills 仅支持“存在即加载”，想临时停用某个 skill 只能删文件，操作重且不可逆。
+- Requirement:
+  - `/settings/skills` 为每个 skill 提供 `Enable` 开关。
+  - 关闭后 skill 文件保留，但运行时加载需忽略该 skill。
+  - 开关状态持久化，重启后仍生效。
+- Enforcement:
+  - runtime settings 增加 `disabledSkillPaths`（按 `SKILL.md` 绝对路径标识）。
+  - runner/system prompt/channel `/skills` 命令都必须基于 `disabledSkillPaths` 过滤。
+  - API/UI 必须可视化展示当前启用状态并可即时切换。
+
+## 95. Stop Should Abort Current Run Immediately (Keep Queue) (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 当前 stop 行为在长任务（如安装软件）时表现为“等待任务自然结束/报错后才停”，不符合用户预期。
+  - 另一个误区是 stop 不应清空后续排队消息；用户希望仅中断当前执行中的那一条。
+- Requirement:
+  - `stop`/`/stop` 必须立即中断当前正在执行的 runner 任务。
+  - stop 只影响当前执行中的任务，不清空队列中已排队的后续消息。
+  - 对 Feishu/QQ，纯文本 `stop`（无 `/`）也应识别为 stop 命令。
+- Enforcement:
+  - stop 实现必须直达 `runner.abort()`，不能依赖排队执行。
+  - 队列实现不得在 stop 时批量清空。
+
+## 96. Stop Responsiveness Under In-flight MCP Calls (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 即使已触发 `runner.abort()`，若当前在执行 MCP tool 调用且未绑定 abort signal，stop 仍会表现为“等待工具自己超时/返回”。
+  - 命令层 `running` guard 只有在 run finally 才解除，会导致 `/new` 被短时阻塞。
+- Requirement:
+  - MCP tool 调用必须透传 abort signal，确保 stop 可中断 in-flight MCP 请求。
+  - stop 触发后应立即解除命令层 busy 状态；但不得清空队列。
+- Enforcement:
+  - `client.callTool` 必须接收 `RequestOptions.signal`。
+  - 各 channel stop handler 在 `runner.abort()` 后立即释放 chat running guard。
+
+## 97. Prompt Refresh Policy: On-Change + New Session (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 每条消息都重建 system prompt 会增加缓存失效率。
+  - 但 settings 中与 prompt 相关的变更（如 skill 启停）若不及时生效，会导致行为与配置不一致。
+- Requirement:
+  - `/new` 后必须刷新 system prompt。
+  - 常规消息仅在“prompt 相关配置发生变化”时刷新 system prompt。
+  - 对不影响 prompt 的配置变更，不应触发 prompt 重建。
+- Enforcement:
+  - runner 维护 prompt-refresh key（指纹）并在每次 run 前比对。
+  - 指纹至少包含：`systemPrompt`、`timezone`、`disabledSkillPaths`、`mcpServers`、当前 bot 的 channel agent 绑定信息。

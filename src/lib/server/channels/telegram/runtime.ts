@@ -188,14 +188,11 @@ export class TelegramManager {
         return;
       }
 
-      const activeSessionId = this.store.getActiveSession(chatId);
-      if (this.running.has(chatId)) {
-        const runner = this.runners.get(chatId, activeSessionId);
-        runner.abort();
-        momLog("telegram", "stop_requested", { chatId, sessionId: activeSessionId });
+      const result = this.stopChatWork(chatId);
+      if (result.aborted) {
         await ctx.reply("Stopping...");
       } else {
-        momLog("telegram", "stop_nothing_running", { chatId, sessionId: activeSessionId });
+        momLog("telegram", "stop_nothing_running", { chatId });
         await ctx.reply("Nothing running.");
       }
     });
@@ -447,12 +444,14 @@ export class TelegramManager {
       }
 
       const lowered = event.text.trim().toLowerCase();
-      if (this.running.has(chatId) && (lowered === "stop" || lowered === "/stop")) {
-        const activeSessionId = this.store.getActiveSession(chatId);
-        const runner = this.runners.get(chatId, activeSessionId);
-        runner.abort();
-        momLog("telegram", "stop_text_requested", { runId, chatId, sessionId: activeSessionId });
-        await ctx.reply("Stopping...");
+      if (lowered === "stop" || lowered === "/stop") {
+        const result = this.stopChatWork(chatId);
+        momLog("telegram", "stop_text_requested", { runId, chatId, aborted: result.aborted });
+        if (result.aborted) {
+          await ctx.reply("Stopping...");
+        } else {
+          await ctx.reply("Nothing running.");
+        }
         return;
       }
 
@@ -663,6 +662,17 @@ export class TelegramManager {
       momLog("telegram", "queue_created", { chatId });
     }
     return queue;
+  }
+
+  private stopChatWork(chatId: string): { aborted: boolean } {
+    const activeSessionId = this.store.getActiveSession(chatId);
+    if (!this.running.has(chatId)) return { aborted: false };
+    const runner = this.runners.get(chatId, activeSessionId);
+    runner.abort();
+    // Release command-side busy guard immediately; queued jobs are kept intact.
+    this.running.delete(chatId);
+    momLog("telegram", "stop_requested", { chatId, sessionId: activeSessionId });
+    return { aborted: true };
   }
 
   private resolveEventDeliveryMode(event: MomEvent): EventDeliveryMode {
@@ -1129,7 +1139,9 @@ export class TelegramManager {
   }
 
   private skillsText(chatId: string): string {
-    const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId);
+    const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId, {
+      disabledSkillPaths: this.getSettings().disabledSkillPaths
+    });
     const globalSkillsDir = resolveGlobalSkillsDirFromWorkspacePath(this.workspaceDir);
     const botSkillsDir = `${this.workspaceDir}/skills`;
     const chatSkillsDir = `${this.workspaceDir}/${chatId}/skills`;

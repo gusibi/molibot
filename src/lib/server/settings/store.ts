@@ -6,6 +6,7 @@ import {
   type ModelCapabilityTag,
   type ModelCapabilityVerification,
   type ProviderModelConfig,
+  type McpServerConfig,
   type CustomProviderConfig,
   type TelegramBotConfig,
   type FeishuBotConfig,
@@ -51,6 +52,8 @@ interface RawSettings {
   timezone?: string;
   feishuBots?: unknown;
   qqBots?: unknown;
+  mcpServers?: unknown;
+  disabledSkillPaths?: unknown;
 }
 
 type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
@@ -59,6 +62,82 @@ const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "t
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const CAPABILITY_VERIFICATION_SET: ReadonlySet<string> = new Set(["untested", "passed", "failed"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
+
+function sanitizeMcpServers(input: unknown): McpServerConfig[] {
+  const rows: Array<{ id: string; value: Record<string, unknown> }> = Array.isArray(input)
+    ? input
+      .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object")
+      .map((row) => ({ id: String(row.id ?? "").trim(), value: row }))
+    : (input && typeof input === "object")
+      ? Object.entries(input as Record<string, unknown>)
+        .filter(([, row]) => Boolean(row) && typeof row === "object")
+        .map(([id, row]) => ({ id: String(id).trim(), value: row as Record<string, unknown> }))
+      : [];
+  if (rows.length === 0) return [];
+
+  const out: McpServerConfig[] = [];
+  const dedup = new Set<string>();
+  for (const row of rows) {
+    const item = row.value;
+    const id = row.id || String(item.id ?? "").trim() || `mcp-${Math.random().toString(36).slice(2, 8)}`;
+    if (dedup.has(id)) continue;
+    dedup.add(id);
+
+    const transportRaw = String(item.transport ?? item.type ?? "stdio").trim().toLowerCase();
+    const transport = transportRaw === "http" ? "http" : "stdio";
+
+    const stdioRaw = item.stdio && typeof item.stdio === "object"
+      ? item.stdio as Record<string, unknown>
+      : {};
+    const command = String(stdioRaw.command ?? item.command ?? "").trim();
+
+    const args = Array.isArray(stdioRaw.args)
+      ? stdioRaw.args.map((value) => String(value ?? "").trim()).filter(Boolean)
+      : [];
+    const envRaw = stdioRaw.env && typeof stdioRaw.env === "object"
+      ? stdioRaw.env as Record<string, unknown>
+      : {};
+    const env = Object.fromEntries(
+      Object.entries(envRaw)
+        .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
+        .filter(([key]) => Boolean(key))
+    );
+    const httpRaw = item.http && typeof item.http === "object"
+      ? item.http as Record<string, unknown>
+      : {};
+    const headersRaw = httpRaw.headers && typeof httpRaw.headers === "object"
+      ? httpRaw.headers as Record<string, unknown>
+      : {};
+    const headers = Object.fromEntries(
+      Object.entries(headersRaw)
+        .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
+        .filter(([key]) => Boolean(key))
+    );
+    const url = String(httpRaw.url ?? item.url ?? "").trim();
+    if (transport === "stdio" && !command) continue;
+    if (transport === "http" && !url) continue;
+
+    out.push({
+      id,
+      name: String(item.name ?? "").trim() || id,
+      enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+      transport,
+      stdio: {
+        command,
+        args,
+        env,
+        cwd: String(stdioRaw.cwd ?? "").trim()
+      },
+      http: {
+        url,
+        headers
+      },
+      toolNamePrefix: String(item.toolNamePrefix ?? "").trim()
+    });
+  }
+
+  return out;
+}
 
 function sanitizeRoles(input: unknown): ModelRole[] {
   if (!Array.isArray(input)) return [...DEFAULT_ROLES];
@@ -489,6 +568,8 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const effectiveQQBots = qqBots.length > 0 ? qqBots : deriveQQBotsFromChannels(channels);
   const primaryBot = effectiveTelegramBots[0];
   const agents = sanitizeAgents(raw.agents);
+  const mcpServers = sanitizeMcpServers(raw.mcpServers ?? defaultRuntimeSettings.mcpServers);
+  const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
 
   return {
     providerMode: sanitizeMode(raw.providerMode ?? defaultRuntimeSettings.providerMode),
@@ -510,6 +591,8 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       defaultRuntimeSettings.systemPrompt,
     agents,
     channels,
+    mcpServers,
+    disabledSkillPaths,
     telegramBots: effectiveTelegramBots,
     qqBots: effectiveQQBots,
     plugins: {
@@ -814,6 +897,8 @@ export class SettingsStore {
         }
       },
       timezone: settings.timezone,
+      mcpServers: settings.mcpServers,
+      disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,
       telegramAllowedChatIds: settings.telegramAllowedChatIds
     };
