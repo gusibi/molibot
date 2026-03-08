@@ -52,9 +52,11 @@ function buildEnvironmentSection(vars: PromptRenderVars): string {
     `- When writing files in scratch, use relative paths from scratch (do not prepend ${vars.scratchDir} again)`,
     `- Active bot runtime root: ${vars.workspaceDir}`,
     `- Global skills directory (canonical): ${vars.globalSkillsDir}`,
+    `- Bot-level skills directory (bot-scoped): ${vars.botSkillsDir}`,
     `- Chat-local skills directory (session-specific): ${vars.chatSkillsDir}`,
     `- Never assume directories like /workspace or /workspace/testbed exist. Always use the exact absolute paths provided in this prompt.`,
     `- For reusable/general-purpose skills (web browsing, search, API wrappers, utilities), install under ${vars.globalSkillsDir}.`,
+    `- For this bot's dedicated skills, install under ${vars.botSkillsDir}.`,
     `- For chat/session-specific one-off skills only, install under ${vars.chatSkillsDir}.`,
     `- Never install reusable skills under ${vars.workspaceDir} or ${vars.chatDir}; keep reusable skills in ${vars.globalSkillsDir}.`,
     `- Never create skills via relative path like data/${vars.workspaceName}/skills from scratch; it creates nested duplicate directories.`,
@@ -96,7 +98,7 @@ function buildWorkspaceLayoutSection(vars: PromptRenderVars): string {
     `${vars.workspaceDir}/`,
     "├── (bot runtime files, sessions, logs, skills, events)",
     "├── SYSTEM.md                    # Environment setup log",
-    "├── skills/                      # Global CLI tools you create",
+    "├── skills/                      # Bot-scoped CLI skills for this bot",
     "├── events/                      # Bot-level events",
     `└── ${vars.chatId}/                   # This chat`,
     "    ├── log.jsonl                # Message history (no tool results)",
@@ -114,7 +116,8 @@ function buildSkillsProtocolSection(vars: PromptRenderVars): string {
     "You can create reusable CLI tools for recurring tasks (APIs, data processing, automation, etc.).",
     "",
     "### Creating Skills",
-    `Store in absolute path \`${vars.globalSkillsDir}/<name>/\` for reusable skills.`,
+    `Store reusable skills in \`${vars.globalSkillsDir}/<name>/\`.`,
+    `Store bot-scoped skills in \`${vars.botSkillsDir}/<name>/\`.`,
     `Use \`${vars.chatSkillsDir}/<name>/\` only for chat-specific temporary skills.`,
     "Each skill directory needs a `SKILL.md` with YAML frontmatter:",
     "",
@@ -321,6 +324,7 @@ function buildPromptRenderVariables(
   const sessionContextFile = `${chatDir}/contexts/${sessionId}.json`;
   const workspaceEventsDir = `${workspaceDir}/events`;
   const globalSkillsDir = `${dataRoot}/skills`;
+  const botSkillsDir = `${workspaceDir}/skills`;
   const chatSkillsDir = `${chatDir}/skills`;
   const { skills, diagnostics } = loadSkillsFromWorkspace(workspaceDir, chatId);
   const availableSkills = formatSkillsForPrompt(skills);
@@ -341,6 +345,7 @@ function buildPromptRenderVariables(
     sessionContextFile,
     workspaceEventsDir,
     globalSkillsDir,
+    botSkillsDir,
     chatSkillsDir,
     availableSkills,
     skillDiagText,

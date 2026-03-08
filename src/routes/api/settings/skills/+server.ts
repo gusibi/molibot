@@ -4,7 +4,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 
-type SkillScope = "global" | "chat" | "workspace-legacy";
+type SkillScope = "global" | "chat" | "bot";
 
 interface SkillItem {
   name: string;
@@ -115,12 +115,12 @@ export const GET: RequestHandler = async () => {
       const botId = bot.name;
       const botDir = join(botsRoot, botId);
 
-      const legacySkillsDir = join(botDir, "skills");
-      if (existsSync(legacySkillsDir)) {
+      const botSkillsDir = join(botDir, "skills");
+      if (existsSync(botSkillsDir)) {
         const files: string[] = [];
-        collectSkillFiles(legacySkillsDir, files);
+        collectSkillFiles(botSkillsDir, files);
         for (const filePath of files.sort((a, b) => a.localeCompare(b))) {
-          const item = parseSkillFile(filePath, "workspace-legacy", diagnostics, botId);
+          const item = parseSkillFile(filePath, "bot", diagnostics, botId);
           if (item) items.push(item);
         }
       }
@@ -143,7 +143,7 @@ export const GET: RequestHandler = async () => {
   const count = {
     global: items.filter((i) => i.scope === "global").length,
     chat: items.filter((i) => i.scope === "chat").length,
-    workspaceLegacy: items.filter((i) => i.scope === "workspace-legacy").length
+    bot: items.filter((i) => i.scope === "bot").length
   };
 
   return json({

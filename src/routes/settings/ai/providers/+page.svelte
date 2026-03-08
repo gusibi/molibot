@@ -848,7 +848,7 @@
     const autoTestedCapabilities: ModelCapabilityTag[] = ["text", "vision"];
 </script>
 
-<div class="mx-auto max-w-6xl space-y-6 px-6 py-8 sm:px-10 sm:py-12">
+<div class="providers-page mx-auto max-w-6xl space-y-6 px-6 py-8 sm:px-10 sm:py-12">
     <div class="flex items-center justify-between gap-3">
         <header>
             <h1 class="text-3xl font-bold tracking-tight text-white">
@@ -891,8 +891,8 @@
                             type="button"
                             class={`cursor-pointer rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors ${
                                 activeProviderTab === "builtin"
-                                    ? "border-sky-500/40 bg-sky-500/15 text-sky-200"
-                                    : "border-white/10 bg-black/20 text-slate-300 hover:bg-white/5"
+                                    ? "border-[var(--ring)] bg-[color-mix(in_oklab,var(--accent)_45%,transparent)] text-[var(--foreground)]"
+                                    : "border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] hover:bg-[var(--muted)]"
                             }`}
                             on:click={() => switchProviderTab("builtin")}
                         >
@@ -902,8 +902,8 @@
                             type="button"
                             class={`cursor-pointer rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors ${
                                 activeProviderTab === "custom"
-                                    ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
-                                    : "border-white/10 bg-black/20 text-slate-300 hover:bg-white/5"
+                                    ? "border-[var(--ring)] bg-[color-mix(in_oklab,var(--accent)_45%,transparent)] text-[var(--foreground)]"
+                                    : "border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] hover:bg-[var(--muted)]"
                             }`}
                             on:click={() => switchProviderTab("custom")}
                         >
@@ -913,7 +913,7 @@
 
                     {#if activeProviderTab === "builtin"}
                         <div
-                            class="rounded-xl border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-xs text-sky-200"
+                            class="rounded-xl border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs text-[var(--muted-foreground)]"
                         >
                             Built-in providers are always listed below. Use the
                             `Enabled` switch inside each provider to control
@@ -922,7 +922,7 @@
                     {:else}
                         <button
                             type="button"
-                            class="flex cursor-pointer items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/20"
+                            class="flex cursor-pointer items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-semibold text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]"
                             on:click={addCustomProvider}
                         >
                             + Create Custom Provider
@@ -931,7 +931,7 @@
 
                     <div class="relative">
                         <input
-                            class="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50"
+                            class="w-full rounded-xl border border-[var(--input)] bg-[var(--card)] px-4 py-2.5 text-sm text-[var(--foreground)] outline-none focus:border-[var(--input)]"
                             bind:value={providerSearch}
                             placeholder="Search provider..."
                         />
@@ -951,23 +951,23 @@
                                 type="button"
                                     class={`flex cursor-pointer flex-col gap-1 rounded-xl border px-4 py-3 text-left transition-all ${
                                     selectedProviderId === provider.id
-                                        ? "border-emerald-500/30 bg-emerald-500/10 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
-                                        : "border-white/5 bg-white/[0.01] hover:border-white/15 hover:bg-white/[0.03]"
+                                        ? "border-[var(--ring)] bg-[color-mix(in_oklab,var(--accent)_35%,transparent)] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
+                                        : "border-[var(--border)] bg-[var(--card)] hover:border-[var(--input)] hover:bg-[var(--muted)]"
                                 }`}
                                 on:click={() =>
                                     (selectedProviderId = provider.id)}
                             >
                                 <div
-                                    class={`font-medium ${selectedProviderId === provider.id ? "text-emerald-400" : "text-slate-200"}`}
+                                    class={`font-medium ${selectedProviderId === provider.id ? "text-[var(--foreground)]" : "text-[var(--foreground)]"}`}
                                 >
                                     {provider.name}
                                 </div>
-                                <div class="text-xs text-slate-500">
+                                <div class="text-xs text-[var(--muted-foreground)]">
                                     ID: {provider.id}
                                 </div>
                                 <div class="mt-1 flex items-center gap-2">
                                     <span
-                                        class="rounded bg-black/40 px-2 py-0.5 text-[10px] text-slate-300"
+                                        class="rounded bg-[var(--muted)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]"
                                     >
                                         {provider.models.length} model{provider
                                             .models.length === 1
@@ -976,7 +976,7 @@
                                     </span>
                                     {#if form.defaultCustomProviderId === provider.id}
                                         <span
-                                            class="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] uppercase font-bold text-emerald-300"
+                                            class="rounded bg-[color-mix(in_oklab,var(--accent)_60%,transparent)] px-2 py-0.5 text-[10px] uppercase font-bold text-[var(--foreground)]"
                                         >
                                             Default
                                         </span>
@@ -984,8 +984,8 @@
                                     <span
                                         class={`rounded px-2 py-0.5 text-[10px] uppercase font-bold ${
                                             provider.enabled
-                                                ? "bg-emerald-500/20 text-emerald-300"
-                                                : "bg-slate-500/20 text-slate-300"
+                                                ? "bg-[color-mix(in_oklab,var(--accent)_55%,transparent)] text-[var(--foreground)]"
+                                                : "bg-[var(--muted)] text-[var(--muted-foreground)]"
                                         }`}
                                     >
                                         {provider.enabled
@@ -995,8 +995,8 @@
                                     <span
                                         class={`rounded px-2 py-0.5 text-[10px] uppercase font-bold ${
                                             hasUsableProviderConfig(provider)
-                                                ? "bg-cyan-500/20 text-cyan-200"
-                                                : "bg-amber-500/20 text-amber-200"
+                                                ? "bg-[color-mix(in_oklab,var(--secondary)_75%,transparent)] text-[var(--secondary-foreground)]"
+                                                : "bg-[color-mix(in_oklab,var(--destructive)_14%,transparent)] text-[var(--destructive)]"
                                         }`}
                                     >
                                         {hasUsableProviderConfig(provider)
@@ -1491,3 +1491,20 @@
         </form>
     {/if}
 </div>
+
+<style>
+  :global(.settings-theme .providers-page input),
+  :global(.settings-theme .providers-page select),
+  :global(.settings-theme .providers-page textarea) {
+    border-color: var(--input) !important;
+    background-color: var(--card) !important;
+    color: var(--foreground) !important;
+  }
+
+  :global(.settings-theme .providers-page input:focus),
+  :global(.settings-theme .providers-page select:focus),
+  :global(.settings-theme .providers-page textarea:focus) {
+    border-color: color-mix(in oklab, var(--ring) 35%, var(--input)) !important;
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ring) 16%, transparent) !important;
+  }
+</style>

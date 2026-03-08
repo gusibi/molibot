@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  type SkillScope = "global" | "chat" | "workspace-legacy";
+  type SkillScope = "global" | "chat" | "bot";
 
   interface SkillItem {
     name: string;
@@ -20,7 +20,7 @@
   let globalSkillsDir = "";
   let diagnostics: string[] = [];
   let items: SkillItem[] = [];
-  let count = { global: 0, chat: 0, workspaceLegacy: 0 };
+  let count = { global: 0, chat: 0, bot: 0 };
 
   function byScope(scope: SkillScope): SkillItem[] {
     return items
@@ -43,7 +43,7 @@
       count = {
         global: Number(data.count?.global ?? 0),
         chat: Number(data.count?.chat ?? 0),
-        workspaceLegacy: Number(data.count?.workspaceLegacy ?? 0),
+        bot: Number(data.count?.bot ?? 0),
       };
       message = `Loaded ${items.length} skill(s).`;
     } catch (e) {
@@ -114,8 +114,8 @@
               {count.chat}
             </div>
             <div>
-              <span class="text-slate-400">Workspace legacy skills:</span>
-              {count.workspaceLegacy}
+              <span class="text-slate-400">Bot skills:</span>
+              {count.bot}
             </div>
             <div><span class="text-slate-400">Total:</span> {items.length}</div>
           </section>
@@ -170,15 +170,15 @@
           </section>
 
           <section class="space-y-3">
-            <h2 class="text-lg font-semibold">Workspace Legacy Skills</h2>
-            {#if byScope("workspace-legacy").length === 0}
+            <h2 class="text-lg font-semibold">Bot Skills</h2>
+            {#if byScope("bot").length === 0}
               <div
                 class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300"
               >
-                No workspace-legacy skills found.
+                No bot-level skills found.
               </div>
             {:else}
-              {#each byScope("workspace-legacy") as item}
+              {#each byScope("bot") as item}
                 <article
                   class="rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
                 >

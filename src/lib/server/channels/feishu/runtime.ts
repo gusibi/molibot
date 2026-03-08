@@ -636,15 +636,17 @@ export class FeishuManager {
     private skillsText(chatId: string): string {
         const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId);
         const globalSkillsDir = resolveGlobalSkillsDirFromWorkspacePath(this.workspaceDir);
+        const botSkillsDir = `${this.workspaceDir}/skills`;
         const chatSkillsDir = `${this.workspaceDir}/${chatId}/skills`;
         const scopeLabel: Record<string, string> = {
             chat: "chat",
             global: "global",
-            "workspace-legacy": "workspace-legacy"
+            bot: "bot"
         };
         const lines = [
             `Workspace: ${this.workspaceDir}`,
             `Global skills dir: ${globalSkillsDir}`,
+            `Bot skills dir: ${botSkillsDir}`,
             `Chat skills dir: ${chatSkillsDir}`,
             `Loaded skills: ${skills.length}`,
             ""

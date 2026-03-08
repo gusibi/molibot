@@ -56,8 +56,8 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-14 | Workspace bootstrap CLI init command | P1 | V1.1 | Add `molibot init` to initialize `${DATA_DIR:-~/.molibot}`; bootstrap `AGENTS.md` / `SOUL.md` / `TOOLS.md` / `BOOTSTRAP.md` / `IDENTITY.md` / `USER.md` from bundled `src/lib/server/agent/prompts/*.template.md` files |
 | P1-15 | Profile files global-path guardrail | P1 | V1.1 | Enforce that `SOUL.md`/`TOOLS.md`/`BOOTSTRAP.md`/`IDENTITY.md`/`USER.md` are written only to `${DATA_DIR}` root-level files, preventing chat/workspace-scoped duplicates like `moli-t/bots/<bot>/<chatId>/soul.md` |
 | P1-16 | Global profile path compatibility | P1 | V1.1 | Global profile path guard should accept normalized absolute targets (including case variants on case-insensitive filesystems) and avoid false blocking when writing to `${DATA_DIR}/*.md` |
-| P1-17 | Two-level skills architecture | P1 | V1.1 | Skills should be split into `${DATA_DIR}/skills` (global reusable) and `${workspaceDir}/${chatId}/skills` (chat-specific), with merged query/usage visibility, deterministic precedence, and migration support from legacy `${workspaceDir}/skills` |
-| P1-18 | Skills inventory in settings UI | P1 | V1.1 | Provide `/settings/skills` to inspect currently installed skills across scopes (`global`/`chat`/`workspace-legacy`) with explicit file paths and bot/chat context, backed by a server inventory endpoint |
+| P1-17 | Multi-scope skills architecture | P1 | V1.1 | Skills should be loaded from `${DATA_DIR}/skills` (global reusable) + `${workspaceDir}/skills` (bot-scoped) + optional `${workspaceDir}/${chatId}/skills` (chat-specific), with deterministic precedence and no startup cleanup of bot-scoped skills |
+| P1-18 | Skills inventory in settings UI | P1 | V1.1 | Provide `/settings/skills` to inspect currently installed skills across scopes (`global`/`bot`/`chat`) with explicit file paths and bot/chat context, backed by a server inventory endpoint |
 | P1-19 | Standalone mory memory SDK package | P1 | V1.1 | `package/mory` should be independently buildable/testable as a Node package, include path normalization + write-gate APIs, and provide SQLite/pgvector schema/query templates for storage integration |
 | P1-21 | Mory cognitive control modules | P1 | V1.1 | `package/mory` should provide non-integration logic modules for write scoring (`importance/novelty/utility/confidence`), conflict resolution/versioning, retrieval intent planning, episodic-to-semantic consolidation, and task-scoped workspace memory helpers with unit tests |
 | P1-20 | SOUL tone baseline governance | P1 | V1.1 | Global `SOUL.md` should enforce decisive opinions, anti-corporate phrasing, direct-answer openings, mandatory brevity, and bounded humor/profanity rules for consistent assistant voice |
@@ -117,6 +117,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-74 | README visual information architecture polish | P1 | Delivered (2026-03-08) | README should present a clear first-screen story with hero, concise highlights, architecture diagram, feature snapshot, and quick-start-first onboarding while keeping all capability claims grounded in actual implementation status |
 | P1-75 | README scannability and navigation polish | P1 | Delivered (2026-03-08) | README should add fast navigation and status cues (table of contents, badges, and concise surface matrix) so first-time readers can locate setup/usage sections in seconds |
 | P1-76 | README architecture rendering compatibility fallback | P1 | Delivered (2026-03-08) | Architecture section should remain visible even in environments without Mermaid rendering by keeping Mermaid syntax compatibility-friendly and providing a local static diagram fallback |
+| P1-77 | Web UI theme tokenization + i18n switch foundation | P1 | Delivered (2026-03-08) | Web chat and settings UI should support light/dark/system theme switching and zh/en language switching with local persistence, while visual colors are driven by one replaceable theme token file (`src/styles/theme.css`) so future theme swaps do not require page-level code rewrites; themed light/dark modes must keep readable text/input contrast across all settings subpages, including AI Engine / Channels / Agent Data / System sections, and should allow palette refreshes such as Solar Dusk without touching page business logic; selection states (selected vs unselected) and form borders must remain visually distinguishable under both themes |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -1096,3 +1097,17 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - Telegram token、Feishu App Secret、QQ App Secret 字段均需提供可切换可见性的按钮。
   - 切换逻辑仅影响前端显示，不改变保存 payload、后端存储和日志脱敏策略。
+
+## 88. Bot-Scoped Skills Persistence and Prompt Consistency (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 服务启动时 bot 工作区 `skills` 目录被自动迁移/搬空，会破坏 bot 维度技能管理预期。
+  - system prompt 与技能枚举在命名和目录语义上不一致（`workspace-legacy` vs `bot`），容易误导运维操作。
+- Requirement:
+  - 技能加载语义应明确为：`global + bot` 为主，`chat` 为可选临时补充；启动时不得清空 bot 目录。
+  - system prompt、`/skills` 命令、设置页 `/settings/skills`、`TOOLS.md` 的目录声明和 scope 命名必须一致。
+- Enforcement:
+  - bot 工作区（`${DATA_DIR}/moli-*/bots/<botId>`）启动时禁止执行会移动/清空 `${workspaceDir}/skills` 的迁移操作。
+  - 统一 scope 命名为 `global` / `bot` / `chat`，移除对 `workspace-legacy` 的对外展示。
+  - `buildSystemPrompt` 中必须同时声明并展示 `global` 与 `bot` skills 目录，避免“只看得到一个目录”的误导。

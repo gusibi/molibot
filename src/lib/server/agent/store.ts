@@ -31,7 +31,15 @@ export class MomRuntimeStore {
   constructor(private readonly workspaceDir: string) {
     ensureDir(this.workspaceDir);
     ensureDir(this.getGlobalSkillsDir());
-    this.migrateLegacyWorkspaceSkills();
+    // Keep bot-scoped skills in place for channel bot workspaces.
+    if (!this.isBotWorkspace()) {
+      this.migrateLegacyWorkspaceSkills();
+    }
+  }
+
+  private isBotWorkspace(): boolean {
+    const normalized = resolve(this.workspaceDir).replace(/\\/g, "/");
+    return /\/moli-[^/]+\/bots\/[^/]+$/.test(normalized);
   }
 
   private getDataRoot(): string {

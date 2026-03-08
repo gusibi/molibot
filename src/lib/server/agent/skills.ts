@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { resolveDataRootFromWorkspacePath } from "./workspace.js";
 
-export type SkillScope = "chat" | "global" | "workspace-legacy";
+export type SkillScope = "chat" | "global" | "bot";
 
 export interface LoadedSkill {
   name: string;
@@ -66,11 +66,11 @@ export function loadSkillsFromWorkspace(workspaceDir: string, chatId?: string): 
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
   const roots: Array<{ scope: SkillScope; dir: string }> = [];
 
+  roots.push({ scope: "bot", dir: join(workspaceDir, "skills") });
+  roots.push({ scope: "global", dir: join(dataRoot, "skills") });
   if (chatId?.trim()) {
     roots.push({ scope: "chat", dir: join(workspaceDir, chatId.trim(), "skills") });
   }
-  roots.push({ scope: "global", dir: join(dataRoot, "skills") });
-  roots.push({ scope: "workspace-legacy", dir: join(workspaceDir, "skills") });
 
   const candidates: Array<{ scope: SkillScope; filePath: string }> = [];
   for (const root of roots) {

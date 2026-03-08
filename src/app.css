@@ -1,1 +1,129 @@
 @import "tailwindcss";
+@import "./styles/theme.css";
+
+@layer components {
+  .settings-theme {
+    color: var(--foreground) !important;
+  }
+
+  .settings-theme [class*="text-white"] {
+    color: var(--foreground) !important;
+  }
+
+  .settings-theme [class*="text-slate-2"],
+  .settings-theme [class*="text-slate-3"],
+  .settings-theme [class*="text-slate-1"] {
+    color: var(--foreground) !important;
+  }
+
+  .settings-theme [class*="text-slate-4"],
+  .settings-theme [class*="text-slate-5"],
+  .settings-theme [class*="text-slate-6"] {
+    color: color-mix(in oklab, var(--foreground) 90%, var(--background)) !important;
+  }
+
+  .settings-theme [class*="text-zinc-"],
+  .settings-theme [class*="text-gray-"] {
+    color: color-mix(in oklab, var(--foreground) 88%, var(--background)) !important;
+  }
+
+  .settings-theme [class*="text-black"] {
+    color: var(--foreground) !important;
+  }
+
+  .settings-theme [class*="border-white"] {
+    border-color: var(--border) !important;
+  }
+
+  .settings-theme [class*="bg-[#"],
+  .settings-theme [class*="bg-white/"],
+  .settings-theme [class*="bg-black/"] {
+    background-color: var(--card) !important;
+  }
+
+  .settings-theme :is(div, section, article, aside, main, header, footer, details, nav)[class*="rounded-2xl"],
+  .settings-theme :is(div, section, article, aside, main, header, footer, details, nav)[class*="rounded-3xl"],
+  .settings-theme :is(div, section, article, aside, main, header, footer, details, nav)[class*="rounded-xl"] {
+    background-color: color-mix(in oklab, var(--card) 96%, var(--background)) !important;
+  }
+
+  .settings-theme [class*="shadow-"] {
+    box-shadow: 0 1px 2px hsl(0 0% 0% / 0.08) !important;
+  }
+
+  .settings-theme [class*="from-"],
+  .settings-theme [class*="to-"],
+  .settings-theme [class*="via-"],
+  .settings-theme [class*="bg-gradient"] {
+    background-image: none !important;
+    --tw-gradient-from: transparent !important;
+    --tw-gradient-via: transparent !important;
+    --tw-gradient-to: transparent !important;
+  }
+
+  .settings-theme [class*="text-emerald-"] {
+    color: var(--primary) !important;
+  }
+
+  .settings-theme [class*="text-sky-"] {
+    color: var(--primary) !important;
+  }
+
+  .settings-theme [class*="border-emerald-"] {
+    border-color: var(--primary) !important;
+  }
+
+  .settings-theme [class*="border-sky-"] {
+    border-color: var(--primary) !important;
+  }
+
+  /* Keep semantic text/border mapping, but do not force all emerald/sky backgrounds.
+     This avoids over-coloring unselected items in provider lists. */
+
+  .settings-theme [class*="text-rose-"] {
+    color: var(--destructive) !important;
+  }
+
+  .settings-theme [class*="border-rose-"] {
+    border-color: var(--destructive) !important;
+  }
+
+  .settings-theme [class*="bg-rose-"] {
+    background-color: color-mix(in oklab, var(--destructive) 10%, transparent) !important;
+  }
+
+  .settings-theme input,
+  .settings-theme select,
+  .settings-theme textarea {
+    background-color: var(--card);
+    color: var(--foreground);
+    border-color: var(--input) !important;
+  }
+
+  .settings-theme input:focus,
+  .settings-theme select:focus,
+  .settings-theme textarea:focus {
+    border-color: color-mix(in oklab, var(--ring) 38%, var(--input)) !important;
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ring) 20%, transparent) !important;
+    outline: none;
+  }
+
+  .settings-theme button[class*="bg-white"],
+  .settings-theme a[class*="bg-white"] {
+    background-color: var(--primary) !important;
+    color: var(--primary-foreground) !important;
+  }
+
+  .settings-theme .hover\:bg-white\/10:hover,
+  .settings-theme .hover\:bg-white\/5:hover,
+  .settings-theme .hover\:bg-white\/\[0\.03\]:hover,
+  .settings-theme .hover\:bg-white\/\[0\.04\]:hover {
+    background-color: var(--secondary) !important;
+  }
+
+  .settings-theme .hover\:text-slate-200:hover,
+  .settings-theme .hover\:text-emerald-300:hover,
+  .settings-theme .hover\:text-emerald-400:hover {
+    color: var(--primary) !important;
+  }
+}

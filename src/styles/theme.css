@@ -1,0 +1,134 @@
+@layer base {
+  :root {
+    --background: #f6f1e8;
+    --foreground: #4b3f35;
+    --card: #fbf8f1;
+    --card-foreground: #4b3f35;
+    --popover: #fdfaf4;
+    --popover-foreground: #4b3f35;
+    --primary: #b45309;
+    --primary-foreground: #ffffff;
+    --secondary: #e4c090;
+    --secondary-foreground: #57534e;
+    --muted: #efe6d8;
+    --muted-foreground: #62564a;
+    --accent: #eed9b9;
+    --accent-foreground: #57534e;
+    --destructive: #b9382b;
+    --destructive-foreground: #ffffff;
+    --border: #e3d2b3;
+    --input: #d7c19a;
+    --ring: #b45309;
+    --chart-1: #b45309;
+    --chart-2: #c77d3f;
+    --chart-3: #e4c090;
+    --chart-4: #9e6130;
+    --chart-5: #d69a63;
+    --sidebar: #f4eee4;
+    --sidebar-foreground: #4b3f35;
+    --sidebar-primary: #b45309;
+    --sidebar-primary-foreground: #fbfbfb;
+    --sidebar-accent: #e9d6b8;
+    --sidebar-accent-foreground: #57534e;
+    --sidebar-border: #e3d2b3;
+    --sidebar-ring: #b45309;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --radius: 0.5rem;
+    --shadow-x: 0;
+    --shadow-y: 1px;
+    --shadow-blur: 3px;
+    --shadow-spread: 0px;
+    --shadow-opacity: 0.1;
+    --shadow-color: oklch(0 0 0);
+    --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+    --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+    --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
+    --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
+    --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 2px 4px -1px hsl(0 0% 0% / 0.1);
+    --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 4px 6px -1px hsl(0 0% 0% / 0.1);
+    --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 8px 10px -1px hsl(0 0% 0% / 0.1);
+    --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+    --tracking-normal: 0em;
+    --spacing: 0.25rem;
+  }
+
+  .dark {
+    --background: #1e1713;
+    --foreground: #efe3d2;
+    --card: #2a211b;
+    --card-foreground: #f3e8d9;
+    --popover: #31261f;
+    --popover-foreground: #f3e8d9;
+    --primary: #d97706;
+    --primary-foreground: #ffffff;
+    --secondary: #7c5c3a;
+    --secondary-foreground: #f3e8d9;
+    --muted: #3a2c23;
+    --muted-foreground: #dcc7ad;
+    --accent: #6a4d33;
+    --accent-foreground: #f1e4d2;
+    --destructive: #e25b4e;
+    --destructive-foreground: #ffffff;
+    --border: #4b392d;
+    --input: #6a4f3a;
+    --ring: #d97706;
+    --chart-1: #d97706;
+    --chart-2: #e29f56;
+    --chart-3: #8a6544;
+    --chart-4: #b2733a;
+    --chart-5: #f0b271;
+    --sidebar: #241c16;
+    --sidebar-foreground: #f1e4d2;
+    --sidebar-primary: #d97706;
+    --sidebar-primary-foreground: #fbfbfb;
+    --sidebar-accent: #3c2d23;
+    --sidebar-accent-foreground: #f1e4d2;
+    --sidebar-border: #4b392d;
+    --sidebar-ring: #d97706;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --radius: 0.5rem;
+    --shadow-x: 0;
+    --shadow-y: 1px;
+    --shadow-blur: 3px;
+    --shadow-spread: 0px;
+    --shadow-opacity: 0.1;
+    --shadow-color: oklch(0 0 0);
+    --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+    --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+    --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
+    --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
+    --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 2px 4px -1px hsl(0 0% 0% / 0.1);
+    --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 4px 6px -1px hsl(0 0% 0% / 0.1);
+    --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 8px 10px -1px hsl(0 0% 0% / 0.1);
+    --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+  }
+
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+  }
+
+  input,
+  select,
+  textarea {
+    color: var(--foreground);
+    background-color: var(--card);
+    border-color: var(--input);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--muted-foreground);
+    opacity: 0.9;
+  }
+}
