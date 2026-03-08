@@ -9,6 +9,7 @@ import {
   type CustomProviderConfig,
   type TelegramBotConfig,
   type FeishuBotConfig,
+  type QQBotConfig,
   isKnownProvider,
   type ProviderMode,
   type RuntimeSettings
@@ -49,6 +50,7 @@ interface RawSettings {
   customAiPath?: string;
   timezone?: string;
   feishuBots?: unknown;
+  qqBots?: unknown;
 }
 
 type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
@@ -263,15 +265,47 @@ function sanitizeFeishuBots(input: unknown): FeishuBotConfig[] {
   return out;
 }
 
+function sanitizeQQBots(input: unknown): QQBotConfig[] {
+  if (!Array.isArray(input)) return [];
+
+  const out: QQBotConfig[] = [];
+  const dedup = new Set<string>();
+
+  for (const row of input) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const appId = String(item.appId ?? "").trim();
+    const clientSecret = String(item.clientSecret ?? "").trim();
+    if (!appId || !clientSecret) continue;
+
+    const idRaw = String(item.id ?? "").trim();
+    const id = idRaw || `qq-${Math.random().toString(36).slice(2, 8)}`;
+    if (dedup.has(id)) continue;
+    dedup.add(id);
+
+    out.push({
+      id,
+      name: String(item.name ?? "").trim() || id,
+      appId,
+      clientSecret,
+      allowedChatIds: sanitizeList(item.allowedChatIds)
+    });
+  }
+
+  return out;
+}
+
 function sanitizeChannels(
   input: unknown,
   telegramBots: TelegramBotConfig[],
-  feishuBots: FeishuBotConfig[]
+  feishuBots: FeishuBotConfig[],
+  qqBots: QQBotConfig[]
 ): ChannelSettingsMap {
   const channels: ChannelSettingsMap = {};
   const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
   const hasExplicitTelegram = Object.prototype.hasOwnProperty.call(source, "telegram");
   const hasExplicitFeishu = Object.prototype.hasOwnProperty.call(source, "feishu");
+  const hasExplicitQQ = Object.prototype.hasOwnProperty.call(source, "qq");
 
   for (const [key, rawValue] of Object.entries(source)) {
     if (!rawValue || typeof rawValue !== "object") continue;
@@ -327,6 +361,17 @@ function sanitizeChannels(
     }))
   };
 
+  channels.qq = channels.qq ?? (hasExplicitQQ ? channels.qq : undefined) ?? {
+    instances: qqBots.map((bot) => ({
+      id: bot.id,
+      name: bot.name,
+      enabled: true,
+      agentId: "",
+      credentials: { appId: bot.appId, clientSecret: bot.clientSecret },
+      allowedChatIds: bot.allowedChatIds
+    }))
+  };
+
   return channels;
 }
 
@@ -358,6 +403,24 @@ function deriveFeishuBotsFromChannels(channels: ChannelSettingsMap): FeishuBotCo
       name: instance.name || instance.id,
       appId,
       appSecret,
+      allowedChatIds: Array.isArray(instance.allowedChatIds) ? instance.allowedChatIds : []
+    });
+  }
+  return out;
+}
+
+function deriveQQBotsFromChannels(channels: ChannelSettingsMap): QQBotConfig[] {
+  const instances = channels.qq?.instances ?? [];
+  const out: QQBotConfig[] = [];
+  for (const instance of instances) {
+    const appId = String(instance.credentials?.appId ?? "").trim();
+    const clientSecret = String(instance.credentials?.clientSecret ?? "").trim();
+    if (!appId || !clientSecret) continue;
+    out.push({
+      id: instance.id,
+      name: instance.name || instance.id,
+      appId,
+      clientSecret,
       allowedChatIds: Array.isArray(instance.allowedChatIds) ? instance.allowedChatIds : []
     });
   }
@@ -418,9 +481,12 @@ function sanitize(raw: RawSettings): RuntimeSettings {
 
   const feishuBotsFromList = sanitizeFeishuBots(raw.feishuBots);
   const feishuBots = feishuBotsFromList.length > 0 ? feishuBotsFromList : [];
-  const channels = sanitizeChannels(raw.channels, telegramBots, feishuBots);
+  const qqBotsFromList = sanitizeQQBots(raw.qqBots);
+  const qqBots = qqBotsFromList.length > 0 ? qqBotsFromList : [];
+  const channels = sanitizeChannels(raw.channels, telegramBots, feishuBots, qqBots);
   const effectiveTelegramBots = telegramBots.length > 0 ? telegramBots : deriveTelegramBotsFromChannels(channels);
   const effectiveFeishuBots = feishuBots.length > 0 ? feishuBots : deriveFeishuBotsFromChannels(channels);
+  const effectiveQQBots = qqBots.length > 0 ? qqBots : deriveQQBotsFromChannels(channels);
   const primaryBot = effectiveTelegramBots[0];
   const agents = sanitizeAgents(raw.agents);
 
@@ -445,6 +511,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     agents,
     channels,
     telegramBots: effectiveTelegramBots,
+    qqBots: effectiveQQBots,
     plugins: {
       memory: {
         enabled: memoryEnabled,

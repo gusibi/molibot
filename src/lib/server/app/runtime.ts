@@ -9,6 +9,7 @@ import {
   type CustomProviderConfig,
   type TelegramBotConfig,
   type FeishuBotConfig,
+  type QQBotConfig,
   type ProviderMode,
   type RuntimeSettings
 } from "../settings/index.js";
@@ -208,10 +209,39 @@ function sanitizeAgents(input: unknown): AgentSettings[] {
   return out;
 }
 
+function sanitizeQQBots(input: unknown): QQBotConfig[] {
+  if (!Array.isArray(input)) return [];
+
+  const out: QQBotConfig[] = [];
+  const dedup = new Set<string>();
+  for (const row of input) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const appId = String(item.appId ?? "").trim();
+    const clientSecret = String(item.clientSecret ?? "").trim();
+    if (!appId || !clientSecret) continue;
+    const idRaw = String(item.id ?? "").trim();
+    const id = idRaw || `qq-${Math.random().toString(36).slice(2, 8)}`;
+    if (dedup.has(id)) continue;
+    dedup.add(id);
+    out.push({
+      id,
+      name: String(item.name ?? "").trim() || id,
+      appId,
+      clientSecret,
+      allowedChatIds: Array.isArray(item.allowedChatIds)
+        ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
+        : []
+    });
+  }
+  return out;
+}
+
 function sanitizeChannels(
   input: unknown,
   telegramBots: TelegramBotConfig[],
   feishuBots: FeishuBotConfig[],
+  qqBots: QQBotConfig[],
   current: ChannelSettingsMap
 ): ChannelSettingsMap {
   const channels: ChannelSettingsMap = Object.fromEntries(
@@ -281,6 +311,17 @@ function sanitizeChannels(
       enabled: true,
       agentId: "",
       credentials: { appId: bot.appId, appSecret: bot.appSecret },
+      allowedChatIds: bot.allowedChatIds
+    }))
+  };
+
+  channels.qq = channels.qq ?? {
+    instances: qqBots.map((bot) => ({
+      id: bot.id,
+      name: bot.name,
+      enabled: true,
+      agentId: "",
+      credentials: { appId: bot.appId, clientSecret: bot.clientSecret },
       allowedChatIds: bot.allowedChatIds
     }))
   };
@@ -394,6 +435,7 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   next.agents = sanitizeAgents(next.agents ?? current.agents);
   const sanitizedTelegramBots = sanitizeTelegramBots(next.telegramBots);
   const sanitizedFeishuBots = sanitizeFeishuBots(next.feishuBots);
+  const sanitizedQQBots = sanitizeQQBots(next.qqBots);
   const legacyToken = String(next.telegramBotToken ?? "").trim();
   const legacyAllowed = Array.isArray(next.telegramAllowedChatIds)
     ? next.telegramAllowedChatIds.map((v) => String(v).trim()).filter(Boolean)
@@ -410,7 +452,8 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
       : []);
 
   next.feishuBots = sanitizedFeishuBots;
-  next.channels = sanitizeChannels(next.channels, next.telegramBots, next.feishuBots, current.channels);
+  next.qqBots = sanitizedQQBots;
+  next.channels = sanitizeChannels(next.channels, next.telegramBots, next.feishuBots, next.qqBots, current.channels);
 
   next.telegramBotToken = next.telegramBots[0]?.token ?? "";
   next.telegramAllowedChatIds = next.telegramBots[0]?.allowedChatIds ?? [];

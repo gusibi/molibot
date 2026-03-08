@@ -107,7 +107,7 @@
           Bot Channels
         </h2>
         <p class="mt-2 text-sm leading-relaxed text-slate-400">
-          Set up Telegram & Feishu connections.
+          Set up Telegram, Feishu, and QQ connections.
         </p>
       </div>
       <div

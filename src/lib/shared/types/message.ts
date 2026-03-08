@@ -1,4 +1,4 @@
-export type Channel = "telegram" | "cli" | "web" | "feishu";
+export type Channel = "telegram" | "cli" | "web" | "feishu" | "qq";
 export type Role = "user" | "assistant" | "system";
 
 export interface InboundMessage {

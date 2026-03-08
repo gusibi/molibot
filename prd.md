@@ -114,6 +114,8 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-71 | Vision-to-text fallback for unsupported image models | P1 | Delivered (2026-03-06) | When the active reply model cannot accept native image input, the agent runner should mirror the voice-transcript fallback path: resolve a usable vision route, convert each image into structured text analysis, inject that text into the user prompt, emit explicit notices instead of letting text-only models guess from attachment paths, and strip any historical `image` parts from session context before calling a text-only model |
 | P1-72 | Settings single-entity save and unsaved-switch guard | P1 | Delivered (2026-03-07) | Agents/Web Profiles/Telegram/Feishu settings pages should save only the selected entity (single agent/bot/profile), switching selection with unsaved edits must prompt the operator to save first, editing a new entity ID must keep selection bound to that draft (no fallback save to `default`), and New Chat profile selection should show Web Profile names instead of opaque internal user IDs |
 | P1-73 | Web chat identity model simplification (profile-only) | P1 | Delivered (2026-03-07) | Web chat should remove user-ID selection entirely and use Web Profile as the only session identity dimension in UI flow, so New Chat only picks profile and no opaque user-id input appears |
+| P1-74 | README visual information architecture polish | P1 | Delivered (2026-03-08) | README should present a clear first-screen story with hero, concise highlights, architecture diagram, feature snapshot, and quick-start-first onboarding while keeping all capability claims grounded in actual implementation status |
+| P1-75 | README scannability and navigation polish | P1 | Delivered (2026-03-08) | README should add fast navigation and status cues (table of contents, badges, and concise surface matrix) so first-time readers can locate setup/usage sections in seconds |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -1029,3 +1031,56 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
     - `settings_custom_provider_models`（每个 provider model 一行）
   - Runtime load 必须支持“表 -> 内存对象”重建；保存必须在事务中完成，防止半写状态。
   - 允许保留 legacy 动态 JSON 表作为迁移 fallback，但不能继续作为主存储路径。
+
+## 83. QQ Channel Parity and Progressive Enhancement (2026-03-08)
+- Priority: P1
+- Stage: Phase 3 (Building) -> Phase 4 (Polish)
+- Problem:
+  - 当前内置渠道缺少 QQ，无法覆盖国内常见即时通信场景。
+  - 需要先保证 QQ 与 Telegram 的基础使用一致性，再逐步接入 QQ 特有能力。
+- Requirement:
+  - 提供内置 QQ channel runtime，能力基线与 Telegram/Feishu 对齐：消息接收、回复、会话命令、runner 调度、设置页多实例配置、bot profile 文件覆盖。
+  - QQ 基线接入必须走现有 channel plugin registry + `channels.<key>.instances[]` 配置结构，不可破坏现有 Telegram/Feishu/Web 行为。
+  - 后续迭代支持 QQ 特有能力（群/频道细粒度消息策略、媒体能力、输入状态提示）作为增强项，不阻塞基础可用性上线。
+- Enforcement:
+  - 必须新增 `channels.qq` 内置插件并在 runtime 启动流程中自动加载。
+  - 设置页必须新增 `/settings/qq`，支持 `appId/clientSecret/allowedChatIds/agentId` 与 Bot Markdown 覆盖文件编辑。
+  - 内存/会话/prompt channel 类型必须包含 `qq`，确保 runner 与 memory flush 路径一致。
+  - QQ 增强能力（媒体上传、语音转写、消息编辑/撤回替代策略）单独列入后续迭代，不得以“增强未完成”为由阻塞基础文本链路交付。
+
+## 84. QQ ID Discovery and Whitelist Operability (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 首次接入 QQ 时，操作者通常不知道 `chatId/groupOpenid/channelId`，若提前配置错误白名单会导致“收不到消息 -> 无法发现 ID”死循环。
+- Requirement:
+  - QQ runtime 必须提供可检索的入站日志字段，支持从日志直接提取可用 ID。
+  - 默认不配置白名单时应允许通过所有已授权场景消息，便于首轮握手和 ID 发现。
+- Enforcement:
+  - 每条入站 QQ 事件需输出结构化日志，至少包含：`kind/chatId/userId/groupOpenid/channelId/guildId/messageId` 与文本预览。
+  - 运营手册需明确“先空白名单跑通，后回填 allowedChatIds”的接入顺序。
+
+## 85. QQ Media Inbound No-Drop Baseline (2026-03-08)
+- Priority: P1
+- Stage: Phase 3 (Building)
+- Problem:
+  - QQ 语音/图片常以附件事件入站，若仅按文本处理会被判空丢弃，导致“收不到语音/图片”的体感故障。
+- Requirement:
+  - QQ channel 必须把附件事件纳入标准 runner 输入：附件落盘、图片进入 `imageContents`、音频进入 `attachments`，并对无文本的媒体消息提供可处理占位文本。
+- Enforcement:
+  - 入站解析不得因为 `content` 为空而直接丢弃带附件的事件。
+  - 语音附件应优先使用 `voice_wav_url` 下载，图片附件应写入 `imageContents` 供视觉模型路径使用。
+  - 无原生消息编辑能力时，`replaceMessage` 不得触发重复完整发送。
+
+## 86. QQ Reply-ID Correctness and Audio Extension Coverage (2026-03-08)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - QQ 被动回复对 `msg_id` 有严格约束，错误复用 bot 回包 ID 会触发 `40034024 msg_id invalid/unauthorized`。
+  - 语音附件若扩展名为 `.amr/.silk` 且 MIME 不标准，容易被误判为普通文件，导致 STT 链路判定 `no_audio`。
+- Requirement:
+  - QQ 回复链路必须仅使用入站原始消息 ID 作为被动回复目标，禁止链式替换为 bot 回包 ID。
+  - 附件分类需覆盖 QQ 常见语音扩展名（至少 `.amr/.silk`），确保音频路由可见。
+- Enforcement:
+  - QQ channel 发送逻辑中，`replyToId` 应固定为当前入站消息 ID（或降级主动消息），不得动态覆盖为 bot 输出消息 ID。
+  - 通用附件分类层必须把 `.amr/.silk` 归入 audio，保持跨 channel STT 判定一致性。

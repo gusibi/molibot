@@ -6,6 +6,7 @@ import type {
   CustomProviderConfig,
   TelegramBotConfig,
   FeishuBotConfig,
+  QQBotConfig,
   AgentSettings
 } from "$lib/server/settings";
 
@@ -14,6 +15,7 @@ type SettingsBody = Partial<RuntimeSettings> & {
   customProviders?: CustomProviderConfig[] | string;
   telegramBots?: TelegramBotConfig[] | string;
   feishuBots?: FeishuBotConfig[] | string;
+  qqBots?: QQBotConfig[] | string;
   agents?: AgentSettings[] | string;
 };
 
@@ -48,6 +50,14 @@ function normalizePatch(body: SettingsBody): Partial<RuntimeSettings> {
       patch.feishuBots = JSON.parse(body.feishuBots) as FeishuBotConfig[];
     } catch {
       patch.feishuBots = [];
+    }
+  }
+
+  if (typeof body.qqBots === "string") {
+    try {
+      patch.qqBots = JSON.parse(body.qqBots) as QQBotConfig[];
+    } catch {
+      patch.qqBots = [];
     }
   }
 

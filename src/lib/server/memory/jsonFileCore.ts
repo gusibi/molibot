@@ -380,7 +380,7 @@ export class JsonFileMemoryBackend implements MemoryBackend {
   }
 
   async flush(scope: MemoryScope): Promise<MemoryFlushResult> {
-    const channel = (scope.channel === "telegram" || scope.channel === "cli" || scope.channel === "web")
+    const channel = (scope.channel === "telegram" || scope.channel === "cli" || scope.channel === "web" || scope.channel === "qq")
       ? scope.channel
       : "web";
     const conversations = this.sessions.listConversations(channel as Channel, scope.externalUserId);

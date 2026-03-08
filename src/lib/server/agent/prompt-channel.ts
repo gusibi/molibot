@@ -1,4 +1,4 @@
-export type PromptChannel = "telegram" | "feishu" | "web";
+export type PromptChannel = "telegram" | "feishu" | "qq" | "web";
 
 export function buildPromptChannelSections(channel: PromptChannel): string[] {
   switch (channel) {

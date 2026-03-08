@@ -1,107 +1,141 @@
 # Molibot
 
 <p align="center">
-  <img src="./Voldemomo_compressed.jpg" alt="Molibot logo" width="160" />
+  <img src="./Voldemomo_compressed.jpg" alt="Molibot logo" width="168" />
+</p>
+
+<h2 align="center">A Simpler OpenClaw-Style Personal AI Assistant</h2>
+
+<p align="center">
+  Multi-channel · Agent Profiles · Prompt Layers · Local-First Data
 </p>
 
 <p align="center">
-  A simpler OpenClaw-style personal AI assistant.
+  <img alt="Node >=22" src="https://img.shields.io/badge/node-%3E%3D22-3c873a">
+  <img alt="Runtime" src="https://img.shields.io/badge/runtime-SvelteKit-ff3e00">
+  <img alt="Channels" src="https://img.shields.io/badge/channels-Web%20%7C%20Telegram%20%7C%20Feishu%20%7C%20CLI-0ea5e9">
+  <img alt="Storage" src="https://img.shields.io/badge/storage-JSON%20%2B%20SQLite-8b5cf6">
 </p>
 
-Molibot 是一个可本地长期使用的多入口 AI 助手，当前支持：
+Molibot 是一个面向个人和小团队的本地优先 AI 助手。  
+一套 runtime，同时跑 Web / Telegram / Feishu / CLI，并且共享同一套配置与会话能力。
 
-- Telegram Bot
-- Feishu Bot
-- Web Chat（SvelteKit）
-- CLI
+## Table of Contents
 
-## 1. 你能用它做什么
+- [Key Highlights](#key-highlights)
+- [Architecture](#architecture)
+- [Feature Snapshot](#feature-snapshot)
+- [Quick Start](#quick-start)
+- [First-Time Setup Flow](#first-time-setup-flow)
+- [Web Chat Usage](#web-chat-usage)
+- [Telegram Commands](#telegram-commands)
+- [Settings Pages](#settings-pages)
+- [Data Layout](#data-layout)
+- [Common Commands](#common-commands)
+- [Environment](#environment)
+- [Docs](#docs)
+- [Current Status](#current-status)
 
-- 多通道统一对话：同一套 runtime、同一套会话和记忆能力
-- 多模型路由：`text / vision / stt / tts`
-- 图片和语音：Web 支持图片上传与实时录音发送；Telegram/Feishu 支持多媒体消息
-- 会话管理：新建、切换、重命名、删除
-- Agent/Profile 分层：
-  - Agent（身份层）
-  - Channel 实例（Telegram/Feishu/Web Profiles）
-  - Prompt 文件覆盖（global -> agent -> bot/profile）
-- 设置中心：AI、Agents、Telegram、Feishu、Web Profiles、Memory、Skills、Tasks、Plugins
+## Key Highlights
 
-## 2. 快速安装
+- Multi-Channel in One Runtime: `Web + Telegram + Feishu + CLI`
+- Profile-Driven Chat: `global -> agent -> bot/profile` prompt layering
+- Rich Input Support: text, image, and realtime voice recording (Web)
+- Operational Settings UI: AI, agents, profiles, tasks, memory, skills
+- Safer Settings Persistence: `settings.json + settings.sqlite` split design
 
-### 环境要求
+## Architecture
 
-- Node.js >= 22
-- npm
+```mermaid
+flowchart LR
+    A[Web Chat] --> R[Molibot Runtime]
+    B[Telegram Bot] --> R
+    C[Feishu Bot] --> R
+    D[CLI] --> R
 
-### 安装
+    R --> P[Agent Loop]
+    P --> M[Model Routing<br/>text/vision/stt/tts]
+    P --> T[Tools]
+    P --> MM[Memory]
+    P --> S[Sessions]
+    P --> F[Profile Files]
+
+    F --> L[global -> agent -> bot/profile]
+```
+
+## Feature Snapshot
+
+- Conversation:
+  - Multi-session create/switch/rename/delete
+  - Web chat `New Chat` is now profile-only (no user-id confusion)
+- Multimodal:
+  - Web: image upload + realtime voice recording and send
+  - Telegram/Feishu: media/file ingestion
+- Configuration:
+  - Web Profiles page
+  - Telegram / Feishu bot instances
+  - Agent library with Markdown prompt files
+- AI Routing:
+  - Provider management and model routing in `/settings/ai`
+  - Runtime model switching and usage tracking
+- Operations:
+  - Task list and manual trigger/retry
+  - Plugin and memory backend controls
+
+## Product Surfaces
+
+| Surface | Current State | Notes |
+|---|---|---|
+| Web Chat | Ready | Image upload + realtime voice recording + profile-only new chat |
+| Telegram | Most validated | Runtime commands, multi-session, model switching, task delivery |
+| Feishu | Ready | Bot settings, media/file ingress and outbound handling |
+| CLI | Ready | Local terminal conversation entrypoint |
+
+## Quick Start
+
+### 1) Install
 
 ```bash
 npm install
 npm link
 ```
 
-### 初始化
+### 2) Bootstrap
 
 ```bash
 cp .env.example .env
 molibot init
 ```
 
-`molibot init` 会在 `${DATA_DIR:-~/.molibot}` 初始化 profile 文件与基础目录。
-
-## 3. 启动方式
-
-### 开发模式
+### 3) Run
 
 ```bash
 molibot
-# 等价于 molibot dev
+# same as: molibot dev
 ```
 
-### 生产模式
+Open: `http://localhost:3000`
 
-```bash
-molibot build
-molibot start
-```
+## First-Time Setup Flow
 
-### CLI 对话
+1. `/settings/ai`: 配置 provider 与模型。
+2. `/settings/agents`: 新建 agent（身份层）。
+3. `/settings/web`: 新建 Web Profile，并绑定 agent。
+4. （可选）配置消息通道：
+   - `/settings/telegram`
+   - `/settings/feishu`
+5. 回到 `/` 开始聊天。
 
-```bash
-molibot cli
-```
+## Web Chat Usage
 
-### 服务脚本（可选）
-
-```bash
-./bin/molibot-service.sh start
-./bin/molibot-service.sh stop
-./bin/molibot-service.sh status
-./bin/molibot-service.sh restart
-```
-
-## 4. 首次配置（推荐顺序）
-
-1. 打开 `http://localhost:3000/settings/ai` 配置模型和 Provider。  
-2. 打开 `http://localhost:3000/settings/agents` 新建你的 Agent。  
-3. 打开 `http://localhost:3000/settings/web` 配置 Web Profiles 并绑定 Agent。  
-4. 如果要接入 Telegram/Feishu：
-   - `http://localhost:3000/settings/telegram`
-   - `http://localhost:3000/settings/feishu`
-5. 回到 `http://localhost:3000/` 开始聊天。
-
-## 5. Web Chat 使用说明
-
-- 左侧 `+ New chat`：创建新会话（现在只选择 `Web Profile`，不再使用 User ID）
-- 会话标题：可双击重命名
+- `+ New chat`: 只选择 `Web Profile` 创建新会话
+- 双击左侧会话名：重命名 session
 - 输入区：
-  - 文本消息
   - `+ Image` 上传图片
-  - `Record Voice` 实时录音，停止后自动发送
-- `Preview System Prompt`：查看当前 profile/agent/bot 文件组合后的实际 system prompt
+  - `Record Voice` 录音并自动发送
+- `Preview System Prompt`: 查看最终拼装的 system prompt 与来源
 
-## 6. Telegram 常用命令
+## Telegram Commands
 
 - `/chatid`
 - `/stop`
@@ -118,24 +152,22 @@ molibot cli
 - `/skills`
 - `/help`
 
-## 7. 设置页面索引
+## Settings Pages
 
-- `/settings`：设置首页
-- `/settings/ai`：Provider、模型、路由、用量
-- `/settings/agents`：Agent 管理与 Markdown 文件
-- `/settings/web`：Web Profiles
-- `/settings/telegram`：Telegram Bots
-- `/settings/feishu`：Feishu Bots
-- `/settings/memory`：记忆管理
-- `/settings/skills`：技能清单
-- `/settings/tasks`：任务管理
-- `/settings/plugins`：插件与后端开关
+- `/settings`
+- `/settings/ai`
+- `/settings/agents`
+- `/settings/web`
+- `/settings/telegram`
+- `/settings/feishu`
+- `/settings/memory`
+- `/settings/skills`
+- `/settings/tasks`
+- `/settings/plugins`
 
-## 8. 数据目录
+## Data Layout
 
-默认：`~/.molibot`
-
-典型结构：
+Default data dir: `~/.molibot`
 
 ```text
 ~/.molibot/
@@ -149,36 +181,52 @@ molibot cli
   moli-w/
 ```
 
-说明：
+- `settings.json`: 稳定配置（bootstrap 类）
+- `settings.sqlite`: 动态配置（agents/channels/providers）
+- `sessions/`: 会话持久化
+- `memory/`: 记忆数据
+- `moli-t / moli-f / moli-w`: 通道运行区
 
-- `settings.json`：稳定静态配置（bootstrap 类）
-- `settings.sqlite`：动态配置（agents/channels/providers 等）
-- `sessions/`：会话持久化
-- `memory/`：记忆数据
-- `moli-t` / `moli-f` / `moli-w`：各通道运行区
+## Common Commands
 
-## 9. 常用环境变量
+```bash
+molibot                 # dev
+molibot build           # build
+molibot start           # production run
+molibot cli             # cli mode
+```
 
-- `PORT`：默认 `3000`
-- `DATA_DIR`：默认 `~/.molibot`
-- `SETTINGS_FILE`：默认 `${DATA_DIR}/settings.json`
-- `SETTINGS_DB_FILE`：默认 `${DATA_DIR}/settings.sqlite`
+Optional service script:
+
+```bash
+./bin/molibot-service.sh start
+./bin/molibot-service.sh stop
+./bin/molibot-service.sh status
+./bin/molibot-service.sh restart
+```
+
+## Environment
+
+- `PORT` (default `3000`)
+- `DATA_DIR` (default `~/.molibot`)
+- `SETTINGS_FILE` (default `${DATA_DIR}/settings.json`)
+- `SETTINGS_DB_FILE` (default `${DATA_DIR}/settings.sqlite`)
 - `AI_PROVIDER_MODE=pi|custom`
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_ALLOWED_CHAT_IDS`
 
-完整变量见 `.env.example`。
+See `.env.example` for full list.
 
-## 10. 文档
+## Docs
 
-- `prd.md`：产品范围和优先级
-- `features.md`：已实现能力和更新日志
-- `architecture.md`：架构说明
-- `docs/plugin-development.md`：插件开发说明
-- `AGENTS.md`：协作约束
+- `prd.md`: scope and priorities
+- `features.md`: delivered features and changelog
+- `architecture.md`: architecture notes
+- `docs/plugin-development.md`: plugin contract
+- `AGENTS.md`: collaboration rules
 
-## 11. 现状说明
+## Current Status
 
-- Telegram 是当前最完整、最稳定的通道
-- Feishu/Web/CLI 已可用，持续迭代中
-- 如文档与行为冲突，优先以 `features.md` 与当前代码为准
+- Telegram is currently the most validated channel in real usage.
+- Web/Feishu/CLI are available and actively iterated.
+- If docs and behavior differ, trust `features.md` and current code.

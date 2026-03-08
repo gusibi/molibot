@@ -285,6 +285,8 @@ export class MomRuntimeStore {
     const isAudio =
       lower.endsWith(".ogg") ||
       lower.endsWith(".oga") ||
+      lower.endsWith(".amr") ||
+      lower.endsWith(".silk") ||
       lower.endsWith(".mp3") ||
       lower.endsWith(".wav") ||
       lower.endsWith(".m4a") ||
@@ -308,8 +310,12 @@ export class MomRuntimeStore {
             ? "audio/mpeg"
             : lower.endsWith(".wav")
               ? "audio/wav"
-              : lower.endsWith(".m4a")
-                ? "audio/mp4"
+              : lower.endsWith(".amr")
+                ? "audio/amr"
+                : lower.endsWith(".silk")
+                  ? "audio/silk"
+                : lower.endsWith(".m4a")
+                  ? "audio/mp4"
                 : lower.endsWith(".aac")
                   ? "audio/aac"
                   : lower.endsWith(".webm")

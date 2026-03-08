@@ -46,6 +46,14 @@ export interface FeishuBotConfig {
   allowedChatIds: string[];
 }
 
+export interface QQBotConfig {
+  id: string;
+  name: string;
+  appId: string;
+  clientSecret: string;
+  allowedChatIds: string[];
+}
+
 export interface AgentSettings {
   id: string;
   name: string;
@@ -90,6 +98,7 @@ export interface RuntimeSettings {
   channels: ChannelSettingsMap;
   telegramBots: TelegramBotConfig[];
   feishuBots: FeishuBotConfig[];
+  qqBots: QQBotConfig[];
   plugins: PluginSettings;
   telegramBotToken: string;
   telegramAllowedChatIds: string[];

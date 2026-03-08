@@ -5,6 +5,7 @@ import {
   type ChannelInstanceSettings,
   type CustomProviderConfig,
   type FeishuBotConfig,
+  type QQBotConfig,
   type ProviderMode,
   type RuntimeSettings,
   type TelegramBotConfig
@@ -48,6 +49,20 @@ function mapFeishuBotsToChannelSettings(bots: FeishuBotConfig[]): ChannelInstanc
     credentials: {
       appId: bot.appId,
       appSecret: bot.appSecret
+    },
+    allowedChatIds: bot.allowedChatIds
+  }));
+}
+
+function mapQQBotsToChannelSettings(bots: QQBotConfig[]): ChannelInstanceSettings[] {
+  return bots.map((bot) => ({
+    id: bot.id,
+    name: bot.name,
+    enabled: true,
+    agentId: "",
+    credentials: {
+      appId: bot.appId,
+      clientSecret: bot.clientSecret
     },
     allowedChatIds: bot.allowedChatIds
   }));
@@ -102,6 +117,19 @@ const defaultFeishuBots: FeishuBotConfig[] = defaultFeishuAppId && defaultFeishu
   }]
   : [];
 
+const defaultQQAppId = (process.env.QQ_APP_ID ?? "").trim();
+const defaultQQClientSecret = (process.env.QQ_CLIENT_SECRET ?? "").trim();
+const defaultQQAllowedChatIds = listFromEnv("QQ_ALLOWED_CHAT_IDS");
+const defaultQQBots: QQBotConfig[] = defaultQQAppId && defaultQQClientSecret
+  ? [{
+    id: "default",
+    name: "Default QQ Bot",
+    appId: defaultQQAppId,
+    clientSecret: defaultQQClientSecret,
+    allowedChatIds: defaultQQAllowedChatIds
+  }]
+  : [];
+
 const defaultAgents: AgentSettings[] = [];
 
 export const defaultRuntimeSettings: RuntimeSettings = {
@@ -141,9 +169,13 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     },
     feishu: {
       instances: mapFeishuBotsToChannelSettings(defaultFeishuBots)
+    },
+    qq: {
+      instances: mapQQBotsToChannelSettings(defaultQQBots)
     }
   },
   telegramBots: defaultTelegramBots,
+  qqBots: defaultQQBots,
   plugins: {
     memory: {
       enabled: String(process.env.MEMORY_ENABLED ?? "false").toLowerCase() === "true",

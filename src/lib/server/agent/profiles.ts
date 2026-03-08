@@ -124,6 +124,8 @@ export function getBotDir(channel: string, botId: string): string {
     ? "moli-t"
     : normalizedChannel === "feishu"
       ? "moli-f"
+      : normalizedChannel === "qq"
+        ? "moli-q"
       : normalizedChannel === "web"
         ? "moli-w"
       : normalizedChannel;
