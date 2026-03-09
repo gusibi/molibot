@@ -121,6 +121,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-78 | MCP server integration for agent toolchain | P1 | Delivered (2026-03-08) | Runtime settings should support configurable MCP stdio servers, runner should automatically load MCP tools and merge them with built-in tools, and MCP failures should degrade gracefully without breaking normal chat execution |
 | P1-79 | Skill-gated MCP exposure and settings panel | P1 | Delivered (2026-03-08) | MCP configuration should be manageable in Settings UI, and MCP tools must remain hidden by default: only skills that explicitly declare MCP dependencies and are explicitly invoked may enable scoped MCP tools for a run |
 | P1-80 | Settings Overview dark-mode accessibility contrast | P1 | Delivered (2026-03-08) | Settings Overview cards should keep WCAG-friendly readable description contrast in dark mode by using theme-aware text tokens instead of fixed low-contrast slate grays, while preserving existing layout and palette behavior |
+| P1-81 | Telegram media recognition pre-status and transient action retry | P1 | Delivered (2026-03-10) | When users send image/audio messages, Telegram should immediately show a reusable `Recognizing ...` status before runner thinking starts, and transient network failures on `sendChatAction` / status edits should retry instead of aborting the handling path |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |

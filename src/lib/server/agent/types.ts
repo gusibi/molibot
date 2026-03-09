@@ -25,6 +25,8 @@ export interface ChannelInboundMessage {
   imageContents: ImageContent[];
   isEvent?: boolean;
   sessionId?: string;
+  initialStatusText?: string;
+  initialStatusMessageId?: number;
 }
 
 export interface LoggedMessage {

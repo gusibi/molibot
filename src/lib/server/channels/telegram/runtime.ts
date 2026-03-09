@@ -22,7 +22,7 @@ import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.j
 import { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
-import { editTelegramText, sendTelegramText } from "./formatting.js";
+import { editTelegramText, sendTelegramChatAction, sendTelegramText } from "./formatting.js";
 import { ChannelQueue } from "../shared/queue.js";
 import type { ModelOption, ModelRoute, ParsedRelativeReminder, StatusSession } from "./types.js";
 
@@ -370,6 +370,8 @@ export class TelegramManager {
       const chatId = String(ctx.chat.id);
       const userId = String(ctx.msg?.from?.id ?? "unknown");
       const messageId = Number(ctx.msg?.message_id ?? Date.now());
+      const initialStatusText = this.buildInboundRecognitionStatus(ctx.msg);
+      let initialStatusMessageId: number | null = null;
 
       momLog("telegram", "message_received", {
         chatId,
@@ -386,10 +388,47 @@ export class TelegramManager {
         return;
       }
 
+      if (initialStatusText) {
+        try {
+          await sendTelegramChatAction(bot, chatId, this.resolveInboundRecognitionAction(ctx.msg));
+          const sent = await sendTelegramText(bot, chatId, initialStatusText);
+          initialStatusMessageId = sent.message_id;
+          momLog("telegram", "preprocess_status_sent", {
+            chatId,
+            userId,
+            messageId,
+            initialStatusMessageId,
+            initialStatusText
+          });
+        } catch (error) {
+          momWarn("telegram", "preprocess_status_failed", {
+            chatId,
+            userId,
+            messageId,
+            initialStatusText,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+
       const event = await this.toInboundEvent(ctx as any, token);
       if (!event) {
+        if (initialStatusMessageId) {
+          try {
+            await bot.api.deleteMessage(chatId, initialStatusMessageId);
+          } catch {
+            // ignore
+          }
+        }
         momLog("telegram", "message_ignored_after_parse", { chatId, userId, messageId });
         return;
+      }
+
+      if (initialStatusText) {
+        event.initialStatusText = initialStatusText;
+      }
+      if (initialStatusMessageId) {
+        event.initialStatusMessageId = initialStatusMessageId;
       }
 
       const runId = createRunId(chatId, event.messageId);
@@ -817,11 +856,12 @@ export class TelegramManager {
     });
 
     const status: StatusSession = {
-      statusMessageId: null,
+      statusMessageId: event.initialStatusMessageId ?? null,
       threadMessageIds: [],
-      accumulatedText: "",
+      accumulatedText: event.initialStatusText ?? "",
       isWorking: true
     };
+    const seededStatusText = event.initialStatusText?.trim() || "";
 
     const render = async (text: string): Promise<void> => {
       const display = status.isWorking ? `${text} ...` : text;
@@ -906,8 +946,8 @@ export class TelegramManager {
       setTyping: async (isTyping) => {
         momLog("telegram", "ctx_set_typing", { runId, chatId, isTyping });
         if (!isTyping) return;
-        await bot.api.sendChatAction(chatId, "typing");
-        if (!status.statusMessageId) {
+        await sendTelegramChatAction(bot, chatId, "typing");
+        if (!status.statusMessageId || (seededStatusText && status.accumulatedText.trim() === seededStatusText)) {
           status.accumulatedText = event.isEvent ? "Starting event" : "Thinking";
           await render(status.accumulatedText);
         }
@@ -1529,5 +1569,38 @@ export class TelegramManager {
       attachments,
       imageContents
     };
+  }
+
+  private buildInboundRecognitionStatus(msg: any): string | null {
+    const hasImage = this.hasInboundImage(msg);
+    const hasAudio = this.hasInboundAudio(msg);
+    if (hasImage && hasAudio) return "Recognizing image and audio";
+    if (hasImage) return "Recognizing image";
+    if (hasAudio) return "Recognizing audio";
+    return null;
+  }
+
+  private resolveInboundRecognitionAction(msg: any): "typing" | "upload_photo" | "record_voice" {
+    const hasImage = this.hasInboundImage(msg);
+    const hasAudio = this.hasInboundAudio(msg);
+    if (hasImage && !hasAudio) return "upload_photo";
+    if (hasAudio && !hasImage) return "record_voice";
+    return "typing";
+  }
+
+  private hasInboundImage(msg: any): boolean {
+    if (Array.isArray(msg?.photo) && msg.photo.length > 0) return true;
+    if (!msg?.document?.file_id) return false;
+    const mime = String(msg.document.mime_type || "");
+    const filename = String(msg.document.file_name || "");
+    return mime.startsWith("image/") || Boolean(this.detectImageMime(filename, Buffer.alloc(0)));
+  }
+
+  private hasInboundAudio(msg: any): boolean {
+    if (msg?.voice?.file_id || msg?.audio?.file_id) return true;
+    if (!msg?.document?.file_id) return false;
+    const mime = String(msg.document.mime_type || "");
+    const filename = String(msg.document.file_name || "");
+    return mime.startsWith("audio/") || Boolean(this.detectAudioMime(filename, Buffer.alloc(0)));
   }
 }
