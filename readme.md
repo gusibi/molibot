@@ -9,7 +9,13 @@
 <p align="center">
   Multi-channel · Agent Profiles · Prompt Layers · Local-First Data
 </p>
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/gusibi/molibot)
+
+<p align="center">
+  <a href="https://deepwiki.com/gusibi/molibot">
+    <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki">
+  </a>
+</p>
+
 <p align="center">
   <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D22-3c873a">
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-SvelteKit-ff3e00">
