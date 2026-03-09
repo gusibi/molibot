@@ -9,12 +9,12 @@
 <p align="center">
   Multi-channel · Agent Profiles · Prompt Layers · Local-First Data
 </p>
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/gusibi/molibot)
 <p align="center">
-  <img alt="Node `>=22`" src="https://img.shields.io/badge/node-%3E%3D22-3c873a">
+  <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D22-3c873a">
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-SvelteKit-ff3e00">
   <img alt="Channels" src="https://img.shields.io/badge/channels-Web%20%7C%20Telegram%20%7C%20Feishu%20%7C%20CLI-0ea5e9">
   <img alt="Storage" src="https://img.shields.io/badge/storage-JSON%20%2B%20SQLite-8b5cf6">
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/gusibi/molibot)
 </p>
 
 Molibot 是一个面向个人和小团队的本地优先 AI 助手。  
