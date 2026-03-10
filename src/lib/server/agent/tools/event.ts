@@ -1,8 +1,8 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { MomEvent } from "../events.js";
+import type { EventStatus, MomEvent } from "../events.js";
 
 const eventSchema = Type.Object({
     type: Type.Union([
@@ -97,6 +97,7 @@ export function createEventTool(options: {
         label: "create_event",
         description: [
             "Schedule a message to be sent at a specific time or on a recurring schedule.",
+            "For periodic events, calling this again with the same chatId + schedule + timezone will update the existing task instead of creating duplicates.",
             "",
             "Types:",
             "- one-shot: fires once at the given 'at' datetime (ISO 8601 with timezone offset, e.g. 2026-03-01T09:00:00+08:00)",
@@ -112,6 +113,7 @@ export function createEventTool(options: {
         parameters: eventSchema,
         execute: async (_toolCallId, params) => {
             const tz = options.timezone;
+            const nowIso = new Date().toISOString();
 
             // Validate type-specific required fields
             if (params.type === "one-shot") {
@@ -148,6 +150,8 @@ export function createEventTool(options: {
 
             let event: MomEvent;
             let atIso: string | undefined;
+            let filename: string;
+            let operation: "created" | "updated" = "created";
 
             if (params.type === "one-shot") {
                 atIso = new Date(params.at!).toISOString();
@@ -177,9 +181,57 @@ export function createEventTool(options: {
             }
 
             mkdirSync(eventsDir, { recursive: true });
-            const filename = `event-${Date.now()}.json`;
-            const filePath = join(eventsDir, filename);
-            writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+            if (event.type === "periodic") {
+                const periodicMatches = findPeriodicMatches(
+                    eventsDir,
+                    options.chatId,
+                    event.schedule,
+                    event.timezone
+                );
+                if (periodicMatches.length > 0) {
+                    periodicMatches.sort((a, b) => b.mtimeMs - a.mtimeMs);
+                    const primary = periodicMatches[0];
+                    const nextStatus: EventStatus = {
+                        ...(primary.event.status ?? {}),
+                        state: "pending",
+                        completedAt: undefined,
+                        reason: "updated",
+                        lastError: undefined
+                    };
+                    const mergedEvent: MomEvent = {
+                        ...event,
+                        status: nextStatus
+                    };
+                    writeFileSync(primary.path, `${JSON.stringify(mergedEvent, null, 2)}\n`, "utf8");
+
+                    for (const duplicate of periodicMatches.slice(1)) {
+                        const duplicateStatus: EventStatus = {
+                            ...(duplicate.event.status ?? {}),
+                            state: "completed",
+                            completedAt: nowIso,
+                            reason: "superseded_by_update",
+                            lastError: undefined
+                        };
+                        const supersededEvent: MomEvent = {
+                            ...duplicate.event,
+                            delivery: duplicate.event.delivery ?? "agent",
+                            status: duplicateStatus
+                        };
+                        writeFileSync(duplicate.path, `${JSON.stringify(supersededEvent, null, 2)}\n`, "utf8");
+                    }
+
+                    filename = primary.filename;
+                    operation = "updated";
+                } else {
+                    filename = `event-${Date.now()}.json`;
+                    const filePath = join(eventsDir, filename);
+                    writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+                }
+            } else {
+                filename = `event-${Date.now()}.json`;
+                const filePath = join(eventsDir, filename);
+                writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+            }
 
             // Build rich confirmation message
             let timeInfo: string;
@@ -203,6 +255,7 @@ export function createEventTool(options: {
             }
 
             lines.push(
+                `• 操作：${operation === "updated" ? "更新已有任务" : "创建新任务"}`,
                 `• 触发时间：${timeInfo}`,
                 `• 内容：${params.text}`,
                 `• 文件名：${filename}`
@@ -217,4 +270,42 @@ export function createEventTool(options: {
             };
         }
     };
+}
+
+interface EventFileRow {
+    filename: string;
+    path: string;
+    mtimeMs: number;
+    event: MomEvent;
+}
+
+function findPeriodicMatches(
+    eventsDir: string,
+    chatId: string,
+    schedule: string,
+    timezone: string
+): EventFileRow[] {
+    const files = readdirSync(eventsDir).filter((name) => name.endsWith(".json"));
+    const out: EventFileRow[] = [];
+    for (const filename of files) {
+        const path = join(eventsDir, filename);
+        try {
+            const raw = readFileSync(path, "utf8");
+            const parsed = JSON.parse(raw) as Partial<MomEvent>;
+            if (!parsed || parsed.type !== "periodic") continue;
+            if (parsed.chatId !== chatId) continue;
+            if (String(parsed.schedule ?? "").trim() !== schedule.trim()) continue;
+            if (String(parsed.timezone ?? "").trim() !== timezone.trim()) continue;
+            const mtimeMs = statSync(path).mtimeMs;
+            out.push({
+                filename,
+                path,
+                mtimeMs,
+                event: parsed as MomEvent
+            });
+        } catch {
+            // Ignore malformed files; watcher/error path handles them separately.
+        }
+    }
+    return out;
 }

@@ -188,6 +188,7 @@ function buildEventsSection(vars: PromptRenderVars): string {
     "### Managing Events",
     `- List: \`ls ${vars.workspaceEventsDir}/\``,
     `- View: \`cat ${vars.workspaceEventsDir}/foo.json\``,
+    "- Update periodic: call `create_event` again with the same `schedule` + `timezone`; runtime will update the existing task instead of creating a duplicate.",
     `- Cancel: \`rm ${vars.workspaceEventsDir}/foo.json\``,
     "",
     "### Event lifecycle",

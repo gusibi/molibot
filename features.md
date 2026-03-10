@@ -115,6 +115,7 @@
 | ENG-180 | Stop hard-interrupt for MCP/tool wait + immediate busy release | Done | Wired MCP tool calls to respect abort signals (`client.callTool(..., { signal })`) and changed channel stop handlers to drop chat busy guard immediately after abort, so `/new` and follow-up commands no longer block behind slow/unresponsive in-flight tool calls |
 | ENG-181 | Prompt refresh-by-change policy for cache stability | Done | Runner now rebuilds system prompt only when prompt-affecting settings change (system prompt text/timezone/disabled skills/MCP config/current bot agent binding) or on fresh runner (`/new`), instead of rebuilding on every message, balancing cache reuse with timely settings-driven prompt updates |
 | ENG-182 | Settings Overview dark-mode contrast fix | Done | Updated `/settings` Overview intro and card description copy from hardcoded `text-slate-400` to theme token `text-[var(--muted-foreground)]` to restore readable WCAG-friendly contrast in dark mode while keeping light/dark palette consistency |
+| ENG-183 | Periodic event upsert + duplicate supersede | Done | Updated `create_event` for periodic tasks to upsert by `chatId + schedule + timezone` instead of always creating a new file; existing matching task is updated in place, and older duplicates are marked `completed` with `reason: superseded_by_update` to stop repeated duplicate runs |
 | DOC-08 | README full onboarding refresh | Done | Rewrote `readme.md` into a concise end-to-end guide: install, configure, startup modes, first-time setup sequence, Web/Telegram usage, settings index, data layout, and environment variables |
 | DOC-09 | README visual story upgrade | Done | Refactored README presentation with a stronger hero, key highlights, architecture diagram, feature snapshot, and a cleaner quick-start-first narrative inspired by modern agent project documentation style |
 | DOC-10 | README scannability enhancement | Done | Added badges, table of contents, and product surface matrix to improve first-screen readability and make key sections discoverable faster |
@@ -220,6 +221,7 @@
 | BL-04 | Vector memory | Backlog | Post V1 |
 
 ## Update Log
+- 2026-03-10: Added true periodic-task update semantics in `create_event`: same `chatId + schedule + timezone` now updates existing event file in place (no new duplicate file), and historical duplicates are automatically marked `completed` (`superseded_by_update`) to prevent multi-fire repeats.
 - 2026-03-10: Changed image routing to trust explicitly declared custom-model `vision` capability for native multimodal input, so verified-failed/untested states no longer force unnecessary separate image-analysis fallback calls when the operator already selected a vision-capable main model.
 - 2026-03-10: Enriched Telegram transport failure logs with nested fetch/socket cause details to diagnose `sendChatAction` network failures beyond the generic grammY wrapper message.
 - 2026-03-10: Hardened Telegram media handling by adding transient retry for `sendChatAction`/status edits and showing an early reusable `Recognizing image/audio` status before runner thinking starts.
