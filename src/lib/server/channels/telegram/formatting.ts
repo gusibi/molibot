@@ -118,6 +118,49 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function extractTelegramErrorDetails(error: unknown): Record<string, unknown> {
+  const base = error instanceof Error
+    ? {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    }
+    : {
+      message: String(error ?? "")
+    };
+
+  const withFields = error && typeof error === "object"
+    ? error as Record<string, unknown>
+    : undefined;
+  const nested = withFields?.error;
+  const nestedFields = nested && typeof nested === "object"
+    ? nested as Record<string, unknown>
+    : undefined;
+  const cause = (error instanceof Error ? error.cause : undefined) ?? nestedFields?.cause;
+  const causeFields = cause && typeof cause === "object"
+    ? cause as Record<string, unknown>
+    : undefined;
+
+  return {
+    ...base,
+    code: withFields?.code ?? nestedFields?.code ?? causeFields?.code ?? null,
+    errno: withFields?.errno ?? nestedFields?.errno ?? causeFields?.errno ?? null,
+    type: withFields?.type ?? nestedFields?.type ?? causeFields?.type ?? null,
+    method: withFields?.method ?? nestedFields?.method ?? null,
+    status: withFields?.status ?? nestedFields?.status ?? null,
+    statusText: withFields?.statusText ?? nestedFields?.statusText ?? null,
+    address: withFields?.address ?? nestedFields?.address ?? causeFields?.address ?? null,
+    port: withFields?.port ?? nestedFields?.port ?? causeFields?.port ?? null,
+    syscall: withFields?.syscall ?? nestedFields?.syscall ?? causeFields?.syscall ?? null,
+    causeMessage: cause instanceof Error ? cause.message : (cause != null ? String(cause) : null),
+    nestedErrorMessage: nested instanceof Error ? nested.message : (nestedFields?.message ?? null)
+  };
+}
+
+export function describeTelegramError(error: unknown): Record<string, unknown> {
+  return extractTelegramErrorDetails(error);
+}
+
 async function retryTelegramApiCall<T>(
   logEvent: string,
   metadata: Record<string, unknown>,
@@ -142,7 +185,8 @@ async function retryTelegramApiCall<T>(
         ...metadata,
         attempt: attempt + 1,
         nextDelayMs: SEND_RETRY_DELAYS_MS[attempt + 1],
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
+        errorDetails: extractTelegramErrorDetails(error)
       });
     }
   }

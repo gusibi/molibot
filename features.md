@@ -203,6 +203,8 @@
 | ENG-148 | Audio-input capability groundwork | Done | Added `audio_input` as a first-class model capability tag across settings schema, sanitization, provider test payloads, and AI Providers UI, while intentionally keeping its verification state `untested` until native audio prompt transport is implemented |
 | ENG-149 | Verification-aware audio fallback routing | Done | Updated `runner.ts` to compute an explicit audio decision from `audio_input` and `stt` capability metadata, log the fallback reason, keep STT as the execution path while native audio transport is unavailable, and preserve voice-placeholder behavior when no STT target exists |
 | ENG-150 | Telegram media pre-processing status + action retry hardening | Done | Added reusable pre-thinking status messages for inbound image/audio recognition, upgraded `sendChatAction` and status-edit paths with limited retry on transient network failures, and reused the seeded status message through `Recognizing... -> Thinking -> final answer` |
+| ENG-151 | Telegram network-error diagnostics enrichment | Done | Added structured Telegram transport error diagnostics with nested `cause`/`code`/`errno`/`syscall`/`address` metadata on retry warnings and failure logs so generic grammY `Network request failed` events can be traced to real socket/DNS timeout causes |
+| ENG-152 | Declared-vision-first native image routing | Done | Custom text/vision models that explicitly declare `vision` are now trusted for native image input even when verification is `untested` or `failed`; verification remains observable in logs, but no longer forces an unnecessary image-analysis fallback API call |
 
 ## In Progress
 | ID | Feature | Status | Notes |
@@ -218,6 +220,8 @@
 | BL-04 | Vector memory | Backlog | Post V1 |
 
 ## Update Log
+- 2026-03-10: Changed image routing to trust explicitly declared custom-model `vision` capability for native multimodal input, so verified-failed/untested states no longer force unnecessary separate image-analysis fallback calls when the operator already selected a vision-capable main model.
+- 2026-03-10: Enriched Telegram transport failure logs with nested fetch/socket cause details to diagnose `sendChatAction` network failures beyond the generic grammY wrapper message.
 - 2026-03-10: Hardened Telegram media handling by adding transient retry for `sendChatAction`/status edits and showing an early reusable `Recognizing image/audio` status before runner thinking starts.
 - 2026-03-08: Fixed `/settings` Overview card readability in dark mode by replacing hardcoded low-contrast gray description text (`text-slate-400`) with theme-aware muted foreground tokens, improving accessibility and preserving theme consistency.
 - 2026-03-08: Fixed theme contrast/selection issues on `/settings/ai/providers`: non-selected provider cards now use neutral card background while only selected item is highlighted; provider search/input borders now use weaker `--input` border with softer focus ring; and `text-slate-100` labels (for example plugin tags like `JSON File`) are mapped to readable foreground color in light mode.

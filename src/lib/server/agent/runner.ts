@@ -129,10 +129,7 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
     selected.path,
   );
   const configuredModel = selected.models.find((m) => m.id === modelId);
-  const supportsVerifiedVision = Boolean(
-    configuredModel?.tags?.includes("vision") &&
-    configuredModel?.verification?.vision === "passed"
-  );
+  const supportsDeclaredVision = Boolean(configuredModel?.tags?.includes("vision"));
   return {
     id: modelId,
     name: selected.name || modelId,
@@ -140,7 +137,7 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
     provider: selected.id || "custom-provider",
     baseUrl: computedBaseUrl,
     reasoning: true,
-    input: supportsVerifiedVision ? ["text", "image"] : ["text"],
+    input: supportsDeclaredVision ? ["text", "image"] : ["text"],
     cost: {
       input: 0,
       output: 0,
@@ -304,10 +301,7 @@ function supportsVisionNatively(
   selection: ResolvedModelSelection
 ): boolean {
   if (selection.source === "custom") {
-    return Boolean(
-      selection.configuredModel?.tags?.includes("vision") &&
-      selection.configuredModel?.verification?.vision === "passed"
-    );
+    return Boolean(selection.configuredModel?.tags?.includes("vision"));
   }
   return Array.isArray(selection.model.input) && selection.model.input.includes("image");
 }
@@ -339,21 +333,27 @@ function decideVisionRouting(settings: RuntimeSettings, hasImages: boolean): {
   }
 
   if (supportsVisionNatively(textSelection)) {
+    const verification = textSelection.configuredModel?.verification?.vision ?? "missing";
     return {
       selection: textSelection,
       sendImagesNatively: true,
       mode: "text",
-      reason: "text_model_verified_vision"
+      reason: verification === "passed"
+        ? "text_model_declared_vision_verified"
+        : "text_model_declared_vision_unverified"
     };
   }
 
   const visionSelection = resolveModelSelection(settings, "vision");
   if (supportsVisionNatively(visionSelection)) {
+    const verification = visionSelection.configuredModel?.verification?.vision ?? "missing";
     return {
       selection: visionSelection,
       sendImagesNatively: true,
       mode: "vision",
-      reason: "vision_route_verified"
+      reason: verification === "passed"
+        ? "vision_route_declared_verified"
+        : "vision_route_declared_unverified"
     };
   }
 
@@ -361,7 +361,7 @@ function decideVisionRouting(settings: RuntimeSettings, hasImages: boolean): {
     selection: textSelection,
     sendImagesNatively: false,
     mode: "fallback",
-    reason: "no_verified_native_vision"
+    reason: "no_declared_native_vision"
   };
 }
 

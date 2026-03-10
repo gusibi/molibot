@@ -22,7 +22,7 @@ import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.j
 import { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
-import { editTelegramText, sendTelegramChatAction, sendTelegramText } from "./formatting.js";
+import { describeTelegramError, editTelegramText, sendTelegramChatAction, sendTelegramText } from "./formatting.js";
 import { ChannelQueue } from "../shared/queue.js";
 import type { ModelOption, ModelRoute, ParsedRelativeReminder, StatusSession } from "./types.js";
 
@@ -406,7 +406,8 @@ export class TelegramManager {
             userId,
             messageId,
             initialStatusText,
-            error: error instanceof Error ? error.message : String(error)
+            error: error instanceof Error ? error.message : String(error),
+            errorDetails: describeTelegramError(error)
           });
         }
       }
@@ -526,7 +527,10 @@ export class TelegramManager {
       const e = err as { error?: unknown };
       const raw = e.error;
       const message = raw instanceof Error ? raw.message : String(raw);
-      momError("telegram", "bot_error", { error: message });
+      momError("telegram", "bot_error", {
+        error: message,
+        errorDetails: describeTelegramError(raw)
+      });
     });
 
     bot
@@ -889,7 +893,8 @@ export class TelegramManager {
             runId,
             chatId,
             statusMessageId: status.statusMessageId,
-            error: message
+            error: message,
+            errorDetails: describeTelegramError(error)
           });
         }
       }
@@ -1104,7 +1109,8 @@ export class TelegramManager {
       momError("telegram", "process_failed", {
         runId,
         chatId,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
+        errorDetails: describeTelegramError(error)
       });
       await bot.api.sendMessage(chatId, "Internal error.");
     } finally {
