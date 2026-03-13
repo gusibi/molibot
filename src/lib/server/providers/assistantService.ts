@@ -25,6 +25,15 @@ interface ProviderReply {
   api: string;
 }
 
+interface ProviderAttemptFailure {
+  provider: string;
+  providerName: string;
+  model: string;
+  status?: number;
+  message: string;
+  baseUrl?: string;
+}
+
 function stringifyHistory(history: ConversationMessage[]): string {
   return history.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n");
 }
@@ -90,43 +99,102 @@ function getProviderModel(provider: CustomProviderConfig): string {
   return modelIds[0]?.trim() || "";
 }
 
-async function callCustomProvider(
+function normalizeProviderPath(path: string | undefined): string {
+  const raw = (path || "/v1/chat/completions").trim();
+  if (!raw) return "/v1/chat/completions";
+  return raw.startsWith("/") ? raw : `/${raw}`;
+}
+
+function trimProviderBody(body: string): string {
+  const text = body.trim();
+  if (!text) return "(empty body)";
+  return text.length > 400 ? `${text.slice(0, 400)}...` : text;
+}
+
+function buildProviderFailure(
+  provider: CustomProviderConfig,
+  model: string,
+  message: string,
+  status?: number
+): ProviderAttemptFailure {
+  return {
+    provider: provider.id,
+    providerName: provider.name || provider.id,
+    model,
+    status,
+    message,
+    baseUrl: provider.baseUrl?.trim() || undefined
+  };
+}
+
+function formatProviderFailure(failure: ProviderAttemptFailure): string {
+  const parts = [
+    `provider=${failure.providerName} (${failure.provider})`,
+    `model=${failure.model}`,
+    failure.status ? `status=${failure.status}` : null,
+    failure.baseUrl ? `baseUrl=${failure.baseUrl}` : null,
+    `error=${failure.message}`
+  ].filter(Boolean);
+  return parts.join(", ");
+}
+
+function buildCustomProviderCandidates(settings: RuntimeSettings): CustomProviderConfig[] {
+  const enabled = settings.customProviders.filter((provider) => provider.enabled !== false);
+  const selected = enabled.find((provider) => provider.id === settings.defaultCustomProviderId);
+  const primary = selected ?? enabled[0];
+  if (!primary) return [];
+
+  return [
+    primary,
+    ...enabled.filter((provider) => provider.id !== primary.id),
+  ];
+}
+
+async function callCustomProviderTarget(
+  provider: CustomProviderConfig,
   history: ConversationMessage[],
   settings: RuntimeSettings,
   memoryContext: string
 ): Promise<ProviderReply> {
-  const provider = pickDefaultCustomProvider(settings);
-  if (!provider) {
-    throw new Error("No custom provider configured");
-  }
-
   const model = getProviderModel(provider);
   if (!provider.baseUrl || !provider.apiKey || !model) {
-    throw new Error(
-      `Custom provider '${provider.name}' requires baseUrl, apiKey and at least one model`
-    );
+    const message = `Custom provider '${provider.name}' requires baseUrl, apiKey and at least one model`;
+    throw Object.assign(new Error(message), {
+      providerFailure: buildProviderFailure(provider, model || "(missing)", message)
+    });
   }
 
   const baseUrl = provider.baseUrl.replace(/\/$/, "");
-  const path = provider.path.startsWith("/") ? provider.path : `/${provider.path}`;
+  const path = normalizeProviderPath(provider.path);
   const url = `${baseUrl}${path}`;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${provider.apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      messages: toOpenAIMessagesWithMemory(history, settings, memoryContext),
-      temperature: 0.2
-    })
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${provider.apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages: toOpenAIMessagesWithMemory(history, settings, memoryContext),
+        temperature: 0.2
+      })
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw Object.assign(new Error(message), {
+      providerFailure: buildProviderFailure(provider, model, message)
+    });
+  }
 
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Custom provider request failed (${response.status}): ${body}`);
+    const body = trimProviderBody(await response.text());
+    const message = `HTTP ${response.status}: ${body}`;
+    throw Object.assign(new Error(message), {
+      providerFailure: buildProviderFailure(provider, model, message, response.status)
+    });
   }
 
   const data = (await response.json()) as {
@@ -142,7 +210,10 @@ async function callCustomProvider(
 
   const text = data.choices?.[0]?.message?.content?.trim();
   if (!text) {
-    throw new Error("Custom provider returned empty content");
+    const message = "Custom provider returned empty content";
+    throw Object.assign(new Error(message), {
+      providerFailure: buildProviderFailure(provider, model, message)
+    });
   }
 
   return {
@@ -158,6 +229,38 @@ async function callCustomProvider(
       totalTokens: data.usage?.total_tokens ?? 0
     }
   };
+}
+
+async function callCustomProvider(
+  history: ConversationMessage[],
+  settings: RuntimeSettings,
+  memoryContext: string
+): Promise<ProviderReply> {
+  const providers = buildCustomProviderCandidates(settings);
+  if (providers.length === 0) {
+    throw new Error("No custom provider configured");
+  }
+
+  const failures: ProviderAttemptFailure[] = [];
+  for (const provider of providers) {
+    try {
+      return await callCustomProviderTarget(provider, history, settings, memoryContext);
+    } catch (error) {
+      const failure = (error as { providerFailure?: ProviderAttemptFailure }).providerFailure;
+      failures.push(
+        failure ??
+          buildProviderFailure(
+            provider,
+            getProviderModel(provider) || "(unknown)",
+            error instanceof Error ? error.message : String(error)
+          )
+      );
+    }
+  }
+
+  throw new Error(
+    `All custom provider attempts failed. ${failures.map(formatProviderFailure).join(" | ")}`
+  );
 }
 
 function pickDefaultCustomProvider(settings: RuntimeSettings): CustomProviderConfig | null {

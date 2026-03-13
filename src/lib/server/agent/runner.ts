@@ -185,6 +185,14 @@ interface ResolvedModelSelection {
   configuredModel?: CustomProviderConfig["models"][number];
 }
 
+interface ModelAttemptFailure {
+  provider: string;
+  model: string;
+  baseUrl?: string;
+  message: string;
+  kind: "request_error" | "empty_response" | "missing_api_key";
+}
+
 function resolveModelSelection(
   settings: RuntimeSettings,
   useCase: "text" | "vision" = "text"
@@ -256,6 +264,122 @@ function resolveModelSelection(
 
 function resolveModel(settings: RuntimeSettings, useCase: "text" | "vision" = "text"): Model<any> {
   return resolveModelSelection(settings, useCase).model;
+}
+
+function toModelAttemptFailure(
+  selection: ResolvedModelSelection,
+  message: string,
+  kind: ModelAttemptFailure["kind"]
+): ModelAttemptFailure {
+  return {
+    provider: selection.model.provider,
+    model: selection.model.id,
+    baseUrl: selection.model.baseUrl ? redactBaseUrl(selection.model.baseUrl) : undefined,
+    message,
+    kind
+  };
+}
+
+function formatModelAttemptFailure(failure: ModelAttemptFailure): string {
+  return [
+    `provider=${failure.provider}`,
+    `model=${failure.model}`,
+    failure.baseUrl ? `baseUrl=${failure.baseUrl}` : null,
+    `type=${failure.kind}`,
+    `error=${failure.message}`
+  ].filter(Boolean).join(", ");
+}
+
+function isRetryableModelError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    /\b429\b/.test(lower) ||
+    lower.includes("rate limit") ||
+    lower.includes("too many requests") ||
+    lower.includes("quota") ||
+    lower.includes("temporarily unavailable") ||
+    lower.includes("timeout") ||
+    lower.includes("timed out") ||
+    lower.includes("econnreset") ||
+    lower.includes("socket hang up") ||
+    lower.includes("connection reset") ||
+    lower.includes("network error") ||
+    /\b5\d\d\b/.test(lower)
+  );
+}
+
+function buildModelFallbackSelections(
+  settings: RuntimeSettings,
+  primary: ResolvedModelSelection,
+  useCase: "text" | "vision"
+): ResolvedModelSelection[] {
+  const seen = new Set<string>();
+  const pushUnique = (rows: ResolvedModelSelection[], row: ResolvedModelSelection): void => {
+    const key = `${row.source}|${row.providerId}|${row.modelId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push(row);
+  };
+
+  const rows: ResolvedModelSelection[] = [];
+  pushUnique(rows, primary);
+
+  const differentProviderCustom: ResolvedModelSelection[] = [];
+  for (const provider of settings.customProviders) {
+    if (provider.enabled === false || !isCustomProviderUsable(provider) || provider.id === primary.providerId) {
+      continue;
+    }
+    const modelId = pickCustomModelId(provider, useCase);
+    if (!modelId) continue;
+    differentProviderCustom.push({
+      model: resolveCustomModel(provider, modelId),
+      source: "custom",
+      providerId: provider.id,
+      modelId,
+      configuredModel: provider.models.find((model) => model.id === modelId)
+    });
+  }
+
+  for (const row of differentProviderCustom) {
+    pushUnique(rows, row);
+  }
+
+  const sameProviderAlternatives = settings.customProviders
+    .filter((provider) => provider.enabled !== false && isCustomProviderUsable(provider))
+    .filter((provider) => provider.id === primary.providerId)
+    .flatMap((provider) =>
+      provider.models
+        .filter((model) => Boolean(model.id?.trim()))
+        .filter((model) => useCase === "text" || model.tags.includes("vision"))
+        .filter((model) => model.id !== primary.modelId)
+        .map((model) => ({
+          model: resolveCustomModel(provider, model.id),
+          source: "custom" as const,
+          providerId: provider.id,
+          modelId: model.id,
+          configuredModel: provider.models.find((row) => row.id === model.id)
+        }))
+    );
+
+  for (const row of sameProviderAlternatives) {
+    pushUnique(rows, row);
+  }
+
+  const piSelection = resolveModelSelection(
+    {
+      ...settings,
+      providerMode: "pi",
+      modelRouting: {
+        ...settings.modelRouting,
+        textModelKey: `pi|${settings.piModelProvider}|${settings.piModelName}`,
+        visionModelKey: `pi|${settings.piModelProvider}|${settings.piModelName}`
+      }
+    },
+    useCase
+  );
+  pushUnique(rows, piSelection);
+
+  return rows;
 }
 
 function hasExplicitSkillInvocation(
@@ -1000,53 +1124,9 @@ export class MomRunner implements RunnerLike {
       );
     }
 
-    const selectedModel = visionDecision.selection.model;
-    const selectedCustom = settings.customProviders.find((p) => p.id === selectedModel.provider);
-    const resolvedKey = resolveApiKeyForModel(selectedModel, settings);
-    if (!resolvedKey) {
-      const keyError =
-        `AI settings error: missing API key for active model provider '${selectedModel.provider}'. ` +
-        "Please check current model routing and provider key configuration.";
-      momWarn("runner", "active_model_missing_api_key", {
-        runId,
-        chatId: this.chatId,
-        providerMode: settings.providerMode,
-        modelProvider: selectedModel.provider,
-        modelId: selectedModel.id
-      });
-      await ctx.setTyping(true);
-      await ctx.setWorking(false);
-      await ctx.replaceMessage(keyError);
-      return { stopReason: "error", errorMessage: keyError };
-    }
-    this.agent.setModel(selectedModel);
-    momLog("runner", "model_selected", {
-      runId,
-      chatId: this.chatId,
-      sessionId: this.sessionId,
-      providerMode: settings.providerMode,
-      modelProvider: selectedModel.provider,
-      modelId: selectedModel.id,
-      modelApi: selectedModel.api,
-      modelBaseUrl: redactBaseUrl(selectedModel.baseUrl),
-      customProviderId: selectedCustom?.id,
-      customProviderName: selectedCustom?.name,
-      customProviderPath: selectedCustom?.path,
-      customProviderComputedBaseUrl: selectedCustom
-        ? redactBaseUrl(
-          buildOpenAIBaseUrl(selectedCustom.baseUrl, selectedCustom.path),
-        )
-        : undefined,
-      visionRoutingMode: visionDecision.mode,
-      visionRoutingReason: visionDecision.reason,
-      nativeVisionEnabled: visionDecision.sendImagesNatively,
-      visionRouteKey: currentModelKey(settings, "vision"),
-      audioRoutingMode: audioDecision.mode,
-      audioRoutingReason: audioDecision.reason,
-      sttRouteKey: currentModelKey(settings, "stt"),
-      hasApiKey: Boolean(resolvedKey),
-      apiKeyFingerprint: keyFingerprint(resolvedKey),
-    });
+    const modelUseCase: "text" | "vision" = visionDecision.sendImagesNatively ? "vision" : "text";
+    const modelCandidates = buildModelFallbackSelections(settings, visionDecision.selection, modelUseCase);
+    let activeSelection = modelCandidates[0] ?? visionDecision.selection;
     await this.memory.syncExternalMemories();
     const nextPromptKey = buildPromptRefreshKey(settings, this.channel, this.store.getWorkspaceDir());
     if (!this.systemPromptReady || this.promptRefreshKey !== nextPromptKey) {
@@ -1238,9 +1318,9 @@ export class MomRunner implements RunnerLike {
         if (msg.usage) {
           this.usageTracker.record({
             channel: this.channel,
-            provider: msg.provider ?? selectedModel.provider,
-            model: msg.model ?? selectedModel.id,
-            api: msg.api ?? selectedModel.api,
+            provider: msg.provider ?? activeSelection.model.provider,
+            model: msg.model ?? activeSelection.model.id,
+            api: msg.api ?? activeSelection.model.api,
             inputTokens: msg.usage.input,
             outputTokens: msg.usage.output,
             cacheReadTokens: msg.usage.cacheRead,
@@ -1268,6 +1348,7 @@ export class MomRunner implements RunnerLike {
     });
 
     const MAX_EMPTY_RETRIES = 2;
+    const modelFailures: ModelAttemptFailure[] = [];
 
     try {
       await ctx.setTyping(true);
@@ -1285,89 +1366,221 @@ export class MomRunner implements RunnerLike {
       }
 
       let finalText = "";
-      let attemptCount = 0;
+      let finalAttemptCount = 0;
+      let successfulCandidateIndex = -1;
 
-      while (attemptCount <= MAX_EMPTY_RETRIES) {
-        if (attemptCount > 0) {
-          momWarn("runner", "empty_response_retry", {
+      for (let candidateIndex = 0; candidateIndex < modelCandidates.length; candidateIndex += 1) {
+        const selection = modelCandidates[candidateIndex];
+        activeSelection = selection;
+        stopReason = "stop";
+        errorMessage = undefined;
+
+        const selectedModel = selection.model;
+        const selectedCustom = settings.customProviders.find((p) => p.id === selectedModel.provider);
+        const resolvedKey = resolveApiKeyForModel(selectedModel, settings);
+        if (!resolvedKey) {
+          const keyError =
+            `AI settings error: missing API key for active model provider '${selectedModel.provider}'. ` +
+            "Please check current model routing and provider key configuration.";
+          const failure = toModelAttemptFailure(selection, keyError, "missing_api_key");
+          modelFailures.push(failure);
+          momWarn("runner", "active_model_missing_api_key", {
             runId,
             chatId: this.chatId,
-            attempt: attemptCount,
+            providerMode: settings.providerMode,
+            modelProvider: selectedModel.provider,
+            modelId: selectedModel.id
           });
-          // Brief delay before retry
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          if (candidateIndex === modelCandidates.length - 1) {
+            await ctx.setWorking(false);
+            await ctx.replaceMessage(keyError);
+            return { stopReason: "error", errorMessage: keyError };
+          }
+          continue;
         }
 
-        momLog("runner", "prompt_start", {
-          runId,
-          chatId: this.chatId,
-          promptLength: userMessage.length,
-          imageCount: visionDecision.sendImagesNatively ? ctx.message.imageContents.length : 0,
-          rawImageCount: ctx.message.imageContents.length,
-          visionRoutingMode: visionDecision.mode,
-          attempt: attemptCount,
-        });
-        await this.agent.prompt(
-          userMessage,
-          visionDecision.sendImagesNatively && ctx.message.imageContents.length > 0
-            ? ctx.message.imageContents
-            : undefined,
-        );
-        momLog("runner", "prompt_end", {
-          runId,
-          chatId: this.chatId,
-          stopReason,
-          attempt: attemptCount,
-        });
-
-        while (queueRunning || queue.length > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 25));
-        }
-        momLog("runner", "queue_flushed", { runId, chatId: this.chatId, attempt: attemptCount });
-
-        const messages = this.agent.state.messages as AgentMessage[];
-        const sessionContextFile = `${this.store.getWorkspaceDir()}/${this.chatId}/contexts/${this.sessionId}.json`;
-        this.store.saveContext(this.chatId, messages, this.sessionId);
-        momLog("runner", "context_saved", {
+        this.agent.setModel(selectedModel);
+        momLog("runner", "model_selected", {
           runId,
           chatId: this.chatId,
           sessionId: this.sessionId,
-          sessionContextFile,
-          messageCount: messages.length,
+          providerMode: settings.providerMode,
+          modelProvider: selectedModel.provider,
+          modelId: selectedModel.id,
+          modelApi: selectedModel.api,
+          modelBaseUrl: redactBaseUrl(selectedModel.baseUrl),
+          customProviderId: selectedCustom?.id,
+          customProviderName: selectedCustom?.name,
+          customProviderPath: selectedCustom?.path,
+          customProviderComputedBaseUrl: selectedCustom
+            ? redactBaseUrl(
+              buildOpenAIBaseUrl(selectedCustom.baseUrl, selectedCustom.path),
+            )
+            : undefined,
+          visionRoutingMode: visionDecision.mode,
+          visionRoutingReason: visionDecision.reason,
+          nativeVisionEnabled: visionDecision.sendImagesNatively,
+          visionRouteKey: currentModelKey(settings, "vision"),
+          audioRoutingMode: audioDecision.mode,
+          audioRoutingReason: audioDecision.reason,
+          sttRouteKey: currentModelKey(settings, "stt"),
+          hasApiKey: Boolean(resolvedKey),
+          apiKeyFingerprint: keyFingerprint(resolvedKey),
+          candidateIndex,
+          candidateCount: modelCandidates.length
         });
 
-        const lastAssistant = [...messages]
-          .reverse()
-          .find((item) => (item as { role?: string }).role === "assistant") as
-          | { content?: Array<{ type: string; text?: string }> }
-          | undefined;
+        const beforeAttempt = [...(this.agent.state.messages as AgentMessage[])];
+        let attemptCount = 0;
+        let candidateFinalText = "";
 
-        finalText = (lastAssistant?.content || [])
-          .filter((part) => part.type === "text" && typeof part.text === "string")
-          .map((part) => part.text as string)
-          .join("\n")
-          .trim();
-        const lastAssistantContentCount = Array.isArray(lastAssistant?.content)
-          ? lastAssistant.content.length
-          : 0;
-        momLog("runner", "final_text_evaluated", {
+        try {
+          while (attemptCount <= MAX_EMPTY_RETRIES) {
+            if (attemptCount > 0) {
+              momWarn("runner", "empty_response_retry", {
+                runId,
+                chatId: this.chatId,
+                attempt: attemptCount,
+                provider: selectedModel.provider,
+                model: selectedModel.id
+              });
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+
+            momLog("runner", "prompt_start", {
+              runId,
+              chatId: this.chatId,
+              promptLength: userMessage.length,
+              imageCount: visionDecision.sendImagesNatively ? ctx.message.imageContents.length : 0,
+              rawImageCount: ctx.message.imageContents.length,
+              visionRoutingMode: visionDecision.mode,
+              attempt: attemptCount,
+              provider: selectedModel.provider,
+              model: selectedModel.id
+            });
+            await this.agent.prompt(
+              userMessage,
+              visionDecision.sendImagesNatively && ctx.message.imageContents.length > 0
+                ? ctx.message.imageContents
+                : undefined,
+            );
+            momLog("runner", "prompt_end", {
+              runId,
+              chatId: this.chatId,
+              stopReason,
+              attempt: attemptCount,
+              provider: selectedModel.provider,
+              model: selectedModel.id
+            });
+
+            while (queueRunning || queue.length > 0) {
+              await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            momLog("runner", "queue_flushed", {
+              runId,
+              chatId: this.chatId,
+              attempt: attemptCount,
+              provider: selectedModel.provider,
+              model: selectedModel.id
+            });
+
+            const messages = this.agent.state.messages as AgentMessage[];
+            const sessionContextFile = `${this.store.getWorkspaceDir()}/${this.chatId}/contexts/${this.sessionId}.json`;
+            this.store.saveContext(this.chatId, messages, this.sessionId);
+            momLog("runner", "context_saved", {
+              runId,
+              chatId: this.chatId,
+              sessionId: this.sessionId,
+              sessionContextFile,
+              messageCount: messages.length,
+            });
+
+            const lastAssistant = [...messages]
+              .reverse()
+              .find((item) => (item as { role?: string }).role === "assistant") as
+              | { content?: Array<{ type: string; text?: string }> }
+              | undefined;
+
+            candidateFinalText = (lastAssistant?.content || [])
+              .filter((part) => part.type === "text" && typeof part.text === "string")
+              .map((part) => part.text as string)
+              .join("\n")
+              .trim();
+            const lastAssistantContentCount = Array.isArray(lastAssistant?.content)
+              ? lastAssistant.content.length
+              : 0;
+            momLog("runner", "final_text_evaluated", {
+              runId,
+              chatId: this.chatId,
+              finalTextLength: candidateFinalText.length,
+              lastAssistantContentCount,
+              attempt: attemptCount,
+              provider: selectedModel.provider,
+              model: selectedModel.id
+            });
+
+            if (candidateFinalText) break;
+            attemptCount += 1;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const failure = toModelAttemptFailure(selection, message, "request_error");
+          modelFailures.push(failure);
+          momWarn("runner", "model_attempt_failed", {
+            runId,
+            chatId: this.chatId,
+            provider: selectedModel.provider,
+            model: selectedModel.id,
+            candidateIndex,
+            error: message
+          });
+          this.agent.replaceMessages(beforeAttempt);
+          if (candidateIndex < modelCandidates.length - 1 && isRetryableModelError(message)) {
+            continue;
+          }
+          throw new Error(
+            `Run failed after model attempts: ${modelFailures.map(formatModelAttemptFailure).join(" | ")}`
+          );
+        }
+
+        finalAttemptCount = attemptCount;
+        if (candidateFinalText) {
+          finalText = candidateFinalText;
+          successfulCandidateIndex = candidateIndex;
+          break;
+        }
+
+        const failure = toModelAttemptFailure(
+          selection,
+          `empty response after ${attemptCount} attempt(s)`,
+          "empty_response"
+        );
+        modelFailures.push(failure);
+        momWarn("runner", "final_empty_response_after_retries", {
           runId,
           chatId: this.chatId,
-          finalTextLength: finalText.length,
-          lastAssistantContentCount,
-          attempt: attemptCount,
+          totalAttempts: attemptCount,
+          modelProvider: selectedModel.provider,
+          modelId: selectedModel.id,
+          modelBaseUrl: redactBaseUrl(selectedModel.baseUrl),
+          candidateIndex
         });
-
-        // If we got a non-empty response, break out of retry loop
-        if (finalText) break;
-
-        attemptCount++;
+        this.agent.replaceMessages(beforeAttempt);
       }
 
       if (finalText.startsWith("[SILENT]")) {
         momLog("runner", "final_silent", { runId, chatId: this.chatId });
         await ctx.deleteMessage();
       } else if (finalText) {
+        if (successfulCandidateIndex > 0 && modelFailures.length > 0) {
+          await ctx.respondInThread(
+            [
+              "主模型请求失败，已自动切换到备用模型。",
+              ...modelFailures.map((failure, index) => `${index + 1}. ${formatModelAttemptFailure(failure)}`),
+              `active=provider=${activeSelection.model.provider}, model=${activeSelection.model.id}`
+            ].join("\n")
+          );
+        }
         momLog("runner", "final_replace", {
           runId,
           chatId: this.chatId,
@@ -1376,25 +1589,19 @@ export class MomRunner implements RunnerLike {
         await ctx.replaceMessage(finalText);
       } else {
         const modelInfo = [
-          `provider: ${selectedModel.provider}`,
-          `model: ${selectedModel.id}`,
-          selectedModel.baseUrl ? `baseUrl: ${redactBaseUrl(selectedModel.baseUrl)}` : null,
+          `provider: ${activeSelection.model.provider}`,
+          `model: ${activeSelection.model.id}`,
+          activeSelection.model.baseUrl ? `baseUrl: ${redactBaseUrl(activeSelection.model.baseUrl)}` : null,
         ].filter(Boolean).join(", ");
         const emptyResponseMessage =
-          `Model returned empty response after ${attemptCount} attempt(s). ` +
-          `(${modelInfo}) — Please check baseUrl/path/model/apiKey or try another model.`;
-        momWarn("runner", "final_empty_response_after_retries", {
-          runId,
-          chatId: this.chatId,
-          totalAttempts: attemptCount,
-          modelProvider: selectedModel.provider,
-          modelId: selectedModel.id,
-          modelBaseUrl: redactBaseUrl(selectedModel.baseUrl),
-        });
+          `All model attempts failed. Last model returned empty response after ${finalAttemptCount} attempt(s). ` +
+          `(${modelInfo}) — ${modelFailures.map(formatModelAttemptFailure).join(" | ")}`;
         await ctx.replaceMessage(emptyResponseMessage);
         await ctx.respondInThread(
-          `Empty assistant output detected after ${attemptCount} attempt(s). ` +
-          `Model info — ${modelInfo}`,
+          [
+            `All model attempts failed. Last model info — ${modelInfo}`,
+            ...modelFailures.map((failure, index) => `${index + 1}. ${formatModelAttemptFailure(failure)}`)
+          ].join("\n")
         );
       }
 

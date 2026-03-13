@@ -4,8 +4,16 @@ import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { MomRuntimeStore } from "$lib/server/agent/store";
 import { RunnerPool } from "$lib/server/agent/runner";
+import { loadSkillsFromWorkspace } from "$lib/server/agent/skills";
 import type { ChannelInboundMessage, FileAttachment } from "$lib/server/agent/types";
 import { storagePaths } from "$lib/server/infra/db/storage";
+import {
+  buildModelOptions,
+  currentModelKey,
+  parseModelRoute,
+  switchModelSelection,
+  type ModelRoute
+} from "$lib/server/settings/modelSwitch";
 import {
   sanitizeWebProfileId,
   sanitizeWebUserId,
@@ -32,6 +40,11 @@ interface WebRuntimeContext {
   pool: RunnerPool;
 }
 
+interface WebCommandResult {
+  ok: true;
+  response: string;
+}
+
 const webRuntimes = new Map<string, WebRuntimeContext>();
 
 function inferMediaType(file: File): FileAttachment["mediaType"] {
@@ -49,6 +62,141 @@ function normalizeText(input: string): string {
   const text = input.trim();
   if (text) return text;
   return "";
+}
+
+function buildModelsText(profileId: string, route: ModelRoute): string {
+  const runtime = getRuntime();
+  const settings = runtime.getSettings();
+  const options = buildModelOptions(settings, route);
+  const activeKey = currentModelKey(settings, route);
+  const lines = [
+    `Route: ${route}`,
+    `Provider mode: ${settings.providerMode}`,
+    `Configured model options: ${options.length}`,
+    ""
+  ];
+
+  if (options.length === 0) {
+    lines.push("No available model options.");
+  } else {
+    options.forEach((option, index) => {
+      lines.push(`${index + 1}. ${option.label}${option.key === activeKey ? " (active)" : ""}`);
+      lines.push(`   key: ${option.key}`);
+    });
+  }
+
+  lines.push("");
+  lines.push(`/models ${route} <index>`);
+  lines.push(`/models ${route} <key>`);
+  if (route === "text") {
+    lines.push("/models <index>");
+    lines.push("/models <key>");
+  }
+  lines.push(`/skills`);
+  lines.push(`/help`);
+  lines.push(`profile: ${profileId}`);
+  return lines.join("\n");
+}
+
+function buildSkillsText(profileId: string): string {
+  const { store } = getWebRuntimeContext(profileId);
+  const { skills, diagnostics } = loadSkillsFromWorkspace(store.getWorkspaceDir(), "web");
+  const lines = [
+    `Loaded skills: ${skills.length}`,
+    ""
+  ];
+  for (const skill of skills) {
+    lines.push(`- ${skill.name}: ${skill.description || "(no description)"}`);
+    lines.push(`  ${skill.filePath}`);
+  }
+  if (skills.length === 0) {
+    lines.push("No skills loaded.");
+  }
+  if (diagnostics.length > 0) {
+    lines.push("");
+    lines.push("Diagnostics:");
+    for (const line of diagnostics) lines.push(`- ${line}`);
+  }
+  return lines.join("\n");
+}
+
+async function tryHandleWebCommand(message: string, profileId: string): Promise<WebCommandResult | null> {
+  const trimmed = message.trim();
+  if (!trimmed.startsWith("/")) return null;
+
+  const parts = trimmed.split(/\s+/);
+  const cmd = parts[0]?.toLowerCase() || "";
+  const rawArg = parts.slice(1).join(" ").trim();
+  const runtime = getRuntime();
+
+  if (cmd === "/help" || cmd === "/start") {
+    return {
+      ok: true,
+      response: [
+        "Available commands:",
+        "/models - list text model options and current active model",
+        "/models <index|key> - switch text model",
+        "/models <text|vision|stt|tts> - list a specific route",
+        "/models <text|vision|stt|tts> <index|key> - switch that route",
+        "/skills - list loaded skills",
+        "/help - show this help"
+      ].join("\n")
+    };
+  }
+
+  if (cmd === "/skills") {
+    return {
+      ok: true,
+      response: buildSkillsText(profileId)
+    };
+  }
+
+  if (cmd === "/models") {
+    if (!rawArg) {
+      return {
+        ok: true,
+        response: buildModelsText(profileId, "text")
+      };
+    }
+
+    const [firstArg = "", secondArg = ""] = rawArg
+      .split(/\s+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const maybeRoute = parseModelRoute(firstArg);
+    const route: ModelRoute = maybeRoute ?? "text";
+    const selector = maybeRoute ? secondArg : rawArg;
+    if (!selector) {
+      return {
+        ok: true,
+        response: buildModelsText(profileId, route)
+      };
+    }
+
+    const result = switchModelSelection({
+      settings: runtime.getSettings(),
+      route,
+      selector,
+      updateSettings: runtime.updateSettings
+    });
+    if (!result) {
+      return {
+        ok: true,
+        response: `Invalid model selector: ${selector}\n\n${buildModelsText(profileId, route)}`
+      };
+    }
+
+    return {
+      ok: true,
+      response: [
+        `Switched ${route} model to: ${result.selected.label}`,
+        `Mode: ${result.settings.providerMode}`,
+        `Use /models ${route} to inspect current options.`
+      ].join("\n")
+    };
+  }
+
+  return null;
 }
 
 async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
@@ -114,6 +262,19 @@ export const POST: RequestHandler = async ({ request }) => {
 
   if (!parsed.message && parsed.files.length === 0) {
     return json({ ok: false, error: "Empty message." }, { status: 400 });
+  }
+
+  if (parsed.files.length === 0) {
+    const command = await tryHandleWebCommand(parsed.message, parsed.profileId);
+    if (command) {
+      return json({
+        ok: true,
+        response: command.response,
+        conversationId: parsed.conversationId,
+        profileId: parsed.profileId,
+        diagnostics: []
+      });
+    }
   }
 
   const runtime = getRuntime();
