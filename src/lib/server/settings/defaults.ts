@@ -228,6 +228,11 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     sttModelKey: "",
     ttsModelKey: ""
   },
+  compaction: {
+    enabled: String(process.env.MOLIBOT_COMPACTION_ENABLED ?? "true").toLowerCase() !== "false",
+    reserveTokens: Math.max(1024, Number(process.env.MOLIBOT_COMPACTION_RESERVE_TOKENS ?? 16384) || 16384),
+    keepRecentTokens: Math.max(2048, Number(process.env.MOLIBOT_COMPACTION_KEEP_RECENT_TOKENS ?? 20000) || 20000)
+  },
   systemPrompt:
     process.env.MOLIBOT_SYSTEM_PROMPT ??
     "You are Molibot, a concise and helpful assistant.",

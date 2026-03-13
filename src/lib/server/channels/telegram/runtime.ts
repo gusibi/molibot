@@ -301,6 +301,36 @@ export class TelegramManager {
       await ctx.reply(this.skillsText(chatId));
     });
 
+    bot.command("compact", async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      if (allowed.size > 0 && !allowed.has(chatId)) return;
+      if (this.running.has(chatId)) {
+        await ctx.reply("Already working. Send /stop first, then /compact.");
+        return;
+      }
+      const sessionId = this.store.getActiveSession(chatId);
+      const customInstructions = this.readCommandArg(ctx.msg?.text, "/compact") || undefined;
+      try {
+        const result = await this.runners.compact(chatId, sessionId, {
+          reason: "manual",
+          customInstructions
+        });
+        await ctx.reply(
+          result.changed
+            ? [
+              "Conversation context compacted.",
+              `before≈${result.beforeTokens} tokens`,
+              `after≈${result.afterTokens} tokens`,
+              `summarized_messages=${result.summarizedMessages}`,
+              `kept_messages=${result.keptMessages}`
+            ].join("\n")
+            : "Nothing to compact yet."
+        );
+      } catch (error) {
+        await ctx.reply(error instanceof Error ? error.message : String(error));
+      }
+    });
+
     bot.command("models", async (ctx) => {
       const chatId = String(ctx.chat.id);
       if (allowed.size > 0 && !allowed.has(chatId)) return;
@@ -1174,6 +1204,7 @@ export class TelegramManager {
       "/models <index|key> - switch text model",
       "/models <text|vision|stt|tts> - list options for a specific route",
       "/models <text|vision|stt|tts> <index|key> - switch route model",
+      "/compact [instructions] - summarize older context of current session",
       "/skills - list currently loaded skills",
       "/help - show this help",
       "",

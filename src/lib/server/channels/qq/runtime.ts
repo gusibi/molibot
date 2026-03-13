@@ -820,6 +820,35 @@ export class QQManager {
       return true;
     }
 
+    if (cmd === "/compact") {
+      if (this.running.has(chatId)) {
+        await this.replyCommand(target, "Already working. Send /stop first, then /compact.");
+        return true;
+      }
+      const sessionId = this.store.getActiveSession(chatId);
+      try {
+        const result = await this.runners.compact(chatId, sessionId, {
+          reason: "manual",
+          customInstructions: rawArg || undefined
+        });
+        await this.replyCommand(
+          target,
+          result.changed
+            ? [
+              "Conversation context compacted.",
+              `before≈${result.beforeTokens} tokens`,
+              `after≈${result.afterTokens} tokens`,
+              `summarized_messages=${result.summarizedMessages}`,
+              `kept_messages=${result.keptMessages}`
+            ].join("\n")
+            : "Nothing to compact yet."
+        );
+      } catch (error) {
+        await this.replyCommand(target, error instanceof Error ? error.message : String(error));
+      }
+      return true;
+    }
+
     if (cmd === "/skills") {
       await this.replyCommand(target, this.skillsText(chatId));
       return true;
@@ -840,6 +869,7 @@ export class QQManager {
         "/models <index|key> - switch text model",
         "/models <text|vision|stt|tts> - list options for a specific route",
         "/models <text|vision|stt|tts> <index|key> - switch route model",
+        "/compact [instructions] - summarize older context of current session",
         "/skills - list currently loaded skills"
       ].join("\n");
       await this.replyCommand(target, help);

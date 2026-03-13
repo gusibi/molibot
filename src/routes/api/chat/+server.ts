@@ -93,6 +93,7 @@ function buildModelsText(profileId: string, route: ModelRoute): string {
     lines.push("/models <key>");
   }
   lines.push(`/skills`);
+  lines.push(`/compact [instructions]`);
   lines.push(`/help`);
   lines.push(`profile: ${profileId}`);
   return lines.join("\n");
@@ -120,7 +121,12 @@ function buildSkillsText(profileId: string): string {
   return lines.join("\n");
 }
 
-async function tryHandleWebCommand(message: string, profileId: string): Promise<WebCommandResult | null> {
+async function tryHandleWebCommand(
+  message: string,
+  profileId: string,
+  conversationId?: string,
+  externalUserId?: string
+): Promise<WebCommandResult | null> {
   const trimmed = message.trim();
   if (!trimmed.startsWith("/")) return null;
 
@@ -139,6 +145,7 @@ async function tryHandleWebCommand(message: string, profileId: string): Promise<
         "/models <text|vision|stt|tts> - list a specific route",
         "/models <text|vision|stt|tts> <index|key> - switch that route",
         "/skills - list loaded skills",
+        "/compact [instructions] - summarize older context in current conversation",
         "/help - show this help"
       ].join("\n")
     };
@@ -193,6 +200,32 @@ async function tryHandleWebCommand(message: string, profileId: string): Promise<
         `Mode: ${result.settings.providerMode}`,
         `Use /models ${route} to inspect current options.`
       ].join("\n")
+    };
+  }
+
+  if (cmd === "/compact") {
+    if (!conversationId || !externalUserId) {
+      return {
+        ok: true,
+        response: "No active conversation to compact. Start a chat first, then run /compact."
+      };
+    }
+    const { pool } = getWebRuntimeContext(profileId);
+    const result = await pool.compact(externalUserId, conversationId, {
+      reason: "manual",
+      customInstructions: rawArg || undefined
+    });
+    return {
+      ok: true,
+      response: result.changed
+        ? [
+          "Conversation context compacted.",
+          `before≈${result.beforeTokens} tokens`,
+          `after≈${result.afterTokens} tokens`,
+          `summarized_messages=${result.summarizedMessages}`,
+          `kept_messages=${result.keptMessages}`
+        ].join("\n")
+        : "Nothing to compact yet."
     };
   }
 
@@ -265,7 +298,13 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   if (parsed.files.length === 0) {
-    const command = await tryHandleWebCommand(parsed.message, parsed.profileId);
+    const externalUserId = toWebExternalUserId(parsed.userId, parsed.profileId);
+    const command = await tryHandleWebCommand(
+      parsed.message,
+      parsed.profileId,
+      parsed.conversationId,
+      externalUserId
+    );
     if (command) {
       return json({
         ok: true,

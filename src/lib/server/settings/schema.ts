@@ -20,6 +20,12 @@ export interface ModelRoutingConfig {
   ttsModelKey: string;
 }
 
+export interface CompactionSettings {
+  enabled: boolean;
+  reserveTokens: number;
+  keepRecentTokens: number;
+}
+
 export interface CustomProviderConfig {
   id: string;
   name: string;
@@ -116,6 +122,7 @@ export interface RuntimeSettings {
   customProviders: CustomProviderConfig[];
   defaultCustomProviderId: string;
   modelRouting: ModelRoutingConfig;
+  compaction: CompactionSettings;
   systemPrompt: string;
   timezone: string;
   agents: AgentSettings[];

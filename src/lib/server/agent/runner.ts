@@ -14,6 +14,7 @@ import { describeImageViaConfiguredProvider, resolveVisionFallbackTarget } from 
 import { createMomTools } from "./tools/index.js";
 import { getMcpToolsForRuntime } from "./mcp.js";
 import { loadSkillsFromWorkspace } from "./skills.js";
+import { compactContextMessages, shouldCompactContext } from "./compaction.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
 
@@ -1012,6 +1013,95 @@ export class MomRunner implements RunnerLike {
     this.agent.abort();
   }
 
+  async compact(options?: {
+    reason?: "threshold" | "manual";
+    customInstructions?: string;
+    notify?: (text: string) => Promise<void>;
+    signal?: AbortSignal;
+  }): Promise<{
+    changed: boolean;
+    summary: string;
+    beforeTokens: number;
+    afterTokens: number;
+    summarizedMessages: number;
+    keptMessages: number;
+  }> {
+    const settings = this.getSettings();
+    const selection = resolveModelSelection(settings, "text");
+    const apiKey = resolveApiKeyForModel(selection.model, settings);
+    if (!apiKey) {
+      throw new Error(`Missing API key for compaction model provider '${selection.model.provider}'.`);
+    }
+
+    const currentMessages = [...(this.agent.state.messages as AgentMessage[])];
+    const contextWindow = selection.model.contextWindow || 200000;
+    if (
+      options?.reason !== "manual" &&
+      !shouldCompactContext(currentMessages, contextWindow, settings.compaction)
+    ) {
+      return {
+        changed: false,
+        summary: "",
+        beforeTokens: 0,
+        afterTokens: 0,
+        summarizedMessages: 0,
+        keptMessages: currentMessages.length
+      };
+    }
+
+    const result = await compactContextMessages({
+      messages: currentMessages,
+      model: selection.model,
+      apiKey,
+      settings: settings.compaction,
+      reason: options?.reason ?? "manual",
+      customInstructions: options?.customInstructions,
+      signal: options?.signal
+    });
+    if (!result.changed) {
+      return {
+        changed: false,
+        summary: "",
+        beforeTokens: result.beforeTokens,
+        afterTokens: result.afterTokens,
+        summarizedMessages: 0,
+        keptMessages: result.keptMessages
+      };
+    }
+
+    this.agent.replaceMessages(result.messages);
+    this.store.saveContext(this.chatId, result.messages, this.sessionId);
+    momLog("runner", "context_compacted", {
+      chatId: this.chatId,
+      sessionId: this.sessionId,
+      reason: result.reason,
+      beforeTokens: result.beforeTokens,
+      afterTokens: result.afterTokens,
+      summarizedMessages: result.summarizedMessages,
+      keptMessages: result.keptMessages
+    });
+    if (options?.notify) {
+      await options.notify(
+        [
+          `Context compacted (${result.reason}).`,
+          `before≈${result.beforeTokens} tokens`,
+          `after≈${result.afterTokens} tokens`,
+          `summarized_messages=${result.summarizedMessages}`,
+          `kept_messages=${result.keptMessages}`
+        ].join("\n")
+      );
+    }
+
+    return {
+      changed: true,
+      summary: result.summary,
+      beforeTokens: result.beforeTokens,
+      afterTokens: result.afterTokens,
+      summarizedMessages: result.summarizedMessages,
+      keptMessages: result.keptMessages
+    };
+  }
+
   async run(ctx: MomContext): Promise<RunResult> {
     const runId =
       (ctx.message as { runId?: string }).runId ??
@@ -1400,6 +1490,24 @@ export class MomRunner implements RunnerLike {
         }
 
         this.agent.setModel(selectedModel);
+        if (candidateIndex === 0) {
+          try {
+            await this.compact({
+              reason: "threshold",
+              notify: async (text) => {
+                await ctx.respondInThread(text);
+              }
+            });
+          } catch (error) {
+            momWarn("runner", "context_compaction_failed", {
+              runId,
+              chatId: this.chatId,
+              provider: selectedModel.provider,
+              model: selectedModel.id,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
         momLog("runner", "model_selected", {
           runId,
           chatId: this.chatId,
@@ -1682,6 +1790,24 @@ export class RunnerPool {
 
   reset(chatId: string, sessionId: string): void {
     this.map.delete(this.key(chatId, sessionId));
+  }
+
+  async compact(
+    chatId: string,
+    sessionId: string,
+    options?: {
+      reason?: "threshold" | "manual";
+      customInstructions?: string;
+    }
+  ): Promise<{
+    changed: boolean;
+    summary: string;
+    beforeTokens: number;
+    afterTokens: number;
+    summarizedMessages: number;
+    keptMessages: number;
+  }> {
+    return this.get(chatId, sessionId).compact(options);
   }
 }
 

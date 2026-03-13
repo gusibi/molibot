@@ -507,6 +507,14 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
     sttModelKey: String((next as { modelRouting?: { sttModelKey?: unknown } }).modelRouting?.sttModelKey ?? "").trim(),
     ttsModelKey: String((next as { modelRouting?: { ttsModelKey?: unknown } }).modelRouting?.ttsModelKey ?? "").trim()
   };
+  const compactionInput = next.compaction ?? current.compaction;
+  const reserveTokensRaw = Number(compactionInput?.reserveTokens ?? current.compaction.reserveTokens);
+  const keepRecentTokensRaw = Number(compactionInput?.keepRecentTokens ?? current.compaction.keepRecentTokens);
+  next.compaction = {
+    enabled: compactionInput?.enabled === undefined ? current.compaction.enabled : Boolean(compactionInput.enabled),
+    reserveTokens: Number.isFinite(reserveTokensRaw) ? Math.max(1024, Math.round(reserveTokensRaw)) : current.compaction.reserveTokens,
+    keepRecentTokens: Number.isFinite(keepRecentTokensRaw) ? Math.max(2048, Math.round(keepRecentTokensRaw)) : current.compaction.keepRecentTokens
+  };
 
   next.systemPrompt = String(next.systemPrompt ?? "").trim() || defaultRuntimeSettings.systemPrompt;
   next.agents = sanitizeAgents(next.agents ?? current.agents);

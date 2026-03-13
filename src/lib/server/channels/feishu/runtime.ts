@@ -578,6 +578,36 @@ export class FeishuManager {
             return true;
         }
 
+        if (cmd === "/compact") {
+            if (this.running.has(chatId)) {
+                await sendFeishuText(this.client, chatId, "Already working. Send /stop first, then /compact.");
+                return true;
+            }
+            const sessionId = this.store.getActiveSession(chatId);
+            try {
+                const result = await this.runners.compact(chatId, sessionId, {
+                    reason: "manual",
+                    customInstructions: rawArg || undefined
+                });
+                await sendFeishuText(
+                    this.client,
+                    chatId,
+                    result.changed
+                        ? [
+                            "Conversation context compacted.",
+                            `before≈${result.beforeTokens} tokens`,
+                            `after≈${result.afterTokens} tokens`,
+                            `summarized_messages=${result.summarizedMessages}`,
+                            `kept_messages=${result.keptMessages}`
+                        ].join("\n")
+                        : "Nothing to compact yet."
+                );
+            } catch (error) {
+                await sendFeishuText(this.client, chatId, error instanceof Error ? error.message : String(error));
+            }
+            return true;
+        }
+
         if (cmd === "/skills") {
             await sendFeishuText(this.client, chatId, this.skillsText(chatId));
             return true;
@@ -598,6 +628,7 @@ export class FeishuManager {
                 "/models <index|key> - switch text model",
                 "/models <text|vision|stt|tts> - list options for a specific route",
                 "/models <text|vision|stt|tts> <index|key> - switch route model",
+                "/compact [instructions] - summarize older context of current session",
                 "/skills - list currently loaded skills"
             ].join("\n");
             await sendFeishuText(this.client, chatId, help);

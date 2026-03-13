@@ -38,7 +38,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 ### Should Have (P1)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
 |---|---|---|---|---|
-| P1-01 | Conversation summary compression | P1 | Post V1 | Old turns summarized to keep prompt size bounded |
+| P1-01 | Conversation summary compression | P1 | Delivered (2026-03-13) | Runtime auto-compacts old turns when context nears model limits, exposes manual `/compact [instructions]` commands, and allows operators to configure reserve/keep token thresholds in AI Routing settings |
 | P1-02 | Redis cache/rate state | P1 | Post V1 | Hot session and throttling moved from in-memory to Redis |
 | P1-03 | Basic tool call wrapper | P1 | Post V1 | 1-2 tools can be called via normalized interface |
 | P1-04 | Telegram mom parity core | P1 | V1.1 | Telegram bot supports per-chat runner, stop/cancel, tool-calling (`read/bash/edit/write/attach`), attachment ingestion, and event-file scheduling (immediate/one-shot/periodic) |

@@ -34,6 +34,11 @@
             sttModelKey: string;
             ttsModelKey: string;
         };
+        compaction: {
+            enabled: boolean;
+            reserveTokens: number;
+            keepRecentTokens: number;
+        };
         systemPrompt: string;
     }
 
@@ -69,6 +74,11 @@
             visionModelKey: "",
             sttModelKey: "",
             ttsModelKey: "",
+        },
+        compaction: {
+            enabled: true,
+            reserveTokens: 16384,
+            keepRecentTokens: 20000,
         },
         systemPrompt: "You are Molibot, a concise and helpful assistant.",
     };
@@ -223,6 +233,11 @@
                     visionModelKey: s.modelRouting?.visionModelKey ?? "",
                     sttModelKey: s.modelRouting?.sttModelKey ?? "",
                     ttsModelKey: s.modelRouting?.ttsModelKey ?? "",
+                },
+                compaction: {
+                    enabled: s.compaction?.enabled ?? true,
+                    reserveTokens: Number(s.compaction?.reserveTokens ?? 16384),
+                    keepRecentTokens: Number(s.compaction?.keepRecentTokens ?? 20000),
                 },
                 systemPrompt: s.systemPrompt,
             };
@@ -415,6 +430,64 @@
                                 <option value={row.key}>{row.label}</option>
                             {/each}
                         </select>
+                    </label>
+                </div>
+            </section>
+
+            <section
+                class="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 shadow-sm"
+            >
+                <h2
+                    class="mb-5 text-sm font-semibold uppercase tracking-wider text-slate-500"
+                >
+                    Context Compaction
+                </h2>
+
+                <div class="grid gap-5 md:grid-cols-2">
+                    <label class="grid gap-2 text-sm md:col-span-2">
+                        <span class="font-medium text-slate-300"
+                            >Automatic compaction</span
+                        >
+                        <label class="inline-flex items-center gap-3 text-sm text-slate-300">
+                            <input
+                                type="checkbox"
+                                class="h-4 w-4 rounded border-white/10 bg-black/20"
+                                bind:checked={form.compaction.enabled}
+                            />
+                            <span>Summarize older turns when the context window gets tight.</span>
+                        </label>
+                    </label>
+
+                    <label class="grid gap-2 text-sm">
+                        <span class="font-medium text-slate-300"
+                            >Reserve tokens</span
+                        >
+                        <input
+                            type="number"
+                            min="1024"
+                            step="256"
+                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                            bind:value={form.compaction.reserveTokens}
+                        />
+                        <span class="text-xs text-slate-500"
+                            >Leave headroom for the next model response.</span
+                        >
+                    </label>
+
+                    <label class="grid gap-2 text-sm">
+                        <span class="font-medium text-slate-300"
+                            >Keep recent tokens</span
+                        >
+                        <input
+                            type="number"
+                            min="2048"
+                            step="512"
+                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                            bind:value={form.compaction.keepRecentTokens}
+                        />
+                        <span class="text-xs text-slate-500"
+                            >Newest messages kept verbatim instead of summarized.</span
+                        >
                     </label>
                 </div>
             </section>

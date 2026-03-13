@@ -32,6 +32,11 @@ interface RawSettings {
     sttModelKey?: string;
     ttsModelKey?: string;
   };
+  compaction?: {
+    enabled?: boolean | string;
+    reserveTokens?: number | string;
+    keepRecentTokens?: number | string;
+  };
   systemPrompt?: string;
   plugins?: {
     memory?: {
@@ -570,6 +575,21 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const agents = sanitizeAgents(raw.agents);
   const mcpServers = sanitizeMcpServers(raw.mcpServers ?? defaultRuntimeSettings.mcpServers);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
+  const compactionEnabledRaw = raw.compaction?.enabled;
+  const compactionEnabled =
+    typeof compactionEnabledRaw === "boolean"
+      ? compactionEnabledRaw
+      : compactionEnabledRaw === undefined
+        ? defaultRuntimeSettings.compaction.enabled
+        : String(compactionEnabledRaw).toLowerCase() === "true";
+  const reserveTokensRaw = Number(raw.compaction?.reserveTokens ?? defaultRuntimeSettings.compaction.reserveTokens);
+  const keepRecentTokensRaw = Number(raw.compaction?.keepRecentTokens ?? defaultRuntimeSettings.compaction.keepRecentTokens);
+  const reserveTokens = Number.isFinite(reserveTokensRaw)
+    ? Math.max(1024, Math.round(reserveTokensRaw))
+    : defaultRuntimeSettings.compaction.reserveTokens;
+  const keepRecentTokens = Number.isFinite(keepRecentTokensRaw)
+    ? Math.max(2048, Math.round(keepRecentTokensRaw))
+    : defaultRuntimeSettings.compaction.keepRecentTokens;
 
   return {
     providerMode: sanitizeMode(raw.providerMode ?? defaultRuntimeSettings.providerMode),
@@ -585,6 +605,11 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       visionModelKey: String(raw.modelRouting?.visionModelKey ?? "").trim(),
       sttModelKey: String(raw.modelRouting?.sttModelKey ?? "").trim(),
       ttsModelKey: String(raw.modelRouting?.ttsModelKey ?? "").trim()
+    },
+    compaction: {
+      enabled: compactionEnabled,
+      reserveTokens,
+      keepRecentTokens
     },
     systemPrompt:
       String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
@@ -888,6 +913,11 @@ export class SettingsStore {
         visionModelKey: settings.modelRouting.visionModelKey,
         sttModelKey: settings.modelRouting.sttModelKey,
         ttsModelKey: settings.modelRouting.ttsModelKey
+      },
+      compaction: {
+        enabled: settings.compaction.enabled,
+        reserveTokens: settings.compaction.reserveTokens,
+        keepRecentTokens: settings.compaction.keepRecentTokens
       },
       systemPrompt: settings.systemPrompt,
       plugins: {
