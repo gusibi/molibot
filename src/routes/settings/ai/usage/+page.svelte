@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import PageShell from "$lib/ui/PageShell.svelte";
 
     type TimeRange = "today" | "yesterday" | "last7Days" | "last30Days";
     type ViewMode = "chart" | "list";
@@ -19,11 +20,16 @@
         api: string;
     }
 
+    interface BotUsageSummary extends UsageTotals {
+        botId: string;
+    }
+
     interface WindowSummary {
         startDate: string;
         endDate: string;
         totals: UsageTotals;
         models: ModelUsageSummary[];
+        bots: BotUsageSummary[];
     }
 
     interface BucketSummary {
@@ -32,6 +38,7 @@
         endDate?: string;
         totals: UsageTotals;
         models: ModelUsageSummary[];
+        bots: BotUsageSummary[];
     }
 
     interface UsageStatsResponse {
@@ -58,6 +65,7 @@
     let selectedRange: TimeRange = "last30Days";
     let viewMode: ViewMode = "chart";
     let selectedModelId: "all" | string = "all";
+    let selectedBotId: "all" | string = "all";
 
     function formatNumber(value: number): string {
         return new Intl.NumberFormat("en-US").format(value ?? 0);
@@ -108,6 +116,7 @@
     onMount(loadUsage);
 
     $: availableModels = getAvailableModels(usageStats);
+    $: availableBots = getAvailableBots(usageStats);
 
     function getAvailableModels(
         stats: UsageStatsResponse | null,
@@ -123,20 +132,56 @@
             .sort((a, b) => a.label.localeCompare(b.label));
     }
 
+    function getAvailableBots(
+        stats: UsageStatsResponse | null,
+    ): { id: string; label: string }[] {
+        if (!stats) return [];
+        return stats.windows.last30Days.bots
+            .map((row) => ({ id: row.botId, label: row.botId }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
     $: currentWindow = computeWindow(
         usageStats,
         selectedRange,
         selectedModelId,
+        selectedBotId,
     );
 
     function computeWindow(
         stats: UsageStatsResponse | null,
         range: TimeRange,
         modelId: "all" | string,
+        botId: "all" | string,
     ): WindowSummary | null {
         if (!stats) return null;
         const win = stats.windows[range];
-        if (modelId === "all") return win;
+        if (modelId === "all" && botId === "all") return win;
+
+        if (botId !== "all") {
+            const botStats = win.bots.find((b) => b.botId === botId);
+            if (botStats) {
+                return {
+                    ...win,
+                    totals: { ...botStats },
+                    models: [],
+                    bots: [botStats],
+                };
+            }
+            return {
+                ...win,
+                totals: {
+                    requests: 0,
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    totalTokens: 0,
+                },
+                models: [],
+                bots: [],
+            };
+        }
 
         const [provider, modelName] = modelId.split("::");
         const modelStats = win.models.find(
@@ -147,6 +192,7 @@
                 ...win,
                 totals: { ...modelStats },
                 models: [modelStats],
+                bots: [],
             };
         }
         return {
@@ -160,10 +206,16 @@
                 totalTokens: 0,
             },
             models: [],
+            bots: [],
         };
     }
 
-    $: chartData = computeChartData(usageStats, selectedRange, selectedModelId);
+    $: chartData = computeChartData(
+        usageStats,
+        selectedRange,
+        selectedModelId,
+        selectedBotId,
+    );
     $: maxTokens = Math.max(1, ...chartData.map((d) => d.totals.totalTokens));
     // $: maxRequests = Math.max(1, ...chartData.map((d) => d.totals.requests)); // Removed since it isn't used
 
@@ -171,6 +223,7 @@
         stats: UsageStatsResponse | null,
         range: TimeRange,
         modelId: "all" | string,
+        botId: "all" | string,
     ): BucketSummary[] {
         if (!stats) return [];
         const daily = stats.breakdowns.daily || [];
@@ -190,6 +243,33 @@
                 break;
         }
 
+        if (botId !== "all") {
+            return data.map((bucket) => {
+                const bStat = bucket.bots.find((b) => b.botId === botId);
+                if (bStat) {
+                    return {
+                        ...bucket,
+                        totals: { ...bStat },
+                        models: [],
+                        bots: [bStat],
+                    };
+                }
+                return {
+                    ...bucket,
+                    totals: {
+                        requests: 0,
+                        inputTokens: 0,
+                        outputTokens: 0,
+                        cacheReadTokens: 0,
+                        cacheWriteTokens: 0,
+                        totalTokens: 0,
+                    },
+                    models: [],
+                    bots: [],
+                };
+            });
+        }
+
         if (modelId === "all") return data;
 
         const [provider, modelName] = modelId.split("::");
@@ -203,6 +283,7 @@
                     ...bucket,
                     totals: { ...mStat },
                     models: [mStat],
+                    bots: [],
                 };
             }
             return {
@@ -216,6 +297,7 @@
                     totalTokens: 0,
                 },
                 models: [],
+                bots: [],
             };
         });
     }
@@ -227,9 +309,19 @@
     function setView(mode: ViewMode) {
         viewMode = mode;
     }
+
+    function handleModelChange(value: "all" | string) {
+        selectedModelId = value;
+        if (value !== "all") selectedBotId = "all";
+    }
+
+    function handleBotChange(value: "all" | string) {
+        selectedBotId = value;
+        if (value !== "all") selectedModelId = "all";
+    }
 </script>
 
-<div class="mx-auto max-w-6xl space-y-8 px-6 py-8 sm:px-10 sm:py-12">
+<PageShell widthClass="max-w-6xl" gapClass="space-y-8">
     <!-- Header -->
     <header
         class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
@@ -313,10 +405,48 @@
                 <div class="relative inline-flex">
                     <select
                         bind:value={selectedModelId}
+                        on:change={(e) =>
+                            handleModelChange(
+                                (e.currentTarget as HTMLSelectElement)
+                                    .value as "all" | string,
+                            )}
                         class="cursor-pointer appearance-none rounded-xl border border-white/10 bg-black/40 py-2.5 pl-4 pr-10 text-sm font-medium text-slate-300 backdrop-blur-md outline-none transition-all hover:bg-black/60 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
                     >
                         <option value="all">All Models</option>
                         {#each availableModels as { id, label }}
+                            <option value={id}>{label}</option>
+                        {/each}
+                    </select>
+                    <div
+                        class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400"
+                    >
+                        <svg
+                            class="h-4 w-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            ><path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                d="M19 9l-7 7-7-7"
+                            /></svg
+                        >
+                    </div>
+                </div>
+
+                <div class="relative inline-flex">
+                    <select
+                        bind:value={selectedBotId}
+                        on:change={(e) =>
+                            handleBotChange(
+                                (e.currentTarget as HTMLSelectElement)
+                                    .value as "all" | string,
+                            )}
+                        class="cursor-pointer appearance-none rounded-xl border border-white/10 bg-black/40 py-2.5 pl-4 pr-10 text-sm font-medium text-slate-300 backdrop-blur-md outline-none transition-all hover:bg-black/60 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
+                    >
+                        <option value="all">All Bots</option>
+                        {#each availableBots as { id, label }}
                             <option value={id}>{label}</option>
                         {/each}
                     </select>
@@ -685,6 +815,81 @@
                 </div>
             {/if}
         </section>
+
+        <section
+            class="rounded-3xl border border-white/[0.08] bg-[#1a1a1a]/60 pt-1 shadow-xl backdrop-blur-xl"
+        >
+            <div class="border-b border-white/5 px-6 py-5">
+                <h3 class="text-base font-semibold text-white">
+                    Bots Used ({windowTitle(selectedRange)})
+                </h3>
+                <p class="text-xs text-slate-500 mt-1">
+                    Ranking of bot usage within the currently selected
+                    timeframe.
+                </p>
+            </div>
+
+            {#if currentWindow.bots.length === 0}
+                <div
+                    class="flex h-32 items-center justify-center text-sm text-slate-500"
+                >
+                    No bots tracked during this timeframe.
+                </div>
+            {:else}
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm whitespace-nowrap">
+                        <thead
+                            class="bg-black/20 text-[10px] font-medium uppercase tracking-wider text-slate-500"
+                        >
+                            <tr>
+                                <th class="px-6 py-4">Bot ID</th>
+                                <th class="px-6 py-4 text-right">Hit Count</th>
+                                <th
+                                    class="px-6 py-4 text-right hidden sm:table-cell"
+                                    >Inputs</th
+                                >
+                                <th
+                                    class="px-6 py-4 text-right hidden sm:table-cell"
+                                    >Outputs</th
+                                >
+                                <th class="px-6 py-4 text-right">Tokens Used</th
+                                >
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-white/5">
+                            {#each currentWindow.bots.slice(0, 15) as row}
+                                <tr
+                                    class="transition-colors hover:bg-white/[0.02]"
+                                >
+                                    <td class="px-6 py-3 font-bold text-slate-200">
+                                        {row.botId}
+                                    </td>
+                                    <td
+                                        class="px-6 py-3 text-right text-slate-300"
+                                        >{formatNumber(row.requests)}</td
+                                    >
+                                    <td
+                                        class="px-6 py-3 text-right text-slate-400 hidden sm:table-cell"
+                                        >{formatNumber(row.inputTokens)}</td
+                                    >
+                                    <td
+                                        class="px-6 py-3 text-right text-slate-400 hidden sm:table-cell"
+                                        >{formatNumber(row.outputTokens)}</td
+                                    >
+                                    <td class="px-6 py-3 text-right">
+                                        <span
+                                            class="inline-flex rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-400 border border-emerald-500/20"
+                                        >
+                                            {formatNumber(row.totalTokens)}
+                                        </span>
+                                    </td>
+                                </tr>
+                            {/each}
+                        </tbody>
+                    </table>
+                </div>
+            {/if}
+        </section>
     {:else}
         <div
             class="flex h-64 items-center justify-center rounded-3xl border border-white/5 bg-white/[0.01]"
@@ -713,4 +918,4 @@
             </div>
         </div>
     {/if}
-</div>
+</PageShell>

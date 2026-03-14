@@ -5,6 +5,7 @@ import { storagePaths } from "../infra/db/storage.js";
 export interface AiUsageRecord {
   ts: string;
   channel: string;
+  botId: string;
   provider: string;
   model: string;
   api: string;
@@ -30,6 +31,7 @@ interface BucketSummary {
   endDate?: string;
   totals: UsageTotals;
   models: ModelUsageSummary[];
+  bots: BotUsageSummary[];
 }
 
 interface ModelUsageSummary extends UsageTotals {
@@ -43,6 +45,11 @@ interface WindowSummary {
   endDate: string;
   totals: UsageTotals;
   models: ModelUsageSummary[];
+  bots: BotUsageSummary[];
+}
+
+interface BotUsageSummary extends UsageTotals {
+  botId: string;
 }
 
 export interface UsageStatsResponse {
@@ -136,9 +143,10 @@ function monthKey(dateKey: string): string {
   return dateKey.slice(0, 7);
 }
 
-function summarizeRecords(records: AiUsageRecord[]): { totals: UsageTotals; models: ModelUsageSummary[] } {
+function summarizeRecords(records: AiUsageRecord[]): { totals: UsageTotals; models: ModelUsageSummary[]; bots: BotUsageSummary[] } {
   const totals = emptyTotals();
   const modelMap = new Map<string, ModelUsageSummary>();
+  const botMap = new Map<string, BotUsageSummary>();
 
   for (const record of records) {
     addTotals(totals, record);
@@ -154,6 +162,17 @@ function summarizeRecords(records: AiUsageRecord[]): { totals: UsageTotals; mode
       modelMap.set(key, row);
     }
     addTotals(row, record);
+
+    const normalizedBotId = String(record.botId ?? "").trim() || "unknown";
+    let botRow = botMap.get(normalizedBotId);
+    if (!botRow) {
+      botRow = {
+        botId: normalizedBotId,
+        ...emptyTotals()
+      };
+      botMap.set(normalizedBotId, botRow);
+    }
+    addTotals(botRow, record);
   }
 
   const models = Array.from(modelMap.values()).sort((a, b) => {
@@ -161,7 +180,12 @@ function summarizeRecords(records: AiUsageRecord[]): { totals: UsageTotals; mode
     return `${a.provider}/${a.model}`.localeCompare(`${b.provider}/${b.model}`);
   });
 
-  return { totals, models };
+  const bots = Array.from(botMap.values()).sort((a, b) => {
+    if (b.totalTokens !== a.totalTokens) return b.totalTokens - a.totalTokens;
+    return a.botId.localeCompare(b.botId);
+  });
+
+  return { totals, models, bots };
 }
 
 function bucketize(
@@ -188,7 +212,8 @@ function bucketize(
       startDate: info.startDate,
       endDate: info.endDate,
       totals: summary.totals,
-      models: summary.models
+      models: summary.models,
+      bots: summary.bots
     };
   });
 }
@@ -204,6 +229,7 @@ export class AiUsageTracker {
 
   record(input: {
     channel: string;
+    botId?: string;
     provider: string;
     model: string;
     api?: string;
@@ -216,6 +242,7 @@ export class AiUsageTracker {
     const record: AiUsageRecord = {
       ts: new Date().toISOString(),
       channel: String(input.channel ?? "").trim() || "unknown",
+      botId: String(input.botId ?? "").trim() || "unknown",
       provider: String(input.provider ?? "").trim() || "unknown",
       model: String(input.model ?? "").trim() || "unknown",
       api: String(input.api ?? "").trim() || "unknown",
@@ -254,6 +281,7 @@ export class AiUsageTracker {
         out.push({
           ts: String(parsed.ts),
           channel: String(parsed.channel ?? "unknown"),
+          botId: String((parsed as { botId?: string }).botId ?? "unknown"),
           provider: String(parsed.provider),
           model: String(parsed.model),
           api: String(parsed.api ?? "unknown"),
@@ -320,25 +348,29 @@ export class AiUsageTracker {
           startDate: today,
           endDate: today,
           totals: todaySummary.totals,
-          models: todaySummary.models
+          models: todaySummary.models,
+          bots: todaySummary.bots
         },
         yesterday: {
           startDate: yesterday,
           endDate: yesterday,
           totals: yesterdaySummary.totals,
-          models: yesterdaySummary.models
+          models: yesterdaySummary.models,
+          bots: yesterdaySummary.bots
         },
         last7Days: {
           startDate: last7Keys[0],
           endDate: last7Keys[last7Keys.length - 1],
           totals: last7Summary.totals,
-          models: last7Summary.models
+          models: last7Summary.models,
+          bots: last7Summary.bots
         },
         last30Days: {
           startDate: last30Keys[0],
           endDate: last30Keys[last30Keys.length - 1],
           totals: last30Summary.totals,
-          models: last30Summary.models
+          models: last30Summary.models,
+          bots: last30Summary.bots
         }
       },
       breakdowns: {

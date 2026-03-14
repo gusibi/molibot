@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import PageShell from "$lib/ui/PageShell.svelte";
+  import Button from "$lib/ui/Button.svelte";
+  import Alert from "$lib/ui/Alert.svelte";
 
   interface AgentItem {
     id: string;
@@ -292,7 +295,7 @@
   onMount(loadSettings);
 </script>
 
-<div class="mx-auto max-w-7xl space-y-6 px-6 py-8 sm:px-10 sm:py-12">
+<PageShell widthClass="max-w-7xl" gapClass="space-y-6">
   <div>
     <h1 class="text-2xl font-semibold">QQ Settings</h1>
     <p class="text-sm text-slate-400">
@@ -309,13 +312,9 @@
       <section class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
         <div class="flex items-center justify-between">
           <h2 class="text-sm font-semibold text-slate-200">Bots</h2>
-          <button
-            class="cursor-pointer rounded-md border border-white/20 bg-white/5 px-2 py-1 text-xs text-slate-200 hover:bg-white/10"
-            type="button"
-            on:click={addBot}
-          >
+          <Button variant="outline" size="sm" type="button" on:click={addBot}>
             Add Bot
-          </button>
+          </Button>
         </div>
 
         <div class="space-y-2">
@@ -346,13 +345,9 @@
           <section class="space-y-4 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
             <div class="flex items-center justify-between">
               <h2 class="text-sm font-semibold text-slate-200">Bot Configuration</h2>
-              <button
-                class="cursor-pointer rounded-md border border-rose-500/50 bg-rose-500/10 px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/20"
-                type="button"
-                on:click={() => removeBot(selectedBot.id)}
-              >
+              <Button variant="destructive" size="sm" type="button" on:click={() => removeBot(selectedBot.id)}>
                 Remove Bot
-              </button>
+              </Button>
             </div>
 
             <div class="grid gap-3 md:grid-cols-2">
@@ -418,15 +413,11 @@
                     type={showClientSecret ? "text" : "password"}
                     placeholder="Your QQ Client Secret"
                   />
-                  <button
-                    class="rounded-md border border-white/20 bg-white/5 px-2 py-2 text-xs text-slate-200 hover:bg-white/10"
-                    type="button"
-                    on:click={() => (showClientSecret = !showClientSecret)}
-                  >
-                    {showClientSecret ? "Hide" : "Show"}
-                  </button>
-                </div>
-              </label>
+                <Button variant="outline" size="sm" type="button" on:click={() => (showClientSecret = !showClientSecret)}>
+                  {showClientSecret ? "Hide" : "Show"}
+                </Button>
+              </div>
+            </label>
             </div>
 
             <label class="grid gap-1.5 text-sm">
@@ -459,29 +450,21 @@
             {/each}
           </section>
 
-          <button
-            class="cursor-pointer rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black transition-colors duration-200 hover:bg-slate-200 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
-            type="submit"
-            disabled={saving}
-          >
+          <Button variant="default" size="md" type="submit" disabled={saving}>
             {saving ? "Saving..." : "Save This Bot"}
-          </button>
+          </Button>
           {#if selectedBotDirty}
             <p class="text-xs text-amber-300">Current bot has unsaved changes.</p>
           {/if}
 
           {#if message}
-            <p class="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
-              {message}
-            </p>
+            <Alert variant="success">{message}</Alert>
           {/if}
           {#if error}
-            <p class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
-              {error}
-            </p>
+            <Alert variant="destructive">{error}</Alert>
           {/if}
         </form>
       {/if}
     </div>
   {/if}
-</div>
+</PageShell>

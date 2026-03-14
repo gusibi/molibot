@@ -1,5 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import PageShell from "$lib/ui/PageShell.svelte";
+    import Button from "$lib/ui/Button.svelte";
 
     type ProviderMode = "pi" | "custom";
     type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
@@ -848,7 +850,7 @@
     const autoTestedCapabilities: ModelCapabilityTag[] = ["text", "vision"];
 </script>
 
-<div class="providers-page mx-auto max-w-6xl space-y-6 px-6 py-8 sm:px-10 sm:py-12">
+<PageShell widthClass="max-w-6xl" gapClass="space-y-6" className="providers-page">
     <div class="flex items-center justify-between gap-3">
         <header>
             <h1 class="text-3xl font-bold tracking-tight text-white">
@@ -1043,26 +1045,26 @@
                                     />
                                     Enabled
                                 </label>
-                                <button
+                                <Button
                                     type="button"
-                                    class="cursor-pointer rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-300 transition-all hover:bg-white/10 disabled:opacity-50"
+                                    variant="outline"
+                                    size="sm"
                                     on:click={() => setAsDefaultProvider(cp.id)}
-                                    disabled={form.defaultCustomProviderId ===
-                                        cp.id || !cp.enabled}
+                                    disabled={form.defaultCustomProviderId === cp.id || !cp.enabled}
                                 >
                                     {form.defaultCustomProviderId === cp.id
                                         ? "Targeted as Default"
                                         : "Set as Default"}
-                                </button>
+                                </Button>
                                 {#if !isBuiltinProvider(cp)}
-                                    <button
+                                    <Button
                                         type="button"
-                                        class="cursor-pointer rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-rose-300 transition-all hover:bg-rose-500/20"
-                                        on:click={() =>
-                                            removeCustomProvider(cp.id)}
+                                        variant="destructive"
+                                        size="sm"
+                                        on:click={() => removeCustomProvider(cp.id)}
                                     >
                                         Delete
-                                    </button>
+                                    </Button>
                                 {/if}
                             </div>
                         </div>
@@ -1225,14 +1227,15 @@
                             >
                                 Attached Models
                             </h3>
-                            <button
+                            <Button
                                 type="button"
-                                class="cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white transition-all hover:bg-white/10 hover:shadow"
+                                variant="outline"
+                                size="sm"
                                 on:click={() => addModel(cp.id)}
                                 disabled={!cp.enabled}
                             >
                                 + Add Model
-                            </button>
+                            </Button>
                         </div>
 
                         {#if cp.models.length === 0}
@@ -1264,9 +1267,11 @@
                                         </label>
 
                                         {#if !isBuiltinProvider(cp)}
-                                            <button
+                                            <Button
                                                 type="button"
-                                                class="col-span-1 cursor-pointer rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold text-sky-400 transition-colors hover:bg-sky-500/20 disabled:opacity-50 sm:col-span-1"
+                                                variant="outline"
+                                                size="sm"
+                                                className="col-span-1 sm:col-span-1"
                                                 on:click={() =>
                                                     testProviderModel(
                                                         cp.id,
@@ -1281,26 +1286,30 @@
                                                 `${cp.id}|${model.id.trim()}`
                                                     ? "Pinging..."
                                                     : "Test Connection"}
-                                            </button>
+                                            </Button>
                                         {:else}
-                                            <button
+                                            <Button
                                                 type="button"
-                                                class="col-span-1 cursor-not-allowed rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-400 sm:col-span-1"
+                                                variant="outline"
+                                                size="sm"
+                                                className="col-span-1 sm:col-span-1"
                                                 disabled={true}
                                                 title="Built-in providers use native APIs; OpenAI compatibility test is not applicable."
                                             >
                                                 Native Provider
-                                            </button>
+                                            </Button>
                                         {/if}
 
-                                        <button
+                                        <Button
                                             type="button"
-                                            class="col-span-1 cursor-pointer rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-300 transition-colors hover:bg-rose-500/20 sm:col-span-1"
+                                            variant="destructive"
+                                            size="sm"
+                                            className="col-span-1 sm:col-span-1"
                                             on:click={() =>
                                                 removeModel(cp.id, index)}
                                         >
                                             Remove
-                                        </button>
+                                        </Button>
                                     </div>
 
                                     <div class="bg-black/20 px-4 py-3">
@@ -1432,15 +1441,17 @@
                                     >
                                 {/if}
 
-                                <button
+                                <Button
                                     type="submit"
-                                    class="shrink-0 cursor-pointer rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-bold text-emerald-950 transition-transform active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+                                    variant="default"
+                                    size="md"
+                                    className="shrink-0"
                                     disabled={saving}
                                 >
                                     {saving
                                         ? "Deploying..."
                                         : "Save Provider Settings"}
-                                </button>
+                                </Button>
                             </div>
                         </div>
                     {:else}
@@ -1490,7 +1501,7 @@
             </section>
         </form>
     {/if}
-</div>
+</PageShell>
 
 <style>
   :global(.settings-theme .providers-page input),

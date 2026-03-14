@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import PageShell from "$lib/ui/PageShell.svelte";
+  import Button from "$lib/ui/Button.svelte";
+  import Alert from "$lib/ui/Alert.svelte";
 
   interface MemoryItem {
     id: string;
@@ -188,7 +191,7 @@
   });
 </script>
 
-<div class="mx-auto max-w-5xl space-y-6 px-6 py-8 sm:px-10 sm:py-12">
+<PageShell widthClass="max-w-5xl" gapClass="space-y-6">
         <h1 class="text-2xl font-semibold">Memory Management</h1>
         <p class="text-sm text-slate-400">
           Search, flush, edit and delete runtime memories. Settings page defaults
@@ -237,53 +240,44 @@
             <input bind:checked={allScopes} type="checkbox" />
             All scopes
           </label>
-          <button
-            class="rounded-lg border border-white/20 bg-[#1f1f1f] px-3 py-2 text-sm hover:bg-[#343434]"
-            on:click={listMemory}>Search</button
-          >
-          <button
-            class="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-300 hover:bg-sky-500/20 disabled:opacity-60"
+          <Button variant="outline" size="md" on:click={listMemory}>Search</Button>
+          <Button
+            variant="outline"
+            size="md"
+            className="disabled:opacity-60"
             on:click={syncMemory}
             disabled={syncing}
           >
             {syncing ? "Syncing..." : "Sync Files"}
-          </button>
-          <button
-            class="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
+          </Button>
+          <Button
+            variant="secondary"
+            size="md"
+            className="disabled:opacity-60"
             on:click={flushMemory}
             disabled={flushing}
           >
             {flushing ? "Flushing..." : "Flush"}
-          </button>
-          <button
-            class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300 hover:bg-amber-500/20 disabled:opacity-60"
+          </Button>
+          <Button
+            variant="outline"
+            size="md"
+            className="disabled:opacity-60"
             on:click={compactMemory}
             disabled={compacting}
           >
             {compacting ? "Deduping..." : "Deduplicate"}
-          </button>
+          </Button>
         </div>
 
         {#if message}
-          <p
-            class="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300"
-          >
-            {message}
-          </p>
+          <Alert variant="success">{message}</Alert>
         {/if}
         {#if syncInfo}
-          <p
-            class="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-300"
-          >
-            {syncInfo}
-          </p>
+          <Alert>{syncInfo}</Alert>
         {/if}
         {#if error}
-          <p
-            class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300"
-          >
-            {error}
-          </p>
+          <Alert variant="destructive">{error}</Alert>
         {/if}
 
         {#if loading}
@@ -362,18 +356,11 @@
                     bind:value={item.expiresAt}
                     placeholder="expiresAt (ISO8601)"
                   />
-                  <button
-                    class="rounded-lg border border-white/20 bg-[#1f1f1f] px-3 py-2 text-sm hover:bg-[#343434]"
-                    on:click={() => saveItem(item)}>Save</button
-                  >
-                  <button
-                    class="rounded-lg border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-sm text-rose-300 hover:bg-rose-500/20"
-                    on:click={() => removeItem(item)}>Delete</button
-                  >
+                  <Button variant="outline" size="md" on:click={() => saveItem(item)}>Save</Button>
+                  <Button variant="destructive" size="md" on:click={() => removeItem(item)}>Delete</Button>
                 </div>
               </article>
             {/each}
           </div>
         {/if}
-      </div>
-    
+</PageShell>

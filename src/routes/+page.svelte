@@ -238,7 +238,7 @@
 
   let showNewChatDialog = false;
   let newChatProfileId = "default";
-  let themeMode: ThemeMode = "system";
+  let themeMode: ThemeMode = "light";
   let locale: LocaleKey = "zh-CN";
   let dict = I18N[locale];
 
@@ -271,6 +271,17 @@
       return new Intl.DateTimeFormat(locale, {
         month: "2-digit",
         day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(new Date(iso));
+    } catch {
+      return "";
+    }
+  }
+
+  function formatMessageTime(iso: string): string {
+    try {
+      return new Intl.DateTimeFormat(locale, {
         hour: "2-digit",
         minute: "2-digit"
       }).format(new Date(iso));
@@ -866,8 +877,8 @@
 
     void (async () => {
       try {
-        const storedTheme = String(localStorage.getItem(LS_THEME) ?? "system");
-        themeMode = storedTheme === "light" || storedTheme === "dark" ? storedTheme : "system";
+        const storedTheme = String(localStorage.getItem(LS_THEME) ?? "light");
+        themeMode = storedTheme === "system" || storedTheme === "dark" ? storedTheme : "light";
         applyTheme(themeMode);
 
         const storedLocale = String(localStorage.getItem(LS_LOCALE) ?? "zh-CN");
@@ -911,7 +922,7 @@
   <div class="relative flex h-full">
     {#if showMobileSidebar}
       <button
-        class="absolute inset-0 z-20 bg-black/30 backdrop-blur-sm lg:hidden"
+        class="absolute inset-0 z-20 bg-black/30 lg:hidden"
         type="button"
         aria-label={t("closeSidebar")}
         on:click={() => (showMobileSidebar = false)}
@@ -919,16 +930,17 @@
     {/if}
 
     <aside
-      class={`absolute inset-y-0 left-0 z-30 flex w-[290px] flex-col border-r border-[var(--border)] bg-[color-mix(in_oklab,var(--sidebar)_92%,transparent)] p-3 shadow-2xl transition-transform duration-200 lg:static lg:z-0 lg:w-[310px] lg:translate-x-0 lg:bg-[var(--sidebar)] ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}
+      class={`absolute inset-y-0 left-0 z-30 flex w-[290px] flex-col border-r border-[var(--border)] bg-[var(--sidebar)] p-3 transition-transform duration-200 lg:static lg:z-0 lg:w-[320px] lg:translate-x-0 ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}
     >
       <div class="space-y-3 border-b border-[var(--border)] pb-3">
         <div class="flex items-center justify-between">
           <div>
-            <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-[color-mix(in_oklab,var(--primary)_75%,white)]">Molibot</p>
+            <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Molibot</p>
             <h2 class="text-base font-semibold">{t("conversations")}</h2>
+            <p class="mt-0.5 text-[11px] text-[var(--muted-foreground)]">{filteredSessions.length} {t("chats")}</p>
           </div>
           <a
-            class="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs transition hover:bg-[var(--muted)]"
             href="/settings"
           >
             {t("settings")}
@@ -950,9 +962,9 @@
           placeholder={t("searchChats")}
         />
 
-        <div class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--secondary)_45%,transparent)] px-3 py-2">
+        <div class="rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2">
           <p class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{t("activeProfile")}</p>
-          <p class="truncate text-xs">{activeProfileName}</p>
+          <p class="truncate text-xs font-medium">{activeProfileName}</p>
           <p class="truncate text-[10px] text-[var(--muted-foreground)]">{activeProfileId}</p>
         </div>
       </div>
@@ -966,8 +978,8 @@
           {#each filteredSessions as s}
             <div
               class={`w-full rounded-xl border px-3 py-2.5 text-left transition ${s.id === activeSessionId
-                ? "border-[var(--primary)] bg-[color-mix(in_oklab,var(--primary)_16%,transparent)]"
-                : "border-transparent bg-[color-mix(in_oklab,var(--card)_80%,transparent)] hover:border-[var(--border)] hover:bg-[color-mix(in_oklab,var(--secondary)_60%,transparent)]"}`}
+                ? "border-[var(--primary)] bg-[var(--muted)]"
+                : "border-transparent bg-[var(--card)] hover:border-[var(--border)] hover:bg-[var(--muted)]"}`}
             >
               {#if editingSessionId === s.id}
                 <div class="space-y-2">
@@ -1003,9 +1015,12 @@
                 </div>
               {:else}
                 <button class="w-full text-left" type="button" on:click={() => switchSession(s.id)} on:dblclick={() => startRenameSession(s)}>
-                  <p class="line-clamp-1 text-sm font-medium">{s.title || t("newSession")}</p>
+                  <div class="flex items-center gap-2">
+                    <span class={`inline-block h-1.5 w-1.5 rounded-full ${s.id === activeSessionId ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]"}`}></span>
+                    <p class="line-clamp-1 text-sm font-medium">{s.title || t("newSession")}</p>
+                  </div>
                   <p class="mt-1 text-[11px] text-[var(--muted-foreground)]">{t("profile")}: {activeProfileName}</p>
-                  <p class="mt-1 text-[11px] text-[var(--muted-foreground)]">{formatSessionTime(s.updatedAt)}</p>
+                  <p class="mt-1 text-[11px] text-[var(--muted-foreground)]">Updated {formatSessionTime(s.updatedAt)}</p>
                 </button>
               {/if}
             </div>
@@ -1017,10 +1032,10 @@
     </aside>
 
     <section class="flex min-w-0 flex-1 flex-col">
-      <header class="border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-4 py-3 backdrop-blur sm:px-6">
+      <header class="border-b border-[var(--border)] bg-[var(--background)] px-4 py-3 sm:px-6">
         <div class="flex flex-wrap items-center gap-2">
           <button
-            class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs transition hover:bg-[var(--secondary)] lg:hidden"
+            class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs transition hover:bg-[var(--muted)] lg:hidden"
             type="button"
             on:click={() => (showMobileSidebar = true)}
           >
@@ -1034,7 +1049,7 @@
 
           <div class="ml-auto flex items-center gap-2">
             <select
-              class="max-w-[220px] rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--ring)]"
+              class="max-w-[240px] rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--ring)]"
               value={activeModelKey}
               disabled={changingModel || modelOptions.length === 0}
               on:change={async (e) => applyModelSelection((e.target as HTMLSelectElement).value)}
@@ -1063,7 +1078,7 @@
               <option value="en-US">English</option>
             </select>
             <button
-              class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs transition hover:bg-[var(--secondary)]"
+              class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs transition hover:bg-[var(--muted)]"
               type="button"
               on:click={openNewChatDialog}
             >
@@ -1071,16 +1086,18 @@
             </button>
           </div>
         </div>
-        <div class="mt-2 inline-flex items-center rounded-full border border-[var(--border)] bg-[color-mix(in_oklab,var(--secondary)_50%,transparent)] px-3 py-1.5 text-[11px]">
-          {t("activeProfile")}: {activeProfileName}
-        </div>
-        <div class="mt-2 text-[11px] text-[var(--muted-foreground)]">
-          {t("currentThemeFile")}: <code>src/styles/theme.css</code>
+        <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
+          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5">
+            {t("activeProfile")}: {activeProfileName}
+          </div>
+          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-[var(--muted-foreground)]">
+            {t("currentThemeFile")}: <code class="ml-1">src/styles/theme.css</code>
+          </div>
         </div>
       </header>
 
       <div class="min-h-0 flex-1 overflow-hidden">
-        <div class="mx-auto flex h-full w-full max-w-4xl flex-col px-4 py-4 sm:px-6">
+        <div class="mx-auto flex h-full w-full max-w-5xl flex-col px-4 py-4 sm:px-6">
           {#if status}
             <div class="mb-3 rounded-xl border border-[color-mix(in_oklab,var(--destructive)_55%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_12%,transparent)] px-3 py-2 text-xs text-[var(--foreground)]">{status}</div>
           {/if}
@@ -1088,7 +1105,7 @@
           <div class="mb-3 flex flex-wrap gap-2">
             {#each QUICK_PROMPTS as prompt}
               <button
-                class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs transition hover:bg-[var(--muted)]"
                 type="button"
                 on:click={() => sendQuickPrompt(prompt)}
               >
@@ -1096,7 +1113,7 @@
               </button>
             {/each}
             <button
-              class="rounded-full border border-[var(--primary)] bg-[color-mix(in_oklab,var(--primary)_14%,transparent)] px-3 py-1.5 text-xs text-[var(--primary)] transition hover:bg-[color-mix(in_oklab,var(--primary)_20%,transparent)]"
+              class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs transition hover:bg-[var(--muted)]"
               type="button"
               on:click={openSystemPromptPreview}
             >
@@ -1105,7 +1122,7 @@
           </div>
 
           <div
-            class="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_92%,transparent)] p-4 sm:p-5"
+            class="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 sm:p-5"
             bind:this={messagesContainer}
           >
             {#if loadingMessages}
@@ -1121,11 +1138,14 @@
               <div class="space-y-4">
                 {#each messages as m}
                   <article class={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div class={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-7 shadow-sm ${m.role === "user"
-                      ? "border border-[var(--primary)] bg-[color-mix(in_oklab,var(--primary)_16%,transparent)]"
+                    <div class={`max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-7 sm:max-w-[80%] ${m.role === "user"
+                      ? "border border-[var(--primary)] bg-[var(--muted)]"
                       : "border border-[var(--border)] bg-[var(--card)]"}`}>
-                      <div class="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-                        {m.role === "user" ? `${t("you")} (${activeProfileName})` : "Molibot"}
+                      <div class="mb-1 flex items-center justify-between gap-4">
+                        <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+                          {m.role === "user" ? `${t("you")} (${activeProfileName})` : "Molibot"}
+                        </div>
+                        <div class="text-[10px] text-[var(--muted-foreground)]">{formatMessageTime(m.createdAt)}</div>
                       </div>
                       <div class="whitespace-pre-wrap break-words">{m.content}</div>
                     </div>
@@ -1146,8 +1166,8 @@
         </div>
       </div>
 
-      <footer class="border-t border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_95%,transparent)] px-4 py-4 sm:px-6">
-        <div class="mx-auto w-full max-w-4xl rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3">
+      <footer class="border-t border-[var(--border)] bg-[var(--background)] px-4 py-4 sm:px-6">
+        <div class="mx-auto w-full max-w-5xl rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3">
           {#if pendingFiles.length > 0}
             <div class="mb-2 flex flex-wrap gap-2">
               {#each pendingFiles as file, index}
@@ -1163,7 +1183,7 @@
           {/if}
 
           <textarea
-            class="max-h-[220px] min-h-[52px] w-full resize-none rounded-xl bg-transparent px-2 py-2 text-sm leading-6 outline-none placeholder:text-[var(--muted-foreground)]"
+            class="max-h-[220px] min-h-[52px] w-full resize-none rounded-xl border border-transparent bg-transparent px-2 py-2 text-sm leading-6 outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--border)]"
             bind:this={composerEl}
             bind:value={messageInput}
             rows="1"
@@ -1174,14 +1194,14 @@
 
           <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2">
-              <label class="cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-xs transition hover:bg-[var(--secondary)]">
+              <label class="cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-xs transition hover:bg-[var(--muted)]">
                 + {t("image")}
                 <input class="hidden" type="file" accept="image/*" multiple on:change={onFileSelect} />
               </label>
               <button
                 class={`rounded-lg px-3 py-2 text-xs font-semibold transition ${isRecording
-                  ? "border border-[var(--destructive)] bg-[color-mix(in_oklab,var(--destructive)_12%,transparent)] text-[var(--foreground)] hover:bg-[color-mix(in_oklab,var(--destructive)_20%,transparent)]"
-                  : "border border-[var(--primary)] bg-[color-mix(in_oklab,var(--primary)_12%,transparent)] text-[var(--primary)] hover:bg-[color-mix(in_oklab,var(--primary)_20%,transparent)]"}`}
+                  ? "border border-[var(--destructive)] bg-[var(--card)] text-[var(--destructive)] hover:bg-[var(--muted)]"
+                  : "border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)]"}`}
                 type="button"
                 disabled={preparingRecording || sending}
                 on:click={toggleVoiceRecording}
@@ -1218,7 +1238,7 @@
           <button class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs" type="button" on:click={() => (showPromptPreview = false)}>{t("close")}</button>
         </div>
         <div class="grid min-h-0 flex-1 gap-3 p-3 md:grid-cols-[300px_1fr]">
-          <div class="min-h-0 overflow-y-auto rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--secondary)_45%,transparent)] p-3 text-xs">
+          <div class="min-h-0 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--muted)] p-3 text-xs">
             <p class="mb-2 font-semibold">{t("sources")}</p>
             <p class="mt-2 text-[var(--muted-foreground)]">{t("global")}</p>
             {#each promptSources.global as item}
@@ -1241,7 +1261,7 @@
               {/each}
             {/if}
           </div>
-          <pre class="min-h-0 overflow-y-auto whitespace-pre-wrap rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--secondary)_45%,transparent)] p-3 text-xs leading-6">{loadingPromptPreview ? t("loadingPreview") : promptPreviewText}</pre>
+          <pre class="min-h-0 overflow-y-auto whitespace-pre-wrap rounded-xl border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6">{loadingPromptPreview ? t("loadingPreview") : promptPreviewText}</pre>
         </div>
       </div>
     </div>

@@ -1422,8 +1422,10 @@ export class MomRunner implements RunnerLike {
           usage: msg.usage,
         });
         if (msg.usage) {
+          const botId = basename(this.store.getWorkspaceDir()) || "unknown";
           this.usageTracker.record({
             channel: this.channel,
+            botId,
             provider: msg.provider ?? activeSelection.model.provider,
             model: msg.model ?? activeSelection.model.id,
             api: msg.api ?? activeSelection.model.api,

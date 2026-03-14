@@ -369,6 +369,7 @@ export class AssistantService {
     if (this.usageTracker && reply.usage) {
       this.usageTracker.record({
         channel: "web",
+        botId: "web",
         provider: reply.provider,
         model: reply.model,
         api: reply.api,

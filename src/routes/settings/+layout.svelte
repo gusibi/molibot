@@ -7,7 +7,7 @@
     const LS_THEME = "molibot-web-theme";
     const LS_LOCALE = "molibot-web-locale";
 
-    let themeMode: ThemeMode = "system";
+    let themeMode: ThemeMode = "light";
     let locale: LocaleKey = "zh-CN";
 
     const navGroups = [
@@ -70,8 +70,8 @@
         const base =
             "block rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200";
         const state = isActive(pathname, href, exact)
-            ? "bg-[color-mix(in_oklab,var(--primary)_12%,transparent)] text-[var(--primary)]"
-            : "text-[var(--muted-foreground)] hover:bg-[var(--card)] hover:text-[var(--foreground)]";
+            ? "bg-[var(--muted)] text-[var(--foreground)]"
+            : "text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]";
         return `${base} ${state}`;
     }
 
@@ -121,8 +121,8 @@
         };
         media.addEventListener("change", handleSystemThemeChange);
 
-        const storedTheme = String(localStorage.getItem(LS_THEME) ?? "system");
-        themeMode = storedTheme === "light" || storedTheme === "dark" ? storedTheme : "system";
+        const storedTheme = String(localStorage.getItem(LS_THEME) ?? "light");
+        themeMode = storedTheme === "system" || storedTheme === "dark" ? storedTheme : "light";
         applyTheme(themeMode);
 
         const storedLocale = String(localStorage.getItem(LS_LOCALE) ?? "zh-CN");
@@ -193,7 +193,7 @@
 
         <section class="relative min-h-0 w-full overflow-y-auto">
             <header
-                class="sticky top-0 z-10 border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_92%,transparent)] px-5 py-4 backdrop-blur sm:px-7"
+                class="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--background)] px-5 py-4 sm:px-7"
             >
                 <div class="flex items-center justify-between gap-3">
                     <div class="min-w-0">

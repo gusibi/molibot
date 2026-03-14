@@ -3,82 +3,72 @@
 
 @layer components {
   .settings-theme {
-    color: var(--foreground) !important;
+    color: var(--foreground);
+    background-color: var(--background);
   }
 
-  .settings-theme [class*="text-white"] {
-    color: var(--foreground) !important;
+  .settings-theme .settings-page {
+    color: var(--foreground);
   }
 
+  .settings-theme [class*="text-white"],
+  .settings-theme [class*="text-black"],
+  .settings-theme [class*="text-slate-1"],
   .settings-theme [class*="text-slate-2"],
-  .settings-theme [class*="text-slate-3"],
-  .settings-theme [class*="text-slate-1"] {
+  .settings-theme [class*="text-slate-3"] {
     color: var(--foreground) !important;
   }
 
   .settings-theme [class*="text-slate-4"],
   .settings-theme [class*="text-slate-5"],
-  .settings-theme [class*="text-slate-6"] {
-    color: color-mix(in oklab, var(--foreground) 90%, var(--background)) !important;
+  .settings-theme [class*="text-slate-6"],
+  .settings-theme [class*="text-gray-"],
+  .settings-theme [class*="text-zinc-"] {
+    color: var(--muted-foreground) !important;
   }
 
-  .settings-theme [class*="text-zinc-"],
-  .settings-theme [class*="text-gray-"] {
-    color: color-mix(in oklab, var(--foreground) 88%, var(--background)) !important;
-  }
-
-  .settings-theme [class*="text-black"] {
-    color: var(--foreground) !important;
-  }
-
-  .settings-theme [class*="border-white"] {
+  .settings-theme [class*="border-white"],
+  .settings-theme [class*="border-slate-"],
+  .settings-theme [class*="border-gray-"],
+  .settings-theme [class*="border-zinc-"] {
     border-color: var(--border) !important;
   }
 
   .settings-theme [class*="bg-[#"],
   .settings-theme [class*="bg-white/"],
-  .settings-theme [class*="bg-black/"] {
+  .settings-theme [class*="bg-black/"],
+  .settings-theme [class*="bg-emerald-"],
+  .settings-theme [class*="bg-sky-"] {
     background-color: var(--card) !important;
+    background-image: none !important;
   }
 
-  .settings-theme :is(div, section, article, aside, main, header, footer, details, nav)[class*="rounded-2xl"],
-  .settings-theme :is(div, section, article, aside, main, header, footer, details, nav)[class*="rounded-3xl"],
-  .settings-theme :is(div, section, article, aside, main, header, footer, details, nav)[class*="rounded-xl"] {
-    background-color: color-mix(in oklab, var(--card) 96%, var(--background)) !important;
-  }
-
-  .settings-theme [class*="shadow-"] {
-    box-shadow: 0 1px 2px hsl(0 0% 0% / 0.08) !important;
-  }
-
+  .settings-theme [class*="bg-gradient"],
   .settings-theme [class*="from-"],
   .settings-theme [class*="to-"],
-  .settings-theme [class*="via-"],
-  .settings-theme [class*="bg-gradient"] {
+  .settings-theme [class*="via-"] {
     background-image: none !important;
-    --tw-gradient-from: transparent !important;
-    --tw-gradient-via: transparent !important;
-    --tw-gradient-to: transparent !important;
   }
 
-  .settings-theme [class*="text-emerald-"] {
-    color: var(--primary) !important;
+  .settings-theme [class*="hover:bg-white/"]:hover,
+  .settings-theme [class*="hover:bg-[#"]:hover,
+  .settings-theme [class*="hover:bg-emerald-"]:hover,
+  .settings-theme [class*="hover:bg-sky-"]:hover,
+  .settings-theme [class*="hover:bg-black/"]:hover {
+    background-color: var(--muted) !important;
   }
 
+  .settings-theme [class*="text-emerald-"],
   .settings-theme [class*="text-sky-"] {
-    color: var(--primary) !important;
+    color: var(--foreground) !important;
   }
 
-  .settings-theme [class*="border-emerald-"] {
-    border-color: var(--primary) !important;
+  .settings-theme [class*="border-emerald-"],
+  .settings-theme [class*="border-sky-"],
+  .settings-theme [class*="hover:border-emerald-"]:hover,
+  .settings-theme [class*="hover:border-sky-"]:hover {
+    border-color: var(--border) !important;
   }
-
-  .settings-theme [class*="border-sky-"] {
-    border-color: var(--primary) !important;
-  }
-
-  /* Keep semantic text/border mapping, but do not force all emerald/sky backgrounds.
-     This avoids over-coloring unselected items in provider lists. */
 
   .settings-theme [class*="text-rose-"] {
     color: var(--destructive) !important;
@@ -89,41 +79,51 @@
   }
 
   .settings-theme [class*="bg-rose-"] {
-    background-color: color-mix(in oklab, var(--destructive) 10%, transparent) !important;
+    background-color: color-mix(in oklab, var(--destructive) 12%, transparent) !important;
   }
 
   .settings-theme input,
   .settings-theme select,
   .settings-theme textarea {
-    background-color: var(--card);
     color: var(--foreground);
+    background-color: var(--card);
     border-color: var(--input) !important;
   }
 
   .settings-theme input:focus,
   .settings-theme select:focus,
   .settings-theme textarea:focus {
-    border-color: color-mix(in oklab, var(--ring) 38%, var(--input)) !important;
-    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ring) 20%, transparent) !important;
+    border-color: var(--ring) !important;
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ring) 22%, transparent) !important;
     outline: none;
+  }
+
+  .settings-theme [class*="focus:border-emerald-"]:focus,
+  .settings-theme [class*="focus:border-sky-"]:focus {
+    border-color: var(--ring) !important;
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ring) 22%, transparent) !important;
+  }
+
+  .settings-theme button,
+  .settings-theme a[class*="rounded"] {
+    border-color: var(--border);
+    color: var(--foreground);
   }
 
   .settings-theme button[class*="bg-white"],
   .settings-theme a[class*="bg-white"] {
-    background-color: var(--primary) !important;
-    color: var(--primary-foreground) !important;
+    background-color: var(--card) !important;
+    color: var(--foreground) !important;
   }
 
-  .settings-theme .hover\:bg-white\/10:hover,
-  .settings-theme .hover\:bg-white\/5:hover,
-  .settings-theme .hover\:bg-white\/\[0\.03\]:hover,
-  .settings-theme .hover\:bg-white\/\[0\.04\]:hover {
-    background-color: var(--secondary) !important;
+  .settings-theme button:hover,
+  .settings-theme a[class*="rounded"]:hover {
+    background-color: var(--muted);
   }
 
-  .settings-theme .hover\:text-slate-200:hover,
-  .settings-theme .hover\:text-emerald-300:hover,
-  .settings-theme .hover\:text-emerald-400:hover {
-    color: var(--primary) !important;
+  .settings-theme [class*="shadow-["],
+  .settings-theme [class*="shadow-xl"],
+  .settings-theme [class*="shadow-2xl"] {
+    box-shadow: var(--shadow-sm) !important;
   }
 }

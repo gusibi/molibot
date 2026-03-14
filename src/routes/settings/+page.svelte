@@ -1,183 +1,98 @@
 <script lang="ts">
+  import PageShell from "$lib/ui/PageShell.svelte";
+  import Card from "$lib/ui/Card.svelte";
+
+  const entries = [
+    {
+      title: "AI Engine",
+      description: "Configure model routing, system prompts, and custom providers.",
+      href: "/settings/ai/routing",
+      action: "Open"
+    },
+    {
+      title: "Providers & Models",
+      description: "Manage built-in/custom providers and verify model capabilities.",
+      href: "/settings/ai/providers",
+      action: "Open"
+    },
+    {
+      title: "Usage Stats",
+      description: "Monitor token usage trends and model-level consumption.",
+      href: "/settings/ai/usage",
+      action: "Open"
+    },
+    {
+      title: "Agents",
+      description: "Define reusable agent identities and profile files.",
+      href: "/settings/agents",
+      action: "Open"
+    },
+    {
+      title: "Web Profiles",
+      description: "Manage web profile instances and agent bindings.",
+      href: "/settings/web",
+      action: "Open"
+    },
+    {
+      title: "Telegram / Feishu / QQ",
+      description: "Configure channel bots and credentials.",
+      href: "/settings/telegram",
+      action: "Open"
+    },
+    {
+      title: "Memory",
+      description: "Search, sync, compact, and edit memory items.",
+      href: "/settings/memory",
+      action: "Open"
+    },
+    {
+      title: "Skills",
+      description: "Inspect installed skills and enable/disable runtime usage.",
+      href: "/settings/skills",
+      action: "Open"
+    },
+    {
+      title: "Tasks",
+      description: "Review scheduled tasks, trigger jobs, and clean stale entries.",
+      href: "/settings/tasks",
+      action: "Open"
+    },
+    {
+      title: "MCP Servers",
+      description: "Configure stdio/http MCP endpoints and server status.",
+      href: "/settings/mcp",
+      action: "Open"
+    },
+    {
+      title: "Plugins",
+      description: "Control core plugin toggles and memory backend selection.",
+      href: "/settings/plugins",
+      action: "Open"
+    }
+  ];
 </script>
 
-<div class="mx-auto max-w-4xl space-y-8 px-6 py-8 sm:px-10 sm:py-12">
-  <div>
-    <h1 class="text-3xl font-bold tracking-tight text-white">
-      Settings Overview
-    </h1>
-    <p class="mt-2 text-base text-[var(--muted-foreground)]">
-      Manage AI runtime, agent logic, and connected bot channels.
+<PageShell widthClass="max-w-6xl" gapClass="space-y-8">
+  <header class="space-y-2">
+    <h1 class="text-3xl font-semibold tracking-tight text-[var(--foreground)]">Settings Overview</h1>
+    <p class="text-sm text-[var(--muted-foreground)]">
+      Unified configuration workspace for runtime, channels, data, and operations.
     </p>
+  </header>
+
+  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    {#each entries as item}
+      <a class="group block" href={item.href}>
+        <Card className="flex min-h-[154px] flex-col justify-between p-5 transition-colors group-hover:bg-[var(--muted)]">
+          <div>
+            <h2 class="text-base font-semibold text-[var(--foreground)]">{item.title}</h2>
+            <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">{item.description}</p>
+          </div>
+          <div class="mt-4 text-xs font-medium text-[var(--muted-foreground)] transition-colors group-hover:text-[var(--foreground)]">
+            {item.action} →
+          </div>
+        </Card>
+      </a>
+    {/each}
   </div>
-
-  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-    <a
-      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
-      href="/settings/ai/routing"
-    >
-      <div>
-        <h2
-          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
-        >
-          AI Engine
-        </h2>
-        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
-          Configure model routing, system prompts, and custom providers.
-        </p>
-      </div>
-      <div
-        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-      >
-        Configure &rarr;
-      </div>
-    </a>
-
-    <a
-      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
-      href="/settings/agents"
-    >
-      <div>
-        <h2
-          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
-        >
-          Agents
-        </h2>
-        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
-          Define reusable agent identities and edit their Markdown files.
-        </p>
-      </div>
-      <div
-        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-      >
-        Manage Agents &rarr;
-      </div>
-    </a>
-
-    <a
-      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
-      href="/settings/memory"
-    >
-      <div>
-        <h2
-          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
-        >
-          Agent Memory
-        </h2>
-        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
-          Review, search, flush, and curate assistant memory records.
-        </p>
-      </div>
-      <div
-        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-      >
-        Manage Memory &rarr;
-      </div>
-    </a>
-
-    <a
-      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
-      href="/settings/web"
-    >
-      <div>
-        <h2
-          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
-        >
-          Web Profiles
-        </h2>
-        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
-          Manage web profile instances, agent binding, and profile-level markdown overrides.
-        </p>
-      </div>
-      <div
-        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-      >
-        Manage Web &rarr;
-      </div>
-    </a>
-
-    <a
-      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
-      href="/settings/telegram"
-    >
-      <div>
-        <h2
-          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
-        >
-          Bot Channels
-        </h2>
-        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
-          Set up Telegram, Feishu, and QQ connections.
-        </p>
-      </div>
-      <div
-        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-      >
-        Setup Bots &rarr;
-      </div>
-    </a>
-
-    <a
-      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
-      href="/settings/skills"
-    >
-      <div>
-        <h2
-          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
-        >
-          Skills & Tasks
-        </h2>
-        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
-          Explore installed skills and scheduled cron tasks.
-        </p>
-      </div>
-      <div
-        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-      >
-        Explore &rarr;
-      </div>
-    </a>
-
-    <a
-      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
-      href="/settings/mcp"
-    >
-      <div>
-        <h2
-          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
-        >
-          MCP Servers
-        </h2>
-        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
-          Configure MCP endpoints for skill-scoped tool extensions.
-        </p>
-      </div>
-      <div
-        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-      >
-        Configure MCP &rarr;
-      </div>
-    </a>
-
-    <a
-      class="group relative flex flex-col items-start justify-between space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm transition-all duration-300 hover:border-emerald-500/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-black/20"
-      href="/settings/plugins"
-    >
-      <div>
-        <h2
-          class="text-base font-semibold text-white transition-colors group-hover:text-emerald-400"
-        >
-          System Plugins
-        </h2>
-        <p class="mt-2 text-sm leading-relaxed text-[var(--muted-foreground)]">
-          Toggle core features like the memory backend storage engine.
-        </p>
-      </div>
-      <div
-        class="flex items-center text-sm font-medium text-emerald-500 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-      >
-        System Setup &rarr;
-      </div>
-    </a>
-  </div>
-</div>
+</PageShell>

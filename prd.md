@@ -130,6 +130,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-87 | Session entry log substrate and context rebuild | P1 | Delivered (2026-03-14) | Per-chat runtime context should persist as append-only session entries (`message` / `compaction`) in `contexts/<sessionId>.jsonl`, rebuild runnable context from those entries on load, and migrate legacy snapshot-only `.json` context files without losing active sessions |
 | P1-88 | Chat-driven OAuth login and auth.json resolver | P1 | Delivered (2026-03-14) | Runtime should resolve built-in provider credentials from `${DATA_DIR}/auth.json` (or `PI_AI_AUTH_FILE`), refresh OAuth-backed credentials automatically when needed, and expose `/login <provider>` plus `/logout <provider>` commands across web and chat channels so auth can be completed from product surfaces rather than manual file editing |
 | P1-89 | Compaction overflow recovery retry | P1 | Delivered (2026-03-14) | When an upstream model rejects a request for context/window overflow, runner should compact the current session, persist a structured compaction entry with token metadata, rebuild context from that compacted state, and retry the active request automatically before surfacing failure |
+| P1-90 | Bot-level AI usage observability and filtering | P1 | Delivered (2026-03-14) | Usage tracking should include bot identity, and `/settings/ai/usage` should support bot-level filtering and ranking so operators can compare token/request consumption across different bot instances |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -1250,3 +1251,124 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - runner 维护 prompt-refresh key（指纹）并在每次 run 前比对。
   - 指纹至少包含：`systemPrompt`、`timezone`、`disabledSkillPaths`、`mcpServers`、当前 bot 的 channel agent 绑定信息。
+
+## 98. Web Chat Productization UI Refresh (Phase A/B Kickoff) (2026-03-14)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 当前 Web Chat 已可用，但视觉层次与信息密度仍偏“工程界面”，难以作为公开展示产品首页面。
+  - Chat 与 Settings 风格存在割裂，缺少统一产品化体验基线。
+- Requirement:
+  - 先完成 Chat 页第一轮产品化重构：侧栏、消息区、输入区、弹窗统一为同一视觉语言。
+  - 在不重写后端聊天链路的前提下，提升可读性与状态可感知度（如消息时间、活跃状态、层级分区）。
+  - 保留现有会话管理、模型切换、语音/图片上传、系统提示预览等功能可用性。
+- Enforcement:
+  - 第一轮改造以 `src/routes/+page.svelte` 为主，避免引入后端行为变更。
+  - 之后按页面顺序推进 Settings 统一重构，最终形成可对外演示的完整产品表面。
+
+## 99. Chat Surface Style Baseline = Shadcn Standard (2026-03-14)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 产品化改造后如果继续叠加项目个性化视觉效果，会偏离“先用标准框架风格统一”的目标，后续 Settings 也难保持一致。
+- Requirement:
+  - Chat 页先回归 shadcn 风格基线：标准 card / muted / border / focus / hover 语义，不增加装饰性特效。
+  - 继续保留现有业务交互和后端链路，只替换视觉呈现层。
+- Enforcement:
+  - 页面禁止额外氛围背景、重阴影、非必要渐变。
+  - 交互态优先使用中性状态与语义色，不做品牌化“艺术风格”强化，待全站统一后再考虑二次主题定制。
+
+## 100. Full Settings Surface Theme Unification via Global Mapping (2026-03-14)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - Settings 页面数量多、历史样式差异大，逐页改 class 成本高且容易漏页，导致“改了一部分但整体不统一”。
+- Requirement:
+  - 在不改业务逻辑的前提下，让 `/settings` 所有子页面统一到默认 shadcn 语义风格。
+  - 将主题启动默认值统一为 light，避免首次进入时受旧本地状态影响出现偏色。
+- Enforcement:
+  - 通过全局样式映射层统一处理旧页面中常见的 `text-slate*/bg-[#]/border-white*` 组合。
+  - `Chat` 与 `Settings` 共享同一套主题 token（`src/styles/theme.css`）。
+
+## 101. Settings IA + Interaction Consistency Pass (2026-03-14)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 仅有主题变量统一还不够，Settings 总览页与外壳交互语义仍不够一致，影响“已完成产品界面”的观感。
+- Requirement:
+  - 统一 Settings 外壳导航激活态、悬停态、头部背景语义。
+  - 重构 Overview 为标准化目录卡片页，明确各配置域入口。
+  - 补齐 settings 全局交互控件（button/link/input）的一致性规则。
+- Enforcement:
+  - 保持默认 shadcn 风格语义（card/muted/border），不引入额外视觉特效。
+  - 不改 API 与业务逻辑，只改 UI 呈现层与信息架构层。
+
+## 102. Every Settings Page Must Opt-In to Shared UI Contract (2026-03-14)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 即使有全局主题映射，如果页面没有统一的结构挂载点，后续样式升级会出现“有些页生效、有些页不生效”的碎片化风险。
+- Requirement:
+  - `settings` 下每个页面都必须显式声明统一页面容器标识（`settings-page`），确保后续设计系统规则可稳定覆盖全部页面。
+- Enforcement:
+  - 每个 `src/routes/settings/**/+page.svelte` 入口容器必须挂载 `settings-page`。
+  - 共享样式定义集中在 `src/app.css`，禁止再引入页面级随机主题偏移。
+
+## 103. Final Visual De-noise Pass for Legacy Settings Classes (2026-03-14)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 历史页面中仍存在大量渐变、重阴影、emerald 强色 class，导致虽然主题 token 统一了，但视觉观感仍有“局部旧风格残留”。
+- Requirement:
+  - 在不重写业务模板的情况下，把 legacy class 的视觉输出收敛到 shadcn 默认语义。
+  - 保证 hover/focus/ring/border 统一，不出现页面间交互态差异。
+- Enforcement:
+  - 在 `src/app.css` 增加针对 legacy class 的全局覆盖映射（gradient/shadow/emerald/black-layer/focus variants）。
+  - 优先保证一致性和可维护性，不再继续叠加页面级视觉特效。
+
+## 104. Shared Component Entry Migration for All Settings Pages (2026-03-14)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 仅靠主题映射仍会让页面结构层保持“各写各的”，后续演进时不利于统一。
+- Requirement:
+  - 引入共享 UI 基础组件（Button/Card/Alert/PageShell）。
+  - 将所有 settings 页面入口容器迁移到统一 `PageShell` 组件，避免各页面自行维护根容器布局。
+  - 在总览页与典型页面中开始替换为共享组件（如 Card/Alert），形成可持续迁移路径。
+- Enforcement:
+  - `src/routes/settings/**/+page.svelte` 必须使用 `<PageShell ...>` 作为页面根容器。
+  - 新增页面默认从共享 UI 组件构建，不再直接复制旧 class 模板。
+
+## 105. Replace High-frequency Native Controls with Shared UI Components (2026-03-14)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 即使页面入口统一，内部仍有大量原生 `button` 和告警块，造成交互状态与文案反馈表现不一致。
+- Requirement:
+  - 将 settings 高交互页面中的核心操作按钮与状态提示迁移到共享 `Button` / `Alert` 组件。
+  - 保持业务逻辑不变，仅替换展示层实现。
+- Enforcement:
+  - 优先覆盖 `memory/tasks/channel-settings/mcp/plugins/skills` 等高频操作页。
+  - 迁移后继续使用同一主题 token，不允许页面自行引入新的视觉分支。
+
+## 106. Migrate Remaining Critical CTA Buttons in AI/Agent Pages (2026-03-14)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - `agents` 与 `ai/*` 页面仍保留部分历史自定义 CTA 按钮样式，导致关键保存/删除操作在视觉和交互反馈上与其它页面不一致。
+- Requirement:
+  - 将核心提交/删除/测试操作按钮迁移到共享 `Button` 组件，统一语义 variant（default/outline/destructive/secondary）。
+- Enforcement:
+  - 不允许关键操作继续使用页面级硬编码 CTA 样式。
+  - 按钮状态（disabled/loading）统一依赖组件行为，减少手写样式分叉。
+
+## 107. Shared Migration Build-Stability Gate (2026-03-14)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - 在批量替换页面结构为共享组件时，容易出现标签边界错误（例如 `PageShell` 下的多余闭合标签），导致整站构建失败。
+- Requirement:
+  - 所有 settings 页面在共享组件迁移后必须通过 Svelte 编译检查，确保标签层级和根容器边界合法。
+- Enforcement:
+  - 每次迁移提交必须执行一次完整构建校验。
+  - 对 `src/routes/settings/**/+page.svelte` 出现的标签闭合错误优先修复，避免阻塞后续页面改造。

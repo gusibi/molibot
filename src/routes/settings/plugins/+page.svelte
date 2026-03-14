@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import PageShell from "$lib/ui/PageShell.svelte";
+  import Button from "$lib/ui/Button.svelte";
+  import Alert from "$lib/ui/Alert.svelte";
 
   interface PluginForm {
     memoryEnabled: boolean;
@@ -97,20 +100,20 @@
   onMount(loadSettings);
 </script>
 
-<div class="mx-auto max-w-3xl space-y-6 px-6 py-8 sm:px-10 sm:py-12">
-        <h1 class="text-2xl font-semibold">Plugin Settings</h1>
-        <p class="text-sm text-slate-400">
-          Enable or disable optional runtime plugins.
-        </p>
+<PageShell widthClass="max-w-3xl" gapClass="space-y-6">
+  <h1 class="text-2xl font-semibold">Plugin Settings</h1>
+  <p class="text-sm text-slate-400">
+    Enable or disable optional runtime plugins.
+  </p>
 
-        {#if loading}
-          <div
-            class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300"
-          >
-            Loading plugin settings...
-          </div>
-        {:else}
-          <form class="space-y-4" on:submit|preventDefault={save}>
+  {#if loading}
+    <div
+      class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300"
+    >
+      Loading plugin settings...
+    </div>
+  {:else}
+    <form class="space-y-4" on:submit|preventDefault={save}>
             <section
               class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
             >
@@ -317,29 +320,16 @@
               </div>
             </section>
 
-            <button
-              class="cursor-pointer rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black transition-colors duration-200 hover:bg-slate-200 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
-              type="submit"
-              disabled={saving}
-            >
+            <Button variant="default" size="md" type="submit" disabled={saving}>
               {saving ? "Saving..." : "Save Plugin Settings"}
-            </button>
+            </Button>
 
             {#if message}
-              <p
-                class="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300"
-              >
-                {message}
-              </p>
+              <Alert variant="success">{message}</Alert>
             {/if}
             {#if error}
-              <p
-                class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300"
-              >
-                {error}
-              </p>
+              <Alert variant="destructive">{error}</Alert>
             {/if}
-          </form>
-        {/if}
-      </div>
-    
+    </form>
+  {/if}
+</PageShell>

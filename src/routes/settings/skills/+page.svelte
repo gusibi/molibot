@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import PageShell from "$lib/ui/PageShell.svelte";
+  import Button from "$lib/ui/Button.svelte";
+  import Alert from "$lib/ui/Alert.svelte";
 
   type SkillScope = "global" | "chat" | "bot";
 
@@ -85,36 +88,25 @@
   onMount(loadSkills);
 </script>
 
-<div class="mx-auto max-w-5xl space-y-6 px-6 py-8 sm:px-10 sm:py-12">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 class="text-2xl font-semibold">Skills</h1>
-            <p class="text-sm text-slate-400">
-              Inspect installed skills by scope and path.
-            </p>
-          </div>
-          <button
-            class="cursor-pointer rounded-lg border border-white/20 bg-[#2b2b2b] px-3 py-2 text-sm hover:bg-[#343434]"
-            on:click={loadSkills}
-          >
-            Refresh
-          </button>
-        </div>
+<PageShell widthClass="max-w-5xl" gapClass="space-y-6">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-semibold">Skills</h1>
+      <p class="text-sm text-slate-400">
+        Inspect installed skills by scope and path.
+      </p>
+    </div>
+    <Button variant="outline" size="md" on:click={loadSkills}>
+      Refresh
+    </Button>
+  </div>
 
-        {#if message}
-          <p
-            class="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-300"
-          >
-            {message}
-          </p>
-        {/if}
-        {#if error}
-          <p
-            class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300"
-          >
-            {error}
-          </p>
-        {/if}
+  {#if message}
+    <Alert>{message}</Alert>
+  {/if}
+  {#if error}
+    <Alert variant="destructive">{error}</Alert>
+  {/if}
 
         {#if loading}
           <div
@@ -283,5 +275,4 @@
             </section>
           {/if}
         {/if}
-      </div>
-    
+</PageShell>

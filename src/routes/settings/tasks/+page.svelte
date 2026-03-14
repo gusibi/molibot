@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import PageShell from "$lib/ui/PageShell.svelte";
+  import Button from "$lib/ui/Button.svelte";
+  import Alert from "$lib/ui/Alert.svelte";
 
   type TaskType = "one-shot" | "periodic" | "immediate";
   type TaskStatus = "pending" | "completed" | "skipped" | "error";
@@ -244,7 +247,7 @@
   onMount(loadTasks);
 </script>
 
-<div class="mx-auto max-w-7xl space-y-6 px-6 py-8 sm:px-10 sm:py-12">
+<PageShell widthClass="max-w-7xl" gapClass="space-y-6">
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-2xl font-semibold">Tasks</h1>
@@ -253,39 +256,33 @@
       </p>
     </div>
     <div class="flex flex-wrap items-center gap-2">
-      <button
-        class="cursor-pointer rounded-lg border border-white/20 bg-[#2b2b2b] px-3 py-2 text-sm hover:bg-[#343434] disabled:cursor-not-allowed disabled:opacity-50"
-        on:click={loadTasks}
-        disabled={loading || deleting || triggering}
-      >
+      <Button variant="outline" size="md" on:click={loadTasks} disabled={loading || deleting || triggering}>
         Refresh
-      </button>
-      <button
-        class="cursor-pointer rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+      </Button>
+      <Button
+        variant="secondary"
+        size="md"
         on:click={triggerSelected}
         disabled={selected.size === 0 || deleting || loading || triggering}
       >
         {triggering ? "Sending..." : `Send Selected (${selected.size})`}
-      </button>
-      <button
-        class="cursor-pointer rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+      </Button>
+      <Button
+        variant="destructive"
+        size="md"
         on:click={deleteSelected}
         disabled={selected.size === 0 || deleting || loading || triggering}
       >
         {deleting ? "Deleting..." : `Delete Selected (${selected.size})`}
-      </button>
+      </Button>
     </div>
   </div>
 
   {#if message}
-    <p class="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-300">
-      {message}
-    </p>
+    <Alert>{message}</Alert>
   {/if}
   {#if error}
-    <p class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
-      {error}
-    </p>
+    <Alert variant="destructive">{error}</Alert>
   {/if}
 
   {#if loading}
@@ -336,34 +333,18 @@
         <span>{selected.size} selected</span>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <button
-          class="cursor-pointer rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
-          on:click={selectAllTasks}
-          disabled={items.length === 0 || deleting || triggering}
-        >
+        <Button variant="outline" size="md" on:click={selectAllTasks} disabled={items.length === 0 || deleting || triggering}>
           Select All
-        </button>
-        <button
-          class="cursor-pointer rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
-          on:click={clearSelection}
-          disabled={selected.size === 0 || deleting || triggering}
-        >
+        </Button>
+        <Button variant="outline" size="md" on:click={clearSelection} disabled={selected.size === 0 || deleting || triggering}>
           Clear Selection
-        </button>
-        <button
-          class="cursor-pointer rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-          on:click={triggerSelected}
-          disabled={selected.size === 0 || deleting || triggering}
-        >
+        </Button>
+        <Button variant="secondary" size="md" on:click={triggerSelected} disabled={selected.size === 0 || deleting || triggering}>
           Send Selected
-        </button>
-        <button
-          class="cursor-pointer rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-          on:click={deleteSelected}
-          disabled={selected.size === 0 || deleting || triggering}
-        >
+        </Button>
+        <Button variant="destructive" size="md" on:click={deleteSelected} disabled={selected.size === 0 || deleting || triggering}>
           Delete Selected
-        </button>
+        </Button>
       </div>
     </section>
 
@@ -377,8 +358,9 @@
             </p>
           </div>
           {#if rowsByType(type).length > 0}
-            <button
-              class="cursor-pointer rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            <Button
+              variant="outline"
+              size="md"
               on:click={() => {
                 if (allSelectedFor(type)) {
                   selected = new Set([...selected].filter((filePath) => !rowsByType(type).some((item) => item.filePath === filePath)));
@@ -389,7 +371,7 @@
               disabled={deleting || triggering}
             >
               {allSelectedFor(type) ? "Unselect Section" : "Select Section"}
-            </button>
+            </Button>
           {/if}
         </div>
 
@@ -474,20 +456,22 @@
                     <td class="px-3 py-3 text-slate-300">{formatDate(item.updatedAt)}</td>
                     <td class="px-3 py-3">
                       <div class="flex flex-col gap-2">
-                        <button
-                          class="cursor-pointer rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                        <Button
+                          variant="secondary"
+                          size="sm"
                           on:click={() => triggerOne(item.filePath)}
                           disabled={deleting || triggering}
                         >
                           Retry Now
-                        </button>
-                        <button
-                          class="cursor-pointer rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
                           on:click={() => deleteOne(item.filePath)}
                           disabled={deleting || triggering}
                         >
                           Delete
-                        </button>
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -508,4 +492,4 @@
       </section>
     {/if}
   {/if}
-</div>
+</PageShell>

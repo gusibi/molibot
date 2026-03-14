@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import PageShell from "$lib/ui/PageShell.svelte";
+  import Button from "$lib/ui/Button.svelte";
+  import Alert from "$lib/ui/Alert.svelte";
 
   type McpServerDraft = {
     id: string;
@@ -157,7 +160,7 @@
   onMount(loadSettings);
 </script>
 
-<div class="mx-auto max-w-5xl space-y-6 px-6 py-8 sm:px-10 sm:py-12">
+<PageShell widthClass="max-w-5xl" gapClass="space-y-6">
   <div class="flex items-center justify-between gap-3">
     <div>
       <h1 class="text-2xl font-semibold">MCP Servers</h1>
@@ -166,35 +169,23 @@
       </p>
     </div>
     <div class="flex gap-2">
-      <button
-        class="cursor-pointer rounded-lg border border-white/20 bg-[#2b2b2b] px-3 py-2 text-sm hover:bg-[#343434]"
-        on:click={loadSettings}
-        disabled={loading || saving}
-      >
+      <Button variant="outline" size="md" on:click={loadSettings} disabled={loading || saving}>
         Refresh
-      </button>
-      <button
-        class="cursor-pointer rounded-lg border border-sky-500/40 bg-sky-500/15 px-3 py-2 text-sm text-sky-200 hover:bg-sky-500/25 disabled:cursor-not-allowed disabled:opacity-60"
-        on:click={parseRawJson}
-        disabled={loading || saving}
-      >
+      </Button>
+      <Button variant="outline" size="md" on:click={parseRawJson} disabled={loading || saving}>
         Parse
-      </button>
-      <button
-        class="cursor-pointer rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-60"
-        on:click={save}
-        disabled={loading || saving}
-      >
+      </Button>
+      <Button variant="default" size="md" on:click={save} disabled={loading || saving}>
         {saving ? "Saving..." : "Save"}
-      </button>
+      </Button>
     </div>
   </div>
 
   {#if message}
-    <p class="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-300">{message}</p>
+    <Alert>{message}</Alert>
   {/if}
   {#if error}
-    <p class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p>
+    <Alert variant="destructive">{error}</Alert>
   {/if}
 
   <label class="block space-y-2">
@@ -235,4 +226,4 @@
       {/each}
     {/if}
   </section>
-</div>
+</PageShell>

@@ -1,5 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import PageShell from "$lib/ui/PageShell.svelte";
+    import Button from "$lib/ui/Button.svelte";
 
     type ProviderMode = "pi" | "custom";
     type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
@@ -279,7 +281,7 @@
     onMount(loadAll);
 </script>
 
-<div class="mx-auto max-w-4xl space-y-8 px-6 py-8 sm:px-10 sm:py-12">
+<PageShell widthClass="max-w-4xl" gapClass="space-y-8">
     <header>
         <h1 class="text-3xl font-bold tracking-tight text-white">
             AI Routing & Prompt
@@ -542,14 +544,15 @@
                         </span>
                     {/if}
                 </div>
-                <button
+                <Button
                     type="submit"
-                    class="cursor-pointer rounded-xl bg-emerald-500 px-6 py-2.5 text-sm font-bold text-emerald-950 transition-all hover:bg-emerald-400 hover:shadow-lg hover:shadow-emerald-500/20 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+                    variant="default"
+                    size="lg"
                     disabled={saving}
                 >
                     {saving ? "Deploying Core..." : "Save Config"}
-                </button>
+                </Button>
             </div>
         </form>
     {/if}
-</div>
+</PageShell>
