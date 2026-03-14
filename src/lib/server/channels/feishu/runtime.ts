@@ -17,6 +17,13 @@ import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/pr
 import { RunnerPool } from "../../agent/runner.js";
 import { loadSkillsFromWorkspace } from "../../agent/skills.js";
 import { MomRuntimeStore } from "../../agent/store.js";
+import {
+    listOAuthProviderIds,
+    removeStoredAuth,
+    resolveAuthFilePath,
+    startOAuthLogin,
+    submitOAuthLoginCode
+} from "../../agent/auth.js";
 import type { MomContext, ChannelInboundMessage } from "../../agent/types.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.js";
 import { SessionStore } from "../../sessions/store.js";
@@ -608,6 +615,61 @@ export class FeishuManager {
             return true;
         }
 
+        if (cmd === "/login") {
+            const [provider = "", ...rest] = rawArg.split(/\s+/).filter(Boolean);
+            const codeOrUrl = rest.join(" ").trim();
+            const scopeKey = `feishu:${chatId}`;
+            if (!provider) {
+                await sendFeishuText(this.client, chatId, [
+                    `Auth file: ${resolveAuthFilePath()}`,
+                    `OAuth providers: ${listOAuthProviderIds().join(", ")}`,
+                    "Usage:",
+                    "/login <provider>",
+                    "/login <provider> <code-or-redirect-url>"
+                ].join("\n"));
+                return true;
+            }
+
+            try {
+                if (codeOrUrl) {
+                    await submitOAuthLoginCode(scopeKey, provider, codeOrUrl);
+                    await sendFeishuText(this.client, chatId, `Login completed for '${provider}'. Credentials stored in ${resolveAuthFilePath()}.`);
+                    return true;
+                }
+
+                const pending = await startOAuthLogin(scopeKey, provider, {});
+                const lines = [
+                    `Login started for '${provider}'.`,
+                    `Auth file: ${resolveAuthFilePath()}`
+                ];
+                if (pending.authUrl) lines.push(`Open: ${pending.authUrl}`);
+                if (pending.instructions) lines.push(pending.instructions);
+                if (pending.promptMessage) lines.push(pending.promptMessage);
+                lines.push(`Finish with: /login ${provider} <code-or-redirect-url>`);
+                await sendFeishuText(this.client, chatId, lines.join("\n"));
+            } catch (error) {
+                await sendFeishuText(this.client, chatId, error instanceof Error ? error.message : String(error));
+            }
+            return true;
+        }
+
+        if (cmd === "/logout") {
+            const provider = rawArg.split(/\s+/)[0] || "";
+            if (!provider) {
+                await sendFeishuText(this.client, chatId, "Usage: /logout <provider>");
+                return true;
+            }
+            const removed = removeStoredAuth(provider);
+            await sendFeishuText(
+                this.client,
+                chatId,
+                removed
+                    ? `Removed stored auth for '${provider}'.`
+                    : `No stored auth found for '${provider}'.`
+            );
+            return true;
+        }
+
         if (cmd === "/skills") {
             await sendFeishuText(this.client, chatId, this.skillsText(chatId));
             return true;
@@ -629,6 +691,9 @@ export class FeishuManager {
                 "/models <text|vision|stt|tts> - list options for a specific route",
                 "/models <text|vision|stt|tts> <index|key> - switch route model",
                 "/compact [instructions] - summarize older context of current session",
+                "/login <provider> - start OAuth login",
+                "/login <provider> <code-or-redirect-url> - finish OAuth login",
+                "/logout <provider> - remove stored auth",
                 "/skills - list currently loaded skills"
             ].join("\n");
             await sendFeishuText(this.client, chatId, help);

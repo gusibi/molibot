@@ -15,6 +15,7 @@ import { createMomTools } from "./tools/index.js";
 import { getMcpToolsForRuntime } from "./mcp.js";
 import { loadSkillsFromWorkspace } from "./skills.js";
 import { compactContextMessages, shouldCompactContext } from "./compaction.js";
+import { hasConfiguredAuth, resolveProviderApiKey } from "./auth.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
 
@@ -653,19 +654,16 @@ function envVarForProvider(provider: string): string | null {
   }
 }
 
-function resolveApiKeyForModel(
+async function resolveApiKeyForModel(
   model: Model<any>,
   settings: RuntimeSettings,
-): string | undefined {
+): Promise<string | undefined> {
   const mapped = settings.customProviders.find((p) => p.id === model.provider);
   if (mapped) {
     return mapped.apiKey?.trim() || undefined;
   }
 
-  const envVar = envVarForProvider(model.provider);
-  if (!envVar) return undefined;
-  const value = process.env[envVar]?.trim();
-  return value || undefined;
+  return resolveProviderApiKey(model.provider);
 }
 
 function redactBaseUrl(baseUrl: string): string {
@@ -693,11 +691,26 @@ function validateRuntimeSettings(settings: RuntimeSettings): string | null {
   }
 
   const model = resolvePiModel(settings);
-  const envVar = envVarForProvider(model.provider);
-  if (envVar && !process.env[envVar]?.trim()) {
-    return `AI settings error: missing ${envVar} for provider '${model.provider}'.`;
+  if (!hasConfiguredAuth(model.provider)) {
+    const envVar = envVarForProvider(model.provider);
+    const hint = envVar ? `${envVar} or auth.json` : "auth.json";
+    return `AI settings error: missing credentials for provider '${model.provider}'. Configure ${hint}.`;
   }
   return null;
+}
+
+function isContextOverflowError(message: string): boolean {
+  const text = message.toLowerCase();
+  return [
+    "context length",
+    "context window",
+    "maximum context length",
+    "prompt is too long",
+    "too many tokens",
+    "token limit",
+    "maximum tokens",
+    "input is too long"
+  ].some((needle) => text.includes(needle));
 }
 
 function extractTextFromResult(result: unknown): string {
@@ -980,13 +993,7 @@ export class MomRunner implements RunnerLike {
       getApiKey: async (provider: string) => {
         const settingsNow = this.getSettings();
         const selectedCustom = settingsNow.customProviders.find((p) => p.id === provider);
-        let key: string | undefined;
-        if (selectedCustom) {
-          key = selectedCustom.apiKey?.trim() || undefined;
-        } else {
-          const envVar = envVarForProvider(provider);
-          key = envVar ? process.env[envVar]?.trim() || undefined : undefined;
-        }
+        const key = await resolveProviderApiKey(provider, () => selectedCustom?.apiKey?.trim() || undefined);
         momLog("runner", "api_key_resolve", {
           chatId: this.chatId,
           provider,
@@ -1028,7 +1035,7 @@ export class MomRunner implements RunnerLike {
   }> {
     const settings = this.getSettings();
     const selection = resolveModelSelection(settings, "text");
-    const apiKey = resolveApiKeyForModel(selection.model, settings);
+    const apiKey = await resolveApiKeyForModel(selection.model, settings);
     if (!apiKey) {
       throw new Error(`Missing API key for compaction model provider '${selection.model.provider}'.`);
     }
@@ -1070,7 +1077,16 @@ export class MomRunner implements RunnerLike {
     }
 
     this.agent.replaceMessages(result.messages);
-    this.store.saveContext(this.chatId, result.messages, this.sessionId);
+    this.store.appendCompaction(
+      this.chatId,
+      result.summary,
+      result.messages.slice(1),
+      result.beforeTokens,
+      result.afterTokens,
+      result.summarizedMessages,
+      result.reason,
+      this.sessionId
+    );
     momLog("runner", "context_compacted", {
       chatId: this.chatId,
       sessionId: this.sessionId,
@@ -1467,7 +1483,7 @@ export class MomRunner implements RunnerLike {
 
         const selectedModel = selection.model;
         const selectedCustom = settings.customProviders.find((p) => p.id === selectedModel.provider);
-        const resolvedKey = resolveApiKeyForModel(selectedModel, settings);
+        const resolvedKey = await resolveApiKeyForModel(selectedModel, settings);
         if (!resolvedKey) {
           const keyError =
             `AI settings error: missing API key for active model provider '${selectedModel.provider}'. ` +
@@ -1541,6 +1557,7 @@ export class MomRunner implements RunnerLike {
         const beforeAttempt = [...(this.agent.state.messages as AgentMessage[])];
         let attemptCount = 0;
         let candidateFinalText = "";
+        let overflowRetryUsed = false;
 
         try {
           while (attemptCount <= MAX_EMPTY_RETRIES) {
@@ -1593,7 +1610,7 @@ export class MomRunner implements RunnerLike {
             });
 
             const messages = this.agent.state.messages as AgentMessage[];
-            const sessionContextFile = `${this.store.getWorkspaceDir()}/${this.chatId}/contexts/${this.sessionId}.json`;
+            const sessionContextFile = this.store.getSessionEntriesPath(this.chatId, this.sessionId);
             this.store.saveContext(this.chatId, messages, this.sessionId);
             momLog("runner", "context_saved", {
               runId,
@@ -1632,6 +1649,47 @@ export class MomRunner implements RunnerLike {
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          if (!overflowRetryUsed && isContextOverflowError(message)) {
+            overflowRetryUsed = true;
+            momWarn("runner", "context_overflow_detected", {
+              runId,
+              chatId: this.chatId,
+              provider: selectedModel.provider,
+              model: selectedModel.id,
+              candidateIndex,
+              error: message
+            });
+            this.agent.replaceMessages(beforeAttempt);
+            try {
+              const compacted = await this.compact({
+                reason: "threshold",
+                notify: async (text) => {
+                  await ctx.respondInThread(text);
+                }
+              });
+              if (compacted.changed) {
+                momLog("runner", "context_overflow_retrying_after_compact", {
+                  runId,
+                  chatId: this.chatId,
+                  provider: selectedModel.provider,
+                  model: selectedModel.id,
+                  candidateIndex,
+                  beforeTokens: compacted.beforeTokens,
+                  afterTokens: compacted.afterTokens
+                });
+                continue;
+              }
+            } catch (compactError) {
+              momWarn("runner", "context_overflow_compaction_failed", {
+                runId,
+                chatId: this.chatId,
+                provider: selectedModel.provider,
+                model: selectedModel.id,
+                candidateIndex,
+                error: compactError instanceof Error ? compactError.message : String(compactError)
+              });
+            }
+          }
           const failure = toModelAttemptFailure(selection, message, "request_error");
           modelFailures.push(failure);
           momWarn("runner", "model_attempt_failed", {

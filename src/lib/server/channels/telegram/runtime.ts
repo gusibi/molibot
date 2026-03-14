@@ -17,6 +17,13 @@ import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/pr
 import { RunnerPool } from "../../agent/runner.js";
 import { loadSkillsFromWorkspace } from "../../agent/skills.js";
 import { MomRuntimeStore } from "../../agent/store.js";
+import {
+  listOAuthProviderIds,
+  removeStoredAuth,
+  resolveAuthFilePath,
+  startOAuthLogin,
+  submitOAuthLoginCode
+} from "../../agent/auth.js";
 import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.js";
 import { SessionStore } from "../../sessions/store.js";
@@ -329,6 +336,65 @@ export class TelegramManager {
       } catch (error) {
         await ctx.reply(error instanceof Error ? error.message : String(error));
       }
+    });
+
+    bot.command("login", async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      if (allowed.size > 0 && !allowed.has(chatId)) return;
+      const rawArg = this.readCommandArg(ctx.msg?.text, "/login");
+      const [provider = "", ...rest] = rawArg.split(/\s+/).filter(Boolean);
+      const codeOrUrl = rest.join(" ").trim();
+      const scopeKey = `telegram:${chatId}`;
+
+      if (!provider) {
+        await ctx.reply(
+          [
+            `Auth file: ${resolveAuthFilePath()}`,
+            `OAuth providers: ${listOAuthProviderIds().join(", ")}`,
+            "Usage:",
+            "/login <provider>",
+            "/login <provider> <code-or-redirect-url>"
+          ].join("\n")
+        );
+        return;
+      }
+
+      try {
+        if (codeOrUrl) {
+          await submitOAuthLoginCode(scopeKey, provider, codeOrUrl);
+          await ctx.reply(`Login completed for '${provider}'. Credentials stored in ${resolveAuthFilePath()}.`);
+          return;
+        }
+
+        const pending = await startOAuthLogin(scopeKey, provider, {});
+        const lines = [
+          `Login started for '${provider}'.`,
+          `Auth file: ${resolveAuthFilePath()}`
+        ];
+        if (pending.authUrl) lines.push(`Open: ${pending.authUrl}`);
+        if (pending.instructions) lines.push(pending.instructions);
+        if (pending.promptMessage) lines.push(pending.promptMessage);
+        lines.push(`Finish with: /login ${provider} <code-or-redirect-url>`);
+        await ctx.reply(lines.join("\n"));
+      } catch (error) {
+        await ctx.reply(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    bot.command("logout", async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      if (allowed.size > 0 && !allowed.has(chatId)) return;
+      const provider = this.readCommandArg(ctx.msg?.text, "/logout").split(/\s+/)[0] || "";
+      if (!provider) {
+        await ctx.reply("Usage: /logout <provider>");
+        return;
+      }
+      const removed = removeStoredAuth(provider);
+      await ctx.reply(
+        removed
+          ? `Removed stored auth for '${provider}'.`
+          : `No stored auth found for '${provider}'.`
+      );
     });
 
     bot.command("models", async (ctx) => {
@@ -1205,6 +1271,9 @@ export class TelegramManager {
       "/models <text|vision|stt|tts> - list options for a specific route",
       "/models <text|vision|stt|tts> <index|key> - switch route model",
       "/compact [instructions] - summarize older context of current session",
+      "/login <provider> - start OAuth login",
+      "/login <provider> <code-or-redirect-url> - finish OAuth login",
+      "/logout <provider> - remove stored auth",
       "/skills - list currently loaded skills",
       "/help - show this help",
       "",

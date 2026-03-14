@@ -8,9 +8,22 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { FileAttachment, LoggedMessage } from "./types.js";
+import {
+  buildMessagesFromSessionEntries,
+  createCompactionSummaryMessage,
+  createEntryId,
+  createSessionHeader,
+  isSameMessage,
+  parseSessionEntries,
+  serializeSessionEntries,
+  type SessionEntry,
+  type SessionFileEntry,
+  type SessionMessageEntry
+} from "./session.js";
 import {
   resolveDataRootFromWorkspacePath,
   resolveGlobalSkillsDirFromWorkspacePath,
@@ -147,6 +160,11 @@ export class MomRuntimeStore {
     return dir;
   }
 
+  getSessionEntriesPath(chatId: string, sessionId?: string): string {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    return this.ensureSessionEntriesFile(chatId, id);
+  }
+
   private getContextsDir(chatId: string): string {
     const dir = join(this.getChatDir(chatId), "contexts");
     ensureDir(dir);
@@ -161,6 +179,10 @@ export class MomRuntimeStore {
     return join(this.getContextsDir(chatId), `${sessionId}.json`);
   }
 
+  private getSessionEntriesFile(chatId: string, sessionId: string): string {
+    return join(this.getContextsDir(chatId), `${sessionId}.jsonl`);
+  }
+
   private sanitizeSessionId(sessionId: string): string {
     const raw = String(sessionId ?? "").trim();
     const safe = raw.replace(/[^a-zA-Z0-9._-]/g, "");
@@ -172,6 +194,16 @@ export class MomRuntimeStore {
     const file = this.getSessionContextFile(chatId, id);
     if (!existsSync(file)) {
       writeFileSync(file, "[]\n", "utf8");
+    }
+    return file;
+  }
+
+  private ensureSessionEntriesFile(chatId: string, sessionId: string): string {
+    const id = this.sanitizeSessionId(sessionId);
+    const file = this.getSessionEntriesFile(chatId, id);
+    if (!existsSync(file)) {
+      const header = createSessionHeader(id);
+      writeFileSync(file, serializeSessionEntries([header]), "utf8");
     }
     return file;
   }
@@ -197,12 +229,88 @@ export class MomRuntimeStore {
     }
   }
 
+  private migrateLegacySessionContext(chatId: string, sessionId: string): void {
+    const id = this.sanitizeSessionId(sessionId);
+    const entriesFile = this.ensureSessionEntriesFile(chatId, id);
+    const rawContextFile = this.ensureSessionContextFile(chatId, id);
+    if (!existsSync(rawContextFile)) return;
+
+    try {
+      const raw = readFileSync(rawContextFile, "utf8");
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || parsed.length === 0) return;
+
+      const existing = parseSessionEntries(readFileSync(entriesFile, "utf8"));
+      const bodyEntries = existing.filter((entry): entry is SessionEntry => entry.type !== "session");
+      if (bodyEntries.length > 0) return;
+
+      const header = existing.find((entry) => entry.type === "session") ?? createSessionHeader(id);
+      const migratedEntries: SessionFileEntry[] = [
+        header,
+        ...parsed.map((message: AgentMessage, index: number) => ({
+          type: "message" as const,
+          id: createEntryId(),
+          parentId: index === 0 ? null : null,
+          timestamp: new Date().toISOString(),
+          message
+        }))
+      ];
+      let prevId: string | null = null;
+      for (const entry of migratedEntries) {
+        if (entry.type === "session") continue;
+        entry.parentId = prevId;
+        prevId = entry.id;
+      }
+      writeFileSync(entriesFile, serializeSessionEntries(migratedEntries), "utf8");
+    } catch {
+      // ignore migration failures and keep legacy context fallback
+    }
+  }
+
+  private readSessionFileEntries(chatId: string, sessionId: string): SessionFileEntry[] {
+    const id = this.sanitizeSessionId(sessionId);
+    this.migrateLegacySessionContext(chatId, id);
+    const file = this.ensureSessionEntriesFile(chatId, id);
+    try {
+      const raw = readFileSync(file, "utf8");
+      const parsed = parseSessionEntries(raw);
+      if (parsed.length > 0) return parsed;
+    } catch {
+      // fall back below
+    }
+    const header = createSessionHeader(id);
+    writeFileSync(file, serializeSessionEntries([header]), "utf8");
+    return [header];
+  }
+
+  private writeSessionFileEntries(chatId: string, sessionId: string, entries: SessionFileEntry[]): void {
+    const id = this.sanitizeSessionId(sessionId);
+    const file = this.ensureSessionEntriesFile(chatId, id);
+    writeFileSync(file, serializeSessionEntries(entries), "utf8");
+  }
+
+  private appendSessionEntry(chatId: string, sessionId: string, entry: SessionEntry): void {
+    const id = this.sanitizeSessionId(sessionId);
+    const entries = this.readSessionFileEntries(chatId, id);
+    const body = entries.filter((item): item is SessionEntry => item.type !== "session");
+    const previous = body[body.length - 1];
+    const next: SessionEntry = {
+      ...entry,
+      id: entry.id || createEntryId(),
+      parentId: entry.parentId === undefined ? previous?.id ?? null : entry.parentId,
+      timestamp: entry.timestamp || new Date().toISOString()
+    };
+    appendFileSync(this.ensureSessionEntriesFile(chatId, id), `${JSON.stringify(next)}\n`, "utf8");
+  }
+
   listSessions(chatId: string): string[] {
     this.migrateLegacyContext(chatId);
     const dir = this.getContextsDir(chatId);
-    const out = readdirSync(dir)
-      .filter((name) => name.endsWith(".json"))
-      .map((name) => name.slice(0, -".json".length))
+    const out = [...new Set(
+      readdirSync(dir)
+        .filter((name) => name.endsWith(".json") || name.endsWith(".jsonl"))
+        .map((name) => name.replace(/\.(json|jsonl)$/, ""))
+    )]
       .filter(Boolean)
       .sort();
 
@@ -245,8 +353,9 @@ export class MomRuntimeStore {
   }
 
   createSession(chatId: string): string {
-    const id = `s-${Date.now().toString(36)}`;
+    const id = `s-${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`;
     this.ensureSessionContextFile(chatId, id);
+    this.ensureSessionEntriesFile(chatId, id);
     this.setActiveSession(chatId, id);
     return id;
   }
@@ -255,6 +364,7 @@ export class MomRuntimeStore {
     const id = this.sanitizeSessionId(sessionId);
     this.ensureSessionContextFile(chatId, id);
     writeFileSync(this.getSessionContextFile(chatId, id), "[]\n", "utf8");
+    this.writeSessionFileEntries(chatId, id, [createSessionHeader(id)]);
   }
 
   deleteSession(chatId: string, sessionId: string): { deleted: string; active: string; remaining: string[] } {
@@ -268,6 +378,11 @@ export class MomRuntimeStore {
     }
 
     unlinkSync(this.getSessionContextFile(chatId, id));
+    try {
+      unlinkSync(this.getSessionEntriesFile(chatId, id));
+    } catch {
+      // ignore
+    }
     const remaining = this.listSessions(chatId);
     const current = this.getActiveSession(chatId);
     const active = current === id ? this.setActiveSession(chatId, remaining[0]) : current;
@@ -372,11 +487,12 @@ export class MomRuntimeStore {
 
   loadContext(chatId: string, sessionId?: string): AgentMessage[] {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
-    const file = this.ensureSessionContextFile(chatId, id);
-    if (!existsSync(file)) {
-      return [];
+    const built = buildMessagesFromSessionEntries(this.readSessionFileEntries(chatId, id));
+    if (built.messages.length > 0) {
+      return built.messages;
     }
 
+    const file = this.ensureSessionContextFile(chatId, id);
     try {
       const raw = readFileSync(file, "utf8");
       const parsed = JSON.parse(raw);
@@ -388,8 +504,83 @@ export class MomRuntimeStore {
 
   saveContext(chatId: string, messages: AgentMessage[], sessionId?: string): void {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const current = this.loadContext(chatId, id);
     const file = this.ensureSessionContextFile(chatId, id);
     writeFileSync(file, JSON.stringify(messages, null, 2), "utf8");
+
+    let prefixMatches = true;
+    const prefixLength = Math.min(current.length, messages.length);
+    for (let i = 0; i < prefixLength; i += 1) {
+      if (!isSameMessage(current[i] as AgentMessage, messages[i] as AgentMessage)) {
+        prefixMatches = false;
+        break;
+      }
+    }
+
+    if (prefixMatches && messages.length >= current.length) {
+      const newMessages = messages.slice(current.length);
+      for (const message of newMessages) {
+        this.appendSessionEntry(chatId, id, {
+          type: "message",
+          id: createEntryId(),
+          parentId: null,
+          timestamp: new Date(
+            typeof (message as { timestamp?: number }).timestamp === "number"
+              ? (message as { timestamp: number }).timestamp
+              : Date.now()
+          ).toISOString(),
+          message
+        });
+      }
+      return;
+    }
+
+    const header = createSessionHeader(id);
+    const entries: SessionFileEntry[] = [header];
+    let prevId: string | null = null;
+    for (const message of messages) {
+      const entry: SessionMessageEntry = {
+        type: "message",
+        id: createEntryId(),
+        parentId: prevId,
+        timestamp: new Date(
+          typeof (message as { timestamp?: number }).timestamp === "number"
+            ? (message as { timestamp: number }).timestamp
+            : Date.now()
+        ).toISOString(),
+        message
+      };
+      entries.push(entry);
+      prevId = entry.id;
+    }
+    this.writeSessionFileEntries(chatId, id, entries);
+  }
+
+  appendCompaction(
+    chatId: string,
+    summary: string,
+    keptMessages: AgentMessage[],
+    tokensBefore: number,
+    tokensAfter: number,
+    summarizedMessages: number,
+    reason: "threshold" | "manual",
+    sessionId?: string
+  ): void {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    this.appendSessionEntry(chatId, id, {
+      type: "compaction",
+      id: createEntryId(),
+      parentId: null,
+      timestamp: new Date().toISOString(),
+      summary,
+      keptMessages,
+      tokensBefore,
+      tokensAfter,
+      summarizedMessages,
+      reason
+    });
+    const snapshot = [createCompactionSummaryMessage(summary), ...keptMessages];
+    writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
   }
 
   readMemory(chatId: string): string {

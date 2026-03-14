@@ -103,7 +103,7 @@ function buildWorkspaceLayoutSection(vars: PromptRenderVars): string {
     `└── ${vars.chatId}/                   # This chat`,
     "    ├── log.jsonl                # Message history (no tool results)",
     "    ├── contexts/",
-    `    │   └── ${vars.sessionId}.json    # Active session context`,
+    `    │   └── ${vars.sessionId}.jsonl   # Active session entry log`,
     "    ├── attachments/             # User-shared files",
     "    └── scratch/                 # Tool working directory",
     "        └── events/              # Chat-local watched events",
@@ -342,7 +342,7 @@ function buildPromptRenderVariables(
   const chatDir = `${workspaceDir}/${chatId}`;
   const scratchDir = `${chatDir}/scratch`;
   const chatScratchEventsDir = `${scratchDir}/events`;
-  const sessionContextFile = `${chatDir}/contexts/${sessionId}.json`;
+  const sessionContextFile = `${chatDir}/contexts/${sessionId}.jsonl`;
   const workspaceEventsDir = `${workspaceDir}/events`;
   const globalSkillsDir = `${dataRoot}/skills`;
   const botSkillsDir = `${workspaceDir}/skills`;

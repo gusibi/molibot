@@ -5,6 +5,13 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { MomRuntimeStore } from "$lib/server/agent/store";
 import { RunnerPool } from "$lib/server/agent/runner";
 import { loadSkillsFromWorkspace } from "$lib/server/agent/skills";
+import {
+  listOAuthProviderIds,
+  removeStoredAuth,
+  resolveAuthFilePath,
+  startOAuthLogin,
+  submitOAuthLoginCode
+} from "$lib/server/agent/auth";
 import type { ChannelInboundMessage, FileAttachment } from "$lib/server/agent/types";
 import { storagePaths } from "$lib/server/infra/db/storage";
 import {
@@ -94,6 +101,9 @@ function buildModelsText(profileId: string, route: ModelRoute): string {
   }
   lines.push(`/skills`);
   lines.push(`/compact [instructions]`);
+  lines.push(`/login <provider>`);
+  lines.push(`/login <provider> <code-or-redirect-url>`);
+  lines.push(`/logout <provider>`);
   lines.push(`/help`);
   lines.push(`profile: ${profileId}`);
   return lines.join("\n");
@@ -121,6 +131,10 @@ function buildSkillsText(profileId: string): string {
   return lines.join("\n");
 }
 
+function buildLoginScope(profileId: string, externalUserId?: string): string {
+  return `web:${profileId}:${externalUserId || "anonymous"}`;
+}
+
 async function tryHandleWebCommand(
   message: string,
   profileId: string,
@@ -146,6 +160,9 @@ async function tryHandleWebCommand(
         "/models <text|vision|stt|tts> <index|key> - switch that route",
         "/skills - list loaded skills",
         "/compact [instructions] - summarize older context in current conversation",
+        "/login <provider> - start OAuth login and receive the auth URL",
+        "/login <provider> <code-or-redirect-url> - finish OAuth login",
+        "/logout <provider> - remove stored auth from auth.json",
         "/help - show this help"
       ].join("\n")
     };
@@ -226,6 +243,59 @@ async function tryHandleWebCommand(
           `kept_messages=${result.keptMessages}`
         ].join("\n")
         : "Nothing to compact yet."
+    };
+  }
+
+  if (cmd === "/login") {
+    const [provider = "", ...rest] = rawArg.split(/\s+/).filter(Boolean);
+    const codeOrUrl = rest.join(" ").trim();
+    const scopeKey = buildLoginScope(profileId, externalUserId);
+    if (!provider) {
+      return {
+        ok: true,
+        response: [
+          `Auth file: ${resolveAuthFilePath()}`,
+          `OAuth providers: ${listOAuthProviderIds().join(", ")}`,
+          "Usage:",
+          "/login <provider>",
+          "/login <provider> <code-or-redirect-url>"
+        ].join("\n")
+      };
+    }
+
+    if (codeOrUrl) {
+      await submitOAuthLoginCode(scopeKey, provider, codeOrUrl);
+      return {
+        ok: true,
+        response: `Login completed for '${provider}'. Credentials stored in ${resolveAuthFilePath()}.`
+      };
+    }
+
+    const pending = await startOAuthLogin(scopeKey, provider, {});
+    const lines = [
+      `Login started for '${provider}'.`,
+      `Auth file: ${resolveAuthFilePath()}`
+    ];
+    if (pending.authUrl) lines.push(`Open: ${pending.authUrl}`);
+    if (pending.instructions) lines.push(pending.instructions);
+    if (pending.promptMessage) lines.push(pending.promptMessage);
+    lines.push(`Finish with: /login ${provider} <code-or-redirect-url>`);
+    return { ok: true, response: lines.join("\n") };
+  }
+
+  if (cmd === "/logout") {
+    if (!rawArg) {
+      return {
+        ok: true,
+        response: "Usage: /logout <provider>"
+      };
+    }
+    const removed = removeStoredAuth(rawArg.split(/\s+/)[0] || "");
+    return {
+      ok: true,
+      response: removed
+        ? `Removed stored auth for '${rawArg.split(/\s+/)[0]}'.`
+        : `No stored auth found for '${rawArg.split(/\s+/)[0]}'.`
     };
   }
 
