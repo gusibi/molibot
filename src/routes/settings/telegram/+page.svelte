@@ -14,6 +14,7 @@
     id: string;
     name: string;
     enabled: boolean;
+    streamOutput: boolean;
     agentId: string;
     token: string;
     allowedChatIds: string;
@@ -50,6 +51,7 @@
       id: createBotId(),
       name: "",
       enabled: false,
+      streamOutput: true,
       agentId: "",
       token: "",
       allowedChatIds: "",
@@ -64,6 +66,7 @@
       id: bot.id.trim(),
       name: bot.name.trim(),
       enabled: Boolean(bot.enabled),
+      streamOutput: bot.streamOutput !== false,
       agentId: bot.agentId.trim(),
       token: bot.token.trim(),
       allowedChatIds: bot.allowedChatIds
@@ -112,12 +115,13 @@
             name?: string;
             enabled?: boolean;
             agentId?: string;
-            credentials?: { token?: string };
+            credentials?: { token?: string; streamOutput?: string };
             allowedChatIds?: string[];
           }) => ({
             id: bot.id ?? createBotId(),
             name: bot.name ?? "",
             enabled: bot.enabled ?? true,
+            streamOutput: String(bot.credentials?.streamOutput ?? "").toLowerCase() !== "false",
             agentId: bot.agentId ?? "",
             token: bot.credentials?.token ?? "",
             allowedChatIds: (bot.allowedChatIds ?? []).join(","),
@@ -131,6 +135,7 @@
                   id: "default",
                   name: "Default Bot",
                   enabled: true,
+                  streamOutput: true,
                   agentId: "",
                   token,
                   allowedChatIds: (data.settings.telegramAllowedChatIds ?? []).join(","),
@@ -253,7 +258,7 @@
             name: normalized.name,
             enabled: normalized.enabled,
             agentId: normalized.agentId,
-            credentials: { token: normalized.token },
+            credentials: { token: normalized.token, streamOutput: String(normalized.streamOutput) },
             allowedChatIds: normalized.allowedChatIds
               .split(",")
               .map((v) => v.trim())
@@ -401,6 +406,11 @@
             <label class="flex items-center gap-3 text-sm text-slate-300">
               <input bind:checked={selectedBot.enabled} type="checkbox" />
               Enable this plugin instance
+            </label>
+
+            <label class="flex items-center gap-3 text-sm text-slate-300">
+              <input bind:checked={selectedBot.streamOutput} type="checkbox" />
+              Enable streaming output (default on)
             </label>
 
             <label class="grid gap-1.5 text-sm">

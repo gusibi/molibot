@@ -825,6 +825,13 @@ export class TelegramManager {
     return "agent";
   }
 
+  private isStreamingOutputEnabled(): boolean {
+    const instance = this.getSettings().channels?.telegram?.instances?.find((item) => item.id === this.instanceId);
+    const raw = String(instance?.credentials?.streamOutput ?? "").trim().toLowerCase();
+    if (!raw) return true;
+    return !(raw === "false" || raw === "0" || raw === "off" || raw === "no");
+  }
+
   private buildEventSyntheticText(event: MomEvent, filename: string): string {
     const timePart = event.type === "one-shot"
       ? event.at
@@ -944,6 +951,7 @@ export class TelegramManager {
     const sessionId = event.sessionId || this.store.getActiveSession(chatId);
     const runner = this.runners.get(chatId, sessionId);
     const runId = (event as ChannelInboundMessage & { runId?: string }).runId ?? createRunId(chatId, event.messageId);
+    const streamOutputEnabled = this.isStreamingOutputEnabled();
     this.running.add(chatId);
 
     momLog("telegram", "process_start", {
@@ -952,7 +960,8 @@ export class TelegramManager {
       sessionId,
       messageId: event.messageId,
       userId: event.userId,
-      isEvent: Boolean(event.isEvent)
+      isEvent: Boolean(event.isEvent),
+      streamOutputEnabled
     });
 
     const status: StatusSession = {
@@ -1019,8 +1028,10 @@ export class TelegramManager {
           accumulatedLength: status.accumulatedText.length,
           shouldLog
         });
-        await render(status.accumulatedText);
-        if (shouldLog && status.statusMessageId) {
+        if (streamOutputEnabled) {
+          await render(status.accumulatedText);
+        }
+        if (streamOutputEnabled && shouldLog && status.statusMessageId) {
           this.store.logBotResponse(chatId, text, status.statusMessageId);
           momLog("telegram", "ctx_respond_logged", { runId, chatId, statusMessageId: status.statusMessageId });
         }
@@ -1028,18 +1039,21 @@ export class TelegramManager {
       replaceMessage: async (text) => {
         status.accumulatedText = text;
         momLog("telegram", "ctx_replace", { runId, chatId, textLength: text.length });
-        await render(status.accumulatedText);
+        if (streamOutputEnabled) {
+          await render(status.accumulatedText);
+        }
       },
       respondInThread: async (text) => {
-        if (!status.statusMessageId) return;
-        const sent = await sendTelegramText(bot, chatId, text, {
-          reply_parameters: { message_id: status.statusMessageId }
-        });
+        const sent = status.statusMessageId
+          ? await sendTelegramText(bot, chatId, text, {
+            reply_parameters: { message_id: status.statusMessageId }
+          })
+          : await sendTelegramText(bot, chatId, text);
         status.threadMessageIds.push(sent.message_id);
         momLog("telegram", "ctx_thread_reply", {
           runId,
           chatId,
-          replyTo: status.statusMessageId,
+          replyTo: status.statusMessageId ?? null,
           threadMessageId: sent.message_id,
           textLength: text.length
         });
@@ -1048,7 +1062,10 @@ export class TelegramManager {
         momLog("telegram", "ctx_set_typing", { runId, chatId, isTyping });
         if (!isTyping) return;
         await sendTelegramChatAction(bot, chatId, "typing");
-        if (!status.statusMessageId || (seededStatusText && status.accumulatedText.trim() === seededStatusText)) {
+        if (
+          streamOutputEnabled &&
+          (!status.statusMessageId || (seededStatusText && status.accumulatedText.trim() === seededStatusText))
+        ) {
           status.accumulatedText = event.isEvent ? "Starting event" : "Thinking";
           await render(status.accumulatedText);
         }
@@ -1056,7 +1073,7 @@ export class TelegramManager {
       setWorking: async (isWorking) => {
         status.isWorking = isWorking;
         momLog("telegram", "ctx_set_working", { runId, chatId, isWorking });
-        if (status.statusMessageId) {
+        if (streamOutputEnabled && status.statusMessageId) {
           await render(status.accumulatedText);
         }
       },
@@ -1165,6 +1182,9 @@ export class TelegramManager {
 
     try {
       const result = await runner.run(ctx);
+      if (!streamOutputEnabled && status.accumulatedText.trim()) {
+        await render(status.accumulatedText.trim());
+      }
       momLog("telegram", "process_runner_done", {
         runId,
         chatId,

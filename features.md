@@ -213,6 +213,7 @@
 | ENG-151 | Telegram network-error diagnostics enrichment | Done | Added structured Telegram transport error diagnostics with nested `cause`/`code`/`errno`/`syscall`/`address` metadata on retry warnings and failure logs so generic grammY `Network request failed` events can be traced to real socket/DNS timeout causes |
 | ENG-152 | Declared-vision-first native image routing | Done | Custom text/vision models that explicitly declare `vision` are now trusted for native image input even when verification is `untested` or `failed`; verification remains observable in logs, but no longer forces an unnecessary image-analysis fallback API call |
 | ENG-153 | AI usage bot-dimension analytics and filtering | Done | Extended usage records with `botId`, added bot-level aggregation in usage tracker windows/breakdowns, and upgraded `/settings/ai/usage` with bot filter + bot ranking table to compare usage across different bot instances |
+| ENG-187 | Telegram stream output toggle per bot | Done | Added per-bot `streamOutput` setting (default on) on `/settings/telegram`; Telegram runtime now supports stream-on incremental status editing and stream-off final one-shot output |
 
 ## In Progress
 | ID | Feature | Status | Notes |
@@ -228,6 +229,7 @@
 | BL-04 | Vector memory | Backlog | Post V1 |
 
 ## Update Log
+- 2026-03-14: Added Telegram per-bot stream output toggle. `/settings/telegram` now exposes `Enable streaming output (default on)`, persisted in channel-instance credentials as `streamOutput`, and runtime now supports two modes: stream-on incremental `editMessageText` updates and stream-off final one-shot output.
 - 2026-03-14: Added bot-dimension usage analytics. `AiUsageTracker` now records and aggregates `botId` (with backward-compatible fallback for historical logs), channel runner usage writes include workspace-derived bot ID, web writes use `web`, and `/settings/ai/usage` now supports bot filtering and “Bots Used” ranking for cross-bot consumption comparison.
 - 2026-03-14: Reworked session persistence from snapshot-only context storage to append-only per-session entry logs (`contexts/<sessionId>.jsonl`) with legacy migration, rebuilt-context loading, and structured compaction entries.
 - 2026-03-14: Added shared OAuth auth handling in `src/lib/server/agent/auth.ts`. Runtime now resolves credentials from `${DATA_DIR}/auth.json` (or `PI_AI_AUTH_FILE`), refreshes OAuth-backed keys on demand, and exposes `/login` / `/logout` commands in web/Telegram/Feishu/QQ.
