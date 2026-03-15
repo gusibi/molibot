@@ -91,6 +91,33 @@ export interface PluginSettings {
   memory: MemoryBackendSettings;
 }
 
+export type AcpApprovalMode = "manual" | "auto-safe" | "auto-all";
+
+export interface AcpTargetConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd: string;
+}
+
+export interface AcpProjectConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  path: string;
+  allowedTargetIds: string[];
+  defaultApprovalMode: AcpApprovalMode;
+}
+
+export interface AcpSettings {
+  enabled: boolean;
+  targets: AcpTargetConfig[];
+  projects: AcpProjectConfig[];
+}
+
 export type McpTransport = "stdio" | "http";
 
 export interface McpStdioConfig {
@@ -125,6 +152,7 @@ export interface RuntimeSettings {
   compaction: CompactionSettings;
   systemPrompt: string;
   timezone: string;
+  acp: AcpSettings;
   agents: AgentSettings[];
   channels: ChannelSettingsMap;
   mcpServers: McpServerConfig[];

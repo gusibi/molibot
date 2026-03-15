@@ -403,6 +403,43 @@ function hasExplicitSkillInvocation(
   return false;
 }
 
+function hasExplicitMcpInvocation(inputText: string): boolean {
+  const text = String(inputText ?? "").toLowerCase();
+  const patterns = [
+    "使用mcp",
+    "启用mcp",
+    "加载mcp",
+    "用mcp",
+    "load_mcp",
+    "/mcp",
+    "use mcp",
+    "enable mcp",
+    "load mcp",
+    " mcp "
+  ];
+  return patterns.some((pattern) => text.includes(pattern));
+}
+
+function hasSkillInvocationThatRequiresMcp(
+  skills: Array<{ name: string; mcpServers?: string[] }>,
+  inputText: string
+): boolean {
+  const text = String(inputText ?? "").toLowerCase();
+  for (const skill of skills) {
+    const normalizedName = String(skill.name ?? "").trim().toLowerCase();
+    if (!normalizedName) continue;
+    if (!Array.isArray(skill.mcpServers) || skill.mcpServers.length === 0) continue;
+    const explicitPatterns = [
+      `$${normalizedName}`,
+      `/skill ${normalizedName}`,
+      `skill:${normalizedName}`,
+      `技能:${normalizedName}`
+    ];
+    if (explicitPatterns.some((pattern) => text.includes(pattern))) return true;
+  }
+  return false;
+}
+
 function buildPromptRefreshKey(
   settings: RuntimeSettings,
   channel: string,
@@ -1274,6 +1311,8 @@ export class MomRunner implements RunnerLike {
       disabledSkillPaths: settings.disabledSkillPaths
     });
     const skillExplicitlyInvoked = hasExplicitSkillInvocation(skills, enrichedInput.text);
+    const mcpExplicitlyInvoked = hasExplicitMcpInvocation(enrichedInput.text);
+    const skillRequiresMcp = hasSkillInvocationThatRequiresMcp(skills, enrichedInput.text);
     const resolveScopedMcpServers = (): RuntimeSettings["mcpServers"] => {
       const settingsNow = this.getSettings();
       const selectedIds = this.selectedMcpServerIds;
@@ -1281,9 +1320,6 @@ export class MomRunner implements RunnerLike {
         return (settingsNow.mcpServers ?? []).filter((server) =>
           server.enabled && selectedIds.has(server.id)
         );
-      }
-      if (skillExplicitlyInvoked) {
-        return (settingsNow.mcpServers ?? []).filter((server) => server.enabled);
       }
       return [];
     };
@@ -1309,6 +1345,8 @@ export class MomRunner implements RunnerLike {
       };
     };
 
+    const exposeLoadMcpTool =
+      mcpExplicitlyInvoked || skillRequiresMcp || this.selectedMcpServerIds.size > 0;
     localTools = createMomTools({
       channel: ctx.channel,
       cwd: this.store.getScratchDir(this.chatId),
@@ -1323,6 +1361,7 @@ export class MomRunner implements RunnerLike {
         this.selectedMcpServerIds = new Set(next);
       },
       refreshLoadedMcpTools,
+      exposeLoadMcpTool,
       uploadFile: async (filePath, title) => {
         await ctx.uploadFile(filePath, title);
       },
@@ -1345,6 +1384,9 @@ export class MomRunner implements RunnerLike {
       chatId: this.chatId,
       sessionId: this.sessionId,
       skillExplicitlyInvoked,
+      mcpExplicitlyInvoked,
+      skillRequiresMcp,
+      exposeLoadMcpTool,
       mcpServerCount: scopedMcpServers.filter((server) => server.enabled).length,
       mcpToolCount: mcpTools.length
     });

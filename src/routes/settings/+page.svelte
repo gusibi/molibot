@@ -64,6 +64,12 @@
       action: "Open"
     },
     {
+      title: "ACP Targets",
+      description: "Manage coding-agent targets, project allowlists, and approval defaults.",
+      href: "/settings/acp",
+      action: "Open"
+    },
+    {
       title: "Plugins",
       description: "Control core plugin toggles and memory backend selection.",
       href: "/settings/plugins",

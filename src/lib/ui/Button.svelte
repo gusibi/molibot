@@ -26,6 +26,7 @@
 <button
   {type}
   {disabled}
+  on:click
   class={`inline-flex items-center justify-center rounded-md font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 ${variantClass[variant]} ${sizeClass[size]} ${className}`}
 >
   <slot />

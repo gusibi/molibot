@@ -2,6 +2,22 @@ import type { Bot } from "grammy";
 import { momWarn } from "../../agent/log.js";
 
 const SEND_RETRY_DELAYS_MS = [0, 500, 1500] as const;
+const TELEGRAM_TEXT_SOFT_LIMIT = 3500;
+
+function chunkTelegramText(text: string, chunkSize = TELEGRAM_TEXT_SOFT_LIMIT): string[] {
+  const normalized = String(text ?? "").replace(/\r\n?/g, "\n").trim();
+  if (!normalized) return [];
+  const chunks: string[] = [];
+  let remaining = normalized;
+  while (remaining.length > chunkSize) {
+    let splitAt = remaining.lastIndexOf("\n", chunkSize);
+    if (splitAt < Math.floor(chunkSize / 2)) splitAt = chunkSize;
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trim();
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -69,23 +85,34 @@ export async function sendTelegramText(
   text: string,
   options?: Record<string, unknown>
 ): Promise<{ message_id: number }> {
-  const payload = formatTelegramText(text);
-  const sendOptions = payload.parseMode
-    ? { ...(options ?? {}), parse_mode: payload.parseMode }
-    : { ...(options ?? {}) };
+  const rawChunks = chunkTelegramText(text);
+  const chunks = rawChunks.length > 0 ? rawChunks : [String(text ?? "").trim()];
+  let lastMessageId = 0;
 
-  try {
-    return await sendTelegramWithRetry(bot, chatId, payload.text, sendOptions, "formatted");
-  } catch (error) {
-    if (payload.parseMode) {
+  for (let i = 0; i < chunks.length; i += 1) {
+    const chunk = chunks[i];
+    const payload = formatTelegramText(chunk);
+    const chunkOptions =
+      i === 0 ? { ...(options ?? {}) } : {};
+    const sendOptions = payload.parseMode
+      ? { ...chunkOptions, parse_mode: payload.parseMode }
+      : chunkOptions;
+
+    try {
+      const sent = await sendTelegramWithRetry(bot, chatId, payload.text, sendOptions, "formatted");
+      lastMessageId = sent.message_id;
+    } catch (error) {
+      if (!payload.parseMode) throw error;
       momWarn("telegram", "send_message_parse_fallback_plain", {
         chatId,
         error: error instanceof Error ? error.message : String(error)
       });
-      return await sendTelegramWithRetry(bot, chatId, text, options ?? {}, "plain");
+      const sent = await sendTelegramWithRetry(bot, chatId, chunk, chunkOptions, "plain");
+      lastMessageId = sent.message_id;
     }
-    throw error;
   }
+
+  return { message_id: lastMessageId };
 }
 
 async function sendTelegramWithRetry(
@@ -104,6 +131,11 @@ async function sendTelegramWithRetry(
 
 function isRetryableTelegramSendError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
+  const fields = error && typeof error === "object" ? error as Record<string, unknown> : undefined;
+  const errorCode = Number(fields?.error_code ?? fields?.status ?? 0);
+  if (errorCode === 429 || message.includes("Too Many Requests")) {
+    return true;
+  }
   return (
     message.includes("Network request for") ||
     message.includes("fetch failed") ||
@@ -112,6 +144,28 @@ function isRetryableTelegramSendError(error: unknown): boolean {
     message.includes("socket hang up") ||
     message.includes("network")
   );
+}
+
+function getRetryAfterMs(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const fields = error as Record<string, unknown>;
+  const parameters = fields.parameters && typeof fields.parameters === "object"
+    ? fields.parameters as Record<string, unknown>
+    : undefined;
+  const retryAfterRaw = Number(parameters?.retry_after ?? 0);
+  if (Number.isFinite(retryAfterRaw) && retryAfterRaw > 0) {
+    return retryAfterRaw * 1000;
+  }
+  const description = String(fields.description ?? fields.message ?? "");
+  const match = description.match(/retry after\s+(\d+)/i);
+  if (!match) return null;
+  const retryAfter = Number.parseInt(match[1], 10);
+  return Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : null;
+}
+
+function isIgnorableTelegramEditError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.includes("message is not modified");
 }
 
 function wait(ms: number): Promise<void> {
@@ -169,7 +223,7 @@ async function retryTelegramApiCall<T>(
   let lastError: unknown;
 
   for (let attempt = 0; attempt < SEND_RETRY_DELAYS_MS.length; attempt += 1) {
-    const delayMs = SEND_RETRY_DELAYS_MS[attempt];
+    const delayMs = attempt === 0 ? 0 : SEND_RETRY_DELAYS_MS[attempt];
     if (delayMs > 0) {
       await wait(delayMs);
     }
@@ -178,16 +232,23 @@ async function retryTelegramApiCall<T>(
       return await fn();
     } catch (error) {
       lastError = error;
+      if (isIgnorableTelegramEditError(error)) {
+        return undefined as T;
+      }
       if (!isRetryableTelegramSendError(error) || attempt === SEND_RETRY_DELAYS_MS.length - 1) {
         throw error;
       }
+      const retryAfterMs = getRetryAfterMs(error);
       momWarn("telegram", logEvent, {
         ...metadata,
         attempt: attempt + 1,
-        nextDelayMs: SEND_RETRY_DELAYS_MS[attempt + 1],
+        nextDelayMs: retryAfterMs ?? SEND_RETRY_DELAYS_MS[attempt + 1],
         error: error instanceof Error ? error.message : String(error),
         errorDetails: extractTelegramErrorDetails(error)
       });
+      if (retryAfterMs && retryAfterMs > 0) {
+        await wait(retryAfterMs);
+      }
     }
   }
 
@@ -226,6 +287,46 @@ export async function editTelegramText(bot: Bot, chatId: string, messageId: numb
         { chatId, messageId, mode: "plain_fallback" },
         async () => {
           await bot.api.editMessageText(chatId, messageId, text);
+        }
+      );
+      return;
+    }
+    throw error;
+  }
+}
+
+export async function editTelegramMessage(
+  bot: Bot,
+  chatId: string,
+  messageId: number,
+  text: string,
+  options?: Record<string, unknown>
+): Promise<void> {
+  const payload = formatTelegramText(text);
+  const editOptions = payload.parseMode
+    ? { ...(options ?? {}), parse_mode: payload.parseMode }
+    : { ...(options ?? {}) };
+
+  try {
+    await retryTelegramApiCall(
+      "edit_message_retry_scheduled",
+      { chatId, messageId, mode: payload.parseMode ? "formatted" : "plain" },
+      async () => {
+        await bot.api.editMessageText(chatId, messageId, payload.text, editOptions as never);
+      }
+    );
+  } catch (error) {
+    if (payload.parseMode) {
+      momWarn("telegram", "edit_message_parse_fallback_plain", {
+        chatId,
+        messageId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      await retryTelegramApiCall(
+        "edit_message_retry_scheduled",
+        { chatId, messageId, mode: "plain_fallback" },
+        async () => {
+          await bot.api.editMessageText(chatId, messageId, text, options as never);
         }
       );
       return;

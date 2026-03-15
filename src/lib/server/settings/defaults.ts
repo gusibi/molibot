@@ -1,6 +1,7 @@
 import type { KnownProvider } from "@mariozechner/pi-ai";
 import {
   type AgentSettings,
+  type AcpSettings,
   isKnownProvider,
   type ChannelInstanceSettings,
   type CustomProviderConfig,
@@ -215,6 +216,21 @@ const defaultQQBots: QQBotConfig[] = defaultQQAppId && defaultQQClientSecret
 
 const defaultAgents: AgentSettings[] = [];
 const defaultMcpServers = parseEnvMcpServers();
+const defaultAcpSettings: AcpSettings = {
+  enabled: true,
+  targets: [
+    {
+      id: "codex",
+      name: "Codex ACP",
+      enabled: true,
+      command: "npx",
+      args: ["-y", "@zed-industries/codex-acp"],
+      env: {},
+      cwd: ""
+    }
+  ],
+  projects: []
+};
 
 export const defaultRuntimeSettings: RuntimeSettings = {
   providerMode,
@@ -239,6 +255,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   timezone:
     (process.env.MOLIBOT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone).trim() ||
     Intl.DateTimeFormat().resolvedOptions().timeZone,
+  acp: defaultAcpSettings,
   agents: defaultAgents,
   channels: {
     web: {

@@ -1,6 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import {
   type AgentSettings,
+  type AcpApprovalMode,
+  type AcpSettings,
   type ChannelSettingsMap,
   defaultRuntimeSettings,
   type ModelCapabilityTag,
@@ -59,6 +61,7 @@ interface RawSettings {
   qqBots?: unknown;
   mcpServers?: unknown;
   disabledSkillPaths?: unknown;
+  acp?: unknown;
 }
 
 type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
@@ -266,6 +269,78 @@ function sanitizeList(input: unknown): string[] {
       .filter(Boolean);
   }
   return [];
+}
+
+function sanitizeAcpApprovalMode(input: unknown, fallback: AcpApprovalMode = "manual"): AcpApprovalMode {
+  const value = String(input ?? "").trim().toLowerCase();
+  if (value === "manual" || value === "auto-safe" || value === "auto-all") {
+    return value;
+  }
+  return fallback;
+}
+
+function sanitizeAcpSettings(input: unknown): AcpSettings {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const rawTargets = Array.isArray(source.targets) ? source.targets : [];
+  const targets: AcpSettings["targets"] = rawTargets
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const item = row as Record<string, unknown>;
+      const id = String(item.id ?? "").trim();
+      const command = String(item.command ?? "").trim();
+      if (!id || !command) return null;
+      return {
+        id,
+        name: String(item.name ?? id).trim() || id,
+        enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+        command,
+        args: Array.isArray(item.args)
+          ? item.args.map((value) => String(value ?? "").trim()).filter(Boolean)
+          : [],
+        env: item.env && typeof item.env === "object"
+          ? Object.fromEntries(
+            Object.entries(item.env as Record<string, unknown>)
+              .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
+              .filter(([key]) => Boolean(key))
+          )
+          : {},
+        cwd: String(item.cwd ?? "").trim()
+      };
+    })
+    .filter((value): value is AcpSettings["targets"][number] => value !== null);
+
+  const rawProjects = Array.isArray(source.projects) ? source.projects : [];
+  const projects: AcpSettings["projects"] = rawProjects
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const item = row as Record<string, unknown>;
+      const id = String(item.id ?? "").trim();
+      const path = String(item.path ?? "").trim();
+      if (!id || !path) return null;
+      return {
+        id,
+        name: String(item.name ?? id).trim() || id,
+        enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+        path,
+        allowedTargetIds: Array.isArray(item.allowedTargetIds)
+          ? item.allowedTargetIds.map((value) => String(value ?? "").trim()).filter(Boolean)
+          : [],
+        defaultApprovalMode: sanitizeAcpApprovalMode(item.defaultApprovalMode, "manual")
+      };
+    })
+    .filter((value): value is AcpSettings["projects"][number] => value !== null);
+
+  return {
+    enabled: source.enabled === undefined ? defaultRuntimeSettings.acp.enabled : Boolean(source.enabled),
+    targets: targets.length > 0
+      ? targets
+      : defaultRuntimeSettings.acp.targets.map((target) => ({
+        ...target,
+        args: [...target.args],
+        env: { ...target.env }
+      })),
+    projects
+  };
 }
 
 function sanitizeAgents(input: unknown): AgentSettings[] {
@@ -572,6 +647,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const effectiveFeishuBots = feishuBots.length > 0 ? feishuBots : deriveFeishuBotsFromChannels(channels);
   const effectiveQQBots = qqBots.length > 0 ? qqBots : deriveQQBotsFromChannels(channels);
   const primaryBot = effectiveTelegramBots[0];
+  const acp = sanitizeAcpSettings(raw.acp ?? defaultRuntimeSettings.acp);
   const agents = sanitizeAgents(raw.agents);
   const mcpServers = sanitizeMcpServers(raw.mcpServers ?? defaultRuntimeSettings.mcpServers);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
@@ -614,6 +690,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     systemPrompt:
       String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
       defaultRuntimeSettings.systemPrompt,
+    acp,
     agents,
     channels,
     mcpServers,
@@ -927,6 +1004,7 @@ export class SettingsStore {
         }
       },
       timezone: settings.timezone,
+      acp: settings.acp,
       mcpServers: settings.mcpServers,
       disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,

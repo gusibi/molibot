@@ -266,7 +266,12 @@ function buildMcpAccessSection(settings?: RuntimeSettings): string {
       : "(none)";
   return [
     "## MCP Access",
-    "- MCP capability exists but is hidden unless you explicitly invoke a skill (`$skill-name`, `/skill skill-name`, `skill:skill-name`, `技能:skill-name`).",
+    "- MCP capability is hidden by default and must only be used in explicit MCP scenarios.",
+    "- Allowed MCP scenarios only:",
+    "  1. User explicitly asks to use MCP (for example: '使用MCP', '加载MCP', 'use MCP').",
+    "  2. User explicitly invokes a skill (`$skill-name`, `/skill skill-name`, `skill:skill-name`, `技能:skill-name`) and that skill itself declares MCP dependency.",
+    "- Do not call `load_mcp` outside these two scenarios.",
+    "- Skill name is not MCP server id. Never assume `serverId = skill name`.",
     "- Skill files do not require any special MCP frontmatter fields.",
     "- If a task requires MCP but the required MCP server/tool is unavailable, clearly report the missing MCP server/tool in your response.",
     "- Enabled MCP servers:",

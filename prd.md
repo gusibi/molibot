@@ -20,6 +20,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Telegram agent 的调度落地必须唯一走 watched event JSON 文件；不得退化为 memory 记录，也不得绕过 runtime 事件系统直接写入 OS 级调度器（如 `crontab` / `at` / `launchctl` / `schtasks`）。
 - `package/mory` 作为独立 SDK 应当自带可用数据库 driver 与安装依赖；不能只提供 `SqliteDriver` / `PgDriver` 接口再把真实驱动实现完全留给外部宿主。
 - `package/mory/README.md` 必须按“独立 SDK 用户文档”编写，清晰覆盖安装要求、SQLite quick start、pgvector 接入、核心 API 用法（`ingest/commit/retrieve/readByPath`）以及宿主仍需提供的能力边界。
+- 新增 Linus Torvalds 风格的人设模板 (`IDENTITY.linus.template.md`, `SOUL.linus.template.md`)，为 Agent 提供极致直接、技术至上的备选人格。
 
 ## 3. V1 Scope
 
@@ -132,6 +133,20 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-89 | Compaction overflow recovery retry | P1 | Delivered (2026-03-14) | When an upstream model rejects a request for context/window overflow, runner should compact the current session, persist a structured compaction entry with token metadata, rebuild context from that compacted state, and retry the active request automatically before surfacing failure |
 | P1-90 | Bot-level AI usage observability and filtering | P1 | Delivered (2026-03-14) | Usage tracking should include bot identity, and `/settings/ai/usage` should support bot-level filtering and ranking so operators can compare token/request consumption across different bot instances |
 | P1-91 | Telegram streaming output mode switch | P1 | Delivered (2026-03-14) | Telegram settings should provide a per-bot stream output switch (default enabled), and runtime should support both incremental streaming edits and final one-shot output when disabled |
+| P1-92 | Telegram Codex ACP control path MVP | P1 | Delivered (2026-03-14) | Telegram should support a first ACP-based coding control flow for Codex via explicit `/acp` commands: register allowlisted projects, open a chat-scoped Codex ACP session against a chosen project path, stream back session updates, surface ACP permission requests for operator approval via Telegram, and keep the normal chat runner path unchanged |
+| P1-93 | ACP web settings workspace | P1 | Delivered (2026-03-14) | Operators should be able to configure ACP from `/settings/acp`: toggle ACP globally, manage adapter targets (command/args/env/cwd), register allowlisted projects with absolute paths and target bindings, and set each project's default approval mode without editing settings JSON manually |
+| P1-94 | Shared settings button interaction reliability | P1 | Delivered (2026-03-14) | Shared UI `Button` must forward native click events so settings actions wired through `<Button on:click={...}>` remain functional across ACP, MCP, channel bot forms, memory operations, and task management pages |
+| P1-95 | Codex ACP startup diagnostics and auth hinting | P1 | Delivered (2026-03-14) | When a Codex ACP session fails during adapter startup, runtime should distinguish transport mismatch from adapter-side startup stalls and explicitly hint when no `OPENAI_API_KEY` / `CODEX_API_KEY` is available, because Telegram ACP cannot complete interactive Codex login flows |
+| P1-96 | Codex file-auth reuse and startup timeout resilience | P1 | Delivered (2026-03-15) | Codex ACP startup should recognize existing file-based login state from `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) as valid authentication, avoid misleading API-key-only warnings, and allow longer adapter warm-up before failing `initialize` / `session/new` |
+| P1-97 | Telegram ACP rate-limit crash hardening | P1 | Delivered (2026-03-15) | ACP task execution over Telegram must tolerate status-edit rate limiting by honoring `retry_after`, suppressing non-fatal edit errors, and throttling status updates so `editMessageText` failures cannot terminate the entire bot process |
+| P1-98 | ACP Telegram tool-event consolidation | P1 | Delivered (2026-03-15) | Telegram ACP should not send one chat message per completed tool call; low-value tool completion noise must be consolidated into the final task summary while preserving high-value plan and permission events |
+| P1-99 | ACP final-result structured formatting | P1 | Delivered (2026-03-15) | Telegram ACP final answers should render as readable Markdown reports instead of plain-text walls by adding default output-format instructions to `/acp task` and formatting the local completion summary with sections and bullets |
+| P1-100 | ACP session restore across Molibot restarts | P1 | Delivered (2026-03-15) | Telegram ACP should persist chat-to-remote-session metadata and automatically restore prior Codex sessions via ACP `session/load` after a Molibot restart, so operators can continue with `/acp status` or `/acp task` instead of always re-running `/acp new` |
+| P1-101 | ACP available command list readability | P1 | Delivered (2026-03-15) | `/acp status` should display human-readable available command names when ACP adapters return object-form command entries, instead of leaking `[object Object]` strings |
+| P1-102 | ACP sessions inspection command | P1 | Delivered (2026-03-15) | Telegram ACP should expose an explicit `/acp sessions` command that lists available remote sessions (with current marker and project-aware filtering) to support controlled manual session recovery after restarts |
+| P1-103 | Telegram ACP permission card interaction | P1 | Delivered (2026-03-15) | ACP permission requests in Telegram should render as clickable action cards with inline approve/deny actions and a guided “deny with note” flow, instead of forcing operators to manually type `/approve` or `/deny` commands from raw text blobs |
+| P1-104 | ACP task execution-context diagnostics | P1 | Delivered (2026-03-15) | `/acp task` should always return a structured execution-context snapshot (cwd, directory listing, python/uv path and versions, DB-related env values, exact command and exit code) so “works in local terminal but fails in Codex ACP” issues can be diagnosed from one response |
+| P1-105 | ACP immediate stop command alias | P1 | Delivered (2026-03-15) | Telegram ACP should support `/acp stop` as a first-class immediate-stop command (alias of task cancel) so operators can quickly terminate a running ACP task without remembering `/acp cancel` |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -1373,3 +1388,67 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - 每次迁移提交必须执行一次完整构建校验。
   - 对 `src/routes/settings/**/+page.svelte` 出现的标签闭合错误优先修复，避免阻塞后续页面改造。
+
+## 108. Telegram 超长消息自动分段发送基线 (2026-03-15)
+- Priority: P0
+- Stage: Phase 3 (Build) -> Phase 4 (Polish)
+- Problem:
+  - Telegram `sendMessage` 单条消息长度上限导致运行时出现 `400: Bad Request: message is too long`，在 `/skills`、模型列表或长文本输出场景下会直接报错。
+- Requirement:
+  - 所有 Telegram 文本发送链路在消息过长时必须自动分段发送，避免单条超限失败。
+  - 分段逻辑优先按换行切分，保证可读性；必要时按固定长度硬切。
+  - 高风险命令输出（如 `/skills`、`/models`）必须显式走分段发送流程。
+- Enforcement:
+  - `sendTelegramText` 作为统一发送入口，内置分段逻辑并顺序发送 chunks。
+  - 运行时中直接调用 `bot.api.sendMessage` 的路径需迁移到 `sendTelegramText`。
+  - 长文本命令回复不得直接一次性 `ctx.reply(超长文本)`，应先 chunk 再发送。
+
+## 109. MCP 工具暴露收敛，避免非必要自动加载 (2026-03-15)
+- Priority: P0
+- Stage: Phase 3 (Build)
+- Problem:
+  - `load_mcp` 工具默认常驻可用，模型在普通任务（如图片生成）中会误调用 MCP 加载流程，出现“把 skill 名称当作 MCP serverId”的无效尝试与噪音报错。
+- Requirement:
+  - `load_mcp` 不应默认暴露给所有请求；仅在明确需要 MCP 的回合才开放。
+  - 明确禁止将 skill 名称等同于 MCP server ID。
+- Enforcement:
+  - 运行时仅在“显式 skill 调用”或“会话已有已选 MCP server”时注入 `load_mcp` 工具。
+  - 系统提示词 MCP 章节增加防误用规则（仅在任务明确需要 MCP 时调用，且不得将 skill 名称当作 serverId）。
+
+## 110. MCP 与 Skill 彻底解耦的触发边界 (2026-03-15)
+- Priority: P0
+- Stage: Phase 3 (Build)
+- Problem:
+  - 仅凭“提到 skill”就触发 MCP 会造成概念混淆：skill 是 skill，MCP 是 MCP；二者不应模糊联动。
+- Requirement:
+  - MCP 仅允许在两类白名单场景启用：
+    1. 用户明确提到“使用 MCP / 加载 MCP / use MCP”等 MCP 关键词；
+    2. 用户显式调用某个 skill，且该 skill 明确声明 MCP 依赖（`mcpServers`）。
+  - 除上述场景外，禁止启用/调用 MCP。
+- Enforcement:
+  - `load_mcp` 暴露条件从“任意显式 skill 调用”收紧为“显式 MCP 意图 or skill 声明 MCP 依赖 or 会话已有已选 MCP server”。
+  - 默认不因普通 skill 调用自动开放 MCP，避免把 skill 名称误当 `serverId`。
+
+## 111. /models 命令当前模型可见性增强 (2026-03-15)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - `/models` 虽然会列出候选模型，但当前活跃模型仅通过列表中的 `(active)` 标记呈现，不够直观；同时 `/help` 文案对 `/models` 的行为说明不够明确。
+- Requirement:
+  - `/models` 输出顶部必须单独显示“当前活跃模型”和“当前活跃 key”，避免用户在长列表中反复查找。
+  - `/help` 中 `/models` 相关描述必须与真实行为一致，并强调会显示当前活跃模型。
+- Enforcement:
+  - `modelsText(route)` 增加显式 `Current active model` / `Current active key` 字段。
+  - `helpText()` 中 `/models` 描述统一改为 show + current active 语义。
+
+## 112. System Prompt Preview 实时刷新一致性 (2026-03-15)
+- Priority: P1
+- Stage: Phase 4 (Polish)
+- Problem:
+  - `SYSTEM_PROMPT.preview.md` 在部分高频操作后不刷新（如 `/new` 或设置页仅切 skill 开关后触发的 no-op apply），导致“运行时已更新但预览文件未更新”的观测偏差。
+- Requirement:
+  - 只要 prompt 相关状态可能变化，preview 文件应及时重写，避免使用旧快照误判。
+  - 会话切换与重置类命令也要触发 preview 重写，保持 `chat_id/session_id` 元信息同步。
+- Enforcement:
+  - Telegram `apply_noop_same_token` 分支必须调用 preview 重写。
+  - `/new`、`/clear`、`/sessions <selector>` 执行成功后必须调用 preview 重写。

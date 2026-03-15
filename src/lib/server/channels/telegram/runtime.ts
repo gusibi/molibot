@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { basename, extname, join, resolve } from "node:path";
-import { Bot, InputFile } from "grammy";
+import { Bot, InlineKeyboard, InputFile } from "grammy";
 import { config } from "../../app/env.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import {
@@ -13,6 +14,7 @@ import {
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
+import { AcpService, formatAcpProjects, formatAcpSessionSummary, formatAcpSessions, formatAcpTargets } from "../../acp/service.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
 import { RunnerPool } from "../../agent/runner.js";
 import { loadSkillsFromWorkspace } from "../../agent/skills.js";
@@ -29,7 +31,8 @@ import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.j
 import { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
-import { describeTelegramError, editTelegramText, sendTelegramChatAction, sendTelegramText } from "./formatting.js";
+import type { AcpPendingPermissionView } from "../../acp/types.js";
+import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText } from "./formatting.js";
 import { ChannelQueue } from "../shared/queue.js";
 import type { ModelOption, ModelRoute, ParsedRelativeReminder, StatusSession } from "./types.js";
 
@@ -54,15 +57,38 @@ export class TelegramManager {
   private readonly runners: RunnerPool;
   private readonly memory: MemoryGateway;
   private readonly instanceId: string;
+  private readonly acp: AcpService;
   private bot: Bot | undefined;
   private currentToken = "";
   private currentAllowedChatIdsKey = "";
   private botUsername = "";
   private readonly chatQueues = new Map<string, ChannelQueue>();
+  private readonly acpPermissionActions = new Map<string, {
+    chatId: string;
+    requestId: string;
+    action: "select" | "deny" | "deny_with_note";
+    optionId?: string;
+  }>();
+  private readonly acpPermissionInputs = new Map<string, { requestId: string }>();
   private readonly running = new Set<string>();
   private readonly events: EventsWatcher[] = [];
   private readonly watchedChatEventDirs = new Set<string>();
   private authDisabled = false;
+
+  private splitTelegramMessageText(text: string, chunkSize = 3500): string[] {
+    const normalized = String(text ?? "").replace(/\r\n?/g, "\n").trim();
+    if (!normalized) return [];
+    const chunks: string[] = [];
+    let remaining = normalized;
+    while (remaining.length > chunkSize) {
+      let splitAt = remaining.lastIndexOf("\n", chunkSize);
+      if (splitAt < Math.floor(chunkSize / 2)) splitAt = chunkSize;
+      chunks.push(remaining.slice(0, splitAt).trim());
+      remaining = remaining.slice(splitAt).trim();
+    }
+    if (remaining) chunks.push(remaining);
+    return chunks;
+  }
 
 
   constructor(
@@ -79,6 +105,11 @@ export class TelegramManager {
       throw new Error("TelegramManager requires MemoryGateway for unified memory operations.");
     }
     this.memory = options.memory;
+    this.acp = new AcpService(
+      this.getSettings,
+      this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
+      { stateFilePath: join(this.workspaceDir, "acp_sessions.json") }
+    );
     this.runners = new RunnerPool(
       "telegram",
       this.store,
@@ -86,6 +117,119 @@ export class TelegramManager {
       this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
       options.usageTracker,
       options.memory
+    );
+  }
+
+  private buildStructuredAcpTaskPrompt(prompt: string): string {
+    return [
+      prompt.trim(),
+      "",
+      "Output requirements:",
+      "- Return the final answer in concise Markdown.",
+      "- Use short sections when relevant: `## Summary`, `## Execution Context`, `## Changes`, `## Verification`, `## Notes`.",
+      "- `## Execution Context` is mandatory. Include raw outputs (or explicit errors) for each command below:",
+      "  - `pwd`",
+      "  - `ls -la`",
+      "  - `command -v python || command -v python3`",
+      "  - `python -V || python3 -V`",
+      "  - `command -v uv || true`",
+      "  - `echo \"DATABASE_URL=$DATABASE_URL\"`",
+      "  - `echo \"DB_PATH=$DB_PATH\"`",
+      "- If the task runs a script or command, print the exact command and exit code.",
+      "- Prefer bullet lists over long unbroken paragraphs.",
+      "- When mentioning files, wrap paths in backticks.",
+      "- In `## Changes`, use bullets like `- `path/to/file`: what changed`.",
+      "- In `## Verification`, list commands or checks and whether they passed or could not run.",
+      "- If something is blocked, say exactly what is blocked and what still needs manual verification."
+    ].join("\n");
+  }
+
+  private summarizeForTelegram(text: string, max = 280): string {
+    const normalized = text.replace(/\s+/g, " ").trim();
+    if (normalized.length <= max) return normalized;
+    return `${normalized.slice(0, Math.max(0, max - 1))}…`;
+  }
+
+  private formatAcpPermissionOptionLabel(optionId: string, fallback: string): string {
+    const normalized = optionId.toLowerCase();
+    if (normalized.includes("execpolicy") || normalized.includes("dont") || normalized.includes("always")) {
+      return "Always approve";
+    }
+    if (normalized.includes("approve") || normalized.includes("allow") || normalized.includes("yes")) {
+      return "Approve";
+    }
+    if (normalized.includes("deny") || normalized.includes("reject") || normalized.includes("cancel") || normalized.includes("abort")) {
+      return "Deny";
+    }
+    return fallback.length <= 28 ? fallback : `${fallback.slice(0, 27)}…`;
+  }
+
+  private buildAcpPermissionText(permission: AcpPendingPermissionView): string {
+    const lines = [
+      "## ACP Permission Request",
+      `- Request: \`${permission.id}\``,
+      `- Title: ${permission.title}`,
+      `- Kind: ${permission.kind}`
+    ];
+    if (permission.inputPreview) {
+      lines.push(`- Input: \`${permission.inputPreview}\``);
+    }
+    lines.push("", "Choose an action below.");
+    return lines.join("\n");
+  }
+
+  private registerAcpPermissionAction(
+    chatId: string,
+    requestId: string,
+    action: "select" | "deny" | "deny_with_note",
+    optionId?: string
+  ): string {
+    const token = randomUUID().replace(/-/g, "").slice(0, 24);
+    this.acpPermissionActions.set(token, { chatId, requestId, action, optionId });
+    return `acp:${token}`;
+  }
+
+  private buildAcpPermissionKeyboard(chatId: string, permission: AcpPendingPermissionView): InlineKeyboard {
+    const keyboard = new InlineKeyboard();
+    let buttonsInRow = 0;
+    for (const option of permission.options.slice(0, 4)) {
+      keyboard.text(
+        this.formatAcpPermissionOptionLabel(option.optionId, option.name || option.optionId),
+        this.registerAcpPermissionAction(chatId, permission.id, "select", option.optionId)
+      );
+      buttonsInRow += 1;
+      if (buttonsInRow >= 2) {
+        keyboard.row();
+        buttonsInRow = 0;
+      }
+    }
+
+    if (buttonsInRow > 0) {
+      keyboard.row();
+    }
+
+    keyboard
+      .text("Deny", this.registerAcpPermissionAction(chatId, permission.id, "deny"))
+      .text("Deny with note", this.registerAcpPermissionAction(chatId, permission.id, "deny_with_note"));
+
+    return keyboard;
+  }
+
+  private async sendAcpPermissionCard(
+    bot: Bot,
+    chatId: string,
+    permission: AcpPendingPermissionView,
+    replyTo?: number | null
+  ): Promise<void> {
+    const keyboard = this.buildAcpPermissionKeyboard(chatId, permission);
+    await sendTelegramText(
+      bot,
+      chatId,
+      this.buildAcpPermissionText(permission),
+      {
+        reply_markup: keyboard,
+        ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {})
+      }
     );
   }
 
@@ -160,6 +304,7 @@ export class TelegramManager {
 
     if (this.bot && this.currentToken === token && this.currentAllowedChatIdsKey === allowedChatIdsKey) {
       momLog("telegram", "apply_noop_same_token", { botId: this.instanceId });
+      void this.writePromptPreview(allowedChatIds);
       return;
     }
 
@@ -172,6 +317,31 @@ export class TelegramManager {
       allowedChatIds: Array.from(allowed)
     });
     const bot = new Bot(token);
+    bot.api.config.use(async (prev, method, payload, signal) => {
+      if (method !== "sendMessage") {
+        return await prev(method, payload, signal);
+      }
+
+      const body = payload as Record<string, unknown>;
+      const rawText = typeof body.text === "string" ? body.text : "";
+      if (!rawText) {
+        return await prev(method, payload, signal);
+      }
+      const chunks = this.splitTelegramMessageText(rawText);
+      if (chunks.length <= 1) {
+        return await prev(method, payload, signal);
+      }
+
+      let lastResult: unknown = null;
+      for (let i = 0; i < chunks.length; i += 1) {
+        const nextPayload =
+          i === 0
+            ? { ...body, text: chunks[i] }
+            : { ...body, text: chunks[i], reply_parameters: undefined };
+        lastResult = await prev(method, nextPayload as never, signal);
+      }
+      return lastResult;
+    });
 
     bot.command("chatid", async (ctx) => {
       const chatId = String(ctx.chat.id);
@@ -199,6 +369,11 @@ export class TelegramManager {
       if (result.aborted) {
         await ctx.reply("Stopping...");
       } else {
+        const cancelledAcp = await this.acp.cancelRun(chatId);
+        if (cancelledAcp) {
+          await ctx.reply("ACP cancellation requested.");
+          return;
+        }
         momLog("telegram", "stop_nothing_running", { chatId });
         await ctx.reply("Nothing running.");
       }
@@ -215,6 +390,7 @@ export class TelegramManager {
       const sessionId = this.store.createSession(chatId);
       this.runners.reset(chatId, sessionId);
       await ctx.reply(`Created and switched to new session: ${sessionId}`);
+      void this.writePromptPreview(Array.from(allowed));
       momLog("telegram", "session_new", { chatId, sessionId });
     });
 
@@ -230,6 +406,7 @@ export class TelegramManager {
       this.store.clearSessionContext(chatId, sessionId);
       this.runners.reset(chatId, sessionId);
       await ctx.reply(`Cleared context for session: ${sessionId}`);
+      void this.writePromptPreview(Array.from(allowed));
       momLog("telegram", "session_clear", { chatId, sessionId });
     });
 
@@ -250,6 +427,7 @@ export class TelegramManager {
         }
         this.store.setActiveSession(chatId, picked);
         await ctx.reply(`Switched to session: ${picked}`);
+        void this.writePromptPreview(Array.from(allowed));
         momLog("telegram", "session_switch", { chatId, sessionId: picked, selector: rawArg });
         return;
       }
@@ -296,16 +474,322 @@ export class TelegramManager {
       }
     });
 
+    bot.command("acp", async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      if (allowed.size > 0 && !allowed.has(chatId)) return;
+      const rawArg = this.readCommandArg(ctx.msg?.text, "/acp");
+      const [subcommand = "help", ...rest] = rawArg.split(/\s+/).filter(Boolean);
+
+      const sendThread = async (text: string, replyTo?: number | null) => {
+        await sendTelegramText(bot, chatId, text, replyTo ? { reply_parameters: { message_id: replyTo } } : undefined);
+      };
+
+      try {
+        switch (subcommand.toLowerCase()) {
+          case "help":
+            await ctx.reply(this.acpHelpText());
+            return;
+          case "targets":
+            await ctx.reply(formatAcpTargets(this.acp.listTargets()));
+            return;
+          case "projects":
+            await ctx.reply(formatAcpProjects(this.acp.listProjects()));
+            return;
+          case "sessions": {
+            const listed = await this.acp.listSessions(chatId);
+            const chunks = this.chunkTelegramText(formatAcpSessions(listed));
+            for (const chunk of chunks) {
+              await ctx.reply(chunk);
+            }
+            return;
+          }
+          case "add-project": {
+            const projectId = rest[0] ?? "";
+            const projectPath = rest.slice(1).join(" ").trim();
+            if (!projectId || !projectPath) {
+              await ctx.reply("Usage: /acp add-project <id> <absolute-path>");
+              return;
+            }
+            const project = this.acp.upsertProject(projectId, projectPath);
+            await ctx.reply(`Saved ACP project ${project.id} -> ${project.path}`);
+            return;
+          }
+          case "remove-project": {
+            const projectId = rest[0] ?? "";
+            if (!projectId) {
+              await ctx.reply("Usage: /acp remove-project <id>");
+              return;
+            }
+            const removed = this.acp.removeProject(projectId);
+            await ctx.reply(removed ? `Removed ACP project ${projectId}.` : `Project not found: ${projectId}`);
+            return;
+          }
+          case "new": {
+            const [targetId = "", projectId = "", modeRaw = ""] = rest;
+            if (!targetId || !projectId) {
+              await ctx.reply("Usage: /acp new <targetId> <projectId> [manual|auto-safe|auto-all]");
+              return;
+            }
+            const mode = modeRaw === "manual" || modeRaw === "auto-safe" || modeRaw === "auto-all"
+              ? modeRaw
+              : undefined;
+            const summary = await this.acp.openSession(chatId, targetId, projectId, mode);
+            await ctx.reply(formatAcpSessionSummary(summary));
+            return;
+          }
+          case "status":
+            await this.acp.restoreSession(chatId);
+            await ctx.reply(formatAcpSessionSummary(this.acp.getStatus(chatId)));
+            return;
+          case "mode": {
+            const modeRaw = rest[0] ?? "";
+            if (modeRaw !== "manual" && modeRaw !== "auto-safe" && modeRaw !== "auto-all") {
+              await ctx.reply("Usage: /acp mode <manual|auto-safe|auto-all>");
+              return;
+            }
+            await this.acp.restoreSession(chatId);
+            const summary = this.acp.setApprovalMode(chatId, modeRaw);
+            await ctx.reply(formatAcpSessionSummary(summary));
+            return;
+          }
+          case "task": {
+            const prompt = rawArg.replace(/^task\s+/i, "").trim();
+            if (!prompt) {
+              await ctx.reply("Usage: /acp task <instructions>");
+              return;
+            }
+            await this.acp.restoreSession(chatId);
+            const taskPrompt = this.buildStructuredAcpTaskPrompt(prompt);
+            const sent = await sendTelegramText(bot, chatId, `ACP task started\n${prompt}`);
+            let statusText = `ACP task started\n${prompt}`;
+            let pendingStatusText: string | null = null;
+            let statusFlush: Promise<void> | null = null;
+            let lastStatusEditAt = 0;
+            const statusEditIntervalMs = 1500;
+            const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+            const flushStatus = async () => {
+              while (pendingStatusText && pendingStatusText !== statusText) {
+                const nextText = pendingStatusText;
+                pendingStatusText = null;
+                const waitMs = Math.max(0, statusEditIntervalMs - (Date.now() - lastStatusEditAt));
+                if (waitMs > 0) {
+                  await sleep(waitMs);
+                }
+                try {
+                  await editTelegramText(bot, chatId, sent.message_id, nextText);
+                  lastStatusEditAt = Date.now();
+                } catch (error) {
+                  momWarn("telegram", "acp_status_edit_failed", {
+                    chatId,
+                    messageId: sent.message_id,
+                    error: error instanceof Error ? error.message : String(error),
+                    errorDetails: describeTelegramError(error)
+                  });
+                }
+                statusText = nextText;
+              }
+              statusFlush = null;
+            };
+            const setStatus = async (text: string) => {
+              if (text === statusText || text === pendingStatusText) return;
+              pendingStatusText = text;
+              if (!statusFlush) {
+                statusFlush = flushStatus().catch((error) => {
+                  momWarn("telegram", "acp_status_flush_failed", {
+                    chatId,
+                    messageId: sent.message_id,
+                    error: error instanceof Error ? error.message : String(error),
+                    errorDetails: describeTelegramError(error)
+                  });
+                  statusFlush = null;
+                });
+              }
+              await statusFlush;
+            };
+            const result = await this.acp.runTask(chatId, taskPrompt, {
+              onStatus: async (text) => {
+                await setStatus(text);
+              },
+              onEvent: async (text) => {
+                await sendThread(text, sent.message_id);
+              },
+              onPermissionRequest: async (permission) => {
+                await this.sendAcpPermissionCard(bot, chatId, permission, sent.message_id);
+              }
+            });
+            const summaryLines = [
+              "## ACP Result",
+              `- Stop reason: \`${result.stopReason}\``,
+              `- Tool calls: ${result.toolCalls.length}`,
+              result.lastStatus ? `- Last status: ${result.lastStatus}` : ""
+            ].filter(Boolean);
+            const completedTools = result.toolCalls.filter((tool) => tool.status === "completed");
+            const failedTools = result.toolCalls.filter((tool) => tool.status === "failed");
+            const touchedLocations = Array.from(
+              new Set(
+                completedTools
+                  .flatMap((tool) => tool.locations)
+                  .map((location) => location.trim())
+                  .filter(Boolean)
+              )
+            );
+            if (completedTools.length > 0) {
+              summaryLines.push(`- Completed tools: ${completedTools.length}`);
+            }
+            if (failedTools.length > 0) {
+              summaryLines.push(`- Failed tools: ${failedTools.length}`);
+            }
+            if (touchedLocations.length > 0) {
+              summaryLines.push(`- Touched: ${touchedLocations.slice(0, 8).map((location) => `\`${location}\``).join(", ")}`);
+            }
+            await sendThread(summaryLines.join("\n"), sent.message_id);
+            if (result.assistantText) {
+              const chunks = this.chunkTelegramText(result.assistantText);
+              for (const chunk of chunks) {
+                await sendThread(chunk, sent.message_id);
+              }
+            }
+            return;
+          }
+          case "cancel":
+          case "stop": {
+            await this.acp.restoreSession(chatId);
+            const cancelled = await this.acp.cancelRun(chatId);
+            await ctx.reply(cancelled ? "ACP cancellation requested." : "No ACP task is running.");
+            return;
+          }
+          case "close": {
+            const closed = await this.acp.closeSession(chatId);
+            await ctx.reply(closed ? "ACP session closed." : "No active ACP session.");
+            return;
+          }
+          default:
+            await ctx.reply(this.acpHelpText());
+        }
+      } catch (error) {
+        await ctx.reply(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    bot.command("approve", async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      if (allowed.size > 0 && !allowed.has(chatId)) return;
+      const rawArg = this.readCommandArg(ctx.msg?.text, "/approve");
+      const [requestId = "", optionId = ""] = rawArg.split(/\s+/).filter(Boolean);
+      if (!requestId || !optionId) {
+        await ctx.reply("Usage: /approve <requestId> <optionId>");
+        return;
+      }
+      try {
+        await ctx.reply(await this.acp.approve(chatId, requestId, optionId));
+      } catch (error) {
+        await ctx.reply(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    bot.command("deny", async (ctx) => {
+      const chatId = String(ctx.chat.id);
+      if (allowed.size > 0 && !allowed.has(chatId)) return;
+      const requestId = this.readCommandArg(ctx.msg?.text, "/deny").split(/\s+/).filter(Boolean)[0] ?? "";
+      if (!requestId) {
+        await ctx.reply("Usage: /deny <requestId>");
+        return;
+      }
+      try {
+        await ctx.reply(await this.acp.deny(chatId, requestId));
+      } catch (error) {
+        await ctx.reply(error instanceof Error ? error.message : String(error));
+      }
+    });
+
+    bot.callbackQuery(/^acp:/, async (ctx) => {
+      const callbackMessage = ctx.callbackQuery.message;
+      const chatId = String(callbackMessage?.chat.id ?? "");
+      if (!chatId) {
+        await ctx.answerCallbackQuery({ text: "Chat context is unavailable." });
+        return;
+      }
+      if (allowed.size > 0 && !allowed.has(chatId)) {
+        await ctx.answerCallbackQuery({ text: "Chat not allowed." });
+        return;
+      }
+
+      const token = ctx.callbackQuery.data.slice(4);
+      const action = this.acpPermissionActions.get(token);
+      if (!action || action.chatId !== chatId) {
+        await ctx.answerCallbackQuery({ text: "This permission request is no longer available." });
+        return;
+      }
+
+      const messageId = callbackMessage?.message_id;
+      const currentText =
+        (callbackMessage && "text" in callbackMessage && typeof callbackMessage.text === "string")
+          ? callbackMessage.text
+          : null;
+
+      try {
+        if (action.action === "deny_with_note") {
+          const permission = this.acp.getPendingPermission(chatId, action.requestId);
+          if (!permission) {
+            this.acpPermissionActions.delete(token);
+            await ctx.answerCallbackQuery({ text: "Request already resolved." });
+            return;
+          }
+          this.acpPermissionInputs.set(chatId, { requestId: action.requestId });
+          await ctx.answerCallbackQuery({ text: "Send your note in the next message." });
+          await ctx.reply(
+            [
+              `Reply with your note for ACP request \`${action.requestId}\`.`,
+              "Your next text message will be recorded as an operator note and the request will be denied.",
+              "Send `cancel` to keep the permission request pending."
+            ].join("\n")
+          );
+          return;
+        }
+
+        const result = action.action === "select" && action.optionId
+          ? await this.acp.respondToPermission(chatId, action.requestId, action.optionId)
+          : await this.acp.deny(chatId, action.requestId);
+        this.acpPermissionActions.delete(token);
+        this.acpPermissionInputs.delete(chatId);
+        await ctx.answerCallbackQuery({
+          text: action.action === "select" ? "Submitted." : "Denied."
+        });
+        if (messageId && currentText) {
+          await editTelegramMessage(
+            bot,
+            chatId,
+            messageId,
+            `${currentText}\n\nResolved: ${result}`,
+            { reply_markup: { inline_keyboard: [] } }
+          );
+        } else {
+          await ctx.reply(result);
+        }
+      } catch (error) {
+        this.acpPermissionActions.delete(token);
+        await ctx.answerCallbackQuery({
+          text: error instanceof Error ? this.summarizeForTelegram(error.message, 180) : "ACP action failed."
+        });
+      }
+    });
+
     bot.command("help", async (ctx) => {
       const chatId = String(ctx.chat.id);
       if (allowed.size > 0 && !allowed.has(chatId)) return;
-      await ctx.reply(this.helpText());
+      const chunks = this.chunkTelegramText(this.helpText());
+      for (const chunk of chunks) {
+        await sendTelegramText(bot, chatId, chunk);
+      }
     });
 
     bot.command("skills", async (ctx) => {
       const chatId = String(ctx.chat.id);
       if (allowed.size > 0 && !allowed.has(chatId)) return;
-      await ctx.reply(this.skillsText(chatId));
+      const chunks = this.chunkTelegramText(this.skillsText(chatId));
+      for (const chunk of chunks) {
+        await sendTelegramText(bot, chatId, chunk);
+      }
     });
 
     bot.command("compact", async (ctx) => {
@@ -407,7 +891,10 @@ export class TelegramManager {
 
       const rawArg = this.readCommandArg(ctx.msg?.text, "/models");
       if (!rawArg) {
-        await ctx.reply(this.modelsText("text"));
+        const chunks = this.chunkTelegramText(this.modelsText("text"));
+        for (const chunk of chunks) {
+          await sendTelegramText(bot, chatId, chunk);
+        }
         return;
       }
 
@@ -427,12 +914,18 @@ export class TelegramManager {
       const settings = this.getSettings();
       const options = buildModelOptions(settings, route);
       if (!selector) {
-        await ctx.reply(this.modelsText(route));
+        const chunks = this.chunkTelegramText(this.modelsText(route));
+        for (const chunk of chunks) {
+          await sendTelegramText(bot, chatId, chunk);
+        }
         return;
       }
       const selected = resolveModelSelection(selector, options);
       if (!selected) {
-        await ctx.reply(`Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
+        const chunks = this.chunkTelegramText(`Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
+        for (const chunk of chunks) {
+          await sendTelegramText(bot, chatId, chunk);
+        }
         return;
       }
 
@@ -443,7 +936,10 @@ export class TelegramManager {
         updateSettings: this.updateSettings
       });
       if (!switched) {
-        await ctx.reply(`Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
+        const chunks = this.chunkTelegramText(`Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
+        for (const chunk of chunks) {
+          await sendTelegramText(bot, chatId, chunk);
+        }
         return;
       }
       await ctx.reply(
@@ -466,6 +962,7 @@ export class TelegramManager {
       const chatId = String(ctx.chat.id);
       const userId = String(ctx.msg?.from?.id ?? "unknown");
       const messageId = Number(ctx.msg?.message_id ?? Date.now());
+      const rawText = typeof ctx.msg?.text === "string" ? ctx.msg.text.trim() : "";
       const initialStatusText = this.buildInboundRecognitionStatus(ctx.msg);
       let initialStatusMessageId: number | null = null;
 
@@ -481,6 +978,31 @@ export class TelegramManager {
 
       if (allowed.size > 0 && !allowed.has(chatId)) {
         momWarn("telegram", "message_blocked_chat", { chatId, userId, messageId });
+        return;
+      }
+
+      const pendingPermissionInput = this.acpPermissionInputs.get(chatId);
+      if (pendingPermissionInput && rawText) {
+        if (/^cancel$/i.test(rawText)) {
+          this.acpPermissionInputs.delete(chatId);
+          await ctx.reply(`Cancelled note entry for ACP request ${pendingPermissionInput.requestId}. Permission is still pending.`);
+          return;
+        }
+
+        try {
+          const result = await this.acp.deny(chatId, pendingPermissionInput.requestId);
+          this.acpPermissionInputs.delete(chatId);
+          await ctx.reply(
+            [
+              result,
+              `Operator note: ${this.summarizeForTelegram(rawText, 500)}`,
+              "If you want Codex to try a different approach, send a new `/acp task ...` instruction."
+            ].join("\n")
+          );
+        } catch (error) {
+          this.acpPermissionInputs.delete(chatId);
+          await ctx.reply(error instanceof Error ? error.message : String(error));
+        }
         return;
       }
 
@@ -692,6 +1214,7 @@ export class TelegramManager {
   }
 
   stop(): void {
+    void this.acp.dispose();
     if (this.events.length > 0) {
       for (const watcher of this.events) {
         watcher.stop();
@@ -1219,7 +1742,7 @@ export class TelegramManager {
       }
 
       if (result.stopReason === "aborted") {
-        await bot.api.sendMessage(chatId, "Stopped.");
+        await sendTelegramText(bot, chatId, "Stopped.");
       }
     } catch (error) {
       momError("telegram", "process_failed", {
@@ -1228,7 +1751,7 @@ export class TelegramManager {
         error: error instanceof Error ? error.message : String(error),
         errorDetails: describeTelegramError(error)
       });
-      await bot.api.sendMessage(chatId, "Internal error.");
+      await sendTelegramText(bot, chatId, "Internal error.");
     } finally {
       this.running.delete(chatId);
       momLog("telegram", "process_end", { runId, chatId });
@@ -1275,6 +1798,42 @@ export class TelegramManager {
     return lines.join("\n");
   }
 
+  private acpHelpText(): string {
+    return [
+      "ACP commands:",
+      "/acp help - show ACP command help",
+      "/acp targets - list configured ACP targets",
+      "/acp projects - list registered ACP projects",
+      "/acp sessions - list available ACP sessions for current target/project",
+      "/acp add-project <id> <absolute-path> - register/update a project",
+      "/acp remove-project <id> - remove a registered project",
+      "/acp new <targetId> <projectId> [manual|auto-safe|auto-all] - open a coding session",
+      "/acp status - show current ACP session",
+      "/acp mode <manual|auto-safe|auto-all> - change approval mode",
+      "/acp task <instructions> - send a coding task to the active ACP session",
+      "/acp stop - stop the running ACP task immediately",
+      "/acp cancel - cancel the running ACP task",
+      "/acp close - close the ACP session",
+      "/approve <requestId> <optionId> - approve a pending ACP request",
+      "/deny <requestId> - reject or cancel a pending ACP request"
+    ].join("\n");
+  }
+
+  private chunkTelegramText(text: string, chunkSize = 3500): string[] {
+    const normalized = text.trim();
+    if (!normalized) return [];
+    const chunks: string[] = [];
+    let remaining = normalized;
+    while (remaining.length > chunkSize) {
+      let splitAt = remaining.lastIndexOf("\n", chunkSize);
+      if (splitAt < Math.floor(chunkSize / 2)) splitAt = chunkSize;
+      chunks.push(remaining.slice(0, splitAt).trim());
+      remaining = remaining.slice(splitAt).trim();
+    }
+    if (remaining) chunks.push(remaining);
+    return chunks;
+  }
+
   private helpText(): string {
     return [
       "Available commands:",
@@ -1286,11 +1845,14 @@ export class TelegramManager {
       "/sessions <index|sessionId> - switch active session",
       "/delete_sessions - list sessions and delete usage",
       "/delete_sessions <index|sessionId> - delete a session",
-      "/models - list text-model options and active text model",
+      "/models - show text route models and current active model",
       "/models <index|key> - switch text model",
-      "/models <text|vision|stt|tts> - list options for a specific route",
+      "/models <text|vision|stt|tts> - show models and current active model for that route",
       "/models <text|vision|stt|tts> <index|key> - switch route model",
       "/compact [instructions] - summarize older context of current session",
+      "/acp help - show ACP coding control commands",
+      "/approve <requestId> <optionId> - approve ACP permission",
+      "/deny <requestId> - reject ACP permission",
       "/login <provider> - start OAuth login",
       "/login <provider> <code-or-redirect-url> - finish OAuth login",
       "/logout <provider> - remove stored auth",
@@ -1360,9 +1922,12 @@ export class TelegramManager {
     const settings = this.getSettings();
     const options = this.buildModelOptions(settings, route);
     const activeKey = this.currentModelKey(settings, route);
+    const activeOption = options.find((option) => option.key === activeKey);
     const lines = [
       `Route: ${route}`,
       `Provider mode: ${settings.providerMode}`,
+      `Current active model: ${activeOption ? activeOption.label : "(not found in current options)"}`,
+      `Current active key: ${activeKey || "(empty)"}`,
       `Configured model options: ${options.length}`,
       ""
     ];

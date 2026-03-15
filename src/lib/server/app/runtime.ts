@@ -1,5 +1,7 @@
 import {
   type AgentSettings,
+  type AcpApprovalMode,
+  type AcpSettings,
   defaultRuntimeSettings,
   isKnownProvider,
   type ProviderModelConfig,
@@ -208,6 +210,78 @@ function sanitizeAgents(input: unknown): AgentSettings[] {
     });
   }
   return out;
+}
+
+function sanitizeAcpApprovalMode(input: unknown, fallback: AcpApprovalMode = "manual"): AcpApprovalMode {
+  const value = String(input ?? "").trim().toLowerCase();
+  if (value === "manual" || value === "auto-safe" || value === "auto-all") {
+    return value;
+  }
+  return fallback;
+}
+
+function sanitizeAcpSettings(input: unknown): AcpSettings {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const rawTargets = Array.isArray(source.targets) ? source.targets : [];
+  const targets: AcpSettings["targets"] = rawTargets
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const item = row as Record<string, unknown>;
+      const id = String(item.id ?? "").trim();
+      const command = String(item.command ?? "").trim();
+      if (!id || !command) return null;
+      return {
+        id,
+        name: String(item.name ?? id).trim() || id,
+        enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+        command,
+        args: Array.isArray(item.args)
+          ? item.args.map((value) => String(value ?? "").trim()).filter(Boolean)
+          : [],
+        env: item.env && typeof item.env === "object"
+          ? Object.fromEntries(
+            Object.entries(item.env as Record<string, unknown>)
+              .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
+              .filter(([key]) => Boolean(key))
+          )
+          : {},
+        cwd: String(item.cwd ?? "").trim()
+      };
+    })
+    .filter((value): value is AcpSettings["targets"][number] => value !== null);
+
+  const rawProjects = Array.isArray(source.projects) ? source.projects : [];
+  const projects: AcpSettings["projects"] = rawProjects
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const item = row as Record<string, unknown>;
+      const id = String(item.id ?? "").trim();
+      const path = String(item.path ?? "").trim();
+      if (!id || !path) return null;
+      return {
+        id,
+        name: String(item.name ?? id).trim() || id,
+        enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+        path,
+        allowedTargetIds: Array.isArray(item.allowedTargetIds)
+          ? item.allowedTargetIds.map((value) => String(value ?? "").trim()).filter(Boolean)
+          : [],
+        defaultApprovalMode: sanitizeAcpApprovalMode(item.defaultApprovalMode, "manual")
+      };
+    })
+    .filter((value): value is AcpSettings["projects"][number] => value !== null);
+
+  return {
+    enabled: source.enabled === undefined ? defaultRuntimeSettings.acp.enabled : Boolean(source.enabled),
+    targets: targets.length > 0
+      ? targets
+      : defaultRuntimeSettings.acp.targets.map((target) => ({
+        ...target,
+        args: [...target.args],
+        env: { ...target.env }
+      })),
+    projects
+  };
 }
 
 function sanitizeQQBots(input: unknown): QQBotConfig[] {
@@ -517,6 +591,7 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   };
 
   next.systemPrompt = String(next.systemPrompt ?? "").trim() || defaultRuntimeSettings.systemPrompt;
+  next.acp = sanitizeAcpSettings(next.acp ?? current.acp);
   next.agents = sanitizeAgents(next.agents ?? current.agents);
   const sanitizedTelegramBots = sanitizeTelegramBots(next.telegramBots);
   const sanitizedFeishuBots = sanitizeFeishuBots(next.feishuBots);
