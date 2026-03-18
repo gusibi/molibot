@@ -4,6 +4,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
+import { parseSkillFrontmatter } from "$lib/server/agent/skillFrontmatter.js";
 
 type SkillScope = "global" | "chat" | "bot";
 
@@ -17,33 +18,6 @@ interface SkillItem {
   mcpServers: string[];
   botId?: string;
   chatId?: string;
-}
-
-function stripQuotes(value: string): string {
-  const trimmed = value.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
-function parseFrontmatter(content: string): Record<string, string> | null {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/);
-  if (!match) return null;
-  const data: Record<string, string> = {};
-  for (const rawLine of match[1].split("\n")) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const idx = line.indexOf(":");
-    if (idx <= 0) continue;
-    const key = line.slice(0, idx).trim();
-    const value = stripQuotes(line.slice(idx + 1));
-    if (key) data[key] = value;
-  }
-  return data;
 }
 
 function collectSkillFiles(rootDir: string, out: string[]): void {
@@ -74,7 +48,7 @@ function parseSkillFile(
     diagnostics.push(`Failed to read ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
     return null;
   }
-  const fm = parseFrontmatter(raw);
+  const fm = parseSkillFrontmatter(raw);
   if (!fm) {
     diagnostics.push(`Missing frontmatter in ${filePath}`);
     return null;

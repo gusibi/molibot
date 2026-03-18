@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { parseSkillFrontmatter } from "./skillFrontmatter.js";
 import { resolveDataRootFromWorkspacePath } from "./workspace.js";
 
 export type SkillScope = "chat" | "global" | "bot";
@@ -20,35 +21,6 @@ export interface SkillLoadResult {
 
 interface SkillLoadOptions {
   disabledSkillPaths?: string[];
-}
-
-function stripQuotes(value: string): string {
-  const trimmed = value.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
-function parseFrontmatter(content: string): Record<string, string> | null {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/);
-  if (!match) return null;
-
-  const data: Record<string, string> = {};
-  const body = match[1];
-  for (const rawLine of body.split("\n")) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const idx = line.indexOf(":");
-    if (idx <= 0) continue;
-    const key = line.slice(0, idx).trim();
-    const value = stripQuotes(line.slice(idx + 1));
-    if (key) data[key] = value;
-  }
-  return data;
 }
 
 function parseStringList(raw: string | undefined): string[] {
@@ -74,6 +46,53 @@ function parseStringList(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function buildSkillNameAliases(name: string): Set<string> {
+  const raw = String(name ?? "").trim().toLowerCase();
+  const aliases = new Set<string>();
+  if (!raw) return aliases;
+  aliases.add(raw);
+  const tokens = raw.split(/[\s_-]+/).filter(Boolean);
+  if (tokens.length > 0) {
+    aliases.add(tokens.join("-"));
+    aliases.add(tokens.join("_"));
+    aliases.add(tokens.join(""));
+  }
+  return aliases;
+}
+
+function extractDirectSlashSelector(inputText: string): string | null {
+  const match = String(inputText ?? "").trim().match(/^\/([^\s@]+)(?:@[^\s]+)?(?:\s|$)/);
+  if (!match?.[1]) return null;
+  return match[1].trim().toLowerCase();
+}
+
+function matchesExplicitInvocation(skillName: string, inputText: string): boolean {
+  const text = String(inputText ?? "").toLowerCase();
+  if (!text.trim()) return false;
+
+  const aliases = buildSkillNameAliases(skillName);
+  if (aliases.size === 0) return false;
+
+  const directSlashSelector = extractDirectSlashSelector(text);
+  if (directSlashSelector && aliases.has(directSlashSelector)) {
+    return true;
+  }
+
+  for (const alias of aliases) {
+    const explicitPatterns = [
+      `$${alias}`,
+      `/skill ${alias}`,
+      `skill:${alias}`,
+      `技能:${alias}`
+    ];
+    if (explicitPatterns.some((pattern) => text.includes(pattern))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function findSkillFiles(rootDir: string, out: string[]): void {
   const entries = readdirSync(rootDir, { withFileTypes: true });
   for (const entry of entries) {
@@ -93,7 +112,6 @@ export function loadSkillsFromWorkspace(
   chatId?: string,
   options?: SkillLoadOptions
 ): SkillLoadResult {
-  const files: string[] = [];
   const diagnostics: string[] = [];
   const disabled = new Set(
     (options?.disabledSkillPaths ?? [])
@@ -132,7 +150,7 @@ export function loadSkillsFromWorkspace(
       continue;
     }
 
-    const fm = parseFrontmatter(raw);
+    const fm = parseSkillFrontmatter(raw);
     if (!fm) {
       diagnostics.push(`Missing frontmatter in ${filePath}`);
       continue;
@@ -173,28 +191,21 @@ export function formatSkillsForPrompt(skills: LoadedSkill[]): string {
   return skills
     .map(
       (skill) =>
-        `- ${skill.name}\n  description: ${skill.description}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}\n  base_dir: ${skill.baseDir}${
+        `- ${skill.name}\n  description: ${skill.description}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}${
           skill.mcpServers.length > 0 ? `\n  mcp_servers: ${skill.mcpServers.join(", ")}` : ""
         }`
     )
     .join("\n");
 }
 
+export function findExplicitlyInvokedSkills(skills: LoadedSkill[], inputText: string): LoadedSkill[] {
+  return skills.filter((skill) => matchesExplicitInvocation(skill.name, inputText));
+}
+
 export function resolveRequestedMcpServerIds(skills: LoadedSkill[], inputText: string): string[] {
-  const text = inputText.toLowerCase();
   const matched = new Set<string>();
-  for (const skill of skills) {
+  for (const skill of findExplicitlyInvokedSkills(skills, inputText)) {
     if (skill.mcpServers.length === 0) continue;
-    const normalizedName = skill.name.trim().toLowerCase();
-    if (!normalizedName) continue;
-    const explicitPatterns = [
-      `$${normalizedName}`,
-      `/skill ${normalizedName}`,
-      `skill:${normalizedName}`,
-      `技能:${normalizedName}`
-    ];
-    const explicitlyInvoked = explicitPatterns.some((pattern) => text.includes(pattern));
-    if (!explicitlyInvoked) continue;
     for (const serverId of skill.mcpServers) {
       matched.add(serverId);
     }

@@ -13,7 +13,7 @@ import { resolveSttTarget, transcribeAudioViaConfiguredProvider } from "./stt.js
 import { describeImageViaConfiguredProvider, resolveVisionFallbackTarget } from "./vision-fallback.js";
 import { createMomTools } from "./tools/index.js";
 import { getMcpToolsForRuntime } from "./mcp.js";
-import { loadSkillsFromWorkspace } from "./skills.js";
+import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace } from "./skills.js";
 import { compactContextMessages, shouldCompactContext } from "./compaction.js";
 import { hasConfiguredAuth, resolveProviderApiKey } from "./auth.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
@@ -384,25 +384,6 @@ function buildModelFallbackSelections(
   return rows;
 }
 
-function hasExplicitSkillInvocation(
-  skills: Array<{ name: string }>,
-  inputText: string
-): boolean {
-  const text = inputText.toLowerCase();
-  for (const skill of skills) {
-    const normalizedName = String(skill.name ?? "").trim().toLowerCase();
-    if (!normalizedName) continue;
-    const explicitPatterns = [
-      `$${normalizedName}`,
-      `/skill ${normalizedName}`,
-      `skill:${normalizedName}`,
-      `技能:${normalizedName}`
-    ];
-    if (explicitPatterns.some((pattern) => text.includes(pattern))) return true;
-  }
-  return false;
-}
-
 function hasExplicitMcpInvocation(inputText: string): boolean {
   const text = String(inputText ?? "").toLowerCase();
   const patterns = [
@@ -420,24 +401,13 @@ function hasExplicitMcpInvocation(inputText: string): boolean {
   return patterns.some((pattern) => text.includes(pattern));
 }
 
-function hasSkillInvocationThatRequiresMcp(
-  skills: Array<{ name: string; mcpServers?: string[] }>,
-  inputText: string
-): boolean {
-  const text = String(inputText ?? "").toLowerCase();
-  for (const skill of skills) {
-    const normalizedName = String(skill.name ?? "").trim().toLowerCase();
-    if (!normalizedName) continue;
-    if (!Array.isArray(skill.mcpServers) || skill.mcpServers.length === 0) continue;
-    const explicitPatterns = [
-      `$${normalizedName}`,
-      `/skill ${normalizedName}`,
-      `skill:${normalizedName}`,
-      `技能:${normalizedName}`
-    ];
-    if (explicitPatterns.some((pattern) => text.includes(pattern))) return true;
-  }
-  return false;
+function injectExplicitSkillInvocationContext(
+  inputText: string,
+  skills: Array<{ name: string }>
+): string {
+  if (skills.length === 0) return inputText;
+  const lines = skills.map((skill) => `- ${skill.name}`);
+  return `${inputText}\n\n[explicit skill invocation]\n${lines.join("\n")}\n[/explicit skill invocation]`;
 }
 
 function buildPromptRefreshKey(
@@ -1310,9 +1280,14 @@ export class MomRunner implements RunnerLike {
     const { skills } = loadSkillsFromWorkspace(this.store.getWorkspaceDir(), this.chatId, {
       disabledSkillPaths: settings.disabledSkillPaths
     });
-    const skillExplicitlyInvoked = hasExplicitSkillInvocation(skills, enrichedInput.text);
+    const explicitlyInvokedSkills = findExplicitlyInvokedSkills(skills, enrichedInput.text);
+    const skillExplicitlyInvoked = explicitlyInvokedSkills.length > 0;
     const mcpExplicitlyInvoked = hasExplicitMcpInvocation(enrichedInput.text);
-    const skillRequiresMcp = hasSkillInvocationThatRequiresMcp(skills, enrichedInput.text);
+    const skillRequiresMcp = explicitlyInvokedSkills.some((skill) => skill.mcpServers.length > 0);
+    const effectiveInputText = injectExplicitSkillInvocationContext(
+      enrichedInput.text,
+      explicitlyInvokedSkills
+    );
     const resolveScopedMcpServers = (): RuntimeSettings["mcpServers"] => {
       const settingsNow = this.getSettings();
       const selectedIds = this.selectedMcpServerIds;
@@ -1507,7 +1482,7 @@ export class MomRunner implements RunnerLike {
       const now = new Date();
       const timestamp = now.toISOString();
 
-      let userMessage = `[${timestamp}] [${ctx.message.userName || ctx.message.userId}]: ${enrichedInput.text}`;
+      let userMessage = `[${timestamp}] [${ctx.message.userName || ctx.message.userId}]: ${effectiveInputText}`;
       const nonImage = ctx.message.attachments
         .filter((a) => !a.isImage || !visionDecision.sendImagesNatively)
         .map((a) => `${ctx.workspaceDir}/${a.local}`);

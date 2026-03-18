@@ -111,6 +111,24 @@ function buildWorkspaceLayoutSection(vars: PromptRenderVars): string {
 }
 
 function buildSkillsProtocolSection(vars: PromptRenderVars): string {
+  if (vars.skillCreatorAvailable === "true") {
+    return [
+      "## Skills (Custom CLI Tools)",
+      `When a task requires creating/updating a skill, use \`${vars.skillCreatorSkillFile}\` first.`,
+      `Create reusable skills in \`${vars.globalSkillsDir}/<name>/\`.`,
+      `Create bot-scoped skills in \`${vars.botSkillsDir}/<name>/\`.`,
+      `Use \`${vars.chatSkillsDir}/<name>/\` only for chat-specific temporary skills.`,
+      "- If the user explicitly invokes a skill (`$skill-name`, `/skill skill-name`, `/skill-name`, `skill:skill-name`, `技能:skill-name`), you MUST use that skill for this turn.",
+      "- Slash form `/skill-name` is case-insensitive and matches normalized skill names; treat spaces, `_`, and `-` as equivalent.",
+      "- If no skill is explicitly invoked and one skill is the best fit, use it proactively. Do not wait for the user to repeat the request in a stricter format.",
+      "- If input contains `[explicit skill invocation]`, treat the listed skill names as authoritative runtime selection for this turn.",
+      "- Before using any skill, read its `SKILL.md` in full.",
+      "- Follow instructions in `SKILL.md` exactly.",
+      "- Resolve relative paths against the skill directory.",
+      "- If two skills overlap, pick the one with the clearest description match.",
+    ].join("\n");
+  }
+
   return [
     "## Skills (Custom CLI Tools)",
     "You can create reusable CLI tools for recurring tasks (APIs, data processing, automation, etc.).",
@@ -135,9 +153,11 @@ function buildSkillsProtocolSection(vars: PromptRenderVars): string {
     "",
     "`name` and `description` are required. Use `{baseDir}` as placeholder for the skill directory path.",
     "### Skill usage protocol",
-    "- Before replying, scan available skill names/descriptions and decide whether one clearly applies.",
-    "- If exactly one skill clearly applies, read its SKILL.md and follow it.",
-    "- If none clearly apply, do not read skills speculatively.",
+    "- If the user explicitly invokes a skill (`$skill-name`, `/skill skill-name`, `/skill-name`, `skill:skill-name`, `技能:skill-name`), you MUST use that skill for this turn.",
+    "- Slash form `/skill-name` is case-insensitive and matches normalized skill names; treat spaces, `_`, and `-` as equivalent.",
+    "- If input contains `[explicit skill invocation]`, treat the listed skill names as authoritative runtime selection for this turn.",
+    "- If no skill is explicitly invoked and one skill is the best fit, read its `SKILL.md` and use it proactively.",
+    "- If no skill clearly applies, do not read skills speculatively.",
     "- Before using any skill, read its SKILL.md in full.",
     "- Follow instructions in SKILL.md exactly.",
     "- Resolve relative paths against the skill directory.",
@@ -147,13 +167,7 @@ function buildSkillsProtocolSection(vars: PromptRenderVars): string {
 }
 
 function buildSkillsRuntimeStateSection(vars: PromptRenderVars): string {
-  return [
-    "## Available Skills",
-    vars.availableSkills,
-    "",
-    "## Skill Diagnostics",
-    vars.skillDiagText,
-  ].join("\n");
+  return ["## Available Skills", vars.availableSkills].join("\n");
 }
 
 function buildEventsSection(vars: PromptRenderVars): string {
@@ -269,7 +283,7 @@ function buildMcpAccessSection(settings?: RuntimeSettings): string {
     "- MCP capability is hidden by default and must only be used in explicit MCP scenarios.",
     "- Allowed MCP scenarios only:",
     "  1. User explicitly asks to use MCP (for example: '使用MCP', '加载MCP', 'use MCP').",
-    "  2. User explicitly invokes a skill (`$skill-name`, `/skill skill-name`, `skill:skill-name`, `技能:skill-name`) and that skill itself declares MCP dependency.",
+    "  2. User explicitly invokes a skill (`$skill-name`, `/skill skill-name`, `/skill-name`, `skill:skill-name`, `技能:skill-name`) and that skill itself declares MCP dependency.",
     "- Do not call `load_mcp` outside these two scenarios.",
     "- Skill name is not MCP server id. Never assume `serverId = skill name`.",
     "- Skill files do not require any special MCP frontmatter fields.",
@@ -352,14 +366,12 @@ function buildPromptRenderVariables(
   const globalSkillsDir = `${dataRoot}/skills`;
   const botSkillsDir = `${workspaceDir}/skills`;
   const chatSkillsDir = `${chatDir}/skills`;
-  const { skills, diagnostics } = loadSkillsFromWorkspace(workspaceDir, chatId, {
+  const { skills } = loadSkillsFromWorkspace(workspaceDir, chatId, {
     disabledSkillPaths: settings?.disabledSkillPaths ?? []
   });
+  const skillCreatorSkillFile = `${globalSkillsDir}/skill-creator/SKILL.md`;
+  const skillCreatorAvailable = existsSync(skillCreatorSkillFile) ? "true" : "false";
   const availableSkills = formatSkillsForPrompt(skills);
-  const skillDiagText =
-    diagnostics.length > 0
-      ? diagnostics.map((d) => `- ${d}`).join("\n")
-      : "(none)";
 
   return {
     workspaceDir,
@@ -375,8 +387,9 @@ function buildPromptRenderVariables(
     globalSkillsDir,
     botSkillsDir,
     chatSkillsDir,
+    skillCreatorSkillFile,
+    skillCreatorAvailable,
     availableSkills,
-    skillDiagText,
     memoryRoot,
     dataRoot,
     memoryWorkspaceRel,
