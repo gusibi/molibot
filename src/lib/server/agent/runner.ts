@@ -403,10 +403,13 @@ function hasExplicitMcpInvocation(inputText: string): boolean {
 
 function injectExplicitSkillInvocationContext(
   inputText: string,
-  skills: Array<{ name: string }>
+  skills: Array<{ name: string; scope: string; filePath: string }>
 ): string {
   if (skills.length === 0) return inputText;
-  const lines = skills.map((skill) => `- ${skill.name}`);
+  const lines = skills.map(
+    (skill) =>
+      `- name: ${skill.name}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}`
+  );
   return `${inputText}\n\n[explicit skill invocation]\n${lines.join("\n")}\n[/explicit skill invocation]`;
 }
 
