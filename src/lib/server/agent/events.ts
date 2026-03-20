@@ -2,12 +2,16 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writ
 import { join } from "node:path";
 
 export interface EventStatus {
-  state: "pending" | "completed" | "skipped" | "error";
+  state: "pending" | "running" | "completed" | "skipped" | "error";
   completedAt?: string;
   lastTriggeredAt?: string;
   runCount?: number;
   reason?: string;
   lastError?: string;
+  startedAt?: string;
+  runId?: string;
+  runningSlotKey?: string;
+  lastSlotKey?: string;
 }
 
 export type EventDeliveryMode = "text" | "agent";
@@ -125,23 +129,64 @@ function cronMatches(parsed: ParsedCron, date: Date): boolean {
 
 interface PeriodicSchedule {
   parsed: ParsedCron;
-  event: PeriodicEvent;
+  event: MomEvent;
   filename: string;
   lastTick: string;
 }
 
 export class EventsWatcher {
+  private static readonly DEFAULT_RUNNING_TTL_MS = 15 * 60 * 1000;
   private readonly oneShotTimers = new Map<string, NodeJS.Timeout>();
   private readonly periodic = new Map<string, PeriodicSchedule>();
   private watcher: FSWatcher | null = null;
   private tickTimer: NodeJS.Timeout | null = null;
   private readonly debounce = new Map<string, NodeJS.Timeout>();
   private readonly knownFiles = new Set<string>();
+  private readonly runningTtlMs: number;
 
   constructor(
     private readonly eventsDir: string,
     private readonly onEvent: (event: MomEvent, filename: string) => Promise<void> | void
-  ) {}
+  ) {
+    const rawRunningTtlMs = Number.parseInt(
+      process.env.MOLIBOT_EVENT_RUNNING_TTL_MS ?? process.env.EVENT_RUNNING_TTL_MS ?? "",
+      10
+    );
+    this.runningTtlMs = Number.isFinite(rawRunningTtlMs) && rawRunningTtlMs > 0
+      ? rawRunningTtlMs
+      : EventsWatcher.DEFAULT_RUNNING_TTL_MS;
+  }
+
+  private isRunningLockEnabled(): boolean {
+    const raw = String(
+      process.env.MOLIBOT_EVENT_RUNNING_LOCK_ENABLED ?? process.env.EVENT_RUNNING_LOCK_ENABLED ?? "true"
+    )
+      .trim()
+      .toLowerCase();
+    return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+  }
+
+  private buildMinuteSlotKey(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hour = String(date.getHours()).padStart(2, "0");
+    const minute = String(date.getMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day}T${hour}:${minute}`;
+  }
+
+  private isRunningLeaseStale(status: EventStatus | undefined, nowMs: number): boolean {
+    if (status?.state !== "running") return false;
+    const startedMs = Date.parse(String(status.startedAt ?? ""));
+    if (!Number.isFinite(startedMs)) return true;
+    return nowMs - startedMs > this.runningTtlMs;
+  }
+
+  private refreshPeriodicEntry(filename: string, event: MomEvent): void {
+    const entry = this.periodic.get(filename);
+    if (!entry) return;
+    entry.event = event;
+  }
 
   start(): void {
     if (!existsSync(this.eventsDir)) {
@@ -260,25 +305,93 @@ export class EventsWatcher {
 
   private tickPeriodic(): void {
     const now = new Date();
-    const key = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}-${now.getMinutes()}`;
+    const slotKey = this.buildMinuteSlotKey(now);
+    const nowMs = now.getTime();
 
     for (const entry of this.periodic.values()) {
-      if (entry.lastTick === key) continue;
+      if (entry.lastTick === slotKey) continue;
       if (!cronMatches(entry.parsed, now)) continue;
-      entry.lastTick = key;
-      this.dispatchEvent(entry.event, entry.filename);
+      if (entry.event.status?.lastSlotKey === slotKey) {
+        entry.lastTick = slotKey;
+        continue;
+      }
+      if (entry.event.status?.state === "running" && !this.isRunningLeaseStale(entry.event.status, nowMs)) {
+        entry.lastTick = slotKey;
+        continue;
+      }
+      entry.lastTick = slotKey;
+      this.dispatchEvent(entry.event, entry.filename, slotKey);
     }
   }
 
-  private dispatchEvent(event: MomEvent, filename: string): void {
+  private dispatchEvent(event: MomEvent, filename: string, slotKey?: string): void {
+    if (event.type === "periodic" && this.isRunningLockEnabled()) {
+      const lock = this.tryAcquirePeriodicRunLock(filename, slotKey ?? this.buildMinuteSlotKey(new Date()));
+      if (!lock) return;
+
+      Promise.resolve(this.onEvent(lock.event, filename))
+        .then(() => {
+          this.markDone(filename, lock.event, "executed", lock.slotKey, lock.runId);
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          this.markError(filename, message, lock.slotKey, lock.runId);
+        });
+      return;
+    }
+
     Promise.resolve(this.onEvent(event, filename))
       .then(() => {
-        this.markDone(filename, event, "executed");
+        this.markDone(filename, event, "executed", slotKey);
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
-        this.markError(filename, message);
+        this.markError(filename, message, slotKey);
       });
+  }
+
+  private tryAcquirePeriodicRunLock(
+    filename: string,
+    slotKey: string
+  ): { event: MomEvent; slotKey: string; runId: string } | null {
+    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+    const runId = `${filename}:${nowMs}:${Math.random().toString(36).slice(2, 8)}`;
+    let acquired = false;
+    let lockedEvent: MomEvent | null = null;
+
+    const next = this.updateEventFile(filename, (current) => {
+      if (current.type !== "periodic") return current;
+      const status = this.normalizeStatus(current.status);
+      if (status.lastSlotKey === slotKey) {
+        return null;
+      }
+      if (status.state === "running" && !this.isRunningLeaseStale(status, nowMs)) {
+        return null;
+      }
+
+      acquired = true;
+      const result: MomEvent = {
+        ...current,
+        delivery: this.resolveDeliveryMode(current),
+        status: {
+          ...status,
+          state: "running",
+          completedAt: undefined,
+          reason: "running",
+          lastError: undefined,
+          startedAt: nowIso,
+          runId,
+          runningSlotKey: slotKey
+        }
+      };
+      lockedEvent = result;
+      return result;
+    });
+
+    if (!acquired || !next || !lockedEvent) return null;
+    this.refreshPeriodicEntry(filename, next);
+    return { event: next, slotKey, runId };
   }
 
   private cancel(filename: string): void {
@@ -292,6 +405,13 @@ export class EventsWatcher {
 
   private isCompleted(event: MomEvent): boolean {
     return event.status?.state === "completed";
+  }
+
+  private normalizeStatus(status: EventStatus | undefined): EventStatus {
+    return {
+      state: status?.state ?? "pending",
+      ...(status ?? {})
+    };
   }
 
   private resolveDeliveryMode(event: MomEvent): EventDeliveryMode {
@@ -310,21 +430,31 @@ export class EventsWatcher {
     };
   }
 
-  private markDone(filename: string, event: MomEvent, reason: string): void {
+  private markDone(filename: string, event: MomEvent, reason: string, slotKey?: string, runId?: string): void {
     const triggeredAt = new Date().toISOString();
     if (event.type === "periodic") {
-      this.updateEventFile(filename, (current) => ({
-        ...current,
-        delivery: this.resolveDeliveryMode(current),
-        status: {
-          ...(current.status ?? {}),
-          state: "pending",
-          completedAt: undefined,
-          lastTriggeredAt: triggeredAt,
-          runCount: (current.status?.runCount ?? 0) + 1,
-          reason
-        }
-      }));
+      const next = this.updateEventFile(filename, (current) => {
+        const status = this.normalizeStatus(current.status);
+        if (runId && status.runId && status.runId !== runId) return null;
+        return {
+          ...current,
+          delivery: this.resolveDeliveryMode(current),
+          status: {
+            ...status,
+            state: "pending",
+            completedAt: undefined,
+            lastTriggeredAt: triggeredAt,
+            runCount: (status.runCount ?? 0) + 1,
+            reason,
+            lastSlotKey: slotKey ?? status.runningSlotKey ?? status.lastSlotKey,
+            runningSlotKey: undefined,
+            startedAt: undefined,
+            runId: undefined,
+            lastError: undefined
+          }
+        };
+      });
+      if (next) this.refreshPeriodicEntry(filename, next);
       this.knownFiles.add(filename);
       return;
     }
@@ -361,31 +491,44 @@ export class EventsWatcher {
     this.knownFiles.add(filename);
   }
 
-  private markError(filename: string, message: string): void {
-    this.updateEventFile(filename, (current) => ({
-      ...current,
-      delivery: this.resolveDeliveryMode(current),
-      status: {
-        ...(current.status ?? {}),
-        state: "error",
-        completedAt: current.status?.completedAt,
-        runCount: current.status?.runCount ?? 0,
-        reason: current.status?.reason,
-        lastError: message
-      }
-    }));
+  private markError(filename: string, message: string, slotKey?: string, runId?: string): void {
+    const next = this.updateEventFile(filename, (current) => {
+      const status = this.normalizeStatus(current.status);
+      if (runId && status.runId && status.runId !== runId) return null;
+      return {
+        ...current,
+        delivery: this.resolveDeliveryMode(current),
+        status: {
+          ...status,
+          state: "error",
+          completedAt: status.completedAt,
+          runCount: status.runCount ?? 0,
+          reason: status.reason,
+          lastError: message,
+          lastSlotKey: slotKey ?? status.runningSlotKey ?? status.lastSlotKey,
+          runningSlotKey: undefined,
+          startedAt: undefined,
+          runId: undefined
+        }
+      };
+    });
+    if (next && next.type === "periodic") {
+      this.refreshPeriodicEntry(filename, next);
+    }
   }
 
-  private updateEventFile(filename: string, updater: (event: MomEvent) => MomEvent): void {
+  private updateEventFile(filename: string, updater: (event: MomEvent) => MomEvent | null): MomEvent | null {
     const full = join(this.eventsDir, filename);
     try {
       const raw = readFileSync(full, "utf8");
       const parsed = JSON.parse(raw) as MomEvent;
-      if (!parsed || typeof parsed !== "object") return;
+      if (!parsed || typeof parsed !== "object") return null;
       const next = updater(parsed);
+      if (!next) return null;
       writeFileSync(full, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+      return next;
     } catch {
-      // ignore
+      return null;
     }
   }
 }

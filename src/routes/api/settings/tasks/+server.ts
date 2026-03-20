@@ -9,7 +9,7 @@ import { TelegramManager } from "$lib/server/channels/telegram/runtime";
 
 type TaskScope = "workspace" | "chat-scratch";
 type TaskType = "one-shot" | "periodic" | "immediate";
-type TaskState = "pending" | "completed" | "skipped" | "error";
+type TaskState = "pending" | "running" | "completed" | "skipped" | "error";
 
 interface EventStatus {
   state?: TaskState;
@@ -215,6 +215,7 @@ export const GET: RequestHandler = async () => {
   };
   const countsByStatus = {
     pending: items.filter((item) => item.status === "pending").length,
+    running: items.filter((item) => item.status === "running").length,
     completed: items.filter((item) => item.status === "completed").length,
     skipped: items.filter((item) => item.status === "skipped").length,
     error: items.filter((item) => item.status === "error").length

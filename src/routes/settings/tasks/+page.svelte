@@ -5,7 +5,7 @@
   import Alert from "$lib/ui/Alert.svelte";
 
   type TaskType = "one-shot" | "periodic" | "immediate";
-  type TaskStatus = "pending" | "completed" | "skipped" | "error";
+  type TaskStatus = "pending" | "running" | "completed" | "skipped" | "error";
   type TaskScope = "workspace" | "chat-scratch";
 
   interface TaskItem {
@@ -54,7 +54,7 @@
   let counts: Counts = {
     total: 0,
     byType: { "one-shot": 0, periodic: 0, immediate: 0 },
-    byStatus: { pending: 0, completed: 0, skipped: 0, error: 0 },
+    byStatus: { pending: 0, running: 0, completed: 0, skipped: 0, error: 0 },
     byScope: { workspace: 0, chatScratch: 0 }
   };
 
@@ -81,6 +81,9 @@
   }
 
   function statusClass(status: TaskStatus): string {
+    if (status === "running") {
+      return "border-violet-500/40 bg-violet-500/10 text-violet-300";
+    }
     if (status === "completed") {
       return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300";
     }
