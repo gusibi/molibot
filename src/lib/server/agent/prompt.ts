@@ -28,6 +28,7 @@ const OPTIONAL_INSTRUCTION_FILES = [
   "USER.md",
   "SONG.md"
 ] as const;
+const PROMPT_SECTION_ORDER = ["AGENTS.md", "BOT.md", ...OPTIONAL_INSTRUCTION_FILES] as const;
 
 type PromptRenderVars = Record<string, string>;
 
@@ -464,10 +465,9 @@ function buildPromptSectionsFromInstructionFiles(
 function mergePromptSectionMaps(
   ...maps: Array<Map<string, string>>
 ): string[] {
-  const orderedFiles = ["AGENTS.md", ...OPTIONAL_INSTRUCTION_FILES];
   const merged = new Map<string, string>();
 
-  for (const fileName of orderedFiles) {
+  for (const fileName of PROMPT_SECTION_ORDER) {
     for (const map of maps) {
       const value = map.get(fileName);
       if (value) {
@@ -477,7 +477,7 @@ function mergePromptSectionMaps(
     }
   }
 
-  return orderedFiles
+  return [...PROMPT_SECTION_ORDER]
     .map((fileName) => merged.get(fileName))
     .filter((value): value is string => Boolean(value));
 }

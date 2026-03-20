@@ -42,15 +42,31 @@
     failed?: Array<{ filePath: string; reason: string }>;
   }
 
+  interface UpdateResult {
+    updated?: string;
+    ok?: boolean;
+    error?: string;
+  }
+
+  interface TaskEditDraft {
+    text: string;
+    delivery: string;
+    scheduleText: string;
+    timezone: string;
+  }
+
   let loading = true;
   let deleting = false;
   let triggering = false;
+  let saving = false;
   let error = "";
   let message = "";
   let dataRoot = "";
   let diagnostics: string[] = [];
   let items: TaskItem[] = [];
   let selected = new Set<string>();
+  let editingFilePath = "";
+  let editDraft: TaskEditDraft = { text: "", delivery: "agent", scheduleText: "", timezone: "" };
   let counts: Counts = {
     total: 0,
     byType: { "one-shot": 0, periodic: 0, immediate: 0 },
@@ -98,6 +114,65 @@
 
   function rowsByType(type: TaskType): TaskItem[] {
     return items.filter((item) => item.type === type);
+  }
+
+  function beginEdit(item: TaskItem): void {
+    editingFilePath = item.filePath;
+    editDraft = {
+      text: item.text || "",
+      delivery: item.delivery || "agent",
+      scheduleText: item.scheduleText || "",
+      timezone: item.timezone || ""
+    };
+    error = "";
+    message = "";
+  }
+
+  function cancelEdit(): void {
+    editingFilePath = "";
+    editDraft = { text: "", delivery: "agent", scheduleText: "", timezone: "" };
+  }
+
+  async function saveEdit(item: TaskItem): Promise<void> {
+    if (!editingFilePath || editingFilePath !== item.filePath || saving) return;
+    saving = true;
+    error = "";
+    try {
+      const patch: Record<string, string> = {
+        text: editDraft.text,
+        delivery: editDraft.delivery
+      };
+      if (item.type === "one-shot") {
+        patch.at = editDraft.scheduleText;
+      }
+      if (item.type === "periodic") {
+        patch.schedule = editDraft.scheduleText;
+        patch.timezone = editDraft.timezone;
+      }
+
+      const res = await fetch("/api/settings/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "update",
+          filePath: item.filePath,
+          patch
+        })
+      });
+
+      const data = (await res.json()) as UpdateResult;
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || "Failed to update task");
+      }
+
+      message = "Task updated.";
+      cancelEdit();
+      await loadTasks();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      saving = false;
+    }
   }
 
   function toggleSelection(filePath: string): void {
@@ -266,7 +341,7 @@
         variant="secondary"
         size="md"
         on:click={triggerSelected}
-        disabled={selected.size === 0 || deleting || loading || triggering}
+        disabled={selected.size === 0 || deleting || loading || triggering || saving}
       >
         {triggering ? "Sending..." : `Send Selected (${selected.size})`}
       </Button>
@@ -274,7 +349,7 @@
         variant="destructive"
         size="md"
         on:click={deleteSelected}
-        disabled={selected.size === 0 || deleting || loading || triggering}
+        disabled={selected.size === 0 || deleting || loading || triggering || saving}
       >
         {deleting ? "Deleting..." : `Delete Selected (${selected.size})`}
       </Button>
@@ -315,6 +390,10 @@
         {counts.byStatus.pending}
       </div>
       <div>
+        <span class="text-slate-400">Running:</span>
+        {counts.byStatus.running}
+      </div>
+      <div>
         <span class="text-slate-400">Completed:</span>
         {counts.byStatus.completed}
       </div>
@@ -339,13 +418,13 @@
         <Button variant="outline" size="md" on:click={selectAllTasks} disabled={items.length === 0 || deleting || triggering}>
           Select All
         </Button>
-        <Button variant="outline" size="md" on:click={clearSelection} disabled={selected.size === 0 || deleting || triggering}>
+        <Button variant="outline" size="md" on:click={clearSelection} disabled={selected.size === 0 || deleting || triggering || saving}>
           Clear Selection
         </Button>
-        <Button variant="secondary" size="md" on:click={triggerSelected} disabled={selected.size === 0 || deleting || triggering}>
+        <Button variant="secondary" size="md" on:click={triggerSelected} disabled={selected.size === 0 || deleting || triggering || saving}>
           Send Selected
         </Button>
-        <Button variant="destructive" size="md" on:click={deleteSelected} disabled={selected.size === 0 || deleting || triggering}>
+        <Button variant="destructive" size="md" on:click={deleteSelected} disabled={selected.size === 0 || deleting || triggering || saving}>
           Delete Selected
         </Button>
       </div>
@@ -407,13 +486,21 @@
                         class="h-4 w-4 cursor-pointer rounded border-white/20 bg-transparent"
                         checked={selected.has(item.filePath)}
                         on:change={() => toggleSelection(item.filePath)}
-                        disabled={deleting || triggering}
+                        disabled={deleting || triggering || saving}
                       />
                     </td>
                     <td class="px-3 py-3">
                       <div class="max-w-[28rem] space-y-1">
                         <p class="font-medium text-slate-100">{item.filename}</p>
-                        <p class="text-slate-300">{item.text || "-"}</p>
+                        {#if editingFilePath === item.filePath}
+                          <textarea
+                            class="min-h-24 w-full rounded-md border border-white/20 bg-black/30 px-2 py-1 text-sm text-slate-100"
+                            bind:value={editDraft.text}
+                            disabled={saving}
+                          ></textarea>
+                        {:else}
+                          <p class="text-slate-300">{item.text || "-"}</p>
+                        {/if}
                         <p class="text-xs text-slate-500">{item.filePath}</p>
                       </div>
                     </td>
@@ -425,15 +512,49 @@
                       </div>
                     </td>
                     <td class="px-3 py-3 text-slate-300">
-                      <div>{item.scheduleText || "-"}</div>
-                      {#if item.timezone}
-                        <div class="text-xs text-slate-500">{item.timezone}</div>
+                      {#if editingFilePath === item.filePath}
+                        {#if item.type !== "immediate"}
+                          <input
+                            class="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1 text-sm text-slate-100"
+                            bind:value={editDraft.scheduleText}
+                            placeholder={item.type === "periodic" ? "cron: 30 17 * * *" : "ISO datetime"}
+                            disabled={saving}
+                          />
+                        {:else}
+                          <div>-</div>
+                        {/if}
+                        {#if item.type === "periodic"}
+                          <input
+                            class="mt-1 w-full rounded-md border border-white/20 bg-black/30 px-2 py-1 text-sm text-slate-100"
+                            bind:value={editDraft.timezone}
+                            placeholder="Asia/Shanghai"
+                            disabled={saving}
+                          />
+                        {/if}
+                      {:else}
+                        <div>{item.scheduleText || "-"}</div>
+                        {#if item.timezone}
+                          <div class="text-xs text-slate-500">{item.timezone}</div>
+                        {/if}
                       {/if}
                       <div class="mt-1 text-xs text-slate-500">
                         created {formatDate(item.createdAt)}
                       </div>
                     </td>
-                    <td class="px-3 py-3 text-slate-300">{item.delivery}</td>
+                    <td class="px-3 py-3 text-slate-300">
+                      {#if editingFilePath === item.filePath}
+                        <select
+                          class="rounded-md border border-white/20 bg-black/30 px-2 py-1 text-sm text-slate-100"
+                          bind:value={editDraft.delivery}
+                          disabled={saving}
+                        >
+                          <option value="agent">agent</option>
+                          <option value="text">text</option>
+                        </select>
+                      {:else}
+                        {item.delivery}
+                      {/if}
+                    </td>
                     <td class="px-3 py-3">
                       <div class={`inline-flex rounded-full border px-2 py-0.5 text-xs ${statusClass(item.status)}`}>
                         {item.status}
@@ -463,15 +584,42 @@
                           variant="secondary"
                           size="sm"
                           on:click={() => triggerOne(item.filePath)}
-                          disabled={deleting || triggering}
+                          disabled={deleting || triggering || saving || editingFilePath === item.filePath}
                         >
                           Retry Now
                         </Button>
+                        {#if editingFilePath === item.filePath}
+                          <Button
+                            variant="default"
+                            size="sm"
+                            on:click={() => saveEdit(item)}
+                            disabled={saving || deleting || triggering}
+                          >
+                            {saving ? "Saving..." : "Save"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            on:click={cancelEdit}
+                            disabled={saving}
+                          >
+                            Cancel
+                          </Button>
+                        {:else}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            on:click={() => beginEdit(item)}
+                            disabled={deleting || triggering || saving}
+                          >
+                            Edit
+                          </Button>
+                        {/if}
                         <Button
                           variant="destructive"
                           size="sm"
                           on:click={() => deleteOne(item.filePath)}
-                          disabled={deleting || triggering}
+                          disabled={deleting || triggering || saving}
                         >
                           Delete
                         </Button>

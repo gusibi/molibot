@@ -16,6 +16,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - `periodic` 事件的正确语义是长期保留并按 cron 重复触发，不能在首次执行后写成 `status.state="completed"` 并从 watcher 调度表移除。
 - `periodic` 事件除了长期保留外，还必须像 one-shot 一样持续写回执行元数据，至少包含最近一次触发时间、累计执行次数，以及最近一次错误状态，方便在设置页和事件文件里直接核对运行情况。
 - `periodic` 事件在进入执行前必须先持久化 `status.state="running"`（包含开始时间与执行标识），同一 cron 时间槽位仅允许一次有效执行；执行完成后再回写 `pending/error`，并在运行超时后可释放陈旧锁，避免长任务导致同槽位重复触发。
+- Bot 维度配置文件 `BOT.md` 必须参与系统提示词最终合并，不仅要出现在 source 列表；合并顺序至少应覆盖 `AGENTS.md -> BOT.md -> SOUL/IDENTITY/...`，确保 bot 级规则真实生效。
 - 设置页任务清单不能只停留在只读展示；运维侧至少要支持单条删除、批量选择删除，并且删除动作必须通过受限后端接口校验目标路径属于 watched events 目录，不能直接把任意文件路径暴露给前端删。
 - 事件发送层需要对瞬时网络故障具备有限自愈能力；至少应支持一次立即重试和短退避重试，并在设置页提供人工“立即触发/重试”入口，方便验证任务发送链路而不必等待下一个计划时间。
 - Telegram agent 的调度落地必须唯一走 watched event JSON 文件；不得退化为 memory 记录，也不得绕过 runtime 事件系统直接写入 OS 级调度器（如 `crontab` / `at` / `launchctl` / `schtasks`）。
@@ -152,6 +153,9 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-107 | Explicit slash skill invocation semantics | P1 | Delivered (2026-03-17) | Users should be able to force a skill via direct slash form such as `/skill-name` or `/skill-name@bot`; matching must be case-insensitive and normalize spaces, `_`, and `-`; runner should pass an authoritative explicit-skill marker into the model input so prompt behavior and MCP skill-gating follow the same invocation decision |
 | P1-108 | Bot-scope skill path authority and SKILL.md execution safety | P1 | Delivered (2026-03-18) | When explicit skill invocation targets a bot-scoped skill, runner context must include the exact resolved `skill_file` path so the model does not fall back to guessed global paths; skill protocol must explicitly forbid executing `SKILL.md` itself via shell and require reading it before running declared scripts |
 | P1-109 | Periodic running lock and slot-level dedupe | P1 | Delivered (2026-03-20) | Events watcher must acquire a persistent `running` lock before dispatching periodic jobs, dedupe per cron minute slot (`lastSlotKey` / `runningSlotKey`), and guard completion/error writes by run id so file status updates cannot re-trigger the same slot repeatedly |
+| P1-110 | BOT.md prompt merge enforcement | P1 | Delivered (2026-03-20) | Prompt builder must merge `BOT.md` into final system prompt output (not only source discovery), preserving bot-scope instruction precedence and ensuring bot-level guardrails are active at runtime |
+| P1-111 | Settings task edit workflow | P1 | Delivered (2026-03-20) | `/settings/tasks` should support inline editing and save-back of task config (`text`, `delivery`, and type-specific schedule fields) through a validated backend update API, so operators can adjust existing tasks without manual JSON file edits |
+| P1-112 | Settings task edit textarea build compliance | P1 | Delivered (2026-03-20) | `/settings/tasks` inline edit input must use explicit `<textarea></textarea>` markup (not self-closing form) so Svelte SSR/client production builds are warning-free and standards-compliant |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |

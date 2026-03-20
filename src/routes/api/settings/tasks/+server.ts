@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
@@ -60,6 +60,20 @@ interface TaskDeleteBody {
 interface TaskTriggerBody {
   action?: "trigger";
   filePaths?: string[];
+}
+
+interface TaskUpdatePatch {
+  text?: string;
+  delivery?: string;
+  at?: string;
+  schedule?: string;
+  timezone?: string;
+}
+
+interface TaskUpdateBody {
+  action?: "update";
+  filePath?: string;
+  patch?: TaskUpdatePatch;
 }
 
 function inferCreatedAt(filename: string, fallbackIso: string): string {
@@ -240,15 +254,114 @@ export const GET: RequestHandler = async () => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-  let body: TaskDeleteBody | TaskTriggerBody;
+  let body: TaskDeleteBody | TaskTriggerBody | TaskUpdateBody;
   try {
-    body = (await request.json()) as TaskDeleteBody | TaskTriggerBody;
+    body = (await request.json()) as TaskDeleteBody | TaskTriggerBody | TaskUpdateBody;
   } catch {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const requestedPaths = Array.isArray(body.filePaths)
-    ? body.filePaths.map((value) => String(value ?? "").trim()).filter(Boolean)
+  if (body.action === "update") {
+    const filePath = String(body.filePath ?? "").trim();
+    if (!filePath) {
+      return json({ ok: false, error: "filePath is required for update" }, { status: 400 });
+    }
+    const patch = body.patch && typeof body.patch === "object" ? body.patch : null;
+    if (!patch) {
+      return json({ ok: false, error: "patch is required for update" }, { status: 400 });
+    }
+
+    const botsRoot = resolveTasksRoot();
+    const resolvedPath = resolve(filePath);
+    if (!isTaskFilePath(resolvedPath, botsRoot)) {
+      return json({ ok: false, error: "path_not_allowed" }, { status: 400 });
+    }
+    if (!existsSync(resolvedPath)) {
+      return json({ ok: false, error: "not_found" }, { status: 404 });
+    }
+
+    let current: RawEventTask;
+    try {
+      current = JSON.parse(readFileSync(resolvedPath, "utf8")) as RawEventTask;
+    } catch (error) {
+      return json({
+        ok: false,
+        error: `invalid_task_payload: ${error instanceof Error ? error.message : String(error)}`
+      }, { status: 400 });
+    }
+
+    if (current.type !== "one-shot" && current.type !== "periodic" && current.type !== "immediate") {
+      return json({ ok: false, error: "unsupported_task_type" }, { status: 400 });
+    }
+
+    const next: RawEventTask = { ...current };
+
+    if (patch.text !== undefined) {
+      next.text = String(patch.text ?? "").trim();
+      if (!next.text) {
+        return json({ ok: false, error: "text cannot be empty" }, { status: 400 });
+      }
+    }
+
+    if (patch.delivery !== undefined) {
+      const normalizedDelivery = String(patch.delivery ?? "").trim().toLowerCase();
+      if (normalizedDelivery !== "text" && normalizedDelivery !== "agent") {
+        return json({ ok: false, error: "delivery must be text or agent" }, { status: 400 });
+      }
+      next.delivery = normalizedDelivery;
+    }
+
+    if (current.type === "one-shot") {
+      if (patch.at !== undefined) {
+        const at = String(patch.at ?? "").trim();
+        const dt = new Date(at);
+        if (!at || Number.isNaN(dt.getTime())) {
+          return json({ ok: false, error: "at must be a valid ISO datetime" }, { status: 400 });
+        }
+        next.at = at;
+      }
+    }
+
+    if (current.type === "periodic") {
+      if (patch.schedule !== undefined) {
+        const schedule = String(patch.schedule ?? "").trim();
+        const parts = schedule.split(/\s+/).filter(Boolean);
+        if (parts.length !== 5) {
+          return json({ ok: false, error: "schedule must be a 5-field cron expression" }, { status: 400 });
+        }
+        next.schedule = schedule;
+      }
+      if (patch.timezone !== undefined) {
+        const timezone = String(patch.timezone ?? "").trim();
+        if (!timezone) {
+          return json({ ok: false, error: "timezone cannot be empty for periodic task" }, { status: 400 });
+        }
+        next.timezone = timezone;
+      }
+    }
+
+    if (!next.text?.trim()) {
+      return json({ ok: false, error: "task text is required" }, { status: 400 });
+    }
+    if ((next.type === "one-shot") && !String(next.at ?? "").trim()) {
+      return json({ ok: false, error: "one-shot task requires at" }, { status: 400 });
+    }
+    if ((next.type === "periodic") && !String(next.schedule ?? "").trim()) {
+      return json({ ok: false, error: "periodic task requires schedule" }, { status: 400 });
+    }
+    if ((next.type === "periodic") && !String(next.timezone ?? "").trim()) {
+      return json({ ok: false, error: "periodic task requires timezone" }, { status: 400 });
+    }
+
+    writeFileSync(resolvedPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    return json({
+      ok: true,
+      updated: resolvedPath
+    });
+  }
+
+  const requestedPaths = Array.isArray((body as TaskDeleteBody | TaskTriggerBody).filePaths)
+    ? (body as TaskDeleteBody | TaskTriggerBody).filePaths!.map((value) => String(value ?? "").trim()).filter(Boolean)
     : [];
   if (requestedPaths.length === 0) {
     return json({ ok: false, error: "filePaths is required" }, { status: 400 });
