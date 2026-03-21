@@ -1,8 +1,8 @@
-# Codex ACP MVP
+# ACP Multi-Provider MVP
 
 ## Purpose
 
-This document captures the agreed first version for Telegram-driven coding control through ACP, starting with Codex only.
+This document captures the current first usable version for Telegram-driven coding control through ACP.
 
 ## Product Goal
 
@@ -10,7 +10,7 @@ Turn Molibot into a controlled remote coding client:
 
 - Telegram is the operator UI.
 - ACP is the protocol layer.
-- Codex is the first controlled coding agent.
+- Codex and Claude Code are the currently supported controlled coding agents.
 - Every risky step remains visible and controllable.
 
 ## Scope of V1
@@ -18,6 +18,7 @@ Turn Molibot into a controlled remote coding client:
 Included:
 
 - Codex ACP target preset
+- Claude Code ACP target preset
 - ACP project registry (allowlist)
 - Telegram commands to open a coding session and run a task
 - Runtime status updates back to Telegram
@@ -28,7 +29,6 @@ Included:
 
 Not included yet:
 
-- Claude Code ACP
 - Gemini ACP
 - Multiple concurrent ACP sessions per chat
 - Git push / deploy flows
@@ -43,12 +43,17 @@ The agent must always know which project to work on.
 V1 rule:
 
 - Only registered projects may be used.
-- A chat cannot point Codex at an arbitrary path directly.
+- A chat cannot point an ACP target at an arbitrary path directly.
 - Operators register a project once, then reuse its ID.
 
 ### 2. ACP control is command-driven first
 
 To keep the first release predictable, V1 uses Telegram commands instead of free-form natural-language routing.
+
+The public operator interface stays unified:
+
+- all providers use the same `/acp ...` command family
+- provider-specific remote commands are exposed as prefixed names such as `codex:/...` or `claude-code:/...`
 
 ### 3. Approval remains client-side
 
@@ -103,6 +108,12 @@ ACP control is added as a separate command path.
 /acp new codex molipibot manual
 ```
 
+Or start a Claude Code ACP session:
+
+```text
+/acp new claude-code molipibot manual
+```
+
 ### 3. Submit a coding task
 
 ```text
@@ -147,18 +158,21 @@ Molibot should report:
 - final assistant output
 - whether the task ended cleanly or failed
 
-## Codex Target Preset
+## Built-in Target Presets
 
-V1 ships with a Codex ACP preset:
+V1 ships with two ACP presets:
 
-- target id: `codex`
-- transport: `stdio`
-- default command: `npx -y @zed-industries/codex-acp`
+- `codex`
+  - transport: `stdio`
+  - default command: `npx -y @zed-industries/codex-acp`
+- `claude-code`
+  - transport: `stdio`
+  - default command: `npx -y @zed-industries/claude-code-acp`
 
 Notes:
 
 - This requires the ACP adapter to be available at runtime.
-- Codex itself should already be authenticated on the machine.
+- The target runtime should already be authenticated on the machine.
 - If the adapter is missing or auth is not ready, Molibot should surface the adapter error directly in Telegram.
 
 ## Risks and Mitigations
@@ -195,7 +209,7 @@ Mitigation:
 
 ### Phase 1
 
-Ship the Codex ACP MVP described above.
+Ship the multi-provider ACP MVP described above.
 
 ### Phase 2
 
@@ -208,7 +222,6 @@ Improve operator ergonomics:
 
 Add more ACP targets:
 
-- Claude Code
 - Gemini
 
 ## Acceptance Criteria
@@ -216,7 +229,7 @@ Add more ACP targets:
 V1 is considered done when:
 
 - a project can be registered from Telegram
-- a Codex ACP session can be opened for that project
+- a Codex or Claude Code ACP session can be opened for that project
 - a task can be sent through ACP
 - permission requests are surfaced back to Telegram
 - the operator can approve or deny the request from Telegram

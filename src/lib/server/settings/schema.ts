@@ -92,10 +92,12 @@ export interface PluginSettings {
 }
 
 export type AcpApprovalMode = "manual" | "auto-safe" | "auto-all";
+export type AcpAdapterKind = "codex" | "claude-code" | "custom";
 
 export interface AcpTargetConfig {
   id: string;
   name: string;
+  adapter: AcpAdapterKind;
   enabled: boolean;
   command: string;
   args: string[];

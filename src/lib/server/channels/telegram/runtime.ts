@@ -996,7 +996,7 @@ export class TelegramManager {
             [
               result,
               `Operator note: ${this.summarizeForTelegram(rawText, 500)}`,
-              "If you want Codex to try a different approach, send a new `/acp task ...` instruction."
+              "If you want the ACP agent to try a different approach, send a new `/acp task ...` instruction."
             ].join("\n")
           );
         } catch (error) {
@@ -1801,6 +1801,8 @@ export class TelegramManager {
   private acpHelpText(): string {
     return [
       "ACP commands:",
+      "The same `/acp ...` control commands work for Codex, Claude Code, and custom ACP targets.",
+      "Provider-specific remote commands are shown in `/acp status` with prefixes such as `codex:/...` or `claude-code:/...`.",
       "/acp help - show ACP command help",
       "/acp targets - list configured ACP targets",
       "/acp projects - list registered ACP projects",

@@ -4,11 +4,13 @@
   import Button from "$lib/ui/Button.svelte";
   import Alert from "$lib/ui/Alert.svelte";
 
+  type AdapterKind = "codex" | "claude-code" | "custom";
   type ApprovalMode = "manual" | "auto-safe" | "auto-all";
 
   type TargetForm = {
     id: string;
     name: string;
+    adapter: AdapterKind;
     enabled: boolean;
     command: string;
     argsText: string;
@@ -26,7 +28,27 @@
   };
 
   const approvalModes: ApprovalMode[] = ["manual", "auto-safe", "auto-all"];
+  const adapterKinds: AdapterKind[] = ["codex", "claude-code", "custom"];
   const codexPresetArgs = ["-y", "@zed-industries/codex-acp"];
+  const claudeCodePresetArgs = ["-y", "@zed-industries/claude-code-acp"];
+  const adapterPresets: Record<Exclude<AdapterKind, "custom">, Omit<TargetForm, "enabled" | "cwd">> = {
+    codex: {
+      id: "codex",
+      name: "Codex ACP",
+      adapter: "codex",
+      command: "npx",
+      argsText: codexPresetArgs.join("\n"),
+      envText: ""
+    },
+    "claude-code": {
+      id: "claude-code",
+      name: "Claude Code ACP",
+      adapter: "claude-code",
+      command: "npx",
+      argsText: claudeCodePresetArgs.join("\n"),
+      envText: ""
+    }
+  };
 
   let loading = true;
   let saving = false;
@@ -80,6 +102,12 @@
     return "manual";
   }
 
+  function normalizeAdapter(input: unknown): AdapterKind {
+    const raw = String(input ?? "").trim().toLowerCase();
+    if (raw === "codex" || raw === "claude-code") return raw;
+    return "custom";
+  }
+
   function normalizeTargets(input: unknown): TargetForm[] {
     if (!Array.isArray(input)) return [];
     return input.map((row, index) => {
@@ -88,6 +116,7 @@
       return {
         id,
         name: String(item.name ?? id).trim() || id,
+        adapter: normalizeAdapter(item.adapter),
         enabled: item.enabled === undefined ? true : Boolean(item.enabled),
         command: String(item.command ?? "").trim(),
         argsText: formatArgs(item.args),
@@ -116,17 +145,32 @@
     });
   }
 
-  function addTarget(): void {
+  function addTarget(adapter: AdapterKind = "custom"): void {
     const nextIndex = targets.length + 1;
+    if (adapter === "custom") {
+      targets = [
+        ...targets,
+        {
+          id: `target-${nextIndex}`,
+          name: `Target ${nextIndex}`,
+          adapter,
+          enabled: true,
+          command: "",
+          argsText: "",
+          envText: "",
+          cwd: "",
+        },
+      ];
+      return;
+    }
+
+    const preset = adapterPresets[adapter];
     targets = [
       ...targets,
       {
-        id: `target-${nextIndex}`,
-        name: `Target ${nextIndex}`,
+        ...preset,
+        id: targets.some((target) => target.id === preset.id) ? `${preset.id}-${nextIndex}` : preset.id,
         enabled: true,
-        command: "",
-        argsText: "",
-        envText: "",
         cwd: "",
       },
     ];
@@ -189,6 +233,7 @@
     targets: Array<{
       id: string;
       name: string;
+      adapter: AdapterKind;
       enabled: boolean;
       command: string;
       args: string[];
@@ -216,6 +261,7 @@
       return {
         id,
         name: target.name.trim() || id,
+        adapter: normalizeAdapter(target.adapter),
         enabled: target.enabled,
         command,
         args: parseArgsText(target.argsText),
@@ -359,13 +405,22 @@
           <div class="space-y-1">
             <h2 class="text-sm font-semibold text-[var(--foreground)]">Targets</h2>
             <p class="max-w-3xl text-xs leading-5 text-[var(--muted-foreground)]">
-              One target equals one ACP adapter process. The built-in Codex preset is
-              <code>npx</code> with args <code>{codexPresetArgs.join(" ")}</code>.
+              One target equals one ACP adapter process. Built-in presets are
+              <code>codex</code> = <code>npx {codexPresetArgs.join(" ")}</code> and
+              <code>claude-code</code> = <code>npx {claudeCodePresetArgs.join(" ")}</code>.
             </p>
           </div>
-          <Button variant="outline" size="sm" on:click={addTarget} type="button">
-            Add Target
-          </Button>
+          <div class="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" on:click={() => addTarget("codex")} type="button">
+              Add Codex
+            </Button>
+            <Button variant="outline" size="sm" on:click={() => addTarget("claude-code")} type="button">
+              Add Claude Code
+            </Button>
+            <Button variant="outline" size="sm" on:click={() => addTarget("custom")} type="button">
+              Add Custom
+            </Button>
+          </div>
         </div>
 
         {#if targets.length === 0}
@@ -407,6 +462,18 @@
                     />
                   </label>
 
+                  <label class="grid gap-1.5 text-sm">
+                    <span class="text-[var(--foreground)]">Adapter</span>
+                    <select
+                      class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
+                      bind:value={target.adapter}
+                    >
+                      {#each adapterKinds as adapterKind}
+                        <option value={adapterKind}>{adapterKind}</option>
+                      {/each}
+                    </select>
+                  </label>
+
                   <label class="grid gap-1.5 text-sm md:col-span-2">
                     <span class="text-[var(--foreground)]">Command</span>
                     <input
@@ -421,7 +488,9 @@
                     <textarea
                       class="min-h-[120px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-xs outline-none focus:border-[var(--ring)]"
                       bind:value={target.argsText}
-                      placeholder="-y&#10;@zed-industries/codex-acp"
+                      placeholder={target.adapter === "claude-code"
+                        ? "-y&#10;@zed-industries/claude-code-acp"
+                        : "-y&#10;@zed-industries/codex-acp"}
                     ></textarea>
                   </label>
 
@@ -430,7 +499,7 @@
                     <textarea
                       class="min-h-[120px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-xs outline-none focus:border-[var(--ring)]"
                       bind:value={target.envText}
-                      placeholder="OPENAI_API_KEY=..."
+                      placeholder={target.adapter === "claude-code" ? "ANTHROPIC_API_KEY=..." : "OPENAI_API_KEY=..."}
                     ></textarea>
                   </label>
 

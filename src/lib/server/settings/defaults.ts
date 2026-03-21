@@ -1,4 +1,5 @@
 import type { KnownProvider } from "@mariozechner/pi-ai";
+import { createAcpTargetPreset } from "../acp/providers/index.js";
 import {
   type AgentSettings,
   type AcpSettings,
@@ -219,15 +220,8 @@ const defaultMcpServers = parseEnvMcpServers();
 const defaultAcpSettings: AcpSettings = {
   enabled: true,
   targets: [
-    {
-      id: "codex",
-      name: "Codex ACP",
-      enabled: true,
-      command: "npx",
-      args: ["-y", "@zed-industries/codex-acp"],
-      env: {},
-      cwd: ""
-    }
+    createAcpTargetPreset("codex"),
+    createAcpTargetPreset("claude-code")
   ],
   projects: []
 };

@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import type {
   AcpApprovalMode,
   AcpProjectConfig,
   AcpTargetConfig,
   RuntimeSettings
 } from "../settings/index.js";
+import { buildAcpAuthHint, formatAcpAdapterLabel, formatProviderScopedCommands } from "./providers/index.js";
 import { JsonRpcStdioConnection } from "./connection.js";
 import type {
   AcpListedSession,
@@ -155,51 +156,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
       }
     );
   });
-}
-
-function isCodexLikeTarget(target: AcpTargetConfig): boolean {
-  const text = [target.id, target.name, target.command, ...target.args].join(" ").toLowerCase();
-  return text.includes("codex");
-}
-
-function hasCodexAuthEnv(target: AcpTargetConfig): boolean {
-  const mergedEnv = {
-    ...process.env,
-    ...(target.env ?? {})
-  };
-  return Boolean(String(mergedEnv.OPENAI_API_KEY ?? "").trim() || String(mergedEnv.CODEX_API_KEY ?? "").trim());
-}
-
-function hasCodexAuthFile(target: AcpTargetConfig): boolean {
-  const mergedEnv = {
-    ...process.env,
-    ...(target.env ?? {})
-  };
-  const codexHome = String(mergedEnv.CODEX_HOME ?? "").trim();
-  const home = String(mergedEnv.HOME ?? process.env.HOME ?? "").trim();
-  const authPath = codexHome
-    ? join(codexHome, "auth.json")
-    : home
-      ? join(home, ".codex", "auth.json")
-      : "";
-  if (!authPath || !existsSync(authPath)) return false;
-
-  try {
-    const parsed = JSON.parse(readFileSync(authPath, "utf8")) as {
-      tokens?: { access_token?: unknown; refresh_token?: unknown; id_token?: unknown };
-    };
-    return Boolean(
-      String(parsed.tokens?.access_token ?? "").trim() ||
-      String(parsed.tokens?.refresh_token ?? "").trim() ||
-      String(parsed.tokens?.id_token ?? "").trim()
-    );
-  } catch {
-    return false;
-  }
-}
-
-function hasCodexAuthAvailable(target: AcpTargetConfig): boolean {
-  return hasCodexAuthEnv(target) || hasCodexAuthFile(target);
 }
 
 function normalizePermissionOptions(input: unknown): AcpPermissionOption[] {
@@ -709,14 +665,11 @@ export class AcpService {
       const stderrTail = summarize(client.getRecentStderr(), 500);
       client.close();
       const baseMessage = error instanceof Error ? error.message : String(error);
-      const codexAuthHint =
-        isCodexLikeTarget(target) && !hasCodexAuthAvailable(target)
-          ? "\nAuth hint: no Codex auth was found in ACP target env or the local Codex auth file. Telegram ACP cannot perform interactive `codex login`, so provide OPENAI_API_KEY / CODEX_API_KEY or make sure the target process can read ~/.codex/auth.json (or $CODEX_HOME/auth.json)."
-          : "";
+      const authHint = buildAcpAuthHint(target);
       throw new Error(
         stderrTail
-          ? `${baseMessage}\nAdapter stderr: ${stderrTail}${codexAuthHint}`
-          : `${baseMessage}\nAdapter may still be installing, waiting for auth, or failing before replying.${codexAuthHint}`
+          ? `${baseMessage}\nAdapter stderr: ${stderrTail}${authHint ? `\n${authHint}` : ""}`
+          : `${baseMessage}\nAdapter may still be installing, waiting for auth, or failing before replying.${authHint ? `\n${authHint}` : ""}`
       );
     }
 
@@ -770,6 +723,7 @@ export class AcpService {
     const active = this.chats.get(chatKey);
     if (!active) return null;
     return {
+      adapter: active.target.adapter,
       targetId: active.target.id,
       projectId: active.project.id,
       projectPath: active.project.path,
@@ -925,12 +879,15 @@ export class AcpService {
 
     const current = this.getSettings();
     const existing = current.acp.projects.find((item) => item.id === id);
+    const defaultAllowedTargetIds = current.acp.targets
+      .filter((item) => item.enabled)
+      .map((item) => item.id);
     const nextProject: AcpProjectConfig = {
       id,
       name: existing?.name || id,
       enabled: true,
       path,
-      allowedTargetIds: existing?.allowedTargetIds ?? ["codex"],
+      allowedTargetIds: existing?.allowedTargetIds ?? defaultAllowedTargetIds,
       defaultApprovalMode: existing?.defaultApprovalMode ?? "manual"
     };
     const nextProjects = current.acp.projects.filter((item) => item.id !== id);
@@ -1161,9 +1118,16 @@ export function formatAcpSessionSummary(summary: AcpSessionSummary | null): stri
   if (!summary) {
     return "No active ACP session.";
   }
+  const adapterLabel = formatAcpAdapterLabel({
+    adapter: summary.adapter,
+    id: summary.targetId,
+    name: summary.title,
+    command: "",
+    args: []
+  });
   const lines = [
     `ACP session: ${summary.title}`,
-    `Target: ${summary.targetId}`,
+    `Target: ${summary.targetId} (${adapterLabel})`,
     `Project: ${summary.projectId}`,
     `Path: ${summary.projectPath}`,
     `Remote session: ${summary.remoteSessionId}`,
@@ -1173,7 +1137,19 @@ export function formatAcpSessionSummary(summary: AcpSessionSummary | null): stri
   ];
   if (summary.lastStopReason) lines.push(`Last stop reason: ${summary.lastStopReason}`);
   if (summary.lastError) lines.push(`Last error: ${summary.lastError}`);
-  if (summary.availableCommands.length > 0) lines.push(`Available commands: ${summary.availableCommands.join(", ")}`);
+  if (summary.availableCommands.length > 0) {
+    const scopedCommands = formatProviderScopedCommands(
+      {
+        adapter: summary.adapter,
+        id: summary.targetId,
+        name: summary.title,
+        command: "",
+        args: []
+      },
+      summary.availableCommands
+    );
+    lines.push(`Available commands: ${scopedCommands.join(", ")}`);
+  }
   if (summary.pendingPermissions.length > 0) {
     lines.push("Pending permissions:");
     for (const permission of summary.pendingPermissions) {
@@ -1189,7 +1165,10 @@ export function formatAcpTargets(targets: AcpTargetConfig[]): string {
   }
   return [
     "ACP targets:",
-    ...targets.map((target) => `- ${target.id}${target.enabled ? "" : " (disabled)"}: ${target.command} ${target.args.join(" ")}`.trim())
+    ...targets.map((target) => {
+      const adapterLabel = formatAcpAdapterLabel(target);
+      return `- ${target.id}${target.enabled ? "" : " (disabled)"} [${adapterLabel}]: ${target.command} ${target.args.join(" ")}`.trim();
+    })
   ].join("\n");
 }
 

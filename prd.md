@@ -1461,3 +1461,20 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - Telegram `apply_noop_same_token` 分支必须调用 preview 重写。
   - `/new`、`/clear`、`/sessions <selector>` 执行成功后必须调用 preview 重写。
+
+## 113. ACP 多 Provider 统一接入层 (2026-03-21)
+- Priority: P1
+- Stage: Delivered (2026-03-21)
+- Problem:
+  - 当前 ACP 虽然协议层通用，但默认 preset、auth hint、项目 allowlist 默认值、帮助文案与状态展示都偏向 Codex，导致接入 Claude Code 时会出现行为不一致和代码层散落特判。
+- Requirement:
+  - ACP target 必须显式声明 `adapter` 类型，至少支持 `codex` / `claude-code` / `custom`。
+  - Codex 与 Claude Code 的默认命令、认证提示、命令前缀展示必须下沉到独立 provider 文件中管理，不能继续散落在 `service.ts`。
+  - Telegram 对外控制面保持统一 `/acp ...` 命令，不为不同 provider 分叉；如远端 adapter 自带命令不一致，则在展示层用 provider 前缀区分。
+  - 新建项目的默认 allowlist 不能再硬编码只允许 `codex`，而应默认允许当前启用的 ACP targets。
+- Enforcement:
+  - `src/lib/server/acp/providers/codex.ts` 与 `src/lib/server/acp/providers/claude-code.ts` 分别承载 provider 细节。
+  - `src/lib/server/settings/schema.ts` 中的 ACP target schema 必须带 `adapter` 字段，并对旧配置做自动推断兼容。
+  - `/settings/acp` 必须能看见/编辑 target adapter，并内置 Codex / Claude Code preset。
+  - `/acp status` 等输出必须明确区分 provider-specific remote commands，例如 `codex:/...`、`claude-code:/...`。
+  - 当 operator 明确把 target 标记为 `custom` 时，运行时必须尊重该选择，不能再根据命令行内容把它自动重判回 Codex 或 Claude Code。

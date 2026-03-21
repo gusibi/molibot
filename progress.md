@@ -1,16 +1,11 @@
-# Progress Log
+# Progress
 
-## 2026-03-06
-- 初始化任务规划文件，明确目标为“图片 fallback 与语音 fallback 对齐”。
-- 已完成 runner 中图片/语音链路对比，确认图片当前缺少真正的“转文本”环节。
-- 已新增 `src/lib/server/agent/vision-fallback.ts`，并把图片分析 fallback 接入 `src/lib/server/agent/runner.ts`。
-- 已同步更新日志观测与系统提示词，让 `[image analysis #N: ...]` 作为可直接推理的输入。
-- 文档已更新：`features.md` 记录实现能力与变更日志，`prd.md` 新增交付项 `P1-71`。
-- 遇到一次 `features.md` 更新日志补丁上下文未命中，已通过重新读取目标区段后修复。
-- 已执行 `npm install` 补齐本 worktree 缺失依赖；随后执行 `npm run build`，构建通过。
-- 构建过程中仅出现既有的 Node SQLite experimental warning 与若干 TypeBox circular dependency warning，本次改动未引入新的构建失败。
-
-## 2026-03-07
-- 通过检查 `/Users/gusi/.molibot/moli-t/bots/molipi_bot/7706709760/contexts/s-mmdo7f94.json` 确认根因：当前用户消息已经包含 `[image analysis #1: ...]` 文本，但同一 session 历史里仍残留 `type:"image"` 的 `toolResult`，导致后续文本模型请求继续携带 image content 并报 `400 Model do not support image input`。
-- 已修复 `src/lib/server/agent/runner.ts`：custom model 的 `input` 能力不再默认伪装成支持 image；发送到 `streamSimple()` 前会为 text-only model 清理上下文中的历史 image parts。
-- 下一步：重新触发一次相同 session 或新 session 图片问答，确认不再出现同类 400。
+- 2026-03-21: 读取 AGENTS/prd/features/acp 相关实现，确认现状。
+- 2026-03-21: 校验本机 `claude` / `claude-code-acp` / `codex` 安装状态。
+- 2026-03-21: 确认需要新增 provider/profile 分层，并做旧配置兼容。
+- 2026-03-21: 新增 `src/lib/server/acp/providers/`，拆出 `codex.ts` 与 `claude-code.ts`，把 preset / auth hint / adapter 识别集中管理。
+- 2026-03-21: 扩展 ACP target schema，新增 `adapter` 字段；默认设置改为内置 Codex + Claude Code 两个 preset，并兼容旧配置自动推断 adapter。
+- 2026-03-21: 统一 Telegram ACP 帮助文案与状态展示，远端 adapter 命令改为带 provider 前缀显示（如 `codex:/...`、`claude-code:/...`）。
+- 2026-03-21: 更新 `/settings/acp`，新增 adapter 字段与 Codex / Claude Code / Custom 三种 target 添加入口。
+- 2026-03-21: 更新 `features.md` 与 `prd.md` 记录本次交付。
+- 2026-03-21: `npm run build` 受沙箱阻止（`.svelte-kit` 写入权限），改用 targeted `tsc` 校验本次改动文件并通过。

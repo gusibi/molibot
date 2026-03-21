@@ -1,5 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
+import { inferAcpAdapterKind } from "../acp/providers/index.js";
 import {
+  type AcpAdapterKind,
   type AgentSettings,
   type AcpApprovalMode,
   type AcpSettings,
@@ -279,6 +281,14 @@ function sanitizeAcpApprovalMode(input: unknown, fallback: AcpApprovalMode = "ma
   return fallback;
 }
 
+function sanitizeAcpAdapterKind(input: unknown, fallback: AcpAdapterKind = "custom"): AcpAdapterKind {
+  const value = String(input ?? "").trim().toLowerCase();
+  if (value === "codex" || value === "claude-code" || value === "custom") {
+    return value;
+  }
+  return fallback;
+}
+
 function sanitizeAcpSettings(input: unknown): AcpSettings {
   const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
   const rawTargets = Array.isArray(source.targets) ? source.targets : [];
@@ -287,11 +297,23 @@ function sanitizeAcpSettings(input: unknown): AcpSettings {
       if (!row || typeof row !== "object") return null;
       const item = row as Record<string, unknown>;
       const id = String(item.id ?? "").trim();
+      const name = String(item.name ?? id).trim() || id;
       const command = String(item.command ?? "").trim();
       if (!id || !command) return null;
       return {
         id,
-        name: String(item.name ?? id).trim() || id,
+        name,
+        adapter: sanitizeAcpAdapterKind(
+          item.adapter,
+          inferAcpAdapterKind({
+            id,
+            name,
+            command,
+            args: Array.isArray(item.args)
+              ? item.args.map((value) => String(value ?? "").trim()).filter(Boolean)
+              : []
+          })
+        ),
         enabled: item.enabled === undefined ? true : Boolean(item.enabled),
         command,
         args: Array.isArray(item.args)

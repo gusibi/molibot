@@ -1,4 +1,4 @@
-import type { AcpApprovalMode } from "../settings/index.js";
+import type { AcpAdapterKind, AcpApprovalMode } from "../settings/index.js";
 
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -73,6 +73,7 @@ export interface AcpPendingPermissionView {
 }
 
 export interface AcpSessionSummary {
+  adapter: AcpAdapterKind;
   targetId: string;
   projectId: string;
   projectPath: string;
