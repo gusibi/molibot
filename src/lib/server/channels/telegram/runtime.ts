@@ -15,6 +15,7 @@ import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agen
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
 import { AcpService, formatAcpProjects, formatAcpSessionSummary, formatAcpSessions, formatAcpTargets } from "../../acp/service.js";
+import { buildAcpHelpText, buildAcpPermissionText, buildStructuredAcpTaskPrompt } from "../../acp/prompt.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
 import { RunnerPool } from "../../agent/runner.js";
 import { loadSkillsFromWorkspace } from "../../agent/skills.js";
@@ -120,34 +121,106 @@ export class TelegramManager {
     );
   }
 
-  private buildStructuredAcpTaskPrompt(prompt: string): string {
-    return [
-      prompt.trim(),
-      "",
-      "Output requirements:",
-      "- Return the final answer in concise Markdown.",
-      "- Use short sections when relevant: `## Summary`, `## Execution Context`, `## Changes`, `## Verification`, `## Notes`.",
-      "- `## Execution Context` is mandatory. Include raw outputs (or explicit errors) for each command below:",
-      "  - `pwd`",
-      "  - `ls -la`",
-      "  - `command -v python || command -v python3`",
-      "  - `python -V || python3 -V`",
-      "  - `command -v uv || true`",
-      "  - `echo \"DATABASE_URL=$DATABASE_URL\"`",
-      "  - `echo \"DB_PATH=$DB_PATH\"`",
-      "- If the task runs a script or command, print the exact command and exit code.",
-      "- Prefer bullet lists over long unbroken paragraphs.",
-      "- When mentioning files, wrap paths in backticks.",
-      "- In `## Changes`, use bullets like `- `path/to/file`: what changed`.",
-      "- In `## Verification`, list commands or checks and whether they passed or could not run.",
-      "- If something is blocked, say exactly what is blocked and what still needs manual verification."
-    ].join("\n");
-  }
-
   private summarizeForTelegram(text: string, max = 280): string {
     const normalized = text.replace(/\s+/g, " ").trim();
     if (normalized.length <= max) return normalized;
     return `${normalized.slice(0, Math.max(0, max - 1))}…`;
+  }
+
+  private async runAcpProxyPrompt(bot: Bot, chatId: string, prompt: string): Promise<void> {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) return;
+    const sent = await sendTelegramText(bot, chatId, `ACP proxy started\n${trimmedPrompt}`);
+    let statusText = `ACP proxy started\n${trimmedPrompt}`;
+    let pendingStatusText: string | null = null;
+    let statusFlush: Promise<void> | null = null;
+    let lastStatusEditAt = 0;
+    const statusEditIntervalMs = 1500;
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const flushStatus = async () => {
+      while (pendingStatusText && pendingStatusText !== statusText) {
+        const nextText = pendingStatusText;
+        pendingStatusText = null;
+        const waitMs = Math.max(0, statusEditIntervalMs - (Date.now() - lastStatusEditAt));
+        if (waitMs > 0) {
+          await sleep(waitMs);
+        }
+        try {
+          await editTelegramText(bot, chatId, sent.message_id, nextText);
+          lastStatusEditAt = Date.now();
+        } catch (error) {
+          momWarn("telegram", "acp_status_edit_failed", {
+            chatId,
+            messageId: sent.message_id,
+            error: error instanceof Error ? error.message : String(error),
+            errorDetails: describeTelegramError(error)
+          });
+        }
+        statusText = nextText;
+      }
+      statusFlush = null;
+    };
+    const setStatus = async (text: string) => {
+      if (text === statusText || text === pendingStatusText) return;
+      pendingStatusText = text;
+      if (!statusFlush) {
+        statusFlush = flushStatus().catch((error) => {
+          momWarn("telegram", "acp_status_flush_failed", {
+            chatId,
+            messageId: sent.message_id,
+            error: error instanceof Error ? error.message : String(error),
+            errorDetails: describeTelegramError(error)
+          });
+          statusFlush = null;
+        });
+      }
+      await statusFlush;
+    };
+
+    const result = await this.acp.runTask(chatId, trimmedPrompt, {
+      onStatus: async (text) => {
+        await setStatus(text);
+      },
+      onEvent: async (text) => {
+        await sendTelegramText(bot, chatId, text, { reply_parameters: { message_id: sent.message_id } });
+      },
+      onPermissionRequest: async (permission) => {
+        await this.sendAcpPermissionCard(bot, chatId, permission, sent.message_id);
+      }
+    });
+
+    const summaryLines = [
+      "## ACP Proxy Result",
+      `- Stop reason: \`${result.stopReason}\``,
+      `- Tool calls: ${result.toolCalls.length}`,
+      result.lastStatus ? `- Last status: ${result.lastStatus}` : ""
+    ].filter(Boolean);
+    const completedTools = result.toolCalls.filter((tool) => tool.status === "completed");
+    const failedTools = result.toolCalls.filter((tool) => tool.status === "failed");
+    const touchedLocations = Array.from(
+      new Set(
+        completedTools
+          .flatMap((tool) => tool.locations)
+          .map((location) => location.trim())
+          .filter(Boolean)
+      )
+    );
+    if (completedTools.length > 0) {
+      summaryLines.push(`- Completed tools: ${completedTools.length}`);
+    }
+    if (failedTools.length > 0) {
+      summaryLines.push(`- Failed tools: ${failedTools.length}`);
+    }
+    if (touchedLocations.length > 0) {
+      summaryLines.push(`- Touched: ${touchedLocations.slice(0, 8).map((location) => `\`${location}\``).join(", ")}`);
+    }
+    await sendTelegramText(bot, chatId, summaryLines.join("\n"), { reply_parameters: { message_id: sent.message_id } });
+    if (result.assistantText) {
+      const chunks = this.chunkTelegramText(result.assistantText);
+      for (const chunk of chunks) {
+        await sendTelegramText(bot, chatId, chunk, { reply_parameters: { message_id: sent.message_id } });
+      }
+    }
   }
 
   private formatAcpPermissionOptionLabel(optionId: string, fallback: string): string {
@@ -162,20 +235,6 @@ export class TelegramManager {
       return "Deny";
     }
     return fallback.length <= 28 ? fallback : `${fallback.slice(0, 27)}…`;
-  }
-
-  private buildAcpPermissionText(permission: AcpPendingPermissionView): string {
-    const lines = [
-      "## ACP Permission Request",
-      `- Request: \`${permission.id}\``,
-      `- Title: ${permission.title}`,
-      `- Kind: ${permission.kind}`
-    ];
-    if (permission.inputPreview) {
-      lines.push(`- Input: \`${permission.inputPreview}\``);
-    }
-    lines.push("", "Choose an action below.");
-    return lines.join("\n");
   }
 
   private registerAcpPermissionAction(
@@ -225,7 +284,7 @@ export class TelegramManager {
     await sendTelegramText(
       bot,
       chatId,
-      this.buildAcpPermissionText(permission),
+      buildAcpPermissionText(permission),
       {
         reply_markup: keyboard,
         ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {})
@@ -341,6 +400,51 @@ export class TelegramManager {
         lastResult = await prev(method, nextPayload as never, signal);
       }
       return lastResult;
+    });
+
+    bot.use(async (ctx, next) => {
+      const message = ctx.msg;
+      const chatId = String(ctx.chat?.id ?? "");
+      if (!message || !chatId) {
+        await next();
+        return;
+      }
+      if (allowed.size > 0 && !allowed.has(chatId)) {
+        await next();
+        return;
+      }
+      if (this.acpPermissionInputs.has(chatId)) {
+        await next();
+        return;
+      }
+      const text = typeof message.text === "string" ? message.text.trim() : "";
+      if (!text) {
+        await next();
+        return;
+      }
+      const lowered = text.toLowerCase();
+      if (lowered.startsWith("/acp") || lowered.startsWith("/approve") || lowered.startsWith("/deny")) {
+        await next();
+        return;
+      }
+
+      try {
+        await this.acp.restoreSession(chatId);
+      } catch {
+        await next();
+        return;
+      }
+      const status = this.acp.getStatus(chatId);
+      if (!status) {
+        await next();
+        return;
+      }
+
+      try {
+        await this.runAcpProxyPrompt(bot, chatId, text);
+      } catch (error) {
+        await sendTelegramText(bot, chatId, error instanceof Error ? error.message : String(error));
+      }
     });
 
     bot.command("chatid", async (ctx) => {
@@ -487,7 +591,7 @@ export class TelegramManager {
       try {
         switch (subcommand.toLowerCase()) {
           case "help":
-            await ctx.reply(this.acpHelpText());
+            await ctx.reply(buildAcpHelpText());
             return;
           case "targets":
             await ctx.reply(formatAcpTargets(this.acp.listTargets()));
@@ -552,14 +656,123 @@ export class TelegramManager {
             await ctx.reply(formatAcpSessionSummary(summary));
             return;
           }
+          case "remote": {
+            const remoteRaw = rawArg.replace(/^remote(?:\s+|$)/i, "").trim();
+            await this.acp.restoreSession(chatId);
+            if (!remoteRaw) {
+              const status = this.acp.getStatus(chatId);
+              await ctx.reply(
+                [
+                  "Usage: /acp remote <command> [args]",
+                  "Tip: check `/acp status` for available provider-prefixed remote commands.",
+                  "",
+                  formatAcpSessionSummary(status)
+                ].join("\n")
+              );
+              return;
+            }
+
+            const resolved = this.acp.resolveRemoteCommand(chatId, remoteRaw);
+            const sent = await sendTelegramText(bot, chatId, `ACP remote command started\n${resolved.displayCommand}`);
+            let statusText = `ACP remote command started\n${resolved.displayCommand}`;
+            let pendingStatusText: string | null = null;
+            let statusFlush: Promise<void> | null = null;
+            let lastStatusEditAt = 0;
+            const statusEditIntervalMs = 1500;
+            const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+            const flushStatus = async () => {
+              while (pendingStatusText && pendingStatusText !== statusText) {
+                const nextText = pendingStatusText;
+                pendingStatusText = null;
+                const waitMs = Math.max(0, statusEditIntervalMs - (Date.now() - lastStatusEditAt));
+                if (waitMs > 0) {
+                  await sleep(waitMs);
+                }
+                try {
+                  await editTelegramText(bot, chatId, sent.message_id, nextText);
+                  lastStatusEditAt = Date.now();
+                } catch (error) {
+                  momWarn("telegram", "acp_status_edit_failed", {
+                    chatId,
+                    messageId: sent.message_id,
+                    error: error instanceof Error ? error.message : String(error),
+                    errorDetails: describeTelegramError(error)
+                  });
+                }
+                statusText = nextText;
+              }
+              statusFlush = null;
+            };
+            const setStatus = async (text: string) => {
+              if (text === statusText || text === pendingStatusText) return;
+              pendingStatusText = text;
+              if (!statusFlush) {
+                statusFlush = flushStatus().catch((error) => {
+                  momWarn("telegram", "acp_status_flush_failed", {
+                    chatId,
+                    messageId: sent.message_id,
+                    error: error instanceof Error ? error.message : String(error),
+                    errorDetails: describeTelegramError(error)
+                  });
+                  statusFlush = null;
+                });
+              }
+              await statusFlush;
+            };
+            const result = await this.acp.runTask(chatId, resolved.prompt, {
+              onStatus: async (text) => {
+                await setStatus(text);
+              },
+              onEvent: async (text) => {
+                await sendThread(text, sent.message_id);
+              },
+              onPermissionRequest: async (permission) => {
+                await this.sendAcpPermissionCard(bot, chatId, permission, sent.message_id);
+              }
+            });
+            const summaryLines = [
+              "## ACP Remote Result",
+              `- Command: \`${resolved.displayCommand}\``,
+              `- Stop reason: \`${result.stopReason}\``,
+              `- Tool calls: ${result.toolCalls.length}`,
+              result.lastStatus ? `- Last status: ${result.lastStatus}` : ""
+            ].filter(Boolean);
+            const completedTools = result.toolCalls.filter((tool) => tool.status === "completed");
+            const failedTools = result.toolCalls.filter((tool) => tool.status === "failed");
+            const touchedLocations = Array.from(
+              new Set(
+                completedTools
+                  .flatMap((tool) => tool.locations)
+                  .map((location) => location.trim())
+                  .filter(Boolean)
+              )
+            );
+            if (completedTools.length > 0) {
+              summaryLines.push(`- Completed tools: ${completedTools.length}`);
+            }
+            if (failedTools.length > 0) {
+              summaryLines.push(`- Failed tools: ${failedTools.length}`);
+            }
+            if (touchedLocations.length > 0) {
+              summaryLines.push(`- Touched: ${touchedLocations.slice(0, 8).map((location) => `\`${location}\``).join(", ")}`);
+            }
+            await sendThread(summaryLines.join("\n"), sent.message_id);
+            if (result.assistantText) {
+              const chunks = this.chunkTelegramText(result.assistantText);
+              for (const chunk of chunks) {
+                await sendThread(chunk, sent.message_id);
+              }
+            }
+            return;
+          }
           case "task": {
-            const prompt = rawArg.replace(/^task\s+/i, "").trim();
+            const prompt = rawArg.replace(/^task(?:\s+|$)/i, "").trim();
             if (!prompt) {
               await ctx.reply("Usage: /acp task <instructions>");
               return;
             }
             await this.acp.restoreSession(chatId);
-            const taskPrompt = this.buildStructuredAcpTaskPrompt(prompt);
+            const taskPrompt = buildStructuredAcpTaskPrompt(prompt);
             const sent = await sendTelegramText(bot, chatId, `ACP task started\n${prompt}`);
             let statusText = `ACP task started\n${prompt}`;
             let pendingStatusText: string | null = null;
@@ -664,7 +877,7 @@ export class TelegramManager {
             return;
           }
           default:
-            await ctx.reply(this.acpHelpText());
+            await ctx.reply(buildAcpHelpText());
         }
       } catch (error) {
         await ctx.reply(error instanceof Error ? error.message : String(error));
@@ -1799,26 +2012,7 @@ export class TelegramManager {
   }
 
   private acpHelpText(): string {
-    return [
-      "ACP commands:",
-      "The same `/acp ...` control commands work for Codex, Claude Code, and custom ACP targets.",
-      "Provider-specific remote commands are shown in `/acp status` with prefixes such as `codex:/...` or `claude-code:/...`.",
-      "/acp help - show ACP command help",
-      "/acp targets - list configured ACP targets",
-      "/acp projects - list registered ACP projects",
-      "/acp sessions - list available ACP sessions for current target/project",
-      "/acp add-project <id> <absolute-path> - register/update a project",
-      "/acp remove-project <id> - remove a registered project",
-      "/acp new <targetId> <projectId> [manual|auto-safe|auto-all] - open a coding session",
-      "/acp status - show current ACP session",
-      "/acp mode <manual|auto-safe|auto-all> - change approval mode",
-      "/acp task <instructions> - send a coding task to the active ACP session",
-      "/acp stop - stop the running ACP task immediately",
-      "/acp cancel - cancel the running ACP task",
-      "/acp close - close the ACP session",
-      "/approve <requestId> <optionId> - approve a pending ACP request",
-      "/deny <requestId> - reject or cancel a pending ACP request"
-    ].join("\n");
+    return buildAcpHelpText();
   }
 
   private chunkTelegramText(text: string, chunkSize = 3500): string[] {
