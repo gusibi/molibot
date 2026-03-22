@@ -156,6 +156,8 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-110 | BOT.md prompt merge enforcement | P1 | Delivered (2026-03-20) | Prompt builder must merge `BOT.md` into final system prompt output (not only source discovery), preserving bot-scope instruction precedence and ensuring bot-level guardrails are active at runtime |
 | P1-111 | Settings task edit workflow | P1 | Delivered (2026-03-20) | `/settings/tasks` should support inline editing and save-back of task config (`text`, `delivery`, and type-specific schedule fields) through a validated backend update API, so operators can adjust existing tasks without manual JSON file edits |
 | P1-112 | Settings task edit textarea build compliance | P1 | Delivered (2026-03-20) | `/settings/tasks` inline edit input must use explicit `<textarea></textarea>` markup (not self-closing form) so Svelte SSR/client production builds are warning-free and standards-compliant |
+| P1-113 | WeChat channel integration | P1 | Delivered (2026-03-22) | Operators can configure `/settings/weixin`, enable a WeChat bot instance, complete QR login through the npm-installed SDK, and reuse the shared chat runtime (sessions, model switching, skills, compaction, OAuth commands) for inbound WeChat conversations without touching core runner architecture |
+| P1-114 | WeChat login QR helper in settings | P1 | Delivered (2026-03-22) | Operators can paste the WeChat SDK login URL from runtime logs into `/settings/weixin` and immediately render a scannable QR code in the browser, so phone login does not depend on opening or forwarding the raw link manually |
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |

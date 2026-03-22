@@ -22,11 +22,13 @@
     "@mariozechner/pi-ai": "latest",
     "@mariozechner/pi-web-ui": "latest",
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@pinixai/weixin-bot": "^1.2.0",
     "@types/ws": "^8.18.1",
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
     "grammy": "^1.38.3",
     "lit": "^3.3.1",
+    "qrcode": "^1.5.4",
     "svelte": "^5.38.10",
     "uuid": "^11.1.0",
     "ws": "^8.19.0"

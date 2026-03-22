@@ -477,6 +477,10 @@ function sanitizeChannels(
     }))
   };
 
+  channels.weixin = channels.weixin ?? {
+    instances: []
+  };
+
   return channels;
 }
 

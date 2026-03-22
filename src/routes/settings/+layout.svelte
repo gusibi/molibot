@@ -30,6 +30,7 @@
             links: [
                 { href: "/settings/web", label: "Web Profiles", exact: true },
                 { href: "/settings/telegram", label: "Telegram Bot", exact: true },
+                { href: "/settings/weixin", label: "WeChat Bot", exact: true },
                 { href: "/settings/feishu", label: "Feishu Bot", exact: true },
                 { href: "/settings/qq", label: "QQ Bot", exact: true },
             ],

@@ -34,8 +34,8 @@
       action: "Open"
     },
     {
-      title: "Telegram / Feishu / QQ",
-      description: "Configure channel bots and credentials.",
+      title: "Telegram / WeChat / Feishu / QQ",
+      description: "Configure channel bots, login state, and access rules.",
       href: "/settings/telegram",
       action: "Open"
     },

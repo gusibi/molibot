@@ -5,6 +5,7 @@ import type { AiUsageTracker } from "../usage/tracker.js";
 import { feishuChannelPlugin } from "./feishu/index.js";
 import { qqChannelPlugin } from "./qq/index.js";
 import { telegramChannelPlugin } from "./telegram/index.js";
+import { weixinChannelPlugin } from "./weixin/index.js";
 
 export interface ChannelManager {
   apply(config: unknown): void;
@@ -38,5 +39,6 @@ export interface ChannelPlugin<TConfig> {
 export const builtInChannelPlugins: ChannelPlugin<any>[] = [
   telegramChannelPlugin,
   feishuChannelPlugin,
-  qqChannelPlugin
+  qqChannelPlugin,
+  weixinChannelPlugin
 ];

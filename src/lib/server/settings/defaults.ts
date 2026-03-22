@@ -272,6 +272,9 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     },
     qq: {
       instances: mapQQBotsToChannelSettings(defaultQQBots)
+    },
+    weixin: {
+      instances: []
     }
   },
   mcpServers: defaultMcpServers,
