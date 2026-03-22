@@ -7,7 +7,12 @@ import type {
   AcpTargetConfig,
   RuntimeSettings
 } from "../settings/index.js";
-import { buildAcpAuthHint, formatAcpAdapterLabel, formatProviderScopedCommands } from "./providers/index.js";
+import {
+  buildAcpAuthHint,
+  formatAcpAdapterLabel,
+  formatProviderScopedCommands,
+  resolveAcpProviderProfile
+} from "./providers/index.js";
 import { JsonRpcStdioConnection } from "./connection.js";
 import type {
   AcpListedSession,
@@ -288,6 +293,33 @@ function normalizeAvailableCommands(input: unknown): string[] {
       return "";
     })
     .filter(Boolean);
+}
+
+function parseRemoteCommandToken(raw: string): { namespace?: string; command: string; args: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { command: "", args: "" };
+  }
+  const firstSpace = trimmed.indexOf(" ");
+  const token = firstSpace >= 0 ? trimmed.slice(0, firstSpace).trim() : trimmed;
+  const args = firstSpace >= 0 ? trimmed.slice(firstSpace + 1).trim() : "";
+  const scoped = token.match(/^([a-z0-9-]+):(.*)$/i);
+  if (!scoped) {
+    return { command: token, args };
+  }
+  return {
+    namespace: scoped[1]?.trim().toLowerCase(),
+    command: String(scoped[2] ?? "").trim(),
+    args
+  };
+}
+
+function normalizeCommandKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function stripLeadingSlash(value: string): string {
+  return value.startsWith("/") ? value.slice(1) : value;
 }
 
 function normalizeListedSessions(input: unknown): AcpListedSession[] {
@@ -768,6 +800,67 @@ export class AcpService {
     active.lastStatus = `Approval mode set to ${mode}`;
     this.persistSessionState(chatKey, active);
     return this.getStatus(chatKey)!;
+  }
+
+  resolveRemoteCommand(
+    chatKey: string,
+    rawInput: string
+  ): { prompt: string; displayCommand: string } {
+    const active = this.requireSession(chatKey);
+    const profile = resolveAcpProviderProfile(active.target);
+    const parsed = parseRemoteCommandToken(rawInput);
+    if (!parsed.command) {
+      throw new Error("Usage: /acp remote <command> [args]");
+    }
+
+    if (parsed.namespace) {
+      const expected = profile?.commandNamespace ?? "";
+      if (!expected || parsed.namespace !== expected) {
+        const expectedLabel = expected ? `\`${expected}:/...\`` : "the active custom target";
+        throw new Error(`Remote command prefix \`${parsed.namespace}:\` does not match ${expectedLabel}.`);
+      }
+    }
+
+    const provided = parsed.command.trim();
+    if (!provided) {
+      throw new Error("Usage: /acp remote <command> [args]");
+    }
+
+    const available = [...active.availableCommands];
+    let command = provided;
+    if (available.length > 0) {
+      const index = new Map<string, string>();
+      for (const item of available) {
+        const key = normalizeCommandKey(item);
+        if (key) index.set(key, item);
+        const withoutSlash = normalizeCommandKey(stripLeadingSlash(item));
+        if (withoutSlash) index.set(withoutSlash, item);
+      }
+      const candidates = [normalizeCommandKey(provided), normalizeCommandKey(stripLeadingSlash(provided))]
+        .filter(Boolean);
+      const matched = candidates.map((key) => index.get(key)).find(Boolean);
+      if (!matched) {
+        const scopedCommands = formatProviderScopedCommands(active.target, available).slice(0, 20);
+        throw new Error(
+          [
+            `Unknown remote command: ${provided}`,
+            scopedCommands.length > 0
+              ? `Available: ${scopedCommands.join(", ")}`
+              : "No remote commands were reported by the active ACP session."
+          ].join("\n")
+        );
+      }
+      command = matched;
+    }
+
+    const prompt = parsed.args ? `${command} ${parsed.args}` : command;
+    const display = parsed.args
+      ? `${formatProviderScopedCommands(active.target, [command])[0] ?? command} ${parsed.args}`
+      : (formatProviderScopedCommands(active.target, [command])[0] ?? command);
+    return {
+      prompt,
+      displayCommand: display
+    };
   }
 
   async runTask(chatKey: string, prompt: string, callbacks: AcpTaskCallbacks): Promise<AcpPromptResult> {

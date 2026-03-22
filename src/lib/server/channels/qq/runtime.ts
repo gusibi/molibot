@@ -13,6 +13,8 @@ import {
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
+import { AcpService, formatAcpProjects, formatAcpSessionSummary, formatAcpSessions, formatAcpTargets } from "../../acp/service.js";
+import { buildAcpHelpText, buildAcpPermissionText, buildStructuredAcpTaskPrompt } from "../../acp/prompt.js";
 import { RunnerPool } from "../../agent/runner.js";
 import { loadSkillsFromWorkspace } from "../../agent/skills.js";
 import { MomRuntimeStore } from "../../agent/store.js";
@@ -28,6 +30,7 @@ import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.j
 import { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
+import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { ChannelQueue } from "../shared/queue.js";
 import {
   clearTokenCache,
@@ -154,6 +157,7 @@ export class QQManager {
   private readonly runners: RunnerPool;
   private readonly memory: MemoryGateway;
   private readonly instanceId: string;
+  private readonly acp: AcpService;
 
   private currentAppId = "";
   private currentClientSecret = "";
@@ -191,6 +195,11 @@ export class QQManager {
       this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
       options.usageTracker,
       options.memory
+    );
+    this.acp = new AcpService(
+      this.getSettings,
+      this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
+      { stateFilePath: join(this.workspaceDir, "acp_sessions.json") }
     );
   }
 
@@ -257,6 +266,7 @@ export class QQManager {
     this.lastSeq = null;
     this.accessToken = "";
     clearTokenCache();
+    void this.acp.dispose();
     momLog("qq", "adapter_stopped");
   }
 
@@ -385,6 +395,54 @@ export class QQManager {
     return true;
   }
 
+  private async sendAcpPermissionCard(target: SendTarget, permission: AcpPendingPermissionView): Promise<void> {
+    await this.replyCommand(target, buildAcpPermissionText(permission));
+  }
+
+  private async runAcpPrompt(chatId: string, prompt: string, target: SendTarget, startText: string): Promise<void> {
+    await this.replyCommand(target, startText);
+    let lastStatus = startText;
+    const result = await this.acp.runTask(chatId, prompt, {
+      onStatus: async (text) => {
+        lastStatus = text;
+      },
+      onEvent: async (text) => {
+        await this.replyCommand(target, text);
+      },
+      onPermissionRequest: async (permission) => {
+        await this.sendAcpPermissionCard(target, permission);
+      }
+    });
+
+    const completedTools = result.toolCalls.filter((tool) => tool.status === "completed");
+    const failedTools = result.toolCalls.filter((tool) => tool.status === "failed");
+    const touchedLocations = Array.from(
+      new Set(
+        completedTools
+          .flatMap((tool) => tool.locations)
+          .map((location) => location.trim())
+          .filter(Boolean)
+      )
+    );
+    const summaryLines = [
+      "ACP result:",
+      `Stop reason: ${result.stopReason}`,
+      `Tool calls: ${result.toolCalls.length}`,
+      lastStatus ? `Last status: ${lastStatus}` : ""
+    ].filter(Boolean);
+    if (completedTools.length > 0) summaryLines.push(`Completed tools: ${completedTools.length}`);
+    if (failedTools.length > 0) summaryLines.push(`Failed tools: ${failedTools.length}`);
+    if (touchedLocations.length > 0) summaryLines.push(`Touched: ${touchedLocations.slice(0, 8).join(", ")}`);
+    await this.replyCommand(target, summaryLines.join("\n"));
+    if (result.assistantText.trim()) {
+      await this.replyCommand(target, result.assistantText.trim());
+    }
+  }
+
+  private async runAcpProxyPrompt(chatId: string, prompt: string, target: SendTarget): Promise<void> {
+    await this.runAcpPrompt(chatId, prompt.trim(), target, `ACP proxy started\n${prompt.trim()}`);
+  }
+
   private async handleIncoming(kind: "c2c" | "group" | "channel", event: QqInboundRaw, allowed: Set<string>): Promise<void> {
     const messageId = String(event.id ?? "").trim();
     if (!messageId) return;
@@ -435,9 +493,27 @@ export class QQManager {
     }
 
     const loweredText = text.trim().toLowerCase();
+    const target = { mode: kind, id: chatId, replyToId: messageId } satisfies SendTarget;
+    const reservedAcpControl = loweredText.startsWith("/acp") || loweredText.startsWith("/approve") || loweredText.startsWith("/deny");
+    let acpStatus = null;
+    try {
+      await this.acp.restoreSession(chatId);
+      acpStatus = this.acp.getStatus(chatId);
+    } catch {
+      acpStatus = null;
+    }
+    if (acpStatus && !reservedAcpControl) {
+      try {
+        await this.runAcpProxyPrompt(chatId, text, target);
+      } catch (error) {
+        await this.replyCommand(target, error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+
     const commandText = loweredText === "stop" ? "/stop" : text;
     if (commandText.startsWith("/")) {
-      const handled = await this.handleCommand(chatId, commandText, { mode: kind, id: chatId, replyToId: messageId });
+      const handled = await this.handleCommand(chatId, commandText, target);
       if (handled) return;
     }
 
@@ -456,7 +532,7 @@ export class QQManager {
     const runId = createRunId(chatId, inbound.messageId);
     (inbound as ChannelInboundMessage & { runId?: string; rawMessageId?: string; qqTarget?: SendTarget }).runId = runId;
     (inbound as ChannelInboundMessage & { rawMessageId?: string }).rawMessageId = messageId;
-    (inbound as ChannelInboundMessage & { qqTarget?: SendTarget }).qqTarget = { mode: kind, id: chatId, replyToId: messageId };
+    (inbound as ChannelInboundMessage & { qqTarget?: SendTarget }).qqTarget = target;
 
     const logged = this.store.logMessage(chatId, {
       date: new Date().toISOString(),
@@ -692,7 +768,140 @@ export class QQManager {
       if (result.aborted) {
         await this.replyCommand(target, "Stopping...");
       } else {
-        await this.replyCommand(target, "Nothing running.");
+        const cancelledAcp = await this.acp.cancelRun(chatId);
+        await this.replyCommand(target, cancelledAcp ? "ACP cancellation requested." : "Nothing running.");
+      }
+      return true;
+    }
+
+    if (cmd === "/acp") {
+      const [subcommand = "help", ...rest] = rawArg.split(/\s+/).filter(Boolean);
+      try {
+        switch (subcommand.toLowerCase()) {
+          case "help":
+            await this.replyCommand(target, buildAcpHelpText());
+            return true;
+          case "targets":
+            await this.replyCommand(target, formatAcpTargets(this.acp.listTargets()));
+            return true;
+          case "projects":
+            await this.replyCommand(target, formatAcpProjects(this.acp.listProjects()));
+            return true;
+          case "sessions":
+            await this.replyCommand(target, formatAcpSessions(await this.acp.listSessions(chatId)));
+            return true;
+          case "add-project": {
+            const projectId = rest[0] ?? "";
+            const projectPath = rest.slice(1).join(" ").trim();
+            if (!projectId || !projectPath) {
+              await this.replyCommand(target, "Usage: /acp add-project <id> <absolute-path>");
+              return true;
+            }
+            const project = this.acp.upsertProject(projectId, projectPath);
+            await this.replyCommand(target, `Saved ACP project ${project.id} -> ${project.path}`);
+            return true;
+          }
+          case "remove-project": {
+            const projectId = rest[0] ?? "";
+            if (!projectId) {
+              await this.replyCommand(target, "Usage: /acp remove-project <id>");
+              return true;
+            }
+            const removed = this.acp.removeProject(projectId);
+            await this.replyCommand(target, removed ? `Removed ACP project ${projectId}.` : `Project not found: ${projectId}`);
+            return true;
+          }
+          case "new": {
+            const [targetId = "", projectId = "", modeRaw = ""] = rest;
+            if (!targetId || !projectId) {
+              await this.replyCommand(target, "Usage: /acp new <targetId> <projectId> [manual|auto-safe|auto-all]");
+              return true;
+            }
+            const mode = modeRaw === "manual" || modeRaw === "auto-safe" || modeRaw === "auto-all" ? modeRaw : undefined;
+            await this.replyCommand(target, formatAcpSessionSummary(await this.acp.openSession(chatId, targetId, projectId, mode)));
+            return true;
+          }
+          case "status":
+            await this.acp.restoreSession(chatId);
+            await this.replyCommand(target, formatAcpSessionSummary(this.acp.getStatus(chatId)));
+            return true;
+          case "mode": {
+            const modeRaw = rest[0] ?? "";
+            if (modeRaw !== "manual" && modeRaw !== "auto-safe" && modeRaw !== "auto-all") {
+              await this.replyCommand(target, "Usage: /acp mode <manual|auto-safe|auto-all>");
+              return true;
+            }
+            await this.acp.restoreSession(chatId);
+            await this.replyCommand(target, formatAcpSessionSummary(this.acp.setApprovalMode(chatId, modeRaw)));
+            return true;
+          }
+          case "remote": {
+            const remoteRaw = rawArg.replace(/^remote(?:\s+|$)/i, "").trim();
+            await this.acp.restoreSession(chatId);
+            if (!remoteRaw) {
+              await this.replyCommand(target, `Usage: /acp remote <command> [args]\n\n${formatAcpSessionSummary(this.acp.getStatus(chatId))}`);
+              return true;
+            }
+            const resolved = this.acp.resolveRemoteCommand(chatId, remoteRaw);
+            await this.runAcpPrompt(chatId, resolved.prompt, target, `ACP remote command started\n${resolved.displayCommand}`);
+            return true;
+          }
+          case "task": {
+            const prompt = rawArg.replace(/^task(?:\s+|$)/i, "").trim();
+            if (!prompt) {
+              await this.replyCommand(target, "Usage: /acp task <instructions>");
+              return true;
+            }
+            await this.acp.restoreSession(chatId);
+            await this.runAcpPrompt(chatId, buildStructuredAcpTaskPrompt(prompt), target, `ACP task started\n${prompt}`);
+            return true;
+          }
+          case "cancel":
+          case "stop": {
+            await this.acp.restoreSession(chatId);
+            const cancelled = await this.acp.cancelRun(chatId);
+            await this.replyCommand(target, cancelled ? "ACP cancellation requested." : "No ACP task is running.");
+            return true;
+          }
+          case "close": {
+            const closed = await this.acp.closeSession(chatId);
+            await this.replyCommand(target, closed ? "ACP session closed." : "No active ACP session.");
+            return true;
+          }
+          default:
+            await this.replyCommand(target, buildAcpHelpText());
+            return true;
+        }
+      } catch (error) {
+        await this.replyCommand(target, error instanceof Error ? error.message : String(error));
+        return true;
+      }
+    }
+
+    if (cmd === "/approve") {
+      const [requestId = "", optionId = ""] = rawArg.split(/\s+/).filter(Boolean);
+      if (!requestId || !optionId) {
+        await this.replyCommand(target, "Usage: /approve <requestId> <optionId>");
+        return true;
+      }
+      try {
+        await this.replyCommand(target, await this.acp.approve(chatId, requestId, optionId));
+      } catch (error) {
+        await this.replyCommand(target, error instanceof Error ? error.message : String(error));
+      }
+      return true;
+    }
+
+    if (cmd === "/deny") {
+      const requestId = rawArg.split(/\s+/).filter(Boolean)[0] ?? "";
+      if (!requestId) {
+        await this.replyCommand(target, "Usage: /deny <requestId>");
+        return true;
+      }
+      try {
+        await this.replyCommand(target, await this.acp.deny(chatId, requestId));
+      } catch (error) {
+        await this.replyCommand(target, error instanceof Error ? error.message : String(error));
       }
       return true;
     }
@@ -934,6 +1143,9 @@ export class QQManager {
         "/models <text|vision|stt|tts> - list options for a specific route",
         "/models <text|vision|stt|tts> <index|key> - switch route model",
         "/compact [instructions] - summarize older context of current session",
+        "/acp help - show ACP coding control commands",
+        "/approve <requestId> <optionId> - approve ACP permission",
+        "/deny <requestId> - reject ACP permission",
         "/login <provider> - start OAuth login",
         "/login <provider> <code-or-redirect-url> - finish OAuth login",
         "/logout <provider> - remove stored auth",

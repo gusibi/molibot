@@ -1480,3 +1480,45 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `/settings/acp` 必须能看见/编辑 target adapter，并内置 Codex / Claude Code preset。
   - `/acp status` 等输出必须明确区分 provider-specific remote commands，例如 `codex:/...`、`claude-code:/...`。
   - 当 operator 明确把 target 标记为 `custom` 时，运行时必须尊重该选择，不能再根据命令行内容把它自动重判回 Codex 或 Claude Code。
+
+## 114. ACP 远端命令执行入口 (2026-03-22)
+- Priority: P1
+- Stage: Delivered (2026-03-22)
+- Problem:
+  - 虽然 `/acp status` 已经能展示 provider-specific remote commands，但 operator 还缺少一个统一入口去直接触发这些远端命令，只能把命令手动拼到 `/acp task` 文本里，交互不稳定且难以区分命令前缀。
+- Requirement:
+  - Telegram 必须提供 `/acp remote <command> [args]`，用于直接执行 ACP 会话暴露的远端命令。
+  - 远端命令解析需要支持可选 provider 前缀（如 `codex:/...`、`claude-code:/...`），并在前缀与当前 active target 不匹配时给出明确报错。
+  - 当会话返回了 `availableCommands` 时，运行时必须优先按该列表校验远端命令，避免执行未知命令。
+- Enforcement:
+  - `src/lib/server/channels/telegram/runtime.ts` 的 `/acp` 路由必须新增 `remote` 子命令并写入 `/acp help`。
+  - `src/lib/server/acp/service.ts` 必须提供统一的远端命令解析接口，负责 prefix 处理和命令校验，而不是把 provider 逻辑散落在 Telegram 层。
+  - Telegram 子命令参数提取必须兼容“仅输入子命令名”的场景（如 `/acp remote`、`/acp task`），此时应返回 usage，而不能把子命令名本身当作 payload 执行。
+
+## 115. ACP 活跃会话默认直通代理模式 (2026-03-22)
+- Priority: P1
+- Stage: Delivered (2026-03-22)
+- Problem:
+  - 当前 operator 在 ACP 会话中仍需要每条任务使用 `/acp task ...`，交互割裂，不符合“进入会话后直接与 Codex/Claude 对话”的预期。
+- Requirement:
+  - 当 chat 存在活跃 ACP 会话时，默认把用户文本直接转发到该会话执行，不再要求 `/acp task` 前缀。
+  - 在代理模式下，slash 文本（如 `/help`）也应作为普通输入转发给 ACP，而不是优先命中本地 Telegram 命令。
+  - 仅保留 ACP 控制面命令：`/acp ...`、`/approve ...`、`/deny ...`。
+  - 执行 `/acp close` 后，代理模式必须立即退出并恢复到普通 Molibot 对话流。
+- Enforcement:
+  - `src/lib/server/channels/telegram/runtime.ts` 必须在命令分发前增加 ACP 会话检测中间件，并在满足条件时短路到 ACP 执行流。
+  - ACP 代理执行路径应复用现有状态刷新、权限卡片与结果汇总机制，避免单独实现一套不一致的行为。
+
+## 116. ACP 渠道级通用能力 (2026-03-22)
+- Priority: P1
+- Stage: Delivered (2026-03-22)
+- Problem:
+  - ACP 现在只在 Telegram runtime 生效，导致“coding 是 Agent 能力而不是某个 bot 能力”这个产品定义落空。QQ 和 Feishu 用户无法使用同样的 ACP 会话、控制命令和默认直通模式。
+- Requirement:
+  - ACP 必须成为渠道通用能力，至少 Telegram、Feishu、QQ 三个 runtime 都要支持相同的 `/acp`、`/approve`、`/deny` 控制面。
+  - 活跃 ACP 会话下的默认直通代理模式不能只存在于 Telegram，Feishu 和 QQ 也必须一致。
+  - ACP 任务提示词和帮助文案不能继续绑在 Telegram runtime 内部，应该放到 ACP 公共模块，由各渠道复用。
+- Enforcement:
+  - `src/lib/server/acp/prompt.ts` 必须承载 ACP 共享提示词/帮助文案/权限提示。
+  - `src/lib/server/channels/feishu/runtime.ts` 与 `src/lib/server/channels/qq/runtime.ts` 必须各自持有 `AcpService`，并接入 `/acp`、`/approve`、`/deny` 以及活跃会话默认代理。
+  - ACP operator 文档不能再写成 Telegram-only；必须按渠道通用能力描述。

@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This document captures the current first usable version for Telegram-driven coding control through ACP.
+This document captures the current first usable version for channel-driven coding control through ACP.
 
 ## Product Goal
 
 Turn Molibot into a controlled remote coding client:
 
-- Telegram is the operator UI.
+- Telegram, Feishu, and QQ can all act as the operator UI.
 - ACP is the protocol layer.
 - Codex and Claude Code are the currently supported controlled coding agents.
 - Every risky step remains visible and controllable.
@@ -20,9 +20,9 @@ Included:
 - Codex ACP target preset
 - Claude Code ACP target preset
 - ACP project registry (allowlist)
-- Telegram commands to open a coding session and run a task
-- Runtime status updates back to Telegram
-- Permission approval flow through Telegram
+- Channel commands to open a coding session and run a task
+- Runtime status updates back to the active channel
+- Permission approval flow through the active channel
 - Session cancel / close controls
 - Persistent ACP settings for targets and projects
 - Web settings UI for ACP at `/settings/acp`
@@ -48,12 +48,18 @@ V1 rule:
 
 ### 2. ACP control is command-driven first
 
-To keep the first release predictable, V1 uses Telegram commands instead of free-form natural-language routing.
+To keep the first release predictable, V1 uses channel commands instead of free-form natural-language routing.
 
 The public operator interface stays unified:
 
 - all providers use the same `/acp ...` command family
 - provider-specific remote commands are exposed as prefixed names such as `codex:/...` or `claude-code:/...`
+
+Proxy behavior:
+
+- when a chat has an active ACP session, channel messages are proxied to ACP by default
+- `/acp ...`, `/approve ...`, and `/deny ...` remain reserved as control commands
+- `/acp close` exits proxy mode and returns the chat to normal Molibot handling
 
 ### 3. Approval remains client-side
 
@@ -65,12 +71,12 @@ Modes:
 - `auto-safe`: auto-approve safe read/test commands only
 - `auto-all`: auto-approve the first allow option returned by the adapter
 
-### 4. Existing chat flow stays untouched
+### 4. Chat flow switches by ACP session state
 
-Normal Telegram chat should continue to use the existing Molibot runner.
-ACP control is added as a separate command path.
+Without an active ACP session, the channel continues to use the existing Molibot runner.
+With an active ACP session, chat messages are proxied to ACP by default until `/acp close`.
 
-## Telegram Commands
+## Channel Commands
 
 ### Session and config
 
@@ -81,12 +87,14 @@ ACP control is added as a separate command path.
 - `/acp remove-project <id>`
 - `/acp new <targetId> <projectId> [manual|auto-safe|auto-all]`
 - `/acp status`
+- `/acp remote <command> [args]`
 - `/acp mode <manual|auto-safe|auto-all>`
 - `/acp close`
 
 ### Task execution
 
 - `/acp task <instructions>`
+- `/acp remote <command> [args]`
 - `/acp cancel`
 
 ### Permission handling
@@ -142,7 +150,7 @@ or reject it:
 
 ### During a task
 
-Telegram should receive:
+The active channel should receive:
 
 - current status edits
 - important tool completion/failure notes
@@ -173,7 +181,7 @@ Notes:
 
 - This requires the ACP adapter to be available at runtime.
 - The target runtime should already be authenticated on the machine.
-- If the adapter is missing or auth is not ready, Molibot should surface the adapter error directly in Telegram.
+- If the adapter is missing or auth is not ready, Molibot should surface the adapter error directly in the active channel.
 
 ## Risks and Mitigations
 
