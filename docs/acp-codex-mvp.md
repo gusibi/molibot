@@ -8,7 +8,7 @@ This document captures the current first usable version for channel-driven codin
 
 Turn Molibot into a controlled remote coding client:
 
-- Telegram, Feishu, and QQ can all act as the operator UI.
+- Telegram, Feishu, QQ, and Weixin can all act as the operator UI.
 - ACP is the protocol layer.
 - Codex and Claude Code are the currently supported controlled coding agents.
 - Every risky step remains visible and controllable.
@@ -75,6 +75,16 @@ Modes:
 
 Without an active ACP session, the channel continues to use the existing Molibot runner.
 With an active ACP session, chat messages are proxied to ACP by default until `/acp close`.
+
+### 5. New channels should use the shared ACP template
+
+ACP behavior should not be reimplemented channel by channel.
+
+For future text-oriented channels, the expected pattern is:
+
+- reuse the shared ACP channel template in `src/lib/server/channels/shared/acp.ts`
+- keep only transport-specific code inside the channel runtime
+- avoid copy-pasting `/acp`, `/approve`, `/deny`, and proxy-state rules again
 
 ## Channel Commands
 

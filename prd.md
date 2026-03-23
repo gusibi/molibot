@@ -1522,3 +1522,43 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/acp/prompt.ts` 必须承载 ACP 共享提示词/帮助文案/权限提示。
   - `src/lib/server/channels/feishu/runtime.ts` 与 `src/lib/server/channels/qq/runtime.ts` 必须各自持有 `AcpService`，并接入 `/acp`、`/approve`、`/deny` 以及活跃会话默认代理。
   - ACP operator 文档不能再写成 Telegram-only；必须按渠道通用能力描述。
+
+## 117. Weixin ACP 对齐 (2026-03-22)
+- Priority: P1
+- Stage: Delivered (2026-03-22)
+- Problem:
+  - 虽然 ACP 已经从 Telegram 扩展到了 Feishu 和 QQ，但 `weixin` runtime 仍停留在普通命令流，导致四个主渠道里只有微信不能进入同样的 coding 会话体验。
+- Requirement:
+  - Weixin 必须支持与其他渠道一致的 `/acp`、`/approve`、`/deny`。
+  - 活跃 ACP 会话下，Weixin 也必须默认把消息直通到 ACP，而不是继续走普通 runner。
+  - ACP 文档里的支持渠道列表必须包含 Weixin。
+- Enforcement:
+  - `src/lib/server/channels/weixin/runtime.ts` 必须持有 `AcpService`，并接入 ACP 命令、权限回传、远端命令和默认直通。
+  - `docs/acp-codex-mvp.md` 的 operator 说明必须更新为 Telegram、Feishu、QQ、Weixin 四个渠道。
+
+## 118. ACP 渠道共享控制层 (2026-03-22)
+- Priority: P1
+- Stage: Delivered (2026-03-22)
+- Problem:
+  - 虽然 ACP 已经覆盖 Telegram、Feishu、QQ、Weixin，但 `/acp`、`/approve`、`/deny`、默认直通和帮助文案仍分散复制在各自 runtime 里。每新增一个渠道，都要再手抄一整段 ACP 控制逻辑，后续很容易行为再次跑偏。
+- Requirement:
+  - ACP 的命令解析、授权处理、保留控制命令判断和帮助文案必须抽到渠道共享层。
+  - Telegram、Feishu、QQ、Weixin 四个 runtime 都必须改为复用这套共享 ACP 控制器。
+  - 未来新增渠道时，ACP 接入应收敛为“渠道只提供收发消息能力，ACP 规则复用公共层”，而不是继续复制整段 `/acp` 路由。
+- Enforcement:
+  - 新增 `src/lib/server/channels/shared/acp.ts` 作为 ACP 渠道共享入口。
+  - 四个现有渠道 runtime 必须通过共享入口处理 ACP 命令、授权命令和活跃会话默认代理的控制判断。
+
+## 119. ACP 新渠道模板化接入 (2026-03-23)
+- Priority: P1
+- Stage: Delivered (2026-03-23)
+- Problem:
+  - 即使 ACP 已经有共享控制层，新渠道接入时仍需要手动拼装多段调用，容易让“未来少改”停留在口头上，而不是形成一套可直接套用的模板。
+- Requirement:
+  - 必须提供一个适合文本型渠道复用的 ACP 接入模板，让未来新增渠道时只需要对接消息收发，而不是再实现一遍 ACP 代理和控制流。
+  - 微信、QQ、飞书需要先切到这套模板，验证模板不是纸面设计。
+  - ACP 文档要明确写出：未来文本渠道优先复用模板，不要继续复制 `/acp` 逻辑。
+- Enforcement:
+  - `src/lib/server/channels/shared/acp.ts` 必须提供可复用的渠道 ACP 模板接口。
+  - `src/lib/server/channels/weixin/runtime.ts`、`src/lib/server/channels/qq/runtime.ts`、`src/lib/server/channels/feishu/runtime.ts` 必须改为调用该模板。
+  - `docs/acp-codex-mvp.md` 必须补充新渠道接入优先复用模板的说明。

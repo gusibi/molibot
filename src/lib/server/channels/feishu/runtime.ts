@@ -14,8 +14,8 @@ import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agen
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
-import { AcpService, formatAcpProjects, formatAcpSessionSummary, formatAcpSessions, formatAcpTargets } from "../../acp/service.js";
-import { buildAcpHelpText, buildAcpPermissionText, buildStructuredAcpTaskPrompt } from "../../acp/prompt.js";
+import { AcpService } from "../../acp/service.js";
+import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { RunnerPool } from "../../agent/runner.js";
 import { loadSkillsFromWorkspace } from "../../agent/skills.js";
 import { MomRuntimeStore } from "../../agent/store.js";
@@ -34,6 +34,7 @@ import type { AiUsageTracker } from "../../usage/tracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { deleteFeishuMessage, editFeishuText, sendFeishuFile, sendFeishuText } from "./messaging.js";
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "./message-intake.js";
+import { BasicChannelAcpTemplate } from "../shared/acp.js";
 import { ChannelQueue } from "../shared/queue.js";
 
 export interface FeishuConfig {
@@ -54,6 +55,7 @@ export class FeishuManager {
     private readonly memory: MemoryGateway;
     private readonly instanceId: string;
     private readonly acp: AcpService;
+    private readonly acpTemplate: BasicChannelAcpTemplate<void>;
 
     private client: lark.Client | undefined;
     private wsClient: lark.WSClient | undefined;
@@ -95,6 +97,15 @@ export class FeishuManager {
             this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
             { stateFilePath: join(this.workspaceDir, "acp_sessions.json") }
         );
+        this.acpTemplate = new BasicChannelAcpTemplate<void>({
+            acp: this.acp,
+            sendText: async (chatId, _context, text) => {
+                await sendFeishuText(this.client, chatId, text);
+            },
+            runPrompt: async (chatId, _context, request) => {
+                await this.runAcpPrompt(chatId, request.prompt, request.startText);
+            }
+        });
     }
 
     apply(cfg: FeishuConfig): void {
@@ -270,10 +281,6 @@ export class FeishuManager {
         }
     }
 
-    private async runAcpProxyPrompt(chatId: string, prompt: string): Promise<void> {
-        await this.runAcpPrompt(chatId, prompt.trim(), `ACP proxy started\n${prompt.trim()}`);
-    }
-
     private async handleIncomingMessage(message: Record<string, any>, sender: Record<string, any>, allowed: Set<string>): Promise<void> {
         if (!this.client || !this.wsClient) return;
 
@@ -313,21 +320,12 @@ export class FeishuManager {
         }
 
         const lowered = event.text.trim().toLowerCase();
-        const reservedAcpControl = lowered.startsWith("/acp") || lowered.startsWith("/approve") || lowered.startsWith("/deny");
-        let acpStatus = null;
         try {
-            await this.acp.restoreSession(chatId);
-            acpStatus = this.acp.getStatus(chatId);
-        } catch {
-            acpStatus = null;
-        }
-
-        if (acpStatus && !reservedAcpControl) {
-            try {
-                await this.runAcpProxyPrompt(chatId, event.text);
-            } catch (error) {
-                await sendFeishuText(this.client, chatId, error instanceof Error ? error.message : String(error));
+            if (await this.acpTemplate.maybeProxy(chatId, event.text, undefined)) {
+                return;
             }
+        } catch (error) {
+            await sendFeishuText(this.client, chatId, error instanceof Error ? error.message : String(error));
             return;
         }
 
@@ -545,137 +543,7 @@ export class FeishuManager {
             return true;
         }
 
-        if (cmd === "/acp") {
-            const [subcommand = "help", ...rest] = rawArg.split(/\s+/).filter(Boolean);
-            try {
-                switch (subcommand.toLowerCase()) {
-                    case "help":
-                        await sendFeishuText(this.client, chatId, buildAcpHelpText());
-                        return true;
-                    case "targets":
-                        await sendFeishuText(this.client, chatId, formatAcpTargets(this.acp.listTargets()));
-                        return true;
-                    case "projects":
-                        await sendFeishuText(this.client, chatId, formatAcpProjects(this.acp.listProjects()));
-                        return true;
-                    case "sessions":
-                        await sendFeishuText(this.client, chatId, formatAcpSessions(await this.acp.listSessions(chatId)));
-                        return true;
-                    case "add-project": {
-                        const projectId = rest[0] ?? "";
-                        const projectPath = rest.slice(1).join(" ").trim();
-                        if (!projectId || !projectPath) {
-                            await sendFeishuText(this.client, chatId, "Usage: /acp add-project <id> <absolute-path>");
-                            return true;
-                        }
-                        const project = this.acp.upsertProject(projectId, projectPath);
-                        await sendFeishuText(this.client, chatId, `Saved ACP project ${project.id} -> ${project.path}`);
-                        return true;
-                    }
-                    case "remove-project": {
-                        const projectId = rest[0] ?? "";
-                        if (!projectId) {
-                            await sendFeishuText(this.client, chatId, "Usage: /acp remove-project <id>");
-                            return true;
-                        }
-                        const removed = this.acp.removeProject(projectId);
-                        await sendFeishuText(this.client, chatId, removed ? `Removed ACP project ${projectId}.` : `Project not found: ${projectId}`);
-                        return true;
-                    }
-                    case "new": {
-                        const [targetId = "", projectId = "", modeRaw = ""] = rest;
-                        if (!targetId || !projectId) {
-                            await sendFeishuText(this.client, chatId, "Usage: /acp new <targetId> <projectId> [manual|auto-safe|auto-all]");
-                            return true;
-                        }
-                        const mode = modeRaw === "manual" || modeRaw === "auto-safe" || modeRaw === "auto-all" ? modeRaw : undefined;
-                        await sendFeishuText(this.client, chatId, formatAcpSessionSummary(await this.acp.openSession(chatId, targetId, projectId, mode)));
-                        return true;
-                    }
-                    case "status":
-                        await this.acp.restoreSession(chatId);
-                        await sendFeishuText(this.client, chatId, formatAcpSessionSummary(this.acp.getStatus(chatId)));
-                        return true;
-                    case "mode": {
-                        const modeRaw = rest[0] ?? "";
-                        if (modeRaw !== "manual" && modeRaw !== "auto-safe" && modeRaw !== "auto-all") {
-                            await sendFeishuText(this.client, chatId, "Usage: /acp mode <manual|auto-safe|auto-all>");
-                            return true;
-                        }
-                        await this.acp.restoreSession(chatId);
-                        await sendFeishuText(this.client, chatId, formatAcpSessionSummary(this.acp.setApprovalMode(chatId, modeRaw)));
-                        return true;
-                    }
-                    case "remote": {
-                        const remoteRaw = rawArg.replace(/^remote(?:\s+|$)/i, "").trim();
-                        await this.acp.restoreSession(chatId);
-                        if (!remoteRaw) {
-                            await sendFeishuText(this.client, chatId, `Usage: /acp remote <command> [args]\n\n${formatAcpSessionSummary(this.acp.getStatus(chatId))}`);
-                            return true;
-                        }
-                        const resolved = this.acp.resolveRemoteCommand(chatId, remoteRaw);
-                        await this.runAcpPrompt(chatId, resolved.prompt, `ACP remote command started\n${resolved.displayCommand}`);
-                        return true;
-                    }
-                    case "task": {
-                        const prompt = rawArg.replace(/^task(?:\s+|$)/i, "").trim();
-                        if (!prompt) {
-                            await sendFeishuText(this.client, chatId, "Usage: /acp task <instructions>");
-                            return true;
-                        }
-                        await this.acp.restoreSession(chatId);
-                        await this.runAcpPrompt(chatId, buildStructuredAcpTaskPrompt(prompt), `ACP task started\n${prompt}`);
-                        return true;
-                    }
-                    case "cancel":
-                    case "stop": {
-                        await this.acp.restoreSession(chatId);
-                        const cancelled = await this.acp.cancelRun(chatId);
-                        await sendFeishuText(this.client, chatId, cancelled ? "ACP cancellation requested." : "No ACP task is running.");
-                        return true;
-                    }
-                    case "close": {
-                        const closed = await this.acp.closeSession(chatId);
-                        await sendFeishuText(this.client, chatId, closed ? "ACP session closed." : "No active ACP session.");
-                        return true;
-                    }
-                    default:
-                        await sendFeishuText(this.client, chatId, buildAcpHelpText());
-                        return true;
-                }
-            } catch (error) {
-                await sendFeishuText(this.client, chatId, error instanceof Error ? error.message : String(error));
-                return true;
-            }
-        }
-
-        if (cmd === "/approve") {
-            const [requestId = "", optionId = ""] = rawArg.split(/\s+/).filter(Boolean);
-            if (!requestId || !optionId) {
-                await sendFeishuText(this.client, chatId, "Usage: /approve <requestId> <optionId>");
-                return true;
-            }
-            try {
-                await sendFeishuText(this.client, chatId, await this.acp.approve(chatId, requestId, optionId));
-            } catch (error) {
-                await sendFeishuText(this.client, chatId, error instanceof Error ? error.message : String(error));
-            }
-            return true;
-        }
-
-        if (cmd === "/deny") {
-            const requestId = rawArg.split(/\s+/).filter(Boolean)[0] ?? "";
-            if (!requestId) {
-                await sendFeishuText(this.client, chatId, "Usage: /deny <requestId>");
-                return true;
-            }
-            try {
-                await sendFeishuText(this.client, chatId, await this.acp.deny(chatId, requestId));
-            } catch (error) {
-                await sendFeishuText(this.client, chatId, error instanceof Error ? error.message : String(error));
-            }
-            return true;
-        }
+        if (await this.acpTemplate.maybeHandleCommand(chatId, cmd, rawArg, undefined)) return true;
 
         if (cmd === "/new") {
             if (this.running.has(chatId)) {
@@ -907,9 +775,7 @@ export class FeishuManager {
                 "/models <text|vision|stt|tts> - list options for a specific route",
                 "/models <text|vision|stt|tts> <index|key> - switch route model",
                 "/compact [instructions] - summarize older context of current session",
-                "/acp help - show ACP coding control commands",
-                "/approve <requestId> <optionId> - approve ACP permission",
-                "/deny <requestId> - reject ACP permission",
+                ...this.acpTemplate.helpLines(),
                 "/login <provider> - start OAuth login",
                 "/login <provider> <code-or-redirect-url> - finish OAuth login",
                 "/logout <provider> - remove stored auth",

@@ -14,8 +14,8 @@ import {
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
-import { AcpService, formatAcpProjects, formatAcpSessionSummary, formatAcpSessions, formatAcpTargets } from "../../acp/service.js";
-import { buildAcpHelpText, buildAcpPermissionText, buildStructuredAcpTaskPrompt } from "../../acp/prompt.js";
+import { AcpService } from "../../acp/service.js";
+import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
 import { RunnerPool } from "../../agent/runner.js";
 import { loadSkillsFromWorkspace } from "../../agent/skills.js";
@@ -34,6 +34,7 @@ import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText } from "./formatting.js";
+import { ACP_CONTROL_HELP_LINES, handleSharedAcpApprovalCommand, handleSharedAcpCommand, isAcpControlCommandText, restoreAcpStatus, type SharedAcpPromptKind } from "../shared/acp.js";
 import { ChannelQueue } from "../shared/queue.js";
 import type { ModelOption, ModelRoute, ParsedRelativeReminder, StatusSession } from "./types.js";
 
@@ -127,11 +128,17 @@ export class TelegramManager {
     return `${normalized.slice(0, Math.max(0, max - 1))}…`;
   }
 
-  private async runAcpProxyPrompt(bot: Bot, chatId: string, prompt: string): Promise<void> {
+  private async runAcpPrompt(
+    bot: Bot,
+    chatId: string,
+    prompt: string,
+    startText: string,
+    kind: SharedAcpPromptKind
+  ): Promise<void> {
     const trimmedPrompt = prompt.trim();
     if (!trimmedPrompt) return;
-    const sent = await sendTelegramText(bot, chatId, `ACP proxy started\n${trimmedPrompt}`);
-    let statusText = `ACP proxy started\n${trimmedPrompt}`;
+    const sent = await sendTelegramText(bot, chatId, startText);
+    let statusText = startText;
     let pendingStatusText: string | null = null;
     let statusFlush: Promise<void> | null = null;
     let lastStatusEditAt = 0;
@@ -190,7 +197,7 @@ export class TelegramManager {
     });
 
     const summaryLines = [
-      "## ACP Proxy Result",
+      kind === "remote" ? "## ACP Remote Result" : "## ACP Result",
       `- Stop reason: \`${result.stopReason}\``,
       `- Tool calls: ${result.toolCalls.length}`,
       result.lastStatus ? `- Last status: ${result.lastStatus}` : ""
@@ -221,6 +228,12 @@ export class TelegramManager {
         await sendTelegramText(bot, chatId, chunk, { reply_parameters: { message_id: sent.message_id } });
       }
     }
+  }
+
+  private async runAcpProxyPrompt(bot: Bot, chatId: string, prompt: string): Promise<void> {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) return;
+    await this.runAcpPrompt(bot, chatId, trimmedPrompt, `ACP proxy started\n${trimmedPrompt}`, "task");
   }
 
   private formatAcpPermissionOptionLabel(optionId: string, fallback: string): string {
@@ -422,19 +435,12 @@ export class TelegramManager {
         await next();
         return;
       }
-      const lowered = text.toLowerCase();
-      if (lowered.startsWith("/acp") || lowered.startsWith("/approve") || lowered.startsWith("/deny")) {
+      if (isAcpControlCommandText(text)) {
         await next();
         return;
       }
 
-      try {
-        await this.acp.restoreSession(chatId);
-      } catch {
-        await next();
-        return;
-      }
-      const status = this.acp.getStatus(chatId);
+      const status = await restoreAcpStatus(this.acp, chatId);
       if (!status) {
         await next();
         return;
@@ -582,337 +588,57 @@ export class TelegramManager {
       const chatId = String(ctx.chat.id);
       if (allowed.size > 0 && !allowed.has(chatId)) return;
       const rawArg = this.readCommandArg(ctx.msg?.text, "/acp");
-      const [subcommand = "help", ...rest] = rawArg.split(/\s+/).filter(Boolean);
-
-      const sendThread = async (text: string, replyTo?: number | null) => {
-        await sendTelegramText(bot, chatId, text, replyTo ? { reply_parameters: { message_id: replyTo } } : undefined);
-      };
-
-      try {
-        switch (subcommand.toLowerCase()) {
-          case "help":
-            await ctx.reply(buildAcpHelpText());
-            return;
-          case "targets":
-            await ctx.reply(formatAcpTargets(this.acp.listTargets()));
-            return;
-          case "projects":
-            await ctx.reply(formatAcpProjects(this.acp.listProjects()));
-            return;
-          case "sessions": {
-            const listed = await this.acp.listSessions(chatId);
-            const chunks = this.chunkTelegramText(formatAcpSessions(listed));
-            for (const chunk of chunks) {
-              await ctx.reply(chunk);
-            }
-            return;
+      await handleSharedAcpCommand({
+        acp: this.acp,
+        chatId,
+        cmd: "/acp",
+        rawArg,
+        sendText: async (replyText) => {
+          const chunks = this.chunkTelegramText(replyText);
+          for (const chunk of chunks) {
+            await ctx.reply(chunk);
           }
-          case "add-project": {
-            const projectId = rest[0] ?? "";
-            const projectPath = rest.slice(1).join(" ").trim();
-            if (!projectId || !projectPath) {
-              await ctx.reply("Usage: /acp add-project <id> <absolute-path>");
-              return;
-            }
-            const project = this.acp.upsertProject(projectId, projectPath);
-            await ctx.reply(`Saved ACP project ${project.id} -> ${project.path}`);
-            return;
-          }
-          case "remove-project": {
-            const projectId = rest[0] ?? "";
-            if (!projectId) {
-              await ctx.reply("Usage: /acp remove-project <id>");
-              return;
-            }
-            const removed = this.acp.removeProject(projectId);
-            await ctx.reply(removed ? `Removed ACP project ${projectId}.` : `Project not found: ${projectId}`);
-            return;
-          }
-          case "new": {
-            const [targetId = "", projectId = "", modeRaw = ""] = rest;
-            if (!targetId || !projectId) {
-              await ctx.reply("Usage: /acp new <targetId> <projectId> [manual|auto-safe|auto-all]");
-              return;
-            }
-            const mode = modeRaw === "manual" || modeRaw === "auto-safe" || modeRaw === "auto-all"
-              ? modeRaw
-              : undefined;
-            const summary = await this.acp.openSession(chatId, targetId, projectId, mode);
-            await ctx.reply(formatAcpSessionSummary(summary));
-            return;
-          }
-          case "status":
-            await this.acp.restoreSession(chatId);
-            await ctx.reply(formatAcpSessionSummary(this.acp.getStatus(chatId)));
-            return;
-          case "mode": {
-            const modeRaw = rest[0] ?? "";
-            if (modeRaw !== "manual" && modeRaw !== "auto-safe" && modeRaw !== "auto-all") {
-              await ctx.reply("Usage: /acp mode <manual|auto-safe|auto-all>");
-              return;
-            }
-            await this.acp.restoreSession(chatId);
-            const summary = this.acp.setApprovalMode(chatId, modeRaw);
-            await ctx.reply(formatAcpSessionSummary(summary));
-            return;
-          }
-          case "remote": {
-            const remoteRaw = rawArg.replace(/^remote(?:\s+|$)/i, "").trim();
-            await this.acp.restoreSession(chatId);
-            if (!remoteRaw) {
-              const status = this.acp.getStatus(chatId);
-              await ctx.reply(
-                [
-                  "Usage: /acp remote <command> [args]",
-                  "Tip: check `/acp status` for available provider-prefixed remote commands.",
-                  "",
-                  formatAcpSessionSummary(status)
-                ].join("\n")
-              );
-              return;
-            }
-
-            const resolved = this.acp.resolveRemoteCommand(chatId, remoteRaw);
-            const sent = await sendTelegramText(bot, chatId, `ACP remote command started\n${resolved.displayCommand}`);
-            let statusText = `ACP remote command started\n${resolved.displayCommand}`;
-            let pendingStatusText: string | null = null;
-            let statusFlush: Promise<void> | null = null;
-            let lastStatusEditAt = 0;
-            const statusEditIntervalMs = 1500;
-            const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-            const flushStatus = async () => {
-              while (pendingStatusText && pendingStatusText !== statusText) {
-                const nextText = pendingStatusText;
-                pendingStatusText = null;
-                const waitMs = Math.max(0, statusEditIntervalMs - (Date.now() - lastStatusEditAt));
-                if (waitMs > 0) {
-                  await sleep(waitMs);
-                }
-                try {
-                  await editTelegramText(bot, chatId, sent.message_id, nextText);
-                  lastStatusEditAt = Date.now();
-                } catch (error) {
-                  momWarn("telegram", "acp_status_edit_failed", {
-                    chatId,
-                    messageId: sent.message_id,
-                    error: error instanceof Error ? error.message : String(error),
-                    errorDetails: describeTelegramError(error)
-                  });
-                }
-                statusText = nextText;
-              }
-              statusFlush = null;
-            };
-            const setStatus = async (text: string) => {
-              if (text === statusText || text === pendingStatusText) return;
-              pendingStatusText = text;
-              if (!statusFlush) {
-                statusFlush = flushStatus().catch((error) => {
-                  momWarn("telegram", "acp_status_flush_failed", {
-                    chatId,
-                    messageId: sent.message_id,
-                    error: error instanceof Error ? error.message : String(error),
-                    errorDetails: describeTelegramError(error)
-                  });
-                  statusFlush = null;
-                });
-              }
-              await statusFlush;
-            };
-            const result = await this.acp.runTask(chatId, resolved.prompt, {
-              onStatus: async (text) => {
-                await setStatus(text);
-              },
-              onEvent: async (text) => {
-                await sendThread(text, sent.message_id);
-              },
-              onPermissionRequest: async (permission) => {
-                await this.sendAcpPermissionCard(bot, chatId, permission, sent.message_id);
-              }
-            });
-            const summaryLines = [
-              "## ACP Remote Result",
-              `- Command: \`${resolved.displayCommand}\``,
-              `- Stop reason: \`${result.stopReason}\``,
-              `- Tool calls: ${result.toolCalls.length}`,
-              result.lastStatus ? `- Last status: ${result.lastStatus}` : ""
-            ].filter(Boolean);
-            const completedTools = result.toolCalls.filter((tool) => tool.status === "completed");
-            const failedTools = result.toolCalls.filter((tool) => tool.status === "failed");
-            const touchedLocations = Array.from(
-              new Set(
-                completedTools
-                  .flatMap((tool) => tool.locations)
-                  .map((location) => location.trim())
-                  .filter(Boolean)
-              )
-            );
-            if (completedTools.length > 0) {
-              summaryLines.push(`- Completed tools: ${completedTools.length}`);
-            }
-            if (failedTools.length > 0) {
-              summaryLines.push(`- Failed tools: ${failedTools.length}`);
-            }
-            if (touchedLocations.length > 0) {
-              summaryLines.push(`- Touched: ${touchedLocations.slice(0, 8).map((location) => `\`${location}\``).join(", ")}`);
-            }
-            await sendThread(summaryLines.join("\n"), sent.message_id);
-            if (result.assistantText) {
-              const chunks = this.chunkTelegramText(result.assistantText);
-              for (const chunk of chunks) {
-                await sendThread(chunk, sent.message_id);
-              }
-            }
-            return;
-          }
-          case "task": {
-            const prompt = rawArg.replace(/^task(?:\s+|$)/i, "").trim();
-            if (!prompt) {
-              await ctx.reply("Usage: /acp task <instructions>");
-              return;
-            }
-            await this.acp.restoreSession(chatId);
-            const taskPrompt = buildStructuredAcpTaskPrompt(prompt);
-            const sent = await sendTelegramText(bot, chatId, `ACP task started\n${prompt}`);
-            let statusText = `ACP task started\n${prompt}`;
-            let pendingStatusText: string | null = null;
-            let statusFlush: Promise<void> | null = null;
-            let lastStatusEditAt = 0;
-            const statusEditIntervalMs = 1500;
-            const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-            const flushStatus = async () => {
-              while (pendingStatusText && pendingStatusText !== statusText) {
-                const nextText = pendingStatusText;
-                pendingStatusText = null;
-                const waitMs = Math.max(0, statusEditIntervalMs - (Date.now() - lastStatusEditAt));
-                if (waitMs > 0) {
-                  await sleep(waitMs);
-                }
-                try {
-                  await editTelegramText(bot, chatId, sent.message_id, nextText);
-                  lastStatusEditAt = Date.now();
-                } catch (error) {
-                  momWarn("telegram", "acp_status_edit_failed", {
-                    chatId,
-                    messageId: sent.message_id,
-                    error: error instanceof Error ? error.message : String(error),
-                    errorDetails: describeTelegramError(error)
-                  });
-                }
-                statusText = nextText;
-              }
-              statusFlush = null;
-            };
-            const setStatus = async (text: string) => {
-              if (text === statusText || text === pendingStatusText) return;
-              pendingStatusText = text;
-              if (!statusFlush) {
-                statusFlush = flushStatus().catch((error) => {
-                  momWarn("telegram", "acp_status_flush_failed", {
-                    chatId,
-                    messageId: sent.message_id,
-                    error: error instanceof Error ? error.message : String(error),
-                    errorDetails: describeTelegramError(error)
-                  });
-                  statusFlush = null;
-                });
-              }
-              await statusFlush;
-            };
-            const result = await this.acp.runTask(chatId, taskPrompt, {
-              onStatus: async (text) => {
-                await setStatus(text);
-              },
-              onEvent: async (text) => {
-                await sendThread(text, sent.message_id);
-              },
-              onPermissionRequest: async (permission) => {
-                await this.sendAcpPermissionCard(bot, chatId, permission, sent.message_id);
-              }
-            });
-            const summaryLines = [
-              "## ACP Result",
-              `- Stop reason: \`${result.stopReason}\``,
-              `- Tool calls: ${result.toolCalls.length}`,
-              result.lastStatus ? `- Last status: ${result.lastStatus}` : ""
-            ].filter(Boolean);
-            const completedTools = result.toolCalls.filter((tool) => tool.status === "completed");
-            const failedTools = result.toolCalls.filter((tool) => tool.status === "failed");
-            const touchedLocations = Array.from(
-              new Set(
-                completedTools
-                  .flatMap((tool) => tool.locations)
-                  .map((location) => location.trim())
-                  .filter(Boolean)
-              )
-            );
-            if (completedTools.length > 0) {
-              summaryLines.push(`- Completed tools: ${completedTools.length}`);
-            }
-            if (failedTools.length > 0) {
-              summaryLines.push(`- Failed tools: ${failedTools.length}`);
-            }
-            if (touchedLocations.length > 0) {
-              summaryLines.push(`- Touched: ${touchedLocations.slice(0, 8).map((location) => `\`${location}\``).join(", ")}`);
-            }
-            await sendThread(summaryLines.join("\n"), sent.message_id);
-            if (result.assistantText) {
-              const chunks = this.chunkTelegramText(result.assistantText);
-              for (const chunk of chunks) {
-                await sendThread(chunk, sent.message_id);
-              }
-            }
-            return;
-          }
-          case "cancel":
-          case "stop": {
-            await this.acp.restoreSession(chatId);
-            const cancelled = await this.acp.cancelRun(chatId);
-            await ctx.reply(cancelled ? "ACP cancellation requested." : "No ACP task is running.");
-            return;
-          }
-          case "close": {
-            const closed = await this.acp.closeSession(chatId);
-            await ctx.reply(closed ? "ACP session closed." : "No active ACP session.");
-            return;
-          }
-          default:
-            await ctx.reply(buildAcpHelpText());
+        },
+        runPrompt: async ({ prompt, startText, kind }) => {
+          await this.runAcpPrompt(bot, chatId, prompt, startText, kind);
         }
-      } catch (error) {
-        await ctx.reply(error instanceof Error ? error.message : String(error));
-      }
+      });
     });
 
     bot.command("approve", async (ctx) => {
       const chatId = String(ctx.chat.id);
       if (allowed.size > 0 && !allowed.has(chatId)) return;
       const rawArg = this.readCommandArg(ctx.msg?.text, "/approve");
-      const [requestId = "", optionId = ""] = rawArg.split(/\s+/).filter(Boolean);
-      if (!requestId || !optionId) {
-        await ctx.reply("Usage: /approve <requestId> <optionId>");
-        return;
-      }
-      try {
-        await ctx.reply(await this.acp.approve(chatId, requestId, optionId));
-      } catch (error) {
-        await ctx.reply(error instanceof Error ? error.message : String(error));
-      }
+      await handleSharedAcpApprovalCommand({
+        acp: this.acp,
+        chatId,
+        cmd: "/approve",
+        rawArg,
+        sendText: async (replyText) => {
+          const chunks = this.chunkTelegramText(replyText);
+          for (const chunk of chunks) {
+            await ctx.reply(chunk);
+          }
+        }
+      });
     });
 
     bot.command("deny", async (ctx) => {
       const chatId = String(ctx.chat.id);
       if (allowed.size > 0 && !allowed.has(chatId)) return;
-      const requestId = this.readCommandArg(ctx.msg?.text, "/deny").split(/\s+/).filter(Boolean)[0] ?? "";
-      if (!requestId) {
-        await ctx.reply("Usage: /deny <requestId>");
-        return;
-      }
-      try {
-        await ctx.reply(await this.acp.deny(chatId, requestId));
-      } catch (error) {
-        await ctx.reply(error instanceof Error ? error.message : String(error));
-      }
+      const rawArg = this.readCommandArg(ctx.msg?.text, "/deny");
+      await handleSharedAcpApprovalCommand({
+        acp: this.acp,
+        chatId,
+        cmd: "/deny",
+        rawArg,
+        sendText: async (replyText) => {
+          const chunks = this.chunkTelegramText(replyText);
+          for (const chunk of chunks) {
+            await ctx.reply(chunk);
+          }
+        }
+      });
     });
 
     bot.callbackQuery(/^acp:/, async (ctx) => {
@@ -2011,10 +1737,6 @@ export class TelegramManager {
     return lines.join("\n");
   }
 
-  private acpHelpText(): string {
-    return buildAcpHelpText();
-  }
-
   private chunkTelegramText(text: string, chunkSize = 3500): string[] {
     const normalized = text.trim();
     if (!normalized) return [];
@@ -2046,9 +1768,7 @@ export class TelegramManager {
       "/models <text|vision|stt|tts> - show models and current active model for that route",
       "/models <text|vision|stt|tts> <index|key> - switch route model",
       "/compact [instructions] - summarize older context of current session",
-      "/acp help - show ACP coding control commands",
-      "/approve <requestId> <optionId> - approve ACP permission",
-      "/deny <requestId> - reject ACP permission",
+      ...ACP_CONTROL_HELP_LINES,
       "/login <provider> - start OAuth login",
       "/login <provider> <code-or-redirect-url> - finish OAuth login",
       "/logout <provider> - remove stored auth",

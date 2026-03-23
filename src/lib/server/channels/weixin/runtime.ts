@@ -13,6 +13,8 @@ import {
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
+import { AcpService } from "../../acp/service.js";
+import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { RunnerPool } from "../../agent/runner.js";
 import { loadSkillsFromWorkspace } from "../../agent/skills.js";
 import { MomRuntimeStore } from "../../agent/store.js";
@@ -28,6 +30,8 @@ import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.j
 import { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
+import type { AcpPendingPermissionView } from "../../acp/types.js";
+import { BasicChannelAcpTemplate } from "../shared/acp.js";
 import { ChannelQueue } from "../shared/queue.js";
 
 export interface WeixinConfig {
@@ -66,6 +70,8 @@ export class WeixinManager {
   private readonly memory: MemoryGateway;
   private readonly instanceId: string;
   private readonly credentialsPath: string;
+  private readonly acp: AcpService;
+  private readonly acpTemplate: BasicChannelAcpTemplate<IncomingMessage>;
 
   private bot: WeixinBot | undefined;
   private startSequence = 0;
@@ -101,6 +107,20 @@ export class WeixinManager {
       options.usageTracker,
       options.memory
     );
+    this.acp = new AcpService(
+      this.getSettings,
+      this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
+      { stateFilePath: join(this.workspaceDir, "acp_sessions.json") }
+    );
+    this.acpTemplate = new BasicChannelAcpTemplate<IncomingMessage>({
+      acp: this.acp,
+      sendText: async (chatId, sourceMessage, text) => {
+        await this.replyCommand(chatId, sourceMessage, text);
+      },
+      runPrompt: async (chatId, sourceMessage, request) => {
+        await this.runAcpPrompt(chatId, sourceMessage, request.prompt, request.startText);
+      }
+    });
   }
 
   apply(cfg: WeixinConfig): void {
@@ -157,6 +177,7 @@ export class WeixinManager {
     this.bot = undefined;
     this.currentBaseUrl = "";
     this.currentAllowedChatIdsKey = "";
+    void this.acp.dispose();
     momLog("weixin", "adapter_stopped", { botId: this.instanceId });
   }
 
@@ -234,6 +255,50 @@ export class WeixinManager {
     return true;
   }
 
+  private async sendAcpPermissionCard(chatId: string, sourceMessage: IncomingMessage, permission: AcpPendingPermissionView): Promise<void> {
+    await this.replyCommand(chatId, sourceMessage, buildAcpPermissionText(permission));
+  }
+
+  private async runAcpPrompt(chatId: string, sourceMessage: IncomingMessage, prompt: string, startText: string): Promise<void> {
+    await this.replyCommand(chatId, sourceMessage, startText);
+    let lastStatus = startText;
+    const result = await this.acp.runTask(chatId, prompt, {
+      onStatus: async (text) => {
+        lastStatus = text;
+      },
+      onEvent: async (text) => {
+        await this.replyCommand(chatId, sourceMessage, text);
+      },
+      onPermissionRequest: async (permission) => {
+        await this.sendAcpPermissionCard(chatId, sourceMessage, permission);
+      }
+    });
+
+    const completedTools = result.toolCalls.filter((tool) => tool.status === "completed");
+    const failedTools = result.toolCalls.filter((tool) => tool.status === "failed");
+    const touchedLocations = Array.from(
+      new Set(
+        completedTools
+          .flatMap((tool) => tool.locations)
+          .map((location) => location.trim())
+          .filter(Boolean)
+      )
+    );
+    const summaryLines = [
+      "ACP result:",
+      `Stop reason: ${result.stopReason}`,
+      `Tool calls: ${result.toolCalls.length}`,
+      lastStatus ? `Last status: ${lastStatus}` : ""
+    ].filter(Boolean);
+    if (completedTools.length > 0) summaryLines.push(`Completed tools: ${completedTools.length}`);
+    if (failedTools.length > 0) summaryLines.push(`Failed tools: ${failedTools.length}`);
+    if (touchedLocations.length > 0) summaryLines.push(`Touched: ${touchedLocations.slice(0, 8).join(", ")}`);
+    await this.replyCommand(chatId, sourceMessage, summaryLines.join("\n"));
+    if (result.assistantText.trim()) {
+      await this.replyCommand(chatId, sourceMessage, result.assistantText.trim());
+    }
+  }
+
   private async handleIncomingMessage(startId: number, allowed: Set<string>, message: IncomingMessage): Promise<void> {
     if (this.stopped || startId !== this.startSequence || !this.bot) return;
 
@@ -274,6 +339,15 @@ export class WeixinManager {
     }
 
     const lowered = text.toLowerCase();
+    try {
+      if (await this.acpTemplate.maybeProxy(chatId, text, message)) {
+        return;
+      }
+    } catch (error) {
+      await this.replyCommand(chatId, message, error instanceof Error ? error.message : String(error));
+      return;
+    }
+
     const commandText = lowered === "stop" ? "/stop" : text;
     if (lowered.startsWith("/") || lowered === "stop") {
       const handled = await this.handleCommand(chatId, commandText, message);
@@ -531,9 +605,16 @@ export class WeixinManager {
 
     if (cmd === "/stop") {
       const result = this.stopChatWork(chatId);
-      await this.replyCommand(chatId, sourceMessage, result.aborted ? "Stopping..." : "Nothing running.");
+      if (result.aborted) {
+        await this.replyCommand(chatId, sourceMessage, "Stopping...");
+      } else {
+        const cancelledAcp = await this.acp.cancelRun(chatId);
+        await this.replyCommand(chatId, sourceMessage, cancelledAcp ? "ACP cancellation requested." : "Nothing running.");
+      }
       return true;
     }
+
+    if (await this.acpTemplate.maybeHandleCommand(chatId, cmd, rawArg, sourceMessage)) return true;
 
     if (cmd === "/new") {
       if (this.running.has(chatId)) {
@@ -789,6 +870,7 @@ export class WeixinManager {
           "/models <text|vision|stt|tts> - list options for a specific route",
           "/models <text|vision|stt|tts> <index|key> - switch route model",
           "/compact [instructions] - summarize older context of current session",
+          ...this.acpTemplate.helpLines(),
           "/login <provider> - start OAuth login",
           "/login <provider> <code-or-redirect-url> - finish OAuth login",
           "/logout <provider> - remove stored auth",

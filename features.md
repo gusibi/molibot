@@ -242,6 +242,9 @@
 | ENG-213 | ACP remote command execution entrypoint | Done | Added Telegram `/acp remote <command> [args]` command and ACP-side provider-aware remote-command resolution/validation, so operators can execute adapter-reported remote commands directly with unified syntax while still distinguishing providers via `codex:/...` or `claude-code:/...` prefixes |
 | ENG-214 | ACP active-session default proxy mode | Done | Added Telegram ACP auto-proxy middleware so when a chat has an active ACP session, all non-control text (including slash commands like `/help`) is forwarded directly to the active Codex/Claude ACP session; `/acp ...`, `/approve ...`, and `/deny ...` stay as reserved control commands, and `/acp close` exits proxy mode |
 | ENG-215 | ACP all-channel runtime support | Done | Extended ACP from Telegram-only to Telegram, Feishu, and QQ runtimes, moved ACP task prompt policy into a shared ACP module, added channel-level `/acp` / `/approve` / `/deny` command handling plus active-session default proxy mode in Feishu and QQ, and updated the ACP operator doc to describe channel-wide behavior instead of Telegram-only behavior |
+| ENG-216 | Weixin ACP parity | Done | Added ACP support to the Weixin runtime so it now matches Telegram, Feishu, and QQ with `/acp` / `/approve` / `/deny`, active-session default proxying, remote command execution, approval handling, and updated channel-wide ACP documentation |
+| ENG-217 | ACP shared channel control layer | Done | Centralized ACP slash-command parsing, approval handling, reserved-control detection, and channel help lines into a shared channel controller so Telegram, Feishu, QQ, and Weixin now use one ACP behavior core instead of copy-pasted per-channel command logic |
+| ENG-218 | ACP text-channel template | Done | Added a reusable ACP channel template for text-oriented runtimes and moved Weixin, QQ, and Feishu to that template so future channel onboarding only needs message I/O wiring instead of rebuilding ACP proxy/control flow |
 
 ## In Progress
 | ID | Feature | Status | Notes |
@@ -252,6 +255,10 @@
 | ID | Feature | Status | Notes |
 |---|---|---|---|
 | BL-01 | WhatsApp adapter | Backlog | Post V1 |
+
+## Update Log
+- 2026-03-22: Added a shared ACP channel control layer under `src/lib/server/channels/shared/acp.ts` and rewired Telegram, Feishu, QQ, and Weixin to use the same ACP command/proxy rules instead of maintaining separate copies.
+- 2026-03-23: Added a reusable ACP channel template in `src/lib/server/channels/shared/acp.ts`, switched Weixin/QQ/Feishu to the template, and documented that future text-style channels should onboard ACP by reusing the template rather than reimplementing control logic.
 | BL-02 | Lark adapter | Backlog | Post V1 |
 | BL-03 | Slack adapter | Backlog | Post V1 |
 | BL-04 | Vector memory | Backlog | Post V1 |
@@ -623,3 +630,4 @@
 - 2026-03-22: Fixed Telegram ACP subcommand argument parsing edge case in `src/lib/server/channels/telegram/runtime.ts`: `/acp remote` and `/acp task` without payload no longer fall through as literal `remote` / `task` commands; they now correctly return usage guidance and avoid unintended remote-command execution.
 - 2026-03-22: Added active-session ACP default proxy mode in `src/lib/server/channels/telegram/runtime.ts`. When ACP is active, non-control messages are sent directly to ACP (no `/acp task` prefix required), while `/acp ...` / `/approve ...` / `/deny ...` remain control-plane commands.
 - 2026-03-22: Generalized ACP into a channel-wide capability. Added shared ACP prompt/help/permission text in `src/lib/server/acp/prompt.ts`, wired Feishu and QQ runtimes to the same `/acp` / `/approve` / `/deny` controls plus active-session default proxy mode, and updated `docs/acp-codex-mvp.md` to describe Telegram, Feishu, and QQ instead of Telegram-only behavior.
+- 2026-03-22: Extended the same ACP control surface to `src/lib/server/channels/weixin/runtime.ts`, including `/acp` commands, `/approve` / `/deny`, provider-aware remote commands, and active-session default proxying so Weixin now behaves like Telegram, Feishu, and QQ.
