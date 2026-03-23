@@ -1,13 +1,13 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { getEnvApiKey } from "@mariozechner/pi-ai";
 import {
-  getEnvApiKey,
   getOAuthApiKey,
   getOAuthProvider,
   getOAuthProviders,
   type OAuthCredentials,
   type OAuthProviderId
-} from "@mariozechner/pi-ai";
+} from "@mariozechner/pi-ai/oauth";
 import { config } from "../app/env.js";
 
 export interface ApiKeyCredential {

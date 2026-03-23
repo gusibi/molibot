@@ -1589,3 +1589,16 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/channels/weixin/runtime.ts` 必须把“这条语音已自带文字”这个事实带进标准消息对象。
   - `src/lib/server/agent/runner.ts` 必须在进入语音转写前检查该标记，并直接复用现有文本。
   - `features.md` 必须记录这次行为收敛，方便后续排查“为什么没再走 STT”。
+
+## 122. pi-ai 升级后 OAuth 入口兼容修复 (2026-03-23)
+- Priority: P1
+- Stage: Delivered (2026-03-23)
+- Problem:
+  - 项目升级到 `@mariozechner/pi-ai 0.62.x` 后，运行时仍从旧入口读取 OAuth 登录能力，导致生产构建阶段直接报错，连基础构建都无法完成。
+- Requirement:
+  - 升级 `pi-ai` 后，Molibot 必须继续支持现有登录与鉴权流程，不能因为上游入口调整而让构建失败。
+  - 修复应尽量收敛在鉴权层，不要扩散到聊天、设置或渠道运行逻辑。
+- Enforcement:
+  - `src/lib/server/agent/auth.ts` 必须改为从 `@mariozechner/pi-ai/oauth` 读取 OAuth 相关能力，同时保留普通 API key 读取逻辑不变。
+  - 修复后必须重新通过 `npm run build` 验证，确认升级后的正式构建恢复正常。
+  - `features.md` 必须记录这次升级兼容修复，方便后续依赖升级时回溯。
