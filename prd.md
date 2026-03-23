@@ -1602,3 +1602,29 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/agent/auth.ts` 必须改为从 `@mariozechner/pi-ai/oauth` 读取 OAuth 相关能力，同时保留普通 API key 读取逻辑不变。
   - 修复后必须重新通过 `npm run build` 验证，确认升级后的正式构建恢复正常。
   - `features.md` 必须记录这次升级兼容修复，方便后续依赖升级时回溯。
+
+## 123. 升级后工具执行安全层与高风险串行化 (2026-03-24)
+- Priority: P1
+- Stage: Delivered (2026-03-24)
+- Problem:
+  - 依赖升级后，底层已经支持工具执行前检查和执行模式控制，但 Molibot 运行时还没有把这层能力真正接起来，导致高风险工具仍可能并发修改文件、切模型、切 MCP，或者直接执行明显危险的命令。
+- Requirement:
+  - Molibot 必须在工具真正执行前统一拦截危险动作，而不是把安全判断散落到每个工具里。
+  - 高风险或会修改系统状态的工具必须串行执行，避免并发写文件、并发切配置、并发调度带来的竞态。
+- Enforcement:
+  - `src/lib/server/agent/runner.ts` 必须接入统一的工具执行前检查。
+  - `src/lib/server/agent/tools/index.ts` 必须对高风险工具增加串行执行包装，而不是继续让所有工具共享默认并发行为。
+  - `features.md` 必须记录这次工具安全层与串行化落地。
+
+## 124. 升级后模型职责拆分收紧 (2026-03-24)
+- Priority: P1
+- Stage: Delivered (2026-03-24)
+- Problem:
+  - 现有自定义模型挑选逻辑对“文本模型”和“视觉模型”的边界不够严格，文本主对话存在误选到非文本模型的风险，升级后新增的会话与传输能力也没有跟着当前激活模型同步。
+- Requirement:
+  - 文本主对话、视觉输入、语音转写等不同职责必须走各自匹配的模型路线，不能只靠“默认模型排在前面”碰运气。
+  - Agent 的会话标识和传输偏好要跟当前实际使用的模型同步，才能真正吃到升级后的稳定性收益。
+- Enforcement:
+  - `src/lib/server/agent/runner.ts` 必须按能力标签收紧文本/视觉模型选择和回退。
+  - 运行中的 Agent 必须在切换当前模型时同步更新会话标识与传输偏好。
+  - `features.md` 必须记录这次模型职责拆分与路由收紧。

@@ -10,6 +10,23 @@ import { createReadTool } from "./read.js";
 import { createSwitchModelTool } from "./switchModel.js";
 import { createWriteTool } from "./write.js";
 import type { RuntimeSettings } from "../../settings/index.js";
+import { shouldSerializeToolCall } from "../toolPolicy.js";
+
+function wrapSerializedTool<T extends AgentTool<any>>(tool: T): T {
+  let chain = Promise.resolve();
+  return {
+    ...tool,
+    execute: async (toolCallId, params, signal, onUpdate) => {
+      if (!shouldSerializeToolCall(tool.name, params)) {
+        return tool.execute(toolCallId, params, signal, onUpdate);
+      }
+      const run = async () => tool.execute(toolCallId, params, signal, onUpdate);
+      const result = chain.then(run, run);
+      chain = result.then(() => undefined, () => undefined);
+      return result;
+    }
+  };
+}
 
 export function createMomTools(options: {
   channel: string;
@@ -35,15 +52,15 @@ export function createMomTools(options: {
     createWriteTool({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId }),
     createEventTool({ workspaceDir: options.workspaceDir, chatId: options.chatId, timezone: options.timezone }),
     createAttachTool(options)
-  ];
+  ].map((tool) => wrapSerializedTool(tool));
 
   if (options.exposeLoadMcpTool) {
-    tools.splice(2, 0, createLoadMcpTool({
+    tools.splice(2, 0, wrapSerializedTool(createLoadMcpTool({
       getSettings: options.getSettings,
       getSelectedServerIds: options.getSelectedMcpServerIds,
       setSelectedServerIds: options.setSelectedMcpServerIds,
       refreshLoadedMcpTools: options.refreshLoadedMcpTools
-    }));
+    })));
   }
 
   return tools;

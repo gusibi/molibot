@@ -18,6 +18,10 @@ import { compactContextMessages, shouldCompactContext } from "./compaction.js";
 import { hasConfiguredAuth, resolveProviderApiKey } from "./auth.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
+import {
+  getPreferredToolExecutionMode,
+  validateToolCallPreflight
+} from "./toolPolicy.js";
 
 function resolvePiModel(settings: RuntimeSettings): Model<any> {
   const models = getModels(settings.piModelProvider);
@@ -49,18 +53,23 @@ function isCustomProviderUsable(provider: CustomProviderConfig): boolean {
   return Boolean(provider.baseUrl?.trim() && provider.apiKey?.trim());
 }
 
+function modelSupportsUseCase(
+  model: Pick<CustomProviderConfig["models"][number], "tags"> | undefined,
+  useCase: "text" | "vision"
+): boolean {
+  const tags = Array.isArray(model?.tags) ? model.tags : [];
+  if (useCase === "vision") return tags.includes("vision");
+  return tags.length === 0 || tags.includes("text");
+}
+
 function pickCustomModelId(provider: CustomProviderConfig, useCase: "text" | "vision"): string {
   const rows = provider.models.filter((m) => Boolean(m.id?.trim()));
   if (rows.length === 0) return "";
 
-  if (useCase === "vision") {
-    const vision = rows.find((m) => Array.isArray(m.tags) && m.tags.includes("vision"));
-    if (vision?.id) return vision.id;
-  }
-
-  const byDefault = rows.find((m) => m.id === provider.defaultModel);
+  const byDefault = rows.find((m) => m.id === provider.defaultModel && modelSupportsUseCase(m, useCase));
   if (byDefault?.id) return byDefault.id;
-  return rows[0]?.id ?? "";
+  const matched = rows.find((m) => modelSupportsUseCase(m, useCase));
+  return matched?.id ?? "";
 }
 
 function getProviderModel(provider: CustomProviderConfig): string {
@@ -89,15 +98,30 @@ function getCustomModelRoles(settings: RuntimeSettings): string[] {
   const routed = parseModelKey(settings.modelRouting.textModelKey);
   if (routed?.mode === "custom") {
     const provider = getCustomProviderById(settings, routed.provider);
-    const model = provider?.models.find((m) => m.id === routed.model);
+    const model = provider?.models.find((m) => m.id === routed.model && modelSupportsUseCase(m, "text"));
     if (model?.supportedRoles?.length) return model.supportedRoles;
   }
 
   const selected = getSelectedCustomProvider(settings);
   if (!selected) return [];
   const modelId = getProviderModel(selected);
-  const model = selected.models.find((m) => m.id === modelId);
+  const model = selected.models.find((m) => m.id === modelId && modelSupportsUseCase(m, "text"))
+    ?? selected.models.find((m) => modelSupportsUseCase(m, "text"));
   return model?.supportedRoles ?? [];
+}
+
+function resolvePreferredTransport(model: Model<any>): "sse" | "websocket" | "auto" {
+  return model.provider === "openai-codex" ? "auto" : "sse";
+}
+
+function buildAgentSessionId(
+  channel: string,
+  chatId: string,
+  sessionId: string,
+  useCase: "text" | "vision",
+  selection: ResolvedModelSelection
+): string {
+  return [channel, chatId, sessionId, useCase, selection.providerId, selection.modelId].join(":");
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -216,13 +240,14 @@ function resolveModelSelection(
       }
     } else {
       const provider = getCustomProviderById(settings, routed.provider);
-      if (provider && isCustomProviderUsable(provider) && routed.model) {
+      const configuredModel = provider?.models.find((m) => m.id === routed.model);
+      if (provider && isCustomProviderUsable(provider) && routed.model && modelSupportsUseCase(configuredModel, useCase)) {
         return {
           model: resolveCustomModel(provider, routed.model),
           source: "custom",
           providerId: provider.id,
           modelId: routed.model,
-          configuredModel: provider.models.find((m) => m.id === routed.model)
+          configuredModel
         };
       }
     }
@@ -352,7 +377,7 @@ function buildModelFallbackSelections(
     .flatMap((provider) =>
       provider.models
         .filter((model) => Boolean(model.id?.trim()))
-        .filter((model) => useCase === "text" || model.tags.includes("vision"))
+        .filter((model) => modelSupportsUseCase(model, useCase))
         .filter((model) => model.id !== primary.modelId)
         .map((model) => ({
           model: resolveCustomModel(provider, model.id),
@@ -976,6 +1001,23 @@ export class MomRunner implements RunnerLike {
         thinkingLevel: "off",
         tools: [],
       },
+      sessionId: buildAgentSessionId(this.channel, this.chatId, this.sessionId, "text", resolveModelSelection(settings, "text")),
+      transport: resolvePreferredTransport(model),
+      toolExecution: getPreferredToolExecutionMode(),
+      beforeToolCall: async (context) => {
+        const blockedReason = validateToolCallPreflight(context, {
+          cwd: this.store.getScratchDir(this.chatId),
+          workspaceDir: this.store.getWorkspaceDir()
+        });
+        if (!blockedReason) return undefined;
+        momWarn("runner", "tool_call_blocked", {
+          chatId: this.chatId,
+          sessionId: this.sessionId,
+          tool: context.toolCall.name,
+          reason: blockedReason
+        });
+        return { block: true, reason: blockedReason };
+      },
       streamFn: (selectedModel, context, opts) => {
         const settingsNow = this.getSettings();
         const developerPatchedContext = mapUnsupportedDeveloperRole(
@@ -1532,6 +1574,14 @@ export class MomRunner implements RunnerLike {
         }
 
         this.agent.setModel(selectedModel);
+        this.agent.sessionId = buildAgentSessionId(
+          this.channel,
+          this.chatId,
+          this.sessionId,
+          modelUseCase,
+          selection
+        );
+        this.agent.setTransport(resolvePreferredTransport(selectedModel));
         if (candidateIndex === 0) {
           try {
             await this.compact({
