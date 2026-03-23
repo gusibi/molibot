@@ -23,6 +23,7 @@ export interface ChannelInboundMessage {
   ts: string;
   attachments: FileAttachment[];
   imageContents: ImageContent[];
+  hasInlineAudioTranscript?: boolean;
   isEvent?: boolean;
   sessionId?: string;
   initialStatusText?: string;

@@ -245,6 +245,8 @@
 | ENG-216 | Weixin ACP parity | Done | Added ACP support to the Weixin runtime so it now matches Telegram, Feishu, and QQ with `/acp` / `/approve` / `/deny`, active-session default proxying, remote command execution, approval handling, and updated channel-wide ACP documentation |
 | ENG-217 | ACP shared channel control layer | Done | Centralized ACP slash-command parsing, approval handling, reserved-control detection, and channel help lines into a shared channel controller so Telegram, Feishu, QQ, and Weixin now use one ACP behavior core instead of copy-pasted per-channel command logic |
 | ENG-218 | ACP text-channel template | Done | Added a reusable ACP channel template for text-oriented runtimes and moved Weixin, QQ, and Feishu to that template so future channel onboarding only needs message I/O wiring instead of rebuilding ACP proxy/control flow |
+| ENG-219 | Weixin inbound media intake parity | Done | Weixin runtime now parses raw `item_list` media payloads, downloads/decrypts inbound image/file/voice/video attachments from the Weixin CDN, stores them in the chat workspace, feeds images into vision input, and no longer drops attachment-only messages as empty text |
+| ENG-220 | Weixin inline voice-text STT skip | Done | When a Weixin voice message already carries built-in text content, runtime now marks it as already transcribed and skips the second STT pass, avoiding redundant tool churn and failed `.silk` re-decoding attempts |
 
 ## In Progress
 | ID | Feature | Status | Notes |
@@ -259,6 +261,8 @@
 ## Update Log
 - 2026-03-22: Added a shared ACP channel control layer under `src/lib/server/channels/shared/acp.ts` and rewired Telegram, Feishu, QQ, and Weixin to use the same ACP command/proxy rules instead of maintaining separate copies.
 - 2026-03-23: Added a reusable ACP channel template in `src/lib/server/channels/shared/acp.ts`, switched Weixin/QQ/Feishu to the template, and documented that future text-style channels should onboard ACP by reusing the template rather than reimplementing control logic.
+- 2026-03-23: Fixed Weixin inbound media handling by parsing raw SDK `item_list` payloads, downloading/decrypting image/file/voice/video attachments from the Weixin CDN, saving them into chat attachments, and treating attachment-only messages as valid input instead of silently dropping them.
+- 2026-03-23: Stopped redundant Weixin voice re-transcription when the inbound voice item already includes built-in text; Molibot now trusts that text directly and skips the second STT pass for the same message.
 | BL-02 | Lark adapter | Backlog | Post V1 |
 | BL-03 | Slack adapter | Backlog | Post V1 |
 | BL-04 | Vector memory | Backlog | Post V1 |

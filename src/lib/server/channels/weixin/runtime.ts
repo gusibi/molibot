@@ -33,6 +33,7 @@ import type { AiUsageTracker } from "../../usage/tracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { BasicChannelAcpTemplate } from "../shared/acp.js";
 import { ChannelQueue } from "../shared/queue.js";
+import { extractWeixinAttachments, extractWeixinText, hasWeixinInlineVoiceTranscript } from "./media.js";
 
 export interface WeixinConfig {
   baseUrl?: string;
@@ -304,15 +305,10 @@ export class WeixinManager {
 
     const chatId = String(message.userId ?? "").trim();
     const messageId = String(message.raw.message_id ?? "").trim();
-    const text = normalizeText(message.text);
-
-    momLog("weixin", "message_received_raw", {
-      botId: this.instanceId,
-      chatId,
-      messageId,
-      type: message.type,
-      textLength: text.length
-    });
+    const ts = normalizeTimestamp(message.timestamp);
+    const rawText = extractWeixinText(message);
+    const text = normalizeText(rawText);
+    const hasInlineAudioTranscript = hasWeixinInlineVoiceTranscript(message);
 
     if (!chatId || !messageId) {
       momWarn("weixin", "message_ignored_missing_identity", {
@@ -333,7 +329,32 @@ export class WeixinManager {
       return;
     }
 
-    if (!text) {
+    const { attachments, imageContents } = await extractWeixinAttachments({
+      chatId,
+      ts,
+      store: this.store,
+      message,
+      onWarning: (warning) => {
+        momWarn("weixin", "media_extract_failed", {
+          botId: this.instanceId,
+          chatId,
+          messageId,
+          warning
+        });
+      }
+    });
+
+    momLog("weixin", "message_received_raw", {
+      botId: this.instanceId,
+      chatId,
+      messageId,
+      type: message.type,
+      textLength: text.length,
+      attachmentCount: attachments.length,
+      imageCount: imageContents.length
+    });
+
+    if (!text && attachments.length === 0 && imageContents.length === 0) {
       momLog("weixin", "message_ignored_empty", { botId: this.instanceId, chatId, messageId });
       return;
     }
@@ -361,10 +382,11 @@ export class WeixinManager {
       chatType: "private",
       messageId: Number(message.raw.message_id ?? Date.now()),
       userId: chatId,
-      text,
-      ts: normalizeTimestamp(message.timestamp),
-      attachments: [],
-      imageContents: [],
+      text: text || (attachments.some((item) => item.isAudio) ? "(voice message received; transcription unavailable)" : "(attachment)"),
+      ts,
+      attachments,
+      imageContents,
+      hasInlineAudioTranscript,
       sourceMessage: message
     };
 
@@ -378,7 +400,7 @@ export class WeixinManager {
       user: event.userId,
       userName: event.userName,
       text: event.text,
-      attachments: [],
+      attachments: event.attachments,
       isBot: false
     });
 

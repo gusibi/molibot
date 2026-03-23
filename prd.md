@@ -1562,3 +1562,30 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/channels/shared/acp.ts` 必须提供可复用的渠道 ACP 模板接口。
   - `src/lib/server/channels/weixin/runtime.ts`、`src/lib/server/channels/qq/runtime.ts`、`src/lib/server/channels/feishu/runtime.ts` 必须改为调用该模板。
   - `docs/acp-codex-mvp.md` 必须补充新渠道接入优先复用模板的说明。
+
+## 120. Weixin 入站媒体解析补齐 (2026-03-23)
+- Priority: P1
+- Stage: Delivered (2026-03-23)
+- Problem:
+  - 当前 Weixin runtime 只读取旧 SDK 暴露出来的 `message.text`，并且把 `attachments` / `imageContents` 固定写成空数组，所以图片、文件、语音、视频即使已经从微信进来了，也会在 Molibot 入口层被当成“只有文本”甚至“空消息”直接丢掉。
+- Requirement:
+  - Weixin 必须像 Telegram / Feishu / QQ 一样，把入站图片、文件、语音、视频落成附件，并把图片送进视觉输入链路。
+  - 纯附件消息不能再因为没有正文文本就被 runtime 当作空消息忽略。
+  - Weixin 文本提取不能只信任旧 SDK 的 `message.text` 占位结果；需要直接从原始 `item_list` 还原真实文本和引用语境。
+- Enforcement:
+  - `src/lib/server/channels/weixin/runtime.ts` 必须改为从 `raw.item_list` 构造文本、附件和 `imageContents`，而不是把附件硬编码为空数组。
+  - Weixin CDN 媒体下载与 AES-ECB 解密必须在 Molibot 侧补齐，至少覆盖图片、文件、语音、视频四类入站附件。
+  - `features.md` 必须记录这次 Weixin 媒体解析补齐及验证结果，方便后续回溯。
+
+## 121. Weixin 语音自带文字时跳过二次转写 (2026-03-23)
+- Priority: P1
+- Stage: Delivered (2026-03-23)
+- Problem:
+  - 真实 Weixin 语音消息有时会同时带上语音附件和平台原生识别出来的文字。当前 runtime 虽然已经拿到了这段文字，但后续 runner 仍会因为看到音频附件而再走一次 STT，导致重复处理、无意义报错，甚至让模型把已经有答案的问题又折腾一遍。
+- Requirement:
+  - 当 Weixin 入站语音消息已经自带文字时，Molibot 必须直接信任这段文字，不再对同一条消息做第二次语音转写。
+  - 这个跳过规则要尽量精确，只针对“语音项自带文字”的场景，不能误伤其他渠道或“音频 + 额外文本说明”的正常流程。
+- Enforcement:
+  - `src/lib/server/channels/weixin/runtime.ts` 必须把“这条语音已自带文字”这个事实带进标准消息对象。
+  - `src/lib/server/agent/runner.ts` 必须在进入语音转写前检查该标记，并直接复用现有文本。
+  - `features.md` 必须记录这次行为收敛，方便后续排查“为什么没再走 STT”。

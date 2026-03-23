@@ -784,6 +784,10 @@ async function enrichMessageTextWithAudio(
     return { text: baseText, transcriptionErrors: [] };
   }
 
+  if (ctx.message.hasInlineAudioTranscript) {
+    return { text: baseText, transcriptionErrors: [] };
+  }
+
   if (!audioDecision.shouldTranscribe) {
     return {
       text: baseText,
