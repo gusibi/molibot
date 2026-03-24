@@ -26,12 +26,15 @@ import {
   sanitizeWebUserId,
   toWebExternalUserId
 } from "$lib/server/web/identity";
+import { sanitizeRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
+import type { RunnerUiEvent } from "$lib/server/agent/types";
 
 interface ChatBody {
   userId?: string;
   message?: string;
   conversationId?: string;
   profileId?: string;
+  thinkingLevel?: string;
 }
 
 interface ParsedWebChatRequest {
@@ -40,6 +43,7 @@ interface ParsedWebChatRequest {
   conversationId?: string;
   profileId: string;
   files: File[];
+  thinkingLevel: RuntimeThinkingLevel;
 }
 
 interface WebRuntimeContext {
@@ -320,7 +324,8 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
       message,
       conversationId: conversationRaw || undefined,
       profileId,
-      files
+      files,
+      thinkingLevel: sanitizeRuntimeThinkingLevel(String(form.get("thinkingLevel") ?? ""))
     };
   }
 
@@ -330,7 +335,8 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
     message: normalizeText(String(body.message ?? "")),
     conversationId: String(body.conversationId ?? "").trim() || undefined,
     profileId: sanitizeWebProfileId(body.profileId),
-    files: []
+    files: [],
+    thinkingLevel: sanitizeRuntimeThinkingLevel(body.thinkingLevel)
   };
 }
 
@@ -424,8 +430,6 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const inboundText = parsed.message || (attachments.length > 0 ? "(attachment)" : "");
-  runtime.sessions.appendMessage(conversation.id, "user", inboundText);
-
   const runner = pool.get(externalUserId, conversation.id);
   if (runner.isRunning()) {
     return json(
@@ -433,14 +437,42 @@ export const POST: RequestHandler = async ({ request }) => {
       { status: 409 }
     );
   }
+  runtime.sessions.appendMessage(conversation.id, "user", inboundText);
 
   let finalText = "";
   const threadNotes: string[] = [];
+  const runnerDiagnostics: string[] = [];
+
+  const appendRunnerDiagnostic = (event: RunnerUiEvent): void => {
+    if (event.type === "thinking_config") {
+      runnerDiagnostics.push(
+        [
+          `thinking_requested=${event.requestedThinkingLevel}`,
+          `thinking_effective=${event.effectiveThinkingLevel}`,
+          `reasoning_supported=${String(event.reasoningSupported)}`,
+          `provider=${event.provider}`,
+          `model=${event.model}`
+        ].join(", ")
+      );
+      return;
+    }
+    if (event.type === "payload") {
+      runnerDiagnostics.push(
+        [
+          `payload_provider=${event.provider}`,
+          `payload_model=${event.model}`,
+          `payload_api=${event.api}`,
+          event.summary
+        ].join(", ")
+      );
+    }
+  };
 
   const result = await runner.run({
     channel: "web",
     workspaceDir: store.getWorkspaceDir(),
     chatDir: store.getChatDir(externalUserId),
+    thinkingLevelOverride: parsed.thinkingLevel,
     message: {
       chatId: externalUserId,
       chatType: "private",
@@ -465,7 +497,10 @@ export const POST: RequestHandler = async ({ request }) => {
     setTyping: async () => {},
     setWorking: async () => {},
     deleteMessage: async () => {},
-    uploadFile: async () => {}
+    uploadFile: async () => {},
+    onRunnerEvent: async (event) => {
+      appendRunnerDiagnostic(event);
+    }
   });
 
   const assistantText =
@@ -482,6 +517,6 @@ export const POST: RequestHandler = async ({ request }) => {
     conversationId: conversation.id,
     profileId: parsed.profileId,
     stopReason: result.stopReason,
-    diagnostics: threadNotes
+    diagnostics: [...runnerDiagnostics, ...threadNotes]
   });
 };

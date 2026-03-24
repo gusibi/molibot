@@ -3,6 +3,14 @@ import { getModels } from "@mariozechner/pi-ai";
 import type { CustomProviderConfig, RuntimeSettings } from "../settings/index.js";
 import type { ConversationMessage } from "../../shared/types/message.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
+import {
+  DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
+  resolvePreferredTransport
+} from "../agent/runtimeOptions.js";
+import {
+  applyDirectReasoningParams,
+  resolveThinkingLevel
+} from "./customThinking.js";
 
 type OpenAIRole = "system" | "user" | "assistant";
 
@@ -170,17 +178,23 @@ async function callCustomProviderTarget(
 
   let response: Response;
   try {
+    const thinkingLevel = resolveThinkingLevel(settings, provider.supportsThinking === true);
+    const requestBody = applyDirectReasoningParams(
+      {
+        model,
+        messages: toOpenAIMessagesWithMemory(history, settings, memoryContext),
+        temperature: 0.2
+      },
+      provider,
+      thinkingLevel
+    );
     response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${provider.apiKey}`
       },
-      body: JSON.stringify({
-        model,
-        messages: toOpenAIMessagesWithMemory(history, settings, memoryContext),
-        temperature: 0.2
-      })
+      body: JSON.stringify(requestBody)
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -285,7 +299,9 @@ async function callPiMono(
     initialState: {
       systemPrompt: settings.systemPrompt,
       model
-    }
+    },
+    transport: resolvePreferredTransport(model),
+    maxRetryDelayMs: DEFAULT_AGENT_MAX_RETRY_DELAY_MS
   });
 
   let streamed = "";

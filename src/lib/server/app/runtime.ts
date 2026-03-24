@@ -4,6 +4,10 @@ import {
   type AcpSettings,
   defaultRuntimeSettings,
   isKnownProvider,
+  sanitizeOptionalThinkingFormat,
+  sanitizeOptionalThinkingSupport,
+  sanitizeReasoningEffortMap,
+  sanitizeRuntimeThinkingLevel,
   type ProviderModelConfig,
   type ModelRole,
   type ModelCapabilityTag,
@@ -569,7 +573,10 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
       apiKey: String(row.apiKey ?? "").trim(),
       models,
       defaultModel,
-      path: String(row.path ?? "").trim() || "/v1/chat/completions"
+      path: String(row.path ?? "").trim() || "/v1/chat/completions",
+      supportsThinking: sanitizeOptionalThinkingSupport((row as { supportsThinking?: unknown }).supportsThinking),
+      thinkingFormat: sanitizeOptionalThinkingFormat((row as { thinkingFormat?: unknown }).thinkingFormat),
+      reasoningEffortMap: sanitizeReasoningEffortMap((row as { reasoningEffortMap?: unknown }).reasoningEffortMap)
     });
   }
   next.customProviders = customProviders;
@@ -585,6 +592,10 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
     sttModelKey: String((next as { modelRouting?: { sttModelKey?: unknown } }).modelRouting?.sttModelKey ?? "").trim(),
     ttsModelKey: String((next as { modelRouting?: { ttsModelKey?: unknown } }).modelRouting?.ttsModelKey ?? "").trim()
   };
+  next.defaultThinkingLevel = sanitizeRuntimeThinkingLevel(
+    (next as { defaultThinkingLevel?: unknown }).defaultThinkingLevel,
+    current.defaultThinkingLevel
+  );
   const compactionInput = next.compaction ?? current.compaction;
   const reserveTokensRaw = Number(compactionInput?.reserveTokens ?? current.compaction.reserveTokens);
   const keepRecentTokensRaw = Number(compactionInput?.keepRecentTokens ?? current.compaction.keepRecentTokens);

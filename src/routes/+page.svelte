@@ -5,6 +5,7 @@
     providerMode: "pi" | "custom";
     piModelProvider: string;
     piModelName: string;
+    defaultThinkingLevel?: ThinkingLevel;
     defaultCustomProviderId: string;
     customProviders: Array<{
       id: string;
@@ -34,7 +35,13 @@
     role: "user" | "assistant";
     content: string;
     createdAt: string;
+    meta?: {
+      diagnostics?: string[];
+      thinking?: string;
+    };
   }
+
+  type ThinkingLevel = "off" | "low" | "medium" | "high";
 
   interface PromptSources {
     global: string[];
@@ -124,6 +131,17 @@
       micUnavailable: "麦克风不可用。",
       openSettings: "打开设置",
       currentThemeFile: "主题文件"
+      ,
+      thinkingMode: "思考档位",
+      thinkingOff: "关闭",
+      thinkingLow: "低",
+      thinkingMedium: "中",
+      thinkingHigh: "高",
+      thinkingDetails: "思考与请求信息",
+      requestTrace: "请求信息",
+      thinkingProcess: "思考过程",
+      noThinkingSeen: "这次没有收到思考流",
+      liveAnswer: "实时输出"
     },
     "en-US": {
       quickPrompts: [
@@ -197,6 +215,17 @@
       micUnavailable: "Microphone unavailable.",
       openSettings: "Open Settings",
       currentThemeFile: "Theme file"
+      ,
+      thinkingMode: "Thinking",
+      thinkingOff: "Off",
+      thinkingLow: "Low",
+      thinkingMedium: "Medium",
+      thinkingHigh: "High",
+      thinkingDetails: "Thinking Details",
+      requestTrace: "Request Trace",
+      thinkingProcess: "Thinking Process",
+      noThinkingSeen: "No thinking stream received",
+      liveAnswer: "Live Output"
     }
   };
 
@@ -220,6 +249,7 @@
   let modelOptions: Array<{ key: string; label: string }> = [];
   let activeModelKey = "";
   let changingModel = false;
+  let thinkingLevel: ThinkingLevel = "off";
 
   let pendingFiles: File[] = [];
   let mediaRecorder: MediaRecorder | null = null;
@@ -241,6 +271,9 @@
   let themeMode: ThemeMode = "light";
   let locale: LocaleKey = "zh-CN";
   let dict = I18N[locale];
+  let streamingAssistantText = "";
+  let streamingThinkingText = "";
+  let streamingDiagnostics: string[] = [];
 
   let messagesContainer: HTMLDivElement | null = null;
   let composerEl: HTMLTextAreaElement | null = null;
@@ -250,6 +283,26 @@
 
   function t(key: string): string {
     return dict[key] ?? key;
+  }
+
+  function thinkingLabel(level: ThinkingLevel): string {
+    switch (level) {
+      case "low":
+        return t("thinkingLow");
+      case "medium":
+        return t("thinkingMedium");
+      case "high":
+        return t("thinkingHigh");
+      case "off":
+      default:
+        return t("thinkingOff");
+    }
+  }
+
+  function resetStreamingState(): void {
+    streamingAssistantText = "";
+    streamingThinkingText = "";
+    streamingDiagnostics = [];
   }
 
   $: filteredSessions = sessions.filter((s) => {
@@ -571,6 +624,7 @@
       runtimeSettings = data.settings as RuntimeSettings;
       modelOptions = buildModelOptions(runtimeSettings);
       activeModelKey = computeActiveModelKey(runtimeSettings);
+      thinkingLevel = runtimeSettings.defaultThinkingLevel ?? thinkingLevel;
       status = "";
     } catch (error) {
       status = error instanceof Error ? error.message : String(error);
@@ -587,11 +641,156 @@
     return trimmed ? `${trimmed}\n\n${attachmentLine}` : attachmentLine;
   }
 
+  async function consumeSseResponse(
+    response: Response
+  ): Promise<{
+    assistant: string;
+    conversationId?: string;
+    diagnostics: string[];
+    thinking: string;
+  }> {
+    if (!response.ok || !response.body) {
+      const text = await response.text();
+      try {
+        const payload = JSON.parse(text);
+        throw new Error(String(payload?.error ?? `${t("backendRequestFailed")} (${response.status})`));
+      } catch {
+        throw new Error(text || `${t("backendRequestFailed")} (${response.status})`);
+      }
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let donePayload: {
+      response?: string;
+      conversationId?: string;
+      diagnostics?: string[];
+      thinkingText?: string;
+    } | null = null;
+
+    const parseBlock = (block: string): { event: string; data: string } | null => {
+      const lines = block.split("\n");
+      let eventName = "message";
+      const dataLines: string[] = [];
+      for (const line of lines) {
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          dataLines.push(line.slice(5).trim());
+        }
+      }
+      if (dataLines.length === 0) return null;
+      return { event: eventName, data: dataLines.join("\n") };
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+
+      for (const block of blocks) {
+        const parsed = parseBlock(block);
+        if (!parsed) continue;
+        const payload = JSON.parse(parsed.data);
+
+        if (parsed.event === "token") {
+          streamingAssistantText += String(payload.delta ?? "");
+          await scrollMessagesToBottom();
+          continue;
+        }
+        if (parsed.event === "replace") {
+          streamingAssistantText = String(payload.text ?? "");
+          await scrollMessagesToBottom();
+          continue;
+        }
+        if (parsed.event === "thinking_config") {
+          streamingDiagnostics = [
+            ...streamingDiagnostics,
+            [
+              `thinking_requested=${String(payload.requestedThinkingLevel ?? "off")}`,
+              `thinking_effective=${String(payload.effectiveThinkingLevel ?? "off")}`,
+              `reasoning_supported=${String(payload.reasoningSupported ?? false)}`,
+              `provider=${String(payload.provider ?? "")}`,
+              `model=${String(payload.model ?? "")}`
+            ].join(", ")
+          ];
+          continue;
+        }
+        if (parsed.event === "payload") {
+          streamingDiagnostics = [
+            ...streamingDiagnostics,
+            [
+              `payload_provider=${String(payload.provider ?? "")}`,
+              `payload_model=${String(payload.model ?? "")}`,
+              `payload_api=${String(payload.api ?? "")}`,
+              String(payload.summary ?? "")
+            ].join(", ")
+          ];
+          continue;
+        }
+        if (parsed.event === "thinking_delta") {
+          streamingThinkingText += String(payload.delta ?? "");
+          await scrollMessagesToBottom();
+          continue;
+        }
+        if (parsed.event === "thread_note") {
+          const text = String(payload.text ?? "").trim();
+          if (text) {
+            streamingDiagnostics = [...streamingDiagnostics, text];
+          }
+          continue;
+        }
+        if (parsed.event === "error") {
+          throw new Error(String(payload.error ?? t("backendRequestFailed")));
+        }
+        if (parsed.event === "done") {
+          donePayload = payload;
+        }
+      }
+
+      if (done) break;
+    }
+
+    const assistant = String(donePayload?.response ?? streamingAssistantText).trim() || t("emptyResponse");
+    return {
+      assistant,
+      conversationId: typeof donePayload?.conversationId === "string" ? donePayload.conversationId : undefined,
+      diagnostics: Array.isArray(donePayload?.diagnostics)
+        ? donePayload.diagnostics.map((item) => String(item))
+        : streamingDiagnostics,
+      thinking: String(donePayload?.thinkingText ?? streamingThinkingText ?? "")
+    };
+  }
+
+  async function sendStreamingText(text: string): Promise<{
+    assistant: string;
+    conversationId?: string;
+    diagnostics: string[];
+    thinking: string;
+  }> {
+    resetStreamingState();
+    const response = await fetch("/api/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profileId: activeProfileId,
+        conversationId: activeSessionId,
+        message: text,
+        thinkingLevel
+      })
+    });
+    return consumeSseResponse(response);
+  }
+
   async function sendMessage(): Promise<void> {
     const text = messageInput.trim();
     if ((!text && pendingFiles.length === 0) || sending || !activeSessionId) return;
 
     sending = true;
+    resetStreamingState();
     const filesToSend = [...pendingFiles];
     pendingFiles = [];
     messageInput = "";
@@ -602,12 +801,36 @@
     await scrollMessagesToBottom(true);
 
     try {
+      if (filesToSend.length === 0 && !text.startsWith("/")) {
+        const streamed = await sendStreamingText(text);
+        messages = [
+          ...messages,
+          {
+            role: "assistant",
+            content: streamed.assistant,
+            createdAt: new Date().toISOString(),
+            meta: {
+              diagnostics: streamed.diagnostics,
+              thinking: streamed.thinking
+            }
+          }
+        ];
+        if (typeof streamed.conversationId === "string" && streamed.conversationId) {
+          activeSessionId = streamed.conversationId;
+        }
+        await loadSessions();
+        await scrollMessagesToBottom(true);
+        status = "";
+        return;
+      }
+
       let response: Response;
       if (filesToSend.length > 0) {
         const form = new FormData();
         form.append("profileId", activeProfileId);
         form.append("conversationId", activeSessionId);
         form.append("message", text);
+        form.append("thinkingLevel", thinkingLevel);
         for (const file of filesToSend) {
           form.append("files", file);
         }
@@ -616,7 +839,12 @@
         response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profileId: activeProfileId, conversationId: activeSessionId, message: text })
+          body: JSON.stringify({
+            profileId: activeProfileId,
+            conversationId: activeSessionId,
+            message: text,
+            thinkingLevel
+          })
         });
       }
 
@@ -625,7 +853,20 @@
         throw new Error(payload?.error || `${t("backendRequestFailed")} (${response.status})`);
       }
       const assistant = String(payload.response ?? "").trim() || t("emptyResponse");
-      messages = [...messages, { role: "assistant", content: assistant, createdAt: new Date().toISOString() }];
+      messages = [
+        ...messages,
+        {
+          role: "assistant",
+          content: assistant,
+          createdAt: new Date().toISOString(),
+          meta: {
+            diagnostics: Array.isArray(payload.diagnostics)
+              ? payload.diagnostics.map((item: unknown) => String(item))
+              : [],
+            thinking: ""
+          }
+        }
+      ];
       if (typeof payload.conversationId === "string" && payload.conversationId) {
         activeSessionId = payload.conversationId;
       }
@@ -718,6 +959,7 @@
     if (sending || !activeSessionId) return;
 
     sending = true;
+    resetStreamingState();
     messages = [
       ...messages,
       {
@@ -733,6 +975,7 @@
       form.append("profileId", activeProfileId);
       form.append("conversationId", activeSessionId);
       form.append("message", "");
+      form.append("thinkingLevel", thinkingLevel);
       form.append("files", file);
 
       const response = await fetch("/api/chat", { method: "POST", body: form });
@@ -741,7 +984,20 @@
         throw new Error(payload?.error || `${t("backendRequestFailed")} (${response.status})`);
       }
       const assistant = String(payload.response ?? "").trim() || t("emptyResponse");
-      messages = [...messages, { role: "assistant", content: assistant, createdAt: new Date().toISOString() }];
+      messages = [
+        ...messages,
+        {
+          role: "assistant",
+          content: assistant,
+          createdAt: new Date().toISOString(),
+          meta: {
+            diagnostics: Array.isArray(payload.diagnostics)
+              ? payload.diagnostics.map((item: unknown) => String(item))
+              : [],
+            thinking: ""
+          }
+        }
+      ];
       if (typeof payload.conversationId === "string" && payload.conversationId) {
         activeSessionId = payload.conversationId;
       }
@@ -891,6 +1147,7 @@
         applyWebProfilesFromSettings(runtimeSettings);
         modelOptions = buildModelOptions(runtimeSettings);
         activeModelKey = computeActiveModelKey(runtimeSettings);
+        thinkingLevel = runtimeSettings.defaultThinkingLevel ?? "off";
 
         await loadSessions();
         await ensureActiveSession();
@@ -1060,6 +1317,16 @@
             </select>
             <select
               class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--ring)]"
+              bind:value={thinkingLevel}
+              aria-label={t("thinkingMode")}
+            >
+              <option value="off">{t("thinkingMode")}: {t("thinkingOff")}</option>
+              <option value="low">{t("thinkingMode")}: {t("thinkingLow")}</option>
+              <option value="medium">{t("thinkingMode")}: {t("thinkingMedium")}</option>
+              <option value="high">{t("thinkingMode")}: {t("thinkingHigh")}</option>
+            </select>
+            <select
+              class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--ring)]"
               bind:value={themeMode}
               on:change={onThemeModeChange}
               aria-label={t("theme")}
@@ -1089,6 +1356,9 @@
         <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
           <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5">
             {t("activeProfile")}: {activeProfileName}
+          </div>
+          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5">
+            {t("thinkingMode")}: {thinkingLabel(thinkingLevel)}
           </div>
           <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-[var(--muted-foreground)]">
             {t("currentThemeFile")}: <code class="ml-1">src/styles/theme.css</code>
@@ -1147,6 +1417,27 @@
                         </div>
                         <div class="text-[10px] text-[var(--muted-foreground)]">{formatMessageTime(m.createdAt)}</div>
                       </div>
+                      {#if m.role === "assistant" && ((m.meta?.diagnostics?.length ?? 0) > 0 || m.meta?.thinking)}
+                        <details class="mb-3 rounded-xl border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6 text-[var(--muted-foreground)]">
+                          <summary class="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]">
+                            {t("thinkingDetails")}
+                          </summary>
+                          <div class="mt-3">
+                            {#if (m.meta?.diagnostics?.length ?? 0) > 0}
+                              <div class="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em]">{t("requestTrace")}</div>
+                              {#each m.meta?.diagnostics ?? [] as line}
+                                <div class="break-words">{line}</div>
+                              {/each}
+                            {/if}
+                            <div class={`${(m.meta?.diagnostics?.length ?? 0) > 0 ? "mt-3" : ""} text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]`}>
+                              {t("thinkingProcess")}
+                            </div>
+                            <div class="mt-2 whitespace-pre-wrap break-words">
+                              {m.meta?.thinking || t("noThinkingSeen")}
+                            </div>
+                          </div>
+                        </details>
+                      {/if}
                       <div class="whitespace-pre-wrap break-words">{m.content}</div>
                     </div>
                   </article>
@@ -1156,7 +1447,33 @@
                   <article class="flex justify-start">
                     <div class="rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
                       <div class="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Molibot</div>
-                      {t("thinking")}
+                      {#if streamingDiagnostics.length > 0 || streamingThinkingText}
+                        <details class="mb-3 rounded-xl border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6" open>
+                          <summary class="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]">
+                            {t("thinkingDetails")}
+                          </summary>
+                          <div class="mt-3">
+                            {#if streamingDiagnostics.length > 0}
+                              <div class="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]">
+                                {t("requestTrace")}
+                              </div>
+                              {#each streamingDiagnostics as line}
+                                <div class="break-words">{line}</div>
+                              {/each}
+                            {/if}
+                            <div class={`${streamingDiagnostics.length > 0 ? "mt-3" : ""} text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]`}>
+                              {t("thinkingProcess")}
+                            </div>
+                            <div class="mt-2 whitespace-pre-wrap break-words">
+                              {streamingThinkingText || t("noThinkingSeen")}
+                            </div>
+                          </div>
+                        </details>
+                      {/if}
+                      <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+                        {t("liveAnswer")}
+                      </div>
+                      <div class="mt-2 whitespace-pre-wrap break-words">{streamingAssistantText || t("thinking")}</div>
                     </div>
                   </article>
                 {/if}

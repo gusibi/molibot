@@ -4,6 +4,11 @@ import { momWarn } from "../../agent/log.js";
 const SEND_RETRY_DELAYS_MS = [0, 500, 1500] as const;
 const TELEGRAM_TEXT_SOFT_LIMIT = 3500;
 
+interface TelegramRetryPolicy {
+  failOnRateLimit?: boolean;
+  maxRetryAfterMs?: number | null;
+}
+
 function chunkTelegramText(text: string, chunkSize = TELEGRAM_TEXT_SOFT_LIMIT): string[] {
   const normalized = String(text ?? "").replace(/\r\n?/g, "\n").trim();
   if (!normalized) return [];
@@ -146,6 +151,13 @@ function isRetryableTelegramSendError(error: unknown): boolean {
   );
 }
 
+function isTelegramRateLimitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const fields = error && typeof error === "object" ? error as Record<string, unknown> : undefined;
+  const errorCode = Number(fields?.error_code ?? fields?.status ?? 0);
+  return errorCode === 429 || message.includes("Too Many Requests");
+}
+
 function getRetryAfterMs(error: unknown): number | null {
   if (!error || typeof error !== "object") return null;
   const fields = error as Record<string, unknown>;
@@ -218,7 +230,8 @@ export function describeTelegramError(error: unknown): Record<string, unknown> {
 async function retryTelegramApiCall<T>(
   logEvent: string,
   metadata: Record<string, unknown>,
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
+  policy?: TelegramRetryPolicy
 ): Promise<T> {
   let lastError: unknown;
 
@@ -239,6 +252,19 @@ async function retryTelegramApiCall<T>(
         throw error;
       }
       const retryAfterMs = getRetryAfterMs(error);
+      if (
+        isTelegramRateLimitError(error) &&
+        (
+          policy?.failOnRateLimit ||
+          (
+            Number.isFinite(policy?.maxRetryAfterMs) &&
+            retryAfterMs != null &&
+            retryAfterMs > Number(policy?.maxRetryAfterMs)
+          )
+        )
+      ) {
+        throw error;
+      }
       momWarn("telegram", logEvent, {
         ...metadata,
         attempt: attempt + 1,
@@ -255,7 +281,13 @@ async function retryTelegramApiCall<T>(
   throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "Telegram API call failed"));
 }
 
-export async function editTelegramText(bot: Bot, chatId: string, messageId: number, text: string): Promise<void> {
+export async function editTelegramText(
+  bot: Bot,
+  chatId: string,
+  messageId: number,
+  text: string,
+  retryPolicy?: TelegramRetryPolicy
+): Promise<void> {
   const payload = formatTelegramText(text);
   try {
     if (payload.parseMode) {
@@ -264,7 +296,8 @@ export async function editTelegramText(bot: Bot, chatId: string, messageId: numb
         { chatId, messageId, mode: "formatted" },
         async () => {
           await bot.api.editMessageText(chatId, messageId, payload.text, { parse_mode: payload.parseMode } as never);
-        }
+        },
+        retryPolicy
       );
       return;
     }
@@ -273,9 +306,13 @@ export async function editTelegramText(bot: Bot, chatId: string, messageId: numb
       { chatId, messageId, mode: "plain" },
       async () => {
         await bot.api.editMessageText(chatId, messageId, payload.text);
-      }
+      },
+      retryPolicy
     );
   } catch (error) {
+    if (isTelegramRateLimitError(error) && (retryPolicy?.failOnRateLimit || Number.isFinite(retryPolicy?.maxRetryAfterMs))) {
+      throw error;
+    }
     if (payload.parseMode) {
       momWarn("telegram", "edit_message_parse_fallback_plain", {
         chatId,
@@ -338,13 +375,14 @@ export async function editTelegramMessage(
 export async function sendTelegramChatAction(
   bot: Bot,
   chatId: string,
-  action: "typing" | "upload_photo" | "record_voice"
+  action: "typing" | "upload_photo" | "record_voice",
+  options?: Record<string, unknown>
 ): Promise<void> {
   await retryTelegramApiCall(
     "send_chat_action_retry_scheduled",
     { chatId, action },
     async () => {
-      await bot.api.sendChatAction(chatId, action);
+      await bot.api.sendChatAction(chatId, action, options as never);
     }
   );
 }

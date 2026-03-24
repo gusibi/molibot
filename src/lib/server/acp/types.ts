@@ -57,10 +57,20 @@ export interface AcpPromptResult {
   toolCalls: AcpToolCallSnapshot[];
 }
 
+export type AcpProgressEvent =
+  | { type: "status_current"; text: string }
+  | { type: "step_completed"; text: string; title: string; locations: string[] }
+  | { type: "step_failed"; text: string; title: string; locations: string[] }
+  | { type: "plan"; text: string }
+  | { type: "permission"; text: string; permission: AcpPendingPermissionView }
+  | { type: "assistant_output"; text: string }
+  | { type: "result"; text: string; stopReason: string };
+
 export interface AcpTaskCallbacks {
   onStatus: (text: string) => Promise<void>;
   onEvent: (text: string) => Promise<void>;
   onPermissionRequest?: (permission: AcpPendingPermissionView) => Promise<void>;
+  onProgress?: (event: AcpProgressEvent) => Promise<void>;
 }
 
 export interface AcpPendingPermissionView {

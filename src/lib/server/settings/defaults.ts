@@ -13,6 +13,7 @@ import {
   type RuntimeSettings,
   type TelegramBotConfig
 } from "./schema.js";
+import { sanitizeRuntimeThinkingLevel } from "./thinking.js";
 
 function listFromEnv(name: string): string[] {
   const raw = process.env[name] ?? "";
@@ -230,6 +231,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   providerMode,
   piModelProvider: providerFromEnv("PI_MODEL_PROVIDER", "anthropic"),
   piModelName: process.env.PI_MODEL_NAME ?? "claude-sonnet-4-20250514",
+  defaultThinkingLevel: sanitizeRuntimeThinkingLevel(process.env.MOLIBOT_DEFAULT_THINKING_LEVEL, "off"),
   customProviders: defaultCustomProviders,
   defaultCustomProviderId: defaultCustomProviders[0]?.id ?? "",
   modelRouting: {

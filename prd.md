@@ -158,6 +158,25 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-112 | Settings task edit textarea build compliance | P1 | Delivered (2026-03-20) | `/settings/tasks` inline edit input must use explicit `<textarea></textarea>` markup (not self-closing form) so Svelte SSR/client production builds are warning-free and standards-compliant |
 | P1-113 | WeChat channel integration | P1 | Delivered (2026-03-22) | Operators can configure `/settings/weixin`, enable a WeChat bot instance, complete QR login through the npm-installed SDK, and reuse the shared chat runtime (sessions, model switching, skills, compaction, OAuth commands) for inbound WeChat conversations without touching core runner architecture |
 | P1-114 | WeChat login QR helper in settings | P1 | Delivered (2026-03-22) | Operators can paste the WeChat SDK login URL from runtime logs into `/settings/weixin` and immediately render a scannable QR code in the browser, so phone login does not depend on opening or forwarding the raw link manually |
+| P1-115 | Telegram forum topic intake and topic-scoped reply continuity | P1 | Delivered (2026-03-24) | Telegram forum-topic messages should be accepted without mandatory `@bot` mention gating, runtime should preserve `message_thread_id` on status/messages/media replies so responses stay inside the originating topic, and each topic should maintain an isolated runtime/session scope instead of sharing one supergroup context |
+| P1-116 | Custom provider controllable thinking support | P1 | Delivered (2026-03-24) | Runtime should stop treating `reasoning: true` as a fake thinking switch, read a real default thinking level from settings, map `off/low/medium/high` into provider-specific request fields for custom providers, and keep the legacy assistant path behavior aligned with the main agent runner |
+| P1-117 | ACP settled-history progress display and ACP-first proxy routing | P1 | Delivered (2026-03-24) | ACP channel progress should preserve recent completed/failed history without persisting transient `pending` chatter, Telegram should keep a compact single edited progress message plus separate final summary, and active ACP sessions should proxy slash-style input to the remote agent unless the message is a reserved ACP control command |
+| P1-118 | Web chat visible thinking controls and traceability | P1 | Delivered (2026-03-24) | Web chat should expose a per-send thinking selector (`off` / `low` / `medium` / `high`), pass that choice into the runner request, and display enough request/payload/thinking trace information for operators to verify whether reasoning was requested and whether any thinking stream was actually returned |
+| P1-119 | Runner-level delta streaming parity for Web and Telegram | P1 | Delivered (2026-03-24) | The shared runner should consume assistant `message_update` deltas from the upgraded agent runtime so Web text chat can stream through the real runner path with a collapsible thinking panel above the answer, and Telegram can render incremental output with batched edits, no duplicate fallback sends, and observable thinking diagnostics instead of per-delta updates that trigger rate-limit stalls |
+| P1-120 | Telegram session status command and session-local thinking control | P1 | Delivered (2026-03-25) | Telegram should expose `/status` and `/state` for current session/runtime/model visibility, and `/thinking <default|off|low|medium|high>` must override thinking depth only for the active session so future new sessions still inherit the global default |
+
+### P1-117 Implementation Note (2026-03-24)
+- Telegram ACP middleware must not keep any stale direct reference to the old local control-command helper once proxy gating is centralized through the shared ACP proxy rule, otherwise bot startup can fail before ACP routing is reached.
+- Telegram ACP session identity and permission handling must use the same topic-scoped Telegram conversation key as the main runtime. Using only the raw `chatId` is not sufficient for forum topics because it merges distinct topic sessions, approvals, and progress replies back into one supergroup-level ACP state.
+
+### P1-119 Implementation Note (2026-03-24)
+- Web-side visible thinking is only trustworthy if the trace block stays attached to the assistant reply itself, above the final answer, and remains operator-controllable via collapse/expand instead of always-open raw text.
+- Telegram live streaming must batch intermediate edits on a fixed cadence and skip over long server-requested retry waits for non-final status edits; otherwise one over-eager delta stream can degrade into multi-minute reply lag after a single 429.
+- Telegram stream rendering must not treat every edit failure as permission to send a brand-new copy of the same answer; only a genuinely missing edit target should reopen a fresh message, otherwise one transient edit error can multiply a single reply into several duplicate Telegram messages.
+
+### P1-120 Implementation Note (2026-03-25)
+- Session-local thinking changes must persist with the session itself, not in global runtime settings, otherwise switching one Telegram conversation would silently mutate every other session and every future new session.
+- `/status` needs to report the next-request reality, not just raw config fragments: active session id, queue/running state, active route models, global default thinking, session override, and the effective next-request thinking level after model capability downgrade.
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -1628,3 +1647,16 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/agent/runner.ts` 必须按能力标签收紧文本/视觉模型选择和回退。
   - 运行中的 Agent 必须在切换当前模型时同步更新会话标识与传输偏好。
   - `features.md` 必须记录这次模型职责拆分与路由收紧。
+
+## 125. 升级后 Agent 传输与重试上限统一接入 (2026-03-24)
+- Priority: P1
+- Stage: Delivered (2026-03-24)
+- Problem:
+  - 升级后 `pi-agent-core` 已支持更细的传输偏好和最长重试等待控制，但 Molibot 只有主运行器接了一部分，其他 Agent 调用点还没有统一使用，导致不同入口的连接行为和卡顿上限不一致。
+- Requirement:
+  - 所有直接创建 `Agent` 的入口都要复用同一套底层运行参数，避免一个入口走新能力、另一个入口还停在旧默认值。
+  - 新增能力必须只做工程层接入，不加入新的业务判断。
+- Enforcement:
+  - `src/lib/server/agent/runtimeOptions.ts` 必须成为共享的 Agent 运行参数来源。
+  - `src/lib/server/agent/runner.ts` 和 `src/lib/server/providers/assistantService.ts` 必须统一接入传输偏好与 `maxRetryDelayMs`。
+  - `features.md` 必须记录这次统一接入，方便后续升级时对照。

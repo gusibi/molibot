@@ -20,6 +20,8 @@ const KEY_LOG_EVENTS = new Set<string>([
   "process_start",
   "process_runner_done",
   "process_end",
+  "runner_thinking_config",
+  "runner_payload_reasoning",
   // stt observability
   "audio_route_decision",
   "voice_transcription_target",

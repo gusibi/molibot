@@ -52,6 +52,17 @@ export async function restoreAcpStatus(acp: AcpService, chatId: string) {
   }
 }
 
+export async function shouldProxyToAcpSession(
+  acp: AcpService,
+  chatId: string,
+  text: string
+): Promise<boolean> {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed || isAcpControlCommandText(trimmed)) return false;
+  const status = await restoreAcpStatus(acp, chatId);
+  return Boolean(status);
+}
+
 export async function handleSharedAcpCommand({
   acp,
   chatId,
@@ -221,9 +232,7 @@ export class BasicChannelAcpTemplate<TContext> {
 
   async maybeProxy(chatId: string, text: string, context: TContext): Promise<boolean> {
     const trimmed = String(text ?? "").trim();
-    if (!trimmed || isAcpControlCommandText(trimmed)) return false;
-    const status = await restoreAcpStatus(this.adapter.acp, chatId);
-    if (!status) return false;
+    if (!await shouldProxyToAcpSession(this.adapter.acp, chatId, trimmed)) return false;
     await this.adapter.runPrompt(chatId, context, {
       kind: "task",
       prompt: trimmed,

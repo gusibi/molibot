@@ -1,4 +1,5 @@
-import type { ImageContent } from "@mariozechner/pi-ai";
+import type { AssistantMessageEvent, ImageContent } from "@mariozechner/pi-ai";
+import type { RuntimeThinkingLevel } from "../settings/index.js";
 
 export type AttachmentMediaType = "image" | "audio" | "file";
 
@@ -15,8 +16,10 @@ export type ChannelChatType = "private" | "group" | "supergroup" | "channel";
 
 export interface ChannelInboundMessage {
   chatId: string;
+  scopeId?: string;
   chatType: ChannelChatType;
   messageId: number;
+  messageThreadId?: number;
   userId: string;
   userName?: string;
   text: string;
@@ -46,11 +49,35 @@ export interface RunResult {
   errorMessage?: string;
 }
 
+export type RunnerUiEvent =
+  | {
+      type: "thinking_config";
+      requestedThinkingLevel: RuntimeThinkingLevel;
+      effectiveThinkingLevel: RuntimeThinkingLevel;
+      provider: string;
+      model: string;
+      reasoningSupported: boolean;
+    }
+  | {
+      type: "payload";
+      provider: string;
+      model: string;
+      api: string;
+      requestedThinkingLevel: RuntimeThinkingLevel;
+      effectiveThinkingLevel: RuntimeThinkingLevel;
+      summary: string;
+    }
+  | {
+      type: "assistant_message_event";
+      event: AssistantMessageEvent;
+    };
+
 export interface MomContext {
   channel: string;
   message: ChannelInboundMessage;
   workspaceDir: string;
   chatDir: string;
+  thinkingLevelOverride?: RuntimeThinkingLevel;
   respond: (text: string, shouldLog?: boolean) => Promise<void>;
   replaceMessage: (text: string) => Promise<void>;
   respondInThread: (text: string) => Promise<void>;
@@ -58,6 +85,7 @@ export interface MomContext {
   setWorking: (isWorking: boolean) => Promise<void>;
   deleteMessage: () => Promise<void>;
   uploadFile: (filePath: string, title?: string) => Promise<void>;
+  onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
 }
 
 export interface RunnerLike {

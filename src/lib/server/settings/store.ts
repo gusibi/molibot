@@ -19,6 +19,12 @@ import {
   type ProviderMode,
   type RuntimeSettings
 } from "../settings/index.js";
+import {
+  sanitizeOptionalThinkingFormat,
+  sanitizeOptionalThinkingSupport,
+  sanitizeReasoningEffortMap,
+  sanitizeRuntimeThinkingLevel
+} from "../settings/thinking.js";
 import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
 
 type DynamicSettingKey = "customProviders" | "channels" | "agents";
@@ -28,6 +34,7 @@ interface RawSettings {
   providerMode?: string;
   piModelProvider?: string;
   piModelName?: string;
+  defaultThinkingLevel?: string;
   customProviders?: unknown;
   defaultCustomProviderId?: string;
   modelRouting?: {
@@ -253,7 +260,10 @@ function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
       apiKey: String(item.apiKey ?? "").trim(),
       models,
       defaultModel,
-      path: String(item.path ?? "").trim() || "/v1/chat/completions"
+      path: String(item.path ?? "").trim() || "/v1/chat/completions",
+      supportsThinking: sanitizeOptionalThinkingSupport(item.supportsThinking),
+      thinkingFormat: sanitizeOptionalThinkingFormat(item.thinkingFormat),
+      reasoningEffortMap: sanitizeReasoningEffortMap(item.reasoningEffortMap)
     });
   }
 
@@ -700,6 +710,10 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       : defaultRuntimeSettings.piModelProvider,
     piModelName: String(raw.piModelName ?? defaultRuntimeSettings.piModelName).trim() ||
       defaultRuntimeSettings.piModelName,
+    defaultThinkingLevel: sanitizeRuntimeThinkingLevel(
+      raw.defaultThinkingLevel,
+      defaultRuntimeSettings.defaultThinkingLevel
+    ),
     customProviders,
     defaultCustomProviderId,
     modelRouting: {
@@ -771,6 +785,9 @@ export class SettingsStore {
         api_key TEXT NOT NULL,
         default_model TEXT NOT NULL,
         path TEXT NOT NULL,
+        supports_thinking INTEGER,
+        thinking_format TEXT NOT NULL DEFAULT '',
+        reasoning_effort_map_json TEXT NOT NULL DEFAULT '{}',
         updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS settings_custom_provider_models (
@@ -787,6 +804,21 @@ export class SettingsStore {
       CREATE INDEX IF NOT EXISTS idx_settings_provider_models_provider ON settings_custom_provider_models(provider_id);
       CREATE INDEX IF NOT EXISTS idx_settings_provider_models_order ON settings_custom_provider_models(provider_id, order_index);
     `);
+    try {
+      db.exec("ALTER TABLE settings_custom_providers ADD COLUMN supports_thinking INTEGER");
+    } catch {
+      // column already exists
+    }
+    try {
+      db.exec("ALTER TABLE settings_custom_providers ADD COLUMN thinking_format TEXT NOT NULL DEFAULT ''");
+    } catch {
+      // column already exists
+    }
+    try {
+      db.exec("ALTER TABLE settings_custom_providers ADD COLUMN reasoning_effort_map_json TEXT NOT NULL DEFAULT '{}'");
+    } catch {
+      // column already exists
+    }
     return db;
   }
 
@@ -858,7 +890,7 @@ export class SettingsStore {
       }
 
       const providerRows = db.prepare(`
-        SELECT id, name, enabled, base_url, api_key, default_model, path
+        SELECT id, name, enabled, base_url, api_key, default_model, path, supports_thinking, thinking_format, reasoning_effort_map_json
         FROM settings_custom_providers
         ORDER BY id ASC
       `).all() as Array<{
@@ -869,6 +901,9 @@ export class SettingsStore {
         api_key: string;
         default_model: string;
         path: string;
+        supports_thinking: number | null;
+        thinking_format: string;
+        reasoning_effort_map_json: string;
       }>;
       const modelRows = db.prepare(`
         SELECT provider_id, model_id, tags_json, supported_roles_json, verification_json
@@ -900,7 +935,10 @@ export class SettingsStore {
         apiKey: row.api_key,
         models: modelsByProvider.get(row.id) ?? [],
         defaultModel: row.default_model,
-        path: row.path
+        path: row.path,
+        supportsThinking: row.supports_thinking === null ? undefined : Boolean(row.supports_thinking),
+        thinkingFormat: sanitizeOptionalThinkingFormat(row.thinking_format),
+        reasoningEffortMap: sanitizeReasoningEffortMap(this.parseDynamicValue(row.reasoning_effort_map_json, {}))
       }));
 
       return {
@@ -958,8 +996,8 @@ export class SettingsStore {
         db.exec("DELETE FROM settings_custom_providers");
         const insertProvider = db.prepare(`
           INSERT INTO settings_custom_providers
-            (id, name, enabled, base_url, api_key, default_model, path, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, enabled, base_url, api_key, default_model, path, supports_thinking, thinking_format, reasoning_effort_map_json, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const insertModel = db.prepare(`
           INSERT INTO settings_custom_provider_models
@@ -975,6 +1013,9 @@ export class SettingsStore {
             provider.apiKey,
             provider.defaultModel,
             provider.path,
+            provider.supportsThinking === undefined ? null : (provider.supportsThinking ? 1 : 0),
+            provider.thinkingFormat ?? "",
+            JSON.stringify(provider.reasoningEffortMap ?? {}),
             now
           );
           for (let index = 0; index < provider.models.length; index += 1) {
@@ -1010,6 +1051,7 @@ export class SettingsStore {
       providerMode: settings.providerMode,
       piModelProvider: settings.piModelProvider,
       piModelName: settings.piModelName,
+      defaultThinkingLevel: settings.defaultThinkingLevel,
       defaultCustomProviderId: settings.defaultCustomProviderId,
       modelRouting: {
         textModelKey: settings.modelRouting.textModelKey,

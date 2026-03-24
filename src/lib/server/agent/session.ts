@@ -1,11 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { RuntimeThinkingLevel } from "../settings/index.js";
+
+export interface SessionPreferences {
+  thinkingLevelOverride?: RuntimeThinkingLevel | null;
+}
 
 export interface SessionHeaderEntry {
   type: "session";
   version: 1;
   id: string;
   timestamp: string;
+  preferences?: SessionPreferences;
 }
 
 export interface SessionEntryBase {

@@ -15,6 +15,7 @@ import {
 } from "./providers/index.js";
 import { JsonRpcStdioConnection } from "./connection.js";
 import type {
+  AcpProgressEvent,
   AcpListedSession,
   AcpSessionsList,
   AcpPendingPermissionView,
@@ -109,6 +110,14 @@ function summarize(text: string, max = 160): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (normalized.length <= max) return normalized;
   return `${normalized.slice(0, max - 1)}…`;
+}
+
+async function emitProgress(
+  callbacks: AcpTaskCallbacks,
+  event: AcpProgressEvent
+): Promise<void> {
+  if (!callbacks.onProgress) return;
+  await callbacks.onProgress(event);
 }
 
 function summarizeToolCalls(toolCalls: AcpToolCallSnapshot[]): string[] {
@@ -884,6 +893,10 @@ export class AcpService {
       startedAt: active.lastStartedAt
     };
     await callbacks.onStatus(active.lastStatus);
+    await emitProgress(callbacks, {
+      type: "status_current",
+      text: active.lastStatus
+    });
 
     try {
       const result = await active.client.prompt(active.remoteSessionId, prompt);
@@ -892,6 +905,11 @@ export class AcpService {
       active.lastStatus = `Completed (${result.stopReason})`;
       this.persistSessionState(chatKey, active);
       await callbacks.onStatus(active.lastStatus);
+      await emitProgress(callbacks, {
+        type: "result",
+        text: active.lastStatus,
+        stopReason: result.stopReason
+      });
       return {
         stopReason: result.stopReason,
         assistantText: active.run.assistantText.trim(),
@@ -905,6 +923,11 @@ export class AcpService {
       active.lastStatus = `Failed: ${message}`;
       this.persistSessionState(chatKey, active);
       await callbacks.onStatus(active.lastStatus);
+      await emitProgress(callbacks, {
+        type: "result",
+        text: active.lastStatus,
+        stopReason: "failed"
+      });
       throw error;
     } finally {
       active.running = false;
@@ -921,6 +944,10 @@ export class AcpService {
     this.persistSessionState(chatKey, active);
     if (active.run) {
       await active.run.callbacks.onStatus(active.lastStatus);
+      await emitProgress(active.run.callbacks, {
+        type: "status_current",
+        text: active.lastStatus
+      });
     }
     return true;
   }
@@ -1043,6 +1070,10 @@ export class AcpService {
         active.lastStatus = `Receiving output: ${summarize(active.run.assistantText, 240)}`;
         this.persistSessionState(chatKey, active);
         await active.run.callbacks.onStatus(active.lastStatus);
+        await emitProgress(active.run.callbacks, {
+          type: "assistant_output",
+          text: active.lastStatus
+        });
         return;
       }
       case "tool_call":
@@ -1050,10 +1081,32 @@ export class AcpService {
         if (!active.run) return;
         const snapshot = parseToolCall(update);
         if (!snapshot) return;
+        const previous = active.run.toolCalls.get(snapshot.id);
         active.run.toolCalls.set(snapshot.id, snapshot);
         active.lastStatus = `${snapshot.status}: ${snapshot.title}`;
         this.persistSessionState(chatKey, active);
         await active.run.callbacks.onStatus(active.lastStatus);
+        const normalizedStatus = snapshot.status.trim().toLowerCase();
+        if (normalizedStatus === "completed" && previous?.status !== snapshot.status) {
+          await emitProgress(active.run.callbacks, {
+            type: "step_completed",
+            text: active.lastStatus,
+            title: snapshot.title,
+            locations: [...snapshot.locations]
+          });
+        } else if (normalizedStatus === "failed" && previous?.status !== snapshot.status) {
+          await emitProgress(active.run.callbacks, {
+            type: "step_failed",
+            text: active.lastStatus,
+            title: snapshot.title,
+            locations: [...snapshot.locations]
+          });
+        } else {
+          await emitProgress(active.run.callbacks, {
+            type: "status_current",
+            text: active.lastStatus
+          });
+        }
         return;
       }
       case "plan": {
@@ -1062,7 +1115,14 @@ export class AcpService {
           ? update.entries.map((value) => summarize(stringifyUnknown(value), 120)).filter(Boolean)
           : [];
         if (steps.length === 0) return;
-        await active.run.callbacks.onEvent(`ACP plan:\n- ${steps.slice(0, 5).join("\n- ")}`);
+        {
+          const text = `ACP plan:\n- ${steps.slice(0, 5).join("\n- ")}`;
+          await active.run.callbacks.onEvent(text);
+          await emitProgress(active.run.callbacks, {
+            type: "plan",
+            text
+          });
+        }
         return;
       }
       case "available_commands_update": {
@@ -1083,6 +1143,10 @@ export class AcpService {
         this.persistSessionState(chatKey, active);
         if (active.run) {
           await active.run.callbacks.onEvent(active.lastStatus);
+          await emitProgress(active.run.callbacks, {
+            type: "status_current",
+            text: active.lastStatus
+          });
         }
         return;
       }
@@ -1100,9 +1164,20 @@ export class AcpService {
     const autoApproved = this.pickAutoDecision(active.approvalMode, request);
     if (autoApproved) {
       if (active.run) {
-        await active.run.callbacks.onEvent(
-          `ACP auto-approved: ${request.title}\nOption: ${autoApproved.optionId}`
-        );
+        const text = `ACP auto-approved: ${request.title}\nOption: ${autoApproved.optionId}`;
+        await active.run.callbacks.onEvent(text);
+        await emitProgress(active.run.callbacks, {
+          type: "permission",
+          text,
+          permission: {
+            id: request.requestId,
+            title: request.title,
+            kind: request.kind,
+            options: request.options,
+            createdAt: new Date().toISOString(),
+            inputPreview: summarize(stringifyUnknown(request.rawInput), 300) || undefined
+          }
+        });
       }
       return { outcome: "selected", optionId: autoApproved.optionId };
     }
@@ -1121,31 +1196,48 @@ export class AcpService {
       active.pendingPermissions.set(request.requestId, pending);
       this.persistSessionState(chatKey, active);
       if (active.run?.callbacks.onPermissionRequest) {
-        await active.run.callbacks.onPermissionRequest({
+        const permissionView = {
           id: pending.id,
           title: pending.title,
           kind: pending.kind,
           options: pending.options,
           createdAt: pending.createdAt,
           inputPreview: summarize(stringifyUnknown(pending.rawInput), 300) || undefined
+        } satisfies AcpPendingPermissionView;
+        await emitProgress(active.run.callbacks, {
+          type: "permission",
+          text: `ACP permission requested: ${pending.title}`,
+          permission: permissionView
         });
+        await active.run.callbacks.onPermissionRequest(permissionView);
       } else if (active.run) {
         const optionLines = request.options.length > 0
           ? request.options.map((option) => `- ${option.optionId}: ${option.name}${option.description ? ` (${option.description})` : ""}`).join("\n")
           : "- no options returned by adapter";
         const rawInput = summarize(stringifyUnknown(request.rawInput), 300);
-        await active.run.callbacks.onEvent(
-          [
-            `ACP permission requested [${request.requestId}]`,
-            `Title: ${request.title}`,
-            `Kind: ${request.kind}`,
-            rawInput ? `Input: ${rawInput}` : "",
-            "Options:",
-            optionLines,
-            `Approve: /approve ${request.requestId} <optionId>`,
-            `Deny: /deny ${request.requestId}`
-          ].filter(Boolean).join("\n")
-        );
+        const text = [
+          `ACP permission requested [${request.requestId}]`,
+          `Title: ${request.title}`,
+          `Kind: ${request.kind}`,
+          rawInput ? `Input: ${rawInput}` : "",
+          "Options:",
+          optionLines,
+          `Approve: /approve ${request.requestId} <optionId>`,
+          `Deny: /deny ${request.requestId}`
+        ].filter(Boolean).join("\n");
+        await emitProgress(active.run.callbacks, {
+          type: "permission",
+          text,
+          permission: {
+            id: pending.id,
+            title: pending.title,
+            kind: pending.kind,
+            options: pending.options,
+            createdAt: pending.createdAt,
+            inputPreview: summarize(stringifyUnknown(pending.rawInput), 300) || undefined
+          }
+        });
+        await active.run.callbacks.onEvent(text);
       }
     });
   }

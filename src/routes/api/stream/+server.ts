@@ -1,147 +1,247 @@
+import path from "node:path";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { MomRuntimeStore } from "$lib/server/agent/store";
+import { RunnerPool } from "$lib/server/agent/runner";
+import type { RunnerUiEvent } from "$lib/server/agent/types";
+import { storagePaths } from "$lib/server/infra/db/storage";
+import { sanitizeRuntimeThinkingLevel } from "$lib/server/settings";
 import {
-  buildModelOptions,
-  currentModelKey,
-  parseModelRoute,
-  switchModelSelection,
-  type ModelRoute
-} from "$lib/server/settings/modelSwitch";
+  sanitizeWebProfileId,
+  sanitizeWebUserId,
+  toWebExternalUserId
+} from "$lib/server/web/identity";
 
-function buildModelsText(route: ModelRoute): string {
-  const runtime = getRuntime();
-  const settings = runtime.getSettings();
-  const options = buildModelOptions(settings, route);
-  const activeKey = currentModelKey(settings, route);
-  const lines = [
-    `Route: ${route}`,
-    `Provider mode: ${settings.providerMode}`,
-    `Configured model options: ${options.length}`,
-    ""
-  ];
-
-  if (options.length === 0) {
-    lines.push("No available model options.");
-  } else {
-    options.forEach((option, index) => {
-      lines.push(`${index + 1}. ${option.label}${option.key === activeKey ? " (active)" : ""}`);
-      lines.push(`   key: ${option.key}`);
-    });
-  }
-
-  return lines.join("\n");
+interface StreamBody {
+  userId?: string;
+  message?: string;
+  conversationId?: string;
+  profileId?: string;
+  thinkingLevel?: string;
 }
 
-function tryHandleStreamCommand(message: string): { ok: boolean; response: string } | null {
-  const trimmed = message.trim();
-  if (!trimmed.startsWith("/")) return null;
-
-  const parts = trimmed.split(/\s+/);
-  const cmd = parts[0]?.toLowerCase() || "";
-  const rawArg = parts.slice(1).join(" ").trim();
-  const runtime = getRuntime();
-
-  if (cmd === "/help" || cmd === "/start") {
-    return {
-      ok: true,
-      response: [
-        "Available commands:",
-        "/models",
-        "/models <index|key>",
-        "/models <text|vision|stt|tts>",
-        "/models <text|vision|stt|tts> <index|key>"
-      ].join("\n")
-    };
-  }
-
-  if (cmd !== "/models") return null;
-  if (!rawArg) {
-    return { ok: true, response: buildModelsText("text") };
-  }
-
-  const [firstArg = "", secondArg = ""] = rawArg
-    .split(/\s+/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-  const maybeRoute = parseModelRoute(firstArg);
-  const route: ModelRoute = maybeRoute ?? "text";
-  const selector = maybeRoute ? secondArg : rawArg;
-  if (!selector) {
-    return { ok: true, response: buildModelsText(route) };
-  }
-
-  const result = switchModelSelection({
-    settings: runtime.getSettings(),
-    route,
-    selector,
-    updateSettings: runtime.updateSettings
-  });
-  if (!result) {
-    return {
-      ok: false,
-      response: `Invalid model selector: ${selector}\n\n${buildModelsText(route)}`
-    };
-  }
-
-  return {
-    ok: true,
-    response: [
-      `Switched ${route} model to: ${result.selected.label}`,
-      `Mode: ${result.settings.providerMode}`
-    ].join("\n")
-  };
+interface WebRuntimeContext {
+  store: MomRuntimeStore;
+  pool: RunnerPool;
 }
 
-export const GET: RequestHandler = async ({ url }) => {
-  const userId = url.searchParams.get("userId")?.trim() || "web-anonymous";
-  const message = url.searchParams.get("message")?.trim() || "";
-  const conversationId = url.searchParams.get("conversationId")?.trim() || undefined;
+const webRuntimes = new Map<string, WebRuntimeContext>();
 
-  const command = tryHandleStreamCommand(message);
-  if (command) {
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(`event: token\\ndata: ${JSON.stringify({ token: command.response })}\\n\\n`));
-        controller.enqueue(encoder.encode(`event: done\\ndata: ${JSON.stringify({ ok: command.ok })}\\n\\n`));
-        controller.close();
-      }
-    });
+function getWebRuntimeContext(profileId: string): WebRuntimeContext {
+  const key = sanitizeWebProfileId(profileId);
+  const existing = webRuntimes.get(key);
+  if (existing) return existing;
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive"
-      }
+  const runtime = getRuntime();
+  const workspaceDir = path.join(storagePaths.webWorkspaceDir, "bots", key);
+  const store = new MomRuntimeStore(workspaceDir);
+  const pool = new RunnerPool(
+    "web",
+    store,
+    runtime.getSettings,
+    runtime.updateSettings,
+    runtime.usageTracker,
+    runtime.memory
+  );
+  const created = { store, pool };
+  webRuntimes.set(key, created);
+  return created;
+}
+
+function writeEvent(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  encoder: TextEncoder,
+  event: string,
+  data: unknown
+): void {
+  controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+}
+
+function buildRunnerDiagnostic(event: RunnerUiEvent): string | null {
+  if (event.type === "thinking_config") {
+    return [
+      `thinking_requested=${event.requestedThinkingLevel}`,
+      `thinking_effective=${event.effectiveThinkingLevel}`,
+      `reasoning_supported=${String(event.reasoningSupported)}`,
+      `provider=${event.provider}`,
+      `model=${event.model}`
+    ].join(", ");
+  }
+  if (event.type === "payload") {
+    return [
+      `payload_provider=${event.provider}`,
+      `payload_model=${event.model}`,
+      `payload_api=${event.api}`,
+      event.summary
+    ].join(", ");
+  }
+  return null;
+}
+
+export const POST: RequestHandler = async ({ request }) => {
+  let body: StreamBody;
+  try {
+    body = (await request.json()) as StreamBody;
+  } catch {
+    return new Response(JSON.stringify({ ok: false, error: "Invalid request body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" }
     });
   }
 
-  const { router } = getRuntime();
-  const result = await router.handle({
-    channel: "web",
-    externalUserId: userId,
-    content: message,
+  const userId = sanitizeWebUserId(body.userId);
+  const profileId = sanitizeWebProfileId(body.profileId);
+  const message = String(body.message ?? "").trim();
+  const conversationId = String(body.conversationId ?? "").trim() || undefined;
+  const thinkingLevel = sanitizeRuntimeThinkingLevel(body.thinkingLevel);
+
+  if (!message) {
+    return new Response(JSON.stringify({ ok: false, error: "Empty message." }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+
+  const runtime = getRuntime();
+  const externalUserId = toWebExternalUserId(userId, profileId);
+  const conversation = runtime.sessions.getOrCreateConversation(
+    "web",
+    externalUserId,
     conversationId
-  });
+  );
+
+  const { store, pool } = getWebRuntimeContext(profileId);
+  const runner = pool.get(externalUserId, conversation.id);
+  if (runner.isRunning()) {
+    return new Response(
+      JSON.stringify({ ok: false, error: "Already working. Please wait for current response to finish." }),
+      {
+        status: 409,
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+  }
+  runtime.sessions.appendMessage(conversation.id, "user", message);
 
   const encoder = new TextEncoder();
 
-  const stream = new ReadableStream({
+  const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      if (!result.ok) {
-        controller.enqueue(encoder.encode(`event: error\\ndata: ${JSON.stringify(result)}\\n\\n`));
-        controller.close();
-        return;
-      }
+      void (async () => {
+        let finalText = "";
+        let thinkingText = "";
+        const threadNotes: string[] = [];
+        const diagnostics: string[] = [];
+        const ts = `${Date.now() / 1000}`;
 
-      const response = result.response ?? "";
-      for (const token of response.split(" ")) {
-        controller.enqueue(encoder.encode(`event: token\\ndata: ${JSON.stringify({ token })}\\n\\n`));
-      }
+        try {
+          const result = await runner.run({
+            channel: "web",
+            workspaceDir: store.getWorkspaceDir(),
+            chatDir: store.getChatDir(externalUserId),
+            thinkingLevelOverride: thinkingLevel,
+            message: {
+              chatId: externalUserId,
+              chatType: "private",
+              messageId: Date.now(),
+              userId: externalUserId,
+              userName: userId,
+              text: message,
+              ts,
+              attachments: [],
+              imageContents: [],
+              sessionId: conversation.id
+            },
+            respond: async (text, shouldLog = true) => {
+              if (shouldLog) {
+                finalText = finalText ? `${finalText}${text}` : text;
+                writeEvent(controller, encoder, "token", { delta: text });
+                return;
+              }
+              writeEvent(controller, encoder, "status", { text });
+            },
+            replaceMessage: async (text) => {
+              finalText = text;
+              writeEvent(controller, encoder, "replace", { text });
+            },
+            respondInThread: async (text) => {
+              const trimmed = text.trim();
+              if (trimmed) threadNotes.push(trimmed);
+              writeEvent(controller, encoder, "thread_note", { text });
+            },
+            setTyping: async (isTyping) => {
+              if (isTyping) {
+                writeEvent(controller, encoder, "status", { text: "Thinking..." });
+              }
+            },
+            setWorking: async (isWorking) => {
+              writeEvent(controller, encoder, "working", { isWorking });
+            },
+            deleteMessage: async () => {
+              writeEvent(controller, encoder, "deleted", { ok: true });
+            },
+            uploadFile: async () => {},
+            onRunnerEvent: async (event) => {
+              const diagnostic = buildRunnerDiagnostic(event);
+              if (diagnostic) diagnostics.push(diagnostic);
 
-      controller.enqueue(encoder.encode(`event: done\\ndata: ${JSON.stringify({ ok: true })}\\n\\n`));
-      controller.close();
+              if (event.type === "thinking_config") {
+                writeEvent(controller, encoder, "thinking_config", event);
+                return;
+              }
+              if (event.type === "payload") {
+                writeEvent(controller, encoder, "payload", event);
+                return;
+              }
+              if (event.type !== "assistant_message_event") return;
+
+              if (event.event.type === "thinking_start") {
+                thinkingText = "";
+                writeEvent(controller, encoder, "thinking_state", { phase: "start" });
+                return;
+              }
+              if (event.event.type === "thinking_delta") {
+                thinkingText += event.event.delta;
+                writeEvent(controller, encoder, "thinking_delta", { delta: event.event.delta });
+                return;
+              }
+              if (event.event.type === "thinking_end") {
+                writeEvent(controller, encoder, "thinking_state", {
+                  phase: "end",
+                  length: thinkingText.length
+                });
+                return;
+              }
+              if (event.event.type === "text_delta") {
+                finalText += event.event.delta;
+                writeEvent(controller, encoder, "token", { delta: event.event.delta });
+              }
+            }
+          });
+
+          const assistantText =
+            finalText.trim() ||
+            threadNotes.at(-1) ||
+            result.errorMessage ||
+            "(empty response)";
+
+          runtime.sessions.appendMessage(conversation.id, "assistant", assistantText);
+          writeEvent(controller, encoder, "done", {
+            ok: true,
+            response: assistantText,
+            conversationId: conversation.id,
+            profileId,
+            stopReason: result.stopReason,
+            diagnostics: [...diagnostics, ...threadNotes],
+            thinkingText
+          });
+        } catch (error) {
+          const messageText = error instanceof Error ? error.message : String(error);
+          writeEvent(controller, encoder, "error", { ok: false, error: messageText });
+        } finally {
+          controller.close();
+        }
+      })();
     }
   });
 

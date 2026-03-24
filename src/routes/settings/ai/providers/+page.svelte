@@ -5,6 +5,15 @@
 
     type ProviderMode = "pi" | "custom";
     type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
+    type ThinkingSupportMode = "auto" | "enabled" | "disabled";
+    type ThinkingFormat =
+        | "auto"
+        | "openai"
+        | "openrouter"
+        | "zai"
+        | "qwen"
+        | "qwen-chat-template";
+    type ThinkingEffortLevel = "low" | "medium" | "high";
     type ModelCapabilityTag =
         | "text"
         | "vision"
@@ -32,6 +41,10 @@
         models: ProviderModelForm[];
         defaultModel: string;
         path: string;
+        supportsThinking?: boolean;
+        thinkingSupportMode: ThinkingSupportMode;
+        thinkingFormat: ThinkingFormat;
+        reasoningEffortMap: Partial<Record<ThinkingEffortLevel, string>>;
     }
 
     interface AIForm {
@@ -89,6 +102,11 @@
     let message = "";
     let builtinProviders: Array<{ id: string; name: string }> = [];
     let builtinProviderModels: Record<string, string[]> = {};
+    const thinkingEffortLevels: ThinkingEffortLevel[] = [
+        "low",
+        "medium",
+        "high",
+    ];
     const oauthBuiltinProviderIds = new Set([
         "openai-codex",
         "google-gemini-cli",
@@ -277,6 +295,9 @@
             models: [],
             defaultModel: "",
             path: "/v1/chat/completions",
+            thinkingSupportMode: "auto",
+            thinkingFormat: "auto",
+            reasoningEffortMap: {},
         };
     }
 
@@ -295,6 +316,9 @@
             models,
             defaultModel: models[0]?.id ?? "",
             path: "/v1/chat/completions",
+            thinkingSupportMode: "auto",
+            thinkingFormat: "auto",
+            reasoningEffortMap: {},
         };
     }
 
@@ -757,6 +781,20 @@
                           })
                         : [],
                     defaultModel: cp.defaultModel ?? "",
+                    thinkingSupportMode:
+                        cp.supportsThinking === true
+                            ? "enabled"
+                            : cp.supportsThinking === false
+                              ? "disabled"
+                              : "auto",
+                    thinkingFormat:
+                        (cp.thinkingFormat as ThinkingFormat | undefined) ??
+                        "auto",
+                    reasoningEffortMap:
+                        cp.reasoningEffortMap &&
+                        typeof cp.reasoningEffortMap === "object"
+                            ? cp.reasoningEffortMap
+                            : {},
                 })),
                 ),
                 modelRouting: {
@@ -797,6 +835,20 @@
                 ...form,
                 customProviders: form.customProviders.map((provider) => ({
                     ...provider,
+                    supportsThinking:
+                        provider.thinkingSupportMode === "auto"
+                            ? undefined
+                            : provider.thinkingSupportMode === "enabled",
+                    thinkingFormat:
+                        provider.thinkingFormat === "auto"
+                            ? undefined
+                            : provider.thinkingFormat,
+                    reasoningEffortMap: Object.fromEntries(
+                        Object.entries(provider.reasoningEffortMap ?? {}).filter(
+                            ([, value]) =>
+                                String(value ?? "").trim().length > 0,
+                        ),
+                    ),
                     models: provider.models.map((model) => ({
                         id: model.id.trim(),
                         tags: [...model.tags],
@@ -1203,6 +1255,89 @@
                                         placeholder="/v1/chat/completions"
                                     />
                                 </label>
+
+                                <label
+                                    class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
+                                >
+                                    <span class="font-medium text-slate-300"
+                                        >Thinking Support</span
+                                    >
+                                    <select
+                                        class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                        bind:value={cp.thinkingSupportMode}
+                                    >
+                                        <option value="auto">
+                                            Auto / Not set
+                                        </option>
+                                        <option value="enabled">
+                                            Enabled
+                                        </option>
+                                        <option value="disabled">
+                                            Disabled
+                                        </option>
+                                    </select>
+                                </label>
+
+                                <label
+                                    class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
+                                >
+                                    <span class="font-medium text-slate-300"
+                                        >Thinking Format</span
+                                    >
+                                    <select
+                                        class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                        bind:value={cp.thinkingFormat}
+                                    >
+                                        <option value="auto">
+                                            Auto / OpenAI default
+                                        </option>
+                                        <option value="openai">
+                                            OpenAI `reasoning_effort`
+                                        </option>
+                                        <option value="openrouter">
+                                            OpenRouter `reasoning.effort`
+                                        </option>
+                                        <option value="zai">
+                                            z.ai `enable_thinking`
+                                        </option>
+                                        <option value="qwen">
+                                            Qwen `enable_thinking`
+                                        </option>
+                                        <option value="qwen-chat-template">
+                                            Qwen
+                                            `chat_template_kwargs.enable_thinking`
+                                        </option>
+                                    </select>
+                                </label>
+
+                                <div class="grid gap-3 text-sm md:col-span-2">
+                                    <div>
+                                        <span class="font-medium text-slate-300"
+                                            >Reasoning Effort Mapping</span
+                                        >
+                                        <p class="mt-1 text-xs text-slate-500">
+                                            只在上游需要把 low / medium /
+                                            high 改成别的值时填写。
+                                        </p>
+                                    </div>
+                                    <div class="grid gap-3 md:grid-cols-3">
+                                        {#each thinkingEffortLevels as level}
+                                            <label
+                                                class="grid gap-2 text-sm"
+                                            >
+                                                <span
+                                                    class="font-medium capitalize text-slate-400"
+                                                    >{level}</span
+                                                >
+                                                <input
+                                                    class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                                    bind:value={cp.reasoningEffortMap[level]}
+                                                    placeholder={level}
+                                                />
+                                            </label>
+                                        {/each}
+                                    </div>
+                                </div>
 
                                 <label class="grid gap-2 text-sm md:col-span-2">
                                     <span class="font-medium text-slate-300"

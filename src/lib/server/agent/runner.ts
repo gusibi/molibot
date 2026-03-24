@@ -19,6 +19,15 @@ import { hasConfiguredAuth, resolveProviderApiKey } from "./auth.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
 import {
+  buildCustomProviderCompat,
+  resolveCustomProviderReasoningSupport,
+  resolveThinkingLevel
+} from "../providers/customThinking.js";
+import {
+  DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
+  resolvePreferredTransport
+} from "./runtimeOptions.js";
+import {
   getPreferredToolExecutionMode,
   validateToolCallPreflight
 } from "./toolPolicy.js";
@@ -110,10 +119,6 @@ function getCustomModelRoles(settings: RuntimeSettings): string[] {
   return model?.supportedRoles ?? [];
 }
 
-function resolvePreferredTransport(model: Model<any>): "sse" | "websocket" | "auto" {
-  return model.provider === "openai-codex" ? "auto" : "sse";
-}
-
 function buildAgentSessionId(
   channel: string,
   chatId: string,
@@ -149,6 +154,58 @@ function buildOpenAIBaseUrl(baseUrl: string, path: string | undefined): string {
   return `${base}${dir}`;
 }
 
+function formatPayloadReasoningSummary(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "reasoning: unavailable";
+
+  const raw = payload as Record<string, unknown>;
+  const reasoningEffort = typeof raw.reasoning_effort === "string"
+    ? raw.reasoning_effort
+    : undefined;
+  const reasoningObject = raw.reasoning && typeof raw.reasoning === "object"
+    ? raw.reasoning as Record<string, unknown>
+    : undefined;
+  const openRouterEffort = typeof reasoningObject?.effort === "string"
+    ? reasoningObject.effort
+    : undefined;
+  const enableThinking = typeof raw.enable_thinking === "boolean"
+    ? raw.enable_thinking
+    : undefined;
+  const chatTemplateKwargs = raw.chat_template_kwargs && typeof raw.chat_template_kwargs === "object"
+    ? raw.chat_template_kwargs as Record<string, unknown>
+    : undefined;
+  const chatTemplateEnableThinking = typeof chatTemplateKwargs?.enable_thinking === "boolean"
+    ? chatTemplateKwargs.enable_thinking
+    : undefined;
+  const thinkingObject = raw.thinking && typeof raw.thinking === "object"
+    ? raw.thinking as Record<string, unknown>
+    : undefined;
+  const thinkingEnabled = typeof thinkingObject?.enabled === "boolean"
+    ? thinkingObject.enabled
+    : undefined;
+  const thinkingLevel = typeof thinkingObject?.level === "string"
+    ? thinkingObject.level
+    : undefined;
+  const thinkingBudget = typeof thinkingObject?.budgetTokens === "number"
+    ? thinkingObject.budgetTokens
+    : typeof thinkingObject?.budget_tokens === "number"
+      ? thinkingObject.budget_tokens
+      : undefined;
+
+  const parts = [
+    reasoningEffort ? `reasoning_effort=${reasoningEffort}` : null,
+    openRouterEffort ? `reasoning.effort=${openRouterEffort}` : null,
+    enableThinking !== undefined ? `enable_thinking=${String(enableThinking)}` : null,
+    chatTemplateEnableThinking !== undefined
+      ? `chat_template_kwargs.enable_thinking=${String(chatTemplateEnableThinking)}`
+      : null,
+    thinkingEnabled !== undefined ? `thinking.enabled=${String(thinkingEnabled)}` : null,
+    thinkingLevel ? `thinking.level=${thinkingLevel}` : null,
+    thinkingBudget !== undefined ? `thinking.budget=${thinkingBudget}` : null
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(", ") : "reasoning: none";
+}
+
 function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Model<any> {
   const computedBaseUrl = buildOpenAIBaseUrl(
     selected.baseUrl,
@@ -162,7 +219,7 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
     api: "openai-completions",
     provider: selected.id || "custom-provider",
     baseUrl: computedBaseUrl,
-    reasoning: true,
+    reasoning: resolveCustomProviderReasoningSupport(selected),
     input: supportsDeclaredVision ? ["text", "image"] : ["text"],
     cost: {
       input: 0,
@@ -172,6 +229,7 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
     },
     contextWindow: 200000,
     maxTokens: 8192,
+    compat: buildCustomProviderCompat(selected)
   };
 }
 
@@ -969,6 +1027,16 @@ export class MomRunner implements RunnerLike {
   private selectedMcpServerIds = new Set<string>();
   private promptRefreshKey = "";
   private systemPromptReady = false;
+  private activeRunnerEventSink: NonNullable<MomContext["onRunnerEvent"]> | undefined;
+  private activePayloadContext:
+    | {
+        provider: string;
+        model: string;
+        api: string;
+        requestedThinkingLevel: RuntimeSettings["defaultThinkingLevel"];
+        effectiveThinkingLevel: RuntimeSettings["defaultThinkingLevel"];
+      }
+    | undefined;
 
   constructor(
     private readonly channel: string,
@@ -998,12 +1066,27 @@ export class MomRunner implements RunnerLike {
       initialState: {
         systemPrompt: initialPrompt,
         model,
-        thinkingLevel: "off",
+        thinkingLevel: resolveThinkingLevel(settings, model.reasoning),
         tools: [],
       },
       sessionId: buildAgentSessionId(this.channel, this.chatId, this.sessionId, "text", resolveModelSelection(settings, "text")),
       transport: resolvePreferredTransport(model),
+      maxRetryDelayMs: DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
       toolExecution: getPreferredToolExecutionMode(),
+      onPayload: async (payload, selectedModel) => {
+        if (this.activeRunnerEventSink && this.activePayloadContext) {
+          await this.activeRunnerEventSink({
+            type: "payload",
+            provider: this.activePayloadContext.provider,
+            model: this.activePayloadContext.model,
+            api: this.activePayloadContext.api,
+            requestedThinkingLevel: this.activePayloadContext.requestedThinkingLevel,
+            effectiveThinkingLevel: this.activePayloadContext.effectiveThinkingLevel,
+            summary: formatPayloadReasoningSummary(payload)
+          });
+        }
+        return undefined;
+      },
       beforeToolCall: async (context) => {
         const blockedReason = validateToolCallPreflight(context, {
           cwd: this.store.getScratchDir(this.chatId),
@@ -1179,6 +1262,8 @@ export class MomRunner implements RunnerLike {
       (ctx.message as { runId?: string }).runId ??
       `${this.chatId}-${this.sessionId}-${ctx.message.messageId}`;
     this.running = true;
+    this.activeRunnerEventSink = ctx.onRunnerEvent;
+    this.activePayloadContext = undefined;
     momLog("runner", "run_start", {
       runId,
       chatId: this.chatId,
@@ -1418,8 +1503,29 @@ export class MomRunner implements RunnerLike {
 
     let stopReason: "stop" | "aborted" | "error" = "stop";
     let errorMessage: string | undefined;
+    let assistantTextStreamed = false;
 
     const unsubscribe = this.agent.subscribe((event: AgentEvent) => {
+      if (
+        event.type === "message_start" &&
+        (event.message as { role?: string }).role === "assistant"
+      ) {
+        assistantTextStreamed = false;
+      }
+
+      if (event.type === "message_update") {
+        const assistantEvent = event.assistantMessageEvent;
+        if (assistantEvent.type === "text_delta" && assistantEvent.delta) {
+          assistantTextStreamed = true;
+        }
+        if (ctx.onRunnerEvent) {
+          enqueue(() => ctx.onRunnerEvent!({
+            type: "assistant_message_event",
+            event: assistantEvent
+          }));
+        }
+      }
+
       if (event.type === "tool_execution_start") {
         const args = event.args as { label?: string };
         const label = args.label || event.toolName;
@@ -1510,7 +1616,7 @@ export class MomRunner implements RunnerLike {
           .map((part) => part.text as string)
           .join("\n");
 
-        if (text.trim()) {
+        if (text.trim() && !assistantTextStreamed) {
           momLog("runner", "assistant_text_chunk", {
             runId,
             chatId: this.chatId,
@@ -1574,6 +1680,29 @@ export class MomRunner implements RunnerLike {
         }
 
         this.agent.setModel(selectedModel);
+        const requestedThinkingLevel = ctx.thinkingLevelOverride ?? settings.defaultThinkingLevel;
+        const effectiveThinkingLevel = resolveThinkingLevel(
+          { defaultThinkingLevel: requestedThinkingLevel },
+          selectedModel.reasoning
+        );
+        this.agent.setThinkingLevel(effectiveThinkingLevel);
+        this.activePayloadContext = {
+          provider: selectedModel.provider,
+          model: selectedModel.id,
+          api: selectedModel.api,
+          requestedThinkingLevel,
+          effectiveThinkingLevel
+        };
+        if (ctx.onRunnerEvent) {
+          await ctx.onRunnerEvent({
+            type: "thinking_config",
+            requestedThinkingLevel,
+            effectiveThinkingLevel,
+            provider: selectedModel.provider,
+            model: selectedModel.id,
+            reasoningSupported: selectedModel.reasoning
+          });
+        }
         this.agent.sessionId = buildAgentSessionId(
           this.channel,
           this.chatId,
@@ -1883,6 +2012,8 @@ export class MomRunner implements RunnerLike {
       return { stopReason: "error", errorMessage: message };
     } finally {
       unsubscribe();
+      this.activeRunnerEventSink = undefined;
+      this.activePayloadContext = undefined;
       this.running = false;
     }
   }

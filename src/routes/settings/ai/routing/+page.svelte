@@ -5,6 +5,16 @@
 
     type ProviderMode = "pi" | "custom";
     type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
+    type ThinkingSupportMode = "auto" | "enabled" | "disabled";
+    type ThinkingFormat =
+        | "auto"
+        | "openai"
+        | "openrouter"
+        | "zai"
+        | "qwen"
+        | "qwen-chat-template";
+    type ThinkingEffortLevel = "low" | "medium" | "high";
+    type DefaultThinkingLevel = "off" | "low" | "medium" | "high";
     type ModelCapabilityTag = "text" | "vision" | "stt" | "tts" | "tool";
 
     interface ProviderModelForm {
@@ -22,12 +32,17 @@
         models: ProviderModelForm[];
         defaultModel: string;
         path: string;
+        supportsThinking?: boolean;
+        thinkingSupportMode: ThinkingSupportMode;
+        thinkingFormat: ThinkingFormat;
+        reasoningEffortMap: Partial<Record<ThinkingEffortLevel, string>>;
     }
 
     interface AIForm {
         providerMode: ProviderMode;
         piModelProvider: string;
         piModelName: string;
+        defaultThinkingLevel: DefaultThinkingLevel;
         defaultCustomProviderId: string;
         customProviders: CustomProviderForm[];
         modelRouting: {
@@ -69,6 +84,7 @@
         providerMode: "pi",
         piModelProvider: "anthropic",
         piModelName: "claude-sonnet-4-20250514",
+        defaultThinkingLevel: "off",
         defaultCustomProviderId: "",
         customProviders: [],
         modelRouting: {
@@ -213,6 +229,7 @@
                 providerMode: s.providerMode,
                 piModelProvider: s.piModelProvider,
                 piModelName: s.piModelName,
+                defaultThinkingLevel: s.defaultThinkingLevel ?? "off",
                 defaultCustomProviderId: s.defaultCustomProviderId ?? "",
                 customProviders: loadedProviders.map((cp) => ({
                     ...cp,
@@ -229,6 +246,20 @@
                           }))
                         : [],
                     defaultModel: cp.defaultModel ?? "",
+                    thinkingSupportMode:
+                        cp.supportsThinking === true
+                            ? "enabled"
+                            : cp.supportsThinking === false
+                              ? "disabled"
+                              : "auto",
+                    thinkingFormat:
+                        (cp.thinkingFormat as ThinkingFormat | undefined) ??
+                        "auto",
+                    reasoningEffortMap:
+                        cp.reasoningEffortMap &&
+                        typeof cp.reasoningEffortMap === "object"
+                            ? cp.reasoningEffortMap
+                            : {},
                 })),
                 modelRouting: {
                     textModelKey: s.modelRouting?.textModelKey ?? "",
@@ -363,6 +394,24 @@
                                 one in Providers page.</span
                             >
                         {/if}
+                    </label>
+
+                    <label class="grid gap-2 text-sm">
+                        <span class="font-medium text-slate-300"
+                            >Default thinking</span
+                        >
+                        <select
+                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                            bind:value={form.defaultThinkingLevel}
+                        >
+                            <option value="off">Off</option>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                        <span class="text-xs text-slate-500"
+                            >只会对明确声明支持 thinking 的模型生效。</span
+                        >
                     </label>
                 </div>
             </section>

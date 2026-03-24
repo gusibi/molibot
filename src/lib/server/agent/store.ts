@@ -11,6 +11,8 @@ import {
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { RuntimeThinkingLevel } from "../settings/index.js";
+import { RUNTIME_THINKING_LEVELS, sanitizeRuntimeThinkingLevel } from "../settings/index.js";
 import type { FileAttachment, LoggedMessage } from "./types.js";
 import {
   buildMessagesFromSessionEntries,
@@ -20,6 +22,7 @@ import {
   isSameMessage,
   parseSessionEntries,
   serializeSessionEntries,
+  type SessionHeaderEntry,
   type SessionEntry,
   type SessionFileEntry,
   type SessionMessageEntry
@@ -40,6 +43,7 @@ function ensureDir(dir: string): void {
 export class MomRuntimeStore {
   private readonly dedupe = new Map<string, number>();
   private readonly defaultSessionId = "default";
+  private readonly thinkingLevels = new Set<string>(RUNTIME_THINKING_LEVELS);
 
   constructor(private readonly workspaceDir: string) {
     ensureDir(this.workspaceDir);
@@ -289,6 +293,31 @@ export class MomRuntimeStore {
     writeFileSync(file, serializeSessionEntries(entries), "utf8");
   }
 
+  private readSessionHeader(chatId: string, sessionId: string): SessionHeaderEntry {
+    const id = this.sanitizeSessionId(sessionId);
+    const entries = this.readSessionFileEntries(chatId, id);
+    return entries.find((entry): entry is SessionHeaderEntry => entry.type === "session") ?? createSessionHeader(id);
+  }
+
+  private updateSessionHeader(
+    chatId: string,
+    sessionId: string,
+    updater: (current: SessionHeaderEntry) => SessionHeaderEntry
+  ): SessionHeaderEntry {
+    const id = this.sanitizeSessionId(sessionId);
+    const entries = this.readSessionFileEntries(chatId, id);
+    const index = entries.findIndex((entry) => entry.type === "session");
+    const current = index >= 0
+      ? entries[index] as SessionHeaderEntry
+      : createSessionHeader(id);
+    const next = updater(current);
+    const rewritten = index >= 0
+      ? [...entries.slice(0, index), next, ...entries.slice(index + 1)]
+      : [next, ...entries];
+    this.writeSessionFileEntries(chatId, id, rewritten);
+    return next;
+  }
+
   private appendSessionEntry(chatId: string, sessionId: string, entry: SessionEntry): void {
     const id = this.sanitizeSessionId(sessionId);
     const entries = this.readSessionFileEntries(chatId, id);
@@ -364,7 +393,8 @@ export class MomRuntimeStore {
     const id = this.sanitizeSessionId(sessionId);
     this.ensureSessionContextFile(chatId, id);
     writeFileSync(this.getSessionContextFile(chatId, id), "[]\n", "utf8");
-    this.writeSessionFileEntries(chatId, id, [createSessionHeader(id)]);
+    const header = this.readSessionHeader(chatId, id);
+    this.writeSessionFileEntries(chatId, id, [header]);
   }
 
   deleteSession(chatId: string, sessionId: string): { deleted: string; active: string; remaining: string[] } {
@@ -535,7 +565,7 @@ export class MomRuntimeStore {
       return;
     }
 
-    const header = createSessionHeader(id);
+    const header = this.readSessionHeader(chatId, id);
     const entries: SessionFileEntry[] = [header];
     let prevId: string | null = null;
     for (const message of messages) {
@@ -554,6 +584,37 @@ export class MomRuntimeStore {
       prevId = entry.id;
     }
     this.writeSessionFileEntries(chatId, id, entries);
+  }
+
+  getSessionThinkingLevelOverride(chatId: string, sessionId?: string): RuntimeThinkingLevel | null {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const raw = this.readSessionHeader(chatId, id).preferences?.thinkingLevelOverride;
+    const normalized = String(raw ?? "").trim().toLowerCase();
+    if (!normalized) return null;
+    if (!this.thinkingLevels.has(normalized)) return null;
+    return sanitizeRuntimeThinkingLevel(normalized, "off");
+  }
+
+  setSessionThinkingLevelOverride(
+    chatId: string,
+    sessionId: string,
+    value: RuntimeThinkingLevel | null
+  ): RuntimeThinkingLevel | null {
+    const id = this.sanitizeSessionId(sessionId);
+    const normalized = value == null ? null : sanitizeRuntimeThinkingLevel(value, "off");
+    this.updateSessionHeader(chatId, id, (current) => {
+      const nextPreferences = { ...(current.preferences ?? {}) };
+      if (normalized == null) {
+        delete nextPreferences.thinkingLevelOverride;
+      } else {
+        nextPreferences.thinkingLevelOverride = normalized;
+      }
+      return {
+        ...current,
+        preferences: Object.keys(nextPreferences).length > 0 ? nextPreferences : undefined
+      };
+    });
+    return normalized;
   }
 
   appendCompaction(
