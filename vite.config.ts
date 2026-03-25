@@ -34,7 +34,10 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "@pinixai/weixin-bot/src/index": path.resolve("node_modules/@pinixai/weixin-bot/src/index.ts")
+      "@pinixai/weixin-bot/src/index": path.resolve("node_modules/@pinixai/weixin-bot/src/index.ts"),
+      "@pinixai/weixin-bot/src/auth": path.resolve("node_modules/@pinixai/weixin-bot/src/auth.ts"),
+      "@pinixai/weixin-bot/src/api": path.resolve("node_modules/@pinixai/weixin-bot/src/api.ts"),
+      "@pinixai/weixin-bot/src/types": path.resolve("node_modules/@pinixai/weixin-bot/src/types.ts")
     },
     // Avoid package "development" export condition in dev server for lit-based deps.
     conditions: ["browser", "module", "import", "default"]

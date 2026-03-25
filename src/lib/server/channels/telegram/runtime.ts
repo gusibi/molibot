@@ -2,35 +2,18 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import { randomUUID } from "node:crypto";
 import { basename, extname, join, resolve } from "node:path";
 import { Bot, InlineKeyboard, InputFile } from "grammy";
-import { getModels } from "@mariozechner/pi-ai";
 import { config } from "../../app/env.js";
-import { RUNTIME_THINKING_LEVELS, type RuntimeSettings, type RuntimeThinkingLevel } from "../../settings/index.js";
-import {
-  buildModelOptions,
-  currentModelKey as getCurrentModelKey,
-  parseModelRoute,
-  resolveModelSelection,
-  switchModelSelection
-} from "../../settings/modelSwitch.js";
+import type { RuntimeSettings } from "../../settings/index.js";
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
 import { AcpService } from "../../acp/service.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
+import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
 import { RunnerPool } from "../../agent/runner.js";
-import { loadSkillsFromWorkspace } from "../../agent/skills.js";
 import { MomRuntimeStore } from "../../agent/store.js";
-import { resolveThinkingLevel } from "../../providers/customThinking.js";
-import {
-  listOAuthProviderIds,
-  removeStoredAuth,
-  resolveAuthFilePath,
-  startOAuthLogin,
-  submitOAuthLoginCode
-} from "../../agent/auth.js";
 import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
-import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.js";
 import { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
@@ -39,11 +22,17 @@ import { applyTelegramAcpProgressEvent, createTelegramAcpProgressState } from ".
 import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText } from "./formatting.js";
 import { ACP_CONTROL_HELP_LINES, handleSharedAcpApprovalCommand, handleSharedAcpCommand, shouldProxyToAcpSession, type SharedAcpPromptKind } from "../shared/acp.js";
 import { ChannelQueue } from "../shared/queue.js";
-import type { ModelOption, ModelRoute, ParsedRelativeReminder, StatusSession } from "./types.js";
+import type { ParsedRelativeReminder, StatusSession } from "./types.js";
 
 export interface TelegramConfig {
   token: string;
   allowedChatIds: string[];
+}
+
+interface TelegramCommandTarget {
+  chatId: string;
+  scopeId: string;
+  messageThreadId?: number;
 }
 
 // Orchestrates Telegram-specific command flow, event handling, and runner lifecycle.
@@ -65,6 +54,7 @@ export class TelegramManager {
   private readonly memory: MemoryGateway;
   private readonly instanceId: string;
   private readonly acp: AcpService;
+  private readonly commandService: SharedRuntimeCommandService<TelegramCommandTarget>;
   private bot: Bot | undefined;
   private currentToken = "";
   private currentAllowedChatIdsKey = "";
@@ -81,7 +71,6 @@ export class TelegramManager {
   private readonly events: EventsWatcher[] = [];
   private readonly watchedChatEventDirs = new Set<string>();
   private authDisabled = false;
-  private readonly thinkingLevels = new Set<string>(RUNTIME_THINKING_LEVELS);
 
   private splitTelegramMessageText(text: string, chunkSize = 3500): string[] {
     const normalized = String(text ?? "").replace(/\r\n?/g, "\n").trim();
@@ -137,6 +126,16 @@ export class TelegramManager {
     return this.buildChatScopeId(chatId, messageThreadId);
   }
 
+  private buildTelegramCommandTarget(ctx: { chat?: { id?: string | number }; msg?: { message_thread_id?: number } }): TelegramCommandTarget {
+    const chatId = String(ctx.chat?.id ?? "");
+    const messageThreadId = Number.isFinite(ctx.msg?.message_thread_id) ? Number(ctx.msg?.message_thread_id) : undefined;
+    return {
+      chatId,
+      scopeId: this.buildChatScopeId(chatId, messageThreadId),
+      messageThreadId
+    };
+  }
+
 
   constructor(
     private readonly getSettings: () => RuntimeSettings,
@@ -165,12 +164,105 @@ export class TelegramManager {
       options.usageTracker,
       options.memory
     );
+    this.commandService = new SharedRuntimeCommandService<TelegramCommandTarget>({
+      channel: "telegram",
+      instanceId: this.instanceId,
+      workspaceDir: this.workspaceDir,
+      authScopePrefix: "telegram",
+      store: this.store,
+      runners: this.runners,
+      getSettings: this.getSettings,
+      updateSettings: this.updateSettings,
+      getAuthScopeKey: (input) => `telegram:${input.chatId}`,
+      isRunning: (scopeId) => this.running.has(scopeId),
+      stopRun: (scopeId) => this.stopChatWork(scopeId),
+      cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
+      maybeHandleAcpCommand: (scopeId, cmd, rawArg, target) =>
+        this.maybeHandleTelegramAcpCommand(scopeId, cmd, rawArg, target),
+      sendText: (target, text) => this.sendTelegramCommandText(target, text),
+      onSessionMutation: (scopeId) => {
+        void this.writePromptPreview([this.parseChatScopeId(scopeId).chatId]);
+      },
+      getQueueSize: (scopeId) => this.chatQueues.get(scopeId)?.size() ?? 0,
+      getStatusExtras: (_scopeId, target) => this.getTelegramStatusExtras(target),
+      helpLines: ACP_CONTROL_HELP_LINES
+    });
   }
 
   private summarizeForTelegram(text: string, max = 280): string {
     const normalized = text.replace(/\s+/g, " ").trim();
     if (normalized.length <= max) return normalized;
     return `${normalized.slice(0, Math.max(0, max - 1))}…`;
+  }
+
+  private async sendTelegramCommandText(target: TelegramCommandTarget, text: string): Promise<void> {
+    if (!this.bot) return;
+    const chunks = this.chunkTelegramText(text);
+    const sendOptions = this.buildTelegramSendOptions(target.messageThreadId);
+    for (const chunk of chunks) {
+      await sendTelegramText(this.bot, target.chatId, chunk, sendOptions);
+    }
+  }
+
+  private async maybeHandleTelegramAcpCommand(
+    scopeId: string,
+    cmd: string,
+    rawArg: string,
+    target: TelegramCommandTarget
+  ): Promise<boolean> {
+    if (!this.bot) return false;
+
+    if (cmd === "/acp") {
+      await handleSharedAcpCommand({
+        acp: this.acp,
+        chatId: scopeId,
+        cmd,
+        rawArg,
+        sendText: async (replyText) => {
+          await this.sendTelegramCommandText(target, replyText);
+        },
+        runPrompt: async ({ prompt, startText, kind }) => {
+          await this.runAcpPrompt(this.bot!, scopeId, prompt, startText, kind);
+        }
+      });
+      return true;
+    }
+
+    if (cmd === "/approve" || cmd === "/deny") {
+      await handleSharedAcpApprovalCommand({
+        acp: this.acp,
+        chatId: scopeId,
+        cmd,
+        rawArg,
+        sendText: async (replyText) => {
+          await this.sendTelegramCommandText(target, replyText);
+        }
+      });
+      return true;
+    }
+
+    return false;
+  }
+
+  private getTelegramStatusExtras(target: TelegramCommandTarget): string[] {
+    return [
+      `Stream output: ${this.isStreamingOutputEnabled() ? "on" : "off"}`,
+      `Reply mode: ${target.messageThreadId ? "topic" : "chat"}`
+    ];
+  }
+
+  private async handleTelegramSharedCommand(
+    ctx: { chat: { id: string | number }; msg?: { text?: string; message_thread_id?: number } },
+    allowed: Set<string>
+  ): Promise<void> {
+    const target = this.buildTelegramCommandTarget(ctx);
+    if (allowed.size > 0 && !allowed.has(target.chatId)) return;
+    await this.commandService.handle({
+      chatId: target.chatId,
+      scopeId: target.scopeId,
+      text: String(ctx.msg?.text ?? ""),
+      target
+    });
   }
 
   private async runAcpPrompt(
@@ -546,187 +638,32 @@ export class TelegramManager {
       momLog("telegram", "chatid_command", { chatId, scopeId, chatType, allowed: allowedNow });
     });
 
-    bot.command("stop", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (allowed.size > 0 && !allowed.has(chatId)) {
-        momWarn("telegram", "stop_blocked_chat", { chatId });
-        return;
-      }
+    const sharedTelegramCommands = [
+      "stop",
+      "new",
+      "clear",
+      "sessions",
+      "delete_sessions",
+      "acp",
+      "approve",
+      "deny",
+      "help",
+      "start",
+      "skills",
+      "compact",
+      "login",
+      "logout",
+      "models",
+      "status",
+      "state",
+      "thinking"
+    ] as const;
 
-      const result = this.stopChatWork(scopeId);
-      if (result.aborted) {
-        await ctx.reply("Stopping...");
-      } else {
-        const cancelledAcp = await this.acp.cancelRun(scopeId);
-        if (cancelledAcp) {
-          await ctx.reply("ACP cancellation requested.");
-          return;
-        }
-        momLog("telegram", "stop_nothing_running", { chatId, scopeId });
-        await ctx.reply("Nothing running.");
-      }
-    });
-
-    bot.command("new", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      if (this.running.has(scopeId)) {
-        await ctx.reply("Already working. Send /stop first, then /new.");
-        return;
-      }
-
-      const sessionId = this.store.createSession(scopeId);
-      this.runners.reset(scopeId, sessionId);
-      await ctx.reply(`Created and switched to new session: ${sessionId}`);
-      void this.writePromptPreview(Array.from(allowed));
-      momLog("telegram", "session_new", { chatId, scopeId, sessionId });
-    });
-
-    bot.command("clear", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      if (this.running.has(scopeId)) {
-        await ctx.reply("Already working. Send /stop first, then /clear.");
-        return;
-      }
-
-      const sessionId = this.store.getActiveSession(scopeId);
-      this.store.clearSessionContext(scopeId, sessionId);
-      this.runners.reset(scopeId, sessionId);
-      await ctx.reply(`Cleared context for session: ${sessionId}`);
-      void this.writePromptPreview(Array.from(allowed));
-      momLog("telegram", "session_clear", { chatId, scopeId, sessionId });
-    });
-
-    bot.command("sessions", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      if (this.running.has(scopeId)) {
-        await ctx.reply("Already working. Send /stop first, then switch sessions.");
-        return;
-      }
-
-      const rawArg = this.readCommandArg(ctx.msg?.text, "/sessions");
-      if (rawArg) {
-        const picked = this.resolveSessionSelection(scopeId, rawArg);
-        if (!picked) {
-          await ctx.reply("Invalid session selector. Use /sessions to list available sessions.");
-          return;
-        }
-        this.store.setActiveSession(scopeId, picked);
-        await ctx.reply(`Switched to session: ${picked}`);
-        void this.writePromptPreview(Array.from(allowed));
-        momLog("telegram", "session_switch", { chatId, scopeId, sessionId: picked, selector: rawArg });
-        return;
-      }
-
-      await ctx.reply(this.formatSessionsOverview(scopeId));
-    });
-
-    bot.command("delete_sessions", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      if (this.running.has(scopeId)) {
-        await ctx.reply("Already working. Send /stop first, then delete sessions.");
-        return;
-      }
-
-      const rawArg = this.readCommandArg(ctx.msg?.text, "/delete_sessions");
-      if (!rawArg) {
-        await ctx.reply(
-          `${this.formatSessionsOverview(scopeId)}\n\nDelete usage: /delete_sessions <index|sessionId>`
-        );
-        return;
-      }
-
-      const picked = this.resolveSessionSelection(scopeId, rawArg);
-      if (!picked) {
-        await ctx.reply("Invalid session selector. Use /delete_sessions to list available sessions.");
-        return;
-      }
-
-      try {
-        const result = this.store.deleteSession(scopeId, picked);
-        this.runners.reset(scopeId, result.deleted);
-        await ctx.reply(
-          `Deleted session: ${result.deleted}\nCurrent session: ${result.active}\nRemaining: ${result.remaining.length}`
-        );
-        momLog("telegram", "session_deleted", {
-          chatId,
-          scopeId,
-          deleted: result.deleted,
-          active: result.active,
-          remaining: result.remaining.length
-        });
-      } catch (error) {
-        await ctx.reply(error instanceof Error ? error.message : String(error));
-      }
-    });
-
-    bot.command("acp", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      const rawArg = this.readCommandArg(ctx.msg?.text, "/acp");
-      await handleSharedAcpCommand({
-        acp: this.acp,
-        chatId: scopeId,
-        cmd: "/acp",
-        rawArg,
-        sendText: async (replyText) => {
-          const chunks = this.chunkTelegramText(replyText);
-          for (const chunk of chunks) {
-            await ctx.reply(chunk);
-          }
-        },
-        runPrompt: async ({ prompt, startText, kind }) => {
-          await this.runAcpPrompt(bot, scopeId, prompt, startText, kind);
-        }
+    for (const command of sharedTelegramCommands) {
+      bot.command(command, async (ctx) => {
+        await this.handleTelegramSharedCommand(ctx, allowed);
       });
-    });
-
-    bot.command("approve", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      const rawArg = this.readCommandArg(ctx.msg?.text, "/approve");
-      await handleSharedAcpApprovalCommand({
-        acp: this.acp,
-        chatId: scopeId,
-        cmd: "/approve",
-        rawArg,
-        sendText: async (replyText) => {
-          const chunks = this.chunkTelegramText(replyText);
-          for (const chunk of chunks) {
-            await ctx.reply(chunk);
-          }
-        }
-      });
-    });
-
-    bot.command("deny", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      const rawArg = this.readCommandArg(ctx.msg?.text, "/deny");
-      await handleSharedAcpApprovalCommand({
-        acp: this.acp,
-        chatId: scopeId,
-        cmd: "/deny",
-        rawArg,
-        sendText: async (replyText) => {
-          const chunks = this.chunkTelegramText(replyText);
-          for (const chunk of chunks) {
-            await ctx.reply(chunk);
-          }
-        }
-      });
-    });
+    }
 
     bot.callbackQuery(/^acp:/, async (ctx) => {
       const callbackMessage = ctx.callbackQuery.message;
@@ -807,269 +744,6 @@ export class TelegramManager {
           text: error instanceof Error ? this.summarizeForTelegram(error.message, 180) : "ACP action failed."
         });
       }
-    });
-
-    bot.command("help", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      const chunks = this.chunkTelegramText(this.helpText());
-      for (const chunk of chunks) {
-        await sendTelegramText(bot, chatId, chunk, this.buildTelegramSendOptions(this.parseChatScopeId(scopeId).messageThreadId));
-      }
-    });
-
-    bot.command("skills", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      const chunks = this.chunkTelegramText(this.skillsText(scopeId));
-      for (const chunk of chunks) {
-        await sendTelegramText(bot, chatId, chunk, this.buildTelegramSendOptions(this.parseChatScopeId(scopeId).messageThreadId));
-      }
-    });
-
-    bot.command("compact", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      if (this.running.has(scopeId)) {
-        await ctx.reply("Already working. Send /stop first, then /compact.");
-        return;
-      }
-      const sessionId = this.store.getActiveSession(scopeId);
-      const customInstructions = this.readCommandArg(ctx.msg?.text, "/compact") || undefined;
-      try {
-        const result = await this.runners.compact(scopeId, sessionId, {
-          reason: "manual",
-          customInstructions
-        });
-        await ctx.reply(
-          result.changed
-            ? [
-              "Conversation context compacted.",
-              `before≈${result.beforeTokens} tokens`,
-              `after≈${result.afterTokens} tokens`,
-              `summarized_messages=${result.summarizedMessages}`,
-              `kept_messages=${result.keptMessages}`
-            ].join("\n")
-            : "Nothing to compact yet."
-        );
-      } catch (error) {
-        await ctx.reply(error instanceof Error ? error.message : String(error));
-      }
-    });
-
-    bot.command("login", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      const rawArg = this.readCommandArg(ctx.msg?.text, "/login");
-      const [provider = "", ...rest] = rawArg.split(/\s+/).filter(Boolean);
-      const codeOrUrl = rest.join(" ").trim();
-      const scopeKey = `telegram:${chatId}`;
-
-      if (!provider) {
-        await ctx.reply(
-          [
-            `Auth file: ${resolveAuthFilePath()}`,
-            `OAuth providers: ${listOAuthProviderIds().join(", ")}`,
-            "Usage:",
-            "/login <provider>",
-            "/login <provider> <code-or-redirect-url>"
-          ].join("\n")
-        );
-        return;
-      }
-
-      try {
-        if (codeOrUrl) {
-          await submitOAuthLoginCode(scopeKey, provider, codeOrUrl);
-          await ctx.reply(`Login completed for '${provider}'. Credentials stored in ${resolveAuthFilePath()}.`);
-          return;
-        }
-
-        const pending = await startOAuthLogin(scopeKey, provider, {});
-        const lines = [
-          `Login started for '${provider}'.`,
-          `Auth file: ${resolveAuthFilePath()}`
-        ];
-        if (pending.authUrl) lines.push(`Open: ${pending.authUrl}`);
-        if (pending.instructions) lines.push(pending.instructions);
-        if (pending.promptMessage) lines.push(pending.promptMessage);
-        lines.push(`Finish with: /login ${provider} <code-or-redirect-url>`);
-        await ctx.reply(lines.join("\n"));
-      } catch (error) {
-        await ctx.reply(error instanceof Error ? error.message : String(error));
-      }
-    });
-
-    bot.command("logout", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      const provider = this.readCommandArg(ctx.msg?.text, "/logout").split(/\s+/)[0] || "";
-      if (!provider) {
-        await ctx.reply("Usage: /logout <provider>");
-        return;
-      }
-      const removed = removeStoredAuth(provider);
-      await ctx.reply(
-        removed
-          ? `Removed stored auth for '${provider}'.`
-          : `No stored auth found for '${provider}'.`
-      );
-    });
-
-    bot.command("models", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      const sendOptions = this.buildTelegramSendOptions(this.parseChatScopeId(scopeId).messageThreadId);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      if (this.running.has(scopeId)) {
-        await ctx.reply("Already working. Send /stop first, then switch models.");
-        return;
-      }
-
-      const rawArg = this.readCommandArg(ctx.msg?.text, "/models");
-      if (!rawArg) {
-        const chunks = this.chunkTelegramText(this.modelsText("text"));
-        for (const chunk of chunks) {
-          await sendTelegramText(bot, chatId, chunk, sendOptions);
-        }
-        return;
-      }
-
-      if (!this.updateSettings) {
-        await ctx.reply("Model switching is unavailable in current runtime.");
-        return;
-      }
-
-      const [firstArg = "", secondArg = ""] = rawArg
-        .split(/\s+/)
-        .map((x) => x.trim())
-        .filter(Boolean);
-      const maybeRoute = parseModelRoute(firstArg);
-      const route: ModelRoute = maybeRoute ?? "text";
-      const selector = maybeRoute ? secondArg : rawArg;
-
-      const settings = this.getSettings();
-      const options = buildModelOptions(settings, route);
-      if (!selector) {
-        const chunks = this.chunkTelegramText(this.modelsText(route));
-        for (const chunk of chunks) {
-          await sendTelegramText(bot, chatId, chunk, sendOptions);
-        }
-        return;
-      }
-      const selected = resolveModelSelection(selector, options);
-      if (!selected) {
-        const chunks = this.chunkTelegramText(`Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
-        for (const chunk of chunks) {
-          await sendTelegramText(bot, chatId, chunk, sendOptions);
-        }
-        return;
-      }
-
-      const switched = switchModelSelection({
-        settings,
-        route,
-        selector,
-        updateSettings: this.updateSettings
-      });
-      if (!switched) {
-        const chunks = this.chunkTelegramText(`Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
-        for (const chunk of chunks) {
-          await sendTelegramText(bot, chatId, chunk, sendOptions);
-        }
-        return;
-      }
-      await ctx.reply(
-        [
-          `Switched ${route} model to: ${switched.selected.label}`,
-          `Mode: ${switched.settings.providerMode}`,
-          `Use /models ${route} to check current active ${route} model.`
-        ].join("\n")
-      );
-      momLog("telegram", "model_switched_via_command", {
-        chatId,
-        route,
-        selector,
-        selectedKey: switched.selected.key,
-        providerMode: switched.settings.providerMode
-      });
-    });
-
-    const sendStatus = async (ctx: { chat: { id: string | number }; msg?: { message_thread_id?: number } }) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      const sendOptions = this.buildTelegramSendOptions(this.parseChatScopeId(scopeId).messageThreadId);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-      const chunks = this.chunkTelegramText(this.statusText(scopeId));
-      for (const chunk of chunks) {
-        await sendTelegramText(bot, chatId, chunk, sendOptions);
-      }
-    };
-
-    bot.command("status", async (ctx) => {
-      await sendStatus(ctx);
-    });
-
-    bot.command("state", async (ctx) => {
-      await sendStatus(ctx);
-    });
-
-    bot.command("thinking", async (ctx) => {
-      const chatId = String(ctx.chat.id);
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      const sendOptions = this.buildTelegramSendOptions(this.parseChatScopeId(scopeId).messageThreadId);
-      if (allowed.size > 0 && !allowed.has(chatId)) return;
-
-      const sessionId = this.store.getActiveSession(scopeId);
-      const rawArg = this.readCommandArg(ctx.msg?.text, "/thinking");
-      const normalized = rawArg.split(/\s+/)[0]?.trim().toLowerCase() ?? "";
-
-      if (!normalized) {
-        const chunks = this.chunkTelegramText(this.thinkingText(scopeId));
-        for (const chunk of chunks) {
-          await sendTelegramText(bot, chatId, chunk, sendOptions);
-        }
-        return;
-      }
-
-      let nextOverride: RuntimeThinkingLevel | null;
-      if (normalized === "default" || normalized === "reset" || normalized === "global") {
-        nextOverride = null;
-      } else if (this.thinkingLevels.has(normalized)) {
-        nextOverride = normalized as RuntimeThinkingLevel;
-      } else {
-        const chunks = this.chunkTelegramText(`Invalid thinking level: ${normalized}\n\n${this.thinkingText(scopeId)}`);
-        for (const chunk of chunks) {
-          await sendTelegramText(bot, chatId, chunk, sendOptions);
-        }
-        return;
-      }
-
-      const applied = this.store.setSessionThinkingLevelOverride(scopeId, sessionId, nextOverride);
-      const lines = [
-        applied == null
-          ? "Session thinking reset to global default."
-          : `Session thinking set to: ${applied}`,
-        `Session: ${sessionId}`,
-        ...this.buildSessionThinkingSummary(scopeId, sessionId)
-      ];
-      if (this.running.has(scopeId)) {
-        lines.push("");
-        lines.push("Note: this change applies to the next request, not the one already running.");
-      }
-      const chunks = this.chunkTelegramText(lines.join("\n"));
-      for (const chunk of chunks) {
-        await sendTelegramText(bot, chatId, chunk, sendOptions);
-      }
-      momLog("telegram", "session_thinking_override_updated", {
-        chatId,
-        scopeId,
-        sessionId,
-        thinkingLevelOverride: applied
-      });
     });
 
     bot.on("message", async (ctx) => {
@@ -2043,46 +1717,6 @@ export class TelegramManager {
     }
   }
 
-  private readCommandArg(text: string | undefined, command: string): string {
-    if (!text) return "";
-    const trimmed = text.trim();
-    if (!trimmed.toLowerCase().startsWith(command.toLowerCase())) return "";
-    const rest = trimmed.slice(command.length).trim();
-    return rest;
-  }
-
-  private resolveSessionSelection(chatId: string, selector: string): string | null {
-    const sessions = this.store.listSessions(chatId);
-    const raw = selector.trim();
-    if (!raw) return null;
-
-    const asIndex = Number.parseInt(raw, 10);
-    if (Number.isFinite(asIndex) && asIndex >= 1 && asIndex <= sessions.length) {
-      return sessions[asIndex - 1] ?? null;
-    }
-
-    return sessions.includes(raw) ? raw : null;
-  }
-
-  private formatSessionsOverview(chatId: string): string {
-    const sessions = this.store.listSessions(chatId);
-    const active = this.store.getActiveSession(chatId);
-    const lines = [
-      `Current session: ${active}`,
-      `Total sessions: ${sessions.length}`,
-      "",
-      "Sessions:"
-    ];
-    for (let i = 0; i < sessions.length; i += 1) {
-      const id = sessions[i];
-      lines.push(`${i + 1}. ${id}${id === active ? " (current)" : ""}`);
-    }
-    lines.push("");
-    lines.push("Switch: /sessions <index|sessionId>");
-    lines.push("Delete: /delete_sessions <index|sessionId>");
-    return lines.join("\n");
-  }
-
   private chunkTelegramText(text: string, chunkSize = 3500): string[] {
     const normalized = text.trim();
     if (!normalized) return [];
@@ -2096,241 +1730,6 @@ export class TelegramManager {
     }
     if (remaining) chunks.push(remaining);
     return chunks;
-  }
-
-  private helpText(): string {
-    return [
-      "Available commands:",
-      "/chatid - show current chat id and whitelist status",
-      "/stop - stop current running task",
-      "/new - create and switch to a new session",
-      "/clear - clear context of current session",
-      "/sessions - list sessions and current active session",
-      "/sessions <index|sessionId> - switch active session",
-      "/delete_sessions - list sessions and delete usage",
-      "/delete_sessions <index|sessionId> - delete a session",
-      "/status - show current bot/session/runtime status",
-      "/state - alias of /status",
-      "/thinking - show current session thinking setting",
-      "/thinking <default|off|low|medium|high> - change thinking for current session only",
-      "/models - show text route models and current active model",
-      "/models <index|key> - switch text model",
-      "/models <text|vision|stt|tts> - show models and current active model for that route",
-      "/models <text|vision|stt|tts> <index|key> - switch route model",
-      "/compact [instructions] - summarize older context of current session",
-      ...ACP_CONTROL_HELP_LINES,
-      "/login <provider> - start OAuth login",
-      "/login <provider> <code-or-redirect-url> - finish OAuth login",
-      "/logout <provider> - remove stored auth",
-      "/skills - list currently loaded skills",
-      "/help - show this help",
-      "",
-      "Suggested future commands:",
-      "/rename_session <index|name> <new_name>",
-      "/export_session <index|sessionId>",
-      "/session_info - show message count and last update of active session"
-    ].join("\n");
-  }
-
-  private skillsText(chatId: string): string {
-    const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId, {
-      disabledSkillPaths: this.getSettings().disabledSkillPaths
-    });
-    const globalSkillsDir = resolveGlobalSkillsDirFromWorkspacePath(this.workspaceDir);
-    const botSkillsDir = `${this.workspaceDir}/skills`;
-    const chatSkillsDir = `${this.workspaceDir}/${chatId}/skills`;
-    const scopeLabel: Record<string, string> = {
-      chat: "chat",
-      global: "global",
-      bot: "bot"
-    };
-    const lines = [
-      `Workspace: ${this.workspaceDir}`,
-      `Global skills dir: ${globalSkillsDir}`,
-      `Bot skills dir: ${botSkillsDir}`,
-      `Chat skills dir: ${chatSkillsDir}`,
-      `Loaded skills: ${skills.length}`,
-      ""
-    ];
-
-    if (skills.length === 0) {
-      lines.push("(no skills loaded)");
-    } else {
-      for (let i = 0; i < skills.length; i += 1) {
-        const skill = skills[i];
-        lines.push(`${i + 1}. ${skill.name}`);
-        lines.push(`   - scope: ${scopeLabel[skill.scope] ?? skill.scope}`);
-        lines.push(`   - description: ${skill.description}`);
-        lines.push(`   - file: ${skill.filePath}`);
-      }
-    }
-
-    if (diagnostics.length > 0) {
-      lines.push("");
-      lines.push("Diagnostics:");
-      for (const row of diagnostics) {
-        lines.push(`- ${row}`);
-      }
-    }
-
-    return lines.join("\n");
-  }
-
-  private currentModelKey(settings: RuntimeSettings, route: ModelRoute): string {
-    return getCurrentModelKey(settings, route);
-  }
-
-  private buildModelOptions(settings: RuntimeSettings, route: ModelRoute): ModelOption[] {
-    return buildModelOptions(settings, route);
-  }
-
-  private modelsText(route: ModelRoute): string {
-    const settings = this.getSettings();
-    const options = this.buildModelOptions(settings, route);
-    const activeKey = this.currentModelKey(settings, route);
-    const activeOption = options.find((option) => option.key === activeKey);
-    const lines = [
-      `Route: ${route}`,
-      `Provider mode: ${settings.providerMode}`,
-      `Current active model: ${activeOption ? activeOption.label : "(not found in current options)"}`,
-      `Current active key: ${activeKey || "(empty)"}`,
-      `Configured model options: ${options.length}`,
-      ""
-    ];
-
-    if (options.length === 0) {
-      lines.push("(no configured models)");
-    } else {
-      for (let i = 0; i < options.length; i += 1) {
-        const option = options[i];
-        const marker = option.key === activeKey ? " (active)" : "";
-        lines.push(`${i + 1}. ${option.label}${marker}`);
-        lines.push(`   - key: ${option.key}`);
-      }
-    }
-
-    lines.push("");
-    lines.push(`Switch ${route} model:`);
-    lines.push(`/models ${route} <index>`);
-    lines.push(`/models ${route} <key>`);
-    if (route === "text") {
-      lines.push("");
-      lines.push("Quick text switch:");
-      lines.push("/models <index>");
-      lines.push("/models <key>");
-    }
-    return lines.join("\n");
-  }
-
-  private parseConfiguredModelKey(key: string): { mode: "pi" | "custom"; provider: string; model: string } | null {
-    const raw = key.trim();
-    if (!raw) return null;
-    const [mode, provider, ...rest] = raw.split("|");
-    if ((mode !== "pi" && mode !== "custom") || !provider || rest.length === 0) return null;
-    const model = rest.join("|").trim();
-    if (!model) return null;
-    return { mode, provider: provider.trim(), model };
-  }
-
-  private resolveRouteSummary(settings: RuntimeSettings, route: ModelRoute): { label: string; key: string } {
-    const key = this.currentModelKey(settings, route);
-    const option = this.buildModelOptions(settings, route).find((row) => row.key === key);
-    return {
-      key,
-      label: option?.label ?? "(not found in current options)"
-    };
-  }
-
-  private resolveTextRouteThinkingSupport(settings: RuntimeSettings): boolean {
-    const parsed = this.parseConfiguredModelKey(this.currentModelKey(settings, "text"));
-    if (!parsed) return false;
-
-    if (parsed.mode === "custom") {
-      return settings.customProviders.find((provider) => provider.id === parsed.provider)?.supportsThinking === true;
-    }
-
-    try {
-      const model = getModels(parsed.provider as any).find((row) => row.id === parsed.model);
-      return Boolean(model?.reasoning);
-    } catch {
-      return false;
-    }
-  }
-
-  private buildSessionThinkingSummary(scopeId: string, sessionId?: string): string[] {
-    const settings = this.getSettings();
-    const activeSessionId = sessionId ?? this.store.getActiveSession(scopeId);
-    const sessionOverride = this.store.getSessionThinkingLevelOverride(scopeId, activeSessionId);
-    const requested = sessionOverride ?? settings.defaultThinkingLevel;
-    const reasoningSupported = this.resolveTextRouteThinkingSupport(settings);
-    const effective = resolveThinkingLevel(
-      { defaultThinkingLevel: requested },
-      reasoningSupported
-    );
-
-    return [
-      `Global default: ${settings.defaultThinkingLevel}`,
-      `Session override: ${sessionOverride ?? "default"}`,
-      `Next request target: ${requested}`,
-      `Current text model supports thinking: ${reasoningSupported ? "yes" : "no"}`,
-      `Effective next request: ${effective}`
-    ];
-  }
-
-  private thinkingText(scopeId: string): string {
-    const sessionId = this.store.getActiveSession(scopeId);
-    return [
-      `Session: ${sessionId}`,
-      ...this.buildSessionThinkingSummary(scopeId, sessionId),
-      "",
-      "Set for current session:",
-      "/thinking off",
-      "/thinking low",
-      "/thinking medium",
-      "/thinking high",
-      "",
-      "Reset to global default:",
-      "/thinking default"
-    ].join("\n");
-  }
-
-  private statusText(scopeId: string): string {
-    const settings = this.getSettings();
-    const sessionId = this.store.getActiveSession(scopeId);
-    const sendOptions = this.buildTelegramSendOptions(this.parseChatScopeId(scopeId).messageThreadId);
-    const textRoute = this.resolveRouteSummary(settings, "text");
-    const visionRoute = this.resolveRouteSummary(settings, "vision");
-    const sttRoute = this.resolveRouteSummary(settings, "stt");
-    const ttsRoute = this.resolveRouteSummary(settings, "tts");
-    const queueSize = this.chatQueues.get(scopeId)?.size() ?? 0;
-    const { skills } = loadSkillsFromWorkspace(this.workspaceDir, scopeId, {
-      disabledSkillPaths: settings.disabledSkillPaths
-    });
-
-    return [
-      `Bot: ${this.instanceId}`,
-      `Scope: ${scopeId}`,
-      `Session: ${sessionId}`,
-      `Status: ${this.running.has(scopeId) ? "running" : "idle"}`,
-      `Queued jobs: ${queueSize}`,
-      `Stream output: ${this.isStreamingOutputEnabled() ? "on" : "off"}`,
-      `Reply mode: ${sendOptions ? "topic" : "chat"}`,
-      `Provider mode: ${settings.providerMode}`,
-      `Loaded skills: ${skills.length}`,
-      "",
-      "Thinking:",
-      ...this.buildSessionThinkingSummary(scopeId, sessionId),
-      "",
-      "Models:",
-      `Text: ${textRoute.label}`,
-      `Text key: ${textRoute.key || "(empty)"}`,
-      `Vision: ${visionRoute.label}`,
-      `Vision key: ${visionRoute.key || "(empty)"}`,
-      `STT: ${sttRoute.label}`,
-      `STT key: ${sttRoute.key || "(empty)"}`,
-      `TTS: ${ttsRoute.label}`,
-      `TTS key: ${ttsRoute.key || "(empty)"}`
-    ].join("\n");
   }
 
   private isLikelyTextBuffer(data: Buffer): boolean {

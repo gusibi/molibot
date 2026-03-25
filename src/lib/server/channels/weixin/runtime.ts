@@ -1,32 +1,17 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { type IncomingMessage, WeixinBot } from "@pinixai/weixin-bot/src/index";
+import { extname, join, resolve } from "node:path";
+import { type IncomingMessage, WeixinBot } from "../../../../../node_modules/@pinixai/weixin-bot/src/index.ts";
 import { config } from "../../app/env.js";
 import type { RuntimeSettings } from "../../settings/index.js";
-import {
-  buildModelOptions,
-  currentModelKey,
-  parseModelRoute,
-  switchModelSelection,
-  type ModelRoute
-} from "../../settings/modelSwitch.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
 import { AcpService } from "../../acp/service.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
+import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
 import { RunnerPool } from "../../agent/runner.js";
-import { loadSkillsFromWorkspace } from "../../agent/skills.js";
 import { MomRuntimeStore } from "../../agent/store.js";
-import {
-  listOAuthProviderIds,
-  removeStoredAuth,
-  resolveAuthFilePath,
-  startOAuthLogin,
-  submitOAuthLoginCode
-} from "../../agent/auth.js";
 import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
-import { resolveGlobalSkillsDirFromWorkspacePath } from "../../agent/workspace.js";
 import { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
@@ -34,6 +19,7 @@ import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { BasicChannelAcpTemplate } from "../shared/acp.js";
 import { ChannelQueue } from "../shared/queue.js";
 import { extractWeixinAttachments, extractWeixinText, hasWeixinInlineVoiceTranscript } from "./media.js";
+import { sendWeixinFile } from "./outbound.js";
 
 export interface WeixinConfig {
   baseUrl?: string;
@@ -61,6 +47,10 @@ function normalizeText(text: string): string {
   return String(text ?? "").replace(/\r\n?/g, "\n").trim();
 }
 
+function isInlineTextFile(filePath: string): boolean {
+  return [".txt", ".md", ".json", ".csv", ".log"].includes(extname(filePath).toLowerCase());
+}
+
 export class WeixinManager {
   private static readonly INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
 
@@ -73,6 +63,7 @@ export class WeixinManager {
   private readonly credentialsPath: string;
   private readonly acp: AcpService;
   private readonly acpTemplate: BasicChannelAcpTemplate<IncomingMessage>;
+  private readonly commandService: SharedRuntimeCommandService<IncomingMessage>;
 
   private bot: WeixinBot | undefined;
   private startSequence = 0;
@@ -121,6 +112,27 @@ export class WeixinManager {
       runPrompt: async (chatId, sourceMessage, request) => {
         await this.runAcpPrompt(chatId, sourceMessage, request.prompt, request.startText);
       }
+    });
+    this.commandService = new SharedRuntimeCommandService<IncomingMessage>({
+      channel: "weixin",
+      instanceId: this.instanceId,
+      workspaceDir: this.workspaceDir,
+      authScopePrefix: "weixin",
+      store: this.store,
+      runners: this.runners,
+      getSettings: this.getSettings,
+      updateSettings: this.updateSettings,
+      isRunning: (scopeId) => this.running.has(scopeId),
+      stopRun: (scopeId) => this.stopChatWork(scopeId),
+      cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
+      maybeHandleAcpCommand: (scopeId, cmd, rawArg, sourceMessage) =>
+        this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, sourceMessage),
+      sendText: (sourceMessage, text) => this.replyCommand((sourceMessage as IncomingMessage).sender.id, sourceMessage, text),
+      onSessionMutation: (scopeId) => {
+        void this.writePromptPreview([scopeId]);
+      },
+      getQueueSize: (scopeId) => this.chatQueues.get(scopeId)?.size() ?? 0,
+      helpLines: this.acpTemplate.helpLines()
     });
   }
 
@@ -523,17 +535,37 @@ export class WeixinManager {
       deleteMessage: async () => {
         accumulatedText = "";
       },
-      uploadFile: async (filePath: string) => {
+      uploadFile: async (filePath: string, title?: string) => {
         try {
-          const text = readFileSync(filePath, "utf8").trim();
-          if (text) {
-            await ctx.respond(text);
-            return;
-          }
-        } catch {
-          // Fall through to plain file notice for binary payloads.
+          await sendWeixinFile({
+            filePath,
+            credentialsPath: this.credentialsPath,
+            toUserId: chatId,
+            contextToken: event.sourceMessage._contextToken,
+            caption: title,
+            baseUrlOverride: this.currentBaseUrl || undefined
+          });
+          return;
+        } catch (error) {
+          momWarn("weixin", "upload_file_failed", {
+            botId: this.instanceId,
+            chatId,
+            filePath,
+            error: error instanceof Error ? error.message : String(error)
+          });
         }
-        await ctx.respond(`[file] ${filePath}`);
+        if (isInlineTextFile(filePath)) {
+          try {
+            const text = readFileSync(filePath, "utf8").trim();
+            if (text) {
+              await ctx.respond(text);
+              return;
+            }
+          } catch {
+            // Fall through to plain failure notice.
+          }
+        }
+        await ctx.respond(`微信这边回文件失败了：${filePath.split("/").pop() || "附件"}`);
       }
     };
 
@@ -581,36 +613,6 @@ export class WeixinManager {
     return { aborted: true };
   }
 
-  private resolveSessionSelection(chatId: string, selector: string): string | null {
-    const sessions = this.store.listSessions(chatId);
-    const raw = selector.trim();
-    if (!raw) return null;
-    const asIndex = Number.parseInt(raw, 10);
-    if (Number.isFinite(asIndex) && asIndex >= 1 && asIndex <= sessions.length) {
-      return sessions[asIndex - 1] ?? null;
-    }
-    return sessions.includes(raw) ? raw : null;
-  }
-
-  private formatSessionsOverview(chatId: string): string {
-    const sessions = this.store.listSessions(chatId);
-    const active = this.store.getActiveSession(chatId);
-    const lines = [
-      `Current session: ${active}`,
-      `Total sessions: ${sessions.length}`,
-      "",
-      "Sessions:"
-    ];
-    for (let i = 0; i < sessions.length; i += 1) {
-      const id = sessions[i];
-      lines.push(`${i + 1}. ${id}${id === active ? " (current)" : ""}`);
-    }
-    lines.push("");
-    lines.push("Switch: /sessions <index|sessionId>");
-    lines.push("Delete: /delete_sessions <index|sessionId>");
-    return lines.join("\n");
-  }
-
   private async replyCommand(chatId: string, sourceMessage: IncomingMessage, text: string): Promise<void> {
     await this.sendText(chatId, sourceMessage, text, true);
   }
@@ -618,371 +620,17 @@ export class WeixinManager {
   private async handleCommand(chatId: string, text: string, sourceMessage: IncomingMessage): Promise<boolean> {
     const parts = text.split(/\s+/);
     const cmd = parts[0]?.toLowerCase() || "";
-    const rawArg = parts.slice(1).join(" ").trim();
 
     if (cmd === "/chatid") {
       await this.replyCommand(chatId, sourceMessage, `chat_id: ${chatId}`);
       return true;
     }
-
-    if (cmd === "/stop") {
-      const result = this.stopChatWork(chatId);
-      if (result.aborted) {
-        await this.replyCommand(chatId, sourceMessage, "Stopping...");
-      } else {
-        const cancelledAcp = await this.acp.cancelRun(chatId);
-        await this.replyCommand(chatId, sourceMessage, cancelledAcp ? "ACP cancellation requested." : "Nothing running.");
-      }
-      return true;
-    }
-
-    if (await this.acpTemplate.maybeHandleCommand(chatId, cmd, rawArg, sourceMessage)) return true;
-
-    if (cmd === "/new") {
-      if (this.running.has(chatId)) {
-        await this.replyCommand(chatId, sourceMessage, "Already working. Send /stop first, then /new.");
-        return true;
-      }
-      const sessionId = this.store.createSession(chatId);
-      this.runners.reset(chatId, sessionId);
-      await this.replyCommand(chatId, sourceMessage, `Created and switched to new session: ${sessionId}`);
-      momLog("weixin", "session_new", { botId: this.instanceId, chatId, sessionId });
-      return true;
-    }
-
-    if (cmd === "/clear") {
-      if (this.running.has(chatId)) {
-        await this.replyCommand(chatId, sourceMessage, "Already working. Send /stop first, then /clear.");
-        return true;
-      }
-      const sessionId = this.store.getActiveSession(chatId);
-      this.store.clearSessionContext(chatId, sessionId);
-      this.runners.reset(chatId, sessionId);
-      await this.replyCommand(chatId, sourceMessage, `Cleared context for session: ${sessionId}`);
-      momLog("weixin", "session_clear", { botId: this.instanceId, chatId, sessionId });
-      return true;
-    }
-
-    if (cmd === "/sessions") {
-      if (this.running.has(chatId)) {
-        await this.replyCommand(chatId, sourceMessage, "Already working. Send /stop first, then switch sessions.");
-        return true;
-      }
-      if (rawArg) {
-        const picked = this.resolveSessionSelection(chatId, rawArg);
-        if (!picked) {
-          await this.replyCommand(chatId, sourceMessage, "Invalid session selector. Use /sessions to list available sessions.");
-          return true;
-        }
-        this.store.setActiveSession(chatId, picked);
-        await this.replyCommand(chatId, sourceMessage, `Switched to session: ${picked}`);
-        return true;
-      }
-      await this.replyCommand(chatId, sourceMessage, this.formatSessionsOverview(chatId));
-      return true;
-    }
-
-    if (cmd === "/delete_sessions") {
-      if (this.running.has(chatId)) {
-        await this.replyCommand(chatId, sourceMessage, "Already working. Send /stop first, then delete sessions.");
-        return true;
-      }
-      if (!rawArg) {
-        await this.replyCommand(
-          chatId,
-          sourceMessage,
-          `${this.formatSessionsOverview(chatId)}\n\nDelete usage: /delete_sessions <index|sessionId>`
-        );
-        return true;
-      }
-      const picked = this.resolveSessionSelection(chatId, rawArg);
-      if (!picked) {
-        await this.replyCommand(chatId, sourceMessage, "Invalid session selector.");
-        return true;
-      }
-      try {
-        const result = this.store.deleteSession(chatId, picked);
-        this.runners.reset(chatId, result.deleted);
-        await this.replyCommand(
-          chatId,
-          sourceMessage,
-          `Deleted session: ${result.deleted}\nCurrent session: ${result.active}\nRemaining: ${result.remaining.length}`
-        );
-      } catch (error) {
-        await this.replyCommand(chatId, sourceMessage, error instanceof Error ? error.message : String(error));
-      }
-      return true;
-    }
-
-    if (cmd === "/models") {
-      if (this.running.has(chatId)) {
-        await this.replyCommand(chatId, sourceMessage, "Already working. Send /stop first, then switch models.");
-        return true;
-      }
-      if (!rawArg) {
-        await this.replyCommand(chatId, sourceMessage, this.modelsText("text"));
-        return true;
-      }
-      if (!this.updateSettings) {
-        await this.replyCommand(chatId, sourceMessage, "Model switching is unavailable in current runtime.");
-        return true;
-      }
-      const [firstArg = "", secondArg = ""] = rawArg
-        .split(/\s+/)
-        .map((value) => value.trim())
-        .filter(Boolean);
-      const maybeRoute = parseModelRoute(firstArg);
-      const route: ModelRoute = maybeRoute ?? "text";
-      const selector = maybeRoute ? secondArg : rawArg;
-      const settings = this.getSettings();
-      const options = buildModelOptions(settings, route);
-      if (!selector) {
-        await this.replyCommand(chatId, sourceMessage, this.modelsText(route));
-        return true;
-      }
-      const selected = options.find((option, index) => String(index + 1) === selector || option.key === selector);
-      if (!selected) {
-        await this.replyCommand(chatId, sourceMessage, `Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
-        return true;
-      }
-      const switched = switchModelSelection({
-        settings,
-        route,
-        selector,
-        updateSettings: this.updateSettings
-      });
-      if (!switched) {
-        await this.replyCommand(chatId, sourceMessage, `Invalid model selector: ${selector}\n\n${this.modelsText(route)}`);
-        return true;
-      }
-      await this.replyCommand(
-        chatId,
-        sourceMessage,
-        [
-          `Switched ${route} model to: ${switched.selected.label}`,
-          `Mode: ${switched.settings.providerMode}`,
-          `Use /models ${route} to check current active ${route} model.`
-        ].join("\n")
-      );
-      momLog("weixin", "model_switched_via_command", {
-        botId: this.instanceId,
-        chatId,
-        route,
-        selector,
-        selectedKey: switched.selected.key,
-        providerMode: switched.settings.providerMode
-      });
-      return true;
-    }
-
-    if (cmd === "/compact") {
-      if (this.running.has(chatId)) {
-        await this.replyCommand(chatId, sourceMessage, "Already working. Send /stop first, then /compact.");
-        return true;
-      }
-      const sessionId = this.store.getActiveSession(chatId);
-      try {
-        const result = await this.runners.compact(chatId, sessionId, {
-          reason: "manual",
-          customInstructions: rawArg || undefined
-        });
-        await this.replyCommand(
-          chatId,
-          sourceMessage,
-          result.changed
-            ? [
-              "Conversation context compacted.",
-              `before≈${result.beforeTokens} tokens`,
-              `after≈${result.afterTokens} tokens`,
-              `summarized_messages=${result.summarizedMessages}`,
-              `kept_messages=${result.keptMessages}`
-            ].join("\n")
-            : "Nothing to compact yet."
-        );
-      } catch (error) {
-        await this.replyCommand(chatId, sourceMessage, error instanceof Error ? error.message : String(error));
-      }
-      return true;
-    }
-
-    if (cmd === "/login") {
-      const [provider = "", ...rest] = rawArg.split(/\s+/).filter(Boolean);
-      const codeOrUrl = rest.join(" ").trim();
-      const scopeKey = `weixin:${chatId}`;
-      if (!provider) {
-        await this.replyCommand(
-          chatId,
-          sourceMessage,
-          [
-            `Auth file: ${resolveAuthFilePath()}`,
-            `OAuth providers: ${listOAuthProviderIds().join(", ")}`,
-            "Usage:",
-            "/login <provider>",
-            "/login <provider> <code-or-redirect-url>"
-          ].join("\n")
-        );
-        return true;
-      }
-
-      try {
-        if (codeOrUrl) {
-          await submitOAuthLoginCode(scopeKey, provider, codeOrUrl);
-          await this.replyCommand(
-            chatId,
-            sourceMessage,
-            `Login completed for '${provider}'. Credentials stored in ${resolveAuthFilePath()}.`
-          );
-          return true;
-        }
-
-        const pending = await startOAuthLogin(scopeKey, provider, {});
-        const lines = [
-          `Login started for '${provider}'.`,
-          `Auth file: ${resolveAuthFilePath()}`
-        ];
-        if (pending.authUrl) lines.push(`Open: ${pending.authUrl}`);
-        if (pending.instructions) lines.push(pending.instructions);
-        if (pending.promptMessage) lines.push(pending.promptMessage);
-        lines.push(`Finish with: /login ${provider} <code-or-redirect-url>`);
-        await this.replyCommand(chatId, sourceMessage, lines.join("\n"));
-      } catch (error) {
-        await this.replyCommand(chatId, sourceMessage, error instanceof Error ? error.message : String(error));
-      }
-      return true;
-    }
-
-    if (cmd === "/logout") {
-      const provider = rawArg.split(/\s+/)[0] || "";
-      if (!provider) {
-        await this.replyCommand(chatId, sourceMessage, "Usage: /logout <provider>");
-        return true;
-      }
-      const removed = removeStoredAuth(provider);
-      await this.replyCommand(
-        chatId,
-        sourceMessage,
-        removed
-          ? `Removed stored auth for '${provider}'.`
-          : `No stored auth found for '${provider}'.`
-      );
-      return true;
-    }
-
-    if (cmd === "/skills") {
-      await this.replyCommand(chatId, sourceMessage, this.skillsText(chatId));
-      return true;
-    }
-
-    if (cmd === "/help" || cmd === "/start") {
-      await this.replyCommand(
-        chatId,
-        sourceMessage,
-        [
-          "Available commands:",
-          "/chatid - show current chat id",
-          "/stop - stop current running task",
-          "/new - create and switch to a new session",
-          "/clear - clear context of current session",
-          "/sessions - list sessions and current active session",
-          "/sessions <index|sessionId> - switch active session",
-          "/delete_sessions - list sessions and delete usage",
-          "/delete_sessions <index|sessionId> - delete a session",
-          "/models - list text-model options and active text model",
-          "/models <index|key> - switch text model",
-          "/models <text|vision|stt|tts> - list options for a specific route",
-          "/models <text|vision|stt|tts> <index|key> - switch route model",
-          "/compact [instructions] - summarize older context of current session",
-          ...this.acpTemplate.helpLines(),
-          "/login <provider> - start OAuth login",
-          "/login <provider> <code-or-redirect-url> - finish OAuth login",
-          "/logout <provider> - remove stored auth",
-          "/skills - list currently loaded skills"
-        ].join("\n")
-      );
-      return true;
-    }
-
-    return false;
-  }
-
-  private modelsText(route: ModelRoute): string {
-    const settings = this.getSettings();
-    const options = buildModelOptions(settings, route);
-    const activeKey = currentModelKey(settings, route);
-    const lines = [
-      `Route: ${route}`,
-      `Provider mode: ${settings.providerMode}`,
-      `Configured model options: ${options.length}`,
-      ""
-    ];
-
-    if (options.length === 0) {
-      lines.push("(no configured models)");
-    } else {
-      for (let i = 0; i < options.length; i += 1) {
-        const option = options[i];
-        const marker = option.key === activeKey ? " (active)" : "";
-        lines.push(`${i + 1}. ${option.label}${marker}`);
-        lines.push(`   - key: ${option.key}`);
-      }
-    }
-
-    lines.push("");
-    lines.push(`Switch ${route} model:`);
-    lines.push(`/models ${route} <index>`);
-    lines.push(`/models ${route} <key>`);
-    if (route === "text") {
-      lines.push("");
-      lines.push("Quick text switch:");
-      lines.push("/models <index>");
-      lines.push("/models <key>");
-    }
-
-    return lines.join("\n");
-  }
-
-  private skillsText(chatId: string): string {
-    const { skills, diagnostics } = loadSkillsFromWorkspace(this.workspaceDir, chatId, {
-      disabledSkillPaths: this.getSettings().disabledSkillPaths
+    return this.commandService.handle({
+      chatId,
+      scopeId: chatId,
+      text,
+      target: sourceMessage
     });
-    const globalSkillsDir = resolveGlobalSkillsDirFromWorkspacePath(this.workspaceDir);
-    const botSkillsDir = `${this.workspaceDir}/skills`;
-    const chatSkillsDir = `${this.workspaceDir}/${chatId}/skills`;
-    const scopeLabel: Record<string, string> = {
-      chat: "chat",
-      global: "global",
-      bot: "bot"
-    };
-    const lines = [
-      `Workspace: ${this.workspaceDir}`,
-      `Global skills dir: ${globalSkillsDir}`,
-      `Bot skills dir: ${botSkillsDir}`,
-      `Chat skills dir: ${chatSkillsDir}`,
-      `Loaded skills: ${skills.length}`,
-      ""
-    ];
-
-    if (skills.length === 0) {
-      lines.push("(no skills loaded)");
-    } else {
-      for (let i = 0; i < skills.length; i += 1) {
-        const skill = skills[i];
-        lines.push(`${i + 1}. ${skill.name}`);
-        lines.push(`   - scope: ${scopeLabel[skill.scope] ?? skill.scope}`);
-        lines.push(`   - description: ${skill.description}`);
-        lines.push(`   - file: ${skill.filePath}`);
-      }
-    }
-
-    if (diagnostics.length > 0) {
-      lines.push("");
-      lines.push("Diagnostics:");
-      for (const row of diagnostics) {
-        lines.push(`- ${row}`);
-      }
-    }
-
-    return lines.join("\n");
   }
 
   private async writePromptPreview(allowedChatIds: string[]): Promise<void> {

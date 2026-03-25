@@ -122,6 +122,9 @@ function buildSkillsText(profileId: string): string {
   ];
   for (const skill of skills) {
     lines.push(`- ${skill.name}: ${skill.description || "(no description)"}`);
+    if (skill.aliases.length > 0) {
+      lines.push(`  aliases: ${skill.aliases.join(", ")}`);
+    }
     lines.push(`  ${skill.filePath}`);
   }
   if (skills.length === 0) {

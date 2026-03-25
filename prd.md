@@ -164,6 +164,9 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-118 | Web chat visible thinking controls and traceability | P1 | Delivered (2026-03-24) | Web chat should expose a per-send thinking selector (`off` / `low` / `medium` / `high`), pass that choice into the runner request, and display enough request/payload/thinking trace information for operators to verify whether reasoning was requested and whether any thinking stream was actually returned |
 | P1-119 | Runner-level delta streaming parity for Web and Telegram | P1 | Delivered (2026-03-24) | The shared runner should consume assistant `message_update` deltas from the upgraded agent runtime so Web text chat can stream through the real runner path with a collapsible thinking panel above the answer, and Telegram can render incremental output with batched edits, no duplicate fallback sends, and observable thinking diagnostics instead of per-delta updates that trigger rate-limit stalls |
 | P1-120 | Telegram session status command and session-local thinking control | P1 | Delivered (2026-03-25) | Telegram should expose `/status` and `/state` for current session/runtime/model visibility, and `/thinking <default|off|low|medium|high>` must override thinking depth only for the active session so future new sessions still inherit the global default |
+| P1-121 | Shared public channel-command ownership | P1 | Delivered (2026-03-25) | Public text-channel commands and session-control behavior should be owned by agent core instead of being reimplemented in each channel runtime; Telegram/Feishu/QQ/Weixin must keep only channel-local parsing, attachment handling, and reply transport while shared command/session/model/thinking flows live in one reusable layer |
+| P1-122 | Skill-first prompt rules and slash skill alias resolution | P1 | Delivered (2026-03-25) | The runtime prompt should use generic skill-loading semantics instead of hardcoded skill names, treat slash skill forms as authoritative explicit invocation, and resolve them against both frontmatter `name` and runtime alias forms such as the skill directory name so the model receives the exact `skill_file` path rather than guessing |
+| P1-123 | Dedicated-tool-first execution and memory governance prompt policy | P1 | Delivered (2026-03-25) | Runtime/system prompt guidance should prefer dedicated runtime tools over bash when equivalent, require parallel execution for independent tool calls, and define practical memory governance (what to store, what not to store, stale-memory verification/update) so behavior stays predictable across long-lived sessions |
 
 ### P1-117 Implementation Note (2026-03-24)
 - Telegram ACP middleware must not keep any stale direct reference to the old local control-command helper once proxy gating is centralized through the shared ACP proxy rule, otherwise bot startup can fail before ACP routing is reached.
@@ -177,6 +180,19 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 ### P1-120 Implementation Note (2026-03-25)
 - Session-local thinking changes must persist with the session itself, not in global runtime settings, otherwise switching one Telegram conversation would silently mutate every other session and every future new session.
 - `/status` needs to report the next-request reality, not just raw config fragments: active session id, queue/running state, active route models, global default thinking, session override, and the effective next-request thinking level after model capability downgrade.
+
+### P1-121 Implementation Note (2026-03-25)
+- Text-channel runtimes should keep only channel-specific concerns: inbound message parsing, attachment/media normalization, transport-local reply/edit behavior, and platform-only commands such as `/chatid`.
+- Shared public commands (`/new`, `/clear`, session switching, model switching, OAuth auth commands, status, thinking depth, help, skills, compaction) must be implemented once in agent core and reused by Telegram, Feishu, QQ, and Weixin.
+- Session mutations triggered through shared commands must still allow each channel to run local side effects such as prompt-preview refresh, but that callback must stay optional and channel-owned.
+
+### P1-122 Implementation Note (2026-03-25)
+- Skill routing prompt rules must stay generic. They should describe how to honor installed skills and explicit invocation, but must not hardcode project-specific skill names into the runtime prompt builder.
+- Slash skill invocation must not depend only on `SKILL.md` frontmatter `name`. Directory-name aliases are part of operator reality, so matching and prompt context should carry both the canonical name and aliases, along with the exact resolved `skill_file` path.
+
+### P1-123 Implementation Note (2026-03-25)
+- Tool policy should mirror the real runtime surface: `read/edit/write/create_event/memory/attach` are first-class operations; bash is the fallback when those tools cannot complete the task directly.
+- Memory policy should be operational rather than abstract: only durable cross-session facts should be stored, ephemeral execution detail should stay out, and stale memory must be verified against current workspace/runtime state before being used.
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -1660,3 +1676,17 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/agent/runtimeOptions.ts` 必须成为共享的 Agent 运行参数来源。
   - `src/lib/server/agent/runner.ts` 和 `src/lib/server/providers/assistantService.ts` 必须统一接入传输偏好与 `maxRetryDelayMs`。
   - `features.md` 必须记录这次统一接入，方便后续升级时对照。
+
+## 126. Weixin 出站图片与语音媒体补齐 (2026-03-25)
+- Priority: P1
+- Stage: Delivered (2026-03-25)
+- Problem:
+  - 当前 Weixin runtime 的 `uploadFile` 只是“文本文件就回文本，否则回一条 `[file] /绝对路径` 提示”，根本没有把图片、语音或其他二进制文件真正上传到微信。所以用户看到的现象就是微信能聊文字，但一到图片和语音回复就失效。
+- Requirement:
+  - Weixin 必须像 Telegram/Feishu 一样，真正把 agent 产出的图片和附件发回微信，而不是只回本地文件路径。
+  - 图片至少要走原生图片消息；音频至少要先尝试原生语音消息，失败时也要退回成可下载文件，不能静默丢失。
+  - 这次补齐不能继续依赖当前 `@pinixai/weixin-bot` 只会发文本的表层封装，必须在 Molibot 侧把 CDN 上传和媒体消息发送补上。
+- Enforcement:
+  - `src/lib/server/channels/weixin/runtime.ts` 的 `uploadFile` 不能再把二进制文件降级成 `[file] ${path}` 文本。
+  - `src/lib/server/channels/weixin/` 下必须提供实际的出站媒体上传与发送逻辑，覆盖图片、音频和普通文件三类。
+  - `features.md` 必须记录这次根因和出站修复结果，方便后续排查“为什么微信只能回文字”。

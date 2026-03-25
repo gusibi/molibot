@@ -486,12 +486,14 @@ function hasExplicitMcpInvocation(inputText: string): boolean {
 
 function injectExplicitSkillInvocationContext(
   inputText: string,
-  skills: Array<{ name: string; scope: string; filePath: string }>
+  skills: Array<{ name: string; scope: string; filePath: string; aliases?: string[] }>
 ): string {
   if (skills.length === 0) return inputText;
   const lines = skills.map(
     (skill) =>
-      `- name: ${skill.name}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}`
+      `- name: ${skill.name}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}${
+        Array.isArray(skill.aliases) && skill.aliases.length > 0 ? `\n  aliases: ${skill.aliases.join(", ")}` : ""
+      }`
   );
   return `${inputText}\n\n[explicit skill invocation]\n${lines.join("\n")}\n[/explicit skill invocation]`;
 }

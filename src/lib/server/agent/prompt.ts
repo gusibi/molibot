@@ -111,6 +111,21 @@ function buildWorkspaceLayoutSection(vars: PromptRenderVars): string {
   ]);
 }
 
+function buildSkillRoutingSection(vars: PromptRenderVars): string {
+  return section("Skill Routing (Mandatory)", [
+    "- Treat installed skills as first-class capabilities, not optional examples.",
+    "- Route by the user's desired outcome and output format, not only exact trigger words or remembered examples.",
+    "- Before using generic tools or a manual workaround, check whether an installed skill already directly produces the requested result. If yes, use that skill first.",
+    "- If the user wants a specific output medium or artifact and a skill supports it, deliver in that medium/artifact. Do not silently downgrade unless the skill actually failed.",
+    "- Explicit skill invocation is the strongest signal, but lack of explicit invocation is NOT a reason to ignore a clearly matching skill.",
+    "- If the user invokes a skill via slash form, treat that as an authoritative skill-selection command, not as a normal chat command.",
+    "- When `[explicit skill invocation]` is present, use the listed `skill_file` path exactly as provided. Do not guess a different path from memory, old examples, or folder naming habits.",
+    "- If an explicitly-invoked skill cannot be found at the provided path, say that exact path is missing instead of inventing a replacement path.",
+    "- If multiple skills could apply, choose the one that matches the requested end result most directly, not the one that is merely related or easier.",
+    "- If a skill attempt fails, say that the attempt failed, briefly state why, and then choose the best fallback. Never skip straight to the fallback without trying the skill.",
+  ]);
+}
+
 function buildSkillsProtocolSection(vars: PromptRenderVars): string {
   if (vars.skillCreatorAvailable === "true") {
     return [
@@ -120,14 +135,18 @@ function buildSkillsProtocolSection(vars: PromptRenderVars): string {
       `Create bot-scoped skills in \`${vars.botSkillsDir}/<name>/\`.`,
       `Use \`${vars.chatSkillsDir}/<name>/\` only for chat-specific temporary skills.`,
       "- If the user explicitly invokes a skill (`$skill-name`, `/skill skill-name`, `/skill-name`, `skill:skill-name`, `技能:skill-name`), you MUST use that skill for this turn.",
-      "- Slash form `/skill-name` is case-insensitive and matches normalized skill names; treat spaces, `_`, and `-` as equivalent.",
+      "- Slash form `/skill-name` is case-insensitive and matches normalized skill names and declared runtime aliases; treat spaces, `_`, and `-` as equivalent.",
+      "- Match skills by requested outcome, output format, and artifact type. Do not require the user to know the skill name.",
       "- If no skill is explicitly invoked and one skill is the best fit, use it proactively. Do not wait for the user to repeat the request in a stricter format.",
+      "- If an installed skill directly fulfills the request, prefer it over generic tools. Do not substitute web search, file download, or text-only replies for the skill's actual capability.",
       "- If input contains `[explicit skill invocation]`, treat listed `name/scope/skill_file` as authoritative runtime selection for this turn.",
+      "- If a listed skill also includes `aliases`, those aliases are valid invocation forms too.",
       "- Never execute `SKILL.md` directly with `sh`/`bash`. Read it first, then run scripts/commands documented inside it.",
       "- Before using any skill, read its `SKILL.md` in full.",
       "- Follow instructions in `SKILL.md` exactly.",
       "- Resolve relative paths against the skill directory.",
       "- If two skills overlap, pick the one with the clearest description match.",
+      "- If a skill fails, report that actual failure and only then fall back. Do not pretend the fallback was the original plan.",
     ].join("\n");
   }
 
@@ -156,9 +175,12 @@ function buildSkillsProtocolSection(vars: PromptRenderVars): string {
     "`name` and `description` are required. Use `{baseDir}` as placeholder for the skill directory path.",
     "### Skill usage protocol",
     "- If the user explicitly invokes a skill (`$skill-name`, `/skill skill-name`, `/skill-name`, `skill:skill-name`, `技能:skill-name`), you MUST use that skill for this turn.",
-    "- Slash form `/skill-name` is case-insensitive and matches normalized skill names; treat spaces, `_`, and `-` as equivalent.",
+    "- Slash form `/skill-name` is case-insensitive and matches normalized skill names and declared runtime aliases; treat spaces, `_`, and `-` as equivalent.",
+    "- Match skills by requested outcome, output format, and artifact type. Do not require the user to know the skill name.",
     "- If input contains `[explicit skill invocation]`, treat listed `name/scope/skill_file` as authoritative runtime selection for this turn.",
+    "- If a listed skill also includes `aliases`, those aliases are valid invocation forms too.",
     "- If no skill is explicitly invoked and one skill is the best fit, read its `SKILL.md` and use it proactively.",
+    "- If an installed skill directly fulfills the request, prefer it over generic tools. Do not substitute web search, file download, or text-only replies for the skill's actual capability.",
     "- If no skill clearly applies, do not read skills speculatively.",
     "- Before using any skill, read its SKILL.md in full.",
     "- Never execute `SKILL.md` directly with `sh`/`bash`. Read it first, then run scripts/commands documented inside it.",
@@ -166,6 +188,7 @@ function buildSkillsProtocolSection(vars: PromptRenderVars): string {
     "- Resolve relative paths against the skill directory.",
     "- Prefer invoking skill scripts via `bash` tool.",
     "- If two skills overlap, pick the one with the clearest description match.",
+    "- If a skill fails, report that actual failure and only then fall back. Do not pretend the fallback was the original plan.",
   ].join("\n");
 }
 
@@ -223,11 +246,15 @@ function buildEventsSection(vars: PromptRenderVars): string {
 function buildMemoryContractSection(vars: PromptRenderVars): string {
   return [
     "## Memory",
-    "Write to MEMORY.md files to persist context across conversations.",
+    "Use memory only for cross-conversation context that will be useful later.",
     `- Global (${vars.globalMemoryPath}): skills, preferences, project info`,
     `- Chat (${vars.chatMemoryPath}): chat-specific decisions and ongoing work`,
     `- IMPORTANT: Do not store memory files directly under ${vars.workspaceDir} or ${vars.chatDir}; always use the memory root path above.`,
     "- Never read/write/edit MEMORY.md directly with file tools. Always use the memory tool (or gateway API) for memory operations.",
+    "- Save when user explicitly asks to remember/forget, or when stable preferences/project constraints are learned.",
+    "- Do NOT save ephemeral details: temporary plans, one-off debug output, task progress logs, or information already derivable from current code/git.",
+    "- Before using an old memory entry for an operational decision, verify it still matches current files/runtime state.",
+    "- If memory conflicts with current reality, trust current reality and update/remove the stale memory entry.",
   ].join("\n");
 }
 
@@ -265,12 +292,14 @@ function buildToolsSection(): string {
     "## Tools",
     "- memory: Memory gateway operations (add/search/list/update/delete/flush/sync). Use this for all memory changes.",
     "- load_mcp: List/load/unload MCP servers for this chat session. If required MCP is missing, this tool will return a clear error.",
-    "- bash: Execute shell commands in scratch (primary execution tool)",
+    "- bash: Execute shell commands in scratch. Use this when no dedicated runtime tool can complete the task directly.",
     "- read: Read files",
     "- write: Create/overwrite files",
     "- edit: Surgical file edits",
     "- create_event: Schedule events/reminders. Always use this instead of writing event JSON files manually.",
     "- attach: Send a local file through the active channel adapter (use only when direct text delivery is insufficient)",
+    "- Tool priority: prefer dedicated tools (`read`/`edit`/`write`/`create_event`/`memory`/`attach`) over `bash` whenever both can solve the task.",
+    "- If multiple independent tool calls are needed, execute them in parallel; run sequentially only when one step depends on another.",
     "- `TOOLS.md` is guidance about conventions and paths; it does not control actual tool availability.",
   ].join("\n");
 }
@@ -324,6 +353,8 @@ function buildBaseSystemPromptWithOptions(
     buildFailureRecoverySection(),
     "",
     buildWorkspaceLayoutSection(vars),
+    "",
+    buildSkillRoutingSection(vars),
     "",
     buildEventsSection(vars),
     "",

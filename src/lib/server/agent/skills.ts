@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { parseSkillFrontmatter } from "./skillFrontmatter.js";
 import { resolveDataRootFromWorkspacePath } from "./workspace.js";
 
@@ -12,6 +12,7 @@ export interface LoadedSkill {
   baseDir: string;
   scope: SkillScope;
   mcpServers: string[];
+  aliases: string[];
 }
 
 export interface SkillLoadResult {
@@ -60,21 +61,30 @@ function buildSkillNameAliases(name: string): Set<string> {
   return aliases;
 }
 
+function buildSkillAliases(name: string, filePath: string): string[] {
+  const aliases = buildSkillNameAliases(name);
+  const dirAlias = basename(dirname(filePath));
+  for (const alias of buildSkillNameAliases(dirAlias)) {
+    aliases.add(alias);
+  }
+  return Array.from(aliases.values()).sort((a, b) => a.localeCompare(b));
+}
+
 function extractDirectSlashSelector(inputText: string): string | null {
   const match = String(inputText ?? "").trim().match(/^\/([^\s@]+)(?:@[^\s]+)?(?:\s|$)/);
   if (!match?.[1]) return null;
   return match[1].trim().toLowerCase();
 }
 
-function matchesExplicitInvocation(skillName: string, inputText: string): boolean {
+function matchesExplicitInvocation(skill: LoadedSkill, inputText: string): boolean {
   const text = String(inputText ?? "").toLowerCase();
   if (!text.trim()) return false;
 
-  const aliases = buildSkillNameAliases(skillName);
-  if (aliases.size === 0) return false;
+  const aliases = skill.aliases;
+  if (aliases.length === 0) return false;
 
   const directSlashSelector = extractDirectSlashSelector(text);
-  if (directSlashSelector && aliases.has(directSlashSelector)) {
+  if (directSlashSelector && aliases.includes(directSlashSelector)) {
     return true;
   }
 
@@ -176,7 +186,8 @@ export function loadSkillsFromWorkspace(
       filePath,
       baseDir: dirname(filePath),
       scope: row.scope,
-      mcpServers: parseStringList(fm.mcpServers ?? fm.mcp_servers)
+      mcpServers: parseStringList(fm.mcpServers ?? fm.mcp_servers),
+      aliases: buildSkillAliases(name, filePath)
     });
   }
 
@@ -192,6 +203,8 @@ export function formatSkillsForPrompt(skills: LoadedSkill[]): string {
     .map(
       (skill) =>
         `- ${skill.name}\n  description: ${skill.description}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}${
+          skill.aliases.length > 0 ? `\n  aliases: ${skill.aliases.join(", ")}` : ""
+        }${
           skill.mcpServers.length > 0 ? `\n  mcp_servers: ${skill.mcpServers.join(", ")}` : ""
         }`
     )
@@ -199,7 +212,7 @@ export function formatSkillsForPrompt(skills: LoadedSkill[]): string {
 }
 
 export function findExplicitlyInvokedSkills(skills: LoadedSkill[], inputText: string): LoadedSkill[] {
-  return skills.filter((skill) => matchesExplicitInvocation(skill.name, inputText));
+  return skills.filter((skill) => matchesExplicitInvocation(skill, inputText));
 }
 
 export function resolveRequestedMcpServerIds(skills: LoadedSkill[], inputText: string): string[] {

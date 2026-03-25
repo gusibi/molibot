@@ -1,8 +1,8 @@
 import { createDecipheriv } from "node:crypto";
 import { extname } from "node:path";
 import type { ImageContent } from "@mariozechner/pi-ai";
-import type { IncomingMessage, MessageItem } from "@pinixai/weixin-bot/src/index";
-import { MessageItemType } from "@pinixai/weixin-bot/src/index";
+import type { IncomingMessage, MessageItem } from "../../../../../node_modules/@pinixai/weixin-bot/src/index.ts";
+import { MessageItemType } from "../../../../../node_modules/@pinixai/weixin-bot/src/index.ts";
 import type { FileAttachment } from "../../agent/types.js";
 import { MomRuntimeStore } from "../../agent/store.js";
 
