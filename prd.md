@@ -472,11 +472,11 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - Added global skills support aligned to mom model: runner now discovers `data/telegram-mom/skills/**/SKILL.md` and injects available skills plus usage protocol into system prompt each run.
   - Skill storage is unified at workspace scope (`<workspace>/skills`), removing chat-level skill location guidance from Telegram prompt.
   - Installed initial workspace skill `find-skills` at `data/telegram-mom/skills/find-skills/SKILL.md` to validate runtime discovery path.
-  - Under current root-start runtime (cwd=`/Users/zongxiaocheng/github/molipibot`), active workspace resolves to `data/telegram-mom`; skill files must exist under `data/telegram-mom/skills/` to be discovered at runtime.
+  - Under current root-start runtime (cwd=`/Users/gusi/github/molipibot`), active workspace resolves to `data/telegram-mom`; skill files must exist under `data/telegram-mom/skills/` to be discovered at runtime.
   - Path semantics clarification:
-    - Service process cwd: `/Users/zongxiaocheng/github/molipibot`
-    - Telegram workspace dir: `/Users/zongxiaocheng/github/molipibot/data/telegram-mom`
-    - Per-chat tool cwd: `/Users/zongxiaocheng/github/molipibot/data/telegram-mom/<chatId>/scratch`
+    - Service process cwd: `/Users/gusi/github/molipibot`
+    - Telegram workspace dir: `/Users/gusi/github/molipibot/data/telegram-mom`
+    - Per-chat tool cwd: `/Users/gusi/github/molipibot/data/telegram-mom/<chatId>/scratch`
     - Per-chat scratch as tool cwd is intentional and kept as-is for chat-level workspace isolation.
 - Remaining parity gaps (next round):
   - Rich context compaction/retry controls equivalent to mom `AgentSession` settings.
@@ -646,7 +646,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Goal:
   - Preserve existing Telegram runtime state while switching workspace from repo-local path to home workspace path.
 - Scope:
-  - Migrate old directory `/Users/zongxiaocheng/github/molipibot/data/telegram-mom/` to `~/.molibot/moli-t/`.
+  - Migrate old directory `/Users/gusi/github/molipibot/data/telegram-mom/` to `~/.molibot/moli-t/`.
 - Acceptance:
   - Migrated directory includes chats/events/skills and passes basic parity check (source vs target file count).
 
@@ -656,7 +656,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Requirement:
   - Keep existing runtime settings when moving default data root to `~/.molibot`.
 - Enforcement:
-  - Copy legacy `/Users/zongxiaocheng/github/molipibot/data/settings.json` to `~/.molibot/settings.json` and verify content parity.
+  - Copy legacy `/Users/gusi/github/molipibot/data/settings.json` to `~/.molibot/settings.json` and verify content parity.
 
 ## 43. Telegram Native Formatting Compatibility (2026-02-16)
 - Problem:
