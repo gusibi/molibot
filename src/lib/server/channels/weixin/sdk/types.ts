@@ -47,6 +47,7 @@ export interface VoiceItem {
   encode_type?: number;
   text?: string;
   playtime?: number;
+  aeskey?: string;
 }
 
 export interface FileItem {
@@ -54,6 +55,7 @@ export interface FileItem {
   file_name?: string;
   md5?: string;
   len?: string;
+  aeskey?: string;
 }
 
 export interface VideoItem {
@@ -61,6 +63,7 @@ export interface VideoItem {
   video_size?: string | number;
   play_length?: number;
   thumb_media?: CDNMedia;
+  aeskey?: string;
 }
 
 export interface RefMessage {

@@ -1767,3 +1767,101 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - `src/lib/server/channels/weixin/runtime.ts` 的共享命令 `sendText` 入口必须使用 `IncomingMessage.userId`。
   - `features.md` 必须记录这次修正，方便后续排查迁移后“为什么命令一发就崩”。
+
+## 131. Weixin 入站语音/文件密钥兼容修复 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 微信这条入站媒体链路之前把语音和文件写得过于死板：只有在 `media.aes_key` 这个字段按预期出现时才会继续下载，其它合法变体会被直接跳过。
+  - 参考 SDK 文档里 `aes_key` 本来就是可选的，而且实际负载里还可能给十六进制的 `aeskey`。这就导致真实用户发来的语音和文件，在 Molibot 里经常被当成“空消息”或“没有附件”。
+- Requirement:
+  - 入站语音、文件、视频消息不能再强依赖单一密钥字段格式。只要有下载参数，就应该优先尝试正确解密；没有密钥时也要尝试普通下载，而不是静默丢弃。
+  - 对于只提供十六进制 `aeskey` 的负载，运行时必须先做格式转换，再走原有解密流程。
+- Enforcement:
+  - `src/lib/server/channels/weixin/media.ts` 必须把 voice/file/video 的下载逻辑改成“可选 `aes_key` + hex `aeskey` 兼容 + 无密钥普通下载回退”。
+  - `features.md` 必须记录这次根因和修复结果，方便后续排查“为什么微信能收图片却收不到语音/文件”。
+
+## 132. 多渠道附件回复能力文案纠偏 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 运行时给模型看的附件发送工具说明还写着“发到 Telegram”，这会把模型误导成别的渠道没有附件回复能力。
+  - 在微信会话里，这种误导会直接表现成模型先自己下结论说“图片/语音发不了”，甚至不去尝试真实可用的回复链路。
+- Requirement:
+  - 附件发送工具的说明必须明确它是“通过当前渠道发送”，不能把 Telegram 写死在通用工具定义里。
+- Enforcement:
+  - `src/lib/server/agent/tools/attach.ts` 的工具说明必须改成渠道无关表述。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么明明有发送能力，模型却先说不支持”。
+
+## 133. Weixin 出站媒体上传诊断增强 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 微信出站图片/语音/文件上传一旦在 CDN 这一步返回空白 `400`，当前日志几乎没有有效线索，无法分辨到底是地址、参数还是上传体格式不对。
+- Requirement:
+  - 出站媒体上传失败时，日志必须带出足够的现场信息，至少包括源文件、媒体类型、目标主机/路径、上传参数长度，以及明文/密文大小，避免继续在“空 400”上盲猜。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 的 CDN 上传错误必须补充这些诊断字段。
+  - `features.md` 必须记录这次增强，方便后续继续定位微信媒体回复失败的真正根因。
+
+## 134. 显式 Skill 调用必须走共享硬约束 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 当前显式 `/skill-name` 调用虽然能在共享层识别出来，但只向模型注入一个轻量的技能名字和路径标记，仍然允许模型临场违背规则，跳过 skill 自己乱用通用工具。
+  - 这会制造“像是某个渠道命令识别坏了”的错觉，但根因其实是共享执行层对显式 skill 的约束不够硬。
+- Requirement:
+  - 只要用户明确点名某个 skill，共享 runner 就必须把该 `SKILL.md` 的实际内容一起注入当前回合，而不是只传名字和路径。
+  - 这个约束必须对 Telegram、Weixin、Feishu、QQ 一视同仁，不能再让某个渠道靠模型运气是否听话。
+- Enforcement:
+  - `src/lib/server/agent/runner.ts` 必须在显式 skill 调用时注入 `[explicit skill file]` 内容块。
+  - `src/lib/server/agent/prompt.ts` 必须明确 `[explicit skill file]` 是本轮已加载且必须优先遵循的技能上下文。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么明明识别出了 skill，却还是没真正执行”。
+
+## 135. 图片 Skill 输出目录与 Bash 日志压缩修正 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 图片 skill 之前没有把输出目录约束说死，模型会把图片写到 `/tmp` 或 skill 目录，随后被路径保护或附件发送流程卡住。
+  - bash 工具对长输出只保留最后一段，像 `curl` 这种先输出关键诊断、后面再刷进度条的命令，会把真正有用的信息挤掉，形成“截断得很离谱”的体感。
+- Requirement:
+  - 图片生成 skill 必须明确要求输出文件位于当前聊天工作目录，不能写到 `/tmp`，也不能写回 skill 目录。
+  - bash 长输出必须改成保留开头和结尾，并尽量清掉重复的进度条噪音，而不是只留尾巴。
+- Enforcement:
+  - `/Users/gusi/.molibot/skills/image-generate/SKILL.md` 必须写明输出目录规则和正确命令格式。
+  - `src/lib/server/agent/tools/bash.ts` / `truncate.ts` / `helpers.ts` 必须实现更合理的输出压缩。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么图片明明生成了却发不出去”以及“为什么 bash 日志看不见结论”。
+
+## 136. 共享 Skill 禁止硬编码本机绝对路径 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 共享 skill 一旦写死某个人机器上的绝对路径，别的用户拿去就不能直接用，等于把本该复用的 skill 绑死在单机环境里。
+- Requirement:
+  - 共享 skill 必须通过“调用方传参”或“相对 skill 目录定位”的方式工作，不能把本机绝对路径直接写进示例和规则里。
+- Enforcement:
+  - `/Users/gusi/.molibot/skills/image-generate/SKILL.md` 必须改成由调用方显式传入输出路径。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么 skill 到别人机器上就不能用”。
+
+## 137. Weixin 出站上传参数必须可完整审计 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 当前微信媒体上传失败时，即使已经知道文件路径和大小，仍然看不到完整实参，无法判断是 `getuploadurl` 请求体错了，还是 CDN 上传时 query/header/body 形状不对。
+- Requirement:
+  - 本地日志必须能完整还原这次上传的关键实参，包括申请上传地址的请求体、返回的上传参数、最终 CDN 请求地址与请求头，以及原始响应内容。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须在本地日志中输出这些完整诊断信息。
+  - `features.md` 必须记录这次增强，方便后续继续定位微信图片/语音/文件回复失败。
+
+## 138. Weixin CDN 上传必须严格按协议字段执行 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 微信 CDN 上传之前没有严格照协议实现，把核心查询参数名传成了错误字段，还按 JSON body 取返回值，导致即使本地文件正常也会在 CDN 这一步直接吃空白 `400`。
+- Requirement:
+  - CDN 上传必须使用协议要求的 `encrypted_query_param` 查询参数。
+  - 成功上传后的媒体标识必须优先从响应头 `x-encrypted-param` 读取，不能假设响应 body 一定是 JSON。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须按协议修正上传 URL 和返回值读取方式。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么文件存在但微信仍然回空 400”。

@@ -93,25 +93,36 @@ function buildExecutionDisciplineSection(): string {
   ]);
 }
 
-function buildTaskFramingSection(): string {
-  return section("Task Framing", [
-    "- First classify the request: direct answer, search/verification, artifact creation, skill execution, scheduling, or runtime/workspace change.",
-    "- Choose the shortest path that actually completes the requested outcome. Do not stop at analysis if the user asked for a result.",
-    "- If the user asked for an artifact or output medium (image, audio, file, reminder, summary), deliver that artifact instead of replying with a substitute explanation.",
-    "- Treat requests like '用语音回复'、'生成图片'、'帮我搜索' as outcome requests first, not as requests to build or modify capability.",
-    "- Ask follow-up questions only when you are truly blocked or when the action is risky enough to require confirmation.",
-    "- When multiple valid interpretations exist, prefer the one that best matches the user's practical end goal.",
-  ]);
-}
-
-function buildCapabilityUseOrderSection(): string {
-  return section("Capability Use Order", [
-    "- Before writing code, changing configuration, or building a new workaround, first check whether an existing skill or dedicated runtime tool already fulfills the request.",
-    "- If an installed skill can directly produce the requested result, use that skill before considering any workspace changes.",
-    "- If a dedicated runtime tool can complete the task, use it before shell scripting or code changes.",
-    "- Only write or modify code when at least one of these is true: the user explicitly asked to build/fix capability, no existing skill/tool can complete the request, or the current skill/tool genuinely failed and code change is the next justified step.",
-    "- A failed first attempt does NOT automatically justify coding. Try the relevant existing skill/tool path first if it has not yet been tried.",
-    "- Do not interpret 'I want voice/image/search/reminder output' as 'please implement voice/image/search/reminder support'.",
+function buildMessageProcessingPipeline(): string {
+  return section("Message Processing Pipeline", [
+    "CRITICAL: Process every user message in this exact order. Do not skip steps.",
+    "",
+    "Step 0 — Skill Match (mandatory, always execute first)",
+    "  Scan the Available Skills list below. Match in priority order:",
+    "  a) Explicit invocation (`/skill-name`, `$skill-name`, `技能:skill-name`) → use unconditionally.",
+    "  b) Description keyword match — look inside each skill's `description` for:",
+    "     - Quoted trigger words (e.g. \"生成图片\", \"画一张图\")",
+    "     - Output type keywords (image, audio, voice, search, data, news, weather, stock)",
+    "     - Verb-object patterns that match the user request",
+    "  c) Semantic output match — if the user wants a specific output type (image file, audio file,",
+    "     financial data, web search results, weather info) and a skill's description says it produces",
+    "     that type → use it.",
+    "  If any layer (a/b/c) matches, STOP and execute that skill. Only proceed to Step 1 if NO skill matches.",
+    "",
+    "Step 1 — Tool Match",
+    "  Use the Tool Priority Table below to select the correct dedicated tool.",
+    "",
+    "Step 2 — Freshness Check",
+    "  If the request involves time-sensitive info (latest, current, real-time, price, news, weather),",
+    "  search or use a real-time skill before answering. Never present stale knowledge as current fact.",
+    "",
+    "Step 3 — Direct Answer",
+    "  None of the above apply → answer directly from your knowledge.",
+    "",
+    "CRITICAL: '生成图片' / '语音回复' / '帮我搜索' / '查天气' are OUTPUT REQUESTS, not requests to build capability.",
+    "  Match them to a skill that produces that output. Do not web-search for images when a generation skill exists.",
+    "  Do not write code to implement voice/image/search when a skill already handles it.",
+    "  Why: a skill generates NEW content matched to the user's need; web search returns other people's existing content.",
   ]);
 }
 
@@ -217,6 +228,7 @@ function buildSkillRoutingSection(vars: PromptRenderVars): string {
     "- Explicit skill invocation is the strongest signal, but lack of explicit invocation is NOT a reason to ignore a clearly matching skill.",
     "- If the user invokes a skill via slash form, treat that as an authoritative skill-selection command, not as a normal chat command.",
     "- When `[explicit skill invocation]` is present, use the listed `skill_file` path exactly as provided. Do not guess a different path from memory, old examples, or folder naming habits.",
+    "- When `[explicit skill file]` is present, treat that file content as already-loaded runtime context for this turn and follow it before inventing manual alternatives.",
     "- If an explicitly-invoked skill cannot be found at the provided path, say that exact path is missing instead of inventing a replacement path.",
     "- If multiple skills could apply, choose the one that matches the requested end result most directly, not the one that is merely related or easier.",
     "- If a skill attempt fails, say that the attempt failed, briefly state why, and then choose the best fallback. Never skip straight to the fallback without trying the skill.",
@@ -224,68 +236,24 @@ function buildSkillRoutingSection(vars: PromptRenderVars): string {
 }
 
 function buildSkillsProtocolSection(vars: PromptRenderVars): string {
-  if (vars.skillCreatorAvailable === "true") {
-    return [
-      "## Skills (Custom CLI Tools)",
-      `When a task requires creating/updating a skill, use \`${vars.skillCreatorSkillFile}\` first.`,
-      `Create reusable skills in \`${vars.globalSkillsDir}/<name>/\`.`,
-      `Create bot-scoped skills in \`${vars.botSkillsDir}/<name>/\`.`,
-      `Use \`${vars.chatSkillsDir}/<name>/\` only for chat-specific temporary skills.`,
-      "- If the user explicitly invokes a skill (`$skill-name`, `/skill skill-name`, `/skill-name`, `skill:skill-name`, `技能:skill-name`), you MUST use that skill for this turn.",
-      "- Slash form `/skill-name` is case-insensitive and matches normalized skill names and declared runtime aliases; treat spaces, `_`, and `-` as equivalent.",
-      "- Match skills by requested outcome, output format, and artifact type. Do not require the user to know the skill name.",
-      "- If no skill is explicitly invoked and one skill is the best fit, use it proactively. Do not wait for the user to repeat the request in a stricter format.",
-      "- If an installed skill directly fulfills the request, prefer it over generic tools. Do not substitute web search, file download, or text-only replies for the skill's actual capability.",
-      "- If input contains `[explicit skill invocation]`, treat listed `name/scope/skill_file` as authoritative runtime selection for this turn.",
-      "- If a listed skill also includes `aliases`, those aliases are valid invocation forms too.",
-      "- Never execute `SKILL.md` directly with `sh`/`bash`. Read it first, then run scripts/commands documented inside it.",
-      "- Before using any skill, read its `SKILL.md` in full.",
-      "- Follow instructions in `SKILL.md` exactly.",
-      "- Resolve relative paths against the skill directory.",
-      "- If two skills overlap, pick the one with the clearest description match.",
-      "- If a skill fails, report that actual failure and only then fall back. Do not pretend the fallback was the original plan.",
-    ].join("\n");
-  }
-
+  const creatorLine = vars.skillCreatorAvailable === "true"
+    ? `When a task requires creating/updating a skill, use \`${vars.skillCreatorSkillFile}\` first.\n`
+    : "";
   return [
     "## Skills (Custom CLI Tools)",
-    "You can create reusable CLI tools for recurring tasks (APIs, data processing, automation, etc.).",
-    "",
-    "### Creating Skills",
-    `Store reusable skills in \`${vars.globalSkillsDir}/<name>/\`.`,
-    `Store bot-scoped skills in \`${vars.botSkillsDir}/<name>/\`.`,
+    creatorLine +
+    `Create reusable skills in \`${vars.globalSkillsDir}/<name>/\`.`,
+    `Create bot-scoped skills in \`${vars.botSkillsDir}/<name>/\`.`,
     `Use \`${vars.chatSkillsDir}/<name>/\` only for chat-specific temporary skills.`,
-    "Each skill directory needs a `SKILL.md` with YAML frontmatter:",
     "",
-    "```markdown",
-    "---",
-    "name: skill-name",
-    "description: Short description of what this skill does",
-    "---",
-    "",
-    "# Skill Name",
-    "",
-    "Usage instructions, examples, etc.",
-    "Scripts are in: {baseDir}/",
-    "```",
-    "",
-    "`name` and `description` are required. Use `{baseDir}` as placeholder for the skill directory path.",
-    "### Skill usage protocol",
-    "- If the user explicitly invokes a skill (`$skill-name`, `/skill skill-name`, `/skill-name`, `skill:skill-name`, `技能:skill-name`), you MUST use that skill for this turn.",
-    "- Slash form `/skill-name` is case-insensitive and matches normalized skill names and declared runtime aliases; treat spaces, `_`, and `-` as equivalent.",
-    "- Match skills by requested outcome, output format, and artifact type. Do not require the user to know the skill name.",
-    "- If input contains `[explicit skill invocation]`, treat listed `name/scope/skill_file` as authoritative runtime selection for this turn.",
-    "- If a listed skill also includes `aliases`, those aliases are valid invocation forms too.",
-    "- If no skill is explicitly invoked and one skill is the best fit, read its `SKILL.md` and use it proactively.",
-    "- If an installed skill directly fulfills the request, prefer it over generic tools. Do not substitute web search, file download, or text-only replies for the skill's actual capability.",
-    "- If no skill clearly applies, do not read skills speculatively.",
-    "- Before using any skill, read its SKILL.md in full.",
-    "- Never execute `SKILL.md` directly with `sh`/`bash`. Read it first, then run scripts/commands documented inside it.",
-    "- Follow instructions in SKILL.md exactly.",
-    "- Resolve relative paths against the skill directory.",
-    "- Prefer invoking skill scripts via `bash` tool.",
-    "- If two skills overlap, pick the one with the clearest description match.",
-    "- If a skill fails, report that actual failure and only then fall back. Do not pretend the fallback was the original plan.",
+    "### Skill Execution Protocol",
+    "- Explicit invocation (`$skill-name`, `/skill-name`, `skill:skill-name`, `技能:skill-name`) → MUST use that skill for this turn.",
+    "- Slash form is case-insensitive; spaces, `_`, and `-` are equivalent.",
+    "- `[explicit skill invocation]` in input → treat listed `skill_file` path as authoritative. Do not guess a different path.",
+    "- Before using any skill, read its `SKILL.md` in full. Never execute `SKILL.md` directly with `sh`/`bash`.",
+    "- Follow instructions in `SKILL.md` exactly. Resolve relative paths against the skill directory.",
+    "- If a skill fails, report the actual failure and why, then fall back. Do not skip the skill silently.",
+    "- If two skills overlap, pick the one whose description most directly matches the requested end result.",
   ].join("\n");
 }
 
@@ -387,15 +355,27 @@ function buildLogQuerySection(vars: PromptRenderVars): string {
 function buildToolsSection(): string {
   return [
     "## Tools",
-    "- memory: Memory gateway operations (add/search/list/update/delete/flush/sync). Use this for all memory changes.",
-    "- load_mcp: List/load/unload MCP servers for this chat session. If required MCP is missing, this tool will return a clear error.",
-    "- bash: Execute shell commands in scratch. Use this when no dedicated runtime tool can complete the task directly.",
-    "- read: Read files",
-    "- write: Create/overwrite files",
-    "- edit: Surgical file edits",
-    "- create_event: Schedule events/reminders. Always use this instead of writing event JSON files manually.",
-    "- attach: Send a local file through the active channel adapter (use only when direct text delivery is insufficient)",
-    "- Tool priority: prefer dedicated tools (`read`/`edit`/`write`/`create_event`/`memory`/`attach`) over `bash` whenever both can solve the task.",
+    "",
+    "### Tool Priority Table",
+    "IMPORTANT: Always use the dedicated tool. NEVER use bash when a dedicated tool exists for the same task.",
+    "",
+    "| Task | Use This | Not This |",
+    "|------|----------|----------|",
+    "| Read files | `read` | bash cat/head/tail |",
+    "| Create/overwrite files | `write` | bash echo/cat heredoc |",
+    "| Edit existing files | `edit` | bash sed/awk |",
+    "| Schedule/remind | `create_event` | bash sleep/crontab/at |",
+    "| Memory operations | `memory` | direct read/write MEMORY.md |",
+    "| Send file to user | `attach` | bash echo redirect |",
+    "| Load MCP servers | `load_mcp` | only in explicit MCP scenarios |",
+    "| Shell commands (last resort) | `bash` | — |",
+    "",
+    "### Tool Parameters",
+    "- `memory(operation, key?, value?, query?)` — operations: add, search, list, update, delete, flush, sync",
+    "- `create_event(type, chatId, text, delivery?, at?, schedule?, timezone?)` — type: one-shot | periodic | immediate",
+    "- `attach(file_path)` — send local file through active channel",
+    "- `bash(command)` — shell execution in scratch directory",
+    "",
     "- If multiple independent tool calls are needed, execute them in parallel; run sequentially only when one step depends on another.",
     "- `TOOLS.md` is guidance about conventions and paths; it does not control actual tool availability.",
   ].join("\n");
@@ -441,17 +421,21 @@ function buildBaseSystemPromptWithOptions(
   return [
     "You are an assistant operating through the active channel runtime.",
     "",
+    // --- Pipeline is first: skill matching before everything else ---
+    buildMessageProcessingPipeline(),
+    "",
+    // --- Skills registry + protocol right after pipeline ---
+    buildSkillsProtocolSection(vars),
+    "",
+    buildSkillsRuntimeStateSection(vars),
+    "",
+    // --- Tools (used only when no skill matched) ---
+    buildToolsSection(),
+    "",
+    // --- Behavioral constraints ---
     buildExecutionDisciplineSection(),
     "",
-    buildTaskFramingSection(),
-    "",
-    buildCapabilityUseOrderSection(),
-    "",
-    buildSkillRoutingSection(vars),
-    "",
     buildFreshnessSection(),
-    "",
-    buildToolsSection(),
     "",
     buildExternalContentSafetySection(),
     "",
@@ -461,6 +445,7 @@ function buildBaseSystemPromptWithOptions(
     "",
     buildFailureRecoverySection(),
     "",
+    // --- Runtime context ---
     buildMemoryContractSection(vars),
     "",
     buildContextSection(vars),
@@ -473,10 +458,6 @@ function buildBaseSystemPromptWithOptions(
     "",
     buildMcpAccessSection(options?.settings),
     ...(channelSections.length > 0 ? ["", ...channelSections] : []),
-    "",
-    buildSkillsProtocolSection(vars),
-    "",
-    buildSkillsRuntimeStateSection(vars),
     "",
     buildCurrentMemorySection(vars),
     "",

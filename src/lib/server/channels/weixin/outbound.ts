@@ -4,9 +4,10 @@ import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname } from "node:path";
+import { momWarn } from "../../agent/log.js";
 import { loadCredentials } from "./sdk/auth.js";
 import { CHANNEL_VERSION, apiFetch, sendMessage } from "./sdk/api.js";
-import { MessageItemType, MessageState, MessageType } from "./sdk/types.js";
+import { MessageItemType, MessageState, MessageType, type MessageItem } from "./sdk/types.js";
 
 const WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
 const execFileAsync = promisify(execFile);
@@ -70,6 +71,16 @@ function encryptAesEcb(data: Buffer, key: Buffer): Buffer {
 function randomWechatUin(): string {
   const value = randomBytes(4).readUInt32BE(0);
   return Buffer.from(String(value), "utf8").toString("base64");
+}
+
+function splitForLog(value: string, chunkSize = 320): string[] {
+  const text = String(value ?? "");
+  if (!text) return [];
+  const chunks: string[] = [];
+  for (let index = 0; index < text.length; index += chunkSize) {
+    chunks.push(text.slice(index, index + chunkSize));
+  }
+  return chunks;
 }
 
 function detectImageMimeType(data: Buffer): string | null {
@@ -193,26 +204,71 @@ async function uploadBufferToCdn(params: {
   fileKey: string;
   cdnBaseUrl: string;
   aesKey: Buffer;
+  mediaType: UploadMediaType;
+  sourceName: string;
 }): Promise<string> {
   const ciphertext = encryptAesEcb(params.plaintext, params.aesKey);
   const url = new URL(
-    `upload?filekey=${encodeURIComponent(params.fileKey)}&upload_param=${encodeURIComponent(params.uploadParam)}`,
+    `upload?encrypted_query_param=${encodeURIComponent(params.uploadParam)}&filekey=${encodeURIComponent(params.fileKey)}`,
     ensureTrailingSlash(params.cdnBaseUrl)
   );
+  const wechatUin = randomWechatUin();
+  momWarn("weixin", "cdn_upload_request", {
+    source: params.sourceName,
+    mediaType: params.mediaType,
+    cdnUrl: url.toString(),
+    cdnHost: url.origin,
+    cdnPath: url.pathname,
+    fileKey: params.fileKey,
+    uploadParamChunks: splitForLog(params.uploadParam),
+    plaintextSize: params.plaintext.length,
+    ciphertextSize: ciphertext.length,
+    headers: {
+      contentType: "application/octet-stream",
+      contentLength: String(ciphertext.length),
+      xWechatUin: wechatUin
+    }
+  });
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/octet-stream",
       "Content-Length": String(ciphertext.length),
-      "X-WECHAT-UIN": randomWechatUin(),
-      "X-WECHAT-FILEKEY": params.fileKey
+      "X-WECHAT-UIN": wechatUin
     },
     body: new Uint8Array(ciphertext)
   });
 
   const raw = await response.text();
+  const encryptedParamHeader = response.headers.get("x-encrypted-param")?.trim() || "";
+  momWarn("weixin", "cdn_upload_response", {
+    source: params.sourceName,
+    mediaType: params.mediaType,
+    status: response.status,
+    statusText: response.statusText,
+    responseBodyChunks: splitForLog(raw),
+    responseHeaders: {
+      xEncryptedParam: encryptedParamHeader
+    }
+  });
   if (!response.ok) {
-    throw new Error(`Weixin CDN upload failed ${response.status}: ${raw}`);
+    throw new Error(
+      [
+        `Weixin CDN upload failed ${response.status}: ${raw || "(empty body)"}`,
+        `source=${params.sourceName}`,
+        `mediaType=${params.mediaType}`,
+        `cdnHost=${url.origin}`,
+        `cdnPath=${url.pathname}`,
+        `uploadParamLength=${params.uploadParam.length}`,
+        `fileKey=${params.fileKey}`,
+        `plaintextSize=${params.plaintext.length}`,
+        `ciphertextSize=${ciphertext.length}`
+      ].join(" | ")
+    );
+  }
+
+  if (encryptedParamHeader) {
+    return encryptedParamHeader;
   }
 
   const payload = (raw ? JSON.parse(raw) : {}) as UploadBufferResponse;
@@ -225,7 +281,7 @@ async function uploadBufferToCdn(params: {
     payload.download_param ??
     payload.encrypt_query_param;
   if (!downloadParam) {
-    throw new Error(`Weixin CDN upload succeeded without download param: ${raw}`);
+    throw new Error(`Weixin CDN upload succeeded without x-encrypted-param/download param: ${raw}`);
   }
   return String(downloadParam);
 }
@@ -245,26 +301,46 @@ async function uploadMedia(params: {
   const rawFileMd5 = createHash("md5").update(params.plaintext).digest("hex");
   const fileSizeCiphertext = paddedSize(rawSize);
   const fileKey = randomBytes(16).toString("hex");
+  const requestBody = {
+    filekey: fileKey,
+    media_type: params.mediaType,
+    to_user_id: params.toUserId,
+    rawsize: rawSize,
+    rawfilemd5: rawFileMd5,
+    filesize: fileSizeCiphertext,
+    no_need_thumb: true,
+    aeskey: aesKeyHex,
+    base_info: {
+      channel_version: CHANNEL_VERSION
+    }
+  };
+  momWarn("weixin", "getuploadurl_request", {
+    source: basename(params.filePath),
+    mediaType: params.mediaType,
+    baseUrl: params.baseUrl,
+    requestBody
+  });
 
   const uploadUrl = await apiFetch<UploadUrlResponse>(
     params.baseUrl,
     "/ilink/bot/getuploadurl",
-    {
-      filekey: fileKey,
-      media_type: params.mediaType,
-      to_user_id: params.toUserId,
-      rawsize: rawSize,
-      rawfilemd5: rawFileMd5,
-      filesize: fileSizeCiphertext,
-      no_need_thumb: true,
-      aeskey: aesKeyHex,
-      base_info: {
-        channel_version: CHANNEL_VERSION
-      }
-    },
+    requestBody,
     params.token,
     15_000
   );
+  momWarn("weixin", "getuploadurl_response", {
+    source: basename(params.filePath),
+    mediaType: params.mediaType,
+    response: {
+      upload_param: uploadUrl.upload_param,
+      thumb_upload_param: uploadUrl.thumb_upload_param,
+      ret: uploadUrl.ret,
+      errcode: uploadUrl.errcode,
+      errmsg: uploadUrl.errmsg,
+      uploadParamChunks: splitForLog(uploadUrl.upload_param ?? ""),
+      thumbUploadParamChunks: splitForLog(uploadUrl.thumb_upload_param ?? "")
+    }
+  });
 
   if (!uploadUrl.upload_param) {
     throw new Error(uploadUrl.errmsg || "Weixin getuploadurl returned no upload_param");
@@ -275,7 +351,9 @@ async function uploadMedia(params: {
     uploadParam: uploadUrl.upload_param,
     fileKey,
     cdnBaseUrl: params.cdnBaseUrl,
-    aesKey
+    aesKey,
+    mediaType: params.mediaType,
+    sourceName: basename(params.filePath)
   });
 
   return {
@@ -292,9 +370,9 @@ async function sendMediaMessage(params: {
   token: string;
   baseUrl: string;
   caption?: string;
-  mediaItem: Record<string, unknown>;
+  mediaItem: MessageItem;
 }): Promise<void> {
-  const items: Array<Record<string, unknown>> = [];
+  const items: MessageItem[] = [];
   const caption = String(params.caption ?? "").trim();
   if (caption) {
     items.push({

@@ -138,6 +138,28 @@ async function downloadPlainMedia(encryptedQueryParam: string): Promise<Buffer> 
   return fetchCdnBytes(buildCdnDownloadUrl(encryptedQueryParam));
 }
 
+function normalizeAesKeyBase64(
+  rawValue: string | undefined | null,
+  fallbackHexValue?: string | undefined | null
+): string | undefined {
+  const value = String(rawValue ?? "").trim();
+  if (value) return value;
+
+  const fallbackHex = String(fallbackHexValue ?? "").trim();
+  if (/^[0-9a-fA-F]{32}$/.test(fallbackHex)) {
+    return Buffer.from(fallbackHex, "hex").toString("base64");
+  }
+
+  return undefined;
+}
+
+async function downloadMaybeEncryptedMedia(encryptedQueryParam: string, aesKeyBase64?: string): Promise<Buffer> {
+  if (aesKeyBase64) {
+    return downloadEncryptedMedia(encryptedQueryParam, aesKeyBase64);
+  }
+  return downloadPlainMedia(encryptedQueryParam);
+}
+
 function mediaIdentity(item: MessageItem): string {
   const imageKey = item.image_item?.media?.encrypt_query_param;
   const voiceKey = item.voice_item?.media?.encrypt_query_param;
@@ -229,9 +251,9 @@ export async function extractWeixinAttachments(input: {
 
       if (item.type === MessageItemType.VOICE) {
         const encryptedQueryParam = item.voice_item?.media?.encrypt_query_param;
-        const aesKeyBase64 = item.voice_item?.media?.aes_key;
-        if (!encryptedQueryParam || !aesKeyBase64) continue;
-        const data = await downloadEncryptedMedia(encryptedQueryParam, aesKeyBase64);
+        const aesKeyBase64 = normalizeAesKeyBase64(item.voice_item?.media?.aes_key, item.voice_item?.aeskey);
+        if (!encryptedQueryParam) continue;
+        const data = await downloadMaybeEncryptedMedia(encryptedQueryParam, aesKeyBase64);
         attachments.push(
           store.saveAttachment(chatId, buildVoiceFilename(message.raw.message_id, index), ts, data, {
             mediaType: "audio",
@@ -243,10 +265,10 @@ export async function extractWeixinAttachments(input: {
 
       if (item.type === MessageItemType.FILE) {
         const encryptedQueryParam = item.file_item?.media?.encrypt_query_param;
-        const aesKeyBase64 = item.file_item?.media?.aes_key;
-        if (!encryptedQueryParam || !aesKeyBase64) continue;
+        const aesKeyBase64 = normalizeAesKeyBase64(item.file_item?.media?.aes_key, item.file_item?.aeskey);
+        if (!encryptedQueryParam) continue;
         const filename = String(item.file_item?.file_name || `weixin_${message.raw.message_id}_${index}.bin`).trim();
-        const data = await downloadEncryptedMedia(encryptedQueryParam, aesKeyBase64);
+        const data = await downloadMaybeEncryptedMedia(encryptedQueryParam, aesKeyBase64);
         attachments.push(
           store.saveAttachment(chatId, filename, ts, data, {
             mediaType: "file",
@@ -258,9 +280,9 @@ export async function extractWeixinAttachments(input: {
 
       if (item.type === MessageItemType.VIDEO) {
         const encryptedQueryParam = item.video_item?.media?.encrypt_query_param;
-        const aesKeyBase64 = item.video_item?.media?.aes_key;
-        if (!encryptedQueryParam || !aesKeyBase64) continue;
-        const data = await downloadEncryptedMedia(encryptedQueryParam, aesKeyBase64);
+        const aesKeyBase64 = normalizeAesKeyBase64(item.video_item?.media?.aes_key, item.video_item?.aeskey);
+        if (!encryptedQueryParam) continue;
+        const data = await downloadMaybeEncryptedMedia(encryptedQueryParam, aesKeyBase64);
         attachments.push(
           store.saveAttachment(chatId, buildVideoFilename(message.raw.message_id, index), ts, data, {
             mediaType: "file",

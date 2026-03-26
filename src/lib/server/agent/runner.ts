@@ -498,6 +498,54 @@ function injectExplicitSkillInvocationContext(
   return `${inputText}\n\n[explicit skill invocation]\n${lines.join("\n")}\n[/explicit skill invocation]`;
 }
 
+function injectExplicitSkillFileContext(
+  inputText: string,
+  skills: Array<{ name: string; scope: string; filePath: string }>
+): string {
+  if (skills.length === 0) return inputText;
+
+  const blocks: string[] = [];
+  for (const skill of skills) {
+    try {
+      const raw = readFileSync(skill.filePath, "utf8").trim();
+      if (!raw) {
+        blocks.push(
+          [
+            `- name: ${skill.name}`,
+            `  scope: ${skill.scope}`,
+            `  skill_file: ${skill.filePath}`,
+            "  status: empty"
+          ].join("\n")
+        );
+        continue;
+      }
+
+      blocks.push(
+        [
+          `- name: ${skill.name}`,
+          `  scope: ${skill.scope}`,
+          `  skill_file: ${skill.filePath}`,
+          "  status: loaded",
+          "  content: |",
+          ...raw.split("\n").map((line) => `    ${line}`)
+        ].join("\n")
+      );
+    } catch (error) {
+      blocks.push(
+        [
+          `- name: ${skill.name}`,
+          `  scope: ${skill.scope}`,
+          `  skill_file: ${skill.filePath}`,
+          `  status: read_failed`,
+          `  error: ${error instanceof Error ? error.message : String(error)}`
+        ].join("\n")
+      );
+    }
+  }
+
+  return `${inputText}\n\n[explicit skill file]\n${blocks.join("\n")}\n[/explicit skill file]`;
+}
+
 function buildPromptRefreshKey(
   settings: RuntimeSettings,
   channel: string,
@@ -1420,8 +1468,8 @@ export class MomRunner implements RunnerLike {
     const skillExplicitlyInvoked = explicitlyInvokedSkills.length > 0;
     const mcpExplicitlyInvoked = hasExplicitMcpInvocation(enrichedInput.text);
     const skillRequiresMcp = explicitlyInvokedSkills.some((skill) => skill.mcpServers.length > 0);
-    const effectiveInputText = injectExplicitSkillInvocationContext(
-      enrichedInput.text,
+    const effectiveInputText = injectExplicitSkillFileContext(
+      injectExplicitSkillInvocationContext(enrichedInput.text, explicitlyInvokedSkills),
       explicitlyInvokedSkills
     );
     const resolveScopedMcpServers = (): RuntimeSettings["mcpServers"] => {

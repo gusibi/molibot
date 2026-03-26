@@ -19,7 +19,7 @@ export function createAttachTool(options: {
   return {
     name: "attach",
     label: "attach",
-    description: "Send a local file to Telegram.",
+    description: "Send a local file through the active channel adapter.",
     parameters: attachSchema,
     execute: async (_toolCallId, params, signal) => {
       if (signal?.aborted) {

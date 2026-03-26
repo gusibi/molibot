@@ -38,6 +38,18 @@ export function stripAnsi(text: string): string {
   return text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
 }
 
+export function normalizeCommandOutput(text: string): string {
+  if (!text) return "";
+  return text
+    .split("\n")
+    .map((line) => {
+      const normalized = line.replace(/\r+/g, "\r");
+      const lastCarriage = normalized.lastIndexOf("\r");
+      return lastCarriage >= 0 ? normalized.slice(lastCarriage + 1) : normalized;
+    })
+    .join("\n");
+}
+
 export async function execCommand(command: string, opts: ExecOptions): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const child = spawn("sh", ["-lc", command], {

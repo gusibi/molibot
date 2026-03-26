@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { config } from "../../app/env.js";
-import { execCommand, stripAnsi } from "./helpers.js";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateTail, type TruncationResult } from "./truncate.js";
+import { execCommand, normalizeCommandOutput, stripAnsi } from "./helpers.js";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "./truncate.js";
 
 const bashSchema = Type.Object({
   label: Type.String(),
@@ -67,7 +67,7 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
     name: "bash",
     label: "bash",
     description:
-      `Execute a bash command in scratch workspace. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
+      `Execute a bash command in scratch workspace. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
     parameters: bashSchema,
     execute: async (_toolCallId, params, signal) => {
       if (isDeferredWaitCommand(params.command)) {
@@ -100,18 +100,16 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
       let output = "";
       if (result.stdout) output += result.stdout;
       if (result.stderr) output += `${output ? "\n" : ""}${result.stderr}`;
-      output = stripAnsi(output);
+      output = normalizeCommandOutput(stripAnsi(output));
 
-      const truncation = truncateTail(output);
+      const truncation = truncateMiddle(output);
       let rendered = truncation.content || "(no output)";
       let details: BashToolDetails | undefined;
 
       if (truncation.truncated) {
         const fullOutputPath = buildTempOutputPath(cwd);
         writeFileSync(fullOutputPath, output, "utf8");
-        const startLine = truncation.totalLines - truncation.outputLines + 1;
-        const endLine = truncation.totalLines;
-        rendered += `\n\n[Showing lines ${startLine}-${endLine} of ${truncation.totalLines}. Full output: ${fullOutputPath}]`;
+        rendered += `\n\n[Output compressed from ${truncation.totalLines} lines / ${formatSize(truncation.totalBytes)}. Full output: ${fullOutputPath}]`;
         details = { truncation, fullOutputPath };
       }
 
