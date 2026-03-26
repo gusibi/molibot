@@ -1,11 +1,15 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, extname } from "node:path";
-import { loadCredentials } from "../../../../../node_modules/@pinixai/weixin-bot/src/auth.ts";
-import { CHANNEL_VERSION, apiFetch, sendMessage } from "../../../../../node_modules/@pinixai/weixin-bot/src/api.ts";
-import { MessageItemType, MessageState, MessageType } from "../../../../../node_modules/@pinixai/weixin-bot/src/types.ts";
+import { loadCredentials } from "./sdk/auth.js";
+import { CHANNEL_VERSION, apiFetch, sendMessage } from "./sdk/api.js";
+import { MessageItemType, MessageState, MessageType } from "./sdk/types.js";
 
 const WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
+const execFileAsync = promisify(execFile);
 
 const EXTENSION_TO_MIME: Record<string, string> = {
   ".aac": "audio/aac",
@@ -114,6 +118,72 @@ function normalizeInlineText(filePath: string, data: Buffer): string | null {
     return text ? text : null;
   } catch {
     return null;
+  }
+}
+
+interface PreparedVoicePayload {
+  filePath: string;
+  plaintext: Buffer;
+  mimeType: string;
+  cleanup: () => void;
+}
+
+function shouldTranscodeToWechatVoice(filePath: string, mimeType: string): boolean {
+  const lowerExt = extname(filePath).toLowerCase();
+  return lowerExt === ".ogg" || lowerExt === ".oga" || lowerExt === ".opus" || mimeType === "audio/ogg";
+}
+
+async function prepareWechatVoicePayload(filePath: string, plaintext: Buffer, mimeType: string): Promise<PreparedVoicePayload> {
+  if (!shouldTranscodeToWechatVoice(filePath, mimeType)) {
+    return {
+      filePath,
+      plaintext,
+      mimeType,
+      cleanup: () => {}
+    };
+  }
+
+  const tempDir = mkdtempSync(`${tmpdir()}/molibot-weixin-voice-`);
+  const outputPath = `${tempDir}/voice.mp3`;
+
+  try {
+    await execFileAsync("ffmpeg", [
+      "-y",
+      "-i",
+      filePath,
+      "-vn",
+      "-ac",
+      "1",
+      "-ar",
+      "24000",
+      "-codec:a",
+      "libmp3lame",
+      "-b:a",
+      "48k",
+      outputPath
+    ], {
+      timeout: 30_000,
+      maxBuffer: 10 * 1024 * 1024
+    });
+
+    const transcoded = readFileSync(outputPath);
+    return {
+      filePath: outputPath,
+      plaintext: transcoded,
+      mimeType: "audio/mpeg",
+      cleanup: () => {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    };
+  } catch (error) {
+    try {
+      const marker = `${tempDir}/ffmpeg-error.txt`;
+      writeFileSync(marker, error instanceof Error ? error.message : String(error));
+    } catch {
+      // ignore
+    }
+    rmSync(tempDir, { recursive: true, force: true });
+    throw new Error(`wechat_voice_transcode_failed:${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -321,13 +391,14 @@ export async function sendWeixinFile(params: {
     return "image";
   }
 
-  const voiceEncodeType = inferVoiceEncodeType(params.filePath, mimeType);
+  const voicePayload = await prepareWechatVoicePayload(params.filePath, plaintext, mimeType);
+  const voiceEncodeType = inferVoiceEncodeType(voicePayload.filePath, voicePayload.mimeType);
   let voiceFailure: string | null = null;
   if (voiceEncodeType != null) {
     try {
       const uploaded = await uploadMedia({
-        filePath: params.filePath,
-        plaintext,
+        filePath: voicePayload.filePath,
+        plaintext: voicePayload.plaintext,
         toUserId: params.toUserId,
         token: credentials.token,
         baseUrl,
@@ -352,11 +423,13 @@ export async function sendWeixinFile(params: {
           }
         }
       });
+      voicePayload.cleanup();
       return "voice";
     } catch (error) {
       voiceFailure = error instanceof Error ? error.message : String(error);
     }
   }
+  voicePayload.cleanup();
 
   try {
     const uploaded = await uploadMedia({

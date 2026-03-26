@@ -9,11 +9,6 @@ read_when:
 
 初始化已完成。
 
-## 当前状态
-
-- `IDENTITY.md`、`USER.md`、`SOUL.md`、`TOOLS.md`、`AGENTS.md` 已建立。
-- 当前全局 profile 根目录为：`~/.molibot`
-
 ## 规则
 
 - 本文件不承载长期规则。
@@ -21,5 +16,5 @@ read_when:
 - 新的长期信息应写入对应 profile 文件，而不是继续堆在这里。
 
 ---
-last_updated: 2026-02-28
+last_updated: 2026-03-26
 owner: user

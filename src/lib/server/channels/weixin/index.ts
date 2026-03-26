@@ -21,7 +21,7 @@ export const weixinChannelPlugin: ChannelPlugin<WeixinConfig> = {
   key: "weixin",
   name: "WeChat Bot",
   version: "built-in",
-  description: "Built-in WeChat channel plugin powered by the weixin-bot Node.js SDK.",
+  description: "Built-in WeChat channel plugin powered by the local Weixin agent SDK bridge.",
   listInstances,
   createManager: (instance, deps) =>
     new WeixinManager(deps.getSettings, deps.updateSettings, deps.sessions, {

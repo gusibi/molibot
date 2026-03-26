@@ -197,12 +197,30 @@ export function loadSkillsFromWorkspace(
   };
 }
 
-export function formatSkillsForPrompt(skills: LoadedSkill[]): string {
+function compactSkillDescription(input: string, maxChars: number): string {
+  const normalized = String(input ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return "";
+  const firstSentence = normalized.split(/(?<=[.!?。！？])\s+/)[0]?.trim() || normalized;
+  const candidate = firstSentence.length <= maxChars ? firstSentence : normalized;
+  if (candidate.length <= maxChars) return candidate;
+  return `${candidate.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+export function formatSkillsForPrompt(
+  skills: LoadedSkill[],
+  options?: { compact?: boolean; maxDescriptionChars?: number }
+): string {
   if (skills.length === 0) return "(no skills installed yet)";
+  const compact = options?.compact === true;
+  const maxDescriptionChars = options?.maxDescriptionChars ?? 140;
   return skills
     .map(
       (skill) =>
-        `- ${skill.name}\n  description: ${skill.description}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}${
+        `- ${skill.name}\n  description: ${
+          compact ? compactSkillDescription(skill.description, maxDescriptionChars) : skill.description
+        }\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}${
           skill.aliases.length > 0 ? `\n  aliases: ${skill.aliases.join(", ")}` : ""
         }${
           skill.mcpServers.length > 0 ? `\n  mcp_servers: ${skill.mcpServers.join(", ")}` : ""

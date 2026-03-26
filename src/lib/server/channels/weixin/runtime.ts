@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
-import { type IncomingMessage, WeixinBot } from "../../../../../node_modules/@pinixai/weixin-bot/src/index.ts";
+import { type IncomingMessage, WeixinBot } from "./sdk/index.js";
 import { config } from "../../app/env.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
@@ -127,7 +127,7 @@ export class WeixinManager {
       cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
       maybeHandleAcpCommand: (scopeId, cmd, rawArg, sourceMessage) =>
         this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, sourceMessage),
-      sendText: (sourceMessage, text) => this.replyCommand((sourceMessage as IncomingMessage).sender.id, sourceMessage, text),
+      sendText: (sourceMessage, text) => this.replyCommand((sourceMessage as IncomingMessage).userId, sourceMessage, text),
       onSessionMutation: (scopeId) => {
         void this.writePromptPreview([scopeId]);
       },

@@ -17,6 +17,10 @@ import type {
   MemorySearchInput,
   MemoryUpdateInput
 } from "./types.js";
+import {
+  classifyAutoMemoryCandidate,
+  inferFactKey
+} from "./classifier.js";
 
 interface MemoryFileData {
   items: MemoryRecord[];
@@ -54,63 +58,6 @@ function scoreByRecency(updatedAt: string): number {
   if (!Number.isFinite(deltaMs) || deltaMs < 0) return 1;
   const oneDay = 24 * 60 * 60 * 1000;
   return Math.max(0.1, 1 / (1 + (deltaMs / oneDay)));
-}
-
-function classifyMemory(
-  text: string
-): { content: string; layer: MemoryLayer; tags: string[] } | null {
-  const normalized = normalizeContent(text);
-  if (!normalized || normalized.length < 6) return null;
-  if (normalized.length > 500) return null;
-  const lower = normalized.toLowerCase();
-
-  const longTermHints = [
-    "记住",
-    "记一下",
-    "以后",
-    "总是",
-    "偏好",
-    "我的名字",
-    "my name is",
-    "call me",
-    "i prefer",
-    "remember",
-    "always",
-    "never"
-  ];
-
-  const dailyHints = [
-    "今天",
-    "明天",
-    "this session",
-    "today",
-    "for now",
-    "当前"
-  ];
-
-  if (longTermHints.some((hint) => lower.includes(hint))) {
-    return { content: normalized, layer: "long_term", tags: ["flush", "auto", "long_term"] };
-  }
-  if (dailyHints.some((hint) => lower.includes(hint))) {
-    return { content: normalized, layer: "daily", tags: ["flush", "auto", "daily"] };
-  }
-
-  return null;
-}
-
-function parseFactKey(content: string): string | null {
-  const text = content.trim();
-  const lower = text.toLowerCase();
-  const patterns: Array<{ key: string; re: RegExp }> = [
-    { key: "user.name", re: /\b(my name is|call me)\b/i },
-    { key: "user.preference", re: /\b(i prefer|我喜欢|我的偏好)\b/i },
-    { key: "user.rule", re: /\b(always|never|以后|总是|不要)\b/i }
-  ];
-  for (const p of patterns) {
-    if (p.re.test(text)) return p.key;
-  }
-  if (lower.startsWith("remember")) return "user.remember";
-  return null;
 }
 
 function isExpired(item: MemoryRecord, nowMs: number): boolean {
@@ -172,7 +119,7 @@ export class JsonFileMemoryBackend implements MemoryBackend {
           layer: row.layer === "daily" ? "daily" : "long_term",
           tags: Array.isArray(row.tags) ? row.tags : [],
           expiresAt: normalizeExpiresAt(row.expiresAt),
-          factKey: typeof row.factKey === "string" ? row.factKey : parseFactKey(row.content),
+          factKey: typeof row.factKey === "string" ? row.factKey : inferFactKey(row.content),
           hasConflict: Boolean(row.hasConflict)
         })).filter((row) => !isExpired(row, nowMs))
       : [];
@@ -292,7 +239,7 @@ export class JsonFileMemoryBackend implements MemoryBackend {
       content,
       tags: normalizeTags(input.tags),
       layer,
-      factKey: parseFactKey(content) ?? undefined,
+      factKey: inferFactKey(content) ?? undefined,
       hasConflict: false,
       sourceSessionId: input.sourceSessionId,
       expiresAt: normalizeExpiresAt(input.expiresAt) ?? defaultExpiresAt(layer),
@@ -371,7 +318,7 @@ export class JsonFileMemoryBackend implements MemoryBackend {
     if (typeof input.expiresAt !== "undefined" || input.expiresAt === null) {
       found.expiresAt = normalizeExpiresAt(input.expiresAt);
     }
-    found.factKey = parseFactKey(found.content) ?? undefined;
+    found.factKey = inferFactKey(found.content) ?? undefined;
     found.updatedAt = new Date().toISOString();
     this.reconcileConflicts(data);
     this.saveData(data);
@@ -397,7 +344,7 @@ export class JsonFileMemoryBackend implements MemoryBackend {
       for (const msg of messages.slice(start)) {
         scannedMessages += 1;
         if (msg.role !== "user") continue;
-        const classified = classifyMemory(msg.content);
+        const classified = classifyAutoMemoryCandidate(msg.content);
         if (!classified) continue;
         const memory = await this.add(scope, {
           content: classified.content,

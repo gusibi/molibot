@@ -167,6 +167,11 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-121 | Shared public channel-command ownership | P1 | Delivered (2026-03-25) | Public text-channel commands and session-control behavior should be owned by agent core instead of being reimplemented in each channel runtime; Telegram/Feishu/QQ/Weixin must keep only channel-local parsing, attachment handling, and reply transport while shared command/session/model/thinking flows live in one reusable layer |
 | P1-122 | Skill-first prompt rules and slash skill alias resolution | P1 | Delivered (2026-03-25) | The runtime prompt should use generic skill-loading semantics instead of hardcoded skill names, treat slash skill forms as authoritative explicit invocation, and resolve them against both frontmatter `name` and runtime alias forms such as the skill directory name so the model receives the exact `skill_file` path rather than guessing |
 | P1-123 | Dedicated-tool-first execution and memory governance prompt policy | P1 | Delivered (2026-03-25) | Runtime/system prompt guidance should prefer dedicated runtime tools over bash when equivalent, require parallel execution for independent tool calls, and define practical memory governance (what to store, what not to store, stale-memory verification/update) so behavior stays predictable across long-lived sessions |
+| P1-124 | Prompt mainline prioritization and dynamic payload trimming | P1 | Delivered (2026-03-25) | The live runtime prompt should front-load stable high-value behavior rules before environment/detail sections, compress skill inventory into an index instead of long prose, and trim injected current-memory payloads so dynamic noise does not drown the core instructions that drive task execution |
+| P1-125 | Memory write-time classification and prompt eligibility filtering | P1 | Delivered (2026-03-26) | Memory should be classified when written, not only when displayed: long-term collaboration/project/reference memories must be tagged automatically, temporary and lifestyle records must be isolated by default, and prompt injection should prefer high-value classes while still allowing relevant lifestyle memory to surface when the current query actually concerns it |
+| P1-126 | General-purpose agent prompt hardening | P1 | Delivered (2026-03-26) | The runtime prompt should not assume a coding-only workload. It must explicitly frame task types, verify fresh/current information before answering, resist prompt injection from fetched content, and require confirmation for broader high-impact actions such as external posting, credential/config changes, and destructive runtime edits |
+| P1-127 | Profile template responsibility cleanup | P1 | Delivered (2026-03-26) | Long-term profile templates should have clean boundaries: AGENTS for collaboration contract, IDENTITY for stable role, SOUL for communication style, USER for collaboration-relevant user facts, BOOTSTRAP for minimal init residue only. Repeated runtime rules and low-value personal noise should be removed so these files stop competing with the main system prompt |
+| P1-128 | Existing-capability-first routing | P1 | Delivered (2026-03-26) | The agent must treat requests for voice/image/search/reminder output as result requests first, not as implementation asks. Installed skills and dedicated runtime tools must be attempted before any code-writing or workspace modification is considered, and a missed first guess must not immediately escalate into development work |
 
 ### P1-117 Implementation Note (2026-03-24)
 - Telegram ACP middleware must not keep any stale direct reference to the old local control-command helper once proxy gating is centralized through the shared ACP proxy rule, otherwise bot startup can fail before ACP routing is reached.
@@ -193,6 +198,26 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 ### P1-123 Implementation Note (2026-03-25)
 - Tool policy should mirror the real runtime surface: `read/edit/write/create_event/memory/attach` are first-class operations; bash is the fallback when those tools cannot complete the task directly.
 - Memory policy should be operational rather than abstract: only durable cross-session facts should be stored, ephemeral execution detail should stay out, and stale memory must be verified against current workspace/runtime state before being used.
+
+### P1-124 Implementation Note (2026-03-25)
+- Prompt ordering should reflect decision impact, not implementation categories. “How to work” and “when to use skills/tools” must appear before path maps, scheduler detail, or long environment notes.
+- Dynamic sections must behave like indexes, not mini-manuals. Skills should expose short descriptions plus aliases/paths, while current memory should inject a bounded summary instead of long raw records.
+
+### P1-125 Implementation Note (2026-03-26)
+- Classification should happen at the memory gateway boundary so both supported backends benefit without forking behavior.
+- Prompt-memory filtering should be tag-aware rather than content-blind. Collaboration rules, user preferences, project context, and external references deserve priority; lifestyle and temporary notes should remain searchable but stay out of the default prompt unless the active query makes them relevant.
+
+### P1-126 Implementation Note (2026-03-26)
+- Claude Code’s strongest portable ideas are not the coding-specific ones but the behavioral ones: classify the task first, verify fresh information, distrust external content as instructions, and confirm high-impact actions.
+- For Molibot, these rules must be written in a tool-agnostic and artifact-oriented way so they help with search, media generation, reminders, and other non-coding tasks instead of overfitting to repository editing workflows.
+
+### P1-127 Implementation Note (2026-03-26)
+- Profile templates are long-term context, not a second system prompt. If the same rule already lives in runtime prompt assembly, it should not also be repeated in AGENTS/SOUL/USER unless the file owns a different higher-level responsibility.
+- USER context should bias toward facts that change collaboration quality. Generic lifestyle details should stay available but visually de-emphasized so they do not compete with task-relevant guidance in every session.
+
+### P1-128 Implementation Note (2026-03-26)
+- For a general-purpose agent, “write code” is not a neutral default action. It should be the last resort after existing skills and dedicated runtime tools have been checked against the requested outcome.
+- The prompt must explicitly stop the agent from misreading output-format requests as feature-building requests; otherwise it will keep trying to implement voice/image/search support instead of simply using the already-installed capability.
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -1690,3 +1715,55 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/channels/weixin/runtime.ts` 的 `uploadFile` 不能再把二进制文件降级成 `[file] ${path}` 文本。
   - `src/lib/server/channels/weixin/` 下必须提供实际的出站媒体上传与发送逻辑，覆盖图片、音频和普通文件三类。
   - `features.md` 必须记录这次根因和出站修复结果，方便后续排查“为什么微信只能回文字”。
+
+## 127. 跨渠道语音格式基线与 Weixin OGG 兼容修复 (2026-03-25)
+- Priority: P1
+- Stage: Delivered (2026-03-25)
+- Problem:
+  - 当前 TTS 默认产出的 `ogg/opus` 更偏向 Telegram 语音消息格式，但 Weixin 这条出站链路并不适合直接吃这个格式，导致微信回复语音时要么失败，要么只能退回成普通文件提示。
+  - 飞书、Telegram、Weixin、QQ 在“原生语音消息”上的格式能力并不一致，不能假设生成一种文件就能在四个渠道里都显示成原生语音气泡。
+- Requirement:
+  - Weixin 出站语音必须识别 Telegram 风格的 `ogg/opus` 文件，并在发送前自动转成更适合 Weixin 原生语音的格式，再尝试语音发送。
+  - 产品文档必须明确记录当前渠道语音交集并不存在，后续若要统一体验，应按渠道分别做格式适配，而不是继续强推单一源格式。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须在语音发送前处理 `ogg/opus -> mp3` 的自动转换。
+  - `features.md` 必须记录这次语音兼容修复，方便后续排查“为什么 Telegram 正常而微信不行”。
+
+## 128. Weixin SDK 引用清理与安装修复 (2026-03-25)
+- Priority: P1
+- Stage: Delivered (2026-03-25)
+- Problem:
+  - 当前项目为了绕过 `@pinixai/weixin-bot` 已发布包的导出声明问题，直接在业务代码里写了 `../../../../node_modules/...` 这类长相对路径，导致代码难看、难维护，也违背正常依赖使用方式。
+  - 如果后续重新安装依赖，之前靠构建配置兜底的特殊处理也容易再次漂移，继续把 SDK 接入搞脏。
+- Requirement:
+  - 业务代码里的 Weixin SDK 引用必须改成正常的包名导入，不能再出现直接钻进 `node_modules` 的长路径。
+  - 项目必须在安装依赖后自动修复这个 SDK 缺失的导出声明，避免每次都靠手工兜底。
+- Enforcement:
+  - `src/lib/server/channels/weixin/*.ts` 不能再出现 `node_modules/@pinixai/weixin-bot` 的相对路径导入。
+  - `package.json` 与配套脚本必须保证重新安装依赖后，Weixin SDK 仍可被正常导入。
+  - `features.md` 必须记录这次清理结果，方便后续排查“为什么 import 看起来正常却加载失败”。
+
+## 129. Weixin 旧 SDK 下线与本地桥接迁移 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 旧的 `@pinixai/weixin-bot` 包本身有发布和行为问题，已经不适合作为项目的长期微信依赖。
+  - 即使通过补丁或安装后修复把它勉强跑起来，也会让微信通道继续受制于外部坏包，后续维护成本很高。
+- Requirement:
+  - 项目必须彻底移除 `@pinixai/weixin-bot` 依赖，不再让微信 runtime、媒体收发和登录流程建立在这个旧包之上。
+  - 微信通道应改为使用项目内的本地桥接层，桥接逻辑参考新版 `weixin-agent-sdk` 的登录与轮询方式，并继续兼容 Molibot 现有的会话、命令和媒体处理。
+- Enforcement:
+  - `package.json` / `package-lock.json` 中不能再保留 `@pinixai/weixin-bot` 作为运行依赖。
+  - `src/lib/server/channels/weixin/` 必须改为依赖本地 `sdk/` 桥接层。
+  - `features.md` 必须记录这次迁移，避免后续误以为微信还绑定在旧包上。
+
+## 130. Weixin 迁移后命令回复字段修正 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 微信切到本地桥接层后，命令回复逻辑里还有一处沿用了旧消息结构，错误地去读 `sender.id`，导致一收到 `/help`、`/new` 这类命令就直接抛错。
+- Requirement:
+  - 微信命令回复必须统一使用迁移后真实存在的用户标识字段，不能再依赖旧 SDK 才有的对象结构。
+- Enforcement:
+  - `src/lib/server/channels/weixin/runtime.ts` 的共享命令 `sendText` 入口必须使用 `IncomingMessage.userId`。
+  - `features.md` 必须记录这次修正，方便后续排查迁移后“为什么命令一发就崩”。

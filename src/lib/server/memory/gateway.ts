@@ -19,6 +19,12 @@ import {
   clearImportedMemorySuppression,
   suppressImportedMemory
 } from "./importTombstones.js";
+import {
+  inferMemoryTags,
+  normalizeMemoryContent,
+  prepareMemoryAddInput,
+  selectPromptMemoryRows
+} from "./classifier.js";
 
 export class MemoryGateway {
   private readonly backends: Record<string, MemoryBackend>;
@@ -67,8 +73,9 @@ export class MemoryGateway {
 
   async add(scope: MemoryScope, input: MemoryAddInput): Promise<MemoryRecord | null> {
     if (!this.isEnabled()) return null;
-    clearImportedMemorySuppression(scope, input.layer ?? "long_term", input.content);
-    return this.getBackend().add(scope, input);
+    const prepared = prepareMemoryAddInput(input);
+    clearImportedMemorySuppression(scope, prepared.layer ?? "long_term", prepared.content);
+    return this.getBackend().add(scope, prepared);
   }
 
   async search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]> {
@@ -94,7 +101,15 @@ export class MemoryGateway {
   async update(scope: MemoryScope, id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null> {
     if (!this.isEnabled()) return null;
     const existing = await this.getBackend().get(scope, id);
-    const updated = await this.getBackend().update(scope, id, input);
+    const nextInput: MemoryUpdateInput = { ...input };
+    if (existing && typeof input.content === "string") {
+      nextInput.content = normalizeMemoryContent(input.content);
+      nextInput.tags = inferMemoryTags(
+        nextInput.content,
+        Array.isArray(input.tags) ? input.tags : existing.tags
+      );
+    }
+    const updated = await this.getBackend().update(scope, id, nextInput);
     if (existing && typeof input.content === "string") {
       const nextContent = normalizeMemoryContent(input.content);
       if (nextContent && normalizeMemoryContent(existing.content).toLowerCase() !== nextContent.toLowerCase()) {
@@ -128,8 +143,7 @@ export class MemoryGateway {
     if (!this.isEnabled()) return "";
     const rows = dedupeMemoryRows(await this.search(scope, { query, limit: Math.max(limit * 4, 20), mode: "hybrid" }));
     if (rows.length === 0) return "";
-    const longTerm = rows.filter((row) => row.layer === "long_term").slice(0, limit);
-    const daily = rows.filter((row) => row.layer === "daily").slice(0, limit);
+    const { longTerm, daily } = selectPromptMemoryRows(rows, query, limit);
     const sections: string[] = [];
     if (longTerm.length > 0) {
       sections.push(
@@ -175,8 +189,4 @@ function dedupeMemoryRows(rows: MemoryRecord[]): MemoryRecord[] {
     deduped.push(row);
   }
   return deduped;
-}
-
-function normalizeMemoryContent(input: string): string {
-  return input.replace(/\s+/g, " ").trim();
 }

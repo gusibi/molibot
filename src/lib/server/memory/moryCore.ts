@@ -21,6 +21,10 @@ import type {
   MemorySearchMode,
   MemoryUpdateInput
 } from "./types.js";
+import {
+  classifyAutoMemoryCandidate,
+  inferFactKey
+} from "./classifier.js";
 
 interface ScopeIndexData {
   scopes: Record<string, MemoryScope>;
@@ -90,63 +94,6 @@ function scoreByRecency(updatedAt: string): number {
   if (!Number.isFinite(deltaMs) || deltaMs < 0) return 1;
   const oneDay = 24 * 60 * 60 * 1000;
   return Math.max(0.1, 1 / (1 + (deltaMs / oneDay)));
-}
-
-function classifyMemory(
-  text: string
-): { content: string; layer: MemoryLayer; tags: string[] } | null {
-  const normalized = normalizeContent(text);
-  if (!normalized || normalized.length < 6) return null;
-  if (normalized.length > 500) return null;
-  const lower = normalized.toLowerCase();
-
-  const longTermHints = [
-    "记住",
-    "记一下",
-    "以后",
-    "总是",
-    "偏好",
-    "我的名字",
-    "my name is",
-    "call me",
-    "i prefer",
-    "remember",
-    "always",
-    "never"
-  ];
-
-  const dailyHints = [
-    "今天",
-    "明天",
-    "this session",
-    "today",
-    "for now",
-    "当前"
-  ];
-
-  if (longTermHints.some((hint) => lower.includes(hint))) {
-    return { content: normalized, layer: "long_term", tags: ["flush", "auto", "long_term"] };
-  }
-  if (dailyHints.some((hint) => lower.includes(hint))) {
-    return { content: normalized, layer: "daily", tags: ["flush", "auto", "daily"] };
-  }
-
-  return null;
-}
-
-function parseFactKey(content: string): string | null {
-  const text = content.trim();
-  const lower = text.toLowerCase();
-  const patterns: Array<{ key: string; re: RegExp }> = [
-    { key: "user.name", re: /\b(my name is|call me)\b/i },
-    { key: "user.preference", re: /\b(i prefer|我喜欢|我的偏好)\b/i },
-    { key: "user.rule", re: /\b(always|never|以后|总是|不要)\b/i }
-  ];
-  for (const p of patterns) {
-    if (p.re.test(text)) return p.key;
-  }
-  if (lower.startsWith("remember")) return "user.remember";
-  return null;
 }
 
 function slugify(input: string, fallback = "memory"): string {
@@ -324,7 +271,7 @@ export class MoryMemoryBackend implements MemoryBackend {
         layer,
         tags: mergedTags,
         expiresAt: nextExpiresAt,
-        factKey: parseFactKey(content) ?? existing.factKey,
+        factKey: inferFactKey(content) ?? existing.factKey,
         sourceSessionId: input.sourceSessionId ?? existing.sourceSessionId
       };
       const updated = await this.storage.update(userId, existing.id, {
@@ -369,7 +316,7 @@ export class MoryMemoryBackend implements MemoryBackend {
       layer,
       tags: normalizeTags(input.tags),
       expiresAt,
-      factKey: parseFactKey(content) ?? undefined,
+      factKey: inferFactKey(content) ?? undefined,
       sourceSessionId: input.sourceSessionId
     };
 
@@ -442,7 +389,7 @@ export class MoryMemoryBackend implements MemoryBackend {
         layer: sibling.layer,
         tags: mergedTags,
         expiresAt: mergedExpiresAt,
-        factKey: parseFactKey(nextContent) ?? sibling.factKey,
+        factKey: inferFactKey(nextContent) ?? sibling.factKey,
         sourceSessionId: sibling.sourceSessionId ?? current.sourceSessionId
       };
       const updatedSibling = await this.storage.update(userId, sibling.id, {
@@ -460,7 +407,7 @@ export class MoryMemoryBackend implements MemoryBackend {
       layer: current.layer,
       tags: nextTags,
       expiresAt: nextExpiresAt,
-      factKey: parseFactKey(nextContent) ?? undefined,
+      factKey: inferFactKey(nextContent) ?? undefined,
       sourceSessionId: current.sourceSessionId
     };
 
@@ -493,7 +440,7 @@ export class MoryMemoryBackend implements MemoryBackend {
       for (const msg of messages.slice(start)) {
         scannedMessages += 1;
         if (msg.role !== "user") continue;
-        const classified = classifyMemory(msg.content);
+        const classified = classifyAutoMemoryCandidate(msg.content);
         if (!classified) continue;
         const memory = await this.add(scope, {
           content: classified.content,
