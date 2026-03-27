@@ -129,96 +129,29 @@ function encodeMessageAesKey(aesKeyHex: string): string {
   return Buffer.from(aesKeyHex, "utf8").toString("base64");
 }
 
-interface PreparedVoicePayload {
+interface PreparedAudioPayload {
   filePath: string;
   plaintext: Buffer;
   mimeType: string;
-  encodeType: number | null;
-  supportsNativeVoiceMessage: boolean;
-  playtimeMs: number | null;
-  sampleRate: number | null;
-  bitsPerSample: number | null;
   cleanup: () => void;
 }
 
-interface VoiceMessageMetadata {
-  playtime: number | null;
-  sampleRate: number | null;
-  bitsPerSample: number | null;
-}
-
-function inferWechatVoiceStrategy(filePath: string, mimeType: string): {
+function inferWechatAudioAttachmentStrategy(filePath: string, mimeType: string): {
   needsTranscode: boolean;
   targetMimeType: string;
-  encodeType: number | null;
-  supportsNativeVoiceMessage: boolean;
+  outputName: string;
   ffmpegArgs?: string[];
 } {
   const lowerExt = extname(filePath).toLowerCase();
-  if (lowerExt === ".wav" || mimeType.includes("wav")) {
-    return { needsTranscode: false, targetMimeType: mimeType, encodeType: 1, supportsNativeVoiceMessage: false };
-  }
-  if (lowerExt === ".amr" || mimeType.includes("amr")) {
-    return { needsTranscode: false, targetMimeType: mimeType, encodeType: 5, supportsNativeVoiceMessage: true };
-  }
-  if (lowerExt === ".silk" || mimeType.includes("silk")) {
-    return { needsTranscode: false, targetMimeType: mimeType, encodeType: 6, supportsNativeVoiceMessage: true };
-  }
   if (lowerExt === ".mp3" || mimeType.includes("mpeg") || mimeType.includes("mp3")) {
-    return { needsTranscode: false, targetMimeType: mimeType, encodeType: 7, supportsNativeVoiceMessage: false };
+    return { needsTranscode: false, targetMimeType: "audio/mpeg", outputName: basename(filePath) };
   }
   if (mimeType.startsWith("audio/")) {
     return {
       needsTranscode: true,
-      targetMimeType: "audio/silk",
-      encodeType: 6,
-      supportsNativeVoiceMessage: true,
+      targetMimeType: "audio/mpeg",
+      outputName: `${basename(filePath, extname(filePath)) || "audio"}.mp3`,
       ffmpegArgs: [
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        "24000",
-        "-c:a",
-        "pcm_s16le",
-        "-f",
-        "wav"
-      ]
-    };
-  }
-  return { needsTranscode: false, targetMimeType: mimeType, encodeType: null, supportsNativeVoiceMessage: false };
-}
-
-async function prepareWechatVoicePayload(filePath: string, plaintext: Buffer, mimeType: string): Promise<PreparedVoicePayload> {
-  const strategy = inferWechatVoiceStrategy(filePath, mimeType);
-  if (!strategy.needsTranscode) {
-    return {
-      filePath,
-      plaintext,
-      mimeType,
-      encodeType: strategy.encodeType,
-      supportsNativeVoiceMessage: strategy.supportsNativeVoiceMessage,
-      playtimeMs: null,
-      sampleRate: strategy.encodeType === 6 ? 24_000 : null,
-      bitsPerSample: strategy.encodeType === 6 ? 16 : null,
-      cleanup: () => {}
-    };
-  }
-
-  const tempDir = mkdtempSync(`${tmpdir()}/molibot-weixin-voice-`);
-  const intermediateWavPath = `${tempDir}/voice.wav`;
-  const outputPath = strategy.targetMimeType === "audio/silk"
-    ? `${tempDir}/voice.silk`
-    : strategy.targetMimeType === "audio/wav"
-      ? intermediateWavPath
-      : `${tempDir}/voice.mp3`;
-
-  try {
-    await execFileAsync("ffmpeg", [
-      "-y",
-      "-i",
-      filePath,
-      ...(strategy.ffmpegArgs ?? [
         "-vn",
         "-ac",
         "1",
@@ -228,45 +161,43 @@ async function prepareWechatVoicePayload(filePath: string, plaintext: Buffer, mi
         "libmp3lame",
         "-b:a",
         "48k"
-      ]),
-      strategy.targetMimeType === "audio/silk" ? intermediateWavPath : outputPath
+      ]
+    };
+  }
+  return { needsTranscode: false, targetMimeType: mimeType, outputName: basename(filePath) };
+}
+
+async function prepareWechatAudioAttachment(filePath: string, plaintext: Buffer, mimeType: string): Promise<PreparedAudioPayload> {
+  const strategy = inferWechatAudioAttachmentStrategy(filePath, mimeType);
+  if (!strategy.needsTranscode) {
+    return {
+      filePath,
+      plaintext,
+      mimeType,
+      cleanup: () => {}
+    };
+  }
+
+  const tempDir = mkdtempSync(`${tmpdir()}/molibot-weixin-audio-`);
+  const outputPath = `${tempDir}/${strategy.outputName}`;
+
+  try {
+    await execFileAsync("ffmpeg", [
+      "-y",
+      "-i",
+      filePath,
+      ...(strategy.ffmpegArgs ?? []),
+      outputPath
     ], {
       timeout: 30_000,
       maxBuffer: 10 * 1024 * 1024
     });
-
-    if (strategy.targetMimeType === "audio/silk") {
-      const wavBuffer = readFileSync(intermediateWavPath);
-      const silkModule = await import("silk-wasm") as unknown as {
-        encode: (input: ArrayBufferView | ArrayBuffer, sampleRate: number) => Promise<{ data: Uint8Array; duration: number }>;
-      };
-      const encoded = await silkModule.encode(wavBuffer, 0);
-      const silkBuffer = Buffer.from(encoded.data);
-      return {
-        filePath: outputPath,
-        plaintext: silkBuffer,
-        mimeType: "audio/silk",
-        encodeType: 6,
-        supportsNativeVoiceMessage: true,
-        playtimeMs: Math.max(1, Math.round(encoded.duration)),
-        sampleRate: 24_000,
-        bitsPerSample: 16,
-        cleanup: () => {
-          rmSync(tempDir, { recursive: true, force: true });
-        }
-      };
-    }
 
     const transcoded = readFileSync(outputPath);
     return {
       filePath: outputPath,
       plaintext: transcoded,
       mimeType: strategy.targetMimeType,
-      encodeType: strategy.encodeType,
-      supportsNativeVoiceMessage: strategy.supportsNativeVoiceMessage,
-      playtimeMs: null,
-      sampleRate: strategy.encodeType === 1 ? 24_000 : null,
-      bitsPerSample: strategy.encodeType === 1 ? 16 : null,
       cleanup: () => {
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -279,45 +210,7 @@ async function prepareWechatVoicePayload(filePath: string, plaintext: Buffer, mi
       // ignore
     }
     rmSync(tempDir, { recursive: true, force: true });
-    throw new Error(`wechat_voice_transcode_failed:${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-async function readVoiceMessageMetadata(filePath: string): Promise<VoiceMessageMetadata> {
-  try {
-    const { stdout } = await execFileAsync("ffprobe", [
-      "-v",
-      "error",
-      "-select_streams",
-      "a:0",
-      "-show_entries",
-      "stream=sample_rate,bits_per_sample:format=duration",
-      "-of",
-      "json",
-      filePath
-    ], {
-      timeout: 15_000,
-      maxBuffer: 2 * 1024 * 1024
-    });
-    const parsed = JSON.parse(stdout) as {
-      streams?: Array<{ sample_rate?: string | number; bits_per_sample?: string | number }>;
-      format?: { duration?: string | number };
-    };
-    const stream = parsed.streams?.[0];
-    const durationSeconds = Number(parsed.format?.duration);
-    const sampleRate = Number(stream?.sample_rate);
-    const bitsPerSample = Number(stream?.bits_per_sample);
-    return {
-      playtime: Number.isFinite(durationSeconds) ? Math.max(1, Math.round(durationSeconds * 1000)) : null,
-      sampleRate: Number.isFinite(sampleRate) ? sampleRate : null,
-      bitsPerSample: Number.isFinite(bitsPerSample) && bitsPerSample > 0 ? bitsPerSample : null
-    };
-  } catch {
-    return {
-      playtime: null,
-      sampleRate: null,
-      bitsPerSample: null
-    };
+    throw new Error(`wechat_audio_transcode_failed:${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -525,9 +418,10 @@ export async function sendWeixinFile(params: {
   toUserId: string;
   contextToken: string;
   caption?: string;
+  text?: string;
   baseUrlOverride?: string;
   cdnBaseUrl?: string;
-}): Promise<"text" | "image" | "voice" | "file"> {
+}): Promise<"text" | "image" | "file"> {
   const credentials = await loadCredentials(params.credentialsPath);
   if (!credentials?.token) {
     throw new Error(`Weixin credentials not found at ${params.credentialsPath}`);
@@ -561,6 +455,7 @@ export async function sendWeixinFile(params: {
   const cdnBaseUrl = params.cdnBaseUrl || WEIXIN_CDN_BASE_URL;
   const mimeType = inferMimeType(params.filePath, plaintext);
   const caption = params.caption?.trim() || "";
+  const text = params.text?.trim() || "";
 
   if (mimeType.startsWith("image/")) {
     const uploaded = await uploadMedia({
@@ -581,6 +476,7 @@ export async function sendWeixinFile(params: {
       mediaItem: {
         type: MessageItemType.IMAGE,
         image_item: {
+          aeskey: uploaded.aesKeyHex,
           media: {
             encrypt_query_param: uploaded.downloadEncryptedQueryParam,
             aes_key: encodeMessageAesKey(uploaded.aesKeyHex),
@@ -593,54 +489,28 @@ export async function sendWeixinFile(params: {
     return "image";
   }
 
-  const voicePayload = await prepareWechatVoicePayload(params.filePath, plaintext, mimeType);
-  const voiceEncodeType = voicePayload.encodeType;
-  const voiceMetadata = await readVoiceMessageMetadata(voicePayload.filePath);
-  let voiceFailure: string | null = null;
-  if (voiceEncodeType != null && voicePayload.supportsNativeVoiceMessage) {
-    try {
-      const uploaded = await uploadMedia({
-        filePath: voicePayload.filePath,
-        plaintext: voicePayload.plaintext,
-        toUserId: params.toUserId,
-        token: credentials.token,
-        baseUrl,
-        cdnBaseUrl,
-        mediaType: 4
-      });
-    await sendMediaMessage({
-      toUserId: params.toUserId,
-      contextToken: params.contextToken,
-      token: credentials.token,
-      baseUrl,
-      caption,
-      sendCaptionAsText: false,
-      mediaItem: {
-        type: MessageItemType.VOICE,
-        voice_item: {
-            media: {
-              encrypt_query_param: uploaded.downloadEncryptedQueryParam,
-              aes_key: encodeMessageAesKey(uploaded.aesKeyHex),
-              encrypt_type: 1
-            },
-            encode_type: voiceEncodeType,
-            sample_rate: voiceMetadata.sampleRate ?? voicePayload.sampleRate ?? 24_000,
-            bits_per_sample: voiceMetadata.bitsPerSample ?? voicePayload.bitsPerSample ?? 16,
-            playtime: voiceMetadata.playtime ?? voicePayload.playtimeMs ?? 1_000
-          }
-        }
-      });
-      voicePayload.cleanup();
-      return "voice";
-    } catch (error) {
-      voiceFailure = error instanceof Error ? error.message : String(error);
-    }
-  }
-
+  const audioPayload = await prepareWechatAudioAttachment(params.filePath, plaintext, mimeType);
   try {
+    const visibleText = text || caption;
+    if (visibleText) {
+      await sendMessage(baseUrl, credentials.token, {
+        from_user_id: "",
+        to_user_id: params.toUserId,
+        client_id: randomUUID(),
+        message_type: MessageType.BOT,
+        message_state: MessageState.FINISH,
+        context_token: params.contextToken,
+        item_list: [
+          {
+            type: MessageItemType.TEXT,
+            text_item: { text: visibleText }
+          }
+        ]
+      });
+    }
     const uploaded = await uploadMedia({
-      filePath: voicePayload.filePath,
-      plaintext: voicePayload.plaintext,
+      filePath: audioPayload.filePath,
+      plaintext: audioPayload.plaintext,
       toUserId: params.toUserId,
       token: credentials.token,
       baseUrl,
@@ -652,28 +522,31 @@ export async function sendWeixinFile(params: {
       contextToken: params.contextToken,
       token: credentials.token,
       baseUrl,
-      caption,
+      caption: "",
+      sendCaptionAsText: false,
       mediaItem: {
         type: MessageItemType.FILE,
         file_item: {
+          aeskey: uploaded.aesKeyHex,
           media: {
             encrypt_query_param: uploaded.downloadEncryptedQueryParam,
             aes_key: encodeMessageAesKey(uploaded.aesKeyHex),
             encrypt_type: 1
           },
-          file_name: basename(voicePayload.filePath),
+          file_name: basename(audioPayload.filePath),
           len: String(uploaded.fileSize)
         }
       }
     });
-    voicePayload.cleanup();
+    momWarn("weixin", "upload_file_sent", {
+      toUserId: params.toUserId,
+      filePath: params.filePath,
+      mode: "audio_file"
+    });
+    audioPayload.cleanup();
     return "file";
   } catch (error) {
-    voicePayload.cleanup();
-    const fileFailure = error instanceof Error ? error.message : String(error);
-    if (voiceFailure) {
-      throw new Error(`voice_send_failed=${voiceFailure}; file_send_failed=${fileFailure}`);
-    }
+    audioPayload.cleanup();
     throw error;
   }
 }

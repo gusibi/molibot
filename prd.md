@@ -1987,3 +1987,48 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/channels/weixin/sdk/api.ts` 必须把 `/ilink/bot/sendmessage` 的 `ret/errcode` 当成真实成功判定的一部分。
   - `src/lib/server/channels/weixin/outbound.test.ts` 必须覆盖“只发单条语音项”和“微信业务失败要抛错”这两个场景。
   - `features.md` 必须记录这次修正，方便后续排查“为什么看到标题字却没有语音气泡”。
+
+## 149. Weixin 语音消息体必须同时带上 hex aeskey 与媒体引用，避免静默消失 (2026-03-27)
+- Priority: P1
+- Stage: Delivered (2026-03-27)
+- Problem:
+  - 现场日志显示，去掉单独标题文字后，用户端直接变成“什么都没有”。这说明当前问题不只是标题串台，还可能是媒体消息体本身缺少某个微信侧更偏好的字段，导致语音被静默吃掉。
+  - 本地入站解析已经兼容 `voice_item.aeskey/file_item.aeskey/image_item.aeskey` 这类 hex 字段，但出站消息此前只带了 `media.aes_key`，两边并不对称。
+- Requirement:
+  - 出站媒体消息除了 CDN 引用外，还应同时补上 hex 形式的 `aeskey`，尽量贴近微信现网消息形态，降低“上传成功但客户端完全不显示”的概率。
+  - 语音标题不能再单独作为文本发出，但可以保留在语音项内部，避免再次出现只看到标题字、看不到媒体本体的回退体验。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须为 image/file/voice 的消息体补上 hex `aeskey` 字段。
+  - `src/lib/server/channels/weixin/outbound.ts` 必须记录本次实际走的是 `voice` 还是 `file` 路径，方便后续对照真实微信表现。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么这次连标题字都没有了”。
+
+## 150. Weixin 语音消息的可见文字必须优先使用全文 (2026-03-27)
+- Priority: P1
+- Stage: Delivered (2026-03-27)
+- Problem:
+  - 之前语音附件只有一个短标题，像“笑话语音”“天气语音”。一旦语音本体没有正常显示，用户看到的就只有几个没意义的字，根本无法知道原本要说什么。
+- Requirement:
+  - 发送语音时，可见文字必须优先使用完整台词全文，而不是附件标题。
+  - 短标题仍可保留给文件名或内部展示，但用户侧看到的应是完整内容，至少在语音显示异常时还能直接看文字。
+- Enforcement:
+  - `src/lib/server/agent/tools/attach.ts` 必须支持显式传入语音全文。
+  - `src/lib/server/channels/weixin/outbound.ts` 必须优先把这份全文写入语音消息的文字部分；没有全文时才退回标题。
+  - `src/lib/server/channels/weixin/outbound.test.ts` 必须覆盖“全文优先于标题”的场景。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么用户只看到一个短标题”。
+
+## 151. Weixin 音频回复改为“全文文字 + MP3 附件”双消息模式 (2026-03-27)
+- Priority: P1
+- Stage: Delivered (2026-03-27)
+- Problem:
+  - 现场验证表明，微信当前这条通道并不能稳定显示所谓的语音消息。继续拼语音气泡只会出现“日志看着成功，用户端什么都没有”。
+- Requirement:
+  - 微信收到需要语音回复的场景时，不再尝试发送原生语音消息。
+  - 统一改成两条回复：
+    第一条发完整文字内容。
+    第二条发一个真正可下载的 `MP3` 附件。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须停用当前原生语音消息发送分支。
+  - `src/lib/server/channels/weixin/outbound.ts` 必须把所有音频统一转成或保留为 `MP3` 附件发送。
+  - `src/lib/server/channels/weixin/outbound.ts` 必须先发全文文字，再发附件，不能再只发标题。
+  - `src/lib/server/channels/weixin/outbound.test.ts` 必须覆盖“双消息：文字 + MP3 附件”的场景。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么微信里没有语音气泡但仍能正常收到内容”。

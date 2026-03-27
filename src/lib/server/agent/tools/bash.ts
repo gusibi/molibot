@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { config } from "../../app/env.js";
@@ -62,6 +62,42 @@ function buildTempOutputPath(cwd: string): string {
   return join(dir, `bash-${Date.now()}-${randomBytes(4).toString("hex")}.log`);
 }
 
+function stripShellQuotes(value: string): string {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function decodeDoubleQuotedShellText(value: string): string {
+  const unquoted = stripShellQuotes(value);
+  return unquoted
+    .replace(/\\n/g, "\n")
+    .replace(/\\"/g, "\"")
+    .replace(/\\\\/g, "\\");
+}
+
+function inferCommandWorkingDir(command: string, fallbackCwd: string): string {
+  const match = command.match(/(?:^|\s)cd\s+("[^"]+"|'[^']+'|[^\s&;|]+)\s*(?:&&|;|\|\|)/);
+  if (!match) return fallbackCwd;
+  const rawDir = stripShellQuotes(match[1] ?? "");
+  return isAbsolute(rawDir) ? rawDir : resolve(fallbackCwd, rawDir);
+}
+
+function captureSayTranscript(command: string, fallbackCwd: string): void {
+  const sayMatch = command.match(/\bsay\b[\s\S]*?\s-o\s+("[^"]+"|'[^']+'|[^\s]+)\s+("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/);
+  if (!sayMatch) return;
+
+  const baseDir = inferCommandWorkingDir(command, fallbackCwd);
+  const rawOutputPath = stripShellQuotes(sayMatch[1] ?? "");
+  const transcript = decodeDoubleQuotedShellText(sayMatch[2] ?? "");
+  if (!rawOutputPath || !transcript.trim()) return;
+
+  const outputPath = isAbsolute(rawOutputPath) ? rawOutputPath : resolve(baseDir, rawOutputPath);
+  writeFileSync(`${outputPath}.transcript.txt`, `${transcript.trim()}\n`, "utf8");
+}
+
 export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
   return {
     name: "bash",
@@ -96,6 +132,12 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
         timeoutSeconds: params.timeout,
         signal
       });
+
+      try {
+        captureSayTranscript(params.command, cwd);
+      } catch {
+        // Ignore transcript sidecar capture failures; command output remains authoritative.
+      }
 
       let output = "";
       if (result.stdout) output += result.stdout;

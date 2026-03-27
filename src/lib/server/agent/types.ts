@@ -84,7 +84,7 @@ export interface MomContext {
   setTyping: (isTyping: boolean) => Promise<void>;
   setWorking: (isWorking: boolean) => Promise<void>;
   deleteMessage: () => Promise<void>;
-  uploadFile: (filePath: string, title?: string) => Promise<void>;
+  uploadFile: (filePath: string, title?: string, text?: string) => Promise<void>;
   onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
 }
 

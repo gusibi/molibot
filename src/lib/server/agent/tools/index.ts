@@ -41,7 +41,7 @@ export function createMomTools(options: {
   setSelectedMcpServerIds: (next: Set<string>) => void;
   refreshLoadedMcpTools: () => Promise<{ serverCount: number; toolCount: number }>;
   exposeLoadMcpTool?: boolean;
-  uploadFile: (filePath: string, title?: string) => Promise<void>;
+  uploadFile: (filePath: string, title?: string, text?: string) => Promise<void>;
 }): AgentTool<any>[] {
   const tools: AgentTool<any>[] = [
     createMemoryTool({ memory: options.memory, channel: options.channel, chatId: options.chatId }),

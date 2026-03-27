@@ -1521,8 +1521,8 @@ export class MomRunner implements RunnerLike {
       },
       refreshLoadedMcpTools,
       exposeLoadMcpTool,
-      uploadFile: async (filePath, title) => {
-        await ctx.uploadFile(filePath, title);
+      uploadFile: async (filePath, title, text) => {
+        await ctx.uploadFile(filePath, title, text);
       },
     });
     const scopedMcpServers = resolveScopedMcpServers();

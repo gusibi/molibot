@@ -535,7 +535,7 @@ export class WeixinManager {
       deleteMessage: async () => {
         accumulatedText = "";
       },
-      uploadFile: async (filePath: string, title?: string) => {
+      uploadFile: async (filePath: string, title?: string, text?: string) => {
         try {
           await sendWeixinFile({
             filePath,
@@ -543,6 +543,7 @@ export class WeixinManager {
             toUserId: chatId,
             contextToken: event.sourceMessage._contextToken,
             caption: title,
+            text,
             baseUrlOverride: this.currentBaseUrl || undefined
           });
           return;
