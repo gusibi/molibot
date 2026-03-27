@@ -1,7 +1,7 @@
 import type { Bot } from "grammy";
 import { momWarn } from "../../agent/log.js";
 
-const SEND_RETRY_DELAYS_MS = [0, 500, 1500] as const;
+const SEND_RETRY_DELAYS_MS = [0, 500, 1500, 3000, 5000, 8000, 12000] as const;
 const TELEGRAM_TEXT_SOFT_LIMIT = 3500;
 
 interface TelegramRetryPolicy {

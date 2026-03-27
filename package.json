@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#weixin-agent-sdk/*": "./package/weixin-agent-sdk/*"
+  },
   "bin": {
     "molibot": "./bin/molibot.js"
   },
@@ -28,6 +31,7 @@
     "grammy": "^1.38.3",
     "lit": "^3.3.1",
     "qrcode": "^1.5.4",
+    "silk-wasm": "^3.7.1",
     "svelte": "^5.38.10",
     "uuid": "^11.1.0",
     "ws": "^8.19.0"

@@ -235,6 +235,12 @@ See `.env.example` for full list.
 - `docs/plugin-development.md`: plugin contract
 - `AGENTS.md`: collaboration rules
 
+## Third-Party Weixin SDK
+
+- `package/weixin-agent-sdk`： https://github.com/wong2/weixin-agent-sdk 是 vendored 的第三方微信 SDK 源码副本，不属于 Molibot 自研业务代码。
+- 微信通道现在的边界是：底层登录和协议对接优先复用这个第三方包，Molibot 自己只保留统一会话、命令、技能和消息队列适配。
+- 如果后续要升级微信底层，优先同步这个目录对应的上游项目，而不是继续在业务层扩写一套独立微信 SDK。
+
 ## Current Status
 
 - Telegram is currently the most validated channel in real usage.

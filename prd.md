@@ -1865,3 +1865,125 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - `src/lib/server/channels/weixin/outbound.ts` 必须按协议修正上传 URL 和返回值读取方式。
   - `features.md` 必须记录这次修正，方便后续排查“为什么文件存在但微信仍然回空 400”。
+
+## 139. Weixin 必须明确依赖第三方 SDK 底层 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 仓库里已经有第三方 `weixin-agent-sdk`，但微信通道看起来仍像是在继续维护一套自己的独立 SDK，目录归属和依赖边界都不清楚。
+  - 这样会让后续维护方向继续漂移，也会让外部看起来像是 Molibot 又养了一套自研微信底层。
+- Requirement:
+  - 微信通道必须明确把 `package/weixin-agent-sdk` 当作第三方底层来源。
+  - 项目内保留的微信代码只能承担当前运行时兼容和统一 Agent 适配，不再继续充当一套自研微信 SDK。
+  - README 必须显式说明 `package/weixin-agent-sdk` 的第三方身份和用途。
+- Enforcement:
+  - `src/lib/server/channels/weixin/sdk/` 必须缩成兼容转接层，并直接复用 `package/weixin-agent-sdk` 的登录流程和协议类型。
+  - `README.md` 必须声明 `package/weixin-agent-sdk` 是 vendored 第三方包。
+  - `features.md` 必须记录这次边界调整，避免后续又把这层误当成自研 SDK 继续扩张。
+  - 业务代码里不得再通过超长相对路径直接引用 `package/weixin-agent-sdk`；必须使用统一别名入口，避免后续构建和迁移继续出问题。
+
+## 140. Weixin 出站图片不能再显示灰色占位图 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 现在图片上传到 CDN 已经成功，但微信里收到的仍然只是灰色占位，不是真图。这说明问题不在文件路径或 CDN 上传，而在后续 `sendmessage` 里塞回去的媒体描述字段。
+  - 协议要求的 `aes_key` 出站编码格式和当前实现不一致时，客户端会拿到文件引用却无法正确解图，表现就是一张不能点开的假图。
+- Requirement:
+  - 微信出站图片、语音、文件消息里使用的媒体解锁字段必须严格按协议要求编码，不能再沿用入站解密时那种“另一种也能兼容”的写法。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须统一按协议要求编码出站 `aes_key`。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么 CDN 200 了但微信里仍然是灰图”。
+
+## 141. Weixin 音频回复不能再退回成死文件附件 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 当前有些音频格式例如 `AIFF/AIF` 没被识别成语音消息候选，结果运行时直接走了文件上传，微信里只收到一个不能播放的附件，而不是语音气泡。
+- Requirement:
+  - 只要输入本质上是音频，就应该优先走语音消息链路；对微信不直接支持的音频格式，应先转成可发送语音的格式，而不是直接降级成文件。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须把 `AIFF/AIF` 之类音频纳入语音判断，并在需要时先转码再发送语音消息。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么明明是音频却只收到文件附件”。
+
+## 142. Weixin 语音消息必须带完整播放元信息 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 当前出站语音虽然已经走到 `media_type=4` 上传，但发送消息时只带了最基础的语音字段，缺少时长、采样率、位深这些播放元信息，客户端可能直接忽略语音气泡，只留下前面的文字。
+- Requirement:
+  - 出站语音消息必须尽量补齐播放元信息，至少包括 `playtime`、`sample_rate`、`bits_per_sample`。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须在发送语音前读取音频元信息并写入语音消息。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么上传成功了却只显示文字”。
+
+## 143. Weixin 回复语音不能再伪装成 mp3 语音 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 当前环境没有 SILK/AMR 编码器，而 vendored SDK 里的 `silk-transcode.ts` 只负责把入站 SILK 解码成 WAV，不能反向生成出站 SILK。
+  - 在这种情况下把所有待发送音频一律转成 `mp3` 并标成微信语音，兼容性并不稳，容易出现“上传成功了，但客户端不显示语音气泡”的情况。
+- Requirement:
+  - 对无法直接作为微信语音发送的音频，必须优先转成协议里更基础的 PCM/WAV 语音形式，而不是继续伪装成 `mp3` 语音。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须把通用音频转成单声道 24k WAV/PCM 后再走语音消息链路。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么日志里看着像语音，客户端却不认”。
+
+## 144. Weixin 语音失败回退时也必须把音频真正发出去 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 在当前环境无法产出微信稳妥原生语音格式时，如果仍硬发“伪语音消息”，客户端可能把语音部分直接忽略，只剩一段文字。
+- Requirement:
+  - 这类情况下不能让结果静默丢失。即便退回，也必须把音频作为附件真正发给用户，而不是只留文字说明。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须在无法可靠构造原生语音消息时，回退到真实音频文件发送。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么看起来发了语音，用户却只看到文字”。
+
+## 145. Weixin 出站语音应携带语音转文字结果 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 协议允许 `VOICE` 消息携带 `text` 字段，作为语音转文字结果。但当前发送链路没把这项带上，导致语音回复就算成功，也缺少与协议一致的文本结果承载。
+- Requirement:
+  - 出站语音消息应补齐 `voice_item.text`，把本轮用于朗读的文字结果一起带上。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须在语音消息里写入 `voice_item.text`。
+  - `features.md` 必须记录这次修正，方便后续继续对齐协议字段。
+
+## 146. Weixin 回复语音必须具备真实 SILK 编码能力 (2026-03-26)
+- Priority: P1
+- Stage: Delivered (2026-03-26)
+- Problem:
+  - 仅靠补字段或把音频伪装成 `mp3`/`wav` 语音，客户端兼容性仍然不稳。要稳定命中微信原生语音气泡，需要真正产出更贴近微信生态的 `SILK` 音频。
+- Requirement:
+  - 项目必须引入可用的 SILK 编码能力，把通用音频先整理成 24k 单声道 WAV，再编码成 `.silk` 后发送给微信。
+- Enforcement:
+  - `package.json` 必须包含 `silk-wasm` 依赖。
+  - `src/lib/server/channels/weixin/outbound.ts` 必须使用 `silk-wasm` 进行出站 SILK 编码。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么语音上传成功了但还不是微信原生语音”。
+
+## 147. Telegram 短暂网络错误应显著增加重试次数 (2026-03-27)
+- Priority: P1
+- Stage: Delivered (2026-03-27)
+- Problem:
+  - 当前 Telegram 发送链路在 `ECONNRESET`、`socket hang up` 这类短暂网络抖动下只会重试很少几次，容易过早把一次本可恢复的发送判成失败。
+- Requirement:
+  - Telegram 发送相关操作，尤其是 `sendChatAction`，必须拥有更高的重试预算，至少覆盖 5 次以上的尝试。
+- Enforcement:
+  - `src/lib/server/channels/telegram/formatting.ts` 必须把发送重试次数提高到不少于 5 次。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么只是瞬时网络抖动却直接失败了”。
+
+## 148. Weixin 语音回复不能混入标题文字且必须校验真实发送结果 (2026-03-27)
+- Priority: P1
+- Stage: Delivered (2026-03-27)
+- Problem:
+  - 当前 `attach` 工具传入的标题会被当成语音说明文字，先单独发成一条文本，再塞进 `voice_item.text`。这样一来，用户可能先看到一小段标题字，日志和回环解析也会把它误判成纯文字，看起来像“根本没发语音”。
+  - 同时，发送消息这一步只检查了 HTTP 是否成功，没有检查微信返回的 `ret/errcode`。结果可能是标题文字发出去了，但真正的语音已被微信拒绝，代码却误以为成功。
+- Requirement:
+  - 微信语音回复必须只走真正的语音消息形态，不能再把附件标题混成单独文本或伪装成语音转文字内容。
+  - 发送消息必须严格检查微信业务返回值，只要微信明确拒绝，就必须立刻报错，不能静默吞掉。
+- Enforcement:
+  - `src/lib/server/channels/weixin/outbound.ts` 必须在语音消息路径禁用标题文本前置发送，也不能再把附件标题写入 `voice_item.text`。
+  - `src/lib/server/channels/weixin/sdk/api.ts` 必须把 `/ilink/bot/sendmessage` 的 `ret/errcode` 当成真实成功判定的一部分。
+  - `src/lib/server/channels/weixin/outbound.test.ts` 必须覆盖“只发单条语音项”和“微信业务失败要抛错”这两个场景。
+  - `features.md` 必须记录这次修正，方便后续排查“为什么看到标题字却没有语音气泡”。

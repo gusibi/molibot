@@ -35,6 +35,11 @@ export default defineConfig({
     // Avoid package "development" export condition in dev server for lit-based deps.
     conditions: ["browser", "module", "import", "default"]
   },
+  build: {
+    rollupOptions: {
+      external: ["qrcode-terminal"]
+    }
+  },
   server: {
     port: 3000,
     fs: {

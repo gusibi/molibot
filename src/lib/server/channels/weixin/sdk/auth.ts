@@ -1,12 +1,14 @@
 import { mkdir, readFile, rm, writeFile, chmod } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
-import { DEFAULT_BASE_URL, fetchQrCode, pollQrStatus } from "./api.js";
+import { DEFAULT_BASE_URL } from "#weixin-agent-sdk/src/auth/accounts.js";
+import {
+  startWeixinLoginWithQr,
+  waitForWeixinLogin
+} from "#weixin-agent-sdk/src/auth/login-qr.js";
 
 const DEFAULT_TOKEN_DIR = path.join(os.homedir(), ".weixin-agent-sdk");
 const DEFAULT_TOKEN_PATH = path.join(DEFAULT_TOKEN_DIR, "credentials.json");
-const QR_POLL_INTERVAL_MS = 2_000;
 
 export interface Credentials {
   token: string;
@@ -81,42 +83,36 @@ export async function login(options: LoginOptions = {}): Promise<Credentials> {
   }
 
   for (;;) {
-    const qr = await fetchQrCode(baseUrl);
-    await printQrInstructions(qr.qrcode_img_content);
-
-    let lastStatus: string | undefined;
-    for (;;) {
-      const status = await pollQrStatus(baseUrl, qr.qrcode);
-
-      if (status.status !== lastStatus) {
-        if (status.status === "scaned") {
-          log("QR code scanned. Confirm the login inside WeChat.");
-        } else if (status.status === "confirmed") {
-          log("Login confirmed.");
-        } else if (status.status === "expired") {
-          log("QR code expired. Requesting a new one...");
-        }
-        lastStatus = status.status;
-      }
-
-      if (status.status === "confirmed") {
-        if (!status.bot_token || !status.ilink_bot_id || !status.ilink_user_id) {
-          throw new Error("QR login confirmed, but the API did not return bot credentials");
-        }
-
-        const credentials: Credentials = {
-          token: status.bot_token,
-          baseUrl: status.baseurl ?? baseUrl,
-          accountId: status.ilink_bot_id,
-          userId: status.ilink_user_id
-        };
-        await saveCredentials(credentials, options.tokenPath);
-        return credentials;
-      }
-
-      if (status.status === "expired") break;
-      await delay(QR_POLL_INTERVAL_MS);
+    const startResult = await startWeixinLoginWithQr({
+      apiBaseUrl: baseUrl,
+      force: true
+    });
+    if (!startResult.qrcodeUrl) {
+      throw new Error(startResult.message || "Failed to start Weixin QR login");
     }
+    await printQrInstructions(startResult.qrcodeUrl);
+
+    const waitResult = await waitForWeixinLogin({
+      sessionKey: startResult.sessionKey,
+      apiBaseUrl: baseUrl,
+      timeoutMs: 480_000
+    });
+    if (!waitResult.connected || !waitResult.botToken || !waitResult.accountId || !waitResult.userId) {
+      if (/过期|超时|expired/i.test(waitResult.message || "")) {
+        log("QR code expired. Requesting a new one...");
+        continue;
+      }
+      throw new Error(waitResult.message || "Weixin QR login failed");
+    }
+
+    const credentials: Credentials = {
+      token: waitResult.botToken,
+      baseUrl: waitResult.baseUrl ?? baseUrl,
+      accountId: waitResult.accountId,
+      userId: waitResult.userId
+    };
+    await saveCredentials(credentials, options.tokenPath);
+    return credentials;
   }
 }
 

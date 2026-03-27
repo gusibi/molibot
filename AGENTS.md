@@ -55,6 +55,7 @@ ______
 - I don't just want it to work - I want it to be something I'm proud to show people
 - This is real. Not a mockup. Not a prototype. A working product.
 - Keep me in control and in the loop at all times
+- 不要在业务代码里写跨目录的超长相对路径引用，尤其不要直接用 `../../../../..` 去连第三方 vendored 包。统一先配别名或正式入口，再通过别名引用。
 > Molibot 项目配置文件，为 AI 编码助手提供上下文。
 
 

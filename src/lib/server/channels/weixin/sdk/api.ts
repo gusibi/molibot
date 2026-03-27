@@ -1,31 +1,36 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  getConfig as vendorGetConfig,
+  getUpdates as vendorGetUpdates,
+  sendMessage as vendorSendMessage,
+  sendTyping as vendorSendTyping
+} from "#weixin-agent-sdk/src/api/api.js";
+import { DEFAULT_BASE_URL } from "#weixin-agent-sdk/src/auth/accounts.js";
 import {
   MessageItemType,
   MessageState,
   MessageType,
   type BaseInfo,
   type GetConfigResp,
-  type GetUpdatesReq,
   type GetUpdatesResp,
   type SendMessageReq,
   type SendTypingReq
 } from "./types.js";
 
-export const DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com";
-export const CHANNEL_VERSION = "1.0.0";
-
-export interface QrCodeResponse {
-  qrcode: string;
-  qrcode_img_content: string;
+function readVendoredSdkVersion(): string {
+  try {
+    const packageJsonPath = join(process.cwd(), "package", "weixin-agent-sdk", "package.json");
+    const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { version?: string };
+    return parsed.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
-export interface QrStatusResponse {
-  status: "wait" | "scaned" | "confirmed" | "expired";
-  bot_token?: string;
-  ilink_bot_id?: string;
-  ilink_user_id?: string;
-  baseurl?: string;
-}
+export { DEFAULT_BASE_URL };
+export const CHANNEL_VERSION = readVendoredSdkVersion();
 
 export class ApiError extends Error {
   readonly status: number;
@@ -109,32 +114,34 @@ export async function apiFetch<T>(
   return parseJsonResponse<T>(response, endpoint);
 }
 
-export async function apiGet<T>(
-  baseUrl: string,
-  path: string,
-  headers: Record<string, string> = {}
-): Promise<T> {
-  const url = new URL(path, `${normalizeBaseUrl(baseUrl)}/`);
-  const response = await fetch(url, {
-    method: "GET",
-    headers
-  });
-
-  return parseJsonResponse<T>(response, path);
-}
-
 export async function getUpdates(
   baseUrl: string,
   token: string,
   buf: string,
   signal?: AbortSignal
 ): Promise<GetUpdatesResp> {
-  const body: GetUpdatesReq = {
+  const payload = await vendorGetUpdates({
+    baseUrl,
+    token,
     get_updates_buf: buf,
-    base_info: buildBaseInfo()
-  };
-
-  return apiFetch<GetUpdatesResp>(baseUrl, "/ilink/bot/getupdates", body, token, 40_000, signal);
+    timeoutMs: 40_000,
+    abortSignal: signal
+  });
+  if (typeof payload.ret === "number" && payload.ret !== 0) {
+    throw new ApiError(payload.errmsg ?? "getupdates failed", {
+      status: 200,
+      code: payload.errcode ?? payload.ret,
+      payload
+    });
+  }
+  if (typeof payload.errcode === "number" && payload.errcode !== 0) {
+    throw new ApiError(payload.errmsg ?? "getupdates failed", {
+      status: 200,
+      code: payload.errcode,
+      payload
+    });
+  }
+  return payload;
 }
 
 export async function sendMessage(
@@ -145,10 +152,7 @@ export async function sendMessage(
   return apiFetch<Record<string, unknown>>(
     baseUrl,
     "/ilink/bot/sendmessage",
-    {
-      msg,
-      base_info: buildBaseInfo()
-    },
+    { msg, base_info: buildBaseInfo() },
     token,
     15_000
   );
@@ -160,17 +164,13 @@ export async function getConfig(
   userId: string,
   contextToken: string
 ): Promise<GetConfigResp> {
-  return apiFetch<GetConfigResp>(
+  return vendorGetConfig({
     baseUrl,
-    "/ilink/bot/getconfig",
-    {
-      ilink_user_id: userId,
-      context_token: contextToken,
-      base_info: buildBaseInfo()
-    },
     token,
-    15_000
-  );
+    timeoutMs: 15_000,
+    ilinkUserId: userId,
+    contextToken
+  });
 }
 
 export async function sendTyping(
@@ -180,28 +180,17 @@ export async function sendTyping(
   ticket: string,
   status: SendTypingReq["status"]
 ): Promise<Record<string, unknown>> {
-  const body: SendTypingReq = {
-    ilink_user_id: userId,
-    typing_ticket: ticket,
-    status,
-    base_info: buildBaseInfo()
-  };
-
-  return apiFetch<Record<string, unknown>>(baseUrl, "/ilink/bot/sendtyping", body, token, 15_000);
-}
-
-export async function fetchQrCode(baseUrl: string): Promise<QrCodeResponse> {
-  return apiGet<QrCodeResponse>(baseUrl, "/ilink/bot/get_bot_qrcode?bot_type=3");
-}
-
-export async function pollQrStatus(baseUrl: string, qrcode: string): Promise<QrStatusResponse> {
-  return apiGet<QrStatusResponse>(
+  await vendorSendTyping({
     baseUrl,
-    `/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`,
-    {
-      "iLink-App-ClientVersion": "1"
+    token,
+    timeoutMs: 15_000,
+    body: {
+      ilink_user_id: userId,
+      typing_ticket: ticket,
+      status
     }
-  );
+  });
+  return {};
 }
 
 export function buildTextMessage(userId: string, contextToken: string, text: string): SendMessageReq["msg"] {

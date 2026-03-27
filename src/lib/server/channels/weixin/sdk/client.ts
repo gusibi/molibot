@@ -231,14 +231,15 @@ export class WeixinBot {
 
   private toIncomingMessage(message: WeixinMessage): IncomingMessage | null {
     if (message.message_type !== MessageType.USER) return null;
+    const itemList = message.item_list ?? [];
 
     return {
-      userId: message.from_user_id,
-      text: extractText(message.item_list),
-      type: detectType(message.item_list),
+      userId: message.from_user_id ?? "",
+      text: extractText(itemList),
+      type: detectType(itemList),
       raw: message,
-      _contextToken: message.context_token,
-      timestamp: new Date(message.create_time_ms)
+      _contextToken: message.context_token ?? "",
+      timestamp: new Date(message.create_time_ms ?? Date.now())
     };
   }
 
