@@ -108,3 +108,33 @@ test("sendMessage throws when weixin sendmessage returns a business error", asyn
     globalThis.fetch = originalFetch;
   }
 });
+
+test("sendMessage retries transient failures and eventually succeeds", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+
+  globalThis.fetch = async () => {
+    attempts += 1;
+    if (attempts < 3) {
+      throw new Error("socket hang up");
+    }
+    return new Response(JSON.stringify({ ret: 0 }), { status: 200 });
+  };
+
+  try {
+    const result = await sendMessage("https://api.example.test", "token-1", {
+      from_user_id: "",
+      to_user_id: "wx-user-1",
+      client_id: "client-2",
+      message_type: 2,
+      message_state: 2,
+      context_token: "ctx-2",
+      item_list: []
+    });
+
+    assert.deepEqual(result, { ret: 0 });
+    assert.equal(attempts, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

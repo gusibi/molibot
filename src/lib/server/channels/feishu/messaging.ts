@@ -1,5 +1,6 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
 import { momWarn } from "../../agent/log.js";
+import { markdownToFeishuMarkdown } from "./formatting.js";
 
 export function formatFeishuCard(text: string) {
   return {
@@ -13,6 +14,10 @@ export function formatFeishuCard(text: string) {
   };
 }
 
+export function formatFeishuText(text: string): string {
+  return markdownToFeishuMarkdown(text);
+}
+
 export async function sendFeishuText(
   client: lark.Client | undefined,
   chatId: string,
@@ -20,12 +25,14 @@ export async function sendFeishuText(
 ): Promise<{ message_id: string } | null> {
   if (!client || !text.trim()) return null;
   try {
+    // Convert markdown to Feishu-optimized format
+    const formattedText = markdownToFeishuMarkdown(text);
     const res = await client.im.message.create({
       params: { receive_id_type: "chat_id" },
       data: {
         receive_id: chatId,
         msg_type: "interactive",
-        content: JSON.stringify(formatFeishuCard(text))
+        content: JSON.stringify(formatFeishuCard(formattedText))
       }
     });
     return { message_id: res.data?.message_id || "" };
@@ -42,10 +49,12 @@ export async function editFeishuText(
 ): Promise<string | null> {
   if (!client || !text.trim()) return null;
   try {
+    // Convert markdown to Feishu-optimized format
+    const formattedText = markdownToFeishuMarkdown(text);
     await client.im.message.patch({
       path: { message_id: messageId },
       data: {
-        content: JSON.stringify(formatFeishuCard(text))
+        content: JSON.stringify(formatFeishuCard(formattedText))
       }
     });
     return messageId;

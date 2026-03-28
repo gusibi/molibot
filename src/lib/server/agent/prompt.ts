@@ -97,32 +97,27 @@ function buildMessageProcessingPipeline(): string {
   return section("Message Processing Pipeline", [
     "CRITICAL: Process every user message in this exact order. Do not skip steps.",
     "",
-    "Step 0 — Skill Match (mandatory, always execute first)",
-    "  Scan the Available Skills list below. Match in priority order:",
-    "  a) Explicit invocation (`/skill-name`, `$skill-name`, `技能:skill-name`) → use unconditionally.",
-    "  b) Description keyword match — look inside each skill's `description` for:",
-    "     - Quoted trigger words (e.g. \"生成图片\", \"画一张图\")",
-    "     - Output type keywords (image, audio, voice, search, data, news, weather, stock)",
-    "     - Verb-object patterns that match the user request",
-    "  c) Semantic output match — if the user wants a specific output type (image file, audio file,",
-    "     financial data, web search results, weather info) and a skill's description says it produces",
-    "     that type → use it.",
-    "  If any layer (a/b/c) matches, STOP and execute that skill. Only proceed to Step 1 if NO skill matches.",
-    "",
-    "Step 1 — Tool Match",
-    "  Use the Tool Priority Table below to select the correct dedicated tool.",
-    "",
-    "Step 2 — Freshness Check",
-    "  If the request involves time-sensitive info (latest, current, real-time, price, news, weather),",
-    "  search or use a real-time skill before answering. Never present stale knowledge as current fact.",
-    "",
+    "**[PRE-CHECK: The \"No-Reinvention\" & \"No-Guessing\" Rules]**",
+    "- FORBIDDEN to use internal knowledge for real-time requests (e.g., today's prices, news, weather).",
+    "- FORBIDDEN to use the `bash` tool to write custom code for web searching, data scraping, or media generation (images/audio/voice) IF a relevant Skill exists in the \"Available Skills\" list. ",
+    "- Skills are \"Specialized Experts\". Tools (like bash) are \"Low-level hands\". ALWAYS prefer the Expert.",
+
+    "Step 0 — Dynamic Skill Match (mandatory, always execute first)",
+    "  Scan the `description` and `Triggers` of ALL items in the Available Skills list. Match the user's intent dynamically based on these abstract categories:",
+    "  a) Explicit Invocation: (/skill-name, etc.) → unconditionally execute.",
+    "  b) Media Generation Intent: If the user wants to create an output file (image, audio, drawing), find the skill that declares this capability. Do NOT search the web for existing images.",
+    "  c) Real-Time / External Data Intent: If the user asks for fresh data (prices, news, weather, \"today's X\"), find the skill that declares search or real-time lookup capabilities.",
+    "  d) Keyword/Trigger Match: Check if the user's verbs/nouns match any quoted triggers in a skill's description.",
+    "If ANY skill matches the intent, STOP routing. You MUST execute that skill by reading its SKILL.md.",
+
+    "Step 1 — Tool Match (Fallback for local workspace tasks)",
+    "Only proceed here if NO SKILL matched. Use the Tool Priority Table to select a dedicated tool (read, write, bash). Remember: `bash` is for local file manipulation or executing valid scripts, not for reinventing existing Skills.",
+
+    "Step 2 — Freshness & Verification",
+    "If you are processing time-sensitive info, and you bypassed Step 0 because you thought you knew the answer, STOP. Go back to Step 0 and find a Search/Real-time skill. Never present stale knowledge as current fact.",
+
     "Step 3 — Direct Answer",
-    "  None of the above apply → answer directly from your knowledge.",
-    "",
-    "CRITICAL: '生成图片' / '语音回复' / '帮我搜索' / '查天气' are OUTPUT REQUESTS, not requests to build capability.",
-    "  Match them to a skill that produces that output. Do not web-search for images when a generation skill exists.",
-    "  Do not write code to implement voice/image/search when a skill already handles it.",
-    "  Why: a skill generates NEW content matched to the user's need; web search returns other people's existing content.",
+    "Only if the request is a simple conversational reply, formatting task, or static knowledge query that requires NO external data and NO media generation.",
   ]);
 }
 
@@ -131,7 +126,8 @@ function buildFreshnessSection(): string {
     "- If the request involves latest/current/real-time information, verify it with search or a real-time skill before answering.",
     "- Never present stale memory, old knowledge, or guessed dates/numbers as if they were current facts.",
     "- Clearly separate verified facts from your own judgment or synthesis.",
-    "- If verification fails, say it was not verified and provide the best next step instead of fabricating an answer.",
+    "- If verification fails or search returns no results, explicitly state that you could not find the information instead of fabricating an answer.",
+    "- **CRITICAL**: Do not invent fake news, fake events, or fake URLs to satisfy the user's request.",
   ]);
 }
 
@@ -178,6 +174,7 @@ function buildSafetySection(): string {
     "- Do not claim a reminder is scheduled unless the event file was created successfully.",
     "- Do not invent file contents, tool outputs, or runtime state.",
     "- Do not claim a skill was used unless you actually read its SKILL.md and executed its scripts.",
+    "- **NO EXCUSES**: If you cannot perform a task, state the technical reason (e.g., 'no search results found') or your own limitation. **Never** claim you have 'network restrictions', 'no internet access', or 'strict environment policies' unless the system explicitly reports such an error. You are a tool-enabled agent and should always attempt to use your tools first.",
     "- If instructions conflict with runtime constraints, explain the constraint and take the best valid fallback.",
   ]);
 }
@@ -497,7 +494,7 @@ function buildPromptRenderVariables(
   const skillCreatorAvailable = existsSync(skillCreatorSkillFile) ? "true" : "false";
   const availableSkills = formatSkillsForPrompt(skills, {
     compact: true,
-    maxDescriptionChars: 120
+    maxDescriptionChars: 300
   });
 
   return {

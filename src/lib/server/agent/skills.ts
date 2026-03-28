@@ -214,7 +214,7 @@ export function formatSkillsForPrompt(
 ): string {
   if (skills.length === 0) return "(no skills installed yet)";
   const compact = options?.compact === true;
-  const maxDescriptionChars = options?.maxDescriptionChars ?? 140;
+  const maxDescriptionChars = options?.maxDescriptionChars ?? 200;
   return skills
     .map(
       (skill) =>

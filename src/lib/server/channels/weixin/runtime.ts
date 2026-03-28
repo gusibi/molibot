@@ -1,23 +1,18 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { extname, join, resolve } from "node:path";
+import { appendFileSync, readFileSync } from "node:fs";
+import { extname, join } from "node:path";
 import { type IncomingMessage, WeixinBot } from "./sdk/index.js";
-import { config } from "../../app/env.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
-import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
-import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
-import { AcpService } from "../../acp/service.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
-import { RunnerPool } from "../../agent/runner.js";
-import { MomRuntimeStore } from "../../agent/store.js";
-import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
-import { SessionStore } from "../../sessions/store.js";
+import type { ChannelInboundMessage } from "../../agent/types.js";
+import type { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { BasicChannelAcpTemplate } from "../shared/acp.js";
-import { ChannelQueue } from "../shared/queue.js";
+import { BaseChannelRuntime } from "../shared/baseRuntime.js";
+import { buildTextChannelContext } from "../shared/contextBuilder.js";
 import { extractWeixinAttachments, extractWeixinText, hasWeixinInlineVoiceTranscript } from "./media.js";
 import { sendWeixinFile } from "./outbound.js";
 
@@ -51,17 +46,8 @@ function isInlineTextFile(filePath: string): boolean {
   return [".txt", ".md", ".json", ".csv", ".log"].includes(extname(filePath).toLowerCase());
 }
 
-export class WeixinManager {
-  private static readonly INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
-
-  private readonly workspaceDir: string;
-  private readonly store: MomRuntimeStore;
-  private readonly sessions: SessionStore;
-  private readonly runners: RunnerPool;
-  private readonly memory: MemoryGateway;
-  private readonly instanceId: string;
+export class WeixinManager extends BaseChannelRuntime {
   private readonly credentialsPath: string;
-  private readonly acp: AcpService;
   private readonly acpTemplate: BasicChannelAcpTemplate<IncomingMessage>;
   private readonly commandService: SharedRuntimeCommandService<IncomingMessage>;
 
@@ -72,38 +58,21 @@ export class WeixinManager {
   private currentAllowedChatIdsKey = "";
   private stopped = true;
 
-  private readonly chatQueues = new Map<string, ChannelQueue>();
-  private readonly running = new Set<string>();
-  private readonly inboundDedupe = new Map<string, number>();
-
   constructor(
-    private readonly getSettings: () => RuntimeSettings,
-    private readonly updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
+    getSettings: () => RuntimeSettings,
+    updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
     sessionStore?: SessionStore,
     options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway; usageTracker: AiUsageTracker }
   ) {
-    this.workspaceDir = options?.workspaceDir ?? resolve(config.dataDir, "moli-wx");
-    this.instanceId = options?.instanceId ?? "default";
+    super({
+      channel: "weixin",
+      defaultWorkspaceName: "moli-wx",
+      getSettings,
+      updateSettings,
+      sessionStore,
+      options
+    });
     this.credentialsPath = join(this.workspaceDir, "credentials.json");
-    this.store = new MomRuntimeStore(this.workspaceDir);
-    this.sessions = sessionStore ?? new SessionStore();
-    if (!options?.memory) {
-      throw new Error("WeixinManager requires MemoryGateway for unified memory operations.");
-    }
-    this.memory = options.memory;
-    this.runners = new RunnerPool(
-      "weixin",
-      this.store,
-      this.getSettings,
-      this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
-      options.usageTracker,
-      options.memory
-    );
-    this.acp = new AcpService(
-      this.getSettings,
-      this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
-      { stateFilePath: join(this.workspaceDir, "acp_sessions.json") }
-    );
     this.acpTemplate = new BasicChannelAcpTemplate<IncomingMessage>({
       acp: this.acp,
       sendText: async (chatId, sourceMessage, text) => {
@@ -120,8 +89,8 @@ export class WeixinManager {
       authScopePrefix: "weixin",
       store: this.store,
       runners: this.runners,
-      getSettings: this.getSettings,
-      updateSettings: this.updateSettings,
+      getSettings,
+      updateSettings,
       isRunning: (scopeId) => this.running.has(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
       cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
@@ -245,27 +214,6 @@ export class WeixinManager {
         momWarn("weixin", "adapter_stopped_unexpectedly", { botId: this.instanceId });
       }
     }
-  }
-
-  private markInboundMessageSeen(chatId: string, messageId: string): boolean {
-    const key = `${chatId}:${messageId}`;
-    const now = Date.now();
-    const expiresAt = this.inboundDedupe.get(key);
-    if (expiresAt && expiresAt > now) {
-      return false;
-    }
-
-    this.inboundDedupe.set(key, now + WeixinManager.INBOUND_DEDUPE_TTL_MS);
-
-    if (this.inboundDedupe.size > 2048) {
-      for (const [entryKey, entryExpiresAt] of this.inboundDedupe.entries()) {
-        if (entryExpiresAt <= now) {
-          this.inboundDedupe.delete(entryKey);
-        }
-      }
-    }
-
-    return true;
   }
 
   private async sendAcpPermissionCard(chatId: string, sourceMessage: IncomingMessage, permission: AcpPendingPermissionView): Promise<void> {
@@ -467,75 +415,53 @@ export class WeixinManager {
     this.running.add(chatId);
 
     const runner = this.runners.get(chatId, activeSessionId);
-    let accumulatedText = "";
-    let hasResponded = false;
-
-    const ctx: MomContext = {
+    let preferReply = true;
+    const ctx = buildTextChannelContext({
       channel: "weixin",
-      message: event,
+      event,
       workspaceDir: this.workspaceDir,
       chatDir: this.store.getChatDir(chatId),
-      respond: async (text: string, shouldLog = true) => {
-        const normalized = normalizeText(text);
-        if (!normalized) return;
-        await this.sendText(chatId, event.sourceMessage, normalized, !hasResponded);
-        hasResponded = true;
-        accumulatedText += `${normalized}\n`;
-
-        if (shouldLog) {
-          this.store.logMessage(chatId, {
-            date: new Date().toISOString(),
-            ts: `${Math.floor(Date.now() / 1000)}.000`,
-            messageId: hashNumber(`${Date.now()}-${Math.random()}`),
-            user: this.instanceId,
-            userName: this.instanceId,
-            text: normalized,
-            attachments: [],
-            isBot: true
-          });
-          try {
-            const conv = this.sessions.getOrCreateConversation(
-              "weixin",
-              `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`
-            );
-            this.sessions.appendMessage(conv.id, "assistant", normalized);
-          } catch (error) {
-            momWarn("weixin", "session_assistant_append_failed", {
-              botId: this.instanceId,
-              chatId,
-              error: error instanceof Error ? error.message : String(error)
-            });
+      store: this.store,
+      sessions: this.sessions,
+      instanceId: this.instanceId,
+      activeSessionId,
+      conversationKey: `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`,
+      response: {
+        sendText: async (text) => {
+          await this.sendText(chatId, event.sourceMessage, text, preferReply);
+          preferReply = false;
+          return null;
+        },
+        setTyping: async (isTyping) => {
+          if (!this.bot) return;
+          if (isTyping) {
+            await this.bot.sendTyping(chatId);
+          } else {
+            await this.bot.stopTyping(chatId);
           }
         }
       },
-      replaceMessage: async (text: string) => {
-        const normalized = normalizeText(text);
-        if (!normalized) return;
-        if (!accumulatedText.trim()) {
-          await ctx.respond(normalized);
-          accumulatedText = normalized;
+      createBotMessageId: () => hashNumber(`${Date.now()}-${Math.random()}`),
+      normalizeText,
+      onSessionAppendWarning: (error) => {
+        momWarn("weixin", "session_assistant_append_failed", {
+          botId: this.instanceId,
+          chatId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      },
+      replaceWithoutEdit: async (text, state) => {
+        if (!state.hasResponded) {
+          await this.sendText(chatId, event.sourceMessage, text, preferReply);
+          preferReply = false;
+          state.hasResponded = true;
+          state.accumulatedText = text;
           return;
         }
-        // WeChat iLink Bot currently has no message-edit flow in this SDK path.
-        if (normalized === accumulatedText.trim()) return;
-        accumulatedText = normalized;
+        if (text === state.accumulatedText.trim()) return;
+        state.accumulatedText = text;
       },
-      respondInThread: async (text: string) => {
-        await ctx.respond(text);
-      },
-      setTyping: async (isTyping: boolean) => {
-        if (!this.bot) return;
-        if (isTyping) {
-          await this.bot.sendTyping(chatId);
-        } else {
-          await this.bot.stopTyping(chatId);
-        }
-      },
-      setWorking: async () => { },
-      deleteMessage: async () => {
-        accumulatedText = "";
-      },
-      uploadFile: async (filePath: string, title?: string, text?: string) => {
+      uploadWithoutHandle: async (filePath, title, text, fallbackCtx) => {
         try {
           await sendWeixinFile({
             filePath,
@@ -557,27 +483,21 @@ export class WeixinManager {
         }
         if (isInlineTextFile(filePath)) {
           try {
-            const text = readFileSync(filePath, "utf8").trim();
-            if (text) {
-              await ctx.respond(text);
+            const inlineText = readFileSync(filePath, "utf8").trim();
+            if (inlineText) {
+              await fallbackCtx.respond(inlineText);
               return;
             }
           } catch {
             // Fall through to plain failure notice.
           }
         }
-        await ctx.respond(`微信这边回文件失败了：${filePath.split("/").pop() || "附件"}`);
+        await fallbackCtx.respond(`微信这边回文件失败了：${filePath.split("/").pop() || "附件"}`);
       }
-    };
+    });
 
     try {
       await runner.run(ctx);
-      if (!accumulatedText.trim()) {
-        momWarn("weixin", "session_assistant_skipped_empty", {
-          botId: this.instanceId,
-          chatId
-        });
-      }
     } finally {
       this.running.delete(chatId);
     }
@@ -587,31 +507,47 @@ export class WeixinManager {
     if (!this.bot) {
       throw new Error("Weixin bot is not running.");
     }
-    if (preferReply) {
-      await this.bot.reply(sourceMessage, text);
-      return;
+    const normalized = normalizeText(text);
+    if (!normalized) return;
+
+    const deliveryId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const payload = {
+      deliveryId,
+      chatId,
+      preferReply,
+      sourceMessageId: String(sourceMessage.raw.message_id ?? ""),
+      textPreview: normalized.slice(0, 200)
+    };
+
+    this.recordDelivery(chatId, "attempt", payload);
+    momLog("weixin", "outbound_text_attempt", payload);
+
+    try {
+      if (preferReply) {
+        await this.bot.reply(sourceMessage, normalized);
+      } else {
+        await this.bot.send(chatId, normalized);
+      }
+      this.recordDelivery(chatId, "success", payload);
+      momLog("weixin", "outbound_text_success", payload);
+    } catch (error) {
+      const failurePayload = {
+        ...payload,
+        error: error instanceof Error ? error.message : String(error)
+      };
+      this.recordDelivery(chatId, "failure", failurePayload);
+      momError("weixin", "outbound_text_failure", failurePayload);
+      throw error;
     }
-    await this.bot.send(chatId, text);
   }
 
-  private getQueue(chatId: string): ChannelQueue {
-    let queue = this.chatQueues.get(chatId);
-    if (!queue) {
-      queue = new ChannelQueue("weixin");
-      this.chatQueues.set(chatId, queue);
-      momLog("weixin", "queue_created", { botId: this.instanceId, chatId });
-    }
-    return queue;
-  }
-
-  private stopChatWork(chatId: string): { aborted: boolean } {
-    const activeSessionId = this.store.getActiveSession(chatId);
-    if (!this.running.has(chatId)) return { aborted: false };
-    const runner = this.runners.get(chatId, activeSessionId);
-    runner.abort();
-    this.running.delete(chatId);
-    momLog("weixin", "stop_requested", { botId: this.instanceId, chatId, sessionId: activeSessionId });
-    return { aborted: true };
+  private recordDelivery(chatId: string, stage: "attempt" | "success" | "failure", payload: Record<string, unknown>): void {
+    const filePath = join(this.store.getChatDir(chatId), "delivery.jsonl");
+    appendFileSync(filePath, `${JSON.stringify({
+      ts: new Date().toISOString(),
+      stage,
+      ...payload
+    })}\n`, "utf8");
   }
 
   private async replyCommand(chatId: string, sourceMessage: IncomingMessage, text: string): Promise<void> {
@@ -634,50 +570,4 @@ export class WeixinManager {
     });
   }
 
-  private async writePromptPreview(allowedChatIds: string[]): Promise<void> {
-    const chatId = allowedChatIds[0] ?? "__preview__";
-    const sessionId = allowedChatIds[0] ? this.store.getActiveSession(chatId) : "default";
-    const memoryText = allowedChatIds[0]
-      ? ((await this.memory.buildPromptContext(
-        { channel: "weixin", externalUserId: chatId },
-        "",
-        12,
-      )) || "(no working memory yet)")
-      : "(no working memory yet)";
-    const prompt = buildSystemPromptPreview(this.workspaceDir, chatId, sessionId, memoryText, {
-      channel: "weixin",
-      settings: this.getSettings()
-    });
-    const channelSections = buildPromptChannelSections("weixin");
-    const sources = getSystemPromptSources(this.workspaceDir, {
-      channel: "weixin",
-      settings: this.getSettings()
-    });
-    const filePath = join(this.workspaceDir, "SYSTEM_PROMPT.preview.md");
-    const header = [
-      "# System Prompt Preview",
-      "",
-      `- generated_at: ${new Date().toISOString()}`,
-      `- bot_instance: ${this.instanceId}`,
-      `- workspace_dir: ${this.workspaceDir}`,
-      `- chat_id: ${chatId}`,
-      `- session_id: ${sessionId}`,
-      `- channel_sections: ${channelSections.length}`,
-      `- global_sources: ${sources.global.length > 0 ? sources.global.join(", ") : "(none)"}`,
-      `- agent_sources: ${sources.agent.length > 0 ? sources.agent.join(", ") : "(none)"}`,
-      `- bot_sources: ${sources.bot.length > 0 ? sources.bot.join(", ") : "(none)"}`,
-      "",
-      "---",
-      ""
-    ].join("\n");
-    writeFileSync(filePath, `${header}${prompt}\n`, "utf8");
-    momLog("weixin", "system_prompt_preview_written", {
-      botId: this.instanceId,
-      workspaceDir: this.workspaceDir,
-      filePath,
-      chatId,
-      sessionId,
-      promptLength: prompt.length
-    });
-  }
 }

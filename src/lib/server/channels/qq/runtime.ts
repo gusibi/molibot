@@ -1,23 +1,17 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import WebSocket from "ws";
-import { config } from "../../app/env.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
-import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
-import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
-import { AcpService } from "../../acp/service.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
-import { RunnerPool } from "../../agent/runner.js";
-import { MomRuntimeStore } from "../../agent/store.js";
-import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
-import { SessionStore } from "../../sessions/store.js";
+import type { ChannelInboundMessage } from "../../agent/types.js";
+import type { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { BasicChannelAcpTemplate } from "../shared/acp.js";
-import { ChannelQueue } from "../shared/queue.js";
+import { BaseChannelRuntime } from "../shared/baseRuntime.js";
+import { buildTextChannelContext } from "../shared/contextBuilder.js";
 import {
   clearTokenCache,
   getAccessToken,
@@ -134,16 +128,7 @@ function normalizeQqTimestamp(raw: unknown): string {
   return `${Math.floor(Date.now() / 1000)}.${String(Date.now() % 1000).padStart(3, "0")}`;
 }
 
-export class QQManager {
-  private static readonly INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
-
-  private readonly workspaceDir: string;
-  private readonly store: MomRuntimeStore;
-  private readonly sessions: SessionStore;
-  private readonly runners: RunnerPool;
-  private readonly memory: MemoryGateway;
-  private readonly instanceId: string;
-  private readonly acp: AcpService;
+export class QQManager extends BaseChannelRuntime {
   private readonly acpTemplate: BasicChannelAcpTemplate<SendTarget>;
   private readonly commandService: SharedRuntimeCommandService<SendTarget>;
 
@@ -158,37 +143,20 @@ export class QQManager {
   private lastSeq: number | null = null;
   private aborted = false;
 
-  private readonly chatQueues = new Map<string, ChannelQueue>();
-  private readonly running = new Set<string>();
-  private readonly inboundDedupe = new Map<string, number>();
-
   constructor(
-    private readonly getSettings: () => RuntimeSettings,
-    private readonly updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
+    getSettings: () => RuntimeSettings,
+    updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
     sessionStore?: SessionStore,
     options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway; usageTracker: AiUsageTracker }
   ) {
-    this.workspaceDir = options?.workspaceDir ?? resolve(config.dataDir, "moli-q");
-    this.instanceId = options?.instanceId ?? "default";
-    this.store = new MomRuntimeStore(this.workspaceDir);
-    this.sessions = sessionStore ?? new SessionStore();
-    if (!options?.memory) {
-      throw new Error("QQManager requires MemoryGateway for unified memory operations.");
-    }
-    this.memory = options.memory;
-    this.runners = new RunnerPool(
-      "qq",
-      this.store,
-      this.getSettings,
-      this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
-      options.usageTracker,
-      options.memory
-    );
-    this.acp = new AcpService(
-      this.getSettings,
-      this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
-      { stateFilePath: join(this.workspaceDir, "acp_sessions.json") }
-    );
+    super({
+      channel: "qq",
+      defaultWorkspaceName: "moli-q",
+      getSettings,
+      updateSettings,
+      sessionStore,
+      options
+    });
     this.acpTemplate = new BasicChannelAcpTemplate<SendTarget>({
       acp: this.acp,
       sendText: async (_chatId, target, text) => {
@@ -205,8 +173,8 @@ export class QQManager {
       authScopePrefix: "qq",
       store: this.store,
       runners: this.runners,
-      getSettings: this.getSettings,
-      updateSettings: this.updateSettings,
+      getSettings,
+      updateSettings,
       isRunning: (scopeId) => this.running.has(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
       cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
@@ -390,27 +358,6 @@ export class QQManager {
     if (payload.t === "AT_MESSAGE_CREATE" || payload.t === "DIRECT_MESSAGE_CREATE") {
       void this.handleIncoming("channel", payload.d as QqInboundRaw, allowed);
     }
-  }
-
-  private markInboundMessageSeen(chatId: string, rawMessageId: string): boolean {
-    const key = `${chatId}:${rawMessageId}`;
-    const now = Date.now();
-    const expiresAt = this.inboundDedupe.get(key);
-    if (expiresAt && expiresAt > now) {
-      return false;
-    }
-
-    this.inboundDedupe.set(key, now + QQManager.INBOUND_DEDUPE_TTL_MS);
-
-    if (this.inboundDedupe.size > 2048) {
-      for (const [entryKey, entryExpiresAt] of this.inboundDedupe.entries()) {
-        if (entryExpiresAt <= now) {
-          this.inboundDedupe.delete(entryKey);
-        }
-      }
-    }
-
-    return true;
   }
 
   private async sendAcpPermissionCard(target: SendTarget, permission: AcpPendingPermissionView): Promise<void> {
@@ -603,82 +550,54 @@ export class QQManager {
     this.running.add(chatId);
 
     const runner = this.runners.get(chatId, activeSessionId);
-
-    let accumulatedText = "";
     const inboundReplyToId = (event as ChannelInboundMessage & { rawMessageId?: string }).rawMessageId;
     const initialTarget = (event as ChannelInboundMessage & { qqTarget?: SendTarget }).qqTarget;
-
-    const ctx: MomContext = {
+    const ctx = buildTextChannelContext({
       channel: "qq",
-      message: event,
+      event,
       workspaceDir: this.workspaceDir,
       chatDir: this.store.getChatDir(chatId),
-      respond: async (text: string, shouldLog = true) => {
-        if (!text.trim() || !initialTarget) return;
-        await this.sendText(initialTarget, text, inboundReplyToId);
-        accumulatedText += `${text}\n`;
-
-        if (shouldLog) {
-          this.store.logMessage(chatId, {
-            date: new Date().toISOString(),
-            ts: `${Math.floor(Date.now() / 1000)}.000`,
-            messageId: hashNumber(`${Date.now()}-${Math.random()}`),
-            user: this.instanceId,
-            userName: this.instanceId,
-            text,
-            attachments: [],
-            isBot: true
-          });
-          try {
-            const conv = this.sessions.getOrCreateConversation(
-              "qq",
-              `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`
-            );
-            this.sessions.appendMessage(conv.id, "assistant", text);
-          } catch (error) {
-            momWarn("qq", "session_assistant_append_failed", {
-              chatId,
-              error: error instanceof Error ? error.message : String(error)
-            });
-          }
+      store: this.store,
+      sessions: this.sessions,
+      instanceId: this.instanceId,
+      activeSessionId,
+      conversationKey: `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`,
+      response: {
+        sendText: async (text) => {
+          if (!initialTarget) return null;
+          await this.sendText(initialTarget, text, inboundReplyToId);
+          return null;
         }
       },
-      replaceMessage: async (text: string) => {
-        if (!text.trim()) return;
+      createBotMessageId: () => hashNumber(`${Date.now()}-${Math.random()}`),
+      onSessionAppendWarning: (error) => {
+        momWarn("qq", "session_assistant_append_failed", {
+          chatId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      },
+      replaceWithoutEdit: async (text, state, fallbackCtx) => {
         if (!initialTarget) return;
-        if (!accumulatedText.trim()) {
-          await ctx.respond(text);
-          accumulatedText = text;
+        if (!state.accumulatedText.trim()) {
+          await fallbackCtx.respond(text);
+          state.accumulatedText = text;
           return;
         }
-        // QQ API has no generic edit endpoint in this flow.
-        // Ignore replace updates after first send to prevent duplicated full replies.
-        if (text.trim() === accumulatedText.trim()) return;
-        accumulatedText = text;
+        if (text.trim() === state.accumulatedText.trim()) return;
+        state.accumulatedText = text;
       },
-      respondInThread: async (text: string) => {
-        await ctx.respond(text);
-      },
-      setTyping: async () => { },
-      setWorking: async () => { },
-      deleteMessage: async () => {
-        accumulatedText = "";
-      },
-      uploadFile: async (filePath: string) => {
-        const text = readFileSync(filePath, "utf8").trim();
-        if (text) {
-          await ctx.respond(text);
+      uploadWithoutHandle: async (filePath, _title, _text, fallbackCtx) => {
+        const fileText = readFileSync(filePath, "utf8").trim();
+        if (fileText) {
+          await fallbackCtx.respond(fileText);
           return;
         }
-        await ctx.respond(`[file] ${filePath}`);
+        await fallbackCtx.respond(`[file] ${filePath}`);
       }
-    };
+    });
 
     try {
       await runner.run(ctx);
-      if (!accumulatedText.trim()) {
-        momWarn("qq", "session_assistant_skipped_empty", { chatId });
-      }
     } finally {
       this.running.delete(chatId);
     }
@@ -704,27 +623,6 @@ export class QQManager {
     return safeSend(sendWithReply, sendProactive);
   }
 
-  private getQueue(chatId: string): ChannelQueue {
-    let queue = this.chatQueues.get(chatId);
-    if (!queue) {
-      queue = new ChannelQueue("qq");
-      this.chatQueues.set(chatId, queue);
-      momLog("qq", "queue_created", { chatId });
-    }
-    return queue;
-  }
-
-  private stopChatWork(chatId: string): { aborted: boolean } {
-    const activeSessionId = this.store.getActiveSession(chatId);
-    if (!this.running.has(chatId)) return { aborted: false };
-    const runner = this.runners.get(chatId, activeSessionId);
-    runner.abort();
-    // Release command-side busy guard immediately; queued jobs are kept intact.
-    this.running.delete(chatId);
-    momLog("qq", "stop_requested", { chatId, sessionId: activeSessionId });
-    return { aborted: true };
-  }
-
   private async replyCommand(target: SendTarget, text: string): Promise<void> {
     await this.sendText(target, text, target.replyToId);
   }
@@ -742,53 +640,6 @@ export class QQManager {
       scopeId: chatId,
       text,
       target
-    });
-  }
-
-  private async writePromptPreview(allowedChatIds: string[]): Promise<void> {
-    const chatId = allowedChatIds[0] ?? "__preview__";
-    const sessionId = allowedChatIds[0] ? this.store.getActiveSession(chatId) : "default";
-    const memoryText = allowedChatIds[0]
-      ? ((await this.memory.buildPromptContext(
-        { channel: "qq", externalUserId: chatId },
-        "",
-        12,
-      )) || "(no working memory yet)")
-      : "(no working memory yet)";
-    const prompt = buildSystemPromptPreview(this.workspaceDir, chatId, sessionId, memoryText, {
-      channel: "qq",
-      settings: this.getSettings()
-    });
-    const channelSections = buildPromptChannelSections("qq");
-    const sources = getSystemPromptSources(this.workspaceDir, {
-      channel: "qq",
-      settings: this.getSettings()
-    });
-    const filePath = join(this.workspaceDir, "SYSTEM_PROMPT.preview.md");
-    const header = [
-      "# System Prompt Preview",
-      "",
-      `- generated_at: ${new Date().toISOString()}`,
-      `- bot_instance: ${this.instanceId}`,
-      `- workspace_dir: ${this.workspaceDir}`,
-      `- chat_id: ${chatId}`,
-      `- session_id: ${sessionId}`,
-      `- channel_sections: ${channelSections.length}`,
-      `- global_sources: ${sources.global.length > 0 ? sources.global.join(", ") : "(none)"}`,
-      `- agent_sources: ${sources.agent.length > 0 ? sources.agent.join(", ") : "(none)"}`,
-      `- bot_sources: ${sources.bot.length > 0 ? sources.bot.join(", ") : "(none)"}`,
-      "",
-      "---",
-      "",
-    ].join("\n");
-    writeFileSync(filePath, `${header}${prompt}\n`, "utf8");
-    momLog("qq", "system_prompt_preview_written", {
-      botId: this.instanceId,
-      workspaceDir: this.workspaceDir,
-      filePath,
-      chatId,
-      sessionId,
-      promptLength: prompt.length,
     });
   }
 

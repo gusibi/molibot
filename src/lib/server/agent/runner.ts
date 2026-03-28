@@ -1173,6 +1173,11 @@ export class MomRunner implements RunnerLike {
             Array.isArray(patchedContext.tools) &&
             patchedContext.tools.length > 0,
         });
+        momLog("runner", "llm_request_sent", {
+          chatId: this.chatId,
+          modelId: selectedModel.id,
+          provider: selectedModel.provider
+        });
         return streamSimple(
           selectedModel as any,
           patchedContext as any,
@@ -1377,6 +1382,13 @@ export class MomRunner implements RunnerLike {
     });
 
     const audioEnrichedInput = await enrichMessageTextWithAudio(ctx, settings, audioDecision);
+    momLog("runner", "voice_transcription_success", {
+      runId,
+      chatId: this.chatId,
+      sessionId: this.sessionId,
+      transcriptionErrors: audioEnrichedInput.transcriptionErrors.length,
+      hasTranscripts: audioEnrichedInput.text !== ctx.message.text
+    });
     if (audioEnrichedInput.transcriptionErrors.length > 0) {
       await ctx.respondInThread(
         [
@@ -1411,6 +1423,13 @@ export class MomRunner implements RunnerLike {
       imageDecision,
       audioEnrichedInput.text
     );
+    momLog("runner", "image_analysis_success", {
+      runId,
+      chatId: this.chatId,
+      sessionId: this.sessionId,
+      analysisErrors: enrichedInput.analysisErrors.length,
+      hasAnalyses: enrichedInput.text !== audioEnrichedInput.text
+    });
     if (enrichedInput.analysisErrors.length > 0) {
       await ctx.respondInThread(
         [
@@ -1554,6 +1573,8 @@ export class MomRunner implements RunnerLike {
     let stopReason: "stop" | "aborted" | "error" = "stop";
     let errorMessage: string | undefined;
     let assistantTextStreamed = false;
+    let firstAssistantTokenLogged = false;
+    let promptStartedAt = 0;
 
     const unsubscribe = this.agent.subscribe((event: AgentEvent) => {
       if (
@@ -1567,6 +1588,15 @@ export class MomRunner implements RunnerLike {
         const assistantEvent = event.assistantMessageEvent;
         if (assistantEvent.type === "text_delta" && assistantEvent.delta) {
           assistantTextStreamed = true;
+          if (!firstAssistantTokenLogged) {
+            firstAssistantTokenLogged = true;
+            momLog("runner", "llm_first_token", {
+              runId,
+              chatId: this.chatId,
+              modelId: activeSelection.model.id,
+              latency: promptStartedAt > 0 ? Date.now() - promptStartedAt : undefined
+            });
+          }
         }
         if (ctx.onRunnerEvent) {
           enqueue(() => ctx.onRunnerEvent!({
@@ -1838,6 +1868,8 @@ export class MomRunner implements RunnerLike {
               provider: selectedModel.provider,
               model: selectedModel.id
             });
+            promptStartedAt = Date.now();
+            firstAssistantTokenLogged = false;
             await this.agent.prompt(
               userMessage,
               visionDecision.sendImagesNatively && ctx.message.imageContents.length > 0

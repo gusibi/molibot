@@ -172,6 +172,9 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-126 | General-purpose agent prompt hardening | P1 | Delivered (2026-03-26) | The runtime prompt should not assume a coding-only workload. It must explicitly frame task types, verify fresh/current information before answering, resist prompt injection from fetched content, and require confirmation for broader high-impact actions such as external posting, credential/config changes, and destructive runtime edits |
 | P1-127 | Profile template responsibility cleanup | P1 | Delivered (2026-03-26) | Long-term profile templates should have clean boundaries: AGENTS for collaboration contract, IDENTITY for stable role, SOUL for communication style, USER for collaboration-relevant user facts, BOOTSTRAP for minimal init residue only. Repeated runtime rules and low-value personal noise should be removed so these files stop competing with the main system prompt |
 | P1-128 | Existing-capability-first routing | P1 | Delivered (2026-03-26) | The agent must treat requests for voice/image/search/reminder output as result requests first, not as implementation asks. Installed skills and dedicated runtime tools must be attempted before any code-writing or workspace modification is considered, and a missed first guess must not immediately escalate into development work |
+| P1-129 | Shared text-channel runtime skeleton | P1 | Delivered (2026-03-27) | Text-channel runtimes should share queue/dedupe/stop/prompt-preview/session-append/context assembly where behavior is truly common, while Telegram-specific streaming/status/topic/interactive behavior remains channel-owned instead of being flattened by an over-generic base class |
+| P1-130 | Weixin outbound delivery audit and retry | P1 | Delivered (2026-03-28) | When Weixin outbound send fails or stalls, operators should be able to tell whether the bot tried to send, whether it retried, and whether it finally succeeded or failed. Text sends should automatically retry transient failures, and each chat should keep a local delivery audit trail independent of the model context file |
+| P1-131 | Model runner logging must not interfere with response capture | P1 | Delivered (2026-03-28) | Shared runner observability must never wrap or mutate the low-level model event stream in a way that can affect response capture. First-token timing should be derived from real assistant delta events, and pretty terminal logs must only activate through explicit configuration instead of implicit TTY detection |
 
 ### P1-117 Implementation Note (2026-03-24)
 - Telegram ACP middleware must not keep any stale direct reference to the old local control-command helper once proxy gating is centralized through the shared ACP proxy rule, otherwise bot startup can fail before ACP routing is reached.
@@ -218,6 +221,14 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 ### P1-128 Implementation Note (2026-03-26)
 - For a general-purpose agent, “write code” is not a neutral default action. It should be the last resort after existing skills and dedicated runtime tools have been checked against the requested outcome.
 - The prompt must explicitly stop the agent from misreading output-format requests as feature-building requests; otherwise it will keep trying to implement voice/image/search support instead of simply using the already-installed capability.
+
+### P1-129 Implementation Note (2026-03-27)
+- Shared runtime refactors should extract only the repeatable skeleton: inbound dedupe, queueing, stop control, prompt-preview generation, session append helpers, and default text-channel context assembly.
+- Channel-specific send semantics must stay local when they affect user-visible behavior. In particular, Telegram streaming/status edits, topic reply wiring, and ACP callback interactions should not be forced through the same minimal response abstraction used by Feishu/QQ/Weixin.
+
+### P1-130 Implementation Note (2026-03-28)
+- Weixin outbound observability must not depend on reading the agent session context file after the fact. Delivery status should be logged on the send path itself, with explicit attempt / retry / success / final-failure markers.
+- A failed final reply cannot rely on the same broken send path to explain itself to the user. The system therefore needs both automatic retry for transient failures and a durable local delivery audit record so operators can immediately see whether the answer was generated but never delivered.
 
 ### Later (P2)
 | ID | Feature | Priority | Phase | Acceptance Criteria |
@@ -2032,3 +2043,16 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/channels/weixin/outbound.ts` 必须先发全文文字，再发附件，不能再只发标题。
   - `src/lib/server/channels/weixin/outbound.test.ts` 必须覆盖“双消息：文字 + MP3 附件”的场景。
   - `features.md` 必须记录这次修正，方便后续排查“为什么微信里没有语音气泡但仍能正常收到内容”。
+
+## 152. Agent 模型请求链路必须避免日志代码触发运行时异常 (2026-03-28)
+- Priority: P0
+- Stage: Delivered (2026-03-28)
+- Problem:
+  - 在 `runner` 的模型流式请求入口新增诊断日志后，日志代码读取了当前作用域里不存在的 `ctx` 变量，导致请求发起前就抛出运行时异常。
+  - 该异常会让每个 provider/model 的尝试都在本地提前失败，最终表象是“所有模型都连不上 / empty response after 3 attempt(s)”。
+- Requirement:
+  - 模型请求链路中的日志必须是零副作用，不能依赖当前作用域不可用变量，更不能阻断真实请求。
+- Enforcement:
+  - `src/lib/server/agent/runner.ts` 的 `streamFn` 中不得读取未定义 `ctx`，`llm_request_sent` 日志需仅使用当前可用上下文。
+  - 变更后必须至少通过一次类型检查证明 `Cannot find name 'ctx'` 已消失。
+  - `features.md` 必须记录这次修复，方便后续排查“为什么突然出现全模型空响应”。

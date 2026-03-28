@@ -18,6 +18,9 @@ import {
   type SendMessageReq,
   type SendTypingReq
 } from "./types.js";
+import { momError, momLog, momWarn } from "../../../agent/log.js";
+
+const SEND_MESSAGE_RETRY_DELAYS_MS = [0, 600, 1800] as const;
 
 function readVendoredSdkVersion(): string {
   try {
@@ -149,13 +152,58 @@ export async function sendMessage(
   token: string,
   msg: SendMessageReq["msg"]
 ): Promise<Record<string, unknown>> {
-  return apiFetch<Record<string, unknown>>(
-    baseUrl,
-    "/ilink/bot/sendmessage",
-    { msg, base_info: buildBaseInfo() },
-    token,
-    15_000
-  );
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < SEND_MESSAGE_RETRY_DELAYS_MS.length; attempt += 1) {
+    const delayMs = SEND_MESSAGE_RETRY_DELAYS_MS[attempt] ?? 0;
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    momLog("weixin", "sendmessage_attempt", {
+      attempt: attempt + 1,
+      maxAttempts: SEND_MESSAGE_RETRY_DELAYS_MS.length,
+      ...describeOutgoingMessage(msg)
+    });
+
+    try {
+      const response = await apiFetch<Record<string, unknown>>(
+        baseUrl,
+        "/ilink/bot/sendmessage",
+        { msg, base_info: buildBaseInfo() },
+        token,
+        15_000
+      );
+      momLog("weixin", "sendmessage_success", {
+        attempt: attempt + 1,
+        maxAttempts: SEND_MESSAGE_RETRY_DELAYS_MS.length,
+        ...describeOutgoingMessage(msg)
+      });
+      return response;
+    } catch (error) {
+      lastError = error;
+      const retryable = isRetryableSendMessageError(error);
+      const payload = {
+        attempt: attempt + 1,
+        maxAttempts: SEND_MESSAGE_RETRY_DELAYS_MS.length,
+        retryable,
+        error: error instanceof Error ? error.message : String(error),
+        ...describeOutgoingMessage(msg)
+      };
+
+      if (!retryable || attempt === SEND_MESSAGE_RETRY_DELAYS_MS.length - 1) {
+        momError("weixin", "sendmessage_failed", payload);
+        throw error;
+      }
+
+      momWarn("weixin", "sendmessage_retry", {
+        ...payload,
+        nextDelayMs: SEND_MESSAGE_RETRY_DELAYS_MS[attempt + 1] ?? 0
+      });
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "sendmessage failed"));
 }
 
 export async function getConfig(
@@ -208,4 +256,36 @@ export function buildTextMessage(userId: string, contextToken: string, text: str
       }
     ]
   };
+}
+
+function describeOutgoingMessage(msg: SendMessageReq["msg"]): Record<string, unknown> {
+  const safeMsg = msg ?? ({} as NonNullable<SendMessageReq["msg"]>);
+  const itemList = Array.isArray(safeMsg.item_list) ? safeMsg.item_list : [];
+  const textPreview = itemList
+    .map((item) => item.text_item?.text ?? item.voice_item?.text ?? item.file_item?.file_name ?? "")
+    .join("\n")
+    .trim();
+
+  return {
+    toUserId: safeMsg.to_user_id,
+    clientId: safeMsg.client_id,
+    itemTypes: itemList.map((item) => item.type),
+    textPreview: textPreview ? textPreview.slice(0, 160) : ""
+  };
+}
+
+function isRetryableSendMessageError(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.status >= 500 || error.status === 408 || error.code === -1;
+  }
+
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return (
+    message.includes("fetch failed") ||
+    message.includes("socket hang up") ||
+    message.includes("ECONNRESET") ||
+    message.includes("ETIMEDOUT") ||
+    message.includes("TimeoutError") ||
+    message.includes("network")
+  );
 }

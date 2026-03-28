@@ -1,27 +1,21 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, extname, join } from "node:path";
 import { Bot, InlineKeyboard, InputFile } from "grammy";
-import { config } from "../../app/env.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
-import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
-import { AcpService } from "../../acp/service.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
-import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
-import { RunnerPool } from "../../agent/runner.js";
-import { MomRuntimeStore } from "../../agent/store.js";
 import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
-import { SessionStore } from "../../sessions/store.js";
+import type { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { applyTelegramAcpProgressEvent, createTelegramAcpProgressState } from "./acpProgress.js";
 import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText } from "./formatting.js";
 import { ACP_CONTROL_HELP_LINES, handleSharedAcpApprovalCommand, handleSharedAcpCommand, shouldProxyToAcpSession, type SharedAcpPromptKind } from "../shared/acp.js";
-import { ChannelQueue } from "../shared/queue.js";
+import { BaseChannelRuntime } from "../shared/baseRuntime.js";
 import type { ParsedRelativeReminder, StatusSession } from "./types.js";
 
 export interface TelegramConfig {
@@ -37,7 +31,7 @@ interface TelegramCommandTarget {
 
 // Orchestrates Telegram-specific command flow, event handling, and runner lifecycle.
 // Leaf concerns like queueing and text formatting live in sibling files.
-export class TelegramManager {
+export class TelegramManager extends BaseChannelRuntime {
   private static readonly TELEGRAM_TEXT_SOFT_LIMIT = 3800;
   private static readonly STREAM_RENDER_INTERVAL_MS = 1000;
   private static readonly STREAM_EDIT_RETRY_AFTER_CAP_MS = 1500;
@@ -47,19 +41,11 @@ export class TelegramManager {
     ["data", "molipi_bot", "events"],
     ["data", "telegram-mom", "events"]
   ] as const;
-  private readonly workspaceDir: string;
-  private readonly store: MomRuntimeStore;
-  private readonly sessions: SessionStore;
-  private readonly runners: RunnerPool;
-  private readonly memory: MemoryGateway;
-  private readonly instanceId: string;
-  private readonly acp: AcpService;
   private readonly commandService: SharedRuntimeCommandService<TelegramCommandTarget>;
   private bot: Bot | undefined;
   private currentToken = "";
   private currentAllowedChatIdsKey = "";
   private botUsername = "";
-  private readonly chatQueues = new Map<string, ChannelQueue>();
   private readonly acpPermissionActions = new Map<string, {
     scopeId: string;
     requestId: string;
@@ -67,7 +53,6 @@ export class TelegramManager {
     optionId?: string;
   }>();
   private readonly acpPermissionInputs = new Map<string, { requestId: string }>();
-  private readonly running = new Set<string>();
   private readonly events: EventsWatcher[] = [];
   private readonly watchedChatEventDirs = new Set<string>();
   private authDisabled = false;
@@ -138,32 +123,19 @@ export class TelegramManager {
 
 
   constructor(
-    private readonly getSettings: () => RuntimeSettings,
-    private readonly updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
+    getSettings: () => RuntimeSettings,
+    updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
     sessionStore?: SessionStore,
     options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway; usageTracker: AiUsageTracker }
   ) {
-    this.workspaceDir = options?.workspaceDir ?? resolve(config.dataDir, "moli-t");
-    this.instanceId = options?.instanceId ?? "default";
-    this.store = new MomRuntimeStore(this.workspaceDir);
-    this.sessions = sessionStore ?? new SessionStore();
-    if (!options?.memory) {
-      throw new Error("TelegramManager requires MemoryGateway for unified memory operations.");
-    }
-    this.memory = options.memory;
-    this.acp = new AcpService(
-      this.getSettings,
-      this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
-      { stateFilePath: join(this.workspaceDir, "acp_sessions.json") }
-    );
-    this.runners = new RunnerPool(
-      "telegram",
-      this.store,
-      this.getSettings,
-      this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
-      options.usageTracker,
-      options.memory
-    );
+    super({
+      channel: "telegram",
+      defaultWorkspaceName: "moli-t",
+      getSettings,
+      updateSettings,
+      sessionStore,
+      options
+    });
     this.commandService = new SharedRuntimeCommandService<TelegramCommandTarget>({
       channel: "telegram",
       instanceId: this.instanceId,
@@ -171,8 +143,8 @@ export class TelegramManager {
       authScopePrefix: "telegram",
       store: this.store,
       runners: this.runners,
-      getSettings: this.getSettings,
-      updateSettings: this.updateSettings,
+      getSettings,
+      updateSettings,
       getAuthScopeKey: (input) => `telegram:${input.chatId}`,
       isRunning: (scopeId) => this.running.has(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
@@ -468,57 +440,6 @@ export class TelegramManager {
         ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {})
       }
     );
-  }
-
-  private async writePromptPreview(allowedChatIds: string[]): Promise<void> {
-    const chatId = allowedChatIds[0] ?? "__preview__";
-    const sessionId = allowedChatIds[0] ? this.store.getActiveSession(chatId) : "default";
-    const memoryText = allowedChatIds[0]
-      ? ((await this.memory.buildPromptContext(
-        { channel: "telegram", externalUserId: chatId },
-        "",
-        12,
-      )) || "(no working memory yet)")
-      : "(no working memory yet)";
-    const prompt = buildSystemPromptPreview(this.workspaceDir, chatId, sessionId, memoryText, {
-      channel: "telegram",
-      settings: this.getSettings()
-    });
-    const channelSections = buildPromptChannelSections("telegram");
-    const sources = getSystemPromptSources(this.workspaceDir, {
-      channel: "telegram",
-      settings: this.getSettings()
-    });
-    const filePath = join(this.workspaceDir, "SYSTEM_PROMPT.preview.md");
-    const header = [
-      "# System Prompt Preview",
-      "",
-      `- generated_at: ${new Date().toISOString()}`,
-      `- bot_instance: ${this.instanceId}`,
-      `- workspace_dir: ${this.workspaceDir}`,
-      `- chat_id: ${chatId}`,
-      `- session_id: ${sessionId}`,
-      `- channel_sections: ${channelSections.length}`,
-      `- global_sources: ${sources.global.length > 0 ? sources.global.join(", ") : "(none)"}`,
-      `- agent_sources: ${sources.agent.length > 0 ? sources.agent.join(", ") : "(none)"}`,
-      `- bot_sources: ${sources.bot.length > 0 ? sources.bot.join(", ") : "(none)"}`,
-      "",
-      "---",
-      "",
-    ].join("\n");
-    writeFileSync(
-      filePath,
-      `${header}${prompt}\n`,
-      "utf8"
-    );
-    momLog("telegram", "system_prompt_preview_written", {
-      botId: this.instanceId,
-      workspaceDir: this.workspaceDir,
-      filePath,
-      chatId,
-      sessionId,
-      promptLength: prompt.length,
-    });
   }
 
   apply(cfg: TelegramConfig): void {
@@ -1110,27 +1031,6 @@ export class TelegramManager {
     watcher.start();
     this.events.push(watcher);
     momLog("telegram", "events_watcher_started", { eventsDir, source, chatId });
-  }
-
-  private getQueue(chatId: string): ChannelQueue {
-    let queue = this.chatQueues.get(chatId);
-    if (!queue) {
-      queue = new ChannelQueue("telegram");
-      this.chatQueues.set(chatId, queue);
-      momLog("telegram", "queue_created", { chatId });
-    }
-    return queue;
-  }
-
-  private stopChatWork(chatId: string): { aborted: boolean } {
-    const activeSessionId = this.store.getActiveSession(chatId);
-    if (!this.running.has(chatId)) return { aborted: false };
-    const runner = this.runners.get(chatId, activeSessionId);
-    runner.abort();
-    // Release command-side busy guard immediately; queued jobs are kept intact.
-    this.running.delete(chatId);
-    momLog("telegram", "stop_requested", { chatId, sessionId: activeSessionId });
-    return { aborted: true };
   }
 
   private resolveEventDeliveryMode(event: MomEvent): EventDeliveryMode {

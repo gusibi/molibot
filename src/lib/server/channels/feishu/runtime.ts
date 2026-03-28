@@ -1,26 +1,21 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, extname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { basename, extname } from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
-import { config } from "../../app/env.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
-import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
-import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
-import { AcpService } from "../../acp/service.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
-import { RunnerPool } from "../../agent/runner.js";
-import { MomRuntimeStore } from "../../agent/store.js";
-import type { MomContext, ChannelInboundMessage } from "../../agent/types.js";
-import { SessionStore } from "../../sessions/store.js";
+import type { ChannelInboundMessage } from "../../agent/types.js";
+import type { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { deleteFeishuMessage, editFeishuText, sendFeishuFile, sendFeishuText } from "./messaging.js";
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "./message-intake.js";
 import { BasicChannelAcpTemplate } from "../shared/acp.js";
-import { ChannelQueue } from "../shared/queue.js";
+import { BaseChannelRuntime } from "../shared/baseRuntime.js";
+import { buildTextChannelContext } from "../shared/contextBuilder.js";
 
 export interface FeishuConfig {
     appId: string;
@@ -30,16 +25,8 @@ export interface FeishuConfig {
 
 // Orchestrates Feishu-specific inbound handling, command flow, and runner lifecycle.
 // Leaf concerns like queueing, message send/edit, and intake parsing live in sibling files.
-export class FeishuManager {
+export class FeishuManager extends BaseChannelRuntime {
     private static readonly CHAT_EVENTS_RELATIVE_DIR = ["events"] as const;
-    private static readonly INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
-    private readonly workspaceDir: string;
-    private readonly store: MomRuntimeStore;
-    private readonly sessions: SessionStore;
-    private readonly runners: RunnerPool;
-    private readonly memory: MemoryGateway;
-    private readonly instanceId: string;
-    private readonly acp: AcpService;
     private readonly acpTemplate: BasicChannelAcpTemplate<void>;
     private readonly commandService: SharedRuntimeCommandService<string>;
 
@@ -50,39 +37,23 @@ export class FeishuManager {
     private currentAppSecret = "";
     private currentAllowedChatIdsKey = "";
 
-    private readonly chatQueues = new Map<string, ChannelQueue>();
-    private readonly running = new Set<string>();
-    private readonly inboundDedupe = new Map<string, number>();
     private readonly events: EventsWatcher[] = [];
     private readonly watchedChatEventDirs = new Set<string>();
 
     constructor(
-        private readonly getSettings: () => RuntimeSettings,
-        private readonly updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
+        getSettings: () => RuntimeSettings,
+        updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
         sessionStore?: SessionStore,
         options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway; usageTracker: AiUsageTracker }
     ) {
-        this.workspaceDir = options?.workspaceDir ?? resolve(config.dataDir, "moli-f");
-        this.instanceId = options?.instanceId ?? "default";
-        this.store = new MomRuntimeStore(this.workspaceDir);
-        this.sessions = sessionStore ?? new SessionStore();
-        if (!options?.memory) {
-            throw new Error("FeishuManager requires MemoryGateway for unified memory operations.");
-        }
-        this.memory = options.memory;
-        this.runners = new RunnerPool(
-            "feishu",
-            this.store,
-            this.getSettings,
-            this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
-            options.usageTracker,
-            options.memory
-        );
-        this.acp = new AcpService(
-            this.getSettings,
-            this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
-            { stateFilePath: join(this.workspaceDir, "acp_sessions.json") }
-        );
+        super({
+            channel: "feishu",
+            defaultWorkspaceName: "moli-f",
+            getSettings,
+            updateSettings,
+            sessionStore,
+            options
+        });
         this.acpTemplate = new BasicChannelAcpTemplate<void>({
             acp: this.acp,
             sendText: async (chatId, _context, text) => {
@@ -99,8 +70,8 @@ export class FeishuManager {
             authScopePrefix: "feishu",
             store: this.store,
             runners: this.runners,
-            getSettings: this.getSettings,
-            updateSettings: this.updateSettings,
+            getSettings,
+            updateSettings,
             isRunning: (scopeId) => this.running.has(scopeId),
             stopRun: (scopeId) => this.stopChatWork(scopeId),
             cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
@@ -216,27 +187,6 @@ export class FeishuManager {
         this.currentAppSecret = "";
         this.currentAllowedChatIdsKey = "";
         void this.acp.dispose();
-    }
-
-    private markInboundMessageSeen(chatId: string, rawMessageId: string): boolean {
-        const key = `${chatId}:${rawMessageId}`;
-        const now = Date.now();
-        const expiresAt = this.inboundDedupe.get(key);
-        if (expiresAt && expiresAt > now) {
-            return false;
-        }
-
-        this.inboundDedupe.set(key, now + FeishuManager.INBOUND_DEDUPE_TTL_MS);
-
-        if (this.inboundDedupe.size > 2048) {
-            for (const [entryKey, entryExpiresAt] of this.inboundDedupe.entries()) {
-                if (entryExpiresAt <= now) {
-                    this.inboundDedupe.delete(entryKey);
-                }
-            }
-        }
-
-        return true;
     }
 
     private async sendAcpPermissionCard(chatId: string, permission: AcpPendingPermissionView): Promise<void> {
@@ -406,99 +356,49 @@ export class FeishuManager {
         this.running.add(chatId);
 
         const runner = this.runners.get(chatId, activeSessionId);
-
-        let currentMessageId: string | null = null;
-        let accumulatedText = "";
-
-        const ctx: MomContext = {
+        const ctx = buildTextChannelContext({
             channel: "feishu",
-            message: event,
+            event,
             workspaceDir: this.workspaceDir,
             chatDir: this.store.getChatDir(chatId),
-            respond: async (text: string, shouldLog = true) => {
-                if (!text.trim()) return;
-                const resp = await sendFeishuText(this.client, chatId, text);
-                if (resp && resp.message_id) {
-                    currentMessageId = resp.message_id;
-                }
-                accumulatedText += text + "\n";
-
-                if (shouldLog) {
-                    this.store.logMessage(chatId, {
-                        date: new Date().toISOString(),
-                        ts: `${Math.floor(Date.now() / 1000)}.000`,
-                        messageId: Date.now(),
-                        user: this.instanceId,
-                        userName: this.instanceId,
-                        text,
-                        attachments: [],
-                        isBot: true
-                    });
-                    try {
-                        const conv = this.sessions.getOrCreateConversation(
-                            "feishu",
-                            `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`
-                        );
-                        this.sessions.appendMessage(conv.id, "assistant", text);
-                    } catch (error) {
-                        momWarn("feishu", "session_assistant_append_failed", {
-                            chatId,
-                            error: error instanceof Error ? error.message : String(error)
-                        });
-                    }
+            store: this.store,
+            sessions: this.sessions,
+            instanceId: this.instanceId,
+            activeSessionId,
+            conversationKey: `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`,
+            response: {
+                sendText: async (text) => {
+                    const resp = await sendFeishuText(this.client, chatId, text);
+                    return resp?.message_id ? { messageId: resp.message_id } : null;
+                },
+                editText: async (message, text) => {
+                    await editFeishuText(this.client, String(message.messageId), text);
+                    return true;
+                },
+                deleteMessage: async (message) => {
+                    await deleteFeishuMessage(this.client, String(message.messageId));
+                    return true;
+                },
+                uploadFile: async (filePath, title) => {
+                    const filename = title || filePath.split("/").pop() || "file";
+                    const bytes = readFileSync(filePath);
+                    await sendFeishuFile(this.client, chatId, bytes, filename);
                 }
             },
-            replaceMessage: async (text: string) => {
-                if (!currentMessageId) {
-                    await ctx.respond(text);
-                    return;
-                }
-                await editFeishuText(this.client, currentMessageId, text);
-                accumulatedText = text;
-            },
-            respondInThread: async (text: string) => {
-                await ctx.respond(text);
-            },
-            setTyping: async () => { },
-            setWorking: async () => { },
-            deleteMessage: async () => {
-                await deleteFeishuMessage(this.client, currentMessageId);
-                currentMessageId = null;
-                accumulatedText = "";
-            },
-            uploadFile: async (filePath: string, title?: string) => {
-                const filename = title || filePath.split("/").pop() || "file";
-                const bytes = readFileSync(filePath);
-                await sendFeishuFile(this.client, chatId, bytes, filename);
+            createBotMessageId: () => Date.now(),
+            onSessionAppendWarning: (error) => {
+                momWarn("feishu", "session_assistant_append_failed", {
+                    chatId,
+                    error: error instanceof Error ? error.message : String(error)
+                });
             }
-        };
+        });
 
         try {
             await runner.run(ctx);
         } finally {
             this.running.delete(chatId);
         }
-    }
-
-    private getQueue(chatId: string): ChannelQueue {
-        let queue = this.chatQueues.get(chatId);
-        if (!queue) {
-            queue = new ChannelQueue("feishu");
-            this.chatQueues.set(chatId, queue);
-            momLog("feishu", "queue_created", { chatId });
-        }
-        return queue;
-    }
-
-    private stopChatWork(chatId: string): { aborted: boolean } {
-        const activeSessionId = this.store.getActiveSession(chatId);
-        if (!this.running.has(chatId)) return { aborted: false };
-        const runner = this.runners.get(chatId, activeSessionId);
-        runner.abort();
-        // Release command-side busy guard immediately; queued jobs are kept intact.
-        this.running.delete(chatId);
-        momLog("feishu", "stop_requested", { chatId, sessionId: activeSessionId });
-        return { aborted: true };
     }
 
     private async handleCommand(chatId: string, text: string): Promise<boolean> {
@@ -519,56 +419,5 @@ export class FeishuManager {
 
     private startEventsWatchers(allowed: Set<string>): void {
         // stub
-    }
-
-    private async writePromptPreview(allowedChatIds: string[]): Promise<void> {
-        const chatId = allowedChatIds[0] ?? "__preview__";
-        const sessionId = allowedChatIds[0] ? this.store.getActiveSession(chatId) : "default";
-        const memoryText = allowedChatIds[0]
-            ? ((await this.memory.buildPromptContext(
-                { channel: "feishu", externalUserId: chatId },
-                "",
-                12,
-            )) || "(no working memory yet)")
-            : "(no working memory yet)";
-        const prompt = buildSystemPromptPreview(this.workspaceDir, chatId, sessionId, memoryText, {
-            channel: "feishu",
-            settings: this.getSettings()
-        });
-        const channelSections = buildPromptChannelSections("feishu");
-        const sources = getSystemPromptSources(this.workspaceDir, {
-            channel: "feishu",
-            settings: this.getSettings()
-        });
-        const filePath = join(this.workspaceDir, "SYSTEM_PROMPT.preview.md");
-        const header = [
-            "# System Prompt Preview",
-            "",
-            `- generated_at: ${new Date().toISOString()}`,
-            `- bot_instance: ${this.instanceId}`,
-            `- workspace_dir: ${this.workspaceDir}`,
-            `- chat_id: ${chatId}`,
-            `- session_id: ${sessionId}`,
-            `- channel_sections: ${channelSections.length}`,
-            `- global_sources: ${sources.global.length > 0 ? sources.global.join(", ") : "(none)"}`,
-            `- agent_sources: ${sources.agent.length > 0 ? sources.agent.join(", ") : "(none)"}`,
-            `- bot_sources: ${sources.bot.length > 0 ? sources.bot.join(", ") : "(none)"}`,
-            "",
-            "---",
-            "",
-        ].join("\n");
-        writeFileSync(
-            filePath,
-            `${header}${prompt}\n`,
-            "utf8"
-        );
-        momLog("feishu", "system_prompt_preview_written", {
-            botId: this.instanceId,
-            workspaceDir: this.workspaceDir,
-            filePath,
-            chatId,
-            sessionId,
-            promptLength: prompt.length,
-        });
     }
 }
