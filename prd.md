@@ -2125,3 +2125,34 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/channels/weixin/media.ts`、`outbound.ts`、`sdk/api.ts`、`sdk/client.ts`、`media.test.ts` 必须改为直接引用 `#weixin-agent-sdk/src/api/types.js`。
   - 对 `voice/file/video` 的可选 `aeskey` 兼容必须保留，不能因类型迁移影响现有入站媒体解析。
   - `features.md` 必须记录这次迁移步骤，方便后续按阶段继续压薄本地层。
+
+## 158. Weixin 第二轮继续压薄本地登录/轮询封装（保持接口不变） (2026-03-28)
+- Priority: P0
+- Stage: Delivered (2026-03-28)
+- Problem:
+  - 本地 `sdk/client.ts` 的轮询与打字流程仍通过 `sdk/api.ts` 做一层同名转发，链路冗余，后续维护定位成本高。
+  - 本地 `sdk/api.ts` 中也保留了仅供 `client` 使用的转发函数，增加不必要接口面。
+- Requirement:
+  - 保持 `WeixinBot` 对外接口与 runtime 行为不变，仅把内部轮询/打字调用改成直连 vendored API。
+  - 删除本地 `sdk/api.ts` 中不再需要的轮询/打字/文本构造转发函数，继续缩小本地层。
+- Enforcement:
+  - `src/lib/server/channels/weixin/sdk/client.ts` 必须改为直接调用 `#weixin-agent-sdk/src/api/api.js` 的 `getUpdates/getConfig/sendTyping`。
+  - 轮询错误处理必须继续覆盖会话过期（`-14`）并保留原有自动重登流程，避免中断收发。
+  - `src/lib/server/channels/weixin/sdk/api.ts` 必须移除已无调用方的 `getUpdates/getConfig/sendTyping/buildTextMessage` 本地转发实现。
+  - `features.md` 必须记录本次“登录/轮询封装压薄”步骤，便于后续继续分层迁移。
+
+## 159. Weixin 第二轮继续压薄本地登录存储层（本地隔离不变，增加统一存储同步） (2026-03-28)
+- Priority: P0
+- Stage: Delivered (2026-03-28)
+- Problem:
+  - 本地 `sdk/auth.ts` 仍独立维护一套凭证落盘逻辑，和 vendored 账号存储完全割裂，导致后续迁移与排障都要看两套存储语义。
+  - 直接一次性切换到统一存储风险高，可能影响现有按 bot 工作区隔离的登录文件行为。
+- Requirement:
+  - 保持现有“传入 tokenPath 时按本地工作区文件读写”的行为不变，确保不串 bot、不中断收发。
+  - 在保存/清理时同步统一账号存储，逐步收敛到同一存储事实来源，降低后续迁移成本。
+- Enforcement:
+  - `src/lib/server/channels/weixin/sdk/auth.ts` 必须在保存凭证时同步写入 vendored 账号存储并注册账号索引。
+  - `tokenPath` 存在时，`loadCredentials` 只能读取该本地文件，不得回退全局账号池，避免跨 bot 串用凭证。
+  - `tokenPath` 不存在时，`loadCredentials` 才允许从 vendored 账号存储读取。
+  - `clearCredentials` 必须优先清理本地文件，并在可识别账号时同步清理对应 vendored 账号数据。
+  - `features.md` 必须记录这次“登录存储层压薄”步骤，便于分阶段回退和后续继续迁移。

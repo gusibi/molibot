@@ -1,8 +1,11 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { ApiError, DEFAULT_BASE_URL, buildTextMessage, getUpdates, sendMessage, getConfig, sendTyping as apiSendTyping } from "./api.js";
+import { randomUUID } from "node:crypto";
+import { getConfig as vendorGetConfig, getUpdates as vendorGetUpdates, sendTyping as vendorSendTyping } from "#weixin-agent-sdk/src/api/api.js";
+import { DEFAULT_BASE_URL, sendMessage } from "./api.js";
 import { clearCredentials, loadCredentials, login, type Credentials } from "./auth.js";
 import {
   MessageItemType,
+  MessageState,
   MessageType,
   type MessageItem,
   type WeixinMessage
@@ -88,13 +91,28 @@ export class WeixinBot {
     }
 
     const credentials = await this.ensureCredentials();
-    const config = await getConfig(this.baseUrl, credentials.token, userId, contextToken);
+    const config = await vendorGetConfig({
+      baseUrl: this.baseUrl,
+      token: credentials.token,
+      ilinkUserId: userId,
+      contextToken,
+      timeoutMs: 15_000
+    });
     if (!config.typing_ticket) {
       this.log("sendTyping: no typing_ticket returned by getconfig");
       return;
     }
 
-    await apiSendTyping(this.baseUrl, credentials.token, userId, config.typing_ticket, 1);
+    await vendorSendTyping({
+      baseUrl: this.baseUrl,
+      token: credentials.token,
+      timeoutMs: 15_000,
+      body: {
+        ilink_user_id: userId,
+        typing_ticket: config.typing_ticket,
+        status: 1
+      }
+    });
   }
 
   async stopTyping(userId: string): Promise<void> {
@@ -102,10 +120,25 @@ export class WeixinBot {
     if (!contextToken) return;
 
     const credentials = await this.ensureCredentials();
-    const config = await getConfig(this.baseUrl, credentials.token, userId, contextToken);
+    const config = await vendorGetConfig({
+      baseUrl: this.baseUrl,
+      token: credentials.token,
+      ilinkUserId: userId,
+      contextToken,
+      timeoutMs: 15_000
+    });
     if (!config.typing_ticket) return;
 
-    await apiSendTyping(this.baseUrl, credentials.token, userId, config.typing_ticket, 2);
+    await vendorSendTyping({
+      baseUrl: this.baseUrl,
+      token: credentials.token,
+      timeoutMs: 15_000,
+      body: {
+        ilink_user_id: userId,
+        typing_ticket: config.typing_ticket,
+        status: 2
+      }
+    });
   }
 
   async send(userId: string, text: string): Promise<void> {
@@ -145,14 +178,37 @@ export class WeixinBot {
       try {
         const credentials = await this.ensureCredentials();
         this.currentPollController = new AbortController();
-        const updates = await getUpdates(
-          this.baseUrl,
-          credentials.token,
-          this.cursor,
-          this.currentPollController.signal
-        );
+        const updates = await vendorGetUpdates({
+          baseUrl: this.baseUrl,
+          token: credentials.token,
+          get_updates_buf: this.cursor,
+          timeoutMs: 40_000,
+          abortSignal: this.currentPollController.signal
+        });
 
         this.currentPollController = null;
+        const pollErrorCode = resolvePollErrorCode(updates);
+        if (pollErrorCode !== 0) {
+          if (pollErrorCode === -14) {
+            this.log("Session expired. Waiting for a fresh QR login...");
+            this.credentials = undefined;
+            this.cursor = "";
+            this.contextTokens.clear();
+
+            try {
+              await clearCredentials(this.tokenPath);
+              await this.login({ force: true });
+              retryDelayMs = 1_000;
+              continue;
+            } catch (loginError) {
+              this.reportError(loginError);
+              await delay(retryDelayMs);
+              retryDelayMs = Math.min(retryDelayMs * 2, 10_000);
+              continue;
+            }
+          }
+          throw new Error(`weixin_getupdates_failed:${pollErrorCode}:${updates.errmsg ?? ""}`);
+        }
         this.cursor = updates.get_updates_buf || this.cursor;
         retryDelayMs = 1_000;
 
@@ -169,23 +225,7 @@ export class WeixinBot {
           break;
         }
 
-        if (isSessionExpired(error)) {
-          this.log("Session expired. Waiting for a fresh QR login...");
-          this.credentials = undefined;
-          this.cursor = "";
-          this.contextTokens.clear();
-
-          try {
-            await clearCredentials(this.tokenPath);
-            await this.login({ force: true });
-            retryDelayMs = 1_000;
-            continue;
-          } catch (loginError) {
-            this.reportError(loginError);
-          }
-        } else {
-          this.reportError(error);
-        }
+        this.reportError(error);
 
         await delay(retryDelayMs);
         retryDelayMs = Math.min(retryDelayMs * 2, 10_000);
@@ -314,6 +354,33 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
 }
 
-function isSessionExpired(error: unknown): boolean {
-  return error instanceof ApiError && error.code === -14;
+function resolvePollErrorCode(payload: { ret?: number; errcode?: number }): number {
+  if (typeof payload.errcode === "number") return payload.errcode;
+  if (typeof payload.ret === "number") return payload.ret;
+  return 0;
+}
+
+function buildTextMessage(userId: string, contextToken: string, text: string): {
+  from_user_id: string;
+  to_user_id: string;
+  client_id: string;
+  message_type: number;
+  message_state: number;
+  context_token: string;
+  item_list: Array<{ type: number; text_item: { text: string } }>;
+} {
+  return {
+    from_user_id: "",
+    to_user_id: userId,
+    client_id: randomUUID(),
+    message_type: MessageType.BOT,
+    message_state: MessageState.FINISH,
+    context_token: contextToken,
+    item_list: [
+      {
+        type: MessageItemType.TEXT,
+        text_item: { text }
+      }
+    ]
+  };
 }

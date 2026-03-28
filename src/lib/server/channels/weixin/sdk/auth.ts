@@ -1,7 +1,15 @@
 import { mkdir, readFile, rm, writeFile, chmod } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { DEFAULT_BASE_URL } from "#weixin-agent-sdk/src/auth/accounts.js";
+import {
+  DEFAULT_BASE_URL,
+  clearWeixinAccount,
+  listWeixinAccountIds,
+  loadWeixinAccount,
+  normalizeAccountId,
+  registerWeixinAccountId,
+  saveWeixinAccount
+} from "#weixin-agent-sdk/src/auth/accounts.js";
 import {
   startWeixinLoginWithQr,
   waitForWeixinLogin
@@ -32,6 +40,15 @@ function log(message: string): void {
 }
 
 async function saveCredentials(credentials: Credentials, tokenPath?: string): Promise<void> {
+  const normalizedAccountId = normalizeAccountId(credentials.accountId);
+  saveWeixinAccount(normalizedAccountId, {
+    token: credentials.token,
+    baseUrl: credentials.baseUrl,
+    userId: credentials.userId
+  });
+  registerWeixinAccountId(normalizedAccountId);
+
+  if (!tokenPath) return;
   const targetPath = resolveTokenPath(tokenPath);
   await mkdir(path.dirname(targetPath), { recursive: true, mode: 0o700 });
   await writeFile(targetPath, `${JSON.stringify(credentials, null, 2)}\n`, { mode: 0o600 });
@@ -53,25 +70,62 @@ async function printQrInstructions(url: string): Promise<void> {
 }
 
 export async function loadCredentials(tokenPath?: string): Promise<Credentials | undefined> {
-  const targetPath = resolveTokenPath(tokenPath);
-
-  try {
-    const raw = await readFile(targetPath, "utf8");
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isCredentials(parsed)) {
-      throw new Error(`Invalid credentials format in ${targetPath}`);
-    }
-    return parsed;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+  if (tokenPath) {
+    const targetPath = resolveTokenPath(tokenPath);
+    try {
+      const raw = await readFile(targetPath, "utf8");
+      const parsed = JSON.parse(raw) as unknown;
+      if (!isCredentials(parsed)) {
+        throw new Error(`Invalid credentials format in ${targetPath}`);
+      }
+      return parsed;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
       return undefined;
     }
-    throw error;
   }
+
+  const accountId = listWeixinAccountIds()[0];
+  if (!accountId) return undefined;
+  const account = loadWeixinAccount(accountId);
+  if (!account?.token) return undefined;
+  return {
+    token: account.token,
+    baseUrl: account.baseUrl || DEFAULT_BASE_URL,
+    accountId,
+    userId: account.userId || accountId
+  };
+}
+
+async function clearLocalCredentials(tokenPath?: string): Promise<Credentials | undefined> {
+  if (!tokenPath) return undefined;
+  let existing: Credentials | undefined;
+  try {
+    const raw = await readFile(resolveTokenPath(tokenPath), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    existing = isCredentials(parsed) ? parsed : undefined;
+  } catch {
+    existing = undefined;
+  }
+  await rm(resolveTokenPath(tokenPath), { force: true });
+  return existing;
 }
 
 export async function clearCredentials(tokenPath?: string): Promise<void> {
-  await rm(resolveTokenPath(tokenPath), { force: true });
+  const existing = await clearLocalCredentials(tokenPath);
+  if (existing?.accountId) {
+    clearWeixinAccount(normalizeAccountId(existing.accountId));
+    return;
+  }
+
+  if (!tokenPath) {
+    const accountId = listWeixinAccountIds()[0];
+    if (accountId) {
+      clearWeixinAccount(normalizeAccountId(accountId));
+    }
+  }
 }
 
 export async function login(options: LoginOptions = {}): Promise<Credentials> {

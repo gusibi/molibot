@@ -1,22 +1,10 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  getConfig as vendorGetConfig,
-  getUpdates as vendorGetUpdates,
-  sendMessage as vendorSendMessage,
-  sendTyping as vendorSendTyping
-} from "#weixin-agent-sdk/src/api/api.js";
 import { DEFAULT_BASE_URL } from "#weixin-agent-sdk/src/auth/accounts.js";
 import {
-  MessageItemType,
-  MessageState,
-  MessageType,
   type BaseInfo,
-  type GetConfigResp,
-  type GetUpdatesResp,
-  type SendMessageReq,
-  type SendTypingReq
+  type SendMessageReq
 } from "#weixin-agent-sdk/src/api/types.js";
 import { momError, momLog, momWarn } from "../../../agent/log.js";
 
@@ -117,36 +105,6 @@ export async function apiFetch<T>(
   return parseJsonResponse<T>(response, endpoint);
 }
 
-export async function getUpdates(
-  baseUrl: string,
-  token: string,
-  buf: string,
-  signal?: AbortSignal
-): Promise<GetUpdatesResp> {
-  const payload = await vendorGetUpdates({
-    baseUrl,
-    token,
-    get_updates_buf: buf,
-    timeoutMs: 40_000,
-    abortSignal: signal
-  });
-  if (typeof payload.ret === "number" && payload.ret !== 0) {
-    throw new ApiError(payload.errmsg ?? "getupdates failed", {
-      status: 200,
-      code: payload.errcode ?? payload.ret,
-      payload
-    });
-  }
-  if (typeof payload.errcode === "number" && payload.errcode !== 0) {
-    throw new ApiError(payload.errmsg ?? "getupdates failed", {
-      status: 200,
-      code: payload.errcode,
-      payload
-    });
-  }
-  return payload;
-}
-
 export async function sendMessage(
   baseUrl: string,
   token: string,
@@ -204,58 +162,6 @@ export async function sendMessage(
   }
 
   throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "sendmessage failed"));
-}
-
-export async function getConfig(
-  baseUrl: string,
-  token: string,
-  userId: string,
-  contextToken: string
-): Promise<GetConfigResp> {
-  return vendorGetConfig({
-    baseUrl,
-    token,
-    timeoutMs: 15_000,
-    ilinkUserId: userId,
-    contextToken
-  });
-}
-
-export async function sendTyping(
-  baseUrl: string,
-  token: string,
-  userId: string,
-  ticket: string,
-  status: SendTypingReq["status"]
-): Promise<Record<string, unknown>> {
-  await vendorSendTyping({
-    baseUrl,
-    token,
-    timeoutMs: 15_000,
-    body: {
-      ilink_user_id: userId,
-      typing_ticket: ticket,
-      status
-    }
-  });
-  return {};
-}
-
-export function buildTextMessage(userId: string, contextToken: string, text: string): SendMessageReq["msg"] {
-  return {
-    from_user_id: "",
-    to_user_id: userId,
-    client_id: randomUUID(),
-    message_type: MessageType.BOT,
-    message_state: MessageState.FINISH,
-    context_token: contextToken,
-    item_list: [
-      {
-        type: MessageItemType.TEXT,
-        text_item: { text }
-      }
-    ]
-  };
 }
 
 function describeOutgoingMessage(msg: SendMessageReq["msg"]): Record<string, unknown> {
