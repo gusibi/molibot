@@ -1,8 +1,8 @@
 import { createDecipheriv } from "node:crypto";
 import { extname } from "node:path";
 import type { ImageContent } from "@mariozechner/pi-ai";
-import type { IncomingMessage, MessageItem } from "./sdk/index.js";
-import { MessageItemType } from "./sdk/index.js";
+import { MessageItemType, type MessageItem } from "#weixin-agent-sdk/src/api/types.js";
+import type { IncomingMessage } from "./sdk/client.js";
 import type { FileAttachment } from "../../agent/types.js";
 import { MomRuntimeStore } from "../../agent/store.js";
 
@@ -87,6 +87,12 @@ function isMediaItem(item: MessageItem | undefined | null): item is MessageItem 
   );
 }
 
+type ExtendedMediaItem = MessageItem & {
+  voice_item?: (MessageItem["voice_item"] & { aeskey?: string }) | undefined;
+  file_item?: (MessageItem["file_item"] & { aeskey?: string }) | undefined;
+  video_item?: (MessageItem["video_item"] & { aeskey?: string }) | undefined;
+};
+
 function bodyFromItemList(itemList?: MessageItem[]): string {
   if (!itemList?.length) return "";
   for (const item of itemList) {
@@ -160,7 +166,7 @@ async function downloadMaybeEncryptedMedia(encryptedQueryParam: string, aesKeyBa
   return downloadPlainMedia(encryptedQueryParam);
 }
 
-function mediaIdentity(item: MessageItem): string {
+function mediaIdentity(item: ExtendedMediaItem): string {
   const imageKey = item.image_item?.media?.encrypt_query_param;
   const voiceKey = item.voice_item?.media?.encrypt_query_param;
   const fileKey = item.file_item?.media?.encrypt_query_param;
@@ -168,15 +174,16 @@ function mediaIdentity(item: MessageItem): string {
   return `${item.type}:${imageKey ?? voiceKey ?? fileKey ?? videoKey ?? item.file_item?.file_name ?? "unknown"}`;
 }
 
-function collectMediaItems(itemList?: MessageItem[]): MessageItem[] {
-  const items: MessageItem[] = [];
+function collectMediaItems(itemList?: MessageItem[]): ExtendedMediaItem[] {
+  const items: ExtendedMediaItem[] = [];
   const seen = new Set<string>();
   const push = (item: MessageItem | undefined | null) => {
     if (!isMediaItem(item)) return;
-    const key = mediaIdentity(item);
+    const normalized = item as ExtendedMediaItem;
+    const key = mediaIdentity(normalized);
     if (seen.has(key)) return;
     seen.add(key);
-    items.push(item);
+    items.push(normalized);
   };
 
   for (const item of itemList ?? []) {

@@ -1,6 +1,7 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
-import { type IncomingMessage, WeixinBot } from "./sdk/index.js";
+import { markdownToPlainText } from "#weixin-agent-sdk/src/messaging/send.js";
+import { type IncomingMessage, WeixinBot } from "./sdk/client.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
@@ -459,6 +460,9 @@ export class WeixinManager extends BaseChannelRuntime {
           return;
         }
         if (text === state.accumulatedText.trim()) return;
+        await this.sendText(chatId, event.sourceMessage, text, preferReply);
+        preferReply = false;
+        state.hasResponded = true;
         state.accumulatedText = text;
       },
       uploadWithoutHandle: async (filePath, title, text, fallbackCtx) => {
@@ -507,7 +511,7 @@ export class WeixinManager extends BaseChannelRuntime {
     if (!this.bot) {
       throw new Error("Weixin bot is not running.");
     }
-    const normalized = normalizeText(text);
+    const normalized = normalizeText(markdownToPlainText(String(text ?? "")));
     if (!normalized) return;
 
     const deliveryId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

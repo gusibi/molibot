@@ -4,10 +4,11 @@ import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname } from "node:path";
+import { markdownToPlainText } from "#weixin-agent-sdk/src/messaging/send.js";
+import { MessageItemType, MessageState, MessageType, type MessageItem } from "#weixin-agent-sdk/src/api/types.js";
 import { momWarn } from "../../agent/log.js";
 import { loadCredentials } from "./sdk/auth.js";
 import { CHANNEL_VERSION, apiFetch, sendMessage } from "./sdk/api.js";
-import { MessageItemType, MessageState, MessageType, type MessageItem } from "./sdk/types.js";
 
 const WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
 const execFileAsync = promisify(execFile);
@@ -390,7 +391,7 @@ async function sendMediaMessage(params: {
   mediaItem: MessageItem;
 }): Promise<void> {
   const items: MessageItem[] = [];
-  const caption = String(params.caption ?? "").trim();
+  const caption = markdownToPlainText(String(params.caption ?? "")).trim();
   if (caption && params.sendCaptionAsText !== false) {
     items.push({
       type: MessageItemType.TEXT,
@@ -430,6 +431,8 @@ export async function sendWeixinFile(params: {
   const plaintext = readFileSync(params.filePath);
   const inlineText = normalizeInlineText(params.filePath, plaintext);
   if (inlineText) {
+    const normalizedInlineText = markdownToPlainText(inlineText).trim();
+    if (!normalizedInlineText) return "text";
     await sendMessage(
       params.baseUrlOverride || credentials.baseUrl,
       credentials.token,
@@ -443,7 +446,7 @@ export async function sendWeixinFile(params: {
         item_list: [
           {
             type: MessageItemType.TEXT,
-            text_item: { text: inlineText }
+            text_item: { text: normalizedInlineText }
           }
         ]
       }
@@ -454,8 +457,8 @@ export async function sendWeixinFile(params: {
   const baseUrl = params.baseUrlOverride || credentials.baseUrl;
   const cdnBaseUrl = params.cdnBaseUrl || WEIXIN_CDN_BASE_URL;
   const mimeType = inferMimeType(params.filePath, plaintext);
-  const caption = params.caption?.trim() || "";
-  const text = params.text?.trim() || "";
+  const caption = markdownToPlainText(params.caption?.trim() || "").trim();
+  const text = markdownToPlainText(params.text?.trim() || "").trim();
 
   if (mimeType.startsWith("image/")) {
     const uploaded = await uploadMedia({

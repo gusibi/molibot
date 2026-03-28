@@ -2056,3 +2056,72 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/agent/runner.ts` 的 `streamFn` 中不得读取未定义 `ctx`，`llm_request_sent` 日志需仅使用当前可用上下文。
   - 变更后必须至少通过一次类型检查证明 `Cannot find name 'ctx'` 已消失。
   - `features.md` 必须记录这次修复，方便后续排查“为什么突然出现全模型空响应”。
+
+## 153. Weixin 有进度消息时也必须发出最终结果 (2026-03-28)
+- Priority: P0
+- Stage: Delivered (2026-03-28)
+- Problem:
+  - 微信通道没有消息编辑能力，运行中会先发“搜索中/执行中”这类进度文本。
+  - 任务结束后，最终结果走“替换消息”分支时只更新了内存状态，没有再次真正发送，导致用户只看到中间进度，看不到最后答案。
+- Requirement:
+  - 只要最终结果内容与已发送进度不同，就必须在微信侧实际再发一条最终消息，不能因为“替换语义”被静默吞掉。
+- Enforcement:
+  - `src/lib/server/channels/weixin/runtime.ts` 的 `replaceWithoutEdit` 分支在 `state.hasResponded=true` 且文本变化时，必须调用真实发送函数（`sendText`）输出最终结果。
+  - 需要保留去重逻辑：当最终文本与已累计文本一致时，不重复发送。
+  - `features.md` 必须记录这次修复，方便后续排查“为什么只看到搜索中却收不到结果”。
+
+## 154. QQ 有进度消息时也必须发出最终结果 (2026-03-28)
+- Priority: P0
+- Stage: Delivered (2026-03-28)
+- Problem:
+  - QQ 通道同样没有消息编辑能力，任务执行中会先发“搜索中/执行中”这类进度文本。
+  - 任务结束后走“替换消息”分支时，只更新了内部累计文本，没有真正再次发送最终结果，导致用户只看到中间进度或看起来像卡住。
+- Requirement:
+  - 只要最终结果与已发送进度不同，QQ 侧必须实际再发一条最终消息，不能被替换逻辑静默吞掉。
+- Enforcement:
+  - `src/lib/server/channels/qq/runtime.ts` 的 `replaceWithoutEdit` 分支在已有响应且文本变化时，必须调用真实发送函数（`sendText`）输出最终结果。
+  - 需要保留去重逻辑：当最终文本与已累计文本一致时，不重复发送。
+  - `features.md` 必须记录这次修复，方便后续排查“为什么 QQ 只看到搜索中却收不到结果”。
+
+## 155. Weixin 回包必须优先走 vendored SDK 的 Markdown 转换逻辑，清理冗余本地入口 (2026-03-28)
+- Priority: P0
+- Stage: Delivered (2026-03-28)
+- Problem:
+  - Weixin 当前实际发送链路没有走 `package/weixin-agent-sdk/src/messaging/send.ts` 的 `markdownToPlainText`，导致用户仍收到原始 Markdown（表格、代码围栏、格式符号）。
+  - 本地 `src/lib/server/channels/weixin/sdk/index.ts` 作为桶导出入口会放大“到底走哪条实现”的歧义，属于冗余路径。
+- Requirement:
+  - Weixin 文本回包在发出前必须统一使用 vendored SDK 的 `markdownToPlainText` 进行降级转换。
+  - 去掉冗余本地 SDK 桶入口，改为显式导入实际模块，减少重复实现与链路歧义。
+- Enforcement:
+  - `src/lib/server/channels/weixin/runtime.ts` 发送文本前必须调用 `#weixin-agent-sdk/src/messaging/send.js` 的 `markdownToPlainText`。
+  - `src/lib/server/channels/weixin/outbound.ts` 对 caption/text/inline text 发送前必须执行同一转换。
+  - 删除 `src/lib/server/channels/weixin/sdk/index.ts`，并完成相关引用替换。
+  - `features.md` 必须记录这次修复，方便后续排查“为什么微信仍收到 Markdown 原文”。
+
+## 156. QQ 文本回包必须降级 Markdown 为纯文本，显示效果与微信一致 (2026-03-28)
+- Priority: P0
+- Stage: Delivered (2026-03-28)
+- Problem:
+  - QQ 当前文本回包会把模型原始 Markdown 直接发给用户，表格、代码围栏、强调符号等会原样显示，阅读体验差，且与微信侧已做的纯文本降级不一致。
+- Requirement:
+  - QQ 发送文本前必须统一把 Markdown 转为纯文本，效果与微信当前转换规则保持一致（用于兼容 QQ 客户端显示能力）。
+  - 实现上不依赖微信 SDK 运行时调用，直接在 QQ 通道内使用同规则逻辑。
+- Enforcement:
+  - `src/lib/server/channels/qq/runtime.ts` 的真实发送入口（`sendText`）必须在出站前执行 Markdown->纯文本转换与空文本过滤。
+  - 该处理必须覆盖普通回复、进度更新后的最终回复、以及命令回复等所有走 `sendText` 的文本。
+  - `features.md` 必须记录这次修复，方便后续排查“为什么 QQ 仍收到 Markdown 原文”。
+
+## 157. Weixin 第二轮迁移需继续压薄本地层且保证每步可回退、不中断收发 (2026-03-28)
+- Priority: P0
+- Stage: Delivered (2026-03-28)
+- Problem:
+  - Weixin 通道虽然已切到 vendored SDK 主链路，但本地 `sdk/types.ts` 仍作为一层类型转发壳存在，增加理解和维护成本，不利于后续继续迁移。
+  - 迁移必须分步进行，确保每一步都能单独回退，不影响线上消息收发。
+- Requirement:
+  - 先从低风险外围层开始，移除纯转发型本地类型壳，优先改为直连 vendored 类型定义。
+  - 本步不改微信收发行为，只做路径收敛，确保回退边界清晰。
+- Enforcement:
+  - 删除 `src/lib/server/channels/weixin/sdk/types.ts`。
+  - `src/lib/server/channels/weixin/media.ts`、`outbound.ts`、`sdk/api.ts`、`sdk/client.ts`、`media.test.ts` 必须改为直接引用 `#weixin-agent-sdk/src/api/types.js`。
+  - 对 `voice/file/video` 的可选 `aeskey` 兼容必须保留，不能因类型迁移影响现有入站媒体解析。
+  - `features.md` 必须记录这次迁移步骤，方便后续按阶段继续压薄本地层。

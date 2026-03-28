@@ -128,6 +128,43 @@ function normalizeQqTimestamp(raw: unknown): string {
   return `${Math.floor(Date.now() / 1000)}.${String(Date.now() % 1000).padStart(3, "0")}`;
 }
 
+/**
+ * Convert markdown-formatted model reply to plain text for QQ delivery.
+ * Preserves newlines; strips markdown syntax.
+ */
+function markdownToPlainText(text: string): string {
+  let result = text;
+  // Code blocks: strip fences, keep code content
+  result = result.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_, code: string) => code.trim());
+  // Images: remove entirely
+  result = result.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
+  // Links: keep display text only
+  result = result.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  // Tables: remove separator rows, then strip leading/trailing pipes and convert inner pipes to spaces
+  result = result.replace(/^\|[\s:|-]+\|$/gm, "");
+  result = result.replace(/^\|(.+)\|$/gm, (_, inner: string) =>
+    inner
+      .split("|")
+      .map((cell) => cell.trim())
+      .join("  ")
+  );
+  // Strip inline markdown formatting
+  result = result
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/_(.+?)_/g, "$1")
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/`(.+?)`/g, "$1");
+  return result;
+}
+
+function normalizeOutgoingText(text: string): string {
+  return String(text ?? "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+}
+
 export class QQManager extends BaseChannelRuntime {
   private readonly acpTemplate: BasicChannelAcpTemplate<SendTarget>;
   private readonly commandService: SharedRuntimeCommandService<SendTarget>;
@@ -584,6 +621,8 @@ export class QQManager extends BaseChannelRuntime {
           return;
         }
         if (text.trim() === state.accumulatedText.trim()) return;
+        await this.sendText(initialTarget, text, inboundReplyToId);
+        state.hasResponded = true;
         state.accumulatedText = text;
       },
       uploadWithoutHandle: async (filePath, _title, _text, fallbackCtx) => {
@@ -607,17 +646,19 @@ export class QQManager extends BaseChannelRuntime {
     if (!this.accessToken) {
       this.accessToken = await getAccessToken(this.currentAppId, this.currentClientSecret);
     }
+    const normalized = normalizeOutgoingText(markdownToPlainText(String(text ?? "")));
+    if (!normalized) return null;
 
     const sendWithReply = () => {
-      if (target.mode === "group") return sendGroupMessage(this.accessToken, target.id, text, replyToId);
-      if (target.mode === "channel") return sendChannelMessage(this.accessToken, target.id, text, replyToId);
-      return sendC2CMessage(this.accessToken, target.id, text, replyToId);
+      if (target.mode === "group") return sendGroupMessage(this.accessToken, target.id, normalized, replyToId);
+      if (target.mode === "channel") return sendChannelMessage(this.accessToken, target.id, normalized, replyToId);
+      return sendC2CMessage(this.accessToken, target.id, normalized, replyToId);
     };
 
     const sendProactive = () => {
-      if (target.mode === "group") return sendGroupMessage(this.accessToken, target.id, text);
-      if (target.mode === "channel") return sendChannelMessage(this.accessToken, target.id, text);
-      return sendC2CMessage(this.accessToken, target.id, text);
+      if (target.mode === "group") return sendGroupMessage(this.accessToken, target.id, normalized);
+      if (target.mode === "channel") return sendChannelMessage(this.accessToken, target.id, normalized);
+      return sendC2CMessage(this.accessToken, target.id, normalized);
     };
 
     return safeSend(sendWithReply, sendProactive);

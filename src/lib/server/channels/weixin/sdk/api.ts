@@ -17,7 +17,7 @@ import {
   type GetUpdatesResp,
   type SendMessageReq,
   type SendTypingReq
-} from "./types.js";
+} from "#weixin-agent-sdk/src/api/types.js";
 import { momError, momLog, momWarn } from "../../../agent/log.js";
 
 const SEND_MESSAGE_RETRY_DELAYS_MS = [0, 600, 1800] as const;

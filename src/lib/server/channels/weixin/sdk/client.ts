@@ -4,10 +4,9 @@ import { clearCredentials, loadCredentials, login, type Credentials } from "./au
 import {
   MessageItemType,
   MessageType,
-  type IncomingMessage,
   type MessageItem,
   type WeixinMessage
-} from "./types.js";
+} from "#weixin-agent-sdk/src/api/types.js";
 
 type MessageHandler = (msg: IncomingMessage) => void | Promise<void>;
 
@@ -15,6 +14,15 @@ export interface WeixinBotOptions {
   baseUrl?: string;
   tokenPath?: string;
   onError?: (error: unknown) => void;
+}
+
+export interface IncomingMessage {
+  userId: string;
+  text: string;
+  type: "text" | "image" | "voice" | "file" | "video";
+  raw: WeixinMessage;
+  _contextToken: string;
+  timestamp: Date;
 }
 
 export class WeixinBot {
