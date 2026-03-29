@@ -35,6 +35,7 @@ export class TelegramManager extends BaseChannelRuntime {
   private static readonly TELEGRAM_TEXT_SOFT_LIMIT = 3800;
   private static readonly STREAM_RENDER_INTERVAL_MS = 1000;
   private static readonly STREAM_EDIT_RETRY_AFTER_CAP_MS = 1500;
+  private static readonly STREAM_EDIT_REQUEST_TIMEOUT_MS = 5000;
   private static readonly CHAT_EVENTS_RELATIVE_DIR = ["events"] as const;
   private static readonly LEGACY_CHAT_EVENTS_RELATIVE_DIRS = [
     ["data", "moli-t", "events"],
@@ -1227,7 +1228,8 @@ export class TelegramManager extends BaseChannelRuntime {
       if (status.statusMessageId) {
         try {
           await editTelegramText(bot, chatId, status.statusMessageId, display, {
-            maxRetryAfterMs: TelegramManager.STREAM_EDIT_RETRY_AFTER_CAP_MS
+            maxRetryAfterMs: TelegramManager.STREAM_EDIT_RETRY_AFTER_CAP_MS,
+            requestTimeoutMs: TelegramManager.STREAM_EDIT_REQUEST_TIMEOUT_MS
           });
           lastRenderAt = Date.now();
           momLog("telegram", "status_edited", {

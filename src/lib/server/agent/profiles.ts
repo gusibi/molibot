@@ -10,7 +10,7 @@ import toolsTemplate from "./prompts/TOOLS.template.md?raw";
 import userTemplate from "./prompts/USER.template.md?raw";
 
 export const AGENT_PROFILE_FILES = ["AGENTS.md", "SOUL.md", "IDENTITY.md", "SONG.md"] as const;
-export const BOT_PROFILE_FILES = ["BOT.md", "SOUL.md", "IDENTITY.md", "SONG.md"] as const;
+export const BOT_PROFILE_FILES = ["BOT.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md", "SONG.md"] as const;
 export const GLOBAL_PROFILE_FILES = [
   "AGENTS.md",
   "SOUL.md",

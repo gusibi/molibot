@@ -6,6 +6,7 @@ import { createEditTool } from "./edit.js";
 import { createEventTool } from "./event.js";
 import { createLoadMcpTool } from "./loadMcp.js";
 import { createMemoryTool } from "./memory.js";
+import { createProfileFilesTool } from "./profileFiles.js";
 import { createReadTool } from "./read.js";
 import { createSwitchModelTool } from "./switchModel.js";
 import { createWriteTool } from "./write.js";
@@ -46,6 +47,11 @@ export function createMomTools(options: {
   const tools: AgentTool<any>[] = [
     createMemoryTool({ memory: options.memory, channel: options.channel, chatId: options.chatId }),
     createSwitchModelTool({ getSettings: options.getSettings, updateSettings: options.updateSettings }),
+    createProfileFilesTool({
+      channel: options.channel,
+      workspaceDir: options.workspaceDir,
+      getSettings: options.getSettings
+    }),
     createReadTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
     createBashTool(options.cwd),
     createEditTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),

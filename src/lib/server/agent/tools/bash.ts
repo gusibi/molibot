@@ -1,10 +1,11 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { isAbsolute, join, resolve } from "node:path";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { config } from "../../app/env.js";
-import { execCommand, normalizeCommandOutput, stripAnsi } from "./helpers.js";
+import { execCommand, normalizeCommandOutput, shellEscape, stripAnsi } from "./helpers.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "./truncate.js";
 
 const bashSchema = Type.Object({
@@ -16,6 +17,114 @@ const bashSchema = Type.Object({
 interface BashToolDetails {
   truncation?: TruncationResult;
   fullOutputPath?: string;
+}
+
+const PYTHON_SANDBOX_ROOT = join(config.dataDir, "tooling", "python");
+const PYTHON_VENV_DIR = join(PYTHON_SANDBOX_ROOT, "venv");
+const PYTHON_UV_CACHE_DIR = join(PYTHON_SANDBOX_ROOT, "uv-cache");
+const PYTHON_PIP_CACHE_DIR = join(PYTHON_SANDBOX_ROOT, "pip-cache");
+const PYTHON_TMP_DIR = join(PYTHON_SANDBOX_ROOT, "tmp");
+
+function resolveVenvBinDir(venvDir: string): string {
+  return process.platform === "win32" ? join(venvDir, "Scripts") : join(venvDir, "bin");
+}
+
+function resolveVenvPythonPath(venvDir: string): string {
+  return process.platform === "win32" ? join(resolveVenvBinDir(venvDir), "python.exe") : join(resolveVenvBinDir(venvDir), "python");
+}
+
+function resolveVenvActivatePath(venvDir: string): string {
+  return process.platform === "win32" ? join(resolveVenvBinDir(venvDir), "activate") : join(resolveVenvBinDir(venvDir), "activate");
+}
+
+function probeCommand(command: string): boolean {
+  const result = spawnSync(command, ["--version"], { stdio: "ignore" });
+  return result.status === 0;
+}
+
+function pickPythonLauncher(): string {
+  const candidates = [process.env.MOLIBOT_PYTHON_BIN?.trim(), "python3", "python"].filter((value): value is string => Boolean(value));
+  for (const candidate of candidates) {
+    if (probeCommand(candidate)) return candidate;
+  }
+  throw new Error(
+    "No Python runtime found for bash tool sandbox. Install python3 (with venv support) or set MOLIBOT_PYTHON_BIN."
+  );
+}
+
+function ensurePythonVirtualEnv(): void {
+  const pythonPath = resolveVenvPythonPath(PYTHON_VENV_DIR);
+  if (!existsSync(pythonPath)) {
+    mkdirSync(PYTHON_SANDBOX_ROOT, { recursive: true });
+
+    const launcher = pickPythonLauncher();
+    try {
+      execFileSync(launcher, ["-m", "venv", PYTHON_VENV_DIR], { stdio: "pipe" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Failed to initialize Python sandbox virtualenv at ${PYTHON_VENV_DIR}. ${message}`
+      );
+    }
+  }
+
+  try {
+    execFileSync(pythonPath, ["-m", "pip", "--version"], { stdio: "pipe" });
+  } catch {
+    try {
+      execFileSync(pythonPath, ["-m", "ensurepip", "--upgrade"], { stdio: "pipe" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Python sandbox at ${PYTHON_VENV_DIR} is missing pip and ensurepip failed. ${message}`
+      );
+    }
+  }
+}
+
+function buildPythonSandboxEnv(): NodeJS.ProcessEnv {
+  ensurePythonVirtualEnv();
+  mkdirSync(PYTHON_UV_CACHE_DIR, { recursive: true });
+  mkdirSync(PYTHON_PIP_CACHE_DIR, { recursive: true });
+  mkdirSync(PYTHON_TMP_DIR, { recursive: true });
+
+  const venvBinDir = resolveVenvBinDir(PYTHON_VENV_DIR);
+  const venvPythonPath = resolveVenvPythonPath(PYTHON_VENV_DIR);
+  const currentPath = process.env.PATH ?? "";
+  const mergedPath = currentPath ? `${venvBinDir}${delimiter}${currentPath}` : venvBinDir;
+
+  return {
+    PATH: mergedPath,
+    VIRTUAL_ENV: PYTHON_VENV_DIR,
+    UV_PROJECT_ENVIRONMENT: PYTHON_VENV_DIR,
+    UV_CACHE_DIR: PYTHON_UV_CACHE_DIR,
+    UV_PYTHON: venvPythonPath,
+    PIP_CACHE_DIR: PYTHON_PIP_CACHE_DIR,
+    PIP_REQUIRE_VIRTUALENV: "false",
+    PIP_DISABLE_PIP_VERSION_CHECK: "1",
+    PIP_ROOT_USER_ACTION: "ignore",
+    TMPDIR: PYTHON_TMP_DIR,
+    PYTHONNOUSERSITE: "1"
+  };
+}
+
+function sanitizePythonCommand(command: string): string {
+  return command.replace(/\s--break-system-packages(?=\s|$)/g, "");
+}
+
+function wrapCommandWithPythonSandbox(command: string): string {
+  const venvPythonPath = resolveVenvPythonPath(PYTHON_VENV_DIR);
+  const venvActivatePath = resolveVenvActivatePath(PYTHON_VENV_DIR);
+  const sanitized = sanitizePythonCommand(command);
+  return [
+    `VENV_PYTHON=${shellEscape(venvPythonPath)}`,
+    `. ${shellEscape(venvActivatePath)} >/dev/null 2>&1 || true`,
+    "python() { \"$VENV_PYTHON\" \"$@\"; }",
+    "python3() { \"$VENV_PYTHON\" \"$@\"; }",
+    "pip() { \"$VENV_PYTHON\" -m pip \"$@\"; }",
+    "pip3() { \"$VENV_PYTHON\" -m pip \"$@\"; }",
+    sanitized
+  ].join("\n");
 }
 
 function isDeferredWaitCommand(command: string): boolean {
@@ -127,10 +236,14 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
         );
       }
 
-      const result = await execCommand(params.command, {
+      const sandboxEnv = buildPythonSandboxEnv();
+      const wrappedCommand = wrapCommandWithPythonSandbox(params.command);
+
+      const result = await execCommand(wrappedCommand, {
         cwd,
         timeoutSeconds: params.timeout,
-        signal
+        signal,
+        env: sandboxEnv
       });
 
       try {

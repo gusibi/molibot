@@ -4,6 +4,7 @@ export interface ExecOptions {
   cwd: string;
   timeoutSeconds?: number;
   signal?: AbortSignal;
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface ExecResult {
@@ -54,6 +55,7 @@ export async function execCommand(command: string, opts: ExecOptions): Promise<E
   return new Promise((resolve, reject) => {
     const child = spawn("sh", ["-lc", command], {
       cwd: opts.cwd,
+      env: { ...process.env, ...opts.env },
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"]
     });

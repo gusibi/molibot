@@ -3,10 +3,12 @@ import { momWarn } from "../../agent/log.js";
 
 const SEND_RETRY_DELAYS_MS = [0, 500, 1500, 3000, 5000, 8000, 12000] as const;
 const TELEGRAM_TEXT_SOFT_LIMIT = 3500;
+const TELEGRAM_API_ATTEMPT_TIMEOUT_MS = 12000;
 
 interface TelegramRetryPolicy {
   failOnRateLimit?: boolean;
   maxRetryAfterMs?: number | null;
+  requestTimeoutMs?: number | null;
 }
 
 function chunkTelegramText(text: string, chunkSize = TELEGRAM_TEXT_SOFT_LIMIT): string[] {
@@ -136,6 +138,7 @@ async function sendTelegramWithRetry(
 
 function isRetryableTelegramSendError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
+  const name = error instanceof Error ? error.name : "";
   const fields = error && typeof error === "object" ? error as Record<string, unknown> : undefined;
   const errorCode = Number(fields?.error_code ?? fields?.status ?? 0);
   if (errorCode === 429 || message.includes("Too Many Requests")) {
@@ -147,6 +150,9 @@ function isRetryableTelegramSendError(error: unknown): boolean {
     message.includes("ETIMEDOUT") ||
     message.includes("ECONNRESET") ||
     message.includes("socket hang up") ||
+    message.toLowerCase().includes("timeout") ||
+    name === "AbortError" ||
+    name === "TimeoutError" ||
     message.includes("network")
   );
 }
@@ -182,6 +188,30 @@ function isIgnorableTelegramEditError(error: unknown): boolean {
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createTimeoutError(timeoutMs: number): Error {
+  const error = new Error(`Telegram API call timed out after ${timeoutMs}ms`);
+  error.name = "TimeoutError";
+  (error as Error & { code?: string }).code = "ETIMEDOUT";
+  return error;
+}
+
+async function withAttemptTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return await fn();
+  }
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race<T>([
+      fn(),
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(createTimeoutError(timeoutMs)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function extractTelegramErrorDetails(error: unknown): Record<string, unknown> {
@@ -234,6 +264,10 @@ async function retryTelegramApiCall<T>(
   policy?: TelegramRetryPolicy
 ): Promise<T> {
   let lastError: unknown;
+  const timeoutMs =
+    Number.isFinite(policy?.requestTimeoutMs) && Number(policy?.requestTimeoutMs) > 0
+      ? Number(policy?.requestTimeoutMs)
+      : TELEGRAM_API_ATTEMPT_TIMEOUT_MS;
 
   for (let attempt = 0; attempt < SEND_RETRY_DELAYS_MS.length; attempt += 1) {
     const delayMs = attempt === 0 ? 0 : SEND_RETRY_DELAYS_MS[attempt];
@@ -242,7 +276,7 @@ async function retryTelegramApiCall<T>(
     }
 
     try {
-      return await fn();
+      return await withAttemptTimeout(fn, timeoutMs);
     } catch (error) {
       lastError = error;
       if (isIgnorableTelegramEditError(error)) {
@@ -268,6 +302,7 @@ async function retryTelegramApiCall<T>(
       momWarn("telegram", logEvent, {
         ...metadata,
         attempt: attempt + 1,
+        requestTimeoutMs: timeoutMs,
         nextDelayMs: retryAfterMs ?? SEND_RETRY_DELAYS_MS[attempt + 1],
         error: error instanceof Error ? error.message : String(error),
         errorDetails: extractTelegramErrorDetails(error)

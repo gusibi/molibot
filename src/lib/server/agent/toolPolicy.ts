@@ -10,6 +10,7 @@ const SERIALIZED_TOOL_NAMES = new Set([
   "edit",
   "write",
   "switch_model",
+  "profile_files",
   "load_mcp",
   "create_event",
   "attach"
