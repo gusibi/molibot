@@ -1,13 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { join } from "node:path";
 import { sendWeixinFile } from "./outbound.js";
-import { sendMessage } from "./sdk/api.js";
 
 test("sendWeixinFile sends audio replies as text plus mp3 file attachment", async () => {
-  const fixturesDir = join(process.cwd(), "src/lib/server/channels/weixin/test-fixtures");
-  const credentialsPath = join(fixturesDir, "credentials.json");
-  const voicePath = join(fixturesDir, "reply.mp3");
+  const voicePath = `${process.cwd()}/src/lib/server/channels/weixin/test-fixtures/reply.mp3`;
 
   const originalFetch = globalThis.fetch;
   const sendBodies: unknown[] = [];
@@ -35,7 +31,6 @@ test("sendWeixinFile sends audio replies as text plus mp3 file attachment", asyn
   try {
     const result = await sendWeixinFile({
       filePath: voicePath,
-      credentialsPath,
       toUserId: "wx-user-1",
       contextToken: "ctx-1",
       caption: "新冷笑话语音",
@@ -77,63 +72,6 @@ test("sendWeixinFile sends audio replies as text plus mp3 file attachment", asyn
     assert.equal(fileItems[0]?.file_item?.file_name, "reply.mp3");
     assert.match(String(fileItems[0]?.file_item?.aeskey ?? ""), /^[0-9a-f]{32}$/i);
     assert.equal(fileItems[0]?.file_item?.media?.encrypt_query_param, "download-param-1");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("sendMessage throws when weixin sendmessage returns a business error", async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = async () => new Response(JSON.stringify({
-    ret: 1,
-    errcode: 9001,
-    errmsg: "voice rejected"
-  }), { status: 200 });
-
-  try {
-    await assert.rejects(
-      () => sendMessage("https://api.example.test", "token-1", {
-        from_user_id: "",
-        to_user_id: "wx-user-1",
-        client_id: "client-1",
-        message_type: 2,
-        message_state: 2,
-        context_token: "ctx-1",
-        item_list: []
-      }),
-      /voice rejected/
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("sendMessage retries transient failures and eventually succeeds", async () => {
-  const originalFetch = globalThis.fetch;
-  let attempts = 0;
-
-  globalThis.fetch = async () => {
-    attempts += 1;
-    if (attempts < 3) {
-      throw new Error("socket hang up");
-    }
-    return new Response(JSON.stringify({ ret: 0 }), { status: 200 });
-  };
-
-  try {
-    const result = await sendMessage("https://api.example.test", "token-1", {
-      from_user_id: "",
-      to_user_id: "wx-user-1",
-      client_id: "client-2",
-      message_type: 2,
-      message_state: 2,
-      context_token: "ctx-2",
-      item_list: []
-    });
-
-    assert.deepEqual(result, { ret: 0 });
-    assert.equal(attempts, 3);
   } finally {
     globalThis.fetch = originalFetch;
   }

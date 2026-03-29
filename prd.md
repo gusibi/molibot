@@ -2156,3 +2156,18 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `tokenPath` 不存在时，`loadCredentials` 才允许从 vendored 账号存储读取。
   - `clearCredentials` 必须优先清理本地文件，并在可识别账号时同步清理对应 vendored 账号数据。
   - `features.md` 必须记录这次“登录存储层压薄”步骤，便于分阶段回退和后续继续迁移。
+
+## 160. Weixin 直接切换第三方 SDK，移除本地 sdk 目录实现 (2026-03-28)
+- Priority: P0
+- Stage: Delivered (2026-03-28)
+- Problem:
+  - 用户明确要求不再维护本地 Weixin SDK 逻辑，避免后续第三方升级时本地适配层持续跟进、重复维护。
+  - 现有 `src/lib/server/channels/weixin/sdk/*` 仍承载本地 API/Auth/Client 逻辑，与“直接用第三方 SDK”目标冲突。
+- Requirement:
+  - 微信通道调用链直接使用第三方 SDK，不再依赖本地 `weixin/sdk` 目录实现。
+  - 保留通道运行所需的最小桥接层，但不得继续保留本地 SDK 目录与重复 API/Auth 实现。
+- Enforcement:
+  - 删除 `src/lib/server/channels/weixin/sdk/api.ts` 与 `src/lib/server/channels/weixin/sdk/auth.ts`，并清理 `sdk` 目录。
+  - 轮询、登录、发送、上传 URL 获取改为直接调用 `#weixin-agent-sdk/*`。
+  - `runtime.ts`、`media.ts`、`media.test.ts`、`outbound.ts`、`outbound.test.ts` 必须完成新路径替换并移除旧参数（如 `credentialsPath`）。
+  - `features.md` 必须记录此次“直接切 SDK”变更，方便后续确认不再回流本地 SDK 逻辑。

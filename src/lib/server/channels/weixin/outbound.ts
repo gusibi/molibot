@@ -4,11 +4,11 @@ import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname } from "node:path";
+import { getUploadUrl as vendorGetUploadUrl, sendMessage as vendorSendMessage } from "#weixin-agent-sdk/src/api/api.js";
+import { listWeixinAccountIds, resolveWeixinAccount } from "#weixin-agent-sdk/src/auth/accounts.js";
 import { markdownToPlainText } from "#weixin-agent-sdk/src/messaging/send.js";
 import { MessageItemType, MessageState, MessageType, type MessageItem } from "#weixin-agent-sdk/src/api/types.js";
 import { momWarn } from "../../agent/log.js";
-import { loadCredentials } from "./sdk/auth.js";
-import { CHANNEL_VERSION, apiFetch, sendMessage } from "./sdk/api.js";
 
 const WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
 const execFileAsync = promisify(execFile);
@@ -55,6 +55,11 @@ interface UploadBufferResponse {
   ret?: number;
   errcode?: number;
   errmsg?: string;
+}
+
+interface ActiveWeixinAccount {
+  token: string;
+  baseUrl: string;
 }
 
 function ensureTrailingSlash(value: string): string {
@@ -326,10 +331,7 @@ async function uploadMedia(params: {
     rawfilemd5: rawFileMd5,
     filesize: fileSizeCiphertext,
     no_need_thumb: true,
-    aeskey: aesKeyHex,
-    base_info: {
-      channel_version: CHANNEL_VERSION
-    }
+    aeskey: aesKeyHex
   };
   momWarn("weixin", "getuploadurl_request", {
     source: basename(params.filePath),
@@ -338,13 +340,12 @@ async function uploadMedia(params: {
     requestBody
   });
 
-  const uploadUrl = await apiFetch<UploadUrlResponse>(
-    params.baseUrl,
-    "/ilink/bot/getuploadurl",
-    requestBody,
-    params.token,
-    15_000
-  );
+  const uploadUrl = await vendorGetUploadUrl({
+    baseUrl: params.baseUrl,
+    token: params.token,
+    timeoutMs: 15_000,
+    ...requestBody
+  });
   momWarn("weixin", "getuploadurl_response", {
     source: basename(params.filePath),
     mediaType: params.mediaType,
@@ -401,21 +402,42 @@ async function sendMediaMessage(params: {
   items.push(params.mediaItem);
 
   for (const item of items) {
-    await sendMessage(params.baseUrl, params.token, {
-      from_user_id: "",
-      to_user_id: params.toUserId,
-      client_id: randomUUID(),
-      message_type: MessageType.BOT,
-      message_state: MessageState.FINISH,
-      context_token: params.contextToken,
-      item_list: [item]
+    await vendorSendMessage({
+      baseUrl: params.baseUrl,
+      token: params.token,
+      timeoutMs: 15_000,
+      body: {
+        msg: {
+          from_user_id: "",
+          to_user_id: params.toUserId,
+          client_id: randomUUID(),
+          message_type: MessageType.BOT,
+          message_state: MessageState.FINISH,
+          context_token: params.contextToken,
+          item_list: [item]
+        }
+      }
     });
   }
 }
 
+function resolveActiveAccount(baseUrlOverride?: string): ActiveWeixinAccount {
+  const accountId = listWeixinAccountIds()[0];
+  if (!accountId) {
+    throw new Error("Weixin account not found. Please login first.");
+  }
+  const resolved = resolveWeixinAccount(accountId);
+  if (!resolved.token) {
+    throw new Error(`Weixin account ${accountId} has no token. Please login again.`);
+  }
+  return {
+    token: resolved.token,
+    baseUrl: baseUrlOverride || resolved.baseUrl
+  };
+}
+
 export async function sendWeixinFile(params: {
   filePath: string;
-  credentialsPath: string;
   toUserId: string;
   contextToken: string;
   caption?: string;
@@ -423,38 +445,38 @@ export async function sendWeixinFile(params: {
   baseUrlOverride?: string;
   cdnBaseUrl?: string;
 }): Promise<"text" | "image" | "file"> {
-  const credentials = await loadCredentials(params.credentialsPath);
-  if (!credentials?.token) {
-    throw new Error(`Weixin credentials not found at ${params.credentialsPath}`);
-  }
+  const account = resolveActiveAccount(params.baseUrlOverride);
 
   const plaintext = readFileSync(params.filePath);
   const inlineText = normalizeInlineText(params.filePath, plaintext);
   if (inlineText) {
     const normalizedInlineText = markdownToPlainText(inlineText).trim();
     if (!normalizedInlineText) return "text";
-    await sendMessage(
-      params.baseUrlOverride || credentials.baseUrl,
-      credentials.token,
-      {
-        from_user_id: "",
-        to_user_id: params.toUserId,
-        client_id: randomUUID(),
-        message_type: MessageType.BOT,
-        message_state: MessageState.FINISH,
-        context_token: params.contextToken,
-        item_list: [
-          {
-            type: MessageItemType.TEXT,
-            text_item: { text: normalizedInlineText }
-          }
-        ]
+    await vendorSendMessage({
+      baseUrl: account.baseUrl,
+      token: account.token,
+      timeoutMs: 15_000,
+      body: {
+        msg: {
+          from_user_id: "",
+          to_user_id: params.toUserId,
+          client_id: randomUUID(),
+          message_type: MessageType.BOT,
+          message_state: MessageState.FINISH,
+          context_token: params.contextToken,
+          item_list: [
+            {
+              type: MessageItemType.TEXT,
+              text_item: { text: normalizedInlineText }
+            }
+          ]
+        }
       }
-    );
+    });
     return "text";
   }
 
-  const baseUrl = params.baseUrlOverride || credentials.baseUrl;
+  const baseUrl = account.baseUrl;
   const cdnBaseUrl = params.cdnBaseUrl || WEIXIN_CDN_BASE_URL;
   const mimeType = inferMimeType(params.filePath, plaintext);
   const caption = markdownToPlainText(params.caption?.trim() || "").trim();
@@ -465,7 +487,7 @@ export async function sendWeixinFile(params: {
       filePath: params.filePath,
       plaintext,
       toUserId: params.toUserId,
-      token: credentials.token,
+      token: account.token,
       baseUrl,
       cdnBaseUrl,
       mediaType: 1
@@ -473,7 +495,7 @@ export async function sendWeixinFile(params: {
     await sendMediaMessage({
       toUserId: params.toUserId,
       contextToken: params.contextToken,
-      token: credentials.token,
+      token: account.token,
       baseUrl,
       caption,
       mediaItem: {
@@ -496,26 +518,33 @@ export async function sendWeixinFile(params: {
   try {
     const visibleText = text || caption;
     if (visibleText) {
-      await sendMessage(baseUrl, credentials.token, {
-        from_user_id: "",
-        to_user_id: params.toUserId,
-        client_id: randomUUID(),
-        message_type: MessageType.BOT,
-        message_state: MessageState.FINISH,
-        context_token: params.contextToken,
-        item_list: [
-          {
-            type: MessageItemType.TEXT,
-            text_item: { text: visibleText }
+      await vendorSendMessage({
+        baseUrl,
+        token: account.token,
+        timeoutMs: 15_000,
+        body: {
+          msg: {
+            from_user_id: "",
+            to_user_id: params.toUserId,
+            client_id: randomUUID(),
+            message_type: MessageType.BOT,
+            message_state: MessageState.FINISH,
+            context_token: params.contextToken,
+            item_list: [
+              {
+                type: MessageItemType.TEXT,
+                text_item: { text: visibleText }
+              }
+            ]
           }
-        ]
+        }
       });
     }
     const uploaded = await uploadMedia({
       filePath: audioPayload.filePath,
       plaintext: audioPayload.plaintext,
       toUserId: params.toUserId,
-      token: credentials.token,
+      token: account.token,
       baseUrl,
       cdnBaseUrl,
       mediaType: 3
@@ -523,7 +552,7 @@ export async function sendWeixinFile(params: {
     await sendMediaMessage({
       toUserId: params.toUserId,
       contextToken: params.contextToken,
-      token: credentials.token,
+      token: account.token,
       baseUrl,
       caption: "",
       sendCaptionAsText: false,

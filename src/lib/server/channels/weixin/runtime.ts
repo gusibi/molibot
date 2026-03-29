@@ -1,7 +1,7 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { markdownToPlainText } from "#weixin-agent-sdk/src/messaging/send.js";
-import { type IncomingMessage, WeixinBot } from "./sdk/client.js";
+import { type IncomingMessage, WeixinBot } from "./client.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
@@ -48,7 +48,6 @@ function isInlineTextFile(filePath: string): boolean {
 }
 
 export class WeixinManager extends BaseChannelRuntime {
-  private readonly credentialsPath: string;
   private readonly acpTemplate: BasicChannelAcpTemplate<IncomingMessage>;
   private readonly commandService: SharedRuntimeCommandService<IncomingMessage>;
 
@@ -73,7 +72,6 @@ export class WeixinManager extends BaseChannelRuntime {
       sessionStore,
       options
     });
-    this.credentialsPath = join(this.workspaceDir, "credentials.json");
     this.acpTemplate = new BasicChannelAcpTemplate<IncomingMessage>({
       acp: this.acp,
       sendText: async (chatId, sourceMessage, text) => {
@@ -167,7 +165,6 @@ export class WeixinManager extends BaseChannelRuntime {
   private async startBot(startId: number, allowed: Set<string>, baseUrl: string): Promise<void> {
     const bot = new WeixinBot({
       ...(baseUrl ? { baseUrl } : {}),
-      tokenPath: this.credentialsPath,
       onError: (error) => {
         momWarn("weixin", "sdk_error", {
           botId: this.instanceId,
@@ -184,8 +181,7 @@ export class WeixinManager extends BaseChannelRuntime {
     try {
       momLog("weixin", "login_start", {
         botId: this.instanceId,
-        workspaceDir: this.workspaceDir,
-        credentialsPath: this.credentialsPath
+        workspaceDir: this.workspaceDir
       });
       await bot.login();
       if (this.stopped || startId !== this.startSequence || this.bot !== bot) {
@@ -469,7 +465,6 @@ export class WeixinManager extends BaseChannelRuntime {
         try {
           await sendWeixinFile({
             filePath,
-            credentialsPath: this.credentialsPath,
             toUserId: chatId,
             contextToken: event.sourceMessage._contextToken,
             caption: title,

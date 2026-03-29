@@ -1,8 +1,17 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
-import { getConfig as vendorGetConfig, getUpdates as vendorGetUpdates, sendTyping as vendorSendTyping } from "#weixin-agent-sdk/src/api/api.js";
-import { DEFAULT_BASE_URL, sendMessage } from "./api.js";
-import { clearCredentials, loadCredentials, login, type Credentials } from "./auth.js";
+import { getConfig as vendorGetConfig, getUpdates as vendorGetUpdates, sendMessage as vendorSendMessage, sendTyping as vendorSendTyping } from "#weixin-agent-sdk/src/api/api.js";
+import {
+  DEFAULT_BASE_URL,
+  clearWeixinAccount,
+  listWeixinAccountIds,
+  loadWeixinAccount,
+  normalizeAccountId,
+  registerWeixinAccountId,
+  resolveWeixinAccount,
+  saveWeixinAccount
+} from "#weixin-agent-sdk/src/auth/accounts.js";
+import { startWeixinLoginWithQr, waitForWeixinLogin } from "#weixin-agent-sdk/src/auth/login-qr.js";
 import {
   MessageItemType,
   MessageState,
@@ -13,9 +22,15 @@ import {
 
 type MessageHandler = (msg: IncomingMessage) => void | Promise<void>;
 
+interface Credentials {
+  token: string;
+  baseUrl: string;
+  accountId: string;
+  userId: string;
+}
+
 export interface WeixinBotOptions {
   baseUrl?: string;
-  tokenPath?: string;
   onError?: (error: unknown) => void;
 }
 
@@ -30,11 +45,11 @@ export interface IncomingMessage {
 
 export class WeixinBot {
   private baseUrl: string;
-  private readonly tokenPath?: string;
   private readonly onErrorCallback?: (error: unknown) => void;
   private readonly handlers: MessageHandler[] = [];
   private readonly contextTokens = new Map<string, string>();
   private credentials?: Credentials;
+  private currentAccountId = "";
   private cursor = "";
   private stopped = false;
   private currentPollController: AbortController | null = null;
@@ -42,28 +57,72 @@ export class WeixinBot {
 
   constructor(options: WeixinBotOptions = {}) {
     this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
-    this.tokenPath = options.tokenPath;
     this.onErrorCallback = options.onError;
   }
 
   async login(options: { force?: boolean } = {}): Promise<Credentials> {
     const previousToken = this.credentials?.token;
-    const credentials = await login({
-      baseUrl: this.baseUrl,
-      tokenPath: this.tokenPath,
-      force: options.force
-    });
-
-    this.credentials = credentials;
-    this.baseUrl = credentials.baseUrl;
-
-    if (previousToken && previousToken !== credentials.token) {
-      this.cursor = "";
-      this.contextTokens.clear();
+    if (!options.force) {
+      const stored = this.loadStoredCredentials();
+      if (stored) {
+        this.credentials = stored;
+        this.baseUrl = stored.baseUrl;
+        this.currentAccountId = normalizeAccountId(stored.accountId);
+        return stored;
+      }
     }
 
-    this.log(`Logged in as ${credentials.userId}`);
-    return credentials;
+    for (;;) {
+      const startResult = await startWeixinLoginWithQr({
+        apiBaseUrl: this.baseUrl,
+        force: true
+      });
+      if (!startResult.qrcodeUrl) {
+        throw new Error(startResult.message || "Failed to start Weixin QR login");
+      }
+
+      this.log("在微信中打开以下链接完成登录:");
+      process.stderr.write(`${startResult.qrcodeUrl}\n`);
+
+      const waitResult = await waitForWeixinLogin({
+        sessionKey: startResult.sessionKey,
+        apiBaseUrl: this.baseUrl,
+        timeoutMs: 480_000
+      });
+      if (!waitResult.connected || !waitResult.botToken || !waitResult.accountId || !waitResult.userId) {
+        if (/过期|超时|expired/i.test(waitResult.message || "")) {
+          this.log("QR code expired. Requesting a new one...");
+          continue;
+        }
+        throw new Error(waitResult.message || "Weixin QR login failed");
+      }
+
+      const accountId = normalizeAccountId(waitResult.accountId);
+      saveWeixinAccount(accountId, {
+        token: waitResult.botToken,
+        baseUrl: waitResult.baseUrl ?? this.baseUrl,
+        userId: waitResult.userId
+      });
+      registerWeixinAccountId(accountId);
+      const credentials: Credentials = {
+        token: waitResult.botToken,
+        baseUrl: waitResult.baseUrl ?? this.baseUrl,
+        accountId,
+        userId: waitResult.userId
+      };
+
+      this.credentials = credentials;
+      this.baseUrl = credentials.baseUrl;
+      this.currentAccountId = accountId;
+
+      if (previousToken && previousToken !== credentials.token) {
+        this.cursor = "";
+        this.contextTokens.clear();
+      }
+
+      this.log(`Logged in as ${credentials.userId}`);
+      return credentials;
+    }
   }
 
   onMessage(handler: MessageHandler): this {
@@ -191,12 +250,14 @@ export class WeixinBot {
         if (pollErrorCode !== 0) {
           if (pollErrorCode === -14) {
             this.log("Session expired. Waiting for a fresh QR login...");
+            if (this.currentAccountId) {
+              clearWeixinAccount(this.currentAccountId);
+            }
             this.credentials = undefined;
             this.cursor = "";
             this.contextTokens.clear();
 
             try {
-              await clearCredentials(this.tokenPath);
               await this.login({ force: true });
               retryDelayMs = 1_000;
               continue;
@@ -237,11 +298,11 @@ export class WeixinBot {
 
   private async ensureCredentials(): Promise<Credentials> {
     if (this.credentials) return this.credentials;
-
-    const stored = await loadCredentials(this.tokenPath);
+    const stored = this.loadStoredCredentials();
     if (stored) {
       this.credentials = stored;
       this.baseUrl = stored.baseUrl;
+      this.currentAccountId = normalizeAccountId(stored.accountId);
       return stored;
     }
 
@@ -255,7 +316,14 @@ export class WeixinBot {
 
     const credentials = await this.ensureCredentials();
     for (const chunk of chunkText(text, 2_000)) {
-      await sendMessage(this.baseUrl, credentials.token, buildTextMessage(userId, contextToken, chunk));
+      await vendorSendMessage({
+        baseUrl: this.baseUrl,
+        token: credentials.token,
+        timeoutMs: 15_000,
+        body: {
+          msg: buildTextMessage(userId, contextToken, chunk)
+        }
+      });
     }
   }
 
@@ -298,6 +366,20 @@ export class WeixinBot {
 
   private log(message: string): void {
     process.stderr.write(`[weixin-agent-sdk] ${message}\n`);
+  }
+
+  private loadStoredCredentials(): Credentials | undefined {
+    const accountId = this.currentAccountId || listWeixinAccountIds()[0];
+    if (!accountId) return undefined;
+    const resolved = resolveWeixinAccount(accountId);
+    if (!resolved.token) return undefined;
+    const profile = loadWeixinAccount(accountId);
+    return {
+      token: resolved.token,
+      baseUrl: resolved.baseUrl,
+      accountId,
+      userId: profile?.userId || accountId
+    };
   }
 }
 
