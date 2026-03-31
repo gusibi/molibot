@@ -5,11 +5,19 @@ import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
 import type { MomEvent } from "$lib/server/agent/events";
-import { TelegramManager } from "$lib/server/channels/telegram/runtime";
+import type { Channel } from "$lib/shared/types/message";
 
 type TaskScope = "workspace" | "chat-scratch";
 type TaskType = "one-shot" | "periodic" | "immediate";
 type TaskState = "pending" | "running" | "completed" | "skipped" | "error";
+type TaskChannel = Extract<Channel, "telegram" | "feishu" | "qq" | "weixin">;
+
+const TASK_CHANNEL_ROOTS: Array<{ channel: TaskChannel; dir: string }> = [
+  { channel: "telegram", dir: "moli-t" },
+  { channel: "feishu", dir: "moli-f" },
+  { channel: "qq", dir: "moli-q" },
+  { channel: "weixin", dir: "moli-wx" }
+];
 
 interface EventStatus {
   state?: TaskState;
@@ -32,6 +40,7 @@ interface RawEventTask {
 }
 
 interface TaskItem {
+  channel: TaskChannel;
   botId: string;
   chatId: string;
   scope: TaskScope;
@@ -86,6 +95,7 @@ function inferCreatedAt(filename: string, fallbackIso: string): string {
 
 function toTaskItem(
   raw: RawEventTask,
+  channel: TaskChannel,
   botId: string,
   fallbackChatId: string,
   scope: TaskScope,
@@ -107,6 +117,7 @@ function toTaskItem(
   if (type === "periodic") scheduleText = String(raw.schedule ?? "").trim();
 
   return {
+    channel,
     botId,
     chatId,
     scope,
@@ -130,6 +141,7 @@ function toTaskItem(
 
 function readTaskFile(
   filePath: string,
+  channel: TaskChannel,
   botId: string,
   fallbackChatId: string,
   scope: TaskScope,
@@ -138,7 +150,7 @@ function readTaskFile(
   try {
     const raw = readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw) as RawEventTask;
-    return toTaskItem(parsed, botId, fallbackChatId, scope, filePath);
+    return toTaskItem(parsed, channel, botId, fallbackChatId, scope, filePath);
   } catch (error) {
     diagnostics.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
     return null;
@@ -153,52 +165,63 @@ function collectJsonFiles(dir: string): string[] {
     .sort((a, b) => a.localeCompare(b));
 }
 
-function resolveTasksRoot(): string {
-  return join(resolve(config.dataDir), "moli-t", "bots");
+function resolveTasksRoots(): Array<{ channel: TaskChannel; botsRoot: string }> {
+  const dataRoot = resolve(config.dataDir);
+  return TASK_CHANNEL_ROOTS.map(({ channel, dir }) => ({
+    channel,
+    botsRoot: join(dataRoot, dir, "bots")
+  }));
 }
 
-function isTaskFilePath(filePath: string, botsRoot: string): boolean {
+function isTaskFilePath(filePath: string, botsRoots: Array<{ channel: TaskChannel; botsRoot: string }>): boolean {
   const resolved = resolve(filePath);
-  if (!resolved.startsWith(`${botsRoot}/`) || !resolved.endsWith(".json")) return false;
+  const matchedRoot = botsRoots.find(({ botsRoot }) => resolved.startsWith(`${botsRoot}/`));
+  if (!matchedRoot || !resolved.endsWith(".json")) return false;
   return (
     resolved.includes("/events/") ||
     resolved.includes("/scratch/events/")
   );
 }
 
-function inferTaskContextFromPath(filePath: string, botsRoot: string): {
+function inferTaskContextFromPath(filePath: string, botsRoots: Array<{ channel: TaskChannel; botsRoot: string }>): {
+  channel: TaskChannel;
   botId: string;
   chatId: string;
   scope: TaskScope;
 } | null {
-  const relative = resolve(filePath).slice(`${botsRoot}/`.length);
+  const resolvedPath = resolve(filePath);
+  const root = botsRoots.find(({ botsRoot }) => resolvedPath.startsWith(`${botsRoot}/`));
+  if (!root) return null;
+  const relative = resolvedPath.slice(`${root.botsRoot}/`.length);
   const parts = relative.split("/");
   const botId = parts[0] ?? "";
   if (!botId) return null;
 
   if (parts[1] === "events") {
-    return { botId, chatId: "", scope: "workspace" };
+    return { channel: root.channel, botId, chatId: "", scope: "workspace" };
   }
   if (parts[2] === "scratch" && parts[3] === "events") {
-    return { botId, chatId: parts[1] ?? "", scope: "chat-scratch" };
+    return { channel: root.channel, botId, chatId: parts[1] ?? "", scope: "chat-scratch" };
   }
   return null;
 }
 
 export const GET: RequestHandler = async () => {
   const dataRoot = resolve(config.dataDir);
-  const botsRoot = resolveTasksRoot();
+  const taskRoots = resolveTasksRoots();
   const diagnostics: string[] = [];
   const items: TaskItem[] = [];
 
-  if (existsSync(botsRoot)) {
+  for (const { channel, botsRoot } of taskRoots) {
+    if (!existsSync(botsRoot)) continue;
+
     const botEntries = readdirSync(botsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory());
     for (const botEntry of botEntries) {
       const botId = botEntry.name;
       const botDir = join(botsRoot, botId);
 
       for (const filePath of collectJsonFiles(join(botDir, "events"))) {
-        const item = readTaskFile(filePath, botId, "", "workspace", diagnostics);
+        const item = readTaskFile(filePath, channel, botId, "", "workspace", diagnostics);
         if (item) items.push(item);
       }
 
@@ -208,7 +231,7 @@ export const GET: RequestHandler = async () => {
       for (const chatEntry of chatEntries) {
         const chatId = chatEntry.name;
         for (const filePath of collectJsonFiles(join(botDir, chatId, "scratch", "events"))) {
-          const item = readTaskFile(filePath, botId, chatId, "chat-scratch", diagnostics);
+          const item = readTaskFile(filePath, channel, botId, chatId, "chat-scratch", diagnostics);
           if (item) items.push(item);
         }
       }
@@ -238,6 +261,12 @@ export const GET: RequestHandler = async () => {
     workspace: items.filter((item) => item.scope === "workspace").length,
     chatScratch: items.filter((item) => item.scope === "chat-scratch").length
   };
+  const countsByChannel: Record<TaskChannel, number> = {
+    telegram: items.filter((item) => item.channel === "telegram").length,
+    feishu: items.filter((item) => item.channel === "feishu").length,
+    qq: items.filter((item) => item.channel === "qq").length,
+    weixin: items.filter((item) => item.channel === "weixin").length
+  };
 
   return json({
     ok: true,
@@ -247,7 +276,8 @@ export const GET: RequestHandler = async () => {
       total: items.length,
       byType: countsByType,
       byStatus: countsByStatus,
-      byScope: countsByScope
+      byScope: countsByScope,
+      byChannel: countsByChannel
     },
     diagnostics
   });
@@ -271,9 +301,9 @@ export const POST: RequestHandler = async ({ request }) => {
       return json({ ok: false, error: "patch is required for update" }, { status: 400 });
     }
 
-    const botsRoot = resolveTasksRoot();
+    const taskRoots = resolveTasksRoots();
     const resolvedPath = resolve(filePath);
-    if (!isTaskFilePath(resolvedPath, botsRoot)) {
+    if (!isTaskFilePath(resolvedPath, taskRoots)) {
       return json({ ok: false, error: "path_not_allowed" }, { status: 400 });
     }
     if (!existsSync(resolvedPath)) {
@@ -367,7 +397,7 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: "filePaths is required" }, { status: 400 });
   }
 
-  const botsRoot = resolveTasksRoot();
+  const taskRoots = resolveTasksRoots();
 
   if (body.action === "delete") {
     const deleted: string[] = [];
@@ -375,7 +405,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
     for (const filePath of requestedPaths) {
       const resolvedPath = resolve(filePath);
-      if (!isTaskFilePath(resolvedPath, botsRoot)) {
+      if (!isTaskFilePath(resolvedPath, taskRoots)) {
         failed.push({ filePath: resolvedPath, reason: "path_not_allowed" });
         continue;
       }
@@ -405,13 +435,12 @@ export const POST: RequestHandler = async ({ request }) => {
 
   if (body.action === "trigger") {
     const runtime = getRuntime();
-    const telegramManagers = runtime.channelManagers.get("telegram") ?? new Map();
     const triggered: string[] = [];
     const failed: Array<{ filePath: string; reason: string }> = [];
 
     for (const filePath of requestedPaths) {
       const resolvedPath = resolve(filePath);
-      if (!isTaskFilePath(resolvedPath, botsRoot)) {
+      if (!isTaskFilePath(resolvedPath, taskRoots)) {
         failed.push({ filePath: resolvedPath, reason: "path_not_allowed" });
         continue;
       }
@@ -422,21 +451,26 @@ export const POST: RequestHandler = async ({ request }) => {
 
       try {
         const parsed = JSON.parse(readFileSync(resolvedPath, "utf8")) as RawEventTask;
-        const context = inferTaskContextFromPath(resolvedPath, botsRoot);
+        const context = inferTaskContextFromPath(resolvedPath, taskRoots);
         if (!context) {
           failed.push({ filePath: resolvedPath, reason: "invalid_task_path" });
           continue;
         }
 
-        const item = toTaskItem(parsed, context.botId, context.chatId, context.scope, resolvedPath);
+        const item = toTaskItem(parsed, context.channel, context.botId, context.chatId, context.scope, resolvedPath);
         if (!item) {
           failed.push({ filePath: resolvedPath, reason: "invalid_task_payload" });
           continue;
         }
 
-        const manager = telegramManagers.get(item.botId);
-        if (!(manager instanceof TelegramManager)) {
-          failed.push({ filePath: resolvedPath, reason: `telegram_manager_not_found:${item.botId}` });
+        const channelManagers = runtime.channelManagers.get(item.channel) ?? new Map();
+        const manager = channelManagers.get(item.botId);
+        if (!manager) {
+          failed.push({ filePath: resolvedPath, reason: `${item.channel}_manager_not_found:${item.botId}` });
+          continue;
+        }
+        if (typeof manager.triggerTask !== "function") {
+          failed.push({ filePath: resolvedPath, reason: `${item.channel}_trigger_not_supported` });
           continue;
         }
 

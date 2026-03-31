@@ -144,6 +144,8 @@ export abstract class BaseChannelRuntime {
       `- global_sources: ${sources.global.length > 0 ? sources.global.join(", ") : "(none)"}`,
       `- agent_sources: ${sources.agent.length > 0 ? sources.agent.join(", ") : "(none)"}`,
       `- bot_sources: ${sources.bot.length > 0 ? sources.bot.join(", ") : "(none)"}`,
+      `- identity_sources: ${sources.identity.length > 0 ? sources.identity.join(", ") : "(none)"}`,
+      `- project_context_sources: ${sources.projectContext.length > 0 ? sources.projectContext.join(", ") : "(none)"}`,
       "",
       "---",
       ""

@@ -179,6 +179,8 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-133 | Bot profile editing tool with hierarchical bootstrap | P1 | Delivered (2026-03-29) | Runtime should provide a dedicated profile tool to read/bootstrap/write/edit bot-level profile files (`BOT/SOUL/USER/TOOLS/IDENTITY/SONG`) and auto-initialize missing bot files from agent scope first, then global scope, so bot-specific tuning does not mutate shared agent/global profiles |
 | P1-134 | Telegram stalled-request timeout and auto-retry continuity | P1 | Delivered (2026-03-29) | Telegram outbound API calls should have per-attempt timeout protection so transient socket hangs do not freeze status-message updates forever; timed-out attempts must be treated as retryable and continue through the existing retry/backoff path |
 | P1-135 | Python sandbox execution hard-binding for bash tool | P1 | Delivered (2026-03-29) | Bash tool should force all `python/pip/pip3` invocations onto one managed virtualenv, auto-repair missing pip in that env, and tolerate system-only install flags so skill dependency bootstrap can run reliably without leaking into global Python |
+| P1-136 | Settings task inventory cross-channel parity | P1 | Delivered (2026-03-31) | `/settings/tasks` and `/api/settings/tasks` must cover all built-in channels (`telegram`/`feishu`/`qq`/`weixin`) rather than Telegram-only roots, with channel-aware listing/validation and trigger dispatch through the correct channel manager |
+| P1-137 | Prompt context layering hardening | P1 | Delivered (2026-03-31) | System prompt should separate identity overlays (`SOUL.md`/`IDENTITY.md`) from generic instruction files, inject prioritized workspace context file discovery (`.hermes.md -> AGENTS.md -> CLAUDE.md -> .cursorrules`) with prompt-injection safety scan/truncation, cache formatted skill index for rapid refreshes, and expose detailed source observability including identity/project-context sources |
 
 ### P1-117 Implementation Note (2026-03-24)
 - Telegram ACP middleware must not keep any stale direct reference to the old local control-command helper once proxy gating is centralized through the shared ACP proxy rule, otherwise bot startup can fail before ACP routing is reached.
@@ -2175,3 +2177,19 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 轮询、登录、发送、上传 URL 获取改为直接调用 `#weixin-agent-sdk/*`。
   - `runtime.ts`、`media.ts`、`media.test.ts`、`outbound.ts`、`outbound.test.ts` 必须完成新路径替换并移除旧参数（如 `credentialsPath`）。
   - `features.md` 必须记录此次“直接切 SDK”变更，方便后续确认不再回流本地 SDK 逻辑。
+
+## 161. Settings 任务清单必须支持全渠道事件目录，不得只看 Telegram (2026-03-31)
+- Priority: P1
+- Stage: Delivered (2026-03-31)
+- Problem:
+  - 现有 `/settings/tasks` 与 `/api/settings/tasks` 只扫描 `${DATA_DIR}/moli-t/bots/**/events`（Telegram），导致微信/QQ/飞书事件文件即使存在也不会显示，运维误判为“任务没创建”。
+  - 手动触发路径也默认走 Telegram manager，跨渠道任务在页面里即使后续可见也无法正确分发执行。
+- Requirement:
+  - 任务清单必须统一覆盖内建四个渠道目录：`moli-t` / `moli-f` / `moli-q` / `moli-wx`。
+  - 任务项必须携带渠道信息，页面可直接区分来源渠道。
+  - 手动触发必须按任务所属渠道路由到对应 channel manager，而不是固定 Telegram。
+- Enforcement:
+  - `src/routes/api/settings/tasks/+server.ts` 必须改为多根目录扫描与校验，任务上下文需包含 `channel` 字段。
+  - 触发动作必须通过 `runtime.channelManagers.get(channel)` 选择 manager，并对不支持触发的渠道返回明确错误。
+  - `src/routes/settings/tasks/+page.svelte` 必须展示渠道字段与渠道维度计数。
+  - `features.md` 必须记录本次“全渠道任务清单”交付，便于后续排查“为什么某渠道任务在设置页不可见”。

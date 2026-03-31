@@ -417,6 +417,41 @@ export class FeishuManager extends BaseChannelRuntime {
         });
     }
 
+    private resolveEventDeliveryMode(task: MomEvent): EventDeliveryMode {
+        return task.delivery === "text" ? "text" : "agent";
+    }
+
+    async triggerTask(event: unknown, _filename: string): Promise<void> {
+        const task = event as MomEvent;
+        if (!task || typeof task !== "object" || typeof task.chatId !== "string" || typeof task.text !== "string") {
+            throw new Error("Invalid task payload");
+        }
+        if (!this.client) {
+            throw new Error("Feishu bot is not running.");
+        }
+
+        const delivery = this.resolveEventDeliveryMode(task);
+        if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
+            await sendFeishuText(this.client, task.chatId, task.text);
+            return;
+        }
+
+        const now = Date.now();
+        const synthetic: ChannelInboundMessage = {
+            chatId: task.chatId,
+            chatType: "private",
+            messageId: now,
+            userId: "EVENT",
+            userName: "EVENT",
+            text: task.text,
+            ts: `${Math.floor(now / 1000)}.${String(now % 1000).padStart(3, "0")}`,
+            attachments: [],
+            imageContents: [],
+            isEvent: true
+        };
+        await this.processEvent(synthetic);
+    }
+
     private startEventsWatchers(allowed: Set<string>): void {
         // stub
     }

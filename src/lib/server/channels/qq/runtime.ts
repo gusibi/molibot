@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import WebSocket from "ws";
 import type { RuntimeSettings } from "../../settings/index.js";
+import type { EventDeliveryMode, MomEvent } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
@@ -682,6 +683,40 @@ export class QQManager extends BaseChannelRuntime {
       text,
       target
     });
+  }
+
+  private resolveEventDeliveryMode(task: MomEvent): EventDeliveryMode {
+    return task.delivery === "text" ? "text" : "agent";
+  }
+
+  async triggerTask(event: unknown, _filename: string): Promise<void> {
+    const task = event as MomEvent;
+    if (!task || typeof task !== "object" || typeof task.chatId !== "string" || typeof task.text !== "string") {
+      throw new Error("Invalid task payload");
+    }
+
+    const delivery = this.resolveEventDeliveryMode(task);
+    const target: SendTarget = { mode: "c2c", id: task.chatId };
+    if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
+      await this.sendText(target, task.text);
+      return;
+    }
+
+    const now = Date.now();
+    const synthetic: ChannelInboundMessage = {
+      chatId: task.chatId,
+      chatType: "private",
+      messageId: hashNumber(`event-${now}`),
+      userId: "EVENT",
+      userName: "EVENT",
+      text: task.text,
+      ts: `${Math.floor(now / 1000)}.${String(now % 1000).padStart(3, "0")}`,
+      attachments: [],
+      imageContents: [],
+      isEvent: true
+    };
+    (synthetic as ChannelInboundMessage & { qqTarget?: SendTarget }).qqTarget = target;
+    await this.processEvent(synthetic);
   }
 
   private async extractAttachments(chatId: string, event: QqInboundRaw, messageId: string): Promise<{

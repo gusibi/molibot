@@ -7,8 +7,10 @@
   type TaskType = "one-shot" | "periodic" | "immediate";
   type TaskStatus = "pending" | "running" | "completed" | "skipped" | "error";
   type TaskScope = "workspace" | "chat-scratch";
+  type TaskChannel = "telegram" | "feishu" | "qq" | "weixin";
 
   interface TaskItem {
+    channel: TaskChannel;
     botId: string;
     chatId: string;
     scope: TaskScope;
@@ -34,6 +36,7 @@
     byType: Record<TaskType, number>;
     byStatus: Record<TaskStatus, number>;
     byScope: { workspace: number; chatScratch: number };
+    byChannel: Record<TaskChannel, number>;
   }
 
   interface DeleteResult {
@@ -71,7 +74,8 @@
     total: 0,
     byType: { "one-shot": 0, periodic: 0, immediate: 0 },
     byStatus: { pending: 0, running: 0, completed: 0, skipped: 0, error: 0 },
-    byScope: { workspace: 0, chatScratch: 0 }
+    byScope: { workspace: 0, chatScratch: 0 },
+    byChannel: { telegram: 0, feishu: 0, qq: 0, weixin: 0 }
   };
 
   const typeOrder: TaskType[] = ["one-shot", "periodic", "immediate"];
@@ -220,7 +224,15 @@
       dataRoot = String(data.dataRoot ?? "");
       diagnostics = Array.isArray(data.diagnostics) ? data.diagnostics : [];
       items = Array.isArray(data.items) ? data.items : [];
-      counts = data.counts ?? counts;
+      counts = data.counts
+        ? {
+            total: Number(data.counts.total ?? 0),
+            byType: data.counts.byType ?? counts.byType,
+            byStatus: data.counts.byStatus ?? counts.byStatus,
+            byScope: data.counts.byScope ?? counts.byScope,
+            byChannel: data.counts.byChannel ?? counts.byChannel
+          }
+        : counts;
       selected = new Set([...selected].filter((filePath) => items.some((item) => item.filePath === filePath)));
       message = `Loaded ${items.length} task(s).`;
     } catch (e) {
@@ -405,6 +417,22 @@
         <span class="text-slate-400">Error:</span>
         {counts.byStatus.error}
       </div>
+      <div>
+        <span class="text-slate-400">Telegram:</span>
+        {counts.byChannel.telegram}
+      </div>
+      <div>
+        <span class="text-slate-400">Feishu:</span>
+        {counts.byChannel.feishu}
+      </div>
+      <div>
+        <span class="text-slate-400">QQ:</span>
+        {counts.byChannel.qq}
+      </div>
+      <div>
+        <span class="text-slate-400">WeChat:</span>
+        {counts.byChannel.weixin}
+      </div>
     </section>
 
     <section class="flex flex-wrap items-center justify-between gap-3 rounded-[1.25rem] border border-white/10 bg-[#171b23] px-4 py-3 text-sm text-slate-300">
@@ -468,7 +496,7 @@
                 <tr>
                   <th class="px-3 py-3 font-medium">Select</th>
                   <th class="px-3 py-3 font-medium">Task</th>
-                  <th class="px-3 py-3 font-medium">Bot / Chat</th>
+                  <th class="px-3 py-3 font-medium">Channel / Bot / Chat</th>
                   <th class="px-3 py-3 font-medium">Schedule</th>
                   <th class="px-3 py-3 font-medium">Delivery</th>
                   <th class="px-3 py-3 font-medium">Status</th>
@@ -505,6 +533,7 @@
                       </div>
                     </td>
                     <td class="px-3 py-3 text-slate-300">
+                      <div class="text-xs uppercase tracking-[0.08em] text-slate-400">{item.channel}</div>
                       <div>{item.botId}</div>
                       <div class="text-xs text-slate-500">{item.chatId || "-"}</div>
                       <div class="mt-1 text-xs text-slate-500">

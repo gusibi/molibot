@@ -3,6 +3,7 @@ import { extname, join } from "node:path";
 import { markdownToPlainText } from "#weixin-agent-sdk/src/messaging/send.js";
 import { type IncomingMessage, WeixinBot } from "./client.js";
 import type { RuntimeSettings } from "../../settings/index.js";
+import type { EventDeliveryMode, MomEvent } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
@@ -406,13 +407,13 @@ export class WeixinManager extends BaseChannelRuntime {
     });
   }
 
-  private async processEvent(event: WeixinInboundEvent): Promise<void> {
+  private async processEvent(event: WeixinInboundEvent, preferReplyInitial = true): Promise<void> {
     const chatId = event.chatId;
     const activeSessionId = event.sessionId || this.store.getActiveSession(chatId);
     this.running.add(chatId);
 
     const runner = this.runners.get(chatId, activeSessionId);
-    let preferReply = true;
+    let preferReply = preferReplyInitial;
     const ctx = buildTextChannelContext({
       channel: "weixin",
       event,
@@ -431,10 +432,19 @@ export class WeixinManager extends BaseChannelRuntime {
         },
         setTyping: async (isTyping) => {
           if (!this.bot) return;
-          if (isTyping) {
-            await this.bot.sendTyping(chatId);
-          } else {
-            await this.bot.stopTyping(chatId);
+          try {
+            if (isTyping) {
+              await this.bot.sendTyping(chatId);
+            } else {
+              await this.bot.stopTyping(chatId);
+            }
+          } catch (error) {
+            momWarn("weixin", "typing_update_failed", {
+              botId: this.instanceId,
+              chatId,
+              isTyping,
+              error: error instanceof Error ? error.message : String(error)
+            });
           }
         }
       },
@@ -500,6 +510,49 @@ export class WeixinManager extends BaseChannelRuntime {
     } finally {
       this.running.delete(chatId);
     }
+  }
+
+  private resolveEventDeliveryMode(task: MomEvent): EventDeliveryMode {
+    return task.delivery === "text" ? "text" : "agent";
+  }
+
+  async triggerTask(event: unknown, _filename: string): Promise<void> {
+    const task = event as MomEvent;
+    if (!task || typeof task !== "object" || typeof task.chatId !== "string" || typeof task.text !== "string") {
+      throw new Error("Invalid task payload");
+    }
+
+    const now = Date.now();
+    const syntheticMessage: IncomingMessage = {
+      userId: task.chatId,
+      text: task.text,
+      type: "text",
+      raw: ({ message_id: now } as unknown) as IncomingMessage["raw"],
+      _contextToken: "",
+      timestamp: new Date(now)
+    };
+
+    const delivery = this.resolveEventDeliveryMode(task);
+    if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
+      await this.sendText(task.chatId, syntheticMessage, task.text, false);
+      return;
+    }
+
+    const syntheticEvent: WeixinInboundEvent = {
+      chatId: task.chatId,
+      chatType: "private",
+      messageId: now,
+      userId: task.chatId,
+      userName: "EVENT",
+      text: task.text,
+      ts: normalizeTimestamp(new Date(now)),
+      attachments: [],
+      imageContents: [],
+      sourceMessage: syntheticMessage,
+      isEvent: true
+    };
+
+    await this.processEvent(syntheticEvent, false);
   }
 
   private async sendText(chatId: string, sourceMessage: IncomingMessage, text: string, preferReply = false): Promise<void> {
