@@ -3,7 +3,7 @@ import { basename, join } from "node:path";
 import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { getModels, streamSimple, type Model } from "@mariozechner/pi-ai";
-import type { RuntimeSettings, CustomProviderConfig } from "../settings/index.js";
+import { isKnownProvider, type RuntimeSettings, type CustomProviderConfig } from "../settings/index.js";
 import type { MemoryGateway } from "../memory/gateway.js";
 import { currentModelKey } from "../settings/modelSwitch.js";
 import { momError, momLog, momWarn } from "./log.js";
@@ -90,12 +90,17 @@ function getProviderModel(provider: CustomProviderConfig): string {
 
 function getSelectedCustomProvider(
   settings: RuntimeSettings,
+  options: { includeBuiltIn?: boolean } = {}
 ): CustomProviderConfig | undefined {
-  if (settings.customProviders.length === 0) return undefined;
+  const includeBuiltIn = options.includeBuiltIn === true;
+  const candidates = includeBuiltIn
+    ? settings.customProviders
+    : settings.customProviders.filter((p) => !isKnownProvider(p.id));
+  if (candidates.length === 0) return undefined;
   return (
-    settings.customProviders.find(
+    candidates.find(
       (p) => p.id === settings.defaultCustomProviderId,
-    ) ?? settings.customProviders[0]
+    ) ?? candidates[0]
   );
 }
 

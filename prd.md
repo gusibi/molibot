@@ -2193,3 +2193,49 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 触发动作必须通过 `runtime.channelManagers.get(channel)` 选择 manager，并对不支持触发的渠道返回明确错误。
   - `src/routes/settings/tasks/+page.svelte` 必须展示渠道字段与渠道维度计数。
   - `features.md` 必须记录本次“全渠道任务清单”交付，便于后续排查“为什么某渠道任务在设置页不可见”。
+
+## 162. Weixin 长文本分段回复不能只发第一段，必须完整送达并暴露真实失败 (2026-04-02)
+- Priority: P0
+- Stage: Delivered (2026-04-02)
+- Problem:
+  - 当前 Weixin 长文本虽然会做 2000 字分段，但每段都按“已完成”状态发送，导致后续分段在 Weixin 侧可能被忽略，用户只看到第一段。
+  - 发送接口只看 HTTP 成功，不检查微信 `ret/errcode` 业务码，后续分段即使被微信拒绝也会被误判为成功。
+- Requirement:
+  - 长文本分段发送必须使用同一消息标识，前段标记为“生成中”，最后一段才标记为“完成”，确保同一次回复能完整送达。
+  - 发送消息必须校验微信业务返回码；只要 `ret/errcode` 非 0 必须立刻报错，不能静默吞掉。
+- Enforcement:
+  - `src/lib/server/channels/weixin/client.ts` 必须在长文本分段发送时复用同一 `client_id`，并按“前段 GENERATING、最后 FINISH”发送。
+  - `package/weixin-agent-sdk/src/api/api.ts` 的 `sendMessage` 必须解析并校验 `ret/errcode`，业务失败直接抛错。
+  - `src/lib/server/channels/weixin/client.test.ts` 必须覆盖“长文本分段状态正确”和“业务失败抛错”两个场景。
+  - `features.md` 必须记录本次修复，便于后续排查“为什么微信只发第一段”。
+
+## 163. Built-in provider 不能被当作 custom 默认提供方 (2026-04-03)
+- Priority: P0
+- Stage: Delivered (2026-04-03)
+- Problem:
+  - 在 Providers 页面开启 built-in provider 后，`defaultCustomProviderId` 可能被设成 built-in id（例如 `google`）。
+  - 当 `providerMode=custom` 时，运行时会按 custom 规则校验默认提供方，导致 built-in 被误判并抛出 `custom provider requires baseUrl, apiKey, and at least one model`。
+- Requirement:
+  - `providerMode=custom` 只能选择真正 custom 提供方（非 built-in）作为默认目标。
+  - 设置页必须阻止把 built-in 提供方设为 custom 默认目标，避免再写入错误状态。
+- Enforcement:
+  - `src/lib/server/agent/runner.ts` 在 custom 模式选默认提供方时必须排除 built-in provider id。
+  - `src/lib/server/app/runtime.ts` 在保存/清洗设置时必须保证 `defaultCustomProviderId` 只落到 custom 提供方集合中。
+  - `src/routes/settings/ai/providers/+page.svelte` 必须禁止 built-in 条目触发 “Set as Default”。
+  - `features.md` 必须记录本次修复，便于后续追踪同类配置问题。
+
+## 164. Web 会话 `Already working` 卡死必须可主动终止 (2026-04-03)
+- Priority: P0
+- Stage: Delivered (2026-04-03)
+- Problem:
+  - Web 端出现 `Already working` 时，通常是上一轮任务仍在后台执行，但页面没有可用的“强制停止后台任务”通道。
+  - `/api/chat` 与 `/api/stream` 各自维护独立 runner 上下文，导致停止操作可能打不到真正正在运行的那条任务。
+- Requirement:
+  - Web 端必须支持按 `profile + session` 精确停止当前运行任务，用户不需要等待超时才能恢复发送。
+  - 聊天与流式接口必须共享同一套 runner 上下文，避免“看起来同一会话，实际不是同一个运行实例”的分裂状态。
+- Enforcement:
+  - 新增共享运行上下文模块并由 `/api/chat` 与 `/api/stream` 统一复用。
+  - 新增 `POST /api/stream/stop`，按会话中止当前 runner。
+  - `/api/stream` 必须在请求断开时触发 `runner.abort()`，避免前端断流后后台继续长时间占用。
+  - Web 页面必须提供可见的“停止”操作并调用 stop API。
+  - `features.md` 必须记录本次修复，便于后续排查同类运行锁死问题。

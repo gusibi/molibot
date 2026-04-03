@@ -101,6 +101,8 @@
       recordVoice: "录音",
       enterShiftHint: "Enter 发送 · Shift+Enter 换行",
       sending: "发送中...",
+      stopping: "停止中...",
+      stop: "停止",
       send: "发送",
       systemPromptPreview: "System Prompt 预览",
       close: "关闭",
@@ -185,6 +187,8 @@
       recordVoice: "Record Voice",
       enterShiftHint: "Enter send · Shift+Enter newline",
       sending: "Sending...",
+      stopping: "Stopping...",
+      stop: "Stop",
       send: "Send",
       systemPromptPreview: "System Prompt Preview",
       close: "Close",
@@ -241,6 +245,8 @@
   let messageInput = "";
   let status = "Loading...";
   let sending = false;
+  let stopping = false;
+  let sendAbortController: AbortController | null = null;
   let loadingMessages = false;
   let showMobileSidebar = false;
   let sessionSearch = "";
@@ -765,7 +771,7 @@
     };
   }
 
-  async function sendStreamingText(text: string): Promise<{
+  async function sendStreamingText(text: string, signal?: AbortSignal): Promise<{
     assistant: string;
     conversationId?: string;
     diagnostics: string[];
@@ -780,9 +786,37 @@
         conversationId: activeSessionId,
         message: text,
         thinkingLevel
-      })
+      }),
+      signal
     });
     return consumeSseResponse(response);
+  }
+
+  async function stopCurrentRun(): Promise<void> {
+    if (!activeSessionId || stopping) return;
+    stopping = true;
+    try {
+      if (sendAbortController) sendAbortController.abort();
+      const response = await fetch("/api/stream/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profileId: activeProfileId,
+          conversationId: activeSessionId
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) {
+        throw new Error(String(payload?.error ?? t("backendRequestFailed")));
+      }
+      status = payload.stopped ? "已停止当前任务。" : "当前没有运行中的任务。";
+    } catch (error) {
+      status = error instanceof Error ? `${t("errorPrefix")}${error.message}` : `${t("errorPrefix")}${String(error)}`;
+    } finally {
+      stopping = false;
+      sending = false;
+      sendAbortController = null;
+    }
   }
 
   async function sendMessage(): Promise<void> {
@@ -800,9 +834,11 @@
     messages = [...messages, { role: "user", content: userDisplay, createdAt: new Date().toISOString() }];
     await scrollMessagesToBottom(true);
 
+    const requestController = new AbortController();
+    sendAbortController = requestController;
     try {
       if (filesToSend.length === 0 && !text.startsWith("/")) {
-        const streamed = await sendStreamingText(text);
+        const streamed = await sendStreamingText(text, requestController.signal);
         messages = [
           ...messages,
           {
@@ -834,7 +870,11 @@
         for (const file of filesToSend) {
           form.append("files", file);
         }
-        response = await fetch("/api/chat", { method: "POST", body: form });
+        response = await fetch("/api/chat", {
+          method: "POST",
+          body: form,
+          signal: requestController.signal
+        });
       } else {
         response = await fetch("/api/chat", {
           method: "POST",
@@ -844,7 +884,8 @@
             conversationId: activeSessionId,
             message: text,
             thinkingLevel
-          })
+          }),
+          signal: requestController.signal
         });
       }
 
@@ -874,11 +915,16 @@
       await scrollMessagesToBottom(true);
       status = "";
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        status = "已停止当前任务。";
+        return;
+      }
       const errorText = error instanceof Error ? error.message : String(error);
       messages = [...messages, { role: "assistant", content: `${t("errorPrefix")}${errorText}`, createdAt: new Date().toISOString() }];
       await scrollMessagesToBottom(true);
     } finally {
       sending = false;
+      sendAbortController = null;
       composerEl?.focus();
     }
   }
@@ -1533,6 +1579,14 @@
               </button>
               <p class="text-[11px] text-[var(--muted-foreground)]">{t("enterShiftHint")}</p>
             </div>
+            <button
+              class="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-semibold transition hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              disabled={stopping || !activeSessionId}
+              on:click={stopCurrentRun}
+            >
+              {stopping ? t("stopping") : t("stop")}
+            </button>
             <button
               class="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               type="button"

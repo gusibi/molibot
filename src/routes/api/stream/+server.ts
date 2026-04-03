@@ -1,16 +1,13 @@
-import path from "node:path";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import { MomRuntimeStore } from "$lib/server/agent/store";
-import { RunnerPool } from "$lib/server/agent/runner";
 import type { RunnerUiEvent } from "$lib/server/agent/types";
-import { storagePaths } from "$lib/server/infra/db/storage";
 import { sanitizeRuntimeThinkingLevel } from "$lib/server/settings";
 import {
   sanitizeWebProfileId,
   sanitizeWebUserId,
   toWebExternalUserId
 } from "$lib/server/web/identity";
+import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
 
 interface StreamBody {
   userId?: string;
@@ -18,34 +15,6 @@ interface StreamBody {
   conversationId?: string;
   profileId?: string;
   thinkingLevel?: string;
-}
-
-interface WebRuntimeContext {
-  store: MomRuntimeStore;
-  pool: RunnerPool;
-}
-
-const webRuntimes = new Map<string, WebRuntimeContext>();
-
-function getWebRuntimeContext(profileId: string): WebRuntimeContext {
-  const key = sanitizeWebProfileId(profileId);
-  const existing = webRuntimes.get(key);
-  if (existing) return existing;
-
-  const runtime = getRuntime();
-  const workspaceDir = path.join(storagePaths.webWorkspaceDir, "bots", key);
-  const store = new MomRuntimeStore(workspaceDir);
-  const pool = new RunnerPool(
-    "web",
-    store,
-    runtime.getSettings,
-    runtime.updateSettings,
-    runtime.usageTracker,
-    runtime.memory
-  );
-  const created = { store, pool };
-  webRuntimes.set(key, created);
-  return created;
 }
 
 function writeEvent(
@@ -122,6 +91,14 @@ export const POST: RequestHandler = async ({ request }) => {
     );
   }
   runtime.sessions.appendMessage(conversation.id, "user", message);
+
+  request.signal.addEventListener(
+    "abort",
+    () => {
+      if (runner.isRunning()) runner.abort();
+    },
+    { once: true }
+  );
 
   const encoder = new TextEncoder();
 

@@ -35,6 +35,7 @@ test("sendWeixinFile sends audio replies as text plus mp3 file attachment", asyn
       contextToken: "ctx-1",
       caption: "新冷笑话语音",
       text: "给你讲个超可爱的小笑话哦，小企鹅问妈妈：我真的是企鹅吗？",
+      baseUrlOverride: "https://api.example.test",
       cdnBaseUrl: "https://cdn.example.test"
     });
 

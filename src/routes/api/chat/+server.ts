@@ -1,9 +1,6 @@
-import path from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import { MomRuntimeStore } from "$lib/server/agent/store";
-import { RunnerPool } from "$lib/server/agent/runner";
 import { loadSkillsFromWorkspace } from "$lib/server/agent/skills";
 import {
   listOAuthProviderIds,
@@ -13,7 +10,6 @@ import {
   submitOAuthLoginCode
 } from "$lib/server/agent/auth";
 import type { ChannelInboundMessage, FileAttachment } from "$lib/server/agent/types";
-import { storagePaths } from "$lib/server/infra/db/storage";
 import {
   buildModelOptions,
   currentModelKey,
@@ -26,6 +22,7 @@ import {
   sanitizeWebUserId,
   toWebExternalUserId
 } from "$lib/server/web/identity";
+import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
 import { sanitizeRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
 import type { RunnerUiEvent } from "$lib/server/agent/types";
 
@@ -46,17 +43,10 @@ interface ParsedWebChatRequest {
   thinkingLevel: RuntimeThinkingLevel;
 }
 
-interface WebRuntimeContext {
-  store: MomRuntimeStore;
-  pool: RunnerPool;
-}
-
 interface WebCommandResult {
   ok: true;
   response: string;
 }
-
-const webRuntimes = new Map<string, WebRuntimeContext>();
 
 function inferMediaType(file: File): FileAttachment["mediaType"] {
   const type = (file.type || "").toLowerCase();
@@ -341,27 +331,6 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
     files: [],
     thinkingLevel: sanitizeRuntimeThinkingLevel(body.thinkingLevel)
   };
-}
-
-function getWebRuntimeContext(profileId: string): WebRuntimeContext {
-  const key = sanitizeWebProfileId(profileId);
-  const existing = webRuntimes.get(key);
-  if (existing) return existing;
-
-  const runtime = getRuntime();
-  const workspaceDir = path.join(storagePaths.webWorkspaceDir, "bots", key);
-  const store = new MomRuntimeStore(workspaceDir);
-  const pool = new RunnerPool(
-    "web",
-    store,
-    runtime.getSettings,
-    runtime.updateSettings,
-    runtime.usageTracker,
-    runtime.memory
-  );
-  const created = { store, pool };
-  webRuntimes.set(key, created);
-  return created;
 }
 
 export const POST: RequestHandler = async ({ request }) => {

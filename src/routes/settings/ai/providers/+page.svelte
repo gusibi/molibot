@@ -408,16 +408,18 @@
             return;
         }
 
+        const customRows = form.customProviders.filter(
+            (p) => !isBuiltinProvider(p),
+        );
+        const enabledCustomRows = customRows.filter((p) => p.enabled);
+
         if (
-            !form.customProviders
-                .filter((p) => p.enabled)
-                .some(
+            !enabledCustomRows.some(
                 (p) => p.id === form.defaultCustomProviderId,
             )
         ) {
             form.defaultCustomProviderId =
-                form.customProviders.find((p) => p.enabled)?.id ??
-                form.customProviders[0].id;
+                enabledCustomRows[0]?.id ?? customRows[0]?.id ?? "";
         }
 
         if (
@@ -502,6 +504,8 @@
     }
 
     function setAsDefaultProvider(id: string): void {
+        const provider = form.customProviders.find((row) => row.id === id);
+        if (!provider || isBuiltinProvider(provider)) return;
         form.defaultCustomProviderId = id;
         updateProviderById(id, (provider) => ({ ...provider, enabled: true }));
     }
@@ -1102,7 +1106,7 @@
                                     variant="outline"
                                     size="sm"
                                     on:click={() => setAsDefaultProvider(cp.id)}
-                                    disabled={form.defaultCustomProviderId === cp.id || !cp.enabled}
+                                    disabled={isBuiltinProvider(cp) || form.defaultCustomProviderId === cp.id || !cp.enabled}
                                 >
                                     {form.defaultCustomProviderId === cp.id
                                         ? "Targeted as Default"

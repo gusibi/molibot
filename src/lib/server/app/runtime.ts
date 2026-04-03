@@ -581,9 +581,10 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   }
   next.customProviders = customProviders;
   next.defaultCustomProviderId = String(next.defaultCustomProviderId ?? "").trim();
-  const enabledCustomProviders = next.customProviders.filter((p) => p.enabled !== false);
+  const selectableCustomProviders = next.customProviders.filter((p) => !isKnownProvider(p.id));
+  const enabledCustomProviders = selectableCustomProviders.filter((p) => p.enabled !== false);
   if (!enabledCustomProviders.some((p) => p.id === next.defaultCustomProviderId)) {
-    next.defaultCustomProviderId = enabledCustomProviders[0]?.id ?? next.customProviders[0]?.id ?? "";
+    next.defaultCustomProviderId = enabledCustomProviders[0]?.id ?? selectableCustomProviders[0]?.id ?? "";
   }
 
   next.modelRouting = {

@@ -315,13 +315,14 @@ export class WeixinBot {
     }
 
     const credentials = await this.ensureCredentials();
-    for (const chunk of chunkText(text, 2_000)) {
+    const chunks = chunkText(text, 2_000);
+    for (const chunk of chunks) {
       await vendorSendMessage({
         baseUrl: this.baseUrl,
         token: credentials.token,
         timeoutMs: 15_000,
         body: {
-          msg: buildTextMessage(userId, contextToken, chunk)
+          msg: buildTextMessage(userId, contextToken, chunk, randomUUID(), MessageState.FINISH)
         }
       });
     }
@@ -442,7 +443,13 @@ function resolvePollErrorCode(payload: { ret?: number; errcode?: number }): numb
   return 0;
 }
 
-function buildTextMessage(userId: string, contextToken: string, text: string): {
+function buildTextMessage(
+  userId: string,
+  contextToken: string,
+  text: string,
+  clientId: string,
+  messageState: number
+): {
   from_user_id: string;
   to_user_id: string;
   client_id: string;
@@ -454,9 +461,9 @@ function buildTextMessage(userId: string, contextToken: string, text: string): {
   return {
     from_user_id: "",
     to_user_id: userId,
-    client_id: randomUUID(),
+    client_id: clientId,
     message_type: MessageType.BOT,
-    message_state: MessageState.FINISH,
+    message_state: messageState,
     context_token: contextToken,
     item_list: [
       {
