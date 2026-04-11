@@ -17,7 +17,7 @@ import {
   MessageState,
   MessageType,
   type MessageItem,
-  type WeixinMessage
+  type WeixinMessage  
 } from "#weixin-agent-sdk/src/api/types.js";
 
 type MessageHandler = (msg: IncomingMessage) => void | Promise<void>;

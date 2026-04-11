@@ -24,6 +24,25 @@ interface SkillLoadOptions {
   disabledSkillPaths?: string[];
 }
 
+const TOKEN_PATTERN = /[a-z0-9][a-z0-9:_-]*/i;
+
+function normalizeSelector(value: string): string {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "";
+  return raw
+    .replace(/^\/+/, "")
+    .replace(/^skill[:\s]+/, "")
+    .replace(/^技能[:\s]+/, "")
+    .replace(/\s+/g, "")
+    .replace(/_/g, "-");
+}
+
+function scopeWeight(scope: SkillScope): number {
+  if (scope === "chat") return 3;
+  if (scope === "bot") return 2;
+  return 1;
+}
+
 function parseStringList(raw: string | undefined): string[] {
   const source = String(raw ?? "").trim();
   if (!source) return [];
@@ -48,11 +67,11 @@ function parseStringList(raw: string | undefined): string[] {
 }
 
 function buildSkillNameAliases(name: string): Set<string> {
-  const raw = String(name ?? "").trim().toLowerCase();
+  const raw = normalizeSelector(name);
   const aliases = new Set<string>();
   if (!raw) return aliases;
   aliases.add(raw);
-  const tokens = raw.split(/[\s_-]+/).filter(Boolean);
+  const tokens = raw.split(/[-]+/).filter(Boolean);
   if (tokens.length > 0) {
     aliases.add(tokens.join("-"));
     aliases.add(tokens.join("_"));
@@ -71,36 +90,74 @@ function buildSkillAliases(name: string, filePath: string): string[] {
 }
 
 function extractDirectSlashSelector(inputText: string): string | null {
-  const match = String(inputText ?? "").trim().match(/^\/([^\s@]+)(?:@[^\s]+)?(?:\s|$)/);
-  if (!match?.[1]) return null;
-  return match[1].trim().toLowerCase();
+  const lines = String(inputText ?? "").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("/")) continue;
+    const match = trimmed.match(/^\/([a-z0-9][a-z0-9:_-]*)(?:@[^\s]+)?(?:\s|$)/i);
+    if (!match?.[1]) continue;
+    return normalizeSelector(match[1]);
+  }
+  return null;
 }
 
-function matchesExplicitInvocation(skill: LoadedSkill, inputText: string): boolean {
-  const text = String(inputText ?? "").toLowerCase();
-  if (!text.trim()) return false;
-
-  const aliases = skill.aliases;
-  if (aliases.length === 0) return false;
+function collectExplicitInvocationTokens(inputText: string): string[] {
+  const text = String(inputText ?? "");
+  if (!text.trim()) return [];
+  const hits = new Set<string>();
+  const tokenPattern = TOKEN_PATTERN.source;
 
   const directSlashSelector = extractDirectSlashSelector(text);
-  if (directSlashSelector && aliases.includes(directSlashSelector)) {
-    return true;
-  }
+  if (directSlashSelector) hits.add(directSlashSelector);
 
-  for (const alias of aliases) {
-    const explicitPatterns = [
-      `$${alias}`,
-      `/skill ${alias}`,
-      `skill:${alias}`,
-      `技能:${alias}`
-    ];
-    if (explicitPatterns.some((pattern) => text.includes(pattern))) {
-      return true;
+  const genericPatterns = [
+    new RegExp(`(?:^|\\s)\\$(${tokenPattern})\\b`, "gi"),
+    // Language-agnostic label:value form, e.g. "skill:web-search" / "技能:web-search" / "スキル:web-search"
+    new RegExp(`(?:^|\\s)(?!https?:\\/\\/)(?:[^\\s:]{1,12})\\s*:\\s*(${tokenPattern})\\b`, "gi"),
+    // Language-agnostic slash-label value form, e.g. "/skill web-search" / "/技能 web-search" / "/기술 web-search"
+    new RegExp(`(?:^|\\s)\\/(?:[^\\s/]{1,12})\\s+(${tokenPattern})\\b`, "gi"),
+    new RegExp(`(?:^|[\\s([{\"'“‘])\\/(${tokenPattern})(?:@[^\s]+)?(?=$|[\\s)\\]}\"'”’，。,.!?;:：])`, "gi")
+  ];
+
+  for (const pattern of genericPatterns) {
+    for (const match of text.matchAll(pattern)) {
+      const candidate = normalizeSelector(match[1] ?? "");
+      if (candidate) hits.add(candidate);
     }
   }
 
-  return false;
+  return Array.from(hits.values());
+}
+
+function resolveSkillBySelector(skills: LoadedSkill[], selector: string): LoadedSkill | null {
+  const normalized = normalizeSelector(selector);
+  if (!normalized) return null;
+
+  let best: LoadedSkill | null = null;
+  let bestScore = -1;
+  for (const skill of skills) {
+    const aliasMatch = skill.aliases.some((alias) => normalizeSelector(alias) === normalized);
+    if (!aliasMatch) continue;
+    const exactNameBoost = normalizeSelector(skill.name) === normalized ? 100 : 0;
+    const score = exactNameBoost + scopeWeight(skill.scope);
+    if (score > bestScore) {
+      best = skill;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function resolveExplicitInvocationMatches(skills: LoadedSkill[], inputText: string): LoadedSkill[] {
+  const selectors = collectExplicitInvocationTokens(inputText);
+  if (selectors.length === 0) return [];
+  const matched = new Map<string, LoadedSkill>();
+  for (const selector of selectors) {
+    const resolved = resolveSkillBySelector(skills, selector);
+    if (!resolved) continue;
+    matched.set(resolved.filePath, resolved);
+  }
+  return Array.from(matched.values());
 }
 
 function findSkillFiles(rootDir: string, out: string[]): void {
@@ -230,7 +287,7 @@ export function formatSkillsForPrompt(
 }
 
 export function findExplicitlyInvokedSkills(skills: LoadedSkill[], inputText: string): LoadedSkill[] {
-  return skills.filter((skill) => matchesExplicitInvocation(skill, inputText));
+  return resolveExplicitInvocationMatches(skills, inputText);
 }
 
 export function resolveRequestedMcpServerIds(skills: LoadedSkill[], inputText: string): string[] {

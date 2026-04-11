@@ -473,20 +473,20 @@ function buildModelFallbackSelections(
 }
 
 function hasExplicitMcpInvocation(inputText: string): boolean {
-  const text = String(inputText ?? "").toLowerCase();
-  const patterns = [
-    "使用mcp",
-    "启用mcp",
-    "加载mcp",
-    "用mcp",
-    "load_mcp",
-    "/mcp",
-    "use mcp",
-    "enable mcp",
-    "load mcp",
-    " mcp "
+  const text = String(inputText ?? "");
+  if (!text.trim()) return false;
+
+  const lower = text.toLowerCase();
+  const directPatterns = [
+    /\bload_mcp\b/i,
+    /(?:^|\s)\/mcp(?:\s|$)/i
   ];
-  return patterns.some((pattern) => text.includes(pattern));
+  if (directPatterns.some((pattern) => pattern.test(lower))) {
+    return true;
+  }
+
+  // Language-agnostic fallback: standalone MCP token anywhere in the sentence.
+  return /(?:^|[\s([{'"“‘])mcp(?=$|[\s)\]}'"”’，。,.!?;:：])/i.test(lower);
 }
 
 function injectExplicitSkillInvocationContext(

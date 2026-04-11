@@ -100,7 +100,7 @@ function buildPythonSandboxEnv(): NodeJS.ProcessEnv {
     UV_CACHE_DIR: PYTHON_UV_CACHE_DIR,
     UV_PYTHON: venvPythonPath,
     PIP_CACHE_DIR: PYTHON_PIP_CACHE_DIR,
-    PIP_REQUIRE_VIRTUALENV: "false",
+    PIP_REQUIRE_VIRTUALENV: "true",
     PIP_DISABLE_PIP_VERSION_CHECK: "1",
     PIP_ROOT_USER_ACTION: "ignore",
     TMPDIR: PYTHON_TMP_DIR,
@@ -109,7 +109,9 @@ function buildPythonSandboxEnv(): NodeJS.ProcessEnv {
 }
 
 function sanitizePythonCommand(command: string): string {
-  return command.replace(/\s--break-system-packages(?=\s|$)/g, "");
+  return command
+    .replace(/\s--break-system-packages(?=\s|$)/g, "")
+    .replace(/\s--user(?=\s|$)/g, "");
 }
 
 function wrapCommandWithPythonSandbox(command: string): string {
