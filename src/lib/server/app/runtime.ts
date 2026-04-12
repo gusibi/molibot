@@ -707,7 +707,11 @@ export function getRuntime(): RuntimeState {
     const sessions = new SessionStore();
     const currentSettings = { value: settings };
     const usageTracker = new AiUsageTracker();
-    const memory = new MemoryGateway(() => currentSettings.value, sessions);
+    const memory = new MemoryGateway(
+      () => currentSettings.value,
+      sessions,
+      `${config.dataDir}/memory-governance/rejections.jsonl`
+    );
     const assistant = new AssistantService(() => currentSettings.value, usageTracker);
     const router = new MessageRouter(sessions, assistant, memory);
     const applySettingsPatch = (patch: Partial<RuntimeSettings>): RuntimeSettings => {

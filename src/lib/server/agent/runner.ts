@@ -8,6 +8,9 @@ import type { MemoryGateway } from "../memory/gateway.js";
 import { currentModelKey } from "../settings/modelSwitch.js";
 import { momError, momLog, momWarn } from "./log.js";
 import { buildSystemPrompt } from "./prompt.js";
+import { buildRunReflection, formatRunClosingNote, type RunSummary } from "./runSummary.js";
+import { saveSkillDraft, shouldSuggestSkillDraft } from "./skillDraft.js";
+import { DEFAULT_RUN_BUDGET, RunBudget } from "./runtimeBudget.js";
 import { MomRuntimeStore } from "./store.js";
 import { resolveSttTarget, transcribeAudioViaConfiguredProvider } from "./stt.js";
 import { describeImageViaConfiguredProvider, resolveVisionFallbackTarget } from "./vision-fallback.js";
@@ -1083,6 +1086,7 @@ export class MomRunner implements RunnerLike {
   private promptRefreshKey = "";
   private systemPromptReady = false;
   private activeRunnerEventSink: NonNullable<MomContext["onRunnerEvent"]> | undefined;
+  private activeRunBudget: RunBudget | undefined;
   private activePayloadContext:
     | {
         provider: string;
@@ -1147,14 +1151,16 @@ export class MomRunner implements RunnerLike {
           cwd: this.store.getScratchDir(this.chatId),
           workspaceDir: this.store.getWorkspaceDir()
         });
-        if (!blockedReason) return undefined;
+        const budgetResult = this.activeRunBudget?.tryStartTool() ?? { ok: true };
+        const finalBlockedReason = blockedReason ?? budgetResult.reason;
+        if (!finalBlockedReason) return undefined;
         momWarn("runner", "tool_call_blocked", {
           chatId: this.chatId,
           sessionId: this.sessionId,
           tool: context.toolCall.name,
-          reason: blockedReason
+          reason: finalBlockedReason
         });
-        return { block: true, reason: blockedReason };
+        return { block: true, reason: finalBlockedReason };
       },
       streamFn: (selectedModel, context, opts) => {
         const settingsNow = this.getSettings();
@@ -1321,6 +1327,10 @@ export class MomRunner implements RunnerLike {
     const runId =
       (ctx.message as { runId?: string }).runId ??
       `${this.chatId}-${this.sessionId}-${ctx.message.messageId}`;
+    const runStartedAt = Date.now();
+    const budget = new RunBudget(DEFAULT_RUN_BUDGET);
+    const usedToolNames: string[] = [];
+    const failedToolNames: string[] = [];
     this.running = true;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
     this.activePayloadContext = undefined;
@@ -1449,14 +1459,19 @@ export class MomRunner implements RunnerLike {
     const modelCandidates = buildModelFallbackSelections(settings, visionDecision.selection, modelUseCase);
     let activeSelection = modelCandidates[0] ?? visionDecision.selection;
     await this.memory.syncExternalMemories();
+    const memorySnapshot = await this.memory.createPromptSnapshot(
+      { channel: this.channel, externalUserId: this.chatId },
+      enrichedInput.text,
+      12
+    );
     const nextPromptKey = buildPromptRefreshKey(settings, this.channel, this.store.getWorkspaceDir());
-    if (!this.systemPromptReady || this.promptRefreshKey !== nextPromptKey) {
-      const memoryText =
-        (await this.memory.buildPromptContext(
-          { channel: this.channel, externalUserId: this.chatId },
-          enrichedInput.text,
-          12,
-        )) || "(no working memory yet)";
+    const runPromptKey = JSON.stringify({
+      base: nextPromptKey,
+      memory: memorySnapshot.fingerprint,
+      query: memorySnapshot.query
+    });
+    if (!this.systemPromptReady || this.promptRefreshKey !== runPromptKey) {
+      const memoryText = memorySnapshot.promptText || "(no working memory yet)";
       this.agent.setSystemPrompt(
         buildSystemPrompt(
           this.store.getWorkspaceDir(),
@@ -1470,7 +1485,7 @@ export class MomRunner implements RunnerLike {
           },
         ),
       );
-      this.promptRefreshKey = nextPromptKey;
+      this.promptRefreshKey = runPromptKey;
       this.systemPromptReady = true;
       momLog("runner", "system_prompt_refreshed", {
         runId,
@@ -1614,6 +1629,7 @@ export class MomRunner implements RunnerLike {
       if (event.type === "tool_execution_start") {
         const args = event.args as { label?: string };
         const label = args.label || event.toolName;
+        usedToolNames.push(event.toolName);
         momLog("runner", "tool_start", {
           runId,
           chatId: this.chatId,
@@ -1626,6 +1642,10 @@ export class MomRunner implements RunnerLike {
       if (event.type === "tool_execution_end") {
         const body = extractTextFromResult(event.result);
         const status = event.isError ? "✗" : "✓";
+        const budgetResult = budget.recordToolResult(event.isError);
+        if (event.isError) {
+          failedToolNames.push(event.toolName);
+        }
         momLog("runner", "tool_end", {
           runId,
           chatId: this.chatId,
@@ -1637,6 +1657,10 @@ export class MomRunner implements RunnerLike {
         if (event.isError) {
           enqueue(() => ctx.respondInThread(text));
           enqueue(() => ctx.respond(`_Error: ${body.slice(0, 200)}_`, false));
+        }
+        if (!budgetResult.ok) {
+          enqueue(() => ctx.respondInThread(budgetResult.reason ?? "Run budget exceeded."));
+          this.agent.abort();
         }
       }
 
@@ -1714,8 +1738,17 @@ export class MomRunner implements RunnerLike {
 
     const MAX_EMPTY_RETRIES = 2;
     const modelFailures: ModelAttemptFailure[] = [];
+    let savedSkillDraft:
+      | {
+          filePath: string;
+          fileName: string;
+          name: string;
+          content: string;
+        }
+      | undefined;
 
     try {
+      this.activeRunBudget = budget;
       await ctx.setTyping(true);
       await ctx.setWorking(true);
 
@@ -1735,6 +1768,12 @@ export class MomRunner implements RunnerLike {
       let successfulCandidateIndex = -1;
 
       for (let candidateIndex = 0; candidateIndex < modelCandidates.length; candidateIndex += 1) {
+        const budgetAttempt = budget.tryRecordModelAttempt();
+        if (!budgetAttempt.ok) {
+          stopReason = "error";
+          errorMessage = budgetAttempt.reason;
+          break;
+        }
         const selection = modelCandidates[candidateIndex];
         activeSelection = selection;
         stopReason = "stop";
@@ -2061,6 +2100,8 @@ export class MomRunner implements RunnerLike {
             ...modelFailures.map((failure, index) => `${index + 1}. ${formatModelAttemptFailure(failure)}`)
           ].join("\n")
         );
+        stopReason = "error";
+        if (!errorMessage) errorMessage = emptyResponseMessage;
       }
 
       await ctx.setWorking(false);
@@ -2081,6 +2122,71 @@ export class MomRunner implements RunnerLike {
         stopReason,
         hasError: Boolean(errorMessage),
       });
+
+      if (
+        shouldSuggestSkillDraft({
+          stopReason,
+          finalText,
+          toolCalls: budget.snapshot().toolCalls,
+          toolFailures: budget.snapshot().toolFailures,
+          modelAttempts: budget.snapshot().modelAttempts,
+          explicitSkillCount: explicitlyInvokedSkills.length
+        })
+      ) {
+        savedSkillDraft = saveSkillDraft({
+          workspaceDir: this.store.getWorkspaceDir(),
+          chatId: this.chatId,
+          userMessage: effectiveInputText,
+          finalAnswer: finalText,
+          toolNames: usedToolNames,
+          failedToolNames,
+          explicitSkillNames: explicitlyInvokedSkills.map((skill) => skill.name),
+          modelFailures: modelFailures.map(formatModelAttemptFailure)
+        });
+      }
+
+      const runSummary: RunSummary = {
+        runId,
+        stopReason,
+        durationMs: Date.now() - runStartedAt,
+        finalText,
+        toolNames: usedToolNames,
+        failedToolNames,
+        explicitSkillNames: explicitlyInvokedSkills.map((skill) => skill.name),
+        usedFallbackModel: successfulCandidateIndex > 0,
+        modelFailureSummaries: modelFailures.map(formatModelAttemptFailure),
+        budget: budget.snapshot(),
+        budgetLimits: budget.limitsSnapshot(),
+        memorySnapshot: {
+          createdAt: memorySnapshot.createdAt,
+          fingerprint: memorySnapshot.fingerprint,
+          query: memorySnapshot.query,
+          selectedCount: memorySnapshot.selected.length,
+          longTermCount: memorySnapshot.longTerm.length,
+          dailyCount: memorySnapshot.daily.length
+        },
+        skillDraft: savedSkillDraft,
+        reflection: buildRunReflection({
+          stopReason,
+          finalText,
+          failedToolNames,
+          usedFallbackModel: successfulCandidateIndex > 0,
+          errorMessage,
+          skillDraftSaved: Boolean(savedSkillDraft)
+        }),
+        errorMessage
+      };
+      this.store.appendRunSummary(this.chatId, runSummary as unknown as Record<string, unknown>);
+
+      if (
+        !finalText.startsWith("[SILENT]") &&
+        (usedToolNames.length > 0 ||
+          failedToolNames.length > 0 ||
+          successfulCandidateIndex > 0 ||
+          Boolean(savedSkillDraft))
+      ) {
+        await ctx.respondInThread(formatRunClosingNote(runSummary));
+      }
       return { stopReason, errorMessage };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2089,6 +2195,29 @@ export class MomRunner implements RunnerLike {
         chatId: this.chatId,
         error: message,
       });
+      const failedSummary: RunSummary = {
+        runId,
+        stopReason: "error",
+        durationMs: Date.now() - runStartedAt,
+        finalText: "",
+        toolNames: usedToolNames,
+        failedToolNames,
+        explicitSkillNames: [],
+        usedFallbackModel: false,
+        modelFailureSummaries: [],
+        budget: budget.snapshot(),
+        budgetLimits: budget.limitsSnapshot(),
+        reflection: buildRunReflection({
+          stopReason: "error",
+          finalText: "",
+          failedToolNames,
+          usedFallbackModel: false,
+          errorMessage: message,
+          skillDraftSaved: false
+        }),
+        errorMessage: message
+      };
+      this.store.appendRunSummary(this.chatId, failedSummary as unknown as Record<string, unknown>);
       try {
         await ctx.setWorking(false);
         await ctx.replaceMessage(`Run failed: ${message}`);
@@ -2099,6 +2228,7 @@ export class MomRunner implements RunnerLike {
       return { stopReason: "error", errorMessage: message };
     } finally {
       unsubscribe();
+      this.activeRunBudget = undefined;
       this.activeRunnerEventSink = undefined;
       this.activePayloadContext = undefined;
       this.running = false;

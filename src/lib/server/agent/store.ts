@@ -164,6 +164,14 @@ export class MomRuntimeStore {
     return dir;
   }
 
+  getRunSummaryLogPath(chatId: string): string {
+    const file = join(this.getChatDir(chatId), "run-summaries.jsonl");
+    if (!existsSync(file)) {
+      writeFileSync(file, "", "utf8");
+    }
+    return file;
+  }
+
   getSessionEntriesPath(chatId: string, sessionId?: string): string {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
     return this.ensureSessionEntriesFile(chatId, id);
@@ -642,6 +650,15 @@ export class MomRuntimeStore {
     });
     const snapshot = [createCompactionSummaryMessage(summary), ...keptMessages];
     writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+  }
+
+  appendRunSummary(chatId: string, summary: Record<string, unknown>): void {
+    const file = this.getRunSummaryLogPath(chatId);
+    const record = {
+      createdAt: new Date().toISOString(),
+      ...summary
+    };
+    appendFileSync(file, `${JSON.stringify(record)}\n`, "utf8");
   }
 
   readMemory(chatId: string): string {

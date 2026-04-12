@@ -9,6 +9,7 @@ import type {
   MemoryBackendCapabilities,
   MemoryCompactResult,
   MemoryFlushResult,
+  MemoryPromptSnapshot,
   MemoryRecord,
   MemoryScope,
   MemorySearchInput,
@@ -20,11 +21,13 @@ import {
   suppressImportedMemory
 } from "./importTombstones.js";
 import {
+  assessMemoryWrite,
   inferMemoryTags,
   normalizeMemoryContent,
   prepareMemoryAddInput,
   selectPromptMemoryRows
 } from "./classifier.js";
+import { appendMemoryGovernanceRejection } from "./governanceLog.js";
 
 export class MemoryGateway {
   private readonly backends: Record<string, MemoryBackend>;
@@ -33,7 +36,8 @@ export class MemoryGateway {
 
   constructor(
     private readonly getSettings: () => RuntimeSettings,
-    sessions: SessionStore
+    sessions: SessionStore,
+    private readonly governanceLogPath?: string
   ) {
     this.backendDefinitions = builtInMemoryBackends;
     this.backends = Object.fromEntries(
@@ -73,7 +77,20 @@ export class MemoryGateway {
 
   async add(scope: MemoryScope, input: MemoryAddInput): Promise<MemoryRecord | null> {
     if (!this.isEnabled()) return null;
-    const prepared = prepareMemoryAddInput(input);
+    const assessed = assessMemoryWrite(input);
+    if (!assessed.allowed || !assessed.prepared) {
+      if (this.governanceLogPath) {
+        appendMemoryGovernanceRejection({
+          filePath: this.governanceLogPath,
+          scope,
+          action: "add",
+          input,
+          reason: assessed.reason || "Memory write rejected."
+        });
+      }
+      throw new Error(assessed.reason || "Memory write rejected.");
+    }
+    const prepared = assessed.prepared;
     clearImportedMemorySuppression(scope, prepared.layer ?? "long_term", prepared.content);
     return this.getBackend().add(scope, prepared);
   }
@@ -103,8 +120,31 @@ export class MemoryGateway {
     const existing = await this.getBackend().get(scope, id);
     const nextInput: MemoryUpdateInput = { ...input };
     if (existing && typeof input.content === "string") {
-      nextInput.content = normalizeMemoryContent(input.content);
-      nextInput.tags = inferMemoryTags(
+      const assessed = assessMemoryWrite({
+        content: input.content,
+        tags: Array.isArray(input.tags) ? input.tags : existing.tags,
+        layer: existing.layer,
+        expiresAt: typeof input.expiresAt === "string" ? input.expiresAt : existing.expiresAt
+      });
+      if (!assessed.allowed || !assessed.prepared) {
+        if (this.governanceLogPath) {
+          appendMemoryGovernanceRejection({
+            filePath: this.governanceLogPath,
+            scope,
+            action: "update",
+            input: {
+              content: String(input.content ?? existing.content),
+              tags: Array.isArray(input.tags) ? input.tags : existing.tags,
+              layer: existing.layer,
+              expiresAt: typeof input.expiresAt === "string" ? input.expiresAt : existing.expiresAt
+            },
+            reason: assessed.reason || "Memory update rejected."
+          });
+        }
+        throw new Error(assessed.reason || "Memory update rejected.");
+      }
+      nextInput.content = assessed.prepared.content;
+      nextInput.tags = assessed.prepared.tags ?? inferMemoryTags(
         nextInput.content,
         Array.isArray(input.tags) ? input.tags : existing.tags
       );
@@ -140,9 +180,36 @@ export class MemoryGateway {
   }
 
   async buildPromptContext(scope: MemoryScope, query: string, limit = 5): Promise<string> {
-    if (!this.isEnabled()) return "";
+    const snapshot = await this.createPromptSnapshot(scope, query, limit);
+    return snapshot.promptText;
+  }
+
+  async createPromptSnapshot(scope: MemoryScope, query: string, limit = 5): Promise<MemoryPromptSnapshot> {
+    if (!this.isEnabled()) {
+      return {
+        createdAt: new Date().toISOString(),
+        scope,
+        query,
+        fingerprint: "disabled",
+        promptText: "",
+        longTerm: [],
+        daily: [],
+        selected: []
+      };
+    }
     const rows = dedupeMemoryRows(await this.search(scope, { query, limit: Math.max(limit * 4, 20), mode: "hybrid" }));
-    if (rows.length === 0) return "";
+    if (rows.length === 0) {
+      return {
+        createdAt: new Date().toISOString(),
+        scope,
+        query,
+        fingerprint: "empty",
+        promptText: "",
+        longTerm: [],
+        daily: [],
+        selected: []
+      };
+    }
     const { longTerm, daily } = selectPromptMemoryRows(rows, query, limit);
     const sections: string[] = [];
     if (longTerm.length > 0) {
@@ -157,7 +224,21 @@ export class MemoryGateway {
           daily.map((row, idx) => `${idx + 1}. ${row.content}`).join("\n")
       );
     }
-    return sections.join("\n\n");
+    const selected = [...longTerm, ...daily];
+    const promptText = sections.join("\n\n");
+    const fingerprint = selected
+      .map((row) => `${row.id}:${row.updatedAt}`)
+      .join("|") || "empty";
+    return {
+      createdAt: new Date().toISOString(),
+      scope,
+      query,
+      fingerprint,
+      promptText,
+      longTerm,
+      daily,
+      selected
+    };
   }
 
   async syncExternalMemories(): Promise<MemorySyncResult> {

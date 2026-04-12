@@ -1,5 +1,11 @@
 import type { MemoryAddInput, MemoryLayer, MemoryRecord } from "./types.js";
 
+export interface MemoryWriteAssessment {
+  allowed: boolean;
+  reason?: string;
+  prepared?: MemoryAddInput;
+}
+
 const DURABLE_HINTS = [
   "以后",
   "总是",
@@ -115,6 +121,35 @@ const LIFESTYLE_HINTS = [
   "fitness"
 ];
 
+const SCHEDULING_HINTS = [
+  "提醒我",
+  "几分钟后",
+  "几小时后",
+  "明天提醒",
+  "every day",
+  "every week",
+  "remind me",
+  "schedule this",
+  "cron",
+  "one-shot",
+  "periodic"
+];
+
+const TRANSIENT_EXECUTION_HINTS = [
+  "正在处理",
+  "processing",
+  "thinking",
+  "run summary",
+  "tool failures",
+  "model fallback",
+  "exit code",
+  "stack trace",
+  "traceback",
+  "logs:",
+  "stdout:",
+  "stderr:"
+];
+
 function hasHint(text: string, hints: string[]): boolean {
   const lower = text.toLowerCase();
   return hints.some((hint) => lower.includes(hint));
@@ -205,6 +240,38 @@ export function prepareMemoryAddInput(input: MemoryAddInput): MemoryAddInput {
     layer,
     tags
   };
+}
+
+export function assessMemoryWrite(input: MemoryAddInput): MemoryWriteAssessment {
+  const prepared = prepareMemoryAddInput(input);
+  const content = prepared.content;
+  const lower = content.toLowerCase();
+
+  if (!content || content.length < 8) {
+    return { allowed: false, reason: "内容太短，不值得写入长期记忆。" };
+  }
+
+  if (content.length > 500) {
+    return { allowed: false, reason: "内容太长，更像原始记录，不适合直接写入记忆。" };
+  }
+
+  if (hasHint(content, SCHEDULING_HINTS)) {
+    return { allowed: false, reason: "提醒、定时、周期任务不应写进记忆，请改用任务/提醒能力。" };
+  }
+
+  if (hasHint(lower, TRANSIENT_EXECUTION_HINTS)) {
+    return { allowed: false, reason: "运行日志、进度、错误栈这类临时过程信息不应写入记忆。" };
+  }
+
+  if (/^(todo|to-do|待办|下一步|next step)\b/i.test(content)) {
+    return { allowed: false, reason: "待办和下一步计划属于临时执行过程，不应直接写入记忆。" };
+  }
+
+  if (/^https?:\/\/\S+$/i.test(content)) {
+    return { allowed: false, reason: "单独一个链接信息太弱，至少补充这个链接的用途再写入记忆。" };
+  }
+
+  return { allowed: true, prepared };
 }
 
 function memoryPriority(row: MemoryRecord, query: string): number {

@@ -40,7 +40,10 @@
             links: [
                 { href: "/settings/agents", label: "Agents", exact: true },
                 { href: "/settings/memory", label: "Memory", exact: true },
+                { href: "/settings/memory-rejections", label: "Memory Rejections", exact: true },
                 { href: "/settings/skills", label: "Skills", exact: true },
+                { href: "/settings/skill-drafts", label: "Skill Drafts", exact: true },
+                { href: "/settings/run-history", label: "Run History", exact: true },
                 { href: "/settings/tasks", label: "Tasks", exact: true },
             ],
         },

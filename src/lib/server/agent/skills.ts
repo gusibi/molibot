@@ -138,8 +138,8 @@ function resolveSkillBySelector(skills: LoadedSkill[], selector: string): Loaded
   for (const skill of skills) {
     const aliasMatch = skill.aliases.some((alias) => normalizeSelector(alias) === normalized);
     if (!aliasMatch) continue;
-    const exactNameBoost = normalizeSelector(skill.name) === normalized ? 100 : 0;
-    const score = exactNameBoost + scopeWeight(skill.scope);
+    const exactNameBoost = normalizeSelector(skill.name) === normalized ? 10 : 0;
+    const score = scopeWeight(skill.scope) * 100 + exactNameBoost;
     if (score > bestScore) {
       best = skill;
       bestScore = score;

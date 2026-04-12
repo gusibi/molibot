@@ -313,6 +313,8 @@ function buildSkillsProtocolSection(vars: PromptRenderVars): string {
     "- Follow instructions in `SKILL.md` exactly. Resolve relative paths against the skill directory.",
     "- If a skill fails, report the actual failure and why, then fall back. Do not skip the skill silently.",
     "- If two skills overlap, pick the one whose description most directly matches the requested end result.",
+    "- After a difficult task succeeds and no suitable skill existed yet, prepare a reusable draft with `skill_manage` instead of silently losing the workflow.",
+    "- Default to saving a draft first. Do not create or overwrite a live skill unless the workflow is already validated or the user clearly asked for it.",
   ].join("\n");
 }
 
@@ -426,12 +428,14 @@ function buildToolsSection(): string {
     "| Manage bot profile files | `profile_files` | manual path guessing + bash edits |",
     "| Schedule/remind | `create_event` | bash sleep/crontab/at |",
     "| Memory operations | `memory` | direct read/write MEMORY.md |",
+    "| Draft/save reusable skills | `skill_manage` | ad-hoc notes in random files |",
     "| Send file to user | `attach` | bash echo redirect |",
     "| Load MCP servers | `load_mcp` | only in explicit MCP scenarios |",
     "| Shell commands (last resort) | `bash` | — |",
     "",
     "### Tool Parameters",
     "- `memory(operation, key?, value?, query?)` — operations: add, search, list, update, delete, flush, sync",
+    "- `skill_manage(action, ...)` — actions: draft | create | update | promote_draft | read_draft | list_drafts",
     "- `profile_files(action, file, content?, oldText?, newText?, autoBootstrap?)` — action: read | bootstrap | write | edit; file: BOT.md | SOUL.md | USER.md | TOOLS.md | IDENTITY.md | SONG.md",
     "- `create_event(type, chatId, text, delivery?, at?, schedule?, timezone?)` — type: one-shot | periodic | immediate",
     "- `attach(file_path)` — send local file through active channel",

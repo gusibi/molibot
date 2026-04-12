@@ -2240,3 +2240,109 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `/api/stream` 必须在请求断开时触发 `runner.abort()`，避免前端断流后后台继续长时间占用。
   - Web 页面必须提供可见的“停止”操作并调用 stop API。
   - `features.md` 必须记录本次修复，便于后续排查同类运行锁死问题。
+
+## 165. Agent 运行预算与统一收尾摘要 (2026-04-11)
+- Priority: P1
+- Stage: Delivered (2026-04-11)
+- Problem:
+  - 当前 runner 虽然有工具安全前置校验，但长任务仍缺少明确的运行边界，容易在工具失败或模型重试中不断兜圈。
+  - 任务结束后缺少统一的收尾摘要，操作者只能从零散进度消息里猜本轮到底用了什么、失败了什么。
+- Requirement:
+  - 每次运行必须有明确的基础预算，至少覆盖工具调用次数、工具失败次数、模型尝试次数。
+  - 当预算耗尽时，runner 必须停止继续探索，转为给出当前最好的结果或明确报错。
+  - 每次运行结束后，系统必须留下结构化摘要，至少包括运行结果、预算消耗、工具使用情况和模型回退信息。
+- Enforcement:
+  - `src/lib/server/agent/runtimeBudget.ts` 必须定义统一预算结构与判定逻辑。
+  - `src/lib/server/agent/runner.ts` 必须在工具调用前、工具失败后、模型候选切换前应用预算限制。
+  - `src/lib/server/agent/store.ts` 必须将运行摘要追加写入 chat 维度的 `run-summaries.jsonl`。
+  - `src/lib/server/agent/runSummary.ts` 必须提供统一的收尾摘要格式化逻辑。
+  - `features.md` 必须记录本次能力落地。
+
+## 166. 可复用工作流技能草稿沉淀 (2026-04-11)
+- Priority: P1
+- Stage: Delivered (2026-04-11)
+- Problem:
+  - 当前 runtime 能使用 skills，但一次复杂任务成功后没有统一入口把有效做法沉淀下来，经验会直接丢失。
+  - 直接自动写成正式技能风险过高，需要先有草稿层。
+- Requirement:
+  - 对复杂且成功的运行，系统应能自动生成“可复用工作流草稿”，供后续 review。
+  - runtime 必须提供专门的技能草稿/保存工具，而不是把流程说明散落写进任意文件。
+  - prompt 规则必须明确：优先保存草稿，只有工作流已验证或用户明确要求时才转成正式技能。
+- Enforcement:
+  - `src/lib/server/agent/skillDraft.ts` 必须负责技能草稿判定、草稿内容生成、草稿落盘和正式技能保存辅助逻辑。
+  - `src/lib/server/agent/tools/skillManage.ts` 必须提供 `draft/create/update/read_draft/list_drafts` 能力。
+  - `src/lib/server/agent/tools/index.ts` 必须将 `skill_manage` 接入 agent 工具集。
+  - `src/lib/server/agent/runner.ts` 必须在复杂成功运行后自动生成技能草稿，并在收尾摘要中告知草稿路径。
+  - `src/lib/server/agent/prompt.ts` 必须写明“优先生成草稿、不要直接覆盖正式技能”的执行规则。
+  - `features.md` 必须记录本次能力落地。
+
+## 167. 运行期记忆快照与更完整复盘层 (2026-04-11)
+- Priority: P1
+- Stage: Delivered (2026-04-11)
+- Problem:
+  - 当前 memory 虽然能检索，但如果 prompt 在 runner 生命周期里被复用，容易出现“这轮实际看到的记忆”不清楚、不同轮之间互相污染的情况。
+  - 现有 run summary 只有基础结果字段，不足以支撑后续判断“这次为什么成功/失败，下次该怎么处理”。
+- Requirement:
+  - 每次运行开始时必须生成一份固定的记忆快照，并在本轮运行中只使用这份快照作为 prompt 记忆来源。
+  - 运行摘要必须记录本轮用了哪一份记忆快照，以及这份快照包含多少长期/短期记忆。
+  - 运行摘要必须带有更完整的复盘信息，至少包括结果分类、简短结论和下一步建议。
+- Enforcement:
+  - `src/lib/server/memory/gateway.ts` 必须提供结构化记忆快照生成能力，而不只是返回拼接字符串。
+  - `src/lib/server/agent/runner.ts` 必须在 run 开始时生成 memory snapshot，并用 snapshot 指纹参与 prompt 刷新判定，保证“每轮固定、跨轮可更新”。
+  - `src/lib/server/agent/runSummary.ts` 必须定义 outcome/summary/nextAction 这类复盘结构，并在 closing note 中输出。
+  - `features.md` 必须记录本次能力落地。
+
+## 168. 记忆写入治理与技能草稿升级正式化 (2026-04-11)
+- Priority: P1
+- Stage: Delivered (2026-04-11)
+- Problem:
+  - 如果 memory 没有写入治理，提醒、日志、待办、裸链接这类低价值内容会持续污染长期记忆。
+  - 当前已经有草稿层，但缺少从“已 review 的草稿”升级成正式技能的明确路径，仍然需要手工复制。
+- Requirement:
+  - memory 写入必须有明确拒绝规则，至少挡住提醒/定时内容、临时运行日志、待办型计划、孤立裸链接。
+  - 当 memory 写入被拒绝时，必须返回清楚原因，而不是静默失败。
+  - `skill_manage` 必须支持把草稿正式提升为 live skill，并自动去掉 draft-only 元数据。
+- Enforcement:
+  - `src/lib/server/memory/classifier.ts` 必须提供显式写入评估逻辑，返回允许/拒绝和原因。
+  - `src/lib/server/memory/gateway.ts` 必须在 `add/update` 时统一执行写入治理。
+  - `src/lib/server/agent/tools/memory.ts` 必须沿用 gateway 的拒绝结果，让 agent 看到明确失败原因。
+  - `src/lib/server/agent/skillDraft.ts` 必须支持从草稿内容生成正式技能内容，去掉 `draft/source` 等仅草稿字段。
+  - `src/lib/server/agent/tools/skillManage.ts` 必须提供 `promote_draft`。
+  - `features.md` 必须记录本次能力落地。
+
+## 169. 自我进化记录可视化与草稿审核入口 (2026-04-11)
+- Priority: P1
+- Stage: Delivered (2026-04-11)
+- Problem:
+  - 前几轮已经把运行摘要和技能草稿写进文件，但操作者仍然要手动翻目录，无法快速判断最近跑得怎么样、哪些草稿值得转正。
+  - 如果缺少统一的 review 入口，前面的“记忆快照、复盘、技能草稿”会停留在底层能力，难以形成实际工作流。
+- Requirement:
+  - Settings 必须提供最近运行记录查看页面，至少能看到结果分类、运行时间、主要输出、工具使用、失败路径、下一步建议。
+  - Settings 必须提供技能草稿审核页面，至少能查看草稿正文、修改草稿内容、删除草稿，并一键提升为 chat/bot/global skill。
+  - 后台 API 必须统一扫描 runtime 目录里的运行摘要和技能草稿，而不是让前端直接猜文件路径。
+- Enforcement:
+  - `src/lib/server/agent/reviewData.ts` 必须负责扫描 bot/chat 工作区中的 `run-summaries.jsonl` 和 `skill-drafts/*.md`。
+  - `src/routes/api/settings/run-history/+server.ts` 必须输出最近运行记录与统计。
+  - `src/routes/api/settings/skill-drafts/+server.ts` 必须支持草稿列表、保存、删除、提升为正式技能。
+  - `src/routes/settings/run-history/+page.svelte` 与 `src/routes/settings/skill-drafts/+page.svelte` 必须提供实际可操作的审核界面。
+  - `src/routes/settings/+layout.svelte` 必须把新的审核入口挂到 Settings 导航。
+  - `features.md` 必须记录本次能力落地。
+
+## 170. 相似案例自动归并与记忆拦截记录页 (2026-04-11)
+- Priority: P1
+- Stage: Delivered (2026-04-11)
+- Problem:
+  - 如果每次复杂成功运行都生成一份新草稿，长期下来会堆出很多“几乎一样”的工作流文件，反而让 review 和转正更难。
+  - 当前 memory 写入治理虽然能拦住低价值内容，但操作者看不到“哪些内容被拦住、为什么被拦住”，治理效果不可审计。
+- Requirement:
+  - 自动生成或手动保存技能草稿时，系统必须优先判断是否已有相似草稿；如果相似，应合并更新而不是新建重复草稿。
+  - 草稿提升为正式技能时，如果目标范围里已存在相似技能，应优先合并更新，避免出现多个近似技能副本。
+  - 所有被治理规则拦住的 memory 写入都必须记录下来，并提供单独页面给操作者查看原因和原始内容。
+- Enforcement:
+  - `src/lib/server/agent/skillDraft.ts` 必须负责相似草稿判定与合并逻辑，并在草稿/技能保存时优先复用已有相似文件。
+  - `src/lib/server/agent/runSummary.ts` 必须在收尾摘要中明确提示本次草稿是“新建”还是“合并到已有草稿”。
+  - `src/lib/server/memory/governanceLog.ts` 必须负责拦截记录的落盘与读取。
+  - `src/lib/server/memory/gateway.ts` 必须在 `add/update` 被拒绝时追加治理日志。
+  - `src/routes/api/settings/memory-rejections/+server.ts` 与 `src/routes/settings/memory-rejections/+page.svelte` 必须提供可查看的治理记录页面。
+  - `src/routes/settings/+layout.svelte` 必须把记忆拦截记录入口挂到 Settings 导航。
+  - `features.md` 必须记录本次能力落地。

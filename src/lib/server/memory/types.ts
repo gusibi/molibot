@@ -41,6 +41,17 @@ export interface MemorySearchInput {
   mode?: MemorySearchMode;
 }
 
+export interface MemoryPromptSnapshot {
+  createdAt: string;
+  scope: MemoryScope;
+  query: string;
+  fingerprint: string;
+  promptText: string;
+  longTerm: MemoryRecord[];
+  daily: MemoryRecord[];
+  selected: MemoryRecord[];
+}
+
 export interface MemoryFlushResult {
   scannedMessages: number;
   addedCount: number;
