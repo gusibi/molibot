@@ -98,12 +98,47 @@ test("run closing note includes budget and draft path", () => {
     }
   });
 
-  assert.match(text, /Budget: tools 3\/24/);
-  assert.match(text, /Tool failures: bash/);
-  assert.match(text, /Model fallback: yes/);
-  assert.match(text, /Memory snapshot: 3 items/);
-  assert.match(text, /Skill draft saved: \/tmp\/workspace\/skill-drafts\/test.md/);
-  assert.match(text, /Reflection: Run finished, but only after fallback or recoverable failures\./);
+  assert.equal(text, "Saved a reusable draft: /tmp/workspace/skill-drafts/test.md");
+});
+
+test("run closing note stays empty-facing unless a draft was saved", () => {
+  const text = formatRunClosingNote({
+    runId: "run-2",
+    stopReason: "stop",
+    durationMs: 21000,
+    finalText: "done",
+    toolNames: ["memory"],
+    failedToolNames: [],
+    explicitSkillNames: [],
+    usedFallbackModel: false,
+    modelFailureSummaries: [],
+    budget: {
+      toolCalls: 1,
+      toolFailures: 0,
+      modelAttempts: 1
+    },
+    budgetLimits: {
+      maxToolCalls: 24,
+      maxToolFailures: 6,
+      maxModelAttempts: 6
+    },
+    memorySnapshot: {
+      createdAt: "2026-04-11T00:00:00.000Z",
+      fingerprint: "def",
+      query: "chat",
+      selectedCount: 13,
+      longTermCount: 11,
+      dailyCount: 2
+    },
+    reflection: {
+      outcome: "success",
+      summary: "Run completed on the primary path.",
+      nextAction: "No immediate follow-up needed unless you want to formalize this workflow as a skill."
+    }
+  });
+
+  assert.match(text, /Run summary/);
+  assert.match(text, /Memory snapshot: 13 items/);
 });
 
 test("run reflection distinguishes failed and successful outcomes", () => {

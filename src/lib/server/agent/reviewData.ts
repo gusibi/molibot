@@ -46,6 +46,12 @@ export interface SkillDraftItem {
   content: string;
 }
 
+interface BotWorkspaceRef {
+  botId: string;
+  chatId: string;
+  workspaceDir: string;
+}
+
 function unique(values: string[]): string[] {
   return Array.from(new Set(values.map((item) => String(item ?? "").trim()).filter(Boolean)));
 }
@@ -72,6 +78,18 @@ export function listAgentWorkspaces(dataRoot: string): AgentWorkspaceRef[] {
     const botOrder = a.botId.localeCompare(b.botId);
     return botOrder !== 0 ? botOrder : a.chatId.localeCompare(b.chatId);
   });
+}
+
+function listBotWorkspaces(dataRoot: string): BotWorkspaceRef[] {
+  const deduped = new Map<string, BotWorkspaceRef>();
+  for (const workspace of listAgentWorkspaces(dataRoot)) {
+    const key = resolve(workspace.workspaceDir);
+    const existing = deduped.get(key);
+    if (!existing || workspace.chatId.localeCompare(existing.chatId) < 0) {
+      deduped.set(key, workspace);
+    }
+  }
+  return Array.from(deduped.values()).sort((a, b) => a.botId.localeCompare(b.botId));
 }
 
 function parseRunSummaryLine(raw: string, createdAtFallback: string): RunSummary | null {
@@ -199,7 +217,7 @@ export function readSkillDrafts(dataRoot: string): { items: SkillDraftItem[]; di
   const diagnostics: string[] = [];
   const items: SkillDraftItem[] = [];
 
-  for (const workspace of listAgentWorkspaces(dataRoot)) {
+  for (const workspace of listBotWorkspaces(dataRoot)) {
     const draftsDir = join(workspace.workspaceDir, "skill-drafts");
     if (!existsSync(draftsDir)) continue;
 

@@ -35,6 +35,10 @@ function unique(values: string[]): string[] {
 }
 
 export function formatRunClosingNote(summary: RunSummary): string {
+  if (summary.skillDraft) {
+    return `Saved a reusable draft: ${summary.skillDraft.filePath}`;
+  }
+
   const lines: string[] = [];
   lines.push("Run summary");
   lines.push(`- Result: ${summary.stopReason}${summary.errorMessage ? ` (${summary.errorMessage})` : ""}`);

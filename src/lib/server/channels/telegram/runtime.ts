@@ -13,7 +13,7 @@ import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { applyTelegramAcpProgressEvent, createTelegramAcpProgressState } from "./acpProgress.js";
-import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText } from "./formatting.js";
+import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText, sendTelegramTextSafely } from "./formatting.js";
 import { ACP_CONTROL_HELP_LINES, handleSharedAcpApprovalCommand, handleSharedAcpCommand, shouldProxyToAcpSession, type SharedAcpPromptKind } from "../shared/acp.js";
 import { BaseChannelRuntime } from "../shared/baseRuntime.js";
 import type { ParsedRelativeReminder, StatusSession } from "./types.js";
@@ -853,7 +853,11 @@ export class TelegramManager extends BaseChannelRuntime {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined
           });
-          await sendTelegramText(bot, chatId, "Internal error.");
+          await sendTelegramTextSafely(bot, chatId, "Internal error.", undefined, {
+            runId,
+            scopeId: eventScopeId,
+            source: "queue_job_uncaught"
+          });
         }
         momLog("telegram", "queue_job_end", { runId, chatId, scopeId: eventScopeId });
       });
@@ -1602,7 +1606,11 @@ export class TelegramManager extends BaseChannelRuntime {
       }
 
       if (result.stopReason === "aborted") {
-        await sendTelegramText(bot, chatId, "Stopped.", sendOptions);
+        await sendTelegramTextSafely(bot, chatId, "Stopped.", sendOptions, {
+          runId,
+          scopeId,
+          source: "process_aborted"
+        });
       }
     } catch (error) {
       momError("telegram", "process_failed", {
@@ -1611,7 +1619,11 @@ export class TelegramManager extends BaseChannelRuntime {
         error: error instanceof Error ? error.message : String(error),
         errorDetails: describeTelegramError(error)
       });
-      await sendTelegramText(bot, chatId, "Internal error.", sendOptions);
+      await sendTelegramTextSafely(bot, chatId, "Internal error.", sendOptions, {
+        runId,
+        scopeId,
+        source: "process_failed"
+      });
     } finally {
       clearRenderTimer();
       this.running.delete(scopeId);

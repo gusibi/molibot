@@ -2178,13 +2178,7 @@ export class MomRunner implements RunnerLike {
       };
       this.store.appendRunSummary(this.chatId, runSummary as unknown as Record<string, unknown>);
 
-      if (
-        !finalText.startsWith("[SILENT]") &&
-        (usedToolNames.length > 0 ||
-          failedToolNames.length > 0 ||
-          successfulCandidateIndex > 0 ||
-          Boolean(savedSkillDraft))
-      ) {
+      if (!finalText.startsWith("[SILENT]") && Boolean(savedSkillDraft)) {
         await ctx.respondInThread(formatRunClosingNote(runSummary));
       }
       return { stopReason, errorMessage };

@@ -122,6 +122,28 @@ export async function sendTelegramText(
   return { message_id: lastMessageId };
 }
 
+export async function sendTelegramTextSafely(
+  bot: Bot,
+  chatId: string,
+  text: string,
+  options?: Record<string, unknown>,
+  metadata?: Record<string, unknown>
+): Promise<boolean> {
+  try {
+    await sendTelegramText(bot, chatId, text, options);
+    return true;
+  } catch (error) {
+    momWarn("telegram", "send_message_suppressed_after_failure", {
+      chatId,
+      textPreview: String(text ?? "").slice(0, 120),
+      error: error instanceof Error ? error.message : String(error),
+      errorDetails: extractTelegramErrorDetails(error),
+      ...(metadata ?? {})
+    });
+    return false;
+  }
+}
+
 async function sendTelegramWithRetry(
   bot: Bot,
   chatId: string,

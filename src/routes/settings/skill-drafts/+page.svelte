@@ -262,7 +262,7 @@
               <textarea
                 class="min-h-[320px] w-full rounded-2xl border border-white/15 bg-black/10 px-4 py-3 font-mono text-xs text-slate-100 outline-none focus:border-sky-400"
                 bind:value={draftContent[item.filePath]}
-              />
+              ></textarea>
             </label>
 
             <div class="mt-4 flex flex-wrap gap-2">
