@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { basename, extname } from "node:path";
 import { getUploadUrl as vendorGetUploadUrl, sendMessage as vendorSendMessage } from "#weixin-agent-sdk/src/api/api.js";
 import { listWeixinAccountIds, resolveWeixinAccount } from "#weixin-agent-sdk/src/auth/accounts.js";
-import { markdownToPlainText } from "#weixin-agent-sdk/src/messaging/send.js";
+import { filterWeixinMarkdown } from "#weixin-agent-sdk/src/messaging/send.js";
 import { MessageItemType, MessageState, MessageType, type MessageItem } from "#weixin-agent-sdk/src/api/types.js";
 import { momWarn } from "../../agent/log.js";
 
@@ -392,7 +392,7 @@ async function sendMediaMessage(params: {
   mediaItem: MessageItem;
 }): Promise<void> {
   const items: MessageItem[] = [];
-  const caption = markdownToPlainText(String(params.caption ?? "")).trim();
+  const caption = filterWeixinMarkdown(String(params.caption ?? "")).trim();
   if (caption && params.sendCaptionAsText !== false) {
     items.push({
       type: MessageItemType.TEXT,
@@ -450,7 +450,7 @@ export async function sendWeixinFile(params: {
   const plaintext = readFileSync(params.filePath);
   const inlineText = normalizeInlineText(params.filePath, plaintext);
   if (inlineText) {
-    const normalizedInlineText = markdownToPlainText(inlineText).trim();
+    const normalizedInlineText = filterWeixinMarkdown(inlineText).trim();
     if (!normalizedInlineText) return "text";
     await vendorSendMessage({
       baseUrl: account.baseUrl,
@@ -479,8 +479,8 @@ export async function sendWeixinFile(params: {
   const baseUrl = account.baseUrl;
   const cdnBaseUrl = params.cdnBaseUrl || WEIXIN_CDN_BASE_URL;
   const mimeType = inferMimeType(params.filePath, plaintext);
-  const caption = markdownToPlainText(params.caption?.trim() || "").trim();
-  const text = markdownToPlainText(params.text?.trim() || "").trim();
+  const caption = filterWeixinMarkdown(params.caption?.trim() || "").trim();
+  const text = filterWeixinMarkdown(params.text?.trim() || "").trim();
 
   if (mimeType.startsWith("image/")) {
     const uploaded = await uploadMedia({

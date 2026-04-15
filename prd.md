@@ -2349,3 +2349,20 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/routes/api/settings/memory-rejections/+server.ts` 与 `src/routes/settings/memory-rejections/+page.svelte` 必须提供可查看的治理记录页面。
   - `src/routes/settings/+layout.svelte` 必须把记忆拦截记录入口挂到 Settings 导航。
   - `features.md` 必须记录本次能力落地。
+
+## 171. Weixin 原生 Markdown 发送对齐 (2026-04-15)
+- Priority: P1
+- Stage: Delivered (2026-04-15)
+- Problem:
+  - 当前 Weixin 出站文本仍按旧策略先整体压平成纯文本，导致标题、表格、代码块和英文强调等本来已经能显示的格式被提前抹掉。
+  - 参考中的新版 Weixin SDK 已经改成“尽量保留 Markdown，只过滤少数已知问题格式”，如果 Molibot 不跟进，会继续落后于真实客户端能力。
+- Requirement:
+  - Weixin 文本发送必须默认保留已知可显示的 Markdown，而不是统一做纯文本替换。
+  - 仍然需要过滤已知高风险或显示差的内容，至少包括图片语法和 CJK 斜体包裹标记。
+  - vendored `package/weixin-agent-sdk` 与 Molibot 自己的 Weixin runtime/file-send 路径必须使用同一套文本过滤规则，不能一个保留、一个再二次抹平。
+- Enforcement:
+  - `package/weixin-agent-sdk/src/messaging/markdown-filter.ts` 必须提供可复用的 Weixin Markdown 过滤器。
+  - `package/weixin-agent-sdk/src/messaging/send.ts` 与 `process-message.ts` 必须改用保留型 Markdown 过滤，而不是纯文本压平。
+  - `src/lib/server/channels/weixin/runtime.ts` 与 `src/lib/server/channels/weixin/outbound.ts` 必须统一复用 vendored SDK 的同一过滤函数。
+  - `package/weixin-agent-sdk/src/messaging/send.test.ts` 与 `src/lib/server/channels/weixin/outbound.test.ts` 必须覆盖“保留支持格式、移除不支持格式”的回归验证。
+  - `features.md` 必须记录本次能力落地。

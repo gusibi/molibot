@@ -1,6 +1,6 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
-import { markdownToPlainText } from "#weixin-agent-sdk/src/messaging/send.js";
+import { filterWeixinMarkdown } from "#weixin-agent-sdk/src/messaging/send.js";
 import { type IncomingMessage, WeixinBot } from "./client.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import type { EventDeliveryMode, MomEvent } from "../../agent/events.js";
@@ -559,7 +559,7 @@ export class WeixinManager extends BaseChannelRuntime {
     if (!this.bot) {
       throw new Error("Weixin bot is not running.");
     }
-    const normalized = normalizeText(markdownToPlainText(String(text ?? "")));
+    const normalized = normalizeText(filterWeixinMarkdown(String(text ?? "")));
     if (!normalized) return;
 
     const deliveryId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

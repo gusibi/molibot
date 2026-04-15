@@ -31,7 +31,7 @@ export interface ChatRequest {
 }
 
 export interface ChatResponse {
-  /** Reply text (may contain markdown — will be converted to plain text before sending). */
+  /** Reply text (may contain markdown — Weixin-supported formatting is preserved on send). */
   text?: string;
   /** Reply media file. */
   media?: {

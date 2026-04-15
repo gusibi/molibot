@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sendWeixinFile } from "./outbound.js";
+import { filterWeixinMarkdown } from "#weixin-agent-sdk/src/messaging/send.js";
 
 test("sendWeixinFile sends audio replies as text plus mp3 file attachment", async () => {
   const voicePath = `${process.cwd()}/src/lib/server/channels/weixin/test-fixtures/reply.mp3`;
@@ -73,6 +74,90 @@ test("sendWeixinFile sends audio replies as text plus mp3 file attachment", asyn
     assert.equal(fileItems[0]?.file_item?.file_name, "reply.mp3");
     assert.match(String(fileItems[0]?.file_item?.aeskey ?? ""), /^[0-9a-f]{32}$/i);
     assert.equal(fileItems[0]?.file_item?.media?.encrypt_query_param, "download-param-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sendWeixinFile preserves supported markdown in visible text", async () => {
+  const voicePath = `${process.cwd()}/src/lib/server/channels/weixin/test-fixtures/reply.mp3`;
+
+  const originalFetch = globalThis.fetch;
+  const sendBodies: unknown[] = [];
+
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "https://api.example.test/ilink/bot/getuploadurl") {
+      return new Response(JSON.stringify({ ret: 0, upload_param: "upload-param-1" }), { status: 200 });
+    }
+    if (url.startsWith("https://cdn.example.test/upload?")) {
+      return new Response("", {
+        status: 200,
+        headers: {
+          "x-encrypted-param": "download-param-1"
+        }
+      });
+    }
+    if (url === "https://api.example.test/ilink/bot/sendmessage") {
+      sendBodies.push(JSON.parse(String(init?.body ?? "{}")));
+      return new Response(JSON.stringify({ ret: 0 }), { status: 200 });
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    await sendWeixinFile({
+      filePath: voicePath,
+      toUserId: "wx-user-1",
+      contextToken: "ctx-1",
+      text: [
+        "# 日报",
+        "",
+        "| 项目 | 状态 |",
+        "| --- | --- |",
+        "| Alpha | **进行中** |",
+        "",
+        "English *italic* ok",
+        "中文 *强调* 会去掉星号",
+        "![img](https://example.com/x.png)"
+      ].join("\n"),
+      baseUrlOverride: "https://api.example.test",
+      cdnBaseUrl: "https://cdn.example.test"
+    });
+
+    assert.equal(sendBodies.length, 2);
+    const textPayload = sendBodies[0] as {
+      msg?: {
+        item_list?: Array<{
+          type?: number;
+          text_item?: { text?: string };
+        }>;
+      };
+    };
+
+    const textItems = textPayload.msg?.item_list ?? [];
+    assert.equal(textItems.length, 1);
+    assert.equal(textItems[0]?.type, 1);
+    assert.equal(
+      textItems[0]?.text_item?.text,
+      filterWeixinMarkdown(
+        [
+          "# 日报",
+          "",
+          "| 项目 | 状态 |",
+          "| --- | --- |",
+          "| Alpha | **进行中** |",
+          "",
+          "English *italic* ok",
+          "中文 *强调* 会去掉星号",
+          "![img](https://example.com/x.png)"
+        ].join("\n")
+      ).trim()
+    );
+    assert.match(String(textItems[0]?.text_item?.text ?? ""), /\| 项目 \| 状态 \|/);
+    assert.match(String(textItems[0]?.text_item?.text ?? ""), /English \*italic\* ok/);
+    assert.match(String(textItems[0]?.text_item?.text ?? ""), /中文 强调 会去掉星号/);
+    assert.doesNotMatch(String(textItems[0]?.text_item?.text ?? ""), /!\[img\]/);
   } finally {
     globalThis.fetch = originalFetch;
   }
