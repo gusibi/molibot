@@ -1,180 +1,195 @@
-import { momWarn } from "../../agent/log.js";
+/**
+ * QQ Bot API - 向后兼容层
+ * 所有功能已迁移到 SDK (package/qqbot)
+ * 此文件保留以兼容旧代码，实际调用转发到 SDK
+ */
 
-const API_BASE = "https://api.sgroup.qq.com";
-const TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken";
+// ===== SDK 适配器重新导出 =====
+export {
+  // 核心类型
+  type ResolvedQQBotAccount,
+  type QQConfig as SDKQQBotAccountConfig,
 
-let cachedToken: { token: string; expiresAt: number; appId: string } | null = null;
-let inflight: Promise<string> | null = null;
+  // SDK 管理函数
+  sdkSendText,
+  sdkSendMedia,
+  sdkSendProactiveMessage,
+  sdkGetAccessToken,
+  sdkInitApiConfig,
 
-interface QqTokenResponse {
-  access_token?: string;
-  expires_in?: number;
-}
+  // 配置管理
+  applyQQBotAccountConfig,
+  resolveQQBotAccount,
+  listQQBotAccountIds,
+  resolveDefaultQQBotAccountId,
+  DEFAULT_ACCOUNT_ID,
 
-interface QqGatewayResponse {
-  url: string;
-}
+  // SDK 导出
+  initApiConfig,
+  clearTokenCache,
+  MediaFileType,
+  type OutboundResult,
+  type OutboundContext,
+  type MediaOutboundContext,
+  type UploadMediaResponse,
+} from "./sdk-adapter.js";
 
-export interface QqMessageResponse {
-  id?: string;
-  message_id?: string;
-  timestamp?: string | number;
-}
+// ===== 向后兼容的 API 函数 =====
 
-async function requestToken(appId: string, clientSecret: string): Promise<string> {
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ appId, clientSecret })
-  });
+import {
+  sdkSendText,
+  sdkSendMedia,
+  sdkGetAccessToken,
+  sdkInitApiConfig,
+  clearTokenCache,
+  type ResolvedQQBotAccount
+} from "./sdk-adapter.js";
+import type { OutboundResult } from "#qqbot/src/outbound.js";
 
-  const data = (await res.json().catch(() => ({}))) as QqTokenResponse;
-  if (!res.ok || !data.access_token) {
-    throw new Error(`qq_token_failed:${res.status}`);
-  }
-
-  cachedToken = {
-    token: data.access_token,
-    expiresAt: Date.now() + (data.expires_in ?? 7200) * 1000,
-    appId
-  };
-  return data.access_token;
-}
-
-export async function getAccessToken(appId: string, clientSecret: string): Promise<string> {
-  if (
-    cachedToken &&
-    cachedToken.appId === appId &&
-    Date.now() < cachedToken.expiresAt - 5 * 60_000
-  ) {
-    return cachedToken.token;
-  }
-
-  if (cachedToken && cachedToken.appId !== appId) {
-    cachedToken = null;
-    inflight = null;
-  }
-
-  if (inflight) return inflight;
-
-  inflight = requestToken(appId, clientSecret).finally(() => {
-    inflight = null;
-  });
-
-  return inflight;
-}
-
-export function clearTokenCache(): void {
-  cachedToken = null;
-}
-
-async function apiRequest<T>(
-  accessToken: string,
-  method: string,
-  path: string,
-  body?: unknown
-): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `QQBot ${accessToken}`,
-      "Content-Type": "application/json"
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
-
-  const raw = await res.text();
-  const data = (raw ? JSON.parse(raw) : {}) as T;
-
-  if (!res.ok) {
-    const msg = typeof data === "object" && data ? JSON.stringify(data) : raw;
-    throw new Error(`qq_api_error:${path}:${res.status}:${msg}`);
-  }
-
-  return data;
-}
-
-function nextMsgSeq(): number {
-  return Math.floor(Math.random() * 65535);
-}
-
-function buildMessageBody(content: string, msgId?: string): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    content,
-    msg_type: 0,
-    msg_seq: nextMsgSeq()
-  };
-  if (msgId) body.msg_id = msgId;
-  return body;
-}
-
-export async function getGatewayUrl(accessToken: string): Promise<string> {
-  const data = await apiRequest<QqGatewayResponse>(accessToken, "GET", "/gateway");
-  if (!data.url) {
-    throw new Error("qq_gateway_empty_url");
-  }
-  return data.url;
-}
-
+/**
+ * 发送 C2C 消息（向后兼容）
+ * @deprecated 使用 sdkSendText 或 QQManager.sendText
+ */
 export async function sendC2CMessage(
   accessToken: string,
   openid: string,
   content: string,
   replyToId?: string
-): Promise<QqMessageResponse> {
-  return apiRequest<QqMessageResponse>(
-    accessToken,
-    "POST",
-    `/v2/users/${openid}/messages`,
-    buildMessageBody(content, replyToId)
-  );
+): Promise<{ id?: string; timestamp?: string | number }> {
+  // 创建临时账户配置
+  const account: ResolvedQQBotAccount = {
+    accountId: "legacy",
+    enabled: true,
+    appId: "",
+    clientSecret: "",
+    secretSource: "none",
+    markdownSupport: false,
+    config: {}
+  };
+
+  const result = await sdkSendText(account, openid, content, replyToId);
+
+  if (result.error) {
+    throw new Error(result.error);
+  }
+
+  return {
+    id: result.messageId,
+    timestamp: result.timestamp
+  };
 }
 
+/**
+ * 发送群聊消息（向后兼容）
+ * @deprecated 使用 sdkSendText 或 QQManager.sendText
+ */
 export async function sendGroupMessage(
   accessToken: string,
   groupOpenid: string,
   content: string,
   replyToId?: string
-): Promise<QqMessageResponse> {
-  return apiRequest<QqMessageResponse>(
-    accessToken,
-    "POST",
-    `/v2/groups/${groupOpenid}/messages`,
-    buildMessageBody(content, replyToId)
-  );
+): Promise<{ id?: string; timestamp?: string | number }> {
+  const account: ResolvedQQBotAccount = {
+    accountId: "legacy",
+    enabled: true,
+    appId: "",
+    clientSecret: "",
+    secretSource: "none",
+    markdownSupport: false,
+    config: {}
+  };
+
+  const result = await sdkSendText(account, `group:${groupOpenid}`, content, replyToId);
+
+  if (result.error) {
+    throw new Error(result.error);
+  }
+
+  return {
+    id: result.messageId,
+    timestamp: result.timestamp
+  };
 }
 
+/**
+ * 发送频道消息（向后兼容）
+ * @deprecated 使用 sdkSendText 或 QQManager.sendText
+ */
 export async function sendChannelMessage(
   accessToken: string,
   channelId: string,
   content: string,
   replyToId?: string
-): Promise<QqMessageResponse> {
-  return apiRequest<QqMessageResponse>(
-    accessToken,
-    "POST",
-    `/channels/${channelId}/messages`,
-    buildMessageBody(content, replyToId)
-  );
+): Promise<{ id?: string; timestamp?: string | number }> {
+  const account: ResolvedQQBotAccount = {
+    accountId: "legacy",
+    enabled: true,
+    appId: "",
+    clientSecret: "",
+    secretSource: "none",
+    markdownSupport: false,
+    config: {}
+  };
+
+  const result = await sdkSendText(account, `channel:${channelId}`, content, replyToId);
+
+  if (result.error) {
+    throw new Error(result.error);
+  }
+
+  return {
+    id: result.messageId,
+    timestamp: result.timestamp
+  };
 }
 
+/**
+ * 安全发送（带降级）（向后兼容）
+ * @deprecated 使用 sdkSendText 或直接处理错误
+ */
 export async function safeSend(
-  sender: () => Promise<QqMessageResponse>,
-  fallback: () => Promise<QqMessageResponse>
-): Promise<QqMessageResponse | null> {
+  sender: () => Promise<{ id?: string; timestamp?: string | number }>,
+  fallback: () => Promise<{ id?: string; timestamp?: string | number }>
+): Promise<{ id?: string; timestamp?: string | number } | null> {
   try {
     return await sender();
   } catch (error) {
-    momWarn("qq", "send_reply_failed_fallback_proactive", {
-      error: error instanceof Error ? error.message : String(error)
-    });
+    console.warn("Primary send failed, trying fallback:", error);
     try {
       return await fallback();
     } catch (fallbackError) {
-      momWarn("qq", "send_proactive_failed", {
-        error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
-      });
+      console.error("Fallback also failed:", fallbackError);
       return null;
     }
   }
 }
+
+/**
+ * 获取网关 URL（向后兼容）
+ * @deprecated SDK 自动处理网关连接
+ */
+export async function getGatewayUrl(_accessToken: string): Promise<string> {
+  // SDK 内部处理网关，这里返回空字符串
+  console.warn("getGatewayUrl is deprecated, SDK handles gateway internally");
+  return "";
+}
+
+/**
+ * 获取访问令牌（向后兼容）
+ * @deprecated 使用 sdkGetAccessToken
+ */
+export async function getAccessTokenLegacy(appId: string, clientSecret: string): Promise<string> {
+  return getAccessToken(appId, clientSecret);
+}
+
+// 重新导出 SDK 的类型
+export type {
+  OutboundResult,
+  OutboundContext,
+  MediaOutboundContext
+} from "#qqbot/src/outbound.js";
+
+export {
+  MediaFileType,
+  type UploadMediaResponse
+} from "#qqbot/src/api.js";

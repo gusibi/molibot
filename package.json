@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "imports": {
-    "#weixin-agent-sdk/*": "./package/weixin-agent-sdk/*"
+    "#weixin-agent-sdk/*": "./package/weixin-agent-sdk/*",
+    "#qqbot/*": "./package/qqbot/*"
   },
   "bin": {
     "molibot": "./bin/molibot.js"
