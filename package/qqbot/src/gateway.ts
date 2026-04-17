@@ -277,8 +277,9 @@ function filterInternalMarkers(text: string): string {
 
 export interface GatewayContext {
   account: ResolvedQQBotAccount;
-  abortSignal: AbortSignal;
+  abortSignal?: AbortSignal;
   cfg: unknown;
+  onEvent?: (event: QueuedMessage) => Promise<void>;
   onReady?: (data: unknown) => void;
   onError?: (error: Error) => void;
   log?: {
@@ -334,7 +335,8 @@ async function ensureImageServer(log?: GatewayContext["log"], publicBaseUrl?: st
  * 支持流式消息发送
  */
 export async function startGateway(ctx: GatewayContext): Promise<void> {
-  const { account, abortSignal, cfg, onReady, onError, log } = ctx;
+  const { account, cfg, onEvent, onReady, onError, log } = ctx;
+  const abortSignal = ctx.abortSignal ?? new AbortController().signal;
 
   if (!account.appId || !account.clientSecret) {
     throw new Error("QQBot not configured (missing appId or clientSecret)");
@@ -350,6 +352,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
   // 初始化 API 配置（markdown 支持）
   initApiConfig({
+    appId: account.appId,
     markdownSupport: account.markdownSupport,
   });
   log?.info(`[qqbot:${account.accountId}] API config: markdownSupport=${account.markdownSupport === true}`);
@@ -572,8 +575,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       const ws = new WebSocket(gatewayUrl);
       currentWs = ws;
 
-      const pluginRuntime = getQQBotRuntime();
-
       // 处理收到的消息
       const handleMessage = async (event: {
         type: "c2c" | "guild" | "dm" | "group";
@@ -587,6 +588,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         groupOpenid?: string;
         attachments?: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string }>;
       }) => {
+        if (onEvent) {
+          await onEvent(event);
+          return;
+        }
+
+        const pluginRuntime = getQQBotRuntime();
 
         log?.debug?.(`[qqbot:${account.accountId}] Received message: ${JSON.stringify(event)}`);
         log?.info(`[qqbot:${account.accountId}] Processing message from ${event.senderId}: ${event.content}`);
@@ -949,9 +956,9 @@ ${ttsHint}${sttHint}`;
           try {
             await sendWithTokenRetry(async (token) => {
               if (event.type === "c2c") {
-                await sendC2CMessage(token, event.senderId, errorText, event.messageId);
+                await sendC2CMessage(token, event.senderId, errorText, event.messageId, account.appId);
               } else if (event.type === "group" && event.groupOpenid) {
-                await sendGroupMessage(token, event.groupOpenid, errorText, event.messageId);
+                await sendGroupMessage(token, event.groupOpenid, errorText, event.messageId, account.appId);
               } else if (event.channelId) {
                 await sendChannelMessage(token, event.channelId, errorText, event.messageId);
               }
@@ -1128,9 +1135,9 @@ ${ttsHint}${sttHint}`;
                       try {
                         await sendWithTokenRetry(async (token) => {
                           if (event.type === "c2c") {
-                            await sendC2CMessage(token, event.senderId, item.content, event.messageId);
+                            await sendC2CMessage(token, event.senderId, item.content, event.messageId, account.appId);
                           } else if (event.type === "group" && event.groupOpenid) {
-                            await sendGroupMessage(token, event.groupOpenid, item.content, event.messageId);
+                            await sendGroupMessage(token, event.groupOpenid, item.content, event.messageId, account.appId);
                           } else if (event.channelId) {
                             await sendChannelMessage(token, event.channelId, item.content, event.messageId);
                           }
@@ -1171,9 +1178,9 @@ ${ttsHint}${sttHint}`;
                               await sendWithTokenRetry(async (token) => {
                                 const hint = `⏳ 正在上传图片 (${formatFileSize(imgSizeCheck.size)})...`;
                                 if (event.type === "c2c") {
-                                  await sendC2CMessage(token, event.senderId, hint, event.messageId);
+                                  await sendC2CMessage(token, event.senderId, hint, event.messageId, account.appId);
                                 } else if (event.type === "group" && event.groupOpenid) {
-                                  await sendGroupMessage(token, event.groupOpenid, hint, event.messageId);
+                                  await sendGroupMessage(token, event.groupOpenid, hint, event.messageId, account.appId);
                                 }
                               });
                             } catch {}
@@ -1275,9 +1282,9 @@ ${ttsHint}${sttHint}`;
                               await sendWithTokenRetry(async (token) => {
                                 const hint = `⏳ 正在上传视频 (${formatFileSize(vidCheck.size)})...`;
                                 if (event.type === "c2c") {
-                                  await sendC2CMessage(token, event.senderId, hint, event.messageId);
+                                  await sendC2CMessage(token, event.senderId, hint, event.messageId, account.appId);
                                 } else if (event.type === "group" && event.groupOpenid) {
-                                  await sendGroupMessage(token, event.groupOpenid, hint, event.messageId);
+                                  await sendGroupMessage(token, event.groupOpenid, hint, event.messageId, account.appId);
                                 }
                               });
                             } catch {}
@@ -1337,9 +1344,9 @@ ${ttsHint}${sttHint}`;
                               await sendWithTokenRetry(async (token) => {
                                 const hint = `⏳ 正在上传文件 ${fileName} (${formatFileSize(fileCheck.size)})...`;
                                 if (event.type === "c2c") {
-                                  await sendC2CMessage(token, event.senderId, hint, event.messageId);
+                                  await sendC2CMessage(token, event.senderId, hint, event.messageId, account.appId);
                                 } else if (event.type === "group" && event.groupOpenid) {
-                                  await sendGroupMessage(token, event.groupOpenid, hint, event.messageId);
+                                  await sendGroupMessage(token, event.groupOpenid, hint, event.messageId, account.appId);
                                 }
                               });
                             } catch {}
@@ -1425,9 +1432,9 @@ ${ttsHint}${sttHint}`;
                       try {
                         await sendWithTokenRetry(async (token) => {
                           if (event.type === "c2c") {
-                            await sendC2CMessage(token, event.senderId, confirmText, event.messageId);
+                            await sendC2CMessage(token, event.senderId, confirmText, event.messageId, account.appId);
                           } else if (event.type === "group" && event.groupOpenid) {
-                            await sendGroupMessage(token, event.groupOpenid, confirmText, event.messageId);
+                            await sendGroupMessage(token, event.groupOpenid, confirmText, event.messageId, account.appId);
                           } else if (event.channelId) {
                             await sendChannelMessage(token, event.channelId, confirmText, event.messageId);
                           }
@@ -1507,9 +1514,9 @@ ${ttsHint}${sttHint}`;
                           if (parsedPayload.caption) {
                             await sendWithTokenRetry(async (token) => {
                               if (event.type === "c2c") {
-                                await sendC2CMessage(token, event.senderId, parsedPayload.caption!, event.messageId);
+                                await sendC2CMessage(token, event.senderId, parsedPayload.caption!, event.messageId, account.appId);
                               } else if (event.type === "group" && event.groupOpenid) {
-                                await sendGroupMessage(token, event.groupOpenid, parsedPayload.caption!, event.messageId);
+                                await sendGroupMessage(token, event.groupOpenid, parsedPayload.caption!, event.messageId, account.appId);
                               } else if (event.channelId) {
                                 await sendChannelMessage(token, event.channelId, parsedPayload.caption!, event.messageId);
                               }
@@ -1600,9 +1607,9 @@ ${ttsHint}${sttHint}`;
                             if (parsedPayload.caption) {
                               await sendWithTokenRetry(async (token) => {
                                 if (event.type === "c2c") {
-                                  await sendC2CMessage(token, event.senderId, parsedPayload.caption!, event.messageId);
+                                  await sendC2CMessage(token, event.senderId, parsedPayload.caption!, event.messageId, account.appId);
                                 } else if (event.type === "group" && event.groupOpenid) {
-                                  await sendGroupMessage(token, event.groupOpenid, parsedPayload.caption!, event.messageId);
+                                  await sendGroupMessage(token, event.groupOpenid, parsedPayload.caption!, event.messageId, account.appId);
                                 } else if (event.channelId) {
                                   await sendChannelMessage(token, event.channelId, parsedPayload.caption!, event.messageId);
                                 }
@@ -1901,9 +1908,9 @@ ${ttsHint}${sttHint}`;
                     try {
                       await sendWithTokenRetry(async (token) => {
                         if (event.type === "c2c") {
-                          await sendC2CMessage(token, event.senderId, textWithoutImages, event.messageId);
+                          await sendC2CMessage(token, event.senderId, textWithoutImages, event.messageId, account.appId);
                         } else if (event.type === "group" && event.groupOpenid) {
-                          await sendGroupMessage(token, event.groupOpenid, textWithoutImages, event.messageId);
+                          await sendGroupMessage(token, event.groupOpenid, textWithoutImages, event.messageId, account.appId);
                         } else if (event.channelId) {
                           await sendChannelMessage(token, event.channelId, textWithoutImages, event.messageId);
                         }
@@ -1952,9 +1959,9 @@ ${ttsHint}${sttHint}`;
                     if (textWithoutImages.trim()) {
                       await sendWithTokenRetry(async (token) => {
                         if (event.type === "c2c") {
-                          await sendC2CMessage(token, event.senderId, textWithoutImages, event.messageId);
+                          await sendC2CMessage(token, event.senderId, textWithoutImages, event.messageId, account.appId);
                         } else if (event.type === "group" && event.groupOpenid) {
-                          await sendGroupMessage(token, event.groupOpenid, textWithoutImages, event.messageId);
+                          await sendGroupMessage(token, event.groupOpenid, textWithoutImages, event.messageId, account.appId);
                         } else if (event.channelId) {
                           await sendChannelMessage(token, event.channelId, textWithoutImages, event.messageId);
                         }

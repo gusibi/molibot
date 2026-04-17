@@ -335,9 +335,9 @@ export async function sendProactive(
     let result: { id: string; timestamp: number | string };
     
     if (type === "c2c") {
-      result = await sendProactiveC2CMessage(accessToken, to, text);
+      result = await sendProactiveC2CMessage(accessToken, to, text, account.appId);
     } else if (type === "group") {
-      result = await sendProactiveGroupMessage(accessToken, to, text);
+      result = await sendProactiveGroupMessage(accessToken, to, text, account.appId);
     } else if (type === "channel") {
       // 频道消息需要 channel_id，这里暂时不支持主动发送
       return {
@@ -492,9 +492,9 @@ export async function sendProactiveMessageDirect(
     let result: { id: string; timestamp: number | string };
     
     if (type === "c2c") {
-      result = await sendProactiveC2CMessage(accessToken, to, text);
+      result = await sendProactiveC2CMessage(accessToken, to, text, account.appId);
     } else {
-      result = await sendProactiveGroupMessage(accessToken, to, text);
+      result = await sendProactiveGroupMessage(accessToken, to, text, account.appId);
     }
     
     return {

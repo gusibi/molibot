@@ -7,17 +7,9 @@ import type { RuntimeSettings } from "../../settings/index.js";
 import type { ChannelPlugin, ChannelPluginInstance } from "../registry.js";
 import { config } from "../../app/env.js";
 import { resolve } from "node:path";
-import {
-  type ResolvedQQBotAccount,
-  applyQQBotAccountConfig,
-  resolveQQBotAccount,
-  listQQBotAccountIds,
-  resolveDefaultQQBotAccountId,
-  DEFAULT_ACCOUNT_ID
-} from "#qqbot/src/config.js";
+import type { ResolvedQQBotAccount, QQBotAccountConfig } from "#qqbot/src/types.js";
 import { sendText, sendMedia, sendProactiveMessage, type OutboundResult } from "#qqbot/src/outbound.js";
 import { getAccessToken, initApiConfig } from "#qqbot/src/api.js";
-import { startGateway } from "#qqbot/src/gateway.js";
 import { QQManager } from "./runtime.js";
 
 export interface QQConfig {
@@ -40,7 +32,6 @@ function toSDKAccount(instance: ChannelPluginInstance<QQConfig>): ResolvedQQBotA
     appId: cfg.appId,
     clientSecret: cfg.clientSecret,
     secretSource: "config" as const,
-    allowedChatIds: cfg.allowedChatIds,
     markdownSupport: true,
     config: {
       enabled: true,
@@ -110,7 +101,7 @@ export async function sdkGetAccessToken(appId: string, clientSecret: string): Pr
 /**
  * 初始化 API 配置（markdown 支持等）
  */
-export function sdkInitApiConfig(options: { markdownSupport?: boolean }): void {
+export function sdkInitApiConfig(options: { markdownSupport?: boolean; appId?: string }): void {
   initApiConfig(options);
 }
 
@@ -161,7 +152,7 @@ export const qqChannelPlugin: ChannelPlugin<QQConfig> = {
 };
 
 // ============ 类型重新导出 ============
-export type { ResolvedQQBotAccount, QQConfig as QQBotAccountConfig } from "#qqbot/src/types.js";
+export type { ResolvedQQBotAccount, QQBotAccountConfig } from "#qqbot/src/types.js";
 export type { OutboundResult, OutboundContext, MediaOutboundContext } from "#qqbot/src/outbound.js";
 export { MediaFileType } from "#qqbot/src/api.js";
 export type { UploadMediaResponse } from "#qqbot/src/api.js";

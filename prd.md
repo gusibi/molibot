@@ -1206,6 +1206,40 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 附件分类需覆盖 QQ 常见语音扩展名（至少 `.amr/.silk`），确保音频路由可见。
 - Enforcement:
   - QQ channel 发送逻辑中，`replyToId` 应固定为当前入站消息 ID（或降级主动消息），不得动态覆盖为 bot 输出消息 ID。
+
+## 87. QQ SDK Multi-Bot Format Isolation and Media Intake Restore (2026-04-17)
+
+- 背景
+  - QQ SDK 接入改造后，还残留了 4 个会直接影响可用性的回归：后台 token 刷新引用了不存在的变量、Markdown 开关被做成进程级全局状态、多 bot 之间会互相污染消息格式、以及入站图片/音频没有再按原来那样先落盘后交给 runner。
+  - 这类问题会表现为：`package/qqbot` 不能完整编译、某些 bot 在无权限时错误发 Markdown 消息、QQ 图片无法进入视觉理解、QQ 语音后续转写读不到本地文件。
+- 目标
+  - QQ SDK 的 Markdown 能力必须按 bot 账号隔离，不能由最后一个连上的 bot 决定全局行为。
+  - QQ 入站媒体必须恢复到 runner 预期的标准输入：附件先落本地、图片带上可直接分析的图像内容、音频附件引用真实本地路径。
+- 验收标准
+  - `package/qqbot run build` 不再因为 token 刷新逻辑引用错误变量而失败。
+  - 同一进程下多个 QQ bot 使用不同 Markdown 权限时，彼此不会互相影响文本发送格式。
+  - QQ 图片消息仍可进入视觉链路，QQ 音频消息后续读取的是落盘后的本地文件而不是远程 URL。
+
+## 88. QQ Gateway Runtime Lookup Must Respect Molibot Callback Mode (2026-04-17)
+
+- 背景
+  - `package/qqbot` 同时支持 OpenClaw 插件模式和 Molibot 直连模式。Molibot 这边已经通过 `onEvent` 接管入站消息，不需要也不会初始化 OpenClaw 的 `PluginRuntime`。
+  - 如果网关在建立连接时无条件调用 `getQQBotRuntime()`，就会在还没收到任何消息前直接报 `QQBot runtime not initialized`，然后反复重连。
+- 目标
+  - 只有在未提供 `onEvent`、确实走 OpenClaw 旧路径时，才允许去读取 `PluginRuntime`。
+- 验收标准
+  - Molibot 使用 `onEvent` 直连模式时，QQ bot 可以成功连上网关，不会在启动后进入 `runtime not initialized` 重连循环。
+
+## 89. QQ API Trace Logs Should Stay Quiet By Default (2026-04-17)
+
+- 背景
+  - `package/qqbot/src/api.ts` 现在会在正常请求路径里输出整套 `qqbot-api` 请求日志，包括 URL、头、响应体和刷新过程，运行时日志很快就被刷满。
+  - 这类日志对日常运行没帮助，真正需要保留的是失败时的明确报错。
+- 目标
+  - QQ API 默认不再输出逐请求跟踪日志，只在确实失败时保留错误信息。
+- 验收标准
+  - 正常的 token 获取、gateway 获取、消息发送、媒体上传不再打印 `qqbot-api` 过程日志。
+  - 真实失败时仍能从抛出的错误或上层错误日志看到明确原因。
   - 通用附件分类层必须把 `.amr/.silk` 归入 audio，保持跨 channel STT 判定一致性。
 
 ## 87. Credential Field Visibility Toggle in Settings (2026-03-08)
@@ -2366,3 +2400,51 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/channels/weixin/runtime.ts` 与 `src/lib/server/channels/weixin/outbound.ts` 必须统一复用 vendored SDK 的同一过滤函数。
   - `package/weixin-agent-sdk/src/messaging/send.test.ts` 与 `src/lib/server/channels/weixin/outbound.test.ts` 必须覆盖“保留支持格式、移除不支持格式”的回归验证。
   - `features.md` 必须记录本次能力落地。
+
+## 172. QQ SDK Gateway 接口兼容修复 (2026-04-17)
+- Priority: P1
+- Stage: Delivered (2026-04-17)
+- Problem:
+  - `src/lib/server/channels/qq` 这层仍按旧版方式启动 `package/qqbot` 的 gateway，继续传旧参数结构，导致升级 SDK 后启动链路和实际接口脱节。
+  - 当宿主没有显式传入 `abortSignal` 时，QQ gateway 会在启动早期直接崩在 `abortSignal.addEventListener`，机器人还没真正连上就退出。
+- Requirement:
+  - QQ channel 适配层必须按当前 `package/qqbot` 的 gateway 上下文结构启动，不再依赖旧版 `accessToken/onMessage/onClose` 这套参数。
+  - 就算宿主没显式提供停止信号，QQ gateway 也不能因为空值直接崩掉，至少要使用内部兜底信号保证启动链路安全。
+  - QQ 兼容导出层要与当前 SDK 的实际类型名和函数名保持一致，避免适配层自己再带一套过期接口。
+- Enforcement:
+  - `src/lib/server/channels/qq/runtime.ts` 与 `src/lib/server/channels/qq/sdk-adapter.ts` 必须改为传入当前 gateway 所需的上下文对象，并在 runtime 停止时主动中断对应连接。
+  - `package/qqbot/src/gateway.ts` 必须对缺失的 `abortSignal` 做兜底，不能假定所有宿主都永远传值。
+  - `src/lib/server/channels/qq/index.ts` 与 `src/lib/server/channels/qq/api.ts` 必须对齐 SDK 当前公开的类型和函数命名。
+  - `features.md` 必须记录本次修复，方便后续排查 QQ 启动兼容问题。
+
+## 173. QQ API 头部日志压缩 (2026-04-17)
+- Priority: P2
+- Stage: Delivered (2026-04-17)
+- Problem:
+  - QQ API 调试日志当前会把整份响应头完整打印出来，字段很多，重复度高，会把真正有用的状态信息挤掉。
+  - 排查时通常只需要看到少数关键信息，例如状态、内容类型、长度、服务端和 trace id，不需要每次展开整块 headers。
+- Requirement:
+  - `<<< Headers:` 必须改成简短摘要，默认只保留少数高价值字段，避免日志刷屏。
+  - 压缩日志后，仍然要保留足够的信息支持定位请求链路，至少不能丢掉 `content-type`、`server`、`x-tps-trace-id` 这类核心字段。
+- Enforcement:
+  - `package/qqbot/src/api.ts` 必须统一使用一套响应头摘要逻辑，不再直接打印整个 headers 对象。
+  - `features.md` 必须记录本次改动，方便后续排查“为什么 QQ API 日志变短了”。
+
+## 174. QQ 入站主链解耦与重复层清理 (2026-04-17)
+- Priority: P1
+- Stage: Delivered (2026-04-17)
+- Problem:
+  - `package/qqbot/src/gateway.ts` 当前默认把入站事件直接交给 OpenClaw runtime，Molibot 这边虽然能借它去连 QQ，但没有把消息正确接回自己的运行时，所以会出现“能拿 token、能拿 gateway、但收不到消息”的假象。
+  - `src/lib/server/channels/qq` 目录里同时存在两套 `QQManager`，其中一套没有接入真实主链，只会制造重复和误导。
+  - QQ token 缓存是单全局槽位，多 bot 同进程时会互相清缓存，连带让日志和连接状态都变得混乱。
+- Requirement:
+  - QQ gateway 必须支持把标准化后的入站事件直接回调给 Molibot 自己的 runtime，不能再默认绑死另一套运行时。
+  - Molibot 的 QQ runtime 必须具备真正的入站处理链路，至少包括消息过滤、命令处理、排队、交给 runner、回消息。
+  - 重复的 `QQManager` 实现要收敛成一套，`sdk-adapter.ts` 只保留 helper/export，不再藏第二套 manager。
+  - token 缓存必须按 `appId` 隔离，不能让多个 QQ bot 共用一份缓存。
+- Enforcement:
+  - `package/qqbot/src/gateway.ts` 必须增加通用入站事件回调入口，Molibot 接法走这个入口时不得依赖 `getQQBotRuntime()`。
+  - `src/lib/server/channels/qq/runtime.ts` 必须建立实际可运行的入站主链，而不是只负责启动 SDK。
+  - `src/lib/server/channels/qq/sdk-adapter.ts` 必须去掉未接入主链的重复 manager 实现。
+  - `package/qqbot/src/api.ts` 必须改成按 `appId` 存储 token cache / singleflight。
+  - `features.md` 必须记录本次修复，方便后续排查 QQ 为什么“能连但收不到消息”。

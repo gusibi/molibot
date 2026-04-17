@@ -8,7 +8,7 @@
 export {
   // 核心类型
   type ResolvedQQBotAccount,
-  type QQConfig as SDKQQBotAccountConfig,
+  type SDKQQBotAccountConfig,
 
   // SDK 管理函数
   sdkSendText,
@@ -40,11 +40,8 @@ import {
   sdkSendText,
   sdkSendMedia,
   sdkGetAccessToken,
-  sdkInitApiConfig,
-  clearTokenCache,
   type ResolvedQQBotAccount
 } from "./sdk-adapter.js";
-import type { OutboundResult } from "#qqbot/src/outbound.js";
 
 /**
  * 发送 C2C 消息（向后兼容）
@@ -179,17 +176,5 @@ export async function getGatewayUrl(_accessToken: string): Promise<string> {
  * @deprecated 使用 sdkGetAccessToken
  */
 export async function getAccessTokenLegacy(appId: string, clientSecret: string): Promise<string> {
-  return getAccessToken(appId, clientSecret);
+  return sdkGetAccessToken(appId, clientSecret);
 }
-
-// 重新导出 SDK 的类型
-export type {
-  OutboundResult,
-  OutboundContext,
-  MediaOutboundContext
-} from "#qqbot/src/outbound.js";
-
-export {
-  MediaFileType,
-  type UploadMediaResponse
-} from "#qqbot/src/api.js";

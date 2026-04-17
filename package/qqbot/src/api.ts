@@ -9,26 +9,36 @@ const API_BASE = "https://api.sgroup.qq.com";
 const TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken";
 
 // 运行时配置
-let currentMarkdownSupport = false;
+const markdownSupportByAppId = new Map<string, boolean>();
+let defaultMarkdownSupport = false;
 
 /**
  * 初始化 API 配置
  * @param options.markdownSupport - 是否支持 markdown 消息（默认 false，需要机器人具备该权限才能启用）
  */
-export function initApiConfig(options: { markdownSupport?: boolean }): void {
-  currentMarkdownSupport = options.markdownSupport === true; // 默认为 false，需要机器人具备 markdown 消息权限才能启用
+export function initApiConfig(options: { markdownSupport?: boolean; appId?: string }): void {
+  const enabled = options.markdownSupport === true; // 默认为 false，需要机器人具备 markdown 消息权限才能启用
+  defaultMarkdownSupport = enabled;
+  if (options.appId?.trim()) {
+    markdownSupportByAppId.set(options.appId.trim(), enabled);
+  }
 }
 
 /**
  * 获取当前是否支持 markdown
  */
-export function isMarkdownSupport(): boolean {
-  return currentMarkdownSupport;
+export function isMarkdownSupport(appId?: string): boolean {
+  if (appId?.trim()) {
+    return markdownSupportByAppId.get(appId.trim()) ?? defaultMarkdownSupport;
+  }
+  return defaultMarkdownSupport;
 }
 
-let cachedToken: { token: string; expiresAt: number; appId: string } | null = null;
-// Singleflight: 防止并发获取 Token 的 Promise 缓存
-let tokenFetchPromise: Promise<string> | null = null;
+type TokenCacheEntry = { token: string; expiresAt: number; appId: string };
+
+const cachedTokens = new Map<string, TokenCacheEntry>();
+// Singleflight: 防止并发获取 Token 的 Promise 缓存（按 appId 隔离）
+const tokenFetchPromises = new Map<string, Promise<string>>();
 
 /**
  * 获取 AccessToken（带缓存 + singleflight 并发安全）
@@ -39,33 +49,28 @@ let tokenFetchPromise: Promise<string> | null = null;
  * 当 appId 发生变化时，自动使旧缓存失效并获取新 Token。
  */
 export async function getAccessToken(appId: string, clientSecret: string): Promise<string> {
+  const cachedToken = cachedTokens.get(appId) ?? null;
   // 检查缓存：未过期 且 appId 未变化 时复用
-  if (cachedToken && Date.now() < cachedToken.expiresAt - 5 * 60 * 1000 && cachedToken.appId === appId) {
+  if (cachedToken && Date.now() < cachedToken.expiresAt - 5 * 60 * 1000) {
     return cachedToken.token;
   }
 
-  // appId 变化时，主动清除旧缓存
-  if (cachedToken && cachedToken.appId !== appId) {
-    console.log(`[qqbot-api] appId changed (${cachedToken.appId} → ${appId}), clearing token cache`);
-    cachedToken = null;
-    tokenFetchPromise = null; // 旧 appId 的 inflight 请求也作废
-  }
-
   // Singleflight: 如果已有进行中的 Token 获取请求，复用它
-  if (tokenFetchPromise) {
-    console.log(`[qqbot-api] Token fetch in progress, waiting for existing request...`);
-    return tokenFetchPromise;
+  const inflight = tokenFetchPromises.get(appId);
+  if (inflight) {
+    return inflight;
   }
 
   // 创建新的 Token 获取 Promise（singleflight 入口）
-  tokenFetchPromise = (async () => {
+  const tokenFetchPromise = (async () => {
     try {
       return await doFetchToken(appId, clientSecret);
     } finally {
       // 无论成功失败，都清除 Promise 缓存
-      tokenFetchPromise = null;
+      tokenFetchPromises.delete(appId);
     }
   })();
+  tokenFetchPromises.set(appId, tokenFetchPromise);
 
   return tokenFetchPromise;
 }
@@ -74,14 +79,8 @@ export async function getAccessToken(appId: string, clientSecret: string): Promi
  * 实际执行 Token 获取的内部函数
  */
 async function doFetchToken(appId: string, clientSecret: string): Promise<string> {
-
   const requestBody = { appId, clientSecret };
   const requestHeaders = { "Content-Type": "application/json" };
-  
-  // 打印请求信息（隐藏敏感信息）
-  console.log(`[qqbot-api] >>> POST ${TOKEN_URL}`);
-  console.log(`[qqbot-api] >>> Headers:`, JSON.stringify(requestHeaders, null, 2));
-  console.log(`[qqbot-api] >>> Body:`, JSON.stringify({ appId, clientSecret: "***" }, null, 2));
 
   let response: Response;
   try {
@@ -91,28 +90,15 @@ async function doFetchToken(appId: string, clientSecret: string): Promise<string
       body: JSON.stringify(requestBody),
     });
   } catch (err) {
-    console.error(`[qqbot-api] <<< Network error:`, err);
     throw new Error(`Network error getting access_token: ${err instanceof Error ? err.message : String(err)}`);
   }
-
-  // 打印响应头
-  const responseHeaders: Record<string, string> = {};
-  response.headers.forEach((value, key) => {
-    responseHeaders[key] = value;
-  });
-  console.log(`[qqbot-api] <<< Status: ${response.status} ${response.statusText}`);
-  console.log(`[qqbot-api] <<< Headers:`, JSON.stringify(responseHeaders, null, 2));
 
   let data: { access_token?: string; expires_in?: number };
   let rawBody: string;
   try {
     rawBody = await response.text();
-    // 隐藏 token 值
-    const logBody = rawBody.replace(/"access_token"\s*:\s*"[^"]+"/g, '"access_token": "***"');
-    console.log(`[qqbot-api] <<< Body:`, logBody);
     data = JSON.parse(rawBody) as { access_token?: string; expires_in?: number };
   } catch (err) {
-    console.error(`[qqbot-api] <<< Parse error:`, err);
     throw new Error(`Failed to parse access_token response: ${err instanceof Error ? err.message : String(err)}`);
   }
 
@@ -120,13 +106,12 @@ async function doFetchToken(appId: string, clientSecret: string): Promise<string
     throw new Error(`Failed to get access_token: ${JSON.stringify(data)}`);
   }
 
-  cachedToken = {
+  const cachedToken: TokenCacheEntry = {
     token: data.access_token,
     expiresAt: Date.now() + (data.expires_in ?? 7200) * 1000,
     appId,
   };
-
-  console.log(`[qqbot-api] Token cached for appId=${appId}, expires at: ${new Date(cachedToken.expiresAt).toISOString()}`);
+  cachedTokens.set(appId, cachedToken);
   return cachedToken.token;
 }
 
@@ -134,23 +119,27 @@ async function doFetchToken(appId: string, clientSecret: string): Promise<string
  * 清除 Token 缓存
  */
 export function clearTokenCache(): void {
-  cachedToken = null;
-  // 注意：不清除 tokenFetchPromise，让进行中的请求完成
-  // 下次调用 getAccessToken 时会自动获取新 Token
+  cachedTokens.clear();
+}
+
+function getMarkdownSupportForApp(appId?: string): boolean {
+  return isMarkdownSupport(appId);
 }
 
 /**
  * 获取 Token 缓存状态（用于监控）
  */
 export function getTokenStatus(): { status: "valid" | "expired" | "refreshing" | "none"; expiresAt: number | null } {
-  if (tokenFetchPromise) {
-    return { status: "refreshing", expiresAt: cachedToken?.expiresAt ?? null };
+  if (tokenFetchPromises.size > 0) {
+    const firstCached = cachedTokens.values().next().value as TokenCacheEntry | undefined;
+    return { status: "refreshing", expiresAt: firstCached?.expiresAt ?? null };
   }
-  if (!cachedToken) {
+  const firstCached = cachedTokens.values().next().value as TokenCacheEntry | undefined;
+  if (!firstCached) {
     return { status: "none", expiresAt: null };
   }
-  const isValid = Date.now() < cachedToken.expiresAt - 5 * 60 * 1000;
-  return { status: isValid ? "valid" : "expired", expiresAt: cachedToken.expiresAt };
+  const isValid = Date.now() < firstCached.expiresAt - 5 * 60 * 1000;
+  return { status: isValid ? "valid" : "expired", expiresAt: firstCached.expiresAt };
 }
 
 /**
@@ -193,7 +182,6 @@ export async function apiRequest<T = unknown>(
   // 文件上传接口 (/files) 使用更长的超时时间
   const isFileUpload = path.includes("/files");
   const timeout = timeoutMs ?? (isFileUpload ? FILE_UPLOAD_TIMEOUT : DEFAULT_API_TIMEOUT);
-  
   // 创建 AbortController 用于超时控制
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
@@ -209,50 +197,24 @@ export async function apiRequest<T = unknown>(
   if (body) {
     options.body = JSON.stringify(body);
   }
-
-  // 打印请求信息
-  console.log(`[qqbot-api] >>> ${method} ${url} (timeout: ${timeout}ms)`);
-  console.log(`[qqbot-api] >>> Headers:`, JSON.stringify(headers, null, 2));
-  if (body) {
-    // 过滤 file_data 等大二进制字段，避免刷屏
-    const logBody = { ...body } as Record<string, unknown>;
-    if (typeof logBody.file_data === "string") {
-      logBody.file_data = `<base64 ${(logBody.file_data as string).length} chars>`;
-    }
-    console.log(`[qqbot-api] >>> Body:`, JSON.stringify(logBody, null, 2));
-  }
-
   let res: Response;
   try {
     res = await fetch(url, options);
   } catch (err) {
     clearTimeout(timeoutId);
     if (err instanceof Error && err.name === "AbortError") {
-      console.error(`[qqbot-api] <<< Request timeout after ${timeout}ms`);
       throw new Error(`Request timeout [${path}]: exceeded ${timeout}ms`);
     }
-    console.error(`[qqbot-api] <<< Network error:`, err);
     throw new Error(`Network error [${path}]: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     clearTimeout(timeoutId);
   }
 
-  // 打印响应头
-  const responseHeaders: Record<string, string> = {};
-  res.headers.forEach((value, key) => {
-    responseHeaders[key] = value;
-  });
-  console.log(`[qqbot-api] <<< Status: ${res.status} ${res.statusText}`);
-  console.log(`[qqbot-api] <<< Headers:`, JSON.stringify(responseHeaders, null, 2));
-
   let data: T;
-  let rawBody: string;
   try {
-    rawBody = await res.text();
-    console.log(`[qqbot-api] <<< Body:`, rawBody);
+    const rawBody = await res.text();
     data = JSON.parse(rawBody) as T;
   } catch (err) {
-    console.error(`[qqbot-api] <<< Parse error:`, err);
     throw new Error(`Failed to parse response [${path}]: ${err instanceof Error ? err.message : String(err)}`);
   }
 
@@ -303,7 +265,6 @@ async function apiRequestWithRetry<T = unknown>(
 
       if (attempt < maxRetries) {
         const delay = UPLOAD_BASE_DELAY_MS * Math.pow(2, attempt); // 1s, 2s
-        console.log(`[qqbot-api] Upload attempt ${attempt + 1} failed, retrying in ${delay}ms: ${errMsg.slice(0, 100)}`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
@@ -337,11 +298,12 @@ export interface MessageResponse {
  * - 纯文本模式: { content, msg_type: 0 }
  */
 function buildMessageBody(
+  appId: string | undefined,
   content: string,
   msgId: string | undefined,
   msgSeq: number
 ): Record<string, unknown> {
-  const body: Record<string, unknown> = currentMarkdownSupport
+  const body: Record<string, unknown> = getMarkdownSupportForApp(appId)
     ? {
         markdown: { content },
         msg_type: 2,
@@ -367,10 +329,11 @@ export async function sendC2CMessage(
   accessToken: string,
   openid: string,
   content: string,
-  msgId?: string
+  msgId?: string,
+  appId?: string
 ): Promise<MessageResponse> {
   const msgSeq = msgId ? getNextMsgSeq(msgId) : 1;
-  const body = buildMessageBody(content, msgId, msgSeq);
+  const body = buildMessageBody(appId, content, msgId, msgSeq);
   
   return apiRequest(accessToken, "POST", `/v2/users/${openid}/messages`, body);
 }
@@ -420,10 +383,11 @@ export async function sendGroupMessage(
   accessToken: string,
   groupOpenid: string,
   content: string,
-  msgId?: string
+  msgId?: string,
+  appId?: string
 ): Promise<MessageResponse> {
   const msgSeq = msgId ? getNextMsgSeq(msgId) : 1;
-  const body = buildMessageBody(content, msgId, msgSeq);
+  const body = buildMessageBody(appId, content, msgId, msgSeq);
   
   return apiRequest(accessToken, "POST", `/v2/groups/${groupOpenid}/messages`, body);
 }
@@ -436,13 +400,13 @@ export async function sendGroupMessage(
  * 
  * 注意：主动消息不支持流式发送
  */
-function buildProactiveMessageBody(content: string): Record<string, unknown> {
+function buildProactiveMessageBody(content: string, appId?: string): Record<string, unknown> {
   // 主动消息内容校验（参考 Telegram 机制）
   if (!content || content.trim().length === 0) {
     throw new Error("主动消息内容不能为空 (markdown.content is empty)");
   }
 
-  if (currentMarkdownSupport) {
+  if (getMarkdownSupportForApp(appId)) {
     return {
       markdown: { content },
       msg_type: 2,
@@ -465,10 +429,10 @@ function buildProactiveMessageBody(content: string): Record<string, unknown> {
 export async function sendProactiveC2CMessage(
   accessToken: string,
   openid: string,
-  content: string
+  content: string,
+  appId?: string
 ): Promise<{ id: string; timestamp: number }> {
-  const body = buildProactiveMessageBody(content);
-  console.log(`[qqbot-api] sendProactiveC2CMessage: openid=${openid}, msg_type=${body.msg_type}, content_len=${content.length}`);
+  const body = buildProactiveMessageBody(content, appId);
   return apiRequest(accessToken, "POST", `/v2/users/${openid}/messages`, body);
 }
 
@@ -482,10 +446,10 @@ export async function sendProactiveC2CMessage(
 export async function sendProactiveGroupMessage(
   accessToken: string,
   groupOpenid: string,
-  content: string
+  content: string,
+  appId?: string
 ): Promise<{ id: string; timestamp: string }> {
-  const body = buildProactiveMessageBody(content);
-  console.log(`[qqbot-api] sendProactiveGroupMessage: group=${groupOpenid}, msg_type=${body.msg_type}, content_len=${content.length}`);
+  const body = buildProactiveMessageBody(content, appId);
   return apiRequest(accessToken, "POST", `/v2/groups/${groupOpenid}/messages`, body);
 }
 
@@ -540,7 +504,6 @@ export async function uploadC2CMedia(
     const contentHash = computeFileHash(fileData);
     const cachedInfo = getCachedFileInfo(contentHash, "c2c", openid, fileType);
     if (cachedInfo) {
-      console.log(`[qqbot-api] uploadC2CMedia: using cached file_info (skip upload)`);
       return { file_uuid: "", file_info: cachedInfo, ttl: 0 };
     }
   }
@@ -601,7 +564,6 @@ export async function uploadGroupMedia(
     const contentHash = computeFileHash(fileData);
     const cachedInfo = getCachedFileInfo(contentHash, "group", groupOpenid, fileType);
     if (cachedInfo) {
-      console.log(`[qqbot-api] uploadGroupMedia: using cached file_info (skip upload)`);
       return { file_uuid: "", file_info: cachedInfo, ttl: 0 };
     }
   }
@@ -881,7 +843,6 @@ export function startBackgroundTokenRefresh(
   options?: BackgroundTokenRefreshOptions
 ): void {
   if (backgroundRefreshRunning) {
-    console.log("[qqbot-api] Background token refresh already running");
     return;
   }
 
@@ -898,14 +859,13 @@ export function startBackgroundTokenRefresh(
   const signal = backgroundRefreshAbortController.signal;
 
   const refreshLoop = async () => {
-    log?.info?.("[qqbot-api] Background token refresh started");
-
     while (!signal.aborted) {
       try {
         // 先确保有一个有效 Token
         await getAccessToken(appId, clientSecret);
 
         // 计算下次刷新时间
+        const cachedToken = cachedTokens.get(appId);
         if (cachedToken) {
           const expiresIn = cachedToken.expiresAt - Date.now();
           // 提前刷新时间 + 随机偏移（避免集群同时刷新）
@@ -915,34 +875,26 @@ export function startBackgroundTokenRefresh(
             minRefreshIntervalMs
           );
 
-          log?.debug?.(
-            `[qqbot-api] Token valid, next refresh in ${Math.round(refreshIn / 1000)}s`
-          );
-
           // 等待到刷新时间
           await sleep(refreshIn, signal);
         } else {
           // 没有缓存的 Token，等待一段时间后重试
-          log?.debug?.("[qqbot-api] No cached token, retrying soon");
           await sleep(minRefreshIntervalMs, signal);
         }
       } catch (err) {
         if (signal.aborted) break;
-        
-        // 刷新失败，等待后重试
-        log?.error?.(`[qqbot-api] Background token refresh failed: ${err}`);
+
         await sleep(retryDelayMs, signal);
       }
     }
 
     backgroundRefreshRunning = false;
-    log?.info?.("[qqbot-api] Background token refresh stopped");
   };
 
   // 异步启动，不阻塞调用者
   refreshLoop().catch((err) => {
     backgroundRefreshRunning = false;
-    log?.error?.(`[qqbot-api] Background token refresh crashed: ${err}`);
+    log?.error?.(`QQ background token refresh crashed: ${err}`);
   });
 }
 
