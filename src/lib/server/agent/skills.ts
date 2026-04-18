@@ -20,6 +20,12 @@ export interface SkillLoadResult {
   diagnostics: string[];
 }
 
+export interface SkillSearchMatch {
+  skill: LoadedSkill;
+  score: number;
+  reasons: string[];
+}
+
 interface SkillLoadOptions {
   disabledSkillPaths?: string[];
 }
@@ -87,6 +93,16 @@ function buildSkillAliases(name: string, filePath: string): string[] {
     aliases.add(alias);
   }
   return Array.from(aliases.values()).sort((a, b) => a.localeCompare(b));
+}
+
+function buildFrontmatterAliases(rawAliases: string | undefined): string[] {
+  const aliases = new Set<string>();
+  for (const alias of parseStringList(rawAliases)) {
+    for (const normalized of buildSkillNameAliases(alias)) {
+      aliases.add(normalized);
+    }
+  }
+  return Array.from(aliases.values());
 }
 
 function extractDirectSlashSelector(inputText: string): string | null {
@@ -244,7 +260,10 @@ export function loadSkillsFromWorkspace(
       baseDir: dirname(filePath),
       scope: row.scope,
       mcpServers: parseStringList(fm.mcpServers ?? fm.mcp_servers),
-      aliases: buildSkillAliases(name, filePath)
+      aliases: Array.from(new Set([
+        ...buildSkillAliases(name, filePath),
+        ...buildFrontmatterAliases(fm.aliases)
+      ])).sort((a, b) => a.localeCompare(b))
     });
   }
 
@@ -267,9 +286,13 @@ function compactSkillDescription(input: string, maxChars: number): string {
 
 export function formatSkillsForPrompt(
   skills: LoadedSkill[],
-  options?: { compact?: boolean; maxDescriptionChars?: number }
+  options?: { compact?: boolean; maxDescriptionChars?: number; mode?: "full" | "names_only" }
 ): string {
   if (skills.length === 0) return "(no skills installed yet)";
+  const mode = options?.mode ?? "full";
+  if (mode === "names_only") {
+    return skills.map((skill) => `- ${skill.name}`).join("\n");
+  }
   const compact = options?.compact === true;
   const maxDescriptionChars = options?.maxDescriptionChars ?? 200;
   return skills
@@ -288,6 +311,117 @@ export function formatSkillsForPrompt(
 
 export function findExplicitlyInvokedSkills(skills: LoadedSkill[], inputText: string): LoadedSkill[] {
   return resolveExplicitInvocationMatches(skills, inputText);
+}
+
+function tokenizeSearchInput(input: string): string[] {
+  const source = String(input ?? "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]+/gu, " ")
+    .trim();
+  if (!source) return [];
+
+  const tokens = new Set<string>();
+  for (const part of source.split(/\s+/)) {
+    const normalized = normalizeSelector(part);
+    if (normalized.length >= 2) tokens.add(normalized);
+  }
+
+  const compact = source.replace(/\s+/g, "");
+  if (compact.length >= 2) {
+    if (/[\u4e00-\u9fff]/.test(compact)) {
+      for (let size = 2; size <= Math.min(4, compact.length); size += 1) {
+        for (let index = 0; index <= compact.length - size; index += 1) {
+          tokens.add(compact.slice(index, index + size));
+        }
+      }
+    } else {
+      const normalized = normalizeSelector(compact);
+      if (normalized.length >= 2) tokens.add(normalized);
+    }
+  }
+
+  return Array.from(tokens.values());
+}
+
+function normalizeSearchText(input: string): string {
+  return String(input ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function searchSkillsLocally(
+  skills: LoadedSkill[],
+  intent: string,
+  maxResults = 5
+): SkillSearchMatch[] {
+  const normalizedIntent = normalizeSearchText(intent);
+  const tokens = tokenizeSearchInput(intent);
+  if (!normalizedIntent && tokens.length === 0) return [];
+
+  const scored: SkillSearchMatch[] = [];
+  for (const skill of skills) {
+    let score = 0;
+    const reasons: string[] = [];
+    const normalizedName = normalizeSelector(skill.name);
+    const normalizedAliases = skill.aliases.map((alias) => normalizeSelector(alias));
+    const normalizedDescription = normalizeSearchText(skill.description);
+
+    if (normalizedIntent) {
+      if (normalizedName === normalizeSelector(normalizedIntent)) {
+        score += 120;
+        reasons.push("exact_name");
+      }
+      if (normalizedAliases.includes(normalizeSelector(normalizedIntent))) {
+        score += 90;
+        reasons.push("exact_alias");
+      }
+      if (normalizedDescription.includes(normalizedIntent)) {
+        score += 20;
+        reasons.push("description_phrase");
+      }
+    }
+
+    for (const token of tokens) {
+      if (!token) continue;
+      if (normalizedName === token) {
+        score += 80;
+        reasons.push(`name:${token}`);
+        continue;
+      }
+      if (normalizedName.includes(token)) {
+        score += 28;
+        reasons.push(`name_fragment:${token}`);
+      }
+      if (normalizedAliases.includes(token)) {
+        score += 55;
+        reasons.push(`alias:${token}`);
+        continue;
+      }
+      if (normalizedAliases.some((alias) => alias.includes(token))) {
+        score += 18;
+        reasons.push(`alias_fragment:${token}`);
+      }
+      if (normalizedDescription.includes(token)) {
+        score += 10;
+        reasons.push(`description:${token}`);
+      }
+    }
+
+    if (score <= 0) continue;
+    scored.push({
+      skill,
+      score,
+      reasons: Array.from(new Set(reasons.values()))
+    });
+  }
+
+  return scored
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.skill.name.localeCompare(b.skill.name);
+    })
+    .slice(0, Math.max(1, maxResults));
 }
 
 export function resolveRequestedMcpServerIds(skills: LoadedSkill[], inputText: string): string[] {

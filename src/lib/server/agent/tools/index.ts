@@ -9,6 +9,7 @@ import { createMemoryTool } from "./memory.js";
 import { createProfileFilesTool } from "./profileFiles.js";
 import { createReadTool } from "./read.js";
 import { createSkillManageTool } from "./skillManage.js";
+import { createSkillSearchTool } from "./skillSearch.js";
 import { createSwitchModelTool } from "./switchModel.js";
 import { createWriteTool } from "./write.js";
 import type { RuntimeSettings } from "../../settings/index.js";
@@ -48,6 +49,11 @@ export function createMomTools(options: {
   const tools: AgentTool<any>[] = [
     createMemoryTool({ memory: options.memory, channel: options.channel, chatId: options.chatId }),
     createSwitchModelTool({ getSettings: options.getSettings, updateSettings: options.updateSettings }),
+    createSkillSearchTool({
+      workspaceDir: options.workspaceDir,
+      chatId: options.chatId,
+      getSettings: options.getSettings
+    }),
     createSkillManageTool({ workspaceDir: options.workspaceDir, chatId: options.chatId }),
     createProfileFilesTool({
       channel: options.channel,

@@ -719,6 +719,16 @@ export async function sendC2CVoiceMessage(
   return sendC2CMediaMessage(accessToken, openid, uploadResult.file_info, msgId);
 }
 
+export async function sendC2CVoiceMessageByUrl(
+  accessToken: string,
+  openid: string,
+  voiceUrl: string,
+  msgId?: string,
+): Promise<{ id: string; timestamp: number }> {
+  const uploadResult = await uploadC2CMedia(accessToken, openid, MediaFileType.VOICE, voiceUrl, undefined, false);
+  return sendC2CMediaMessage(accessToken, openid, uploadResult.file_info, msgId);
+}
+
 /**
  * 发送群聊语音消息（封装上传+发送）
  * @param voiceBase64 - SILK 格式语音的 Base64 编码
@@ -730,6 +740,16 @@ export async function sendGroupVoiceMessage(
   msgId?: string,
 ): Promise<{ id: string; timestamp: string }> {
   const uploadResult = await uploadGroupMedia(accessToken, groupOpenid, MediaFileType.VOICE, undefined, voiceBase64, false);
+  return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId);
+}
+
+export async function sendGroupVoiceMessageByUrl(
+  accessToken: string,
+  groupOpenid: string,
+  voiceUrl: string,
+  msgId?: string,
+): Promise<{ id: string; timestamp: string }> {
+  const uploadResult = await uploadGroupMedia(accessToken, groupOpenid, MediaFileType.VOICE, voiceUrl, undefined, false);
   return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId);
 }
 

@@ -15,7 +15,9 @@ import {
   sendC2CImageMessage,
   sendGroupImageMessage,
   sendC2CVoiceMessage,
+  sendC2CVoiceMessageByUrl,
   sendGroupVoiceMessage,
+  sendGroupVoiceMessageByUrl,
   sendC2CVideoMessage,
   sendGroupVideoMessage,
   sendC2CFileMessage,
@@ -170,6 +172,14 @@ export interface OutboundResult {
   messageId?: string;
   timestamp?: string | number;
   error?: string;
+}
+
+function stripUrlQueryAndHash(input: string): string {
+  return String(input ?? "").split("#")[0]!.split("?")[0]!;
+}
+
+function isAudioMediaPath(filePath: string): boolean {
+  return isAudioFile(stripUrlQueryAndHash(filePath));
 }
 
 /**
@@ -473,6 +483,23 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
         } else if (item.type === "voice") {
           // 发送语音文件
           const voicePath = item.content;
+          const isHttpVoice = voicePath.startsWith("http://") || voicePath.startsWith("https://");
+
+          if (isHttpVoice) {
+            if (target.type === "c2c") {
+              const result = await sendC2CVoiceMessageByUrl(accessToken, target.id, voicePath, replyToId ?? undefined);
+              lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
+            } else if (target.type === "group") {
+              const result = await sendGroupVoiceMessageByUrl(accessToken, target.id, voicePath, replyToId ?? undefined);
+              lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
+            } else {
+              const fallback = voicePath;
+              const result = await sendChannelMessage(accessToken, target.id, fallback, replyToId ?? undefined);
+              lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
+            }
+            console.log(`[qqbot] sendText: Sent voice via <qqvoice> URL: ${voicePath.slice(0, 60)}...`);
+            continue;
+          }
 
           // 等待文件就绪（TTS 工具异步生成，文件可能还没写完）
           const fileSize = await waitForFile(voicePath);
@@ -816,7 +843,10 @@ export async function sendMedia(ctx: MediaOutboundContext): Promise<OutboundResu
   const isLocalPath = isLocalFilePath(mediaUrl);
   const isHttpUrl = mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://");
 
-  if (isLocalPath && isAudioFile(mediaUrl)) {
+  if (isAudioMediaPath(mediaUrl)) {
+    if (isHttpUrl) {
+      return sendVoiceUrl(ctx);
+    }
     return sendVoiceFile(ctx);
   }
 
@@ -831,7 +861,7 @@ export async function sendMedia(ctx: MediaOutboundContext): Promise<OutboundResu
   }
 
   // 判断是否为文档/文件（非图片、非音频、非视频的本地文件）
-  if (isLocalPath && !isImageFile(mediaUrl) && !isAudioFile(mediaUrl)) {
+  if (isLocalPath && !isImageFile(mediaUrl) && !isAudioMediaPath(mediaUrl)) {
     return sendDocumentFile(ctx);
   }
 
@@ -952,30 +982,14 @@ async function sendVoiceFile(ctx: MediaOutboundContext): Promise<OutboundResult>
   }
 
   try {
-    // 尝试转换为 SILK 格式（QQ 语音要求 SILK 格式），支持配置直传格式跳过转换
-    const directFormats = account.config?.audioFormatPolicy?.uploadDirectFormats ?? account.config?.voiceDirectUploadFormats;
-    const silkBase64 = await audioFileToSilkBase64(mediaUrl, directFormats);
+    // 本地文件统一优先转成 SILK 再上传。
+    // 直接用 file_data 裸传 mp3/wav 时，QQ 侧缺少文件名/扩展名线索，容易被渲染成普通附件而不是语音消息。
+    const silkBase64 = await audioFileToSilkBase64(mediaUrl, [".silk", ".slk", ".slac", ".amr"]);
     if (!silkBase64) {
-      // 如果无法转换为 SILK，直接读取文件作为 Base64 上传（让 API 尝试处理）
-      const buf = await readFileAsync(mediaUrl);
-      const fallbackBase64 = buf.toString("base64");
-      console.log(`[qqbot] sendVoiceFile: not SILK format, uploading raw file (${formatFileSize(buf.length)})`);
-
-      const accessToken = await getAccessToken(account.appId!, account.clientSecret!);
-      const appId = account.appId!;
-      const target = parseTarget(to);
-
-      let result: { id: string; timestamp: number | string };
-      if (target.type === "c2c") {
-        result = await sendC2CVoiceMessage(accessToken, target.id, fallbackBase64, replyToId ?? undefined);
-      } else if (target.type === "group") {
-        result = await sendGroupVoiceMessage(accessToken, target.id, fallbackBase64, replyToId ?? undefined);
-      } else {
-        const r = await sendChannelMessage(accessToken, target.id, `[语音消息暂不支持频道发送]`, replyToId ?? undefined);
-        return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
-      }
-
-      return { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
+      return {
+        channel: "qqbot",
+        error: "本地语音文件无法转换为可识别的语音格式，已停止发送以避免被当成普通附件。"
+      };
     }
 
     console.log(`[qqbot] sendVoiceFile: SILK format ready, uploading...`);
@@ -1016,6 +1030,49 @@ async function sendVoiceFile(ctx: MediaOutboundContext): Promise<OutboundResult>
   }
 }
 
+async function sendVoiceUrl(ctx: MediaOutboundContext): Promise<OutboundResult> {
+  const { to, text, replyToId, account, mediaUrl } = ctx;
+
+  if (!account.appId || !account.clientSecret) {
+    return { channel: "qqbot", error: "QQBot not configured (missing appId or clientSecret)" };
+  }
+
+  try {
+    const accessToken = await getAccessToken(account.appId, account.clientSecret);
+    const appId = account.appId;
+    const target = parseTarget(to);
+
+    let voiceResult: { id: string; timestamp: number | string };
+    if (target.type === "c2c") {
+      voiceResult = await sendC2CVoiceMessageByUrl(accessToken, target.id, mediaUrl, replyToId ?? undefined);
+    } else if (target.type === "group") {
+      voiceResult = await sendGroupVoiceMessageByUrl(accessToken, target.id, mediaUrl, replyToId ?? undefined);
+    } else {
+      const fallback = text?.trim() ? `${text}\n${mediaUrl}` : mediaUrl;
+      const result = await sendChannelMessage(accessToken, target.id, fallback, replyToId ?? undefined);
+      return { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
+    }
+
+    if (text?.trim()) {
+      try {
+        if (target.type === "c2c") {
+          await sendC2CMessage(accessToken, target.id, text, replyToId ?? undefined, appId);
+        } else if (target.type === "group") {
+          await sendGroupMessage(accessToken, target.id, text, replyToId ?? undefined, appId);
+        }
+      } catch (textErr) {
+        console.error(`[qqbot] Failed to send text after voice URL: ${textErr}`);
+      }
+    }
+
+    return { channel: "qqbot", messageId: voiceResult.id, timestamp: voiceResult.timestamp };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[qqbot] sendVoiceUrl: failed: ${message}`);
+    return { channel: "qqbot", error: message };
+  }
+}
+
 /** 判断文件是否为图片格式 */
 function isImageFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
@@ -1025,7 +1082,7 @@ function isImageFile(filePath: string): boolean {
 /** 判断文件/URL 是否为视频格式 */
 function isVideoFile(filePath: string): boolean {
   // 去掉 URL query 参数后判断扩展名
-  const cleanPath = filePath.split("?")[0]!;
+  const cleanPath = stripUrlQueryAndHash(filePath);
   const ext = path.extname(cleanPath).toLowerCase();
   return [".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv", ".wmv"].includes(ext);
 }

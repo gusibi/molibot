@@ -141,7 +141,7 @@ export function formatDuration(durationMs: number): string {
 
 export function isAudioFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
-  return [".silk", ".slk", ".amr", ".wav", ".mp3", ".ogg", ".opus", ".aac", ".flac", ".m4a", ".wma", ".pcm"].includes(ext);
+  return [".silk", ".slk", ".amr", ".wav", ".mp3", ".ogg", ".opus", ".aac", ".flac", ".m4a", ".wma", ".pcm", ".aif", ".aiff"].includes(ext);
 }
 
 // ============ TTS（文字转语音）============
@@ -735,4 +735,3 @@ function parseWavFallback(buf: Buffer): Buffer | null {
 
   return null;
 }
-

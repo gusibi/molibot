@@ -69,6 +69,7 @@ interface RawSettings {
   feishuBots?: unknown;
   qqBots?: unknown;
   mcpServers?: unknown;
+  skillSearch?: unknown;
   disabledSkillPaths?: unknown;
   acp?: unknown;
 }
@@ -79,6 +80,68 @@ const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "t
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const CAPABILITY_VERIFICATION_SET: ReadonlySet<string> = new Set(["untested", "passed", "failed"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
+
+function clampNumber(value: unknown, fallback: number, min: number, max?: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const lowerBound = Math.max(min, parsed);
+  if (max === undefined) return lowerBound;
+  return Math.min(max, lowerBound);
+}
+
+function sanitizeSkillSearchSettings(input: unknown): RuntimeSettings["skillSearch"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const local = source.local && typeof source.local === "object"
+    ? source.local as Record<string, unknown>
+    : {};
+  const api = source.api && typeof source.api === "object"
+    ? source.api as Record<string, unknown>
+    : {};
+  return {
+    local: {
+      enabled: local.enabled === undefined
+        ? defaultRuntimeSettings.skillSearch.local.enabled
+        : Boolean(local.enabled)
+    },
+    api: {
+      enabled: api.enabled === undefined
+        ? defaultRuntimeSettings.skillSearch.api.enabled
+        : Boolean(api.enabled),
+      provider: String(api.provider ?? defaultRuntimeSettings.skillSearch.api.provider).trim(),
+      baseUrl: String(api.baseUrl ?? defaultRuntimeSettings.skillSearch.api.baseUrl).trim(),
+      apiKey: String(api.apiKey ?? defaultRuntimeSettings.skillSearch.api.apiKey).trim(),
+      model: String(api.model ?? defaultRuntimeSettings.skillSearch.api.model).trim(),
+      path: String(api.path ?? defaultRuntimeSettings.skillSearch.api.path).trim()
+        || defaultRuntimeSettings.skillSearch.api.path,
+      maxTokens: clampNumber(
+        api.maxTokens,
+        defaultRuntimeSettings.skillSearch.api.maxTokens,
+        128,
+        4096
+      ),
+      temperature: clampNumber(
+        api.temperature,
+        defaultRuntimeSettings.skillSearch.api.temperature,
+        0,
+        1
+      ),
+      timeoutMs: clampNumber(
+        api.timeoutMs,
+        defaultRuntimeSettings.skillSearch.api.timeoutMs,
+        1000,
+        60000
+      ),
+      minConfidence: clampNumber(
+        api.minConfidence,
+        defaultRuntimeSettings.skillSearch.api.minConfidence,
+        0,
+        1
+      )
+    }
+  };
+}
 
 function sanitizeMcpServers(input: unknown): McpServerConfig[] {
   const rows: Array<{ id: string; value: Record<string, unknown> }> = Array.isArray(input)
@@ -686,6 +749,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const acp = sanitizeAcpSettings(raw.acp ?? defaultRuntimeSettings.acp);
   const agents = sanitizeAgents(raw.agents);
   const mcpServers = sanitizeMcpServers(raw.mcpServers ?? defaultRuntimeSettings.mcpServers);
+  const skillSearch = sanitizeSkillSearchSettings(raw.skillSearch ?? defaultRuntimeSettings.skillSearch);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
   const compactionEnabledRaw = raw.compaction?.enabled;
   const compactionEnabled =
@@ -734,6 +798,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     agents,
     channels,
     mcpServers,
+    skillSearch,
     disabledSkillPaths,
     telegramBots: effectiveTelegramBots,
     qqBots: effectiveQQBots,
@@ -1074,6 +1139,7 @@ export class SettingsStore {
       timezone: settings.timezone,
       acp: settings.acp,
       mcpServers: settings.mcpServers,
+      skillSearch: settings.skillSearch,
       disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,
       telegramAllowedChatIds: settings.telegramAllowedChatIds

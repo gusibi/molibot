@@ -1592,6 +1592,13 @@ export class MomRunner implements RunnerLike {
 
     let stopReason: "stop" | "aborted" | "error" = "stop";
     let errorMessage: string | undefined;
+    let finalUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0
+    };
     let assistantTextStreamed = false;
     let firstAssistantTokenLogged = false;
     let promptStartedAt = 0;
@@ -1703,6 +1710,13 @@ export class MomRunner implements RunnerLike {
           usage: msg.usage,
         });
         if (msg.usage) {
+          finalUsage = {
+            inputTokens: Number(msg.usage.input ?? 0),
+            outputTokens: Number(msg.usage.output ?? 0),
+            cacheReadTokens: Number(msg.usage.cacheRead ?? 0),
+            cacheWriteTokens: Number(msg.usage.cacheWrite ?? 0),
+            totalTokens: Number(msg.usage.totalTokens ?? 0)
+          };
           const botId = basename(this.store.getWorkspaceDir()) || "unknown";
           this.usageTracker.record({
             channel: this.channel,
@@ -2147,6 +2161,7 @@ export class MomRunner implements RunnerLike {
 
       const runSummary: RunSummary = {
         runId,
+        sessionId: this.sessionId,
         stopReason,
         durationMs: Date.now() - runStartedAt,
         finalText,
@@ -2157,6 +2172,7 @@ export class MomRunner implements RunnerLike {
         modelFailureSummaries: modelFailures.map(formatModelAttemptFailure),
         budget: budget.snapshot(),
         budgetLimits: budget.limitsSnapshot(),
+        usage: finalUsage,
         memorySnapshot: {
           createdAt: memorySnapshot.createdAt,
           fingerprint: memorySnapshot.fingerprint,
@@ -2191,6 +2207,7 @@ export class MomRunner implements RunnerLike {
       });
       const failedSummary: RunSummary = {
         runId,
+        sessionId: this.sessionId,
         stopReason: "error",
         durationMs: Date.now() - runStartedAt,
         finalText: "",
@@ -2201,6 +2218,7 @@ export class MomRunner implements RunnerLike {
         modelFailureSummaries: [],
         budget: budget.snapshot(),
         budgetLimits: budget.limitsSnapshot(),
+        usage: finalUsage,
         reflection: buildRunReflection({
           stopReason: "error",
           finalText: "",

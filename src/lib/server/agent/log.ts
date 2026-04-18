@@ -53,6 +53,10 @@ const KEY_LOG_EVENTS = new Set<string>([
   "tool_start",
   "tool_end",
   "channel_sending_start",
+  "skill_search_start",
+  "skill_search_local_result",
+  "skill_search_api_result",
+  "skill_search_end",
 ]);
 
 const EVENT_EMOJIS: Record<string, string> = {

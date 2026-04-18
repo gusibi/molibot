@@ -568,9 +568,14 @@ export class SharedRuntimeCommandService<TTarget> {
     };
   }
 
+  private formatNumber(value: number): string {
+    return Math.max(0, Number(value) || 0).toLocaleString();
+  }
+
   private statusText(scopeId: string, target: TTarget): string {
     const settings = this.options.getSettings();
     const sessionId = this.options.store.getActiveSession(scopeId);
+    const sessionStatus = this.options.store.getSessionStatusSnapshot(scopeId, sessionId);
     const textRoute = this.resolveRouteSummary(settings, "text");
     const visionRoute = this.resolveRouteSummary(settings, "vision");
     const sttRoute = this.resolveRouteSummary(settings, "stt");
@@ -585,6 +590,18 @@ export class SharedRuntimeCommandService<TTarget> {
       `Session: ${sessionId}`,
       `Status: ${this.options.isRunning(scopeId) ? "running" : "idle"}`,
       this.options.getQueueSize ? `Queued jobs: ${this.options.getQueueSize(scopeId)}` : null,
+      `Session messages: ${this.formatNumber(sessionStatus.messageCount)}`,
+      `Current context≈ ${this.formatNumber(sessionStatus.estimatedContextTokens)} tokens`,
+      `Session runs: ${this.formatNumber(sessionStatus.usage.runCount)}`,
+      `Session token total: ${this.formatNumber(sessionStatus.usage.totalTokens)}`,
+      `Session input/output: ${this.formatNumber(sessionStatus.usage.inputTokens)} / ${this.formatNumber(sessionStatus.usage.outputTokens)}`,
+      sessionStatus.usage.cacheReadTokens > 0 || sessionStatus.usage.cacheWriteTokens > 0
+        ? `Session cache read/write: ${this.formatNumber(sessionStatus.usage.cacheReadTokens)} / ${this.formatNumber(sessionStatus.usage.cacheWriteTokens)}`
+        : null,
+      `Compactions: ${this.formatNumber(sessionStatus.compactionCount)}`,
+      sessionStatus.latestCompaction
+        ? `Last compaction: ${sessionStatus.latestCompaction.reason} (${this.formatNumber(sessionStatus.latestCompaction.tokensBefore)} -> ${this.formatNumber(sessionStatus.latestCompaction.tokensAfter)} tokens, ${this.formatNumber(sessionStatus.latestCompaction.summarizedMessages)} messages)`
+        : null,
       `Provider mode: ${settings.providerMode}`,
       `Loaded skills: ${skills.length}`,
       ...(this.options.getStatusExtras?.(scopeId, target) ?? []),

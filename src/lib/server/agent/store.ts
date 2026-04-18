@@ -33,11 +33,35 @@ import {
   resolveMemoryRootFromWorkspacePath,
   resolveWorkspaceRelativeFromWorkspacePath
 } from "./workspace.js";
+import { estimateContextTokens } from "./compaction.js";
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
+}
+
+export interface SessionUsageSnapshot {
+  runCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+}
+
+export interface SessionStatusSnapshot {
+  messageCount: number;
+  estimatedContextTokens: number;
+  compactionCount: number;
+  latestCompaction?: {
+    timestamp: string;
+    tokensBefore: number;
+    tokensAfter: number;
+    summarizedMessages: number;
+    reason: "threshold" | "manual";
+  };
+  usage: SessionUsageSnapshot;
 }
 
 export class MomRuntimeStore {
@@ -659,6 +683,79 @@ export class MomRuntimeStore {
       ...summary
     };
     appendFileSync(file, `${JSON.stringify(record)}\n`, "utf8");
+  }
+
+  getSessionStatusSnapshot(chatId: string, sessionId?: string): SessionStatusSnapshot {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const built = buildMessagesFromSessionEntries(this.readSessionFileEntries(chatId, id));
+    const messageCount = built.messages.length;
+    const estimatedContextTokens = estimateContextTokens(built.messages);
+    const compactions = built.entries.filter((entry) => entry.type === "compaction");
+    const latestCompaction = compactions[compactions.length - 1];
+
+    return {
+      messageCount,
+      estimatedContextTokens,
+      compactionCount: compactions.length,
+      latestCompaction: latestCompaction
+        ? {
+            timestamp: latestCompaction.timestamp,
+            tokensBefore: latestCompaction.tokensBefore,
+            tokensAfter: latestCompaction.tokensAfter,
+            summarizedMessages: latestCompaction.summarizedMessages,
+            reason: latestCompaction.reason
+          }
+        : undefined,
+      usage: this.getSessionUsageSnapshot(chatId, id)
+    };
+  }
+
+  getSessionUsageSnapshot(chatId: string, sessionId?: string): SessionUsageSnapshot {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const out: SessionUsageSnapshot = {
+      runCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 0
+    };
+    const file = this.getRunSummaryLogPath(chatId);
+    if (!existsSync(file)) return out;
+
+    try {
+      const lines = readFileSync(file, "utf8")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      for (const line of lines) {
+        try {
+          const row = JSON.parse(line) as {
+            sessionId?: string;
+            usage?: {
+              inputTokens?: number;
+              outputTokens?: number;
+              cacheReadTokens?: number;
+              cacheWriteTokens?: number;
+              totalTokens?: number;
+            };
+          };
+          if (this.sanitizeSessionId(row.sessionId ?? "") !== id) continue;
+          out.runCount += 1;
+          out.inputTokens += Number(row.usage?.inputTokens ?? 0);
+          out.outputTokens += Number(row.usage?.outputTokens ?? 0);
+          out.cacheReadTokens += Number(row.usage?.cacheReadTokens ?? 0);
+          out.cacheWriteTokens += Number(row.usage?.cacheWriteTokens ?? 0);
+          out.totalTokens += Number(row.usage?.totalTokens ?? 0);
+        } catch {
+          // ignore malformed historical lines
+        }
+      }
+    } catch {
+      return out;
+    }
+
+    return out;
   }
 
   readMemory(chatId: string): string {

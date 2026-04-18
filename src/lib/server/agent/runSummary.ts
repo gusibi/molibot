@@ -10,6 +10,7 @@ export interface RunReflection {
 
 export interface RunSummary {
   runId: string;
+  sessionId?: string;
   stopReason: "stop" | "aborted" | "error";
   durationMs: number;
   finalText: string;
@@ -20,6 +21,13 @@ export interface RunSummary {
   modelFailureSummaries: string[];
   budget: RunBudgetSnapshot;
   budgetLimits: RunBudgetLimits;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    totalTokens: number;
+  };
   memorySnapshot?: Pick<MemoryPromptSnapshot, "createdAt" | "fingerprint" | "query"> & {
     selectedCount: number;
     longTermCount: number;
@@ -73,10 +81,6 @@ export function formatRunClosingNote(summary: RunSummary): string {
     lines.push(
       `- Memory snapshot: ${summary.memorySnapshot.selectedCount} items (${summary.memorySnapshot.longTermCount} long-term, ${summary.memorySnapshot.dailyCount} daily)`
     );
-  }
-
-  if (summary.skillDraft) {
-    lines.push(`- Skill draft ${summary.skillDraft.merged ? "merged into" : "saved"}: ${summary.skillDraft.filePath}`);
   }
 
   if (summary.reflection) {

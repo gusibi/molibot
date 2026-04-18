@@ -185,6 +185,9 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-139 | Telegram outbound timeout crash guard | P1 | Delivered (2026-04-14) | When Telegram outbound retries are exhausted and even fallback error notifications time out, the run should fail with logs only; timeout handling must never rethrow from cleanup/error-reporting paths or terminate the whole service process |
 | P1-140 | Silent run-summary chat policy | P1 | Delivered (2026-04-14) | Normal chat runs should not append operator-style run summaries to the user conversation; only runs that actually save a reusable draft may send one short draft notice, while full run metadata remains stored internally for review |
 | P1-141 | Skill Drafts bot-folder dedupe | P1 | Delivered (2026-04-14) | The Skill Drafts inventory must treat `bots/<bot>/skill-drafts` as one bot-level folder, not one folder per chat, so the same draft file appears only once even when a bot has multiple chat directories |
+| P1-142 | Session token visibility and QQ voice media routing | P1 | Delivered (2026-04-18) | Shared `/status` must show current session context size plus accumulated session token usage so operators can judge compaction/cleanup, and QQ outbound media must recognize audio resources as voice replies instead of degrading remote audio into generic attachments |
+| P1-143 | QQ local audio must prefer explicit voice-format upload | P1 | Delivered (2026-04-18) | For QQ single/group chats, local audio replies must be converted into a clearly recognizable voice format before upload instead of bare `file_data` passthrough of `mp3/wav`, because otherwise the platform may render the payload as a generic file attachment rather than a voice message |
+| P1-144 | QQ AIFF audio classification parity | P1 | Delivered (2026-04-18) | QQ outbound media classification must treat `aif/aiff` as audio, not generic files, otherwise AIFF-based TTS outputs in single chats degrade into file attachments before the voice upload path even starts |
 
 ### P1-117 Implementation Note (2026-03-24)
 - Telegram ACP middleware must not keep any stale direct reference to the old local control-command helper once proxy gating is centralized through the shared ACP proxy rule, otherwise bot startup can fail before ACP routing is reached.
@@ -218,7 +221,36 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 
 ### P1-125 Implementation Note (2026-03-26)
 - Classification should happen at the memory gateway boundary so both supported backends benefit without forking behavior.
-- Prompt-memory filtering should be tag-aware rather than content-blind. Collaboration rules, user preferences, project context, and external references deserve priority; lifestyle and temporary notes should remain searchable but stay out of the default prompt unless the active query makes them relevant.
+
+## 175. Configurable Skill Search Routing (2026-04-18)
+- Priority: P1
+- Stage: Delivered (2026-04-18)
+- Problem:
+  - 当前 skill 隐式命中主要依赖系统提示词中的技能说明，让模型自己判断是否要用 skill；这种方式对模型自觉性依赖过高，稳定性不足。
+  - 当 skill 描述是中文、用户请求是英文，或者用户表达比较抽象时，纯提示词记忆式匹配更容易漏掉已有 skill。
+  - 现有系统提示词注入完整 skill description 列表，会让动态内容偏长，也不利于后续单独把 skill 检索做成显式运行时能力。
+- Requirement:
+  - Runtime 必须支持显式的 `skill_search` 检索路径，而不是只靠提示词内的技能清单。
+  - Skill Search 必须支持两层能力并允许独立开关：本地搜索、本地未明确命中后的 API 复判。
+  - 设置页必须支持配置是否启用本地搜索、是否启用 API 搜索；当启用 API 搜索时，应直接复用既有 AI Provider 配置，只需要选择 provider 和 model，不再单独维护第二套 baseUrl/path/apiKey。
+  - 显式 skill 调用（如 `/skill-name`）必须继续保持最高优先级，不得被新的检索流程覆盖。
+  - 系统提示词中的技能注入需要简化，避免继续默认注入完整 description 长列表；运行时 skill 命中主要依赖 `skill_search`。
+- Enforcement:
+  - `src/lib/server/settings/schema.ts`、`defaults.ts`、`store.ts` 必须新增 skill search 配置结构及默认值，并通过统一 settings 流程持久化。
+  - `src/routes/api/settings/+server.ts` 必须接受并校验新的 skill search 配置字段。
+  - `src/routes/settings/skills/+page.svelte` 必须新增 Skill Search 配置区，支持开关本地搜索/API 搜索和设置 API 参数。
+  - `src/lib/server/agent/skills.ts` 必须补充本地搜索所需的索引与搜索逻辑，同时保留现有显式 skill 调用解析能力。
+  - `src/lib/server/agent/tools/` 必须新增 `skill_search` 工具，并接入 `src/lib/server/agent/tools/index.ts`。
+  - `src/lib/server/agent/runner.ts` 与 `src/lib/server/agent/prompt.ts` 必须把 skill-first 路由调整为“优先显式 skill，其次 `skill_search`，最后普通工具/普通回答”。
+  - `features.md` 必须记录本次能力规划与后续落地。
+
+### 175.1 Implementation Note (2026-04-18)
+- 首版保留“显式 skill 调用优先级最高”的现有行为；`skill_search` 只处理未显式点名 skill 的场景，不覆盖 `/skill-name` / `$skill-name` 这类直接调用。
+- Skill Search 配置先收敛到 `/settings/skills` 页面，避免再拆新设置页；支持本地搜索与 API 搜索独立开关，其中 API 搜索直接复用 `/settings/ai/providers` 已配置的 provider，只额外选择 provider 和 model。
+- 系统提示词不再默认注入完整 skill description 长列表，而是切到轻量 skill 名称索引，并通过 XML 风格标签对提示块做结构化分隔，减少长动态块对主规则的干扰。
+- 测试阶段必须提供单独的 skill-search 观察日志，至少覆盖搜索输入、是否启用本地/API 路径、本地结果、API 结果、最终返回结果与诊断信息，便于对比命中率和误判情况。
+- provider 选择式配置上线后，运行时仍需兼容历史上直接保存在 `skillSearch.api.baseUrl/apiKey/model/path` 里的老配置；如果未选 provider 但老配置完整，API 搜索不得被静默禁用。
+- 当已保存的 `skillSearch.api.model` 不再属于当前选中的 provider 时，运行时必须回退到该 provider 的默认模型或首个模型，不能继续把过期模型名发给上游。
 
 ### P1-126 Implementation Note (2026-03-26)
 - Claude Code’s strongest portable ideas are not the coding-specific ones but the behavioral ones: classify the task first, verify fresh information, distrust external content as instructions, and confirm high-impact actions.

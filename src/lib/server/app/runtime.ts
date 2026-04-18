@@ -86,6 +86,46 @@ function formatList(values: string[]): string {
   return values.length > 0 ? values.join(", ") : "(none)";
 }
 
+function clampNumber(value: unknown, fallback: number, min: number, max?: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const lowerBound = Math.max(min, parsed);
+  if (max === undefined) return lowerBound;
+  return Math.min(max, lowerBound);
+}
+
+function sanitizeSkillSearchSettings(
+  input: unknown,
+  fallback: RuntimeSettings["skillSearch"]
+): RuntimeSettings["skillSearch"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const local = source.local && typeof source.local === "object"
+    ? source.local as Record<string, unknown>
+    : {};
+  const api = source.api && typeof source.api === "object"
+    ? source.api as Record<string, unknown>
+    : {};
+  return {
+    local: {
+      enabled: local.enabled === undefined ? fallback.local.enabled : Boolean(local.enabled)
+    },
+    api: {
+      enabled: api.enabled === undefined ? fallback.api.enabled : Boolean(api.enabled),
+      provider: String(api.provider ?? fallback.api.provider).trim(),
+      baseUrl: String(api.baseUrl ?? fallback.api.baseUrl).trim(),
+      apiKey: String(api.apiKey ?? fallback.api.apiKey).trim(),
+      model: String(api.model ?? fallback.api.model).trim(),
+      path: String(api.path ?? fallback.api.path).trim() || fallback.api.path,
+      maxTokens: clampNumber(api.maxTokens, fallback.api.maxTokens, 128, 4096),
+      temperature: clampNumber(api.temperature, fallback.api.temperature, 0, 1),
+      timeoutMs: clampNumber(api.timeoutMs, fallback.api.timeoutMs, 1000, 60000),
+      minConfidence: clampNumber(api.minConfidence, fallback.api.minConfidence, 0, 1)
+    }
+  };
+}
+
 function logPluginCatalog(state: RuntimeState): void {
   const channelSummary = state.pluginCatalog.channels
     .map((plugin) => `${plugin.key}:${colorStatus(plugin.status)}`)
@@ -630,6 +670,7 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   next.feishuBots = sanitizedFeishuBots;
   next.qqBots = sanitizedQQBots;
   next.mcpServers = sanitizeMcpServers(next.mcpServers ?? current.mcpServers);
+  next.skillSearch = sanitizeSkillSearchSettings(next.skillSearch ?? current.skillSearch, current.skillSearch);
   next.disabledSkillPaths = Array.isArray(next.disabledSkillPaths)
     ? next.disabledSkillPaths.map((v) => String(v).trim()).filter(Boolean)
     : current.disabledSkillPaths;

@@ -152,6 +152,28 @@ export interface McpServerConfig {
   toolNamePrefix: string;
 }
 
+export interface SkillSearchLocalSettings {
+  enabled: boolean;
+}
+
+export interface SkillSearchApiSettings {
+  enabled: boolean;
+  provider: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  path: string;
+  maxTokens: number;
+  temperature: number;
+  timeoutMs: number;
+  minConfidence: number;
+}
+
+export interface SkillSearchSettings {
+  local: SkillSearchLocalSettings;
+  api: SkillSearchApiSettings;
+}
+
 export interface RuntimeSettings {
   providerMode: ProviderMode;
   piModelProvider: KnownProvider;
@@ -167,6 +189,7 @@ export interface RuntimeSettings {
   agents: AgentSettings[];
   channels: ChannelSettingsMap;
   mcpServers: McpServerConfig[];
+  skillSearch: SkillSearchSettings;
   disabledSkillPaths: string[];
   telegramBots: TelegramBotConfig[];
   feishuBots: FeishuBotConfig[];

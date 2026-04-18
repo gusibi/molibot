@@ -5,6 +5,7 @@ import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
 import { parseSkillFrontmatter } from "$lib/server/agent/skillFrontmatter.js";
+import { isKnownProvider } from "$lib/server/settings";
 
 type SkillScope = "global" | "chat" | "bot";
 
@@ -18,6 +19,13 @@ interface SkillItem {
   mcpServers: string[];
   botId?: string;
   chatId?: string;
+}
+
+interface SkillSearchProviderItem {
+  id: string;
+  name: string;
+  defaultModel: string;
+  models: string[];
 }
 
 function collectSkillFiles(rootDir: string, out: string[]): void {
@@ -88,7 +96,8 @@ function parseSkillFile(
 
 export const GET: RequestHandler = async () => {
   const { getSettings } = getRuntime();
-  const disabledSet = new Set(getSettings().disabledSkillPaths ?? []);
+  const settings = getSettings();
+  const disabledSet = new Set(settings.disabledSkillPaths ?? []);
   const dataRoot = resolve(config.dataDir);
   const globalSkillsDir = join(dataRoot, "skills");
   const botsRoot = join(dataRoot, "moli-t", "bots");
@@ -145,10 +154,24 @@ export const GET: RequestHandler = async () => {
     item.enabled = !disabledSet.has(item.filePath);
   }
 
+  const searchProviders: SkillSearchProviderItem[] = settings.customProviders
+    .filter((provider) => provider.enabled !== false)
+    .filter((provider) => !isKnownProvider(provider.id))
+    .map((provider) => ({
+      id: provider.id,
+      name: provider.name,
+      defaultModel: provider.defaultModel,
+      models: provider.models.map((model) => model.id).filter(Boolean)
+    }))
+    .filter((provider) => provider.models.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   return json({
     ok: true,
     dataRoot,
     globalSkillsDir,
+    skillSearch: settings.skillSearch,
+    searchProviders,
     items,
     count,
     diagnostics

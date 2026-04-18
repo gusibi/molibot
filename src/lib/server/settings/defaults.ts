@@ -10,6 +10,7 @@ import {
   type QQBotConfig,
   type McpServerConfig,
   type ProviderMode,
+  type SkillSearchSettings,
   type RuntimeSettings,
   type TelegramBotConfig
 } from "./schema.js";
@@ -218,6 +219,23 @@ const defaultQQBots: QQBotConfig[] = defaultQQAppId && defaultQQClientSecret
 
 const defaultAgents: AgentSettings[] = [];
 const defaultMcpServers = parseEnvMcpServers();
+const defaultSkillSearchSettings: SkillSearchSettings = {
+  local: {
+    enabled: String(process.env.MOLIBOT_SKILL_SEARCH_LOCAL_ENABLED ?? "false").toLowerCase() === "true"
+  },
+  api: {
+    enabled: String(process.env.MOLIBOT_SKILL_SEARCH_API_ENABLED ?? "false").toLowerCase() === "true",
+    provider: String(process.env.MOLIBOT_SKILL_SEARCH_API_PROVIDER ?? "").trim(),
+    baseUrl: String(process.env.MOLIBOT_SKILL_SEARCH_API_BASE_URL ?? "").trim(),
+    apiKey: String(process.env.MOLIBOT_SKILL_SEARCH_API_KEY ?? "").trim(),
+    model: String(process.env.MOLIBOT_SKILL_SEARCH_API_MODEL ?? "").trim(),
+    path: String(process.env.MOLIBOT_SKILL_SEARCH_API_PATH ?? "/v1/chat/completions").trim() || "/v1/chat/completions",
+    maxTokens: Math.max(128, Number(process.env.MOLIBOT_SKILL_SEARCH_API_MAX_TOKENS ?? 400) || 400),
+    temperature: Math.min(1, Math.max(0, Number(process.env.MOLIBOT_SKILL_SEARCH_API_TEMPERATURE ?? 0) || 0)),
+    timeoutMs: Math.max(1000, Number(process.env.MOLIBOT_SKILL_SEARCH_API_TIMEOUT_MS ?? 8000) || 8000),
+    minConfidence: Math.min(1, Math.max(0, Number(process.env.MOLIBOT_SKILL_SEARCH_API_MIN_CONFIDENCE ?? 0.6) || 0.6))
+  }
+};
 const defaultAcpSettings: AcpSettings = {
   enabled: true,
   targets: [
@@ -280,6 +298,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     }
   },
   mcpServers: defaultMcpServers,
+  skillSearch: defaultSkillSearchSettings,
   disabledSkillPaths: [],
   telegramBots: defaultTelegramBots,
   qqBots: defaultQQBots,

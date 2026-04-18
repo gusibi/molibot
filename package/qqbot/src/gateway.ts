@@ -1243,9 +1243,9 @@ ${ttsHint}${sttHint}`;
                           continue;
                         }
 
-                        // 转换为 SILK 格式（QQ Bot API 语音只支持 SILK），支持配置直传格式跳过转换
-                        const uploadFormats = account.config?.audioFormatPolicy?.uploadDirectFormats ?? account.config?.voiceDirectUploadFormats;
-                        const silkBase64 = await audioFileToSilkBase64(voicePath, uploadFormats);
+                        // 本地语音统一优先转成 SILK 再上传。
+                        // 直接裸传 mp3/wav 的 file_data 缺少文件名线索时，QQ 侧可能把它渲染成普通附件。
+                        const silkBase64 = await audioFileToSilkBase64(voicePath, [".silk", ".slk", ".slac", ".amr"]);
                         if (!silkBase64) {
                           const ext = path.extname(voicePath).toLowerCase();
                           log?.error(`[qqbot:${account.accountId}] Voice conversion to SILK failed: ${ext} (${fileSize} bytes). Check [audio-convert] logs for details.`);
