@@ -2515,3 +2515,22 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/routes/api/settings/skill-drafts/+server.ts` 必须返回当前配置与可选 workflow 建议列表。
   - `src/routes/settings/skill-drafts/+page.svelte` 必须提供可保存的新配置界面。
   - `features.md` 必须记录本次能力落地。
+
+## 176. 固定斜杠命令的两列 Markdown 表格输出 (2026-04-19)
+- Priority: P1
+- Stage: Delivered (2026-04-19)
+- Problem:
+  - `/status`、`/help` 这类固定命令本质上是“左边字段 / 右边说明”的两列信息，但当前所有渠道都只返回普通文本，长一点时不够清楚。
+  - QQ、微信、飞书现在已经具备 Markdown 表格展示能力，如果继续只发纯文本，就浪费了这些渠道已经有的可读性优势。
+  - Telegram 目前不稳定支持表格，如果强行统一切过去，反而会让现有展示退化。
+- Requirement:
+  - 固定命令需要支持按“命令级别”切换输出样式，而不是把所有命令一刀切改成表格。
+  - 先只把两列结构明显的固定命令纳入表格模式，至少包括 `/status` 和 `/help`。
+  - 表格模式只在支持 Markdown 表格的渠道启用；Telegram 等不支持或暂不启用的渠道继续保持原来的纯文本结果。
+  - 三列或不适合表格的命令先保持现状，不要顺手改掉。
+- Enforcement:
+  - `src/lib/server/agent/channelCommands.ts` 必须增加集中控制的固定命令渲染模式配置，按命令决定是否走两列表格输出。
+  - 表格能力判断必须按渠道区分，至少 QQ / Weixin / Feishu 走表格，Telegram 保持纯文本回退。
+  - `/status` 与 `/help` 在支持渠道上必须输出标准 Markdown 两列表格，并保留 Telegram 的原始纯文本兼容路径。
+  - `src/lib/server/agent/channelCommands.test.ts` 必须覆盖“支持渠道输出表格”和“Telegram 保持原样”两条回归验证。
+  - `features.md` 必须记录本次能力落地。

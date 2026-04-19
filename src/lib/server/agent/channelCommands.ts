@@ -45,6 +45,25 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   helpLines?: readonly string[];
 }
 
+type FixedCommandRenderMode = "plain" | "two_column_markdown_table";
+type FixedCommandName = "status" | "help";
+
+interface CommandTableRow {
+  label: string;
+  value: string;
+}
+
+interface CommandTableSection {
+  title?: string;
+  rows: CommandTableRow[];
+}
+
+const TWO_COLUMN_TABLE_CHANNELS = new Set(["feishu", "qq", "weixin"]);
+const FIXED_COMMAND_RENDER_MODE: Record<FixedCommandName, FixedCommandRenderMode> = {
+  status: "two_column_markdown_table",
+  help: "two_column_markdown_table"
+};
+
 export class SharedRuntimeCommandService<TTarget> {
   private readonly thinkingLevels = new Set<string>(RUNTIME_THINKING_LEVELS);
 
@@ -572,6 +591,35 @@ export class SharedRuntimeCommandService<TTarget> {
     return Math.max(0, Number(value) || 0).toLocaleString();
   }
 
+  private shouldUseMarkdownTable(command: FixedCommandName): boolean {
+    return (
+      FIXED_COMMAND_RENDER_MODE[command] === "two_column_markdown_table" &&
+      TWO_COLUMN_TABLE_CHANNELS.has(this.options.channel)
+    );
+  }
+
+  private escapeMarkdownTableCell(value: string): string {
+    return String(value ?? "")
+      .replace(/\|/g, "\\|")
+      .replace(/\r?\n/g, "<br>");
+  }
+
+  private renderTwoColumnSectionsAsMarkdown(sections: CommandTableSection[]): string {
+    return sections
+      .filter((section) => section.rows.length > 0)
+      .map((section) => {
+        const lines: string[] = [];
+        if (section.title) lines.push(`**${section.title}**`);
+        lines.push("| Item | Value |");
+        lines.push("| --- | --- |");
+        for (const row of section.rows) {
+          lines.push(`| ${this.escapeMarkdownTableCell(row.label)} | ${this.escapeMarkdownTableCell(row.value)} |`);
+        }
+        return lines.join("\n");
+      })
+      .join("\n\n");
+  }
+
   private statusText(scopeId: string, target: TTarget): string {
     const settings = this.options.getSettings();
     const sessionId = this.options.store.getActiveSession(scopeId);
@@ -584,70 +632,122 @@ export class SharedRuntimeCommandService<TTarget> {
       disabledSkillPaths: settings.disabledSkillPaths
     });
 
-    const lines = [
-      `Bot: ${this.options.instanceId}`,
-      `Scope: ${scopeId}`,
-      `Session: ${sessionId}`,
-      `Status: ${this.options.isRunning(scopeId) ? "running" : "idle"}`,
-      this.options.getQueueSize ? `Queued jobs: ${this.options.getQueueSize(scopeId)}` : null,
-      `Session messages: ${this.formatNumber(sessionStatus.messageCount)}`,
-      `Current context≈ ${this.formatNumber(sessionStatus.estimatedContextTokens)} tokens`,
-      `Session runs: ${this.formatNumber(sessionStatus.usage.runCount)}`,
-      `Session token total: ${this.formatNumber(sessionStatus.usage.totalTokens)}`,
-      `Session input/output: ${this.formatNumber(sessionStatus.usage.inputTokens)} / ${this.formatNumber(sessionStatus.usage.outputTokens)}`,
-      sessionStatus.usage.cacheReadTokens > 0 || sessionStatus.usage.cacheWriteTokens > 0
-        ? `Session cache read/write: ${this.formatNumber(sessionStatus.usage.cacheReadTokens)} / ${this.formatNumber(sessionStatus.usage.cacheWriteTokens)}`
-        : null,
-      `Compactions: ${this.formatNumber(sessionStatus.compactionCount)}`,
-      sessionStatus.latestCompaction
-        ? `Last compaction: ${sessionStatus.latestCompaction.reason} (${this.formatNumber(sessionStatus.latestCompaction.tokensBefore)} -> ${this.formatNumber(sessionStatus.latestCompaction.tokensAfter)} tokens, ${this.formatNumber(sessionStatus.latestCompaction.summarizedMessages)} messages)`
-        : null,
-      `Provider mode: ${settings.providerMode}`,
-      `Loaded skills: ${skills.length}`,
-      ...(this.options.getStatusExtras?.(scopeId, target) ?? []),
+    const overviewRows: CommandTableRow[] = [
+      { label: "Bot", value: this.options.instanceId },
+      { label: "Scope", value: scopeId },
+      { label: "Session", value: sessionId },
+      { label: "Status", value: this.options.isRunning(scopeId) ? "running" : "idle" },
+      ...(this.options.getQueueSize ? [{ label: "Queued jobs", value: String(this.options.getQueueSize(scopeId)) }] : []),
+      { label: "Session messages", value: this.formatNumber(sessionStatus.messageCount) },
+      { label: "Current context≈", value: `${this.formatNumber(sessionStatus.estimatedContextTokens)} tokens` },
+      { label: "Session runs", value: this.formatNumber(sessionStatus.usage.runCount) },
+      { label: "Session token total", value: this.formatNumber(sessionStatus.usage.totalTokens) },
+      {
+        label: "Session input/output",
+        value: `${this.formatNumber(sessionStatus.usage.inputTokens)} / ${this.formatNumber(sessionStatus.usage.outputTokens)}`
+      },
+      ...(
+        sessionStatus.usage.cacheReadTokens > 0 || sessionStatus.usage.cacheWriteTokens > 0
+          ? [{
+              label: "Session cache read/write",
+              value: `${this.formatNumber(sessionStatus.usage.cacheReadTokens)} / ${this.formatNumber(sessionStatus.usage.cacheWriteTokens)}`
+            }]
+          : []
+      ),
+      { label: "Compactions", value: this.formatNumber(sessionStatus.compactionCount) },
+      ...(
+        sessionStatus.latestCompaction
+          ? [{
+              label: "Last compaction",
+              value: `${sessionStatus.latestCompaction.reason} (${this.formatNumber(sessionStatus.latestCompaction.tokensBefore)} -> ${this.formatNumber(sessionStatus.latestCompaction.tokensAfter)} tokens, ${this.formatNumber(sessionStatus.latestCompaction.summarizedMessages)} messages)`
+            }]
+          : []
+      ),
+      { label: "Provider mode", value: settings.providerMode },
+      { label: "Loaded skills", value: String(skills.length) },
+      ...(this.options.getStatusExtras?.(scopeId, target) ?? []).map((line) => {
+        const separator = line.indexOf(":");
+        if (separator < 0) return { label: "Extra", value: line };
+        return {
+          label: line.slice(0, separator).trim(),
+          value: line.slice(separator + 1).trim()
+        };
+      })
+    ];
+    const thinkingRows = this.buildSessionThinkingSummary(scopeId, sessionId).map((line) => {
+      const separator = line.indexOf(":");
+      return {
+        label: line.slice(0, separator).trim(),
+        value: line.slice(separator + 1).trim()
+      };
+    });
+    const modelRows: CommandTableRow[] = [
+      { label: "Text", value: textRoute.label },
+      { label: "Text key", value: textRoute.key || "(empty)" },
+      { label: "Vision", value: visionRoute.label },
+      { label: "Vision key", value: visionRoute.key || "(empty)" },
+      { label: "STT", value: sttRoute.label },
+      { label: "STT key", value: sttRoute.key || "(empty)" },
+      { label: "TTS", value: ttsRoute.label },
+      { label: "TTS key", value: ttsRoute.key || "(empty)" }
+    ];
+
+    if (this.shouldUseMarkdownTable("status")) {
+      return this.renderTwoColumnSectionsAsMarkdown([
+        { title: "Status", rows: overviewRows },
+        { title: "Thinking", rows: thinkingRows },
+        { title: "Models", rows: modelRows }
+      ]);
+    }
+
+    return [
+      ...overviewRows.map((row) => `${row.label}: ${row.value}`),
       "",
       "Thinking:",
-      ...this.buildSessionThinkingSummary(scopeId, sessionId),
+      ...thinkingRows.map((row) => `${row.label}: ${row.value}`),
       "",
       "Models:",
-      `Text: ${textRoute.label}`,
-      `Text key: ${textRoute.key || "(empty)"}`,
-      `Vision: ${visionRoute.label}`,
-      `Vision key: ${visionRoute.key || "(empty)"}`,
-      `STT: ${sttRoute.label}`,
-      `STT key: ${sttRoute.key || "(empty)"}`,
-      `TTS: ${ttsRoute.label}`,
-      `TTS key: ${ttsRoute.key || "(empty)"}`
-    ].filter((line): line is string => Boolean(line));
-
-    return lines.join("\n");
+      ...modelRows.map((row) => `${row.label}: ${row.value}`)
+    ].join("\n");
   }
 
   private helpText(): string {
-    return [
-      "Available commands:",
-      "/stop - stop current running task",
-      "/new - create and switch to a new session",
-      "/clear - clear context of current session",
-      "/sessions - list sessions and current active session",
-      "/sessions <index|sessionId> - switch active session",
-      "/delete_sessions - list sessions and delete usage",
-      "/delete_sessions <index|sessionId> - delete a session",
-      "/status - show current bot/session/runtime status",
-      "/state - alias of /status",
-      "/thinking - show current session thinking setting",
-      "/thinking <default|off|low|medium|high> - change thinking for current session only",
-      "/models - show text route models and current active model",
-      "/models <index|key> - switch text model",
-      "/models <text|vision|stt|tts> - show models and current active model for that route",
-      "/models <text|vision|stt|tts> <index|key> - switch route model",
-      "/compact [instructions] - summarize older context of current session",
-      ...(this.options.helpLines ?? []),
-      "/login <provider> - start OAuth login",
-      "/login <provider> <code-or-redirect-url> - finish OAuth login",
-      "/logout <provider> - remove stored auth",
-      "/skills - list currently loaded skills",
-      "/help - show this help"
-    ].join("\n");
+    const commandRows: CommandTableRow[] = [
+      { label: "/stop", value: "stop current running task" },
+      { label: "/new", value: "create and switch to a new session" },
+      { label: "/clear", value: "clear context of current session" },
+      { label: "/sessions", value: "list sessions and current active session" },
+      { label: "/sessions <index|sessionId>", value: "switch active session" },
+      { label: "/delete_sessions", value: "list sessions and delete usage" },
+      { label: "/delete_sessions <index|sessionId>", value: "delete a session" },
+      { label: "/status", value: "show current bot/session/runtime status" },
+      { label: "/state", value: "alias of /status" },
+      { label: "/thinking", value: "show current session thinking setting" },
+      { label: "/thinking <default|off|low|medium|high>", value: "change thinking for current session only" },
+      { label: "/models", value: "show text route models and current active model" },
+      { label: "/models <index|key>", value: "switch text model" },
+      { label: "/models <text|vision|stt|tts>", value: "show models and current active model for that route" },
+      { label: "/models <text|vision|stt|tts> <index|key>", value: "switch route model" },
+      { label: "/compact [instructions]", value: "summarize older context of current session" },
+      ...(this.options.helpLines ?? []).map((line) => {
+        const separator = line.indexOf(" - ");
+        if (separator < 0) return { label: line, value: "" };
+        return {
+          label: line.slice(0, separator).trim(),
+          value: line.slice(separator + 3).trim()
+        };
+      }),
+      { label: "/login <provider>", value: "start OAuth login" },
+      { label: "/login <provider> <code-or-redirect-url>", value: "finish OAuth login" },
+      { label: "/logout <provider>", value: "remove stored auth" },
+      { label: "/skills", value: "list currently loaded skills" },
+      { label: "/help", value: "show this help" }
+    ];
+
+    if (this.shouldUseMarkdownTable("help")) {
+      return this.renderTwoColumnSectionsAsMarkdown([{ title: "Available commands", rows: commandRows }]);
+    }
+
+    return ["Available commands:", ...commandRows.map((row) => `${row.label} - ${row.value}`)].join("\n");
   }
 }
