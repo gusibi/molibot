@@ -219,6 +219,23 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Prompt ordering should reflect decision impact, not implementation categories. “How to work” and “when to use skills/tools” must appear before path maps, scheduler detail, or long environment notes.
 - Dynamic sections must behave like indexes, not mini-manuals. Skills should expose short descriptions plus aliases/paths, while current memory should inject a bounded summary instead of long raw records.
 
+## 175. Skill 执行目录稳固化 (2026-04-19)
+- Priority: P1
+- Stage: Delivered (2026-04-19)
+- Problem:
+  - 某些 skill 会在说明里直接写 `bash scripts/...` 这类相对路径命令，但运行时 shell 的默认目录其实是当前聊天的 `scratch`，不是 skill 自己的目录。
+  - 一旦模型没有先手动 `cd` 到 skill 目录，相对路径就会漂到 `.../<chatId>/scratch/scripts/...`，导致“文件明明存在却提示找不到”。
+  - 显式 skill 调用上下文虽然已经把 `skill_file` 给到模型，但没有把同样权威的目录路径一起带上，模型仍然容易自己猜。
+- Requirement:
+  - skill 自己给出的执行命令必须明确进入当前 skill 目录，不能默认依赖当前 shell 工作目录，也不能写死某一台机器上的绝对路径。
+  - skill 内部脚本在启动时也必须自我纠正到自己的目录，再去访问相对路径资源，避免上层调用方式稍有变化就失效。
+  - 显式 skill 调用上下文必须同时包含 `skill_file` 和 `base_dir`，让模型看到唯一可信的目录基准。
+- Enforcement:
+  - `~/.molibot/skills/onlinestool/SKILL.md` 必须把自动收录命令改成先进入 skill 目录再执行。
+  - `~/.molibot/skills/onlinestool/scripts/run_update.sh` 必须在开头解析脚本所在目录并切换过去，再访问 `.venv`、`scripts/`、`references/`、`audit.log`、`output/` 等相对路径。
+  - `src/lib/server/agent/runner.ts` 必须在显式 skill 注入块中带出 `base_dir`，减少运行时猜路径。
+  - `features.md` 必须记录本次修复，方便后续排查类似“skill 找错路径”的问题。
+
 ### P1-125 Implementation Note (2026-03-26)
 - Classification should happen at the memory gateway boundary so both supported backends benefit without forking behavior.
 
@@ -2480,3 +2497,21 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/channels/qq/sdk-adapter.ts` 必须去掉未接入主链的重复 manager 实现。
   - `package/qqbot/src/api.ts` 必须改成按 `appId` 存储 token cache / singleflight。
   - `features.md` 必须记录本次修复，方便后续排查 QQ 为什么“能连但收不到消息”。
+
+## 175. Skill Draft 生成规则与标准 Workflow 配置 (2026-04-19)
+- Priority: P1
+- Stage: Delivered (2026-04-19)
+- Problem:
+  - 当前复杂运行成功后是否保存草稿，基本是写死规则，阈值偏低时很容易积累过多草稿，操作者无法按自己的标准控制。
+  - 当前自动生成的草稿结构不够稳定，没有办法指定一套已经验证过的 workflow `SKILL.md` 作为统一标准。
+- Requirement:
+  - `Skill Drafts` 设置页必须允许配置“什么时候自动保存草稿”，至少支持总开关、最少工具调用次数，以及是否把“工具失败后恢复成功”“模型重试/回退成功”视为可保存场景。
+  - `Skill Drafts` 设置页必须允许指定一个标准 workflow `SKILL.md` 路径；如果没有配置这个路径，就不能打开自动生成开关。
+  - 自动生成草稿时，如果已经配置标准 workflow，新草稿必须优先复用该 workflow 的章节骨架，而不是继续使用松散的默认格式。
+- Enforcement:
+  - `src/lib/server/settings/{schema,defaults,store}.ts` 与 `src/lib/server/app/runtime.ts` 必须持久化并校验新的 `skillDrafts` 配置。
+  - `src/lib/server/agent/runner.ts` 必须在决定是否保存草稿时使用新配置。
+  - `src/lib/server/agent/skillDraft.ts` 必须支持基于标准 workflow 的章节结构生成草稿内容，并在缺少 workflow 路径时拒绝自动生成。
+  - `src/routes/api/settings/skill-drafts/+server.ts` 必须返回当前配置与可选 workflow 建议列表。
+  - `src/routes/settings/skill-drafts/+page.svelte` 必须提供可保存的新配置界面。
+  - `features.md` 必须记录本次能力落地。

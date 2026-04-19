@@ -1,8 +1,11 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
+import { getRuntime } from "$lib/server/app/runtime";
 import { deleteSkillDraftFile, overwriteSkillDraft, readSkillDrafts } from "$lib/server/agent/reviewData";
+import { parseSkillFrontmatter } from "$lib/server/agent/skillFrontmatter";
 import { promoteDraftToLiveSkill } from "$lib/server/agent/skillDraft";
 import type { SkillScope } from "$lib/server/agent/skills";
 
@@ -20,6 +23,93 @@ interface SkillDraftBody {
   name?: string;
 }
 
+interface SkillTemplateOption {
+  name: string;
+  description: string;
+  filePath: string;
+  scope: SkillScope;
+  botId?: string;
+  chatId?: string;
+}
+
+function collectSkillFiles(rootDir: string, out: string[]): void {
+  const entries = readdirSync(rootDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = resolve(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      collectSkillFiles(fullPath, out);
+      continue;
+    }
+    if (entry.isFile() && entry.name.toLowerCase() === "skill.md") out.push(fullPath);
+  }
+}
+
+function parseTemplateOption(
+  filePath: string,
+  scope: SkillScope,
+  botId?: string,
+  chatId?: string
+): SkillTemplateOption | null {
+  try {
+    const raw = readFileSync(filePath, "utf8");
+    const fm = parseSkillFrontmatter(raw);
+    const name = fm?.name?.trim();
+    const description = fm?.description?.trim();
+    if (!name || !description) return null;
+    return { name, description, filePath, scope, botId, chatId };
+  } catch {
+    return null;
+  }
+}
+
+function readTemplateSkillOptions(dataRoot: string): SkillTemplateOption[] {
+  const items: SkillTemplateOption[] = [];
+  const globalSkillsDir = resolve(dataRoot, "skills");
+  const botsRoot = resolve(dataRoot, "moli-t", "bots");
+
+  if (existsSync(globalSkillsDir)) {
+    const files: string[] = [];
+    collectSkillFiles(globalSkillsDir, files);
+    for (const filePath of files.sort((a, b) => a.localeCompare(b))) {
+      const item = parseTemplateOption(filePath, "global");
+      if (item) items.push(item);
+    }
+  }
+
+  if (existsSync(botsRoot)) {
+    const botEntries = readdirSync(botsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+    for (const botEntry of botEntries) {
+      const botId = botEntry.name;
+      const botDir = resolve(botsRoot, botId);
+      const botSkillsDir = resolve(botDir, "skills");
+      if (existsSync(botSkillsDir)) {
+        const files: string[] = [];
+        collectSkillFiles(botSkillsDir, files);
+        for (const filePath of files.sort((a, b) => a.localeCompare(b))) {
+          const item = parseTemplateOption(filePath, "bot", botId);
+          if (item) items.push(item);
+        }
+      }
+
+      const chatEntries = readdirSync(botDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && entry.name !== "skills");
+      for (const chatEntry of chatEntries) {
+        const chatId = chatEntry.name;
+        const chatSkillsDir = resolve(botDir, chatId, "skills");
+        if (!existsSync(chatSkillsDir)) continue;
+        const files: string[] = [];
+        collectSkillFiles(chatSkillsDir, files);
+        for (const filePath of files.sort((a, b) => a.localeCompare(b))) {
+          const item = parseTemplateOption(filePath, "chat", botId, chatId);
+          if (item) items.push(item);
+        }
+      }
+    }
+  }
+
+  return items;
+}
+
 function isAllowedDraftPath(dataRoot: string, filePath: string): boolean {
   const normalized = resolve(filePath);
   const allowedRoot = resolve(dataRoot, "moli-t", "bots");
@@ -34,11 +124,14 @@ function isAllowedWorkspaceDir(dataRoot: string, workspaceDir: string): boolean 
 
 export const GET: RequestHandler = async () => {
   const dataRoot = resolve(config.dataDir);
+  const settings = getRuntime().getSettings();
   const { items, diagnostics } = readSkillDrafts(dataRoot);
 
   return json({
     ok: true,
     dataRoot,
+    skillDrafts: settings.skillDrafts,
+    templateSkills: readTemplateSkillOptions(dataRoot),
     items,
     diagnostics,
     counts: {

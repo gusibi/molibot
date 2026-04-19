@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
@@ -115,6 +116,26 @@ function validateAgentReferences(current: RuntimeSettings, patch: Partial<Runtim
   return null;
 }
 
+function validateSkillDraftSettings(current: RuntimeSettings, patch: Partial<RuntimeSettings>): string | null {
+  if (!("skillDrafts" in patch)) return null;
+  const next = patch.skillDrafts ?? current.skillDrafts;
+  const enabled = Boolean(next?.autoSave?.enabled);
+  const skillPath = String(next?.template?.skillPath ?? "").trim();
+  if (!enabled) return null;
+  if (!skillPath) {
+    return "Skill draft auto-save requires a workflow SKILL.md path before it can be enabled.";
+  }
+  try {
+    const stat = statSync(skillPath);
+    if (!stat.isFile()) {
+      return `Configured skill draft workflow must be a SKILL.md file: ${skillPath}`;
+    }
+  } catch {
+    return `Configured skill draft workflow not found: ${skillPath}`;
+  }
+  return null;
+}
+
 export const GET: RequestHandler = async () => {
   const { getSettings } = getRuntime();
   return json({ ok: true, settings: getSettings() });
@@ -133,6 +154,10 @@ export const PUT: RequestHandler = async ({ request }) => {
   const validationError = validateAgentReferences(runtime.getSettings(), patch);
   if (validationError) {
     return json({ ok: false, error: validationError }, { status: 400 });
+  }
+  const skillDraftValidationError = validateSkillDraftSettings(runtime.getSettings(), patch);
+  if (skillDraftValidationError) {
+    return json({ ok: false, error: skillDraftValidationError }, { status: 400 });
   }
 
   const updated = runtime.updateSettings(patch);

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import { assessMemoryWrite } from "../memory/classifier.js";
 import { parseMemoryGovernanceLine } from "../memory/governanceLog.js";
 import { parseRunHistoryLine, parseSkillDraftItem } from "./reviewData.js";
@@ -12,6 +13,8 @@ import {
 } from "./skillDraft.js";
 import { buildRunReflection, formatRunClosingNote } from "./runSummary.js";
 
+const WORKFLOW_SKILL_PATH = fileURLToPath(new URL("../../../../skills/find-skills/SKILL.md", import.meta.url));
+
 test("suggests skill draft for successful complex runs", () => {
   assert.equal(
     shouldSuggestSkillDraft({
@@ -20,7 +23,12 @@ test("suggests skill draft for successful complex runs", () => {
       toolCalls: 4,
       toolFailures: 0,
       modelAttempts: 1,
-      explicitSkillCount: 0
+      explicitSkillCount: 0,
+      settings: {
+        template: {
+          skillPath: WORKFLOW_SKILL_PATH
+        }
+      }
     }),
     true
   );
@@ -32,7 +40,108 @@ test("suggests skill draft for successful complex runs", () => {
       toolCalls: 2,
       toolFailures: 0,
       modelAttempts: 1,
-      explicitSkillCount: 1
+      explicitSkillCount: 1,
+      settings: {
+        template: {
+          skillPath: WORKFLOW_SKILL_PATH
+        }
+      }
+    }),
+    false
+  );
+});
+
+test("skill draft suggestion respects configurable thresholds and toggles", () => {
+  assert.equal(
+    shouldSuggestSkillDraft({
+      stopReason: "stop",
+      finalText: "done",
+      toolCalls: 4,
+      toolFailures: 0,
+      modelAttempts: 1,
+      explicitSkillCount: 0,
+      settings: {
+        autoSave: {
+          enabled: true,
+          minToolCalls: 10,
+          allowRecoveredToolFailures: false,
+          allowModelRetries: false
+        },
+        template: {
+          skillPath: WORKFLOW_SKILL_PATH
+        }
+      }
+    }),
+    false
+  );
+
+  assert.equal(
+    shouldSuggestSkillDraft({
+      stopReason: "stop",
+      finalText: "done",
+      toolCalls: 3,
+      toolFailures: 1,
+      modelAttempts: 1,
+      explicitSkillCount: 0,
+      settings: {
+        autoSave: {
+          enabled: true,
+          minToolCalls: 10,
+          allowRecoveredToolFailures: true,
+          allowModelRetries: false
+        },
+        template: {
+          skillPath: WORKFLOW_SKILL_PATH
+        }
+      }
+    }),
+    false
+  );
+
+  assert.equal(
+    shouldSuggestSkillDraft({
+      stopReason: "stop",
+      finalText: "done",
+      toolCalls: 12,
+      toolFailures: 0,
+      modelAttempts: 1,
+      explicitSkillCount: 0,
+      settings: {
+        autoSave: {
+          enabled: false,
+          minToolCalls: 4,
+          allowRecoveredToolFailures: true,
+          allowModelRetries: true
+        },
+        template: {
+          skillPath: WORKFLOW_SKILL_PATH
+        }
+      }
+    }),
+    false
+  );
+});
+
+test("skill draft suggestion stays off without a configured workflow skill", () => {
+  assert.equal(
+    shouldSuggestSkillDraft({
+      stopReason: "stop",
+      finalText: "done",
+      toolCalls: 12,
+      toolFailures: 1,
+      modelAttempts: 2,
+      explicitSkillCount: 0,
+      settings: {
+        autoSave: {
+          enabled: true,
+          minToolCalls: 4,
+          allowRecoveredToolFailures: true,
+          allowModelRetries: true
+        },
+        template: {
+          skillPath: ""
+        }
+      }
     }),
     false
   );
@@ -54,6 +163,31 @@ test("skill draft markdown keeps goal and tool path hints", () => {
   assert.match(built.content, /web_search, write/);
   assert.match(built.content, /primary model timeout/);
   assert.match(built.content, /这里是整理后的摘要/);
+});
+
+test("skill draft markdown can reuse a configured template skill structure", () => {
+  const built = buildSkillDraftMarkdown({
+    workspaceDir: "/tmp/workspace",
+    chatId: "chat-1",
+    userMessage: "帮我整理日报",
+    finalAnswer: "日报已整理",
+    toolNames: ["read", "write"],
+    failedToolNames: ["read"],
+    explicitSkillNames: [],
+    modelFailures: [],
+    settings: {
+      template: {
+        skillPath: WORKFLOW_SKILL_PATH
+      }
+    }
+  });
+
+  assert.match(built.content, /template_skill_path:/);
+  assert.match(built.content, /# Find Skills/);
+  assert.match(built.content, /# What is the Skills CLI\?/);
+  assert.match(built.content, /# When To Use/);
+  assert.match(built.content, /帮我整理日报/);
+  assert.match(built.content, /read, write/);
 });
 
 test("run closing note includes budget and draft path", () => {
@@ -185,6 +319,7 @@ test("draft promotion strips draft markers and infers a stable skill name", () =
     "description: sample draft",
     "draft: true",
     "source: auto-run-summary",
+    "template_skill_path: /workspace/skills/template/SKILL.md",
     "---",
     "",
     "# Goal",
@@ -199,6 +334,7 @@ test("draft promotion strips draft markers and infers a stable skill name", () =
   assert.equal(prepared.name, "sample");
   assert.doesNotMatch(prepared.content, /draft:\s*true/);
   assert.doesNotMatch(prepared.content, /source:\s*auto-run-summary/);
+  assert.doesNotMatch(prepared.content, /template_skill_path:/);
   assert.match(prepared.content, /# Goal/);
   assert.match(prepared.content, /sample draft/);
 });

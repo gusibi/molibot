@@ -70,6 +70,7 @@ interface RawSettings {
   qqBots?: unknown;
   mcpServers?: unknown;
   skillSearch?: unknown;
+  skillDrafts?: unknown;
   disabledSkillPaths?: unknown;
   acp?: unknown;
 }
@@ -139,6 +140,40 @@ function sanitizeSkillSearchSettings(input: unknown): RuntimeSettings["skillSear
         0,
         1
       )
+    }
+  };
+}
+
+function sanitizeSkillDraftSettings(input: unknown): RuntimeSettings["skillDrafts"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const autoSave = source.autoSave && typeof source.autoSave === "object"
+    ? source.autoSave as Record<string, unknown>
+    : {};
+  const template = source.template && typeof source.template === "object"
+    ? source.template as Record<string, unknown>
+    : {};
+  return {
+    autoSave: {
+      enabled: autoSave.enabled === undefined
+        ? defaultRuntimeSettings.skillDrafts.autoSave.enabled
+        : Boolean(autoSave.enabled),
+      minToolCalls: clampNumber(
+        autoSave.minToolCalls,
+        defaultRuntimeSettings.skillDrafts.autoSave.minToolCalls,
+        1,
+        200
+      ),
+      allowRecoveredToolFailures: autoSave.allowRecoveredToolFailures === undefined
+        ? defaultRuntimeSettings.skillDrafts.autoSave.allowRecoveredToolFailures
+        : Boolean(autoSave.allowRecoveredToolFailures),
+      allowModelRetries: autoSave.allowModelRetries === undefined
+        ? defaultRuntimeSettings.skillDrafts.autoSave.allowModelRetries
+        : Boolean(autoSave.allowModelRetries)
+    },
+    template: {
+      skillPath: String(template.skillPath ?? defaultRuntimeSettings.skillDrafts.template.skillPath).trim()
     }
   };
 }
@@ -750,6 +785,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const agents = sanitizeAgents(raw.agents);
   const mcpServers = sanitizeMcpServers(raw.mcpServers ?? defaultRuntimeSettings.mcpServers);
   const skillSearch = sanitizeSkillSearchSettings(raw.skillSearch ?? defaultRuntimeSettings.skillSearch);
+  const skillDrafts = sanitizeSkillDraftSettings(raw.skillDrafts ?? defaultRuntimeSettings.skillDrafts);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
   const compactionEnabledRaw = raw.compaction?.enabled;
   const compactionEnabled =
@@ -799,6 +835,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     channels,
     mcpServers,
     skillSearch,
+    skillDrafts,
     disabledSkillPaths,
     telegramBots: effectiveTelegramBots,
     qqBots: effectiveQQBots,
@@ -1140,6 +1177,7 @@ export class SettingsStore {
       acp: settings.acp,
       mcpServers: settings.mcpServers,
       skillSearch: settings.skillSearch,
+      skillDrafts: settings.skillDrafts,
       disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,
       telegramAllowedChatIds: settings.telegramAllowedChatIds

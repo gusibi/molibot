@@ -126,6 +126,36 @@ function sanitizeSkillSearchSettings(
   };
 }
 
+function sanitizeSkillDraftSettings(
+  input: unknown,
+  fallback: RuntimeSettings["skillDrafts"]
+): RuntimeSettings["skillDrafts"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const autoSave = source.autoSave && typeof source.autoSave === "object"
+    ? source.autoSave as Record<string, unknown>
+    : {};
+  const template = source.template && typeof source.template === "object"
+    ? source.template as Record<string, unknown>
+    : {};
+  return {
+    autoSave: {
+      enabled: autoSave.enabled === undefined ? fallback.autoSave.enabled : Boolean(autoSave.enabled),
+      minToolCalls: clampNumber(autoSave.minToolCalls, fallback.autoSave.minToolCalls, 1, 200),
+      allowRecoveredToolFailures: autoSave.allowRecoveredToolFailures === undefined
+        ? fallback.autoSave.allowRecoveredToolFailures
+        : Boolean(autoSave.allowRecoveredToolFailures),
+      allowModelRetries: autoSave.allowModelRetries === undefined
+        ? fallback.autoSave.allowModelRetries
+        : Boolean(autoSave.allowModelRetries)
+    },
+    template: {
+      skillPath: String(template.skillPath ?? fallback.template.skillPath).trim()
+    }
+  };
+}
+
 function logPluginCatalog(state: RuntimeState): void {
   const channelSummary = state.pluginCatalog.channels
     .map((plugin) => `${plugin.key}:${colorStatus(plugin.status)}`)
@@ -671,6 +701,7 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   next.qqBots = sanitizedQQBots;
   next.mcpServers = sanitizeMcpServers(next.mcpServers ?? current.mcpServers);
   next.skillSearch = sanitizeSkillSearchSettings(next.skillSearch ?? current.skillSearch, current.skillSearch);
+  next.skillDrafts = sanitizeSkillDraftSettings(next.skillDrafts ?? current.skillDrafts, current.skillDrafts);
   next.disabledSkillPaths = Array.isArray(next.disabledSkillPaths)
     ? next.disabledSkillPaths.map((v) => String(v).trim()).filter(Boolean)
     : current.disabledSkillPaths;

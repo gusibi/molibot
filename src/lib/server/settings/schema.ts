@@ -174,6 +174,22 @@ export interface SkillSearchSettings {
   api: SkillSearchApiSettings;
 }
 
+export interface SkillDraftAutoSaveSettings {
+  enabled: boolean;
+  minToolCalls: number;
+  allowRecoveredToolFailures: boolean;
+  allowModelRetries: boolean;
+}
+
+export interface SkillDraftTemplateSettings {
+  skillPath: string;
+}
+
+export interface SkillDraftSettings {
+  autoSave: SkillDraftAutoSaveSettings;
+  template: SkillDraftTemplateSettings;
+}
+
 export interface RuntimeSettings {
   providerMode: ProviderMode;
   piModelProvider: KnownProvider;
@@ -190,6 +206,7 @@ export interface RuntimeSettings {
   channels: ChannelSettingsMap;
   mcpServers: McpServerConfig[];
   skillSearch: SkillSearchSettings;
+  skillDrafts: SkillDraftSettings;
   disabledSkillPaths: string[];
   telegramBots: TelegramBotConfig[];
   feishuBots: FeishuBotConfig[];

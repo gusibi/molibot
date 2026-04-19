@@ -10,6 +10,7 @@ import {
   type QQBotConfig,
   type McpServerConfig,
   type ProviderMode,
+  type SkillDraftSettings,
   type SkillSearchSettings,
   type RuntimeSettings,
   type TelegramBotConfig
@@ -236,6 +237,19 @@ const defaultSkillSearchSettings: SkillSearchSettings = {
     minConfidence: Math.min(1, Math.max(0, Number(process.env.MOLIBOT_SKILL_SEARCH_API_MIN_CONFIDENCE ?? 0.6) || 0.6))
   }
 };
+const defaultSkillDraftSettings: SkillDraftSettings = {
+  autoSave: {
+    enabled: true,
+    minToolCalls: Math.max(1, Number(process.env.MOLIBOT_SKILL_DRAFT_MIN_TOOL_CALLS ?? 4) || 4),
+    allowRecoveredToolFailures:
+      String(process.env.MOLIBOT_SKILL_DRAFT_ALLOW_TOOL_FAILURES ?? "true").toLowerCase() !== "false",
+    allowModelRetries:
+      String(process.env.MOLIBOT_SKILL_DRAFT_ALLOW_MODEL_RETRIES ?? "true").toLowerCase() !== "false"
+  },
+  template: {
+    skillPath: String(process.env.MOLIBOT_SKILL_DRAFT_TEMPLATE_PATH ?? "").trim()
+  }
+};
 const defaultAcpSettings: AcpSettings = {
   enabled: true,
   targets: [
@@ -299,6 +313,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   },
   mcpServers: defaultMcpServers,
   skillSearch: defaultSkillSearchSettings,
+  skillDrafts: defaultSkillDraftSettings,
   disabledSkillPaths: [],
   telegramBots: defaultTelegramBots,
   qqBots: defaultQQBots,

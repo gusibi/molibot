@@ -6,6 +6,27 @@
 
   type SkillScope = "global" | "chat" | "bot";
 
+  interface SkillDraftSettings {
+    autoSave: {
+      enabled: boolean;
+      minToolCalls: number;
+      allowRecoveredToolFailures: boolean;
+      allowModelRetries: boolean;
+    };
+    template: {
+      skillPath: string;
+    };
+  }
+
+  interface TemplateSkillOption {
+    name: string;
+    description: string;
+    filePath: string;
+    scope: SkillScope;
+    botId?: string;
+    chatId?: string;
+  }
+
   interface SkillDraftItem {
     filePath: string;
     fileName: string;
@@ -28,15 +49,29 @@
   }
 
   let loading = true;
+  let savingConfig = false;
   let error = "";
   let message = "";
   let diagnostics: string[] = [];
   let items: SkillDraftItem[] = [];
+  let templateSkills: TemplateSkillOption[] = [];
+  let skillDrafts: SkillDraftSettings = {
+    autoSave: {
+      enabled: true,
+      minToolCalls: 4,
+      allowRecoveredToolFailures: true,
+      allowModelRetries: true
+    },
+    template: {
+      skillPath: ""
+    }
+  };
   let counts: Counts = { total: 0, botCount: 0, chatCount: 0 };
   let saving = new Set<string>();
   let draftContent: Record<string, string> = {};
   let draftName: Record<string, string> = {};
   let draftScope: Record<string, SkillScope> = {};
+  let workflowSuggestionsId = "skill-draft-workflow-suggestions";
 
   function formatDate(value: string): string {
     if (!value) return "-";
@@ -66,6 +101,38 @@
     draftScope = Object.fromEntries(rows.map((item) => [item.filePath, "chat"]));
   }
 
+  function normalizeSkillDraftSettings(input: unknown): SkillDraftSettings {
+    const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+    const autoSave = source.autoSave && typeof source.autoSave === "object"
+      ? source.autoSave as Record<string, unknown>
+      : {};
+    const template = source.template && typeof source.template === "object"
+      ? source.template as Record<string, unknown>
+      : {};
+    return {
+      autoSave: {
+        enabled: autoSave.enabled === undefined ? true : Boolean(autoSave.enabled),
+        minToolCalls: Math.max(1, Number(autoSave.minToolCalls ?? 4) || 4),
+        allowRecoveredToolFailures:
+          autoSave.allowRecoveredToolFailures === undefined ? true : Boolean(autoSave.allowRecoveredToolFailures),
+        allowModelRetries: autoSave.allowModelRetries === undefined ? true : Boolean(autoSave.allowModelRetries)
+      },
+      template: {
+        skillPath: String(template.skillPath ?? "")
+      }
+    };
+  }
+
+  function formatTemplateScope(item: TemplateSkillOption): string {
+    if (item.scope === "global") return "Global";
+    if (item.scope === "bot") return `Bot · ${item.botId}`;
+    return `Chat · ${item.botId}/${item.chatId}`;
+  }
+
+  function hasWorkflowSkillPath(): boolean {
+    return Boolean(String(skillDrafts.template.skillPath ?? "").trim());
+  }
+
   async function loadDrafts(): Promise<void> {
     loading = true;
     error = "";
@@ -76,6 +143,8 @@
       if (!data.ok) throw new Error(data.error || "Failed to load skill drafts");
       items = Array.isArray(data.items) ? data.items : [];
       diagnostics = Array.isArray(data.diagnostics) ? data.diagnostics : [];
+      templateSkills = Array.isArray(data.templateSkills) ? data.templateSkills : [];
+      skillDrafts = normalizeSkillDraftSettings(data.skillDrafts);
       counts = {
         total: Number(data.counts?.total ?? 0),
         botCount: Number(data.counts?.botCount ?? 0),
@@ -87,6 +156,30 @@
       error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
+    }
+  }
+
+  async function saveDraftSettings(): Promise<void> {
+    savingConfig = true;
+    error = "";
+    message = "";
+    try {
+      if (skillDrafts.autoSave.enabled && !hasWorkflowSkillPath()) {
+        throw new Error("先指定一个标准 workflow 路径，才能打开自动生成。");
+      }
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ skillDrafts })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to save skill draft settings");
+      skillDrafts = normalizeSkillDraftSettings(data.settings?.skillDrafts ?? skillDrafts);
+      message = "Skill draft settings saved.";
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      savingConfig = false;
     }
   }
 
@@ -173,6 +266,16 @@
   }
 
   onMount(loadDrafts);
+
+  $: if (!hasWorkflowSkillPath() && skillDrafts.autoSave.enabled) {
+    skillDrafts = {
+      ...skillDrafts,
+      autoSave: {
+        ...skillDrafts.autoSave,
+        enabled: false
+      }
+    };
+  }
 </script>
 
 <PageShell widthClass="max-w-6xl" gapClass="space-y-6">
@@ -198,6 +301,92 @@
       Loading skill drafts...
     </div>
   {:else}
+    <section class="space-y-4 rounded-2xl border border-white/15 bg-[#2b2b2b] p-5 text-sm text-slate-200">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold">Draft Generation Rules</h2>
+          <p class="mt-1 text-sm text-slate-400">
+            Control when reusable workflow drafts are saved, and which existing skill should define the draft format.
+          </p>
+        </div>
+        <Button variant="outline" size="md" disabled={savingConfig} on:click={saveDraftSettings}>
+          {savingConfig ? "Saving..." : "Save Rules"}
+        </Button>
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="flex items-center gap-3 rounded-xl border border-white/10 bg-black/10 px-3 py-3">
+          <input
+            type="checkbox"
+            bind:checked={skillDrafts.autoSave.enabled}
+            disabled={!hasWorkflowSkillPath()}
+          />
+          <span>Enable automatic draft saving</span>
+        </label>
+        <label class="space-y-2">
+          <span class="text-xs uppercase tracking-wide text-slate-400">Minimum Tool Calls</span>
+          <input
+            type="number"
+            min="1"
+            class="w-full rounded-xl border border-white/15 bg-black/10 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+            bind:value={skillDrafts.autoSave.minToolCalls}
+          />
+        </label>
+      </div>
+
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="flex items-center gap-3 rounded-xl border border-white/10 bg-black/10 px-3 py-3">
+          <input type="checkbox" bind:checked={skillDrafts.autoSave.allowRecoveredToolFailures} />
+          <span>Save draft when the run recovered from tool failures</span>
+        </label>
+        <label class="flex items-center gap-3 rounded-xl border border-white/10 bg-black/10 px-3 py-3">
+          <input type="checkbox" bind:checked={skillDrafts.autoSave.allowModelRetries} />
+          <span>Save draft when the run needed model retries or fallback</span>
+        </label>
+      </div>
+
+      <label class="block space-y-2">
+        <span class="text-xs uppercase tracking-wide text-slate-400">Workflow Skill Path</span>
+        <input
+          class="w-full rounded-xl border border-white/15 bg-black/10 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+          bind:value={skillDrafts.template.skillPath}
+          list={workflowSuggestionsId}
+          placeholder="/Users/gusi/.molibot/skills/skill-creator/SKILL.md"
+        />
+        <datalist id={workflowSuggestionsId}>
+          {#each templateSkills as option}
+            <option value={option.filePath}>
+              {option.name} · {formatTemplateScope(option)}
+            </option>
+          {/each}
+        </datalist>
+        <p class="text-xs text-slate-400">
+          Fill in the standard workflow `SKILL.md` path. Without this path, automatic draft generation stays off.
+        </p>
+        {#if templateSkills.length > 0}
+          <div class="rounded-xl border border-white/10 bg-black/10 px-3 py-3 text-xs text-slate-400">
+            Suggestions:
+            {#each templateSkills as option, index}
+              <div class={index === 0 ? "mt-2" : "mt-1"}>{option.name} · {formatTemplateScope(option)} · {option.filePath}</div>
+            {/each}
+          </div>
+        {/if}
+      </label>
+
+      {#if !hasWorkflowSkillPath()}
+        <div class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs text-amber-200">
+          Automatic draft generation is locked until a workflow `SKILL.md` path is configured.
+        </div>
+      {/if}
+
+      <!-- Keep showing the current configured path explicitly for quick confirmation. -->
+      {#if skillDrafts.template.skillPath}
+        <div class="rounded-xl border border-white/10 bg-black/10 px-3 py-3 text-xs text-slate-400">
+          Selected workflow: {skillDrafts.template.skillPath}
+        </div>
+      {/if}
+    </section>
+
     <section class="grid gap-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4 text-sm text-slate-300 sm:grid-cols-3">
       <div><span class="text-slate-400">Total:</span> {counts.total}</div>
       <div><span class="text-slate-400">Bots:</span> {counts.botCount}</div>

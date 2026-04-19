@@ -494,12 +494,14 @@ function hasExplicitMcpInvocation(inputText: string): boolean {
 
 function injectExplicitSkillInvocationContext(
   inputText: string,
-  skills: Array<{ name: string; scope: string; filePath: string; aliases?: string[] }>
+  skills: Array<{ name: string; scope: string; filePath: string; baseDir?: string; aliases?: string[] }>
 ): string {
   if (skills.length === 0) return inputText;
   const lines = skills.map(
     (skill) =>
       `- name: ${skill.name}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}${
+        skill.baseDir ? `\n  base_dir: ${skill.baseDir}` : ""
+      }${
         Array.isArray(skill.aliases) && skill.aliases.length > 0 ? `\n  aliases: ${skill.aliases.join(", ")}` : ""
       }`
   );
@@ -508,7 +510,7 @@ function injectExplicitSkillInvocationContext(
 
 function injectExplicitSkillFileContext(
   inputText: string,
-  skills: Array<{ name: string; scope: string; filePath: string }>
+  skills: Array<{ name: string; scope: string; filePath: string; baseDir?: string }>
 ): string {
   if (skills.length === 0) return inputText;
 
@@ -522,6 +524,7 @@ function injectExplicitSkillFileContext(
             `- name: ${skill.name}`,
             `  scope: ${skill.scope}`,
             `  skill_file: ${skill.filePath}`,
+            ...(skill.baseDir ? [`  base_dir: ${skill.baseDir}`] : []),
             "  status: empty"
           ].join("\n")
         );
@@ -533,6 +536,7 @@ function injectExplicitSkillFileContext(
           `- name: ${skill.name}`,
           `  scope: ${skill.scope}`,
           `  skill_file: ${skill.filePath}`,
+          ...(skill.baseDir ? [`  base_dir: ${skill.baseDir}`] : []),
           "  status: loaded",
           "  content: |",
           ...raw.split("\n").map((line) => `    ${line}`)
@@ -544,6 +548,7 @@ function injectExplicitSkillFileContext(
           `- name: ${skill.name}`,
           `  scope: ${skill.scope}`,
           `  skill_file: ${skill.filePath}`,
+          ...(skill.baseDir ? [`  base_dir: ${skill.baseDir}`] : []),
           `  status: read_failed`,
           `  error: ${error instanceof Error ? error.message : String(error)}`
         ].join("\n")
@@ -2144,7 +2149,8 @@ export class MomRunner implements RunnerLike {
           toolCalls: budget.snapshot().toolCalls,
           toolFailures: budget.snapshot().toolFailures,
           modelAttempts: budget.snapshot().modelAttempts,
-          explicitSkillCount: explicitlyInvokedSkills.length
+          explicitSkillCount: explicitlyInvokedSkills.length,
+          settings: settings.skillDrafts
         })
       ) {
         savedSkillDraft = saveSkillDraft({
@@ -2155,7 +2161,8 @@ export class MomRunner implements RunnerLike {
           toolNames: usedToolNames,
           failedToolNames,
           explicitSkillNames: explicitlyInvokedSkills.map((skill) => skill.name),
-          modelFailures: modelFailures.map(formatModelAttemptFailure)
+          modelFailures: modelFailures.map(formatModelAttemptFailure),
+          settings: settings.skillDrafts
         });
       }
 
