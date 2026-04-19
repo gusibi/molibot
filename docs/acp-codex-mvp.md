@@ -117,7 +117,7 @@ For future text-oriented channels, the expected pattern is:
 ### 1. Register a project
 
 ```text
-/acp add-project molipibot /Users/gusi/Github/molipibot
+/acp add-project molipibot ~/Github/molipibot
 ```
 
 ### 2. Start a Codex ACP session

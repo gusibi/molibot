@@ -96,17 +96,17 @@ export interface ChannelPlugin<TConfig> {
 
 Source of truth:
 
-- [`src/lib/server/channels/registry.ts`](/Users/gusi/Github/molipibot/src/lib/server/channels/registry.ts)
+- [`src/lib/server/channels/registry.ts`](~/Github/molipibot/src/lib/server/channels/registry.ts)
 
 ## Built-in Channel Plugin Example
 
 Telegram plugin entry:
 
-- [`src/lib/server/channels/telegram/index.ts`](/Users/gusi/Github/molipibot/src/lib/server/channels/telegram/index.ts)
+- [`src/lib/server/channels/telegram/index.ts`](~/Github/molipibot/src/lib/server/channels/telegram/index.ts)
 
 Feishu plugin entry:
 
-- [`src/lib/server/channels/feishu/index.ts`](/Users/gusi/Github/molipibot/src/lib/server/channels/feishu/index.ts)
+- [`src/lib/server/channels/feishu/index.ts`](~/Github/molipibot/src/lib/server/channels/feishu/index.ts)
 
 Each built-in plugin does two things:
 
@@ -144,8 +144,8 @@ A channel plugin runtime implementation is responsible for:
 
 The platform-specific implementation now lives inside the plugin directory, for example:
 
-- [`src/lib/server/channels/telegram/runtime.ts`](/Users/gusi/Github/molipibot/src/lib/server/channels/telegram/runtime.ts)
-- [`src/lib/server/channels/feishu/runtime.ts`](/Users/gusi/Github/molipibot/src/lib/server/channels/feishu/runtime.ts)
+- [`src/lib/server/channels/telegram/runtime.ts`](~/Github/molipibot/src/lib/server/channels/telegram/runtime.ts)
+- [`src/lib/server/channels/feishu/runtime.ts`](~/Github/molipibot/src/lib/server/channels/feishu/runtime.ts)
 
 ## Shared Runtime Context
 
@@ -183,7 +183,7 @@ export interface MomContext {
 
 Source:
 
-- [`src/lib/server/agent/types.ts`](/Users/gusi/Github/molipibot/src/lib/server/agent/types.ts)
+- [`src/lib/server/agent/types.ts`](~/Github/molipibot/src/lib/server/agent/types.ts)
 
 ## Persisted Channel Configuration
 
@@ -270,7 +270,7 @@ Current discovery rules:
 
 Related file:
 
-- [`docs/plugin-manifest.md`](/Users/gusi/Github/molipibot/docs/plugin-manifest.md)
+- [`docs/plugin-manifest.md`](~/Github/molipibot/docs/plugin-manifest.md)
 
 ## Provider Plugin Shape
 
@@ -299,9 +299,9 @@ Current load flow:
 
 Relevant files:
 
-- [`src/lib/server/app/runtime.ts`](/Users/gusi/Github/molipibot/src/lib/server/app/runtime.ts)
-- [`src/lib/server/plugins/discovery.ts`](/Users/gusi/Github/molipibot/src/lib/server/plugins/discovery.ts)
-- [`src/routes/api/settings/plugins/+server.ts`](/Users/gusi/Github/molipibot/src/routes/api/settings/plugins/+server.ts)
+- [`src/lib/server/app/runtime.ts`](~/Github/molipibot/src/lib/server/app/runtime.ts)
+- [`src/lib/server/plugins/discovery.ts`](~/Github/molipibot/src/lib/server/plugins/discovery.ts)
+- [`src/routes/api/settings/plugins/+server.ts`](~/Github/molipibot/src/routes/api/settings/plugins/+server.ts)
 
 ## How To Add A New Built-in Channel Plugin
 

@@ -102,7 +102,7 @@ _Table 1: 记忆类型映射关系_
 
 为每条记忆维护评分函数：
 
-![](file:////Users/gusi/Library/Containers/com.kingsoft.wpsoffice.mac/Data/tmp/wps-gusi/ksohtml//wps13.jpg) 
+![](file:///~/Library/Containers/com.kingsoft.wpsoffice.mac/Data/tmp/wps-gusi/ksohtml//wps13.jpg) 
 
 定期衰减低价值记忆，保留"高价值 + 代表性"样本，避免向量库无限膨胀。
 
@@ -491,9 +491,9 @@ memories = db.search_memories(
 
 每条记忆维护动态评分：
 
-![](file:////Users/gusi/Library/Containers/com.kingsoft.wpsoffice.mac/Data/tmp/wps-gusi/ksohtml//wps14.jpg) 
+![](file:///~/Library/Containers/com.kingsoft.wpsoffice.mac/Data/tmp/wps-gusi/ksohtml//wps14.jpg) 
 
-其中 ![](file:////Users/gusi/Library/Containers/com.kingsoft.wpsoffice.mac/Data/tmp/wps-gusi/ksohtml//wps15.jpg) 为时间衰减系数（如 0.1）。
+其中 ![](file:///~/Library/Containers/com.kingsoft.wpsoffice.mac/Data/tmp/wps-gusi/ksohtml//wps15.jpg) 为时间衰减系数（如 0.1）。
 
 #### 定期清理策略
 
@@ -636,7 +636,7 @@ _Table 4: 三种方案综合对比_
 
 #### 自适应遗忘策略
 
-- 根据 Agent 使用模式动态调整 ![](file:////Users/gusi/Library/Containers/com.kingsoft.wpsoffice.mac/Data/tmp/wps-gusi/ksohtml//wps16.jpg) 参数
+- 根据 Agent 使用模式动态调整 ![](file:///~/Library/Containers/com.kingsoft.wpsoffice.mac/Data/tmp/wps-gusi/ksohtml//wps16.jpg) 参数
 - 学习用户对不同类型记忆的重视程度
 - A/B 测试不同遗忘策略对任务成功率的影响
 

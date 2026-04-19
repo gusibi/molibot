@@ -57,6 +57,8 @@ export interface FeishuBotConfig {
   name: string;
   appId: string;
   appSecret: string;
+  verificationToken?: string;
+  encryptKey?: string;
   allowedChatIds: string[];
 }
 

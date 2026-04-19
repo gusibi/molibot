@@ -56,6 +56,7 @@ ______
 - This is real. Not a mockup. Not a prototype. A working product.
 - Keep me in control and in the loop at all times
 - 不要在业务代码里写跨目录的超长相对路径引用，尤其不要直接用 `../../../../..` 去连第三方 vendored 包。统一先配别名或正式入口，再通过别名引用。
+- 不要把我这台电脑上的绝对路径写进代码、界面示例、默认值、文档示例或提示词里，尤其不要出现 `/Users/.../...`。优先使用相对路径、占位写法或与机器无关的通用写法。
 > Molibot 项目配置文件，为 AI 编码助手提供上下文。
 
 

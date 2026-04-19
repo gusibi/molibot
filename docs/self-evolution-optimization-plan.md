@@ -3,8 +3,8 @@
 日期：2026-04-11
 状态：待评审，暂不改代码
 参考来源：
-- `/Users/gusi/Github/molipibot/docs/hermes-agent.md`
-- `/Users/gusi/Github/hermes-agent`
+- `~/Github/molipibot/docs/hermes-agent.md`
+- `~/Github/hermes-agent`
 
 ## 目标
 

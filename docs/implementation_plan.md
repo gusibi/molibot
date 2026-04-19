@@ -268,7 +268,7 @@ Telegram 当前包含独有能力：
 本次改完后，至少运行下面这些：
 
 ```bash
-cd /Users/gusi/Github/molipibot
+cd ~/Github/molipibot
 npx tsc --noEmit
 node --test src/lib/server/channels/telegram/formatting.test.ts
 node --test src/lib/server/channels/weixin/media.test.ts

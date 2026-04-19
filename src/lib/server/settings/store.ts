@@ -645,7 +645,12 @@ function sanitizeChannels(
       name: bot.name,
       enabled: true,
       agentId: "",
-      credentials: { appId: bot.appId, appSecret: bot.appSecret },
+      credentials: {
+        appId: bot.appId,
+        appSecret: bot.appSecret,
+        verificationToken: bot.verificationToken ?? "",
+        encryptKey: bot.encryptKey ?? ""
+      },
       allowedChatIds: bot.allowedChatIds
     }))
   };
@@ -696,6 +701,8 @@ function deriveFeishuBotsFromChannels(channels: ChannelSettingsMap): FeishuBotCo
       name: instance.name || instance.id,
       appId,
       appSecret,
+      verificationToken: String(instance.credentials?.verificationToken ?? "").trim() || undefined,
+      encryptKey: String(instance.credentials?.encryptKey ?? "").trim() || undefined,
       allowedChatIds: Array.isArray(instance.allowedChatIds) ? instance.allowedChatIds : []
     });
   }

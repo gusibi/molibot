@@ -508,7 +508,7 @@
                     <input
                       class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                       bind:value={target.cwd}
-                      placeholder="/Users/gusi/Github/molipibot"
+                      placeholder="."
                     />
                   </label>
 
@@ -580,7 +580,7 @@
                     <input
                       class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                       bind:value={project.path}
-                      placeholder="/Users/gusi/Github/molipibot"
+                      placeholder="./your-project"
                     />
                   </label>
 

@@ -4,14 +4,23 @@ import * as lark from "@larksuiteoapi/node-sdk";
 import type { RuntimeSettings } from "../../settings/index.js";
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
-import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
 import type { ChannelInboundMessage } from "../../agent/types.js";
 import type { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
-import { deleteFeishuMessage, editFeishuText, sendFeishuFile, sendFeishuText } from "./messaging.js";
+import {
+    buildFeishuAcpPermissionResultCard,
+    buildFeishuAcpPermissionCard,
+    deleteFeishuMessage,
+    editFeishuStatusCard,
+    editFeishuText,
+    sendFeishuCard,
+    sendFeishuFile,
+    sendFeishuStatusCard,
+    sendFeishuText
+} from "./messaging.js";
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "./message-intake.js";
 import { BasicChannelAcpTemplate } from "../shared/acp.js";
 import { BaseChannelRuntime } from "../shared/baseRuntime.js";
@@ -20,6 +29,8 @@ import { buildTextChannelContext } from "../shared/contextBuilder.js";
 export interface FeishuConfig {
     appId: string;
     appSecret: string;
+    verificationToken?: string;
+    encryptKey?: string;
     allowedChatIds: string[];
 }
 
@@ -32,9 +43,12 @@ export class FeishuManager extends BaseChannelRuntime {
 
     private client: lark.Client | undefined;
     private wsClient: lark.WSClient | undefined;
+    private cardActionHandler: lark.CardActionHandler | undefined;
 
     private currentAppId = "";
     private currentAppSecret = "";
+    private currentVerificationToken = "";
+    private currentEncryptKey = "";
     private currentAllowedChatIdsKey = "";
 
     private readonly events: EventsWatcher[] = [];
@@ -91,12 +105,16 @@ export class FeishuManager extends BaseChannelRuntime {
     apply(cfg: FeishuConfig): void {
         const appId = cfg.appId.trim();
         const appSecret = cfg.appSecret.trim();
+        const verificationToken = String(cfg.verificationToken ?? "").trim();
+        const encryptKey = String(cfg.encryptKey ?? "").trim();
         const allowedChatIds = cfg.allowedChatIds.map((v) => v.trim()).filter(Boolean);
         const allowedChatIdsKey = JSON.stringify([...allowedChatIds].sort());
 
         momLog("feishu", "apply", {
             hasAppId: Boolean(appId),
             hasAppSecret: Boolean(appSecret),
+            hasVerificationToken: Boolean(verificationToken),
+            hasEncryptKey: Boolean(encryptKey),
             allowedChatCount: allowedChatIds.length
         });
 
@@ -106,7 +124,14 @@ export class FeishuManager extends BaseChannelRuntime {
             return;
         }
 
-        if (this.client && this.currentAppId === appId && this.currentAppSecret === appSecret && this.currentAllowedChatIdsKey === allowedChatIdsKey) {
+        if (
+            this.client &&
+            this.currentAppId === appId &&
+            this.currentAppSecret === appSecret &&
+            this.currentVerificationToken === verificationToken &&
+            this.currentEncryptKey === encryptKey &&
+            this.currentAllowedChatIdsKey === allowedChatIdsKey
+        ) {
             momLog("feishu", "apply_noop_same_credentials");
             return;
         }
@@ -147,12 +172,23 @@ export class FeishuManager extends BaseChannelRuntime {
             eventDispatcher: handler
         });
 
+        this.cardActionHandler = new lark.CardActionHandler(
+            {
+                verificationToken,
+                encryptKey,
+                loggerLevel: lark.LoggerLevel.info
+            },
+            async (event: lark.InteractiveCardActionEvent) => this.handleCardActionEvent(event)
+        );
+
         momLog("feishu", "adapter_started", {
             allowedChatCount: allowed.size
         });
 
         this.currentAppId = appId;
         this.currentAppSecret = appSecret;
+        this.currentVerificationToken = verificationToken;
+        this.currentEncryptKey = encryptKey;
         this.currentAllowedChatIdsKey = allowedChatIdsKey;
 
         // start event watchers and preview gen, just like telegram adapter
@@ -183,23 +219,89 @@ export class FeishuManager extends BaseChannelRuntime {
 
         this.client = undefined;
         this.wsClient = undefined;
+        this.cardActionHandler = undefined;
         this.currentAppId = "";
         this.currentAppSecret = "";
+        this.currentVerificationToken = "";
+        this.currentEncryptKey = "";
         this.currentAllowedChatIdsKey = "";
         void this.acp.dispose();
     }
 
     private async sendAcpPermissionCard(chatId: string, permission: AcpPendingPermissionView): Promise<void> {
-        await sendFeishuText(this.client, chatId, buildAcpPermissionText(permission));
+        await sendFeishuCard(this.client, chatId, buildFeishuAcpPermissionCard(permission, {
+            botId: this.instanceId,
+            chatId
+        }));
+    }
+
+    public async handleCardCallbackRequest(payload: unknown): Promise<lark.InteractiveCard | undefined> {
+        if (!this.cardActionHandler) return undefined;
+        const result = await this.cardActionHandler.invoke(payload);
+        if (result && typeof result === "object") {
+            return result as lark.InteractiveCard;
+        }
+        return undefined;
+    }
+
+    private async handleCardActionEvent(event: lark.InteractiveCardActionEvent): Promise<lark.InteractiveCard | undefined> {
+        const rawValue = event.action?.value;
+        const value = rawValue && typeof rawValue === "object" ? rawValue as Record<string, unknown> : {};
+        if (String(value.kind ?? "").trim() !== "acp_permission") return undefined;
+        if (String(value.botId ?? "").trim() !== this.instanceId) return undefined;
+
+        const chatId = String(value.chatId ?? "").trim();
+        const requestId = String(value.requestId ?? "").trim();
+        const action = String(value.action ?? "").trim();
+        const optionId = String(value.optionId ?? "").trim();
+        if (!chatId || !requestId || !action) return undefined;
+
+        const permission = this.acp.getPendingPermission(chatId, requestId) ?? {
+            id: requestId,
+            title: "Approval Request",
+            kind: "permission",
+            options: [],
+            createdAt: new Date().toISOString()
+        };
+
+        try {
+            let outcome = "";
+            if (action === "approve") {
+                if (!optionId) {
+                    throw new Error("Missing optionId for approve action.");
+                }
+                outcome = await this.acp.approve(chatId, requestId, optionId);
+                return buildFeishuAcpPermissionResultCard(permission, outcome, "green");
+            }
+            if (action === "deny") {
+                outcome = await this.acp.deny(chatId, requestId);
+                return buildFeishuAcpPermissionResultCard(permission, outcome, "red");
+            }
+            return buildFeishuAcpPermissionResultCard(permission, `Unsupported action: ${action}`, "red");
+        } catch (error) {
+            return buildFeishuAcpPermissionResultCard(
+                permission,
+                error instanceof Error ? error.message : String(error),
+                "red"
+            );
+        }
     }
 
     private async runAcpPrompt(chatId: string, prompt: string, startText: string): Promise<void> {
-        const started = await sendFeishuText(this.client, chatId, startText);
+        const started = await sendFeishuStatusCard(this.client, chatId, {
+            title: "ACP Running",
+            body: startText,
+            tone: "blue"
+        });
         const statusMessageId = started?.message_id ?? null;
         let lastStatus = startText;
         const setStatus = async (text: string) => {
             if (!statusMessageId || !text.trim() || text === lastStatus) return;
-            await editFeishuText(this.client, statusMessageId, text);
+            await editFeishuStatusCard(this.client, statusMessageId, {
+                title: "ACP Running",
+                body: text,
+                tone: "blue"
+            });
             lastStatus = text;
         };
 
@@ -234,7 +336,11 @@ export class FeishuManager extends BaseChannelRuntime {
         if (completedTools.length > 0) summaryLines.push(`Completed tools: ${completedTools.length}`);
         if (failedTools.length > 0) summaryLines.push(`Failed tools: ${failedTools.length}`);
         if (touchedLocations.length > 0) summaryLines.push(`Touched: ${touchedLocations.slice(0, 8).join(", ")}`);
-        await sendFeishuText(this.client, chatId, summaryLines.join("\n"));
+        await sendFeishuStatusCard(this.client, chatId, {
+            title: result.stopReason === "completed" ? "ACP Finished" : "ACP Stopped",
+            body: summaryLines.join("\n"),
+            tone: result.stopReason === "completed" ? "green" : "orange"
+        });
         if (result.assistantText.trim()) {
             await sendFeishuText(this.client, chatId, result.assistantText.trim());
         }

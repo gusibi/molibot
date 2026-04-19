@@ -17,6 +17,8 @@
     agentId: string;
     appId: string;
     appSecret: string;
+    verificationToken: string;
+    encryptKey: string;
     allowedChatIds: string;
     profileFiles: Record<string, string>;
     isNew: boolean;
@@ -54,6 +56,8 @@
       agentId: "",
       appId: "",
       appSecret: "",
+      verificationToken: "",
+      encryptKey: "",
       allowedChatIds: "",
       profileFiles: emptyBotFiles(),
       isNew: true
@@ -69,6 +73,8 @@
       agentId: bot.agentId.trim(),
       appId: bot.appId.trim(),
       appSecret: bot.appSecret.trim(),
+      verificationToken: bot.verificationToken.trim(),
+      encryptKey: bot.encryptKey.trim(),
       allowedChatIds: bot.allowedChatIds
         .split(",")
         .map((v) => v.trim())
@@ -124,6 +130,8 @@
             agentId: bot.agentId ?? "",
             appId: bot.credentials?.appId ?? "",
             appSecret: bot.credentials?.appSecret ?? "",
+            verificationToken: bot.credentials?.verificationToken ?? "",
+            encryptKey: bot.credentials?.encryptKey ?? "",
             allowedChatIds: (bot.allowedChatIds ?? []).join(","),
             profileFiles: emptyBotFiles(),
             isNew: false
@@ -237,7 +245,9 @@
             agentId: normalized.agentId,
             credentials: {
               appId: normalized.appId,
-              appSecret: normalized.appSecret
+              appSecret: normalized.appSecret,
+              verificationToken: normalized.verificationToken,
+              encryptKey: normalized.encryptKey
             },
             allowedChatIds: normalized.allowedChatIds
               .split(",")
@@ -417,7 +427,31 @@
                   {showAppSecret ? "Hide" : "Show"}
                 </Button>
               </div>
-            </label>
+              </label>
+            </div>
+
+            <div class="grid gap-3 md:grid-cols-2">
+              <label class="grid gap-1.5 text-sm">
+                <span class="text-slate-300">Card Verification Token</span>
+                <input
+                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                  bind:value={selectedBot.verificationToken}
+                  placeholder="Optional, for card callback security"
+                />
+              </label>
+
+              <label class="grid gap-1.5 text-sm">
+                <span class="text-slate-300">Card Encrypt Key</span>
+                <input
+                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                  bind:value={selectedBot.encryptKey}
+                  placeholder="Optional, for encrypted callbacks"
+                />
+              </label>
+            </div>
+
+            <div class="rounded-lg border border-white/10 bg-[#1f1f1f] px-3 py-3 text-xs text-slate-400">
+              Card callback path: <code>/api/feishu/card</code>
             </div>
 
             <label class="grid gap-1.5 text-sm">

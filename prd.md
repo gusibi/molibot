@@ -542,11 +542,11 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - Added global skills support aligned to mom model: runner now discovers `data/telegram-mom/skills/**/SKILL.md` and injects available skills plus usage protocol into system prompt each run.
   - Skill storage is unified at workspace scope (`<workspace>/skills`), removing chat-level skill location guidance from Telegram prompt.
   - Installed initial workspace skill `find-skills` at `data/telegram-mom/skills/find-skills/SKILL.md` to validate runtime discovery path.
-  - Under current root-start runtime (cwd=`/Users/gusi/github/molipibot`), active workspace resolves to `data/telegram-mom`; skill files must exist under `data/telegram-mom/skills/` to be discovered at runtime.
+  - Under current root-start runtime (cwd=`~/github/molipibot`), active workspace resolves to `data/telegram-mom`; skill files must exist under `data/telegram-mom/skills/` to be discovered at runtime.
   - Path semantics clarification:
-    - Service process cwd: `/Users/gusi/github/molipibot`
-    - Telegram workspace dir: `/Users/gusi/github/molipibot/data/telegram-mom`
-    - Per-chat tool cwd: `/Users/gusi/github/molipibot/data/telegram-mom/<chatId>/scratch`
+    - Service process cwd: `~/github/molipibot`
+    - Telegram workspace dir: `~/github/molipibot/data/telegram-mom`
+    - Per-chat tool cwd: `~/github/molipibot/data/telegram-mom/<chatId>/scratch`
     - Per-chat scratch as tool cwd is intentional and kept as-is for chat-level workspace isolation.
 - Remaining parity gaps (next round):
   - Rich context compaction/retry controls equivalent to mom `AgentSession` settings.
@@ -716,7 +716,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Goal:
   - Preserve existing Telegram runtime state while switching workspace from repo-local path to home workspace path.
 - Scope:
-  - Migrate old directory `/Users/gusi/github/molipibot/data/telegram-mom/` to `~/.molibot/moli-t/`.
+  - Migrate old directory `~/github/molipibot/data/telegram-mom/` to `~/.molibot/moli-t/`.
 - Acceptance:
   - Migrated directory includes chats/events/skills and passes basic parity check (source vs target file count).
 
@@ -726,7 +726,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Requirement:
   - Keep existing runtime settings when moving default data root to `~/.molibot`.
 - Enforcement:
-  - Copy legacy `/Users/gusi/github/molipibot/data/settings.json` to `~/.molibot/settings.json` and verify content parity.
+  - Copy legacy `~/github/molipibot/data/settings.json` to `~/.molibot/settings.json` and verify content parity.
 
 ## 43. Telegram Native Formatting Compatibility (2026-02-16)
 - Problem:
@@ -1932,7 +1932,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 图片生成 skill 必须明确要求输出文件位于当前聊天工作目录，不能写到 `/tmp`，也不能写回 skill 目录。
   - bash 长输出必须改成保留开头和结尾，并尽量清掉重复的进度条噪音，而不是只留尾巴。
 - Enforcement:
-  - `/Users/gusi/.molibot/skills/image-generate/SKILL.md` 必须写明输出目录规则和正确命令格式。
+  - `~/.molibot/skills/image-generate/SKILL.md` 必须写明输出目录规则和正确命令格式。
   - `src/lib/server/agent/tools/bash.ts` / `truncate.ts` / `helpers.ts` 必须实现更合理的输出压缩。
   - `features.md` 必须记录这次修正，方便后续排查“为什么图片明明生成了却发不出去”以及“为什么 bash 日志看不见结论”。
 
@@ -1944,7 +1944,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Requirement:
   - 共享 skill 必须通过“调用方传参”或“相对 skill 目录定位”的方式工作，不能把本机绝对路径直接写进示例和规则里。
 - Enforcement:
-  - `/Users/gusi/.molibot/skills/image-generate/SKILL.md` 必须改成由调用方显式传入输出路径。
+  - `~/.molibot/skills/image-generate/SKILL.md` 必须改成由调用方显式传入输出路径。
   - `features.md` 必须记录这次修正，方便后续排查“为什么 skill 到别人机器上就不能用”。
 
 ## 137. Weixin 出站上传参数必须可完整审计 (2026-03-26)
@@ -2533,4 +2533,37 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 表格能力判断必须按渠道区分，至少 QQ / Weixin / Feishu 走表格，Telegram 保持纯文本回退。
   - `/status` 与 `/help` 在支持渠道上必须输出标准 Markdown 两列表格，并保留 Telegram 的原始纯文本兼容路径。
   - `src/lib/server/agent/channelCommands.test.ts` 必须覆盖“支持渠道输出表格”和“Telegram 保持原样”两条回归验证。
+  - `features.md` 必须记录本次能力落地。
+
+## 177. 禁止用户机器绝对路径泄漏到代码与界面 (2026-04-19)
+- Priority: P1
+- Stage: Delivered (2026-04-19)
+- Problem:
+  - 设置页里出现了直接写死的 `~/...` 占位示例，这会把当前开发机信息泄漏进产品界面，也会误导后续使用者照抄错误路径。
+  - 这类路径一旦继续出现在代码、默认值、提示词或文档示例里，后续维护时很容易把“只在某一台机器成立”的路径错当成通用规则。
+- Requirement:
+  - 面向用户的界面占位、默认值和示例文案不得再出现当前开发机的绝对路径，优先使用相对路径、通用占位路径或与机器无关的写法。
+  - 项目协作规则里必须明确禁止把用户电脑绝对路径写进代码、界面示例、提示词和文档示例，避免同类问题反复出现。
+- Enforcement:
+  - `src/routes/settings/acp/+page.svelte` 与 `src/routes/settings/skill-drafts/+page.svelte` 必须移除 `~/...` 示例，占位内容改成相对或通用写法。
+  - `AGENTS.md` 必须加入明确规则：不要把用户机器绝对路径写进代码、界面示例、默认值、提示词或文档示例。
+  - `features.md` 必须记录本次修复，方便后续排查同类路径泄漏问题。
+
+## 178. 飞书富文本卡片与审批按钮回调 (2026-04-19)
+- Priority: P1
+- Stage: Delivered (2026-04-19)
+- Problem:
+  - 飞书通道虽然已经把消息发成 `interactive`，但当前卡片只塞了一个 markdown 块，视觉上仍然接近纯文本，标题、状态、分段和操作意图都不够清楚。
+  - ACP 权限提示仍然要求操作者手输 `/approve`、`/deny`，没有利用飞书卡片原生按钮能力，审批路径不顺手。
+  - 项目里之前没有飞书卡片动作回调入口，导致即使生成了按钮，也没有地方真正接住点击事件。
+- Requirement:
+  - 飞书普通回复必须升级成更适合阅读的富文本卡片，而不是继续复用单块 markdown 的最简壳。
+  - ACP 状态提示和权限请求必须单独使用结构化卡片，清楚展示请求标题、请求号、选项和结果。
+  - 飞书卡片按钮点击后必须能直接完成批准/拒绝，不再依赖用户手动输入命令。
+  - 设置页需要允许配置飞书卡片回调安全字段，至少覆盖可选的 `verificationToken` 和 `encryptKey`。
+- Enforcement:
+  - `src/lib/server/channels/feishu/messaging.ts` 必须提供结构化回复卡片、状态卡片、审批卡片以及卡片更新能力。
+  - `src/lib/server/channels/feishu/runtime.ts` 必须将 ACP 状态/审批切到正式卡片，并处理批准/拒绝按钮回调。
+  - `src/routes/api/feishu/card/+server.ts` 必须提供飞书卡片动作回调入口。
+  - `src/routes/settings/feishu/+page.svelte` 与相关 settings schema/store 必须支持保存可选回调安全字段。
   - `features.md` 必须记录本次能力落地。

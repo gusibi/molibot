@@ -1,14 +1,305 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
+import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { momWarn } from "../../agent/log.js";
 import { markdownToFeishuMarkdown } from "./formatting.js";
 
-export function formatFeishuCard(text: string) {
+const FEISHU_CARD_MARKDOWN_LIMIT = 3500;
+const FEISHU_CARD_TITLE_LIMIT = 60;
+
+type CardTone = "blue" | "green" | "yellow" | "orange" | "red" | "grey" | "wathet" | "indigo";
+
+interface FeishuCardActionValue {
+  action: "approve" | "deny";
+  kind: "acp_permission";
+  botId: string;
+  chatId: string;
+  requestId: string;
+  optionId?: string;
+}
+
+interface StatusCardOptions {
+  title: string;
+  body: string;
+  tone?: CardTone;
+  note?: string;
+}
+
+interface PermissionCardOptions {
+  botId: string;
+  chatId: string;
+}
+
+function normalizeText(text: string): string {
+  return String(text ?? "").replace(/\r\n?/g, "\n").trim();
+}
+
+function stripMarkdown(text: string): string {
+  return normalizeText(text)
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, "$1")
+    .replace(/[*_~>#-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function deriveCardTitle(text: string, fallback = "Molibot"): string {
+  const lines = normalizeText(text)
+    .split("\n")
+    .map((line) => stripMarkdown(line))
+    .filter(Boolean);
+  const title = lines[0] || fallback;
+  return Array.from(title).slice(0, FEISHU_CARD_TITLE_LIMIT).join("");
+}
+
+function chunkMarkdown(text: string, limit = FEISHU_CARD_MARKDOWN_LIMIT): string[] {
+  const normalized = normalizeText(text);
+  if (!normalized) return [];
+  if (Array.from(normalized).length <= limit) return [normalized];
+
+  const paragraphs = normalized.split(/\n{2,}/);
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const paragraph of paragraphs) {
+    const candidate = current ? `${current}\n\n${paragraph}` : paragraph;
+    if (Array.from(candidate).length <= limit) {
+      current = candidate;
+      continue;
+    }
+
+    if (current) {
+      chunks.push(current);
+      current = "";
+    }
+
+    if (Array.from(paragraph).length <= limit) {
+      current = paragraph;
+      continue;
+    }
+
+    let lineChunk = "";
+    for (const line of paragraph.split("\n")) {
+      const lineCandidate = lineChunk ? `${lineChunk}\n${line}` : line;
+      if (Array.from(lineCandidate).length <= limit) {
+        lineChunk = lineCandidate;
+        continue;
+      }
+      if (lineChunk) chunks.push(lineChunk);
+      lineChunk = line;
+    }
+    if (lineChunk) current = lineChunk;
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function buildReplyCard(text: string, partIndex = 0, totalParts = 1): lark.InteractiveCard {
+  const titleBase = deriveCardTitle(text, "Molibot");
+  const title = totalParts > 1 ? `${titleBase} (${partIndex + 1}/${totalParts})` : titleBase;
   return {
-    config: { wide_screen_mode: true },
+    config: {
+      wide_screen_mode: true,
+      enable_forward: true
+    },
+    header: {
+      template: "indigo",
+      title: {
+        tag: "plain_text",
+        content: title
+      }
+    },
     elements: [
       {
         tag: "markdown",
         content: text
+      },
+      {
+        tag: "note",
+        elements: [
+          {
+            tag: "plain_text",
+            content: totalParts > 1 ? "Long reply split into multiple cards." : "Rendered as a Feishu rich card."
+          }
+        ]
+      }
+    ]
+  };
+}
+
+export function buildFeishuStatusCard(options: StatusCardOptions): lark.InteractiveCard {
+  const body = normalizeText(options.body);
+  return {
+    config: {
+      wide_screen_mode: true,
+      enable_forward: true
+    },
+    header: {
+      template: options.tone ?? "blue",
+      title: {
+        tag: "plain_text",
+        content: options.title
+      }
+    },
+    elements: [
+      {
+        tag: "markdown",
+        content: body || "_No details_"
+      },
+      {
+        tag: "note",
+        elements: [
+          {
+            tag: "plain_text",
+            content: options.note ?? `Updated ${new Date().toLocaleString("zh-CN", { hour12: false })}`
+          }
+        ]
+      }
+    ]
+  };
+}
+
+export function buildFeishuAcpPermissionCard(
+  permission: AcpPendingPermissionView,
+  options: PermissionCardOptions
+): lark.InteractiveCard {
+  const fields: lark.InteractiveCardField[] = [
+    {
+      is_short: true,
+      text: {
+        tag: "lark_md",
+        content: `**Request**\n${permission.id}`
+      }
+    },
+    {
+      is_short: true,
+      text: {
+        tag: "lark_md",
+        content: `**Kind**\n${permission.kind}`
+      }
+    }
+  ];
+
+  const actionButtons: lark.InteractiveCardActionItem[] = permission.options.slice(0, 3).map((option, index) => ({
+    tag: "button",
+    type: index === 0 ? "primary" : "default",
+    text: {
+      tag: "plain_text",
+      content: option.name || option.optionId
+    },
+    value: {
+      kind: "acp_permission",
+      action: "approve",
+      botId: options.botId,
+      chatId: options.chatId,
+      requestId: permission.id,
+      optionId: option.optionId
+    } satisfies FeishuCardActionValue
+  }));
+
+  actionButtons.push({
+    tag: "button",
+    type: "danger",
+    text: {
+      tag: "plain_text",
+      content: "Reject"
+    },
+    value: {
+      kind: "acp_permission",
+      action: "deny",
+      botId: options.botId,
+      chatId: options.chatId,
+      requestId: permission.id
+    } satisfies FeishuCardActionValue
+  });
+
+  const optionLines = permission.options
+    .map((option) => {
+      const pieces = [option.name || option.optionId, option.description].filter(Boolean);
+      return `- \`${option.optionId}\` ${pieces.join(" | ")}`.trim();
+    })
+    .join("\n");
+
+  return {
+    config: {
+      wide_screen_mode: true,
+      enable_forward: true,
+      update_multi: true
+    },
+    header: {
+      template: "orange",
+      title: {
+        tag: "plain_text",
+        content: `Approval Needed: ${permission.title}`
+      }
+    },
+    elements: [
+      {
+        tag: "div",
+        text: {
+          tag: "lark_md",
+          content: permission.inputPreview
+            ? `**What needs approval**\n${permission.inputPreview}`
+            : `**What needs approval**\n${permission.title}`
+        },
+        fields
+      },
+      {
+        tag: "markdown",
+        content: optionLines || "_No approval options returned_"
+      },
+      {
+        tag: "action",
+        layout: "flow",
+        actions: actionButtons
+      }
+    ]
+  };
+}
+
+export function buildFeishuAcpPermissionResultCard(
+  permission: AcpPendingPermissionView,
+  outcome: string,
+  tone: CardTone = "green"
+): lark.InteractiveCard {
+  return {
+    config: {
+      wide_screen_mode: true,
+      enable_forward: true,
+      update_multi: true
+    },
+    header: {
+      template: tone,
+      title: {
+        tag: "plain_text",
+        content: `Approval ${tone === "green" ? "Handled" : "Failed"}`
+      }
+    },
+    elements: [
+      {
+        tag: "div",
+        text: {
+          tag: "lark_md",
+          content: `**${permission.title}**\n${outcome}`
+        },
+        fields: [
+          {
+            is_short: true,
+            text: {
+              tag: "lark_md",
+              content: `**Request**\n${permission.id}`
+            }
+          },
+          {
+            is_short: true,
+            text: {
+              tag: "lark_md",
+              content: `**Kind**\n${permission.kind}`
+            }
+          }
+        ]
       }
     ]
   };
@@ -18,6 +309,64 @@ export function formatFeishuText(text: string): string {
   return markdownToFeishuMarkdown(text);
 }
 
+export async function sendFeishuCard(
+  client: lark.Client | undefined,
+  chatId: string,
+  card: lark.InteractiveCard
+): Promise<{ message_id: string } | null> {
+  if (!client || !chatId.trim()) return null;
+  try {
+    const res = await client.im.message.create({
+      params: { receive_id_type: "chat_id" },
+      data: {
+        receive_id: chatId,
+        msg_type: "interactive",
+        content: JSON.stringify(card)
+      }
+    });
+    return { message_id: res.data?.message_id || "" };
+  } catch (error) {
+    momWarn("feishu", "send_card_failed", { error: String(error) });
+    return null;
+  }
+}
+
+export async function editFeishuCard(
+  client: lark.Client | undefined,
+  messageId: string,
+  card: lark.InteractiveCard
+): Promise<string | null> {
+  if (!client || !messageId.trim()) return null;
+  try {
+    await client.im.message.patch({
+      path: { message_id: messageId },
+      data: {
+        content: JSON.stringify(card)
+      }
+    });
+    return messageId;
+  } catch (error) {
+    momWarn("feishu", "edit_card_failed", { error: String(error) });
+    return null;
+  }
+}
+
+export async function sendFeishuStatusCard(
+  client: lark.Client | undefined,
+  chatId: string,
+  options: StatusCardOptions
+): Promise<{ message_id: string } | null> {
+  return sendFeishuCard(client, chatId, buildFeishuStatusCard(options));
+}
+
+export async function editFeishuStatusCard(
+  client: lark.Client | undefined,
+  messageId: string,
+  options: StatusCardOptions
+): Promise<string | null> {
+  return editFeishuCard(client, messageId, buildFeishuStatusCard(options));
+}
+
 export async function sendFeishuText(
   client: lark.Client | undefined,
   chatId: string,
@@ -25,17 +374,17 @@ export async function sendFeishuText(
 ): Promise<{ message_id: string } | null> {
   if (!client || !text.trim()) return null;
   try {
-    // Convert markdown to Feishu-optimized format
     const formattedText = markdownToFeishuMarkdown(text);
-    const res = await client.im.message.create({
-      params: { receive_id_type: "chat_id" },
-      data: {
-        receive_id: chatId,
-        msg_type: "interactive",
-        content: JSON.stringify(formatFeishuCard(formattedText))
-      }
-    });
-    return { message_id: res.data?.message_id || "" };
+    const chunks = chunkMarkdown(formattedText);
+    let firstMessage: { message_id: string } | null = null;
+
+    for (let index = 0; index < chunks.length; index += 1) {
+      const card = buildReplyCard(chunks[index], index, chunks.length);
+      const sent = await sendFeishuCard(client, chatId, card);
+      if (!firstMessage) firstMessage = sent;
+    }
+
+    return firstMessage;
   } catch (error) {
     momWarn("feishu", "send_message_failed", { error: String(error) });
     return null;
@@ -48,20 +397,9 @@ export async function editFeishuText(
   text: string
 ): Promise<string | null> {
   if (!client || !text.trim()) return null;
-  try {
-    // Convert markdown to Feishu-optimized format
-    const formattedText = markdownToFeishuMarkdown(text);
-    await client.im.message.patch({
-      path: { message_id: messageId },
-      data: {
-        content: JSON.stringify(formatFeishuCard(formattedText))
-      }
-    });
-    return messageId;
-  } catch (error) {
-    momWarn("feishu", "edit_message_failed", { error: String(error) });
-    return null;
-  }
+  const formattedText = markdownToFeishuMarkdown(text);
+  const firstChunk = chunkMarkdown(formattedText)[0] ?? formattedText;
+  return editFeishuCard(client, messageId, buildReplyCard(firstChunk));
 }
 
 function detectImageMime(filename: string, bytes: Buffer): string | null {
@@ -153,7 +491,7 @@ function isLikelyTextBuffer(bytes: Buffer): boolean {
 }
 
 function canSendAsFeishuText(text: string): boolean {
-  return text.trim().length > 0 && Array.from(text).length <= 4000;
+  return text.trim().length > 0 && Array.from(text).length <= 12000;
 }
 
 async function sendFeishuMessageByType(

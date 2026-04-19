@@ -13,6 +13,8 @@ function listInstances(settings: RuntimeSettings): ChannelPluginInstance<FeishuC
       config: {
         appId: instance.credentials.appId,
         appSecret: instance.credentials.appSecret,
+        verificationToken: instance.credentials.verificationToken,
+        encryptKey: instance.credentials.encryptKey,
         allowedChatIds: instance.allowedChatIds
       }
     }));
