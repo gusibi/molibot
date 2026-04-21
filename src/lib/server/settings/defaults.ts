@@ -250,6 +250,26 @@ const defaultSkillDraftSettings: SkillDraftSettings = {
     skillPath: String(process.env.MOLIBOT_SKILL_DRAFT_TEMPLATE_PATH ?? "").trim()
   }
 };
+
+const defaultCloudflareHtmlPluginSettings = {
+  enabled: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ENABLED ?? "false").toLowerCase() === "true",
+  accessMode: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ACCESS_MODE ?? "worker").trim() === "direct"
+    ? "direct"
+    : "worker",
+  workerBaseHost: String(
+    process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_WORKER_BASE_HOST ??
+    process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_BASE_URL ??
+    ""
+  ).trim(),
+  publicBaseHost: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_PUBLIC_BASE_HOST ?? "").trim(),
+  routePrefix: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ROUTE_PREFIX ?? "/html").trim() || "/html",
+  bucketName: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_BUCKET ?? "").trim(),
+  accountId: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ACCOUNT_ID ?? "").trim(),
+  accessKeyId: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ACCESS_KEY_ID ?? "").trim(),
+  secretAccessKey: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_SECRET_ACCESS_KEY ?? "").trim(),
+  objectPrefix: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_OBJECT_PREFIX ?? "html/").trim() || "html/"
+};
+
 const defaultAcpSettings: AcpSettings = {
   enabled: true,
   targets: [
@@ -321,6 +341,9 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     memory: {
       enabled: String(process.env.MEMORY_ENABLED ?? "false").toLowerCase() === "true",
       backend: (process.env.MEMORY_BACKEND ?? process.env.MEMORY_CORE ?? "json-file").trim() || "json-file"
+    },
+    cloudflareHtml: {
+      ...defaultCloudflareHtmlPluginSettings
     }
   },
   telegramBotToken: defaultTelegramBotToken,

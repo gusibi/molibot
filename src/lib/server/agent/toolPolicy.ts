@@ -13,7 +13,8 @@ const SERIALIZED_TOOL_NAMES = new Set([
   "profile_files",
   "load_mcp",
   "create_event",
-  "attach"
+  "attach",
+  "publish_html"
 ]);
 
 const SERIALIZED_MEMORY_ACTIONS = new Set(["add", "update", "delete", "flush", "sync", "compact"]);

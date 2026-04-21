@@ -97,8 +97,22 @@ export interface MemoryBackendSettings {
   backend: string;
 }
 
+export interface CloudflareHtmlPluginSettings {
+  enabled: boolean;
+  accessMode: "worker" | "direct";
+  workerBaseHost: string;
+  publicBaseHost: string;
+  routePrefix: string;
+  bucketName: string;
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  objectPrefix: string;
+}
+
 export interface PluginSettings {
   memory: MemoryBackendSettings;
+  cloudflareHtml: CloudflareHtmlPluginSettings;
 }
 
 export type AcpApprovalMode = "manual" | "auto-safe" | "auto-all";

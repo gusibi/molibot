@@ -55,6 +55,19 @@ interface RawSettings {
       backend?: string;
       core?: string;
     };
+    cloudflareHtml?: {
+      enabled?: boolean | string;
+      accessMode?: string;
+      workerBaseHost?: string;
+      publicBaseHost?: string;
+      publicBaseUrl?: string;
+      routePrefix?: string;
+      bucketName?: string;
+      accountId?: string;
+      accessKeyId?: string;
+      secretAccessKey?: string;
+      objectPrefix?: string;
+    };
   };
   telegramBots?: unknown;
   agents?: unknown;
@@ -175,6 +188,51 @@ function sanitizeSkillDraftSettings(input: unknown): RuntimeSettings["skillDraft
     template: {
       skillPath: String(template.skillPath ?? defaultRuntimeSettings.skillDrafts.template.skillPath).trim()
     }
+  };
+}
+
+function sanitizeCloudflareHtmlPluginSettings(input: unknown): RuntimeSettings["plugins"]["cloudflareHtml"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const enabledRaw = source.enabled;
+  return {
+    enabled: typeof enabledRaw === "boolean"
+      ? enabledRaw
+      : enabledRaw === undefined
+        ? defaultRuntimeSettings.plugins.cloudflareHtml.enabled
+        : String(enabledRaw).toLowerCase() === "true",
+    accessMode: String(
+      source.accessMode ?? defaultRuntimeSettings.plugins.cloudflareHtml.accessMode
+    ).trim() === "direct"
+      ? "direct"
+      : "worker",
+    workerBaseHost: String(
+      source.workerBaseHost ??
+      source.publicBaseUrl ??
+      defaultRuntimeSettings.plugins.cloudflareHtml.workerBaseHost
+    ).trim(),
+    publicBaseHost: String(
+      source.publicBaseHost ?? defaultRuntimeSettings.plugins.cloudflareHtml.publicBaseHost
+    ).trim(),
+    routePrefix: String(
+      source.routePrefix ?? defaultRuntimeSettings.plugins.cloudflareHtml.routePrefix
+    ).trim() || defaultRuntimeSettings.plugins.cloudflareHtml.routePrefix,
+    bucketName: String(
+      source.bucketName ?? defaultRuntimeSettings.plugins.cloudflareHtml.bucketName
+    ).trim(),
+    accountId: String(
+      source.accountId ?? defaultRuntimeSettings.plugins.cloudflareHtml.accountId
+    ).trim(),
+    accessKeyId: String(
+      source.accessKeyId ?? defaultRuntimeSettings.plugins.cloudflareHtml.accessKeyId
+    ).trim(),
+    secretAccessKey: String(
+      source.secretAccessKey ?? defaultRuntimeSettings.plugins.cloudflareHtml.secretAccessKey
+    ).trim(),
+    objectPrefix: String(
+      source.objectPrefix ?? defaultRuntimeSettings.plugins.cloudflareHtml.objectPrefix
+    ).trim() || defaultRuntimeSettings.plugins.cloudflareHtml.objectPrefix
   };
 }
 
@@ -778,6 +836,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     : String(memoryEnabledRaw ?? "").toLowerCase() === "true";
   const memoryBackend = String(raw.plugins?.memory?.backend ?? raw.plugins?.memory?.core ?? "").trim() ||
     defaultRuntimeSettings.plugins.memory.backend;
+  const cloudflareHtml = sanitizeCloudflareHtmlPluginSettings(raw.plugins?.cloudflareHtml);
 
   const feishuBotsFromList = sanitizeFeishuBots(raw.feishuBots);
   const feishuBots = feishuBotsFromList.length > 0 ? feishuBotsFromList : [];
@@ -850,7 +909,8 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       memory: {
         enabled: memoryEnabled,
         backend: memoryBackend
-      }
+      },
+      cloudflareHtml
     },
     timezone: String(raw.timezone ?? "").trim() || Intl.DateTimeFormat().resolvedOptions().timeZone,
     telegramBotToken: primaryBot?.token ?? "",
@@ -1178,6 +1238,18 @@ export class SettingsStore {
         memory: {
           enabled: settings.plugins.memory.enabled,
           backend: settings.plugins.memory.backend
+        },
+        cloudflareHtml: {
+          enabled: settings.plugins.cloudflareHtml.enabled,
+          accessMode: settings.plugins.cloudflareHtml.accessMode,
+          workerBaseHost: settings.plugins.cloudflareHtml.workerBaseHost,
+          publicBaseHost: settings.plugins.cloudflareHtml.publicBaseHost,
+          routePrefix: settings.plugins.cloudflareHtml.routePrefix,
+          bucketName: settings.plugins.cloudflareHtml.bucketName,
+          accountId: settings.plugins.cloudflareHtml.accountId,
+          accessKeyId: settings.plugins.cloudflareHtml.accessKeyId,
+          secretAccessKey: settings.plugins.cloudflareHtml.secretAccessKey,
+          objectPrefix: settings.plugins.cloudflareHtml.objectPrefix
         }
       },
       timezone: settings.timezone,

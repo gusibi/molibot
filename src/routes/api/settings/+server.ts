@@ -136,6 +136,43 @@ function validateSkillDraftSettings(current: RuntimeSettings, patch: Partial<Run
   return null;
 }
 
+function validatePluginSettings(current: RuntimeSettings, patch: Partial<RuntimeSettings>): string | null {
+  if (!("plugins" in patch)) return null;
+  const next = patch.plugins ?? current.plugins;
+  const nextCloudflareHtml = next.cloudflareHtml ?? {};
+  const currentCloudflareHtml = current.plugins.cloudflareHtml;
+  const cloudflareHtml = {
+    ...currentCloudflareHtml,
+    ...nextCloudflareHtml
+  };
+  if (!cloudflareHtml.enabled) return null;
+  const accessMode = String(cloudflareHtml.accessMode ?? "worker").trim() === "direct"
+    ? "direct"
+    : "worker";
+  const workerBaseHost = String(
+    cloudflareHtml.workerBaseHost ??
+    ("publicBaseUrl" in nextCloudflareHtml ? (nextCloudflareHtml as { publicBaseUrl?: string }).publicBaseUrl : "") ??
+    ""
+  ).trim();
+  const publicBaseHost = String(cloudflareHtml.publicBaseHost ?? "").trim();
+  if (accessMode === "worker" && !workerBaseHost) {
+    return "Cloudflare HTML publish plugin requires a Worker base host.";
+  }
+  if (accessMode === "direct" && !publicBaseHost) {
+    return "Cloudflare HTML publish plugin requires a public R2 base host when direct mode is selected.";
+  }
+  if (!cloudflareHtml.bucketName.trim()) {
+    return "Cloudflare HTML publish plugin requires a bucket name.";
+  }
+  if (!cloudflareHtml.accountId.trim()) {
+    return "Cloudflare HTML publish plugin requires an account ID.";
+  }
+  if (!cloudflareHtml.accessKeyId.trim() || !cloudflareHtml.secretAccessKey.trim()) {
+    return "Cloudflare HTML publish plugin requires both accessKeyId and secretAccessKey.";
+  }
+  return null;
+}
+
 export const GET: RequestHandler = async () => {
   const { getSettings } = getRuntime();
   return json({ ok: true, settings: getSettings() });
@@ -158,6 +195,10 @@ export const PUT: RequestHandler = async ({ request }) => {
   const skillDraftValidationError = validateSkillDraftSettings(runtime.getSettings(), patch);
   if (skillDraftValidationError) {
     return json({ ok: false, error: skillDraftValidationError }, { status: 400 });
+  }
+  const pluginValidationError = validatePluginSettings(runtime.getSettings(), patch);
+  if (pluginValidationError) {
+    return json({ ok: false, error: pluginValidationError }, { status: 400 });
   }
 
   const updated = runtime.updateSettings(patch);

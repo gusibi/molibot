@@ -322,6 +322,7 @@
 </script>
 
 <PageShell widthClass="max-w-6xl" gapClass="space-y-8">
+<div class="usage-analytics-page space-y-8">
     <!-- Header -->
     <header
         class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
@@ -517,9 +518,9 @@
                 class="group relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-transparent p-6 shadow-xl"
             >
                 <div class="relative z-10">
-                    <p
-                        class="text-sm font-medium text-emerald-400/80 uppercase tracking-wider"
-                    >
+                <p
+                    class="usage-accent-label text-sm font-medium uppercase tracking-wider"
+                >
                         Total Tokens
                     </p>
                     <p
@@ -569,10 +570,10 @@
                 class="group relative overflow-hidden rounded-2xl border border-emerald-500/10 bg-emerald-500/[0.02] p-6 shadow-sm"
             >
                 <p
-                    class="text-sm font-medium text-emerald-500/70 uppercase tracking-wider flex items-center gap-2"
+                    class="usage-accent-label flex items-center gap-2 text-sm font-medium uppercase tracking-wider"
                 >
                     <svg
-                        class="h-4 w-4"
+                        class="usage-accent-icon h-4 w-4"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -586,7 +587,7 @@
                     Cache Saved
                 </p>
                 <p
-                    class="mt-2 text-2xl font-bold tracking-tight text-emerald-400"
+                    class="usage-accent-value mt-2 text-2xl font-bold tracking-tight"
                 >
                     {formatNumber(currentWindow.totals.cacheReadTokens)}
                 </p>
@@ -633,7 +634,7 @@
                             >
                                 <!-- Bar -->
                                 <div
-                                    class="w-full rounded-t-sm bg-emerald-500/20 transition-all duration-300 group-hover:bg-emerald-400 group-hover:shadow-[0_0_15px_rgba(52,211,153,0.4)]"
+                                    class="usage-chart-bar w-full rounded-t-sm transition-all duration-300"
                                     style={`height: ${pct}%`}
                                 ></div>
 
@@ -655,11 +656,8 @@
                                             <span class="text-slate-500"
                                                 >Tokens</span
                                             >
-                                            <span
-                                                class="font-bold text-emerald-400"
-                                                >{formatNumber(
-                                                    data.totals.totalTokens,
-                                                )}</span
+                                            <span class="usage-accent-value font-bold"
+                                                >{formatNumber(data.totals.totalTokens)}</span
                                             >
                                         </div>
                                         <div
@@ -724,7 +722,7 @@
                                     <span class="text-xs sm:hidden">reqs</span>
                                 </div>
                                 <div
-                                    class="text-sm font-bold text-emerald-400 sm:text-right"
+                                    class="usage-accent-value text-sm font-bold sm:text-right"
                                 >
                                     {formatNumber(bucket.totals.totalTokens)}
                                 </div>
@@ -803,7 +801,7 @@
                                     >
                                     <td class="px-6 py-3 text-right">
                                         <span
-                                            class="inline-flex rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-400 border border-emerald-500/20"
+                                            class="usage-token-pill inline-flex rounded-full px-3 py-1 text-xs font-bold"
                                         >
                                             {formatNumber(row.totalTokens)}
                                         </span>
@@ -878,7 +876,7 @@
                                     >
                                     <td class="px-6 py-3 text-right">
                                         <span
-                                            class="inline-flex rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-400 border border-emerald-500/20"
+                                            class="usage-token-pill inline-flex rounded-full px-3 py-1 text-xs font-bold"
                                         >
                                             {formatNumber(row.totalTokens)}
                                         </span>
@@ -918,4 +916,61 @@
             </div>
         </div>
     {/if}
+</div>
 </PageShell>
+
+<style>
+    .usage-analytics-page {
+        --usage-accent: var(--chart-2);
+        --usage-accent-soft: color-mix(
+            in oklab,
+            var(--chart-2) 18%,
+            transparent
+        );
+        --usage-accent-strong: color-mix(
+            in oklab,
+            var(--chart-2) 78%,
+            white 8%
+        );
+        --usage-accent-shadow: color-mix(
+            in oklab,
+            var(--chart-2) 36%,
+            transparent
+        );
+    }
+
+    .usage-analytics-page .usage-accent-label,
+    .usage-analytics-page .usage-accent-icon,
+    .usage-analytics-page .usage-accent-value {
+        color: var(--usage-accent-strong) !important;
+    }
+
+    .usage-analytics-page .usage-chart-bar {
+        background: linear-gradient(
+            180deg,
+            color-mix(in oklab, var(--usage-accent) 92%, white 8%) 0%,
+            color-mix(in oklab, var(--usage-accent) 62%, transparent) 100%
+        ) !important;
+        box-shadow:
+            inset 0 1px 0 color-mix(in oklab, white 35%, transparent),
+            0 10px 24px var(--usage-accent-shadow);
+    }
+
+    .usage-analytics-page .group:hover .usage-chart-bar {
+        background: linear-gradient(
+            180deg,
+            color-mix(in oklab, var(--usage-accent) 100%, white 16%) 0%,
+            color-mix(in oklab, var(--usage-accent) 78%, transparent) 100%
+        ) !important;
+        box-shadow:
+            inset 0 1px 0 color-mix(in oklab, white 48%, transparent),
+            0 0 18px color-mix(in oklab, var(--usage-accent) 42%, transparent),
+            0 14px 28px var(--usage-accent-shadow);
+    }
+
+    .usage-analytics-page .usage-token-pill {
+        color: var(--usage-accent-strong) !important;
+        border: 1px solid color-mix(in oklab, var(--usage-accent) 32%, var(--border)) !important;
+        background: var(--usage-accent-soft) !important;
+    }
+</style>

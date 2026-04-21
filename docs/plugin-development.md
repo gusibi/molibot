@@ -2,6 +2,10 @@
 
 This document describes how Molibot plugins are organized, what interfaces they implement, how they are discovered, and what is currently supported by runtime.
 
+If you want a practical step-by-step tutorial for writing, installing, enabling, and demoing plugins, read:
+
+- [`docs/plugin-authoring-guide.md`](./plugin-authoring-guide.md)
+
 ## Goals
 
 The plugin system separates three concerns:
@@ -9,6 +13,7 @@ The plugin system separates three concerns:
 - Core runtime: shared lifecycle, memory, sessions, routing
 - Channel plugins: Telegram, Feishu, future Slack/Lark/WhatsApp
 - Provider plugins: model/provider integrations such as DeepSeek or other OpenAI-compatible backends
+- Feature plugins: product capabilities exposed to the agent/runtime such as Cloudflare HTML publishing
 
 Built-in plugins live in the repository. External plugins live under `${DATA_DIR}/plugins`.
 
@@ -19,6 +24,7 @@ Built-in plugins live in the repository. External plugins live under `${DATA_DIR
 - Built-in channel plugins live under repository-owned plugin directories.
 - Runtime loads built-in channel plugins through a registry.
 - Each channel plugin instance can be enabled or disabled through config.
+- Built-in feature plugins can inject prompt guidance and register agent tools.
 - External plugin manifests are discovered from `${DATA_DIR}/plugins/channels/*/plugin.json` and `${DATA_DIR}/plugins/providers/*/plugin.json`.
 - External plugin discovery results are visible in the Plugins settings page and `/api/settings/plugins`.
 
@@ -26,6 +32,7 @@ Built-in plugins live in the repository. External plugins live under `${DATA_DIR
 
 - Runtime does not execute external plugin entry modules yet.
 - Provider plugins are cataloged, but external provider execution is not wired into runtime model resolution yet.
+- External feature plugins do not have an executable manifest path yet.
 
 That means external plugins are currently "discoverable" rather than "runnable".
 

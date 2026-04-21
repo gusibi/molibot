@@ -387,6 +387,8 @@ See `.env.example` for full list and detailed descriptions.
 
 ### Development Documentation
 - `docs/plugin-development.md` - Plugin contract and development guide
+- `docs/plugin-authoring-guide.md` - Practical plugin tutorial: how to write, install, enable, and demo plugins
+- `src/lib/server/plugins/cloudflareHtml/README.md` - Cloudflare HTML publish plugin notes, including Worker mode vs Direct R2 mode
 - `docs/acp-codex-mvp.md` - ACP (Agent Control Plane) documentation
 - `docs/molibot-architecture.svg` - Architecture diagram source
 

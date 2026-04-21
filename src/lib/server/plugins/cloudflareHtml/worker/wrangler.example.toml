@@ -1,0 +1,12 @@
+name = "cloudflare-html-publish"
+main = "module.ts"
+compatibility_date = "2026-04-20"
+
+[vars]
+ROUTE_PREFIX = "/html"
+OBJECT_PREFIX = "html/"
+CACHE_CONTROL = "public, max-age=300"
+
+[[r2_buckets]]
+binding = "HTML_BUCKET"
+bucket_name = "your-r2-bucket-name"

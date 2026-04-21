@@ -1,14 +1,16 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { config } from "../app/env.js";
-import { KNOWN_PROVIDER_LIST } from "../settings/index.js";
+import { defaultRuntimeSettings, KNOWN_PROVIDER_LIST, type RuntimeSettings } from "../settings/index.js";
 import { builtInChannelPlugins } from "../channels/registry.js";
 import { builtInMemoryBackends } from "../memory/registry.js";
+import { builtInFeaturePlugins, createFeaturePluginCatalog } from "./feature-registry.js";
 import type {
   ExternalPluginLoadResult,
   InstalledPluginCatalogEntry,
   PluginCatalog,
   PluginManifest,
+  FeaturePlugin,
   ProviderPlugin
 } from "./types.js";
 
@@ -125,7 +127,7 @@ function buildBuiltInMemoryBackendCatalog(): InstalledPluginCatalogEntry[] {
   }));
 }
 
-export function discoverPlugins(): ExternalPluginLoadResult {
+export function discoverPlugins(settings: RuntimeSettings = defaultRuntimeSettings): ExternalPluginLoadResult {
   const channels = [
     ...buildBuiltInChannelCatalog(),
     ...discoverExternalCatalogEntries("channel")
@@ -136,9 +138,10 @@ export function discoverPlugins(): ExternalPluginLoadResult {
     ...discoverExternalCatalogEntries("provider")
   ];
 
+  const features = createFeaturePluginCatalog(settings);
   const memoryBackends = buildBuiltInMemoryBackendCatalog();
 
-  const catalog: PluginCatalog = { channels, providers, memoryBackends };
+  const catalog: PluginCatalog = { channels, providers, features, memoryBackends };
 
   const providerPlugins: ProviderPlugin[] = providers.map((provider) => ({
     key: provider.key,
@@ -147,9 +150,17 @@ export function discoverPlugins(): ExternalPluginLoadResult {
     description: provider.description
   }));
 
+  const featurePlugins: FeaturePlugin[] = builtInFeaturePlugins.map((plugin) => ({
+    key: plugin.key,
+    name: plugin.name,
+    version: plugin.version,
+    description: plugin.description
+  }));
+
   return {
     channelPlugins: builtInChannelPlugins,
     providerPlugins,
+    featurePlugins,
     catalog
   };
 }

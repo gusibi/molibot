@@ -156,6 +156,27 @@ function sanitizeSkillDraftSettings(
   };
 }
 
+function sanitizeCloudflareHtmlPluginSettings(
+  input: unknown,
+  fallback: RuntimeSettings["plugins"]["cloudflareHtml"]
+): RuntimeSettings["plugins"]["cloudflareHtml"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  return {
+    enabled: source.enabled === undefined ? fallback.enabled : Boolean(source.enabled),
+    accessMode: String(source.accessMode ?? fallback.accessMode).trim() === "direct" ? "direct" : "worker",
+    workerBaseHost: String(source.workerBaseHost ?? source.publicBaseUrl ?? fallback.workerBaseHost).trim(),
+    publicBaseHost: String(source.publicBaseHost ?? fallback.publicBaseHost).trim(),
+    routePrefix: String(source.routePrefix ?? fallback.routePrefix).trim() || fallback.routePrefix,
+    bucketName: String(source.bucketName ?? fallback.bucketName).trim(),
+    accountId: String(source.accountId ?? fallback.accountId).trim(),
+    accessKeyId: String(source.accessKeyId ?? fallback.accessKeyId).trim(),
+    secretAccessKey: String(source.secretAccessKey ?? fallback.secretAccessKey).trim(),
+    objectPrefix: String(source.objectPrefix ?? fallback.objectPrefix).trim() || fallback.objectPrefix
+  };
+}
+
 function logPluginCatalog(state: RuntimeState): void {
   const channelSummary = state.pluginCatalog.channels
     .map((plugin) => `${plugin.key}:${colorStatus(plugin.status)}`)
@@ -163,12 +184,15 @@ function logPluginCatalog(state: RuntimeState): void {
   const providerSummary = state.pluginCatalog.providers
     .map((plugin) => `${plugin.key}:${colorStatus(plugin.status)}`)
     .join(", ");
+  const featureSummary = state.pluginCatalog.features
+    .map((plugin) => `${plugin.key}:${colorStatus(plugin.status)}`)
+    .join(", ");
   const memoryBackendSummary = state.pluginCatalog.memoryBackends
     .map((backend) => `${backend.key}:${colorStatus(backend.status)}`)
     .join(", ");
 
   console.log(
-    `${runtimeLabel("runtime")} plugin_catalog channels=[${channelSummary || "(none)"}] providers=[${providerSummary || "(none)"}] memory_backends=[${memoryBackendSummary || "(none)"}]`
+    `${runtimeLabel("runtime")} plugin_catalog channels=[${channelSummary || "(none)"}] providers=[${providerSummary || "(none)"}] features=[${featureSummary || "(none)"}] memory_backends=[${memoryBackendSummary || "(none)"}]`
   );
 }
 
@@ -709,15 +733,20 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
 
   next.telegramBotToken = next.telegramBots[0]?.token ?? "";
   next.telegramAllowedChatIds = next.telegramBots[0]?.allowedChatIds ?? [];
+  const memoryPluginInput = next.plugins?.memory ?? current.plugins.memory;
   next.plugins = {
     memory: {
-      enabled: Boolean(next.plugins?.memory?.enabled),
+      enabled: memoryPluginInput?.enabled === undefined ? current.plugins.memory.enabled : Boolean(memoryPluginInput.enabled),
       backend: String(
-        (next.plugins?.memory as { backend?: string; core?: string } | undefined)?.backend ??
-        (next.plugins?.memory as { backend?: string; core?: string } | undefined)?.core ??
+        (memoryPluginInput as { backend?: string; core?: string } | undefined)?.backend ??
+        (memoryPluginInput as { backend?: string; core?: string } | undefined)?.core ??
         ""
-      ).trim() || defaultRuntimeSettings.plugins.memory.backend
-    }
+      ).trim() || current.plugins.memory.backend || defaultRuntimeSettings.plugins.memory.backend
+    },
+    cloudflareHtml: sanitizeCloudflareHtmlPluginSettings(
+      next.plugins?.cloudflareHtml ?? current.plugins.cloudflareHtml,
+      current.plugins.cloudflareHtml
+    )
   };
 
   return next;
@@ -732,7 +761,7 @@ function applyChannelPlugins(state: RuntimeState, applySettingsPatch: (patch: Pa
     usageTracker: state.usageTracker
   };
 
-  const loaded = discoverPlugins();
+  const loaded = discoverPlugins(state.settings);
   state.pluginCatalog = loaded.catalog;
   state.providerPlugins = loaded.providerPlugins;
   logPluginCatalog(state);
@@ -802,7 +831,7 @@ export function getRuntime(): RuntimeState {
       sessions,
       router,
       channelManagers: new Map<string, Map<string, ChannelManager>>(),
-      pluginCatalog: { channels: [], providers: [], memoryBackends: [] },
+      pluginCatalog: { channels: [], providers: [], features: [], memoryBackends: [] },
       providerPlugins: [],
       memory,
       memorySyncTimer: null,

@@ -11,6 +11,7 @@ import {
   type PromptChannel,
 } from "./prompt-channel.js";
 import { formatSkillsForPrompt, loadSkillsFromWorkspace } from "./skills.js";
+import { buildFeaturePluginPromptSections } from "../plugins/feature-registry.js";
 import type { RuntimeSettings } from "../settings/index.js";
 import {
   resolveDataRootFromWorkspacePath,
@@ -332,6 +333,12 @@ function buildSkillsRuntimeStateSection(vars: PromptRenderVars): string {
   return xmlBlock("available-skills", ["## Available Skills", vars.availableSkills].join("\n"));
 }
 
+function buildFeaturePluginsSection(settings: RuntimeSettings | undefined): string {
+  const sections = settings ? buildFeaturePluginPromptSections(settings) : [];
+  if (sections.length === 0) return "";
+  return xmlBlock("feature-plugins", ["## Installed Feature Plugins", ...sections].join("\n\n"));
+}
+
 function buildEventsSection(vars: PromptRenderVars): string {
   return xmlBlock("events", [
     "## Events",
@@ -507,6 +514,7 @@ function buildBaseSystemPromptWithOptions(
     buildSkillRoutingSection(),
     "",
     buildSkillsRuntimeStateSection(vars),
+    ...(options?.settings ? ["", buildFeaturePluginsSection(options.settings)] : []),
     "",
     // --- Tools (used only when no skill matched) ---
     buildToolsSection(),

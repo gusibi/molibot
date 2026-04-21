@@ -12,6 +12,7 @@ import { createSkillManageTool } from "./skillManage.js";
 import { createSkillSearchTool } from "./skillSearch.js";
 import { createSwitchModelTool } from "./switchModel.js";
 import { createWriteTool } from "./write.js";
+import { createFeaturePluginTools } from "../../plugins/feature-registry.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import { shouldSerializeToolCall } from "../toolPolicy.js";
 
@@ -66,7 +67,11 @@ export function createMomTools(options: {
     createWriteTool({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId }),
     createEventTool({ workspaceDir: options.workspaceDir, chatId: options.chatId, timezone: options.timezone }),
     createAttachTool(options)
-  ].map((tool) => wrapSerializedTool(tool));
+  ].concat(
+    createFeaturePluginTools({
+      getSettings: options.getSettings
+    })
+  ).map((tool) => wrapSerializedTool(tool));
 
   if (options.exposeLoadMcpTool) {
     tools.splice(2, 0, wrapSerializedTool(createLoadMcpTool({
