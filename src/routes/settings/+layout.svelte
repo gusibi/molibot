@@ -7,10 +7,81 @@
     const LS_THEME = "molibot-web-theme";
     const LS_LOCALE = "molibot-web-locale";
 
+    const COPY: Record<LocaleKey, Record<string, string>> = {
+        "zh-CN": {
+            general: "总览",
+            overview: "总览",
+            aiEngine: "AI 引擎",
+            routingPrompt: "路由与提示词",
+            providersModels: "模型与提供方",
+            usageStats: "用量统计",
+            modelErrors: "模型报错记录",
+            mcpServers: "MCP 服务",
+            acpTargets: "ACP 目标",
+            channels: "渠道",
+            webProfiles: "Web 配置",
+            telegramBot: "Telegram 机器人",
+            wechatBot: "微信机器人",
+            feishuBot: "飞书机器人",
+            qqBot: "QQ 机器人",
+            agentData: "助手数据",
+            agents: "Agents",
+            memory: "记忆",
+            memoryRejections: "记忆拒绝记录",
+            skills: "技能",
+            skillDrafts: "技能草稿",
+            runHistory: "运行历史",
+            tasks: "任务",
+            systemGroup: "系统",
+            pluginsCore: "插件与核心",
+            backToChat: "返回聊天",
+            settings: "设置",
+            workspaceTitle: "配置工作台",
+            openChat: "打开聊天",
+            navigateSettings: "设置导航",
+            theme: "主题",
+            language: "语言"
+        },
+        "en-US": {
+            general: "General",
+            overview: "Overview",
+            aiEngine: "AI Engine",
+            routingPrompt: "Routing & Prompt",
+            providersModels: "Providers & Models",
+            usageStats: "Usage Stats",
+            modelErrors: "Model Error Logs",
+            mcpServers: "MCP Servers",
+            acpTargets: "ACP Targets",
+            channels: "Channels",
+            webProfiles: "Web Profiles",
+            telegramBot: "Telegram Bot",
+            wechatBot: "WeChat Bot",
+            feishuBot: "Feishu Bot",
+            qqBot: "QQ Bot",
+            agentData: "Agent Data",
+            agents: "Agents",
+            memory: "Memory",
+            memoryRejections: "Memory Rejections",
+            skills: "Skills",
+            skillDrafts: "Skill Drafts",
+            runHistory: "Run History",
+            tasks: "Tasks",
+            systemGroup: "System",
+            pluginsCore: "Plugins & Core",
+            backToChat: "Back To Chat",
+            settings: "Settings",
+            workspaceTitle: "Configuration Workspace",
+            openChat: "Open Chat",
+            navigateSettings: "Navigate Settings",
+            theme: "Theme",
+            language: "Language"
+        }
+    };
+
     let themeMode: ThemeMode = "light";
     let locale: LocaleKey = "zh-CN";
 
-    const navGroups = [
+    let navGroups = [
         {
             title: "General",
             links: [{ href: "/settings", label: "Overview", exact: true }],
@@ -54,6 +125,10 @@
         },
     ];
 
+    function t(key: string): string {
+        return COPY[locale][key] ?? key;
+    }
+
     function normalizePath(path: string): string {
         if (path.length > 1 && path.endsWith("/")) return path.slice(0, -1);
         return path;
@@ -81,13 +156,13 @@
         return `${base} ${state}`;
     }
 
-    const flatLinks = navGroups.flatMap((group) => group.links);
+    let flatLinks = navGroups.flatMap((group) => group.links);
 
     function currentPageLabel(pathname: string): string {
         const found = flatLinks.find((link) =>
             isActive(pathname, link.href, link.exact),
         );
-        return found?.label ?? "Settings";
+        return found?.label ?? t("settings");
     }
 
     function resolveShouldUseDark(mode: ThemeMode): boolean {
@@ -139,6 +214,51 @@
             media.removeEventListener("change", handleSystemThemeChange);
         };
     });
+
+    $: navGroups = [
+        {
+            title: t("general"),
+            links: [{ href: "/settings", label: t("overview"), exact: true }],
+        },
+        {
+            title: t("aiEngine"),
+            links: [
+                { href: "/settings/ai/routing", label: t("routingPrompt"), exact: true },
+                { href: "/settings/ai/providers", label: t("providersModels"), exact: true },
+                { href: "/settings/ai/usage", label: t("usageStats"), exact: true },
+                { href: "/settings/ai/errors", label: t("modelErrors"), exact: true },
+                { href: "/settings/mcp", label: t("mcpServers"), exact: true },
+                { href: "/settings/acp", label: t("acpTargets"), exact: true },
+            ],
+        },
+        {
+            title: t("channels"),
+            links: [
+                { href: "/settings/web", label: t("webProfiles"), exact: true },
+                { href: "/settings/telegram", label: t("telegramBot"), exact: true },
+                { href: "/settings/weixin", label: t("wechatBot"), exact: true },
+                { href: "/settings/feishu", label: t("feishuBot"), exact: true },
+                { href: "/settings/qq", label: t("qqBot"), exact: true },
+            ],
+        },
+        {
+            title: t("agentData"),
+            links: [
+                { href: "/settings/agents", label: t("agents"), exact: true },
+                { href: "/settings/memory", label: t("memory"), exact: true },
+                { href: "/settings/memory-rejections", label: t("memoryRejections"), exact: true },
+                { href: "/settings/skills", label: t("skills"), exact: true },
+                { href: "/settings/skill-drafts", label: t("skillDrafts"), exact: true },
+                { href: "/settings/run-history", label: t("runHistory"), exact: true },
+                { href: "/settings/tasks", label: t("tasks"), exact: true },
+            ],
+        },
+        {
+            title: t("systemGroup"),
+            links: [{ href: "/settings/plugins", label: t("pluginsCore"), exact: true }],
+        },
+    ];
+    $: flatLinks = navGroups.flatMap((group) => group.links);
 </script>
 
 <main
@@ -154,10 +274,10 @@
                     class="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--foreground)] transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
                 >
                     <span aria-hidden="true">←</span>
-                    Back To Chat
+                    {t("backToChat")}
                 </a>
                 <h2 class="text-lg font-bold tracking-tight text-[var(--foreground)]">
-                    Settings
+                    {t("settings")}
                 </h2>
             </div>
 
@@ -206,7 +326,7 @@
                         <p
                             class="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]"
                         >
-                            Configuration Workspace
+                            {t("workspaceTitle")}
                         </p>
                         <h1 class="truncate text-lg font-semibold text-[var(--foreground)]">
                             {currentPageLabel($page.url.pathname)}
@@ -217,7 +337,7 @@
                             class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--ring)]"
                             bind:value={themeMode}
                             on:change={onThemeModeChange}
-                            aria-label="Theme"
+                            aria-label={t("theme")}
                         >
                             <option value="system">System</option>
                             <option value="light">Light</option>
@@ -227,7 +347,7 @@
                             class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--ring)]"
                             bind:value={locale}
                             on:change={onLocaleChange}
-                            aria-label="Language"
+                            aria-label={t("language")}
                         >
                             <option value="zh-CN">中文</option>
                             <option value="en-US">English</option>
@@ -236,21 +356,21 @@
                             href="/"
                             class="hidden rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-semibold text-[var(--foreground)] transition hover:border-[var(--primary)] hover:text-[var(--primary)] sm:inline-flex"
                         >
-                            Open Chat
+                            {t("openChat")}
                         </a>
                     </div>
                 </div>
 
                 <details class="mt-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-2 lg:hidden">
                     <summary class="cursor-pointer select-none px-2 py-1 text-sm font-medium text-[var(--foreground)]">
-                        Navigate Settings
+                        {t("navigateSettings")}
                     </summary>
                     <div class="mt-2 space-y-4 px-1 pb-1">
                         <a
                             href="/"
                             class="block rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--foreground)]"
                         >
-                            ← Back To Chat
+                            ← {t("backToChat")}
                         </a>
                         {#each navGroups as group}
                             <div class="space-y-2">

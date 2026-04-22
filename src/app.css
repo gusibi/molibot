@@ -1,10 +1,20 @@
 @import "tailwindcss";
 @import "./styles/theme.css";
 
+@layer base {
+  body {
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 26%, transparent);
+  }
+}
+
 @layer components {
   .settings-theme {
     color: var(--foreground);
-    background-color: var(--background);
+    background-color: transparent;
   }
 
   .settings-theme .settings-page {
@@ -124,6 +134,6 @@
   .settings-theme [class*="shadow-["],
   .settings-theme [class*="shadow-xl"],
   .settings-theme [class*="shadow-2xl"] {
-    box-shadow: var(--shadow-sm) !important;
+    box-shadow: var(--shadow) !important;
   }
 }

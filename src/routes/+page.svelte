@@ -69,6 +69,7 @@
       defaultWeb: "默认 Web",
       errorPrefix: "错误: ",
       closeSidebar: "关闭侧边栏",
+      openSidebar: "打开侧边栏",
       conversations: "会话",
       settings: "设置",
       newChat: "+ 新建对话",
@@ -82,6 +83,7 @@
       sessionOnlySwitchingMode: "仅会话切换模式",
       chats: "会话",
       assistantConsole: "助手控制台",
+      focusedWorkspace: "聚焦工作台",
       newLabel: "新建",
       theme: "主题",
       language: "语言",
@@ -132,8 +134,7 @@
       voiceRecordFailed: "录音失败，请重试。",
       micUnavailable: "麦克风不可用。",
       openSettings: "打开设置",
-      currentThemeFile: "主题文件"
-      ,
+      currentThemeFile: "主题文件",
       thinkingMode: "思考档位",
       thinkingOff: "关闭",
       thinkingLow: "低",
@@ -143,7 +144,22 @@
       requestTrace: "请求信息",
       thinkingProcess: "思考过程",
       noThinkingSeen: "这次没有收到思考流",
-      liveAnswer: "实时输出"
+      liveAnswer: "实时输出",
+      updatedAt: "更新于",
+      sessionCount: "条会话",
+      activeSession: "当前会话",
+      profileMode: "配置模式",
+      workspaceNote: "这里先专注同一个配置里的会话切换；要切到别的配置，直接新建对话。",
+      quickActions: "快捷入口",
+      quickActionsHint: "先从下面这些常见问题起步，后面再顺着聊深一点。",
+      conversationTimeline: "对话时间线",
+      emptyTimelineTitle: "开始一段真正有上下文的对话",
+      emptyTimelineHint: "直接提问、上传图片，或者录一段语音都可以，助手会沿着同一条线继续。",
+      attachments: "附件",
+      recorderReady: "语音输入",
+      stopCurrentTaskDone: "已停止当前任务。",
+      stopCurrentTaskIdle: "当前没有运行中的任务。",
+      profileAttached: "当前配置"
     },
     "en-US": {
       quickPrompts: [
@@ -155,6 +171,7 @@
       defaultWeb: "Default Web",
       errorPrefix: "Error: ",
       closeSidebar: "Close sidebar",
+      openSidebar: "Open sidebar",
       conversations: "Conversations",
       settings: "Settings",
       newChat: "+ New chat",
@@ -168,6 +185,7 @@
       sessionOnlySwitchingMode: "Session-only switching mode",
       chats: "Chats",
       assistantConsole: "Assistant Console",
+      focusedWorkspace: "Focused Workspace",
       newLabel: "New",
       theme: "Theme",
       language: "Language",
@@ -218,8 +236,7 @@
       voiceRecordFailed: "Voice recording failed. Please retry.",
       micUnavailable: "Microphone unavailable.",
       openSettings: "Open Settings",
-      currentThemeFile: "Theme file"
-      ,
+      currentThemeFile: "Theme file",
       thinkingMode: "Thinking",
       thinkingOff: "Off",
       thinkingLow: "Low",
@@ -229,7 +246,22 @@
       requestTrace: "Request Trace",
       thinkingProcess: "Thinking Process",
       noThinkingSeen: "No thinking stream received",
-      liveAnswer: "Live Output"
+      liveAnswer: "Live Output",
+      updatedAt: "Updated",
+      sessionCount: "sessions",
+      activeSession: "Active session",
+      profileMode: "Profile mode",
+      workspaceNote: "Session switching stays inside one profile. Start a new chat to move to another profile.",
+      quickActions: "Quick Actions",
+      quickActionsHint: "Start with one of these, then keep narrowing the conversation.",
+      conversationTimeline: "Conversation Timeline",
+      emptyTimelineTitle: "Start a conversation with real context",
+      emptyTimelineHint: "Ask directly, upload an image, or record a voice note. The assistant will keep building on the same thread.",
+      attachments: "Attachments",
+      recorderReady: "Voice Input",
+      stopCurrentTaskDone: "Current task stopped.",
+      stopCurrentTaskIdle: "No active task right now.",
+      profileAttached: "Current profile"
     }
   };
 
@@ -280,12 +312,14 @@
   let streamingAssistantText = "";
   let streamingThinkingText = "";
   let streamingDiagnostics: string[] = [];
+  let activeSessionTitle = "";
 
   let messagesContainer: HTMLDivElement | null = null;
   let composerEl: HTMLTextAreaElement | null = null;
 
   $: dict = I18N[locale];
   $: QUICK_PROMPTS = dict.quickPrompts;
+  $: activeSessionTitle = sessions.find((s) => s.id === activeSessionId)?.title || t("newSession");
 
   function t(key: string): string {
     return dict[key] ?? key;
@@ -643,7 +677,7 @@
     const trimmed = text.trim();
     if (files.length === 0) return trimmed;
     const names = files.map((file) => file.name || "upload").join(", ");
-    const attachmentLine = `[attachments] ${names}`;
+    const attachmentLine = `[${t("attachments")}] ${names}`;
     return trimmed ? `${trimmed}\n\n${attachmentLine}` : attachmentLine;
   }
 
@@ -809,7 +843,7 @@
       if (!response.ok || !payload?.ok) {
         throw new Error(String(payload?.error ?? t("backendRequestFailed")));
       }
-      status = payload.stopped ? "已停止当前任务。" : "当前没有运行中的任务。";
+      status = payload.stopped ? t("stopCurrentTaskDone") : t("stopCurrentTaskIdle");
     } catch (error) {
       status = error instanceof Error ? `${t("errorPrefix")}${error.message}` : `${t("errorPrefix")}${String(error)}`;
     } finally {
@@ -916,7 +950,7 @@
       status = "";
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        status = "已停止当前任务。";
+        status = t("stopCurrentTaskDone");
         return;
       }
       const errorText = error instanceof Error ? error.message : String(error);
@@ -1221,7 +1255,13 @@
   });
 </script>
 
-<main class="relative h-[100dvh] overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+<main class="relative h-[100dvh] overflow-hidden bg-transparent text-[var(--foreground)]">
+  <div class="pointer-events-none absolute inset-0">
+    <div class="absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_top,rgba(212,170,67,0.14),transparent_58%)]"></div>
+    <div class="absolute right-[-8rem] top-[18%] h-72 w-72 rounded-full bg-[color-mix(in_oklab,var(--primary)_20%,transparent)] blur-3xl"></div>
+    <div class="absolute bottom-[-6rem] left-[-5rem] h-72 w-72 rounded-full bg-[color-mix(in_oklab,var(--accent)_34%,transparent)] blur-3xl"></div>
+    <div class="absolute inset-0 opacity-[0.04]" style="background-image: linear-gradient(to right, currentColor 1px, transparent 1px), linear-gradient(to bottom, currentColor 1px, transparent 1px); background-size: 28px 28px;"></div>
+  </div>
   <div class="relative flex h-full">
     {#if showMobileSidebar}
       <button
@@ -1233,17 +1273,17 @@
     {/if}
 
     <aside
-      class={`absolute inset-y-0 left-0 z-30 flex w-[290px] flex-col border-r border-[var(--border)] bg-[var(--sidebar)] p-3 transition-transform duration-200 lg:static lg:z-0 lg:w-[320px] lg:translate-x-0 ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}
+      class={`absolute inset-y-0 left-0 z-30 flex w-[290px] flex-col border-r border-[var(--border)] bg-[color-mix(in_oklab,var(--sidebar)_88%,transparent)] p-3 backdrop-blur-xl transition-transform duration-200 lg:static lg:z-0 lg:w-[320px] lg:translate-x-0 ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}
     >
       <div class="space-y-3 border-b border-[var(--border)] pb-3">
         <div class="flex items-center justify-between">
           <div>
-            <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Molibot</p>
+            <p class="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--muted-foreground)]">Molibot</p>
             <h2 class="text-base font-semibold">{t("conversations")}</h2>
-            <p class="mt-0.5 text-[11px] text-[var(--muted-foreground)]">{filteredSessions.length} {t("chats")}</p>
+            <p class="mt-0.5 text-[11px] text-[var(--muted-foreground)]">{filteredSessions.length} {t("sessionCount")}</p>
           </div>
           <a
-            class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs transition hover:bg-[var(--muted)]"
+            class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]"
             href="/settings"
           >
             {t("settings")}
@@ -1251,7 +1291,7 @@
         </div>
 
         <button
-          class="w-full rounded-xl bg-[var(--primary)] px-3 py-2 text-left text-sm font-semibold text-[var(--primary-foreground)] transition hover:opacity-90"
+          class="w-full rounded-[1.1rem] bg-[var(--primary)] px-4 py-3 text-left text-sm font-semibold text-[var(--primary-foreground)] shadow-[var(--shadow)] transition hover:-translate-y-0.5 hover:opacity-95"
           type="button"
           on:click={openNewChatDialog}
         >
@@ -1265,10 +1305,17 @@
           placeholder={t("searchChats")}
         />
 
-        <div class="rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2">
-          <p class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{t("activeProfile")}</p>
-          <p class="truncate text-xs font-medium">{activeProfileName}</p>
-          <p class="truncate text-[10px] text-[var(--muted-foreground)]">{activeProfileId}</p>
+        <div class="rounded-[1.1rem] border border-[var(--border)] bg-[var(--card)] px-3 py-3 shadow-[var(--shadow-sm)]">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{t("activeProfile")}</p>
+              <p class="truncate text-sm font-semibold">{activeProfileName}</p>
+              <p class="truncate text-[10px] text-[var(--muted-foreground)]">{activeProfileId}</p>
+            </div>
+            <div class="rounded-full border border-[var(--border)] bg-[var(--muted)] px-2.5 py-1 text-[10px] font-semibold text-[var(--muted-foreground)]">
+              {t("profileMode")}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1280,9 +1327,9 @@
         {:else}
           {#each filteredSessions as s}
             <div
-              class={`w-full rounded-xl border px-3 py-2.5 text-left transition ${s.id === activeSessionId
-                ? "border-[var(--primary)] bg-[var(--muted)]"
-                : "border-transparent bg-[var(--card)] hover:border-[var(--border)] hover:bg-[var(--muted)]"}`}
+              class={`w-full rounded-[1.1rem] border px-3 py-3 text-left shadow-[var(--shadow-sm)] transition ${s.id === activeSessionId
+                ? "border-[color-mix(in_oklab,var(--primary)_55%,var(--border))] bg-[color-mix(in_oklab,var(--accent)_34%,var(--card))]"
+                : "border-transparent bg-[var(--card)] hover:-translate-y-0.5 hover:border-[var(--border)] hover:bg-[var(--muted)]"}`}
             >
               {#if editingSessionId === s.id}
                 <div class="space-y-2">
@@ -1322,8 +1369,8 @@
                     <span class={`inline-block h-1.5 w-1.5 rounded-full ${s.id === activeSessionId ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]"}`}></span>
                     <p class="line-clamp-1 text-sm font-medium">{s.title || t("newSession")}</p>
                   </div>
-                  <p class="mt-1 text-[11px] text-[var(--muted-foreground)]">{t("profile")}: {activeProfileName}</p>
-                  <p class="mt-1 text-[11px] text-[var(--muted-foreground)]">Updated {formatSessionTime(s.updatedAt)}</p>
+                  <p class="mt-1 text-[11px] text-[var(--muted-foreground)]">{t("profileAttached")}: {activeProfileName}</p>
+                  <p class="mt-1 text-[11px] text-[var(--muted-foreground)]">{t("updatedAt")} {formatSessionTime(s.updatedAt)}</p>
                 </button>
               {/if}
             </div>
@@ -1331,28 +1378,33 @@
         {/if}
       </div>
 
-      <div class="border-t border-[var(--border)] pt-3 text-[11px] text-[var(--muted-foreground)]">{t("sessionOnlySwitchingMode")}</div>
+      <div class="space-y-1 border-t border-[var(--border)] pt-3 text-[11px] text-[var(--muted-foreground)]">
+        <p class="font-medium text-[var(--foreground)]">{t("sessionOnlySwitchingMode")}</p>
+        <p>{t("workspaceNote")}</p>
+      </div>
     </aside>
 
     <section class="flex min-w-0 flex-1 flex-col">
-      <header class="border-b border-[var(--border)] bg-[var(--background)] px-4 py-3 sm:px-6">
+      <header class="border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--background)_82%,transparent)] px-4 py-3 backdrop-blur-xl sm:px-6">
         <div class="flex flex-wrap items-center gap-2">
           <button
             class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs transition hover:bg-[var(--muted)] lg:hidden"
             type="button"
             on:click={() => (showMobileSidebar = true)}
+            aria-label={t("openSidebar")}
           >
             {t("chats")}
           </button>
 
-          <div class="min-w-0">
-            <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{t("assistantConsole")}</p>
-            <h1 class="truncate text-sm font-semibold sm:text-base">{sessions.find((s) => s.id === activeSessionId)?.title || t("newSession")}</h1>
+          <div class="min-w-0 flex-1">
+            <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted-foreground)]">{t("focusedWorkspace")}</p>
+            <h1 class="truncate text-base font-semibold sm:text-lg">{activeSessionTitle}</h1>
+            <p class="mt-1 hidden text-xs text-[var(--muted-foreground)] sm:block">{t("assistantConsole")} · {t("activeProfile")}: {activeProfileName}</p>
           </div>
 
-          <div class="ml-auto flex items-center gap-2">
+          <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
             <select
-              class="max-w-[240px] rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--ring)]"
+              class="max-w-[240px] rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] outline-none focus:border-[var(--ring)]"
               value={activeModelKey}
               disabled={changingModel || modelOptions.length === 0}
               on:change={async (e) => applyModelSelection((e.target as HTMLSelectElement).value)}
@@ -1362,7 +1414,7 @@
               {/each}
             </select>
             <select
-              class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--ring)]"
+              class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] outline-none focus:border-[var(--ring)]"
               bind:value={thinkingLevel}
               aria-label={t("thinkingMode")}
             >
@@ -1372,7 +1424,7 @@
               <option value="high">{t("thinkingMode")}: {t("thinkingHigh")}</option>
             </select>
             <select
-              class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--ring)]"
+              class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] outline-none focus:border-[var(--ring)]"
               bind:value={themeMode}
               on:change={onThemeModeChange}
               aria-label={t("theme")}
@@ -1382,7 +1434,7 @@
               <option value="dark">{t("dark")}</option>
             </select>
             <select
-              class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--ring)]"
+              class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] outline-none focus:border-[var(--ring)]"
               bind:value={locale}
               on:change={onLocaleChange}
               aria-label={t("language")}
@@ -1391,7 +1443,7 @@
               <option value="en-US">English</option>
             </select>
             <button
-              class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs transition hover:bg-[var(--muted)]"
+              class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-medium shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]"
               type="button"
               on:click={openNewChatDialog}
             >
@@ -1399,14 +1451,14 @@
             </button>
           </div>
         </div>
-        <div class="mt-3 flex flex-wrap gap-2 text-[11px]">
-          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5">
+        <div class="mt-4 flex flex-wrap gap-2 text-[11px]">
+          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 shadow-[var(--shadow-sm)]">
             {t("activeProfile")}: {activeProfileName}
           </div>
-          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5">
+          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 shadow-[var(--shadow-sm)]">
             {t("thinkingMode")}: {thinkingLabel(thinkingLevel)}
           </div>
-          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-[var(--muted-foreground)]">
+          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-[var(--muted-foreground)] shadow-[var(--shadow-sm)]">
             {t("currentThemeFile")}: <code class="ml-1">src/styles/theme.css</code>
           </div>
         </div>
@@ -1415,30 +1467,39 @@
       <div class="min-h-0 flex-1 overflow-hidden">
         <div class="mx-auto flex h-full w-full max-w-5xl flex-col px-4 py-4 sm:px-6">
           {#if status}
-            <div class="mb-3 rounded-xl border border-[color-mix(in_oklab,var(--destructive)_55%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_12%,transparent)] px-3 py-2 text-xs text-[var(--foreground)]">{status}</div>
+            <div class="mb-3 rounded-[1.1rem] border border-[color-mix(in_oklab,var(--destructive)_55%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_12%,transparent)] px-4 py-3 text-xs text-[var(--foreground)] shadow-[var(--shadow-sm)]">{status}</div>
           {/if}
 
-          <div class="mb-3 flex flex-wrap gap-2">
-            {#each QUICK_PROMPTS as prompt}
+          <section class="mb-3 rounded-[1.4rem] border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_82%,transparent)] p-4 shadow-[var(--shadow)] backdrop-blur-xl">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted-foreground)]">{t("quickActions")}</p>
+                <h2 class="mt-1 text-base font-semibold text-[var(--foreground)]">{t("conversationTimeline")}</h2>
+                <p class="mt-1 max-w-2xl text-xs leading-6 text-[var(--muted-foreground)]">{t("quickActionsHint")}</p>
+              </div>
               <button
-                class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs transition hover:bg-[var(--muted)]"
+                class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-medium shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]"
                 type="button"
-                on:click={() => sendQuickPrompt(prompt)}
+                on:click={openSystemPromptPreview}
               >
-                {prompt}
+                {t("previewSystemPrompt")}
               </button>
-            {/each}
-            <button
-              class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs transition hover:bg-[var(--muted)]"
-              type="button"
-              on:click={openSystemPromptPreview}
-            >
-              {t("previewSystemPrompt")}
-            </button>
-          </div>
+            </div>
+            <div class="mt-4 flex flex-wrap gap-2">
+              {#each QUICK_PROMPTS as prompt}
+                <button
+                  class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] transition hover:-translate-y-0.5 hover:bg-[var(--muted)]"
+                  type="button"
+                  on:click={() => sendQuickPrompt(prompt)}
+                >
+                  {prompt}
+                </button>
+              {/each}
+            </div>
+          </section>
 
           <div
-            class="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 sm:p-5"
+            class="min-h-0 flex-1 overflow-y-auto rounded-[1.6rem] border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_90%,transparent)] p-4 shadow-[var(--shadow)] backdrop-blur-xl sm:p-5"
             bind:this={messagesContainer}
           >
             {#if loadingMessages}
@@ -1446,16 +1507,17 @@
                 {t("loadingMessages")}
               </div>
             {:else if messages.length === 0}
-              <div class="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] px-5 py-8 text-center text-sm text-[var(--muted-foreground)]">
-                <p class="text-base font-medium text-[var(--foreground)]">{t("startFocusedConversation")}</p>
-                <p class="mt-2 text-xs text-[var(--muted-foreground)]">{t("multimodalHint")}</p>
+              <div class="rounded-[1.4rem] border border-dashed border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_56%,transparent)] px-5 py-10 text-center text-sm text-[var(--muted-foreground)]">
+                <p class="text-lg font-semibold text-[var(--foreground)]">{t("emptyTimelineTitle")}</p>
+                <p class="mt-2 text-sm text-[var(--muted-foreground)]">{t("emptyTimelineHint")}</p>
+                <p class="mt-4 text-xs text-[var(--muted-foreground)]">{t("multimodalHint")}</p>
               </div>
             {:else}
               <div class="space-y-4">
                 {#each messages as m}
                   <article class={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div class={`max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-7 sm:max-w-[80%] ${m.role === "user"
-                      ? "border border-[var(--primary)] bg-[var(--muted)]"
+                    <div class={`max-w-[92%] rounded-[1.35rem] px-4 py-3 text-sm leading-7 shadow-[var(--shadow-sm)] sm:max-w-[80%] ${m.role === "user"
+                      ? "border border-[color-mix(in_oklab,var(--primary)_58%,var(--border))] bg-[color-mix(in_oklab,var(--accent)_44%,var(--card))]"
                       : "border border-[var(--border)] bg-[var(--card)]"}`}>
                       <div class="mb-1 flex items-center justify-between gap-4">
                         <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
@@ -1464,7 +1526,7 @@
                         <div class="text-[10px] text-[var(--muted-foreground)]">{formatMessageTime(m.createdAt)}</div>
                       </div>
                       {#if m.role === "assistant" && ((m.meta?.diagnostics?.length ?? 0) > 0 || m.meta?.thinking)}
-                        <details class="mb-3 rounded-xl border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6 text-[var(--muted-foreground)]">
+                        <details class="mb-3 rounded-[1rem] border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6 text-[var(--muted-foreground)]">
                           <summary class="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]">
                             {t("thinkingDetails")}
                           </summary>
@@ -1491,10 +1553,10 @@
 
                 {#if sending}
                   <article class="flex justify-start">
-                    <div class="rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                    <div class="rounded-[1.35rem] border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--muted-foreground)] shadow-[var(--shadow-sm)]">
                       <div class="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Molibot</div>
                       {#if streamingDiagnostics.length > 0 || streamingThinkingText}
-                        <details class="mb-3 rounded-xl border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6" open>
+                        <details class="mb-3 rounded-[1rem] border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6" open>
                           <summary class="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]">
                             {t("thinkingDetails")}
                           </summary>
@@ -1529,13 +1591,13 @@
         </div>
       </div>
 
-      <footer class="border-t border-[var(--border)] bg-[var(--background)] px-4 py-4 sm:px-6">
-        <div class="mx-auto w-full max-w-5xl rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3">
+      <footer class="border-t border-[var(--border)] bg-[color-mix(in_oklab,var(--background)_82%,transparent)] px-4 py-4 backdrop-blur-xl sm:px-6">
+        <div class="mx-auto w-full max-w-5xl rounded-[1.45rem] border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] p-3 shadow-[var(--shadow)]">
           {#if pendingFiles.length > 0}
             <div class="mb-2 flex flex-wrap gap-2">
               {#each pendingFiles as file, index}
                 <button
-                  class="rounded-full border border-[var(--border)] bg-[var(--secondary)] px-3 py-1 text-xs"
+                  class="rounded-full border border-[var(--border)] bg-[var(--secondary)] px-3 py-1 text-xs shadow-[var(--shadow-sm)]"
                   type="button"
                   on:click={() => removePendingFile(index)}
                 >
@@ -1557,14 +1619,14 @@
 
           <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2">
-              <label class="cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-xs transition hover:bg-[var(--muted)]">
+              <label class="cursor-pointer rounded-full border border-[var(--border)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]">
                 + {t("image")}
                 <input class="hidden" type="file" accept="image/*" multiple on:change={onFileSelect} />
               </label>
               <button
                 class={`rounded-lg px-3 py-2 text-xs font-semibold transition ${isRecording
-                  ? "border border-[var(--destructive)] bg-[var(--card)] text-[var(--destructive)] hover:bg-[var(--muted)]"
-                  : "border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)]"}`}
+                  ? "border border-[var(--destructive)] bg-[var(--card)] text-[var(--destructive)] shadow-[var(--shadow-sm)] hover:bg-[var(--muted)]"
+                  : "border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)] hover:bg-[var(--muted)]"}`}
                 type="button"
                 disabled={preparingRecording || sending}
                 on:click={toggleVoiceRecording}
@@ -1577,10 +1639,10 @@
                   {t("recordVoice")}
                 {/if}
               </button>
-              <p class="text-[11px] text-[var(--muted-foreground)]">{t("enterShiftHint")}</p>
+              <p class="text-[11px] text-[var(--muted-foreground)]">{t("recorderReady")} · {t("enterShiftHint")}</p>
             </div>
             <button
-              class="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-semibold transition hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-50"
+              class="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-semibold shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-50"
               type="button"
               disabled={stopping || !activeSessionId}
               on:click={stopCurrentRun}
@@ -1588,7 +1650,7 @@
               {stopping ? t("stopping") : t("stop")}
             </button>
             <button
-              class="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              class="rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] shadow-[var(--shadow)] transition hover:-translate-y-0.5 hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
               type="button"
               disabled={sending || (!messageInput.trim() && pendingFiles.length === 0)}
               on:click={sendMessage}
