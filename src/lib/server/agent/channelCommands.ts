@@ -41,6 +41,9 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   sendText: (target: TTarget, text: string) => Promise<void>;
   onSessionMutation?: (scopeId: string) => void | Promise<void>;
   getQueueSize?: (scopeId: string) => number;
+  listQueue?: (scopeId: string) => Promise<Array<{ id: number; status: string; preview: string; createdAt: string }>>;
+  deleteQueued?: (scopeId: string, id: number) => Promise<"deleted" | "running" | "not_found">;
+  enqueueFront?: (input: SharedRuntimeCommandContext<TTarget>, text: string) => Promise<number | null>;
   getStatusExtras?: (scopeId: string, target: TTarget) => string[];
   helpLines?: readonly string[];
 }
@@ -89,6 +92,71 @@ export class SharedRuntimeCommandService<TTarget> {
     }
 
     if (await this.options.maybeHandleAcpCommand?.(input.scopeId, cmd, rawArg, input.target)) {
+      return true;
+    }
+
+    if (cmd === "/queue") {
+      const [subcommand = "list", ...rest] = rawArg.split(/\s+/).filter(Boolean);
+      const queueArg = rest.join(" ").trim();
+
+      if (!this.options.listQueue) {
+        await this.options.sendText(input.target, "Queue management is unavailable in current runtime.");
+        return true;
+      }
+
+      if (!rawArg || subcommand === "list") {
+        await this.options.sendText(input.target, await this.queueText(input.scopeId));
+        return true;
+      }
+
+      if (subcommand === "front") {
+        if (!this.options.enqueueFront) {
+          await this.options.sendText(input.target, "Queue front insertion is unavailable in current runtime.");
+          return true;
+        }
+        if (!queueArg) {
+          await this.options.sendText(input.target, "Usage: /queue front <text>");
+          return true;
+        }
+        const queueId = await this.options.enqueueFront(input, queueArg);
+        await this.options.sendText(
+          input.target,
+          queueId ? `Inserted at front of queue. Queue ID: ${queueId}` : "Failed to insert queued task."
+        );
+        return true;
+      }
+
+      if (subcommand === "delete") {
+        if (!this.options.deleteQueued) {
+          await this.options.sendText(input.target, "Queue deletion is unavailable in current runtime.");
+          return true;
+        }
+        const id = Number.parseInt(queueArg, 10);
+        if (!Number.isFinite(id) || id <= 0) {
+          await this.options.sendText(input.target, "Usage: /queue delete <queueId>");
+          return true;
+        }
+        const result = await this.options.deleteQueued(input.scopeId, id);
+        await this.options.sendText(
+          input.target,
+          result === "deleted"
+            ? `Deleted queued task ${id}.`
+            : result === "running"
+              ? `Task ${id} is currently running. Use /stop to stop the current task first.`
+              : `Queue item ${id} was not found.`
+        );
+        return true;
+      }
+
+      await this.options.sendText(
+        input.target,
+        [
+          "Queue usage:",
+          "/queue",
+          "/queue front <text>",
+          "/queue delete <queueId>"
+        ].join("\n")
+      );
       return true;
     }
 
@@ -437,35 +505,30 @@ export class SharedRuntimeCommandService<TTarget> {
     const settings = this.options.getSettings();
     const options = buildModelOptions(settings, route);
     const activeKey = currentModelKey(settings, route);
-    const activeOption = options.find((option) => option.key === activeKey);
-    const lines = [
-      `Route: ${route}`,
-      `Provider mode: ${settings.providerMode}`,
-      `Current active model: ${activeOption ? activeOption.label : "(not found in current options)"}`,
-      `Current active key: ${activeKey || "(empty)"}`,
-      `Configured model options: ${options.length}`,
-      ""
-    ];
+    const title = route === "text" ? "当前模型列表" : `当前 ${route} 模型列表`;
+    const lines = [`${title}（共${options.length}个）：`, ""];
 
     if (options.length === 0) {
       lines.push("(no configured models)");
     } else {
+      lines.push("| 编号 | 模型 |");
+      lines.push("|------|------|");
       for (let i = 0; i < options.length; i += 1) {
         const option = options[i];
-        const marker = option.key === activeKey ? " (active)" : "";
-        lines.push(`${i + 1}. ${option.label}${marker}`);
-        lines.push(`   - key: ${option.key}`);
+        const label = option.label.replace(/^\[(PI|Custom)\]\s*/, "");
+        const marker = option.key === activeKey ? " ⭐ 当前活跃中" : "";
+        lines.push(`| ${i + 1} | ${label}${marker} |`);
       }
     }
 
     lines.push("");
-    lines.push(`Switch ${route} model:`);
-    lines.push(`/models ${route} <index>`);
+    lines.push(`切换 ${route} 模型：`);
+    lines.push(`/models ${route} <编号>`);
     lines.push(`/models ${route} <key>`);
     if (route === "text") {
       lines.push("");
-      lines.push("Quick text switch:");
-      lines.push("/models <index>");
+      lines.push("快捷切换：");
+      lines.push("/models <编号>");
       lines.push("/models <key>");
     }
     return lines.join("\n");
@@ -714,6 +777,9 @@ export class SharedRuntimeCommandService<TTarget> {
   private helpText(): string {
     const commandRows: CommandTableRow[] = [
       { label: "/stop", value: "stop current running task" },
+      { label: "/queue", value: "list current running and queued tasks" },
+      { label: "/queue front <text>", value: "insert a text task at the front of queue" },
+      { label: "/queue delete <queueId>", value: "delete a pending queued task by id" },
       { label: "/new", value: "create and switch to a new session" },
       { label: "/clear", value: "clear context of current session" },
       { label: "/sessions", value: "list sessions and current active session" },
@@ -749,5 +815,22 @@ export class SharedRuntimeCommandService<TTarget> {
     }
 
     return ["Available commands:", ...commandRows.map((row) => `${row.label} - ${row.value}`)].join("\n");
+  }
+
+  private async queueText(scopeId: string): Promise<string> {
+    const rows = await this.options.listQueue?.(scopeId);
+    if (!rows || rows.length === 0) {
+      return "Queue is empty.";
+    }
+    const tableRows: CommandTableRow[] = rows.map((row) => ({
+      label: `#${row.id} ${row.status}`,
+      value: row.preview || "(no preview)"
+    }));
+
+    if (this.shouldUseMarkdownTable("help")) {
+      return this.renderTwoColumnSectionsAsMarkdown([{ title: "Queue", rows: tableRows }]);
+    }
+
+    return ["Queue:", ...rows.map((row) => `#${row.id} [${row.status}] ${row.preview || "(no preview)"}`)].join("\n");
   }
 }

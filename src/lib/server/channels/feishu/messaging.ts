@@ -1,7 +1,7 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { momWarn } from "../../agent/log.js";
-import { markdownToFeishuMarkdown } from "./formatting.js";
+import { markdownToFeishuMarkdown, parseFeishuRichTextSegments, type FeishuRichTextSegment } from "./formatting.js";
 
 const FEISHU_CARD_MARKDOWN_LIMIT = 3500;
 const FEISHU_CARD_TITLE_LIMIT = 60;
@@ -96,37 +96,108 @@ function chunkMarkdown(text: string, limit = FEISHU_CARD_MARKDOWN_LIMIT): string
   return chunks;
 }
 
-function buildReplyCard(text: string, partIndex = 0, totalParts = 1): lark.InteractiveCard {
-  const titleBase = deriveCardTitle(text, "Molibot");
-  const title = totalParts > 1 ? `${titleBase} (${partIndex + 1}/${totalParts})` : titleBase;
+function estimateSegmentSize(segment: FeishuRichTextSegment): number {
+  if (segment.type === "markdown") return Array.from(segment.content).length;
+  return segment.columns.join("").length + segment.rows.flat().join("").length;
+}
+
+function segmentToCardElement(segment: FeishuRichTextSegment): Record<string, unknown> {
+  if (segment.type === "markdown") {
+    return {
+      tag: "markdown",
+      content: markdownToFeishuMarkdown(segment.content)
+    };
+  }
+
+  const columnKeys = segment.columns.map((_, index) => `col_${index + 1}`);
   return {
-    config: {
-      wide_screen_mode: true,
-      enable_forward: true
-    },
-    header: {
-      template: "indigo",
-      title: {
-        tag: "plain_text",
-        content: title
-      }
-    },
-    elements: [
-      {
-        tag: "markdown",
-        content: text
-      },
-      {
-        tag: "note",
-        elements: [
-          {
-            tag: "plain_text",
-            content: totalParts > 1 ? "Long reply split into multiple cards." : "Rendered as a Feishu rich card."
-          }
-        ]
-      }
-    ]
+    tag: "table",
+    columns: segment.columns.map((name, index) => ({
+      name: columnKeys[index],
+      display_name: markdownToFeishuMarkdown(name || " "),
+      data_type: "lark_md",
+      width: "auto"
+    })),
+    rows: segment.rows.map((row) =>
+      Object.fromEntries(
+        columnKeys.map((key, index) => [key, markdownToFeishuMarkdown(row[index] || " ")])
+      )
+    )
   };
+}
+
+function chunkSegmentsForCards(segments: FeishuRichTextSegment[]): FeishuRichTextSegment[][] {
+  const normalized: FeishuRichTextSegment[] = [];
+  for (const segment of segments) {
+    if (segment.type === "markdown") {
+      const chunks = chunkMarkdown(segment.content);
+      for (const chunk of chunks) {
+        normalized.push({ type: "markdown", content: chunk });
+      }
+      continue;
+    }
+    normalized.push(segment);
+  }
+
+  const cards: FeishuRichTextSegment[][] = [];
+  let current: FeishuRichTextSegment[] = [];
+  let currentSize = 0;
+
+  for (const segment of normalized) {
+    const size = estimateSegmentSize(segment);
+    if (current.length > 0 && currentSize + size > FEISHU_CARD_MARKDOWN_LIMIT) {
+      cards.push(current);
+      current = [];
+      currentSize = 0;
+    }
+    current.push(segment);
+    currentSize += size;
+  }
+
+  if (current.length > 0) {
+    cards.push(current);
+  }
+
+  return cards.length > 0 ? cards : [[{ type: "markdown", content: "" }]];
+}
+
+export function buildFeishuReplyCards(text: string): lark.InteractiveCard[] {
+  const normalized = normalizeText(text);
+  const segments = parseFeishuRichTextSegments(normalized);
+  const chunked = chunkSegmentsForCards(
+    segments.length > 0 ? segments : [{ type: "markdown", content: normalized || "_No details_" }]
+  );
+  const titleBase = deriveCardTitle(normalized, "Molibot");
+  return chunked.map((cardSegments, partIndex) => {
+    const totalParts = chunked.length;
+    const title = totalParts > 1 ? `${titleBase} (${partIndex + 1}/${totalParts})` : titleBase;
+    const bodyElements = cardSegments.map((segment) => segmentToCardElement(segment));
+    return {
+      config: {
+        wide_screen_mode: true,
+        enable_forward: true
+      },
+      header: {
+        template: "indigo",
+        title: {
+          tag: "plain_text",
+          content: title
+        }
+      },
+      elements: [
+        ...bodyElements,
+        {
+          tag: "note",
+          elements: [
+            {
+              tag: "plain_text",
+              content: totalParts > 1 ? "Long reply split into multiple cards." : "Rendered as a Feishu rich card."
+            }
+          ]
+        }
+      ]
+    } satisfies lark.InteractiveCard;
+  });
 }
 
 export function buildFeishuStatusCard(options: StatusCardOptions): lark.InteractiveCard {
@@ -374,12 +445,9 @@ export async function sendFeishuText(
 ): Promise<{ message_id: string } | null> {
   if (!client || !text.trim()) return null;
   try {
-    const formattedText = markdownToFeishuMarkdown(text);
-    const chunks = chunkMarkdown(formattedText);
     let firstMessage: { message_id: string } | null = null;
 
-    for (let index = 0; index < chunks.length; index += 1) {
-      const card = buildReplyCard(chunks[index], index, chunks.length);
+    for (const card of buildFeishuReplyCards(text)) {
       const sent = await sendFeishuCard(client, chatId, card);
       if (!firstMessage) firstMessage = sent;
     }
@@ -397,9 +465,8 @@ export async function editFeishuText(
   text: string
 ): Promise<string | null> {
   if (!client || !text.trim()) return null;
-  const formattedText = markdownToFeishuMarkdown(text);
-  const firstChunk = chunkMarkdown(formattedText)[0] ?? formattedText;
-  return editFeishuCard(client, messageId, buildReplyCard(firstChunk));
+  const firstCard = buildFeishuReplyCards(text)[0];
+  return editFeishuCard(client, messageId, firstCard);
 }
 
 function detectImageMime(filename: string, bytes: Buffer): string | null {

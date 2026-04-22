@@ -144,6 +144,7 @@ export const qqChannelPlugin: ChannelPlugin<QQConfig> = {
         workspaceDir: instance.workspaceDir,
         memory: deps.memory,
         usageTracker: deps.usageTracker,
+        modelErrorTracker: deps.modelErrorTracker,
         // 使用 SDK 账户配置
         sdkAccount
       }

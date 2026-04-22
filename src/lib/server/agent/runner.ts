@@ -19,8 +19,10 @@ import { getMcpToolsForRuntime } from "./mcp.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace } from "./skills.js";
 import { compactContextMessages, shouldCompactContext } from "./compaction.js";
 import { hasConfiguredAuth, resolveProviderApiKey } from "./auth.js";
+import { resolvePromptAttemptDecision, shouldEmitFinalRunnerError } from "./runnerRetryState.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
+import type { ModelErrorTracker } from "../usage/modelErrorTracker.js";
 import {
   buildCustomProviderCompat,
   resolveCustomProviderReasoningSupport,
@@ -381,24 +383,6 @@ function formatModelAttemptFailure(failure: ModelAttemptFailure): string {
     `type=${failure.kind}`,
     `error=${failure.message}`
   ].filter(Boolean).join(", ");
-}
-
-function isRetryableModelError(message: string): boolean {
-  const lower = message.toLowerCase();
-  return (
-    /\b429\b/.test(lower) ||
-    lower.includes("rate limit") ||
-    lower.includes("too many requests") ||
-    lower.includes("quota") ||
-    lower.includes("temporarily unavailable") ||
-    lower.includes("timeout") ||
-    lower.includes("timed out") ||
-    lower.includes("econnreset") ||
-    lower.includes("socket hang up") ||
-    lower.includes("connection reset") ||
-    lower.includes("network error") ||
-    /\b5\d\d\b/.test(lower)
-  );
 }
 
 function buildModelFallbackSelections(
@@ -827,6 +811,45 @@ function redactBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/\/([^/@]+)@/, "//***@");
 }
 
+function recordModelFailure(
+  tracker: ModelErrorTracker,
+  input: {
+    channel: string;
+    botId: string;
+    chatId: string;
+    sessionId: string;
+    runId: string;
+    route: "text" | "vision" | "stt" | "tts";
+    selection: ResolvedModelSelection;
+    failure: ModelAttemptFailure;
+    candidateIndex: number;
+    recovered: boolean;
+    fallbackUsed: boolean;
+    finalSelection?: ResolvedModelSelection;
+  }
+): void {
+  tracker.record({
+    source: "runner",
+    channel: input.channel,
+    botId: input.botId,
+    chatId: input.chatId,
+    sessionId: input.sessionId,
+    runId: input.runId,
+    provider: input.failure.provider,
+    model: input.failure.model,
+    api: input.selection.model.api,
+    route: input.route,
+    kind: input.failure.kind,
+    message: input.failure.message,
+    baseUrl: input.failure.baseUrl,
+    candidateIndex: input.candidateIndex,
+    recovered: input.recovered,
+    fallbackUsed: input.fallbackUsed,
+    finalProvider: input.finalSelection?.model.provider,
+    finalModel: input.finalSelection?.model.id
+  });
+}
+
 function keyFingerprint(key: string | undefined): string {
   if (!key) return "none";
   if (key.length <= 8) return `len=${key.length}`;
@@ -1110,6 +1133,7 @@ export class MomRunner implements RunnerLike {
     private readonly getSettings: () => RuntimeSettings,
     private readonly updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
     private readonly usageTracker: AiUsageTracker,
+    private readonly modelErrorTracker: ModelErrorTracker,
     private readonly memory: MemoryGateway,
   ) {
     const settings = this.getSettings();
@@ -1336,6 +1360,7 @@ export class MomRunner implements RunnerLike {
     const budget = new RunBudget(DEFAULT_RUN_BUDGET);
     const usedToolNames: string[] = [];
     const failedToolNames: string[] = [];
+    const botId = basename(this.store.getWorkspaceDir()) || "unknown";
     this.running = true;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
     this.activePayloadContext = undefined;
@@ -1722,7 +1747,6 @@ export class MomRunner implements RunnerLike {
             cacheWriteTokens: Number(msg.usage.cacheWrite ?? 0),
             totalTokens: Number(msg.usage.totalTokens ?? 0)
           };
-          const botId = basename(this.store.getWorkspaceDir()) || "unknown";
           this.usageTracker.record({
             channel: this.channel,
             botId,
@@ -1785,6 +1809,11 @@ export class MomRunner implements RunnerLike {
       let finalText = "";
       let finalAttemptCount = 0;
       let successfulCandidateIndex = -1;
+      const pendingModelErrorEvents: Array<{
+        selection: ResolvedModelSelection;
+        failure: ModelAttemptFailure;
+        candidateIndex: number;
+      }> = [];
 
       for (let candidateIndex = 0; candidateIndex < modelCandidates.length; candidateIndex += 1) {
         const budgetAttempt = budget.tryRecordModelAttempt();
@@ -1807,6 +1836,7 @@ export class MomRunner implements RunnerLike {
             "Please check current model routing and provider key configuration.";
           const failure = toModelAttemptFailure(selection, keyError, "missing_api_key");
           modelFailures.push(failure);
+          pendingModelErrorEvents.push({ selection, failure, candidateIndex });
           momWarn("runner", "active_model_missing_api_key", {
             runId,
             chatId: this.chatId,
@@ -1815,6 +1845,21 @@ export class MomRunner implements RunnerLike {
             modelId: selectedModel.id
           });
           if (candidateIndex === modelCandidates.length - 1) {
+            for (const item of pendingModelErrorEvents) {
+              recordModelFailure(this.modelErrorTracker, {
+                channel: this.channel,
+                botId,
+                chatId: this.chatId,
+                sessionId: this.sessionId,
+                runId,
+                route: "text",
+                selection: item.selection,
+                failure: item.failure,
+                candidateIndex: item.candidateIndex,
+                recovered: false,
+                fallbackUsed: false
+              });
+            }
             await ctx.setWorking(false);
             await ctx.replaceMessage(keyError);
             return { stopReason: "error", errorMessage: keyError };
@@ -1907,6 +1952,7 @@ export class MomRunner implements RunnerLike {
         let candidateFinalText = "";
         let overflowRetryUsed = false;
 
+        let candidateHadAttemptError = false;
         try {
           while (attemptCount <= MAX_EMPTY_RETRIES) {
             if (attemptCount > 0) {
@@ -1933,6 +1979,8 @@ export class MomRunner implements RunnerLike {
             });
             promptStartedAt = Date.now();
             firstAssistantTokenLogged = false;
+            stopReason = "stop";
+            errorMessage = undefined;
             await this.agent.prompt(
               userMessage,
               visionDecision.sendImagesNatively && ctx.message.imageContents.length > 0
@@ -1959,17 +2007,37 @@ export class MomRunner implements RunnerLike {
               model: selectedModel.id
             });
 
-            const messages = this.agent.state.messages as AgentMessage[];
-            const sessionContextFile = this.store.getSessionEntriesPath(this.chatId, this.sessionId);
-            this.store.saveContext(this.chatId, messages, this.sessionId);
-            momLog("runner", "context_saved", {
-              runId,
-              chatId: this.chatId,
-              sessionId: this.sessionId,
-              sessionContextFile,
-              messageCount: messages.length,
+            const decision = resolvePromptAttemptDecision({
+              stopReason,
+              errorMessage,
+              finalText: "",
+              attemptCount,
+              maxEmptyRetries: MAX_EMPTY_RETRIES
             });
+            if (decision.kind === "retryable_error" || decision.kind === "terminal_error") {
+              candidateHadAttemptError = true;
+              const failure = toModelAttemptFailure(selection, decision.message, "request_error");
+              modelFailures.push(failure);
+              pendingModelErrorEvents.push({ selection, failure, candidateIndex });
+              momWarn("runner", "model_attempt_retryable_error", {
+                runId,
+                chatId: this.chatId,
+                provider: selectedModel.provider,
+                model: selectedModel.id,
+                candidateIndex,
+                attempt: attemptCount,
+                error: decision.message
+              });
+              this.agent.replaceMessages(beforeAttempt);
+              if (decision.kind === "retryable_error") {
+                attemptCount += 1;
+                continue;
+              }
+              attemptCount += 1;
+              break;
+            }
 
+            const messages = this.agent.state.messages as AgentMessage[];
             const lastAssistant = [...messages]
               .reverse()
               .find((item) => (item as { role?: string }).role === "assistant") as
@@ -1994,7 +2062,19 @@ export class MomRunner implements RunnerLike {
               model: selectedModel.id
             });
 
-            if (candidateFinalText) break;
+            if (candidateFinalText) {
+              const sessionContextFile = this.store.getSessionEntriesPath(this.chatId, this.sessionId);
+              this.store.saveContext(this.chatId, messages, this.sessionId);
+              momLog("runner", "context_saved", {
+                runId,
+                chatId: this.chatId,
+                sessionId: this.sessionId,
+                sessionContextFile,
+                messageCount: messages.length,
+              });
+              break;
+            }
+            this.agent.replaceMessages(beforeAttempt);
             attemptCount += 1;
           }
         } catch (error) {
@@ -2042,6 +2122,7 @@ export class MomRunner implements RunnerLike {
           }
           const failure = toModelAttemptFailure(selection, message, "request_error");
           modelFailures.push(failure);
+          pendingModelErrorEvents.push({ selection, failure, candidateIndex });
           momWarn("runner", "model_attempt_failed", {
             runId,
             chatId: this.chatId,
@@ -2053,6 +2134,21 @@ export class MomRunner implements RunnerLike {
           this.agent.replaceMessages(beforeAttempt);
           if (candidateIndex < modelCandidates.length - 1 && isRetryableModelError(message)) {
             continue;
+          }
+          for (const item of pendingModelErrorEvents) {
+            recordModelFailure(this.modelErrorTracker, {
+              channel: this.channel,
+              botId,
+              chatId: this.chatId,
+              sessionId: this.sessionId,
+              runId,
+              route: "text",
+              selection: item.selection,
+              failure: item.failure,
+              candidateIndex: item.candidateIndex,
+              recovered: false,
+              fallbackUsed: false
+            });
           }
           throw new Error(
             `Run failed after model attempts: ${modelFailures.map(formatModelAttemptFailure).join(" | ")}`
@@ -2066,22 +2162,62 @@ export class MomRunner implements RunnerLike {
           break;
         }
 
-        const failure = toModelAttemptFailure(
-          selection,
-          `empty response after ${attemptCount} attempt(s)`,
-          "empty_response"
-        );
-        modelFailures.push(failure);
-        momWarn("runner", "final_empty_response_after_retries", {
-          runId,
-          chatId: this.chatId,
-          totalAttempts: attemptCount,
-          modelProvider: selectedModel.provider,
-          modelId: selectedModel.id,
-          modelBaseUrl: redactBaseUrl(selectedModel.baseUrl),
-          candidateIndex
-        });
+        if (!candidateHadAttemptError) {
+          const failure = toModelAttemptFailure(
+            selection,
+            `empty response after ${attemptCount} attempt(s)`,
+            "empty_response"
+          );
+          modelFailures.push(failure);
+          pendingModelErrorEvents.push({ selection, failure, candidateIndex });
+          momWarn("runner", "final_empty_response_after_retries", {
+            runId,
+            chatId: this.chatId,
+            totalAttempts: attemptCount,
+            modelProvider: selectedModel.provider,
+            modelId: selectedModel.id,
+            modelBaseUrl: redactBaseUrl(selectedModel.baseUrl),
+            candidateIndex
+          });
+        }
         this.agent.replaceMessages(beforeAttempt);
+      }
+
+      if (successfulCandidateIndex >= 0 && pendingModelErrorEvents.length > 0) {
+        const finalSelection = modelCandidates[successfulCandidateIndex];
+        for (const item of pendingModelErrorEvents) {
+          recordModelFailure(this.modelErrorTracker, {
+            channel: this.channel,
+            botId,
+            chatId: this.chatId,
+            sessionId: this.sessionId,
+            runId,
+            route: "text",
+            selection: item.selection,
+            failure: item.failure,
+            candidateIndex: item.candidateIndex,
+            recovered: true,
+            fallbackUsed: successfulCandidateIndex > 0,
+            finalSelection
+          });
+        }
+      }
+      if (successfulCandidateIndex < 0 && pendingModelErrorEvents.length > 0) {
+        for (const item of pendingModelErrorEvents) {
+          recordModelFailure(this.modelErrorTracker, {
+            channel: this.channel,
+            botId,
+            chatId: this.chatId,
+            sessionId: this.sessionId,
+            runId,
+            route: "text",
+            selection: item.selection,
+            failure: item.failure,
+            candidateIndex: item.candidateIndex,
+            recovered: false,
+            fallbackUsed: false
+          });
+        }
       }
 
       if (finalText.startsWith("[SILENT]")) {
@@ -2125,7 +2261,7 @@ export class MomRunner implements RunnerLike {
 
       await ctx.setWorking(false);
 
-      if (errorMessage) {
+      if (shouldEmitFinalRunnerError(errorMessage, finalText)) {
         momWarn("runner", "final_error", {
           runId,
           chatId: this.chatId,
@@ -2264,6 +2400,7 @@ export class RunnerPool {
     private readonly getSettings: () => RuntimeSettings,
     private readonly updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
     private readonly usageTracker: AiUsageTracker,
+    private readonly modelErrorTracker: ModelErrorTracker,
     private readonly memory: MemoryGateway,
   ) { }
 
@@ -2283,6 +2420,7 @@ export class RunnerPool {
       this.getSettings,
       this.updateSettings,
       this.usageTracker,
+      this.modelErrorTracker,
       this.memory,
     );
     this.map.set(key, runner);

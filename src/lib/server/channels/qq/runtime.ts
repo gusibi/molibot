@@ -9,10 +9,13 @@ import type { ChannelInboundMessage, FileAttachment } from "../../agent/types.js
 import type { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
+import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { BasicChannelAcpTemplate } from "../shared/acp.js";
 import { BaseChannelRuntime } from "../shared/baseRuntime.js";
-import { buildTextChannelContext } from "../shared/contextBuilder.js";
+import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
+import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
+import { SqliteOutbox } from "../shared/outbox.js";
 import { type ResolvedQQBotAccount, initApiConfig, clearTokenCache } from "./sdk-adapter.js";
 import { sendText, sendMedia, type OutboundResult } from "#qqbot/src/outbound.js";
 import { startGateway, type GatewayContext } from "#qqbot/src/gateway.js";
@@ -42,9 +45,16 @@ interface GatewayEvent {
   attachments?: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string }>;
 }
 
+interface QQQueuedTaskPayload {
+  event: ChannelInboundMessage;
+  target: SendTarget;
+}
+
 export class QQManager extends BaseChannelRuntime {
   private readonly acpTemplate: BasicChannelAcpTemplate<SendTarget>;
   private readonly commandService: SharedRuntimeCommandService<SendTarget>;
+  private readonly outbox: SqliteOutbox<{ target: SendTarget; text: string; replyToId?: string }, OutboundResult>;
+  private readonly inboundTasks: InboundTaskCoordinator<QQQueuedTaskPayload, SendTarget>;
 
   private currentAppId = "";
   private currentClientSecret = "";
@@ -63,6 +73,7 @@ export class QQManager extends BaseChannelRuntime {
       workspaceDir: string;
       memory: MemoryGateway;
       usageTracker: AiUsageTracker;
+      modelErrorTracker: ModelErrorTracker;
       sdkAccount?: ResolvedQQBotAccount;
     }
   ) {
@@ -93,15 +104,28 @@ export class QQManager extends BaseChannelRuntime {
       }
     });
 
-    this.commandService = new SharedRuntimeCommandService<SendTarget>({
+    this.inboundTasks = new InboundTaskCoordinator<QQQueuedTaskPayload, SendTarget>({
       channel: "qq",
       instanceId: this.instanceId,
-      workspaceDir: this.workspaceDir,
+      process: async (payload) => {
+        try {
+          const event = this.rehydrateQueuedEvent(payload.event);
+          await this.processEvent(event, payload.target);
+        } catch (error) {
+          momError("qq", "queue_job_uncaught", {
+            botId: this.instanceId,
+            chatId: payload.event.chatId,
+            queueId: payload.event.messageId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          await this.replyCommand(payload.target, "Internal error.");
+          throw error;
+        }
+      },
+      enqueueFrontFromCommand: async (input, text) => this.enqueueSyntheticTask(input.scopeId, input.target, text, true)
+    });
+    this.commandService = this.createSharedCommandService<SendTarget>({
       authScopePrefix: "qq",
-      store: this.store,
-      runners: this.runners,
-      getSettings,
-      updateSettings,
       isRunning: (scopeId) => this.running.has(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
       cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
@@ -111,8 +135,19 @@ export class QQManager extends BaseChannelRuntime {
       onSessionMutation: (scopeId) => {
         void this.writePromptPreview([scopeId]);
       },
-      getQueueSize: (scopeId) => this.chatQueues.get(scopeId)?.size() ?? 0,
+      ...this.inboundTasks.toCommandOptions(),
       helpLines: this.acpTemplate.helpLines()
+    });
+    this.outbox = new SqliteOutbox<{ target: SendTarget; text: string; replyToId?: string }, OutboundResult>({
+      channel: "qq",
+      instanceId: this.instanceId,
+      deliver: async (payload) => {
+        const result = await this.sendTextNow(payload.target, payload.text, payload.replyToId);
+        if (result.error) {
+          throw new Error(result.error);
+        }
+        return result;
+      }
     });
   }
 
@@ -156,6 +191,8 @@ export class QQManager extends BaseChannelRuntime {
       initApiConfig({ appId, markdownSupport: this.sdkAccount.markdownSupport ?? true });
     }
 
+    void this.outbox.resume();
+    void this.inboundTasks.resumeAll();
     void this.connect(new Set(allowedChatIds));
     void this.writePromptPreview(allowedChatIds);
   }
@@ -173,6 +210,18 @@ export class QQManager extends BaseChannelRuntime {
   }
 
   async sendText(target: SendTarget, text: string, replyToId?: string): Promise<OutboundResult> {
+    const normalized = String(text ?? "").trim();
+    if (!normalized) {
+      return { channel: "qqbot", error: "Message text cannot be empty." };
+    }
+    return this.outbox.enqueue(target.id, {
+      target,
+      text: normalized,
+      replyToId: replyToId ?? undefined
+    });
+  }
+
+  private async sendTextNow(target: SendTarget, text: string, replyToId?: string): Promise<OutboundResult> {
     if (!this.sdkAccount) {
       return { channel: "qqbot", error: "SDK account not initialized" };
     }
@@ -303,57 +352,24 @@ export class QQManager extends BaseChannelRuntime {
       return;
     }
 
-    try {
-      const conv = this.sessions.getOrCreateConversation(
-        "qq",
-        `bot:${this.instanceId}:chat:${chatId}:${this.store.getActiveSession(chatId)}`
-      );
-      this.sessions.appendMessage(conv.id, "user", inboundEvent.text);
-    } catch (error) {
-      momWarn("qq", "session_user_append_failed", {
-        botId: this.instanceId,
-        chatId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
+    const queuedEvent: ChannelInboundMessage = {
+      ...inboundEvent,
+      sessionId: this.store.getActiveSession(chatId),
+      imageContents: []
+    };
 
-    const queue = this.getQueue(chatId);
-    if (this.running.has(chatId)) {
+    if (this.inboundTasks.size(chatId) > 0 || this.running.has(chatId)) {
       momLog("qq", "message_queued_while_busy", { botId: this.instanceId, chatId, runId });
     }
-
-    queue.enqueue(async () => {
-      try {
-        await this.processEvent(inboundEvent, event);
-      } catch (error) {
-        momError("qq", "queue_job_uncaught", {
-          botId: this.instanceId,
-          chatId,
-          runId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        await this.replyCommand(this.toSendTarget(event), "Internal error.");
-      }
-    });
+    this.inboundTasks.enqueue(chatId, {
+      event: queuedEvent,
+      target: this.toSendTarget(event)
+    }, { preview: queuedEvent.text });
   }
 
-  private async processEvent(event: ChannelInboundMessage, source: GatewayEvent): Promise<void> {
+  private async processEvent(event: ChannelInboundMessage, target: SendTarget): Promise<void> {
     const chatId = event.chatId;
-    const activeSessionId = event.sessionId || this.store.getActiveSession(chatId);
-    const target = this.toSendTarget(source);
-    this.running.add(chatId);
-
-    const runner = this.runners.get(chatId, activeSessionId);
-    const ctx = buildTextChannelContext({
-      channel: "qq",
-      event,
-      workspaceDir: this.workspaceDir,
-      chatDir: this.store.getChatDir(chatId),
-      store: this.store,
-      sessions: this.sessions,
-      instanceId: this.instanceId,
-      activeSessionId,
-      conversationKey: `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`,
+    await this.runSharedTextTask(chatId, event, {
       response: {
         sendText: async (text) => {
           const result = await this.sendText(target, text, target.replyToId);
@@ -392,12 +408,6 @@ export class QQManager extends BaseChannelRuntime {
         }
       }
     });
-
-    try {
-      await runner.run(ctx);
-    } finally {
-      this.running.delete(chatId);
-    }
   }
 
   async triggerTask(event: unknown, _filename: string): Promise<void> {
@@ -431,14 +441,7 @@ export class QQManager extends BaseChannelRuntime {
       isEvent: true
     };
 
-    await this.processEvent(synthetic, {
-      type: "c2c",
-      senderId: task.chatId,
-      senderName: "EVENT",
-      content: task.text,
-      messageId: String(now),
-      timestamp: new Date(now).toISOString()
-    });
+    await this.processEvent(synthetic, target);
   }
 
   private resolveEventDeliveryMode(task: MomEvent): EventDeliveryMode {
@@ -460,6 +463,41 @@ export class QQManager extends BaseChannelRuntime {
 
   private async replyCommand(target: SendTarget, text: string): Promise<void> {
     await this.sendText(target, text, target.replyToId);
+  }
+
+  private rehydrateQueuedEvent(event: ChannelInboundMessage): ChannelInboundMessage {
+    return {
+      ...event,
+      imageContents: rebuildImageContentsFromAttachments(event.attachments, (attachment, error) => {
+        momWarn("qq", "queued_image_restore_failed", {
+          botId: this.instanceId,
+          chatId: event.chatId,
+          file: attachment.local,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      })
+    };
+  }
+
+  private async enqueueSyntheticTask(chatId: string, target: SendTarget, text: string, front: boolean): Promise<number | null> {
+    const normalized = String(text ?? "").trim();
+    if (!normalized) return null;
+    return this.inboundTasks.enqueue(chatId, {
+      event: {
+        chatId,
+        scopeId: chatId,
+        chatType: target.mode === "c2c" ? "private" : "group",
+        messageId: Date.now(),
+        userId: "QUEUE",
+        userName: "QUEUE",
+        text: normalized,
+        ts: normalizeTimestamp(new Date().toISOString()),
+        attachments: [],
+        imageContents: [],
+        sessionId: this.store.getActiveSession(chatId)
+      },
+      target
+    }, { front, preview: normalized });
   }
 
   private buildTargetAddress(target: SendTarget): string {

@@ -31,6 +31,7 @@ import { AssistantService } from "../providers/assistantService.js";
 import { SessionStore } from "../sessions/store.js";
 import { SettingsStore } from "../settings/store.js";
 import { AiUsageTracker } from "../usage/tracker.js";
+import { ModelErrorTracker } from "../usage/modelErrorTracker.js";
 
 interface RuntimeState {
   sessions: SessionStore;
@@ -43,6 +44,7 @@ interface RuntimeState {
   settingsStore: SettingsStore;
   settings: RuntimeSettings;
   usageTracker: AiUsageTracker;
+  modelErrorTracker: ModelErrorTracker;
   getSettings: () => RuntimeSettings;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
 }
@@ -758,7 +760,8 @@ function applyChannelPlugins(state: RuntimeState, applySettingsPatch: (patch: Pa
     updateSettings: applySettingsPatch,
     sessions: state.sessions,
     memory: state.memory,
-    usageTracker: state.usageTracker
+    usageTracker: state.usageTracker,
+    modelErrorTracker: state.modelErrorTracker
   };
 
   const loaded = discoverPlugins(state.settings);
@@ -808,12 +811,13 @@ export function getRuntime(): RuntimeState {
     const sessions = new SessionStore();
     const currentSettings = { value: settings };
     const usageTracker = new AiUsageTracker();
+    const modelErrorTracker = new ModelErrorTracker();
     const memory = new MemoryGateway(
       () => currentSettings.value,
       sessions,
       `${config.dataDir}/memory-governance/rejections.jsonl`
     );
-    const assistant = new AssistantService(() => currentSettings.value, usageTracker);
+    const assistant = new AssistantService(() => currentSettings.value, usageTracker, modelErrorTracker);
     const router = new MessageRouter(sessions, assistant, memory);
     const applySettingsPatch = (patch: Partial<RuntimeSettings>): RuntimeSettings => {
       // Always merge patches on top of the latest persisted settings snapshot.
@@ -838,6 +842,7 @@ export function getRuntime(): RuntimeState {
       settingsStore,
       settings,
       usageTracker,
+      modelErrorTracker,
       getSettings: () => state.settings,
       updateSettings: applySettingsPatch
     };

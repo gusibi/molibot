@@ -21,6 +21,7 @@
                 { href: "/settings/ai/routing", label: "Routing & Prompt", exact: true },
                 { href: "/settings/ai/providers", label: "Providers & Models", exact: true },
                 { href: "/settings/ai/usage", label: "Usage Stats", exact: true },
+                { href: "/settings/ai/errors", label: "Model Error Logs", exact: true },
                 { href: "/settings/mcp", label: "MCP Servers", exact: true },
                 { href: "/settings/acp", label: "ACP Targets", exact: true },
             ],

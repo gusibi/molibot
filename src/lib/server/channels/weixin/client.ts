@@ -309,7 +309,7 @@ export class WeixinBot {
     return this.login();
   }
 
-  private async sendText(userId: string, text: string, contextToken: string): Promise<void> {
+  async sendText(userId: string, text: string, contextToken: string): Promise<void> {
     if (text.length === 0) {
       throw new Error("Message text cannot be empty.");
     }

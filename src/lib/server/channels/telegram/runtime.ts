@@ -11,11 +11,14 @@ import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
 import type { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
+import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { applyTelegramAcpProgressEvent, createTelegramAcpProgressState } from "./acpProgress.js";
 import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText, sendTelegramTextSafely } from "./formatting.js";
 import { ACP_CONTROL_HELP_LINES, handleSharedAcpApprovalCommand, handleSharedAcpCommand, shouldProxyToAcpSession, type SharedAcpPromptKind } from "../shared/acp.js";
 import { BaseChannelRuntime } from "../shared/baseRuntime.js";
+import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
+import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
 import type { ParsedRelativeReminder, StatusSession } from "./types.js";
 
 export interface TelegramConfig {
@@ -43,6 +46,7 @@ export class TelegramManager extends BaseChannelRuntime {
     ["data", "telegram-mom", "events"]
   ] as const;
   private readonly commandService: SharedRuntimeCommandService<TelegramCommandTarget>;
+  private readonly inboundTasks: InboundTaskCoordinator<ChannelInboundMessage, TelegramCommandTarget>;
   private bot: Bot | undefined;
   private currentToken = "";
   private currentAllowedChatIdsKey = "";
@@ -127,7 +131,13 @@ export class TelegramManager extends BaseChannelRuntime {
     getSettings: () => RuntimeSettings,
     updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
     sessionStore?: SessionStore,
-    options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway; usageTracker: AiUsageTracker }
+    options?: {
+      workspaceDir?: string;
+      instanceId?: string;
+      memory: MemoryGateway;
+      usageTracker: AiUsageTracker;
+      modelErrorTracker: ModelErrorTracker;
+    }
   ) {
     super({
       channel: "telegram",
@@ -137,15 +147,19 @@ export class TelegramManager extends BaseChannelRuntime {
       sessionStore,
       options
     });
-    this.commandService = new SharedRuntimeCommandService<TelegramCommandTarget>({
+    this.inboundTasks = new InboundTaskCoordinator<ChannelInboundMessage, TelegramCommandTarget>({
       channel: "telegram",
       instanceId: this.instanceId,
-      workspaceDir: this.workspaceDir,
+      process: async (payload) => {
+        if (!this.bot) {
+          throw new Error("Telegram bot is not running.");
+        }
+        await this.processEvent(this.rehydrateQueuedTelegramEvent(payload), this.bot);
+      },
+      enqueueFrontFromCommand: async (input, text) => this.enqueueSyntheticTelegramTask(input, text, true)
+    });
+    this.commandService = this.createSharedCommandService<TelegramCommandTarget>({
       authScopePrefix: "telegram",
-      store: this.store,
-      runners: this.runners,
-      getSettings,
-      updateSettings,
       getAuthScopeKey: (input) => `telegram:${input.chatId}`,
       isRunning: (scopeId) => this.running.has(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
@@ -156,7 +170,7 @@ export class TelegramManager extends BaseChannelRuntime {
       onSessionMutation: (scopeId) => {
         void this.writePromptPreview([this.parseChatScopeId(scopeId).chatId]);
       },
-      getQueueSize: (scopeId) => this.chatQueues.get(scopeId)?.size() ?? 0,
+      ...this.inboundTasks.toCommandOptions(),
       getStatusExtras: (_scopeId, target) => this.getTelegramStatusExtras(target),
       helpLines: ACP_CONTROL_HELP_LINES
     });
@@ -832,35 +846,18 @@ export class TelegramManager extends BaseChannelRuntime {
         return;
       }
 
-      const queue = this.getQueue(eventScopeId);
-      const queueBefore = queue.size();
+      const queueBefore = this.inboundTasks.size(eventScopeId);
       momLog("telegram", "queue_enqueue", { runId, chatId, scopeId: eventScopeId, queueBefore });
       if (this.running.has(eventScopeId) && !event.isEvent) {
         const pendingCount = queueBefore + 1;
         momLog("telegram", "message_queued_while_busy", { runId, chatId, scopeId: eventScopeId, pendingCount });
         await ctx.reply(`Queued. Pending: ${pendingCount}. Send /stop to cancel current task.`);
       }
-
-      queue.enqueue(async () => {
-        momLog("telegram", "queue_job_start", { runId, chatId, scopeId: eventScopeId });
-        try {
-          await this.processEvent(event, bot);
-        } catch (error) {
-          momError("telegram", "queue_job_uncaught", {
-            runId,
-            chatId,
-            scopeId: eventScopeId,
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined
-          });
-          await sendTelegramTextSafely(bot, chatId, "Internal error.", undefined, {
-            runId,
-            scopeId: eventScopeId,
-            source: "queue_job_uncaught"
-          });
-        }
-        momLog("telegram", "queue_job_end", { runId, chatId, scopeId: eventScopeId });
-      });
+      this.inboundTasks.enqueue(eventScopeId, {
+        ...event,
+        sessionId: this.store.getActiveSession(eventScopeId),
+        imageContents: []
+      }, { preview: event.text });
     });
 
     bot.catch((err) => {
@@ -895,6 +892,7 @@ export class TelegramManager extends BaseChannelRuntime {
     this.bot = bot;
     this.currentToken = token;
     this.currentAllowedChatIdsKey = allowedChatIdsKey;
+    void this.inboundTasks.resumeAll();
     this.startEventsWatchers(allowed);
     void this.writePromptPreview(Array.from(allowed));
   }
@@ -954,6 +952,43 @@ export class TelegramManager extends BaseChannelRuntime {
       this.botUsername = "";
       momLog("telegram", "adapter_stopped");
     }
+  }
+
+  private rehydrateQueuedTelegramEvent(event: ChannelInboundMessage): ChannelInboundMessage {
+    return {
+      ...event,
+      imageContents: rebuildImageContentsFromAttachments(event.attachments, (attachment, error) => {
+        momWarn("telegram", "queued_image_restore_failed", {
+          chatId: event.chatId,
+          scopeId: this.resolveEventScopeId(event),
+          file: attachment.local,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      })
+    };
+  }
+
+  private async enqueueSyntheticTelegramTask(
+    target: TelegramCommandTarget,
+    text: string,
+    front: boolean
+  ): Promise<number | null> {
+    const normalized = String(text ?? "").trim();
+    if (!normalized) return null;
+    return this.inboundTasks.enqueue(target.scopeId, {
+      chatId: target.chatId,
+      scopeId: target.scopeId,
+      chatType: "private",
+      messageId: Date.now(),
+      messageThreadId: target.messageThreadId,
+      userId: "QUEUE",
+      userName: "QUEUE",
+      text: normalized,
+      ts: (Date.now() / 1000).toFixed(6),
+      attachments: [],
+      imageContents: [],
+      sessionId: this.store.getActiveSession(target.scopeId)
+    }, { front, preview: normalized });
   }
 
   private getSessionConversationKey(chatId: string, sessionId: string): string {

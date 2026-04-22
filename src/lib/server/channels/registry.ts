@@ -2,6 +2,7 @@ import { type RuntimeSettings } from "../settings/index.js";
 import type { MemoryGateway } from "../memory/gateway.js";
 import type { SessionStore } from "../sessions/store.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
+import type { ModelErrorTracker } from "../usage/modelErrorTracker.js";
 import { feishuChannelPlugin } from "./feishu/index.js";
 import { qqChannelPlugin } from "./qq/index.js";
 import { telegramChannelPlugin } from "./telegram/index.js";
@@ -19,6 +20,7 @@ export interface ChannelRuntimeDeps {
   sessions: SessionStore;
   memory: MemoryGateway;
   usageTracker: AiUsageTracker;
+  modelErrorTracker: ModelErrorTracker;
 }
 
 export interface ChannelPluginInstance<TConfig> {

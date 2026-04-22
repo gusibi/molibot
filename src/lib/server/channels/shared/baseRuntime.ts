@@ -10,7 +10,11 @@ import { AcpService } from "../../acp/service.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
+import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
 import { momLog, momWarn } from "../../agent/log.js";
+import { SharedRuntimeCommandService, type SharedRuntimeCommandOptions } from "../../agent/channelCommands.js";
+import { buildTextChannelContext, type ChannelResponseHandle, type ContextSentMessageRef } from "./contextBuilder.js";
+import type { ChannelInboundMessage } from "../../agent/types.js";
 import { ChannelQueue } from "./queue.js";
 import type { PromptChannel } from "../../agent/prompt-channel.js";
 import type { Channel } from "../../../shared/types/message.js";
@@ -21,7 +25,13 @@ interface BaseChannelRuntimeInit {
   getSettings: () => RuntimeSettings;
   updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
   sessionStore?: SessionStore;
-  options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway; usageTracker: AiUsageTracker };
+  options?: {
+    workspaceDir?: string;
+    instanceId?: string;
+    memory: MemoryGateway;
+    usageTracker: AiUsageTracker;
+    modelErrorTracker: ModelErrorTracker;
+  };
 }
 
 export abstract class BaseChannelRuntime {
@@ -62,6 +72,7 @@ export abstract class BaseChannelRuntime {
       this.getSettings,
       this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
       runtimeOptions.usageTracker,
+      runtimeOptions.modelErrorTracker,
       runtimeOptions.memory
     );
     this.acp = new AcpService(
@@ -178,6 +189,77 @@ export abstract class BaseChannelRuntime {
         ...meta,
         error: error instanceof Error ? error.message : String(error)
       });
+    }
+  }
+
+  protected createSharedCommandService<TTarget>(
+    options: Omit<
+      SharedRuntimeCommandOptions<TTarget>,
+      "channel" | "instanceId" | "workspaceDir" | "store" | "runners" | "getSettings" | "updateSettings"
+    >
+  ): SharedRuntimeCommandService<TTarget> {
+    return new SharedRuntimeCommandService<TTarget>({
+      channel: this.channelName,
+      instanceId: this.instanceId,
+      workspaceDir: this.workspaceDir,
+      store: this.store,
+      runners: this.runners,
+      getSettings: this.getSettings,
+      updateSettings: this.updateSettings,
+      ...options
+    });
+  }
+
+  protected async runSharedTextTask<TSent extends ContextSentMessageRef>(
+    scopeId: string,
+    event: ChannelInboundMessage,
+    options: {
+      createBotMessageId: () => number;
+      response: ChannelResponseHandle<TSent>;
+      normalizeText?: (text: string) => string;
+      replaceWithoutEdit?: Parameters<typeof buildTextChannelContext<TSent>>[0]["replaceWithoutEdit"];
+      deleteWithoutHandle?: Parameters<typeof buildTextChannelContext<TSent>>[0]["deleteWithoutHandle"];
+      uploadWithoutHandle?: Parameters<typeof buildTextChannelContext<TSent>>[0]["uploadWithoutHandle"];
+      onSessionAppendWarning?: (error: unknown) => void;
+      role?: "user" | "system";
+    }
+  ): Promise<void> {
+    const activeSessionId = event.sessionId || this.store.getActiveSession(scopeId);
+    this.running.add(scopeId);
+
+    this.appendConversationMessage(
+      this.channelName,
+      `bot:${this.instanceId}:chat:${scopeId}:${activeSessionId}`,
+      options.role ?? "user",
+      event.text,
+      "session_user_append_failed",
+      { chatId: event.chatId, scopeId }
+    );
+
+    const runner = this.runners.get(scopeId, activeSessionId);
+    const ctx = buildTextChannelContext({
+      channel: this.channelName as Channel,
+      event,
+      workspaceDir: this.workspaceDir,
+      chatDir: this.store.getChatDir(scopeId),
+      store: this.store,
+      sessions: this.sessions,
+      instanceId: this.instanceId,
+      activeSessionId,
+      conversationKey: `bot:${this.instanceId}:chat:${scopeId}:${activeSessionId}`,
+      response: options.response,
+      createBotMessageId: options.createBotMessageId,
+      normalizeText: options.normalizeText,
+      replaceWithoutEdit: options.replaceWithoutEdit,
+      deleteWithoutHandle: options.deleteWithoutHandle,
+      uploadWithoutHandle: options.uploadWithoutHandle,
+      onSessionAppendWarning: options.onSessionAppendWarning
+    });
+
+    try {
+      await runner.run(ctx);
+    } finally {
+      this.running.delete(scopeId);
     }
   }
 }

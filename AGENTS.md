@@ -55,6 +55,8 @@ ______
 - I don't just want it to work - I want it to be something I'm proud to show people
 - This is real. Not a mockup. Not a prototype. A working product.
 - Keep me in control and in the loop at all times
+- 公共逻辑、通用上层逻辑、Agent 层逻辑，不要放到 Channel 层。Channel 层只负责消息收发、平台适配、原始消息和统一消息结构之间的转换。
+- 像队列、恢复、插队、删除、列队、任务执行编排、会话推进这类跨渠道能力，必须放到共享上层；新增渠道时不应该再为这些能力逐个改 Channel。
 - 不要在业务代码里写跨目录的超长相对路径引用，尤其不要直接用 `../../../../..` 去连第三方 vendored 包。统一先配别名或正式入口，再通过别名引用。
 - 不要把我这台电脑上的绝对路径写进代码、界面示例、默认值、文档示例或提示词里，尤其不要出现 `/Users/.../...`。优先使用相对路径、占位写法或与机器无关的通用写法。
 > Molibot 项目配置文件，为 AI 编码助手提供上下文。

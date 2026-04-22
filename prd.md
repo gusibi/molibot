@@ -91,6 +91,9 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-152 | Cloudflare HTML Worker safe custom filenames | P1 | Delivered (2026-04-21) | The Worker-side HTML serving template should accept safe custom `.html` names like `gold_daily_20260420_v5.html`, not just one hard-coded random-name pattern, so manually named uploaded pages can be served without false 404s |
 | P1-153 | Cloudflare HTML dual public-link modes | P1 | Delivered (2026-04-22) | The Cloudflare HTML plugin should support both Worker-based public links and direct public R2 links, with explicit plugin settings and docs so operators can choose either mode without removing the other path |
 | P1-154 | Cloudflare plugin partial settings validation | P1 | Delivered (2026-04-22) | The settings API should validate `plugins.cloudflareHtml` after merging partial updates with the currently saved values, so incremental plugin changes do not fail or crash when omitted fields are still present in persisted config |
+| P1-155 | Channel boundary hardening for shared agent logic | P1 | Delivered (2026-04-22) | Queue ownership, recovery, queue commands, and shared task-execution scaffolding must live in shared runtime or agent layers rather than per-channel runtimes; channels should keep only transport-specific send/receive, platform adaptation, and raw-message normalization/rehydration hooks |
+| P1-156 | Dedicated model failure logging and settings visibility | P1 | Delivered (2026-04-22) | Only failed model calls should be persisted, with enough context to diagnose why a primary model failed or why fallback was triggered; operators should be able to review these failures from a dedicated Settings page instead of reading mixed runtime console logs |
+| P1-157 | Queue success auto-cleanup | P1 | Delivered (2026-04-22) | Persisted inbound and outbound queues should remove successfully processed items immediately, so SQLite keeps only unfinished work that actually needs retry or recovery after restart |
 | P1-39 | Feishu inbound media parity core | P1 | Delivered (2026-03-01) | Feishu channel should normalize image/audio/file messages into the same runner input contract as Telegram: attachments persisted, images injected for vision, and audio/media optionally transcribed through configured STT routing |
 | P1-40 | Core-owned workspace prompt and skills semantics | P1 | Delivered (2026-03-01) | Data root, memory root, prompt source loading, and skills directory resolution should live in `mom` core and work for all channel workspaces (for example `moli-t`, `moli-f`) so plugins only add optional bot/channel-specific prompt sections |
 | P1-41 | Memory import deduplication and prompt hygiene | P1 | Delivered (2026-03-01) | Periodic external memory sync must not re-ingest identical content for the same scope/layer, and prompt rendering must hide repeated memory lines if historical duplicates already exist |
@@ -2578,3 +2581,88 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/routes/api/feishu/card/+server.ts` 必须提供飞书卡片动作回调入口。
   - `src/routes/settings/feishu/+page.svelte` 与相关 settings schema/store 必须支持保存可选回调安全字段。
   - `features.md` 必须记录本次能力落地。
+
+## 179. 待处理消息持久化队列（SQLite 精简版） (2026-04-22)
+- Priority: P1
+- Stage: Delivered (2026-04-22)
+- Problem:
+  - 当前部分渠道的待处理消息还是“内存里排队”，进程如果中途退出，尚未处理完的消息会直接丢失，重启后也不会自动续跑。
+  - 图片和语音消息虽然最终会走文字理解或本地附件处理，但原先没有把这些待处理任务持久化下来。
+  - 参考 gbrain 的持久化任务思路是对的，但对现在这个场景来说太重了，不适合一开始就引入完整 jobs 系统。
+- Requirement:
+  - 用户发来的待处理任务在进入运行器前必须先写入 SQLite。
+  - 任务处理完成后必须把该条记录标记为完成；崩溃中断的 `running` 任务在重启后必须恢复成待处理并继续运行。
+  - 图片和语音消息必须能跟普通文本一样进入队列；至少要保存可恢复所需的文字结果、附件路径和回复目标信息。
+  - 需要支持最基础的队列操作：查看当前排队、插队到最前、按队列序号删除待处理项。
+  - 不做管理页面；所有操作通过聊天命令完成。
+- Enforcement:
+  - 渠道侧必须复用同一套轻量 SQLite 待处理队列，而不是各写一份临时 JSON 或内存队列。
+  - 第一批至少覆盖 Telegram、Feishu、QQ、Weixin，包含普通文本、图片、语音这三类常见入站任务。
+  - 命令层必须提供 `/queue`、`/queue front <text>`、`/queue delete <id>` 这组最小操作面。
+  - `features.md` 必须记录本次能力落地。
+
+## 180. 模型重试不得污染会话上下文，且每次 429 都必须留痕 (2026-04-22)
+- Priority: P1
+- Stage: Delivered (2026-04-22)
+- Problem:
+  - 当前同一条消息在模型返回 429 后会自动重试，但重试前没有把失败尝试留下的临时上下文清掉，导致同一条用户消息被重复写进 `contexts/<sessionId>.jsonl`，模型误以为用户连续发了多次同样内容。
+  - 当最后一次重试已经成功返回正文时，前面失败尝试残留的错误状态仍会在 run 收尾阶段触发统一报错分支，把成功回复重新覆盖成 `Sorry, something went wrong.`。
+  - `/settings/ai/errors` 之前按“整轮模型候选”折叠记录失败，同一模型内连续两次 429 只会看到一条，无法还原真实失败次数。
+- Requirement:
+  - 对同一个模型做重试时，失败尝试产生的临时 user/assistant 记录不得进入最终会话上下文；只有最后真正成功的那次尝试允许写入 `contexts/<sessionId>.jsonl`。
+  - 只要最终已经拿到有效回复，就必须把这条正确回复保留给用户，不能再被之前失败尝试的错误文案覆盖。
+  - 每一次 429 / retryable request error 都必须单独写入模型错误日志，即使同一轮后面恢复成功也要保留逐次失败记录，并标明是否已恢复。
+- Enforcement:
+  - `src/lib/server/agent/runner.ts` 必须在 retryable request error 和空回复重试前恢复到当前轮开始前的消息状态，避免把失败尝试累积进会话。
+  - 模型错误日志记录粒度必须下沉到“每次失败尝试”，而不是只在整轮候选结束时合并记一条。
+  - run 收尾阶段的统一报错提示必须只在“最终仍然失败”时触发；若已有最终正文则不得覆盖。
+  - `src/lib/server/agent/runnerRetryState.test.ts` 必须覆盖“429 仍算独立失败记录”和“成功正文不被旧错误覆盖”这两条回归验证。
+  - `features.md` 必须记录本次修复。
+
+## 181. `/models` 输出改成清晰表格列表 (2026-04-22)
+- Priority: P2
+- Stage: Delivered (2026-04-22)
+- Problem:
+  - 当前 `/models` 输出混合了 route、provider mode、active key 和逐行 key 明细，用户要先跳过一堆技术信息，才能找到真正想看的“有哪些模型、哪个正在用”。
+  - 对于日常切换模型的场景，更自然的展示应该是“总数 + 编号 + 模型名 + 当前活跃标记”，而不是每项后面再跟一行内部 key。
+- Requirement:
+  - `/models` 默认输出必须改成简洁的两列表格，第一列是编号，第二列是模型名。
+  - 标题必须直接显示当前列表总数；当前活跃模型必须在对应行内明确标出来。
+  - 切换用法仍要保留在列表下方，但不要再把每个候选 key 明细全部展开到主列表里。
+- Enforcement:
+  - `src/lib/server/agent/channelCommands.ts` 的 `/models` 展示必须输出“当前模型列表（共N个）”风格的标题和两列表格。
+  - 当前活跃项必须在行内显示 `⭐ 当前活跃中`。
+  - `src/lib/server/agent/channelCommands.test.ts` 必须覆盖新表格标题、编号列和活跃标记这条回归验证。
+  - `features.md` 必须记录本次改动。
+
+## 182. 飞书渠道自动把 Markdown 表格转成原生卡片表格 (2026-04-22)
+- Priority: P1
+- Stage: Delivered (2026-04-22)
+- Problem:
+  - 当前 agent 和共享命令层产出的表格仍然是 Markdown 文本。QQ/微信这类纯文本或 Markdown 渠道还能勉强显示，但飞书卡片正文只是把这段 Markdown 塞进 `markdown`/`lark_md`，表格经常显示错位甚至直接失真。
+  - 这个问题不只发生在 `/models` 这种命令式输出，后续任何 agent 回复里只要带 Markdown 表格，在飞书里都会遇到同样问题。
+  - 按项目分层规则，这类“平台展示适配”应该收口在飞书渠道层，不应该反过来污染共享 agent 输出格式。
+- Requirement:
+  - 飞书发送文本卡片前，必须先识别正文里的 Markdown 表格，并把表格替换成飞书原生 `table` 卡片元素。
+  - 非表格内容必须继续按原来的飞书 Markdown 卡片正文展示，不能因为支持表格而破坏普通文本、标题、列表、代码块等现有显示。
+  - 这次改动必须只发生在飞书 channel 侧；共享 agent、命令层、其他渠道一律不改输出协议。
+- Enforcement:
+  - `src/lib/server/channels/feishu/formatting.ts` 必须提供 Markdown 表格提取能力，能把正文拆成“普通文本段 + 表格段”。
+  - `src/lib/server/channels/feishu/messaging.ts` 必须在构造飞书回复卡片时，把表格段转换成原生 `table` 元素，把非表格段保留为普通 Markdown 元素。
+  - `sendFeishuText` / `editFeishuText` 必须复用同一套转换逻辑，避免“新发消息”和“编辑状态消息”行为不一致。
+  - `src/lib/server/channels/feishu/table-conversion.test.ts` 必须覆盖“能提取 Markdown 表格”和“能生成飞书原生 table 元素”两条回归验证。
+  - `features.md` 必须记录本次改动。
+
+## 183. 共享发件重试不能提前向上层报失败，飞书表格转换必须跳过代码块 (2026-04-22)
+- Priority: P1
+- Stage: Delivered (2026-04-22)
+- Problem:
+  - 共享 SQLite outbound queue 新增后，发送失败会先把消息重新标成 pending 并安排重试，但同时又立刻 reject 原始发送 promise。这样上层渠道会把“可重试的暂时失败”当成最终失败对外报错，后续即使后台重试成功，也会出现错误提示和真实成功并存的错乱状态。
+  - 飞书 Markdown 表格提取当前只看 `| ... |` + 分隔线，没有跳过 fenced code block。只要回复里有 Markdown 教程、示例或提示词片段，代码块里的表格示例就会被错误替换成原生飞书表格，破坏原意。
+- Requirement:
+  - 共享 outbound queue 在可重试失败后必须保持原始发送 promise 挂起，直到某次真正发送成功或者运行时关闭，不得在仍会自动重试时提前向调用方报最终失败。
+  - 飞书表格转换必须跳过 fenced code block；代码块中的 Markdown 表格语法必须按原样保留为普通 Markdown 文本。
+- Enforcement:
+  - `src/lib/server/channels/shared/outbox.ts` 不得在 `fail()` 中提前 reject 仍会重试的记录；`src/lib/server/channels/shared/outbox.test.ts` 必须覆盖“首次失败、后续重试成功时 enqueue 最终 resolve”的回归验证。
+  - `src/lib/server/channels/feishu/formatting.ts` 的表格提取必须识别 fenced code block 边界；`src/lib/server/channels/feishu/table-conversion.test.ts` 必须覆盖“代码块中的表格不转原生 table”的回归验证。
+  - `features.md` 必须记录本次修复。

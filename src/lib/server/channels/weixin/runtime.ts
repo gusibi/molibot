@@ -11,10 +11,13 @@ import type { ChannelInboundMessage } from "../../agent/types.js";
 import type { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
+import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { BasicChannelAcpTemplate } from "../shared/acp.js";
 import { BaseChannelRuntime } from "../shared/baseRuntime.js";
-import { buildTextChannelContext } from "../shared/contextBuilder.js";
+import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
+import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
+import { SqliteOutbox } from "../shared/outbox.js";
 import { extractWeixinAttachments, extractWeixinText, hasWeixinInlineVoiceTranscript } from "./media.js";
 import { sendWeixinFile } from "./outbound.js";
 
@@ -25,6 +28,26 @@ export interface WeixinConfig {
 
 interface WeixinInboundEvent extends ChannelInboundMessage {
   sourceMessage: IncomingMessage;
+}
+
+interface WeixinTextOutboxPayload {
+  chatId: string;
+  text: string;
+  preferReply: boolean;
+  sourceMessageId: string;
+  contextToken: string;
+}
+
+interface WeixinQueuedTaskPayload {
+  event: Omit<WeixinInboundEvent, "imageContents" | "sourceMessage">;
+  sourceMessage: {
+    userId: string;
+    text: string;
+    type: IncomingMessage["type"];
+    rawMessageId: number;
+    contextToken: string;
+    timestamp: string;
+  };
 }
 
 function hashNumber(input: string): number {
@@ -58,12 +81,20 @@ export class WeixinManager extends BaseChannelRuntime {
   private currentBaseUrl = "";
   private currentAllowedChatIdsKey = "";
   private stopped = true;
+  private readonly outbox: SqliteOutbox<WeixinTextOutboxPayload, { delivered: true }>;
+  private readonly inboundTasks: InboundTaskCoordinator<WeixinQueuedTaskPayload, IncomingMessage>;
 
   constructor(
     getSettings: () => RuntimeSettings,
     updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
     sessionStore?: SessionStore,
-    options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway; usageTracker: AiUsageTracker }
+    options?: {
+      workspaceDir?: string;
+      instanceId?: string;
+      memory: MemoryGateway;
+      usageTracker: AiUsageTracker;
+      modelErrorTracker: ModelErrorTracker;
+    }
   ) {
     super({
       channel: "weixin",
@@ -82,15 +113,31 @@ export class WeixinManager extends BaseChannelRuntime {
         await this.runAcpPrompt(chatId, sourceMessage, request.prompt, request.startText);
       }
     });
-    this.commandService = new SharedRuntimeCommandService<IncomingMessage>({
+    this.inboundTasks = new InboundTaskCoordinator<WeixinQueuedTaskPayload, IncomingMessage>({
       channel: "weixin",
       instanceId: this.instanceId,
-      workspaceDir: this.workspaceDir,
+      process: async (payload) => {
+        try {
+          await this.processEvent(this.rehydrateQueuedEvent(payload));
+        } catch (error) {
+          momError("weixin", "queue_job_uncaught", {
+            botId: this.instanceId,
+            chatId: payload.event.chatId,
+            queueId: payload.event.messageId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          await this.sendText(
+            payload.event.chatId,
+            this.rehydrateSourceMessage(payload.sourceMessage),
+            "Internal error."
+          );
+          throw error;
+        }
+      },
+      enqueueFrontFromCommand: async (input, text) => this.enqueueSyntheticTask(input.scopeId, input.target, text, true)
+    });
+    this.commandService = this.createSharedCommandService<IncomingMessage>({
       authScopePrefix: "weixin",
-      store: this.store,
-      runners: this.runners,
-      getSettings,
-      updateSettings,
       isRunning: (scopeId) => this.running.has(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
       cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
@@ -100,8 +147,16 @@ export class WeixinManager extends BaseChannelRuntime {
       onSessionMutation: (scopeId) => {
         void this.writePromptPreview([scopeId]);
       },
-      getQueueSize: (scopeId) => this.chatQueues.get(scopeId)?.size() ?? 0,
+      ...this.inboundTasks.toCommandOptions(),
       helpLines: this.acpTemplate.helpLines()
+    });
+    this.outbox = new SqliteOutbox<WeixinTextOutboxPayload, { delivered: true }>({
+      channel: "weixin",
+      instanceId: this.instanceId,
+      deliver: async (payload, record) => {
+        await this.deliverTextNow(payload, record.id);
+        return { delivered: true };
+      }
     });
   }
 
@@ -194,6 +249,9 @@ export class WeixinManager extends BaseChannelRuntime {
         botId: this.instanceId,
         allowedChatCount: allowed.size
       });
+
+      await this.outbox.resume();
+      await this.inboundTasks.resumeAll();
 
       await bot.run();
     } catch (error) {
@@ -367,22 +425,13 @@ export class WeixinManager extends BaseChannelRuntime {
       return;
     }
 
-    try {
-      const conv = this.sessions.getOrCreateConversation(
-        "weixin",
-        `bot:${this.instanceId}:chat:${chatId}:${this.store.getActiveSession(chatId)}`
-      );
-      this.sessions.appendMessage(conv.id, "user", event.text);
-    } catch (error) {
-      momWarn("weixin", "session_user_append_failed", {
-        botId: this.instanceId,
-        chatId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
+    const queuedEvent: WeixinInboundEvent = {
+      ...event,
+      sessionId: this.store.getActiveSession(chatId),
+      imageContents: []
+    };
 
-    const queue = this.getQueue(chatId);
-    const pendingCount = queue.size();
+    const pendingCount = this.inboundTasks.size(chatId);
     if (pendingCount > 0 || this.running.has(chatId)) {
       momLog("weixin", "message_queued_while_busy", {
         botId: this.instanceId,
@@ -391,39 +440,13 @@ export class WeixinManager extends BaseChannelRuntime {
         pendingCount
       });
     }
-
-    queue.enqueue(async () => {
-      try {
-        await this.processEvent(event);
-      } catch (error) {
-        momError("weixin", "queue_job_uncaught", {
-          botId: this.instanceId,
-          runId,
-          chatId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        await this.sendText(chatId, message, "Internal error.");
-      }
-    });
+    this.inboundTasks.enqueue(chatId, this.serializeQueuedEvent(queuedEvent), { preview: queuedEvent.text });
   }
 
   private async processEvent(event: WeixinInboundEvent, preferReplyInitial = true): Promise<void> {
     const chatId = event.chatId;
-    const activeSessionId = event.sessionId || this.store.getActiveSession(chatId);
-    this.running.add(chatId);
-
-    const runner = this.runners.get(chatId, activeSessionId);
     let preferReply = preferReplyInitial;
-    const ctx = buildTextChannelContext({
-      channel: "weixin",
-      event,
-      workspaceDir: this.workspaceDir,
-      chatDir: this.store.getChatDir(chatId),
-      store: this.store,
-      sessions: this.sessions,
-      instanceId: this.instanceId,
-      activeSessionId,
-      conversationKey: `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`,
+    await this.runSharedTextTask(chatId, event, {
       response: {
         sendText: async (text) => {
           await this.sendText(chatId, event.sourceMessage, text, preferReply);
@@ -504,12 +527,6 @@ export class WeixinManager extends BaseChannelRuntime {
         await fallbackCtx.respond(`微信这边回文件失败了：${filePath.split("/").pop() || "附件"}`);
       }
     });
-
-    try {
-      await runner.run(ctx);
-    } finally {
-      this.running.delete(chatId);
-    }
   }
 
   private resolveEventDeliveryMode(task: MomEvent): EventDeliveryMode {
@@ -556,38 +573,50 @@ export class WeixinManager extends BaseChannelRuntime {
   }
 
   private async sendText(chatId: string, sourceMessage: IncomingMessage, text: string, preferReply = false): Promise<void> {
-    if (!this.bot) {
-      throw new Error("Weixin bot is not running.");
-    }
     const normalized = normalizeText(filterWeixinMarkdown(String(text ?? "")));
     if (!normalized) return;
 
-    const deliveryId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const payload = {
-      deliveryId,
+    const payload: WeixinTextOutboxPayload = {
       chatId,
+      text: normalized,
       preferReply,
       sourceMessageId: String(sourceMessage.raw.message_id ?? ""),
-      textPreview: normalized.slice(0, 200)
+      contextToken: String(sourceMessage._contextToken ?? "")
+    };
+    await this.outbox.enqueue(chatId, payload);
+  }
+
+  private async deliverTextNow(payload: WeixinTextOutboxPayload, queueId: number): Promise<void> {
+    if (!this.bot) {
+      throw new Error("Weixin bot is not running.");
+    }
+    if (!payload.contextToken) {
+      throw new Error("Missing Weixin context token for outbound delivery.");
+    }
+
+    const deliveryId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const logPayload = {
+      deliveryId,
+      queueId,
+      chatId: payload.chatId,
+      preferReply: payload.preferReply,
+      sourceMessageId: payload.sourceMessageId,
+      textPreview: payload.text.slice(0, 200)
     };
 
-    this.recordDelivery(chatId, "attempt", payload);
-    momLog("weixin", "outbound_text_attempt", payload);
+    this.recordDelivery(payload.chatId, "attempt", logPayload);
+    momLog("weixin", "outbound_text_attempt", logPayload);
 
     try {
-      if (preferReply) {
-        await this.bot.reply(sourceMessage, normalized);
-      } else {
-        await this.bot.send(chatId, normalized);
-      }
-      this.recordDelivery(chatId, "success", payload);
-      momLog("weixin", "outbound_text_success", payload);
+      await this.bot.sendText(payload.chatId, payload.text, payload.contextToken);
+      this.recordDelivery(payload.chatId, "success", logPayload);
+      momLog("weixin", "outbound_text_success", logPayload);
     } catch (error) {
       const failurePayload = {
-        ...payload,
+        ...logPayload,
         error: error instanceof Error ? error.message : String(error)
       };
-      this.recordDelivery(chatId, "failure", failurePayload);
+      this.recordDelivery(payload.chatId, "failure", failurePayload);
       momError("weixin", "outbound_text_failure", failurePayload);
       throw error;
     }
@@ -604,6 +633,71 @@ export class WeixinManager extends BaseChannelRuntime {
 
   private async replyCommand(chatId: string, sourceMessage: IncomingMessage, text: string): Promise<void> {
     await this.sendText(chatId, sourceMessage, text, true);
+  }
+
+  private serializeQueuedEvent(event: WeixinInboundEvent): WeixinQueuedTaskPayload {
+    const {
+      sourceMessage,
+      imageContents: _imageContents,
+      ...serializableEvent
+    } = event;
+    return {
+      event: serializableEvent,
+      sourceMessage: {
+        userId: sourceMessage.userId,
+        text: sourceMessage.text,
+        type: sourceMessage.type,
+        rawMessageId: Number(sourceMessage.raw.message_id ?? event.messageId),
+        contextToken: String(sourceMessage._contextToken ?? ""),
+        timestamp: sourceMessage.timestamp.toISOString()
+      }
+    };
+  }
+
+  private rehydrateQueuedEvent(payload: WeixinQueuedTaskPayload): WeixinInboundEvent {
+    return {
+      ...payload.event,
+      imageContents: rebuildImageContentsFromAttachments(payload.event.attachments, (attachment, error) => {
+        momWarn("weixin", "queued_image_restore_failed", {
+          botId: this.instanceId,
+          chatId: payload.event.chatId,
+          file: attachment.local,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }),
+      sourceMessage: this.rehydrateSourceMessage(payload.sourceMessage)
+    };
+  }
+
+  private rehydrateSourceMessage(source: WeixinQueuedTaskPayload["sourceMessage"]): IncomingMessage {
+    return {
+      userId: source.userId,
+      text: source.text,
+      type: source.type,
+      raw: ({ message_id: source.rawMessageId } as unknown) as IncomingMessage["raw"],
+      _contextToken: source.contextToken,
+      timestamp: new Date(source.timestamp)
+    };
+  }
+
+  private async enqueueSyntheticTask(chatId: string, sourceMessage: IncomingMessage, text: string, front: boolean): Promise<number | null> {
+    const normalized = normalizeText(text);
+    if (!normalized) return null;
+    return this.inboundTasks.enqueue(chatId, this.serializeQueuedEvent({
+      chatId,
+      scopeId: chatId,
+      chatType: "private",
+      messageId: Date.now(),
+      userId: chatId,
+      userName: "QUEUE",
+      text: normalized,
+      ts: normalizeTimestamp(new Date()),
+      attachments: [],
+      imageContents: [],
+      sessionId: this.store.getActiveSession(chatId),
+      sourceMessage,
+      hasInlineAudioTranscript: false
+    }), { front, preview: normalized });
   }
 
   private async handleCommand(chatId: string, text: string, sourceMessage: IncomingMessage): Promise<boolean> {

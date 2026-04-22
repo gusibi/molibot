@@ -28,6 +28,7 @@ export const weixinChannelPlugin: ChannelPlugin<WeixinConfig> = {
       instanceId: instance.id,
       workspaceDir: instance.workspaceDir,
       memory: deps.memory,
-      usageTracker: deps.usageTracker
+      usageTracker: deps.usageTracker,
+      modelErrorTracker: deps.modelErrorTracker
     })
 };

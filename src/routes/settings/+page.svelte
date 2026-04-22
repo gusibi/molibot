@@ -22,6 +22,12 @@
       action: "Open"
     },
     {
+      title: "Model Error Logs",
+      description: "Only record failed model calls so fallback and real failure reasons are easy to inspect.",
+      href: "/settings/ai/errors",
+      action: "Open"
+    },
+    {
       title: "Agents",
       description: "Define reusable agent identities and profile files.",
       href: "/settings/agents",

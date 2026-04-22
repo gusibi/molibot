@@ -3,6 +3,7 @@ import { getModels } from "@mariozechner/pi-ai";
 import type { CustomProviderConfig, RuntimeSettings } from "../settings/index.js";
 import type { ConversationMessage } from "../../shared/types/message.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
+import type { ModelErrorTracker } from "../usage/modelErrorTracker.js";
 import {
   DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
   resolvePreferredTransport
@@ -40,6 +41,11 @@ interface ProviderAttemptFailure {
   status?: number;
   message: string;
   baseUrl?: string;
+}
+
+function redactBaseUrl(baseUrl: string): string {
+  if (!baseUrl) return baseUrl;
+  return baseUrl.replace(/\/\/([^/@]+)@/, "//***@");
 }
 
 function stringifyHistory(history: ConversationMessage[]): string {
@@ -370,16 +376,37 @@ async function callPiMono(
 export class AssistantService {
   constructor(
     private readonly getSettings: () => RuntimeSettings,
-    private readonly usageTracker?: AiUsageTracker
+    private readonly usageTracker?: AiUsageTracker,
+    private readonly modelErrorTracker?: ModelErrorTracker
   ) {}
 
   async reply(history: ConversationMessage[], input: string, memoryContext = ""): Promise<string> {
     const settings = this.getSettings();
     let reply: ProviderReply;
-    if (settings.providerMode === "custom") {
-      reply = await callCustomProvider(history, settings, memoryContext);
-    } else {
-      reply = await callPiMono(history, input, settings, memoryContext);
+    try {
+      if (settings.providerMode === "custom") {
+        reply = await callCustomProvider(history, settings, memoryContext);
+      } else {
+        reply = await callPiMono(history, input, settings, memoryContext);
+      }
+    } catch (error) {
+      const failure = (error as { providerFailure?: ProviderAttemptFailure }).providerFailure;
+      this.modelErrorTracker?.record({
+        source: "assistant",
+        channel: "web",
+        botId: "web",
+        chatId: "web",
+        provider: failure?.provider ?? (settings.providerMode === "custom" ? "custom" : settings.piModelProvider),
+        model: failure?.model ?? (settings.providerMode === "custom" ? "(unknown)" : settings.piModelName),
+        api: settings.providerMode === "custom" ? "openai-completions" : "pi-mono",
+        route: "text",
+        kind: "request_error",
+        message: error instanceof Error ? error.message : String(error),
+        baseUrl: failure?.baseUrl ? redactBaseUrl(failure.baseUrl) : undefined,
+        recovered: false,
+        fallbackUsed: false
+      });
+      throw error;
     }
 
     if (this.usageTracker && reply.usage) {

@@ -9,6 +9,7 @@ import type { ChannelInboundMessage } from "../../agent/types.js";
 import type { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
 import type { AiUsageTracker } from "../../usage/tracker.js";
+import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import {
     buildFeishuAcpPermissionResultCard,
@@ -24,7 +25,9 @@ import {
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "./message-intake.js";
 import { BasicChannelAcpTemplate } from "../shared/acp.js";
 import { BaseChannelRuntime } from "../shared/baseRuntime.js";
-import { buildTextChannelContext } from "../shared/contextBuilder.js";
+import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
+import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
+import { SqliteOutbox } from "../shared/outbox.js";
 
 export interface FeishuConfig {
     appId: string;
@@ -40,6 +43,8 @@ export class FeishuManager extends BaseChannelRuntime {
     private static readonly CHAT_EVENTS_RELATIVE_DIR = ["events"] as const;
     private readonly acpTemplate: BasicChannelAcpTemplate<void>;
     private readonly commandService: SharedRuntimeCommandService<string>;
+    private readonly outbox: SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>;
+    private readonly inboundTasks: InboundTaskCoordinator<ChannelInboundMessage, string>;
 
     private client: lark.Client | undefined;
     private wsClient: lark.WSClient | undefined;
@@ -58,7 +63,13 @@ export class FeishuManager extends BaseChannelRuntime {
         getSettings: () => RuntimeSettings,
         updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
         sessionStore?: SessionStore,
-        options?: { workspaceDir?: string; instanceId?: string; memory: MemoryGateway; usageTracker: AiUsageTracker }
+        options?: {
+            workspaceDir?: string;
+            instanceId?: string;
+            memory: MemoryGateway;
+            usageTracker: AiUsageTracker;
+            modelErrorTracker: ModelErrorTracker;
+        }
     ) {
         super({
             channel: "feishu",
@@ -71,34 +82,57 @@ export class FeishuManager extends BaseChannelRuntime {
         this.acpTemplate = new BasicChannelAcpTemplate<void>({
             acp: this.acp,
             sendText: async (chatId, _context, text) => {
-                await sendFeishuText(this.client, chatId, text);
+                await this.sendText(chatId, text);
             },
             runPrompt: async (chatId, _context, request) => {
                 await this.runAcpPrompt(chatId, request.prompt, request.startText);
             }
         });
-        this.commandService = new SharedRuntimeCommandService<string>({
+        this.inboundTasks = new InboundTaskCoordinator<ChannelInboundMessage, string>({
             channel: "feishu",
             instanceId: this.instanceId,
-            workspaceDir: this.workspaceDir,
+            process: async (payload) => {
+                try {
+                    const event = this.rehydrateQueuedEvent(payload);
+                    await this.processEvent(event);
+                } catch (error) {
+                    momError("feishu", "queue_job_uncaught", {
+                        chatId: payload.chatId,
+                        queueId: payload.messageId,
+                        error: error instanceof Error ? error.message : String(error)
+                    });
+                    await this.sendText(payload.chatId, "Internal error.");
+                    throw error;
+                }
+            },
+            enqueueFrontFromCommand: async (input, text) => this.enqueueSyntheticTask(input.scopeId, text, true)
+        });
+        this.commandService = this.createSharedCommandService<string>({
             authScopePrefix: "feishu",
-            store: this.store,
-            runners: this.runners,
-            getSettings,
-            updateSettings,
             isRunning: (scopeId) => this.running.has(scopeId),
             stopRun: (scopeId) => this.stopChatWork(scopeId),
             cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
             maybeHandleAcpCommand: (scopeId, cmd, rawArg) =>
                 this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, undefined),
             sendText: async (chatId, text) => {
-                await sendFeishuText(this.client, chatId, text);
+                await this.sendText(chatId, text);
             },
             onSessionMutation: (scopeId) => {
                 void this.writePromptPreview([scopeId]);
             },
-            getQueueSize: (scopeId) => this.chatQueues.get(scopeId)?.size() ?? 0,
+            ...this.inboundTasks.toCommandOptions(),
             helpLines: this.acpTemplate.helpLines()
+        });
+        this.outbox = new SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>({
+            channel: "feishu",
+            instanceId: this.instanceId,
+            deliver: async (payload) => {
+                const result = await sendFeishuText(this.client, payload.chatId, payload.text);
+                if (!result) {
+                    throw new Error("Feishu text delivery failed.");
+                }
+                return { messageId: result?.message_id ?? null };
+            }
         });
     }
 
@@ -185,6 +219,9 @@ export class FeishuManager extends BaseChannelRuntime {
             allowedChatCount: allowed.size
         });
 
+        void this.outbox.resume();
+        void this.inboundTasks.resumeAll();
+
         this.currentAppId = appId;
         this.currentAppSecret = appSecret;
         this.currentVerificationToken = verificationToken;
@@ -233,6 +270,13 @@ export class FeishuManager extends BaseChannelRuntime {
             botId: this.instanceId,
             chatId
         }));
+    }
+
+    private async sendText(chatId: string, text: string): Promise<{ message_id: string } | null> {
+        const normalized = String(text ?? "").trim();
+        if (!normalized) return null;
+        const result = await this.outbox.enqueue(chatId, { chatId, text: normalized });
+        return result.messageId ? { message_id: result.messageId } : null;
     }
 
     public async handleCardCallbackRequest(payload: unknown): Promise<lark.InteractiveCard | undefined> {
@@ -310,7 +354,7 @@ export class FeishuManager extends BaseChannelRuntime {
                 await setStatus(text);
             },
             onEvent: async (text) => {
-                await sendFeishuText(this.client, chatId, text);
+                await this.sendText(chatId, text);
             },
             onPermissionRequest: async (permission) => {
                 await this.sendAcpPermissionCard(chatId, permission);
@@ -342,7 +386,7 @@ export class FeishuManager extends BaseChannelRuntime {
             tone: result.stopReason === "completed" ? "green" : "orange"
         });
         if (result.assistantText.trim()) {
-            await sendFeishuText(this.client, chatId, result.assistantText.trim());
+            await this.sendText(chatId, result.assistantText.trim());
         }
     }
 
@@ -390,7 +434,7 @@ export class FeishuManager extends BaseChannelRuntime {
                 return;
             }
         } catch (error) {
-            await sendFeishuText(this.client, chatId, error instanceof Error ? error.message : String(error));
+            await this.sendText(chatId, error instanceof Error ? error.message : String(error));
             return;
         }
 
@@ -421,60 +465,25 @@ export class FeishuManager extends BaseChannelRuntime {
             return;
         }
 
-        try {
-            const activeSessionId = this.store.getActiveSession(chatId);
-            const conv = this.sessions.getOrCreateConversation(
-                "feishu",
-                `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`
-            );
-            this.sessions.appendMessage(conv.id, "user", event.text);
-        } catch (error) {
-            momWarn("feishu", "session_user_append_failed", {
-                runId,
-                chatId,
-                error: error instanceof Error ? error.message : String(error)
-            });
-        }
+        const queuedEvent: ChannelInboundMessage = {
+            ...event,
+            sessionId: this.store.getActiveSession(chatId),
+            imageContents: []
+        };
 
-        const queue = this.getQueue(chatId);
-        if (this.running.has(chatId)) {
+        if (this.inboundTasks.size(chatId) > 0 || this.running.has(chatId)) {
             momLog("feishu", "message_queued_while_busy", { runId, chatId });
         }
-
-        queue.enqueue(async () => {
-            try {
-                await this.processEvent(event);
-            } catch (error) {
-                momError("feishu", "queue_job_uncaught", {
-                    runId,
-                    chatId,
-                    error: error instanceof Error ? error.message : String(error)
-                });
-                await sendFeishuText(this.client, chatId, "Internal error.");
-            }
-        });
+        this.inboundTasks.enqueue(chatId, queuedEvent, { preview: queuedEvent.text });
     }
 
     private async processEvent(event: ChannelInboundMessage): Promise<void> {
         if (!this.client) return;
         const chatId = event.chatId;
-        const activeSessionId = event.sessionId || this.store.getActiveSession(chatId);
-        this.running.add(chatId);
-
-        const runner = this.runners.get(chatId, activeSessionId);
-        const ctx = buildTextChannelContext({
-            channel: "feishu",
-            event,
-            workspaceDir: this.workspaceDir,
-            chatDir: this.store.getChatDir(chatId),
-            store: this.store,
-            sessions: this.sessions,
-            instanceId: this.instanceId,
-            activeSessionId,
-            conversationKey: `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`,
+        await this.runSharedTextTask(chatId, event, {
             response: {
                 sendText: async (text) => {
-                    const resp = await sendFeishuText(this.client, chatId, text);
+                    const resp = await this.sendText(chatId, text);
                     return resp?.message_id ? { messageId: resp.message_id } : null;
                 },
                 editText: async (message, text) => {
@@ -499,12 +508,6 @@ export class FeishuManager extends BaseChannelRuntime {
                 });
             }
         });
-
-        try {
-            await runner.run(ctx);
-        } finally {
-            this.running.delete(chatId);
-        }
     }
 
     private async handleCommand(chatId: string, text: string): Promise<boolean> {
@@ -512,7 +515,7 @@ export class FeishuManager extends BaseChannelRuntime {
         const cmd = parts[0]?.toLowerCase() || "";
 
         if (cmd === "/chatid") {
-            await sendFeishuText(this.client, chatId, `chat_id: ${chatId}`);
+            await this.sendText(chatId, `chat_id: ${chatId}`);
             return true;
         }
         return this.commandService.handle({
@@ -521,6 +524,37 @@ export class FeishuManager extends BaseChannelRuntime {
             text,
             target: chatId
         });
+    }
+
+    private rehydrateQueuedEvent(event: ChannelInboundMessage): ChannelInboundMessage {
+        return {
+            ...event,
+            imageContents: rebuildImageContentsFromAttachments(event.attachments, (attachment, error) => {
+                momWarn("feishu", "queued_image_restore_failed", {
+                    chatId: event.chatId,
+                    file: attachment.local,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            })
+        };
+    }
+
+    private async enqueueSyntheticTask(chatId: string, text: string, front: boolean): Promise<number | null> {
+        const normalized = String(text ?? "").trim();
+        if (!normalized) return null;
+        return this.inboundTasks.enqueue(chatId, {
+            chatId,
+            scopeId: chatId,
+            chatType: "private",
+            messageId: Date.now(),
+            userId: "QUEUE",
+            userName: "QUEUE",
+            text: normalized,
+            ts: `${Math.floor(Date.now() / 1000)}.${String(Date.now() % 1000).padStart(3, "0")}`,
+            attachments: [],
+            imageContents: [],
+            sessionId: this.store.getActiveSession(chatId)
+        }, { front, preview: normalized });
     }
 
     private resolveEventDeliveryMode(task: MomEvent): EventDeliveryMode {
@@ -538,7 +572,7 @@ export class FeishuManager extends BaseChannelRuntime {
 
         const delivery = this.resolveEventDeliveryMode(task);
         if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
-            await sendFeishuText(this.client, task.chatId, task.text);
+            await this.sendText(task.chatId, task.text);
             return;
         }
 

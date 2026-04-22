@@ -97,3 +97,111 @@ export function formatPlainTextForFeishu(text: string): string {
 
   return result.trim();
 }
+
+export type FeishuRichTextSegment =
+  | {
+      type: "markdown";
+      content: string;
+    }
+  | {
+      type: "table";
+      columns: string[];
+      rows: string[][];
+    };
+
+function splitMarkdownTableRow(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  const cells: string[] = [];
+  let current = "";
+  let escaped = false;
+
+  for (const char of trimmed) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "|") {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+
+  cells.push(current.trim());
+  return cells;
+}
+
+function isMarkdownTableSeparatorRow(line: string): boolean {
+  const cells = splitMarkdownTableRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function isMarkdownTableHeaderRow(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith("|") && trimmed.endsWith("|") && splitMarkdownTableRow(line).length >= 2;
+}
+
+function normalizeTableCells(cells: string[], width: number): string[] {
+  if (cells.length === width) return cells;
+  if (cells.length > width) return cells.slice(0, width);
+  return [...cells, ...Array.from({ length: width - cells.length }, () => "")];
+}
+
+export function parseFeishuRichTextSegments(text: string): FeishuRichTextSegment[] {
+  const normalized = String(text ?? "").replace(/\r\n?/g, "\n").trim();
+  if (!normalized) return [];
+
+  const lines = normalized.split("\n");
+  const segments: FeishuRichTextSegment[] = [];
+  let markdownBuffer: string[] = [];
+  let insideCodeFence = false;
+
+  const flushMarkdown = (): void => {
+    const content = markdownBuffer.join("\n").trim();
+    if (content) {
+      segments.push({ type: "markdown", content });
+    }
+    markdownBuffer = [];
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const next = lines[index + 1] ?? "";
+    if (line.trim().startsWith("```")) {
+      insideCodeFence = !insideCodeFence;
+      markdownBuffer.push(line);
+      continue;
+    }
+    if (!insideCodeFence && isMarkdownTableHeaderRow(line) && isMarkdownTableSeparatorRow(next)) {
+      const columns = splitMarkdownTableRow(line);
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length) {
+        const rowLine = lines[index];
+        if (rowLine.trim().startsWith("```")) {
+          index -= 1;
+          break;
+        }
+        if (!isMarkdownTableHeaderRow(rowLine)) {
+          index -= 1;
+          break;
+        }
+        rows.push(normalizeTableCells(splitMarkdownTableRow(rowLine), columns.length));
+        index += 1;
+      }
+      flushMarkdown();
+      segments.push({ type: "table", columns, rows });
+      continue;
+    }
+    markdownBuffer.push(line);
+  }
+
+  flushMarkdown();
+  return segments;
+}
