@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { SharedRuntimeCommandService } from "./channelCommands.js";
 import { defaultRuntimeSettings } from "../settings/defaults.js";
+import type { RuntimeSettings } from "../settings/index.js";
 
 test("status command includes current session token stats", async () => {
   const sent: string[] = [];
@@ -187,9 +188,9 @@ test("help command renders markdown table on weixin but stays plain text on tele
   assert.match(telegramSent[0] ?? "", /\/status - show current bot\/session\/runtime status/);
 });
 
-test("models command renders numbered markdown table with active marker", async () => {
+test("models command renders numbered markdown table with provider and model columns", async () => {
   const sent: string[] = [];
-  const settings = {
+  const settings: RuntimeSettings = {
     ...defaultRuntimeSettings,
     providerMode: "custom" as const,
     defaultCustomProviderId: "grok2api",
@@ -203,8 +204,16 @@ test("models command renders numbered markdown table with active marker", async 
         defaultModel: "grok-4.20-fast",
         path: "/chat/completions",
         models: [
-          { id: "grok-4.20-auto", tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool", "developer"] },
-          { id: "grok-4.20-fast", tags: ["text"], supportedRoles: ["system", "user", "assistant", "tool", "developer"] }
+          {
+            id: "grok-4.20-auto",
+            tags: ["text"],
+            supportedRoles: ["system", "user", "assistant", "tool", "developer"]
+          },
+          {
+            id: "grok-4.20-fast",
+            tags: ["text"],
+            supportedRoles: ["system", "user", "assistant", "tool", "developer"]
+          }
         ]
       }
     ],
@@ -258,9 +267,10 @@ test("models command renders numbered markdown table with active marker", async 
   assert.equal(handled, true);
   assert.equal(sent.length, 1);
   assert.match(sent[0] ?? "", /当前模型列表（共3个）：/);
-  assert.match(sent[0] ?? "", /\| 编号 \| 模型 \|/);
-  assert.match(sent[0] ?? "", /\| 2 \| Grok2Api \/ grok-4\.20-auto \|/);
-  assert.match(sent[0] ?? "", /\| 3 \| Grok2Api \/ grok-4\.20-fast ⭐ 当前活跃中 \|/);
+  assert.match(sent[0] ?? "", /\| 编号 \| 供应商 \| 模型 \|/);
+  assert.match(sent[0] ?? "", /\| 1 \| \[Built-in\] anthropic \| claude-sonnet-4-20250514 \|/);
+  assert.match(sent[0] ?? "", /\| 2 \| Grok2Api \| grok-4\.20-auto \|/);
+  assert.match(sent[0] ?? "", /\| 3 ⭐ 当前活跃中 \| Grok2Api \| grok-4\.20-fast \|/);
   assert.match(sent[0] ?? "", /快捷切换：/);
 });
 

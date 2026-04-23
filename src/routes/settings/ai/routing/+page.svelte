@@ -147,9 +147,10 @@
 
         for (const cp of form.customProviders.filter((p) => p.enabled)) {
             for (const m of cp.models) {
+                const isBuiltin = providers.some((provider) => provider.id === cp.id);
                 out.push({
-                    key: `custom|${cp.id}|${m.id}`,
-                    label: `[Custom] ${cp.name} / ${m.id}`,
+                    key: `${isBuiltin ? "pi" : "custom"}|${cp.id}|${m.id}`,
+                    label: `${isBuiltin ? "[PI]" : "[Custom]"} ${cp.name} / ${m.id}`,
                     tags: m.tags,
                 });
             }
@@ -339,11 +340,14 @@
                 >
                     Core Engine
                 </h2>
+                <div class="mb-5 rounded-xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-xs leading-5 text-sky-200">
+                    路由现在会根据你选中的模型自动判断走内置还是自定义通道，不需要先手动切全局模式。下面这组内置 provider / model 只作为兜底值：当某条路由 key 为空或失效时，系统才会退回这里。
+                </div>
 
                 <div class="grid gap-5 md:grid-cols-2">
                     <label class="grid gap-2 text-sm">
                         <span class="font-medium text-slate-300"
-                            >Provider mode</span
+                            >Fallback mode (legacy)</span
                         >
                         <select
                             class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
@@ -362,7 +366,6 @@
                             class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5 disabled:opacity-50"
                             bind:value={form.piModelProvider}
                             on:change={onPiProviderChanged}
-                            disabled={form.providerMode === "custom"}
                         >
                             {#each visiblePiProviders() as provider}
                                 <option value={provider.id}
@@ -379,7 +382,6 @@
                         <select
                             class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5 disabled:opacity-50"
                             bind:value={form.piModelName}
-                            disabled={form.providerMode === "custom"}
                         >
                             {#each providerModels[form.piModelProvider] ?? [] as model}
                                 <option value={model}>{model}</option>

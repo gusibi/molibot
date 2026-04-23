@@ -5,7 +5,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { getModels, streamSimple, type Model } from "@mariozechner/pi-ai";
 import { isKnownProvider, type RuntimeSettings, type CustomProviderConfig } from "../settings/index.js";
 import type { MemoryGateway } from "../memory/gateway.js";
-import { currentModelKey } from "../settings/modelSwitch.js";
+import { currentModelKey, resolveBuiltInProviderDefaultModel } from "../settings/modelSwitch.js";
 import { momError, momLog, momWarn } from "./log.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { buildRunReflection, formatRunClosingNote, type RunSummary } from "./runSummary.js";
@@ -39,7 +39,12 @@ import {
 
 function resolvePiModel(settings: RuntimeSettings): Model<any> {
   const models = getModels(settings.piModelProvider);
-  const found = models.find((m) => m.id === settings.piModelName);
+  const preferredModelId = resolveBuiltInProviderDefaultModel(
+    settings,
+    settings.piModelProvider,
+    settings.piModelName
+  );
+  const found = models.find((m) => m.id === preferredModelId);
   if (found) return found;
   if (models[0]) return models[0];
   throw new Error(
@@ -99,8 +104,8 @@ function getSelectedCustomProvider(
 ): CustomProviderConfig | undefined {
   const includeBuiltIn = options.includeBuiltIn === true;
   const candidates = includeBuiltIn
-    ? settings.customProviders
-    : settings.customProviders.filter((p) => !isKnownProvider(p.id));
+    ? settings.customProviders.filter((p) => p.enabled !== false)
+    : settings.customProviders.filter((p) => !isKnownProvider(p.id) && p.enabled !== false);
   if (candidates.length === 0) return undefined;
   return (
     candidates.find(
@@ -287,7 +292,7 @@ interface ModelAttemptFailure {
   kind: "request_error" | "empty_response" | "missing_api_key";
 }
 
-function resolveModelSelection(
+export function resolveModelSelection(
   settings: RuntimeSettings,
   useCase: "text" | "vision" = "text"
 ): ResolvedModelSelection {
@@ -309,7 +314,13 @@ function resolveModelSelection(
     } else {
       const provider = getCustomProviderById(settings, routed.provider);
       const configuredModel = provider?.models.find((m) => m.id === routed.model);
-      if (provider && isCustomProviderUsable(provider) && routed.model && modelSupportsUseCase(configuredModel, useCase)) {
+      if (
+        provider &&
+        provider.enabled !== false &&
+        isCustomProviderUsable(provider) &&
+        routed.model &&
+        modelSupportsUseCase(configuredModel, useCase)
+      ) {
         return {
           model: resolveCustomModel(provider, routed.model),
           source: "custom",
@@ -336,6 +347,7 @@ function resolveModelSelection(
   }
 
   for (const provider of settings.customProviders) {
+    if (provider.enabled === false) continue;
     if (!isCustomProviderUsable(provider)) continue;
     const modelId = pickCustomModelId(provider, useCase);
     if (!modelId) continue;
@@ -448,8 +460,12 @@ function buildModelFallbackSelections(
       providerMode: "pi",
       modelRouting: {
         ...settings.modelRouting,
-        textModelKey: `pi|${settings.piModelProvider}|${settings.piModelName}`,
-        visionModelKey: `pi|${settings.piModelProvider}|${settings.piModelName}`
+        textModelKey: `pi|${settings.piModelProvider}|${
+          resolveBuiltInProviderDefaultModel(settings, settings.piModelProvider, settings.piModelName)
+        }`,
+        visionModelKey: `pi|${settings.piModelProvider}|${
+          resolveBuiltInProviderDefaultModel(settings, settings.piModelProvider, settings.piModelName)
+        }`
       }
     },
     useCase
@@ -856,24 +872,24 @@ function keyFingerprint(key: string | undefined): string {
   return `${key.slice(0, 4)}...${key.slice(-2)}(len=${key.length})`;
 }
 
-function validateRuntimeSettings(settings: RuntimeSettings): string | null {
-  if (settings.providerMode === "custom") {
-    const selected = getSelectedCustomProvider(settings);
-    const modelId = selected ? getProviderModel(selected) : "";
+export function validateRuntimeSettings(settings: RuntimeSettings): string | null {
+  const selection = resolveModelSelection(settings, "text");
+  if (selection.source === "custom") {
+    const selected = getCustomProviderById(settings, selection.providerId);
     if (!selected) {
-      return "AI settings error: providerMode=custom but no custom provider configured.";
+      return `AI settings error: active custom model provider '${selection.providerId}' is missing from provider settings.`;
     }
-    if (!selected.baseUrl?.trim() || !selected.apiKey?.trim() || !modelId) {
-      return "AI settings error: custom provider requires baseUrl, apiKey, and at least one model.";
+    if (!selected.baseUrl?.trim() || !selected.apiKey?.trim() || !selection.modelId) {
+      return "AI settings error: active custom model requires baseUrl, apiKey, and a valid model.";
     }
     return null;
   }
 
-  const model = resolvePiModel(settings);
-  if (!hasConfiguredAuth(model.provider)) {
-    const envVar = envVarForProvider(model.provider);
+  const configuredBuiltInProvider = settings.customProviders.find((provider) => provider.id === selection.model.provider);
+  if (!hasConfiguredAuth(selection.model.provider, () => configuredBuiltInProvider?.apiKey?.trim() || undefined)) {
+    const envVar = envVarForProvider(selection.model.provider);
     const hint = envVar ? `${envVar} or auth.json` : "auth.json";
-    return `AI settings error: missing credentials for provider '${model.provider}'. Configure ${hint}.`;
+    return `AI settings error: missing credentials for provider '${selection.model.provider}'. Configure ${hint}.`;
   }
   return null;
 }
@@ -1074,8 +1090,7 @@ function mapUnsupportedDeveloperRole(
   settings: RuntimeSettings,
   context: any,
 ): any {
-  const routed = parseModelKey(settings.modelRouting.textModelKey);
-  const shouldCheckCustom = settings.providerMode === "custom" || routed?.mode === "custom";
+  const shouldCheckCustom = resolveModelSelection(settings, "text").source === "custom";
   if (!shouldCheckCustom) return context;
   const roles = getCustomModelRoles(settings);
   if (roles.includes("developer")) return context;

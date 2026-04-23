@@ -20,7 +20,7 @@ function formatModelOptions(settings: RuntimeSettings, route: ModelRoute): strin
   const activeKey = currentModelKey(settings, route);
   const lines = [
     `Route: ${route}`,
-    `Provider mode: ${settings.providerMode}`,
+    "Routing mode: auto-detect built-in vs custom from selected model",
     `Configured model options: ${options.length}`,
     ""
   ];
@@ -79,7 +79,7 @@ export function createSwitchModelTool(options: {
           type: "text",
           text: [
             `Switched ${route} model to: ${switched.selected.label}`,
-            `Mode: ${switched.settings.providerMode}`,
+            "Runtime will auto-use built-in or custom transport based on the selected model.",
             "",
             formatModelOptions(switched.settings, route)
           ].join("\n")

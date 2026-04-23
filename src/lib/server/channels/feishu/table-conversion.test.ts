@@ -7,10 +7,10 @@ test("parseFeishuRichTextSegments extracts markdown tables and preserves surroun
   const input = [
     "当前模型列表（共3个）：",
     "",
-    "| 编号 | 模型 |",
-    "|------|------|",
-    "| 1 | A |",
-    "| 2 | B |",
+    "| 编号 | 供应商 | 模型 |",
+    "|------|--------|------|",
+    "| 1 | Built-in | A |",
+    "| 2 ⭐ 当前活跃中 | Grok2Api | B |",
     "",
     "切换模型：",
     "/models 2"
@@ -24,10 +24,10 @@ test("parseFeishuRichTextSegments extracts markdown tables and preserves surroun
   });
   assert.deepEqual(segments[1], {
     type: "table",
-    columns: ["编号", "模型"],
+    columns: ["编号", "供应商", "模型"],
     rows: [
-      ["1", "A"],
-      ["2", "B"]
+      ["1", "Built-in", "A"],
+      ["2 ⭐ 当前活跃中", "Grok2Api", "B"]
     ]
   });
   assert.deepEqual(segments[2], {
@@ -40,10 +40,10 @@ test("buildFeishuReplyCards converts markdown table into native feishu table ele
   const input = [
     "当前模型列表（共2个）：",
     "",
-    "| 编号 | 模型 |",
-    "|------|------|",
-    "| 1 | Grok2Api / grok-4.20-auto |",
-    "| 2 | Grok2Api / grok-4.20-fast ⭐ 当前活跃中 |"
+    "| 编号 | 供应商 | 模型 |",
+    "|------|--------|------|",
+    "| 1 | Grok2Api | grok-4.20-auto |",
+    "| 2 ⭐ 当前活跃中 | Grok2Api | grok-4.20-fast |"
   ].join("\n");
 
   const cards = buildFeishuReplyCards(input);
@@ -55,12 +55,13 @@ test("buildFeishuReplyCards converts markdown table into native feishu table ele
     (table as { columns: Array<{ name: string; display_name: string; data_type: string }> }).columns,
     [
       { name: "col_1", display_name: "编号", data_type: "lark_md", width: "auto" },
-      { name: "col_2", display_name: "模型", data_type: "lark_md", width: "auto" }
+      { name: "col_2", display_name: "供应商", data_type: "lark_md", width: "auto" },
+      { name: "col_3", display_name: "模型", data_type: "lark_md", width: "auto" }
     ]
   );
   assert.deepEqual((table as { rows: Array<Record<string, string>> }).rows, [
-    { col_1: "1", col_2: "Grok2Api / grok-4.20-auto" },
-    { col_1: "2", col_2: "Grok2Api / grok-4.20-fast ⭐ 当前活跃中" }
+    { col_1: "1", col_2: "Grok2Api", col_3: "grok-4.20-auto" },
+    { col_1: "2 ⭐ 当前活跃中", col_2: "Grok2Api", col_3: "grok-4.20-fast" }
   ]);
 });
 
@@ -69,9 +70,9 @@ test("parseFeishuRichTextSegments keeps markdown tables inside fenced code block
     "下面是示例：",
     "",
     "```md",
-    "| 编号 | 模型 |",
-    "|------|------|",
-    "| 1 | 示例 |",
+    "| 编号 | 供应商 | 模型 |",
+    "|------|--------|------|",
+    "| 1 | 示例供应商 | 示例模型 |",
     "```",
     "",
     "结束"
@@ -85,9 +86,9 @@ test("parseFeishuRichTextSegments keeps markdown tables inside fenced code block
         "下面是示例：",
         "",
         "```md",
-        "| 编号 | 模型 |",
-        "|------|------|",
-        "| 1 | 示例 |",
+        "| 编号 | 供应商 | 模型 |",
+        "|------|--------|------|",
+        "| 1 | 示例供应商 | 示例模型 |",
         "```",
         "",
         "结束"

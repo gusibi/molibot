@@ -1,4 +1,5 @@
 import type { RuntimeSettings } from "./index.js";
+import { isKnownProvider } from "./index.js";
 
 export type ModelRoute = "text" | "vision" | "stt" | "tts";
 
@@ -13,6 +14,32 @@ export interface ModelSwitchResult {
   selector: string;
   selected: ModelOption;
   settings: RuntimeSettings;
+}
+
+export function resolveBuiltInProviderDefaultModel(
+  settings: RuntimeSettings,
+  providerId: string,
+  preferredModelId: string
+): string {
+  const configured = settings.customProviders.find((provider) => provider.id === providerId && isKnownProvider(provider.id));
+  if (!configured) return preferredModelId;
+  const modelIds = configured.models.map((model) => model.id.trim()).filter(Boolean);
+  if (modelIds.length === 0) return preferredModelId;
+  if (preferredModelId && modelIds.includes(preferredModelId)) return preferredModelId;
+  if (configured.defaultModel?.trim() && modelIds.includes(configured.defaultModel.trim())) {
+    return configured.defaultModel.trim();
+  }
+  return modelIds[0] ?? preferredModelId;
+}
+
+function routePatchKey(route: ModelRoute): keyof RuntimeSettings["modelRouting"] {
+  return route === "text"
+    ? "textModelKey"
+    : route === "vision"
+      ? "visionModelKey"
+      : route === "stt"
+        ? "sttModelKey"
+        : "ttsModelKey";
 }
 
 export function parseModelRoute(value: string): ModelRoute | null {
@@ -38,42 +65,61 @@ export function currentModelKey(settings: RuntimeSettings, route: ModelRoute): s
     const model = provider?.defaultModel || modelIds[0] || "";
     return id ? `custom|${id}|${model}` : `pi|${settings.piModelProvider}|${settings.piModelName}`;
   }
-  return `pi|${settings.piModelProvider}|${settings.piModelName}`;
+  const resolvedBuiltInModel = resolveBuiltInProviderDefaultModel(
+    settings,
+    settings.piModelProvider,
+    settings.piModelName
+  );
+  return `pi|${settings.piModelProvider}|${resolvedBuiltInModel}`;
 }
 
 export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute): ModelOption[] {
-  const patchKey = route === "text"
-    ? "textModelKey"
-    : route === "vision"
-      ? "visionModelKey"
-      : route === "stt"
-        ? "sttModelKey"
-        : "ttsModelKey";
+  const patchKey = routePatchKey(route);
 
   const supportsRoute = (tags: string[]): boolean => {
     if (route === "text") return tags.includes("text");
     return tags.includes(route);
   };
 
-  const options: ModelOption[] = [
-    ...(route === "text" || route === "vision"
-      ? [{
-        key: `pi|${settings.piModelProvider}|${settings.piModelName}`,
-        label: `[PI] ${settings.piModelProvider} / ${settings.piModelName}`,
-        patch: {
-          providerMode: route === "text" ? "pi" : settings.providerMode,
-          piModelProvider: settings.piModelProvider,
-          piModelName: settings.piModelName,
-          modelRouting: {
-            ...settings.modelRouting,
-            [patchKey]: `pi|${settings.piModelProvider}|${settings.piModelName}`
-          }
-        } as Partial<RuntimeSettings>
-      }]
-      : [])
-  ];
+  const options: ModelOption[] = [];
+  const seen = new Set<string>();
+  const pushOption = (option: ModelOption): void => {
+    if (seen.has(option.key)) return;
+    seen.add(option.key);
+    options.push(option);
+  };
 
-  for (const provider of settings.customProviders.filter((p) => p.enabled !== false)) {
+  const pushBuiltInOption = (providerId: string, modelId: string): void => {
+    const key = `pi|${providerId}|${modelId}`;
+    pushOption({
+      key,
+      label: `[PI] ${providerId} / ${modelId}`,
+      patch: {
+        piModelProvider: providerId as RuntimeSettings["piModelProvider"],
+        piModelName: modelId,
+        modelRouting: {
+          ...settings.modelRouting,
+          [patchKey]: key
+        }
+      } as Partial<RuntimeSettings>
+    });
+  };
+
+  if (route === "text" || route === "vision") {
+    pushBuiltInOption(
+      settings.piModelProvider,
+      resolveBuiltInProviderDefaultModel(settings, settings.piModelProvider, settings.piModelName)
+    );
+  }
+
+  for (const provider of settings.customProviders.filter((p) => p.enabled !== false && isKnownProvider(p.id))) {
+    const models = provider.models.filter((m) => m.id?.trim() && supportsRoute(Array.isArray(m.tags) ? m.tags : ["text"]));
+    for (const model of models) {
+      pushBuiltInOption(provider.id, model.id.trim());
+    }
+  }
+
+  for (const provider of settings.customProviders.filter((p) => p.enabled !== false && !isKnownProvider(p.id))) {
     const models = provider.models.filter((m) => m.id?.trim() && supportsRoute(Array.isArray(m.tags) ? m.tags : ["text"]));
     for (const model of models) {
       const modelId = model.id.trim();
@@ -84,7 +130,6 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
         key: `custom|${provider.id}|${modelId}`,
         label: `[Custom] ${provider.name} / ${modelId}`,
         patch: {
-          providerMode: route === "text" ? "custom" : settings.providerMode,
           defaultCustomProviderId: route === "text" ? provider.id : settings.defaultCustomProviderId,
           customProviders: route === "text" ? updatedProviders : settings.customProviders,
           modelRouting: {

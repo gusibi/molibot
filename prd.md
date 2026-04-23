@@ -2667,3 +2667,92 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/channels/shared/outbox.ts` 不得在 `fail()` 中提前 reject 仍会重试的记录；`src/lib/server/channels/shared/outbox.test.ts` 必须覆盖“首次失败、后续重试成功时 enqueue 最终 resolve”的回归验证。
   - `src/lib/server/channels/feishu/formatting.ts` 的表格提取必须识别 fenced code block 边界；`src/lib/server/channels/feishu/table-conversion.test.ts` 必须覆盖“代码块中的表格不转原生 table”的回归验证。
   - `features.md` 必须记录本次修复。
+
+## 184. `/models` 列表拆分成编号 / 供应商 / 模型三列 (2026-04-23)
+- Priority: P2
+- Stage: Delivered (2026-04-23)
+- Problem:
+  - 当前 `/models` 把“供应商 / 模型名”拼在同一列里，用户扫列表时需要自己再做一次拆分，找供应商归属和模型名都不够直观。
+  - 当前活跃标识放在最后一列末尾，视觉上离编号很远；用户按编号切换时，不容易第一眼把“当前正在用的是哪一个编号”对上。
+- Requirement:
+  - `/models` 默认输出必须改成三列表格：`编号 / 供应商 / 模型`。
+  - 当前活跃标识必须放在编号列，而不是模型列末尾。
+  - 内建模型和自定义模型都必须按同一结构输出，便于飞书原生表格和普通文本渠道统一展示。
+- Enforcement:
+  - `src/lib/server/agent/channelCommands.ts` 必须把模型显示拆成独立供应商列和模型列，并把 `⭐ 当前活跃中` 挪到编号列。
+  - `src/lib/server/agent/channelCommands.test.ts` 必须覆盖三列表头、内建模型供应商列、以及活跃标识位于编号列的回归验证。
+  - `src/lib/server/channels/feishu/table-conversion.test.ts` 必须同步覆盖三列 Markdown 表格在飞书卡片转换后的结构验证。
+  - `features.md` 必须记录本次改动。
+
+## 185. 混合 built-in / custom 模型路由必须自动分流 (2026-04-23)
+- Priority: P1
+- Stage: Delivered (2026-04-23)
+- Problem:
+  - 现在 `/models` 和 AI 路由页会把设置里的 built-in provider 条目也当成普通 custom provider 生成 `custom|...` 路由 key，导致像 Google Gemini 这种本该走内置协议的模型被误送到 OpenAI 兼容链路，最终出现“明明是 built-in 但一用就报错”。
+  - 运行时校验又会先看全局 `providerMode`，只要它还是 `custom`，即便当前实际选中的是 built-in 模型，也会被提前拦成“custom provider 配置不完整”，不能做到 built-in / custom 混用。
+  - 路由页还把内置 fallback provider/model 输入框绑在全局模式上，误导用户以为必须先选一个大类模式，不能按具体模型自动分流。
+- Requirement:
+  - 运行时必须根据当前选中的模型 key 自动判断走 built-in 还是 custom 通道，而不是依赖用户先手动切全局模式。
+  - built-in provider 出现在 providers/routing 配置池里时，必须生成 `pi|provider|model` 形式的路由 key；只有真正的自定义 OpenAI 兼容 provider 才能生成 `custom|provider|model`。
+  - `/models`、AI 路由页、运行时校验三处都必须遵守这套自动分流规则，允许 built-in 和 custom 模型混着配置、混着切换。
+- Enforcement:
+  - `src/lib/server/settings/modelSwitch.ts` 必须把 known provider 识别为 built-in，并在模型列表与切换 patch 中生成内置路由 key，而不是 custom key。
+  - `src/lib/server/agent/runner.ts` 必须按当前实际选中的文本模型做凭据校验和 custom 兼容处理，不能仅凭 `providerMode` 先行报错。
+  - `src/routes/settings/ai/routing/+page.svelte` 必须把 built-in/custom 选项放进同一模型池，并提示“自动判断通道”，不再把 PI fallback 输入框禁用成依赖全局模式。
+  - 回归测试必须至少覆盖“built-in 项切换后生成 pi key”这条场景，避免 built-in provider 再次被误生成成 custom 路由 key。
+  - `features.md` 必须记录本次修复。
+
+## 186. built-in provider 填在设置页的 API key 也必须通过运行前校验 (2026-04-23)
+- Priority: P1
+- Stage: Delivered (2026-04-23)
+- Problem:
+  - built-in provider（例如 `google`）现在支持在 Providers 页填写 API Key Override，但运行前校验仍然只认环境变量或 `auth.json`，导致用户明明已经在设置页填了 key，系统却仍报“missing credentials for provider 'google'”。
+  - 真正请求发送时其实已经能从 settings 里读到 built-in provider 的 `apiKey`，只是前置校验先把流程拦死，形成“设置已填但仍提示没填”的假错误。
+- Requirement:
+  - 当当前活动模型是 built-in provider 时，运行前校验必须同时接受三种凭据来源：环境变量、`auth.json`、以及 Providers 页保存的 API Key Override。
+  - 不能再因为缺少 `GOOGLE_API_KEY` 环境变量而否定已经保存在 settings 中的 built-in key。
+- Enforcement:
+  - `src/lib/server/agent/runner.ts` 的 built-in 凭据校验必须传入 settings 中对应 provider 的 `apiKey` 作为 fallback。
+  - `features.md` 必须记录本次修复。
+
+## 187. built-in provider 的内部默认模型必须压过旧的 PI fallback 残留值 (2026-04-23)
+- Priority: P1
+- Stage: Delivered (2026-04-23)
+- Problem:
+  - 当前 built-in provider 页面允许用户给 `google-vertex` 之类的内置 provider 配置“Attached Models + internal default model”，但运行时的 PI fallback 仍可能继续沿用旧的 `piModelName` 残留值。
+  - 结果就是：界面里明明只剩 `gemini-3.1-flash-lite-preview`，日志里却还在请求旧的 `gemini-1.5-flash`，让用户误以为当前配置根本没有生效。
+- Requirement:
+  - 当某个 built-in provider 在 settings 里已经有自己的模型列表和内部默认模型时，运行时与 `/models` 的内置 fallback 选择必须优先使用这份当前配置。
+  - 如果旧的 `piModelName` 不在该 built-in provider 当前已挂载的模型列表中，系统必须自动回退到该 provider 的 `defaultModel` 或第一条可用模型，不能继续沿用旧值。
+- Enforcement:
+  - `src/lib/server/settings/modelSwitch.ts` 必须提供 built-in provider 默认模型解析逻辑，并让 `currentModelKey` / built-in 选项输出复用它。
+  - `src/lib/server/agent/runner.ts` 在解析 PI model 和构造 PI fallback 候选时必须复用同一套解析逻辑。
+  - 回归测试必须覆盖“旧 `piModelName` 为 `gemini-1.5-flash`，但当前 built-in provider 默认模型已改成 `gemini-3.1-flash-lite-preview` 时，实际使用 3.1 而不是 1.5”。
+  - `features.md` 必须记录本次修复。
+
+## 188. 禁用后的 custom provider 不能再被旧路由 key 命中 (2026-04-23)
+- Priority: P1
+- Stage: Delivered (2026-04-23)
+- Problem:
+  - 当前如果 `modelRouting.textModelKey` 还残留着旧的 `custom|provider|model`，即使对应 custom provider 已经在设置页里被禁用，运行时仍会直接命中它。
+  - 这会造成“/models 列表已经看不到它，但实际对话一失败又回去用它”的错觉，尤其在从旧模型切到 built-in 后更容易出现。
+- Requirement:
+  - routed custom model 在被真正选中前，必须同时满足“provider 存在、provider 仍是 enabled、provider 配置可用、model 仍支持当前 use case”。
+  - 只要 provider 已被禁用，就不能仅靠残留的旧 route key 继续参与当前运行。
+- Enforcement:
+  - `src/lib/server/agent/runner.ts` 的 routed custom 分支必须检查 `provider.enabled !== false`。
+  - `features.md` 必须记录本次修复。
+
+## 189. fallback / retry 选模型时也必须严格遵守 Enabled (2026-04-23)
+- Priority: P1
+- Stage: Delivered (2026-04-23)
+- Problem:
+  - 即便旧的 routed key 已经被拦住，运行时在 `providerMode=custom` 的“默认 custom provider”分支，以及后续“遍历所有 custom provider 做兜底”分支里，之前仍可能把已经禁用的 provider 重新选出来。
+  - 这会导致用户看到 `/models` 只剩 1 个可用模型，但一旦重试/回退，系统又拿出已经 Disable 的旧 provider 继续尝试。
+- Requirement:
+  - 所有 custom provider 参与当前文本/视觉模型选择前，都必须统一满足 `enabled !== false`。
+  - 不仅 routed key 命中要检查，默认 custom provider 选择和通用 fallback 扫描也都必须检查。
+- Enforcement:
+  - `src/lib/server/agent/runner.ts` 的 `getSelectedCustomProvider()` 必须过滤掉禁用 provider。
+  - `src/lib/server/agent/runner.ts` 在遍历 `settings.customProviders` 做 fallback 扫描时必须跳过禁用 provider。
+  - `features.md` 必须记录本次修复。

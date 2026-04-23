@@ -61,6 +61,12 @@ interface CommandTableSection {
   rows: CommandTableRow[];
 }
 
+interface ModelTableDisplayRow {
+  indexLabel: string;
+  provider: string;
+  model: string;
+}
+
 const TWO_COLUMN_TABLE_CHANNELS = new Set(["feishu", "qq", "weixin"]);
 const FIXED_COMMAND_RENDER_MODE: Record<FixedCommandName, FixedCommandRenderMode> = {
   status: "two_column_markdown_table",
@@ -308,7 +314,7 @@ export class SharedRuntimeCommandService<TTarget> {
         input.target,
         [
           `Switched ${route} model to: ${switched.selected.label}`,
-          `Mode: ${switched.settings.providerMode}`,
+          "Runtime will auto-use built-in or custom transport based on the selected model.",
           `Use /models ${route} to check current active ${route} model.`
         ].join("\n")
       );
@@ -511,13 +517,12 @@ export class SharedRuntimeCommandService<TTarget> {
     if (options.length === 0) {
       lines.push("(no configured models)");
     } else {
-      lines.push("| 编号 | 模型 |");
-      lines.push("|------|------|");
+      lines.push("| 编号 | 供应商 | 模型 |");
+      lines.push("|------|--------|------|");
       for (let i = 0; i < options.length; i += 1) {
         const option = options[i];
-        const label = option.label.replace(/^\[(PI|Custom)\]\s*/, "");
-        const marker = option.key === activeKey ? " ⭐ 当前活跃中" : "";
-        lines.push(`| ${i + 1} | ${label}${marker} |`);
+        const row = this.modelTableDisplayRow(option.label, i + 1, option.key === activeKey);
+        lines.push(`| ${row.indexLabel} | ${row.provider} | ${row.model} |`);
       }
     }
 
@@ -532,6 +537,22 @@ export class SharedRuntimeCommandService<TTarget> {
       lines.push("/models <key>");
     }
     return lines.join("\n");
+  }
+
+  private modelTableDisplayRow(label: string, index: number, isActive: boolean): ModelTableDisplayRow {
+    const normalized = label
+      .replace(/^\[PI\]\s*/, "[Built-in] ")
+      .replace(/^\[Custom\]\s*/, "");
+    const delimiter = " / ";
+    const splitAt = normalized.indexOf(delimiter);
+    const provider = splitAt >= 0 ? normalized.slice(0, splitAt).trim() : normalized.trim();
+    const model = splitAt >= 0 ? normalized.slice(splitAt + delimiter.length).trim() : "";
+
+    return {
+      indexLabel: isActive ? `${index} ⭐ 当前活跃中` : String(index),
+      provider,
+      model
+    };
   }
 
   private skillsText(scopeId: string): string {
