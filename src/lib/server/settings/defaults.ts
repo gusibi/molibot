@@ -251,7 +251,7 @@ const defaultSkillDraftSettings: SkillDraftSettings = {
   }
 };
 
-const defaultCloudflareHtmlPluginSettings = {
+const defaultCloudflareHtmlPluginSettings: RuntimeSettings["plugins"]["cloudflareHtml"] = {
   enabled: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ENABLED ?? "false").toLowerCase() === "true",
   accessMode: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ACCESS_MODE ?? "worker").trim() === "direct"
     ? "direct"
@@ -291,6 +291,9 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     visionModelKey: "",
     sttModelKey: "",
     ttsModelKey: ""
+  },
+  modelFallback: {
+    mode: "same-provider"
   },
   compaction: {
     enabled: String(process.env.MOLIBOT_COMPACTION_ENABLED ?? "true").toLowerCase() !== "false",

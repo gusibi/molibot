@@ -132,3 +132,53 @@ test("currentModelKey prefers configured built-in default model over stale pi fa
     "pi|google-vertex|gemini-3.1-flash-lite-preview"
   );
 });
+
+test("currentModelKey does not treat built-in or STT-only providers as custom text default", () => {
+  const settings: RuntimeSettings = {
+    ...defaultRuntimeSettings,
+    providerMode: "custom" as const,
+    piModelProvider: "openrouter" as const,
+    piModelName: "text-fallback",
+    defaultCustomProviderId: "siliconflow-stt",
+    customProviders: [
+      {
+        id: "google",
+        name: "[Built-in] google",
+        enabled: true,
+        baseUrl: "",
+        apiKey: "google-key",
+        path: "/v1/chat/completions",
+        defaultModel: "gemini-flash-latest",
+        models: [
+          {
+            id: "gemini-flash-latest",
+            tags: ["text"],
+            supportedRoles: ["system", "user", "assistant", "tool"]
+          }
+        ]
+      },
+      {
+        id: "siliconflow-stt",
+        name: "STT only",
+        enabled: true,
+        baseUrl: "https://stt.example",
+        apiKey: "stt-key",
+        path: "/v1/audio/transcriptions",
+        defaultModel: "TeleAI/TeleSpeechASR",
+        models: [
+          {
+            id: "TeleAI/TeleSpeechASR",
+            tags: ["stt"],
+            supportedRoles: ["system", "user", "assistant", "tool"]
+          }
+        ]
+      }
+    ],
+    modelRouting: {
+      ...defaultRuntimeSettings.modelRouting,
+      textModelKey: ""
+    }
+  };
+
+  assert.equal(currentModelKey(settings, "text"), "pi|openrouter|text-fallback");
+});

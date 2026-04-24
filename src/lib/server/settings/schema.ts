@@ -31,6 +31,12 @@ export interface CompactionSettings {
   keepRecentTokens: number;
 }
 
+export type ModelFallbackMode = "off" | "same-provider" | "any-enabled";
+
+export interface ModelFallbackSettings {
+  mode: ModelFallbackMode;
+}
+
 export interface CustomProviderConfig {
   id: string;
   name: string;
@@ -214,6 +220,7 @@ export interface RuntimeSettings {
   customProviders: CustomProviderConfig[];
   defaultCustomProviderId: string;
   modelRouting: ModelRoutingConfig;
+  modelFallback: ModelFallbackSettings;
   compaction: CompactionSettings;
   systemPrompt: string;
   timezone: string;

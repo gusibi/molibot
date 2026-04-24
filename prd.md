@@ -95,6 +95,14 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-155 | Channel boundary hardening for shared agent logic | P1 | Delivered (2026-04-22) | Queue ownership, recovery, queue commands, and shared task-execution scaffolding must live in shared runtime or agent layers rather than per-channel runtimes; channels should keep only transport-specific send/receive, platform adaptation, and raw-message normalization/rehydration hooks |
 | P1-156 | Dedicated model failure logging and settings visibility | P1 | Delivered (2026-04-22) | Only failed model calls should be persisted, with enough context to diagnose why a primary model failed or why fallback was triggered; operators should be able to review these failures from a dedicated Settings page instead of reading mixed runtime console logs |
 | P1-157 | Queue success auto-cleanup | P1 | Delivered (2026-04-22) | Persisted inbound and outbound queues should remove successfully processed items immediately, so SQLite keeps only unfinished work that actually needs retry or recovery after restart |
+| P1-158 | Readable default mom runtime logs | P1 | Delivered (2026-04-23) | Default `[mom-t]` runtime logs should be human-readable single-line entries showing `time -> scope -> event -> key fields`, with color-coded event categories for terminal scanning and an explicit env escape hatch to restore raw JSON when machine parsing is needed |
+| P1-159 | Explicit model fallback policy and route hygiene | P1 | Delivered (2026-04-24) | Runtime model retry/fallback should be operator-controllable (`off` / `same-provider` / `any-enabled`), default to same-provider fallback to avoid surprising cross-provider switches, exclude disabled providers from STT/vision fallback paths, and keep settings UI model options aligned with backend route resolution |
+| P2-160 | AI Providers maintenance UX | P2 | Delivered (2026-04-24) | Providers settings should reduce long-list noise and thinking-config misinterpretation with an earlier two-pane layout, independently scrolling provider list, collapsed built-in models, and explicit reasoning parameter guidance |
+| P1-165 | DeepSeek thinking history replay compatibility | P1 | Delivered (2026-04-24) | For OpenAI-compatible DeepSeek thinking mode, runtime must send `thinking.type=enabled` and preserve returned assistant `reasoning_content` when replaying prior assistant messages in later turns |
+| P2-161 | Unified AI model-pool settings UX | P2 | Delivered (2026-04-24) | AI Providers and AI Routing should present built-in and custom models as one mixed routing pool, demote legacy fallback details, and use responsive theme-aware layouts for both desktop and mobile settings workflows |
+| P1-162 | Web locale switching reliability and Settings Chinese fallback | P1 | Delivered (2026-04-24) | Chat and Settings should share one locale state, Settings child pages should react to language changes, and hardcoded English settings pages should get a Chinese fallback until they are fully migrated to structured i18n |
+| P1-163 | Thinking-type provider compatibility | P1 | Delivered (2026-04-24) | Custom providers that use a `thinking.type=enabled` protocol should be explicitly configurable, should infer known provider presets such as DeepSeek when no explicit format is saved, should avoid OpenAI `reasoning_effort`, and should handle `reasoning_content` replay rules for tool-call continuation to avoid 400 errors |
+| P1-164 | Web chat Markdown rendering and latest-message scroll | P1 | Delivered (2026-04-24) | Assistant responses should render Markdown with a maintained parser plus HTML sanitization, and long chats / streaming updates should keep the viewport pinned to the newest message |
 | P1-39 | Feishu inbound media parity core | P1 | Delivered (2026-03-01) | Feishu channel should normalize image/audio/file messages into the same runner input contract as Telegram: attachments persisted, images injected for vision, and audio/media optionally transcribed through configured STT routing |
 | P1-40 | Core-owned workspace prompt and skills semantics | P1 | Delivered (2026-03-01) | Data root, memory root, prompt source loading, and skills directory resolution should live in `mom` core and work for all channel workspaces (for example `moli-t`, `moli-f`) so plugins only add optional bot/channel-specific prompt sections |
 | P1-41 | Memory import deduplication and prompt hygiene | P1 | Delivered (2026-03-01) | Periodic external memory sync must not re-ingest identical content for the same scope/layer, and prompt rendering must hide repeated memory lines if historical duplicates already exist |
@@ -2756,3 +2764,81 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/agent/runner.ts` 的 `getSelectedCustomProvider()` 必须过滤掉禁用 provider。
   - `src/lib/server/agent/runner.ts` 在遍历 `settings.customProviders` 做 fallback 扫描时必须跳过禁用 provider。
   - `features.md` 必须记录本次修复。
+
+## 190. AI Providers 页必须降低配置误操作和长列表维护成本 (2026-04-24)
+- Priority: P2
+- Stage: Delivered (2026-04-24)
+- Problem:
+  - Providers 页在常见桌面宽度下容易退化成上下布局，编辑区被长 provider 列表挤到下方，维护模型时需要大量滚动。
+  - built-in provider 的模型清单通常很长，默认完整展开会让页面噪音过高，也让真正要改的 provider 配置不易定位。
+  - `Thinking Support = Auto` 容易被理解成自动探测，但当前运行时只有明确 `Enabled` 才会发送 thinking 参数；`Thinking Format = Auto` 在启用后又会按 OpenAI-style `reasoning_effort` 发送，存在误配风险。
+  - `Reasoning Effort Mapping` 容易被理解成“思维维度”配置，但实际只是 low/medium/high 到上游参数字符串的映射。
+- Requirement:
+  - Provider 列表和编辑区在常见桌面宽度下应保持两栏，并让左侧列表独立滚动。
+  - built-in provider 模型列表默认只展示前几项，用户需要时再手动展开完整列表。
+  - 自定义 provider 的 thinking 设置必须在 UI 中解释真实运行行为，包括 unknown 不自动探测、Auto format 的 OpenAI fallback、以及 provider 级配置会影响该 provider 下所有模型。
+  - effort mapping 的文案必须明确它只是参数值映射，不是新增思维维度。
+- Enforcement:
+  - `src/routes/settings/ai/providers/+page.svelte` 必须改进布局断点、左侧滚动、built-in 模型折叠和 thinking 配置提示。
+  - `features.md` 必须记录本次 UI/配置语义优化。
+
+## 191. AI Providers / Routing 必须表达同一个混合模型池 (2026-04-24)
+- Priority: P2
+- Stage: Delivered (2026-04-24)
+- Problem:
+  - 后端已经允许 built-in 与 custom 模型通过 `pi|...` / `custom|...` route key 混用，但 UI 仍把它们表达成两套配置逻辑。
+  - Routing 页把 legacy `providerMode`、PI provider、PI model fallback 放在主流程里，用户容易误以为必须先选择 built-in 或 custom 其中一种模式。
+  - 两个页面大量使用硬编码 white/black/slate/emerald 类名，明暗主题下主要依赖全局覆盖，局部页面自身不够稳。
+- Requirement:
+  - Routing 页必须把模型选择表达成统一能力路由：text / vision / stt / tts 每条路由都可选择 built-in 或 custom 模型。
+  - Legacy fallback source、PI fallback provider/model 只能作为兼容兜底展示，不能继续占据主配置心智。
+  - Providers 页必须说明 built-in transports 和 custom endpoints 都进入同一个 routing pool，并提供到 Routing 页的直接入口。
+  - 两个页面的主要面板、输入、footer、状态提示应优先使用主题变量，适配明暗主题和移动端布局。
+- Enforcement:
+  - `src/routes/settings/ai/routing/+page.svelte` 必须重构为统一模型池概览、能力路由、运行时默认值、兼容兜底和 prompt 区块。
+  - `src/routes/settings/ai/providers/+page.svelte` 必须同步文案、跳转入口和主要面板样式。
+  - `features.md` 必须记录本次页面融合与样式优化。
+
+## 192. Web chat 必须升级为桌面 Agent 工作台式 UI (2026-04-24)
+- Priority: P1
+- Stage: Delivered (2026-04-24)
+- Problem:
+  - 现有外部 Web chat 已经能用，但视觉仍偏普通聊天页，左侧会话、主消息流、底部输入区的密度和工具感不足，不适合长期作为可展示的产品入口。
+  - 参考截图里的右侧文件区当前还没有完整能力，如果直接展开会制造功能预期落差。
+- Requirement:
+  - Web chat 首屏应改成桌面 agent shell：左侧会话导航、中间消息工作区、右侧 Files 入口。
+  - 主消息区应从气泡式聊天改成更像工作日志的消息流，保留发送、停止、附件、录音、模型选择、思考档位、主题与语言切换等现有功能。
+  - 右侧 Files 区域必须保留扩展口子，但默认折叠；当前只展示占位说明，不接入未完成的文件管理能力。
+- Enforcement:
+  - `src/routes/+page.svelte` 必须完成布局与视觉改造，不改动 Channel/Agent 业务层。
+  - `features.md` 必须记录本次 Web chat UI 升级。
+
+## 193. Web 多语言切换必须可靠覆盖 Settings 子页面 (2026-04-24)
+- Priority: P1
+- Stage: Delivered (2026-04-24)
+- Problem:
+  - Chat 和 Settings 各自读取 `localStorage`，语言状态没有统一来源；在 Settings layout 里切换语言后，已经挂载的子页面不会自动刷新自己的文案。
+  - 许多 Settings 子页面仍是英文硬编码，导致中文模式下导航已经中文化，但页面主体仍然出现大量英文。
+- Requirement:
+  - Web 端必须有一个共享 locale 状态，Chat 和 Settings 都从同一处读取/写入。
+  - 已经具备结构化 `COPY/I18N` 的页面，在语言切换时必须立即响应。
+  - 对还没逐页迁移的 Settings 英文硬编码，必须提供可控的中文兜底翻译层，覆盖常见标题、按钮、表单标签、占位符和状态字段。
+- Enforcement:
+  - 新增共享 locale 工具，替代页面各自散落的 locale 读写。
+  - Settings layout 必须挂载中文兜底翻译层，并在切回英文时恢复原文。
+  - `features.md` 必须记录本次多语言修复。
+
+## 194. Web chat 回复必须支持 Markdown 渲染并自动定位最新消息 (2026-04-24)
+- Priority: P1
+- Stage: Delivered (2026-04-24)
+- Problem:
+  - Web chat 的 assistant 回复直接显示 Markdown 源码，标题、列表、代码块、表格和链接没有转成可读排版。
+  - 长会话打开后默认停在最上方，用户需要手动滚到最新消息；流式输出更新时也应该持续跟随最新内容。
+- Requirement:
+  - Markdown 解析必须使用成熟第三方库，不能依赖手写解析器。
+  - HTML 输出必须经过受控清洗，避免模型返回的原始 HTML / script / unsafe link 直接进入页面。
+  - 历史消息加载完成后应定位到最新消息；流式 token / replace / thinking 更新时应保持滚动到最新内容。
+- Enforcement:
+  - `src/routes/+page.svelte` 必须使用 `marked` 渲染 assistant Markdown，并只允许受控 HTML 标签和安全链接协议。
+  - `package.json` / `package-lock.json` 必须把 `marked` 声明为 root 依赖。
+  - `features.md` 必须记录本次 Markdown 与滚动体验修复。

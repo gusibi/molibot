@@ -19,14 +19,16 @@ import { getMcpToolsForRuntime } from "./mcp.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace } from "./skills.js";
 import { compactContextMessages, shouldCompactContext } from "./compaction.js";
 import { hasConfiguredAuth, resolveProviderApiKey } from "./auth.js";
-import { resolvePromptAttemptDecision, shouldEmitFinalRunnerError } from "./runnerRetryState.js";
+import { isRetryableModelError, resolvePromptAttemptDecision, shouldEmitFinalRunnerError } from "./runnerRetryState.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
 import type { ModelErrorTracker } from "../usage/modelErrorTracker.js";
 import {
   buildCustomProviderCompat,
+  normalizeThinkingTypePayload,
   resolveCustomProviderReasoningSupport,
-  resolveThinkingLevel
+  resolveThinkingLevel,
+  usesThinkingTypeFormat
 } from "../providers/customThinking.js";
 import {
   DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
@@ -194,6 +196,9 @@ function formatPayloadReasoningSummary(payload: unknown): string {
   const thinkingObject = raw.thinking && typeof raw.thinking === "object"
     ? raw.thinking as Record<string, unknown>
     : undefined;
+  const thinkingType = typeof thinkingObject?.type === "string"
+    ? thinkingObject.type
+    : undefined;
   const thinkingEnabled = typeof thinkingObject?.enabled === "boolean"
     ? thinkingObject.enabled
     : undefined;
@@ -213,6 +218,7 @@ function formatPayloadReasoningSummary(payload: unknown): string {
     chatTemplateEnableThinking !== undefined
       ? `chat_template_kwargs.enable_thinking=${String(chatTemplateEnableThinking)}`
       : null,
+    thinkingType ? `thinking.type=${thinkingType}` : null,
     thinkingEnabled !== undefined ? `thinking.enabled=${String(thinkingEnabled)}` : null,
     thinkingLevel ? `thinking.level=${thinkingLevel}` : null,
     thinkingBudget !== undefined ? `thinking.budget=${thinkingBudget}` : null
@@ -412,6 +418,34 @@ function buildModelFallbackSelections(
 
   const rows: ResolvedModelSelection[] = [];
   pushUnique(rows, primary);
+  const fallbackMode = settings.modelFallback?.mode ?? "same-provider";
+  if (fallbackMode === "off") {
+    return rows;
+  }
+
+  const sameProviderAlternatives = settings.customProviders
+    .filter((provider) => provider.enabled !== false && isCustomProviderUsable(provider))
+    .filter((provider) => provider.id === primary.providerId)
+    .flatMap((provider) =>
+      provider.models
+        .filter((model) => Boolean(model.id?.trim()))
+        .filter((model) => modelSupportsUseCase(model, useCase))
+        .filter((model) => model.id !== primary.modelId)
+        .map((model) => ({
+          model: resolveCustomModel(provider, model.id),
+          source: "custom" as const,
+          providerId: provider.id,
+          modelId: model.id,
+          configuredModel: provider.models.find((row) => row.id === model.id)
+        }))
+    );
+
+  if (fallbackMode === "same-provider") {
+    for (const row of sameProviderAlternatives) {
+      pushUnique(rows, row);
+    }
+    return rows;
+  }
 
   const differentProviderCustom: ResolvedModelSelection[] = [];
   for (const provider of settings.customProviders) {
@@ -432,23 +466,6 @@ function buildModelFallbackSelections(
   for (const row of differentProviderCustom) {
     pushUnique(rows, row);
   }
-
-  const sameProviderAlternatives = settings.customProviders
-    .filter((provider) => provider.enabled !== false && isCustomProviderUsable(provider))
-    .filter((provider) => provider.id === primary.providerId)
-    .flatMap((provider) =>
-      provider.models
-        .filter((model) => Boolean(model.id?.trim()))
-        .filter((model) => modelSupportsUseCase(model, useCase))
-        .filter((model) => model.id !== primary.modelId)
-        .map((model) => ({
-          model: resolveCustomModel(provider, model.id),
-          source: "custom" as const,
-          providerId: provider.id,
-          modelId: model.id,
-          configuredModel: provider.models.find((row) => row.id === model.id)
-        }))
-    );
 
   for (const row of sameProviderAlternatives) {
     pushUnique(rows, row);
@@ -1177,6 +1194,14 @@ export class MomRunner implements RunnerLike {
       maxRetryDelayMs: DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
       toolExecution: getPreferredToolExecutionMode(),
       onPayload: async (payload, selectedModel) => {
+        const settingsNow = this.getSettings();
+        const selectedCustom = settingsNow.customProviders.find((p) => p.id === selectedModel.provider);
+        const patchedPayload = selectedCustom && usesThinkingTypeFormat(selectedCustom)
+          ? normalizeThinkingTypePayload(
+            payload,
+            this.activePayloadContext?.effectiveThinkingLevel ?? "off"
+          )
+          : payload;
         if (this.activeRunnerEventSink && this.activePayloadContext) {
           await this.activeRunnerEventSink({
             type: "payload",
@@ -1185,10 +1210,10 @@ export class MomRunner implements RunnerLike {
             api: this.activePayloadContext.api,
             requestedThinkingLevel: this.activePayloadContext.requestedThinkingLevel,
             effectiveThinkingLevel: this.activePayloadContext.effectiveThinkingLevel,
-            summary: formatPayloadReasoningSummary(payload)
+            summary: formatPayloadReasoningSummary(patchedPayload)
           });
         }
-        return undefined;
+        return patchedPayload === payload ? undefined : patchedPayload;
       },
       beforeToolCall: async (context) => {
         const blockedReason = validateToolCallPreflight(context, {
@@ -1956,6 +1981,7 @@ export class MomRunner implements RunnerLike {
           audioRoutingMode: audioDecision.mode,
           audioRoutingReason: audioDecision.reason,
           sttRouteKey: currentModelKey(settings, "stt"),
+          modelFallbackMode: settings.modelFallback?.mode ?? "same-provider",
           hasApiKey: Boolean(resolvedKey),
           apiKeyFingerprint: keyFingerprint(resolvedKey),
           candidateIndex,

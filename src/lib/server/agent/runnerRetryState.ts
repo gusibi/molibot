@@ -1,4 +1,4 @@
-function isRetryableModelError(message: string): boolean {
+export function isRetryableModelError(message: string): boolean {
   const lower = message.toLowerCase();
   return (
     /\b429\b/.test(lower) ||

@@ -3,7 +3,7 @@ interface LogData {
 }
 
 const VERBOSE = process.env.MOM_LOG_VERBOSE === "1";
-const PRETTY = process.env.MOM_LOG_PRETTY === "1";
+const PRETTY = process.env.MOM_LOG_PRETTY !== "0";
 
 const KEY_LOG_EVENTS = new Set<string>([
   // adapter lifecycle
@@ -81,6 +81,113 @@ const EVENT_EMOJIS: Record<string, string> = {
   warn: "⚠️",
 };
 
+const ANSI = {
+  reset: "\x1b[0m",
+  dim: "\x1b[90m",
+  bold: "\x1b[1m",
+  cyan: "\x1b[36m",
+  yellow: "\x1b[33m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  magenta: "\x1b[35m",
+  blue: "\x1b[34m",
+};
+
+function color(text: string, ansi: string): string {
+  return `${ansi}${text}${ANSI.reset}`;
+}
+
+function formatTimestamp(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+function eventColor(event: string): string {
+  if (event.includes("error") || event.includes("failed")) return ANSI.red;
+  if (event.includes("warn")) return ANSI.yellow;
+  if (event.endsWith("_start") || event === "apply" || event.includes("enqueue")) return ANSI.blue;
+  if (event.endsWith("_end") || event.includes("success") || event === "adapter_started") return ANSI.green;
+  if (event.includes("retry")) return ANSI.magenta;
+  return ANSI.cyan;
+}
+
+function stringifyValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || value == null) return String(value);
+  return JSON.stringify(value);
+}
+
+interface SummaryField {
+  key: string;
+  text: string;
+}
+
+function summarizeEvent(event: string, data: Record<string, unknown>): SummaryField[] {
+  if (event === "system_prompt_preview_written") {
+    return [
+      { key: "botId", text: `bot=${stringifyValue(data.botId)}` },
+      { key: "sessionId", text: `session=${stringifyValue(data.sessionId)}` },
+      { key: "chatId", text: `chat=${stringifyValue(data.chatId)}` },
+      { key: "promptLength", text: `prompt=${stringifyValue(data.promptLength)}` },
+      { key: "filePath", text: `file=${stringifyValue(data.filePath)}` },
+    ];
+  }
+  if (event === "message_received") {
+    return [
+      { key: "chatId", text: `chat=${stringifyValue(data.chatId)}` },
+      { key: "messageId", text: `msg=${stringifyValue(data.messageId)}` },
+      { key: "textLength", text: `text=${stringifyValue(data.textLength)}` },
+    ];
+  }
+  if (event === "run_start") {
+    return [
+      { key: "runId", text: `run=${stringifyValue(data.runId)}` },
+      { key: "chatId", text: `chat=${stringifyValue(data.chatId)}` },
+      { key: "messageId", text: `msg=${stringifyValue(data.messageId)}` },
+      { key: "textLength", text: `text=${stringifyValue(data.textLength)}` },
+    ];
+  }
+  if (event === "model_selected") {
+    return [
+      { key: "runId", text: `run=${stringifyValue(data.runId)}` },
+      { key: "modelProvider", text: `model=${stringifyValue(data.modelProvider)}/${stringifyValue(data.modelId)}` },
+      { key: "modelApi", text: `api=${stringifyValue(data.modelApi)}` },
+    ];
+  }
+  if (event === "tool_start" || event === "tool_end") {
+    return [
+      { key: "runId", text: `run=${stringifyValue(data.runId)}` },
+      { key: data.label ? "label" : "tool", text: `tool=${stringifyValue(data.label ?? data.tool)}` },
+    ];
+  }
+  if (event === "llm_first_token") {
+    return [
+      { key: "runId", text: `run=${stringifyValue(data.runId)}` },
+      { key: "latency", text: `latency=${stringifyValue(data.latency)}ms` },
+    ];
+  }
+  if (event === "assistant_message_end") {
+    const usage = data.usage as { totalTokens?: unknown } | undefined;
+    return [
+      { key: "runId", text: `run=${stringifyValue(data.runId)}` },
+      { key: "stopReason", text: `stop=${stringifyValue(data.stopReason)}` },
+      { key: "usage", text: `tokens=${stringifyValue(usage?.totalTokens ?? 0)}` },
+    ];
+  }
+  return [];
+}
+
+function formatKeyValues(data: Record<string, unknown>, skipKeys: string[]): string[] {
+  return Object.entries(data)
+    .filter(([key]) => !skipKeys.includes(key))
+    .map(([key, value]) => `${key}=${stringifyValue(value)}`);
+}
+
 function safe(value: unknown): unknown {
   if (typeof value === "string") {
     if (value.length > 400)
@@ -100,37 +207,30 @@ function safe(value: unknown): unknown {
   return out;
 }
 
-function formatPretty(scope: string, event: string, data: Record<string, unknown>): string {
-  const ts = new Date().toLocaleTimeString();
+export function formatMomPrettyLine(
+  scope: string,
+  event: string,
+  data: Record<string, unknown>,
+  now: Date = new Date(),
+): string {
+  const ts = formatTimestamp(now);
   const emoji = EVENT_EMOJIS[event] || "🔹";
-  const runId = data.runId ? ` [${String(data.runId).slice(-8)}]` : "";
-  const chatId = data.chatId ? ` @${data.chatId}` : "";
-  
-  let summary = "";
-  if (event === "run_start") {
-    summary = ` Run starting: msgId=${data.messageId} textLen=${data.textLength}`;
-  } else if (event === "model_selected") {
-    summary = ` Model: ${data.modelProvider}/${data.modelId} (${data.modelApi})`;
-  } else if (event === "prompt_start") {
-    summary = ` Prompting LLM (len=${data.promptLength})`;
-  } else if (event === "assistant_message_end") {
-    summary = ` Finished. StopReason=${data.stopReason} Tokens=${(data.usage as any)?.totalTokens || 0}`;
-  } else if (event === "tool_start") {
-    summary = ` Tool: ${data.label || data.tool}`;
-  } else if (event === "message_received") {
-    summary = ` Received: ${data.chatId} textLen=${data.textLength}`;
-  } else if (event === "llm_request_sent") {
-    summary = ` Request sent to ${data.modelId}`;
-  } else if (event === "llm_first_token") {
-    summary = ` First token received after ${data.latency}ms`;
-  } else {
-    const keys = Object.keys(data).filter(k => k !== "runId" && k !== "chatId");
-    if (keys.length > 0) {
-      summary = ` ${JSON.stringify(safe(data))}`;
-    }
-  }
+  const summary = summarizeEvent(event, data);
+  const extra = formatKeyValues(
+    data,
+    summary.map((entry) => entry.key),
+  );
+  const tail = [...summary.map((entry) => entry.text), ...extra].filter(Boolean).join(" ");
 
-  return `\x1b[90m[${ts}]\x1b[0m ${emoji} \x1b[1m[${scope}]\x1b[0m\x1b[36m${runId}\x1b[0m\x1b[33m${chatId}\x1b[0m \x1b[32m${event}\x1b[0m${summary}`;
+  return [
+    color("[mom-t]", ANSI.bold),
+    color(ts, ANSI.dim),
+    color(scope, ANSI.yellow),
+    color(`${emoji} ${event}`, eventColor(event)),
+    tail,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function shouldLog(event: string): boolean {
@@ -147,7 +247,7 @@ export function momLog(scope: string, event: string, data: LogData = {}): void {
 
   const safeData = safe(data) as Record<string, unknown>;
   if (PRETTY) {
-    console.log(formatPretty(scope, event, safeData));
+    console.log(formatMomPrettyLine(scope, event, safeData));
     return;
   }
 
@@ -168,7 +268,7 @@ export function momWarn(
 ): void {
   const safeData = safe(data) as Record<string, unknown>;
   if (PRETTY) {
-    console.warn(formatPretty(scope, event, { ...safeData, event_override: "warn" }));
+    console.warn(formatMomPrettyLine(scope, event, safeData));
     return;
   }
 
@@ -189,7 +289,7 @@ export function momError(
 ): void {
   const safeData = safe(data) as Record<string, unknown>;
   if (PRETTY) {
-    console.error(formatPretty(scope, event, { ...safeData, event_override: "error" }));
+    console.error(formatMomPrettyLine(scope, event, safeData));
     return;
   }
 

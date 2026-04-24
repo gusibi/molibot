@@ -4,7 +4,7 @@ import {
   type AcpSettings,
   defaultRuntimeSettings,
   isKnownProvider,
-  sanitizeOptionalThinkingFormat,
+  resolveCustomProviderThinkingFormat,
   sanitizeOptionalThinkingSupport,
   sanitizeReasoningEffortMap,
   sanitizeRuntimeThinkingLevel,
@@ -661,23 +661,31 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
     const modelIds = models.map((m) => m.id);
     const defaultModelRaw = String((row as { defaultModel?: unknown }).defaultModel ?? "").trim();
     const defaultModel = modelIds.includes(defaultModelRaw) ? defaultModelRaw : (modelIds[0] ?? "");
+    const name = String(row.name ?? "").trim() || id;
+    const baseUrl = String(row.baseUrl ?? "").trim();
     customProviders.push({
       id,
-      name: String(row.name ?? "").trim() || id,
+      name,
       enabled: row.enabled === undefined ? !isKnownProvider(id) : Boolean(row.enabled),
-      baseUrl: String(row.baseUrl ?? "").trim(),
+      baseUrl,
       apiKey: String(row.apiKey ?? "").trim(),
       models,
       defaultModel,
       path: String(row.path ?? "").trim() || "/v1/chat/completions",
       supportsThinking: sanitizeOptionalThinkingSupport((row as { supportsThinking?: unknown }).supportsThinking),
-      thinkingFormat: sanitizeOptionalThinkingFormat((row as { thinkingFormat?: unknown }).thinkingFormat),
+      thinkingFormat: resolveCustomProviderThinkingFormat(
+        (row as { thinkingFormat?: unknown }).thinkingFormat,
+        { id, name, baseUrl }
+      ),
       reasoningEffortMap: sanitizeReasoningEffortMap((row as { reasoningEffortMap?: unknown }).reasoningEffortMap)
     });
   }
   next.customProviders = customProviders;
   next.defaultCustomProviderId = String(next.defaultCustomProviderId ?? "").trim();
-  const selectableCustomProviders = next.customProviders.filter((p) => !isKnownProvider(p.id));
+  const selectableCustomProviders = next.customProviders.filter((p) =>
+    !isKnownProvider(p.id) &&
+    p.models.some((model) => Array.isArray(model.tags) ? model.tags.includes("text") : true)
+  );
   const enabledCustomProviders = selectableCustomProviders.filter((p) => p.enabled !== false);
   if (!enabledCustomProviders.some((p) => p.id === next.defaultCustomProviderId)) {
     next.defaultCustomProviderId = enabledCustomProviders[0]?.id ?? selectableCustomProviders[0]?.id ?? "";
@@ -688,6 +696,13 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
     visionModelKey: String((next as { modelRouting?: { visionModelKey?: unknown } }).modelRouting?.visionModelKey ?? "").trim(),
     sttModelKey: String((next as { modelRouting?: { sttModelKey?: unknown } }).modelRouting?.sttModelKey ?? "").trim(),
     ttsModelKey: String((next as { modelRouting?: { ttsModelKey?: unknown } }).modelRouting?.ttsModelKey ?? "").trim()
+  };
+  const fallbackMode = String(
+    (next as { modelFallback?: { mode?: unknown } }).modelFallback?.mode ??
+    current.modelFallback.mode
+  ).trim();
+  next.modelFallback = {
+    mode: fallbackMode === "off" || fallbackMode === "any-enabled" ? fallbackMode : "same-provider"
   };
   next.defaultThinkingLevel = sanitizeRuntimeThinkingLevel(
     (next as { defaultThinkingLevel?: unknown }).defaultThinkingLevel,

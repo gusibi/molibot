@@ -10,12 +10,15 @@
         | "auto"
         | "openai"
         | "openrouter"
+        | "thinking-type"
         | "zai"
         | "qwen"
         | "qwen-chat-template";
     type ThinkingEffortLevel = "low" | "medium" | "high";
     type DefaultThinkingLevel = "off" | "low" | "medium" | "high";
-    type ModelCapabilityTag = "text" | "vision" | "stt" | "tts" | "tool";
+    type ModelCapabilityTag = "text" | "vision" | "audio_input" | "stt" | "tts" | "tool";
+    type ModelFallbackMode = "off" | "same-provider" | "any-enabled";
+    type ModelRoute = "text" | "vision" | "stt" | "tts";
 
     interface ProviderModelForm {
         id: string;
@@ -51,6 +54,9 @@
             sttModelKey: string;
             ttsModelKey: string;
         };
+        modelFallback: {
+            mode: ModelFallbackMode;
+        };
         compaction: {
             enabled: boolean;
             reserveTokens: number;
@@ -65,6 +71,23 @@
         capabilityTags: ModelCapabilityTag[];
     }
 
+    interface ModelRouteOption {
+        key: string;
+        label: string;
+    }
+
+    interface ModelSwitchResponse {
+        ok: boolean;
+        error?: string;
+        routes?: Record<
+            "text" | "vision" | "stt" | "tts",
+            {
+                currentKey: string;
+                options: ModelRouteOption[];
+            }
+        >;
+    }
+
     let loading = true;
     let saving = false;
     let error = "";
@@ -72,6 +95,12 @@
 
     let providers: Array<{ id: string; name: string }> = [];
     let providerModels: Record<string, string[]> = {};
+    let routeOptions: Record<ModelRoute, ModelRouteOption[]> = {
+        text: [],
+        vision: [],
+        stt: [],
+        tts: [],
+    };
     let capabilityTags: ModelCapabilityTag[] = [
         "text",
         "vision",
@@ -92,6 +121,9 @@
             visionModelKey: "",
             sttModelKey: "",
             ttsModelKey: "",
+        },
+        modelFallback: {
+            mode: "same-provider",
         },
         compaction: {
             enabled: true,
@@ -159,9 +191,9 @@
         return out;
     }
 
-    function routingOptions(
+    function fallbackRoutingOptions(
         requiredTag: ModelCapabilityTag,
-    ): Array<{ key: string; label: string }> {
+    ): ModelRouteOption[] {
         return allModelOptions()
             .filter(
                 (m) => m.tags.includes(requiredTag) || requiredTag === "text",
@@ -169,27 +201,132 @@
             .map((m) => ({ key: m.key, label: m.label }));
     }
 
-    function ensureRoutingDefaults(): void {
-        const all = allModelOptions();
-        const allKeys = new Set(all.map((m) => m.key));
+    const routeCards: Array<{
+        route: ModelRoute;
+        title: string;
+        description: string;
+        emptyText: string;
+    }> = [
+        {
+            route: "text",
+            title: "Primary text",
+            description: "Main conversation, tools, and planning",
+            emptyText: "No text model available",
+        },
+        {
+            route: "vision",
+            title: "Vision",
+            description: "Image understanding fallback",
+            emptyText: "No vision model available",
+        },
+        {
+            route: "stt",
+            title: "Speech-to-text",
+            description: "Audio transcription route",
+            emptyText: "No STT model available",
+        },
+        {
+            route: "tts",
+            title: "Text-to-speech",
+            description: "Voice synthesis route",
+            emptyText: "No TTS model configured",
+        },
+    ];
 
-        const textFallback = all[0]?.key ?? "";
-        if (!allKeys.has(form.modelRouting.textModelKey))
-            form.modelRouting.textModelKey = textFallback;
+    function routingOptions(route: ModelRoute): ModelRouteOption[] {
+        const fromServer = routeOptions[route] ?? [];
+        if (fromServer.length > 0) return fromServer;
+        return fallbackRoutingOptions(route);
+    }
+
+    function modelRoutingValue(route: ModelRoute): string {
+        return route === "text"
+            ? form.modelRouting.textModelKey
+            : route === "vision"
+              ? form.modelRouting.visionModelKey
+              : route === "stt"
+                ? form.modelRouting.sttModelKey
+                : form.modelRouting.ttsModelKey;
+    }
+
+    function setModelRoutingValue(route: ModelRoute, value: string): void {
+        form.modelRouting = {
+            ...form.modelRouting,
+            [route === "text"
+                ? "textModelKey"
+                : route === "vision"
+                  ? "visionModelKey"
+                  : route === "stt"
+                    ? "sttModelKey"
+                    : "ttsModelKey"]: value,
+        };
+    }
+
+    function selectedRouteOption(route: ModelRoute): ModelRouteOption | undefined {
+        const selected = modelRoutingValue(route);
+        return routingOptions(route).find((row) => row.key === selected);
+    }
+
+    function transportLabel(key: string): string {
+        if (!key) return "Not set";
+        if (key.startsWith("pi|")) return "Built-in";
+        if (key.startsWith("custom|")) return "Custom";
+        return "Fallback";
+    }
+
+    function providerFromKey(key: string): string {
+        const [, provider = ""] = key.split("|");
+        return provider || "not selected";
+    }
+
+    function modelFromKey(key: string): string {
+        const parts = key.split("|");
+        return parts.slice(2).join("|") || "not selected";
+    }
+
+    function routeSummary(route: ModelRoute): string {
+        const option = selectedRouteOption(route);
+        if (!option) return routingOptions(route).length > 0 ? "Not saved yet" : "No model available";
+        return `${transportLabel(option.key)} / ${providerFromKey(option.key)} / ${modelFromKey(option.key)}`;
+    }
+
+    function enabledProviderCounts(): { builtin: number; custom: number; models: number } {
+        let builtin = 0;
+        let custom = 0;
+        let models = 0;
+        for (const provider of form.customProviders) {
+            if (!provider.enabled) continue;
+            if (providers.some((row) => row.id === provider.id)) builtin += 1;
+            else custom += 1;
+            models += provider.models.filter((model) => model.id.trim()).length;
+        }
+        return { builtin, custom, models };
+    }
+
+    function fallbackPolicyText(mode: ModelFallbackMode): string {
+        if (mode === "off") return "Do not retry another model";
+        if (mode === "any-enabled") return "Retry across the whole enabled model pool";
+        return "Retry only inside the same provider";
+    }
+
+    function ensureRoutingDefaults(): void {
+        const text = routingOptions("text");
+        if (!text.some((row) => row.key === form.modelRouting.textModelKey))
+            setModelRoutingValue("text", text[0]?.key ?? "");
 
         const vision = routingOptions("vision");
         if (!vision.some((v) => v.key === form.modelRouting.visionModelKey)) {
-            form.modelRouting.visionModelKey = vision[0]?.key ?? "";
+            setModelRoutingValue("vision", vision[0]?.key ?? "");
         }
 
         const stt = routingOptions("stt");
         if (!stt.some((v) => v.key === form.modelRouting.sttModelKey)) {
-            form.modelRouting.sttModelKey = stt[0]?.key ?? "";
+            setModelRoutingValue("stt", stt[0]?.key ?? "");
         }
 
         const tts = routingOptions("tts");
         if (!tts.some((v) => v.key === form.modelRouting.ttsModelKey)) {
-            form.modelRouting.ttsModelKey = tts[0]?.key ?? "";
+            setModelRoutingValue("tts", tts[0]?.key ?? "");
         }
     }
 
@@ -216,6 +353,18 @@
                 );
             if (!metaData.ok)
                 throw new Error(metaData.error || "Failed to load AI metadata");
+
+            const modelSwitchRes = await fetch("/api/settings/model-switch");
+            const modelSwitchData = (await modelSwitchRes.json()) as ModelSwitchResponse;
+            if (!modelSwitchData.ok) {
+                throw new Error(modelSwitchData.error || "Failed to load model routing options");
+            }
+            routeOptions = {
+                text: modelSwitchData.routes?.text.options ?? [],
+                vision: modelSwitchData.routes?.vision.options ?? [],
+                stt: modelSwitchData.routes?.stt.options ?? [],
+                tts: modelSwitchData.routes?.tts.options ?? [],
+            };
 
             providers = metaData.providers ?? [];
             providerModels = metaData.providerModels ?? {};
@@ -268,6 +417,13 @@
                     sttModelKey: s.modelRouting?.sttModelKey ?? "",
                     ttsModelKey: s.modelRouting?.ttsModelKey ?? "",
                 },
+                modelFallback: {
+                    mode:
+                        s.modelFallback?.mode === "off" ||
+                        s.modelFallback?.mode === "any-enabled"
+                            ? s.modelFallback.mode
+                            : "same-provider",
+                },
                 compaction: {
                     enabled: s.compaction?.enabled ?? true,
                     reserveTokens: Number(s.compaction?.reserveTokens ?? 16384),
@@ -313,297 +469,531 @@
     onMount(loadAll);
 </script>
 
-<PageShell widthClass="max-w-4xl" gapClass="space-y-8">
-    <header>
-        <h1 class="text-3xl font-bold tracking-tight text-white">
-            AI Routing & Prompt
-        </h1>
-        <p class="mt-2 text-sm text-slate-400">
-            Configure system prompts and delegate modalities to specific models.
-        </p>
+<PageShell widthClass="max-w-6xl" gapClass="space-y-6" className="ai-routing-page">
+    <header class="routing-hero">
+        <div>
+            <p class="eyebrow">Unified model pool</p>
+            <h1>AI Routing & Prompt</h1>
+            <p class="hero-copy">
+                Built-in and custom models are mixed in one pool. Pick the best
+                model per capability; Molibot chooses the native transport from
+                the selected route key.
+            </p>
+        </div>
+        <a class="manage-link" href="/settings/ai/providers">Manage providers</a>
     </header>
 
     {#if loading}
-        <div
-            class="rounded-2xl border border-white/10 bg-white/[0.02] px-6 py-5 text-sm text-slate-300"
-        >
-            Loading routing settings...
-        </div>
+        <div class="settings-panel muted-panel">Loading routing settings...</div>
     {:else}
+        {@const pool = enabledProviderCounts()}
         <form class="space-y-6" on:submit|preventDefault={save}>
-            <!-- Core Settings Card -->
-            <section
-                class="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 shadow-sm"
-            >
-                <h2
-                    class="mb-5 text-sm font-semibold uppercase tracking-wider text-slate-500"
-                >
-                    Core Engine
-                </h2>
-                <div class="mb-5 rounded-xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-xs leading-5 text-sky-200">
-                    路由现在会根据你选中的模型自动判断走内置还是自定义通道，不需要先手动切全局模式。下面这组内置 provider / model 只作为兜底值：当某条路由 key 为空或失效时，系统才会退回这里。
+            <section class="settings-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Active pool</p>
+                        <h2>One routing surface</h2>
+                    </div>
+                    <span class="status-pill">{pool.models} enabled models</span>
                 </div>
 
-                <div class="grid gap-5 md:grid-cols-2">
-                    <label class="grid gap-2 text-sm">
-                        <span class="font-medium text-slate-300"
-                            >Fallback mode (legacy)</span
-                        >
-                        <select
-                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
-                            bind:value={form.providerMode}
-                        >
-                            <option value="pi">Platform Interface (PI)</option>
-                            <option value="custom">Custom Providers</option>
-                        </select>
-                    </label>
+                <div class="pool-grid">
+                    <div class="metric-tile">
+                        <span>Built-in providers</span>
+                        <strong>{pool.builtin}</strong>
+                    </div>
+                    <div class="metric-tile">
+                        <span>Custom providers</span>
+                        <strong>{pool.custom}</strong>
+                    </div>
+                    <div class="metric-tile">
+                        <span>Fallback policy</span>
+                        <strong>{fallbackPolicyText(form.modelFallback.mode)}</strong>
+                    </div>
+                </div>
 
-                    <label class="grid gap-2 text-sm">
-                        <span class="font-medium text-slate-300"
-                            >PI provider</span
-                        >
-                        <select
-                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5 disabled:opacity-50"
-                            bind:value={form.piModelProvider}
-                            on:change={onPiProviderChanged}
-                        >
-                            {#each visiblePiProviders() as provider}
-                                <option value={provider.id}
-                                    >{provider.name}</option
-                                >
-                            {/each}
-                        </select>
-                    </label>
+                <div class="info-strip">
+                    <strong>How it works:</strong>
+                    <span>
+                        `pi|provider|model` routes use built-in pi-ai transports.
+                        `custom|provider|model` routes use OpenAI-compatible
+                        provider settings. They can be mixed freely below.
+                    </span>
+                </div>
+            </section>
 
-                    <label class="grid gap-2 text-sm md:col-span-2">
-                        <span class="font-medium text-slate-300"
-                            >PI model fallback</span
-                        >
-                        <select
-                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5 disabled:opacity-50"
-                            bind:value={form.piModelName}
-                        >
-                            {#each providerModels[form.piModelProvider] ?? [] as model}
-                                <option value={model}>{model}</option>
-                            {/each}
-                        </select>
-                        <span class="text-xs text-slate-500"
-                            >Used if routing keys fail to match a known model.</span
-                        >
-                        {#if visiblePiProviders().length === 0}
-                            <span class="text-xs text-amber-300"
-                                >No enabled built-in provider. Enable at least
-                                one in Providers page.</span
+            <section class="settings-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Capability routing</p>
+                        <h2>Choose concrete models</h2>
+                    </div>
+                </div>
+
+                <div class="route-grid">
+                    {#each routeCards as card}
+                        {@const options = routingOptions(card.route)}
+                        <div class="route-card">
+                            <div class="route-card-head">
+                                <div>
+                                    <h3>{card.title}</h3>
+                                    <p>{card.description}</p>
+                                </div>
+                                <span class="transport-chip">
+                                    {transportLabel(modelRoutingValue(card.route))}
+                                </span>
+                            </div>
+
+                            <select
+                                class="control"
+                                value={modelRoutingValue(card.route)}
+                                disabled={options.length === 0}
+                                on:change={(event) =>
+                                    setModelRoutingValue(
+                                        card.route,
+                                        (event.currentTarget as HTMLSelectElement).value,
+                                    )}
                             >
-                        {/if}
+                                {#if options.length === 0}
+                                    <option value="">{card.emptyText}</option>
+                                {:else}
+                                    {#each options as row}
+                                        <option value={row.key}>{row.label}</option>
+                                    {/each}
+                                {/if}
+                            </select>
+
+                            <p class="route-summary">{routeSummary(card.route)}</p>
+                        </div>
+                    {/each}
+                </div>
+            </section>
+
+            <section class="settings-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Runtime defaults</p>
+                        <h2>Fallback, thinking, and context</h2>
+                    </div>
+                </div>
+
+                <div class="settings-grid">
+                    <label class="field">
+                        <span>Model fallback policy</span>
+                        <select class="control" bind:value={form.modelFallback.mode}>
+                            <option value="off">Off - fail on the selected model</option>
+                            <option value="same-provider">Same provider only</option>
+                            <option value="any-enabled">Any enabled provider</option>
+                        </select>
+                        <small>
+                            Same-provider is the default: retries stay inside
+                            the selected provider unless you explicitly allow
+                            cross-provider fallback.
+                        </small>
                     </label>
 
-                    <label class="grid gap-2 text-sm">
-                        <span class="font-medium text-slate-300"
-                            >Default thinking</span
-                        >
-                        <select
-                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
-                            bind:value={form.defaultThinkingLevel}
-                        >
+                    <label class="field">
+                        <span>Default thinking</span>
+                        <select class="control" bind:value={form.defaultThinkingLevel}>
                             <option value="off">Off</option>
                             <option value="low">Low</option>
                             <option value="medium">Medium</option>
                             <option value="high">High</option>
                         </select>
-                        <span class="text-xs text-slate-500"
-                            >只会对明确声明支持 thinking 的模型生效。</span
-                        >
-                    </label>
-                </div>
-            </section>
-
-            <!-- Advanced Routing Card -->
-            <section
-                class="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 shadow-sm"
-            >
-                <h2
-                    class="mb-5 text-sm font-semibold uppercase tracking-wider text-slate-500"
-                >
-                    Capability Routing
-                </h2>
-
-                <div class="grid gap-5 md:grid-cols-2">
-                    <label class="grid gap-2 text-sm">
-                        <span class="font-medium text-slate-300"
-                            >Primary text model</span
-                        >
-                        <select
-                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
-                            bind:value={form.modelRouting.textModelKey}
-                        >
-                            {#each routingOptions("text") as row}
-                                <option value={row.key}>{row.label}</option>
-                            {/each}
-                        </select>
+                        <small>
+                            Applies only when the selected model or custom
+                            provider explicitly supports thinking.
+                        </small>
                     </label>
 
-                    <label class="grid gap-2 text-sm">
-                        <span class="font-medium text-slate-300"
-                            >Vision model</span
-                        >
-                        <select
-                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
-                            bind:value={form.modelRouting.visionModelKey}
-                        >
-                            {#each routingOptions("vision") as row}
-                                <option value={row.key}>{row.label}</option>
-                            {/each}
-                        </select>
-                    </label>
-
-                    <label class="grid gap-2 text-sm">
-                        <span class="font-medium text-slate-300"
-                            >Speech-to-text (STT)</span
-                        >
-                        <select
-                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
-                            bind:value={form.modelRouting.sttModelKey}
-                        >
-                            {#each routingOptions("stt") as row}
-                                <option value={row.key}>{row.label}</option>
-                            {/each}
-                        </select>
-                    </label>
-
-                    <label class="grid gap-2 text-sm">
-                        <span class="font-medium text-slate-300"
-                            >Text-to-speech (TTS)</span
-                        >
-                        <select
-                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
-                            bind:value={form.modelRouting.ttsModelKey}
-                        >
-                            {#each routingOptions("tts") as row}
-                                <option value={row.key}>{row.label}</option>
-                            {/each}
-                        </select>
-                    </label>
-                </div>
-            </section>
-
-            <section
-                class="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 shadow-sm"
-            >
-                <h2
-                    class="mb-5 text-sm font-semibold uppercase tracking-wider text-slate-500"
-                >
-                    Context Compaction
-                </h2>
-
-                <div class="grid gap-5 md:grid-cols-2">
-                    <label class="grid gap-2 text-sm md:col-span-2">
-                        <span class="font-medium text-slate-300"
-                            >Automatic compaction</span
-                        >
-                        <label class="inline-flex items-center gap-3 text-sm text-slate-300">
-                            <input
-                                type="checkbox"
-                                class="h-4 w-4 rounded border-white/10 bg-black/20"
-                                bind:checked={form.compaction.enabled}
-                            />
-                            <span>Summarize older turns when the context window gets tight.</span>
+                    <div class="field">
+                        <span>Automatic compaction</span>
+                        <label class="inline-toggle">
+                            <input type="checkbox" bind:checked={form.compaction.enabled} />
+                            <span>Summarize older turns when context gets tight.</span>
                         </label>
-                    </label>
+                    </div>
 
-                    <label class="grid gap-2 text-sm">
-                        <span class="font-medium text-slate-300"
-                            >Reserve tokens</span
-                        >
+                    <label class="field">
+                        <span>Reserve tokens</span>
                         <input
+                            class="control"
                             type="number"
                             min="1024"
                             step="256"
-                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
                             bind:value={form.compaction.reserveTokens}
                         />
-                        <span class="text-xs text-slate-500"
-                            >Leave headroom for the next model response.</span
-                        >
+                        <small>Headroom kept for the next model response.</small>
                     </label>
 
-                    <label class="grid gap-2 text-sm">
-                        <span class="font-medium text-slate-300"
-                            >Keep recent tokens</span
-                        >
+                    <label class="field">
+                        <span>Keep recent tokens</span>
                         <input
+                            class="control"
                             type="number"
                             min="2048"
                             step="512"
-                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
                             bind:value={form.compaction.keepRecentTokens}
                         />
-                        <span class="text-xs text-slate-500"
-                            >Newest messages kept verbatim instead of summarized.</span
-                        >
+                        <small>Recent turns preserved verbatim.</small>
                     </label>
                 </div>
             </section>
 
-            <!-- System Prompt Card -->
-            <section
-                class="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 shadow-sm"
-            >
-                <h2
-                    class="mb-5 text-sm font-semibold uppercase tracking-wider text-slate-500"
-                >
-                    Agent Persona
-                </h2>
+            <section class="settings-panel subtle-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Compatibility fallback</p>
+                        <h2>Legacy default anchor</h2>
+                    </div>
+                </div>
 
-                <label class="grid gap-2 text-sm">
-                    <span class="font-medium text-slate-300"
-                        >Global System Prompt</span
-                    >
+                <div class="settings-grid">
+                    <label class="field">
+                        <span>Legacy default source</span>
+                        <select class="control" bind:value={form.providerMode}>
+                            <option value="pi">Built-in transport fallback</option>
+                            <option value="custom">Custom provider fallback</option>
+                        </select>
+                        <small>
+                            Used only when a text route is empty or no longer
+                            matches a configured model.
+                        </small>
+                    </label>
+
+                    <label class="field">
+                        <span>Built-in fallback provider</span>
+                        <select
+                            class="control"
+                            bind:value={form.piModelProvider}
+                            on:change={onPiProviderChanged}
+                        >
+                            {#each visiblePiProviders() as provider}
+                                <option value={provider.id}>{provider.name}</option>
+                            {/each}
+                        </select>
+                    </label>
+
+                    <label class="field wide-field">
+                        <span>Built-in fallback model</span>
+                        <select class="control" bind:value={form.piModelName}>
+                            {#each providerModels[form.piModelProvider] ?? [] as model}
+                                <option value={model}>{model}</option>
+                            {/each}
+                        </select>
+                        {#if visiblePiProviders().length === 0}
+                            <small class="warning-text">
+                                No enabled built-in provider. Enable one in
+                                Providers if you want this anchor to work.
+                            </small>
+                        {/if}
+                    </label>
+                </div>
+            </section>
+
+            <section class="settings-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Agent persona</p>
+                        <h2>Global system prompt</h2>
+                    </div>
+                </div>
+
+                <label class="field">
                     <textarea
-                        class="min-h-[160px] resize-y rounded-xl border border-white/10 bg-black/20 px-4 py-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                        class="control prompt-area"
                         bind:value={form.systemPrompt}
                         placeholder="You are Molibot..."
                     ></textarea>
                 </label>
             </section>
 
-            <!-- Action Footer -->
-            <div
-                class="sticky bottom-6 z-10 flex items-center justify-between rounded-2xl border border-white/10 bg-[#1e1e1e]/90 p-4 shadow-xl backdrop-blur-md"
-            >
-                <div class="flex items-center gap-3">
+            <div class="action-footer">
+                <div class="status-line">
                     {#if message}
-                        <span
-                            class="flex items-center gap-1.5 text-sm font-medium text-emerald-400"
-                        >
-                            <span
-                                class="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-xs"
-                                >✓</span
-                            >
-                            {message}
-                        </span>
+                        <span class="success-text">✓ {message}</span>
                     {/if}
                     {#if error}
-                        <span
-                            class="flex items-center gap-1.5 text-sm font-medium text-rose-400"
-                        >
-                            <span
-                                class="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500/20 text-xs text-rose-300"
-                                >!</span
-                            >
-                            {error}
-                        </span>
+                        <span class="error-text">! {error}</span>
                     {/if}
                 </div>
-                <Button
-                    type="submit"
-                    variant="default"
-                    size="lg"
-                    disabled={saving}
-                >
-                    {saving ? "Deploying Core..." : "Save Config"}
+                <Button type="submit" variant="default" size="lg" disabled={saving}>
+                    {saving ? "Saving..." : "Save Routing"}
                 </Button>
             </div>
         </form>
     {/if}
 </PageShell>
+
+<style>
+  :global(.ai-routing-page) {
+    --panel-bg: color-mix(in oklab, var(--card) 88%, transparent);
+    --panel-soft: color-mix(in oklab, var(--muted) 78%, transparent);
+    --copy-muted: var(--muted-foreground);
+  }
+
+  .routing-hero,
+  .section-heading,
+  .route-card-head,
+  .action-footer {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .routing-hero h1,
+  .section-heading h2,
+  .route-card h3 {
+    margin: 0;
+    color: var(--foreground);
+    letter-spacing: 0;
+  }
+
+  .routing-hero h1 {
+    font-size: clamp(1.8rem, 4vw, 2.4rem);
+    font-weight: 760;
+  }
+
+  .hero-copy,
+  .route-card p,
+  .field small,
+  .route-summary {
+    color: var(--copy-muted);
+  }
+
+  .hero-copy {
+    margin-top: 0.5rem;
+    max-width: 48rem;
+    font-size: 0.95rem;
+    line-height: 1.65;
+  }
+
+  .eyebrow {
+    margin: 0 0 0.35rem;
+    color: var(--muted-foreground);
+    font-size: 0.72rem;
+    font-weight: 720;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  .manage-link,
+  .status-pill,
+  .transport-chip {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--panel-bg);
+    color: var(--foreground);
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .manage-link {
+    padding: 0.6rem 0.85rem;
+    text-decoration: none;
+  }
+
+  .status-pill,
+  .transport-chip {
+    padding: 0.35rem 0.65rem;
+  }
+
+  .settings-panel {
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: var(--panel-bg);
+    padding: clamp(1rem, 2.6vw, 1.5rem);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .muted-panel,
+  .subtle-panel {
+    background: var(--panel-soft);
+  }
+
+  .pool-grid,
+  .route-grid,
+  .settings-grid {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .pool-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 1.25rem;
+  }
+
+  .route-grid,
+  .settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 1.25rem;
+  }
+
+  .metric-tile,
+  .route-card {
+    border: 1px solid var(--border);
+    border-radius: 0.85rem;
+    background: color-mix(in oklab, var(--card) 76%, transparent);
+  }
+
+  .metric-tile {
+    padding: 1rem;
+  }
+
+  .metric-tile span {
+    display: block;
+    color: var(--muted-foreground);
+    font-size: 0.76rem;
+  }
+
+  .metric-tile strong {
+    display: block;
+    margin-top: 0.35rem;
+    color: var(--foreground);
+    font-size: 1.2rem;
+    line-height: 1.35;
+  }
+
+  .info-strip {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    border: 1px solid color-mix(in oklab, var(--ring) 22%, var(--border));
+    border-radius: 0.85rem;
+    background: color-mix(in oklab, var(--accent) 28%, transparent);
+    color: var(--foreground);
+    padding: 0.85rem 1rem;
+    font-size: 0.82rem;
+    line-height: 1.55;
+  }
+
+  .route-card {
+    padding: 1rem;
+  }
+
+  .route-card h3 {
+    font-size: 1rem;
+    font-weight: 740;
+  }
+
+  .route-card p {
+    margin: 0.25rem 0 0;
+    font-size: 0.8rem;
+  }
+
+  .route-summary {
+    margin: 0.65rem 0 0;
+    word-break: break-word;
+    font-size: 0.76rem;
+    line-height: 1.45;
+  }
+
+  .field {
+    display: grid;
+    gap: 0.5rem;
+    color: var(--foreground);
+    font-size: 0.9rem;
+  }
+
+  .field > span {
+    font-weight: 700;
+  }
+
+  .field small {
+    font-size: 0.76rem;
+    line-height: 1.45;
+  }
+
+  .wide-field {
+    grid-column: 1 / -1;
+  }
+
+  .control {
+    width: 100%;
+    border: 1px solid var(--input);
+    border-radius: 0.75rem;
+    background: var(--card);
+    color: var(--foreground);
+    padding: 0.68rem 0.85rem;
+    outline: none;
+  }
+
+  .control:focus {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ring) 22%, transparent);
+  }
+
+  .inline-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--foreground);
+  }
+
+  .inline-toggle input {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .prompt-area {
+    min-height: 11rem;
+    resize: vertical;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.7;
+  }
+
+  .action-footer {
+    position: sticky;
+    bottom: 1.5rem;
+    z-index: 10;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: color-mix(in oklab, var(--card) 92%, transparent);
+    padding: 1rem;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(14px);
+  }
+
+  .status-line {
+    min-width: 0;
+  }
+
+  .success-text {
+    color: color-mix(in oklab, var(--primary) 78%, var(--foreground));
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  .error-text,
+  .warning-text {
+    color: var(--destructive);
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  @media (max-width: 760px) {
+    .routing-hero,
+    .section-heading,
+    .route-card-head,
+    .action-footer,
+    .info-strip {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .pool-grid,
+    .route-grid,
+    .settings-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .manage-link,
+    .action-footer :global(button) {
+      width: 100%;
+    }
+  }
+</style>

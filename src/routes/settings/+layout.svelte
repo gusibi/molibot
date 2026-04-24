@@ -1,11 +1,10 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { page } from "$app/stores";
+    import { initLocale, locale, localizeSettings, setLocale, type LocaleKey } from "$lib/ui/i18n";
 
     type ThemeMode = "system" | "light" | "dark";
-    type LocaleKey = "zh-CN" | "en-US";
     const LS_THEME = "molibot-web-theme";
-    const LS_LOCALE = "molibot-web-locale";
 
     const COPY: Record<LocaleKey, Record<string, string>> = {
         "zh-CN": {
@@ -79,7 +78,6 @@
     };
 
     let themeMode: ThemeMode = "light";
-    let locale: LocaleKey = "zh-CN";
 
     let navGroups = [
         {
@@ -126,7 +124,7 @@
     ];
 
     function t(key: string): string {
-        return COPY[locale][key] ?? key;
+        return COPY[$locale][key] ?? key;
     }
 
     function normalizePath(path: string): string {
@@ -178,11 +176,6 @@
         root.setAttribute("data-theme-mode", mode);
     }
 
-    function applyLocale(nextLocale: LocaleKey): void {
-        if (typeof document === "undefined") return;
-        document.documentElement.setAttribute("lang", nextLocale);
-    }
-
     function onThemeModeChange(event: Event): void {
         themeMode = (event.target as HTMLSelectElement).value as ThemeMode;
         applyTheme(themeMode);
@@ -190,9 +183,7 @@
     }
 
     function onLocaleChange(event: Event): void {
-        locale = (event.target as HTMLSelectElement).value as LocaleKey;
-        applyLocale(locale);
-        localStorage.setItem(LS_LOCALE, locale);
+        setLocale((event.target as HTMLSelectElement).value as LocaleKey);
     }
 
     onMount(() => {
@@ -206,9 +197,7 @@
         themeMode = storedTheme === "system" || storedTheme === "dark" ? storedTheme : "light";
         applyTheme(themeMode);
 
-        const storedLocale = String(localStorage.getItem(LS_LOCALE) ?? "zh-CN");
-        locale = storedLocale === "en-US" ? "en-US" : "zh-CN";
-        applyLocale(locale);
+        initLocale();
 
         return () => {
             media.removeEventListener("change", handleSystemThemeChange);
@@ -263,6 +252,7 @@
 
 <main
     class="settings-theme flex h-[100dvh] w-full bg-[var(--background)] text-[var(--foreground)] antialiased selection:bg-[color-mix(in_oklab,var(--primary)_30%,transparent)]"
+    use:localizeSettings={$locale}
 >
     <div class="grid h-full w-full grid-cols-1 lg:grid-cols-[300px_1fr]">
         <aside
@@ -345,7 +335,7 @@
                         </select>
                         <select
                             class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-xs outline-none focus:border-[var(--ring)]"
-                            bind:value={locale}
+                            value={$locale}
                             on:change={onLocaleChange}
                             aria-label={t("language")}
                         >

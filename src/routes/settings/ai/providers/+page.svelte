@@ -10,6 +10,7 @@
         | "auto"
         | "openai"
         | "openrouter"
+        | "thinking-type"
         | "zai"
         | "qwen"
         | "qwen-chat-template";
@@ -102,6 +103,8 @@
     let message = "";
     let builtinProviders: Array<{ id: string; name: string }> = [];
     let builtinProviderModels: Record<string, string[]> = {};
+    let expandedProviderModelIds = new Set<string>();
+    const collapsedBuiltinModelLimit = 8;
     const thinkingEffortLevels: ThinkingEffortLevel[] = [
         "low",
         "medium",
@@ -619,6 +622,80 @@
         );
     }
 
+    function visibleModelRows(
+        provider: CustomProviderForm,
+    ): Array<{ model: ProviderModelForm; index: number }> {
+        const rows = provider.models.map((model, index) => ({ model, index }));
+        if (
+            !isBuiltinProvider(provider) ||
+            expandedProviderModelIds.has(provider.id) ||
+            rows.length <= collapsedBuiltinModelLimit
+        ) {
+            return rows;
+        }
+        return rows.slice(0, collapsedBuiltinModelLimit);
+    }
+
+    function hiddenModelCount(provider: CustomProviderForm): number {
+        if (!isBuiltinProvider(provider)) return 0;
+        if (expandedProviderModelIds.has(provider.id)) return 0;
+        return Math.max(0, provider.models.length - collapsedBuiltinModelLimit);
+    }
+
+    function toggleModelList(providerId: string): void {
+        const next = new Set(expandedProviderModelIds);
+        if (next.has(providerId)) next.delete(providerId);
+        else next.add(providerId);
+        expandedProviderModelIds = next;
+    }
+
+    function thinkingFormatLabel(format: ThinkingFormat): string {
+        switch (format) {
+            case "openrouter":
+                return "OpenRouter reasoning.effort";
+            case "thinking-type":
+                return "thinking.type enabled + reasoning_content replay";
+            case "zai":
+                return "z.ai enable_thinking";
+            case "qwen":
+                return "Qwen enable_thinking";
+            case "qwen-chat-template":
+                return "Qwen chat_template_kwargs.enable_thinking";
+            case "openai":
+                return "OpenAI reasoning_effort";
+            case "auto":
+            default:
+                return "OpenAI-style reasoning_effort fallback";
+        }
+    }
+
+    function thinkingNotices(provider: CustomProviderForm): string[] {
+        if (isBuiltinProvider(provider)) return [];
+        if (provider.thinkingSupportMode === "auto") {
+            return [
+                "Not enabled / unknown 不会自动探测；当前运行时不会给这个 provider 发送 thinking 参数。",
+            ];
+        }
+        if (provider.thinkingSupportMode === "disabled") {
+            return ["Thinking 已明确关闭；全局或会话思索深度会被降为 off。"];
+        }
+
+        const notices = [
+            `Thinking 已启用；非 off 请求会按 ${thinkingFormatLabel(provider.thinkingFormat)} 发送参数。`,
+        ];
+        if (provider.thinkingFormat === "auto") {
+            notices.push(
+                "Format 保持 Auto 时实际会走 OpenAI-style reasoning_effort。若上游不是这种协议，建议明确选择格式或关闭。",
+            );
+        }
+        if (provider.models.length > 1) {
+            notices.push(
+                "这组 thinking 配置作用于该 provider 下所有模型；如果不同模型来自不同厂商或协议，建议拆成多个 provider。",
+            );
+        }
+        return notices;
+    }
+
     function switchProviderTab(tab: ProviderTab): void {
         activeProviderTab = tab;
         const selected = getSelectedProvider();
@@ -907,40 +984,49 @@
 </script>
 
 <PageShell widthClass="max-w-6xl" gapClass="space-y-6" className="providers-page">
-    <div class="flex items-center justify-between gap-3">
+    <div class="flex flex-col justify-between gap-3 md:flex-row md:items-end">
         <header>
-            <h1 class="text-3xl font-bold tracking-tight text-white">
-                Providers
+            <p class="mb-1 text-xs font-bold uppercase tracking-normal text-[var(--muted-foreground)]">
+                Unified model pool
+            </p>
+            <h1 class="text-3xl font-bold tracking-tight text-[var(--foreground)]">
+                Providers & Models
             </h1>
-            <p class="mt-2 text-sm text-slate-400">
-                Built-in providers and custom providers are configured
-                separately. Built-in providers use native pi-ai protocols;
-                custom providers use OpenAI-compatible endpoint settings.
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted-foreground)]">
+                Built-in transports and custom OpenAI-compatible endpoints feed
+                the same routing pool. Enable providers here, declare model
+                capabilities, then choose any enabled model from AI Routing.
             </p>
         </header>
+        <a
+            class="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--muted)]"
+            href="/settings/ai/routing"
+        >
+            Open routing
+        </a>
     </div>
 
     {#if loading}
         <div
-            class="rounded-2xl border border-white/10 bg-white/[0.02] px-6 py-5 text-sm text-slate-300"
+            class="rounded-2xl border border-[var(--border)] bg-[var(--card)] px-6 py-5 text-sm text-[var(--muted-foreground)]"
         >
             Loading providers...
         </div>
     {:else}
         <form
-            class="flex flex-col gap-6 xl:flex-row"
+            class="grid gap-6 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]"
             on:submit|preventDefault={save}
         >
             <!-- Providers List Pane -->
-            <aside class="w-full shrink-0 lg:w-[320px]">
+            <aside class="w-full shrink-0 md:w-[300px] xl:w-[320px]">
                 <div
-                    class="sticky top-6 flex flex-col space-y-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 shadow-sm"
+                    class="provider-panel sticky top-6 flex flex-col space-y-4 overflow-y-auto p-5 md:max-h-[calc(100vh-9rem)]"
                 >
                     <div class="flex items-center justify-between">
                         <h2
-                            class="text-sm font-semibold uppercase tracking-wider text-slate-500"
+                            class="text-sm font-semibold uppercase tracking-normal text-[var(--muted-foreground)]"
                         >
-                            Provider Type
+                            Provider Source
                         </h2>
                     </div>
 
@@ -974,8 +1060,8 @@
                             class="rounded-xl border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs text-[var(--muted-foreground)]"
                         >
                             Built-in providers are always listed below. Use the
-                            `Enabled` switch inside each provider to control
-                            availability.
+                            `Enabled` switch to put native transports into the
+                            shared routing pool.
                         </div>
                     {:else}
                         <button
@@ -998,7 +1084,7 @@
                     <div class="flex flex-col space-y-2">
                         {#if filteredCustomProviders().length === 0}
                             <div
-                                class="py-2 text-center text-xs text-slate-500"
+                                class="py-2 text-center text-xs text-[var(--muted-foreground)]"
                             >
                                 No items matched
                             </div>
@@ -1071,23 +1157,23 @@
             <!-- Provider Edit Pane -->
             <section class="flex-1 min-w-0">
                 <div
-                    class="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 shadow-sm"
+                    class="provider-panel p-6"
                 >
                     {#if getSelectedProviderInActiveTab()}
                         {@const cp = getSelectedProviderInActiveTab()!}
 
                         <div
-                            class="flex flex-wrap items-center justify-between gap-4 border-b border-white/5 pb-5"
+                            class="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border)] pb-5"
                         >
                             <h2
-                                class="text-xl font-bold tracking-tight text-white"
+                                class="text-xl font-bold tracking-tight text-[var(--foreground)]"
                             >
                                 {cp.name || "Unnamed Provider"}
                             </h2>
 
                             <div class="flex flex-wrap gap-2">
                                 <label
-                                    class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-300"
+                                    class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-semibold uppercase tracking-normal text-[var(--foreground)]"
                                 >
                                     <input
                                         type="checkbox"
@@ -1127,7 +1213,7 @@
 
                         <div class="mt-6 grid gap-5 md:grid-cols-2">
                             <label class="grid gap-2 text-sm">
-                                <span class="font-medium text-slate-300"
+                                <span class="font-medium text-[var(--foreground)]"
                                     >Provider ID</span
                                 >
                                 <input
@@ -1138,7 +1224,7 @@
                             </label>
 
                             <label class="grid gap-2 text-sm">
-                                <span class="font-medium text-slate-300"
+                                <span class="font-medium text-[var(--foreground)]"
                                     >Display Name</span
                                 >
                                 <input
@@ -1271,7 +1357,7 @@
                                         bind:value={cp.thinkingSupportMode}
                                     >
                                         <option value="auto">
-                                            Auto / Not set
+                                            Not enabled / unknown
                                         </option>
                                         <option value="enabled">
                                             Enabled
@@ -1293,13 +1379,16 @@
                                         bind:value={cp.thinkingFormat}
                                     >
                                         <option value="auto">
-                                            Auto / OpenAI default
+                                            Auto / OpenAI fallback
                                         </option>
                                         <option value="openai">
                                             OpenAI `reasoning_effort`
                                         </option>
                                         <option value="openrouter">
                                             OpenRouter `reasoning.effort`
+                                        </option>
+                                        <option value="thinking-type">
+                                            `thinking.type` + `reasoning_content`
                                         </option>
                                         <option value="zai">
                                             z.ai `enable_thinking`
@@ -1315,13 +1404,33 @@
                                 </label>
 
                                 <div class="grid gap-3 text-sm md:col-span-2">
+                                    {#if thinkingNotices(cp).length > 0}
+                                        <div
+                                            class={`rounded-xl border px-4 py-3 text-xs leading-5 md:col-span-2 ${
+                                                cp.thinkingSupportMode === "enabled"
+                                                    ? "border-amber-500/25 bg-amber-500/10 text-amber-200"
+                                                    : "border-white/10 bg-black/20 text-slate-400"
+                                            }`}
+                                        >
+                                            <div class="font-semibold text-[var(--foreground)]">
+                                                Thinking behavior
+                                            </div>
+                                            <ul class="mt-2 space-y-1">
+                                                {#each thinkingNotices(cp) as notice}
+                                                    <li>{notice}</li>
+                                                {/each}
+                                            </ul>
+                                        </div>
+                                    {/if}
+
                                     <div>
                                         <span class="font-medium text-slate-300"
-                                            >Reasoning Effort Mapping</span
+                                            >Reasoning Effort Value Mapping</span
                                         >
                                         <p class="mt-1 text-xs text-slate-500">
-                                            只在上游需要把 low / medium /
-                                            high 改成别的值时填写。
+                                            这不是“思维维度”配置，只是把 low /
+                                            medium / high 转成上游要求的字符串；
+                                            不需要映射时留空。
                                         </p>
                                     </div>
                                     <div class="grid gap-3 md:grid-cols-3">
@@ -1359,10 +1468,10 @@
 
                         <!-- Models Header -->
                         <div
-                            class="mt-8 flex items-center justify-between border-b border-white/5 pb-3"
+                            class="mt-8 flex flex-col justify-between gap-3 border-b border-[var(--border)] pb-3 sm:flex-row sm:items-center"
                         >
                             <h3
-                                class="text-sm font-bold uppercase tracking-wider text-slate-300"
+                                class="text-sm font-bold uppercase tracking-normal text-[var(--foreground)]"
                             >
                                 Attached Models
                             </h3>
@@ -1379,7 +1488,7 @@
 
                         {#if cp.models.length === 0}
                             <div
-                                class="mt-4 rounded-xl border border-white/5 bg-black/20 p-8 text-center text-sm text-slate-500"
+                                class="mt-4 rounded-xl border border-[var(--border)] bg-[var(--muted)] p-8 text-center text-sm text-[var(--muted-foreground)]"
                             >
                                 This provider currently has no defined models.
                                 Add a model identifier down below.
@@ -1387,7 +1496,9 @@
                         {/if}
 
                         <div class="mt-4 space-y-4">
-                            {#each cp.models as model, index}
+                            {#each visibleModelRows(cp) as row (row.index)}
+                                {@const model = row.model}
+                                {@const index = row.index}
                                 <div
                                     class="relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.01]"
                                 >
@@ -1544,13 +1655,28 @@
                             {/each}
                         </div>
 
+                        {#if isBuiltinProvider(cp) && cp.models.length > collapsedBuiltinModelLimit}
+                            <div class="mt-4 flex justify-center">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    on:click={() => toggleModelList(cp.id)}
+                                >
+                                    {expandedProviderModelIds.has(cp.id)
+                                        ? "Collapse built-in models"
+                                        : `Show ${hiddenModelCount(cp)} more built-in models`}
+                                </Button>
+                            </div>
+                        {/if}
+
                         <!-- Save Action bar at the bottom -->
                         <div
-                            class="mt-8 flex flex-col gap-3 rounded-2xl bg-black/20 p-4 sm:flex-row sm:items-center sm:justify-between"
+                            class="provider-footer mt-8 flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
                         >
                             <label class="flex items-center gap-3 text-sm">
-                                <span class="font-medium text-slate-300"
-                                    >Set internal default model:</span
+                                <span class="font-medium text-[var(--foreground)]"
+                                    >Default model in this provider:</span
                                 >
                                 <select
                                     class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 outline-none transition-colors focus:border-emerald-500/50"
@@ -1643,6 +1769,23 @@
 </PageShell>
 
 <style>
+  :global(.providers-page) {
+    --provider-panel-bg: color-mix(in oklab, var(--card) 88%, transparent);
+    --provider-panel-soft: color-mix(in oklab, var(--muted) 82%, transparent);
+  }
+
+  :global(.providers-page .provider-panel),
+  :global(.providers-page .provider-footer) {
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: var(--provider-panel-bg);
+    box-shadow: var(--shadow-sm);
+  }
+
+  :global(.providers-page .provider-footer) {
+    background: var(--provider-panel-soft);
+  }
+
   :global(.settings-theme .providers-page input),
   :global(.settings-theme .providers-page select),
   :global(.settings-theme .providers-page textarea) {

@@ -20,7 +20,7 @@ import {
   type RuntimeSettings
 } from "../settings/index.js";
 import {
-  sanitizeOptionalThinkingFormat,
+  resolveCustomProviderThinkingFormat,
   sanitizeOptionalThinkingSupport,
   sanitizeReasoningEffortMap,
   sanitizeRuntimeThinkingLevel
@@ -42,6 +42,9 @@ interface RawSettings {
     visionModelKey?: string;
     sttModelKey?: string;
     ttsModelKey?: string;
+  };
+  modelFallback?: {
+    mode?: string;
   };
   compaction?: {
     enabled?: boolean | string;
@@ -392,6 +395,16 @@ function sanitizeMode(input: unknown): ProviderMode {
   return String(input ?? "").toLowerCase() === "custom" ? "custom" : "pi";
 }
 
+function sanitizeModelFallbackSettings(input: unknown): RuntimeSettings["modelFallback"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const mode = String(source.mode ?? defaultRuntimeSettings.modelFallback.mode).trim();
+  return {
+    mode: mode === "off" || mode === "any-enabled" ? mode : "same-provider"
+  };
+}
+
 function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
   if (!Array.isArray(input)) return [];
 
@@ -407,18 +420,20 @@ function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
 
     const providerRoles = sanitizeRoles(item.supportedRoles);
     const { models, defaultModel } = sanitizeModels(item, providerRoles);
+    const name = String(item.name ?? "").trim() || id;
+    const baseUrl = String(item.baseUrl ?? "").trim();
 
     out.push({
       id,
-      name: String(item.name ?? "").trim() || id,
+      name,
       enabled: item.enabled === undefined ? !isKnownProvider(id) : Boolean(item.enabled),
-      baseUrl: String(item.baseUrl ?? "").trim(),
+      baseUrl,
       apiKey: String(item.apiKey ?? "").trim(),
       models,
       defaultModel,
       path: String(item.path ?? "").trim() || "/v1/chat/completions",
       supportsThinking: sanitizeOptionalThinkingSupport(item.supportsThinking),
-      thinkingFormat: sanitizeOptionalThinkingFormat(item.thinkingFormat),
+      thinkingFormat: resolveCustomProviderThinkingFormat(item.thinkingFormat, { id, name, baseUrl }),
       reasoningEffortMap: sanitizeReasoningEffortMap(item.reasoningEffortMap)
     });
   }
@@ -812,9 +827,13 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const customProviders = providers.length > 0 ? providers : migrateLegacyCustomProvider(raw);
 
   let defaultCustomProviderId = String(raw.defaultCustomProviderId ?? "").trim();
-  const enabledCustomProviders = customProviders.filter((p) => p.enabled !== false);
+  const selectableCustomProviders = customProviders.filter((p) =>
+    !isKnownProvider(p.id) &&
+    p.models.some((model) => Array.isArray(model.tags) ? model.tags.includes("text") : true)
+  );
+  const enabledCustomProviders = selectableCustomProviders.filter((p) => p.enabled !== false);
   if (!enabledCustomProviders.some((p) => p.id === defaultCustomProviderId)) {
-    defaultCustomProviderId = enabledCustomProviders[0]?.id ?? customProviders[0]?.id ?? "";
+    defaultCustomProviderId = enabledCustomProviders[0]?.id ?? selectableCustomProviders[0]?.id ?? "";
   }
 
   const telegramBotsFromList = sanitizeTelegramBots(raw.telegramBots);
@@ -888,6 +907,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       sttModelKey: String(raw.modelRouting?.sttModelKey ?? "").trim(),
       ttsModelKey: String(raw.modelRouting?.ttsModelKey ?? "").trim()
     },
+    modelFallback: sanitizeModelFallbackSettings(raw.modelFallback),
     compaction: {
       enabled: compactionEnabled,
       reserveTokens,
@@ -1106,7 +1126,11 @@ export class SettingsStore {
         defaultModel: row.default_model,
         path: row.path,
         supportsThinking: row.supports_thinking === null ? undefined : Boolean(row.supports_thinking),
-        thinkingFormat: sanitizeOptionalThinkingFormat(row.thinking_format),
+        thinkingFormat: resolveCustomProviderThinkingFormat(row.thinking_format, {
+          id: row.id,
+          name: row.name || row.id,
+          baseUrl: row.base_url
+        }),
         reasoningEffortMap: sanitizeReasoningEffortMap(this.parseDynamicValue(row.reasoning_effort_map_json, {}))
       }));
 
@@ -1227,6 +1251,9 @@ export class SettingsStore {
         visionModelKey: settings.modelRouting.visionModelKey,
         sttModelKey: settings.modelRouting.sttModelKey,
         ttsModelKey: settings.modelRouting.ttsModelKey
+      },
+      modelFallback: {
+        mode: settings.modelFallback.mode
       },
       compaction: {
         enabled: settings.compaction.enabled,

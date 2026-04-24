@@ -58,11 +58,20 @@ export function currentModelKey(settings: RuntimeSettings, route: ModelRoute): s
   if (routed) return routed;
   if (route !== "text") return "";
   if (settings.providerMode === "custom") {
-    const enabledProviders = settings.customProviders.filter((p) => p.enabled !== false);
-    const id = settings.defaultCustomProviderId || enabledProviders[0]?.id || "";
-    const provider = enabledProviders.find((p) => p.id === id) ?? enabledProviders[0];
-    const modelIds = (provider?.models ?? []).map((m) => m.id).filter(Boolean);
-    const model = provider?.defaultModel || modelIds[0] || "";
+    const enabledProviders = settings.customProviders.filter((p) =>
+      p.enabled !== false &&
+      !isKnownProvider(p.id) &&
+      p.models.some((model) => Array.isArray(model.tags) ? model.tags.includes("text") : true)
+    );
+    const provider = enabledProviders.find((p) => p.id === settings.defaultCustomProviderId) ?? enabledProviders[0];
+    const id = provider?.id ?? "";
+    const modelIds = (provider?.models ?? [])
+      .filter((model) => Array.isArray(model.tags) ? model.tags.includes("text") : true)
+      .map((m) => m.id)
+      .filter(Boolean);
+    const model = provider?.defaultModel && modelIds.includes(provider.defaultModel)
+      ? provider.defaultModel
+      : modelIds[0] || "";
     return id ? `custom|${id}|${model}` : `pi|${settings.piModelProvider}|${settings.piModelName}`;
   }
   const resolvedBuiltInModel = resolveBuiltInProviderDefaultModel(

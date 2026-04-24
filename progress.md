@@ -17,3 +17,14 @@
 - 已完成共享命令层抽取：公共文本命令与会话控制统一进入 Agent 层，Telegram/Feishu/QQ/Weixin runtime 改为调用共享服务。
 - 已清理各渠道中残留的公共命令实现，只保留平台专属逻辑，例如消息解析、附件处理、回复发送和 Telegram 的 `/chatid`。
 - 已完成文档同步与代码检查：变更文件通过逐文件转译检查；完整类型检查和整包构建仍受仓库现有错误与当前环境写权限限制。
+
+## 2026-04-24
+- 启动 AI Providers / Routing 融合与响应式样式优化。
+- 已重置 `task_plan.md` 为本次设置页优化计划，并新增 `findings.md` 记录发现。
+- Browser Use 当前无法连接可用 in-app browser pane；本轮先基于源码推进，后续用编译解析验证页面。
+- 确认核心割裂点在 UI 信息架构：后端模型选项已经是 mixed pool，Routing 页仍用 legacy PI/custom 字段表达成两套逻辑。
+- 已将 Routing 页重构成“Unified model pool / capability routing / runtime defaults / compatibility fallback”结构。
+- 已同步 Providers 页标题、说明、跳转入口和主要面板样式，使其表达 built-in/custom 共同进入同一模型池。
+- 已更新 `features.md` 和 `prd.md`，记录 AI Providers / Routing 统一模型池设置体验。
+- 验证：两个改动页面通过 Svelte compiler 编译解析。
+- 完整 `npm run build` 仍失败在只读沙箱不允许写 `.svelte-kit/tsconfig.json`，未进入 Vite 构建阶段。

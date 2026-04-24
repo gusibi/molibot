@@ -1,12 +1,39 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
-import { parseModelRoute, switchModelSelection } from "$lib/server/settings/modelSwitch";
+import {
+  buildModelOptions,
+  currentModelKey,
+  parseModelRoute,
+  switchModelSelection,
+  type ModelRoute
+} from "$lib/server/settings/modelSwitch";
 
 interface SwitchBody {
   route?: string;
   selector?: string;
 }
+
+const ROUTES: ModelRoute[] = ["text", "vision", "stt", "tts"];
+
+export const GET: RequestHandler = async () => {
+  const settings = getRuntime().getSettings();
+  return json({
+    ok: true,
+    routes: Object.fromEntries(
+      ROUTES.map((route) => [
+        route,
+        {
+          currentKey: currentModelKey(settings, route),
+          options: buildModelOptions(settings, route).map((option) => ({
+            key: option.key,
+            label: option.label
+          }))
+        }
+      ])
+    )
+  });
+};
 
 export const POST: RequestHandler = async ({ request }) => {
   let body: SwitchBody;

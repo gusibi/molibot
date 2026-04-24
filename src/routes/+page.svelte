@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from "svelte";
+  import { marked } from "marked";
+  import { initLocale, locale as localeStore, setLocale, type LocaleKey } from "$lib/ui/i18n";
 
   interface RuntimeSettings {
     providerMode: "pi" | "custom";
@@ -50,10 +52,7 @@
   }
 
   type ThemeMode = "system" | "light" | "dark";
-  type LocaleKey = "zh-CN" | "en-US";
-
   const LS_THEME = "molibot-web-theme";
-  const LS_LOCALE = "molibot-web-locale";
   const LS_PROFILE = "molibot-web-profile-id";
 
   const I18N: Record<
@@ -159,7 +158,22 @@
       recorderReady: "语音输入",
       stopCurrentTaskDone: "已停止当前任务。",
       stopCurrentTaskIdle: "当前没有运行中的任务。",
-      profileAttached: "当前配置"
+      profileAttached: "当前配置",
+      files: "文件",
+      workspace: "工作区",
+      mainBranch: "MAIN",
+      openFiles: "打开文件栏",
+      closeFiles: "关闭文件栏",
+      filesPlaceholderTitle: "文件工作区已预留",
+      filesPlaceholderHint: "后续接入文件浏览、上传和运行产物时，可以直接复用这个右侧区域；现在默认保持折叠。",
+      noFilesYet: "暂无文件",
+      commandShortcut: "Cmd+K",
+      filterConversations: "过滤会话...",
+      all: "全部",
+      thisProfile: "当前",
+      pinned: "置顶",
+      messageCount: "条消息",
+      home: "Home"
     },
     "en-US": {
       quickPrompts: [
@@ -261,7 +275,22 @@
       recorderReady: "Voice Input",
       stopCurrentTaskDone: "Current task stopped.",
       stopCurrentTaskIdle: "No active task right now.",
-      profileAttached: "Current profile"
+      profileAttached: "Current profile",
+      files: "Files",
+      workspace: "Workspace",
+      mainBranch: "MAIN",
+      openFiles: "Open files panel",
+      closeFiles: "Close files panel",
+      filesPlaceholderTitle: "File workspace reserved",
+      filesPlaceholderHint: "When file browsing, uploads, and run artifacts are ready, this right panel can host them. It stays collapsed by default for now.",
+      noFilesYet: "No files yet",
+      commandShortcut: "Cmd+K",
+      filterConversations: "Filter conversations...",
+      all: "All",
+      thisProfile: "Current",
+      pinned: "Pinned",
+      messageCount: "messages",
+      home: "Home"
     }
   };
 
@@ -305,6 +334,7 @@
   let QUICK_PROMPTS: string[] = I18N["zh-CN"].quickPrompts;
 
   let showNewChatDialog = false;
+  let showFilesPanel = false;
   let newChatProfileId = "default";
   let themeMode: ThemeMode = "light";
   let locale: LocaleKey = "zh-CN";
@@ -383,6 +413,95 @@
     }
   }
 
+  const allowedMarkdownTags = new Set([
+    "A",
+    "BLOCKQUOTE",
+    "BR",
+    "CODE",
+    "DEL",
+    "EM",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    "HR",
+    "LI",
+    "OL",
+    "P",
+    "PRE",
+    "STRONG",
+    "TABLE",
+    "TBODY",
+    "TD",
+    "TH",
+    "THEAD",
+    "TR",
+    "UL"
+  ]);
+
+  function isSafeMarkdownUrl(value: string | null): boolean {
+    if (!value) return false;
+    if (value.startsWith("/") || value.startsWith("#")) return true;
+    try {
+      const url = new URL(value);
+      return ["http:", "https:", "mailto:"].includes(url.protocol);
+    } catch {
+      return false;
+    }
+  }
+
+  function sanitizeMarkdownHtml(html: string): string {
+    if (typeof document === "undefined") {
+      return html.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "");
+    }
+
+    const template = document.createElement("template");
+    template.innerHTML = html;
+
+    const walk = (node: Node): void => {
+      for (const child of Array.from(node.childNodes)) {
+        if (child.nodeType !== Node.ELEMENT_NODE) {
+          continue;
+        }
+
+        const element = child as HTMLElement;
+        if (!allowedMarkdownTags.has(element.tagName)) {
+          element.replaceWith(document.createTextNode(element.textContent ?? ""));
+          continue;
+        }
+
+        const href = element.tagName === "A" ? (child as HTMLAnchorElement).getAttribute("href") : null;
+        for (const attribute of Array.from(element.attributes)) {
+          element.removeAttribute(attribute.name);
+        }
+
+        if (element.tagName === "A") {
+          if (isSafeMarkdownUrl(href)) {
+            element.setAttribute("href", href ?? "#");
+            element.setAttribute("target", "_blank");
+            element.setAttribute("rel", "noreferrer");
+          }
+        }
+
+        walk(element);
+      }
+    };
+
+    walk(template.content);
+    return template.innerHTML;
+  }
+
+  function renderMarkdown(markdown: string): string {
+    const html = marked.parse(markdown, {
+      async: false,
+      breaks: true,
+      gfm: true
+    });
+    return sanitizeMarkdownHtml(String(html));
+  }
+
   function resizeComposer(el: HTMLTextAreaElement | null): void {
     if (!el) return;
     el.style.height = "0px";
@@ -419,16 +538,17 @@
 
   async function scrollMessagesToBottom(force: boolean = false): Promise<void> {
     await tick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     const el = messagesContainer;
     if (!el) return;
     if (force) {
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
       return;
     }
 
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
     if (nearBottom) {
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
     }
   }
 
@@ -469,6 +589,7 @@
     }
 
     loadingMessages = true;
+    let shouldScroll = false;
     try {
       const response = await fetch(
         `/api/sessions/${encodeURIComponent(activeSessionId)}?profileId=${encodeURIComponent(activeProfileId)}`
@@ -484,9 +605,10 @@
           content: m.content,
           createdAt: m.createdAt
         }));
-      await scrollMessagesToBottom(true);
+      shouldScroll = true;
     } finally {
       loadingMessages = false;
+      if (shouldScroll) await scrollMessagesToBottom(true);
     }
   }
 
@@ -738,12 +860,12 @@
 
         if (parsed.event === "token") {
           streamingAssistantText += String(payload.delta ?? "");
-          await scrollMessagesToBottom();
+          await scrollMessagesToBottom(true);
           continue;
         }
         if (parsed.event === "replace") {
           streamingAssistantText = String(payload.text ?? "");
-          await scrollMessagesToBottom();
+          await scrollMessagesToBottom(true);
           continue;
         }
         if (parsed.event === "thinking_config") {
@@ -773,7 +895,7 @@
         }
         if (parsed.event === "thinking_delta") {
           streamingThinkingText += String(payload.delta ?? "");
-          await scrollMessagesToBottom();
+          await scrollMessagesToBottom(true);
           continue;
         }
         if (parsed.event === "thread_note") {
@@ -1199,9 +1321,7 @@
   }
 
   function onLocaleChange(event: Event): void {
-    locale = (event.target as HTMLSelectElement).value as LocaleKey;
-    applyLocale(locale);
-    localStorage.setItem(LS_LOCALE, locale);
+    setLocale((event.target as HTMLSelectElement).value as LocaleKey);
   }
 
   onMount(() => {
@@ -1209,6 +1329,7 @@
     const handleSystemThemeChange = () => {
       if (themeMode === "system") applyTheme("system");
     };
+    let unsubscribeLocale: (() => void) | undefined;
     media.addEventListener("change", handleSystemThemeChange);
 
     void (async () => {
@@ -1217,9 +1338,11 @@
         themeMode = storedTheme === "system" || storedTheme === "dark" ? storedTheme : "light";
         applyTheme(themeMode);
 
-        const storedLocale = String(localStorage.getItem(LS_LOCALE) ?? "zh-CN");
-        locale = storedLocale === "en-US" ? "en-US" : "zh-CN";
-        applyLocale(locale);
+        initLocale();
+        unsubscribeLocale = localeStore.subscribe((nextLocale) => {
+          locale = nextLocale;
+          applyLocale(nextLocale);
+        });
 
         activeProfileId = String(localStorage.getItem(LS_PROFILE) ?? "default") || "default";
 
@@ -1243,6 +1366,7 @@
 
     return () => {
       media.removeEventListener("change", handleSystemThemeChange);
+      unsubscribeLocale?.();
     };
   });
 
@@ -1255,14 +1379,8 @@
   });
 </script>
 
-<main class="relative h-[100dvh] overflow-hidden bg-transparent text-[var(--foreground)]">
-  <div class="pointer-events-none absolute inset-0">
-    <div class="absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_top,rgba(212,170,67,0.14),transparent_58%)]"></div>
-    <div class="absolute right-[-8rem] top-[18%] h-72 w-72 rounded-full bg-[color-mix(in_oklab,var(--primary)_20%,transparent)] blur-3xl"></div>
-    <div class="absolute bottom-[-6rem] left-[-5rem] h-72 w-72 rounded-full bg-[color-mix(in_oklab,var(--accent)_34%,transparent)] blur-3xl"></div>
-    <div class="absolute inset-0 opacity-[0.04]" style="background-image: linear-gradient(to right, currentColor 1px, transparent 1px), linear-gradient(to bottom, currentColor 1px, transparent 1px); background-size: 28px 28px;"></div>
-  </div>
-  <div class="relative flex h-full">
+<main class="relative h-[100dvh] overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+  <div class="flex h-full">
     {#if showMobileSidebar}
       <button
         class="absolute inset-0 z-20 bg-black/30 lg:hidden"
@@ -1273,63 +1391,64 @@
     {/if}
 
     <aside
-      class={`absolute inset-y-0 left-0 z-30 flex w-[290px] flex-col border-r border-[var(--border)] bg-[color-mix(in_oklab,var(--sidebar)_88%,transparent)] p-3 backdrop-blur-xl transition-transform duration-200 lg:static lg:z-0 lg:w-[320px] lg:translate-x-0 ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}
+      class={`absolute inset-y-0 left-0 z-30 flex w-[300px] flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] transition-transform duration-200 lg:static lg:z-0 lg:w-[330px] lg:translate-x-0 ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}
     >
-      <div class="space-y-3 border-b border-[var(--border)] pb-3">
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--muted-foreground)]">Molibot</p>
-            <h2 class="text-base font-semibold">{t("conversations")}</h2>
-            <p class="mt-0.5 text-[11px] text-[var(--muted-foreground)]">{filteredSessions.length} {t("sessionCount")}</p>
-          </div>
-          <a
-            class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-medium shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]"
-            href="/settings"
-          >
-            {t("settings")}
-          </a>
-        </div>
+      <div class="flex h-[56px] items-center gap-1 border-b border-[var(--sidebar-border)] px-3">
+        <button class="flex h-9 w-9 items-center justify-center rounded-md text-[var(--sidebar-primary)] hover:bg-[var(--sidebar-accent)]" type="button" aria-label={t("conversations")}>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5h14v10H8l-3 3V5Z" /></svg>
+        </button>
+        <a class="flex h-9 w-9 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]" href="/settings" aria-label={t("settings")}>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v8M8 12h8" /><path d="M5 4h14v16H5z" /></svg>
+        </a>
+        <button class="flex h-9 w-9 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]" type="button" on:click={openSystemPromptPreview} aria-label={t("previewSystemPrompt")}>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 4 7l8 4 8-4-8-4Z" /><path d="m4 12 8 4 8-4" /><path d="m4 17 8 4 8-4" /></svg>
+        </button>
+        <button class="flex h-9 w-9 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]" type="button" aria-label={t("thinkingMode")}>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18h6" /><path d="M10 22h4" /><path d="M8 14a6 6 0 1 1 8 0c-.8.7-1 1.3-1 2H9c0-.7-.2-1.3-1-2Z" /></svg>
+        </button>
+        <button class="flex h-9 w-9 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]" type="button" on:click={() => (showFilesPanel = !showFilesPanel)} aria-label={showFilesPanel ? t("closeFiles") : t("openFiles")}>
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h6l2 2h8v10H4V6Z" /></svg>
+        </button>
+      </div>
 
+      <div class="space-y-3 border-b border-[var(--sidebar-border)] px-3 py-4">
         <button
-          class="w-full rounded-[1.1rem] bg-[var(--primary)] px-4 py-3 text-left text-sm font-semibold text-[var(--primary-foreground)] shadow-[var(--shadow)] transition hover:-translate-y-0.5 hover:opacity-95"
+          class="flex w-full items-center justify-between rounded-lg border border-[color-mix(in_oklab,var(--sidebar-primary)_30%,var(--sidebar-border))] bg-[color-mix(in_oklab,var(--sidebar-primary)_7%,var(--card))] px-4 py-3 text-left text-sm font-semibold text-[var(--sidebar-primary)] shadow-[var(--shadow-sm)] transition hover:bg-[color-mix(in_oklab,var(--sidebar-primary)_11%,var(--card))]"
           type="button"
           on:click={openNewChatDialog}
         >
-          {t("newChat")}
+          <span class="inline-flex items-center gap-2"><span class="text-base leading-none">+</span>{t("newChat").replace("+ ", "")}</span>
+          <span class="text-[11px] font-medium text-[var(--muted-foreground)]">{t("commandShortcut")}</span>
         </button>
 
         <input
-          class="w-full rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)]"
+          class="w-full rounded-lg border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_72%,var(--sidebar))] px-3 py-2.5 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)]"
           type="text"
           bind:value={sessionSearch}
-          placeholder={t("searchChats")}
+          placeholder={t("filterConversations")}
         />
 
-        <div class="rounded-[1.1rem] border border-[var(--border)] bg-[var(--card)] px-3 py-3 shadow-[var(--shadow-sm)]">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <p class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{t("activeProfile")}</p>
-              <p class="truncate text-sm font-semibold">{activeProfileName}</p>
-              <p class="truncate text-[10px] text-[var(--muted-foreground)]">{activeProfileId}</p>
-            </div>
-            <div class="rounded-full border border-[var(--border)] bg-[var(--muted)] px-2.5 py-1 text-[10px] font-semibold text-[var(--muted-foreground)]">
-              {t("profileMode")}
-            </div>
-          </div>
+        <div class="flex flex-wrap gap-2 text-xs">
+          <span class="rounded-full border border-[var(--sidebar-border)] bg-[var(--sidebar-accent)] px-3 py-1.5 font-semibold text-[var(--sidebar-primary)]">{t("all")}</span>
+          <span class="rounded-full border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_64%,transparent)] px-3 py-1.5 text-[var(--muted-foreground)]">{t("thisProfile")}</span>
+          <span class="rounded-full border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_64%,transparent)] px-3 py-1.5 text-[var(--muted-foreground)]">{activeProfileName}</span>
         </div>
       </div>
 
-      <div class="min-h-0 flex-1 space-y-1 overflow-y-auto py-3 pr-1">
+      <div class="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+        <div class="mb-3 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+          <span class="text-[var(--accent-foreground)]">+</span>{t("pinned")}
+        </div>
         {#if filteredSessions.length === 0}
-          <div class="rounded-xl border border-dashed border-[var(--border)] px-3 py-4 text-xs text-[var(--muted-foreground)]">
+          <div class="rounded-lg border border-dashed border-[var(--sidebar-border)] px-3 py-4 text-xs text-[var(--muted-foreground)]">
             {t("noMatchingConversations")}
           </div>
         {:else}
           {#each filteredSessions as s}
             <div
-              class={`w-full rounded-[1.1rem] border px-3 py-3 text-left shadow-[var(--shadow-sm)] transition ${s.id === activeSessionId
-                ? "border-[color-mix(in_oklab,var(--primary)_55%,var(--border))] bg-[color-mix(in_oklab,var(--accent)_34%,var(--card))]"
-                : "border-transparent bg-[var(--card)] hover:-translate-y-0.5 hover:border-[var(--border)] hover:bg-[var(--muted)]"}`}
+              class={`group w-full rounded-lg border px-2.5 py-2.5 text-left transition ${s.id === activeSessionId
+                ? "border-[color-mix(in_oklab,var(--sidebar-primary)_28%,var(--sidebar-border))] bg-[color-mix(in_oklab,var(--sidebar-primary)_12%,var(--sidebar-accent))]"
+                : "border-transparent hover:border-[var(--sidebar-border)] hover:bg-[var(--sidebar-accent)]"}`}
             >
               {#if editingSessionId === s.id}
                 <div class="space-y-2">
@@ -1366,11 +1485,10 @@
               {:else}
                 <button class="w-full text-left" type="button" on:click={() => switchSession(s.id)} on:dblclick={() => startRenameSession(s)}>
                   <div class="flex items-center gap-2">
-                    <span class={`inline-block h-1.5 w-1.5 rounded-full ${s.id === activeSessionId ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]"}`}></span>
+                    <span class={`text-sm ${s.id === activeSessionId ? "text-[var(--sidebar-primary)]" : "text-[var(--muted-foreground)]"}`}>+</span>
                     <p class="line-clamp-1 text-sm font-medium">{s.title || t("newSession")}</p>
                   </div>
-                  <p class="mt-1 text-[11px] text-[var(--muted-foreground)]">{t("profileAttached")}: {activeProfileName}</p>
-                  <p class="mt-1 text-[11px] text-[var(--muted-foreground)]">{t("updatedAt")} {formatSessionTime(s.updatedAt)}</p>
+                  <p class="mt-1 pl-5 text-[11px] text-[var(--muted-foreground)]">{formatSessionTime(s.updatedAt)}</p>
                 </button>
               {/if}
             </div>
@@ -1378,53 +1496,18 @@
         {/if}
       </div>
 
-      <div class="space-y-1 border-t border-[var(--border)] pt-3 text-[11px] text-[var(--muted-foreground)]">
-        <p class="font-medium text-[var(--foreground)]">{t("sessionOnlySwitchingMode")}</p>
-        <p>{t("workspaceNote")}</p>
-      </div>
-    </aside>
-
-    <section class="flex min-w-0 flex-1 flex-col">
-      <header class="border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--background)_82%,transparent)] px-4 py-3 backdrop-blur-xl sm:px-6">
-        <div class="flex flex-wrap items-center gap-2">
-          <button
-            class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs transition hover:bg-[var(--muted)] lg:hidden"
-            type="button"
-            on:click={() => (showMobileSidebar = true)}
-            aria-label={t("openSidebar")}
-          >
-            {t("chats")}
-          </button>
-
-          <div class="min-w-0 flex-1">
-            <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted-foreground)]">{t("focusedWorkspace")}</p>
-            <h1 class="truncate text-base font-semibold sm:text-lg">{activeSessionTitle}</h1>
-            <p class="mt-1 hidden text-xs text-[var(--muted-foreground)] sm:block">{t("assistantConsole")} · {t("activeProfile")}: {activeProfileName}</p>
+      <div class="border-t border-[var(--sidebar-border)] p-3">
+        <div class="rounded-xl border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_74%,var(--sidebar))] p-3 shadow-[var(--shadow-sm)]">
+          <div class="flex items-center gap-3">
+            <div class="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--sidebar-border)] bg-[var(--accent)] text-sm font-bold text-[var(--accent-foreground)]">M</div>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold">Molibot WebUI</p>
+              <p class="truncate text-[11px] text-[var(--muted-foreground)]">{activeProfileName}</p>
+            </div>
           </div>
-
-          <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <div class="mt-3 grid grid-cols-2 gap-2">
             <select
-              class="max-w-[240px] rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] outline-none focus:border-[var(--ring)]"
-              value={activeModelKey}
-              disabled={changingModel || modelOptions.length === 0}
-              on:change={async (e) => applyModelSelection((e.target as HTMLSelectElement).value)}
-            >
-              {#each modelOptions as m}
-                <option value={m.key}>{m.label}</option>
-              {/each}
-            </select>
-            <select
-              class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] outline-none focus:border-[var(--ring)]"
-              bind:value={thinkingLevel}
-              aria-label={t("thinkingMode")}
-            >
-              <option value="off">{t("thinkingMode")}: {t("thinkingOff")}</option>
-              <option value="low">{t("thinkingMode")}: {t("thinkingLow")}</option>
-              <option value="medium">{t("thinkingMode")}: {t("thinkingMedium")}</option>
-              <option value="high">{t("thinkingMode")}: {t("thinkingHigh")}</option>
-            </select>
-            <select
-              class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] outline-none focus:border-[var(--ring)]"
+              class="min-w-0 rounded-lg border border-[var(--sidebar-border)] bg-[var(--card)] px-2 py-1.5 text-xs outline-none"
               bind:value={themeMode}
               on:change={onThemeModeChange}
               aria-label={t("theme")}
@@ -1434,7 +1517,7 @@
               <option value="dark">{t("dark")}</option>
             </select>
             <select
-              class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] outline-none focus:border-[var(--ring)]"
+              class="min-w-0 rounded-lg border border-[var(--sidebar-border)] bg-[var(--card)] px-2 py-1.5 text-xs outline-none"
               bind:value={locale}
               on:change={onLocaleChange}
               aria-label={t("language")}
@@ -1442,91 +1525,90 @@
               <option value="zh-CN">中文</option>
               <option value="en-US">English</option>
             </select>
-            <button
-              class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-medium shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]"
-              type="button"
-              on:click={openNewChatDialog}
-            >
-              {t("newLabel")}
-            </button>
           </div>
         </div>
-        <div class="mt-4 flex flex-wrap gap-2 text-[11px]">
-          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 shadow-[var(--shadow-sm)]">
-            {t("activeProfile")}: {activeProfileName}
+      </div>
+    </aside>
+
+    <section class="flex min-w-0 flex-1 flex-col bg-[color-mix(in_oklab,var(--background)_92%,var(--card))]">
+      <header class="h-auto border-b border-[var(--border)] bg-[var(--background)] px-4 py-4 sm:px-7">
+        <div class="flex items-center gap-3">
+          <button
+            class="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-xs transition hover:bg-[var(--muted)] lg:hidden"
+            type="button"
+            on:click={() => (showMobileSidebar = true)}
+            aria-label={t("openSidebar")}
+          >
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+          </button>
+
+          <div class="min-w-0 flex-1">
+            <h1 class="truncate text-lg font-semibold sm:text-xl">{activeSessionTitle}</h1>
+            <p class="mt-1 text-sm text-[var(--muted-foreground)]">{messages.length} {t("messageCount")}</p>
           </div>
-          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 shadow-[var(--shadow-sm)]">
-            {t("thinkingMode")}: {thinkingLabel(thinkingLevel)}
-          </div>
-          <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-[var(--muted-foreground)] shadow-[var(--shadow-sm)]">
-            {t("currentThemeFile")}: <code class="ml-1">src/styles/theme.css</code>
+
+          <div class="ml-auto flex items-center gap-2">
+            <button
+              class="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm font-semibold text-[var(--primary)] shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]"
+              type="button"
+              on:click={() => (showFilesPanel = !showFilesPanel)}
+              aria-label={showFilesPanel ? t("closeFiles") : t("openFiles")}
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h6l2 2h8v10H4V6Z" /></svg>
+              {t("files")}
+            </button>
           </div>
         </div>
       </header>
 
-      <div class="min-h-0 flex-1 overflow-hidden">
-        <div class="mx-auto flex h-full w-full max-w-5xl flex-col px-4 py-4 sm:px-6">
+      <div class="min-h-0 flex-1 overflow-hidden bg-[var(--background)]">
+        <div class="mx-auto flex h-full w-full max-w-4xl flex-col px-4 py-4 sm:px-7">
           {#if status}
-            <div class="mb-3 rounded-[1.1rem] border border-[color-mix(in_oklab,var(--destructive)_55%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_12%,transparent)] px-4 py-3 text-xs text-[var(--foreground)] shadow-[var(--shadow-sm)]">{status}</div>
+            <div class="mb-3 rounded-lg border border-[color-mix(in_oklab,var(--destructive)_55%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_12%,transparent)] px-4 py-3 text-xs text-[var(--foreground)] shadow-[var(--shadow-sm)]">{status}</div>
           {/if}
 
-          <section class="mb-3 rounded-[1.4rem] border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_82%,transparent)] p-4 shadow-[var(--shadow)] backdrop-blur-xl">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted-foreground)]">{t("quickActions")}</p>
-                <h2 class="mt-1 text-base font-semibold text-[var(--foreground)]">{t("conversationTimeline")}</h2>
-                <p class="mt-1 max-w-2xl text-xs leading-6 text-[var(--muted-foreground)]">{t("quickActionsHint")}</p>
-              </div>
-              <button
-                class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs font-medium shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]"
-                type="button"
-                on:click={openSystemPromptPreview}
-              >
-                {t("previewSystemPrompt")}
-              </button>
-            </div>
-            <div class="mt-4 flex flex-wrap gap-2">
-              {#each QUICK_PROMPTS as prompt}
-                <button
-                  class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] transition hover:-translate-y-0.5 hover:bg-[var(--muted)]"
-                  type="button"
-                  on:click={() => sendQuickPrompt(prompt)}
-                >
-                  {prompt}
-                </button>
-              {/each}
-            </div>
-          </section>
-
           <div
-            class="min-h-0 flex-1 overflow-y-auto rounded-[1.6rem] border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_90%,transparent)] p-4 shadow-[var(--shadow)] backdrop-blur-xl sm:p-5"
+            class="min-h-0 flex-1 overflow-y-auto px-1 py-2 sm:px-2"
             bind:this={messagesContainer}
           >
             {#if loadingMessages}
-              <div class="rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+              <div class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
                 {t("loadingMessages")}
               </div>
             {:else if messages.length === 0}
-              <div class="rounded-[1.4rem] border border-dashed border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_56%,transparent)] px-5 py-10 text-center text-sm text-[var(--muted-foreground)]">
-                <p class="text-lg font-semibold text-[var(--foreground)]">{t("emptyTimelineTitle")}</p>
-                <p class="mt-2 text-sm text-[var(--muted-foreground)]">{t("emptyTimelineHint")}</p>
-                <p class="mt-4 text-xs text-[var(--muted-foreground)]">{t("multimodalHint")}</p>
+              <div class="mx-auto mt-16 max-w-2xl text-center text-sm text-[var(--muted-foreground)]">
+                <p class="text-xl font-semibold text-[var(--foreground)]">{t("emptyTimelineTitle")}</p>
+                <p class="mt-2 leading-6">{t("emptyTimelineHint")}</p>
+                <div class="mt-6 flex flex-wrap justify-center gap-2">
+                  {#each QUICK_PROMPTS as prompt}
+                    <button
+                      class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]"
+                      type="button"
+                      on:click={() => sendQuickPrompt(prompt)}
+                    >
+                      {prompt}
+                    </button>
+                  {/each}
+                </div>
               </div>
             {:else}
-              <div class="space-y-4">
+              <div class="space-y-7 pb-4">
                 {#each messages as m}
-                  <article class={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div class={`max-w-[92%] rounded-[1.35rem] px-4 py-3 text-sm leading-7 shadow-[var(--shadow-sm)] sm:max-w-[80%] ${m.role === "user"
-                      ? "border border-[color-mix(in_oklab,var(--primary)_58%,var(--border))] bg-[color-mix(in_oklab,var(--accent)_44%,var(--card))]"
-                      : "border border-[var(--border)] bg-[var(--card)]"}`}>
-                      <div class="mb-1 flex items-center justify-between gap-4">
-                        <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-                          {m.role === "user" ? `${t("you")} (${activeProfileName})` : "Molibot"}
+                  <article class="flex gap-3">
+                    <div class={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${m.role === "user"
+                      ? "border-[color-mix(in_oklab,var(--primary)_28%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_12%,var(--card))] text-[var(--primary)]"
+                      : "border-[color-mix(in_oklab,var(--accent)_45%,var(--border))] bg-[var(--accent)] text-[var(--accent-foreground)]"}`}>
+                      {m.role === "user" ? "Y" : "M"}
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="mb-2 flex items-baseline gap-3">
+                        <div class={`text-sm font-semibold ${m.role === "user" ? "text-[var(--primary)]" : "text-[var(--accent-foreground)]"}`}>
+                          {m.role === "user" ? t("you") : "Molibot"}
                         </div>
-                        <div class="text-[10px] text-[var(--muted-foreground)]">{formatMessageTime(m.createdAt)}</div>
+                        <div class="text-xs text-[var(--muted-foreground)]">{formatMessageTime(m.createdAt)}</div>
                       </div>
                       {#if m.role === "assistant" && ((m.meta?.diagnostics?.length ?? 0) > 0 || m.meta?.thinking)}
-                        <details class="mb-3 rounded-[1rem] border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6 text-[var(--muted-foreground)]">
+                        <details class="mb-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6 text-[var(--muted-foreground)]">
                           <summary class="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]">
                             {t("thinkingDetails")}
                           </summary>
@@ -1546,17 +1628,27 @@
                           </div>
                         </details>
                       {/if}
-                      <div class="whitespace-pre-wrap break-words">{m.content}</div>
+                      {#if m.role === "assistant"}
+                        <div class="markdown-body max-w-3xl break-words text-[15px] leading-8">
+                          {@html renderMarkdown(m.content)}
+                        </div>
+                      {:else}
+                        <div class="max-w-3xl whitespace-pre-wrap break-words text-[15px] leading-8">{m.content}</div>
+                      {/if}
                     </div>
                   </article>
                 {/each}
 
                 {#if sending}
-                  <article class="flex justify-start">
-                    <div class="rounded-[1.35rem] border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--muted-foreground)] shadow-[var(--shadow-sm)]">
-                      <div class="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Molibot</div>
+                  <article class="flex gap-3">
+                    <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[color-mix(in_oklab,var(--accent)_45%,var(--border))] bg-[var(--accent)] text-xs font-bold text-[var(--accent-foreground)]">M</div>
+                    <div class="min-w-0 flex-1 text-sm text-[var(--muted-foreground)]">
+                      <div class="mb-2 flex items-baseline gap-3">
+                        <div class="text-sm font-semibold text-[var(--accent-foreground)]">Molibot</div>
+                        <div class="text-xs text-[var(--muted-foreground)]">{t("liveAnswer")}</div>
+                      </div>
                       {#if streamingDiagnostics.length > 0 || streamingThinkingText}
-                        <details class="mb-3 rounded-[1rem] border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6" open>
+                        <details class="mb-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6" open>
                           <summary class="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]">
                             {t("thinkingDetails")}
                           </summary>
@@ -1578,10 +1670,9 @@
                           </div>
                         </details>
                       {/if}
-                      <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-                        {t("liveAnswer")}
+                      <div class="markdown-body max-w-3xl break-words text-[15px] leading-8">
+                        {@html renderMarkdown(streamingAssistantText || t("thinking"))}
                       </div>
-                      <div class="mt-2 whitespace-pre-wrap break-words">{streamingAssistantText || t("thinking")}</div>
                     </div>
                   </article>
                 {/if}
@@ -1591,8 +1682,8 @@
         </div>
       </div>
 
-      <footer class="border-t border-[var(--border)] bg-[color-mix(in_oklab,var(--background)_82%,transparent)] px-4 py-4 backdrop-blur-xl sm:px-6">
-        <div class="mx-auto w-full max-w-5xl rounded-[1.45rem] border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] p-3 shadow-[var(--shadow)]">
+      <footer class="border-t border-[var(--border)] bg-[var(--background)] px-4 py-4 sm:px-7">
+        <div class="mx-auto w-full max-w-4xl rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-[var(--shadow)]">
           {#if pendingFiles.length > 0}
             <div class="mb-2 flex flex-wrap gap-2">
               {#each pendingFiles as file, index}
@@ -1608,7 +1699,7 @@
           {/if}
 
           <textarea
-            class="max-h-[220px] min-h-[52px] w-full resize-none rounded-xl border border-transparent bg-transparent px-2 py-2 text-sm leading-6 outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--border)]"
+            class="max-h-[220px] min-h-[54px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-3 text-[15px] leading-7 outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--border)]"
             bind:this={composerEl}
             bind:value={messageInput}
             rows="1"
@@ -1617,50 +1708,121 @@
             on:input={onComposerInput}
           ></textarea>
 
-          <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
-              <label class="cursor-pointer rounded-full border border-[var(--border)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]">
-                + {t("image")}
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <label class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted-foreground)] shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]" aria-label={t("image")}>
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14" /></svg>
                 <input class="hidden" type="file" accept="image/*" multiple on:change={onFileSelect} />
               </label>
               <button
-                class={`rounded-lg px-3 py-2 text-xs font-semibold transition ${isRecording
+                class={`flex h-9 w-9 items-center justify-center rounded-full transition ${isRecording
                   ? "border border-[var(--destructive)] bg-[var(--card)] text-[var(--destructive)] shadow-[var(--shadow-sm)] hover:bg-[var(--muted)]"
                   : "border border-[var(--border)] bg-[var(--card)] shadow-[var(--shadow-sm)] hover:bg-[var(--muted)]"}`}
                 type="button"
                 disabled={preparingRecording || sending}
                 on:click={toggleVoiceRecording}
+                aria-label={t("recordVoice")}
               >
                 {#if preparingRecording}
-                  {t("openingMic")}
+                  ...
                 {:else if isRecording}
-                  {t("stopAndSend")} ({formatRecordingTime(recordingSeconds)})
+                  {formatRecordingTime(recordingSeconds)}
                 {:else}
-                  {t("recordVoice")}
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v8" /><path d="M8 8v4a4 4 0 0 0 8 0V8" /><path d="M5 12a7 7 0 0 0 14 0" /><path d="M12 19v3" /></svg>
                 {/if}
               </button>
-              <p class="text-[11px] text-[var(--muted-foreground)]">{t("recorderReady")} · {t("enterShiftHint")}</p>
+              <span class="hidden h-5 w-px bg-[var(--border)] sm:inline-block"></span>
+              <span class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-[var(--muted-foreground)]">
+                <svg class="h-4 w-4 text-[var(--primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /><path d="M4 22a8 8 0 0 1 16 0" /></svg>
+                {activeProfileName}
+              </span>
+              <span class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-[var(--muted-foreground)]">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h6l2 2h8v10H4V6Z" /></svg>
+                {t("home")}
+              </span>
+              <select
+                class="max-w-[240px] rounded-full border border-transparent bg-transparent px-2 py-1 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--muted)] focus:border-[var(--ring)]"
+                value={activeModelKey}
+                disabled={changingModel || modelOptions.length === 0}
+                on:change={async (e) => applyModelSelection((e.target as HTMLSelectElement).value)}
+              >
+                {#each modelOptions as m}
+                  <option value={m.key}>{m.label}</option>
+                {/each}
+              </select>
+              <select
+                class="rounded-full border border-transparent bg-transparent px-2 py-1 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--muted)] focus:border-[var(--ring)]"
+                bind:value={thinkingLevel}
+                aria-label={t("thinkingMode")}
+              >
+                <option value="off">{t("thinkingMode")}: {t("thinkingOff")}</option>
+                <option value="low">{t("thinkingMode")}: {t("thinkingLow")}</option>
+                <option value="medium">{t("thinkingMode")}: {t("thinkingMedium")}</option>
+                <option value="high">{t("thinkingMode")}: {t("thinkingHigh")}</option>
+              </select>
             </div>
             <button
-              class="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-semibold shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-50"
+              class="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-50"
               type="button"
               disabled={stopping || !activeSessionId}
               on:click={stopCurrentRun}
+              aria-label={t("stop")}
             >
-              {stopping ? t("stopping") : t("stop")}
+              {#if stopping}
+                ...
+              {:else}
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2" /></svg>
+              {/if}
             </button>
             <button
-              class="rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] shadow-[var(--shadow)] transition hover:-translate-y-0.5 hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+              class="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] shadow-[var(--shadow)] transition hover:-translate-y-0.5 hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
               type="button"
               disabled={sending || (!messageInput.trim() && pendingFiles.length === 0)}
               on:click={sendMessage}
+              aria-label={t("send")}
             >
-              {sending ? t("sending") : t("send")}
+              {#if sending}
+                ...
+              {:else}
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></svg>
+              {/if}
             </button>
           </div>
         </div>
       </footer>
     </section>
+
+    {#if showFilesPanel}
+      <aside class="absolute inset-y-0 right-0 z-30 flex w-[min(360px,100vw)] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--sidebar)] shadow-[var(--shadow-lg)] xl:static xl:z-0 xl:w-[360px] xl:shadow-none">
+        <div class="flex h-[56px] items-center gap-3 border-b border-[var(--sidebar-border)] px-4">
+          <p class="flex-1 text-xs font-bold uppercase tracking-[0.22em] text-[var(--muted-foreground)]">{t("workspace")}</p>
+          <span class="rounded-md bg-[var(--muted)] px-2 py-1 text-[10px] font-bold text-[var(--muted-foreground)]">{t("mainBranch")}</span>
+          <button class="flex h-8 w-8 items-center justify-center rounded-md hover:bg-[var(--sidebar-accent)]" type="button" on:click={() => (showFilesPanel = false)} aria-label={t("closeFiles")}>
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
+          </button>
+        </div>
+        <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+          <div class="rounded-xl border border-dashed border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_66%,transparent)] p-4">
+            <p class="text-sm font-semibold">{t("filesPlaceholderTitle")}</p>
+            <p class="mt-2 text-xs leading-6 text-[var(--muted-foreground)]">{t("filesPlaceholderHint")}</p>
+          </div>
+          <div class="space-y-2 text-sm text-[var(--muted-foreground)]">
+            <div class="flex items-center gap-2 rounded-lg px-2 py-2">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h6l2 2h8v10H4V6Z" /></svg>
+              .molibot
+            </div>
+            <div class="flex items-center gap-2 rounded-lg px-2 py-2">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h6l2 2h8v10H4V6Z" /></svg>
+              sessions
+            </div>
+            <div class="flex items-center gap-2 rounded-lg px-2 py-2">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H6v18h12V7l-4-4Z" /><path d="M14 3v4h4" /></svg>
+              {t("noFilesYet")}
+            </div>
+          </div>
+        </div>
+      </aside>
+    {/if}
   </div>
 
   {#if showPromptPreview}
@@ -1730,3 +1892,127 @@
     </div>
   {/if}
 </main>
+
+<style>
+  :global(.markdown-body > :first-child) {
+    margin-top: 0;
+  }
+
+  :global(.markdown-body > :last-child) {
+    margin-bottom: 0;
+  }
+
+  :global(.markdown-body p) {
+    margin: 0.7rem 0;
+  }
+
+  :global(.markdown-body h1),
+  :global(.markdown-body h2),
+  :global(.markdown-body h3),
+  :global(.markdown-body h4),
+  :global(.markdown-body h5),
+  :global(.markdown-body h6) {
+    margin: 1.15rem 0 0.55rem;
+    color: var(--foreground);
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  :global(.markdown-body h1) {
+    font-size: 1.35rem;
+  }
+
+  :global(.markdown-body h2) {
+    font-size: 1.18rem;
+  }
+
+  :global(.markdown-body h3) {
+    font-size: 1.05rem;
+  }
+
+  :global(.markdown-body ul),
+  :global(.markdown-body ol) {
+    margin: 0.75rem 0;
+    padding-left: 1.35rem;
+  }
+
+  :global(.markdown-body ul) {
+    list-style: disc;
+  }
+
+  :global(.markdown-body ol) {
+    list-style: decimal;
+  }
+
+  :global(.markdown-body li + li) {
+    margin-top: 0.25rem;
+  }
+
+  :global(.markdown-body blockquote) {
+    margin: 0.9rem 0;
+    border-left: 4px solid var(--border);
+    padding-left: 1rem;
+    color: var(--muted-foreground);
+  }
+
+  :global(.markdown-body a) {
+    color: var(--primary);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+  }
+
+  :global(.markdown-body code) {
+    border-radius: 0.38rem;
+    background: var(--muted);
+    padding: 0.12rem 0.35rem;
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+  }
+
+  :global(.markdown-body pre) {
+    margin: 0.95rem 0;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    background: var(--muted);
+    padding: 0.85rem;
+  }
+
+  :global(.markdown-body pre code) {
+    display: block;
+    background: transparent;
+    padding: 0;
+    white-space: pre;
+  }
+
+  :global(.markdown-body table) {
+    margin: 0.95rem 0;
+    width: 100%;
+    border-collapse: collapse;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    font-size: 0.94em;
+  }
+
+  :global(.markdown-body th),
+  :global(.markdown-body td) {
+    border: 1px solid var(--border);
+    padding: 0.45rem 0.65rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  :global(.markdown-body th) {
+    background: var(--muted);
+    color: var(--foreground);
+    font-weight: 700;
+  }
+
+  :global(.markdown-body hr) {
+    margin: 1.1rem 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+</style>

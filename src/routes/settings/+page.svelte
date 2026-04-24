@@ -1,10 +1,7 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import PageShell from "$lib/ui/PageShell.svelte";
   import Card from "$lib/ui/Card.svelte";
-
-  type LocaleKey = "zh-CN" | "en-US";
-  const LS_LOCALE = "molibot-web-locale";
+  import { locale } from "$lib/ui/i18n";
 
   const COPY = {
     "zh-CN": {
@@ -53,14 +50,7 @@
     }
   } as const;
 
-  let locale: LocaleKey = "zh-CN";
-
-  $: copy = COPY[locale];
-
-  onMount(() => {
-    const storedLocale = String(localStorage.getItem(LS_LOCALE) ?? "zh-CN");
-    locale = storedLocale === "en-US" ? "en-US" : "zh-CN";
-  });
+  $: copy = COPY[$locale];
 </script>
 
 <PageShell widthClass="max-w-6xl" gapClass="space-y-8">

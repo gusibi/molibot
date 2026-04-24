@@ -1,6 +1,6 @@
 import { Agent } from "@mariozechner/pi-agent-core";
 import { getModels } from "@mariozechner/pi-ai";
-import type { CustomProviderConfig, RuntimeSettings } from "../settings/index.js";
+import { isKnownProvider, type CustomProviderConfig, type RuntimeSettings } from "../settings/index.js";
 import type { ConversationMessage } from "../../shared/types/message.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
 import type { ModelErrorTracker } from "../usage/modelErrorTracker.js";
@@ -10,7 +10,9 @@ import {
 } from "../agent/runtimeOptions.js";
 import {
   applyDirectReasoningParams,
-  resolveThinkingLevel
+  normalizeThinkingTypePayload,
+  resolveThinkingLevel,
+  usesThinkingTypeFormat
 } from "./customThinking.js";
 
 type OpenAIRole = "system" | "user" | "assistant";
@@ -107,7 +109,10 @@ function toOpenAIMessagesWithMemory(
 }
 
 function getProviderModel(provider: CustomProviderConfig): string {
-  const modelIds = provider.models.map((m) => m.id).filter(Boolean);
+  const modelIds = provider.models
+    .filter((m) => Array.isArray(m.tags) ? m.tags.includes("text") : true)
+    .map((m) => m.id)
+    .filter(Boolean);
   const selected = provider.defaultModel?.trim();
   if (selected && modelIds.includes(selected)) return selected;
   return modelIds[0]?.trim() || "";
@@ -153,7 +158,11 @@ function formatProviderFailure(failure: ProviderAttemptFailure): string {
 }
 
 function buildCustomProviderCandidates(settings: RuntimeSettings): CustomProviderConfig[] {
-  const enabled = settings.customProviders.filter((provider) => provider.enabled !== false);
+  const enabled = settings.customProviders.filter((provider) =>
+    provider.enabled !== false &&
+    !isKnownProvider(provider.id) &&
+    provider.models.some((model) => Array.isArray(model.tags) ? model.tags.includes("text") : true)
+  );
   const selected = enabled.find((provider) => provider.id === settings.defaultCustomProviderId);
   const primary = selected ?? enabled[0];
   if (!primary) return [];
@@ -194,13 +203,16 @@ async function callCustomProviderTarget(
       provider,
       thinkingLevel
     );
+    const finalRequestBody = usesThinkingTypeFormat(provider)
+      ? normalizeThinkingTypePayload(requestBody, thinkingLevel)
+      : requestBody;
     response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${provider.apiKey}`
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(finalRequestBody)
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

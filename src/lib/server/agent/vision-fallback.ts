@@ -55,7 +55,7 @@ function findCustomVisionTarget(
 ): VisionFallbackTarget | null {
   const routed = parseModelKey(routeKey);
   if (routed?.mode !== "custom") return null;
-  const provider = settings.customProviders.find((row) => row.id === routed.provider);
+  const provider = settings.customProviders.find((row) => row.id === routed.provider && row.enabled !== false);
   const configuredModel = provider?.models.find((row) => row.id === routed.model);
   if (!provider?.baseUrl?.trim() || !provider.apiKey?.trim() || !routed.model) return null;
   return {
@@ -80,6 +80,7 @@ export function resolveVisionFallbackTarget(settings: RuntimeSettings): VisionFa
   }
 
   for (const provider of settings.customProviders) {
+    if (provider.enabled === false) continue;
     if (!provider.baseUrl?.trim() || !provider.apiKey?.trim()) continue;
     const visionModel = provider.models.find((row) => row.id?.trim() && Array.isArray(row.tags) && row.tags.includes("vision"));
     if (!visionModel) continue;
