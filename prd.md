@@ -2875,3 +2875,20 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/agent/prompt.ts` 必须移除默认 Events 长说明，加入 `<available-deferred-tools>` 与 ToolSearch 协议，只保留 `toolSearch -> createEvent` 的执行规则。
   - `src/lib/server/agent/toolPolicy.ts` 和所有插件工具声明必须同步使用 camelCase 工具名。
   - `features.md` 必须记录本次能力落地。
+
+## 196. Telegram 工具调用、错误详情和最终回复必须分消息展示 (2026-04-25)
+- Priority: P1
+- Stage: Delivered (2026-04-25)
+- Problem:
+  - Telegram 当前复用同一个状态消息承载工具进度、错误提示和最终答案，最终 `replaceMessage` 会覆盖前面的工具调用显示。
+  - 多个工具错误或运行详情会各发一条回复，聊天里容易出现重复错误消息，用户难以区分“执行过程”和“最终结果”。
+- Requirement:
+  - Telegram 先落地三段式显示：工具/进度一条消息，错误/运行详情聚合为一条消息，最终答案单独一条消息。
+  - 工具/进度消息必须使用紧凑列表展示，包含图标、工具名和简短结果摘要；单条摘要需要限制最大长度，避免工具输出刷屏。
+  - 工具/错误展示必须保持在 Channel 展示层，不把 Telegram 的消息拆分策略下沉到 Agent 业务逻辑。
+  - Feishu / QQ / Weixin 可后续按各自平台能力再做同类展示优化。
+- Enforcement:
+  - `src/lib/server/channels/telegram/runtime.ts` 必须将 progress/details/final answer 拆成独立消息句柄。
+  - `src/lib/server/channels/telegram/runtime.ts` 必须把结构化工具事件格式化为 Telegram 友好的紧凑工具调用列表。
+  - `respondInThread` 在 Telegram 中必须复用同一条详情消息追加内容，避免一轮运行产生多条重复错误消息。
+  - `features.md` 必须记录本次 Telegram 消息展示优化。

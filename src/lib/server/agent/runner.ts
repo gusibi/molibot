@@ -1767,6 +1767,13 @@ export class MomRunner implements RunnerLike {
           tool: event.toolName,
           label,
         });
+        if (ctx.onRunnerEvent) {
+          enqueue(() => ctx.onRunnerEvent!({
+            type: "tool_execution_start",
+            toolName: event.toolName,
+            label
+          }));
+        }
         enqueue(() => ctx.respond(`_→ ${label}_`, false));
       }
 
@@ -1784,6 +1791,14 @@ export class MomRunner implements RunnerLike {
           isError: event.isError,
           resultPreview: body.slice(0, 160),
         });
+        if (ctx.onRunnerEvent) {
+          enqueue(() => ctx.onRunnerEvent!({
+            type: "tool_execution_end",
+            toolName: event.toolName,
+            isError: event.isError,
+            summary: body
+          }));
+        }
         const text = `*${status} ${event.toolName}*\n\`\`\`\n${body}\n\`\`\``;
         if (event.isError) {
           enqueue(() => ctx.respondInThread(text));

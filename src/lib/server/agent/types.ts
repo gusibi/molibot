@@ -70,6 +70,17 @@ export type RunnerUiEvent =
   | {
       type: "assistant_message_event";
       event: AssistantMessageEvent;
+    }
+  | {
+      type: "tool_execution_start";
+      toolName: string;
+      label: string;
+    }
+  | {
+      type: "tool_execution_end";
+      toolName: string;
+      isError: boolean;
+      summary: string;
     };
 
 export interface MomContext {
