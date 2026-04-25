@@ -405,6 +405,16 @@ function sanitizeModelFallbackSettings(input: unknown): RuntimeSettings["modelFa
   };
 }
 
+function normalizeBuiltInRouteKey(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  const [mode, provider, ...rest] = raw.split("|");
+  if (mode !== "custom" || !provider || rest.length === 0) return raw;
+  const providerId = provider.trim();
+  if (!isKnownProvider(providerId)) return raw;
+  const model = rest.join("|").trim();
+  return model ? `pi|${providerId}|${model}` : raw;
+}
+
 function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
   if (!Array.isArray(input)) return [];
 
@@ -902,10 +912,10 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     customProviders,
     defaultCustomProviderId,
     modelRouting: {
-      textModelKey: String(raw.modelRouting?.textModelKey ?? "").trim(),
-      visionModelKey: String(raw.modelRouting?.visionModelKey ?? "").trim(),
-      sttModelKey: String(raw.modelRouting?.sttModelKey ?? "").trim(),
-      ttsModelKey: String(raw.modelRouting?.ttsModelKey ?? "").trim()
+      textModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.textModelKey),
+      visionModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.visionModelKey),
+      sttModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.sttModelKey),
+      ttsModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.ttsModelKey)
     },
     modelFallback: sanitizeModelFallbackSettings(raw.modelFallback),
     compaction: {

@@ -25,10 +25,8 @@ import type { AiUsageTracker } from "../usage/tracker.js";
 import type { ModelErrorTracker } from "../usage/modelErrorTracker.js";
 import {
   buildCustomProviderCompat,
-  normalizeThinkingTypePayload,
   resolveCustomProviderReasoningSupport,
-  resolveThinkingLevel,
-  usesThinkingTypeFormat
+  resolveThinkingLevel
 } from "../providers/customThinking.js";
 import {
   DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
@@ -282,6 +280,51 @@ function stripImagePartsForTextOnlyModel(selectedModel: Model<any>, context: any
   };
 }
 
+function removeOrphanToolResultsFromContext(context: any): any {
+  if (!context || typeof context !== "object" || !Array.isArray(context.messages)) return context;
+
+  const messages: unknown[] = [];
+  let pendingToolCallIds = new Set<string>();
+
+  for (const message of context.messages) {
+    if (!message || typeof message !== "object" || Array.isArray(message)) {
+      messages.push(message);
+      pendingToolCallIds = new Set();
+      continue;
+    }
+
+    const row = message as { role?: unknown; toolCallId?: unknown; content?: unknown };
+    if (row.role === "toolResult") {
+      const toolCallId = String(row.toolCallId ?? "");
+      if (toolCallId && pendingToolCallIds.has(toolCallId)) {
+        messages.push(message);
+        pendingToolCallIds.delete(toolCallId);
+      }
+      continue;
+    }
+
+    messages.push(message);
+
+    if (row.role === "assistant" && Array.isArray(row.content)) {
+      pendingToolCallIds = new Set(
+        row.content
+          .filter((part): part is { type?: unknown; id?: unknown } =>
+            Boolean(part && typeof part === "object" && !Array.isArray(part))
+          )
+          .filter((part) => part.type === "toolCall")
+          .map((part) => String(part.id ?? ""))
+          .filter(Boolean)
+      );
+    } else {
+      pendingToolCallIds = new Set();
+    }
+  }
+
+  return messages.length === context.messages.length
+    ? context
+    : { ...context, messages };
+}
+
 interface ResolvedModelSelection {
   model: Model<any>;
   source: "pi" | "custom";
@@ -318,6 +361,17 @@ export function resolveModelSelection(
         };
       }
     } else {
+      if (isKnownProvider(routed.provider)) {
+        const pi = resolvePiModelByKey(routed.provider, routed.model);
+        if (pi) {
+          return {
+            model: pi,
+            source: "pi",
+            providerId: routed.provider,
+            modelId: routed.model
+          };
+        }
+      }
       const provider = getCustomProviderById(settings, routed.provider);
       const configuredModel = provider?.models.find((m) => m.id === routed.model);
       if (
@@ -1193,15 +1247,7 @@ export class MomRunner implements RunnerLike {
       transport: resolvePreferredTransport(model),
       maxRetryDelayMs: DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
       toolExecution: getPreferredToolExecutionMode(),
-      onPayload: async (payload, selectedModel) => {
-        const settingsNow = this.getSettings();
-        const selectedCustom = settingsNow.customProviders.find((p) => p.id === selectedModel.provider);
-        const patchedPayload = selectedCustom && usesThinkingTypeFormat(selectedCustom)
-          ? normalizeThinkingTypePayload(
-            payload,
-            this.activePayloadContext?.effectiveThinkingLevel ?? "off"
-          )
-          : payload;
+      onPayload: async (payload) => {
         if (this.activeRunnerEventSink && this.activePayloadContext) {
           await this.activeRunnerEventSink({
             type: "payload",
@@ -1210,10 +1256,10 @@ export class MomRunner implements RunnerLike {
             api: this.activePayloadContext.api,
             requestedThinkingLevel: this.activePayloadContext.requestedThinkingLevel,
             effectiveThinkingLevel: this.activePayloadContext.effectiveThinkingLevel,
-            summary: formatPayloadReasoningSummary(patchedPayload)
+            summary: formatPayloadReasoningSummary(payload)
           });
         }
-        return patchedPayload === payload ? undefined : patchedPayload;
+        return undefined;
       },
       beforeToolCall: async (context) => {
         const blockedReason = validateToolCallPreflight(context, {
@@ -1237,9 +1283,12 @@ export class MomRunner implements RunnerLike {
           settingsNow,
           context,
         );
+        const contextWithoutOrphanTools = removeOrphanToolResultsFromContext(
+          developerPatchedContext,
+        );
         const patchedContext = stripImagePartsForTextOnlyModel(
           selectedModel as Model<any>,
-          developerPatchedContext,
+          contextWithoutOrphanTools,
         );
         momLog("runner", "llm_stream_start", {
           chatId: this.chatId,
@@ -1282,7 +1331,7 @@ export class MomRunner implements RunnerLike {
 
     const saved = this.store.loadContext(this.chatId, this.sessionId);
     if (saved.length > 0) {
-      this.agent.replaceMessages(saved);
+      this.agent.state.messages = saved;
     }
   }
 
@@ -1350,7 +1399,7 @@ export class MomRunner implements RunnerLike {
       };
     }
 
-    this.agent.replaceMessages(result.messages);
+    this.agent.state.messages = result.messages;
     this.store.appendCompaction(
       this.chatId,
       result.summary,
@@ -1542,18 +1591,16 @@ export class MomRunner implements RunnerLike {
     });
     if (!this.systemPromptReady || this.promptRefreshKey !== runPromptKey) {
       const memoryText = memorySnapshot.promptText || "(no working memory yet)";
-      this.agent.setSystemPrompt(
-        buildSystemPrompt(
-          this.store.getWorkspaceDir(),
-          this.chatId,
-          this.sessionId,
-          memoryText,
-          {
-            channel: this.channel as "telegram" | "feishu" | "qq" | "weixin" | "web",
-            timezone: settings.timezone,
-            settings
-          },
-        ),
+      this.agent.state.systemPrompt = buildSystemPrompt(
+        this.store.getWorkspaceDir(),
+        this.chatId,
+        this.sessionId,
+        memoryText,
+        {
+          channel: this.channel as "telegram" | "feishu" | "qq" | "weixin" | "web",
+          timezone: settings.timezone,
+          settings
+        },
       );
       this.promptRefreshKey = runPromptKey;
       this.systemPromptReady = true;
@@ -1606,7 +1653,7 @@ export class MomRunner implements RunnerLike {
           });
         }
       });
-      this.agent.setTools([...localTools, ...mcpTools]);
+      this.agent.state.tools = [...localTools, ...mcpTools];
       return {
         serverCount: scoped.length,
         toolCount: mcpTools.length
@@ -1658,7 +1705,7 @@ export class MomRunner implements RunnerLike {
       mcpServerCount: scopedMcpServers.filter((server) => server.enabled).length,
       mcpToolCount: mcpTools.length
     });
-    this.agent.setTools([...localTools, ...mcpTools]);
+    this.agent.state.tools = [...localTools, ...mcpTools];
 
     let stopReason: "stop" | "aborted" | "error" = "stop";
     let errorMessage: string | undefined;
@@ -1907,13 +1954,13 @@ export class MomRunner implements RunnerLike {
           continue;
         }
 
-        this.agent.setModel(selectedModel);
+        this.agent.state.model = selectedModel;
         const requestedThinkingLevel = ctx.thinkingLevelOverride ?? settings.defaultThinkingLevel;
         const effectiveThinkingLevel = resolveThinkingLevel(
           { defaultThinkingLevel: requestedThinkingLevel },
           selectedModel.reasoning
         );
-        this.agent.setThinkingLevel(effectiveThinkingLevel);
+        this.agent.state.thinkingLevel = effectiveThinkingLevel;
         this.activePayloadContext = {
           provider: selectedModel.provider,
           model: selectedModel.id,
@@ -1938,7 +1985,7 @@ export class MomRunner implements RunnerLike {
           modelUseCase,
           selection
         );
-        this.agent.setTransport(resolvePreferredTransport(selectedModel));
+        this.agent.transport = resolvePreferredTransport(selectedModel);
         if (candidateIndex === 0) {
           try {
             await this.compact({
@@ -2069,7 +2116,7 @@ export class MomRunner implements RunnerLike {
                 attempt: attemptCount,
                 error: decision.message
               });
-              this.agent.replaceMessages(beforeAttempt);
+              this.agent.state.messages = beforeAttempt;
               if (decision.kind === "retryable_error") {
                 attemptCount += 1;
                 continue;
@@ -2115,7 +2162,7 @@ export class MomRunner implements RunnerLike {
               });
               break;
             }
-            this.agent.replaceMessages(beforeAttempt);
+            this.agent.state.messages = beforeAttempt;
             attemptCount += 1;
           }
         } catch (error) {
@@ -2130,7 +2177,7 @@ export class MomRunner implements RunnerLike {
               candidateIndex,
               error: message
             });
-            this.agent.replaceMessages(beforeAttempt);
+            this.agent.state.messages = beforeAttempt;
             try {
               const compacted = await this.compact({
                 reason: "threshold",
@@ -2172,7 +2219,7 @@ export class MomRunner implements RunnerLike {
             candidateIndex,
             error: message
           });
-          this.agent.replaceMessages(beforeAttempt);
+          this.agent.state.messages = beforeAttempt;
           if (candidateIndex < modelCandidates.length - 1 && isRetryableModelError(message)) {
             continue;
           }
@@ -2221,7 +2268,7 @@ export class MomRunner implements RunnerLike {
             candidateIndex
           });
         }
-        this.agent.replaceMessages(beforeAttempt);
+        this.agent.state.messages = beforeAttempt;
       }
 
       if (successfulCandidateIndex >= 0 && pendingModelErrorEvents.length > 0) {

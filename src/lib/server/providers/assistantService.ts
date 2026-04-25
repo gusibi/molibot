@@ -10,9 +10,7 @@ import {
 } from "../agent/runtimeOptions.js";
 import {
   applyDirectReasoningParams,
-  normalizeThinkingTypePayload,
   resolveThinkingLevel,
-  usesThinkingTypeFormat
 } from "./customThinking.js";
 
 type OpenAIRole = "system" | "user" | "assistant";
@@ -203,16 +201,13 @@ async function callCustomProviderTarget(
       provider,
       thinkingLevel
     );
-    const finalRequestBody = usesThinkingTypeFormat(provider)
-      ? normalizeThinkingTypePayload(requestBody, thinkingLevel)
-      : requestBody;
     response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${provider.apiKey}`
       },
-      body: JSON.stringify(finalRequestBody)
+      body: JSON.stringify(requestBody)
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

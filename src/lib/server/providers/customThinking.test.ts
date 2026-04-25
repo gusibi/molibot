@@ -2,36 +2,69 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyDirectReasoningParams,
-  buildCustomProviderCompat,
-  normalizeThinkingTypePayload
+  buildCustomProviderCompat
 } from "./customThinking.js";
 import { resolveCustomProviderThinkingFormat } from "../settings/thinking.js";
 
-test("thinking-type format uses thinking.type instead of reasoning_effort", () => {
+test("deepseek format uses upstream-compatible thinking parameters", () => {
   const provider = {
     supportsThinking: true,
-    thinkingFormat: "thinking-type" as const,
-    reasoningEffortMap: undefined
+    thinkingFormat: "deepseek" as const,
+    reasoningEffortMap: {
+      low: "high",
+      medium: "high",
+      high: "high"
+    }
   };
 
   assert.deepEqual(
-    applyDirectReasoningParams({ model: "deepseek-chat" }, provider, "high"),
+    applyDirectReasoningParams({ model: "deepseek-chat" }, provider, "low"),
     {
       model: "deepseek-chat",
+      reasoning_effort: "high",
       thinking: { type: "enabled" }
     }
   );
   assert.deepEqual(buildCustomProviderCompat(provider), {
-    supportsReasoningEffort: false,
-    reasoningEffortMap: undefined
+    thinkingFormat: "deepseek",
+    reasoningEffortMap: {
+      low: "high",
+      medium: "high",
+      high: "high"
+    }
   });
 });
 
-test("unset thinking format does not infer vendor-specific behavior", () => {
+test("deepseek format defaults low and medium effort to high", () => {
   const provider = {
-    id: "deepseek",
-    name: "DeepSeek",
-    baseUrl: "https://api.deepseek.com",
+    supportsThinking: true,
+    thinkingFormat: "deepseek" as const,
+    reasoningEffortMap: undefined
+  };
+
+  assert.deepEqual(
+    applyDirectReasoningParams({ model: "deepseek-chat" }, provider, "medium"),
+    {
+      model: "deepseek-chat",
+      reasoning_effort: "high",
+      thinking: { type: "enabled" }
+    }
+  );
+  assert.deepEqual(buildCustomProviderCompat(provider), {
+    thinkingFormat: "deepseek",
+    reasoningEffortMap: {
+      low: "high",
+      medium: "high",
+      high: "high"
+    }
+  });
+});
+
+test("unset thinking format does not infer vendor-specific request params", () => {
+  const provider = {
+    id: "custom-deepseek",
+    name: "DeepSeek-compatible custom endpoint",
+    baseUrl: "https://api.deepseek.example",
     supportsThinking: true,
     thinkingFormat: undefined,
     reasoningEffortMap: undefined
@@ -47,53 +80,29 @@ test("unset thinking format does not infer vendor-specific behavior", () => {
   assert.equal(buildCustomProviderCompat(provider), undefined);
 });
 
-test("known provider presets infer thinking format outside request building", () => {
+test("known provider presets map old thinking-type value to deepseek format", () => {
+  assert.equal(
+    resolveCustomProviderThinkingFormat("thinking-type", {
+      id: "custom-deepseek",
+      name: "DeepSeek",
+      baseUrl: "https://api.deepseek.example"
+    }),
+    "deepseek"
+  );
   assert.equal(
     resolveCustomProviderThinkingFormat("", {
-      id: "deepseek",
+      id: "custom-deepseek",
       name: "DeepSeek",
-      baseUrl: "https://api.deepseek.com"
+      baseUrl: "https://api.deepseek.example"
     }),
-    "thinking-type"
+    "deepseek"
   );
   assert.equal(
     resolveCustomProviderThinkingFormat("openai", {
-      id: "deepseek",
+      id: "custom-deepseek",
       name: "DeepSeek",
-      baseUrl: "https://api.deepseek.com"
+      baseUrl: "https://api.deepseek.example"
     }),
     "openai"
   );
-});
-
-test("thinking-type payload preserves reasoning_content for history replay", () => {
-  const payload = {
-    model: "deepseek-chat",
-    reasoning_effort: "high",
-    messages: [
-      { role: "user", content: "first" },
-      {
-        role: "assistant",
-        content: "done",
-        reasoning_content: "stale"
-      },
-      { role: "user", content: "next question" },
-      {
-        role: "assistant",
-        content: "",
-        reasoning_content: "needed",
-        tool_calls: [{ id: "call_1", type: "function", function: { name: "lookup", arguments: "{}" } }]
-      },
-      { role: "tool", tool_call_id: "call_1", content: "result" }
-    ]
-  };
-
-  const normalized = normalizeThinkingTypePayload(payload, "medium") as typeof payload & {
-    thinking?: { type: string };
-  };
-
-  assert.equal("reasoning_effort" in normalized, false);
-  assert.deepEqual(normalized.thinking, { type: "enabled" });
-  assert.equal(normalized.messages[1].reasoning_content, "stale");
-  assert.equal(normalized.messages[3].reasoning_content, "needed");
 });

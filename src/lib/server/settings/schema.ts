@@ -253,6 +253,7 @@ export const KNOWN_PROVIDER_LIST: KnownProvider[] = [
   "xai",
   "groq",
   "cerebras",
+  "deepseek",
   "openrouter",
   "vercel-ai-gateway",
   "zai",

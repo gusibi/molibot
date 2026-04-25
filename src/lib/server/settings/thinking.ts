@@ -4,7 +4,7 @@ export type RuntimeThinkingLevel = (typeof RUNTIME_THINKING_LEVELS)[number];
 export const CUSTOM_PROVIDER_THINKING_FORMATS = [
   "openai",
   "openrouter",
-  "thinking-type",
+  "deepseek",
   "zai",
   "qwen",
   "qwen-chat-template"
@@ -23,7 +23,7 @@ interface CustomProviderThinkingFormatPreset {
 }
 
 const CUSTOM_PROVIDER_THINKING_FORMAT_PRESETS = [
-  { format: "thinking-type", markers: ["deepseek"] }
+  { format: "deepseek", markers: ["deepseek"] }
 ] as const satisfies readonly CustomProviderThinkingFormatPreset[];
 
 export function sanitizeRuntimeThinkingLevel(
@@ -48,7 +48,7 @@ export function sanitizeOptionalThinkingFormat(
   value: unknown
 ): CustomProviderThinkingFormat | undefined {
   const normalized = String(value ?? "").trim().toLowerCase();
-  if (normalized === "deepseek") return "thinking-type";
+  if (normalized === "thinking-type") return "deepseek";
   return THINKING_FORMAT_SET.has(normalized)
     ? normalized as CustomProviderThinkingFormat
     : undefined;

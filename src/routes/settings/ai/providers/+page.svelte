@@ -10,7 +10,7 @@
         | "auto"
         | "openai"
         | "openrouter"
-        | "thinking-type"
+        | "deepseek"
         | "zai"
         | "qwen"
         | "qwen-chat-template";
@@ -653,8 +653,8 @@
         switch (format) {
             case "openrouter":
                 return "OpenRouter reasoning.effort";
-            case "thinking-type":
-                return "thinking.type enabled + reasoning_content replay";
+            case "deepseek":
+                return "DeepSeek thinking.type + reasoning_effort";
             case "zai":
                 return "z.ai enable_thinking";
             case "qwen":
@@ -1387,8 +1387,8 @@
                                         <option value="openrouter">
                                             OpenRouter `reasoning.effort`
                                         </option>
-                                        <option value="thinking-type">
-                                            `thinking.type` + `reasoning_content`
+                                        <option value="deepseek">
+                                            DeepSeek `thinking.type` + `reasoning_effort`
                                         </option>
                                         <option value="zai">
                                             z.ai `enable_thinking`

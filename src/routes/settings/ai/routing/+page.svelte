@@ -10,7 +10,7 @@
         | "auto"
         | "openai"
         | "openrouter"
-        | "thinking-type"
+        | "deepseek"
         | "zai"
         | "qwen"
         | "qwen-chat-template";
