@@ -2857,6 +2857,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - prompt 必须明确列出 `<available-deferred-tools>`，让模型知道可异步加载的工具名，而不是只靠自然语言猜。
   - `toolSearch` 返回结果必须包含匹配工具的 `description/name/parameters` schema 表达，方便模型在同一轮之后按真实 schema 调用。
   - 首批延迟工具至少覆盖 `createEvent`，提醒/计划/周期任务场景先搜索加载，再调用真实工具。
+  - 低频管理工具（如模型切换、技能草稿管理、profile 文件管理）也应进入 deferred 层：默认只暴露短描述和轻量入口，完整说明和参数 schema 由 `toolSearch` 返回。
   - 如果模型提前调用 deferred 工具名，运行时不能反复返回 `Tool ... not found` 或进入 `call again` 死循环；必须有轻量入口完成加载，并在参数足够时直接委托真实工具执行。
   - 搜索必须识别 camelCase 工具名拆词，`create event` 和 `createEvent` 都应命中同一个 deferred 工具。
   - deferred tool 搜索和加载必须有足够日志，能看清 query 如何 normalize、匹配了哪些候选、为什么命中/没命中、最终是否加载进 active tool set。
@@ -2865,7 +2866,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 从启动 prompt 移除的事件详细规则必须迁入 `createEvent` 自身描述，不能因为 deferred 化而丢失行为约束。
 - Enforcement:
   - `src/lib/server/agent/tools/toolSearch.ts` 必须实现 deferred tool 搜索和加载返回，支持 `select:a,b` 与 `+required` 查询形式。
-  - `src/lib/server/agent/tools/index.ts` 必须把 `createEvent` 从默认工具列表移入 deferred registry。
+  - `src/lib/server/agent/tools/index.ts` 必须把 `createEvent`、`switchModel`、`skillManage`、`profileFiles` 从默认完整工具列表移入 deferred registry。
   - `src/lib/server/agent/tools/index.ts` 必须提供轻量 deferred entry，防止模型提前调用 deferred 工具时报 not found；由于 pi-agent-core 会在 run 开始时快照 tools，该 entry 必须能在同一 run 内委托真实工具执行。
   - `src/lib/server/agent/tools/toolSearch.ts` 的匹配逻辑必须把 camelCase 拆成可搜索词。
   - `src/lib/server/agent/tools/toolSearch.ts` 和 `src/lib/server/agent/tools/index.ts` 必须记录搜索解析、候选评分、加载前后状态和 active tool names。

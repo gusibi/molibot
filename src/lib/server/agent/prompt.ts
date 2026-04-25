@@ -324,7 +324,7 @@ function buildSkillsProtocolSection(vars: PromptRenderVars): string {
     "- Follow instructions in `SKILL.md` exactly. Resolve relative paths against the skill directory.",
     "- If a skill fails, report the actual failure and why, then fall back. Do not skip the skill silently.",
     "- If two skills overlap, pick the one whose description most directly matches the requested end result.",
-    "- After a difficult task succeeds and no suitable skill existed yet, prepare a reusable draft with `skillManage` instead of silently losing the workflow.",
+    "- After a difficult task succeeds and no suitable skill existed yet, use `toolSearch` to load `skillManage`, then prepare a reusable draft instead of silently losing the workflow.",
     "- Default to saving a draft first. Do not create or overwrite a live skill unless the workflow is already validated or the user clearly asked for it.",
   ].join("\n"));
 }
@@ -341,7 +341,10 @@ function buildFeaturePluginsSection(settings: RuntimeSettings | undefined): stri
 
 function buildAvailableDeferredToolsSection(): string {
   return xmlBlock("available-deferred-tools", [
-    "createEvent"
+    "createEvent",
+    "switchModel",
+    "skillManage",
+    "profileFiles"
   ].join("\n"));
 }
 
@@ -434,12 +437,12 @@ function buildToolsSection(): string {
     "| Read files | `read` | bash cat/head/tail |",
     "| Create/overwrite files | `write` | bash echo/cat heredoc |",
     "| Edit existing files | `edit` | bash sed/awk |",
-    "| Manage bot profile files | `profileFiles` | manual path guessing + bash edits |",
+    "| Manage bot profile files | `toolSearch` then `profileFiles` | manual path guessing + bash edits |",
     "| Schedule/remind | `toolSearch` then `createEvent` | bash sleep/crontab/at |",
     "| Memory operations | `memory` | direct read/write MEMORY.md |",
     "| Search installed skills | `skillSearch` | guessing from memory or prompt alone |",
     "| Search deferred tools | `toolSearch` | assuming every tool is already loaded |",
-    "| Draft/save reusable skills | `skillManage` | ad-hoc notes in random files |",
+    "| Draft/save reusable skills | `toolSearch` then `skillManage` | ad-hoc notes in random files |",
     "| Send file to user | `attach` | bash echo redirect |",
     "| Load MCP servers | `loadMcp` | only in explicit MCP scenarios |",
     "| Shell commands (last resort) | `bash` | — |",
@@ -448,8 +451,6 @@ function buildToolsSection(): string {
     "- `memory(operation, key?, value?, query?)` — operations: add, search, list, update, delete, flush, sync",
     "- `skillSearch(intent, maxResults?)` — find matching installed skills before generic tools",
     "- `toolSearch(query, maxResults?)` — find and load deferred tools before calling them",
-    "- `skillManage(action, ...)` — actions: draft | create | update | promote_draft | read_draft | list_drafts",
-    "- `profileFiles(action, file, content?, oldText?, newText?, autoBootstrap?)` — action: read | bootstrap | write | edit; file: BOT.md | SOUL.md | USER.md | TOOLS.md | IDENTITY.md | SONG.md",
     "- `attach(file_path)` — send local file through active channel",
     "- `bash(command)` — shell execution in scratch directory",
     "",

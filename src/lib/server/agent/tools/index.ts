@@ -67,6 +67,30 @@ function createDeferredToolStub(options: {
   };
 }
 
+function createDeferredToolEntry(options: {
+  name: string;
+  description: string;
+  keywords: string[];
+  tool: AgentTool<any>;
+  loadDeferredTools: (toolNames: string[]) => string[];
+}): { entry: DeferredToolEntry; stub: AgentTool<typeof deferredToolStubSchema> } {
+  return {
+    entry: {
+      name: options.name,
+      label: options.name,
+      description: options.description,
+      keywords: options.keywords,
+      tool: options.tool
+    },
+    stub: createDeferredToolStub({
+      name: options.name,
+      description: `Deferred lightweight entry for ${options.name}. Prefer toolSearch first for full schema; if called with valid parameters, this delegates to the real ${options.name} tool.`,
+      delegateTool: options.tool,
+      loadDeferredTools: options.loadDeferredTools
+    })
+  };
+}
+
 export function createMomTools(options: {
   channel: string;
   cwd: string;
@@ -89,35 +113,26 @@ export function createMomTools(options: {
     chatId: options.chatId,
     timezone: options.timezone
   }));
-  const deferredTools: DeferredToolEntry[] = [
-    {
-      name: "createEvent",
-      label: "createEvent",
-      description: "Schedule one-shot, recurring, or immediate messages and reminders.",
-      keywords: [
-        "create",
-        "event",
-        "events",
-        "schedule",
-        "scheduling",
-        "reminder",
-        "remind",
-        "recurring",
-        "periodic",
-        "cron",
-        "timer",
-        "later",
-        "tomorrow"
-      ],
-      tool: createEventRuntimeTool
-    }
-  ];
+  const switchModelRuntimeTool = wrapSerializedTool(createSwitchModelTool({
+    getSettings: options.getSettings,
+    updateSettings: options.updateSettings
+  }));
+  const skillManageRuntimeTool = wrapSerializedTool(createSkillManageTool({
+    workspaceDir: options.workspaceDir,
+    chatId: options.chatId
+  }));
+  const profileFilesRuntimeTool = wrapSerializedTool(createProfileFilesTool({
+    channel: options.channel,
+    workspaceDir: options.workspaceDir,
+    getSettings: options.getSettings
+  }));
 
   const featureTools = createFeaturePluginTools({
     getSettings: options.getSettings
   }).map((tool) => wrapSerializedTool(tool));
 
   let tools: AgentTool<any>[] = [];
+  let deferredTools: DeferredToolEntry[] = [];
   const getActiveTools = (): AgentTool<any>[] => [
     ...deferredTools
       .filter((entry) => loadedDeferredToolNames.has(entry.name))
@@ -149,9 +164,54 @@ export function createMomTools(options: {
     return loaded;
   };
 
+  const deferredEntries = [
+    createDeferredToolEntry({
+      name: "createEvent",
+      description: "Schedule one-shot, recurring, or immediate messages and reminders.",
+      keywords: [
+        "create",
+        "event",
+        "events",
+        "schedule",
+        "scheduling",
+        "reminder",
+        "remind",
+        "recurring",
+        "periodic",
+        "cron",
+        "timer",
+        "later",
+        "tomorrow"
+      ],
+      tool: createEventRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "switchModel",
+      description: "List configured runtime model options or safely switch the active model route.",
+      keywords: ["switch", "model", "models", "route", "routing", "provider", "settings"],
+      tool: switchModelRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "skillManage",
+      description: "Draft, create, update, list, read, or promote reusable skills.",
+      keywords: ["skill", "skills", "draft", "workflow", "promote", "create", "update", "manage"],
+      tool: skillManageRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "profileFiles",
+      description: "Read, bootstrap, write, or edit bot profile markdown files with parent fallback.",
+      keywords: ["profile", "profiles", "bot", "soul", "identity", "tools", "user", "file", "files", "markdown"],
+      tool: profileFilesRuntimeTool,
+      loadDeferredTools
+    })
+  ];
+  deferredTools = deferredEntries.map((item) => item.entry);
+
   tools = [
     createMemoryTool({ memory: options.memory, channel: options.channel, chatId: options.chatId }),
-    createSwitchModelTool({ getSettings: options.getSettings, updateSettings: options.updateSettings }),
     createSkillSearchTool({
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,
@@ -162,19 +222,7 @@ export function createMomTools(options: {
       getDeferredTools: () => deferredTools,
       loadDeferredTools
     }),
-    createDeferredToolStub({
-      name: "createEvent",
-      description:
-        "Deferred lightweight entry for createEvent. Prefer toolSearch first for full schema; if called with valid scheduling parameters, this delegates to the real createEvent tool.",
-      delegateTool: createEventRuntimeTool,
-      loadDeferredTools
-    }),
-    createSkillManageTool({ workspaceDir: options.workspaceDir, chatId: options.chatId }),
-    createProfileFilesTool({
-      channel: options.channel,
-      workspaceDir: options.workspaceDir,
-      getSettings: options.getSettings
-    }),
+    ...deferredEntries.map((item) => item.stub),
     createReadTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
     createBashTool(options.cwd),
     createEditTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
