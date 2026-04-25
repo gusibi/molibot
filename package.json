@@ -28,6 +28,7 @@
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@sinclair/typebox": "^0.34.49",
     "@types/ws": "^8.18.1",
+    "diff": "^8.0.2",
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
     "grammy": "^1.38.3",

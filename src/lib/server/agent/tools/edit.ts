@@ -1,5 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import * as Diff from "diff";
 import { execCommand, shellEscape } from "./helpers.js";
 import { createPathGuard, resolveToolPath } from "./path.js";
 
@@ -10,20 +11,74 @@ const editSchema = Type.Object({
   newText: Type.String()
 });
 
-function buildDiff(oldText: string, newText: string): string {
+export function buildDiff(oldText: string, newText: string, contextLines = 4): string {
   if (oldText === newText) return "(no changes)";
+
+  const parts = Diff.diffLines(oldText, newText);
   const oldLines = oldText.split("\n");
   const newLines = newText.split("\n");
+  const width = String(Math.max(oldLines.length, newLines.length)).length;
   const out: string[] = [];
-  const max = Math.max(oldLines.length, newLines.length);
 
-  for (let i = 0; i < max; i += 1) {
-    const before = oldLines[i];
-    const after = newLines[i];
-    if (before === after) continue;
-    const line = i + 1;
-    if (before !== undefined) out.push(`-${line} ${before}`);
-    if (after !== undefined) out.push(`+${line} ${after}`);
+  let oldLine = 1;
+  let newLine = 1;
+  let lastWasChange = false;
+
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i];
+    const rawLines = part.value.split("\n");
+    if (rawLines[rawLines.length - 1] === "") rawLines.pop();
+
+    if (part.added || part.removed) {
+      for (const line of rawLines) {
+        if (part.added) {
+          out.push(`+${String(newLine).padStart(width, " ")} ${line}`);
+          newLine += 1;
+        } else {
+          out.push(`-${String(oldLine).padStart(width, " ")} ${line}`);
+          oldLine += 1;
+        }
+      }
+      lastWasChange = true;
+      continue;
+    }
+
+    const nextPart = parts[i + 1];
+    const nextPartIsChange = Boolean(nextPart?.added || nextPart?.removed);
+
+    if (lastWasChange || nextPartIsChange) {
+      let linesToShow = rawLines;
+      let skipStart = 0;
+      let skipEnd = 0;
+
+      if (!lastWasChange) {
+        skipStart = Math.max(0, rawLines.length - contextLines);
+        linesToShow = rawLines.slice(skipStart);
+      }
+
+      if (!nextPartIsChange && linesToShow.length > contextLines) {
+        skipEnd = linesToShow.length - contextLines;
+        linesToShow = linesToShow.slice(0, contextLines);
+      }
+
+      if (skipStart > 0) out.push(` ${"".padStart(width, " ")} ...`);
+
+      for (const line of linesToShow) {
+        out.push(` ${String(oldLine).padStart(width, " ")} ${line}`);
+        oldLine += 1;
+        newLine += 1;
+      }
+
+      if (skipEnd > 0) out.push(` ${"".padStart(width, " ")} ...`);
+
+      oldLine += skipStart + skipEnd;
+      newLine += skipStart + skipEnd;
+    } else {
+      oldLine += rawLines.length;
+      newLine += rawLines.length;
+    }
+
+    lastWasChange = false;
   }
 
   return out.join("\n");
@@ -55,6 +110,10 @@ export function createEditTool(options: { cwd: string; workspaceDir: string }): 
       }
 
       const replaced = content.replace(params.oldText, params.newText);
+      if (content === replaced) {
+        throw new Error(`No changes made to ${params.path}; replacement produced identical content`);
+      }
+
       const writeResult = await execCommand(`printf '%s' ${shellEscape(replaced)} > ${shellEscape(filePath)}`, {
         cwd: options.cwd,
         signal
