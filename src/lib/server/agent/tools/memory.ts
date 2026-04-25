@@ -36,7 +36,7 @@ export function createMemoryTool(options: {
     name: "memory",
     label: "memory",
     description:
-      "Manage memory via gateway. Use this instead of reading/writing MEMORY.md files directly. WARNING: DO NOT use this tool for scheduling reminders or future tasks, use create_event tool instead.",
+      "Manage memory via gateway. Use this instead of reading/writing MEMORY.md files directly. WARNING: DO NOT use this tool for scheduling reminders or future tasks; use toolSearch to load createEvent first.",
     parameters: memorySchema,
     execute: async (_toolCallId, params) => {
       const action = params.action as MemoryAction;

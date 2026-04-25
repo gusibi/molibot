@@ -138,8 +138,8 @@ export function createProfileFilesTool(options: {
   getSettings: () => RuntimeSettings;
 }): AgentTool<typeof profileFileSchema> {
   return {
-    name: "profile_files",
-    label: "profile_files",
+    name: "profileFiles",
+    label: "profileFiles",
     description:
       "Manage bot profile markdown files (BOT/SOUL/USER/TOOLS/IDENTITY/SONG) with parent fallback (agent first, then global).",
     parameters: profileFileSchema,

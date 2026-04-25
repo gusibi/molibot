@@ -143,8 +143,8 @@ export function createCloudflareHtmlPublishTool(
   getSettings: () => RuntimeSettings
 ): AgentTool<typeof publishHtmlSchema> {
   return {
-    name: "publish_html",
-    label: "publish_html",
+    name: "publishHtml",
+    label: "publishHtml",
     description:
       "Upload a complete HTML document to the configured Cloudflare R2 bucket and return the public URL.",
     parameters: publishHtmlSchema,
@@ -153,7 +153,7 @@ export function createCloudflareHtmlPublishTool(
       const configError = ensureConfigured(settings);
       if (configError) throw new Error(configError);
       if (!isCompleteHtmlDocument(params.html)) {
-        throw new Error("publish_html requires a complete HTML document with <html>, <head>, and <body>.");
+        throw new Error("publishHtml requires a complete HTML document with <html>, <head>, and <body>.");
       }
 
       const fileName = `${randomUUID().replace(/-/g, "").slice(0, 20)}.html`;

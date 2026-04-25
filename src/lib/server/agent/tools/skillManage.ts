@@ -84,8 +84,8 @@ export function createSkillManageTool(options: {
   chatId: string;
 }): AgentTool<typeof skillManageSchema> {
   return {
-    name: "skill_manage",
-    label: "skill_manage",
+    name: "skillManage",
+    label: "skillManage",
     description:
       "Draft or save reusable skills. Prefer `draft` first for newly-discovered workflows. Do not create a live skill unless the workflow has been validated.",
     parameters: skillManageSchema,

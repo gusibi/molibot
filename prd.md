@@ -2844,3 +2844,33 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/routes/+page.svelte` 必须使用 `marked` 渲染 assistant Markdown，并只允许受控 HTML 标签和安全链接协议。
   - `package.json` / `package-lock.json` 必须把 `marked` 声明为 root 依赖。
   - `features.md` 必须记录本次 Markdown 与滚动体验修复。
+
+## 195. 本地工具必须支持延迟搜索加载以压缩启动上下文 (2026-04-25)
+- Priority: P1
+- Stage: Delivered (2026-04-25)
+- Problem:
+  - 本地工具越来越多时，全部默认暴露会把工具描述和配套 prompt 规则塞进每轮启动上下文。
+  - 事件/提醒能力很重要，但不是每轮都会用；当前完整 Events 说明默认加载，明显增加普通聊天的 token 成本。
+- Requirement:
+  - runtime 必须提供一个 `toolSearch` 元工具，用来搜索和加载默认未暴露的本地工具。
+  - 所有 Molibot 自定义工具名必须使用 camelCase，不能继续使用 snake_case，避免下划线被模型、Markdown 或供应商适配层吞掉。
+  - prompt 必须明确列出 `<available-deferred-tools>`，让模型知道可异步加载的工具名，而不是只靠自然语言猜。
+  - `toolSearch` 返回结果必须包含匹配工具的 `description/name/parameters` schema 表达，方便模型在同一轮之后按真实 schema 调用。
+  - 首批延迟工具至少覆盖 `createEvent`，提醒/计划/周期任务场景先搜索加载，再调用真实工具。
+  - 如果模型提前调用 deferred 工具名，运行时不能反复返回 `Tool ... not found` 或进入 `call again` 死循环；必须有轻量入口完成加载，并在参数足够时直接委托真实工具执行。
+  - 搜索必须识别 camelCase 工具名拆词，`create event` 和 `createEvent` 都应命中同一个 deferred 工具。
+  - deferred tool 搜索和加载必须有足够日志，能看清 query 如何 normalize、匹配了哪些候选、为什么命中/没命中、最终是否加载进 active tool set。
+  - 延迟加载必须发生在 Agent 共享上层，不放到 Channel 层；新增渠道不需要为该能力改各自 runtime。
+  - prompt 中只保留必要路由规则，具体工具 schema/说明由延迟加载后的工具描述提供。
+  - 从启动 prompt 移除的事件详细规则必须迁入 `createEvent` 自身描述，不能因为 deferred 化而丢失行为约束。
+- Enforcement:
+  - `src/lib/server/agent/tools/toolSearch.ts` 必须实现 deferred tool 搜索和加载返回，支持 `select:a,b` 与 `+required` 查询形式。
+  - `src/lib/server/agent/tools/index.ts` 必须把 `createEvent` 从默认工具列表移入 deferred registry。
+  - `src/lib/server/agent/tools/index.ts` 必须提供轻量 deferred entry，防止模型提前调用 deferred 工具时报 not found；由于 pi-agent-core 会在 run 开始时快照 tools，该 entry 必须能在同一 run 内委托真实工具执行。
+  - `src/lib/server/agent/tools/toolSearch.ts` 的匹配逻辑必须把 camelCase 拆成可搜索词。
+  - `src/lib/server/agent/tools/toolSearch.ts` 和 `src/lib/server/agent/tools/index.ts` 必须记录搜索解析、候选评分、加载前后状态和 active tool names。
+  - `src/lib/server/agent/tools/event.ts` 必须承载 event 类型、delivery、cron、禁止 shell scheduler、成功原样回复、失败不声称成功、周期 `[SILENT]` 等工具级说明。
+  - `src/lib/server/agent/runner.ts` 必须在 deferred 工具加载后刷新当前 agent 的本地工具列表，同时保留已加载 MCP 工具。
+  - `src/lib/server/agent/prompt.ts` 必须移除默认 Events 长说明，加入 `<available-deferred-tools>` 与 ToolSearch 协议，只保留 `toolSearch -> createEvent` 的执行规则。
+  - `src/lib/server/agent/toolPolicy.ts` 和所有插件工具声明必须同步使用 camelCase 工具名。
+  - `features.md` 必须记录本次能力落地。

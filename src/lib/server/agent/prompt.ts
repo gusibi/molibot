@@ -179,15 +179,15 @@ function buildMessageProcessingPipeline(): string {
 
     "Step 0 — Skill Routing (mandatory, always execute first)",
     "  a) Explicit Invocation: (`/skill-name`, `$skill-name`, `skill:skill-name`) → unconditionally execute that skill.",
-    "  b) For any non-trivial action request (tool use, bash, network lookup, media generation, scripting, workflow execution), call `skill_search` before generic tools.",
-    "  c) If `skill_search` returns a matching skill, read that skill's `SKILL.md` and follow it before considering manual alternatives.",
-    "  d) If `skill_search` returns no match, continue to generic tools or a direct answer as appropriate.",
+    "  b) For any non-trivial action request (tool use, bash, network lookup, media generation, scripting, workflow execution), call `skillSearch` before generic tools.",
+    "  c) If `skillSearch` returns a matching skill, read that skill's `SKILL.md` and follow it before considering manual alternatives.",
+    "  d) If `skillSearch` returns no match, continue to generic tools or a direct answer as appropriate.",
 
     "Step 1 — Tool Match (Fallback for local workspace tasks)",
     "Only proceed here if NO SKILL matched. Use the Tool Priority Table to select a dedicated tool (read, write, bash). Remember: `bash` is for local file manipulation or executing valid scripts, not for reinventing existing Skills.",
 
     "Step 2 — Freshness & Verification",
-    "If you are processing time-sensitive info, and you bypassed Step 0 because you thought you knew the answer, STOP. Go back to Step 0 and run `skill_search` for a search/real-time skill. Never present stale knowledge as current fact.",
+    "If you are processing time-sensitive info, and you bypassed Step 0 because you thought you knew the answer, STOP. Go back to Step 0 and run `skillSearch` for a search/real-time skill. Never present stale knowledge as current fact.",
 
     "Step 3 — Direct Answer",
     "Only if the request is a simple conversational reply, formatting task, or static knowledge query that requires NO external data and NO media generation.",
@@ -293,14 +293,14 @@ function buildSkillRoutingSection(): string {
   return section("Skill Routing (Mandatory)", [
     "- Treat installed skills as first-class capabilities, not optional examples.",
     "- Route by the user's desired outcome and output format, not only remembered examples or exact keywords.",
-    "- Before using generic tools or a manual workaround, run `skill_search` when the request may require a reusable skill or non-text action.",
+    "- Before using generic tools or a manual workaround, run `skillSearch` when the request may require a reusable skill or non-text action.",
     "- If the user wants a specific output medium or artifact and a skill supports it, deliver in that medium/artifact. Do not silently downgrade unless the skill actually failed.",
     "- Explicit skill invocation is the strongest signal, but lack of explicit invocation is NOT a reason to ignore a clearly matching skill.",
     "- If the user invokes a skill via slash form, treat that as an authoritative skill-selection command, not as a normal chat command.",
     "- When `[explicit skill invocation]` is present, use the listed `skill_file` path exactly as provided. Do not guess a different path from memory, old examples, or folder naming habits.",
     "- When `[explicit skill file]` is present, treat that file content as already-loaded runtime context for this turn and follow it before inventing manual alternatives.",
     "- If an explicitly-invoked skill cannot be found at the provided path, say that exact path is missing instead of inventing a replacement path.",
-    "- If `skill_search` returns multiple skills, choose the one that matches the requested end result most directly, not the one that is merely related or easier.",
+    "- If `skillSearch` returns multiple skills, choose the one that matches the requested end result most directly, not the one that is merely related or easier.",
     "- If a skill attempt fails, say that the attempt failed, briefly state why, and then choose the best fallback. Never skip straight to the fallback without trying the skill.",
   ], "skill-routing");
 }
@@ -324,7 +324,7 @@ function buildSkillsProtocolSection(vars: PromptRenderVars): string {
     "- Follow instructions in `SKILL.md` exactly. Resolve relative paths against the skill directory.",
     "- If a skill fails, report the actual failure and why, then fall back. Do not skip the skill silently.",
     "- If two skills overlap, pick the one whose description most directly matches the requested end result.",
-    "- After a difficult task succeeds and no suitable skill existed yet, prepare a reusable draft with `skill_manage` instead of silently losing the workflow.",
+    "- After a difficult task succeeds and no suitable skill existed yet, prepare a reusable draft with `skillManage` instead of silently losing the workflow.",
     "- Default to saving a draft first. Do not create or overwrite a live skill unless the workflow is already validated or the user clearly asked for it.",
   ].join("\n"));
 }
@@ -339,49 +339,41 @@ function buildFeaturePluginsSection(settings: RuntimeSettings | undefined): stri
   return xmlBlock("feature-plugins", ["## Installed Feature Plugins", ...sections].join("\n\n"));
 }
 
+function buildAvailableDeferredToolsSection(): string {
+  return xmlBlock("available-deferred-tools", [
+    "createEvent"
+  ].join("\n"));
+}
+
+function buildToolSearchProtocolSection(): string {
+  return [
+    "## ToolSearch",
+    "",
+    "Fetches full schema definitions for deferred tools so they can be called.",
+    "",
+    "Deferred tools appear by name in <available-deferred-tools> messages. Until fetched, only the name is known — there is no parameter schema, so the tool cannot be invoked. This tool takes a query, matches it against the deferred tool list, loads the matched tools into the active tool set, and returns the matched tools' complete JSONSchema definitions inside a <functions> block. Once a tool's schema appears in that result, it is callable exactly like any tool defined at the top of the prompt.",
+    "",
+    "Result format: each matched tool appears as one <function>{\"description\":\"...\",\"name\":\"...\",\"parameters\":{...}}</function> line inside the <functions> block.",
+    "",
+    "Query forms:",
+    "- `select:createEvent` — fetch this exact tool by name",
+    "- `select:createEvent,anotherTool` — fetch multiple exact tools by name",
+    "- `event schedule reminder` — keyword search, up to maxResults best matches",
+    "- `+event schedule` — require `event` in the tool name, rank by remaining terms",
+  ].join("\n");
+}
+
 function buildEventsSection(vars: PromptRenderVars): string {
   return xmlBlock("events", [
     "## Events",
-    "Use the `create_event` tool to schedule messages. Never write event JSON files manually via bash or write tool.",
-    "",
-    "### Event Types",
-    "- `one-shot`: fires once at a specific datetime (for reminders). Requires `at` as ISO-8601 with timezone offset.",
-    "- `periodic`: fires on a cron schedule. Requires `schedule` (5 fields) and optionally `timezone`.",
-    "- `immediate`: fires as soon as it is created.",
-    "",
-    "### Event Delivery Mode",
-    '- `delivery: "text"`: send `text` directly to the user (literal delivery). Use for plain reminders.',
-    '- `delivery: "agent"`: run AI with `text` as the task instruction. Use for recurring summaries or actions.',
-    '- Defaults: `one-shot`/`immediate` → `"text"`, `periodic` → `"agent"`.',
-    "",
-    "### Cron Format (`schedule` field)",
-    "`minute hour day-of-month month day-of-week`",
-    "- `0 9 * * *` = daily at 9:00",
-    "- `0 9 * * 1-5` = weekdays at 9:00",
-    "- `30 14 * * 1` = Mondays at 14:30",
-    "",
-    "### Time Rules",
-    '- Any "N minutes/hours later" or "remind me at" request MUST use `create_event` with `type: one-shot`.',
-    '- Any recurring request ("every day", "every weekday", "each morning") MUST use `create_event` with `type: periodic`.',
+    "`createEvent` is a deferred tool. For reminders, timers, scheduled messages, recurring summaries, or event management, call `toolSearch` with `query=\"event schedule reminder\"` first, then call `createEvent` after it is loaded.",
     "- NEVER implement delays via shell `sleep`, `crontab`, `at`, `launchctl`, or memory.",
-    '- `at` must be a future ISO-8601 timestamp with timezone offset. If `create_event` rejects with "at must be in the future", recompute and retry.',
-    "- When `create_event` succeeds, the tool will return the exact confirmation text. You MUST reply to the user using EXACTLY that text without any modifications, translations, or summaries.",
-    "- If `create_event` fails, say scheduling failed. Do not claim the reminder is set.",
-    "",
-    "### Managing Events",
-    "- Inspect event files only when the user explicitly asks to audit runtime event state.",
-    `- View event files with \`read\` first; use shell commands only if no dedicated tool can access the file you need.`,
-    "- Update periodic: call `create_event` again with the same `schedule` + `timezone`; runtime will update the existing task instead of creating a duplicate.",
-    `- Cancel by deleting the corresponding file under \`${vars.workspaceEventsDir}\` only when the user asked to cancel and there is no dedicated cancel tool for that action.`,
-    "",
-    "### Event lifecycle",
-    "- one-shot/immediate files are retained after execution with updated status (state/completedAt/runCount/reason).",
-    "- periodic files persist until manually deleted.",
-    "",
-    "### Silent completion",
+    "- Use `one-shot` for a single future datetime, `periodic` for cron-like recurring tasks, and `immediate` only when an event file should fire as soon as the watcher sees it.",
+    "- For one-shot events, `at` must be a future ISO-8601 timestamp with timezone offset.",
+    "- When `createEvent` succeeds, the tool will return the exact confirmation text. You MUST reply to the user using EXACTLY that text without any modifications, translations, or summaries.",
+    "- If `createEvent` fails, say scheduling failed. Do not claim the reminder is set.",
+    `- Inspect event files under \`${vars.workspaceEventsDir}\` only when the user explicitly asks to audit runtime event state.`,
     "For periodic events with nothing actionable, respond with exactly `[SILENT]`.",
-    "",
-    "### Debouncing",
     "When automations may emit many immediate events, debounce and summarize into one event rather than flooding.",
   ].join("\n"));
 }
@@ -442,21 +434,22 @@ function buildToolsSection(): string {
     "| Read files | `read` | bash cat/head/tail |",
     "| Create/overwrite files | `write` | bash echo/cat heredoc |",
     "| Edit existing files | `edit` | bash sed/awk |",
-    "| Manage bot profile files | `profile_files` | manual path guessing + bash edits |",
-    "| Schedule/remind | `create_event` | bash sleep/crontab/at |",
+    "| Manage bot profile files | `profileFiles` | manual path guessing + bash edits |",
+    "| Schedule/remind | `toolSearch` then `createEvent` | bash sleep/crontab/at |",
     "| Memory operations | `memory` | direct read/write MEMORY.md |",
-    "| Search installed skills | `skill_search` | guessing from memory or prompt alone |",
-    "| Draft/save reusable skills | `skill_manage` | ad-hoc notes in random files |",
+    "| Search installed skills | `skillSearch` | guessing from memory or prompt alone |",
+    "| Search deferred tools | `toolSearch` | assuming every tool is already loaded |",
+    "| Draft/save reusable skills | `skillManage` | ad-hoc notes in random files |",
     "| Send file to user | `attach` | bash echo redirect |",
-    "| Load MCP servers | `load_mcp` | only in explicit MCP scenarios |",
+    "| Load MCP servers | `loadMcp` | only in explicit MCP scenarios |",
     "| Shell commands (last resort) | `bash` | — |",
     "",
     "### Tool Parameters",
     "- `memory(operation, key?, value?, query?)` — operations: add, search, list, update, delete, flush, sync",
-    "- `skill_search(intent, maxResults?)` — find matching installed skills before generic tools",
-    "- `skill_manage(action, ...)` — actions: draft | create | update | promote_draft | read_draft | list_drafts",
-    "- `profile_files(action, file, content?, oldText?, newText?, autoBootstrap?)` — action: read | bootstrap | write | edit; file: BOT.md | SOUL.md | USER.md | TOOLS.md | IDENTITY.md | SONG.md",
-    "- `create_event(type, chatId, text, delivery?, at?, schedule?, timezone?)` — type: one-shot | periodic | immediate",
+    "- `skillSearch(intent, maxResults?)` — find matching installed skills before generic tools",
+    "- `toolSearch(query, maxResults?)` — find and load deferred tools before calling them",
+    "- `skillManage(action, ...)` — actions: draft | create | update | promote_draft | read_draft | list_drafts",
+    "- `profileFiles(action, file, content?, oldText?, newText?, autoBootstrap?)` — action: read | bootstrap | write | edit; file: BOT.md | SOUL.md | USER.md | TOOLS.md | IDENTITY.md | SONG.md",
     "- `attach(file_path)` — send local file through active channel",
     "- `bash(command)` — shell execution in scratch directory",
     "",
@@ -477,7 +470,7 @@ function buildMcpAccessSection(settings?: RuntimeSettings): string {
     "- Allowed MCP scenarios only:",
     "  1. User explicitly asks to use MCP (for example: '使用MCP', '加载MCP', 'use MCP').",
     "  2. User explicitly invokes a skill (`$skill-name`, `/skill skill-name`, `/skill-name`, `skill:skill-name`, `技能:skill-name`) and that skill itself declares MCP dependency.",
-    "- Do not call `load_mcp` outside these two scenarios.",
+    "- Do not call `loadMcp` outside these two scenarios.",
     "- Skill name is not MCP server id. Never assume `serverId = skill name`.",
     "- Skill files do not require any special MCP frontmatter fields.",
     "- If a task requires MCP but the required MCP server/tool is unavailable, clearly report the missing MCP server/tool in your response.",
@@ -517,6 +510,10 @@ function buildBaseSystemPromptWithOptions(
     ...(options?.settings ? ["", buildFeaturePluginsSection(options.settings)] : []),
     "",
     // --- Tools (used only when no skill matched) ---
+    buildAvailableDeferredToolsSection(),
+    "",
+    buildToolSearchProtocolSection(),
+    "",
     buildToolsSection(),
     "",
     // --- Behavioral constraints ---

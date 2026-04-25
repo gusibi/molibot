@@ -552,7 +552,7 @@ function hasExplicitMcpInvocation(inputText: string): boolean {
 
   const lower = text.toLowerCase();
   const directPatterns = [
-    /\bload_mcp\b/i,
+    /\bloadMcp\b/i,
     /(?:^|\s)\/mcp(?:\s|$)/i
   ];
   if (directPatterns.some((pattern) => pattern.test(lower))) {
@@ -1640,6 +1640,7 @@ export class MomRunner implements RunnerLike {
     };
 
     let localTools: ReturnType<typeof createMomTools> = [];
+    let loadedMcpTools: Awaited<ReturnType<typeof getMcpToolsForRuntime>> = [];
     const refreshLoadedMcpTools = async (): Promise<{ serverCount: number; toolCount: number }> => {
       const scoped = resolveScopedMcpServers();
       const mcpTools = await getMcpToolsForRuntime(scoped, {
@@ -1653,6 +1654,7 @@ export class MomRunner implements RunnerLike {
           });
         }
       });
+      loadedMcpTools = mcpTools;
       this.agent.state.tools = [...localTools, ...mcpTools];
       return {
         serverCount: scoped.length,
@@ -1676,6 +1678,10 @@ export class MomRunner implements RunnerLike {
         this.selectedMcpServerIds = new Set(next);
       },
       refreshLoadedMcpTools,
+      onLocalToolsChanged: (nextTools) => {
+        localTools = nextTools;
+        this.agent.state.tools = [...localTools, ...loadedMcpTools];
+      },
       exposeLoadMcpTool,
       uploadFile: async (filePath, title, text) => {
         await ctx.uploadFile(filePath, title, text);
@@ -1694,6 +1700,7 @@ export class MomRunner implements RunnerLike {
         });
       }
     });
+    loadedMcpTools = mcpTools;
     momLog("runner", "mcp_tools_loaded", {
       runId,
       chatId: this.chatId,

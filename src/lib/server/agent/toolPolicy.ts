@@ -9,12 +9,12 @@ const SERIALIZED_TOOL_NAMES = new Set([
   "bash",
   "edit",
   "write",
-  "switch_model",
-  "profile_files",
-  "load_mcp",
-  "create_event",
+  "switchModel",
+  "profileFiles",
+  "loadMcp",
+  "createEvent",
   "attach",
-  "publish_html"
+  "publishHtml"
 ]);
 
 const SERIALIZED_MEMORY_ACTIONS = new Set(["add", "update", "delete", "flush", "sync", "compact"]);
@@ -129,7 +129,7 @@ export function validateToolCallPreflight(
   if (toolName === "memory") {
     const action = String(args.action ?? "").trim().toLowerCase();
     if ((action === "add" || action === "update") && typeof args.content === "string" && matchesReminderIntent(args.content)) {
-      return "Scheduling or reminder-like content should use the create_event tool, not memory.";
+      return "Scheduling or reminder-like content should use toolSearch to load createEvent, not memory.";
     }
   }
 

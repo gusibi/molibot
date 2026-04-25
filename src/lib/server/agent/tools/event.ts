@@ -89,14 +89,19 @@ export function createEventTool(options: {
     workspaceDir: string;
     chatId: string;
     timezone: string;
+    name?: string;
+    label?: string;
+    descriptionPrefix?: string;
 }): AgentTool<typeof eventSchema> {
     const eventsDir = resolve(options.workspaceDir, "events");
 
     return {
-        name: "create_event",
-        label: "create_event",
+        name: options.name ?? "createEvent",
+        label: options.label ?? options.name ?? "createEvent",
         description: [
-            "Schedule a message to be sent at a specific time or on a recurring schedule.",
+            options.descriptionPrefix,
+            "Schedule a message to be sent at a specific time or on a recurring schedule. Use this tool for reminders, timers, scheduled messages, recurring summaries, and immediate watched-event tasks.",
+            "Never create event JSON files manually with bash/write/edit. Never implement delays with shell sleep, crontab, at, launchctl, schtasks, or memory.",
             "For periodic events, calling this again with the same chatId + schedule + timezone will update the existing task instead of creating duplicates.",
             "",
             "Types:",
@@ -104,12 +109,30 @@ export function createEventTool(options: {
             "- periodic: fires repeatedly on a cron 'schedule' (5 fields: min hour day month weekday)",
             "- immediate: fires as soon as the event file is processed",
             "",
-            "Use 'text' delivery for simple reminders. Use 'agent' to let the AI elaborate on the message.",
+            "Delivery:",
+            "- text: send the text directly to the user. Use for plain reminders.",
+            "- agent: run AI with the text as the task instruction. Use for recurring summaries or actions.",
+            "- Defaults: one-shot/immediate -> text; periodic -> agent.",
+            "",
+            "Cron format:",
+            "- schedule is 'minute hour day-of-month month day-of-week'.",
+            "- 0 9 * * * = daily at 09:00.",
+            "- 0 9 * * 1-5 = weekdays at 09:00.",
+            "- 30 14 * * 1 = Mondays at 14:30.",
+            "",
+            "Rules:",
+            "- Any relative or absolute reminder request should use type=one-shot with a future 'at' timestamp that includes a timezone offset.",
+            "- Any recurring request should use type=periodic with schedule and timezone.",
+            "- If a one-shot call fails because 'at' is not in the future, recompute using the current local time shown in the error and retry once.",
+            "- When this tool succeeds, reply to the user using exactly the confirmation text returned by the tool, with no modifications, translations, or summaries.",
+            "- If this tool fails, say scheduling failed. Do not claim the reminder is set.",
+            "- For periodic events with nothing actionable when they fire, respond with exactly [SILENT].",
+            "- When automations may emit many immediate events, debounce and summarize into one event rather than flooding.",
             "",
             "Examples:",
             `  type=one-shot, at="2026-03-01T09:00:00+08:00", text="Morning standup reminder"`,
             `  type=periodic, schedule="0 9 * * 1-5", timezone="${options.timezone}", text="Daily standup"`
-        ].join("\n"),
+        ].filter(Boolean).join("\n"),
         parameters: eventSchema,
         execute: async (_toolCallId, params) => {
             const tz = options.timezone;

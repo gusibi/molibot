@@ -219,12 +219,12 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
     execute: async (_toolCallId, params, signal) => {
       if (isDeferredWaitCommand(params.command)) {
         throw new Error(
-          "Waiting/sleep commands are not allowed. For delayed reminders, create a one-shot event file under a watched events directory."
+          "Waiting/sleep commands are not allowed. For delayed reminders, use toolSearch to load createEvent, then create a one-shot event."
         );
       }
       if (touchesExternalScheduler(params.command)) {
         throw new Error(
-          "External schedulers (crontab/at/launchctl/schtasks) are not allowed. Use watched event JSON files for all reminders and recurring tasks."
+          "External schedulers (crontab/at/launchctl/schtasks) are not allowed. Use toolSearch to load createEvent for reminders and recurring tasks."
         );
       }
       if (touchesMemoryFiles(params.command)) {
@@ -234,7 +234,7 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
       }
       if (touchesSettingsFile(params.command)) {
         throw new Error(
-          "Direct runtime settings-file operations are blocked. Use the switch_model tool or a settings API/runtime update path instead of editing settings.json."
+          "Direct runtime settings-file operations are blocked. Use the switchModel tool or a settings API/runtime update path instead of editing settings.json."
         );
       }
 

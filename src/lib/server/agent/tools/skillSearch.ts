@@ -243,8 +243,8 @@ export function createSkillSearchTool(options: {
   getSettings: () => RuntimeSettings;
 }): AgentTool<typeof skillSearchSchema> {
   return {
-    name: "skill_search",
-    label: "skill_search",
+    name: "skillSearch",
+    label: "skillSearch",
     description:
       "Search installed skills before using generic tools. Use this for non-trivial tasks that may require a reusable skill, external search, media generation, scripting, or workflow execution.",
     parameters: skillSearchSchema,

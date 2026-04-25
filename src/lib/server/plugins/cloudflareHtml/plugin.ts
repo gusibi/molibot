@@ -118,7 +118,7 @@ export const cloudflareHtmlFeaturePlugin: BuiltInFeaturePlugin = {
     }
     return [
       "## Installed Feature Plugin: Cloudflare HTML Publish",
-      "- When you finish a complete HTML page and the user expects a shareable link, call `publish_html` before your final answer.",
+      "- When you finish a complete HTML page and the user expects a shareable link, call `publishHtml` before your final answer.",
       "- Only upload complete documents that include `<html>`, `<head>`, and `<body>`.",
       `- Public link mode: ${plugin.accessMode === "direct" ? "Direct R2" : "Worker"}`,
       `- Successful uploads become public at: ${publicPattern}`,

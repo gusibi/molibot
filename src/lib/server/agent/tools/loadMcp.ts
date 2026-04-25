@@ -41,8 +41,8 @@ export function createLoadMcpTool(options: {
   refreshLoadedMcpTools: () => Promise<{ serverCount: number; toolCount: number }>;
 }): AgentTool<typeof loadMcpSchema> {
   return {
-    name: "load_mcp",
-    label: "load_mcp",
+    name: "loadMcp",
+    label: "loadMcp",
     description: "List/load/unload MCP servers for this chat session. Use this when you need a specific MCP server. If server is missing or disabled, this tool throws a clear error.",
     parameters: loadMcpSchema,
     execute: async (_toolCallId, params) => {
@@ -111,4 +111,3 @@ export function createLoadMcpTool(options: {
     }
   };
 }
-

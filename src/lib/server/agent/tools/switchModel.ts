@@ -44,8 +44,8 @@ export function createSwitchModelTool(options: {
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
 }): AgentTool<typeof switchModelSchema> {
   return {
-    name: "switch_model",
-    label: "switch_model",
+    name: "switchModel",
+    label: "switchModel",
     description: "List configured runtime model options or safely switch the active route via runtime settings. Use this instead of editing settings files directly.",
     parameters: switchModelSchema,
     execute: async (_toolCallId, params) => {
