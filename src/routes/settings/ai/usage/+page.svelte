@@ -3,10 +3,23 @@
     import PageShell from "$lib/ui/PageShell.svelte";
 
     type TimeRange = "today" | "yesterday" | "last7Days" | "last30Days";
-    type ViewMode = "chart" | "list";
 
     interface UsageTotals {
         requests: number;
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
+        totalTokens: number;
+    }
+
+    interface AiUsageRecord {
+        ts: string;
+        channel: string;
+        botId: string;
+        provider: string;
+        model: string;
+        api: string;
         inputTokens: number;
         outputTokens: number;
         cacheReadTokens: number;
@@ -44,6 +57,7 @@
     interface UsageStatsResponse {
         timezone: string;
         generatedAt: string;
+        records: AiUsageRecord[];
         totals: UsageTotals;
         windows: {
             today: WindowSummary;
@@ -58,40 +72,35 @@
         };
     }
 
+    interface TrendPoint {
+        key: string;
+        label: string;
+        totals: UsageTotals;
+    }
+
+    interface RankedRow extends UsageTotals {
+        id: string;
+        label: string;
+        sublabel?: string;
+    }
+
+    const emptyTotals = (): UsageTotals => ({
+        requests: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 0,
+    });
+
     let usageLoading = true;
     let usageError = "";
     let usageStats: UsageStatsResponse | null = null;
 
-    let selectedRange: TimeRange = "last30Days";
-    let viewMode: ViewMode = "chart";
+    let selectedRange: TimeRange = "today";
     let selectedModelId: "all" | string = "all";
     let selectedBotId: "all" | string = "all";
-
-    function formatNumber(value: number): string {
-        return new Intl.NumberFormat("en-US").format(value ?? 0);
-    }
-
-    function topModels(
-        models: ModelUsageSummary[],
-        limit = 5,
-    ): ModelUsageSummary[] {
-        return models.slice(0, limit);
-    }
-
-    function windowTitle(range: TimeRange): string {
-        switch (range) {
-            case "today":
-                return "Today";
-            case "yesterday":
-                return "Yesterday";
-            case "last7Days":
-                return "Last 7 Days";
-            case "last30Days":
-                return "Last 30 Days";
-            default:
-                return "Selected Period";
-        }
-    }
+    let selectedChannel: "all" | string = "all";
 
     async function loadUsage() {
         usageLoading = true;
@@ -103,8 +112,7 @@
                 throw new Error(text || res.statusText);
             }
             const data = await res.json();
-            if (!data.ok)
-                throw new Error(data.error || "Failed to fetch usage");
+            if (!data.ok) throw new Error(data.error || "Failed to fetch usage");
             usageStats = data.stats as UsageStatsResponse;
         } catch (e) {
             usageError = e instanceof Error ? e.message : String(e);
@@ -115,862 +123,1134 @@
 
     onMount(loadUsage);
 
-    $: availableModels = getAvailableModels(usageStats);
-    $: availableBots = getAvailableBots(usageStats);
-
-    function getAvailableModels(
-        stats: UsageStatsResponse | null,
-    ): { id: string; label: string }[] {
-        if (!stats) return [];
-        const unique = new Map<string, string>();
-        for (const m of stats.windows.last30Days.models) {
-            const id = `${m.provider}::${m.model}`;
-            unique.set(id, `${m.provider} / ${m.model}`);
-        }
-        return Array.from(unique.entries())
-            .map(([id, label]) => ({ id, label }))
-            .sort((a, b) => a.label.localeCompare(b.label));
+    function addTotals(target: UsageTotals, record: AiUsageRecord): void {
+        target.requests += 1;
+        target.inputTokens += record.inputTokens;
+        target.outputTokens += record.outputTokens;
+        target.cacheReadTokens += record.cacheReadTokens;
+        target.cacheWriteTokens += record.cacheWriteTokens;
+        target.totalTokens += record.totalTokens;
     }
 
-    function getAvailableBots(
-        stats: UsageStatsResponse | null,
-    ): { id: string; label: string }[] {
-        if (!stats) return [];
-        return stats.windows.last30Days.bots
-            .map((row) => ({ id: row.botId, label: row.botId }))
-            .sort((a, b) => a.label.localeCompare(b.label));
+    function formatNumber(value: number): string {
+        return new Intl.NumberFormat("en-US").format(value ?? 0);
     }
 
-    $: currentWindow = computeWindow(
-        usageStats,
-        selectedRange,
-        selectedModelId,
-        selectedBotId,
-    );
+    function formatCompact(value: number): string {
+        if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+        if (value >= 10_000) return `${(value / 1_000).toFixed(1)}K`;
+        return formatNumber(value);
+    }
 
-    function computeWindow(
-        stats: UsageStatsResponse | null,
-        range: TimeRange,
-        modelId: "all" | string,
-        botId: "all" | string,
-    ): WindowSummary | null {
-        if (!stats) return null;
-        const win = stats.windows[range];
-        if (modelId === "all" && botId === "all") return win;
+    function formatDateTime(value: string): string {
+        return new Intl.DateTimeFormat("zh-CN", {
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+        }).format(new Date(value));
+    }
 
-        if (botId !== "all") {
-            const botStats = win.bots.find((b) => b.botId === botId);
-            if (botStats) {
-                return {
-                    ...win,
-                    totals: { ...botStats },
-                    models: [],
-                    bots: [botStats],
-                };
-            }
-            return {
-                ...win,
-                totals: {
-                    requests: 0,
-                    inputTokens: 0,
-                    outputTokens: 0,
-                    cacheReadTokens: 0,
-                    cacheWriteTokens: 0,
-                    totalTokens: 0,
-                },
-                models: [],
-                bots: [],
-            };
+    function localDateKey(value: string | Date, timeZone: string): string {
+        const date = typeof value === "string" ? new Date(value) : value;
+        return new Intl.DateTimeFormat("en-CA", {
+            timeZone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }).format(date);
+    }
+
+    function localHour(value: string, timeZone: string): string {
+        return new Intl.DateTimeFormat("en-US", {
+            timeZone,
+            hour: "2-digit",
+            hourCycle: "h23",
+            hour12: false,
+        }).format(new Date(value));
+    }
+
+    function shiftDateKey(dateKey: string, deltaDays: number): string {
+        const [year, month, day] = dateKey.split("-").map(Number);
+        const shifted = new Date(Date.UTC(year, month - 1, day + deltaDays));
+        return shifted.toISOString().slice(0, 10);
+    }
+
+    function dateRange(startDate: string, endDate: string): string[] {
+        const out: string[] = [];
+        let cursor = startDate;
+        while (cursor <= endDate) {
+            out.push(cursor);
+            cursor = shiftDateKey(cursor, 1);
         }
+        return out;
+    }
 
-        const [provider, modelName] = modelId.split("::");
-        const modelStats = win.models.find(
-            (m) => m.provider === provider && m.model === modelName,
-        );
-        if (modelStats) {
-            return {
-                ...win,
-                totals: { ...modelStats },
-                models: [modelStats],
-                bots: [],
-            };
-        }
-        return {
-            ...win,
-            totals: {
-                requests: 0,
-                inputTokens: 0,
-                outputTokens: 0,
-                cacheReadTokens: 0,
-                cacheWriteTokens: 0,
-                totalTokens: 0,
-            },
-            models: [],
-            bots: [],
+    function windowTitle(range: TimeRange): string {
+        const titles: Record<TimeRange, string> = {
+            today: "今天",
+            yesterday: "昨天",
+            last7Days: "最近 7 天",
+            last30Days: "最近 30 天",
         };
+        return titles[range];
     }
 
-    $: chartData = computeChartData(
-        usageStats,
-        selectedRange,
-        selectedModelId,
-        selectedBotId,
-    );
-    $: maxTokens = Math.max(1, ...chartData.map((d) => d.totals.totalTokens));
-    // $: maxRequests = Math.max(1, ...chartData.map((d) => d.totals.requests)); // Removed since it isn't used
+    function modelId(record: AiUsageRecord): string {
+        return `${record.provider}::${record.model}`;
+    }
 
-    function computeChartData(
-        stats: UsageStatsResponse | null,
-        range: TimeRange,
-        modelId: "all" | string,
-        botId: "all" | string,
-    ): BucketSummary[] {
+    function passesFilters(record: AiUsageRecord): boolean {
+        if (selectedModelId !== "all" && modelId(record) !== selectedModelId) return false;
+        if (selectedBotId !== "all" && record.botId !== selectedBotId) return false;
+        if (selectedChannel !== "all" && record.channel !== selectedChannel) return false;
+        return true;
+    }
+
+    function recordsForWindow(stats: UsageStatsResponse | null): AiUsageRecord[] {
         if (!stats) return [];
-        const daily = stats.breakdowns.daily || [];
-        let data: BucketSummary[] = [];
-        switch (range) {
-            case "last30Days":
-                data = daily.slice(-30);
-                break;
-            case "last7Days":
-                data = daily.slice(-7);
-                break;
-            case "yesterday":
-                data = daily.slice(-2, -1);
-                break;
-            case "today":
-                data = daily.slice(-1);
-                break;
-        }
-
-        if (botId !== "all") {
-            return data.map((bucket) => {
-                const bStat = bucket.bots.find((b) => b.botId === botId);
-                if (bStat) {
-                    return {
-                        ...bucket,
-                        totals: { ...bStat },
-                        models: [],
-                        bots: [bStat],
-                    };
-                }
-                return {
-                    ...bucket,
-                    totals: {
-                        requests: 0,
-                        inputTokens: 0,
-                        outputTokens: 0,
-                        cacheReadTokens: 0,
-                        cacheWriteTokens: 0,
-                        totalTokens: 0,
-                    },
-                    models: [],
-                    bots: [],
-                };
-            });
-        }
-
-        if (modelId === "all") return data;
-
-        const [provider, modelName] = modelId.split("::");
-
-        return data.map((bucket) => {
-            const mStat = bucket.models.find(
-                (m) => m.provider === provider && m.model === modelName,
-            );
-            if (mStat) {
-                return {
-                    ...bucket,
-                    totals: { ...mStat },
-                    models: [mStat],
-                    bots: [],
-                };
-            }
-            return {
-                ...bucket,
-                totals: {
-                    requests: 0,
-                    inputTokens: 0,
-                    outputTokens: 0,
-                    cacheReadTokens: 0,
-                    cacheWriteTokens: 0,
-                    totalTokens: 0,
-                },
-                models: [],
-                bots: [],
-            };
+        const win = stats.windows[selectedRange];
+        return stats.records.filter((record) => {
+            const day = localDateKey(record.ts, stats.timezone);
+            return day >= win.startDate && day <= win.endDate && passesFilters(record);
         });
     }
 
-    function setRange(range: TimeRange) {
-        selectedRange = range;
+    function summarize(records: AiUsageRecord[]): UsageTotals {
+        const totals = emptyTotals();
+        for (const record of records) addTotals(totals, record);
+        return totals;
     }
 
-    function setView(mode: ViewMode) {
-        viewMode = mode;
+    function rankedBy(records: AiUsageRecord[], key: (record: AiUsageRecord) => RankedRow): RankedRow[] {
+        const rows = new Map<string, RankedRow>();
+        for (const record of records) {
+            const seed = key(record);
+            const row = rows.get(seed.id) ?? { ...seed, ...emptyTotals() };
+            addTotals(row, record);
+            rows.set(seed.id, row);
+        }
+        return Array.from(rows.values()).sort((a, b) => {
+            if (b.totalTokens !== a.totalTokens) return b.totalTokens - a.totalTokens;
+            return a.label.localeCompare(b.label);
+        });
     }
 
-    function handleModelChange(value: "all" | string) {
-        selectedModelId = value;
-        if (value !== "all") selectedBotId = "all";
+    function buildTrend(records: AiUsageRecord[], stats: UsageStatsResponse | null): TrendPoint[] {
+        if (!stats) return [];
+        const win = stats.windows[selectedRange];
+        const hourly = selectedRange === "today" || selectedRange === "yesterday";
+        const points = new Map<string, TrendPoint>();
+
+        if (hourly) {
+            for (let hour = 0; hour < 24; hour += 1) {
+                const hh = String(hour).padStart(2, "0");
+                const key = `${win.startDate} ${hh}`;
+                points.set(key, { key, label: `${hh}:00`, totals: emptyTotals() });
+            }
+        } else {
+            for (const day of dateRange(win.startDate, win.endDate)) {
+                points.set(day, { key: day, label: day.slice(5), totals: emptyTotals() });
+            }
+        }
+
+        for (const record of records) {
+            const day = localDateKey(record.ts, stats.timezone);
+            const key = hourly ? `${day} ${localHour(record.ts, stats.timezone)}` : day;
+            const point = points.get(key);
+            if (point) addTotals(point.totals, record);
+        }
+
+        return Array.from(points.values());
     }
 
-    function handleBotChange(value: "all" | string) {
-        selectedBotId = value;
-        if (value !== "all") selectedModelId = "all";
+    function linePoints(values: number[], width = 100, height = 34): string {
+        if (values.length === 0) return "";
+        const max = Math.max(1, ...values);
+        const step = values.length === 1 ? width : width / (values.length - 1);
+        return values
+            .map((value, index) => {
+                const x = index * step;
+                const y = height - (value / max) * (height - 4) - 2;
+                return `${x.toFixed(2)},${y.toFixed(2)}`;
+            })
+            .join(" ");
     }
+
+    function areaPoints(values: number[], width = 100, height = 34): string {
+        const top = linePoints(values, width, height);
+        if (!top) return "";
+        return `0,${height} ${top} ${width},${height}`;
+    }
+
+    function pct(value: number, total: number): number {
+        if (total <= 0) return 0;
+        return Math.max(0, Math.min(100, (value / total) * 100));
+    }
+
+    function resetFilters() {
+        selectedModelId = "all";
+        selectedBotId = "all";
+        selectedChannel = "all";
+    }
+
+    $: availableModels = usageStats
+        ? Array.from(new Map(usageStats.records.map((record) => [modelId(record), `${record.provider} / ${record.model}`])).entries())
+              .map(([id, label]) => ({ id, label }))
+              .sort((a, b) => a.label.localeCompare(b.label))
+        : [];
+    $: availableBots = usageStats
+        ? Array.from(new Set(usageStats.records.map((record) => record.botId || "unknown")))
+              .map((id) => ({ id, label: id }))
+              .sort((a, b) => a.label.localeCompare(b.label))
+        : [];
+    $: availableChannels = usageStats
+        ? Array.from(new Set(usageStats.records.map((record) => record.channel || "unknown"))).sort()
+        : [];
+    $: visibleRecords = recordsForWindow(usageStats);
+    $: totals = summarize(visibleRecords);
+    $: trend = buildTrend(visibleRecords, usageStats);
+    $: maxRequests = Math.max(1, ...trend.map((point) => point.totals.requests));
+    $: maxTokens = Math.max(1, ...trend.map((point) => point.totals.totalTokens));
+    $: modelRows = rankedBy(visibleRecords, (record) => ({
+        id: modelId(record),
+        label: record.model,
+        sublabel: record.provider,
+        ...emptyTotals(),
+    }));
+    $: apiRows = rankedBy(visibleRecords, (record) => ({
+        id: record.api,
+        label: record.api,
+        sublabel: "API endpoint",
+        ...emptyTotals(),
+    }));
+    $: channelRows = rankedBy(visibleRecords, (record) => ({
+        id: record.channel,
+        label: record.channel,
+        sublabel: "channel",
+        ...emptyTotals(),
+    }));
+    $: botRows = rankedBy(visibleRecords, (record) => ({
+        id: record.botId,
+        label: record.botId,
+        sublabel: "bot",
+        ...emptyTotals(),
+    }));
+    $: recentRecords = [...visibleRecords].sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 80);
+    $: cacheTokens = totals.cacheReadTokens + totals.cacheWriteTokens;
+    $: selectedWindow = usageStats?.windows[selectedRange];
 </script>
 
-<PageShell widthClass="max-w-6xl" gapClass="space-y-8">
-<div class="usage-analytics-page space-y-8">
-    <!-- Header -->
-    <header
-        class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
-    >
-        <div>
-            <h1
-                class="text-3xl font-bold tracking-tight text-white drop-shadow-sm"
-            >
-                Token Usage Analytics
-            </h1>
-            <p class="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
-                Monitor your AI token consumption, cache hits, and request
-                volume over time. Selected data bounds define the visible
-                reports below.
-            </p>
-        </div>
-        <button
-            type="button"
-            class="group inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-medium text-white transition-all hover:bg-white/10 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
-            on:click={loadUsage}
-            disabled={usageLoading}
-        >
-            <svg
-                class="h-4 w-4 text-slate-400 transition-transform group-hover:rotate-180 group-hover:text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-            >
-                <polyline points="23 4 23 10 17 10" />
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-            </svg>
-            {usageLoading ? "Syncing..." : "Refresh"}
-        </button>
-    </header>
-
-    {#if usageError}
-        <div
-            class="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5 text-sm text-rose-300 backdrop-blur-md"
-        >
-            <span class="font-bold">Error:</span>
-            {usageError}
-        </div>
-    {:else if usageStats && currentWindow}
-        <!-- Controls & Range Selection -->
-        <div
-            class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"
-        >
-            <div class="flex flex-wrap items-center gap-3">
-                <div
-                    class="inline-flex rounded-xl border border-white/10 bg-black/40 p-1 backdrop-blur-md"
-                >
-                    <button
-                        class={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-all ${selectedRange === "today" ? "bg-white/10 text-white shadow" : "text-slate-400 hover:text-slate-200"}`}
-                        on:click={() => setRange("today")}
-                    >
-                        Today
-                    </button>
-                    <button
-                        class={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-all ${selectedRange === "yesterday" ? "bg-white/10 text-white shadow" : "text-slate-400 hover:text-slate-200"}`}
-                        on:click={() => setRange("yesterday")}
-                    >
-                        Yesterday
-                    </button>
-                    <button
-                        class={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-all ${selectedRange === "last7Days" ? "bg-white/10 text-white shadow" : "text-slate-400 hover:text-slate-200"}`}
-                        on:click={() => setRange("last7Days")}
-                    >
-                        Last 7 Days
-                    </button>
-                    <button
-                        class={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-all ${selectedRange === "last30Days" ? "bg-white/10 text-white shadow" : "text-slate-400 hover:text-slate-200"}`}
-                        on:click={() => setRange("last30Days")}
-                    >
-                        Last 30 Days
-                    </button>
-                </div>
-
-                <div class="relative inline-flex">
-                    <select
-                        bind:value={selectedModelId}
-                        on:change={(e) =>
-                            handleModelChange(
-                                (e.currentTarget as HTMLSelectElement)
-                                    .value as "all" | string,
-                            )}
-                        class="cursor-pointer appearance-none rounded-xl border border-white/10 bg-black/40 py-2.5 pl-4 pr-10 text-sm font-medium text-slate-300 backdrop-blur-md outline-none transition-all hover:bg-black/60 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
-                    >
-                        <option value="all">All Models</option>
-                        {#each availableModels as { id, label }}
-                            <option value={id}>{label}</option>
-                        {/each}
-                    </select>
-                    <div
-                        class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400"
-                    >
-                        <svg
-                            class="h-4 w-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            ><path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                d="M19 9l-7 7-7-7"
-                            /></svg
-                        >
-                    </div>
-                </div>
-
-                <div class="relative inline-flex">
-                    <select
-                        bind:value={selectedBotId}
-                        on:change={(e) =>
-                            handleBotChange(
-                                (e.currentTarget as HTMLSelectElement)
-                                    .value as "all" | string,
-                            )}
-                        class="cursor-pointer appearance-none rounded-xl border border-white/10 bg-black/40 py-2.5 pl-4 pr-10 text-sm font-medium text-slate-300 backdrop-blur-md outline-none transition-all hover:bg-black/60 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50"
-                    >
-                        <option value="all">All Bots</option>
-                        {#each availableBots as { id, label }}
-                            <option value={id}>{label}</option>
-                        {/each}
-                    </select>
-                    <div
-                        class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400"
-                    >
-                        <svg
-                            class="h-4 w-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            ><path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                d="M19 9l-7 7-7-7"
-                            /></svg
-                        >
-                    </div>
-                </div>
+<PageShell widthClass="max-w-[1500px]" gapClass="space-y-6">
+    <section class="usage-board">
+        <header class="usage-header">
+            <div>
+                <p class="eyebrow">AI Usage Observatory</p>
+                <h1>使用统计</h1>
+                <p class="header-copy">
+                    基于现有 token usage 记录展示请求量、Token 消耗、模型/API 分布和最近事件；没有记录的成本、延迟、成功率不在本页伪造。
+                </p>
             </div>
-
-            <div
-                class="inline-flex rounded-xl border border-white/10 bg-black/40 p-1 backdrop-blur-md"
-            >
-                <button
-                    class={`flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${viewMode === "chart" ? "bg-emerald-500/20 text-emerald-400 shadow ring-1 ring-inset ring-emerald-500/30" : "text-slate-400 hover:text-slate-200"}`}
-                    on:click={() => setView("chart")}
-                >
-                    <svg
-                        class="h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        ><path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                        /></svg
-                    >
-                    Chart
-                </button>
-                <button
-                    class={`flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${viewMode === "list" ? "bg-white/10 text-white shadow" : "text-slate-400 hover:text-slate-200"}`}
-                    on:click={() => setView("list")}
-                >
-                    <svg
-                        class="h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        ><path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            d="M4 6h16M4 10h16M4 14h16M4 18h16"
-                        /></svg
-                    >
-                    List
+            <div class="header-actions">
+                <div class="range-tabs" aria-label="时间范围">
+                    {#each ["today", "yesterday", "last7Days", "last30Days"] as range}
+                        <button
+                            type="button"
+                            class:active={selectedRange === range}
+                            on:click={() => (selectedRange = range as TimeRange)}
+                        >
+                            {windowTitle(range as TimeRange)}
+                        </button>
+                    {/each}
+                </div>
+                <button class="refresh-button" type="button" on:click={loadUsage} disabled={usageLoading}>
+                    <span aria-hidden="true">↻</span>
+                    {usageLoading ? "同步中" : "刷新"}
                 </button>
             </div>
-        </div>
+        </header>
 
-        <!-- Highlight Key Metrics -->
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div
-                class="group relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-transparent p-6 shadow-xl"
-            >
-                <div class="relative z-10">
-                <p
-                    class="usage-accent-label text-sm font-medium uppercase tracking-wider"
-                >
-                        Total Tokens
-                    </p>
-                    <p
-                        class="mt-2 text-4xl font-black tracking-tighter text-white"
-                    >
-                        {formatNumber(currentWindow.totals.totalTokens)}
-                    </p>
-                </div>
-                <div
-                    class="absolute -bottom-6 -right-6 h-32 w-32 rounded-full bg-emerald-500/20 blur-3xl transition-transform duration-700 group-hover:scale-150"
-                ></div>
-            </div>
-
-            <div
-                class="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 shadow-sm"
-            >
-                <p
-                    class="text-sm font-medium text-slate-400 uppercase tracking-wider"
-                >
-                    Input Tokens
-                </p>
-                <p class="mt-2 text-2xl font-bold tracking-tight text-white">
-                    {formatNumber(currentWindow.totals.inputTokens)}
-                </p>
-                <div
-                    class="absolute -bottom-4 -right-4 h-24 w-24 rounded-full bg-blue-500/10 blur-2xl transition-transform duration-700 group-hover:scale-150"
-                ></div>
-            </div>
-
-            <div
-                class="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 shadow-sm"
-            >
-                <p
-                    class="text-sm font-medium text-slate-400 uppercase tracking-wider"
-                >
-                    Output Tokens
-                </p>
-                <p class="mt-2 text-2xl font-bold tracking-tight text-white">
-                    {formatNumber(currentWindow.totals.outputTokens)}
-                </p>
-                <div
-                    class="absolute -bottom-4 -right-4 h-24 w-24 rounded-full bg-purple-500/10 blur-2xl transition-transform duration-700 group-hover:scale-150"
-                ></div>
-            </div>
-
-            <div
-                class="group relative overflow-hidden rounded-2xl border border-emerald-500/10 bg-emerald-500/[0.02] p-6 shadow-sm"
-            >
-                <p
-                    class="usage-accent-label flex items-center gap-2 text-sm font-medium uppercase tracking-wider"
-                >
-                    <svg
-                        class="usage-accent-icon h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        ><path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            d="M13 10V3L4 14h7v7l9-11h-7z"
-                        /></svg
-                    >
-                    Cache Saved
-                </p>
-                <p
-                    class="usage-accent-value mt-2 text-2xl font-bold tracking-tight"
-                >
-                    {formatNumber(currentWindow.totals.cacheReadTokens)}
-                </p>
-                <div
-                    class="absolute -bottom-4 -right-4 h-24 w-24 rounded-full bg-emerald-500/10 blur-2xl transition-transform duration-700 group-hover:scale-150"
-                ></div>
-            </div>
-        </div>
-
-        <!-- Main Content Area -->
-        <main
-            class="rounded-3xl border border-white/[0.08] bg-[#1a1a1a]/60 shadow-2xl backdrop-blur-2xl"
-        >
-            <div class="border-b border-white/5 px-6 py-5">
-                <h2 class="text-lg font-semibold text-white">
-                    Usage Timeline
-                    <span
-                        class="ml-2 text-xs font-normal text-slate-500 hidden sm:inline-block"
-                        >({currentWindow.startDate} to {currentWindow.endDate})</span
-                    >
-                </h2>
-            </div>
-
-            <div class="p-6">
-                {#if chartData.length === 0}
-                    <div
-                        class="flex h-48 items-center justify-center text-sm text-slate-500"
-                    >
-                        No temporal data points strictly matched the chosen
-                        span.
-                    </div>
-                {:else if viewMode === "chart"}
-                    <!-- SVG-Style Premium Native Bar Chart -->
-                    <div
-                        class="relative flex h-64 w-full items-end gap-1.5 sm:gap-3 px-2"
-                    >
-                        {#each chartData as data}
-                            {@const pct = Math.max(
-                                0.5,
-                                (data.totals.totalTokens / maxTokens) * 100,
-                            )}
-                            <div
-                                class="group relative flex h-full flex-1 flex-col justify-end"
-                            >
-                                <!-- Bar -->
-                                <div
-                                    class="usage-chart-bar w-full rounded-t-sm transition-all duration-300"
-                                    style={`height: ${pct}%`}
-                                ></div>
-
-                                <!-- Tooltip Overlay -->
-                                <div
-                                    class="pointer-events-none absolute bottom-full left-1/2 mb-3 hidden -translate-x-1/2 flex-col items-center group-hover:flex z-10 w-48"
-                                >
-                                    <div
-                                        class="w-full rounded-xl border border-white/10 bg-[#1f1f1f]/95 p-3 text-xs shadow-2xl backdrop-blur-xl"
-                                    >
-                                        <div
-                                            class="mb-2 font-medium text-slate-300 border-b border-white/10 pb-2"
-                                        >
-                                            {data.bucket}
-                                        </div>
-                                        <div
-                                            class="flex items-center justify-between mt-1"
-                                        >
-                                            <span class="text-slate-500"
-                                                >Tokens</span
-                                            >
-                                            <span class="usage-accent-value font-bold"
-                                                >{formatNumber(data.totals.totalTokens)}</span
-                                            >
-                                        </div>
-                                        <div
-                                            class="flex items-center justify-between mt-1"
-                                        >
-                                            <span class="text-slate-500"
-                                                >Hits</span
-                                            >
-                                            <span class="font-medium text-white"
-                                                >{formatNumber(
-                                                    data.totals.requests,
-                                                )} req</span
-                                            >
-                                        </div>
-                                    </div>
-                                    <div
-                                        class="h-2 w-2 -translate-y-1 rotate-45 border-b border-r border-white/10 bg-[#1f1f1f]/95"
-                                    ></div>
-                                </div>
-                            </div>
+        {#if usageError}
+            <div class="state-card error">Error: {usageError}</div>
+        {:else if usageLoading && !usageStats}
+            <div class="state-card">正在加载 usage 记录...</div>
+        {:else if usageStats}
+            <div class="filter-bar">
+                <div class="filter-item">
+                    <label for="usage-model">模型</label>
+                    <select id="usage-model" bind:value={selectedModelId}>
+                        <option value="all">全部模型</option>
+                        {#each availableModels as model}
+                            <option value={model.id}>{model.label}</option>
                         {/each}
-                    </div>
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label for="usage-bot">Bot</label>
+                    <select id="usage-bot" bind:value={selectedBotId}>
+                        <option value="all">全部 Bot</option>
+                        {#each availableBots as bot}
+                            <option value={bot.id}>{bot.label}</option>
+                        {/each}
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label for="usage-channel">渠道</label>
+                    <select id="usage-channel" bind:value={selectedChannel}>
+                        <option value="all">全部渠道</option>
+                        {#each availableChannels as channel}
+                            <option value={channel}>{channel}</option>
+                        {/each}
+                    </select>
+                </div>
+                <button class="ghost-button" type="button" on:click={resetFilters}>清空筛选</button>
+                <div class="generated-at">
+                    {#if selectedWindow}
+                        {selectedWindow.startDate} → {selectedWindow.endDate}
+                    {/if}
+                    <span>更新于 {formatDateTime(usageStats.generatedAt)}</span>
+                </div>
+            </div>
 
-                    <!-- X Axis Labels -->
-                    <div
-                        class="mt-4 flex w-full justify-between px-2 text-[10px] font-medium text-slate-500"
-                    >
-                        <span>{chartData[0].bucket}</span>
-                        {#if chartData.length > 2}
-                            <span
-                                >{chartData[Math.floor(chartData.length / 2)]
-                                    .bucket}</span
-                            >
-                        {/if}
-                        {#if chartData.length > 1}
-                            <span>{chartData[chartData.length - 1].bucket}</span
-                            >
-                        {/if}
+            <div class="metric-grid">
+                <article class="metric-card primary-card">
+                    <div class="card-topline">
+                        <span>总请求数</span>
+                        <span class="badge green">Requests</span>
                     </div>
-                {:else}
-                    <!-- List View Fallback -->
-                    <div class="space-y-3">
-                        <!-- Table definition headers -->
-                        <div
-                            class="hidden grid-cols-[1fr_120px_120px] gap-4 px-4 pb-2 text-xs font-medium uppercase tracking-wider text-slate-500 sm:grid"
-                        >
-                            <div>Date Bracket</div>
-                            <div class="text-right">Requests</div>
-                            <div class="text-right">Total Tokens</div>
+                    <strong>{formatNumber(totals.requests)}</strong>
+                    <p>当前筛选范围内的 AI 调用记录数</p>
+                    <svg viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
+                        <polygon points={areaPoints(trend.map((point) => point.totals.requests))}></polygon>
+                        <polyline points={linePoints(trend.map((point) => point.totals.requests))}></polyline>
+                    </svg>
+                </article>
+
+                <article class="metric-card primary-card purple">
+                    <div class="card-topline">
+                        <span>总 Token 数</span>
+                        <span class="badge violet">Tokens</span>
+                    </div>
+                    <strong>{formatCompact(totals.totalTokens)}</strong>
+                    <p>
+                        输入 {formatCompact(totals.inputTokens)} · 输出 {formatCompact(totals.outputTokens)} · 缓存 {formatCompact(cacheTokens)}
+                    </p>
+                    <svg viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
+                        <polygon points={areaPoints(trend.map((point) => point.totals.totalTokens))}></polygon>
+                        <polyline points={linePoints(trend.map((point) => point.totals.totalTokens))}></polyline>
+                    </svg>
+                </article>
+
+                <article class="metric-card small-card cyan">
+                    <span>输入 Tokens</span>
+                    <strong>{formatCompact(totals.inputTokens)}</strong>
+                    <p>{pct(totals.inputTokens, totals.totalTokens).toFixed(1)}% of total</p>
+                </article>
+                <article class="metric-card small-card amber">
+                    <span>输出 Tokens</span>
+                    <strong>{formatCompact(totals.outputTokens)}</strong>
+                    <p>{pct(totals.outputTokens, totals.totalTokens).toFixed(1)}% of total</p>
+                </article>
+                <article class="metric-card small-card lime">
+                    <span>缓存 Tokens</span>
+                    <strong>{formatCompact(cacheTokens)}</strong>
+                    <p>Read {formatCompact(totals.cacheReadTokens)} · Write {formatCompact(totals.cacheWriteTokens)}</p>
+                </article>
+            </div>
+
+            <div class="chart-grid">
+                <article class="panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>请求趋势</h2>
+                            <p>{selectedRange === "today" || selectedRange === "yesterday" ? "按小时聚合" : "按天聚合"}</p>
                         </div>
-                        {#each chartData as bucket}
-                            <div
-                                class="flex flex-col gap-2 rounded-xl border border-white/5 bg-white/[0.01] px-4 py-3 transition-colors hover:bg-white/[0.03] sm:grid sm:grid-cols-[1fr_120px_120px] sm:items-center sm:gap-4"
-                            >
-                                <div class="text-sm font-medium text-slate-300">
-                                    {bucket.bucket}
-                                </div>
-                                <div
-                                    class="text-sm font-medium text-slate-400 sm:text-right"
-                                >
-                                    {formatNumber(bucket.totals.requests)}
-                                    <span class="text-xs sm:hidden">reqs</span>
-                                </div>
-                                <div
-                                    class="usage-accent-value text-sm font-bold sm:text-right"
-                                >
-                                    {formatNumber(bucket.totals.totalTokens)}
-                                </div>
-                            </div>
-                        {/each}
+                        <span class="legend-dot neutral">requests</span>
                     </div>
-                {/if}
-            </div>
-        </main>
+                    <div class="line-chart">
+                        <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="请求趋势折线图">
+                            <g class="grid-lines">
+                                <line x1="0" y1="8" x2="100" y2="8"></line>
+                                <line x1="0" y1="20" x2="100" y2="20"></line>
+                                <line x1="0" y1="32" x2="100" y2="32"></line>
+                            </g>
+                            <polygon points={areaPoints(trend.map((point) => point.totals.requests), 100, 40)}></polygon>
+                            <polyline points={linePoints(trend.map((point) => point.totals.requests), 100, 40)}></polyline>
+                        </svg>
+                    </div>
+                    <div class="axis-labels">
+                        <span>{trend[0]?.label ?? "--"}</span>
+                        <span>{trend[Math.floor(trend.length / 2)]?.label ?? "--"}</span>
+                        <span>{trend[trend.length - 1]?.label ?? "--"}</span>
+                    </div>
+                </article>
 
-        <!-- Top Models Segment (Responsive specifically to the current Window) -->
-        <section
-            class="rounded-3xl border border-white/[0.08] bg-[#1a1a1a]/60 pt-1 shadow-xl backdrop-blur-xl"
-        >
-            <div class="border-b border-white/5 px-6 py-5">
-                <h3 class="text-base font-semibold text-white">
-                    Models Used ({windowTitle(selectedRange)})
-                </h3>
-                <p class="text-xs text-slate-500 mt-1">
-                    Ranking of targeted AI models within the currently selected
-                    timeframe.
-                </p>
+                <article class="panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>Token 使用趋势</h2>
+                            <p>总 Token 数随时间变化</p>
+                        </div>
+                        <span class="legend-dot violet">tokens</span>
+                    </div>
+                    <div class="line-chart token-chart">
+                        <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Token 趋势折线图">
+                            <g class="grid-lines">
+                                <line x1="0" y1="8" x2="100" y2="8"></line>
+                                <line x1="0" y1="20" x2="100" y2="20"></line>
+                                <line x1="0" y1="32" x2="100" y2="32"></line>
+                            </g>
+                            <polygon points={areaPoints(trend.map((point) => point.totals.totalTokens), 100, 40)}></polygon>
+                            <polyline points={linePoints(trend.map((point) => point.totals.totalTokens), 100, 40)}></polyline>
+                        </svg>
+                    </div>
+                    <div class="axis-labels">
+                        <span>{trend[0]?.label ?? "--"}</span>
+                        <span>峰值 {formatCompact(maxTokens)}</span>
+                        <span>{trend[trend.length - 1]?.label ?? "--"}</span>
+                    </div>
+                </article>
             </div>
 
-            {#if currentWindow.models.length === 0}
-                <div
-                    class="flex h-32 items-center justify-center text-sm text-slate-500"
-                >
-                    No models tracked during this timeframe.
+            <article class="panel wide-panel">
+                <div class="panel-heading">
+                    <div>
+                        <h2>Token 类型分布</h2>
+                        <p>仅展示已记录的 input / output / cache read / cache write 字段</p>
+                    </div>
+                    <div class="legend-row">
+                        <span class="legend-dot input">输入</span>
+                        <span class="legend-dot output">输出</span>
+                        <span class="legend-dot cache">缓存</span>
+                    </div>
                 </div>
-            {:else}
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm whitespace-nowrap">
-                        <thead
-                            class="bg-black/20 text-[10px] font-medium uppercase tracking-wider text-slate-500"
-                        >
+                <div class="stack-chart">
+                    {#each trend as point}
+                        {@const pointCache = point.totals.cacheReadTokens + point.totals.cacheWriteTokens}
+                        <div class="stack-column" title={`${point.label}: ${formatNumber(point.totals.totalTokens)} tokens`}>
+                            <span class="bar input" style={`height:${Math.max(1, pct(point.totals.inputTokens, maxTokens))}%`}></span>
+                            <span class="bar output" style={`height:${Math.max(1, pct(point.totals.outputTokens, maxTokens))}%`}></span>
+                            <span class="bar cache" style={`height:${Math.max(1, pct(pointCache, maxTokens))}%`}></span>
+                        </div>
+                    {/each}
+                </div>
+                <div class="axis-labels">
+                    <span>{trend[0]?.label ?? "--"}</span>
+                    <span>{windowTitle(selectedRange)}</span>
+                    <span>{trend[trend.length - 1]?.label ?? "--"}</span>
+                </div>
+            </article>
+
+            <div class="summary-grid">
+                <article class="panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>API 详细统计</h2>
+                            <p>按 usage 记录中的 api 字段聚合</p>
+                        </div>
+                    </div>
+                    <div class="rank-list">
+                        {#if apiRows.length === 0}
+                            <p class="empty-copy">当前范围没有 API 记录。</p>
+                        {:else}
+                            {#each apiRows.slice(0, 8) as row}
+                                <div class="rank-row">
+                                    <div>
+                                        <strong>{row.label}</strong>
+                                        <span>{formatNumber(row.requests)} 请求</span>
+                                    </div>
+                                    <em>{formatCompact(row.totalTokens)}</em>
+                                </div>
+                            {/each}
+                        {/if}
+                    </div>
+                </article>
+
+                <article class="panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>模型统计</h2>
+                            <p>按 provider / model 聚合</p>
+                        </div>
+                    </div>
+                    <div class="table-wrap compact-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>模型名称</th>
+                                    <th>请求次数</th>
+                                    <th>Token 数量</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {#if modelRows.length === 0}
+                                    <tr><td colspan="3">当前范围没有模型记录。</td></tr>
+                                {:else}
+                                    {#each modelRows.slice(0, 8) as row}
+                                        <tr>
+                                            <td>
+                                                <strong>{row.label}</strong>
+                                                <span>{row.sublabel}</span>
+                                            </td>
+                                            <td>{formatNumber(row.requests)}</td>
+                                            <td>{formatCompact(row.totalTokens)}</td>
+                                        </tr>
+                                    {/each}
+                                {/if}
+                            </tbody>
+                        </table>
+                    </div>
+                </article>
+            </div>
+
+            {#if botRows.length > 0 || channelRows.length > 0}
+                <div class="summary-grid">
+                    <article class="panel">
+                        <div class="panel-heading">
+                            <div>
+                                <h2>Bot 分布</h2>
+                                <p>基于现有 botId 字段</p>
+                            </div>
+                        </div>
+                        <div class="rank-list">
+                            {#each botRows.slice(0, 8) as row}
+                                <div class="rank-row">
+                                    <div>
+                                        <strong>{row.label}</strong>
+                                        <span>{formatNumber(row.requests)} 请求</span>
+                                    </div>
+                                    <em>{formatCompact(row.totalTokens)}</em>
+                                </div>
+                            {/each}
+                        </div>
+                    </article>
+
+                    <article class="panel">
+                        <div class="panel-heading">
+                            <div>
+                                <h2>渠道分布</h2>
+                                <p>基于现有 channel 字段</p>
+                            </div>
+                        </div>
+                        <div class="rank-list">
+                            {#each channelRows.slice(0, 8) as row}
+                                <div class="rank-row">
+                                    <div>
+                                        <strong>{row.label}</strong>
+                                        <span>{formatNumber(row.requests)} 请求</span>
+                                    </div>
+                                    <em>{formatCompact(row.totalTokens)}</em>
+                                </div>
+                            {/each}
+                        </div>
+                    </article>
+                </div>
+            {/if}
+
+            <article class="panel wide-panel">
+                <div class="panel-heading">
+                    <div>
+                        <h2>请求事件明细</h2>
+                        <p>最近 {recentRecords.length} 条匹配记录；本系统暂未记录结果、延迟、认证索引和费用。</p>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
                             <tr>
-                                <th class="px-6 py-4">Integration ID</th>
-                                <th class="px-6 py-4 text-right">Hit Count</th>
-                                <th
-                                    class="px-6 py-4 text-right hidden sm:table-cell"
-                                    >Inputs</th
-                                >
-                                <th
-                                    class="px-6 py-4 text-right hidden sm:table-cell"
-                                    >Outputs</th
-                                >
-                                <th class="px-6 py-4 text-right">Tokens Used</th
-                                >
+                                <th>时间</th>
+                                <th>模型名称</th>
+                                <th>渠道</th>
+                                <th>Bot</th>
+                                <th>API</th>
+                                <th>输入</th>
+                                <th>输出</th>
+                                <th>缓存</th>
+                                <th>总 Token</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-white/5">
-                            {#each topModels(currentWindow.models, 15) as row}
-                                <tr
-                                    class="transition-colors hover:bg-white/[0.02]"
-                                >
-                                    <td class="px-6 py-3">
-                                        <div class="font-bold text-slate-200">
-                                            {row.model}
-                                        </div>
-                                        <div class="text-xs text-slate-500">
-                                            {row.provider}
-                                        </div>
-                                    </td>
-                                    <td
-                                        class="px-6 py-3 text-right text-slate-300"
-                                        >{formatNumber(row.requests)}</td
-                                    >
-                                    <td
-                                        class="px-6 py-3 text-right text-slate-400 hidden sm:table-cell"
-                                        >{formatNumber(row.inputTokens)}</td
-                                    >
-                                    <td
-                                        class="px-6 py-3 text-right text-slate-400 hidden sm:table-cell"
-                                        >{formatNumber(row.outputTokens)}</td
-                                    >
-                                    <td class="px-6 py-3 text-right">
-                                        <span
-                                            class="usage-token-pill inline-flex rounded-full px-3 py-1 text-xs font-bold"
-                                        >
-                                            {formatNumber(row.totalTokens)}
-                                        </span>
-                                    </td>
-                                </tr>
-                            {/each}
+                        <tbody>
+                            {#if recentRecords.length === 0}
+                                <tr><td colspan="9">当前筛选范围没有 usage 记录。</td></tr>
+                            {:else}
+                                {#each recentRecords as record}
+                                    <tr>
+                                        <td>{formatDateTime(record.ts)}</td>
+                                        <td>
+                                            <strong>{record.model}</strong>
+                                            <span>{record.provider}</span>
+                                        </td>
+                                        <td>{record.channel}</td>
+                                        <td>{record.botId}</td>
+                                        <td>{record.api}</td>
+                                        <td>{formatNumber(record.inputTokens)}</td>
+                                        <td>{formatNumber(record.outputTokens)}</td>
+                                        <td>{formatNumber(record.cacheReadTokens + record.cacheWriteTokens)}</td>
+                                        <td>{formatNumber(record.totalTokens)}</td>
+                                    </tr>
+                                {/each}
+                            {/if}
                         </tbody>
                     </table>
                 </div>
-            {/if}
-        </section>
-
-        <section
-            class="rounded-3xl border border-white/[0.08] bg-[#1a1a1a]/60 pt-1 shadow-xl backdrop-blur-xl"
-        >
-            <div class="border-b border-white/5 px-6 py-5">
-                <h3 class="text-base font-semibold text-white">
-                    Bots Used ({windowTitle(selectedRange)})
-                </h3>
-                <p class="text-xs text-slate-500 mt-1">
-                    Ranking of bot usage within the currently selected
-                    timeframe.
-                </p>
-            </div>
-
-            {#if currentWindow.bots.length === 0}
-                <div
-                    class="flex h-32 items-center justify-center text-sm text-slate-500"
-                >
-                    No bots tracked during this timeframe.
-                </div>
-            {:else}
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm whitespace-nowrap">
-                        <thead
-                            class="bg-black/20 text-[10px] font-medium uppercase tracking-wider text-slate-500"
-                        >
-                            <tr>
-                                <th class="px-6 py-4">Bot ID</th>
-                                <th class="px-6 py-4 text-right">Hit Count</th>
-                                <th
-                                    class="px-6 py-4 text-right hidden sm:table-cell"
-                                    >Inputs</th
-                                >
-                                <th
-                                    class="px-6 py-4 text-right hidden sm:table-cell"
-                                    >Outputs</th
-                                >
-                                <th class="px-6 py-4 text-right">Tokens Used</th
-                                >
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-white/5">
-                            {#each currentWindow.bots.slice(0, 15) as row}
-                                <tr
-                                    class="transition-colors hover:bg-white/[0.02]"
-                                >
-                                    <td class="px-6 py-3 font-bold text-slate-200">
-                                        {row.botId}
-                                    </td>
-                                    <td
-                                        class="px-6 py-3 text-right text-slate-300"
-                                        >{formatNumber(row.requests)}</td
-                                    >
-                                    <td
-                                        class="px-6 py-3 text-right text-slate-400 hidden sm:table-cell"
-                                        >{formatNumber(row.inputTokens)}</td
-                                    >
-                                    <td
-                                        class="px-6 py-3 text-right text-slate-400 hidden sm:table-cell"
-                                        >{formatNumber(row.outputTokens)}</td
-                                    >
-                                    <td class="px-6 py-3 text-right">
-                                        <span
-                                            class="usage-token-pill inline-flex rounded-full px-3 py-1 text-xs font-bold"
-                                        >
-                                            {formatNumber(row.totalTokens)}
-                                        </span>
-                                    </td>
-                                </tr>
-                            {/each}
-                        </tbody>
-                    </table>
-                </div>
-            {/if}
-        </section>
-    {:else}
-        <div
-            class="flex h-64 items-center justify-center rounded-3xl border border-white/5 bg-white/[0.01]"
-        >
-            <div class="flex items-center gap-3 text-emerald-400">
-                <svg
-                    class="h-5 w-5 animate-spin"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    ><circle
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        stroke-width="4"
-                        class="opacity-25"
-                    /><path
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        class="opacity-75"
-                    /></svg
-                >
-                <span class="text-sm font-semibold tracking-wider uppercase"
-                    >Loading Analytics...</span
-                >
-            </div>
-        </div>
-    {/if}
-</div>
+            </article>
+        {/if}
+    </section>
 </PageShell>
 
 <style>
-    .usage-analytics-page {
-        --usage-accent: var(--chart-2);
-        --usage-accent-soft: color-mix(
-            in oklab,
-            var(--chart-2) 18%,
-            transparent
-        );
-        --usage-accent-strong: color-mix(
-            in oklab,
-            var(--chart-2) 78%,
-            white 8%
-        );
-        --usage-accent-shadow: color-mix(
-            in oklab,
-            var(--chart-2) 36%,
-            transparent
-        );
+    .usage-board {
+        color: var(--foreground);
     }
 
-    .usage-analytics-page .usage-accent-label,
-    .usage-analytics-page .usage-accent-icon,
-    .usage-analytics-page .usage-accent-value {
-        color: var(--usage-accent-strong) !important;
+    .usage-header,
+    .filter-bar,
+    .panel,
+    .metric-card,
+    .state-card {
+        border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+        background:
+            linear-gradient(180deg, color-mix(in oklab, var(--card) 94%, white 3%), var(--card)),
+            var(--card);
+        box-shadow: var(--shadow);
     }
 
-    .usage-analytics-page .usage-chart-bar {
-        background: linear-gradient(
-            180deg,
-            color-mix(in oklab, var(--usage-accent) 92%, white 8%) 0%,
-            color-mix(in oklab, var(--usage-accent) 62%, transparent) 100%
-        ) !important;
-        box-shadow:
-            inset 0 1px 0 color-mix(in oklab, white 35%, transparent),
-            0 10px 24px var(--usage-accent-shadow);
+    .usage-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 28px;
+        border-radius: 24px;
     }
 
-    .usage-analytics-page .group:hover .usage-chart-bar {
-        background: linear-gradient(
-            180deg,
-            color-mix(in oklab, var(--usage-accent) 100%, white 16%) 0%,
-            color-mix(in oklab, var(--usage-accent) 78%, transparent) 100%
-        ) !important;
-        box-shadow:
-            inset 0 1px 0 color-mix(in oklab, white 48%, transparent),
-            0 0 18px color-mix(in oklab, var(--usage-accent) 42%, transparent),
-            0 14px 28px var(--usage-accent-shadow);
+    .eyebrow {
+        margin: 0 0 10px;
+        color: color-mix(in oklab, var(--primary) 74%, var(--foreground));
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
     }
 
-    .usage-analytics-page .usage-token-pill {
-        color: var(--usage-accent-strong) !important;
-        border: 1px solid color-mix(in oklab, var(--usage-accent) 32%, var(--border)) !important;
-        background: var(--usage-accent-soft) !important;
+    h1,
+    h2 {
+        margin: 0;
+        letter-spacing: 0;
+    }
+
+    h1 {
+        font-size: clamp(2rem, 4vw, 4.4rem);
+        line-height: 0.95;
+        font-weight: 900;
+    }
+
+    h2 {
+        font-size: 1.08rem;
+        font-weight: 850;
+    }
+
+    .header-copy,
+    .panel-heading p,
+    .metric-card p,
+    .empty-copy,
+    .generated-at {
+        color: var(--muted-foreground);
+    }
+
+    .header-copy {
+        max-width: 680px;
+        margin: 14px 0 0;
+        font-size: 0.95rem;
+        line-height: 1.7;
+    }
+
+    .header-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 12px;
+    }
+
+    .range-tabs,
+    .refresh-button,
+    .ghost-button {
+        border: 1px solid var(--border);
+        background: color-mix(in oklab, var(--muted) 64%, transparent);
+    }
+
+    .range-tabs {
+        display: flex;
+        padding: 4px;
+        border-radius: 14px;
+        gap: 4px;
+    }
+
+    .range-tabs button,
+    .refresh-button,
+    .ghost-button {
+        cursor: pointer;
+        border-radius: 10px;
+        color: var(--foreground);
+        font-weight: 750;
+        transition: transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
+    }
+
+    .range-tabs button {
+        border: 0;
+        background: transparent;
+        padding: 9px 12px;
+        white-space: nowrap;
+    }
+
+    .range-tabs button.active {
+        background: var(--foreground);
+        color: var(--background);
+    }
+
+    .refresh-button,
+    .ghost-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+    }
+
+    .filter-bar {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(170px, 1fr)) auto minmax(220px, 1.1fr);
+        gap: 14px;
+        align-items: end;
+        margin-top: 18px;
+        padding: 18px;
+        border-radius: 18px;
+    }
+
+    .filter-item {
+        display: grid;
+        gap: 7px;
+    }
+
+    .filter-item label {
+        color: var(--muted-foreground);
+        font-size: 0.78rem;
+        font-weight: 800;
+    }
+
+    select {
+        width: 100%;
+        min-height: 42px;
+        border-radius: 12px;
+        border: 1px solid var(--input);
+        background: color-mix(in oklab, var(--background) 46%, var(--card));
+        color: var(--foreground);
+        padding: 0 12px;
+        font-weight: 700;
+    }
+
+    .generated-at {
+        justify-self: end;
+        font-size: 0.82rem;
+        text-align: right;
+    }
+
+    .generated-at span {
+        display: block;
+        margin-top: 4px;
+    }
+
+    .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 16px;
+        margin-top: 18px;
+    }
+
+    .metric-card {
+        position: relative;
+        overflow: hidden;
+        min-height: 168px;
+        padding: 22px;
+        border-radius: 20px;
+        border-top: 4px solid color-mix(in oklab, #20c997 72%, var(--border));
+    }
+
+    .primary-card {
+        grid-column: span 3;
+    }
+
+    .small-card {
+        grid-column: span 2;
+        min-height: 132px;
+    }
+
+    .metric-card.purple {
+        border-top-color: #7c5cff;
+    }
+
+    .metric-card.cyan {
+        border-top-color: #14b8d4;
+    }
+
+    .metric-card.amber {
+        border-top-color: #f59e0b;
+    }
+
+    .metric-card.lime {
+        border-top-color: #22c55e;
+    }
+
+    .card-topline,
+    .panel-heading,
+    .rank-row,
+    .legend-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+    }
+
+    .card-topline,
+    .metric-card > span {
+        color: var(--muted-foreground);
+        font-size: 0.82rem;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .metric-card strong {
+        display: block;
+        margin-top: 24px;
+        color: var(--foreground);
+        font-size: clamp(2rem, 4vw, 3.6rem);
+        line-height: 0.9;
+        font-weight: 950;
+    }
+
+    .small-card strong {
+        font-size: 2.15rem;
+    }
+
+    .metric-card svg {
+        position: absolute;
+        inset: auto 18px 16px;
+        width: calc(100% - 36px);
+        height: 46px;
+    }
+
+    .metric-card polyline,
+    .line-chart polyline {
+        fill: none;
+        stroke: #20c997;
+        stroke-width: 2.4;
+        vector-effect: non-scaling-stroke;
+    }
+
+    .metric-card polygon,
+    .line-chart polygon {
+        fill: color-mix(in oklab, #20c997 22%, transparent);
+    }
+
+    .metric-card.purple polyline,
+    .token-chart polyline {
+        stroke: #7c5cff;
+    }
+
+    .metric-card.purple polygon,
+    .token-chart polygon {
+        fill: color-mix(in oklab, #7c5cff 22%, transparent);
+    }
+
+    .badge,
+    .legend-dot {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        white-space: nowrap;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        padding: 5px 9px;
+        color: var(--muted-foreground);
+        font-size: 0.76rem;
+        font-weight: 850;
+    }
+
+    .badge.green {
+        color: #14a86f;
+        border-color: color-mix(in oklab, #20c997 34%, var(--border));
+    }
+
+    .badge.violet {
+        color: #7c5cff;
+        border-color: color-mix(in oklab, #7c5cff 34%, var(--border));
+    }
+
+    .chart-grid,
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 16px;
+    }
+
+    .panel {
+        padding: 24px;
+        border-radius: 22px;
+    }
+
+    .wide-panel {
+        margin-top: 16px;
+    }
+
+    .panel-heading {
+        margin-bottom: 22px;
+    }
+
+    .panel-heading p {
+        margin: 6px 0 0;
+        font-size: 0.86rem;
+    }
+
+    .line-chart {
+        height: 330px;
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        background:
+            linear-gradient(color-mix(in oklab, var(--border) 30%, transparent) 1px, transparent 1px),
+            linear-gradient(90deg, color-mix(in oklab, var(--border) 24%, transparent) 1px, transparent 1px);
+        background-size: 100% 25%, 12.5% 100%;
+        padding: 22px;
+    }
+
+    .line-chart svg {
+        width: 100%;
+        height: 100%;
+    }
+
+    .grid-lines line {
+        stroke: color-mix(in oklab, var(--border) 58%, transparent);
+        stroke-width: 0.35;
+    }
+
+    .axis-labels {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 12px;
+        color: var(--muted-foreground);
+        font-size: 0.78rem;
+        font-weight: 750;
+    }
+
+    .legend-dot::before {
+        width: 9px;
+        height: 9px;
+        content: "";
+        border-radius: 999px;
+        background: currentColor;
+    }
+
+    .legend-dot.violet {
+        color: #7c5cff;
+    }
+
+    .legend-dot.input {
+        color: #94a3b8;
+    }
+
+    .legend-dot.output {
+        color: #20c997;
+    }
+
+    .legend-dot.cache {
+        color: #f59e0b;
+    }
+
+    .stack-chart {
+        display: flex;
+        align-items: flex-end;
+        gap: 5px;
+        height: 360px;
+        padding: 20px;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background:
+            linear-gradient(color-mix(in oklab, var(--border) 28%, transparent) 1px, transparent 1px),
+            color-mix(in oklab, var(--background) 42%, transparent);
+        background-size: 100% 20%;
+    }
+
+    .stack-column {
+        display: flex;
+        align-items: flex-end;
+        flex: 1;
+        min-width: 6px;
+        height: 100%;
+        gap: 1px;
+    }
+
+    .bar {
+        flex: 1;
+        min-height: 1px;
+        border-radius: 3px 3px 0 0;
+        opacity: 0.9;
+    }
+
+    .bar.input {
+        background: #94a3b8;
+    }
+
+    .bar.output {
+        background: #20c997;
+    }
+
+    .bar.cache {
+        background: #f59e0b;
+    }
+
+    .rank-list {
+        display: grid;
+        gap: 10px;
+    }
+
+    .rank-row {
+        padding: 13px 0;
+        border-bottom: 1px solid color-mix(in oklab, var(--border) 64%, transparent);
+    }
+
+    .rank-row strong,
+    table strong {
+        display: block;
+        color: var(--foreground);
+        font-weight: 850;
+    }
+
+    .rank-row span,
+    table span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted-foreground);
+        font-size: 0.8rem;
+    }
+
+    .rank-row em {
+        color: var(--foreground);
+        font-style: normal;
+        font-weight: 900;
+    }
+
+    .table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+    }
+
+    table {
+        width: 100%;
+        min-width: 920px;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+    }
+
+    .compact-table table {
+        min-width: 540px;
+    }
+
+    th,
+    td {
+        border-bottom: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
+        padding: 14px 16px;
+        text-align: left;
+        vertical-align: middle;
+    }
+
+    th {
+        color: var(--muted-foreground);
+        font-size: 0.78rem;
+        font-weight: 900;
+        text-transform: uppercase;
+    }
+
+    td {
+        color: var(--foreground);
+        font-weight: 650;
+    }
+
+    tr:last-child td {
+        border-bottom: 0;
+    }
+
+    .state-card {
+        margin-top: 18px;
+        padding: 32px;
+        border-radius: 20px;
+        color: var(--muted-foreground);
+        font-weight: 800;
+    }
+
+    .state-card.error {
+        color: var(--destructive);
+        border-color: color-mix(in oklab, var(--destructive) 40%, var(--border));
+    }
+
+    @media (max-width: 1100px) {
+        .usage-header,
+        .header-actions {
+            align-items: stretch;
+        }
+
+        .usage-header {
+            flex-direction: column;
+        }
+
+        .filter-bar {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .generated-at {
+            justify-self: start;
+            text-align: left;
+        }
+
+        .chart-grid,
+        .summary-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .primary-card,
+        .small-card {
+            grid-column: span 6;
+        }
+    }
+
+    @media (max-width: 720px) {
+        .usage-header,
+        .panel,
+        .metric-card {
+            padding: 18px;
+            border-radius: 18px;
+        }
+
+        .range-tabs {
+            overflow-x: auto;
+        }
+
+        .filter-bar {
+            grid-template-columns: 1fr;
+        }
+
+        .metric-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .primary-card,
+        .small-card {
+            grid-column: auto;
+        }
+
+        .line-chart,
+        .stack-chart {
+            height: 250px;
+        }
     }
 </style>

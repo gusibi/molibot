@@ -55,6 +55,7 @@ interface BotUsageSummary extends UsageTotals {
 export interface UsageStatsResponse {
   timezone: string;
   generatedAt: string;
+  records: AiUsageRecord[];
   totals: UsageTotals;
   windows: {
     today: WindowSummary;
@@ -342,6 +343,7 @@ export class AiUsageTracker {
     return {
       timezone: timeZone,
       generatedAt: new Date().toISOString(),
+      records: byDate(last30Keys),
       totals: allSummary.totals,
       windows: {
         today: {

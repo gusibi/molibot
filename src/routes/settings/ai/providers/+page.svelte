@@ -436,7 +436,7 @@
 
     function addCustomProvider(): void {
         const provider = newCustomProvider();
-        form.customProviders = [...form.customProviders, provider];
+        form.customProviders = [provider, ...form.customProviders];
         selectedProviderId = provider.id;
         activeProviderTab = "custom";
         ensureDefaultCustomProvider();
@@ -489,12 +489,12 @@
         updateProviderById(providerId, (provider) => ({
             ...provider,
             models: [
-                ...provider.models,
                 {
                     id: "",
                     tags: ["text"] as ModelCapabilityTag[],
                     supportedRoles: ["system", "user", "assistant", "tool"],
                 },
+                ...provider.models,
             ],
         }));
     }
@@ -1211,6 +1211,55 @@
                             </div>
                         </div>
 
+                        <div
+                            class="provider-savebar mt-5 flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between"
+                        >
+                            <label class="flex flex-col gap-2 text-sm sm:flex-row sm:items-center">
+                                <span class="font-semibold text-[var(--foreground)]"
+                                    >Default model in this provider</span
+                                >
+                                <select
+                                    class="min-w-[220px] rounded-lg border border-white/10 bg-white/5 px-3 py-2 outline-none transition-colors focus:border-emerald-500/50"
+                                    bind:value={cp.defaultModel}
+                                    disabled={!cp.enabled}
+                                >
+                                    <option value="">(None)</option>
+                                    {#each modelIds(cp) as modelId}
+                                        <option value={modelId}
+                                            >{modelId}</option
+                                        >
+                                    {/each}
+                                </select>
+                            </label>
+
+                            <div class="flex flex-wrap items-center gap-3">
+                                {#if message}
+                                    <span
+                                        class="status-text success"
+                                        >{message}</span
+                                    >
+                                {/if}
+                                {#if error}
+                                    <span
+                                        class="status-text error"
+                                        title={error}>{error}</span
+                                    >
+                                {/if}
+
+                                <Button
+                                    type="submit"
+                                    variant="default"
+                                    size="md"
+                                    className="shrink-0"
+                                    disabled={saving}
+                                >
+                                    {saving
+                                        ? "Saving..."
+                                        : "Save Provider Settings"}
+                                </Button>
+                            </div>
+                        </div>
+
                         <div class="mt-6 grid gap-5 md:grid-cols-2">
                             <label class="grid gap-2 text-sm">
                                 <span class="font-medium text-[var(--foreground)]"
@@ -1670,55 +1719,6 @@
                             </div>
                         {/if}
 
-                        <!-- Save Action bar at the bottom -->
-                        <div
-                            class="provider-footer mt-8 flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-                        >
-                            <label class="flex items-center gap-3 text-sm">
-                                <span class="font-medium text-[var(--foreground)]"
-                                    >Default model in this provider:</span
-                                >
-                                <select
-                                    class="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 outline-none transition-colors focus:border-emerald-500/50"
-                                    bind:value={cp.defaultModel}
-                                    disabled={!cp.enabled}
-                                >
-                                    <option value="">(None)</option>
-                                    {#each modelIds(cp) as modelId}
-                                        <option value={modelId}
-                                            >{modelId}</option
-                                        >
-                                    {/each}
-                                </select>
-                            </label>
-
-                            <div class="flex items-center gap-3">
-                                {#if message}
-                                    <span
-                                        class="text-xs font-medium text-emerald-400"
-                                        >{message}</span
-                                    >
-                                {/if}
-                                {#if error}
-                                    <span
-                                        class="max-w-[200px] truncate text-xs font-medium text-rose-400"
-                                        title={error}>{error}</span
-                                    >
-                                {/if}
-
-                                <Button
-                                    type="submit"
-                                    variant="default"
-                                    size="md"
-                                    className="shrink-0"
-                                    disabled={saving}
-                                >
-                                    {saving
-                                        ? "Deploying..."
-                                        : "Save Provider Settings"}
-                                </Button>
-                            </div>
-                        </div>
                     {:else}
                         <div
                             class="flex flex-col items-center justify-center py-20 text-center"
@@ -1775,15 +1775,43 @@
   }
 
   :global(.providers-page .provider-panel),
-  :global(.providers-page .provider-footer) {
+  :global(.providers-page .provider-footer),
+  :global(.providers-page .provider-savebar) {
     border: 1px solid var(--border);
     border-radius: 1rem;
     background: var(--provider-panel-bg);
     box-shadow: var(--shadow-sm);
   }
 
-  :global(.providers-page .provider-footer) {
-    background: var(--provider-panel-soft);
+  :global(.providers-page .provider-footer),
+  :global(.providers-page .provider-savebar) {
+    background:
+      linear-gradient(135deg, color-mix(in oklab, var(--primary) 10%, transparent), transparent 42%),
+      var(--provider-panel-soft);
+  }
+
+  :global(.providers-page .provider-savebar) {
+    position: sticky;
+    top: 0.75rem;
+    z-index: 20;
+    backdrop-filter: blur(14px);
+  }
+
+  :global(.providers-page .status-text) {
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  :global(.providers-page .status-text.success) {
+    color: color-mix(in oklab, #22c55e 72%, var(--foreground));
+  }
+
+  :global(.providers-page .status-text.error) {
+    color: var(--destructive);
   }
 
   :global(.settings-theme .providers-page input),
