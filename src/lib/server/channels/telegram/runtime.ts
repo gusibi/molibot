@@ -163,6 +163,8 @@ export class TelegramManager extends BaseChannelRuntime {
       getAuthScopeKey: (input) => `telegram:${input.chatId}`,
       isRunning: (scopeId) => this.running.has(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
+      steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
+      followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
       cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
       maybeHandleAcpCommand: (scopeId, cmd, rawArg, target) =>
         this.maybeHandleTelegramAcpCommand(scopeId, cmd, rawArg, target),
@@ -891,9 +893,16 @@ export class TelegramManager extends BaseChannelRuntime {
       const lowered = event.text.trim().toLowerCase();
       if (lowered === "stop" || lowered === "/stop") {
         const result = this.stopChatWork(eventScopeId);
+        const cancelledQueued = this.inboundTasks.cancelPending(eventScopeId);
         momLog("telegram", "stop_text_requested", { runId, chatId, scopeId: eventScopeId, aborted: result.aborted });
         if (result.aborted) {
-          await ctx.reply("Stopping...");
+          await ctx.reply(
+            cancelledQueued > 0
+              ? `Stopping... Cleared ${cancelledQueued} queued task(s).`
+              : "Stopping..."
+          );
+        } else if (cancelledQueued > 0) {
+          await ctx.reply(`No active task. Cleared ${cancelledQueued} queued task(s).`);
         } else {
           await ctx.reply("Nothing running.");
         }
@@ -902,16 +911,20 @@ export class TelegramManager extends BaseChannelRuntime {
 
       const queueBefore = this.inboundTasks.size(eventScopeId);
       momLog("telegram", "queue_enqueue", { runId, chatId, scopeId: eventScopeId, queueBefore });
-      if (this.running.has(eventScopeId) && !event.isEvent) {
-        const pendingCount = queueBefore + 1;
-        momLog("telegram", "message_queued_while_busy", { runId, chatId, scopeId: eventScopeId, pendingCount });
-        await ctx.reply(`Queued. Pending: ${pendingCount}. Send /stop to cancel current task.`);
-      }
-      this.inboundTasks.enqueue(eventScopeId, {
+      const queueId = this.inboundTasks.enqueue(eventScopeId, {
         ...event,
         sessionId: this.store.getActiveSession(eventScopeId),
         imageContents: []
       }, { preview: event.text });
+      if (this.running.has(eventScopeId) && !event.isEvent) {
+        momLog("telegram", "message_queued_while_busy", {
+          runId,
+          chatId,
+          scopeId: eventScopeId,
+          queueId
+        });
+        await ctx.reply(this.buildQueuedBusyNotice(queueId));
+      }
     });
 
     bot.catch((err) => {
@@ -1610,6 +1623,36 @@ export class TelegramManager extends BaseChannelRuntime {
         status.answerMessageId = sent.message_id;
         lastAnswerRenderAt = Date.now();
         this.store.logBotResponse(scopeId, text, status.answerMessageId);
+      },
+      beginContinuationResponse: async (partialText, notice) => {
+        const finalized = [partialText.trim(), notice.trim()].filter(Boolean).join("\n\n");
+        momLog("telegram", "ctx_begin_continuation_response", {
+          runId,
+          chatId,
+          partialLength: partialText.length,
+          noticeLength: notice.length
+        });
+        clearAnswerRenderTimer();
+        if (answerRenderInFlight) {
+          await answerRenderInFlight;
+        }
+        answerRenderPending = false;
+        answerForceNextRender = false;
+        if (finalized) {
+          status.accumulatedText = finalized;
+          status.isWorking = false;
+          await performAnswerRender(finalized);
+          if (status.answerMessageId) {
+            this.store.logBotResponse(scopeId, finalized, status.answerMessageId);
+          }
+        }
+        status.answerMessageId = null;
+        status.accumulatedText = "";
+        status.isWorking = true;
+        hasAssistantDelta = false;
+        lastAnswerRenderAt = 0;
+        answerRenderPending = false;
+        answerForceNextRender = false;
       },
       respondInThread: async (text) => {
         status.detailsText = status.detailsText ? `${status.detailsText}\n\n${text}` : text;

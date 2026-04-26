@@ -91,6 +91,7 @@ export interface MomContext {
   thinkingLevelOverride?: RuntimeThinkingLevel;
   respond: (text: string, shouldLog?: boolean) => Promise<void>;
   replaceMessage: (text: string) => Promise<void>;
+  beginContinuationResponse?: (partialText: string, notice: string) => Promise<void>;
   respondInThread: (text: string) => Promise<void>;
   setTyping: (isTyping: boolean) => Promise<void>;
   setWorking: (isWorking: boolean) => Promise<void>;
@@ -103,4 +104,6 @@ export interface RunnerLike {
   isRunning(): boolean;
   run(ctx: MomContext): Promise<RunResult>;
   abort(): void;
+  steer(text: string): boolean;
+  followUp(text: string): boolean;
 }

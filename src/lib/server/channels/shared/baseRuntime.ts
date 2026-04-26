@@ -115,12 +115,40 @@ export abstract class BaseChannelRuntime {
 
   protected stopChatWork(scopeId: string): { aborted: boolean } {
     const activeSessionId = this.store.getActiveSession(scopeId);
-    if (!this.running.has(scopeId)) return { aborted: false };
-    const runner = this.runners.get(scopeId, activeSessionId);
-    runner.abort();
-    this.running.delete(scopeId);
+    const aborted = this.runners.abort(scopeId, activeSessionId);
+    if (!aborted) return { aborted: false };
     momLog(this.channelName, "stop_requested", { chatId: scopeId, sessionId: activeSessionId });
     return { aborted: true };
+  }
+
+  protected steerChatWork(scopeId: string, text: string): { queued: boolean } {
+    const activeSessionId = this.store.getActiveSession(scopeId);
+    const queued = this.runners.steer(scopeId, activeSessionId, text);
+    if (queued) {
+      momLog(this.channelName, "steer_requested", {
+        chatId: scopeId,
+        sessionId: activeSessionId,
+        textLength: text.trim().length
+      });
+    }
+    return { queued };
+  }
+
+  protected followUpChatWork(scopeId: string, text: string): { queued: boolean } {
+    const activeSessionId = this.store.getActiveSession(scopeId);
+    const queued = this.runners.followUp(scopeId, activeSessionId, text);
+    if (queued) {
+      momLog(this.channelName, "followup_requested", {
+        chatId: scopeId,
+        sessionId: activeSessionId,
+        textLength: text.trim().length
+      });
+    }
+    return { queued };
+  }
+
+  protected buildQueuedBusyNotice(queueId: number): string {
+    return `Queued as #${queueId}. Send /steer ${queueId} to inject it into the current task.`;
   }
 
   protected async writePromptPreview(allowedChatIds: string[]): Promise<void> {

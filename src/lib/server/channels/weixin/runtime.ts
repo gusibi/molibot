@@ -140,6 +140,8 @@ export class WeixinManager extends BaseChannelRuntime {
       authScopePrefix: "weixin",
       isRunning: (scopeId) => this.running.has(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
+      steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
+      followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
       cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
       maybeHandleAcpCommand: (scopeId, cmd, rawArg, sourceMessage) =>
         this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, sourceMessage),
@@ -431,16 +433,19 @@ export class WeixinManager extends BaseChannelRuntime {
       imageContents: []
     };
 
-    const pendingCount = this.inboundTasks.size(chatId);
-    if (pendingCount > 0 || this.running.has(chatId)) {
+    const queuedWhileBusy = this.inboundTasks.size(chatId) > 0 || this.running.has(chatId);
+    const queueId = this.inboundTasks.enqueue(chatId, this.serializeQueuedEvent(queuedEvent), {
+      preview: queuedEvent.text
+    });
+    if (queuedWhileBusy) {
       momLog("weixin", "message_queued_while_busy", {
         botId: this.instanceId,
         runId,
         chatId,
-        pendingCount
+        queueId
       });
+      await this.replyCommand(chatId, message, this.buildQueuedBusyNotice(queueId));
     }
-    this.inboundTasks.enqueue(chatId, this.serializeQueuedEvent(queuedEvent), { preview: queuedEvent.text });
   }
 
   private async processEvent(event: WeixinInboundEvent, preferReplyInitial = true): Promise<void> {

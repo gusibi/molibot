@@ -445,17 +445,39 @@ function buildToolsSection(): string {
     "| Draft/save reusable skills | `toolSearch` then `skillManage` | ad-hoc notes in random files |",
     "| Send file to user | `attach` | bash echo redirect |",
     "| Load MCP servers | `loadMcp` | only in explicit MCP scenarios |",
+    "| Long codebase investigation / isolated implementation / review | `subagent` | keeping the whole task inside one run |",
     "| Shell commands (last resort) | `bash` | — |",
     "",
     "### Tool Parameters",
     "- `memory(operation, key?, value?, query?)` — operations: add, search, list, update, delete, flush, sync",
     "- `skillSearch(intent, maxResults?)` — find matching installed skills before generic tools",
     "- `toolSearch(query, maxResults?)` — find and load deferred tools before calling them",
+    "- `subagent(agent?, task?, tasks?, chain?)` — delegate codebase-heavy work to isolated roles: `scout`, `planner`, `worker`, `reviewer`",
     "- `attach(file_path)` — send local file through active channel",
     "- `bash(command)` — shell execution in scratch directory",
     "",
-    "- If multiple independent tool calls are needed, execute them in parallel; run sequentially only when one step depends on another.",
+    "- Default to parallel only for local, read-only, low-risk tool calls with no fallback or retry coordination.",
+    "- Default to sequential or tightly limited parallelism for remote/network calls, especially search or fetch steps with timeouts, retries, fallbacks, quotas, or result-normalization requirements.",
+    "- If later tool calls depend on whether an earlier call succeeded, timed out, or chose a fallback path, those calls are not truly independent and must be run sequentially.",
     "- `TOOLS.md` is guidance about conventions and paths; it does not control actual tool availability.",
+  ].join("\n"));
+}
+
+function buildSubagentSection(): string {
+  return xmlBlock("subagents", [
+    "## Subagents",
+    "- Use `subagent` when a codebase-heavy task is likely to take many tool calls, needs isolated context, or naturally splits into recon / planning / implementation / review.",
+    "- Available roles:",
+    "  - `scout`: fast recon and compressed findings",
+    "  - `planner`: implementation plan only, no edits",
+    "  - `worker`: execute a concrete implementation task",
+    "  - `reviewer`: review changed code and report issues",
+    "- Prefer `subagent` over keeping a long multi-phase code task inside one parent run when the parent run would otherwise risk hitting tool-call budget limits.",
+    "- `subagent` supports:",
+    "  - single task: one role, one task",
+    "  - parallel tasks: multiple independent tasks",
+    "  - chain: sequential handoff using `{previous}` placeholder",
+    "- Do not use `subagent` for tiny tasks that fit in one or two direct tool calls.",
   ].join("\n"));
 }
 
@@ -516,6 +538,8 @@ function buildBaseSystemPromptWithOptions(
     buildToolSearchProtocolSection(),
     "",
     buildToolsSection(),
+    "",
+    buildSubagentSection(),
     "",
     // --- Behavioral constraints ---
     buildExecutionDisciplineSection(),

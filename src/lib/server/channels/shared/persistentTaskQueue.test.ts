@@ -63,10 +63,13 @@ test("PersistentTaskQueue lists and deletes pending tasks by id", async () => {
 
   const listed = queue.list("chat-1");
   assert.deepEqual(listed.map((item) => item.id), [firstId, pendingId, secondId]);
+  assert.deepEqual(queue.peek("chat-1", firstId), { status: "running", preview: "current" });
+  assert.deepEqual(queue.peek("chat-1", pendingId), { status: "pending", preview: "alpha" });
 
   const deleted = queue.delete("chat-1", pendingId);
   assert.equal(deleted, "deleted");
   assert.deepEqual(queue.list("chat-1").map((item) => item.id), [firstId, secondId]);
+  assert.deepEqual(queue.peek("chat-1", pendingId), { status: "not_found" });
   if (releaseCurrent) {
     releaseCurrent();
   }
@@ -97,5 +100,36 @@ test("PersistentTaskQueue removes successful tasks from sqlite automatically", a
   assert.equal(queue.size("chat-1"), 0);
   assert.deepEqual(queue.list("chat-1"), []);
   assert.equal(queue.delete("chat-1", id), "not_found");
+  queue.close();
+});
+
+test("PersistentTaskQueue cancelPending keeps running task and clears only backlog", async () => {
+  let releaseCurrent: (() => void) | null = null;
+  const queue = new PersistentTaskQueue<{ text: string }>({
+    channel: "test",
+    instanceId: "bot-4",
+    dbFile: ":memory:",
+    process: async (payload) => {
+      if (payload.text === "current") {
+        await new Promise<void>((resolve) => {
+          releaseCurrent = resolve;
+        });
+      }
+    }
+  });
+
+  const currentId = queue.enqueue("chat-1", { text: "current" }, { preview: "current" });
+  queue.enqueue("chat-1", { text: "alpha" }, { preview: "alpha" });
+  queue.enqueue("chat-1", { text: "beta" }, { preview: "beta" });
+  await delay(0);
+
+  assert.equal(queue.cancelPending("chat-1"), 2);
+  assert.deepEqual(queue.list("chat-1").map((item) => item.id), [currentId]);
+  assert.equal(queue.size("chat-1"), 1);
+
+  if (releaseCurrent) {
+    releaseCurrent();
+  }
+  await delay(10);
   queue.close();
 });

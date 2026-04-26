@@ -141,6 +141,14 @@ export const POST: RequestHandler = async ({ request }) => {
               finalText = text;
               writeEvent(controller, encoder, "replace", { text });
             },
+            beginContinuationResponse: async (partialText, notice) => {
+              const finalized = [partialText.trim(), notice.trim()].filter(Boolean).join("\n\n");
+              if (finalized) {
+                writeEvent(controller, encoder, "replace", { text: finalized });
+              }
+              finalText = "";
+              writeEvent(controller, encoder, "continuation", { notice });
+            },
             respondInThread: async (text) => {
               const trimmed = text.trim();
               if (trimmed) threadNotes.push(trimmed);

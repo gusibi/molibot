@@ -12,6 +12,7 @@ import { buildRunReflection, formatRunClosingNote, type RunSummary } from "./run
 import { saveSkillDraft, shouldSuggestSkillDraft } from "./skillDraft.js";
 import { DEFAULT_RUN_BUDGET, RunBudget } from "./runtimeBudget.js";
 import { MomRuntimeStore } from "./store.js";
+import { applyAssistantStreamEvent } from "./assistantStream.js";
 import { resolveSttTarget, transcribeAudioViaConfiguredProvider } from "./stt.js";
 import { describeImageViaConfiguredProvider, resolveVisionFallbackTarget } from "./vision-fallback.js";
 import { createMomTools } from "./tools/index.js";
@@ -36,6 +37,12 @@ import {
   getPreferredToolExecutionMode,
   validateToolCallPreflight
 } from "./toolPolicy.js";
+import {
+  stripTransientRuntimeNoticesFromMessages,
+  TOOL_BUDGET_RUNTIME_NOTICE
+} from "./runtimeNotices.js";
+
+const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
 
 function resolvePiModel(settings: RuntimeSettings): Model<any> {
   const models = getModels(settings.piModelProvider);
@@ -1269,6 +1276,9 @@ export class MomRunner implements RunnerLike {
         const budgetResult = this.activeRunBudget?.tryStartTool() ?? { ok: true };
         const finalBlockedReason = blockedReason ?? budgetResult.reason;
         if (!finalBlockedReason) return undefined;
+        if (!budgetResult.ok) {
+          this.agent.state.tools = [];
+        }
         momWarn("runner", "tool_call_blocked", {
           chatId: this.chatId,
           sessionId: this.sessionId,
@@ -1340,7 +1350,45 @@ export class MomRunner implements RunnerLike {
   }
 
   abort(): void {
+    this.agent.clearAllQueues();
+    momLog("runner", "abort_requested", {
+      chatId: this.chatId,
+      sessionId: this.sessionId
+    });
     this.agent.abort();
+  }
+
+  steer(text: string): boolean {
+    return this.enqueueLiveMessage("steer", text);
+  }
+
+  followUp(text: string): boolean {
+    return this.enqueueLiveMessage("follow_up", text);
+  }
+
+  private enqueueLiveMessage(mode: "steer" | "follow_up", text: string): boolean {
+    const normalized = text.trim();
+    if (!normalized || !this.running) return false;
+
+    const message: AgentMessage = {
+      role: "user",
+      content: [{ type: "text", text: normalized }],
+      timestamp: Date.now()
+    };
+
+    if (mode === "steer") {
+      this.agent.steer(message);
+    } else {
+      this.agent.followUp(message);
+    }
+
+    momLog("runner", "live_message_queued", {
+      chatId: this.chatId,
+      sessionId: this.sessionId,
+      mode,
+      textLength: normalized.length
+    });
+    return true;
   }
 
   async compact(options?: {
@@ -1724,6 +1772,7 @@ export class MomRunner implements RunnerLike {
       totalTokens: 0
     };
     let assistantTextStreamed = false;
+    let streamedAssistantText = "";
     let firstAssistantTokenLogged = false;
     let promptStartedAt = 0;
 
@@ -1732,13 +1781,23 @@ export class MomRunner implements RunnerLike {
         event.type === "message_start" &&
         (event.message as { role?: string }).role === "assistant"
       ) {
-        assistantTextStreamed = false;
+        const next = applyAssistantStreamEvent(
+          { assistantTextStreamed, streamedAssistantText },
+          { type: "message_start", role: (event.message as { role?: string }).role }
+        );
+        assistantTextStreamed = next.assistantTextStreamed;
+        streamedAssistantText = next.streamedAssistantText;
       }
 
       if (event.type === "message_update") {
         const assistantEvent = event.assistantMessageEvent;
         if (assistantEvent.type === "text_delta" && assistantEvent.delta) {
-          assistantTextStreamed = true;
+          const next = applyAssistantStreamEvent(
+            { assistantTextStreamed, streamedAssistantText },
+            { type: "text_delta", delta: assistantEvent.delta }
+          );
+          assistantTextStreamed = next.assistantTextStreamed;
+          streamedAssistantText = next.streamedAssistantText;
           if (!firstAssistantTokenLogged) {
             firstAssistantTokenLogged = true;
             momLog("runner", "llm_first_token", {
@@ -1901,6 +1960,9 @@ export class MomRunner implements RunnerLike {
 
     try {
       this.activeRunBudget = budget;
+      this.agent.state.messages = stripTransientRuntimeNoticesFromMessages(
+        this.agent.state.messages as AgentMessage[]
+      );
       await ctx.setTyping(true);
       await ctx.setWorking(true);
 
@@ -2061,6 +2123,7 @@ export class MomRunner implements RunnerLike {
         let attemptCount = 0;
         let candidateFinalText = "";
         let overflowRetryUsed = false;
+        let toolBudgetContinuationUsed = false;
 
         let candidateHadAttemptError = false;
         try {
@@ -2117,10 +2180,125 @@ export class MomRunner implements RunnerLike {
               model: selectedModel.id
             });
 
+            const messages = this.agent.state.messages as AgentMessage[];
+            const lastAssistant = [...messages]
+              .reverse()
+              .find((item) => (item as { role?: string }).role === "assistant") as
+              | { content?: Array<{ type: string; text?: string }> }
+              | undefined;
+
+            candidateFinalText = (lastAssistant?.content || [])
+              .filter((part) => part.type === "text" && typeof part.text === "string")
+              .map((part) => part.text as string)
+              .join("\n")
+              .trim();
+            const lastAssistantContentCount = Array.isArray(lastAssistant?.content)
+              ? lastAssistant.content.length
+              : 0;
+            momLog("runner", "final_text_evaluated", {
+              runId,
+              chatId: this.chatId,
+              finalTextLength: candidateFinalText.length,
+              lastAssistantContentCount,
+              attempt: attemptCount,
+              provider: selectedModel.provider,
+              model: selectedModel.id
+            });
+
+            if (
+              !toolBudgetContinuationUsed &&
+              budget.getExceededReason()?.includes("too many tool calls")
+            ) {
+              const continuationBudget = budget.tryRecordModelAttempt();
+              if (!continuationBudget.ok) {
+                stopReason = "error";
+                errorMessage = continuationBudget.reason;
+              } else {
+                toolBudgetContinuationUsed = true;
+                const toolBudgetNotice = budget.getExceededReason() ?? "Run budget exceeded: too many tool calls.";
+                this.store.appendRuntimeEvent(this.chatId, {
+                  code: TOOL_BUDGET_EXHAUSTED_CODE,
+                  level: "warn",
+                  summary: "Run hit the tool-call budget and switched to one no-tool continuation attempt.",
+                  details: {
+                    reason: toolBudgetNotice,
+                    budget: budget.snapshot(),
+                    limits: budget.limitsSnapshot(),
+                    candidateIndex,
+                    attempt: attemptCount
+                  }
+                }, this.sessionId);
+                const partialBeforeContinuation = candidateFinalText || streamedAssistantText.trim();
+                if (ctx.beginContinuationResponse) {
+                  await ctx.beginContinuationResponse(partialBeforeContinuation, toolBudgetNotice);
+                } else {
+                  await ctx.respondInThread(toolBudgetNotice);
+                }
+                streamedAssistantText = "";
+                assistantTextStreamed = false;
+                candidateFinalText = "";
+                const previousTools = this.agent.state.tools;
+                this.agent.state.tools = [];
+                await ctx.respondInThread(
+                  "工具调用已达到本轮上限，正在自动发起一次无工具续写，尽量保留已有结果并给出当前最佳答案。"
+                );
+                momWarn("runner", "tool_budget_continuation_prompt", {
+                  runId,
+                  chatId: this.chatId,
+                  provider: selectedModel.provider,
+                  model: selectedModel.id,
+                  candidateIndex,
+                  attempt: attemptCount,
+                  reason: budget.getExceededReason()
+                });
+                promptStartedAt = Date.now();
+                firstAssistantTokenLogged = false;
+                stopReason = "stop";
+                errorMessage = undefined;
+                try {
+                  await this.agent.prompt(TOOL_BUDGET_RUNTIME_NOTICE);
+                } finally {
+                  this.agent.state.tools = previousTools;
+                }
+                this.agent.state.messages = stripTransientRuntimeNoticesFromMessages(
+                  this.agent.state.messages as AgentMessage[]
+                );
+                while (queueRunning || queue.length > 0) {
+                  await new Promise((resolve) => setTimeout(resolve, 25));
+                }
+                const continuationMessages = this.agent.state.messages as AgentMessage[];
+                const continuationAssistant = [...continuationMessages]
+                  .reverse()
+                  .find((item) => (item as { role?: string }).role === "assistant") as
+                  | { content?: Array<{ type: string; text?: string }> }
+                  | undefined;
+                candidateFinalText = (continuationAssistant?.content || [])
+                  .filter((part) => part.type === "text" && typeof part.text === "string")
+                  .map((part) => part.text as string)
+                  .join("\n")
+                  .trim();
+                if (!candidateFinalText && streamedAssistantText.trim()) {
+                  candidateFinalText = streamedAssistantText.trim();
+                }
+                const manualContinueNotice =
+                  "自动续写最多执行一次；如果这条回复仍然不完整或再次触发上限，请手动发送“继续”，我会基于当前上下文接着处理。";
+                candidateFinalText = candidateFinalText
+                  ? `${candidateFinalText}\n\n${manualContinueNotice}`
+                  : manualContinueNotice;
+                momLog("runner", "tool_budget_continuation_evaluated", {
+                  runId,
+                  chatId: this.chatId,
+                  finalTextLength: candidateFinalText.length,
+                  provider: selectedModel.provider,
+                  model: selectedModel.id
+                });
+              }
+            }
+
             const decision = resolvePromptAttemptDecision({
               stopReason,
               errorMessage,
-              finalText: "",
+              finalText: candidateFinalText,
               attemptCount,
               maxEmptyRetries: MAX_EMPTY_RETRIES
             });
@@ -2147,40 +2325,16 @@ export class MomRunner implements RunnerLike {
               break;
             }
 
-            const messages = this.agent.state.messages as AgentMessage[];
-            const lastAssistant = [...messages]
-              .reverse()
-              .find((item) => (item as { role?: string }).role === "assistant") as
-              | { content?: Array<{ type: string; text?: string }> }
-              | undefined;
-
-            candidateFinalText = (lastAssistant?.content || [])
-              .filter((part) => part.type === "text" && typeof part.text === "string")
-              .map((part) => part.text as string)
-              .join("\n")
-              .trim();
-            const lastAssistantContentCount = Array.isArray(lastAssistant?.content)
-              ? lastAssistant.content.length
-              : 0;
-            momLog("runner", "final_text_evaluated", {
-              runId,
-              chatId: this.chatId,
-              finalTextLength: candidateFinalText.length,
-              lastAssistantContentCount,
-              attempt: attemptCount,
-              provider: selectedModel.provider,
-              model: selectedModel.id
-            });
-
             if (candidateFinalText) {
               const sessionContextFile = this.store.getSessionEntriesPath(this.chatId, this.sessionId);
-              this.store.saveContext(this.chatId, messages, this.sessionId);
+              const finalMessages = this.agent.state.messages as AgentMessage[];
+              this.store.saveContext(this.chatId, finalMessages, this.sessionId);
               momLog("runner", "context_saved", {
                 runId,
                 chatId: this.chatId,
                 sessionId: this.sessionId,
                 sessionContextFile,
-                messageCount: messages.length,
+                messageCount: finalMessages.length,
               });
               break;
             }
@@ -2330,6 +2484,18 @@ export class MomRunner implements RunnerLike {
         }
       }
 
+      if (!finalText && streamedAssistantText.trim()) {
+        finalText = streamedAssistantText.trim();
+        stopReason = "error";
+        errorMessage = errorMessage ?? budget.getExceededReason();
+        momWarn("runner", "partial_stream_preserved_after_error", {
+          runId,
+          chatId: this.chatId,
+          finalTextLength: finalText.length,
+          errorMessage
+        });
+      }
+
       if (finalText.startsWith("[SILENT]")) {
         momLog("runner", "final_silent", { runId, chatId: this.chatId });
         await ctx.deleteMessage();
@@ -2453,17 +2619,19 @@ export class MomRunner implements RunnerLike {
       return { stopReason, errorMessage };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const partialText = streamedAssistantText.trim();
       momError("runner", "run_exception", {
         runId,
         chatId: this.chatId,
         error: message,
+        partialTextLength: partialText.length
       });
       const failedSummary: RunSummary = {
         runId,
         sessionId: this.sessionId,
         stopReason: "error",
         durationMs: Date.now() - runStartedAt,
-        finalText: "",
+        finalText: partialText,
         toolNames: usedToolNames,
         failedToolNames,
         explicitSkillNames: [],
@@ -2485,7 +2653,9 @@ export class MomRunner implements RunnerLike {
       this.store.appendRunSummary(this.chatId, failedSummary as unknown as Record<string, unknown>);
       try {
         await ctx.setWorking(false);
-        await ctx.replaceMessage(`Run failed: ${message}`);
+        if (!partialText) {
+          await ctx.replaceMessage(`Run failed: ${message}`);
+        }
         await ctx.respondInThread(`Error: ${message}`);
       } catch {
         // ignore secondary UI errors
@@ -2535,6 +2705,21 @@ export class RunnerPool {
     );
     this.map.set(key, runner);
     return runner;
+  }
+
+  abort(chatId: string, sessionId: string): boolean {
+    const runner = this.get(chatId, sessionId);
+    if (!runner.isRunning()) return false;
+    runner.abort();
+    return true;
+  }
+
+  steer(chatId: string, sessionId: string, text: string): boolean {
+    return this.get(chatId, sessionId).steer(text);
+  }
+
+  followUp(chatId: string, sessionId: string, text: string): boolean {
+    return this.get(chatId, sessionId).followUp(text);
   }
 
   reset(chatId: string, sessionId: string): void {

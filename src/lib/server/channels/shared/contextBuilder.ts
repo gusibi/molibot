@@ -115,6 +115,18 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
         await ctx.respond(normalized);
       }
     },
+    beginContinuationResponse: async (partialText: string, notice: string) => {
+      const partial = normalize(partialText);
+      const normalizedNotice = normalize(notice);
+      const finalized = [partial || state.accumulatedText, normalizedNotice].filter(Boolean).join("\n\n");
+      if (finalized) {
+        await ctx.replaceMessage(finalized);
+      } else if (normalizedNotice) {
+        await ctx.respond(normalizedNotice);
+      }
+      state.lastSentMessage = null;
+      state.accumulatedText = "";
+    },
     respondInThread: async (text: string) => {
       const normalized = normalize(text);
       if (!normalized) return;

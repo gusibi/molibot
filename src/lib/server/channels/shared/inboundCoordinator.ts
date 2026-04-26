@@ -1,4 +1,9 @@
-import { PersistentTaskQueue, type PersistentTaskListItem, type PersistentTaskQueueOptions } from "./persistentTaskQueue.js";
+import {
+  PersistentTaskQueue,
+  type PersistentTaskListItem,
+  type PersistentTaskPreviewResult,
+  type PersistentTaskQueueOptions
+} from "./persistentTaskQueue.js";
 import type { SharedRuntimeCommandOptions, SharedRuntimeCommandContext } from "../../agent/channelCommands.js";
 
 interface InboundTaskCoordinatorOptions<TPayload, TTarget>
@@ -41,18 +46,28 @@ export class InboundTaskCoordinator<TPayload, TTarget> {
     return this.queue.delete(scopeId, id);
   }
 
+  peek(scopeId: string, id: number): PersistentTaskPreviewResult {
+    return this.queue.peek(scopeId, id);
+  }
+
+  cancelPending(scopeId: string): number {
+    return this.queue.cancelPending(scopeId);
+  }
+
   close(): void {
     this.queue.close();
   }
 
   toCommandOptions(): Pick<
     SharedRuntimeCommandOptions<TTarget>,
-    "getQueueSize" | "listQueue" | "deleteQueued" | "enqueueFront"
+    "getQueueSize" | "listQueue" | "deleteQueued" | "getQueuedPreview" | "enqueueFront" | "cancelQueuedPending"
   > {
     return {
       getQueueSize: (scopeId) => this.size(scopeId),
       listQueue: async (scopeId) => this.list(scopeId),
       deleteQueued: async (scopeId, id) => this.delete(scopeId, id),
+      getQueuedPreview: async (scopeId, id) => this.peek(scopeId, id),
+      cancelQueuedPending: async (scopeId) => this.cancelPending(scopeId),
       enqueueFront: this.enqueueFrontFromCommandFn
         ? async (input, text) => this.enqueueFrontFromCommandFn?.(input, text) ?? null
         : undefined

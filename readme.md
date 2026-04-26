@@ -41,6 +41,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - [Common Commands](#common-commands)
 - [Environment](#environment)
 - [Docs](#docs)
+- [Documentation Workflow](#documentation-workflow)
 - [Current Status](#current-status)
 
 ## Key Highlights
@@ -380,10 +381,15 @@ See `.env.example` for full list and detailed descriptions.
 ## Docs
 
 ### Core Documentation
-- `prd.md` - Product Requirements Document: scope, priorities, and feature specifications
-- `features.md` - **Single source of truth**: delivered features, detailed changelog, and implementation notes
-- `architecture.md` - Architecture decisions, module structure, and design patterns
-- `CHANGELOG.md` - High-level version history and milestone summaries
+
+| File | Role |
+|------|------|
+| `README.md` | Project entrypoint: positioning, setup, surface overview, and doc navigation |
+| `AGENTS.md` | Long-lived collaboration rules, architecture boundaries, and doc-maintenance rules |
+| `prd.md` | Planned scope, priorities, acceptance criteria, and still-open implementation requirements |
+| `features.md` | Delivered features, implementation notes, and detailed internal update log |
+| `CHANGELOG.md` | High-level release history and milestone summaries worth preserving outside `features.md` |
+| `architecture.md` | Architecture decisions, module structure, and design patterns |
 
 ### Development Documentation
 - `docs/plugin-development.md` - Plugin contract and development guide
@@ -403,6 +409,14 @@ See `.env.example` for full list and detailed descriptions.
 > - `features.md` for what has been implemented
 > - `prd.md` for what was originally planned
 > - Current code for actual behavior
+
+## Documentation Workflow
+
+1. Before implementing a new feature, confirm the requirement or gap in `prd.md`.
+2. After shipping, update `features.md` with the delivered fact and a dated log entry.
+3. If the change adds or clarifies a long-lived rule, extract only that evergreen rule into `AGENTS.md`.
+4. If the change affects onboarding, project positioning, or doc navigation, update `README.md`.
+5. If the change is meaningful at release-summary level, add a concise entry to `CHANGELOG.md`.
 
 ## Current Status
 

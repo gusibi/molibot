@@ -97,12 +97,21 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-157 | Queue success auto-cleanup | P1 | Delivered (2026-04-22) | Persisted inbound and outbound queues should remove successfully processed items immediately, so SQLite keeps only unfinished work that actually needs retry or recovery after restart |
 | P1-158 | Readable default mom runtime logs | P1 | Delivered (2026-04-23) | Default `[mom-t]` runtime logs should be human-readable single-line entries showing `time -> scope -> event -> key fields`, with color-coded event categories for terminal scanning and an explicit env escape hatch to restore raw JSON when machine parsing is needed |
 | P1-159 | Explicit model fallback policy and route hygiene | P1 | Delivered (2026-04-24) | Runtime model retry/fallback should be operator-controllable (`off` / `same-provider` / `any-enabled`), default to same-provider fallback to avoid surprising cross-provider switches, exclude disabled providers from STT/vision fallback paths, and keep settings UI model options aligned with backend route resolution |
+| P1-160 | Documentation role separation and AGENTS extraction policy | P1 | Delivered (2026-04-26) | Project docs should keep stable collaboration/architecture rules in `AGENTS.md`, planned scope in `prd.md`, delivered facts in `features.md`, onboarding/navigation in `README.md`, and high-level release summaries in `CHANGELOG.md`; when extracting from PRD/features into AGENTS, only evergreen rules should move upward |
 | P2-160 | AI Providers maintenance UX | P2 | Delivered (2026-04-24) | Providers settings should reduce long-list noise and thinking-config misinterpretation with an earlier two-pane layout, independently scrolling provider list, collapsed built-in models, and explicit reasoning parameter guidance |
 | P1-165 | DeepSeek v4 upstream compatibility | P1 | Delivered (2026-04-25) | Runtime should use pi-mono's built-in DeepSeek v4 provider support instead of Molibot-specific payload patches, migrate stale `custom|deepseek|...` routes to built-in `pi|deepseek|...` routes, and keep only generic old-session cleanup for orphan tool-result messages |
 | P1-166 | Direct schema dependency hygiene | P1 | Delivered (2026-04-25) | Tool schema libraries imported by Molibot source must be declared as Molibot dependencies instead of relying on pi-mono transitive packages, so production builds remain stable across upstream upgrades |
 | P1-167 | Agent edit diff readability | P1 | Delivered (2026-04-25) | The `edit` tool should return context-aware line diffs for insertions/deletions instead of naive same-index comparisons, while preserving existing workspace path guardrails |
 | P1-168 | AI usage observability redesign | P1 | Delivered (2026-04-25) | `/settings/ai/usage` should present a reference-quality usage dashboard from existing tracker data only, including request/token summary cards, trends, token-type distribution, API/model/bot/channel breakdowns, and recent events, while omitting modules for unrecorded fields such as cost, latency, success rate, and auth index |
 | P1-169 | AI providers and model-error console polish | P1 | Delivered (2026-04-25) | `/settings/ai/providers` should keep save/default-model controls visible near the top of the provider editor, insert newly added providers and models first, and `/settings/ai/errors` should present failure logs as a concise operational console with summary cards, filters, provider ranking, and detailed records |
+| P1-170 | Shared subagent delegation via pi-mono SDK | P1 | Delivered (2026-04-26) | The runtime should expose one shared `subagent` tool backed by isolated `@mariozechner/pi-coding-agent` sessions so complex codebase tasks can delegate to `scout`, `planner`, `worker`, and `reviewer` roles with their own tool budgets instead of exhausting the parent run; default runtime logs must make delegated execution visibly distinct from parent-run execution |
+| P1-171 | Stop command clears pending queue backlog | P1 | Delivered (2026-04-26) | Shared channel `/stop` should abort the current running task and also cancel same-scope pending queued requests, so users can actually stop a backlog instead of watching queued follow-up prompts continue after the current run aborts |
+| P1-172 | Shared live run controls (`abort` / `steer` / `followUp`) | P1 | Delivered (2026-04-26) | Shared agent/runtime layer should expose three distinct live controls for active work: hard-abort current run, inject a correction into the current run, and queue a follow-up turn to execute immediately after the current run finishes, without re-implementing this behavior inside each channel adapter. If a second message is already sitting in the inbound queue, operators should be able to promote it by `queueId` instead of retyping the message text. |
+| P1-173 | Gold daily task fixed serial search path | P1 | Delivered (2026-04-26) | The Molifin gold daily scheduled workflow should stop launching four ad-hoc parallel 30-second searches and instead use one fixed wrapper that runs the four required queries serially, gives each engine a fixed 60-second budget, falls back across the documented web-search engine order on failure, and keeps the event prompt/scheme version aligned with that execution path |
+| P1-174 | Shared prompt parallelism decision rule | P1 | Delivered (2026-04-26) | Shared tool-execution guidance should stop treating all “independent” calls as parallel-by-default and instead distinguish safe local read-only parallel work from remote/network/search steps that involve timeouts, retries, fallbacks, quotas, or result normalization, steering those flows toward sequential or tightly limited parallel execution |
+| P1-175 | Tool-budget runtime notice isolation and structured session error code | P1 | Delivered (2026-04-26) | When a run exhausts its tool-call budget and the runner launches one no-tool continuation, the temporary `Do not call tools` control prompt must not persist as a normal conversation turn. Runtime should instead persist a non-contextual structured session error/event code (for example `RUN_TOOL_BUDGET_EXHAUSTED`) for debugging, keep detailed human-readable limitation text in channel output, and ensure later turns in the same session start with a fresh tool budget and no inherited no-tools instruction. |
+| P1-176 | Shared runner and subagent regression hardening | P1 | Delivered (2026-04-26) | The new shared runner/subagent path must clear stale streamed assistant text between assistant messages, block shell control operators in read-only delegated bash commands, and honor each checked-in subagent role's explicit `model:` hint instead of always inheriting the parent run model. |
+| P1-176 | Project-wide transient runtime control separation rule | P1 | Delivered (2026-04-26) | All future runtime error/limit strategies should follow one shared separation rule: temporary model-control instructions belong only to the active run and must never persist as normal session conversation; persistent debugging signals should be stored only as structured non-contextual runtime error/event codes; and detailed user-facing explanations should be emitted only through the channel/client response path. This policy should be documented in `AGENTS.md` and treated as the default design rule for similar failures beyond tool-budget exhaustion. |
 | P2-161 | Unified AI model-pool settings UX | P2 | Delivered (2026-04-24) | AI Providers and AI Routing should present built-in and custom models as one mixed routing pool, demote legacy fallback details, and use responsive theme-aware layouts for both desktop and mobile settings workflows |
 | P1-162 | Web locale switching reliability and Settings Chinese fallback | P1 | Delivered (2026-04-24) | Chat and Settings should share one locale state, Settings child pages should react to language changes, and hardcoded English settings pages should get a Chinese fallback until they are fully migrated to structured i18n |
 | P1-163 | Custom provider thinking-format compatibility | P1 | Delivered (2026-04-24) | Custom providers with provider-specific thinking protocols should be explicitly configurable, legacy `thinking-type` saved values should migrate to `deepseek`, and custom DeepSeek-style endpoints should emit `thinking.type` plus mapped `reasoning_effort` without needing runner-level payload patches |
@@ -623,8 +632,8 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - When a message arrives while Telegram runner is processing, it is queued instead of being rejected.
   - User receives queue feedback with pending count.
 - Control:
-  - `/stop` still aborts current running task.
-  - Queued tasks continue to execute in per-chat FIFO order.
+  - `/stop` aborts current running task and clears same-chat pending queued backlog.
+  - Pending tasks still execute in per-chat FIFO order until an explicit `/stop` clears them.
 
 ## 29. Telegram Text Attachment Format Rule (2026-02-12)
 - Rule:
@@ -2894,3 +2903,46 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/channels/telegram/runtime.ts` 必须把结构化工具事件格式化为 Telegram 友好的紧凑工具调用列表。
   - `respondInThread` 在 Telegram 中必须复用同一条详情消息追加内容，避免一轮运行产生多条重复错误消息。
   - `features.md` 必须记录本次 Telegram 消息展示优化。
+
+## 197. 工具调用上限后不得覆盖已输出内容，并应尝试无工具续写 (2026-04-26)
+- Priority: P1
+- Stage: Delivered (2026-04-26)
+- Problem:
+  - 一轮运行达到工具调用上限后，模型可能继续请求工具，最终 Runner 进入错误收尾。
+  - 如果本轮已经流式输出过正文，最终错误兜底仍可能调用 `replaceMessage`，把已有正文覆盖成 `Sorry, something went wrong.` 或类似失败文案，导致用户丢失已经生成的内容。
+- Requirement:
+  - Runner 必须在 Agent 共享层保存本轮已流出的 assistant 正文；出错时优先保留这部分内容。
+  - 工具调用预算耗尽后的错误详情应进入运行详情/线程说明，不应覆盖最终答案消息。
+  - 达到工具调用上限后，Runner 应尝试一次新的无工具模型请求，让模型基于已有上下文给出当前最佳答案；不能无限续跑。
+  - 新的无工具续写应尽量使用一条新的回复消息承载；第一条回复末尾保留现有预算耗尽提示，让用户明确知道后续是新请求。
+  - 自动续写最多执行一次；如果续写后仍不完整或再次触发上限，必须明确告诉用户可以手动发送“继续”，由用户决定是否开启下一轮。
+  - 该能力必须放在 Agent/共享运行层，不能分别塞进 Telegram/QQ/Feishu/Weixin 的 Channel 适配代码。
+- Enforcement:
+  - `src/lib/server/agent/runtimeBudget.ts` 必须暴露预算耗尽原因，供 Runner 判断是否触发续写或部分结果保护。
+  - `src/lib/server/agent/runner.ts` 必须记录流式正文、在工具上限时清空工具列表并只尝试一次无工具 continuation prompt。
+  - `MomContext` 应提供可选的 continuation response 边界能力；Telegram 必须把上限前后的回答拆成两条消息。
+  - continuation message 必须包含手动继续提示，避免系统静默停止或继续自动递归请求。
+  - `src/lib/server/agent/runner.ts` 的异常收尾必须在已有 partial answer 时跳过错误 `replaceMessage`，改为把错误写入详情。
+  - `features.md` 必须记录本次可靠性修复。
+
+## 198. 复杂代码任务必须支持共享子 Agent 委派 (2026-04-26)
+- Priority: P1
+- Stage: Delivered (2026-04-26)
+- Problem:
+  - 一轮主 Agent 运行存在工具调用上限，复杂代码任务在“侦察 -> 规划 -> 修改 -> 复核”多阶段流程下容易把父 run 卡死在预算边界。
+  - 现有 Channel 共享层虽然已有队列、恢复、预算与 prompt 规则，但还没有一个正式的共享子 Agent 能力来把复杂任务切成多个独立 run。
+  - 如果把这类能力放到各个 Channel runtime 里，会违反 Molibot 当前“共享上层负责编排、Channel 只负责收发与适配”的边界。
+- Requirement:
+  - Agent 共享层必须提供一个 `subagent` 工具，基于 `@mariozechner/pi-coding-agent` 的独立 session 能力运行子 Agent，而不是在 Channel 层各自实现一套委派逻辑。
+  - 初版必须复用四个固定角色：`scout`、`planner`、`worker`、`reviewer`，并支持单任务、有限并行任务、顺序 chain 三种委派模式。
+  - 子 Agent 必须拥有独立上下文和独立工具预算；父 Agent 只消费子 Agent 的结果摘要，不把整段子会话塞回主上下文。
+  - `worker` 子 Agent 内的文件修改能力必须继续沿用 Molibot 现有的受保护 `read` / `bash` / `edit` / `write` 约束，不能因为引入 pi-mono SDK 就绕过已有路径/设置/内存安全边界。
+  - Prompt 必须明确告诉父 Agent：当任务天然分成“侦察、规划、执行、复核”阶段，或者预计会消耗大量工具调用时，应优先考虑 `subagent`，而不是把所有阶段硬塞进一个父 run。
+  - 默认运行日志必须明确显示何时进入 `subagent`，以及具体是哪个子 Agent 角色在执行哪一步，否则 operator 无法判断一轮工作是父 Agent 还是 delegated child session 在跑。
+- Enforcement:
+  - `src/lib/server/agent/tools/subagent.ts` 必须实现共享 `subagent` 工具，并复用 upstream-style 四个 agent prompt 定义。
+  - `src/lib/server/agent/tools/index.ts` 必须将 `subagent` 暴露给主 Agent。
+  - `src/lib/server/agent/toolPolicy.ts` 必须把 `subagent` 纳入串行执行集合，避免与其他重型/可变工具并发踩踏。
+  - `src/lib/server/agent/prompt.ts` 必须补充 `subagent` 的适用场景、角色说明和 chain/parallel 使用规则。
+  - `src/lib/server/agent/log.ts` 必须默认输出 `subagent_start` / `subagent_task_start` / `subagent_task_end` / `subagent_end` 事件，并在 pretty 模式下带上 delegated role、step、mode、usage 等关键信息。
+  - `features.md` 必须记录本次能力落地。

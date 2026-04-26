@@ -11,6 +11,7 @@ import { createProfileFilesTool } from "./profileFiles.js";
 import { createReadTool } from "./read.js";
 import { createSkillManageTool } from "./skillManage.js";
 import { createSkillSearchTool } from "./skillSearch.js";
+import { createSubagentTool } from "./subagent.js";
 import { createSwitchModelTool } from "./switchModel.js";
 import { createToolSearchTool, type DeferredToolEntry } from "./toolSearch.js";
 import { createWriteTool } from "./write.js";
@@ -227,6 +228,12 @@ export function createMomTools(options: {
     createBashTool(options.cwd),
     createEditTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
     createWriteTool({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId }),
+    createSubagentTool({
+      cwd: options.cwd,
+      workspaceDir: options.workspaceDir,
+      chatId: options.chatId,
+      getSettings: options.getSettings
+    }),
     createAttachTool(options)
   ].map((tool) => wrapSerializedTool(tool));
 

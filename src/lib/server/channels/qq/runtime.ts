@@ -128,6 +128,8 @@ export class QQManager extends BaseChannelRuntime {
       authScopePrefix: "qq",
       isRunning: (scopeId) => this.running.has(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
+      steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
+      followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
       cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
       maybeHandleAcpCommand: (scopeId, cmd, rawArg, target) =>
         this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, target),
@@ -358,13 +360,15 @@ export class QQManager extends BaseChannelRuntime {
       imageContents: []
     };
 
-    if (this.inboundTasks.size(chatId) > 0 || this.running.has(chatId)) {
-      momLog("qq", "message_queued_while_busy", { botId: this.instanceId, chatId, runId });
-    }
-    this.inboundTasks.enqueue(chatId, {
+    const queuedWhileBusy = this.inboundTasks.size(chatId) > 0 || this.running.has(chatId);
+    const queueId = this.inboundTasks.enqueue(chatId, {
       event: queuedEvent,
       target: this.toSendTarget(event)
     }, { preview: queuedEvent.text });
+    if (queuedWhileBusy) {
+      momLog("qq", "message_queued_while_busy", { botId: this.instanceId, chatId, runId, queueId });
+      await this.replyCommand(this.toSendTarget(event), this.buildQueuedBusyNotice(queueId));
+    }
   }
 
   private async processEvent(event: ChannelInboundMessage, target: SendTarget): Promise<void> {

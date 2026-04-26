@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-04-26
+
+### 文档治理整理
+- **AGENTS 规则提炼**: 从 `prd.md` / `features.md` 中抽出了长期有效的协作与架构规则，补充到 `AGENTS.md`，包括文档职责分层、事件调度落地边界、以及 prompt/profile 规则必须真实生效而不只是出现在 source 列表。
+- **README 文档分工说明**: 更新 `README.md` 的文档说明区，明确 `README` / `AGENTS` / `prd` / `features` / `CHANGELOG` 各自职责，并补充统一的文档维护流程。
+- **变更记录对齐**: 将这次文档治理调整同步记录到 `features.md`、`prd.md` 和 `CHANGELOG.md`，让规则、计划、已交付事实三者保持分层一致。
+
+---
+
 ## 2026-03-29
 
 ### 核心功能优化

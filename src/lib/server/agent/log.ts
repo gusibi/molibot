@@ -49,6 +49,10 @@ const KEY_LOG_EVENTS = new Set<string>([
   "final_text_evaluated",
   "final_empty_response",
   "run_end",
+  "subagent_start",
+  "subagent_task_start",
+  "subagent_task_end",
+  "subagent_end",
   // tool and channel
   "tool_start",
   "tool_end",
@@ -73,6 +77,10 @@ const EVENT_EMOJIS: Record<string, string> = {
   prompt_start: "💬",
   prompt_end: "⏹️",
   assistant_message_end: "✅",
+  subagent_start: "🧩",
+  subagent_task_start: "🧭",
+  subagent_task_end: "📎",
+  subagent_end: "🏁",
   tool_start: "🛠️",
   tool_end: "📦",
   channel_sending_start: "📤",
@@ -177,6 +185,39 @@ function summarizeEvent(event: string, data: Record<string, unknown>): SummaryFi
       { key: "runId", text: `run=${stringifyValue(data.runId)}` },
       { key: "stopReason", text: `stop=${stringifyValue(data.stopReason)}` },
       { key: "usage", text: `tokens=${stringifyValue(usage?.totalTokens ?? 0)}` },
+    ];
+  }
+  if (event === "subagent_start") {
+    return [
+      { key: "chatId", text: `chat=${stringifyValue(data.chatId)}` },
+      { key: "mode", text: `mode=${stringifyValue(data.mode)}` },
+      { key: "taskCount", text: `tasks=${stringifyValue(data.taskCount)}` },
+    ];
+  }
+  if (event === "subagent_task_start") {
+    return [
+      { key: "chatId", text: `chat=${stringifyValue(data.chatId)}` },
+      { key: "agent", text: `agent=${stringifyValue(data.agent)}` },
+      { key: "taskIndex", text: `step=${stringifyValue(data.taskIndex)}/${stringifyValue(data.taskCount)}` },
+      { key: "mode", text: `mode=${stringifyValue(data.mode)}` },
+    ];
+  }
+  if (event === "subagent_task_end") {
+    return [
+      { key: "chatId", text: `chat=${stringifyValue(data.chatId)}` },
+      { key: "agent", text: `agent=${stringifyValue(data.agent)}` },
+      { key: "taskIndex", text: `step=${stringifyValue(data.taskIndex)}/${stringifyValue(data.taskCount)}` },
+      { key: "stopReason", text: `stop=${stringifyValue(data.stopReason)}` },
+      { key: "model", text: `model=${stringifyValue(data.model ?? "")}` },
+      { key: "usageTotal", text: `tokens=${stringifyValue(data.usageTotal ?? 0)}` },
+    ];
+  }
+  if (event === "subagent_end") {
+    return [
+      { key: "chatId", text: `chat=${stringifyValue(data.chatId)}` },
+      { key: "mode", text: `mode=${stringifyValue(data.mode)}` },
+      { key: "taskCount", text: `tasks=${stringifyValue(data.taskCount)}` },
+      { key: "hasFailure", text: `failed=${stringifyValue(data.hasFailure)}` },
     ];
   }
   return [];

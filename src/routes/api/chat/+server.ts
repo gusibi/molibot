@@ -463,6 +463,11 @@ export const POST: RequestHandler = async ({ request }) => {
     replaceMessage: async (text: string) => {
       if (typeof text === "string") finalText = text;
     },
+    beginContinuationResponse: async (partialText: string, notice: string) => {
+      const finalized = [partialText.trim(), notice.trim()].filter(Boolean).join("\n\n");
+      if (finalized) threadNotes.push(finalized);
+      finalText = "";
+    },
     respondInThread: async (text: string) => {
       if (typeof text === "string" && text.trim()) threadNotes.push(text.trim());
     },

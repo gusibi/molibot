@@ -12,6 +12,11 @@ export interface PersistentTaskListItem {
   createdAt: string;
 }
 
+export interface PersistentTaskPreviewResult {
+  status: "pending" | "running" | "not_found";
+  preview?: string;
+}
+
 interface QueueRow {
   id: number;
   payload_json: string;
@@ -184,6 +189,48 @@ export class PersistentTaskQueue<TPayload> {
       WHERE id = ?
     `).run(new Date().toISOString(), new Date().toISOString(), id);
     return "deleted";
+  }
+
+  peek(scopeId: string, id: number): PersistentTaskPreviewResult {
+    const row = this.db.prepare(`
+      SELECT status, preview_text
+      FROM inbound_tasks
+      WHERE channel = ?
+        AND instance_id = ?
+        AND scope_id = ?
+        AND id = ?
+    `).get(this.channel, this.instanceId, scopeId, id) as Record<string, unknown> | undefined;
+
+    if (!row) return { status: "not_found" };
+    const status = String(row.status);
+    if (status === "running") {
+      return {
+        status: "running",
+        preview: String(row.preview_text ?? "").trim()
+      };
+    }
+    if (status !== "pending") {
+      return { status: "not_found" };
+    }
+    return {
+      status: "pending",
+      preview: String(row.preview_text ?? "").trim()
+    };
+  }
+
+  cancelPending(scopeId: string): number {
+    const nowIso = new Date().toISOString();
+    const result = this.db.prepare(`
+      UPDATE inbound_tasks
+      SET status = 'cancelled',
+          updated_at = ?,
+          finished_at = ?
+      WHERE channel = ?
+        AND instance_id = ?
+        AND scope_id = ?
+        AND status = 'pending'
+    `).run(nowIso, nowIso, this.channel, this.instanceId, scopeId);
+    return Number(result.changes ?? 0);
   }
 
   close(): void {

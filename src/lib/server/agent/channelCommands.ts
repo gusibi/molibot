@@ -36,6 +36,8 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   getAuthScopeKey?: (input: SharedRuntimeCommandContext<TTarget>) => string;
   isRunning: (scopeId: string) => boolean;
   stopRun: (scopeId: string) => { aborted: boolean };
+  steerRun?: (scopeId: string, text: string) => { queued: boolean };
+  followUpRun?: (scopeId: string, text: string) => { queued: boolean };
   cancelAcpRun?: (scopeId: string) => Promise<boolean>;
   maybeHandleAcpCommand?: (scopeId: string, cmd: string, rawArg: string, target: TTarget) => Promise<boolean>;
   sendText: (target: TTarget, text: string) => Promise<void>;
@@ -43,6 +45,11 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   getQueueSize?: (scopeId: string) => number;
   listQueue?: (scopeId: string) => Promise<Array<{ id: number; status: string; preview: string; createdAt: string }>>;
   deleteQueued?: (scopeId: string, id: number) => Promise<"deleted" | "running" | "not_found">;
+  getQueuedPreview?: (
+    scopeId: string,
+    id: number
+  ) => Promise<{ status: "pending" | "running" | "not_found"; preview?: string }>;
+  cancelQueuedPending?: (scopeId: string) => Promise<number>;
   enqueueFront?: (input: SharedRuntimeCommandContext<TTarget>, text: string) => Promise<number | null>;
   getStatusExtras?: (scopeId: string, target: TTarget) => string[];
   helpLines?: readonly string[];
@@ -88,12 +95,66 @@ export class SharedRuntimeCommandService<TTarget> {
 
     if (cmd === "/stop") {
       const result = this.options.stopRun(input.scopeId);
+      const cancelledQueued = (await this.options.cancelQueuedPending?.(input.scopeId)) ?? 0;
       if (result.aborted) {
-        await this.options.sendText(input.target, "Stopping...");
+        await this.options.sendText(
+          input.target,
+          cancelledQueued > 0
+            ? `Stopping... Cleared ${cancelledQueued} queued task(s).`
+            : "Stopping..."
+        );
       } else {
         const cancelledAcp = await this.options.cancelAcpRun?.(input.scopeId);
-        await this.options.sendText(input.target, cancelledAcp ? "ACP cancellation requested." : "Nothing running.");
+        if (cancelledAcp) {
+          await this.options.sendText(input.target, "ACP cancellation requested.");
+        } else if (cancelledQueued > 0) {
+          await this.options.sendText(input.target, `No active task. Cleared ${cancelledQueued} queued task(s).`);
+        } else {
+          await this.options.sendText(input.target, "Nothing running.");
+        }
       }
+      return true;
+    }
+
+    if (cmd === "/steer") {
+      const queuedHandled = await this.tryHandleQueuedLiveCommand("steer", input, rawArg);
+      if (queuedHandled) return true;
+      if (!this.options.steerRun) {
+        await this.options.sendText(input.target, "Live steer is unavailable in current runtime.");
+        return true;
+      }
+      if (!rawArg) {
+        await this.options.sendText(input.target, "Usage: /steer <text>");
+        return true;
+      }
+      const result = this.options.steerRun(input.scopeId, rawArg);
+      await this.options.sendText(
+        input.target,
+        result.queued
+          ? "Queued steering correction into current task."
+          : "Nothing running. Send a normal message instead."
+      );
+      return true;
+    }
+
+    if (cmd === "/followup" || cmd === "/follow_up") {
+      const queuedHandled = await this.tryHandleQueuedLiveCommand("followup", input, rawArg);
+      if (queuedHandled) return true;
+      if (!this.options.followUpRun) {
+        await this.options.sendText(input.target, "Live follow-up is unavailable in current runtime.");
+        return true;
+      }
+      if (!rawArg) {
+        await this.options.sendText(input.target, "Usage: /followup <text>");
+        return true;
+      }
+      const result = this.options.followUpRun(input.scopeId, rawArg);
+      await this.options.sendText(
+        input.target,
+        result.queued
+          ? "Queued follow-up after current task."
+          : "Nothing running. Send a normal message instead."
+      );
       return true;
     }
 
@@ -798,6 +859,8 @@ export class SharedRuntimeCommandService<TTarget> {
   private helpText(): string {
     const commandRows: CommandTableRow[] = [
       { label: "/stop", value: "stop current running task" },
+      { label: "/steer <text|queueId>", value: "inject a live correction into the current running task" },
+      { label: "/followup <text|queueId>", value: "run a follow-up turn after the current task finishes" },
       { label: "/queue", value: "list current running and queued tasks" },
       { label: "/queue front <text>", value: "insert a text task at the front of queue" },
       { label: "/queue delete <queueId>", value: "delete a pending queued task by id" },
@@ -853,5 +916,68 @@ export class SharedRuntimeCommandService<TTarget> {
     }
 
     return ["Queue:", ...rows.map((row) => `#${row.id} [${row.status}] ${row.preview || "(no preview)"}`)].join("\n");
+  }
+
+  private async tryHandleQueuedLiveCommand(
+    mode: "steer" | "followup",
+    input: SharedRuntimeCommandContext<TTarget>,
+    rawArg: string
+  ): Promise<boolean> {
+    if (!/^\d+$/.test(rawArg)) return false;
+    if (!this.options.getQueuedPreview || !this.options.deleteQueued) return false;
+
+    const id = Number.parseInt(rawArg, 10);
+    if (!Number.isFinite(id) || id <= 0) return false;
+
+    const queued = await this.options.getQueuedPreview(input.scopeId, id);
+    if (queued.status === "not_found") {
+      await this.options.sendText(input.target, `Queue item ${id} was not found.`);
+      return true;
+    }
+    if (queued.status === "running") {
+      await this.options.sendText(
+        input.target,
+        `Task ${id} is currently running. Use /${mode} <text> to correct the active task directly.`
+      );
+      return true;
+    }
+
+    const preview = String(queued.preview ?? "").trim();
+    if (!preview) {
+      await this.options.sendText(
+        input.target,
+        `Queue item ${id} has no text preview. Use /${mode} <text> instead.`
+      );
+      return true;
+    }
+
+    const liveResult = mode === "steer"
+      ? this.options.steerRun?.(input.scopeId, preview)
+      : this.options.followUpRun?.(input.scopeId, preview);
+    if (!liveResult) return false;
+    if (!liveResult.queued) {
+      await this.options.sendText(
+        input.target,
+        `Nothing running. Queue item ${id} stays queued.`
+      );
+      return true;
+    }
+
+    const deleted = await this.options.deleteQueued(input.scopeId, id);
+    if (deleted !== "deleted") {
+      await this.options.sendText(
+        input.target,
+        `Injected queued task ${id}, but failed to remove it from queue. Use /queue delete ${id} if it still appears.`
+      );
+      return true;
+    }
+
+    await this.options.sendText(
+      input.target,
+      mode === "steer"
+        ? `Injected queued task ${id} into current task.`
+        : `Queued task ${id} will now run as live follow-up after the current task.`
+    );
+    return true;
   }
 }

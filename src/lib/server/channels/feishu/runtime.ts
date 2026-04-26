@@ -111,6 +111,8 @@ export class FeishuManager extends BaseChannelRuntime {
             authScopePrefix: "feishu",
             isRunning: (scopeId) => this.running.has(scopeId),
             stopRun: (scopeId) => this.stopChatWork(scopeId),
+            steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
+            followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
             cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
             maybeHandleAcpCommand: (scopeId, cmd, rawArg) =>
                 this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, undefined),
@@ -471,10 +473,12 @@ export class FeishuManager extends BaseChannelRuntime {
             imageContents: []
         };
 
-        if (this.inboundTasks.size(chatId) > 0 || this.running.has(chatId)) {
-            momLog("feishu", "message_queued_while_busy", { runId, chatId });
+        const queuedWhileBusy = this.inboundTasks.size(chatId) > 0 || this.running.has(chatId);
+        const queueId = this.inboundTasks.enqueue(chatId, queuedEvent, { preview: queuedEvent.text });
+        if (queuedWhileBusy) {
+            momLog("feishu", "message_queued_while_busy", { runId, chatId, queueId });
+            await this.sendText(chatId, this.buildQueuedBusyNotice(queueId));
         }
-        this.inboundTasks.enqueue(chatId, queuedEvent, { preview: queuedEvent.text });
     }
 
     private async processEvent(event: ChannelInboundMessage): Promise<void> {

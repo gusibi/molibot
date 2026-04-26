@@ -32,7 +32,13 @@ test("InboundTaskCoordinator exposes queue command operations", async () => {
 
   assert.equal(commandOptions.getQueueSize?.("chat-1"), 3);
   assert.deepEqual((await commandOptions.listQueue?.("chat-1"))?.map((item) => item.id), [currentId, frontId, pendingId]);
+  assert.deepEqual(await commandOptions.getQueuedPreview?.("chat-1", pendingId), {
+    status: "pending",
+    preview: "later"
+  });
   assert.equal(await commandOptions.deleteQueued?.("chat-1", pendingId), "deleted");
+  assert.equal(await commandOptions.cancelQueuedPending?.("chat-1"), 1);
+  assert.deepEqual((await commandOptions.listQueue?.("chat-1"))?.map((item) => item.id), [currentId]);
   if (releaseCurrent) {
     releaseCurrent();
   }

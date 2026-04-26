@@ -25,7 +25,8 @@ import {
   type SessionHeaderEntry,
   type SessionEntry,
   type SessionFileEntry,
-  type SessionMessageEntry
+  type SessionMessageEntry,
+  type SessionRuntimeEventEntry
 } from "./session.js";
 import {
   resolveDataRootFromWorkspacePath,
@@ -674,6 +675,21 @@ export class MomRuntimeStore {
     });
     const snapshot = [createCompactionSummaryMessage(summary), ...keptMessages];
     writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+  }
+
+  appendRuntimeEvent(
+    chatId: string,
+    event: Omit<SessionRuntimeEventEntry, "type" | "id" | "parentId" | "timestamp">,
+    sessionId?: string
+  ): void {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    this.appendSessionEntry(chatId, id, {
+      type: "runtime_event",
+      id: createEntryId(),
+      parentId: null,
+      timestamp: new Date().toISOString(),
+      ...event
+    });
   }
 
   appendRunSummary(chatId: string, summary: Record<string, unknown>): void {

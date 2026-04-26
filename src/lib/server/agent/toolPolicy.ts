@@ -14,6 +14,7 @@ const SERIALIZED_TOOL_NAMES = new Set([
   "loadMcp",
   "createEvent",
   "attach",
+  "subagent",
   "publishHtml"
 ]);
 

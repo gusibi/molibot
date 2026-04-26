@@ -35,7 +35,15 @@ export interface SessionCompactionEntry extends SessionEntryBase {
   reason: "threshold" | "manual";
 }
 
-export type SessionEntry = SessionMessageEntry | SessionCompactionEntry;
+export interface SessionRuntimeEventEntry extends SessionEntryBase {
+  type: "runtime_event";
+  code: string;
+  level: "info" | "warn" | "error";
+  summary: string;
+  details?: Record<string, unknown>;
+}
+
+export type SessionEntry = SessionMessageEntry | SessionCompactionEntry | SessionRuntimeEventEntry;
 export type SessionFileEntry = SessionHeaderEntry | SessionEntry;
 
 export interface SessionBuildResult {
