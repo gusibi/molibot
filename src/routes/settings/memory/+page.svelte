@@ -192,26 +192,31 @@
 </script>
 
 <PageShell widthClass="max-w-5xl" gapClass="space-y-6">
-        <h1 class="text-2xl font-semibold">Memory Management</h1>
-        <p class="text-sm text-slate-400">
-          Search, flush, edit and delete runtime memories. Settings page defaults
-          to all scopes so you can inspect everything in one place. Conflicts are
-          marked for review.
-        </p>
+        <header class="wb-hero">
+          <div class="wb-hero-copy">
+            <p class="wb-eyebrow">Memory Operations</p>
+            <h1>Memory Management</h1>
+            <p class="wb-copy">
+              Search, flush, edit and delete runtime memories. Settings page defaults
+              to all scopes so you can inspect everything in one place. Conflicts are
+              marked for review.
+            </p>
+          </div>
+        </header>
 
         <div class="flex flex-wrap gap-2 text-xs">
           <span
-            class="rounded border border-white/15 bg-[#2b2b2b] px-3 py-1.5 text-slate-300"
+            class="rounded border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-3 py-1.5 text-[var(--foreground)]"
           >
             plugin {memoryEnabled ? "enabled" : "disabled"}
           </span>
           <span
-            class="rounded border border-white/15 bg-[#2b2b2b] px-3 py-1.5 text-slate-300"
+            class="rounded border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-3 py-1.5 text-[var(--foreground)]"
           >
             active backend {activeBackend}
           </span>
           <a
-            class="rounded border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-sky-300 hover:bg-sky-500/20"
+            class="rounded border border-[color-mix(in_oklab,var(--primary)_30%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] px-3 py-1.5 text-[color-mix(in_oklab,var(--primary)_74%,var(--foreground))] hover:bg-[color-mix(in_oklab,var(--primary)_16%,var(--card))]"
             href="/settings/plugins"
           >
             switch in plugin settings
@@ -219,24 +224,24 @@
         </div>
 
         <div
-          class="grid gap-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4 sm:grid-cols-[120px_220px_1fr_auto_auto_auto_auto]"
+          class="wb-toolbar grid gap-3 sm:grid-cols-[120px_220px_1fr_auto_auto_auto_auto]"
         >
           <input
-            class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm"
+            class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
             bind:value={channel}
             placeholder="channel"
           />
           <input
-            class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm"
+            class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
             bind:value={userId}
             placeholder="userId"
           />
           <input
-            class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm"
+            class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
             bind:value={searchText}
             placeholder="Search memory content..."
           />
-          <label class="flex items-center gap-2 rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm text-slate-300">
+          <label class="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm text-[var(--foreground)]">
             <input bind:checked={allScopes} type="checkbox" />
             All scopes
           </label>
@@ -282,13 +287,13 @@
 
         {#if loading}
           <div
-            class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300"
+            class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]"
           >
             Loading memory...
           </div>
         {:else if items.length === 0}
           <div
-            class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300"
+            class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]"
           >
             No memory found. Toggle scope filters or run Sync Files if you expect imported memory.
           </div>
@@ -296,32 +301,32 @@
           <div class="space-y-3">
             {#each items as item (item.id)}
               <article
-                class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
+                class="space-y-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4"
               >
                 <div
-                  class="flex items-center justify-between gap-3 text-xs text-slate-400"
+                  class="flex items-center justify-between gap-3 text-xs text-[var(--muted-foreground)]"
                 >
                   <div class="flex items-center gap-2">
-                    <span class="rounded border border-white/20 px-2 py-0.5">
+                    <span class="rounded border border-[color-mix(in_oklab,var(--border)_82%,transparent)] px-2 py-0.5">
                       source {item.channel}:{item.externalUserId}
                     </span>
-                    <span class="rounded border border-white/20 px-2 py-0.5"
+                    <span class="rounded border border-[color-mix(in_oklab,var(--border)_82%,transparent)] px-2 py-0.5"
                       >{item.layer}</span
                     >
                     {#if item.sourceSessionId}
-                      <span class="rounded border border-white/20 px-2 py-0.5">
+                      <span class="rounded border border-[color-mix(in_oklab,var(--border)_82%,transparent)] px-2 py-0.5">
                         session {item.sourceSessionId}
                       </span>
                     {/if}
                     {#if item.hasConflict}
                       <span
-                        class="rounded border border-amber-500/50 bg-amber-500/10 px-2 py-0.5 text-amber-300"
+                        class="rounded border border-amber-500/50 bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] px-2 py-0.5 text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]"
                         >conflict</span
                       >
                     {/if}
                     {#if item.expiresAt}
                       <span
-                        class="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-sky-300"
+                        class="rounded border border-[color-mix(in_oklab,var(--primary)_34%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] px-2 py-0.5 text-[color-mix(in_oklab,var(--primary)_74%,var(--foreground))]"
                         >expires {item.expiresAt.slice(0, 10)}</span
                       >
                     {/if}
@@ -334,13 +339,13 @@
                 </div>
 
                 <textarea
-                  class="min-h-20 w-full rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm"
+                  class="min-h-20 w-full rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
                   bind:value={item.content}
                 ></textarea>
 
                 <div class="grid gap-2 sm:grid-cols-[1fr_220px_auto_auto]">
                   <input
-                    class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm"
+                    class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
                     value={item.tags.join(",")}
                     on:change={(e) => {
                       const value = (e.currentTarget as HTMLInputElement).value;
@@ -352,7 +357,7 @@
                     placeholder="tag1,tag2"
                   />
                   <input
-                    class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm"
+                    class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
                     bind:value={item.expiresAt}
                     placeholder="expiresAt (ISO8601)"
                   />

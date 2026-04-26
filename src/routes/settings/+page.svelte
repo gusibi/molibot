@@ -54,22 +54,17 @@
 </script>
 
 <PageShell widthClass="max-w-6xl" gapClass="space-y-8">
-  <header class="relative overflow-hidden rounded-[1.8rem] border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-6 py-7 shadow-[var(--shadow)] backdrop-blur-xl sm:px-8">
-    <div class="absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(circle_at_right,rgba(18,132,168,0.12),transparent_60%)]"></div>
-    <div class="relative space-y-3">
-      <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--muted)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-        {copy.eyebrow}
-      </div>
-      <div class="max-w-3xl space-y-2">
-        <h1 class="text-3xl font-semibold tracking-tight text-[var(--foreground)] sm:text-4xl">{copy.title}</h1>
-        <p class="text-sm leading-7 text-[var(--muted-foreground)] sm:text-base">{copy.subtitle}</p>
-      </div>
+  <header class="wb-hero">
+    <div class="wb-hero-copy">
+      <p class="wb-eyebrow">{copy.eyebrow}</p>
+      <h1>{copy.title}</h1>
+      <p class="wb-copy">{copy.subtitle}</p>
     </div>
   </header>
 
   <section class="space-y-4">
     <div class="flex items-center justify-between gap-3">
-      <div class="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)] shadow-[var(--shadow-sm)]">
+      <div class="wb-badge text-[11px] uppercase tracking-[0.18em]">
         {copy.badge}
       </div>
     </div>
@@ -77,7 +72,7 @@
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {#each copy.sections as item}
         <a class="group block" href={item.href}>
-          <Card className="flex min-h-[172px] flex-col justify-between rounded-[1.4rem] border-[color-mix(in_oklab,var(--border)_88%,transparent)] bg-[color-mix(in_oklab,var(--card)_92%,transparent)] p-5 shadow-[var(--shadow-sm)] transition duration-200 group-hover:-translate-y-1 group-hover:border-[color-mix(in_oklab,var(--primary)_34%,var(--border))] group-hover:shadow-[var(--shadow)]">
+          <Card className="flex min-h-[172px] flex-col justify-between rounded-[1.4rem] p-5 transition duration-200 group-hover:-translate-y-1 group-hover:border-[color-mix(in_oklab,var(--primary)_34%,var(--border))] group-hover:shadow-[var(--shadow)]">
             <div class="space-y-3">
               <h2 class="text-lg font-semibold text-[var(--foreground)]">{item.title}</h2>
               <p class="text-sm leading-7 text-[var(--muted-foreground)]">{item.description}</p>

@@ -137,8 +137,6 @@ function scanContextForInjection(content: string): string | null {
 
 function buildContextSection(vars: PromptRenderVars): string {
   return section("Context", [
-    `- Server timezone: ${vars.timezone} — always include this timezone offset when computing event timestamps.`,
-    "- For the exact current time, run: date",
     "- You have access to previous conversation context including tool results from prior turns.",
     `- For older history beyond your context, search ${vars.chatDir}/log.jsonl (contains user messages and your final responses, but not tool results).`,
   ]);

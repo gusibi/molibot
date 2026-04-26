@@ -25,3 +25,8 @@ test("prompt source distinguishes safe local parallelism from remote fallback wo
     /If multiple independent tool calls are needed, execute them in parallel; run sequentially only when one step depends on another\./
   );
 });
+
+test("prompt source no longer embeds live time guidance in the system prompt context", () => {
+  assert.doesNotMatch(promptSource, /Server timezone:/);
+  assert.doesNotMatch(promptSource, /For the exact current time, run: date/);
+});

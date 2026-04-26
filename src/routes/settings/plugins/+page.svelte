@@ -182,35 +182,38 @@
 </script>
 
 <PageShell widthClass="max-w-3xl" gapClass="space-y-6">
-  <h1 class="text-2xl font-semibold">Plugin Settings</h1>
-  <p class="text-sm text-slate-400">
-    Enable or disable optional runtime plugins.
-  </p>
+  <header class="wb-hero">
+    <div class="wb-hero-copy">
+      <p class="wb-eyebrow">Runtime Extensions</p>
+      <h1>Plugin Settings</h1>
+      <p class="wb-copy">
+        Enable or disable optional runtime plugins.
+      </p>
+    </div>
+  </header>
 
   {#if loading}
-    <div
-      class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300"
-    >
+    <div class="wb-empty-state text-left">
       Loading plugin settings...
     </div>
   {:else}
     <form class="space-y-4" on:submit|preventDefault={save}>
             <section
-              class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
+              class="space-y-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4"
             >
-              <h2 class="text-sm font-semibold text-slate-200">
+              <h2 class="text-sm font-semibold text-[var(--foreground)]">
                 Memory Backend
               </h2>
 
-              <label class="flex items-center gap-3 text-sm text-slate-300">
+              <label class="flex items-center gap-3 text-sm text-[var(--foreground)]">
                 <input bind:checked={memoryEnabled} type="checkbox" />
                 Enable memory
               </label>
 
               <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">Memory backend</span>
+                <span class="text-[var(--foreground)]">Memory backend</span>
                 <select
-                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                  class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                   bind:value={memoryBackend}
                 >
                   <option value="json-file">json-file (built-in backend)</option>
@@ -218,7 +221,7 @@
                 </select>
               </label>
 
-              <p class="text-xs leading-5 text-slate-400">
+              <p class="text-xs leading-5 text-[var(--muted-foreground)]">
                 This is a memory backend switch, not a channel plugin. `json-file`
                 keeps the current flat-file behavior. `mory` switches the gateway
                 to the SDK-backed SQLite engine without changing the agent-facing API.
@@ -227,36 +230,36 @@
               <div class="space-y-2 pt-2">
                 {#each memoryBackendCatalog as backend}
                   <div
-                    class="rounded-lg border border-white/10 bg-[#1f1f1f] px-3 py-3 text-sm"
+                    class="rounded-lg border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-3 text-sm"
                   >
                     <div class="flex flex-wrap items-center gap-2">
-                      <span class="font-semibold text-slate-100"
+                      <span class="font-semibold text-[var(--foreground)]"
                         >{backend.name}</span
                       >
-                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                      <span class="rounded bg-[color-mix(in_oklab,var(--muted)_54%,var(--card))] px-2 py-0.5 text-xs text-[var(--foreground)]"
                         >{backend.key}</span
                       >
-                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                      <span class="rounded bg-[color-mix(in_oklab,var(--muted)_54%,var(--card))] px-2 py-0.5 text-xs text-[var(--foreground)]"
                         >{backend.source}</span
                       >
                       <span
                         class={`rounded px-2 py-0.5 text-xs ${
                           backend.status === "error"
-                            ? "bg-rose-500/15 text-rose-300"
+                            ? "bg-[color-mix(in_oklab,var(--destructive)_14%,var(--card))] text-[var(--destructive)]"
                             : backend.status === "active"
-                              ? "bg-emerald-500/15 text-emerald-300"
-                              : "bg-amber-500/15 text-amber-300"
+                              ? "bg-[color-mix(in_oklab,hsl(146_55%_42%)_12%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]"
+                              : "bg-[color-mix(in_oklab,hsl(38_84%_54%)_12%,var(--card))] text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]"
                         }`}
                       >
                         {backend.status}
                       </span>
-                      <span class="text-xs text-slate-500"
+                      <span class="text-xs text-[var(--muted-foreground)]"
                         >v{backend.version}</span
                       >
                     </div>
 
                     {#if backend.description}
-                      <p class="mt-2 text-xs text-slate-400">
+                      <p class="mt-2 text-xs text-[var(--muted-foreground)]">
                         {backend.description}
                       </p>
                     {/if}
@@ -266,13 +269,13 @@
             </section>
 
             <section
-              class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
+              class="space-y-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4"
             >
               <div class="space-y-1">
-                <h2 class="text-sm font-semibold text-slate-200">
+                <h2 class="text-sm font-semibold text-[var(--foreground)]">
                   Feature Plugins
                 </h2>
-                <p class="text-xs leading-5 text-slate-400">
+                <p class="text-xs leading-5 text-[var(--muted-foreground)]">
                   These plugins add optional product capabilities instead of new chat channels.
                 </p>
               </div>
@@ -280,25 +283,25 @@
               <div class="space-y-2">
                 {#each featurePlugins as plugin}
                   <div
-                    class="rounded-lg border border-white/10 bg-[#1f1f1f] px-3 py-3 text-sm"
+                    class="rounded-lg border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-3 text-sm"
                   >
                     <div class="flex flex-wrap items-center gap-2">
-                      <span class="font-semibold text-slate-100"
+                      <span class="font-semibold text-[var(--foreground)]"
                         >{plugin.name}</span
                       >
-                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                      <span class="rounded bg-[color-mix(in_oklab,var(--muted)_54%,var(--card))] px-2 py-0.5 text-xs text-[var(--foreground)]"
                         >{plugin.key}</span
                       >
-                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                      <span class="rounded bg-[color-mix(in_oklab,var(--muted)_54%,var(--card))] px-2 py-0.5 text-xs text-[var(--foreground)]"
                         >{plugin.source}</span
                       >
                       <span
                         class={`rounded px-2 py-0.5 text-xs ${
                           plugin.status === "error"
-                            ? "bg-rose-500/15 text-rose-300"
+                            ? "bg-[color-mix(in_oklab,var(--destructive)_14%,var(--card))] text-[var(--destructive)]"
                             : plugin.status === "active"
-                              ? "bg-emerald-500/15 text-emerald-300"
-                              : "bg-amber-500/15 text-amber-300"
+                              ? "bg-[color-mix(in_oklab,hsl(146_55%_42%)_12%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]"
+                              : "bg-[color-mix(in_oklab,hsl(38_84%_54%)_12%,var(--card))] text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]"
                         }`}
                       >
                         {plugin.status}
@@ -306,19 +309,19 @@
                       <span
                         class={`rounded px-2 py-0.5 text-xs ${
                           plugin.enabled
-                            ? "bg-emerald-500/15 text-emerald-300"
-                            : "bg-white/10 text-slate-300"
+                            ? "bg-[color-mix(in_oklab,hsl(146_55%_42%)_12%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]"
+                            : "bg-[color-mix(in_oklab,var(--muted)_54%,var(--card))] text-[var(--foreground)]"
                         }`}
                       >
                         {plugin.enabled ? "enabled" : "disabled"}
                       </span>
-                      <span class="text-xs text-slate-500"
+                      <span class="text-xs text-[var(--muted-foreground)]"
                         >v{plugin.version}</span
                       >
                     </div>
 
                     {#if plugin.description}
-                      <p class="mt-2 text-xs text-slate-400">
+                      <p class="mt-2 text-xs text-[var(--muted-foreground)]">
                         {plugin.description}
                       </p>
                     {/if}
@@ -329,14 +332,14 @@
 
             {#each featurePlugins.filter((plugin) => (plugin.settingsFields?.length ?? 0) > 0) as plugin}
               <section
-                class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
+                class="space-y-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4"
               >
                 <div class="space-y-1">
-                  <h2 class="text-sm font-semibold text-slate-200">
+                  <h2 class="text-sm font-semibold text-[var(--foreground)]">
                     {plugin.name}
                   </h2>
                   {#if plugin.description}
-                    <p class="text-xs leading-5 text-slate-400">
+                    <p class="text-xs leading-5 text-[var(--muted-foreground)]">
                       {plugin.description}
                     </p>
                   {/if}
@@ -345,7 +348,7 @@
                 <div class="grid gap-3 md:grid-cols-2">
                   {#each plugin.settingsFields ?? [] as field}
                     {#if field.type === "boolean"}
-                      <label class="flex items-center gap-3 text-sm text-slate-300 md:col-span-2">
+                      <label class="flex items-center gap-3 text-sm text-[var(--foreground)] md:col-span-2">
                         <input
                           checked={Boolean(getFeatureValue(plugin.key, field.key))}
                           on:change={(event) =>
@@ -356,11 +359,11 @@
                       </label>
                     {:else if field.type === "select"}
                       <label class="grid gap-1.5 text-sm md:col-span-2">
-                        <span class="text-slate-300">
+                        <span class="text-[var(--foreground)]">
                           {field.label}{field.required ? " *" : ""}
                         </span>
                         <select
-                          class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                          class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                           value={String(getFeatureValue(plugin.key, field.key) ?? "")}
                           on:change={(event) =>
                             setFeatureValue(plugin.key, field.key, (event.currentTarget as HTMLSelectElement).value)}
@@ -370,18 +373,18 @@
                           {/each}
                         </select>
                         {#if field.description}
-                          <span class="text-xs leading-5 text-slate-400">
+                          <span class="text-xs leading-5 text-[var(--muted-foreground)]">
                             {field.description}
                           </span>
                         {/if}
                       </label>
                     {:else}
                       <label class={`grid gap-1.5 text-sm ${field.key === "objectPrefix" ? "md:col-span-2" : ""}`}>
-                        <span class="text-slate-300">
+                        <span class="text-[var(--foreground)]">
                           {field.label}{field.required ? " *" : ""}
                         </span>
                         <input
-                          class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                          class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                           value={String(getFeatureValue(plugin.key, field.key) ?? "")}
                           on:input={(event) =>
                             setFeatureValue(plugin.key, field.key, (event.currentTarget as HTMLInputElement).value)}
@@ -389,7 +392,7 @@
                           type={field.type}
                         />
                         {#if field.description}
-                          <span class="text-xs leading-5 text-slate-400">
+                          <span class="text-xs leading-5 text-[var(--muted-foreground)]">
                             {field.description}
                           </span>
                         {/if}
@@ -401,13 +404,13 @@
             {/each}
 
             <section
-              class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
+              class="space-y-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4"
             >
               <div class="space-y-1">
-                <h2 class="text-sm font-semibold text-slate-200">
+                <h2 class="text-sm font-semibold text-[var(--foreground)]">
                   Channel Plugins
                 </h2>
-                <p class="text-xs leading-5 text-slate-400">
+                <p class="text-xs leading-5 text-[var(--muted-foreground)]">
                   Built-in channel plugins live in the codebase. External
                   channel plugins are discovered from
                   <code>${"{DATA_DIR}"}/plugins/channels/*/plugin.json</code>.
@@ -417,51 +420,51 @@
               <div class="space-y-2">
                 {#each channelPlugins as plugin}
                   <div
-                    class="rounded-lg border border-white/10 bg-[#1f1f1f] px-3 py-3 text-sm"
+                    class="rounded-lg border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-3 text-sm"
                   >
                     <div class="flex flex-wrap items-center gap-2">
-                      <span class="font-semibold text-slate-100"
+                      <span class="font-semibold text-[var(--foreground)]"
                         >{plugin.name}</span
                       >
-                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                      <span class="rounded bg-[color-mix(in_oklab,var(--muted)_54%,var(--card))] px-2 py-0.5 text-xs text-[var(--foreground)]"
                         >{plugin.key}</span
                       >
-                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                      <span class="rounded bg-[color-mix(in_oklab,var(--muted)_54%,var(--card))] px-2 py-0.5 text-xs text-[var(--foreground)]"
                         >{plugin.source}</span
                       >
                       <span
                         class={`rounded px-2 py-0.5 text-xs ${
                           plugin.status === "error"
-                            ? "bg-rose-500/15 text-rose-300"
+                            ? "bg-[color-mix(in_oklab,var(--destructive)_14%,var(--card))] text-[var(--destructive)]"
                             : plugin.status === "active"
-                              ? "bg-emerald-500/15 text-emerald-300"
-                              : "bg-amber-500/15 text-amber-300"
+                              ? "bg-[color-mix(in_oklab,hsl(146_55%_42%)_12%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]"
+                              : "bg-[color-mix(in_oklab,hsl(38_84%_54%)_12%,var(--card))] text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]"
                         }`}
                       >
                         {plugin.status}
                       </span>
-                      <span class="text-xs text-slate-500"
+                      <span class="text-xs text-[var(--muted-foreground)]"
                         >v{plugin.version}</span
                       >
                     </div>
 
                     {#if plugin.description}
-                      <p class="mt-2 text-xs text-slate-400">
+                      <p class="mt-2 text-xs text-[var(--muted-foreground)]">
                         {plugin.description}
                       </p>
                     {/if}
                     {#if plugin.manifestPath}
-                      <p class="mt-2 text-xs text-slate-500">
+                      <p class="mt-2 text-xs text-[var(--muted-foreground)]">
                         manifest: {plugin.manifestPath}
                       </p>
                     {/if}
                     {#if plugin.entryPath}
-                      <p class="mt-1 text-xs text-slate-500">
+                      <p class="mt-1 text-xs text-[var(--muted-foreground)]">
                         entry: {plugin.entryPath}
                       </p>
                     {/if}
                     {#if plugin.error}
-                      <p class="mt-2 text-xs text-rose-300">{plugin.error}</p>
+                      <p class="mt-2 text-xs text-[var(--destructive)]">{plugin.error}</p>
                     {/if}
                   </div>
                 {/each}
@@ -469,13 +472,13 @@
             </section>
 
             <section
-              class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4"
+              class="space-y-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4"
             >
               <div class="space-y-1">
-                <h2 class="text-sm font-semibold text-slate-200">
+                <h2 class="text-sm font-semibold text-[var(--foreground)]">
                   Provider Plugins
                 </h2>
-                <p class="text-xs leading-5 text-slate-400">
+                <p class="text-xs leading-5 text-[var(--muted-foreground)]">
                   Built-in providers come from the current codebase. External
                   provider manifests are discovered from
                   <code>${"{DATA_DIR}"}/plugins/providers/*/plugin.json</code>.
@@ -485,51 +488,51 @@
               <div class="space-y-2">
                 {#each providerPlugins as plugin}
                   <div
-                    class="rounded-lg border border-white/10 bg-[#1f1f1f] px-3 py-3 text-sm"
+                    class="rounded-lg border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-3 text-sm"
                   >
                     <div class="flex flex-wrap items-center gap-2">
-                      <span class="font-semibold text-slate-100"
+                      <span class="font-semibold text-[var(--foreground)]"
                         >{plugin.name}</span
                       >
-                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                      <span class="rounded bg-[color-mix(in_oklab,var(--muted)_54%,var(--card))] px-2 py-0.5 text-xs text-[var(--foreground)]"
                         >{plugin.key}</span
                       >
-                      <span class="rounded bg-white/10 px-2 py-0.5 text-xs text-slate-300"
+                      <span class="rounded bg-[color-mix(in_oklab,var(--muted)_54%,var(--card))] px-2 py-0.5 text-xs text-[var(--foreground)]"
                         >{plugin.source}</span
                       >
                       <span
                         class={`rounded px-2 py-0.5 text-xs ${
                           plugin.status === "error"
-                            ? "bg-rose-500/15 text-rose-300"
+                            ? "bg-[color-mix(in_oklab,var(--destructive)_14%,var(--card))] text-[var(--destructive)]"
                             : plugin.status === "active"
-                              ? "bg-emerald-500/15 text-emerald-300"
-                              : "bg-amber-500/15 text-amber-300"
+                              ? "bg-[color-mix(in_oklab,hsl(146_55%_42%)_12%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]"
+                              : "bg-[color-mix(in_oklab,hsl(38_84%_54%)_12%,var(--card))] text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]"
                         }`}
                       >
                         {plugin.status}
                       </span>
-                      <span class="text-xs text-slate-500"
+                      <span class="text-xs text-[var(--muted-foreground)]"
                         >v{plugin.version}</span
                       >
                     </div>
 
                     {#if plugin.description}
-                      <p class="mt-2 text-xs text-slate-400">
+                      <p class="mt-2 text-xs text-[var(--muted-foreground)]">
                         {plugin.description}
                       </p>
                     {/if}
                     {#if plugin.manifestPath}
-                      <p class="mt-2 text-xs text-slate-500">
+                      <p class="mt-2 text-xs text-[var(--muted-foreground)]">
                         manifest: {plugin.manifestPath}
                       </p>
                     {/if}
                     {#if plugin.entryPath}
-                      <p class="mt-1 text-xs text-slate-500">
+                      <p class="mt-1 text-xs text-[var(--muted-foreground)]">
                         entry: {plugin.entryPath}
                       </p>
                     {/if}
                     {#if plugin.error}
-                      <p class="mt-2 text-xs text-rose-300">{plugin.error}</p>
+                      <p class="mt-2 text-xs text-[var(--destructive)]">{plugin.error}</p>
                     {/if}
                   </div>
                 {/each}

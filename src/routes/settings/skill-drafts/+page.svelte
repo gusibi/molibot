@@ -279,15 +279,18 @@
 </script>
 
 <PageShell widthClass="max-w-6xl" gapClass="space-y-6">
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <h1 class="text-2xl font-semibold">Skill Drafts</h1>
-      <p class="text-sm text-slate-400">
+  <header class="wb-hero">
+    <div class="wb-hero-copy">
+      <p class="wb-eyebrow">Reusable Workflows</p>
+      <h1>Skill Drafts</h1>
+      <p class="wb-copy">
         Review reusable workflow drafts before turning them into live skills.
       </p>
     </div>
-    <Button variant="outline" size="md" on:click={loadDrafts}>Refresh</Button>
-  </div>
+    <div class="wb-hero-actions">
+      <Button variant="outline" size="md" on:click={loadDrafts}>Refresh</Button>
+    </div>
+  </header>
 
   {#if message}
     <Alert>{message}</Alert>
@@ -297,15 +300,15 @@
   {/if}
 
   {#if loading}
-    <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+    <div class="wb-empty-state text-left">
       Loading skill drafts...
     </div>
   {:else}
-    <section class="space-y-4 rounded-2xl border border-white/15 bg-[#2b2b2b] p-5 text-sm text-slate-200">
+    <section class="space-y-4 rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-5 text-sm text-[var(--foreground)]">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 class="text-base font-semibold">Draft Generation Rules</h2>
-          <p class="mt-1 text-sm text-slate-400">
+          <p class="mt-1 text-sm text-[var(--muted-foreground)]">
             Control when reusable workflow drafts are saved, and which existing skill should define the draft format.
           </p>
         </div>
@@ -315,7 +318,7 @@
       </div>
 
       <div class="grid gap-4 sm:grid-cols-2">
-        <label class="flex items-center gap-3 rounded-xl border border-white/10 bg-black/10 px-3 py-3">
+        <label class="flex items-center gap-3 rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-3">
           <input
             type="checkbox"
             bind:checked={skillDrafts.autoSave.enabled}
@@ -324,31 +327,31 @@
           <span>Enable automatic draft saving</span>
         </label>
         <label class="space-y-2">
-          <span class="text-xs uppercase tracking-wide text-slate-400">Minimum Tool Calls</span>
+          <span class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Minimum Tool Calls</span>
           <input
             type="number"
             min="1"
-            class="w-full rounded-xl border border-white/15 bg-black/10 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+            class="w-full rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
             bind:value={skillDrafts.autoSave.minToolCalls}
           />
         </label>
       </div>
 
       <div class="grid gap-3 sm:grid-cols-2">
-        <label class="flex items-center gap-3 rounded-xl border border-white/10 bg-black/10 px-3 py-3">
+        <label class="flex items-center gap-3 rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-3">
           <input type="checkbox" bind:checked={skillDrafts.autoSave.allowRecoveredToolFailures} />
           <span>Save draft when the run recovered from tool failures</span>
         </label>
-        <label class="flex items-center gap-3 rounded-xl border border-white/10 bg-black/10 px-3 py-3">
+        <label class="flex items-center gap-3 rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-3">
           <input type="checkbox" bind:checked={skillDrafts.autoSave.allowModelRetries} />
           <span>Save draft when the run needed model retries or fallback</span>
         </label>
       </div>
 
       <label class="block space-y-2">
-        <span class="text-xs uppercase tracking-wide text-slate-400">Workflow Skill Path</span>
+        <span class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Workflow Skill Path</span>
         <input
-          class="w-full rounded-xl border border-white/15 bg-black/10 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+          class="w-full rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
           bind:value={skillDrafts.template.skillPath}
           list={workflowSuggestionsId}
           placeholder="~/.molibot/skills/skill-creator/SKILL.md"
@@ -360,11 +363,11 @@
             </option>
           {/each}
         </datalist>
-        <p class="text-xs text-slate-400">
+        <p class="text-xs text-[var(--muted-foreground)]">
           Fill in the standard workflow `SKILL.md` path. Without this path, automatic draft generation stays off.
         </p>
         {#if templateSkills.length > 0}
-          <div class="rounded-xl border border-white/10 bg-black/10 px-3 py-3 text-xs text-slate-400">
+          <div class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-3 text-xs text-[var(--muted-foreground)]">
             Suggestions:
             {#each templateSkills as option, index}
               <div class={index === 0 ? "mt-2" : "mt-1"}>{option.name} · {formatTemplateScope(option)} · {option.filePath}</div>
@@ -374,23 +377,23 @@
       </label>
 
       {#if !hasWorkflowSkillPath()}
-        <div class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs text-amber-200">
+        <div class="rounded-xl border border-amber-500/20 bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] px-3 py-3 text-xs text-[color-mix(in_oklab,hsl(38_84%_44%)_72%,var(--foreground))]">
           Automatic draft generation is locked until a workflow `SKILL.md` path is configured.
         </div>
       {/if}
 
       <!-- Keep showing the current configured path explicitly for quick confirmation. -->
       {#if skillDrafts.template.skillPath}
-        <div class="rounded-xl border border-white/10 bg-black/10 px-3 py-3 text-xs text-slate-400">
+        <div class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-3 text-xs text-[var(--muted-foreground)]">
           Selected workflow: {skillDrafts.template.skillPath}
         </div>
       {/if}
     </section>
 
-    <section class="grid gap-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4 text-sm text-slate-300 sm:grid-cols-3">
-      <div><span class="text-slate-400">Total:</span> {counts.total}</div>
-      <div><span class="text-slate-400">Bots:</span> {counts.botCount}</div>
-      <div><span class="text-slate-400">Chats:</span> {counts.chatCount}</div>
+    <section class="wb-summary-strip text-sm sm:grid-cols-3">
+      <div><span class="text-[var(--muted-foreground)]">Total:</span> {counts.total}</div>
+      <div><span class="text-[var(--muted-foreground)]">Bots:</span> {counts.botCount}</div>
+      <div><span class="text-[var(--muted-foreground)]">Chats:</span> {counts.chatCount}</div>
     </section>
 
     {#if diagnostics.length > 0}
@@ -398,28 +401,28 @@
     {/if}
 
     {#if items.length === 0}
-      <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+      <div class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]">
         No skill drafts found yet.
       </div>
     {:else}
       <section class="space-y-4">
         {#each items as item}
-          <article class="rounded-2xl border border-white/15 bg-[#2b2b2b] p-5 text-sm text-slate-200">
+          <article class="rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-5 text-sm text-[var(--foreground)]">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div class="flex flex-wrap items-center gap-2">
                   <h2 class="text-base font-semibold">{item.name}</h2>
-                  <span class="rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-xs text-sky-300">
+                  <span class="rounded-full border border-[color-mix(in_oklab,var(--primary)_34%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] px-2 py-0.5 text-xs text-[color-mix(in_oklab,var(--primary)_74%,var(--foreground))]">
                     {draftScope[item.filePath] ?? "chat"}
                   </span>
-                  <span class="rounded-full border border-white/15 px-2 py-0.5 text-xs text-slate-300">
+                  <span class="rounded-full border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--foreground)]">
                     merged {item.mergeCount ?? 1}
                   </span>
                 </div>
-                <p class="mt-1 text-xs text-slate-400">{item.botId} / {item.chatId} · {formatDate(item.updatedAt)}</p>
-                <p class="mt-2 text-sm text-slate-400">{item.description || "No description"}</p>
+                <p class="mt-1 text-xs text-[var(--muted-foreground)]">{item.botId} / {item.chatId} · {formatDate(item.updatedAt)}</p>
+                <p class="mt-2 text-sm text-[var(--muted-foreground)]">{item.description || "No description"}</p>
               </div>
-              <div class="text-right text-xs text-slate-400">
+              <div class="text-right text-xs text-[var(--muted-foreground)]">
                 <div>{item.source || "manual review"}</div>
                 <div>{item.fileName}</div>
               </div>
@@ -427,16 +430,16 @@
 
             <div class="mt-4 grid gap-3 sm:grid-cols-[1fr_180px]">
               <label class="space-y-2">
-                <span class="text-xs uppercase tracking-wide text-slate-400">Skill Name</span>
+                <span class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Skill Name</span>
                 <input
-                  class="w-full rounded-xl border border-white/15 bg-black/10 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+                  class="w-full rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
                   bind:value={draftName[item.filePath]}
                 />
               </label>
               <label class="space-y-2">
-                <span class="text-xs uppercase tracking-wide text-slate-400">Promote Scope</span>
+                <span class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Promote Scope</span>
                 <select
-                  class="w-full rounded-xl border border-white/15 bg-black/10 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400"
+                  class="w-full rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
                   bind:value={draftScope[item.filePath]}
                 >
                   <option value="chat">Chat</option>
@@ -447,9 +450,9 @@
             </div>
 
             <label class="mt-4 block space-y-2">
-              <span class="text-xs uppercase tracking-wide text-slate-400">Draft Content</span>
+              <span class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Draft Content</span>
               <textarea
-                class="min-h-[320px] w-full rounded-2xl border border-white/15 bg-black/10 px-4 py-3 font-mono text-xs text-slate-100 outline-none focus:border-sky-400"
+                class="min-h-[320px] w-full rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-4 py-3 font-mono text-xs text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
                 bind:value={draftContent[item.filePath]}
               ></textarea>
             </label>

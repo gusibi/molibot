@@ -1,6 +1,14 @@
 export type Channel = "telegram" | "cli" | "web" | "feishu" | "qq" | "weixin";
 export type Role = "user" | "assistant" | "system";
 
+export interface ConversationAttachment {
+  original: string;
+  local: string;
+  mediaType: "image" | "audio" | "video" | "file";
+  mimeType?: string;
+  size?: number;
+}
+
 export interface InboundMessage {
   channel: Channel;
   externalUserId: string;
@@ -14,6 +22,7 @@ export interface ConversationMessage {
   role: Role;
   content: string;
   createdAt: string;
+  attachments?: ConversationAttachment[];
 }
 
 export interface Conversation {

@@ -13,6 +13,7 @@ import { saveSkillDraft, shouldSuggestSkillDraft } from "./skillDraft.js";
 import { DEFAULT_RUN_BUDGET, RunBudget } from "./runtimeBudget.js";
 import { MomRuntimeStore } from "./store.js";
 import { applyAssistantStreamEvent } from "./assistantStream.js";
+import { buildPromptInputEnvelope } from "./promptInput.js";
 import { resolveSttTarget, transcribeAudioViaConfiguredProvider } from "./stt.js";
 import { describeImageViaConfiguredProvider, resolveVisionFallbackTarget } from "./vision-fallback.js";
 import { createMomTools } from "./tools/index.js";
@@ -43,6 +44,38 @@ import {
 } from "./runtimeNotices.js";
 
 const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
+
+function rewritePromptUserMessage(
+  messages: AgentMessage[],
+  userMessageIndex: number,
+  persistedText: string
+): AgentMessage[] {
+  const target = messages[userMessageIndex] as AgentMessage & {
+    role?: string;
+    content?: Array<{ type?: string; text?: string }>;
+  };
+  if (!target || target.role !== "user") return messages;
+
+  const content = Array.isArray(target.content) ? target.content : [];
+  let replaced = false;
+  const nextContent = content.map((part) => {
+    if (!replaced && part.type === "text") {
+      replaced = true;
+      return { ...part, text: persistedText };
+    }
+    return part;
+  });
+  if (!replaced) {
+    nextContent.unshift({ type: "text", text: persistedText });
+  }
+
+  const nextMessages = [...messages];
+  nextMessages[userMessageIndex] = {
+    ...target,
+    content: nextContent
+  } as AgentMessage;
+  return nextMessages;
+}
 
 function resolvePiModel(settings: RuntimeSettings): Model<any> {
   const models = getModels(settings.piModelProvider);
@@ -1966,16 +1999,16 @@ export class MomRunner implements RunnerLike {
       await ctx.setTyping(true);
       await ctx.setWorking(true);
 
-      const now = new Date();
-      const timestamp = now.toISOString();
-
-      let userMessage = `[${timestamp}] [${ctx.message.userName || ctx.message.userId}]: ${effectiveInputText}`;
       const nonImage = ctx.message.attachments
         .filter((a) => !a.isImage || !visionDecision.sendImagesNatively)
         .map((a) => `${ctx.workspaceDir}/${a.local}`);
-      if (nonImage.length > 0) {
-          userMessage += `\n\n<channel_attachments>\n${nonImage.join("\n")}\n</channel_attachments>`;
-      }
+      const promptInput = buildPromptInputEnvelope({
+        messageText: effectiveInputText,
+        attachmentPaths: nonImage,
+        messageTimestamp: ctx.message.ts,
+        timezone: settings.timezone
+      });
+      const userMessage = promptInput.modelMessage;
 
       let finalText = "";
       let finalAttemptCount = 0;
@@ -2327,7 +2360,12 @@ export class MomRunner implements RunnerLike {
 
             if (candidateFinalText) {
               const sessionContextFile = this.store.getSessionEntriesPath(this.chatId, this.sessionId);
-              const finalMessages = this.agent.state.messages as AgentMessage[];
+              const finalMessages = rewritePromptUserMessage(
+                this.agent.state.messages as AgentMessage[],
+                beforeAttempt.length,
+                promptInput.persistedMessage
+              );
+              this.agent.state.messages = finalMessages;
               this.store.saveContext(this.chatId, finalMessages, this.sessionId);
               momLog("runner", "context_saved", {
                 runId,

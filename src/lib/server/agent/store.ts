@@ -480,7 +480,13 @@ export class MomRuntimeStore {
       lower.endsWith(".opus") ||
       lower.endsWith(".webm") ||
       lower.endsWith(".flac");
-    const inferredMediaType = isImage ? "image" : isAudio ? "audio" : "file";
+    const isVideo =
+      lower.endsWith(".mp4") ||
+      lower.endsWith(".mov") ||
+      lower.endsWith(".mkv") ||
+      lower.endsWith(".avi") ||
+      lower.endsWith(".m4v");
+    const inferredMediaType = isImage ? "image" : isAudio ? "audio" : isVideo ? "video" : "file";
     const mediaType = meta?.mediaType ?? inferredMediaType;
     const inferredMimeType =
       inferredMediaType === "image"
@@ -517,8 +523,10 @@ export class MomRuntimeStore {
       local,
       mediaType,
       mimeType,
+      size: content.byteLength,
       isImage: mediaType === "image",
-      isAudio: mediaType === "audio"
+      isAudio: mediaType === "audio",
+      isVideo: mediaType === "video"
     };
   }
 

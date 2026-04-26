@@ -2,7 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
-import type { Channel, Conversation, ConversationMessage, Role } from "../../shared/types/message.js";
+import type {
+  Channel,
+  Conversation,
+  ConversationAttachment,
+  ConversationMessage,
+  Role
+} from "../../shared/types/message.js";
 
 interface SessionsIndex {
   byUserKey: Record<string, string[]>;
@@ -329,14 +335,20 @@ export class SessionStore {
     return this.createConversation(channel, externalUserId);
   }
 
-  appendMessage(conversationId: string, role: Role, content: string): ConversationMessage {
+  appendMessage(
+    conversationId: string,
+    role: Role,
+    content: string,
+    options?: { attachments?: ConversationAttachment[] }
+  ): ConversationMessage {
     const createdAt = new Date().toISOString();
     const message: ConversationMessage = {
       id: uuidv4(),
       conversationId,
       role,
       content,
-      createdAt
+      createdAt,
+      attachments: options?.attachments?.length ? options.attachments : undefined
     };
 
     const located = this.resolveSessionStorage(conversationId);
@@ -398,9 +410,10 @@ export class SessionStore {
     return located.file.conversation;
   }
 
-  listMessages(conversationId: string, limit = 20): ConversationMessage[] {
+  listMessages(conversationId: string, limit?: number): ConversationMessage[] {
     const located = this.resolveSessionStorage(conversationId);
     if (!located) return [];
+    if (limit == null) return [...located.file.messages];
     if (limit <= 0) return [];
     return located.file.messages.slice(-limit);
   }

@@ -342,29 +342,32 @@
 </script>
 
 <PageShell widthClass="max-w-7xl" gapClass="space-y-6">
-  <div>
-    <h1 class="text-2xl font-semibold">WeChat Settings</h1>
-    <p class="text-sm text-slate-400">
+  <header class="wb-hero">
+    <div class="wb-hero-copy">
+    <p class="wb-eyebrow">Channel Runtime</p>
+    <h1>WeChat Settings</h1>
+    <p class="wb-copy">
       Configure WeChat bots, bind agents, and manage bot-level Markdown overrides.
     </p>
-  </div>
+    </div>
+  </header>
 
   <Alert variant="default">
     首次启用微信 Bot 时，服务日志里会输出登录链接。你可以把那条链接贴到下面的二维码工具里，用手机扫码确认登录。
   </Alert>
 
-  <section class="space-y-4 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+  <section class="wb-config-panel space-y-4">
     <div>
-      <h2 class="text-sm font-semibold text-slate-200">Login QR Tool</h2>
-      <p class="mt-1 text-xs text-slate-400">
+      <h2 class="text-sm font-semibold text-[var(--foreground)]">Login QR Tool</h2>
+      <p class="mt-1 text-xs text-[var(--muted-foreground)]">
         把日志里的微信登录链接贴进来，页面会生成二维码，方便直接拿手机扫码。
       </p>
     </div>
 
     <label class="grid gap-1.5 text-sm">
-      <span class="text-slate-300">Login Link</span>
+      <span class="text-[var(--foreground)]">Login Link</span>
       <textarea
-        class="min-h-[96px] rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 font-mono text-sm outline-none focus:border-emerald-400"
+        class="min-h-[96px] rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 font-mono text-sm outline-none focus:border-[var(--ring)]"
         bind:value={qrLink}
         placeholder="https://liteapp.weixin.qq.com/q/..."
       ></textarea>
@@ -379,7 +382,7 @@
       </Button>
       {#if qrLink}
         <a
-          class="inline-flex items-center rounded-lg border border-white/15 px-3 py-1.5 text-xs text-slate-300 hover:border-white/30 hover:text-white"
+          class="inline-flex items-center rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--foreground)] hover:border-[color-mix(in_oklab,var(--primary)_32%,var(--border))] hover:text-[var(--foreground)]"
           href={qrLink}
           target="_blank"
           rel="noreferrer"
@@ -390,13 +393,13 @@
     </div>
 
     {#if qrImageUrl}
-      <div class="flex flex-col items-start gap-3 rounded-lg border border-white/10 bg-[#1f1f1f] p-4">
+      <div class="flex flex-col items-start gap-3 rounded-lg border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] p-4">
         <img
           src={qrImageUrl}
           alt="WeChat login QR code"
           class="h-64 w-64 rounded-lg bg-white p-3"
         />
-        <p class="text-xs text-slate-400">
+        <p class="text-xs text-[var(--muted-foreground)]">
           用微信扫码后，在手机里确认登录。
         </p>
       </div>
@@ -408,35 +411,31 @@
   </section>
 
   {#if loading}
-    <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+    <div class="wb-empty-state text-left">
       Loading WeChat settings...
     </div>
   {:else}
-    <div class="grid gap-6 lg:grid-cols-[280px_1fr]">
-      <section class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+    <div class="wb-config-grid">
+      <section class="wb-config-nav space-y-3">
         <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-slate-200">Bots</h2>
+          <h2 class="text-sm font-semibold text-[var(--foreground)]">Bots</h2>
           <Button variant="outline" size="sm" type="button" on:click={addBot}>
             Add Bot
           </Button>
         </div>
 
-        <div class="space-y-2">
+        <div class="wb-config-nav-list">
           {#each bots as bot (bot.id)}
             <button
-              class={`flex w-full items-start justify-between rounded-lg border px-3 py-2 text-left text-sm ${
-                selectedBot?.id === bot.id
-                  ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-200"
-                  : "border-white/10 bg-[#1f1f1f] text-slate-300 hover:border-white/20"
-              }`}
+              class={`wb-config-item ${selectedBot?.id === bot.id ? "active" : ""}`}
               type="button"
               on:click={() => selectBot(bot.id)}
             >
-              <span>
-                <span class="block font-medium">{bot.name || bot.id}</span>
-                <span class="block text-xs text-slate-400">{bot.id}</span>
+              <span class="min-w-0">
+                <span class="wb-config-item-title truncate">{bot.name || bot.id}</span>
+                <span class="wb-config-item-subtitle truncate">{bot.id}</span>
               </span>
-              <span class={`text-[10px] ${bot.enabled ? "text-emerald-300" : "text-slate-500"}`}>
+              <span class="wb-config-state" data-enabled={bot.enabled}>
                 {bot.enabled ? "ON" : "OFF"}
               </span>
             </button>
@@ -446,9 +445,9 @@
 
       {#if selectedBot}
         <form class="space-y-4" on:submit|preventDefault={save}>
-          <section class="space-y-4 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+          <section class="wb-config-panel space-y-4">
             <div class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-slate-200">Bot Configuration</h2>
+              <h2 class="text-sm font-semibold text-[var(--foreground)]">Bot Configuration</h2>
               <Button variant="destructive" size="sm" type="button" on:click={() => removeBot(selectedBot.id)}>
                 Remove Bot
               </Button>
@@ -456,9 +455,9 @@
 
             <div class="grid gap-3 md:grid-cols-2">
               <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">Bot ID</span>
+                <span class="text-[var(--foreground)]">Bot ID</span>
                 <input
-                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
                   bind:value={selectedBot.id}
                   placeholder="weixin-agent"
                   disabled={!selectedBot.isNew}
@@ -466,29 +465,29 @@
               </label>
 
               <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">Bot Name</span>
+                <span class="text-[var(--foreground)]">Bot Name</span>
                 <input
-                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                  class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                   bind:value={selectedBot.name}
                   placeholder="WeChat Bot"
                 />
               </label>
             </div>
             {#if !selectedBot.isNew}
-              <p class="text-xs text-slate-500">
+              <p class="wb-note text-xs">
                 Bot ID is locked after creation to keep workspace paths and references stable.
               </p>
             {/if}
 
-            <label class="flex items-center gap-3 text-sm text-slate-300">
+            <label class="flex items-center gap-3 text-sm text-[var(--foreground)]">
               <input bind:checked={selectedBot.enabled} type="checkbox" />
               Enable this plugin instance
             </label>
 
             <label class="grid gap-1.5 text-sm">
-              <span class="text-slate-300">Linked Agent</span>
+              <span class="text-[var(--foreground)]">Linked Agent</span>
               <select
-                class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                 bind:value={selectedBot.agentId}
               >
                 <option value="">No agent (global fallback only)</option>
@@ -499,37 +498,37 @@
             </label>
 
             <label class="grid gap-1.5 text-sm">
-              <span class="text-slate-300">API Base URL (optional)</span>
+              <span class="text-[var(--foreground)]">API Base URL (optional)</span>
               <input
-                class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                 bind:value={selectedBot.baseUrl}
                 placeholder="https://ilinkai.weixin.qq.com"
               />
             </label>
 
             <label class="grid gap-1.5 text-sm">
-              <span class="text-slate-300">Allowed user IDs (comma-separated)</span>
+              <span class="text-[var(--foreground)]">Allowed user IDs (comma-separated)</span>
               <input
-                class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                 bind:value={selectedBot.allowedChatIds}
                 placeholder="wx_user_id_1,wx_user_id_2"
               />
             </label>
           </section>
 
-          <section class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+          <section class="wb-config-panel space-y-3">
             <div>
-              <h3 class="text-sm font-semibold text-slate-200">Bot Markdown Overrides</h3>
-              <p class="mt-1 text-xs text-slate-400">
+              <h3 class="text-sm font-semibold text-[var(--foreground)]">Bot Markdown Overrides</h3>
+              <p class="mt-1 text-xs text-[var(--muted-foreground)]">
                 Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.
               </p>
             </div>
 
             {#each botFileNames as fileName}
               <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">{fileName}</span>
+                <span class="text-[var(--foreground)]">{fileName}</span>
                 <textarea
-                  class="min-h-[160px] rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 font-mono text-sm outline-none focus:border-emerald-400"
+                  class="min-h-[160px] rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 font-mono text-sm outline-none focus:border-[var(--ring)]"
                   bind:value={selectedBot.profileFiles[fileName]}
                   placeholder={`Edit ${fileName} here`}
                 ></textarea>
@@ -541,7 +540,7 @@
             {saving ? "Saving..." : "Save This Bot"}
           </Button>
           {#if selectedBotDirty}
-            <p class="text-xs text-amber-300">Current bot has unsaved changes.</p>
+            <p class="wb-warning-note text-xs">Current bot has unsaved changes.</p>
           {/if}
 
           {#if message}

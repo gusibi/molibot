@@ -360,12 +360,12 @@ export class QQManager extends BaseChannelRuntime {
       imageContents: []
     };
 
-    const queuedWhileBusy = this.inboundTasks.size(chatId) > 0 || this.running.has(chatId);
     const queueId = this.inboundTasks.enqueue(chatId, {
       event: queuedEvent,
       target: this.toSendTarget(event)
     }, { preview: queuedEvent.text });
-    if (queuedWhileBusy) {
+    const queueState = this.inboundTasks.peek(chatId, queueId);
+    if (queueState.status === "pending") {
       momLog("qq", "message_queued_while_busy", { botId: this.instanceId, chatId, runId, queueId });
       await this.replyCommand(this.toSendTarget(event), this.buildQueuedBusyNotice(queueId));
     }

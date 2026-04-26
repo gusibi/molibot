@@ -161,14 +161,15 @@
 </script>
 
 <PageShell widthClass="max-w-5xl" gapClass="space-y-6">
-  <div class="flex items-center justify-between gap-3">
-    <div>
-      <h1 class="text-2xl font-semibold">MCP Servers</h1>
-      <p class="text-sm text-slate-400">
+  <header class="wb-hero">
+    <div class="wb-hero-copy">
+      <p class="wb-eyebrow">Tooling Surface</p>
+      <h1>MCP Servers</h1>
+      <p class="wb-copy">
         Paste one JSON block. Supports <code>{`{ "mcpServers": { ... } }`}</code> or direct object map.
       </p>
     </div>
-    <div class="flex gap-2">
+    <div class="wb-hero-actions">
       <Button variant="outline" size="md" on:click={loadSettings} disabled={loading || saving}>
         Refresh
       </Button>
@@ -179,7 +180,7 @@
         {saving ? "Saving..." : "Save"}
       </Button>
     </div>
-  </div>
+  </header>
 
   {#if message}
     <Alert>{message}</Alert>
@@ -188,29 +189,29 @@
     <Alert variant="destructive">{error}</Alert>
   {/if}
 
-  <label class="block space-y-2">
-    <span class="text-sm font-medium text-slate-200">MCP JSON</span>
+  <label class="wb-config-panel block space-y-2">
+    <span class="text-sm font-medium text-[var(--foreground)]">MCP JSON</span>
     <textarea
-      class="min-h-[280px] w-full rounded-xl border border-white/15 bg-[#1f1f1f] px-4 py-3 font-mono text-xs outline-none focus:border-emerald-400"
+      class="min-h-[280px] w-full rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-4 py-3 font-mono text-xs outline-none focus:border-[var(--ring)]"
       bind:value={rawJson}
       placeholder={placeholderJson}
     ></textarea>
   </label>
 
   <section class="space-y-3">
-    <h2 class="text-sm font-semibold text-slate-200">Parsed Servers</h2>
+    <h2 class="text-sm font-semibold text-[var(--foreground)]">Parsed Servers</h2>
     {#if servers.length === 0}
-      <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">No parsed MCP servers.</div>
+      <div class="wb-empty-state text-left">No parsed MCP servers.</div>
     {:else}
       {#each servers as item}
-        <article class="flex items-center justify-between rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm">
+        <article class="wb-config-panel flex items-center justify-between text-sm">
           <div class="min-w-0">
-            <p class="truncate font-semibold text-white">{item.id}</p>
-            <p class="truncate text-xs text-slate-400">
+            <p class="truncate font-semibold text-[var(--foreground)]">{item.id}</p>
+            <p class="truncate text-xs text-[var(--muted-foreground)]">
               {item.type === "http" ? `http: ${item.url || "(missing url)"}` : `stdio: ${item.command || "(missing command)"}`}
             </p>
           </div>
-          <label class="inline-flex items-center gap-2 text-xs text-slate-200">
+          <label class="inline-flex items-center gap-2 text-xs text-[var(--foreground)]">
             <input
               type="checkbox"
               checked={item.enabled}

@@ -11,6 +11,33 @@
 - **README 文档分工说明**: 更新 `README.md` 的文档说明区，明确 `README` / `AGENTS` / `prd` / `features` / `CHANGELOG` 各自职责，并补充统一的文档维护流程。
 - **变更记录对齐**: 将这次文档治理调整同步记录到 `features.md`、`prd.md` 和 `CHANGELOG.md`，让规则、计划、已交付事实三者保持分层一致。
 
+### 对话时间感知
+- **每轮消息注入当前时间**: Runner 现在会在发送给模型的实时用户消息前注入结构化 `<env>` 块，包含 `message_received_at`、`timezone` 和 `today`，让模型能直接感知当前时间并更稳定地处理“今天/明天/下周”这类时间表达。
+- **不污染持久化上下文**: 这段时间元数据只用于实时模型输入，保存到 session context 的仍是原始用户文本加附件标记，避免把临时环境信息塞进长期会话历史。
+- **设置页时区入口**: `/settings/ai/routing` 新增 runtime timezone 下拉选择，优先展示常用时区并保留完整 IANA 列表；后端保存前仍会校验时区名，确保调度、用量统计和消息时间上下文使用同一时区基准。
+- **系统提示词去时间化**: 运行时 system prompt 里原先的 `Server timezone` / `run: date` 提示已移除。当前时间感知只保留在每轮实时 `<env>` 注入里，避免把时间相关内容继续留在期望缓存的系统提示词层。
+
+### Workbench UI 统一
+- **共享 Workbench 样式层**: 新增 `src/styles/workbench.css`，把 hero、panel、toolbar、config shell、table、status line 等视觉规则收敛到共享层，不再让 Settings 页面各自携带一套私有样式。
+- **AI 设置页去本地样式化**: `/settings/ai/usage`、`/settings/ai/errors`、`/settings/ai/routing`、`/settings/ai/providers` 已移除页面内 `<style>`，改由共享 workbench 体系统一接管。
+- **Settings 全区同一产品语言**: Agents、Web Profiles、Telegram、Feishu、Weixin、QQ、MCP、Tasks、Skills、Skill Drafts、Run History、Memory Rejections、Plugins、ACP、Memory 等页面统一到同一套材质、间距和表单反馈规则。
+- **主聊天页材质统一**: Web chat 保留对话优先的安静节奏，但侧边栏、顶部栏、Composer、Files pane、Prompt Preview / New Chat 弹层已切到同一套 workbench 材质体系，和 Settings 看起来像同一个产品。
+
+### 缓存命中率可视化
+- **缓存命中比例 KPI**: `/settings/ai/usage` 顶部新增缓存命中比例卡片，直接显示当前筛选范围内的 prompt cache 命中比例。
+- **缓存命中趋势折线图**: 同页新增缓存命中比例趋势图，按当前时间窗口（小时或天）展示命中率变化，方便判断缓存是否持续有效。
+- **口径明确**: 命中率统一按 `cache read / (input + cache read)` 计算，只看 prompt 侧 token，不把 output 或 cache write 混进去。
+
+### Usage 时间窗自动刷新
+- **点击时间范围即重拉数据**: `/settings/ai/usage` 的 `今天 / 昨天 / 最近 7 天 / 最近 30 天` 现在会在切换标签时立即调用后端重新拉取 usage 数据，不再只改本地 tab 状态。
+- **无需二次点击刷新**: 切换时间范围后，顶部日期窗、`更新于` 时间和所有 KPI / 趋势图都会跟着同一轮新数据更新，不需要再手动点一次“刷新”。
+
+### Web Chat 文件工作区
+- **通用文件上传**: Web chat 输入区不再限制为仅图片上传；现在可以直接附加 PDF、Markdown、代码、JSON、音频、视频和其他常见文档文件。
+- **右侧文件面板产品化**: 右侧 Files pane 从占位块升级成真实的当前会话附件工作区，支持搜索、类型筛选、待发送 / 已发送分组，以及会话切换联动刷新。
+- **常见格式预览**: 图片、音频、视频、PDF、Markdown、文本/代码、JSON/CSV/YAML 现在可以内嵌预览；Office 和未知二进制格式会降级为元信息 + 下载。
+- **安全浏览动作**: 面板提供下载和复制相对存储路径，不引入删除、重命名、移动这类高风险文件管理动作。
+
 ---
 
 ## 2026-03-29

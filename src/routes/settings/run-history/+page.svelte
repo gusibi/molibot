@@ -59,9 +59,9 @@
   }
 
   function outcomeClass(outcome: RunHistoryItem["reflectionOutcome"]): string {
-    if (outcome === "success") return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300";
-    if (outcome === "partial") return "border-amber-500/40 bg-amber-500/10 text-amber-300";
-    return "border-rose-500/40 bg-rose-500/10 text-rose-300";
+    if (outcome === "success") return "border-emerald-500/40 bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]";
+    if (outcome === "partial") return "border-amber-500/40 bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]";
+    return "border-[color-mix(in_oklab,var(--destructive)_36%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_10%,var(--card))] text-[var(--destructive)]";
   }
 
   async function loadRunHistory(): Promise<void> {
@@ -92,15 +92,18 @@
 </script>
 
 <PageShell widthClass="max-w-6xl" gapClass="space-y-6">
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <h1 class="text-2xl font-semibold">Run History</h1>
-      <p class="text-sm text-slate-400">
+  <header class="wb-hero">
+    <div class="wb-hero-copy">
+      <p class="wb-eyebrow">Run Reflection</p>
+      <h1>Run History</h1>
+      <p class="wb-copy">
         Inspect recent agent runs, outcomes, and follow-up suggestions.
       </p>
     </div>
-    <Button variant="outline" size="md" on:click={loadRunHistory}>Refresh</Button>
-  </div>
+    <div class="wb-hero-actions">
+      <Button variant="outline" size="md" on:click={loadRunHistory}>Refresh</Button>
+    </div>
+  </header>
 
   {#if message}
     <Alert>{message}</Alert>
@@ -110,15 +113,15 @@
   {/if}
 
   {#if loading}
-    <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+    <div class="wb-empty-state text-left">
       Loading run history...
     </div>
   {:else}
-    <section class="grid gap-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4 text-sm text-slate-300 sm:grid-cols-4">
-      <div><span class="text-slate-400">Total:</span> {counts.total}</div>
-      <div><span class="text-slate-400">Success:</span> {counts.success}</div>
-      <div><span class="text-slate-400">Partial:</span> {counts.partial}</div>
-      <div><span class="text-slate-400">Failed:</span> {counts.failed}</div>
+    <section class="wb-summary-strip text-sm sm:grid-cols-4">
+      <div><span class="text-[var(--muted-foreground)]">Total:</span> {counts.total}</div>
+      <div><span class="text-[var(--muted-foreground)]">Success:</span> {counts.success}</div>
+      <div><span class="text-[var(--muted-foreground)]">Partial:</span> {counts.partial}</div>
+      <div><span class="text-[var(--muted-foreground)]">Failed:</span> {counts.failed}</div>
     </section>
 
     {#if diagnostics.length > 0}
@@ -126,13 +129,13 @@
     {/if}
 
     {#if items.length === 0}
-      <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+      <div class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]">
         No run records found yet.
       </div>
     {:else}
       <section class="space-y-4">
         {#each items as item}
-          <article class="rounded-2xl border border-white/15 bg-[#2b2b2b] p-5 text-sm text-slate-200">
+          <article class="rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-5 text-sm text-[var(--foreground)]">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div class="space-y-1">
                 <div class="flex flex-wrap items-center gap-2">
@@ -141,47 +144,47 @@
                     {item.reflectionOutcome}
                   </span>
                 </div>
-                <p class="text-xs text-slate-400">{formatDate(item.createdAt)} · {formatDuration(item.durationMs)} · {item.runId}</p>
+                <p class="text-xs text-[var(--muted-foreground)]">{formatDate(item.createdAt)} · {formatDuration(item.durationMs)} · {item.runId}</p>
               </div>
-              <div class="text-right text-xs text-slate-400">
+              <div class="text-right text-xs text-[var(--muted-foreground)]">
                 <div>Result: {item.stopReason}</div>
                 <div>Memory used: {item.memorySelectedCount}</div>
               </div>
             </div>
 
             <div class="mt-4 grid gap-3 sm:grid-cols-2">
-              <div class="rounded-xl border border-white/10 bg-black/10 p-3">
-                <p class="text-xs uppercase tracking-wide text-slate-400">Summary</p>
-                <p class="mt-2 text-sm text-slate-200">{item.reflectionSummary || "No summary"}</p>
-                <p class="mt-2 text-xs text-slate-400">Next: {item.nextAction || "-"}</p>
+              <div class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] p-3">
+                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Summary</p>
+                <p class="mt-2 text-sm text-[var(--foreground)]">{item.reflectionSummary || "No summary"}</p>
+                <p class="mt-2 text-xs text-[var(--muted-foreground)]">Next: {item.nextAction || "-"}</p>
               </div>
-              <div class="rounded-xl border border-white/10 bg-black/10 p-3">
-                <p class="text-xs uppercase tracking-wide text-slate-400">Output Snapshot</p>
-                <p class="mt-2 whitespace-pre-wrap text-sm text-slate-300">{item.finalText || "(empty)"}</p>
+              <div class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] p-3">
+                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Output Snapshot</p>
+                <p class="mt-2 whitespace-pre-wrap text-sm text-[var(--foreground)]">{item.finalText || "(empty)"}</p>
               </div>
             </div>
 
             <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div>
-                <p class="text-xs uppercase tracking-wide text-slate-400">Tools</p>
-                <p class="mt-1 text-sm text-slate-300">{item.toolNames.length > 0 ? item.toolNames.join(", ") : "-"}</p>
+                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Tools</p>
+                <p class="mt-1 text-sm text-[var(--foreground)]">{item.toolNames.length > 0 ? item.toolNames.join(", ") : "-"}</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-wide text-slate-400">Failures</p>
-                <p class="mt-1 text-sm text-slate-300">{item.failedToolNames.length > 0 ? item.failedToolNames.join(", ") : "-"}</p>
+                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Failures</p>
+                <p class="mt-1 text-sm text-[var(--foreground)]">{item.failedToolNames.length > 0 ? item.failedToolNames.join(", ") : "-"}</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-wide text-slate-400">Explicit Skills</p>
-                <p class="mt-1 text-sm text-slate-300">{item.explicitSkillNames.length > 0 ? item.explicitSkillNames.join(", ") : "-"}</p>
+                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Explicit Skills</p>
+                <p class="mt-1 text-sm text-[var(--foreground)]">{item.explicitSkillNames.length > 0 ? item.explicitSkillNames.join(", ") : "-"}</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-wide text-slate-400">Fallback</p>
-                <p class="mt-1 text-sm text-slate-300">{item.usedFallbackModel ? "Yes" : "No"}</p>
+                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Fallback</p>
+                <p class="mt-1 text-sm text-[var(--foreground)]">{item.usedFallbackModel ? "Yes" : "No"}</p>
               </div>
             </div>
 
             {#if item.modelFailureSummaries.length > 0 || item.skillDraftPath}
-              <div class="mt-4 rounded-xl border border-white/10 bg-black/10 p-3 text-xs text-slate-400">
+              <div class="mt-4 rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] p-3 text-xs text-[var(--muted-foreground)]">
                 {#if item.modelFailureSummaries.length > 0}
                   <p>Model issues: {item.modelFailureSummaries.join(" | ")}</p>
                 {/if}

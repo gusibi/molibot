@@ -16,6 +16,7 @@ import {
   type TelegramBotConfig
 } from "./schema.js";
 import { sanitizeRuntimeThinkingLevel } from "./thinking.js";
+import { normalizeTimeZone } from "../time.js";
 
 function listFromEnv(name: string): string[] {
   const raw = process.env[name] ?? "";
@@ -303,9 +304,9 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   systemPrompt:
     process.env.MOLIBOT_SYSTEM_PROMPT ??
     "You are Molibot, a concise and helpful assistant.",
-  timezone:
-    (process.env.MOLIBOT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone).trim() ||
-    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  timezone: normalizeTimeZone(
+    String(process.env.MOLIBOT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone)
+  ),
   acp: defaultAcpSettings,
   agents: defaultAgents,
   channels: {

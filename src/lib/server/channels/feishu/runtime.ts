@@ -473,9 +473,9 @@ export class FeishuManager extends BaseChannelRuntime {
             imageContents: []
         };
 
-        const queuedWhileBusy = this.inboundTasks.size(chatId) > 0 || this.running.has(chatId);
         const queueId = this.inboundTasks.enqueue(chatId, queuedEvent, { preview: queuedEvent.text });
-        if (queuedWhileBusy) {
+        const queueState = this.inboundTasks.peek(chatId, queueId);
+        if (queueState.status === "pending") {
             momLog("feishu", "message_queued_while_busy", { runId, chatId, queueId });
             await this.sendText(chatId, this.buildQueuedBusyNotice(queueId));
         }

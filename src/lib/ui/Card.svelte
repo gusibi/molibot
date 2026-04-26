@@ -2,6 +2,6 @@
   export let className = "";
 </script>
 
-<section class={`rounded-xl border border-[var(--border)] bg-[var(--card)] ${className}`}>
+<section class={`wb-panel rounded-[1.2rem] ${className}`}>
   <slot />
 </section>

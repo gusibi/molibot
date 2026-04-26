@@ -142,6 +142,10 @@
         return formatNumber(value);
     }
 
+    function formatPercent(value: number): string {
+        return `${value.toFixed(1)}%`;
+    }
+
     function formatDateTime(value: string): string {
         return new Intl.DateTimeFormat("zh-CN", {
             month: "2-digit",
@@ -265,9 +269,9 @@
         return Array.from(points.values());
     }
 
-    function linePoints(values: number[], width = 100, height = 34): string {
+    function linePoints(values: number[], width = 100, height = 34, maxOverride?: number): string {
         if (values.length === 0) return "";
-        const max = Math.max(1, ...values);
+        const max = Math.max(1, maxOverride ?? 0, ...values);
         const step = values.length === 1 ? width : width / (values.length - 1);
         return values
             .map((value, index) => {
@@ -278,8 +282,8 @@
             .join(" ");
     }
 
-    function areaPoints(values: number[], width = 100, height = 34): string {
-        const top = linePoints(values, width, height);
+    function areaPoints(values: number[], width = 100, height = 34, maxOverride?: number): string {
+        const top = linePoints(values, width, height, maxOverride);
         if (!top) return "";
         return `0,${height} ${top} ${width},${height}`;
     }
@@ -287,6 +291,17 @@
     function pct(value: number, total: number): number {
         if (total <= 0) return 0;
         return Math.max(0, Math.min(100, (value / total) * 100));
+    }
+
+    function cacheHitRate(input: Pick<UsageTotals, "inputTokens" | "cacheReadTokens">): number {
+        const promptSideTokens = input.inputTokens + input.cacheReadTokens;
+        if (promptSideTokens <= 0) return 0;
+        return pct(input.cacheReadTokens, promptSideTokens);
+    }
+
+    function selectRange(range: TimeRange): void {
+        selectedRange = range;
+        void loadUsage();
     }
 
     function resetFilters() {
@@ -339,6 +354,10 @@
     }));
     $: recentRecords = [...visibleRecords].sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 80);
     $: cacheTokens = totals.cacheReadTokens + totals.cacheWriteTokens;
+    $: cachePromptBase = totals.inputTokens + totals.cacheReadTokens;
+    $: cacheHitRatio = cacheHitRate(totals);
+    $: cacheHitTrend = trend.map((point) => cacheHitRate(point.totals));
+    $: maxCacheHitRatio = Math.max(0, ...cacheHitTrend);
     $: selectedWindow = usageStats?.windows[selectedRange];
 </script>
 
@@ -358,7 +377,7 @@
                         <button
                             type="button"
                             class:active={selectedRange === range}
-                            on:click={() => (selectedRange = range as TimeRange)}
+                            on:click={() => selectRange(range as TimeRange)}
                         >
                             {windowTitle(range as TimeRange)}
                         </button>
@@ -457,6 +476,17 @@
                     <strong>{formatCompact(cacheTokens)}</strong>
                     <p>Read {formatCompact(totals.cacheReadTokens)} · Write {formatCompact(totals.cacheWriteTokens)}</p>
                 </article>
+                <article class="metric-card small-card teal">
+                    <span>缓存命中比例</span>
+                    <strong>{formatPercent(cacheHitRatio)}</strong>
+                    <p>
+                        {#if cachePromptBase > 0}
+                            按 cache read / (input + cache read) 计算
+                        {:else}
+                            当前范围没有可计算的 prompt cache 基数
+                        {/if}
+                    </p>
+                </article>
             </div>
 
             <div class="chart-grid">
@@ -508,6 +538,32 @@
                     <div class="axis-labels">
                         <span>{trend[0]?.label ?? "--"}</span>
                         <span>峰值 {formatCompact(maxTokens)}</span>
+                        <span>{trend[trend.length - 1]?.label ?? "--"}</span>
+                    </div>
+                </article>
+
+                <article class="panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>缓存命中比例趋势</h2>
+                            <p>按 cache read / (input + cache read) 计算，不含 output / cache write</p>
+                        </div>
+                        <span class="legend-dot hit-rate">cache hit</span>
+                    </div>
+                    <div class="line-chart cache-hit-chart">
+                        <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="缓存命中比例趋势折线图">
+                            <g class="grid-lines">
+                                <line x1="0" y1="8" x2="100" y2="8"></line>
+                                <line x1="0" y1="20" x2="100" y2="20"></line>
+                                <line x1="0" y1="32" x2="100" y2="32"></line>
+                            </g>
+                            <polygon points={areaPoints(cacheHitTrend, 100, 40, 100)}></polygon>
+                            <polyline points={linePoints(cacheHitTrend, 100, 40, 100)}></polyline>
+                        </svg>
+                    </div>
+                    <div class="axis-labels">
+                        <span>{trend[0]?.label ?? "--"}</span>
+                        <span>峰值 {formatPercent(maxCacheHitRatio)}</span>
                         <span>{trend[trend.length - 1]?.label ?? "--"}</span>
                     </div>
                 </article>
@@ -698,559 +754,3 @@
         {/if}
     </section>
 </PageShell>
-
-<style>
-    .usage-board {
-        color: var(--foreground);
-    }
-
-    .usage-header,
-    .filter-bar,
-    .panel,
-    .metric-card,
-    .state-card {
-        border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
-        background:
-            linear-gradient(180deg, color-mix(in oklab, var(--card) 94%, white 3%), var(--card)),
-            var(--card);
-        box-shadow: var(--shadow);
-    }
-
-    .usage-header {
-        display: flex;
-        justify-content: space-between;
-        gap: 24px;
-        padding: 28px;
-        border-radius: 24px;
-    }
-
-    .eyebrow {
-        margin: 0 0 10px;
-        color: color-mix(in oklab, var(--primary) 74%, var(--foreground));
-        font-size: 0.78rem;
-        font-weight: 800;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-    }
-
-    h1,
-    h2 {
-        margin: 0;
-        letter-spacing: 0;
-    }
-
-    h1 {
-        font-size: clamp(2rem, 4vw, 4.4rem);
-        line-height: 0.95;
-        font-weight: 900;
-    }
-
-    h2 {
-        font-size: 1.08rem;
-        font-weight: 850;
-    }
-
-    .header-copy,
-    .panel-heading p,
-    .metric-card p,
-    .empty-copy,
-    .generated-at {
-        color: var(--muted-foreground);
-    }
-
-    .header-copy {
-        max-width: 680px;
-        margin: 14px 0 0;
-        font-size: 0.95rem;
-        line-height: 1.7;
-    }
-
-    .header-actions {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 12px;
-    }
-
-    .range-tabs,
-    .refresh-button,
-    .ghost-button {
-        border: 1px solid var(--border);
-        background: color-mix(in oklab, var(--muted) 64%, transparent);
-    }
-
-    .range-tabs {
-        display: flex;
-        padding: 4px;
-        border-radius: 14px;
-        gap: 4px;
-    }
-
-    .range-tabs button,
-    .refresh-button,
-    .ghost-button {
-        cursor: pointer;
-        border-radius: 10px;
-        color: var(--foreground);
-        font-weight: 750;
-        transition: transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
-    }
-
-    .range-tabs button {
-        border: 0;
-        background: transparent;
-        padding: 9px 12px;
-        white-space: nowrap;
-    }
-
-    .range-tabs button.active {
-        background: var(--foreground);
-        color: var(--background);
-    }
-
-    .refresh-button,
-    .ghost-button {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 10px 14px;
-    }
-
-    .filter-bar {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(170px, 1fr)) auto minmax(220px, 1.1fr);
-        gap: 14px;
-        align-items: end;
-        margin-top: 18px;
-        padding: 18px;
-        border-radius: 18px;
-    }
-
-    .filter-item {
-        display: grid;
-        gap: 7px;
-    }
-
-    .filter-item label {
-        color: var(--muted-foreground);
-        font-size: 0.78rem;
-        font-weight: 800;
-    }
-
-    select {
-        width: 100%;
-        min-height: 42px;
-        border-radius: 12px;
-        border: 1px solid var(--input);
-        background: color-mix(in oklab, var(--background) 46%, var(--card));
-        color: var(--foreground);
-        padding: 0 12px;
-        font-weight: 700;
-    }
-
-    .generated-at {
-        justify-self: end;
-        font-size: 0.82rem;
-        text-align: right;
-    }
-
-    .generated-at span {
-        display: block;
-        margin-top: 4px;
-    }
-
-    .metric-grid {
-        display: grid;
-        grid-template-columns: repeat(6, 1fr);
-        gap: 16px;
-        margin-top: 18px;
-    }
-
-    .metric-card {
-        position: relative;
-        overflow: hidden;
-        min-height: 168px;
-        padding: 22px;
-        border-radius: 20px;
-        border-top: 4px solid color-mix(in oklab, #20c997 72%, var(--border));
-    }
-
-    .primary-card {
-        grid-column: span 3;
-    }
-
-    .small-card {
-        grid-column: span 2;
-        min-height: 132px;
-    }
-
-    .metric-card.purple {
-        border-top-color: #7c5cff;
-    }
-
-    .metric-card.cyan {
-        border-top-color: #14b8d4;
-    }
-
-    .metric-card.amber {
-        border-top-color: #f59e0b;
-    }
-
-    .metric-card.lime {
-        border-top-color: #22c55e;
-    }
-
-    .card-topline,
-    .panel-heading,
-    .rank-row,
-    .legend-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 14px;
-    }
-
-    .card-topline,
-    .metric-card > span {
-        color: var(--muted-foreground);
-        font-size: 0.82rem;
-        font-weight: 900;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-    }
-
-    .metric-card strong {
-        display: block;
-        margin-top: 24px;
-        color: var(--foreground);
-        font-size: clamp(2rem, 4vw, 3.6rem);
-        line-height: 0.9;
-        font-weight: 950;
-    }
-
-    .small-card strong {
-        font-size: 2.15rem;
-    }
-
-    .metric-card svg {
-        position: absolute;
-        inset: auto 18px 16px;
-        width: calc(100% - 36px);
-        height: 46px;
-    }
-
-    .metric-card polyline,
-    .line-chart polyline {
-        fill: none;
-        stroke: #20c997;
-        stroke-width: 2.4;
-        vector-effect: non-scaling-stroke;
-    }
-
-    .metric-card polygon,
-    .line-chart polygon {
-        fill: color-mix(in oklab, #20c997 22%, transparent);
-    }
-
-    .metric-card.purple polyline,
-    .token-chart polyline {
-        stroke: #7c5cff;
-    }
-
-    .metric-card.purple polygon,
-    .token-chart polygon {
-        fill: color-mix(in oklab, #7c5cff 22%, transparent);
-    }
-
-    .badge,
-    .legend-dot {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        white-space: nowrap;
-        border-radius: 999px;
-        border: 1px solid var(--border);
-        padding: 5px 9px;
-        color: var(--muted-foreground);
-        font-size: 0.76rem;
-        font-weight: 850;
-    }
-
-    .badge.green {
-        color: #14a86f;
-        border-color: color-mix(in oklab, #20c997 34%, var(--border));
-    }
-
-    .badge.violet {
-        color: #7c5cff;
-        border-color: color-mix(in oklab, #7c5cff 34%, var(--border));
-    }
-
-    .chart-grid,
-    .summary-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 16px;
-        margin-top: 16px;
-    }
-
-    .panel {
-        padding: 24px;
-        border-radius: 22px;
-    }
-
-    .wide-panel {
-        margin-top: 16px;
-    }
-
-    .panel-heading {
-        margin-bottom: 22px;
-    }
-
-    .panel-heading p {
-        margin: 6px 0 0;
-        font-size: 0.86rem;
-    }
-
-    .line-chart {
-        height: 330px;
-        border-radius: 18px;
-        border: 1px solid var(--border);
-        background:
-            linear-gradient(color-mix(in oklab, var(--border) 30%, transparent) 1px, transparent 1px),
-            linear-gradient(90deg, color-mix(in oklab, var(--border) 24%, transparent) 1px, transparent 1px);
-        background-size: 100% 25%, 12.5% 100%;
-        padding: 22px;
-    }
-
-    .line-chart svg {
-        width: 100%;
-        height: 100%;
-    }
-
-    .grid-lines line {
-        stroke: color-mix(in oklab, var(--border) 58%, transparent);
-        stroke-width: 0.35;
-    }
-
-    .axis-labels {
-        display: flex;
-        justify-content: space-between;
-        margin-top: 12px;
-        color: var(--muted-foreground);
-        font-size: 0.78rem;
-        font-weight: 750;
-    }
-
-    .legend-dot::before {
-        width: 9px;
-        height: 9px;
-        content: "";
-        border-radius: 999px;
-        background: currentColor;
-    }
-
-    .legend-dot.violet {
-        color: #7c5cff;
-    }
-
-    .legend-dot.input {
-        color: #94a3b8;
-    }
-
-    .legend-dot.output {
-        color: #20c997;
-    }
-
-    .legend-dot.cache {
-        color: #f59e0b;
-    }
-
-    .stack-chart {
-        display: flex;
-        align-items: flex-end;
-        gap: 5px;
-        height: 360px;
-        padding: 20px;
-        border: 1px solid var(--border);
-        border-radius: 18px;
-        background:
-            linear-gradient(color-mix(in oklab, var(--border) 28%, transparent) 1px, transparent 1px),
-            color-mix(in oklab, var(--background) 42%, transparent);
-        background-size: 100% 20%;
-    }
-
-    .stack-column {
-        display: flex;
-        align-items: flex-end;
-        flex: 1;
-        min-width: 6px;
-        height: 100%;
-        gap: 1px;
-    }
-
-    .bar {
-        flex: 1;
-        min-height: 1px;
-        border-radius: 3px 3px 0 0;
-        opacity: 0.9;
-    }
-
-    .bar.input {
-        background: #94a3b8;
-    }
-
-    .bar.output {
-        background: #20c997;
-    }
-
-    .bar.cache {
-        background: #f59e0b;
-    }
-
-    .rank-list {
-        display: grid;
-        gap: 10px;
-    }
-
-    .rank-row {
-        padding: 13px 0;
-        border-bottom: 1px solid color-mix(in oklab, var(--border) 64%, transparent);
-    }
-
-    .rank-row strong,
-    table strong {
-        display: block;
-        color: var(--foreground);
-        font-weight: 850;
-    }
-
-    .rank-row span,
-    table span {
-        display: block;
-        margin-top: 4px;
-        color: var(--muted-foreground);
-        font-size: 0.8rem;
-    }
-
-    .rank-row em {
-        color: var(--foreground);
-        font-style: normal;
-        font-weight: 900;
-    }
-
-    .table-wrap {
-        overflow-x: auto;
-        border: 1px solid var(--border);
-        border-radius: 16px;
-    }
-
-    table {
-        width: 100%;
-        min-width: 920px;
-        border-collapse: collapse;
-        font-size: 0.88rem;
-    }
-
-    .compact-table table {
-        min-width: 540px;
-    }
-
-    th,
-    td {
-        border-bottom: 1px solid color-mix(in oklab, var(--border) 68%, transparent);
-        padding: 14px 16px;
-        text-align: left;
-        vertical-align: middle;
-    }
-
-    th {
-        color: var(--muted-foreground);
-        font-size: 0.78rem;
-        font-weight: 900;
-        text-transform: uppercase;
-    }
-
-    td {
-        color: var(--foreground);
-        font-weight: 650;
-    }
-
-    tr:last-child td {
-        border-bottom: 0;
-    }
-
-    .state-card {
-        margin-top: 18px;
-        padding: 32px;
-        border-radius: 20px;
-        color: var(--muted-foreground);
-        font-weight: 800;
-    }
-
-    .state-card.error {
-        color: var(--destructive);
-        border-color: color-mix(in oklab, var(--destructive) 40%, var(--border));
-    }
-
-    @media (max-width: 1100px) {
-        .usage-header,
-        .header-actions {
-            align-items: stretch;
-        }
-
-        .usage-header {
-            flex-direction: column;
-        }
-
-        .filter-bar {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .generated-at {
-            justify-self: start;
-            text-align: left;
-        }
-
-        .chart-grid,
-        .summary-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .primary-card,
-        .small-card {
-            grid-column: span 6;
-        }
-    }
-
-    @media (max-width: 720px) {
-        .usage-header,
-        .panel,
-        .metric-card {
-            padding: 18px;
-            border-radius: 18px;
-        }
-
-        .range-tabs {
-            overflow-x: auto;
-        }
-
-        .filter-bar {
-            grid-template-columns: 1fr;
-        }
-
-        .metric-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .primary-card,
-        .small-card {
-            grid-column: auto;
-        }
-
-        .line-chart,
-        .stack-chart {
-            height: 250px;
-        }
-    }
-</style>

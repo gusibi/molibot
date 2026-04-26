@@ -63,6 +63,7 @@
             keepRecentTokens: number;
         };
         systemPrompt: string;
+        timezone: string;
     }
 
     interface MetaResponse {
@@ -109,6 +110,51 @@
         "tool",
     ];
 
+    const preferredTimeZones = [
+        "UTC",
+        "Asia/Shanghai",
+        "Asia/Tokyo",
+        "Europe/London",
+        "Europe/Berlin",
+        "America/Los_Angeles",
+        "America/New_York",
+        "America/Chicago",
+        "America/Denver",
+        "Australia/Sydney",
+    ];
+
+    function listSupportedTimeZones(): string[] {
+        if (typeof Intl.supportedValuesOf === "function") {
+            try {
+                const values = Intl.supportedValuesOf("timeZone");
+                if (values.length > 0) return values;
+            } catch {
+                // Fallback to a small stable list below.
+            }
+        }
+        return preferredTimeZones;
+    }
+
+    function buildTimeZoneOptions(selected: string): string[] {
+        const out: string[] = [];
+        const seen = new Set<string>();
+        const push = (value: string): void => {
+            const normalized = String(value ?? "").trim();
+            if (!normalized || seen.has(normalized)) return;
+            seen.add(normalized);
+            out.push(normalized);
+        };
+
+        push(selected);
+        for (const zone of preferredTimeZones) push(zone);
+        for (const zone of listSupportedTimeZones()) push(zone);
+        return out;
+    }
+
+    let timeZoneOptions: string[] = buildTimeZoneOptions(
+        Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    );
+
     let form: AIForm = {
         providerMode: "pi",
         piModelProvider: "anthropic",
@@ -131,6 +177,7 @@
             keepRecentTokens: 20000,
         },
         systemPrompt: "You are Molibot, a concise and helpful assistant.",
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     };
 
     function onPiProviderChanged(): void {
@@ -430,11 +477,13 @@
                     keepRecentTokens: Number(s.compaction?.keepRecentTokens ?? 20000),
                 },
                 systemPrompt: s.systemPrompt,
+                timezone: s.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
             };
 
             onPiProviderChanged();
             ensurePiProviderEnabled();
             ensureRoutingDefaults();
+            timeZoneOptions = buildTimeZoneOptions(form.timezone);
         } catch (e) {
             error = e instanceof Error ? e.message : String(e);
         } finally {
@@ -465,6 +514,8 @@
             saving = false;
         }
     }
+
+    $: timeZoneOptions = buildTimeZoneOptions(form.timezone);
 
     onMount(loadAll);
 </script>
@@ -700,6 +751,24 @@
                 </div>
 
                 <label class="field">
+                    <span>Runtime timezone</span>
+                    <select
+                        class="control"
+                        bind:value={form.timezone}
+                    >
+                        {#each timeZoneOptions as zone}
+                            <option value={zone}>{zone}</option>
+                        {/each}
+                    </select>
+                    <small>
+                        Used for per-message <code>&lt;env&gt;</code> time injection,
+                        task scheduling, and usage/date views. Choose an IANA
+                        timezone such as <code>Asia/Shanghai</code> or
+                        <code>America/Los_Angeles</code>.
+                    </small>
+                </label>
+
+                <label class="field">
                     <textarea
                         class="control prompt-area"
                         bind:value={form.systemPrompt}
@@ -724,276 +793,3 @@
         </form>
     {/if}
 </PageShell>
-
-<style>
-  :global(.ai-routing-page) {
-    --panel-bg: color-mix(in oklab, var(--card) 88%, transparent);
-    --panel-soft: color-mix(in oklab, var(--muted) 78%, transparent);
-    --copy-muted: var(--muted-foreground);
-  }
-
-  .routing-hero,
-  .section-heading,
-  .route-card-head,
-  .action-footer {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .routing-hero h1,
-  .section-heading h2,
-  .route-card h3 {
-    margin: 0;
-    color: var(--foreground);
-    letter-spacing: 0;
-  }
-
-  .routing-hero h1 {
-    font-size: clamp(1.8rem, 4vw, 2.4rem);
-    font-weight: 760;
-  }
-
-  .hero-copy,
-  .route-card p,
-  .field small,
-  .route-summary {
-    color: var(--copy-muted);
-  }
-
-  .hero-copy {
-    margin-top: 0.5rem;
-    max-width: 48rem;
-    font-size: 0.95rem;
-    line-height: 1.65;
-  }
-
-  .eyebrow {
-    margin: 0 0 0.35rem;
-    color: var(--muted-foreground);
-    font-size: 0.72rem;
-    font-weight: 720;
-    letter-spacing: 0;
-    text-transform: uppercase;
-  }
-
-  .manage-link,
-  .status-pill,
-  .transport-chip {
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--panel-bg);
-    color: var(--foreground);
-    font-size: 0.78rem;
-    font-weight: 700;
-    white-space: nowrap;
-  }
-
-  .manage-link {
-    padding: 0.6rem 0.85rem;
-    text-decoration: none;
-  }
-
-  .status-pill,
-  .transport-chip {
-    padding: 0.35rem 0.65rem;
-  }
-
-  .settings-panel {
-    border: 1px solid var(--border);
-    border-radius: 1rem;
-    background: var(--panel-bg);
-    padding: clamp(1rem, 2.6vw, 1.5rem);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .muted-panel,
-  .subtle-panel {
-    background: var(--panel-soft);
-  }
-
-  .pool-grid,
-  .route-grid,
-  .settings-grid {
-    display: grid;
-    gap: 1rem;
-  }
-
-  .pool-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    margin-top: 1.25rem;
-  }
-
-  .route-grid,
-  .settings-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-top: 1.25rem;
-  }
-
-  .metric-tile,
-  .route-card {
-    border: 1px solid var(--border);
-    border-radius: 0.85rem;
-    background: color-mix(in oklab, var(--card) 76%, transparent);
-  }
-
-  .metric-tile {
-    padding: 1rem;
-  }
-
-  .metric-tile span {
-    display: block;
-    color: var(--muted-foreground);
-    font-size: 0.76rem;
-  }
-
-  .metric-tile strong {
-    display: block;
-    margin-top: 0.35rem;
-    color: var(--foreground);
-    font-size: 1.2rem;
-    line-height: 1.35;
-  }
-
-  .info-strip {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 1rem;
-    border: 1px solid color-mix(in oklab, var(--ring) 22%, var(--border));
-    border-radius: 0.85rem;
-    background: color-mix(in oklab, var(--accent) 28%, transparent);
-    color: var(--foreground);
-    padding: 0.85rem 1rem;
-    font-size: 0.82rem;
-    line-height: 1.55;
-  }
-
-  .route-card {
-    padding: 1rem;
-  }
-
-  .route-card h3 {
-    font-size: 1rem;
-    font-weight: 740;
-  }
-
-  .route-card p {
-    margin: 0.25rem 0 0;
-    font-size: 0.8rem;
-  }
-
-  .route-summary {
-    margin: 0.65rem 0 0;
-    word-break: break-word;
-    font-size: 0.76rem;
-    line-height: 1.45;
-  }
-
-  .field {
-    display: grid;
-    gap: 0.5rem;
-    color: var(--foreground);
-    font-size: 0.9rem;
-  }
-
-  .field > span {
-    font-weight: 700;
-  }
-
-  .field small {
-    font-size: 0.76rem;
-    line-height: 1.45;
-  }
-
-  .wide-field {
-    grid-column: 1 / -1;
-  }
-
-  .control {
-    width: 100%;
-    border: 1px solid var(--input);
-    border-radius: 0.75rem;
-    background: var(--card);
-    color: var(--foreground);
-    padding: 0.68rem 0.85rem;
-    outline: none;
-  }
-
-  .control:focus {
-    border-color: var(--ring);
-    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ring) 22%, transparent);
-  }
-
-  .inline-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.65rem;
-    color: var(--foreground);
-  }
-
-  .inline-toggle input {
-    width: 1rem;
-    height: 1rem;
-  }
-
-  .prompt-area {
-    min-height: 11rem;
-    resize: vertical;
-    font-family: var(--font-mono);
-    font-size: 0.78rem;
-    line-height: 1.7;
-  }
-
-  .action-footer {
-    position: sticky;
-    bottom: 1.5rem;
-    z-index: 10;
-    align-items: center;
-    border: 1px solid var(--border);
-    border-radius: 1rem;
-    background: color-mix(in oklab, var(--card) 92%, transparent);
-    padding: 1rem;
-    box-shadow: var(--shadow);
-    backdrop-filter: blur(14px);
-  }
-
-  .status-line {
-    min-width: 0;
-  }
-
-  .success-text {
-    color: color-mix(in oklab, var(--primary) 78%, var(--foreground));
-    font-size: 0.85rem;
-    font-weight: 700;
-  }
-
-  .error-text,
-  .warning-text {
-    color: var(--destructive);
-    font-size: 0.85rem;
-    font-weight: 700;
-  }
-
-  @media (max-width: 760px) {
-    .routing-hero,
-    .section-heading,
-    .route-card-head,
-    .action-footer,
-    .info-strip {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .pool-grid,
-    .route-grid,
-    .settings-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .manage-link,
-    .action-footer :global(button) {
-      width: 100%;
-    }
-  }
-</style>

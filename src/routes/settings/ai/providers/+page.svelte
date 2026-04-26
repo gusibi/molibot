@@ -965,12 +965,12 @@
         status: ModelCapabilityVerification | undefined,
     ): string {
         if (status === "passed") {
-            return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+            return "border-[color-mix(in_oklab,hsl(146_55%_42%)_30%,var(--border))] bg-[color-mix(in_oklab,hsl(146_55%_42%)_10%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]";
         }
         if (status === "failed") {
-            return "border-rose-500/30 bg-rose-500/10 text-rose-300";
+            return "border-[color-mix(in_oklab,var(--destructive)_30%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_10%,var(--card))] text-[var(--destructive)]";
         }
-        return "border-white/10 bg-white/5 text-slate-400";
+        return "border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] text-[var(--muted-foreground)]";
     }
 
     function verificationLabel(
@@ -1219,7 +1219,7 @@
                                     >Default model in this provider</span
                                 >
                                 <select
-                                    class="min-w-[220px] rounded-lg border border-white/10 bg-white/5 px-3 py-2 outline-none transition-colors focus:border-emerald-500/50"
+                                    class="min-w-[220px] rounded-lg border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-3 py-2 outline-none transition-colors focus:border-[var(--ring)]"
                                     bind:value={cp.defaultModel}
                                     disabled={!cp.enabled}
                                 >
@@ -1266,7 +1266,7 @@
                                     >Provider ID</span
                                 >
                                 <input
-                                    class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50"
+                                    class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-[var(--ring)]"
                                     bind:value={cp.id}
                                     disabled={isBuiltinProvider(cp)}
                                 />
@@ -1277,53 +1277,53 @@
                                     >Display Name</span
                                 >
                                 <input
-                                    class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50"
+                                    class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-[var(--ring)]"
                                     bind:value={cp.name}
                                 />
                             </label>
                             {#if isBuiltinProvider(cp)}
                                 {@const authGuide = builtinAuthGuide(cp.id)}
                                 <div
-                                    class="rounded-xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-xs leading-5 text-sky-200 md:col-span-2"
+                                    class="rounded-xl border border-[color-mix(in_oklab,var(--primary)_24%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] px-4 py-3 text-xs leading-5 text-[color-mix(in_oklab,var(--primary)_70%,var(--foreground))] md:col-span-2"
                                 >
                                     Built-in provider detected. Request protocol
                                     is managed by pi-ai natively, so `baseUrl`
                                     and `path` are ignored here.
                                 </div>
                                 <div
-                                    class="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-xs leading-5 text-slate-200 md:col-span-2"
+                                    class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-3 text-xs leading-5 text-[var(--foreground)] md:col-span-2"
                                 >
                                     <div class="flex flex-wrap items-center gap-2">
-                                        <span class="font-semibold text-white"
+                                        <span class="font-semibold text-[var(--foreground)]"
                                             >认证方式：</span
                                         >
                                         <span
-                                            class="rounded border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-200"
+                                            class="rounded border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--foreground)]"
                                         >
                                             {authGuide.modeLabel}
                                         </span>
                                     </div>
-                                    <p class="mt-2 text-slate-300">
+                                    <p class="mt-2 text-[var(--foreground)]">
                                         {authGuide.summary}
                                     </p>
                                     {#if authGuide.command}
-                                        <p class="mt-2 text-slate-300">
+                                        <p class="mt-2 text-[var(--foreground)]">
                                             登录命令：
                                             <code>{authGuide.command}</code>
                                         </p>
                                     {/if}
                                     {#if authGuide.tokenHint}
-                                        <p class="mt-2 text-slate-400">
+                                        <p class="mt-2 text-[var(--muted-foreground)]">
                                             {authGuide.tokenHint}
                                         </p>
                                     {/if}
                                     {#if authGuide.envVar}
-                                        <p class="mt-2 text-slate-300">
+                                        <p class="mt-2 text-[var(--foreground)]">
                                             环境变量：
                                             <code>{authGuide.envVar}</code>
                                         </p>
                                     {/if}
-                                    <ol class="mt-2 list-decimal space-y-1 pl-5 text-slate-300">
+                                    <ol class="mt-2 list-decimal space-y-1 pl-5 text-[var(--foreground)]">
                                         {#each authGuide.steps as step}
                                             <li>{step}</li>
                                         {/each}
@@ -1332,7 +1332,7 @@
                                         <div class="mt-2 flex flex-wrap gap-2">
                                             {#each authGuide.links as link}
                                                 <a
-                                                    class="inline-flex items-center rounded border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-[11px] text-sky-200 hover:bg-sky-500/20"
+                                                    class="inline-flex items-center rounded border border-[color-mix(in_oklab,var(--primary)_30%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] px-2 py-1 text-[11px] text-[color-mix(in_oklab,var(--primary)_70%,var(--foreground))] hover:bg-[color-mix(in_oklab,var(--primary)_16%,var(--card))]"
                                                     href={link.url}
                                                     target="_blank"
                                                     rel="noreferrer"
@@ -1345,7 +1345,7 @@
                                 </div>
                                 {#if isOauthBuiltinProvider(cp)}
                                     <div
-                                        class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs leading-5 text-amber-200 md:col-span-2"
+                                        class="rounded-xl border border-[color-mix(in_oklab,hsl(38_84%_54%)_24%,var(--border))] bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] px-4 py-3 text-xs leading-5 text-[color-mix(in_oklab,hsl(38_84%_44%)_72%,var(--foreground))] md:col-span-2"
                                     >
                                         OAuth provider: static API key input is
                                         hidden by design. Use the command above,
@@ -1357,11 +1357,11 @@
                                     <label
                                         class="grid gap-2 text-sm md:col-span-2"
                                     >
-                                        <span class="font-medium text-slate-300"
+                                        <span class="font-medium text-[var(--foreground)]"
                                             >API Key Override (Optional)</span
                                         >
                                         <input
-                                            class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 font-mono text-sm tracking-widest outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                            class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 font-mono text-sm tracking-widest outline-none transition-colors focus:border-[var(--ring)] focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
                                             bind:value={cp.apiKey}
                                             type="password"
                                             placeholder="Leave empty to use env/OAuth source"
@@ -1372,11 +1372,11 @@
                                 <label
                                     class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
                                 >
-                                    <span class="font-medium text-slate-300"
+                                    <span class="font-medium text-[var(--foreground)]"
                                         >API Base URL</span
                                     >
                                     <input
-                                        class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-[var(--ring)] focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
                                         bind:value={cp.baseUrl}
                                         placeholder="https://api.openai.com"
                                     />
@@ -1385,11 +1385,11 @@
                                 <label
                                     class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
                                 >
-                                    <span class="font-medium text-slate-300"
+                                    <span class="font-medium text-[var(--foreground)]"
                                         >Path Endpoint</span
                                     >
                                     <input
-                                        class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-[var(--ring)] focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
                                         bind:value={cp.path}
                                         placeholder="/v1/chat/completions"
                                     />
@@ -1398,11 +1398,11 @@
                                 <label
                                     class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
                                 >
-                                    <span class="font-medium text-slate-300"
+                                    <span class="font-medium text-[var(--foreground)]"
                                         >Thinking Support</span
                                     >
                                     <select
-                                        class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-[var(--ring)] focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
                                         bind:value={cp.thinkingSupportMode}
                                     >
                                         <option value="auto">
@@ -1420,11 +1420,11 @@
                                 <label
                                     class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
                                 >
-                                    <span class="font-medium text-slate-300"
+                                    <span class="font-medium text-[var(--foreground)]"
                                         >Thinking Format</span
                                     >
                                     <select
-                                        class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-[var(--ring)] focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
                                         bind:value={cp.thinkingFormat}
                                     >
                                         <option value="auto">
@@ -1457,8 +1457,8 @@
                                         <div
                                             class={`rounded-xl border px-4 py-3 text-xs leading-5 md:col-span-2 ${
                                                 cp.thinkingSupportMode === "enabled"
-                                                    ? "border-amber-500/25 bg-amber-500/10 text-amber-200"
-                                                    : "border-white/10 bg-black/20 text-slate-400"
+                                                    ? "border-[color-mix(in_oklab,hsl(38_84%_54%)_28%,var(--border))] bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] text-[color-mix(in_oklab,hsl(38_84%_44%)_72%,var(--foreground))]"
+                                                    : "border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] text-[var(--muted-foreground)]"
                                             }`}
                                         >
                                             <div class="font-semibold text-[var(--foreground)]">
@@ -1473,10 +1473,10 @@
                                     {/if}
 
                                     <div>
-                                        <span class="font-medium text-slate-300"
+                                        <span class="font-medium text-[var(--foreground)]"
                                             >Reasoning Effort Value Mapping</span
                                         >
-                                        <p class="mt-1 text-xs text-slate-500">
+                                        <p class="mt-1 text-xs text-[var(--muted-foreground)]">
                                             这不是“思维维度”配置，只是把 low /
                                             medium / high 转成上游要求的字符串；
                                             不需要映射时留空。
@@ -1488,11 +1488,11 @@
                                                 class="grid gap-2 text-sm"
                                             >
                                                 <span
-                                                    class="font-medium capitalize text-slate-400"
+                                                    class="font-medium capitalize text-[var(--muted-foreground)]"
                                                     >{level}</span
                                                 >
                                                 <input
-                                                    class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                                    class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-[var(--ring)] focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
                                                     bind:value={cp.reasoningEffortMap[level]}
                                                     placeholder={level}
                                                 />
@@ -1502,11 +1502,11 @@
                                 </div>
 
                                 <label class="grid gap-2 text-sm md:col-span-2">
-                                    <span class="font-medium text-slate-300"
+                                    <span class="font-medium text-[var(--foreground)]"
                                         >API Signature / Key</span
                                     >
                                     <input
-                                        class="rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 font-mono text-sm tracking-widest outline-none transition-colors focus:border-emerald-500/50 focus:bg-white/5"
+                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 font-mono text-sm tracking-widest outline-none transition-colors focus:border-[var(--ring)] focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
                                         bind:value={cp.apiKey}
                                         type="password"
                                         placeholder="sk-..."
@@ -1549,7 +1549,7 @@
                                 {@const model = row.model}
                                 {@const index = row.index}
                                 <div
-                                    class="relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.01]"
+                                    class="relative overflow-hidden rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)]"
                                 >
                                     <div
                                         class="grid gap-y-3 p-4 sm:grid-cols-[1fr_auto_auto] sm:gap-x-3"
@@ -1559,7 +1559,7 @@
                                                 >Model ID</span
                                             >
                                             <input
-                                                class="w-full rounded-lg border border-white/10 bg-black/30 px-4 py-2 text-sm outline-none transition-colors focus:border-emerald-500/50"
+                                                class="w-full rounded-lg border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_48%,var(--card))] px-4 py-2 text-sm outline-none transition-colors focus:border-[var(--ring)]"
                                                 bind:value={model.id}
                                                 placeholder="e.g. gpt-4o"
                                             />
@@ -1611,9 +1611,9 @@
                                         </Button>
                                     </div>
 
-                                    <div class="bg-black/20 px-4 py-3">
+                                    <div class="bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-3">
                                         <div
-                                            class="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500"
+                                            class="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]"
                                         >
                                             Declared Capabilities
                                         </div>
@@ -1622,8 +1622,8 @@
                                                 <label
                                                     class={`inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors ${
                                                         model.tags.includes(tag)
-                                                            ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-inset ring-emerald-500/40"
-                                                            : "bg-white/5 text-slate-400 ring-1 ring-inset ring-white/10 hover:bg-white/10"
+                                                            ? "bg-[color-mix(in_oklab,hsl(146_55%_42%)_14%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))] ring-1 ring-inset ring-[color-mix(in_oklab,hsl(146_55%_42%)_34%,var(--border))]"
+                                                            : "bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] text-[var(--muted-foreground)] ring-1 ring-inset ring-[color-mix(in_oklab,var(--border)_72%,transparent)] hover:bg-[color-mix(in_oklab,var(--muted)_54%,var(--card))]"
                                                     }`}
                                                 >
                                                     <input
@@ -1649,7 +1649,7 @@
                                         {#if model.tags.length > 0}
                                             <div class="mt-4">
                                                 <div
-                                                    class="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500"
+                                                    class="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]"
                                                 >
                                                     Verification Status
                                                 </div>
@@ -1680,7 +1680,7 @@
                                                     {/each}
                                                 </div>
                                                 <p
-                                                    class="mt-3 text-[11px] leading-5 text-slate-500"
+                                                    class="mt-3 text-[11px] leading-5 text-[var(--muted-foreground)]"
                                                 >
                                                     Automatic verification
                                                     currently covers
@@ -1724,7 +1724,7 @@
                             class="flex flex-col items-center justify-center py-20 text-center"
                         >
                             <div
-                                class="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/5"
+                                class="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
                             >
                                 <svg
                                     width="24"
@@ -1735,7 +1735,7 @@
                                     stroke-width="2"
                                     stroke-linecap="round"
                                     stroke-linejoin="round"
-                                    class="text-slate-400"
+                                    class="text-[var(--muted-foreground)]"
                                 >
                                     <path
                                         d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
@@ -1746,11 +1746,11 @@
                                     ></line>
                                 </svg>
                             </div>
-                            <h3 class="text-lg font-medium text-white">
+                            <h3 class="text-lg font-medium text-[var(--foreground)]">
                                 No Provider Selected
                             </h3>
                             <p
-                                class="mt-2 max-w-[250px] text-sm text-slate-400"
+                                class="mt-2 max-w-[250px] text-sm text-[var(--muted-foreground)]"
                             >
                                 {#if activeProviderTab === "builtin"}
                                     Choose a built-in provider from the sidebar
@@ -1767,65 +1767,3 @@
         </form>
     {/if}
 </PageShell>
-
-<style>
-  :global(.providers-page) {
-    --provider-panel-bg: color-mix(in oklab, var(--card) 88%, transparent);
-    --provider-panel-soft: color-mix(in oklab, var(--muted) 82%, transparent);
-  }
-
-  :global(.providers-page .provider-panel),
-  :global(.providers-page .provider-footer),
-  :global(.providers-page .provider-savebar) {
-    border: 1px solid var(--border);
-    border-radius: 1rem;
-    background: var(--provider-panel-bg);
-    box-shadow: var(--shadow-sm);
-  }
-
-  :global(.providers-page .provider-footer),
-  :global(.providers-page .provider-savebar) {
-    background:
-      linear-gradient(135deg, color-mix(in oklab, var(--primary) 10%, transparent), transparent 42%),
-      var(--provider-panel-soft);
-  }
-
-  :global(.providers-page .provider-savebar) {
-    position: sticky;
-    top: 0.75rem;
-    z-index: 20;
-    backdrop-filter: blur(14px);
-  }
-
-  :global(.providers-page .status-text) {
-    max-width: 280px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.75rem;
-    font-weight: 700;
-  }
-
-  :global(.providers-page .status-text.success) {
-    color: color-mix(in oklab, #22c55e 72%, var(--foreground));
-  }
-
-  :global(.providers-page .status-text.error) {
-    color: var(--destructive);
-  }
-
-  :global(.settings-theme .providers-page input),
-  :global(.settings-theme .providers-page select),
-  :global(.settings-theme .providers-page textarea) {
-    border-color: var(--input) !important;
-    background-color: var(--card) !important;
-    color: var(--foreground) !important;
-  }
-
-  :global(.settings-theme .providers-page input:focus),
-  :global(.settings-theme .providers-page select:focus),
-  :global(.settings-theme .providers-page textarea:focus) {
-    border-color: color-mix(in oklab, var(--ring) 35%, var(--input)) !important;
-    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ring) 16%, transparent) !important;
-  }
-</style>

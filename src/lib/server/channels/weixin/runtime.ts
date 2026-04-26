@@ -433,11 +433,11 @@ export class WeixinManager extends BaseChannelRuntime {
       imageContents: []
     };
 
-    const queuedWhileBusy = this.inboundTasks.size(chatId) > 0 || this.running.has(chatId);
     const queueId = this.inboundTasks.enqueue(chatId, this.serializeQueuedEvent(queuedEvent), {
       preview: queuedEvent.text
     });
-    if (queuedWhileBusy) {
+    const queueState = this.inboundTasks.peek(chatId, queueId);
+    if (queueState.status === "pending") {
       momLog("weixin", "message_queued_while_busy", {
         botId: this.instanceId,
         runId,

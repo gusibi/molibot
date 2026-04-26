@@ -916,7 +916,8 @@ export class TelegramManager extends BaseChannelRuntime {
         sessionId: this.store.getActiveSession(eventScopeId),
         imageContents: []
       }, { preview: event.text });
-      if (this.running.has(eventScopeId) && !event.isEvent) {
+      const queueState = this.inboundTasks.peek(eventScopeId, queueId);
+      if (!event.isEvent && queueState.status === "pending") {
         momLog("telegram", "message_queued_while_busy", {
           runId,
           chatId,

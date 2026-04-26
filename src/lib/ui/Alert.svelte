@@ -5,12 +5,12 @@
   export let className = "";
 
   const variantClass: Record<Variant, string> = {
-    default: "border-[var(--border)] bg-[var(--muted)] text-[var(--foreground)]",
-    success: "border-[var(--border)] bg-[var(--muted)] text-[var(--foreground)]",
-    destructive: "border-[var(--destructive)] bg-[color-mix(in_oklab,var(--destructive)_12%,transparent)] text-[var(--foreground)]"
+    default: "wb-status-line",
+    success: "wb-status-line",
+    destructive: "wb-status-line wb-panel-danger"
   };
 </script>
 
-<div class={`rounded-md border px-3 py-2 text-sm ${variantClass[variant]} ${className}`}>
+<div class={`text-sm ${variantClass[variant]} ${className}`}>
   <slot />
 </div>

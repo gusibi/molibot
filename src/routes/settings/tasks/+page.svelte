@@ -105,15 +105,15 @@
       return "border-violet-500/40 bg-violet-500/10 text-violet-300";
     }
     if (status === "completed") {
-      return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300";
+      return "border-emerald-500/40 bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]";
     }
     if (status === "error") {
-      return "border-rose-500/40 bg-rose-500/10 text-rose-300";
+      return "border-[color-mix(in_oklab,var(--destructive)_36%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_10%,var(--card))] text-[var(--destructive)]";
     }
     if (status === "skipped") {
-      return "border-amber-500/40 bg-amber-500/10 text-amber-300";
+      return "border-amber-500/40 bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]";
     }
-    return "border-sky-500/40 bg-sky-500/10 text-sky-300";
+    return "border-[color-mix(in_oklab,var(--primary)_34%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] text-[color-mix(in_oklab,var(--primary)_74%,var(--foreground))]";
   }
 
   function rowsByType(type: TaskType): TaskItem[] {
@@ -338,14 +338,15 @@
 </script>
 
 <PageShell widthClass="max-w-7xl" gapClass="space-y-6">
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <h1 class="text-2xl font-semibold">Tasks</h1>
-      <p class="text-sm text-slate-400">
+  <header class="wb-hero">
+    <div class="wb-hero-copy">
+      <p class="wb-eyebrow">Event Runtime</p>
+      <h1>Tasks</h1>
+      <p class="wb-copy">
         Inspect scheduled event tasks, select stale entries, and remove them in batches.
       </p>
     </div>
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="wb-hero-actions">
       <Button variant="outline" size="md" on:click={loadTasks} disabled={loading || deleting || triggering}>
         Refresh
       </Button>
@@ -366,7 +367,7 @@
         {deleting ? "Deleting..." : `Delete Selected (${selected.size})`}
       </Button>
     </div>
-  </div>
+  </header>
 
   {#if message}
     <Alert>{message}</Alert>
@@ -376,68 +377,68 @@
   {/if}
 
   {#if loading}
-    <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+    <div class="wb-empty-state text-left">
       Loading tasks...
     </div>
   {:else}
-    <section class="grid gap-3 rounded-[1.25rem] border border-white/15 bg-[linear-gradient(135deg,rgba(20,26,38,0.95),rgba(40,26,24,0.92))] p-4 text-sm text-slate-300 shadow-[0_24px_80px_rgba(0,0,0,0.28)] sm:grid-cols-2 xl:grid-cols-4">
+    <section class="wb-summary-strip text-sm sm:grid-cols-2 xl:grid-cols-4">
       <div>
-        <span class="text-slate-400">Data root:</span>
+        <span class="text-[var(--muted-foreground)]">Data root:</span>
         {dataRoot || "(unknown)"}
       </div>
       <div>
-        <span class="text-slate-400">Total tasks:</span>
+        <span class="text-[var(--muted-foreground)]">Total tasks:</span>
         {counts.total}
       </div>
       <div>
-        <span class="text-slate-400">Workspace tasks:</span>
+        <span class="text-[var(--muted-foreground)]">Workspace tasks:</span>
         {counts.byScope.workspace}
       </div>
       <div>
-        <span class="text-slate-400">Chat scratch tasks:</span>
+        <span class="text-[var(--muted-foreground)]">Chat scratch tasks:</span>
         {counts.byScope.chatScratch}
       </div>
       <div>
-        <span class="text-slate-400">Pending:</span>
+        <span class="text-[var(--muted-foreground)]">Pending:</span>
         {counts.byStatus.pending}
       </div>
       <div>
-        <span class="text-slate-400">Running:</span>
+        <span class="text-[var(--muted-foreground)]">Running:</span>
         {counts.byStatus.running}
       </div>
       <div>
-        <span class="text-slate-400">Completed:</span>
+        <span class="text-[var(--muted-foreground)]">Completed:</span>
         {counts.byStatus.completed}
       </div>
       <div>
-        <span class="text-slate-400">Skipped:</span>
+        <span class="text-[var(--muted-foreground)]">Skipped:</span>
         {counts.byStatus.skipped}
       </div>
       <div>
-        <span class="text-slate-400">Error:</span>
+        <span class="text-[var(--muted-foreground)]">Error:</span>
         {counts.byStatus.error}
       </div>
       <div>
-        <span class="text-slate-400">Telegram:</span>
+        <span class="text-[var(--muted-foreground)]">Telegram:</span>
         {counts.byChannel.telegram}
       </div>
       <div>
-        <span class="text-slate-400">Feishu:</span>
+        <span class="text-[var(--muted-foreground)]">Feishu:</span>
         {counts.byChannel.feishu}
       </div>
       <div>
-        <span class="text-slate-400">QQ:</span>
+        <span class="text-[var(--muted-foreground)]">QQ:</span>
         {counts.byChannel.qq}
       </div>
       <div>
-        <span class="text-slate-400">WeChat:</span>
+        <span class="text-[var(--muted-foreground)]">WeChat:</span>
         {counts.byChannel.weixin}
       </div>
     </section>
 
-    <section class="flex flex-wrap items-center justify-between gap-3 rounded-[1.25rem] border border-white/10 bg-[#171b23] px-4 py-3 text-sm text-slate-300">
+    <section class="wb-toolbar text-sm">
       <div class="flex flex-wrap items-center gap-2">
-        <span class="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-400">
+        <span class="rounded-full border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
           Batch Operations
         </span>
         <span>{selected.size} selected</span>
@@ -463,7 +464,7 @@
         <div class="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 class="text-lg font-semibold">{typeLabels[type]}</h2>
-            <p class="text-sm text-slate-400">
+            <p class="text-sm text-[var(--muted-foreground)]">
               {counts.byType[type]} task(s), {selectedCountFor(type)} selected
             </p>
           </div>
@@ -486,13 +487,13 @@
         </div>
 
         {#if rowsByType(type).length === 0}
-          <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+          <div class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]">
             No {typeLabels[type].toLowerCase()} tasks.
           </div>
         {:else}
-          <div class="overflow-x-auto rounded-[1.25rem] border border-white/15 bg-[#11161e] shadow-[0_18px_60px_rgba(0,0,0,0.25)]">
+          <div class="overflow-x-auto rounded-[1.25rem] border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_92%,transparent)] shadow-[0_18px_60px_rgba(0,0,0,0.25)]">
             <table class="min-w-full text-left text-sm">
-              <thead class="border-b border-white/10 bg-[linear-gradient(90deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] text-slate-300">
+              <thead class="border-b border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[linear-gradient(90deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] text-[var(--foreground)]">
                 <tr>
                   <th class="px-3 py-3 font-medium">Select</th>
                   <th class="px-3 py-3 font-medium">Task</th>
@@ -507,11 +508,11 @@
               </thead>
               <tbody>
                 {#each rowsByType(type) as item (item.filePath)}
-                  <tr class={`border-b border-white/10 align-top last:border-b-0 ${selected.has(item.filePath) ? "bg-white/[0.04]" : ""}`}>
+                  <tr class={`border-b border-[color-mix(in_oklab,var(--border)_78%,transparent)] align-top last:border-b-0 ${selected.has(item.filePath) ? "bg-white/[0.04]" : ""}`}>
                     <td class="px-3 py-3">
                       <input
                         type="checkbox"
-                        class="h-4 w-4 cursor-pointer rounded border-white/20 bg-transparent"
+                        class="h-4 w-4 cursor-pointer rounded border-[color-mix(in_oklab,var(--border)_82%,transparent)] bg-transparent"
                         checked={selected.has(item.filePath)}
                         on:change={() => toggleSelection(item.filePath)}
                         disabled={deleting || triggering || saving}
@@ -519,32 +520,32 @@
                     </td>
                     <td class="px-3 py-3">
                       <div class="max-w-[28rem] space-y-1">
-                        <p class="font-medium text-slate-100">{item.filename}</p>
+                        <p class="font-medium text-[var(--foreground)]">{item.filename}</p>
                         {#if editingFilePath === item.filePath}
                           <textarea
-                            class="min-h-24 w-full rounded-md border border-white/20 bg-black/30 px-2 py-1 text-sm text-slate-100"
+                            class="min-h-24 w-full rounded-md border border-[color-mix(in_oklab,var(--border)_82%,transparent)] bg-[color-mix(in_oklab,var(--muted)_48%,var(--card))] px-2 py-1 text-sm text-[var(--foreground)]"
                             bind:value={editDraft.text}
                             disabled={saving}
                           ></textarea>
                         {:else}
-                          <p class="text-slate-300">{item.text || "-"}</p>
+                          <p class="text-[var(--foreground)]">{item.text || "-"}</p>
                         {/if}
-                        <p class="text-xs text-slate-500">{item.filePath}</p>
+                        <p class="text-xs text-[var(--muted-foreground)]">{item.filePath}</p>
                       </div>
                     </td>
-                    <td class="px-3 py-3 text-slate-300">
-                      <div class="text-xs uppercase tracking-[0.08em] text-slate-400">{item.channel}</div>
+                    <td class="px-3 py-3 text-[var(--foreground)]">
+                      <div class="text-xs uppercase tracking-[0.08em] text-[var(--muted-foreground)]">{item.channel}</div>
                       <div>{item.botId}</div>
-                      <div class="text-xs text-slate-500">{item.chatId || "-"}</div>
-                      <div class="mt-1 text-xs text-slate-500">
+                      <div class="text-xs text-[var(--muted-foreground)]">{item.chatId || "-"}</div>
+                      <div class="mt-1 text-xs text-[var(--muted-foreground)]">
                         {item.scope === "workspace" ? "workspace" : "chat scratch"}
                       </div>
                     </td>
-                    <td class="px-3 py-3 text-slate-300">
+                    <td class="px-3 py-3 text-[var(--foreground)]">
                       {#if editingFilePath === item.filePath}
                         {#if item.type !== "immediate"}
                           <input
-                            class="w-full rounded-md border border-white/20 bg-black/30 px-2 py-1 text-sm text-slate-100"
+                            class="w-full rounded-md border border-[color-mix(in_oklab,var(--border)_82%,transparent)] bg-[color-mix(in_oklab,var(--muted)_48%,var(--card))] px-2 py-1 text-sm text-[var(--foreground)]"
                             bind:value={editDraft.scheduleText}
                             placeholder={item.type === "periodic" ? "cron: 30 17 * * *" : "ISO datetime"}
                             disabled={saving}
@@ -554,7 +555,7 @@
                         {/if}
                         {#if item.type === "periodic"}
                           <input
-                            class="mt-1 w-full rounded-md border border-white/20 bg-black/30 px-2 py-1 text-sm text-slate-100"
+                            class="mt-1 w-full rounded-md border border-[color-mix(in_oklab,var(--border)_82%,transparent)] bg-[color-mix(in_oklab,var(--muted)_48%,var(--card))] px-2 py-1 text-sm text-[var(--foreground)]"
                             bind:value={editDraft.timezone}
                             placeholder="Asia/Shanghai"
                             disabled={saving}
@@ -563,17 +564,17 @@
                       {:else}
                         <div>{item.scheduleText || "-"}</div>
                         {#if item.timezone}
-                          <div class="text-xs text-slate-500">{item.timezone}</div>
+                          <div class="text-xs text-[var(--muted-foreground)]">{item.timezone}</div>
                         {/if}
                       {/if}
-                      <div class="mt-1 text-xs text-slate-500">
+                      <div class="mt-1 text-xs text-[var(--muted-foreground)]">
                         created {formatDate(item.createdAt)}
                       </div>
                     </td>
-                    <td class="px-3 py-3 text-slate-300">
+                    <td class="px-3 py-3 text-[var(--foreground)]">
                       {#if editingFilePath === item.filePath}
                         <select
-                          class="rounded-md border border-white/20 bg-black/30 px-2 py-1 text-sm text-slate-100"
+                          class="rounded-md border border-[color-mix(in_oklab,var(--border)_82%,transparent)] bg-[color-mix(in_oklab,var(--muted)_48%,var(--card))] px-2 py-1 text-sm text-[var(--foreground)]"
                           bind:value={editDraft.delivery}
                           disabled={saving}
                         >
@@ -589,24 +590,24 @@
                         {item.status}
                       </div>
                       {#if item.statusReason}
-                        <div class="mt-1 text-xs text-slate-500">{item.statusReason}</div>
+                        <div class="mt-1 text-xs text-[var(--muted-foreground)]">{item.statusReason}</div>
                       {/if}
                       {#if item.lastTriggeredAt}
-                        <div class="mt-1 text-xs text-slate-500">
+                        <div class="mt-1 text-xs text-[var(--muted-foreground)]">
                           last {formatDate(item.lastTriggeredAt)}
                         </div>
                       {/if}
                       {#if item.completedAt}
-                        <div class="mt-1 text-xs text-slate-500">
+                        <div class="mt-1 text-xs text-[var(--muted-foreground)]">
                           done {formatDate(item.completedAt)}
                         </div>
                       {/if}
                       {#if item.lastError}
-                        <div class="mt-1 max-w-xs text-xs text-rose-300">{item.lastError}</div>
+                        <div class="mt-1 max-w-xs text-xs text-[var(--destructive)]">{item.lastError}</div>
                       {/if}
                     </td>
-                    <td class="px-3 py-3 text-slate-300">{item.runCount}</td>
-                    <td class="px-3 py-3 text-slate-300">{formatDate(item.updatedAt)}</td>
+                    <td class="px-3 py-3 text-[var(--foreground)]">{item.runCount}</td>
+                    <td class="px-3 py-3 text-[var(--foreground)]">{formatDate(item.updatedAt)}</td>
                     <td class="px-3 py-3">
                       <div class="flex flex-col gap-2">
                         <Button
@@ -664,10 +665,10 @@
     {/each}
 
     {#if diagnostics.length > 0}
-      <section class="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-        <h2 class="text-sm font-semibold text-amber-300">Diagnostics</h2>
+      <section class="space-y-2 rounded-xl border border-amber-500/40 bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] p-4">
+        <h2 class="text-sm font-semibold text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]">Diagnostics</h2>
         {#each diagnostics as row}
-          <p class="text-xs text-amber-200">{row}</p>
+          <p class="text-xs text-[color-mix(in_oklab,hsl(38_84%_44%)_72%,var(--foreground))]">{row}</p>
         {/each}
       </section>
     {/if}

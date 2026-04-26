@@ -1,15 +1,17 @@
 import type { AssistantMessageEvent, ImageContent } from "@mariozechner/pi-ai";
 import type { RuntimeThinkingLevel } from "../settings/index.js";
 
-export type AttachmentMediaType = "image" | "audio" | "file";
+export type AttachmentMediaType = "image" | "audio" | "video" | "file";
 
 export interface FileAttachment {
   original: string;
   local: string;
   mediaType: AttachmentMediaType;
   mimeType?: string;
+  size?: number;
   isImage: boolean;
   isAudio: boolean;
+  isVideo?: boolean;
 }
 
 export type ChannelChatType = "private" | "group" | "supergroup" | "channel";

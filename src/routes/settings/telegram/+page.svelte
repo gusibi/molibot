@@ -323,43 +323,42 @@
 </script>
 
 <PageShell widthClass="max-w-7xl" gapClass="space-y-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Telegram Settings</h1>
-    <p class="text-sm text-slate-400">
+  <header class="wb-hero">
+    <div class="wb-hero-copy">
+    <p class="wb-eyebrow">Channel Runtime</p>
+    <h1>Telegram Settings</h1>
+    <p class="wb-copy">
       Configure Telegram bots, link them to agents, and edit bot-level Markdown overrides.
     </p>
-  </div>
+    </div>
+  </header>
 
   {#if loading}
-    <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+    <div class="wb-empty-state text-left">
       Loading Telegram settings...
     </div>
   {:else}
-    <div class="grid gap-6 lg:grid-cols-[280px_1fr]">
-      <section class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+    <div class="wb-config-grid">
+      <section class="wb-config-nav space-y-3">
         <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-slate-200">Bots</h2>
+          <h2 class="text-sm font-semibold text-[var(--foreground)]">Bots</h2>
           <Button variant="outline" size="sm" type="button" on:click={addBot}>
             Add Bot
           </Button>
         </div>
 
-        <div class="space-y-2">
+        <div class="wb-config-nav-list">
           {#each bots as bot (bot.id)}
             <button
-              class={`flex w-full items-start justify-between rounded-lg border px-3 py-2 text-left text-sm ${
-                selectedBot?.id === bot.id
-                  ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-200"
-                  : "border-white/10 bg-[#1f1f1f] text-slate-300 hover:border-white/20"
-              }`}
+              class={`wb-config-item ${selectedBot?.id === bot.id ? "active" : ""}`}
               type="button"
               on:click={() => selectBot(bot.id)}
             >
-              <span>
-                <span class="block font-medium">{bot.name || bot.id}</span>
-                <span class="block text-xs text-slate-400">{bot.id}</span>
+              <span class="min-w-0">
+                <span class="wb-config-item-title truncate">{bot.name || bot.id}</span>
+                <span class="wb-config-item-subtitle truncate">{bot.id}</span>
               </span>
-              <span class={`text-[10px] ${bot.enabled ? "text-emerald-300" : "text-slate-500"}`}>
+              <span class="wb-config-state" data-enabled={bot.enabled}>
                 {bot.enabled ? "ON" : "OFF"}
               </span>
             </button>
@@ -369,9 +368,9 @@
 
       {#if selectedBot}
         <form class="space-y-4" on:submit|preventDefault={save}>
-          <section class="space-y-4 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+          <section class="wb-config-panel space-y-4">
             <div class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-slate-200">Bot Configuration</h2>
+              <h2 class="text-sm font-semibold text-[var(--foreground)]">Bot Configuration</h2>
               <Button variant="destructive" size="sm" type="button" on:click={() => removeBot(selectedBot.id)}>
                 Remove Bot
               </Button>
@@ -379,9 +378,9 @@
 
             <div class="grid gap-3 md:grid-cols-2">
               <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">Bot ID</span>
+                <span class="text-[var(--foreground)]">Bot ID</span>
                 <input
-                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
                   bind:value={selectedBot.id}
                   placeholder="marketing-bot"
                   disabled={!selectedBot.isNew}
@@ -389,34 +388,34 @@
               </label>
 
               <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">Bot Name</span>
+                <span class="text-[var(--foreground)]">Bot Name</span>
                 <input
-                  class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                  class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                   bind:value={selectedBot.name}
                   placeholder="Marketing Bot"
                 />
               </label>
             </div>
             {#if !selectedBot.isNew}
-              <p class="text-xs text-slate-500">
+              <p class="wb-note text-xs">
                 Bot ID is locked after creation to keep workspace paths and references stable.
               </p>
             {/if}
 
-            <label class="flex items-center gap-3 text-sm text-slate-300">
+            <label class="flex items-center gap-3 text-sm text-[var(--foreground)]">
               <input bind:checked={selectedBot.enabled} type="checkbox" />
               Enable this plugin instance
             </label>
 
-            <label class="flex items-center gap-3 text-sm text-slate-300">
+            <label class="flex items-center gap-3 text-sm text-[var(--foreground)]">
               <input bind:checked={selectedBot.streamOutput} type="checkbox" />
               Enable streaming output (default on)
             </label>
 
             <label class="grid gap-1.5 text-sm">
-              <span class="text-slate-300">Linked Agent</span>
+              <span class="text-[var(--foreground)]">Linked Agent</span>
               <select
-                class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                 bind:value={selectedBot.agentId}
               >
                 <option value="">No agent (global fallback only)</option>
@@ -427,10 +426,10 @@
             </label>
 
             <label class="grid gap-1.5 text-sm">
-              <span class="text-slate-300">Bot token</span>
+              <span class="text-[var(--foreground)]">Bot token</span>
               <div class="flex items-center gap-2">
                 <input
-                  class="flex-1 rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                  class="flex-1 rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                   bind:value={selectedBot.token}
                   type={showToken ? "text" : "password"}
                   placeholder="123456:ABCDEF..."
@@ -442,28 +441,28 @@
             </label>
 
             <label class="grid gap-1.5 text-sm">
-              <span class="text-slate-300">Allowed chat IDs (comma-separated)</span>
+              <span class="text-[var(--foreground)]">Allowed chat IDs (comma-separated)</span>
               <input
-                class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                 bind:value={selectedBot.allowedChatIds}
                 placeholder="123456789,-1001234567890"
               />
             </label>
           </section>
 
-          <section class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+          <section class="wb-config-panel space-y-3">
             <div>
-              <h3 class="text-sm font-semibold text-slate-200">Bot Markdown Overrides</h3>
-              <p class="mt-1 text-xs text-slate-400">
+              <h3 class="text-sm font-semibold text-[var(--foreground)]">Bot Markdown Overrides</h3>
+              <p class="mt-1 text-xs text-[var(--muted-foreground)]">
                 Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.
               </p>
             </div>
 
             {#each botFileNames as fileName}
               <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">{fileName}</span>
+                <span class="text-[var(--foreground)]">{fileName}</span>
                 <textarea
-                  class="min-h-[160px] rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 font-mono text-sm outline-none focus:border-emerald-400"
+                  class="min-h-[160px] rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 font-mono text-sm outline-none focus:border-[var(--ring)]"
                   bind:value={selectedBot.profileFiles[fileName]}
                   placeholder={`Edit ${fileName} here`}
                 ></textarea>
@@ -475,7 +474,7 @@
             {saving ? "Saving..." : "Save This Bot"}
           </Button>
           {#if selectedBotDirty}
-            <p class="text-xs text-amber-300">Current bot has unsaved changes.</p>
+            <p class="wb-warning-note text-xs">Current bot has unsaved changes.</p>
           {/if}
 
           {#if message}

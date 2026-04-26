@@ -355,15 +355,16 @@
 </script>
 
 <PageShell widthClass="max-w-6xl" gapClass="space-y-6">
-  <div class="flex flex-wrap items-start justify-between gap-3">
-    <div class="space-y-2">
-      <h1 class="text-2xl font-semibold">ACP Targets</h1>
-      <p class="max-w-3xl text-sm text-[var(--muted-foreground)]">
+  <header class="wb-hero">
+    <div class="wb-hero-copy">
+      <p class="wb-eyebrow">Control Plane</p>
+      <h1>ACP Targets</h1>
+      <p class="wb-copy max-w-3xl">
         Configure coding-agent adapters and the project allowlist used by Telegram ACP commands.
         Projects must use absolute paths, and approval defaults are applied when a new ACP session starts.
       </p>
     </div>
-    <div class="flex flex-wrap gap-2">
+    <div class="wb-hero-actions">
       <Button variant="outline" size="md" on:click={loadSettings} disabled={loading || saving}>
         Refresh
       </Button>
@@ -371,7 +372,7 @@
         {saving ? "Saving..." : "Save ACP Settings"}
       </Button>
     </div>
-  </div>
+  </header>
 
   {#if message}
     <Alert variant="success">{message}</Alert>
@@ -381,7 +382,7 @@
   {/if}
 
   {#if loading}
-    <div class="rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+    <div class="wb-empty-state text-left">
       Loading ACP settings...
     </div>
   {:else}

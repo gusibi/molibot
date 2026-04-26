@@ -52,6 +52,9 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Profile-Driven Chat**: `global -> agent -> bot/profile` prompt layering with file-based governance
 - **Advanced Memory System**: `Mory SDK` with layered storage (`long_term`/`daily`), hybrid retrieval, cognitive control
 - **Rich Input Support**: text, image, realtime voice recording (Web), media/file ingestion (all channels)
+- **Time-Aware Prompting**: each live user turn can carry structured current-time metadata (`message_received_at` / `timezone` / `today`) for better date-sensitive replies
+- **Shared Workbench UI**: Web chat and Settings now use one reusable workbench material system for hero panels, forms, tables, config shells, and interaction feedback
+- **Current-Session File Workspace**: Web chat now includes a real files pane with searchable attachment inventory, inline preview for common formats, downloads, and copy-path actions
 - **Operational Settings UI**: AI routing, agents, ACP targets, tasks, memory, skills, MCP servers
 - **Safer Settings Persistence**: `settings.json + settings.sqlite` split design with relational tables
 
@@ -83,7 +86,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 ## Feature Snapshot
 
 ### Multi-Channel Support
-- **Web Chat**: Full-featured with image upload, realtime voice recording, thinking controls, profile-only identity, theme/i18n support
+- **Web Chat**: Full-featured with general file upload, image upload, realtime voice recording, current-session file workspace, thinking controls, profile-only identity, theme/i18n support
 - **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, ACP control, model switching, task delivery
 - **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings
 - **Weixin Bot**: SDK-based integration, OGG voice transcoding, CDN media delivery, ACP support
@@ -195,10 +198,13 @@ Open: `http://localhost:3000`
 - `+ New chat`: Select `Web Profile` to create new session (profile-only identity)
 - Double-click session name on left: Rename session
 - Input area:
-  - `+ Image` upload image
+  - `+` upload images, PDFs, documents, code files, JSON, audio, and other common attachments
   - `Record Voice` record and auto-send voice
   - Thinking level selector (`off/low/medium/high`)
 - `Preview System Prompt`: View final assembled system prompt with source attribution
+- Runtime injects per-turn `<env>` time metadata before model calls, using the configured runtime timezone
+- Right-side `Files` pane: inspect current-session attachments, filter by type, preview common formats inline, download, and copy relative storage paths
+- Main chat and Settings now share the same workbench material language, while chat itself stays quieter and conversation-first
 - Theme toggle: `system/light/dark` mode
 - Language switch: `zh-CN/en-US`
 
@@ -244,10 +250,12 @@ Open: `http://localhost:3000`
 ## Settings Pages
 
 ### Core Configuration
-- `/settings` - Overview and status
-- `/settings/ai` - AI providers, models, routing, and usage tracking
+- `/settings` - Overview and workbench entry hub
+- `/settings/ai` - AI providers, models, routing, usage tracking, cache-hit trend visibility, auto-refreshing time windows, and runtime timezone dropdown
 - `/settings/agents` - Agent library with Markdown prompt files
 - `/settings/web` - Web profiles and identity binding
+
+All Settings pages share one workbench-style UI layer: hero headers, translucent panels, consistent form controls, summary strips, and entity-editor shells.
 
 ### Channel Configuration
 - `/settings/telegram` - Multi-bot instances, ACP control, and credentials

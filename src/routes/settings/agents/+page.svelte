@@ -246,43 +246,42 @@
 </script>
 
 <PageShell widthClass="max-w-7xl" gapClass="space-y-6">
-  <div>
-    <h1 class="text-2xl font-semibold">Agents</h1>
-    <p class="text-sm text-slate-400">
+  <header class="wb-hero">
+    <div class="wb-hero-copy">
+    <p class="wb-eyebrow">Identity Layer</p>
+    <h1>Agents</h1>
+    <p class="wb-copy">
       Manage reusable agent identities and edit their Markdown prompt files directly.
     </p>
-  </div>
+    </div>
+  </header>
 
   {#if loading}
-    <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+    <div class="wb-empty-state text-left">
       Loading agent settings...
     </div>
   {:else}
-    <div class="grid gap-6 lg:grid-cols-[280px_1fr]">
-      <section class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+    <div class="wb-config-grid">
+      <section class="wb-config-nav space-y-3">
         <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-slate-200">Agent List</h2>
+          <h2 class="text-sm font-semibold text-[var(--foreground)]">Agent List</h2>
           <Button variant="outline" size="sm" type="button" on:click={addAgent}>
             Add Agent
           </Button>
         </div>
 
-        <div class="space-y-2">
+        <div class="wb-config-nav-list">
           {#each agents as agent (agent.id)}
             <button
-              class={`flex w-full items-start justify-between rounded-lg border px-3 py-2 text-left text-sm ${
-                selectedAgentId === agent.id
-                  ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-200"
-                  : "border-white/10 bg-[#1f1f1f] text-slate-300 hover:border-white/20"
-              }`}
+              class={`wb-config-item ${selectedAgentId === agent.id ? "active" : ""}`}
               type="button"
               on:click={() => selectAgent(agent.id)}
             >
-              <span>
-                <span class="block font-medium">{agent.name || agent.id}</span>
-                <span class="block text-xs text-slate-400">{agent.id}</span>
+              <span class="min-w-0">
+                <span class="wb-config-item-title truncate">{agent.name || agent.id}</span>
+                <span class="wb-config-item-subtitle truncate">{agent.id}</span>
               </span>
-              <span class={`text-[10px] ${agent.enabled ? "text-emerald-300" : "text-slate-500"}`}>
+              <span class="wb-config-state" data-enabled={agent.enabled}>
                 {agent.enabled ? "ON" : "OFF"}
               </span>
             </button>
@@ -292,66 +291,66 @@
 
       {#if selectedAgent}
         <form class="space-y-4" on:submit|preventDefault={save}>
-          <section class="space-y-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+          <section class="wb-config-panel space-y-3">
             <div class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-slate-200">Agent Metadata</h2>
+              <h2 class="text-sm font-semibold text-[var(--foreground)]">Agent Metadata</h2>
               <Button variant="destructive" size="sm" type="button" on:click={() => removeAgent(selectedAgent.id)}>
                 Remove Agent
               </Button>
             </div>
 
             <label class="grid gap-1.5 text-sm">
-              <span class="text-slate-300">Agent ID</span>
+              <span class="text-[var(--foreground)]">Agent ID</span>
               <input
-                class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
                 bind:value={selectedAgent.id}
                 placeholder="moli"
                 disabled={!selectedAgent.isNew}
               />
             </label>
             {#if !selectedAgent.isNew}
-              <p class="text-xs text-slate-500">
+              <p class="wb-note text-xs">
                 Agent ID is locked after creation to keep references stable.
               </p>
             {/if}
 
             <label class="grid gap-1.5 text-sm">
-              <span class="text-slate-300">Agent Name</span>
+              <span class="text-[var(--foreground)]">Agent Name</span>
               <input
-                class="rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                 bind:value={selectedAgent.name}
                 placeholder="Moli"
               />
             </label>
 
             <label class="grid gap-1.5 text-sm">
-              <span class="text-slate-300">Description</span>
+              <span class="text-[var(--foreground)]">Description</span>
               <textarea
-                class="min-h-[88px] rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                class="min-h-[88px] rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
                 bind:value={selectedAgent.description}
                 placeholder="Short description of this agent's role and identity."
               ></textarea>
             </label>
 
-            <label class="flex items-center gap-3 text-sm text-slate-300">
+            <label class="flex items-center gap-3 text-sm text-[var(--foreground)]">
               <input bind:checked={selectedAgent.enabled} type="checkbox" />
               Enable this agent
             </label>
           </section>
 
-          <section class="space-y-4 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+          <section class="wb-config-panel space-y-4">
             <div>
-              <h2 class="text-sm font-semibold text-slate-200">Agent Markdown Files</h2>
-              <p class="mt-1 text-xs text-slate-400">
+              <h2 class="text-sm font-semibold text-[var(--foreground)]">Agent Markdown Files</h2>
+              <p class="mt-1 text-xs text-[var(--muted-foreground)]">
                 Empty content removes the file so the runtime falls back to upper layers.
               </p>
             </div>
 
             {#each fileNames as fileName}
               <label class="grid gap-1.5 text-sm">
-                <span class="text-slate-300">{fileName}</span>
+                <span class="text-[var(--foreground)]">{fileName}</span>
                 <textarea
-                  class="min-h-[180px] rounded-lg border border-white/15 bg-[#1f1f1f] px-3 py-2 font-mono text-sm outline-none focus:border-emerald-400"
+                  class="min-h-[180px] rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 font-mono text-sm outline-none focus:border-[var(--ring)]"
                   bind:value={selectedFiles[fileName]}
                   placeholder={`Edit ${fileName} here`}
                 ></textarea>
@@ -363,7 +362,7 @@
             {saving ? "Saving..." : "Save This Agent"}
           </Button>
           {#if selectedAgentDirty}
-            <p class="text-xs text-amber-300">Current agent has unsaved changes.</p>
+            <p class="wb-warning-note text-xs">Current agent has unsaved changes.</p>
           {/if}
 
           {#if message}

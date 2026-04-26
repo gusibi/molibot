@@ -25,6 +25,7 @@ import {
 import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
 import { sanitizeRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
 import type { RunnerUiEvent } from "$lib/server/agent/types";
+import type { ConversationAttachment } from "$lib/shared/types/message";
 
 interface ChatBody {
   userId?: string;
@@ -52,6 +53,7 @@ function inferMediaType(file: File): FileAttachment["mediaType"] {
   const type = (file.type || "").toLowerCase();
   if (type.startsWith("image/")) return "image";
   if (type.startsWith("audio/")) return "audio";
+  if (type.startsWith("video/")) return "video";
   return "file";
 }
 
@@ -402,6 +404,13 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const inboundText = parsed.message || (attachments.length > 0 ? "(attachment)" : "");
+  const sessionAttachments: ConversationAttachment[] = attachments.map((attachment) => ({
+    original: attachment.original,
+    local: attachment.local,
+    mediaType: attachment.mediaType,
+    mimeType: attachment.mimeType,
+    size: attachment.size
+  }));
   const runner = pool.get(externalUserId, conversation.id);
   if (runner.isRunning()) {
     return json(
@@ -409,7 +418,9 @@ export const POST: RequestHandler = async ({ request }) => {
       { status: 409 }
     );
   }
-  runtime.sessions.appendMessage(conversation.id, "user", inboundText);
+  runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
+    attachments: sessionAttachments
+  });
 
   let finalText = "";
   const threadNotes: string[] = [];

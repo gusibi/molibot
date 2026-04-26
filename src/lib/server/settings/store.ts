@@ -26,6 +26,7 @@ import {
   sanitizeRuntimeThinkingLevel
 } from "../settings/thinking.js";
 import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
+import { normalizeTimeZone } from "../time.js";
 
 type DynamicSettingKey = "customProviders" | "channels" | "agents";
 const DYNAMIC_SETTING_KEYS: DynamicSettingKey[] = ["customProviders", "channels", "agents"];
@@ -942,7 +943,10 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       },
       cloudflareHtml
     },
-    timezone: String(raw.timezone ?? "").trim() || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timezone: normalizeTimeZone(
+      String(raw.timezone ?? ""),
+      Intl.DateTimeFormat().resolvedOptions().timeZone
+    ),
     telegramBotToken: primaryBot?.token ?? "",
     telegramAllowedChatIds: primaryBot?.allowedChatIds ?? [],
     feishuBots: effectiveFeishuBots

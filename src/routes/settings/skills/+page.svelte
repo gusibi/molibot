@@ -222,17 +222,20 @@
 </script>
 
 <PageShell widthClass="max-w-5xl" gapClass="space-y-6">
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <h1 class="text-2xl font-semibold">Skills</h1>
-      <p class="text-sm text-slate-400">
+  <header class="wb-hero">
+    <div class="wb-hero-copy">
+      <p class="wb-eyebrow">Capability Index</p>
+      <h1>Skills</h1>
+      <p class="wb-copy">
         Inspect installed skills and configure runtime skill search.
       </p>
     </div>
-    <Button variant="outline" size="md" on:click={loadSkills}>
-      Refresh
-    </Button>
-  </div>
+    <div class="wb-hero-actions">
+      <Button variant="outline" size="md" on:click={loadSkills}>
+        Refresh
+      </Button>
+    </div>
+  </header>
 
   {#if message}
     <Alert>{message}</Alert>
@@ -242,15 +245,15 @@
   {/if}
 
   {#if loading}
-    <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+    <div class="wb-empty-state text-left">
       Loading skills...
     </div>
   {:else}
-    <section class="space-y-4 rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+    <section class="space-y-4 rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4">
       <div class="flex items-center justify-between gap-3">
         <div>
           <h2 class="text-lg font-semibold">Skill Search</h2>
-          <p class="text-sm text-slate-400">
+          <p class="text-sm text-[var(--muted-foreground)]">
             Choose whether runtime should search local skills, call an external routing model, or both.
           </p>
         </div>
@@ -260,11 +263,11 @@
       </div>
 
       <div class="grid gap-4 md:grid-cols-2">
-        <label class="flex items-center justify-between rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-sm">
+        <label class="flex items-center justify-between rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-4 py-3 text-sm">
           <span>Enable local search</span>
           <input type="checkbox" bind:checked={skillSearch.local.enabled} />
         </label>
-        <label class="flex items-center justify-between rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-sm">
+        <label class="flex items-center justify-between rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-4 py-3 text-sm">
           <span>Enable API search</span>
           <input type="checkbox" bind:checked={skillSearch.api.enabled} />
         </label>
@@ -272,9 +275,9 @@
 
       <div class="grid gap-3 md:grid-cols-2">
         <label class="space-y-1 text-sm">
-          <span class="text-slate-300">AI Provider</span>
+          <span class="text-[var(--foreground)]">AI Provider</span>
           <select
-            class="w-full rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm"
+            class="w-full rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-3 py-2 text-sm"
             bind:value={skillSearch.api.provider}
           >
             {#if searchProviders.length === 0}
@@ -287,9 +290,9 @@
           </select>
         </label>
         <label class="space-y-1 text-sm">
-          <span class="text-slate-300">Model</span>
+          <span class="text-[var(--foreground)]">Model</span>
           <select
-            class="w-full rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm"
+            class="w-full rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-3 py-2 text-sm"
             bind:value={skillSearch.api.model}
             disabled={selectedSearchProviderModels.length === 0}
           >
@@ -303,74 +306,74 @@
           </select>
         </label>
         <label class="space-y-1 text-sm">
-          <span class="text-slate-300">Max Tokens</span>
-          <input type="number" min="128" max="4096" class="w-full rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm" bind:value={skillSearch.api.maxTokens} />
+          <span class="text-[var(--foreground)]">Max Tokens</span>
+          <input type="number" min="128" max="4096" class="w-full rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-3 py-2 text-sm" bind:value={skillSearch.api.maxTokens} />
         </label>
         <label class="space-y-1 text-sm">
-          <span class="text-slate-300">Temperature</span>
-          <input type="number" min="0" max="1" step="0.1" class="w-full rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm" bind:value={skillSearch.api.temperature} />
+          <span class="text-[var(--foreground)]">Temperature</span>
+          <input type="number" min="0" max="1" step="0.1" class="w-full rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-3 py-2 text-sm" bind:value={skillSearch.api.temperature} />
         </label>
         <label class="space-y-1 text-sm">
-          <span class="text-slate-300">Timeout (ms)</span>
-          <input type="number" min="1000" max="60000" step="500" class="w-full rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm" bind:value={skillSearch.api.timeoutMs} />
+          <span class="text-[var(--foreground)]">Timeout (ms)</span>
+          <input type="number" min="1000" max="60000" step="500" class="w-full rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-3 py-2 text-sm" bind:value={skillSearch.api.timeoutMs} />
         </label>
         <label class="space-y-1 text-sm">
-          <span class="text-slate-300">Min Confidence</span>
-          <input type="number" min="0" max="1" step="0.05" class="w-full rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm" bind:value={skillSearch.api.minConfidence} />
+          <span class="text-[var(--foreground)]">Min Confidence</span>
+          <input type="number" min="0" max="1" step="0.05" class="w-full rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-3 py-2 text-sm" bind:value={skillSearch.api.minConfidence} />
         </label>
       </div>
 
-      <div class="rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-xs text-slate-400">
+      <div class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-4 py-3 text-xs text-[var(--muted-foreground)]">
         Skill Search API now reuses the AI Provider you already configured under Settings / AI / Providers.
         {#if selectedSearchProvider}
           <div class="mt-2">
-            Current provider: <span class="text-slate-200">{selectedSearchProvider.name}</span>
+            Current provider: <span class="text-[var(--foreground)]">{selectedSearchProvider.name}</span>
           </div>
         {/if}
         {#if searchProviders.length === 0}
-          <div class="mt-2 text-amber-300">
+          <div class="mt-2 text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]">
             No reusable AI Provider found yet. Add and enable one in Settings / AI / Providers first.
           </div>
         {/if}
       </div>
     </section>
 
-    <section class="grid gap-3 rounded-xl border border-white/15 bg-[#2b2b2b] p-4 text-sm text-slate-300 sm:grid-cols-2">
+    <section class="wb-summary-strip text-sm sm:grid-cols-2">
       <div>
-        <span class="text-slate-400">Data root:</span>
+        <span class="text-[var(--muted-foreground)]">Data root:</span>
         {dataRoot || "(unknown)"}
       </div>
       <div>
-        <span class="text-slate-400">Global skills dir:</span>
+        <span class="text-[var(--muted-foreground)]">Global skills dir:</span>
         {globalSkillsDir || "(unknown)"}
       </div>
       <div>
-        <span class="text-slate-400">Global skills:</span>
+        <span class="text-[var(--muted-foreground)]">Global skills:</span>
         {count.global}
       </div>
       <div>
-        <span class="text-slate-400">Chat skills:</span>
+        <span class="text-[var(--muted-foreground)]">Chat skills:</span>
         {count.chat}
       </div>
       <div>
-        <span class="text-slate-400">Bot skills:</span>
+        <span class="text-[var(--muted-foreground)]">Bot skills:</span>
         {count.bot}
       </div>
-      <div><span class="text-slate-400">Total:</span> {items.length}</div>
+      <div><span class="text-[var(--muted-foreground)]">Total:</span> {items.length}</div>
     </section>
 
     <section class="space-y-3">
       <h2 class="text-lg font-semibold">Global Skills</h2>
       {#if byScope("global").length === 0}
-        <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+        <div class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]">
           No global skills found.
         </div>
       {:else}
         {#each byScope("global") as item}
-          <article class="rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+          <article class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4">
             <div class="flex items-start justify-between gap-3">
               <p class="text-sm font-semibold">{item.name}</p>
-              <label class="inline-flex items-center gap-2 text-xs text-slate-200">
+              <label class="inline-flex items-center gap-2 text-xs text-[var(--foreground)]">
                 <input
                   type="checkbox"
                   checked={item.enabled}
@@ -380,10 +383,10 @@
                 <span>{item.enabled ? "Enabled" : "Disabled"}</span>
               </label>
             </div>
-            <p class="mt-1 text-sm text-slate-400">{item.description}</p>
-            <p class="mt-2 text-xs text-slate-400">Path: {item.filePath}</p>
+            <p class="mt-1 text-sm text-[var(--muted-foreground)]">{item.description}</p>
+            <p class="mt-2 text-xs text-[var(--muted-foreground)]">Path: {item.filePath}</p>
             {#if item.mcpServers?.length > 0}
-              <p class="mt-1 text-xs text-emerald-300">MCP: {item.mcpServers.join(", ")}</p>
+              <p class="mt-1 text-xs text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]">MCP: {item.mcpServers.join(", ")}</p>
             {/if}
           </article>
         {/each}
@@ -393,15 +396,15 @@
     <section class="space-y-3">
       <h2 class="text-lg font-semibold">Chat Skills</h2>
       {#if byScope("chat").length === 0}
-        <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+        <div class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]">
           No chat-level skills found.
         </div>
       {:else}
         {#each byScope("chat") as item}
-          <article class="rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+          <article class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4">
             <div class="flex items-start justify-between gap-3">
               <p class="text-sm font-semibold">{item.name}</p>
-              <label class="inline-flex items-center gap-2 text-xs text-slate-200">
+              <label class="inline-flex items-center gap-2 text-xs text-[var(--foreground)]">
                 <input
                   type="checkbox"
                   checked={item.enabled}
@@ -411,11 +414,11 @@
                 <span>{item.enabled ? "Enabled" : "Disabled"}</span>
               </label>
             </div>
-            <p class="mt-1 text-sm text-slate-400">{item.description}</p>
-            <p class="mt-2 text-xs text-slate-400">Bot: {item.botId || "-"} | Chat: {item.chatId || "-"}</p>
-            <p class="mt-1 text-xs text-slate-400">Path: {item.filePath}</p>
+            <p class="mt-1 text-sm text-[var(--muted-foreground)]">{item.description}</p>
+            <p class="mt-2 text-xs text-[var(--muted-foreground)]">Bot: {item.botId || "-"} | Chat: {item.chatId || "-"}</p>
+            <p class="mt-1 text-xs text-[var(--muted-foreground)]">Path: {item.filePath}</p>
             {#if item.mcpServers?.length > 0}
-              <p class="mt-1 text-xs text-emerald-300">MCP: {item.mcpServers.join(", ")}</p>
+              <p class="mt-1 text-xs text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]">MCP: {item.mcpServers.join(", ")}</p>
             {/if}
           </article>
         {/each}
@@ -425,15 +428,15 @@
     <section class="space-y-3">
       <h2 class="text-lg font-semibold">Bot Skills</h2>
       {#if byScope("bot").length === 0}
-        <div class="rounded-xl border border-white/15 bg-[#2b2b2b] px-4 py-3 text-sm text-slate-300">
+        <div class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]">
           No bot-level skills found.
         </div>
       {:else}
         {#each byScope("bot") as item}
-          <article class="rounded-xl border border-white/15 bg-[#2b2b2b] p-4">
+          <article class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4">
             <div class="flex items-start justify-between gap-3">
               <p class="text-sm font-semibold">{item.name}</p>
-              <label class="inline-flex items-center gap-2 text-xs text-slate-200">
+              <label class="inline-flex items-center gap-2 text-xs text-[var(--foreground)]">
                 <input
                   type="checkbox"
                   checked={item.enabled}
@@ -443,11 +446,11 @@
                 <span>{item.enabled ? "Enabled" : "Disabled"}</span>
               </label>
             </div>
-            <p class="mt-1 text-sm text-slate-400">{item.description}</p>
-            <p class="mt-2 text-xs text-slate-400">Bot: {item.botId || "-"}</p>
-            <p class="mt-1 text-xs text-slate-400">Path: {item.filePath}</p>
+            <p class="mt-1 text-sm text-[var(--muted-foreground)]">{item.description}</p>
+            <p class="mt-2 text-xs text-[var(--muted-foreground)]">Bot: {item.botId || "-"}</p>
+            <p class="mt-1 text-xs text-[var(--muted-foreground)]">Path: {item.filePath}</p>
             {#if item.mcpServers?.length > 0}
-              <p class="mt-1 text-xs text-emerald-300">MCP: {item.mcpServers.join(", ")}</p>
+              <p class="mt-1 text-xs text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]">MCP: {item.mcpServers.join(", ")}</p>
             {/if}
           </article>
         {/each}
@@ -455,10 +458,10 @@
     </section>
 
     {#if diagnostics.length > 0}
-      <section class="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-        <h2 class="text-sm font-semibold text-amber-300">Diagnostics</h2>
+      <section class="space-y-2 rounded-xl border border-amber-500/40 bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] p-4">
+        <h2 class="text-sm font-semibold text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]">Diagnostics</h2>
         {#each diagnostics as row}
-          <p class="text-xs text-amber-200">{row}</p>
+          <p class="text-xs text-[color-mix(in_oklab,hsl(38_84%_44%)_72%,var(--foreground))]">{row}</p>
         {/each}
       </section>
     {/if}

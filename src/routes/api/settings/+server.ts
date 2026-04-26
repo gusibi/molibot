@@ -2,6 +2,7 @@ import { statSync } from "node:fs";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { isValidTimeZone } from "$lib/server/time";
 import type {
   RuntimeSettings,
   CustomProviderConfig,
@@ -173,6 +174,16 @@ function validatePluginSettings(current: RuntimeSettings, patch: Partial<Runtime
   return null;
 }
 
+function validateTimezonePatch(current: RuntimeSettings, patch: Partial<RuntimeSettings>): string | null {
+  if (!("timezone" in patch)) return null;
+  const timezone = String(patch.timezone ?? current.timezone ?? "").trim();
+  if (!timezone) return "Timezone cannot be empty.";
+  if (!isValidTimeZone(timezone)) {
+    return `Invalid timezone: ${timezone}. Use an IANA timezone such as Asia/Shanghai.`;
+  }
+  return null;
+}
+
 export const GET: RequestHandler = async () => {
   const { getSettings } = getRuntime();
   return json({ ok: true, settings: getSettings() });
@@ -199,6 +210,10 @@ export const PUT: RequestHandler = async ({ request }) => {
   const pluginValidationError = validatePluginSettings(runtime.getSettings(), patch);
   if (pluginValidationError) {
     return json({ ok: false, error: pluginValidationError }, { status: 400 });
+  }
+  const timezoneValidationError = validateTimezonePatch(runtime.getSettings(), patch);
+  if (timezoneValidationError) {
+    return json({ ok: false, error: timezoneValidationError }, { status: 400 });
   }
 
   const updated = runtime.updateSettings(patch);

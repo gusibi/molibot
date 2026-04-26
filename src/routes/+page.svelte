@@ -2,6 +2,11 @@
   import { onDestroy, onMount, tick } from "svelte";
   import { marked } from "marked";
   import { initLocale, locale as localeStore, setLocale, type LocaleKey } from "$lib/ui/i18n";
+  import {
+    classifyFilePreview,
+    isTextPreviewKind,
+    type FilePreviewKind
+  } from "$lib/shared/filePreview";
 
   interface RuntimeSettings {
     providerMode: "pi" | "custom";
@@ -41,6 +46,38 @@
       diagnostics?: string[];
       thinking?: string;
     };
+  }
+
+  interface PersistedSessionFile {
+    id: string;
+    original: string;
+    local: string;
+    mimeType?: string;
+    mediaType: "image" | "audio" | "video" | "file";
+    size: number;
+    createdAt: string;
+    source: "persisted";
+    previewKind: FilePreviewKind;
+  }
+
+  interface PendingUpload {
+    id: string;
+    file: File;
+    previewUrl: string;
+  }
+
+  interface PanelFileEntry {
+    id: string;
+    original: string;
+    local?: string;
+    mimeType?: string;
+    mediaType: "image" | "audio" | "video" | "file";
+    size: number;
+    createdAt: string;
+    source: "pending" | "persisted";
+    previewKind: FilePreviewKind;
+    file?: File;
+    previewUrl?: string;
   }
 
   type ThinkingLevel = "off" | "low" | "medium" | "high";
@@ -164,8 +201,39 @@
       mainBranch: "MAIN",
       openFiles: "打开文件栏",
       closeFiles: "关闭文件栏",
-      filesPlaceholderTitle: "文件工作区已预留",
-      filesPlaceholderHint: "后续接入文件浏览、上传和运行产物时，可以直接复用这个右侧区域；现在默认保持折叠。",
+      filesWorkspaceTitle: "当前会话文件",
+      filesWorkspaceHint: "这里展示当前 Web 会话里已发送的附件，以及待发送文件。可按类型筛选，并在右侧预览常见格式。",
+      filesSearch: "搜索文件名...",
+      filesFilterAll: "全部类型",
+      filesFilterImage: "图片",
+      filesFilterAudio: "音频",
+      filesFilterVideo: "视频",
+      filesFilterPdf: "PDF",
+      filesFilterText: "文本",
+      filesFilterCode: "代码",
+      filesFilterData: "结构化",
+      filesFilterOffice: "Office",
+      filesFilterOther: "其他",
+      filesPendingGroup: "待发送",
+      filesSessionGroup: "已发送到会话",
+      filesRefresh: "刷新文件",
+      filesPreview: "文件预览",
+      filesDetails: "文件详情",
+      filesEmptyTitle: "这个会话还没有附件",
+      filesEmptyHint: "你可以直接上传图片、PDF、Markdown、代码、JSON、音频或其他常见文档文件。",
+      filesPreviewUnavailable: "这个文件类型暂不支持内嵌预览，可直接下载查看。",
+      filesPreviewFailed: "文件预览加载失败",
+      filesCopyPath: "复制路径",
+      filesPathCopied: "文件路径已复制。",
+      filesDownload: "下载",
+      filesNotSentYet: "尚未发送",
+      filesType: "类型",
+      filesSize: "大小",
+      filesCreatedAt: "创建时间",
+      filesSourcePending: "待发送",
+      filesSourcePersisted: "会话内",
+      filesAttach: "上传文件",
+      filesLoading: "正在加载文件...",
       noFilesYet: "暂无文件",
       commandShortcut: "Cmd+K",
       filterConversations: "过滤会话...",
@@ -281,8 +349,39 @@
       mainBranch: "MAIN",
       openFiles: "Open files panel",
       closeFiles: "Close files panel",
-      filesPlaceholderTitle: "File workspace reserved",
-      filesPlaceholderHint: "When file browsing, uploads, and run artifacts are ready, this right panel can host them. It stays collapsed by default for now.",
+      filesWorkspaceTitle: "Current Session Files",
+      filesWorkspaceHint: "Browse files already sent in this Web chat session, plus pending uploads before send. Filter by type and preview common formats inline.",
+      filesSearch: "Search file names...",
+      filesFilterAll: "All types",
+      filesFilterImage: "Images",
+      filesFilterAudio: "Audio",
+      filesFilterVideo: "Video",
+      filesFilterPdf: "PDF",
+      filesFilterText: "Text",
+      filesFilterCode: "Code",
+      filesFilterData: "Data",
+      filesFilterOffice: "Office",
+      filesFilterOther: "Other",
+      filesPendingGroup: "Pending uploads",
+      filesSessionGroup: "Sent in session",
+      filesRefresh: "Refresh files",
+      filesPreview: "Preview",
+      filesDetails: "Details",
+      filesEmptyTitle: "This session has no attachments yet",
+      filesEmptyHint: "Upload images, PDFs, Markdown, code, JSON, audio, or other common documents to build a file workspace here.",
+      filesPreviewUnavailable: "Inline preview is not available for this file type. Download it instead.",
+      filesPreviewFailed: "Failed to load file preview",
+      filesCopyPath: "Copy path",
+      filesPathCopied: "File path copied.",
+      filesDownload: "Download",
+      filesNotSentYet: "Not sent yet",
+      filesType: "Type",
+      filesSize: "Size",
+      filesCreatedAt: "Created",
+      filesSourcePending: "Pending",
+      filesSourcePersisted: "In session",
+      filesAttach: "Attach file",
+      filesLoading: "Loading files...",
       noFilesYet: "No files yet",
       commandShortcut: "Cmd+K",
       filterConversations: "Filter conversations...",
@@ -318,7 +417,7 @@
   let changingModel = false;
   let thinkingLevel: ThinkingLevel = "off";
 
-  let pendingFiles: File[] = [];
+  let pendingFiles: PendingUpload[] = [];
   let mediaRecorder: MediaRecorder | null = null;
   let recordingStream: MediaStream | null = null;
   let recordingChunks: Blob[] = [];
@@ -335,6 +434,21 @@
 
   let showNewChatDialog = false;
   let showFilesPanel = false;
+  let filePanelLoading = false;
+  let filePanelError = "";
+  let fileSearch = "";
+  let fileTypeFilter = "all";
+  let selectedFileId = "";
+  let persistedFiles: PersistedSessionFile[] = [];
+  let allPanelFiles: PanelFileEntry[] = [];
+  let filteredPanelFiles: PanelFileEntry[] = [];
+  let pendingPanelFiles: PanelFileEntry[] = [];
+  let sessionPanelFiles: PanelFileEntry[] = [];
+  let selectedFile: PanelFileEntry | undefined;
+  let filePreviewLoading = false;
+  let filePreviewError = "";
+  let selectedTextPreview = "";
+  let lastLoadedPreviewId = "";
   let newChatProfileId = "default";
   let themeMode: ThemeMode = "light";
   let locale: LocaleKey = "zh-CN";
@@ -412,6 +526,140 @@
       return "";
     }
   }
+
+  function createPendingUpload(file: File): PendingUpload {
+    return {
+      id: `pending:${file.name}:${file.size}:${file.lastModified}:${crypto.randomUUID()}`,
+      file,
+      previewUrl: URL.createObjectURL(file)
+    };
+  }
+
+  function releasePendingUpload(upload: PendingUpload): void {
+    URL.revokeObjectURL(upload.previewUrl);
+  }
+
+  function clearPendingUploads(): void {
+    for (const upload of pendingFiles) {
+      releasePendingUpload(upload);
+    }
+    pendingFiles = [];
+  }
+
+  function panelPreviewKindLabel(kind: FilePreviewKind): string {
+    switch (kind) {
+      case "image":
+        return t("filesFilterImage");
+      case "audio":
+        return t("filesFilterAudio");
+      case "video":
+        return t("filesFilterVideo");
+      case "pdf":
+        return t("filesFilterPdf");
+      case "markdown":
+      case "text":
+        return t("filesFilterText");
+      case "code":
+        return t("filesFilterCode");
+      case "json":
+      case "csv":
+      case "yaml":
+        return t("filesFilterData");
+      case "office":
+        return t("filesFilterOffice");
+      default:
+        return t("filesFilterOther");
+    }
+  }
+
+  function formatFileSize(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB"];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+    return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+  }
+
+  function formatFileDate(iso: string): string {
+    try {
+      return new Intl.DateTimeFormat(locale, {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(new Date(iso));
+    } catch {
+      return iso;
+    }
+  }
+
+  function buildPersistedFileUrl(fileId: string, download = false): string {
+    const params = new URLSearchParams({
+      profileId: activeProfileId,
+      sessionId: activeSessionId,
+      fileId
+    });
+    if (download) params.set("download", "1");
+    return `/api/web/files?${params.toString()}`;
+  }
+
+  function previewKindMatchesFilter(kind: FilePreviewKind, filter: string): boolean {
+    if (filter === "all") return true;
+    if (filter === "image" || filter === "audio" || filter === "video" || filter === "pdf" || filter === "office") {
+      return kind === filter;
+    }
+    if (filter === "text") return kind === "text" || kind === "markdown";
+    if (filter === "code") return kind === "code";
+    if (filter === "data") return kind === "json" || kind === "csv" || kind === "yaml";
+    if (filter === "other") return kind === "binary";
+    return true;
+  }
+
+  function buildPendingFileEntries(): PanelFileEntry[] {
+    return pendingFiles.map((upload) => ({
+      id: upload.id,
+      original: upload.file.name || "upload",
+      mediaType:
+        upload.file.type.startsWith("image/")
+          ? "image"
+          : upload.file.type.startsWith("audio/")
+            ? "audio"
+            : upload.file.type.startsWith("video/")
+              ? "video"
+              : "file",
+      mimeType: upload.file.type || undefined,
+      size: upload.file.size,
+      createdAt: new Date(upload.file.lastModified || Date.now()).toISOString(),
+      source: "pending",
+      previewKind: classifyFilePreview({
+        name: upload.file.name,
+        mimeType: upload.file.type
+      }),
+      file: upload.file,
+      previewUrl: upload.previewUrl
+    }));
+  }
+
+  $: allPanelFiles = [...buildPendingFileEntries(), ...persistedFiles];
+  $: filteredPanelFiles = allPanelFiles.filter((file) => {
+    const search = fileSearch.trim().toLowerCase();
+    if (search && !file.original.toLowerCase().includes(search)) return false;
+    return previewKindMatchesFilter(file.previewKind, fileTypeFilter);
+  });
+  $: pendingPanelFiles = filteredPanelFiles.filter((file) => file.source === "pending");
+  $: sessionPanelFiles = filteredPanelFiles.filter((file) => file.source === "persisted");
+  $: if (selectedFileId && !filteredPanelFiles.some((file) => file.id === selectedFileId)) {
+    selectedFileId = "";
+  }
+  $: if (!selectedFileId && filteredPanelFiles.length > 0) {
+    selectedFileId = filteredPanelFiles[0].id;
+  }
+  $: selectedFile = filteredPanelFiles.find((file) => file.id === selectedFileId);
+
 
   const allowedMarkdownTags = new Set([
     "A",
@@ -612,6 +860,130 @@
     }
   }
 
+  async function loadSessionFiles(): Promise<void> {
+    if (!activeSessionId) {
+      persistedFiles = [];
+      filePanelError = "";
+      filePreviewError = "";
+      selectedTextPreview = "";
+      lastLoadedPreviewId = "";
+      return;
+    }
+
+    filePanelLoading = true;
+    filePanelError = "";
+    try {
+      const response = await fetch(
+        `/api/web/files?profileId=${encodeURIComponent(activeProfileId)}&sessionId=${encodeURIComponent(activeSessionId)}`
+      );
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) {
+        throw new Error(String(payload?.error ?? t("backendRequestFailed")));
+      }
+      persistedFiles = Array.isArray(payload.files)
+        ? payload.files.map((item: any) => ({
+            id: String(item.id ?? ""),
+            original: String(item.original ?? "file"),
+            local: String(item.local ?? ""),
+            mimeType: item.mimeType ? String(item.mimeType) : undefined,
+            mediaType: item.mediaType === "image" || item.mediaType === "audio" || item.mediaType === "video" ? item.mediaType : "file",
+            size: Number(item.size ?? 0),
+            createdAt: String(item.createdAt ?? ""),
+            source: "persisted" as const,
+            previewKind: classifyFilePreview({
+              name: String(item.original ?? ""),
+              mimeType: item.mimeType ? String(item.mimeType) : undefined,
+              mediaType: item.mediaType ? String(item.mediaType) : undefined
+            })
+          }))
+        : [];
+    } catch (error) {
+      persistedFiles = [];
+      filePanelError = error instanceof Error ? error.message : String(error);
+    } finally {
+      filePanelLoading = false;
+    }
+  }
+
+  async function loadSelectedTextPreview(file: PanelFileEntry): Promise<void> {
+    if (!isTextPreviewKind(file.previewKind)) {
+      selectedTextPreview = "";
+      filePreviewError = "";
+      filePreviewLoading = false;
+      lastLoadedPreviewId = file.id;
+      return;
+    }
+    if (lastLoadedPreviewId === file.id) {
+      return;
+    }
+
+    filePreviewLoading = true;
+    filePreviewError = "";
+    selectedTextPreview = "";
+    const currentId = file.id;
+    try {
+      const text =
+        file.source === "pending" && file.file
+          ? await file.file.text()
+          : await fetch(buildPersistedFileUrl(file.id)).then(async (response) => {
+              if (!response.ok) {
+                const body = await response.text();
+                throw new Error(body || t("filesPreviewFailed"));
+              }
+              return response.text();
+            });
+      if (selectedFile?.id !== currentId) return;
+      selectedTextPreview = text;
+      lastLoadedPreviewId = currentId;
+    } catch (error) {
+      if (selectedFile?.id !== currentId) return;
+      filePreviewError = error instanceof Error ? error.message : String(error);
+      lastLoadedPreviewId = currentId;
+    } finally {
+      if (selectedFile?.id === currentId) {
+        filePreviewLoading = false;
+      }
+    }
+  }
+
+  async function copySelectedFilePath(): Promise<void> {
+    if (!selectedFile?.local || !navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(selectedFile.local);
+      status = t("filesPathCopied");
+    } catch (error) {
+      status = error instanceof Error ? `${t("errorPrefix")}${error.message}` : `${t("errorPrefix")}${String(error)}`;
+    }
+  }
+
+  function parseCsvRows(content: string, limit = 12): string[][] {
+    return content
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0)
+      .slice(0, limit)
+      .map((line) => line.split(",").map((cell) => cell.trim()));
+  }
+
+  function prettifyTextPreview(file: PanelFileEntry, content: string): string {
+    if (file.previewKind === "json") {
+      try {
+        return JSON.stringify(JSON.parse(content), null, 2);
+      } catch {
+        return content;
+      }
+    }
+    return content;
+  }
+
+  $: if (selectedFile?.id) {
+    void loadSelectedTextPreview(selectedFile);
+  } else {
+    filePreviewLoading = false;
+    filePreviewError = "";
+    selectedTextPreview = "";
+    lastLoadedPreviewId = "";
+  }
+
   async function switchSession(sessionId: string): Promise<void> {
     if (sessionId === activeSessionId) {
       showMobileSidebar = false;
@@ -620,6 +992,7 @@
     activeSessionId = sessionId;
     showMobileSidebar = false;
     await loadMessages();
+    await loadSessionFiles();
   }
 
   function startRenameSession(session: SessionSummary): void {
@@ -684,6 +1057,10 @@
 
     activeSessionId = "";
     messages = [];
+    persistedFiles = [];
+    selectedFileId = "";
+    selectedTextPreview = "";
+    filePanelError = "";
     await loadSessions();
     await createSession();
   }
@@ -982,18 +1359,18 @@
     sending = true;
     resetStreamingState();
     const filesToSend = [...pendingFiles];
-    pendingFiles = [];
+    const filesPayload = filesToSend.map((item) => item.file);
     messageInput = "";
     resizeComposer(composerEl);
 
-    const userDisplay = composeUserMessageDisplay(text, filesToSend);
+    const userDisplay = composeUserMessageDisplay(text, filesPayload);
     messages = [...messages, { role: "user", content: userDisplay, createdAt: new Date().toISOString() }];
     await scrollMessagesToBottom(true);
 
     const requestController = new AbortController();
     sendAbortController = requestController;
     try {
-      if (filesToSend.length === 0 && !text.startsWith("/")) {
+      if (filesPayload.length === 0 && !text.startsWith("/")) {
         const streamed = await sendStreamingText(text, requestController.signal);
         messages = [
           ...messages,
@@ -1011,19 +1388,20 @@
           activeSessionId = streamed.conversationId;
         }
         await loadSessions();
+        await loadSessionFiles();
         await scrollMessagesToBottom(true);
         status = "";
         return;
       }
 
       let response: Response;
-      if (filesToSend.length > 0) {
+      if (filesPayload.length > 0) {
         const form = new FormData();
         form.append("profileId", activeProfileId);
         form.append("conversationId", activeSessionId);
         form.append("message", text);
         form.append("thinkingLevel", thinkingLevel);
-        for (const file of filesToSend) {
+        for (const file of filesPayload) {
           form.append("files", file);
         }
         response = await fetch("/api/chat", {
@@ -1067,7 +1445,9 @@
       if (typeof payload.conversationId === "string" && payload.conversationId) {
         activeSessionId = payload.conversationId;
       }
+      clearPendingUploads();
       await loadSessions();
+      await loadSessionFiles();
       await scrollMessagesToBottom(true);
       status = "";
     } catch (error) {
@@ -1075,6 +1455,8 @@
         status = t("stopCurrentTaskDone");
         return;
       }
+      messageInput = text;
+      resizeComposer(composerEl);
       const errorText = error instanceof Error ? error.message : String(error);
       messages = [...messages, { role: "assistant", content: `${t("errorPrefix")}${errorText}`, createdAt: new Date().toISOString() }];
       await scrollMessagesToBottom(true);
@@ -1129,11 +1511,14 @@
     const input = event.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
     if (files.length === 0) return;
-    pendingFiles = [...pendingFiles, ...files];
+    pendingFiles = [...pendingFiles, ...files.map(createPendingUpload)];
+    showFilesPanel = true;
     input.value = "";
   }
 
   function removePendingFile(index: number): void {
+    const target = pendingFiles[index];
+    if (target) releasePendingUpload(target);
     pendingFiles = pendingFiles.filter((_, i) => i !== index);
   }
 
@@ -1204,6 +1589,7 @@
         activeSessionId = payload.conversationId;
       }
       await loadSessions();
+      await loadSessionFiles();
       await scrollMessagesToBottom(true);
       status = "";
     } catch (error) {
@@ -1355,6 +1741,7 @@
         await loadSessions();
         await ensureActiveSession();
         await loadMessages();
+        await loadSessionFiles();
         status = "";
         persistIdentity();
         await tick();
@@ -1376,10 +1763,11 @@
       mediaRecorder.stop();
     }
     cleanupRecordingStream();
+    clearPendingUploads();
   });
 </script>
 
-<main class="relative h-[100dvh] overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+<main class="chat-shell relative h-[100dvh] overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
   <div class="flex h-full">
     {#if showMobileSidebar}
       <button
@@ -1391,7 +1779,7 @@
     {/if}
 
     <aside
-      class={`absolute inset-y-0 left-0 z-30 flex w-[300px] flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] transition-transform duration-200 lg:static lg:z-0 lg:w-[330px] lg:translate-x-0 ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}
+      class={`chat-sidebar absolute inset-y-0 left-0 z-30 flex w-[300px] flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] transition-transform duration-200 lg:static lg:z-0 lg:w-[330px] lg:translate-x-0 ${showMobileSidebar ? "translate-x-0" : "-translate-x-full"}`}
     >
       <div class="flex h-[56px] items-center gap-1 border-b border-[var(--sidebar-border)] px-3">
         <button class="flex h-9 w-9 items-center justify-center rounded-md text-[var(--sidebar-primary)] hover:bg-[var(--sidebar-accent)]" type="button" aria-label={t("conversations")}>
@@ -1530,8 +1918,8 @@
       </div>
     </aside>
 
-    <section class="flex min-w-0 flex-1 flex-col bg-[color-mix(in_oklab,var(--background)_92%,var(--card))]">
-      <header class="h-auto border-b border-[var(--border)] bg-[var(--background)] px-4 py-4 sm:px-7">
+    <section class="chat-main-pane flex min-w-0 flex-1 flex-col bg-[color-mix(in_oklab,var(--background)_92%,var(--card))]">
+      <header class="chat-topbar h-auto border-b border-[var(--border)] bg-[var(--background)] px-4 py-4 sm:px-7">
         <div class="flex items-center gap-3">
           <button
             class="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-xs transition hover:bg-[var(--muted)] lg:hidden"
@@ -1555,7 +1943,7 @@
               aria-label={showFilesPanel ? t("closeFiles") : t("openFiles")}
             >
               <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h6l2 2h8v10H4V6Z" /></svg>
-              {t("files")}
+              {t("files")} {allPanelFiles.length > 0 ? `(${allPanelFiles.length})` : ""}
             </button>
           </div>
         </div>
@@ -1564,7 +1952,7 @@
       <div class="min-h-0 flex-1 overflow-hidden bg-[var(--background)]">
         <div class="mx-auto flex h-full w-full max-w-4xl flex-col px-4 py-4 sm:px-7">
           {#if status}
-            <div class="mb-3 rounded-lg border border-[color-mix(in_oklab,var(--destructive)_55%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_12%,transparent)] px-4 py-3 text-xs text-[var(--foreground)] shadow-[var(--shadow-sm)]">{status}</div>
+            <div class="chat-status-banner mb-3 rounded-lg border border-[color-mix(in_oklab,var(--destructive)_55%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_12%,transparent)] px-4 py-3 text-xs text-[var(--foreground)] shadow-[var(--shadow-sm)]">{status}</div>
           {/if}
 
           <div
@@ -1572,7 +1960,7 @@
             bind:this={messagesContainer}
           >
             {#if loadingMessages}
-              <div class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+              <div class="chat-empty-card rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
                 {t("loadingMessages")}
               </div>
             {:else if messages.length === 0}
@@ -1582,7 +1970,7 @@
                 <div class="mt-6 flex flex-wrap justify-center gap-2">
                   {#each QUICK_PROMPTS as prompt}
                     <button
-                      class="rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]"
+                      class="chat-file-chip rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]"
                       type="button"
                       on:click={() => sendQuickPrompt(prompt)}
                     >
@@ -1608,7 +1996,7 @@
                         <div class="text-xs text-[var(--muted-foreground)]">{formatMessageTime(m.createdAt)}</div>
                       </div>
                       {#if m.role === "assistant" && ((m.meta?.diagnostics?.length ?? 0) > 0 || m.meta?.thinking)}
-                        <details class="mb-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6 text-[var(--muted-foreground)]">
+                        <details class="chat-thinking-panel mb-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6 text-[var(--muted-foreground)]">
                           <summary class="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]">
                             {t("thinkingDetails")}
                           </summary>
@@ -1648,7 +2036,7 @@
                         <div class="text-xs text-[var(--muted-foreground)]">{t("liveAnswer")}</div>
                       </div>
                       {#if streamingDiagnostics.length > 0 || streamingThinkingText}
-                        <details class="mb-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6" open>
+                        <details class="chat-thinking-panel mb-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-3 text-xs leading-6" open>
                           <summary class="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground)]">
                             {t("thinkingDetails")}
                           </summary>
@@ -1683,17 +2071,32 @@
       </div>
 
       <footer class="border-t border-[var(--border)] bg-[var(--background)] px-4 py-4 sm:px-7">
-        <div class="mx-auto w-full max-w-4xl rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-[var(--shadow)]">
+        <div class="chat-composer-shell mx-auto w-full max-w-4xl rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-[var(--shadow)]">
           {#if pendingFiles.length > 0}
-            <div class="mb-2 flex flex-wrap gap-2">
-              {#each pendingFiles as file, index}
-                <button
-                  class="rounded-full border border-[var(--border)] bg-[var(--secondary)] px-3 py-1 text-xs shadow-[var(--shadow-sm)]"
-                  type="button"
-                  on:click={() => removePendingFile(index)}
-                >
-                  {file.name} ×
-                </button>
+            <div class="mb-3 flex flex-wrap gap-2">
+              {#each pendingFiles as upload, index}
+                <div class="chat-file-chip flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--secondary)] px-3 py-1 text-xs shadow-[var(--shadow-sm)]">
+                  <button
+                    class="flex min-w-0 items-center gap-2 text-left"
+                    type="button"
+                    on:click={() => {
+                      showFilesPanel = true;
+                      selectedFileId = upload.id;
+                    }}
+                  >
+                    <span class="truncate max-w-[180px]">{upload.file.name}</span>
+                    <span class="text-[10px] text-[var(--muted-foreground)]">{formatFileSize(upload.file.size)}</span>
+                    <span class="text-[10px] text-[var(--muted-foreground)]">{panelPreviewKindLabel(classifyFilePreview({ name: upload.file.name, mimeType: upload.file.type }))}</span>
+                  </button>
+                  <button
+                    class="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted-foreground)]"
+                    type="button"
+                    aria-label={t("cancel")}
+                    on:click={() => removePendingFile(index)}
+                  >
+                    ×
+                  </button>
+                </div>
               {/each}
             </div>
           {/if}
@@ -1710,9 +2113,9 @@
 
           <div class="mt-2 flex flex-wrap items-center gap-2">
             <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-              <label class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted-foreground)] shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]" aria-label={t("image")}>
+              <label class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted-foreground)] shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]" aria-label={t("filesAttach")}>
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14" /></svg>
-                <input class="hidden" type="file" accept="image/*" multiple on:change={onFileSelect} />
+                <input class="hidden" type="file" multiple on:change={onFileSelect} />
               </label>
               <button
                 class={`flex h-9 w-9 items-center justify-center rounded-full transition ${isRecording
@@ -1793,32 +2196,255 @@
     </section>
 
     {#if showFilesPanel}
-      <aside class="absolute inset-y-0 right-0 z-30 flex w-[min(360px,100vw)] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--sidebar)] shadow-[var(--shadow-lg)] xl:static xl:z-0 xl:w-[360px] xl:shadow-none">
+      <aside class="chat-files-pane absolute inset-y-0 right-0 z-30 flex w-[min(460px,100vw)] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--sidebar)] shadow-[var(--shadow-lg)] xl:static xl:z-0 xl:w-[460px] xl:shadow-none">
         <div class="flex h-[56px] items-center gap-3 border-b border-[var(--sidebar-border)] px-4">
           <p class="flex-1 text-xs font-bold uppercase tracking-[0.22em] text-[var(--muted-foreground)]">{t("workspace")}</p>
-          <span class="rounded-md bg-[var(--muted)] px-2 py-1 text-[10px] font-bold text-[var(--muted-foreground)]">{t("mainBranch")}</span>
+          <span class="rounded-md bg-[var(--muted)] px-2 py-1 text-[10px] font-bold text-[var(--muted-foreground)]">
+            {filteredPanelFiles.length}/{allPanelFiles.length}
+          </span>
           <button class="flex h-8 w-8 items-center justify-center rounded-md hover:bg-[var(--sidebar-accent)]" type="button" on:click={() => (showFilesPanel = false)} aria-label={t("closeFiles")}>
             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18" /></svg>
           </button>
         </div>
         <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-          <div class="rounded-xl border border-dashed border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_66%,transparent)] p-4">
-            <p class="text-sm font-semibold">{t("filesPlaceholderTitle")}</p>
-            <p class="mt-2 text-xs leading-6 text-[var(--muted-foreground)]">{t("filesPlaceholderHint")}</p>
+          <div class="rounded-xl border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_74%,transparent)] p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold">{t("filesWorkspaceTitle")}</p>
+                <p class="mt-2 text-xs leading-6 text-[var(--muted-foreground)]">{t("filesWorkspaceHint")}</p>
+              </div>
+              <button
+                class="rounded-full border border-[var(--border)] px-3 py-1 text-[11px] font-semibold text-[var(--foreground)] transition hover:bg-[var(--muted)]"
+                type="button"
+                on:click={loadSessionFiles}
+                disabled={filePanelLoading || !activeSessionId}
+              >
+                {t("filesRefresh")}
+              </button>
+            </div>
+            <div class="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
+              <input
+                class="rounded-lg border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_72%,var(--sidebar))] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--ring)]"
+                bind:value={fileSearch}
+                placeholder={t("filesSearch")}
+              />
+              <select
+                class="rounded-lg border border-[var(--sidebar-border)] bg-[var(--card)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
+                bind:value={fileTypeFilter}
+              >
+                <option value="all">{t("filesFilterAll")}</option>
+                <option value="image">{t("filesFilterImage")}</option>
+                <option value="audio">{t("filesFilterAudio")}</option>
+                <option value="video">{t("filesFilterVideo")}</option>
+                <option value="pdf">{t("filesFilterPdf")}</option>
+                <option value="text">{t("filesFilterText")}</option>
+                <option value="code">{t("filesFilterCode")}</option>
+                <option value="data">{t("filesFilterData")}</option>
+                <option value="office">{t("filesFilterOffice")}</option>
+                <option value="other">{t("filesFilterOther")}</option>
+              </select>
+            </div>
           </div>
-          <div class="space-y-2 text-sm text-[var(--muted-foreground)]">
-            <div class="flex items-center gap-2 rounded-lg px-2 py-2">
-              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h6l2 2h8v10H4V6Z" /></svg>
-              .molibot
+
+          {#if filePanelError}
+            <div class="rounded-xl border border-[color-mix(in_oklab,var(--destructive)_36%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_10%,var(--card))] px-4 py-3 text-sm text-[var(--destructive)]">
+              {filePanelError}
             </div>
-            <div class="flex items-center gap-2 rounded-lg px-2 py-2">
-              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h6l2 2h8v10H4V6Z" /></svg>
-              sessions
-            </div>
-            <div class="flex items-center gap-2 rounded-lg px-2 py-2">
-              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H6v18h12V7l-4-4Z" /><path d="M14 3v4h4" /></svg>
-              {t("noFilesYet")}
-            </div>
+          {/if}
+
+          <div class="grid min-h-0 flex-1 gap-4 xl:grid-rows-[minmax(220px,0.95fr)_minmax(260px,1.05fr)]">
+            <section class="min-h-0 rounded-xl border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_68%,transparent)] p-3">
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{t("filesWorkspaceTitle")}</p>
+                {#if filePanelLoading}
+                  <span class="text-[11px] text-[var(--muted-foreground)]">{t("filesLoading")}</span>
+                {/if}
+              </div>
+
+              {#if filePanelLoading && allPanelFiles.length === 0}
+                <div class="rounded-lg border border-dashed border-[var(--sidebar-border)] px-3 py-4 text-xs text-[var(--muted-foreground)]">
+                  {t("filesLoading")}
+                </div>
+              {:else if filteredPanelFiles.length === 0}
+                <div class="rounded-lg border border-dashed border-[var(--sidebar-border)] px-3 py-4 text-xs text-[var(--muted-foreground)]">
+                  <p class="font-semibold text-[var(--foreground)]">{t("filesEmptyTitle")}</p>
+                  <p class="mt-2 leading-6">{t("filesEmptyHint")}</p>
+                </div>
+              {:else}
+                <div class="space-y-4 overflow-y-auto pr-1">
+                  {#if pendingPanelFiles.length > 0}
+                    <div class="space-y-2">
+                      <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted-foreground)]">{t("filesPendingGroup")}</p>
+                      {#each pendingPanelFiles as file}
+                        <button
+                          class={`w-full rounded-xl border px-3 py-3 text-left transition ${selectedFile?.id === file.id
+                            ? "border-[color-mix(in_oklab,var(--primary)_34%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))]"
+                            : "border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_82%,transparent)] hover:border-[color-mix(in_oklab,var(--primary)_24%,var(--border))] hover:bg-[color-mix(in_oklab,var(--muted)_44%,var(--card))]"}`}
+                          type="button"
+                          on:click={() => (selectedFileId = file.id)}
+                        >
+                          <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                              <p class="truncate text-sm font-semibold text-[var(--foreground)]">{file.original}</p>
+                              <p class="mt-1 text-xs text-[var(--muted-foreground)]">{panelPreviewKindLabel(file.previewKind)} · {formatFileSize(file.size)}</p>
+                            </div>
+                            <span class="rounded-full border border-[var(--sidebar-border)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted-foreground)]">
+                              {t("filesSourcePending")}
+                            </span>
+                          </div>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+
+                  {#if sessionPanelFiles.length > 0}
+                    <div class="space-y-2">
+                      <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted-foreground)]">{t("filesSessionGroup")}</p>
+                      {#each sessionPanelFiles as file}
+                        <button
+                          class={`w-full rounded-xl border px-3 py-3 text-left transition ${selectedFile?.id === file.id
+                            ? "border-[color-mix(in_oklab,var(--primary)_34%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))]"
+                            : "border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_82%,transparent)] hover:border-[color-mix(in_oklab,var(--primary)_24%,var(--border))] hover:bg-[color-mix(in_oklab,var(--muted)_44%,var(--card))]"}`}
+                          type="button"
+                          on:click={() => (selectedFileId = file.id)}
+                        >
+                          <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                              <p class="truncate text-sm font-semibold text-[var(--foreground)]">{file.original}</p>
+                              <p class="mt-1 text-xs text-[var(--muted-foreground)]">{panelPreviewKindLabel(file.previewKind)} · {formatFileSize(file.size)}</p>
+                            </div>
+                            <span class="rounded-full border border-[var(--sidebar-border)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted-foreground)]">
+                              {formatFileDate(file.createdAt)}
+                            </span>
+                          </div>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+            </section>
+
+            <section class="min-h-0 rounded-xl border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_68%,transparent)] p-3">
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">{t("filesPreview")}</p>
+                {#if selectedFile}
+                  <div class="flex items-center gap-2">
+                    {#if selectedFile.source === "persisted"}
+                      <a
+                        class="rounded-full border border-[var(--border)] px-3 py-1 text-[11px] font-semibold text-[var(--foreground)] transition hover:bg-[var(--muted)]"
+                        href={buildPersistedFileUrl(selectedFile.id, true)}
+                      >
+                        {t("filesDownload")}
+                      </a>
+                    {:else if selectedFile.previewUrl}
+                      <a
+                        class="rounded-full border border-[var(--border)] px-3 py-1 text-[11px] font-semibold text-[var(--foreground)] transition hover:bg-[var(--muted)]"
+                        href={selectedFile.previewUrl}
+                        download={selectedFile.original}
+                      >
+                        {t("filesDownload")}
+                      </a>
+                    {/if}
+                    {#if selectedFile.local}
+                      <button
+                        class="rounded-full border border-[var(--border)] px-3 py-1 text-[11px] font-semibold text-[var(--foreground)] transition hover:bg-[var(--muted)]"
+                        type="button"
+                        on:click={copySelectedFilePath}
+                      >
+                        {t("filesCopyPath")}
+                      </button>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+
+              {#if !selectedFile}
+                <div class="rounded-lg border border-dashed border-[var(--sidebar-border)] px-3 py-4 text-xs text-[var(--muted-foreground)]">
+                  {t("filesEmptyHint")}
+                </div>
+              {:else}
+                <div class="grid min-h-0 gap-3">
+                  <div class="rounded-xl border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_82%,transparent)] px-3 py-3">
+                    <p class="text-sm font-semibold text-[var(--foreground)]">{selectedFile.original}</p>
+                    <div class="mt-2 flex flex-wrap gap-2 text-[11px] text-[var(--muted-foreground)]">
+                      <span class="rounded-full border border-[var(--sidebar-border)] px-2 py-0.5">{panelPreviewKindLabel(selectedFile.previewKind)}</span>
+                      <span class="rounded-full border border-[var(--sidebar-border)] px-2 py-0.5">{formatFileSize(selectedFile.size)}</span>
+                      <span class="rounded-full border border-[var(--sidebar-border)] px-2 py-0.5">{selectedFile.source === "pending" ? t("filesSourcePending") : t("filesSourcePersisted")}</span>
+                    </div>
+                  </div>
+
+                  <div class="min-h-[200px] rounded-xl border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_82%,transparent)] p-3">
+                    {#if selectedFile.previewKind === "image"}
+                      <img
+                        class="max-h-[360px] w-full rounded-lg object-contain"
+                        src={selectedFile.source === "pending" ? selectedFile.previewUrl : buildPersistedFileUrl(selectedFile.id)}
+                        alt={selectedFile.original}
+                      />
+                    {:else if selectedFile.previewKind === "audio"}
+                      <audio class="w-full" controls src={selectedFile.source === "pending" ? selectedFile.previewUrl : buildPersistedFileUrl(selectedFile.id)}></audio>
+                    {:else if selectedFile.previewKind === "video"}
+                      <!-- svelte-ignore a11y_media_has_caption -->
+                      <video class="max-h-[320px] w-full rounded-lg bg-black/20" controls src={selectedFile.source === "pending" ? selectedFile.previewUrl : buildPersistedFileUrl(selectedFile.id)}></video>
+                    {:else if selectedFile.previewKind === "pdf"}
+                      <iframe
+                        class="h-[360px] w-full rounded-lg border border-[var(--sidebar-border)] bg-white"
+                        src={selectedFile.source === "pending" ? selectedFile.previewUrl : buildPersistedFileUrl(selectedFile.id)}
+                        title={selectedFile.original}
+                      ></iframe>
+                    {:else if isTextPreviewKind(selectedFile.previewKind)}
+                      {#if filePreviewLoading}
+                        <div class="rounded-lg border border-dashed border-[var(--sidebar-border)] px-3 py-4 text-xs text-[var(--muted-foreground)]">
+                          {t("filesLoading")}
+                        </div>
+                      {:else if filePreviewError}
+                        <div class="rounded-lg border border-[color-mix(in_oklab,var(--destructive)_36%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_10%,var(--card))] px-3 py-4 text-xs text-[var(--destructive)]">
+                          {t("filesPreviewFailed")}: {filePreviewError}
+                        </div>
+                      {:else if selectedFile.previewKind === "markdown"}
+                        <div class="markdown-body max-h-[360px] overflow-y-auto break-words text-sm leading-7">
+                          {@html renderMarkdown(selectedTextPreview)}
+                        </div>
+                      {:else if selectedFile.previewKind === "csv"}
+                        {@const rows = parseCsvRows(selectedTextPreview)}
+                        <div class="max-h-[360px] overflow-auto rounded-lg border border-[var(--sidebar-border)]">
+                          <table class="min-w-full text-left text-xs">
+                            <tbody>
+                              {#each rows as row}
+                                <tr>
+                                  {#each row as cell}
+                                    <td class="border-b border-[var(--sidebar-border)] px-2 py-1.5 text-[var(--foreground)]">{cell}</td>
+                                  {/each}
+                                </tr>
+                              {/each}
+                            </tbody>
+                          </table>
+                        </div>
+                      {:else}
+                        <pre class="max-h-[360px] overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] p-3 text-xs leading-6 text-[var(--foreground)]">{prettifyTextPreview(selectedFile, selectedTextPreview)}</pre>
+                      {/if}
+                    {:else}
+                      <div class="rounded-lg border border-dashed border-[var(--sidebar-border)] px-3 py-4 text-xs text-[var(--muted-foreground)]">
+                        {t("filesPreviewUnavailable")}
+                      </div>
+                    {/if}
+                  </div>
+
+                  <div class="rounded-xl border border-[var(--sidebar-border)] bg-[color-mix(in_oklab,var(--card)_82%,transparent)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
+                    <p class="font-semibold text-[var(--foreground)]">{t("filesDetails")}</p>
+                    <div class="mt-3 space-y-2">
+                      <div><span class="text-[var(--foreground)]">{t("filesType")}:</span> {selectedFile.mimeType || panelPreviewKindLabel(selectedFile.previewKind)}</div>
+                      <div><span class="text-[var(--foreground)]">{t("filesSize")}:</span> {formatFileSize(selectedFile.size)}</div>
+                      <div><span class="text-[var(--foreground)]">{t("filesCreatedAt")}:</span> {selectedFile.source === "pending" ? t("filesNotSentYet") : formatFileDate(selectedFile.createdAt)}</div>
+                      <div><span class="text-[var(--foreground)]">{t("attachments")}:</span> {selectedFile.source === "pending" ? t("filesSourcePending") : t("filesSourcePersisted")}</div>
+                      {#if selectedFile.local}
+                        <div class="break-all"><span class="text-[var(--foreground)]">Path:</span> {selectedFile.local}</div>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {/if}
+            </section>
           </div>
         </div>
       </aside>
@@ -1827,7 +2453,7 @@
 
   {#if showPromptPreview}
     <div class="absolute inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-      <div class="flex h-[85dvh] w-full max-w-5xl flex-col rounded-2xl border border-[var(--border)] bg-[var(--card)]">
+      <div class="chat-modal-card flex h-[85dvh] w-full max-w-5xl flex-col rounded-2xl border border-[var(--border)] bg-[var(--card)]">
         <div class="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <h2 class="text-sm font-semibold">{t("systemPromptPreview")} ({activeProfileName})</h2>
           <button class="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs" type="button" on:click={() => (showPromptPreview = false)}>{t("close")}</button>
@@ -1864,7 +2490,7 @@
 
   {#if showNewChatDialog}
     <div class="absolute inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-      <div class="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
+      <div class="chat-modal-card w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h2 class="text-base font-semibold">{t("startNewChat")}</h2>
         <p class="mt-1 text-xs text-[var(--muted-foreground)]">{t("chooseProfileForNewChat")}</p>
 
