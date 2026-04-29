@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-04-30
+
+### 图片识别传输格式修复
+- **自定义视觉直传加验证门槛**: 自定义 provider 只有在模型 `vision` 能力验证通过后，图片消息才会走原生多模态 streaming transport；未验证但已声明 `vision` 的模型改走 direct image-understanding fallback。
+- **图片 payload 更可控**: fallback 路径继续使用显式 OpenAI-compatible `image_url` 或 Anthropic-compatible `image/source` 请求体，避免图片消息在未确认兼容的 SDK transport 中失效。
+- **回归覆盖**: 新增 custom protocol helper 测试，覆盖 Anthropic baseUrl 推导和图片请求头构造；现有 runner 测试补充了“未验证 vision 不原生直传”的断言。
+
+---
+
 ## 2026-04-29
 
 ### 自定义 Provider Anthropic 协议

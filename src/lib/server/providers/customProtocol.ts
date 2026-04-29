@@ -102,6 +102,25 @@ export function buildDirectProviderUrl(provider: Pick<CustomProviderConfig, "bas
   return `${normalizeProviderBaseUrl(provider.baseUrl)}${normalizeProviderPath(provider.path, protocol)}`;
 }
 
+export function buildOpenAICompatibleHeaders(
+  provider: Pick<CustomProviderConfig, "apiKey">
+): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${provider.apiKey}`
+  };
+}
+
+export function buildAnthropicCompatibleHeaders(
+  provider: Pick<CustomProviderConfig, "apiKey">
+): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "x-api-key": provider.apiKey,
+    "anthropic-version": ANTHROPIC_VERSION
+  };
+}
+
 function formatProviderBody(body: string): string {
   const text = body.trim();
   if (!text) return "(empty body)";
@@ -188,11 +207,7 @@ export async function callDirectCustomProvider(
     );
     const response = await fetch(buildDirectProviderUrl(provider), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": provider.apiKey,
-        "anthropic-version": ANTHROPIC_VERSION
-      },
+      headers: buildAnthropicCompatibleHeaders(provider),
       body: JSON.stringify(requestBody)
     });
     const textBody = await response.text();
@@ -232,10 +247,7 @@ export async function callDirectCustomProvider(
   );
   const response = await fetch(buildDirectProviderUrl(provider), {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${provider.apiKey}`
-    },
+    headers: buildOpenAICompatibleHeaders(provider),
     body: JSON.stringify(requestBody)
   });
   const textBody = await response.text();
@@ -282,11 +294,7 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
       max_tokens: 8,
       messages: [{ role: "user", content: "ping" }]
     };
-    const connectivity = await runRequest(url, {
-      "Content-Type": "application/json",
-      "x-api-key": payload.apiKey,
-      "anthropic-version": ANTHROPIC_VERSION
-    }, basePayload);
+    const connectivity = await runRequest(url, buildAnthropicCompatibleHeaders(payload), basePayload);
     if (!connectivity.ok) {
       for (const tag of declaredTags) {
         verification[tag] = tag === "text" || tag === "vision" ? "failed" : "untested";
@@ -301,11 +309,7 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
     }
     verification.text = "passed";
     if (declaredTags.includes("vision")) {
-      const visionProbe = await runRequest(url, {
-        "Content-Type": "application/json",
-        "x-api-key": payload.apiKey,
-        "anthropic-version": ANTHROPIC_VERSION
-      }, {
+      const visionProbe = await runRequest(url, buildAnthropicCompatibleHeaders(payload), {
         model: payload.model,
         max_tokens: 8,
         messages: [{
@@ -347,10 +351,7 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
     temperature: 0,
     max_tokens: 8
   };
-  const connectivity = await runRequest(url, {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${payload.apiKey}`
-  }, {
+  const connectivity = await runRequest(url, buildOpenAICompatibleHeaders(payload), {
     ...basePayload,
     messages: [{ role: "user", content: "ping" }]
   });
@@ -371,10 +372,7 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
   }
 
   verification.text = "passed";
-  const developerProbe = await runRequest(url, {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${payload.apiKey}`
-  }, {
+  const developerProbe = await runRequest(url, buildOpenAICompatibleHeaders(payload), {
     ...basePayload,
     messages: [{ role: "developer", content: "You are a test." }, { role: "user", content: "ping" }]
   });
@@ -382,10 +380,7 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
   const supportedRoles: ModelRole[] = supportsDeveloper ? [...BASE_ROLES, "developer"] : [...BASE_ROLES];
 
   if (declaredTags.includes("vision")) {
-    const visionProbe = await runRequest(url, {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${payload.apiKey}`
-    }, {
+    const visionProbe = await runRequest(url, buildOpenAICompatibleHeaders(payload), {
       ...basePayload,
       messages: [
         {

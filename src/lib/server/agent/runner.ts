@@ -696,7 +696,10 @@ function supportsVisionNatively(
   selection: ResolvedModelSelection
 ): boolean {
   if (selection.source === "custom") {
-    return Boolean(selection.configuredModel?.tags?.includes("vision"));
+    return Boolean(
+      selection.configuredModel?.tags?.includes("vision") &&
+      selection.configuredModel?.verification?.vision === "passed"
+    );
   }
   return Array.isArray(selection.model.input) && selection.model.input.includes("image");
 }

@@ -27,6 +27,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - `/settings/ai/providers` 的单模型连接测试反馈必须贴近被测试模型展示；页面级保存状态区只用于保存/加载这类全局结果。
 - 自定义 provider 的测试请求与真实 runner 请求必须共享同一 endpoint 语义；如果底层 SDK 需要 base URL 而不是完整 endpoint，运行时必须显式转换并在错误日志中展示推导后的 endpoint，避免 test 成功但实际对话 404。
 - 当 `visionModelKey` 明确配置为不同于 `textModelKey` 的可视觉模型时，图片消息必须优先走该 vision 路由；如果图片识别模型请求失败但备用模型恢复成功，需要先发送独立的用户可见失败说明，再继续模型处理。
+- 自定义 provider 的图片原生直传必须以模型 `vision` 验证通过为前提；只声明 `vision` 但未验证通过时，应先走共享的 direct image-understanding fallback payload，避免把图片交给未确认兼容的流式 SDK transport。
 
 ## 3. V1 Scope
 

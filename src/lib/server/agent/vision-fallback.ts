@@ -1,6 +1,12 @@
 import type { ImageContent } from "@mariozechner/pi-ai";
 import type { CustomProviderProtocol, RuntimeSettings } from "../settings/index.js";
-import { normalizeProviderBaseUrl, normalizeProviderPath, resolveCustomProviderProtocol } from "../providers/customProtocol.js";
+import {
+  buildAnthropicCompatibleHeaders,
+  buildOpenAICompatibleHeaders,
+  normalizeProviderBaseUrl,
+  normalizeProviderPath,
+  resolveCustomProviderProtocol
+} from "../providers/customProtocol.js";
 import { momLog, momWarn } from "./log.js";
 
 export interface VisionFallbackTarget {
@@ -152,15 +158,8 @@ export async function describeImageViaConfiguredProvider({
       const resp = await fetch(url, {
         method: "POST",
         headers: isAnthropic
-          ? {
-              "Content-Type": "application/json",
-              "x-api-key": target.apiKey,
-              "anthropic-version": "2023-06-01"
-            }
-          : {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${target.apiKey}`
-            },
+          ? buildAnthropicCompatibleHeaders(target)
+          : buildOpenAICompatibleHeaders(target),
         body: JSON.stringify(isAnthropic
           ? {
               model: target.model,

@@ -47,11 +47,13 @@ test("decideVisionRouting prefers an explicit dedicated vision route over a visi
           {
             id: "mimo-v2.5-pro",
             tags: ["text", "vision"],
+            verification: { vision: "passed" },
             supportedRoles: ["system", "user", "assistant"]
           },
           {
             id: "mimo-v2.5",
             tags: ["text", "vision"],
+            verification: { vision: "passed" },
             supportedRoles: ["system", "user", "assistant"]
           }
         ]
@@ -90,6 +92,7 @@ test("decideVisionRouting keeps the text route when the vision route resolves to
           {
             id: "mimo-v2.5",
             tags: ["text", "vision"],
+            verification: { vision: "passed" },
             supportedRoles: ["system", "user", "assistant"]
           }
         ]
@@ -102,4 +105,47 @@ test("decideVisionRouting keeps the text route when the vision route resolves to
   assert.equal(decision.mode, "text");
   assert.equal(decision.selection.modelId, "mimo-v2.5");
   assert.equal(decision.sendImagesNatively, true);
+});
+
+test("decideVisionRouting does not send custom images natively before vision verification passes", () => {
+  const settings: RuntimeSettings = {
+    ...defaultRuntimeSettings,
+    providerMode: "custom" as const,
+    defaultCustomProviderId: "custom-vision",
+    modelRouting: {
+      ...defaultRuntimeSettings.modelRouting,
+      textModelKey: "custom|custom-vision|mimo-v2.5-pro",
+      visionModelKey: "custom|custom-vision|mimo-v2.5"
+    },
+    customProviders: [
+      {
+        id: "custom-vision",
+        name: "Custom Vision",
+        enabled: true,
+        protocol: "anthropic" as const,
+        baseUrl: "https://example.invalid",
+        apiKey: "test-key",
+        path: "/v1/messages",
+        defaultModel: "mimo-v2.5-pro",
+        models: [
+          {
+            id: "mimo-v2.5-pro",
+            tags: ["text"],
+            supportedRoles: ["system", "user", "assistant"]
+          },
+          {
+            id: "mimo-v2.5",
+            tags: ["text", "vision"],
+            supportedRoles: ["system", "user", "assistant"]
+          }
+        ]
+      }
+    ]
+  };
+
+  const decision = decideVisionRouting(settings, true);
+
+  assert.equal(decision.mode, "fallback");
+  assert.equal(decision.selection.modelId, "mimo-v2.5-pro");
+  assert.equal(decision.sendImagesNatively, false);
 });
