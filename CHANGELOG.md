@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-04-29
+
+### 自定义 Provider Anthropic 协议
+- **协议选择持久化**: 自定义 AI provider 新增 `openai-compatible` / `anthropic` 协议配置，旧配置自动按 OpenAI-compatible 迁移，SQLite 设置表同步保存协议字段。
+- **Anthropic Messages API 支持**: `/settings/ai/providers` 可选择 Anthropic Messages，默认路径切到 `/v1/messages`；连接测试使用 `x-api-key` 与 `anthropic-version` 请求头，并支持文本/视觉能力验证。
+- **运行时协议分流**: Web custom-provider 直连、主 runner、自定义 subagent 模型构建、图片理解 fallback 都会按协议选择 OpenAI Chat Completions 或 Anthropic Messages payload/transport。
+- **思考参数体验修正**: 协议切换现在会立即更新默认 endpoint 和 thinking format；Reasoning Effort Mapping 默认使用按格式内置的自动映射，只在选择 Custom override 时显示下拉覆盖值。
+- **测试错误详情增强**: Provider 测试接口会格式化 JSON 错误并返回更长的上游响应片段，Providers 页面也不再把长状态压成单行省略号。
+- **模型行内测试反馈**: 单个模型的 Test Connection 结果现在显示在对应模型卡片内，不再占用保存按钮旁边的页面级状态区。
+- **Anthropic 运行时 endpoint 修复**: Runner/subagent 传给 Anthropic transport 的 base URL 现在与 `/v1/messages` endpoint 语义匹配，避免测试成功但实际对话请求到重复 `/v1` 路径而 404；模型错误日志同步展示推导后的 endpoint。
+- **图片路由优先级修复**: 当 `visionModelKey` 单独配置了图片模型时，图片消息会优先使用该 vision 路由，而不是被同样声明 `vision` 的 text 路由抢走；如果 vision 请求失败但 fallback 恢复成功，会先发送一条独立失败提醒再继续输出结果。
+
+---
+
 ## 2026-04-26
 
 ### 文档治理整理

@@ -31,6 +31,11 @@ import {
   resolveThinkingLevel
 } from "../providers/customThinking.js";
 import {
+  buildAnthropicBaseUrl,
+  buildOpenAIBaseUrl,
+  resolveCustomProviderProtocol
+} from "../providers/customProtocol.js";
+import {
   DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
   resolvePreferredTransport
 } from "./runtimeOptions.js";
@@ -184,29 +189,8 @@ function buildAgentSessionId(
   return [channel, chatId, sessionId, useCase, selection.providerId, selection.modelId].join(":");
 }
 
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/$/, "");
-}
-
-function normalizePath(path: string | undefined): string {
-  const raw = (path || "/v1/chat/completions").trim();
-  if (!raw) return "/v1/chat/completions";
-  return raw.startsWith("/") ? raw : `/${raw}`;
-}
-
-function buildOpenAIBaseUrl(baseUrl: string, path: string | undefined): string {
-  const base = normalizeBaseUrl(baseUrl);
-  const normalizedPath = normalizePath(path);
-  const chatCompletionsSuffix = "/chat/completions";
-
-  if (normalizedPath.endsWith(chatCompletionsSuffix)) {
-    const prefix = normalizedPath.slice(0, -chatCompletionsSuffix.length);
-    return `${base}${prefix}`;
-  }
-
-  const slash = normalizedPath.lastIndexOf("/");
-  const dir = slash > 0 ? normalizedPath.slice(0, slash) : "";
-  return `${base}${dir}`;
+function sameModelSelection(a: ResolvedModelSelection, b: ResolvedModelSelection): boolean {
+  return a.source === b.source && a.providerId === b.providerId && a.modelId === b.modelId;
 }
 
 function formatPayloadReasoningSummary(payload: unknown): string {
@@ -266,16 +250,16 @@ function formatPayloadReasoningSummary(payload: unknown): string {
 }
 
 function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Model<any> {
-  const computedBaseUrl = buildOpenAIBaseUrl(
-    selected.baseUrl,
-    selected.path,
-  );
+  const protocol = resolveCustomProviderProtocol(selected.protocol);
+  const computedBaseUrl = protocol === "anthropic"
+    ? buildAnthropicBaseUrl(selected.baseUrl, selected.path)
+    : buildOpenAIBaseUrl(selected.baseUrl, selected.path);
   const configuredModel = selected.models.find((m) => m.id === modelId);
   const supportsDeclaredVision = Boolean(configuredModel?.tags?.includes("vision"));
   return {
     id: modelId,
     name: selected.name || modelId,
-    api: "openai-completions",
+    api: protocol === "anthropic" ? "anthropic-messages" : "openai-completions",
     provider: selected.id || "custom-provider",
     baseUrl: computedBaseUrl,
     reasoning: resolveCustomProviderReasoningSupport(selected),
@@ -288,7 +272,7 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
     },
     contextWindow: 200000,
     maxTokens: 8192,
-    compat: buildCustomProviderCompat(selected)
+    compat: protocol === "anthropic" ? undefined : buildCustomProviderCompat(selected)
   };
 }
 
@@ -377,6 +361,7 @@ interface ModelAttemptFailure {
   provider: string;
   model: string;
   baseUrl?: string;
+  endpointUrl?: string;
   message: string;
   kind: "request_error" | "empty_response" | "missing_api_key";
 }
@@ -473,15 +458,31 @@ function resolveModel(settings: RuntimeSettings, useCase: "text" | "vision" = "t
   return resolveModelSelection(settings, useCase).model;
 }
 
+function appendEndpointPath(baseUrl: string, endpointPath: string): string {
+  return `${baseUrl.replace(/\/$/, "")}${endpointPath}`;
+}
+
+function modelEndpointUrl(api: string, baseUrl: string): string | undefined {
+  if (api === "anthropic-messages") {
+    return appendEndpointPath(baseUrl, "/v1/messages");
+  }
+  if (api === "openai-completions") {
+    return appendEndpointPath(baseUrl, "/chat/completions");
+  }
+  return undefined;
+}
+
 function toModelAttemptFailure(
   selection: ResolvedModelSelection,
   message: string,
   kind: ModelAttemptFailure["kind"]
 ): ModelAttemptFailure {
+  const redactedBaseUrl = selection.model.baseUrl ? redactBaseUrl(selection.model.baseUrl) : undefined;
   return {
     provider: selection.model.provider,
     model: selection.model.id,
-    baseUrl: selection.model.baseUrl ? redactBaseUrl(selection.model.baseUrl) : undefined,
+    baseUrl: redactedBaseUrl,
+    endpointUrl: redactedBaseUrl ? modelEndpointUrl(selection.model.api, redactedBaseUrl) : undefined,
     message,
     kind
   };
@@ -492,6 +493,7 @@ function formatModelAttemptFailure(failure: ModelAttemptFailure): string {
     `provider=${failure.provider}`,
     `model=${failure.model}`,
     failure.baseUrl ? `baseUrl=${failure.baseUrl}` : null,
+    failure.endpointUrl ? `endpoint=${failure.endpointUrl}` : null,
     `type=${failure.kind}`,
     `error=${failure.message}`
   ].filter(Boolean).join(", ");
@@ -709,7 +711,7 @@ function supportsAudioInputConfigured(
   );
 }
 
-function decideVisionRouting(settings: RuntimeSettings, hasImages: boolean): {
+export function decideVisionRouting(settings: RuntimeSettings, hasImages: boolean): {
   selection: ResolvedModelSelection;
   sendImagesNatively: boolean;
   mode: "text" | "vision" | "fallback";
@@ -725,6 +727,19 @@ function decideVisionRouting(settings: RuntimeSettings, hasImages: boolean): {
     };
   }
 
+  const visionSelection = resolveModelSelection(settings, "vision");
+  if (!sameModelSelection(visionSelection, textSelection) && supportsVisionNatively(visionSelection)) {
+    const verification = visionSelection.configuredModel?.verification?.vision ?? "missing";
+    return {
+      selection: visionSelection,
+      sendImagesNatively: true,
+      mode: "vision",
+      reason: verification === "passed"
+        ? "vision_route_declared_verified"
+        : "vision_route_declared_unverified"
+    };
+  }
+
   if (supportsVisionNatively(textSelection)) {
     const verification = textSelection.configuredModel?.verification?.vision ?? "missing";
     return {
@@ -737,7 +752,6 @@ function decideVisionRouting(settings: RuntimeSettings, hasImages: boolean): {
     };
   }
 
-  const visionSelection = resolveModelSelection(settings, "vision");
   if (supportsVisionNatively(visionSelection)) {
     const verification = visionSelection.configuredModel?.verification?.vision ?? "missing";
     return {
@@ -969,6 +983,7 @@ function recordModelFailure(
     kind: input.failure.kind,
     message: input.failure.message,
     baseUrl: input.failure.baseUrl,
+    endpointUrl: input.failure.endpointUrl,
     candidateIndex: input.candidateIndex,
     recovered: input.recovered,
     fallbackUsed: input.fallbackUsed,
@@ -2133,9 +2148,12 @@ export class MomRunner implements RunnerLike {
           customProviderId: selectedCustom?.id,
           customProviderName: selectedCustom?.name,
           customProviderPath: selectedCustom?.path,
+          customProviderProtocol: selectedCustom?.protocol ?? "openai-compatible",
           customProviderComputedBaseUrl: selectedCustom
             ? redactBaseUrl(
-              buildOpenAIBaseUrl(selectedCustom.baseUrl, selectedCustom.path),
+              resolveCustomProviderProtocol(selectedCustom.protocol) === "anthropic"
+                ? buildAnthropicBaseUrl(selectedCustom.baseUrl, selectedCustom.path)
+                : buildOpenAIBaseUrl(selectedCustom.baseUrl, selectedCustom.path),
             )
             : undefined,
           visionRoutingMode: visionDecision.mode,
@@ -2539,9 +2557,12 @@ export class MomRunner implements RunnerLike {
         await ctx.deleteMessage();
       } else if (finalText) {
         if (successfulCandidateIndex > 0 && modelFailures.length > 0) {
+          const recoveredFailureTitle = modelUseCase === "vision"
+            ? "图片识别模型请求失败，已自动切换到备用模型继续处理。"
+            : "主模型请求失败，已自动切换到备用模型。";
           await ctx.respondInThread(
             [
-              "主模型请求失败，已自动切换到备用模型。",
+              recoveredFailureTitle,
               ...modelFailures.map((failure, index) => `${index + 1}. ${formatModelAttemptFailure(failure)}`),
               `active=provider=${activeSelection.model.provider}, model=${activeSelection.model.id}`
             ].join("\n")

@@ -4,6 +4,7 @@ export type RuntimeThinkingLevel = (typeof RUNTIME_THINKING_LEVELS)[number];
 export const CUSTOM_PROVIDER_THINKING_FORMATS = [
   "openai",
   "openrouter",
+  "anthropic",
   "deepseek",
   "zai",
   "qwen",
@@ -23,7 +24,8 @@ interface CustomProviderThinkingFormatPreset {
 }
 
 const CUSTOM_PROVIDER_THINKING_FORMAT_PRESETS = [
-  { format: "deepseek", markers: ["deepseek"] }
+  { format: "deepseek", markers: ["deepseek"] },
+  { format: "anthropic", markers: ["anthropic", "claude"] }
 ] as const satisfies readonly CustomProviderThinkingFormatPreset[];
 
 export function sanitizeRuntimeThinkingLevel(

@@ -19,6 +19,7 @@
     kind: ModelErrorKind;
     message: string;
     baseUrl?: string;
+    endpointUrl?: string;
     candidateIndex?: number;
     recovered: boolean;
     fallbackUsed: boolean;
@@ -293,6 +294,7 @@
                       <span>Context</span>
                       <p>API: {item.api || "-"}</p>
                       <p>Base URL: {item.baseUrl || "-"}</p>
+                      <p>Endpoint: {item.endpointUrl || "-"}</p>
                       <p>Session: {item.sessionId || "-"}</p>
                       <p>Run ID: {item.runId || "-"}</p>
                     </div>

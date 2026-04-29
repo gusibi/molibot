@@ -17,6 +17,7 @@ export const GET: RequestHandler = async () => {
     id: "",
     name: "",
     enabled: true,
+    protocol: "openai-compatible",
     baseUrl: "",
     apiKey: "",
     models: [

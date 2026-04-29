@@ -23,6 +23,10 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - `package/mory` 作为独立 SDK 应当自带可用数据库 driver 与安装依赖；不能只提供 `SqliteDriver` / `PgDriver` 接口再把真实驱动实现完全留给外部宿主。
 - `package/mory/README.md` 必须按“独立 SDK 用户文档”编写，清晰覆盖安装要求、SQLite quick start、pgvector 接入、核心 API 用法（`ingest/commit/retrieve/readByPath`）以及宿主仍需提供的能力边界。
 - 新增 Linus Torvalds 风格的人设模板 (`IDENTITY.linus.template.md`, `SOUL.linus.template.md`)，为 Agent 提供极致直接、技术至上的备选人格。
+- 自定义 AI provider 必须显式区分请求协议；旧配置默认保持 OpenAI-compatible，Anthropic 自定义端点必须走 Messages API（默认 `/v1/messages`、`x-api-key` + `anthropic-version`），不能只在 UI 展示为支持而仍按 OpenAI Chat Completions 发送。
+- `/settings/ai/providers` 的单模型连接测试反馈必须贴近被测试模型展示；页面级保存状态区只用于保存/加载这类全局结果。
+- 自定义 provider 的测试请求与真实 runner 请求必须共享同一 endpoint 语义；如果底层 SDK 需要 base URL 而不是完整 endpoint，运行时必须显式转换并在错误日志中展示推导后的 endpoint，避免 test 成功但实际对话 404。
+- 当 `visionModelKey` 明确配置为不同于 `textModelKey` 的可视觉模型时，图片消息必须优先走该 vision 路由；如果图片识别模型请求失败但备用模型恢复成功，需要先发送独立的用户可见失败说明，再继续模型处理。
 
 ## 3. V1 Scope
 

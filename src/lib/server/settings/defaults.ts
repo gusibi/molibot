@@ -164,6 +164,7 @@ const envCustomProvider: CustomProviderConfig = {
   id: "custom-env",
   name: "Custom (env)",
   enabled: true,
+  protocol: "openai-compatible",
   baseUrl: process.env.CUSTOM_AI_BASE_URL ?? "",
   apiKey: process.env.CUSTOM_AI_API_KEY ?? "",
   models: (process.env.CUSTOM_AI_MODEL ?? "").trim()

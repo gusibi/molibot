@@ -9,16 +9,8 @@ import {
   resolvePreferredTransport
 } from "../agent/runtimeOptions.js";
 import {
-  applyDirectReasoningParams,
-  resolveThinkingLevel,
-} from "./customThinking.js";
-
-type OpenAIRole = "system" | "user" | "assistant";
-
-interface OpenAIMessage {
-  role: OpenAIRole;
-  content: string;
-}
+  callDirectCustomProvider
+} from "./customProtocol.js";
 
 interface ProviderReply {
   text: string;
@@ -77,35 +69,6 @@ function extractText(value: unknown): string | null {
   return null;
 }
 
-function toOpenAIMessages(history: ConversationMessage[], settings: RuntimeSettings): OpenAIMessage[] {
-  return toOpenAIMessagesWithMemory(history, settings, "");
-}
-
-function toOpenAIMessagesWithMemory(
-  history: ConversationMessage[],
-  settings: RuntimeSettings,
-  memoryContext: string
-): OpenAIMessage[] {
-  const systemPrompt = memoryContext.trim()
-    ? `${settings.systemPrompt}\n\nRelevant memory:\n${memoryContext.trim()}`
-    : settings.systemPrompt;
-
-  const messages: OpenAIMessage[] = [
-    {
-      role: "system",
-      content: systemPrompt
-    }
-  ];
-
-  for (const msg of history) {
-    if (msg.role === "user" || msg.role === "assistant" || msg.role === "system") {
-      messages.push({ role: msg.role, content: msg.content });
-    }
-  }
-
-  return messages;
-}
-
 function getProviderModel(provider: CustomProviderConfig): string {
   const modelIds = provider.models
     .filter((m) => Array.isArray(m.tags) ? m.tags.includes("text") : true)
@@ -114,18 +77,6 @@ function getProviderModel(provider: CustomProviderConfig): string {
   const selected = provider.defaultModel?.trim();
   if (selected && modelIds.includes(selected)) return selected;
   return modelIds[0]?.trim() || "";
-}
-
-function normalizeProviderPath(path: string | undefined): string {
-  const raw = (path || "/v1/chat/completions").trim();
-  if (!raw) return "/v1/chat/completions";
-  return raw.startsWith("/") ? raw : `/${raw}`;
-}
-
-function trimProviderBody(body: string): string {
-  const text = body.trim();
-  if (!text) return "(empty body)";
-  return text.length > 400 ? `${text.slice(0, 400)}...` : text;
 }
 
 function buildProviderFailure(
@@ -185,77 +136,19 @@ async function callCustomProviderTarget(
     });
   }
 
-  const baseUrl = provider.baseUrl.replace(/\/$/, "");
-  const path = normalizeProviderPath(provider.path);
-  const url = `${baseUrl}${path}`;
-
-  let response: Response;
   try {
-    const thinkingLevel = resolveThinkingLevel(settings, provider.supportsThinking === true);
-    const requestBody = applyDirectReasoningParams(
-      {
-        model,
-        messages: toOpenAIMessagesWithMemory(history, settings, memoryContext),
-        temperature: 0.2
-      },
-      provider,
-      thinkingLevel
-    );
-    response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${provider.apiKey}`
-      },
-      body: JSON.stringify(requestBody)
-    });
+    return await callDirectCustomProvider(provider, model, history, settings, memoryContext);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw Object.assign(new Error(message), {
-      providerFailure: buildProviderFailure(provider, model, message)
+      providerFailure: buildProviderFailure(
+        provider,
+        model,
+        message,
+        typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : undefined
+      )
     });
   }
-
-  if (!response.ok) {
-    const body = trimProviderBody(await response.text());
-    const message = `HTTP ${response.status}: ${body}`;
-    throw Object.assign(new Error(message), {
-      providerFailure: buildProviderFailure(provider, model, message, response.status)
-    });
-  }
-
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-    usage?: {
-      prompt_tokens?: number;
-      completion_tokens?: number;
-      total_tokens?: number;
-      prompt_tokens_details?: { cached_tokens?: number };
-      completion_tokens_details?: { reasoning_tokens?: number };
-    };
-  };
-
-  const text = data.choices?.[0]?.message?.content?.trim();
-  if (!text) {
-    const message = "Custom provider returned empty content";
-    throw Object.assign(new Error(message), {
-      providerFailure: buildProviderFailure(provider, model, message)
-    });
-  }
-
-  return {
-    text,
-    provider: provider.id,
-    model,
-    api: "openai-completions",
-    usage: {
-      input: data.usage?.prompt_tokens ?? 0,
-      output: data.usage?.completion_tokens ?? 0,
-      cacheRead: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
-      cacheWrite: 0,
-      totalTokens: data.usage?.total_tokens ?? 0
-    }
-  };
 }
 
 async function callCustomProvider(

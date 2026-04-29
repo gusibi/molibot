@@ -13,6 +13,7 @@ import {
   type ModelCapabilityTag,
   type ChannelSettingsMap,
   type CustomProviderConfig,
+  type CustomProviderProtocol,
   type TelegramBotConfig,
   type FeishuBotConfig,
   type QQBotConfig,
@@ -584,6 +585,10 @@ function sanitizeChannels(
   return channels;
 }
 
+function sanitizeCustomProviderProtocol(input: unknown): CustomProviderProtocol {
+  return String(input ?? "").trim() === "anthropic" ? "anthropic" : "openai-compatible";
+}
+
 function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSettings): RuntimeSettings {
   const next: RuntimeSettings = {
     ...current,
@@ -663,15 +668,17 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
     const defaultModel = modelIds.includes(defaultModelRaw) ? defaultModelRaw : (modelIds[0] ?? "");
     const name = String(row.name ?? "").trim() || id;
     const baseUrl = String(row.baseUrl ?? "").trim();
+    const protocol = sanitizeCustomProviderProtocol((row as { protocol?: unknown }).protocol);
     customProviders.push({
       id,
       name,
       enabled: row.enabled === undefined ? !isKnownProvider(id) : Boolean(row.enabled),
+      protocol,
       baseUrl,
       apiKey: String(row.apiKey ?? "").trim(),
       models,
       defaultModel,
-      path: String(row.path ?? "").trim() || "/v1/chat/completions",
+      path: String(row.path ?? "").trim() || (protocol === "anthropic" ? "/v1/messages" : "/v1/chat/completions"),
       supportsThinking: sanitizeOptionalThinkingSupport((row as { supportsThinking?: unknown }).supportsThinking),
       thinkingFormat: resolveCustomProviderThinkingFormat(
         (row as { thinkingFormat?: unknown }).thinkingFormat,

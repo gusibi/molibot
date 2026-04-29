@@ -14,6 +14,11 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
 import { buildCustomProviderCompat, resolveCustomProviderReasoningSupport } from "../../providers/customThinking.js";
+import {
+  buildAnthropicBaseUrl,
+  buildOpenAIBaseUrl,
+  resolveCustomProviderProtocol
+} from "../../providers/customProtocol.js";
 import { currentModelKey } from "../../settings/modelSwitch.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import { isKnownProvider } from "../../settings/index.js";
@@ -223,30 +228,6 @@ function parseModelKey(key: string): { mode: "pi" | "custom"; provider: string; 
   return { mode, provider: provider.trim(), model };
 }
 
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/$/, "");
-}
-
-function normalizePath(path: string | undefined): string {
-  const raw = String(path ?? "/v1/chat/completions").trim();
-  if (!raw) return "/v1/chat/completions";
-  return raw.startsWith("/") ? raw : `/${raw}`;
-}
-
-function buildOpenAIBaseUrl(baseUrl: string, path: string | undefined): string {
-  const base = normalizeBaseUrl(baseUrl);
-  const normalizedPath = normalizePath(path);
-  const chatCompletionsSuffix = "/chat/completions";
-
-  if (normalizedPath.endsWith(chatCompletionsSuffix)) {
-    return `${base}${normalizedPath.slice(0, -chatCompletionsSuffix.length)}`;
-  }
-
-  const slash = normalizedPath.lastIndexOf("/");
-  const dir = slash > 0 ? normalizedPath.slice(0, slash) : "";
-  return `${base}${dir}`;
-}
-
 export function resolveSubagentModelHint(
   modelHint: string | undefined,
   settings: RuntimeSettings
@@ -349,24 +330,27 @@ async function resolveSubagentModel(
     }
 
     const customProvider = settings.customProviders.find((provider) => provider.id === routed.provider);
-    if (customProvider?.enabled !== false && customProvider.baseUrl.trim() && routed.model) {
+    if (customProvider && customProvider.enabled !== false && customProvider.baseUrl.trim() && routed.model) {
       const apiKey = await resolveProviderApiKey(customProvider.id, () => customProvider.apiKey.trim());
       if (apiKey) {
         authStorage.setRuntimeApiKey(customProvider.id, apiKey);
       }
       const configuredModel = customProvider.models.find((row) => row.id === routed.model);
+      const protocol = resolveCustomProviderProtocol(customProvider.protocol);
       const model: Model<any> = {
         id: routed.model,
         name: customProvider.name || routed.model,
-        api: "openai-completions",
+        api: protocol === "anthropic" ? "anthropic-messages" : "openai-completions",
         provider: customProvider.id,
-        baseUrl: buildOpenAIBaseUrl(customProvider.baseUrl, customProvider.path),
+        baseUrl: protocol === "anthropic"
+          ? buildAnthropicBaseUrl(customProvider.baseUrl, customProvider.path)
+          : buildOpenAIBaseUrl(customProvider.baseUrl, customProvider.path),
         reasoning: resolveCustomProviderReasoningSupport(customProvider),
         input: configuredModel?.tags?.includes("vision") ? ["text", "image"] : ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 200000,
         maxTokens: 8192,
-        compat: buildCustomProviderCompat(customProvider)
+        compat: protocol === "anthropic" ? undefined : buildCustomProviderCompat(customProvider)
       };
       return { model, authStorage, modelRegistry };
     }

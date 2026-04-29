@@ -1,5 +1,6 @@
 import type { ImageContent } from "@mariozechner/pi-ai";
-import type { RuntimeSettings } from "../settings/index.js";
+import type { CustomProviderProtocol, RuntimeSettings } from "../settings/index.js";
+import { normalizeProviderBaseUrl, normalizeProviderPath, resolveCustomProviderProtocol } from "../providers/customProtocol.js";
 import { momLog, momWarn } from "./log.js";
 
 export interface VisionFallbackTarget {
@@ -7,6 +8,7 @@ export interface VisionFallbackTarget {
   apiKey: string;
   model: string;
   path: string;
+  protocol: CustomProviderProtocol;
   providerId: string;
   verification: "untested" | "passed" | "failed" | "missing";
   declared: boolean;
@@ -36,17 +38,8 @@ function parseModelKey(key: string): { mode: "pi" | "custom"; provider: string; 
   return { mode, provider: provider.trim(), model };
 }
 
-function normalizePath(path: string | undefined): string {
-  const raw = String(path ?? "/v1/chat/completions").trim() || "/v1/chat/completions";
-  return raw.startsWith("/") ? raw : `/${raw}`;
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/+$/, "");
-}
-
-function buildApiUrl(baseUrl: string, path: string | undefined): string {
-  return `${normalizeBaseUrl(baseUrl)}${normalizePath(path)}`;
+function buildApiUrl(baseUrl: string, path: string | undefined, protocol: CustomProviderProtocol): string {
+  return `${normalizeProviderBaseUrl(baseUrl)}${normalizeProviderPath(path, protocol)}`;
 }
 
 function findCustomVisionTarget(
@@ -63,6 +56,7 @@ function findCustomVisionTarget(
     apiKey: provider.apiKey,
     model: routed.model,
     path: provider.path,
+    protocol: resolveCustomProviderProtocol(provider.protocol),
     providerId: provider.id,
     verification: configuredModel?.verification?.vision ?? "missing",
     declared: Boolean(configuredModel?.tags?.includes("vision"))
@@ -89,6 +83,7 @@ export function resolveVisionFallbackTarget(settings: RuntimeSettings): VisionFa
       apiKey: provider.apiKey,
       model: visionModel.id,
       path: provider.path,
+      protocol: resolveCustomProviderProtocol(provider.protocol),
       providerId: provider.id,
       verification: visionModel.verification?.vision ?? "missing",
       declared: true
@@ -99,6 +94,14 @@ export function resolveVisionFallbackTarget(settings: RuntimeSettings): VisionFa
 }
 
 function extractText(payload: any): string {
+  if (Array.isArray(payload?.content)) {
+    return payload.content
+      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+      .map((part: any) => part.text.trim())
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
   const message = payload?.choices?.[0]?.message;
   if (typeof message?.content === "string") return message.content.trim();
   if (Array.isArray(message?.content)) {
@@ -128,7 +131,7 @@ export async function describeImageViaConfiguredProvider({
     };
   }
 
-  const url = buildApiUrl(target.baseUrl, target.path);
+  const url = buildApiUrl(target.baseUrl, target.path, target.protocol);
   let lastErrorMessage: string | null = null;
   const imageLabel = String(label ?? "image").trim() || "image";
   const mimeType = String(image.mimeType || "image/jpeg").trim() || "image/jpeg";
@@ -145,45 +148,80 @@ export async function describeImageViaConfiguredProvider({
     });
 
     try {
+      const isAnthropic = target.protocol === "anthropic";
       const resp = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${target.apiKey}`
-        },
-        body: JSON.stringify({
-          model: target.model,
-          temperature: 0,
-          max_tokens: 600,
-          messages: [
-            {
-              role: "system",
-              content: "You are an image understanding bridge for a text-only assistant. Be factual, concise, and avoid guessing beyond visible evidence."
+        headers: isAnthropic
+          ? {
+              "Content-Type": "application/json",
+              "x-api-key": target.apiKey,
+              "anthropic-version": "2023-06-01"
+            }
+          : {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${target.apiKey}`
             },
-            {
-              role: "user",
-              content: [
+        body: JSON.stringify(isAnthropic
+          ? {
+              model: target.model,
+              system: "You are an image understanding bridge for a text-only assistant. Be factual, concise, and avoid guessing beyond visible evidence.",
+              max_tokens: 600,
+              messages: [{
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: [
+                      `Analyze ${imageLabel} for a text-only assistant.`,
+                      "Return exactly these sections in plain text:",
+                      "Description: <brief visual summary>",
+                      "Visible text: <OCR text, or (none)>",
+                      "Important details: <objects, UI state, errors, charts, or cues the assistant should know>",
+                      "If something is uncertain, say uncertain instead of guessing."
+                    ].join("\n")
+                  },
+                  {
+                    type: "image",
+                    source: {
+                      type: "base64",
+                      media_type: mimeType,
+                      data: image.data
+                    }
+                  }
+                ]
+              }]
+            }
+          : {
+              model: target.model,
+              temperature: 0,
+              max_tokens: 600,
+              messages: [
                 {
-                  type: "text",
-                  text: [
-                    `Analyze ${imageLabel} for a text-only assistant.`,
-                    "Return exactly these sections in plain text:",
-                    "Description: <brief visual summary>",
-                    "Visible text: <OCR text, or (none)>",
-                    "Important details: <objects, UI state, errors, charts, or cues the assistant should know>",
-                    "If something is uncertain, say uncertain instead of guessing."
-                  ].join("\n")
+                  role: "system",
+                  content: "You are an image understanding bridge for a text-only assistant. Be factual, concise, and avoid guessing beyond visible evidence."
                 },
                 {
-                  type: "image_url",
-                  image_url: {
-                    url: dataUrl
-                  }
+                  role: "user",
+                  content: [
+                    {
+                      type: "text",
+                      text: [
+                        `Analyze ${imageLabel} for a text-only assistant.`,
+                        "Return exactly these sections in plain text:",
+                        "Description: <brief visual summary>",
+                        "Visible text: <OCR text, or (none)>",
+                        "Important details: <objects, UI state, errors, charts, or cues the assistant should know>",
+                        "If something is uncertain, say uncertain instead of guessing."
+                      ].join("\n")
+                    },
+                    {
+                      type: "image_url",
+                      image_url: { url: dataUrl }
+                    }
+                  ]
                 }
               ]
-            }
-          ]
-        })
+            })
       });
 
       if (!resp.ok) {

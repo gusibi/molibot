@@ -42,6 +42,7 @@ export function resolveThinkingLevel(
 export function buildCustomProviderCompat(
   provider: Pick<CustomProviderConfig, "thinkingFormat" | "reasoningEffortMap">
 ): Model<"openai-completions">["compat"] | undefined {
+  if (provider.thinkingFormat === "anthropic") return undefined;
   const configuredMap = cleanReasoningEffortMap(provider.reasoningEffortMap);
   const reasoningEffortMap = provider.thinkingFormat === "deepseek"
     ? { ...DEEPSEEK_REASONING_EFFORT_MAP, ...configuredMap }
@@ -84,6 +85,15 @@ export function applyDirectReasoningParams(
       return {
         ...payload,
         reasoning: {
+          effort: mappedEffort
+        }
+      };
+    case "anthropic":
+      return {
+        ...payload,
+        temperature: undefined,
+        thinking: {
+          type: "adaptive",
           effort: mappedEffort
         }
       };

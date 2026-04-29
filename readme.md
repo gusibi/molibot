@@ -52,6 +52,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Profile-Driven Chat**: `global -> agent -> bot/profile` prompt layering with file-based governance
 - **Advanced Memory System**: `Mory SDK` with layered storage (`long_term`/`daily`), hybrid retrieval, cognitive control
 - **Rich Input Support**: text, image, realtime voice recording (Web), media/file ingestion (all channels)
+- **Dedicated Vision Routing**: image turns prefer the configured vision route and surface a separate recovery notice when image-model fallback is used
 - **Time-Aware Prompting**: each live user turn can carry structured current-time metadata (`message_received_at` / `timezone` / `today`) for better date-sensitive replies
 - **Shared Workbench UI**: Web chat and Settings now use one reusable workbench material system for hero panels, forms, tables, config shells, and interaction feedback
 - **Current-Session File Workspace**: Web chat now includes a real files pane with searchable attachment inventory, inline preview for common formats, downloads, and copy-path actions
@@ -121,9 +122,11 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Gateway API**: Pluggable backends (JSON file default, Mory optional)
 
 ### AI Routing and Configuration
-- **Multi-Provider**: Support for multiple custom providers
+- **Multi-Provider**: Support for multiple custom providers using OpenAI-compatible or Anthropic Messages protocols
 - **Capability Tags**: Per-model tags (text/vision/stt/tts/tool/audio_input)
 - **Verification States**: tested/untested/failed status tracking
+- **Inline Provider Tests**: Single-model connection test results stay inside the tested model card
+- **Endpoint Diagnostics**: Model error records show both transport base URL and computed endpoint URL
 - **Route-Scoped Switching**: Independent model selection for text/vision/stt/tts
 - **Cross-Provider Fallback**: Automatic fallback on retryable errors
 
@@ -345,6 +348,7 @@ molibot init --force    # Re-initialize (WARNING: may overwrite existing config)
 - `CUSTOM_AI_BASE_URL` - Custom provider base URL
 - `CUSTOM_AI_API_KEY` - Custom provider API key
 - `CUSTOM_AI_MODEL` - Default custom model
+- `CUSTOM_AI_PATH` - Custom provider endpoint path; defaults to `/v1/chat/completions` for env bootstrap
 
 ### Telegram
 - `TELEGRAM_BOT_TOKEN` - Bot token from @BotFather

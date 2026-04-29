@@ -1940,10 +1940,9 @@
   }
 
   .providers-page .status-text {
-    max-width: 17.5rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: min(100%, 52rem);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
     font-size: 0.75rem;
     font-weight: 700;
   }

@@ -19,6 +19,7 @@ export interface ModelErrorRecord {
   kind: ModelErrorKind;
   message: string;
   baseUrl?: string;
+  endpointUrl?: string;
   candidateIndex?: number;
   recovered: boolean;
   fallbackUsed: boolean;
@@ -122,6 +123,7 @@ export class ModelErrorTracker {
           kind: parsed.kind === "empty_response" || parsed.kind === "missing_api_key" ? parsed.kind : "request_error",
           message: trimMessage(String(parsed.message ?? "")),
           baseUrl: parsed.baseUrl ? String(parsed.baseUrl) : undefined,
+          endpointUrl: parsed.endpointUrl ? String(parsed.endpointUrl) : undefined,
           candidateIndex: Number.isFinite(parsed.candidateIndex) ? Number(parsed.candidateIndex) : undefined,
           recovered: Boolean(parsed.recovered),
           fallbackUsed: Boolean(parsed.fallbackUsed),

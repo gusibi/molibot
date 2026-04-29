@@ -4,17 +4,20 @@
     import Button from "$lib/ui/Button.svelte";
 
     type ProviderMode = "pi" | "custom";
+    type CustomProviderProtocol = "openai-compatible" | "anthropic";
     type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
     type ThinkingSupportMode = "auto" | "enabled" | "disabled";
     type ThinkingFormat =
         | "auto"
         | "openai"
         | "openrouter"
+        | "anthropic"
         | "deepseek"
         | "zai"
         | "qwen"
         | "qwen-chat-template";
     type ThinkingEffortLevel = "low" | "medium" | "high";
+    type ReasoningEffortMappingMode = "auto" | "custom";
     type ModelCapabilityTag =
         | "text"
         | "vision"
@@ -37,6 +40,7 @@
         id: string;
         name: string;
         enabled: boolean;
+        protocol: CustomProviderProtocol;
         baseUrl: string;
         apiKey: string;
         models: ProviderModelForm[];
@@ -79,6 +83,12 @@
         >;
     }
 
+    interface ModelTestStatus {
+        ok: boolean;
+        status: number | null;
+        message: string;
+    }
+
     type ProviderTab = "builtin" | "custom";
     type BuiltinAuthMode = "oauth" | "api_key" | "platform";
 
@@ -101,6 +111,7 @@
     let providerSearch = "";
     let error = "";
     let message = "";
+    let modelTestResults: Record<string, ModelTestStatus> = {};
     let builtinProviders: Array<{ id: string; name: string }> = [];
     let builtinProviderModels: Record<string, string[]> = {};
     let expandedProviderModelIds = new Set<string>();
@@ -293,6 +304,7 @@
             id,
             name: "New Provider",
             enabled: true,
+            protocol: "openai-compatible",
             baseUrl: "",
             apiKey: "",
             models: [],
@@ -314,6 +326,7 @@
             id: providerId,
             name: `[Built-in] ${providerId}`,
             enabled: false,
+            protocol: "openai-compatible",
             baseUrl: "",
             apiKey: "",
             models,
@@ -333,6 +346,41 @@
         if (!provider.enabled) return false;
         if (isBuiltinProvider(provider)) return true;
         return Boolean(provider.baseUrl.trim() && provider.apiKey.trim());
+    }
+
+    function defaultPathForProtocol(protocol: CustomProviderProtocol): string {
+        return protocol === "anthropic" ? "/v1/messages" : "/v1/chat/completions";
+    }
+
+    function normalizeProviderProtocol(input: unknown): CustomProviderProtocol {
+        return input === "anthropic" ? "anthropic" : "openai-compatible";
+    }
+
+    function setProviderProtocol(
+        providerId: string,
+        protocol: CustomProviderProtocol,
+    ): void {
+        updateProviderById(providerId, (provider) => {
+            const previousDefaultPath = defaultPathForProtocol(
+                provider.protocol,
+            );
+            const path = !provider.path.trim() ||
+                provider.path.trim() === previousDefaultPath
+                ? defaultPathForProtocol(protocol)
+                : provider.path;
+            const thinkingFormat = protocol === "anthropic"
+                ? "anthropic"
+                : provider.thinkingFormat === "anthropic"
+                  ? "openai"
+                  : provider.thinkingFormat;
+            return {
+                ...provider,
+                protocol,
+                path,
+                thinkingFormat,
+                reasoningEffortMap: {},
+            };
+        });
     }
 
     function ensureModelDefaults(model: ProviderModelForm): void {
@@ -653,6 +701,8 @@
         switch (format) {
             case "openrouter":
                 return "OpenRouter reasoning.effort";
+            case "anthropic":
+                return "Anthropic adaptive thinking";
             case "deepseek":
                 return "DeepSeek thinking.type + reasoning_effort";
             case "zai":
@@ -667,6 +717,72 @@
             default:
                 return "OpenAI-style reasoning_effort fallback";
         }
+    }
+
+    function thinkingFormatUsesEffortMap(format: ThinkingFormat): boolean {
+        return !["zai", "qwen", "qwen-chat-template"].includes(format);
+    }
+
+    function autoReasoningEffortValue(
+        format: ThinkingFormat,
+        level: ThinkingEffortLevel,
+    ): string {
+        if (format === "deepseek") return "high";
+        return level;
+    }
+
+    function reasoningEffortOptions(format: ThinkingFormat): string[] {
+        if (format === "deepseek") return ["high"];
+        if (format === "anthropic") return ["low", "medium", "high", "xhigh", "max"];
+        return ["low", "medium", "high"];
+    }
+
+    function reasoningEffortMappingMode(
+        provider: CustomProviderForm,
+    ): ReasoningEffortMappingMode {
+        return Object.values(provider.reasoningEffortMap ?? {}).some((value) =>
+            String(value ?? "").trim(),
+        )
+            ? "custom"
+            : "auto";
+    }
+
+    function defaultReasoningEffortMap(
+        format: ThinkingFormat,
+    ): Partial<Record<ThinkingEffortLevel, string>> {
+        return Object.fromEntries(
+            thinkingEffortLevels.map((level) => [
+                level,
+                autoReasoningEffortValue(format, level),
+            ]),
+        ) as Partial<Record<ThinkingEffortLevel, string>>;
+    }
+
+    function setReasoningEffortMappingMode(
+        providerId: string,
+        mode: ReasoningEffortMappingMode,
+    ): void {
+        updateProviderById(providerId, (provider) => ({
+            ...provider,
+            reasoningEffortMap:
+                mode === "custom"
+                    ? defaultReasoningEffortMap(provider.thinkingFormat)
+                    : {},
+        }));
+    }
+
+    function setReasoningEffortMapValue(
+        providerId: string,
+        level: ThinkingEffortLevel,
+        value: string,
+    ): void {
+        updateProviderById(providerId, (provider) => ({
+            ...provider,
+            reasoningEffortMap: {
+                ...(provider.reasoningEffortMap ?? {}),
+                [level]: value,
+            },
+        }));
     }
 
     function thinkingNotices(provider: CustomProviderForm): string[] {
@@ -703,6 +819,31 @@
         selectedProviderId = providersForTab(tab)[0]?.id ?? "";
     }
 
+    function modelTestKey(providerId: string, modelId: string): string {
+        return `${providerId}|${modelId.trim()}`;
+    }
+
+    function getModelTestResult(
+        providerId: string,
+        modelId: string,
+    ): ModelTestStatus | undefined {
+        return modelTestResults[modelTestKey(providerId, modelId)];
+    }
+
+    function setModelTestResult(
+        providerId: string,
+        modelId: string,
+        result?: ModelTestStatus,
+    ): void {
+        const key = modelTestKey(providerId, modelId);
+        if (result) {
+            modelTestResults = { ...modelTestResults, [key]: result };
+            return;
+        }
+        const { [key]: _removed, ...remaining } = modelTestResults;
+        modelTestResults = remaining;
+    }
+
     async function testProviderModel(
         providerId: string,
         modelId: string,
@@ -711,9 +852,8 @@
         if (!provider) return;
         const targetModel = modelId.trim();
         if (!targetModel) return;
-        testingModelKey = `${providerId}|${targetModel}`;
-        error = "";
-        message = "";
+        testingModelKey = modelTestKey(providerId, targetModel);
+        setModelTestResult(providerId, targetModel);
         try {
             ensureProviderDefaults(provider);
 
@@ -721,6 +861,7 @@
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                    protocol: provider.protocol,
                     baseUrl: provider.baseUrl,
                     apiKey: provider.apiKey,
                     path: provider.path,
@@ -751,9 +892,17 @@
                         : m,
                 ),
             }));
-            message = `[${provider.name} / ${targetModel}] ${data.message}`;
+            setModelTestResult(providerId, targetModel, {
+                ok: data.ok,
+                status: data.status,
+                message: data.message,
+            });
         } catch (e) {
-            error = e instanceof Error ? e.message : String(e);
+            setModelTestResult(providerId, targetModel, {
+                ok: false,
+                status: null,
+                message: e instanceof Error ? e.message : String(e),
+            });
         } finally {
             testingModelKey = "";
         }
@@ -763,6 +912,7 @@
         loading = true;
         error = "";
         message = "";
+        modelTestResults = {};
 
         try {
             const [settingsRes, metaRes] = await Promise.all([
@@ -807,6 +957,7 @@
                         builtinProviders.some((b) => b.id === cp.id)
                             ? cp.enabled === true
                             : cp.enabled !== false,
+                    protocol: normalizeProviderProtocol((cp as any).protocol),
                     models: Array.isArray(cp.models)
                         ? cp.models.map((m: any) => {
                               if (typeof m === "string") {
@@ -916,6 +1067,7 @@
                 ...form,
                 customProviders: form.customProviders.map((provider) => ({
                     ...provider,
+                    protocol: normalizeProviderProtocol(provider.protocol),
                     supportsThinking:
                         provider.thinkingSupportMode === "auto"
                             ? undefined
@@ -993,9 +1145,10 @@
                 Providers & Models
             </h1>
             <p class="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted-foreground)]">
-                Built-in transports and custom OpenAI-compatible endpoints feed
-                the same routing pool. Enable providers here, declare model
-                capabilities, then choose any enabled model from AI Routing.
+                Built-in transports plus custom OpenAI-compatible or Anthropic
+                endpoints feed the same routing pool. Enable providers here,
+                declare model capabilities, then choose any enabled model from
+                AI Routing.
             </p>
         </header>
         <a
@@ -1373,6 +1526,32 @@
                                     class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
                                 >
                                     <span class="font-medium text-[var(--foreground)]"
+                                        >Protocol</span
+                                    >
+                                    <select
+                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-[var(--ring)] focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
+                                        value={cp.protocol}
+                                        on:change={(event) =>
+                                            setProviderProtocol(
+                                                cp.id,
+                                                normalizeProviderProtocol(
+                                                    event.currentTarget.value,
+                                                ),
+                                            )}
+                                    >
+                                        <option value="openai-compatible">
+                                            OpenAI-compatible
+                                        </option>
+                                        <option value="anthropic">
+                                            Anthropic Messages
+                                        </option>
+                                    </select>
+                                </label>
+
+                                <label
+                                    class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
+                                >
+                                    <span class="font-medium text-[var(--foreground)]"
                                         >API Base URL</span
                                     >
                                     <input
@@ -1391,7 +1570,9 @@
                                     <input
                                         class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-[var(--ring)] focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
                                         bind:value={cp.path}
-                                        placeholder="/v1/chat/completions"
+                                        placeholder={defaultPathForProtocol(
+                                            cp.protocol,
+                                        )}
                                     />
                                 </label>
 
@@ -1436,6 +1617,9 @@
                                         <option value="openrouter">
                                             OpenRouter `reasoning.effort`
                                         </option>
+                                        <option value="anthropic">
+                                            Anthropic adaptive `thinking`
+                                        </option>
                                         <option value="deepseek">
                                             DeepSeek `thinking.type` + `reasoning_effort`
                                         </option>
@@ -1472,33 +1656,99 @@
                                         </div>
                                     {/if}
 
-                                    <div>
-                                        <span class="font-medium text-[var(--foreground)]"
-                                            >Reasoning Effort Value Mapping</span
-                                        >
-                                        <p class="mt-1 text-xs text-[var(--muted-foreground)]">
-                                            这不是“思维维度”配置，只是把 low /
-                                            medium / high 转成上游要求的字符串；
-                                            不需要映射时留空。
-                                        </p>
-                                    </div>
-                                    <div class="grid gap-3 md:grid-cols-3">
-                                        {#each thinkingEffortLevels as level}
+                                    {#if thinkingFormatUsesEffortMap(cp.thinkingFormat)}
+                                        <div class="grid gap-2">
                                             <label
-                                                class="grid gap-2 text-sm"
+                                                class="grid gap-2 text-sm md:max-w-xs"
                                             >
-                                                <span
-                                                    class="font-medium capitalize text-[var(--muted-foreground)]"
-                                                    >{level}</span
+                                                <span class="font-medium text-[var(--foreground)]"
+                                                    >Reasoning Effort Mapping</span
                                                 >
-                                                <input
+                                                <select
                                                     class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-[var(--ring)] focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
-                                                    bind:value={cp.reasoningEffortMap[level]}
-                                                    placeholder={level}
-                                                />
+                                                    value={reasoningEffortMappingMode(
+                                                        cp,
+                                                    )}
+                                                    on:change={(event) =>
+                                                        setReasoningEffortMappingMode(
+                                                            cp.id,
+                                                            event.currentTarget
+                                                                .value as ReasoningEffortMappingMode,
+                                                        )}
+                                                >
+                                                    <option value="auto">
+                                                        Auto (recommended)
+                                                    </option>
+                                                    <option value="custom">
+                                                        Custom override
+                                                    </option>
+                                                </select>
                                             </label>
-                                        {/each}
-                                    </div>
+                                            <p class="text-xs leading-5 text-[var(--muted-foreground)]">
+                                                Auto maps low / medium / high for
+                                                {thinkingFormatLabel(
+                                                    cp.thinkingFormat,
+                                                )}: {thinkingEffortLevels
+                                                    .map(
+                                                        (level) =>
+                                                            `${level} -> ${autoReasoningEffortValue(
+                                                                cp.thinkingFormat,
+                                                                level,
+                                                            )}`,
+                                                    )
+                                                    .join(", ")}.
+                                            </p>
+                                        </div>
+
+                                        {#if reasoningEffortMappingMode(cp) === "custom"}
+                                            <div class="grid gap-3 md:grid-cols-3">
+                                                {#each thinkingEffortLevels as level}
+                                                    <label
+                                                        class="grid gap-2 text-sm"
+                                                    >
+                                                        <span
+                                                            class="font-medium capitalize text-[var(--muted-foreground)]"
+                                                            >{level}</span
+                                                        >
+                                                        <select
+                                                            class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-[var(--ring)] focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
+                                                            value={cp
+                                                                .reasoningEffortMap[
+                                                                level
+                                                            ] ??
+                                                                autoReasoningEffortValue(
+                                                                    cp.thinkingFormat,
+                                                                    level,
+                                                                )}
+                                                            on:change={(event) =>
+                                                                setReasoningEffortMapValue(
+                                                                    cp.id,
+                                                                    level,
+                                                                    event
+                                                                        .currentTarget
+                                                                        .value,
+                                                                )}
+                                                        >
+                                                            {#each reasoningEffortOptions(cp.thinkingFormat) as option}
+                                                                <option
+                                                                    value={option}
+                                                                >
+                                                                    {option}
+                                                                </option>
+                                                            {/each}
+                                                        </select>
+                                                    </label>
+                                                {/each}
+                                            </div>
+                                        {/if}
+                                    {:else}
+                                        <div class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-3 text-xs leading-5 text-[var(--muted-foreground)]">
+                                            {thinkingFormatLabel(cp.thinkingFormat)}
+                                            only toggles thinking on/off, so low
+                                            / medium / high mapping is not sent
+                                            for this format.
+                                        </div>
+                                    {/if}
                                 </div>
 
                                 <label class="grid gap-2 text-sm md:col-span-2">
@@ -1548,6 +1798,10 @@
                             {#each visibleModelRows(cp) as row (row.index)}
                                 {@const model = row.model}
                                 {@const index = row.index}
+                                {@const testResult = getModelTestResult(
+                                    cp.id,
+                                    model.id,
+                                )}
                                 <div
                                     class="relative overflow-hidden rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)]"
                                 >
@@ -1610,6 +1864,30 @@
                                             Remove
                                         </Button>
                                     </div>
+
+                                    {#if testResult}
+                                        <div
+                                            class={`mx-4 mb-3 rounded-lg border px-4 py-3 text-xs leading-5 ${
+                                                testResult.ok
+                                                    ? "border-[color-mix(in_oklab,hsl(146_55%_42%)_34%,var(--border))] bg-[color-mix(in_oklab,hsl(146_55%_42%)_12%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_88%,var(--foreground))]"
+                                                    : "border-[color-mix(in_oklab,hsl(0_72%_56%)_34%,var(--border))] bg-[color-mix(in_oklab,hsl(0_72%_56%)_10%,var(--card))] text-[color-mix(in_oklab,hsl(0_72%_56%)_86%,var(--foreground))]"
+                                            }`}
+                                        >
+                                            <div class="font-semibold">
+                                                Model test
+                                                {testResult.ok
+                                                    ? "passed"
+                                                    : "failed"}
+                                                {testResult.status
+                                                    ? ` · HTTP ${testResult.status}`
+                                                    : ""}
+                                            </div>
+                                            <pre
+                                                class="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-inherit"
+                                                >{testResult.message}</pre
+                                            >
+                                        </div>
+                                    {/if}
 
                                     <div class="bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-3">
                                         <div

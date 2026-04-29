@@ -12,6 +12,7 @@ import {
   type ProviderModelConfig,
   type McpServerConfig,
   type CustomProviderConfig,
+  type CustomProviderProtocol,
   type TelegramBotConfig,
   type FeishuBotConfig,
   type QQBotConfig,
@@ -416,6 +417,10 @@ function normalizeBuiltInRouteKey(value: unknown): string {
   return model ? `pi|${providerId}|${model}` : raw;
 }
 
+function sanitizeCustomProviderProtocol(input: unknown): CustomProviderProtocol {
+  return String(input ?? "").trim() === "anthropic" ? "anthropic" : "openai-compatible";
+}
+
 function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
   if (!Array.isArray(input)) return [];
 
@@ -433,16 +438,18 @@ function sanitizeCustomProviders(input: unknown): CustomProviderConfig[] {
     const { models, defaultModel } = sanitizeModels(item, providerRoles);
     const name = String(item.name ?? "").trim() || id;
     const baseUrl = String(item.baseUrl ?? "").trim();
+    const protocol = sanitizeCustomProviderProtocol(item.protocol);
 
     out.push({
       id,
       name,
       enabled: item.enabled === undefined ? !isKnownProvider(id) : Boolean(item.enabled),
+      protocol,
       baseUrl,
       apiKey: String(item.apiKey ?? "").trim(),
       models,
       defaultModel,
-      path: String(item.path ?? "").trim() || "/v1/chat/completions",
+      path: String(item.path ?? "").trim() || (protocol === "anthropic" ? "/v1/messages" : "/v1/chat/completions"),
       supportsThinking: sanitizeOptionalThinkingSupport(item.supportsThinking),
       thinkingFormat: resolveCustomProviderThinkingFormat(item.thinkingFormat, { id, name, baseUrl }),
       reasoningEffortMap: sanitizeReasoningEffortMap(item.reasoningEffortMap)
@@ -823,6 +830,7 @@ function migrateLegacyCustomProvider(raw: RawSettings): CustomProviderConfig[] {
       id: "custom-legacy",
       name: "Custom (legacy)",
       enabled: true,
+      protocol: "openai-compatible",
       baseUrl,
       apiKey,
       models: model ? [{ id: model, tags: ["text"], supportedRoles: [...DEFAULT_ROLES] }] : [],
@@ -986,6 +994,7 @@ export class SettingsStore {
         enabled INTEGER NOT NULL,
         base_url TEXT NOT NULL,
         api_key TEXT NOT NULL,
+        protocol TEXT NOT NULL DEFAULT 'openai-compatible',
         default_model TEXT NOT NULL,
         path TEXT NOT NULL,
         supports_thinking INTEGER,
@@ -1007,6 +1016,11 @@ export class SettingsStore {
       CREATE INDEX IF NOT EXISTS idx_settings_provider_models_provider ON settings_custom_provider_models(provider_id);
       CREATE INDEX IF NOT EXISTS idx_settings_provider_models_order ON settings_custom_provider_models(provider_id, order_index);
     `);
+    try {
+      db.exec("ALTER TABLE settings_custom_providers ADD COLUMN protocol TEXT NOT NULL DEFAULT 'openai-compatible'");
+    } catch {
+      // column already exists
+    }
     try {
       db.exec("ALTER TABLE settings_custom_providers ADD COLUMN supports_thinking INTEGER");
     } catch {
@@ -1093,7 +1107,7 @@ export class SettingsStore {
       }
 
       const providerRows = db.prepare(`
-        SELECT id, name, enabled, base_url, api_key, default_model, path, supports_thinking, thinking_format, reasoning_effort_map_json
+        SELECT id, name, enabled, base_url, api_key, protocol, default_model, path, supports_thinking, thinking_format, reasoning_effort_map_json
         FROM settings_custom_providers
         ORDER BY id ASC
       `).all() as Array<{
@@ -1102,6 +1116,7 @@ export class SettingsStore {
         enabled: number;
         base_url: string;
         api_key: string;
+        protocol: string;
         default_model: string;
         path: string;
         supports_thinking: number | null;
@@ -1134,6 +1149,7 @@ export class SettingsStore {
         id: row.id,
         name: row.name || row.id,
         enabled: Boolean(row.enabled),
+        protocol: sanitizeCustomProviderProtocol(row.protocol),
         baseUrl: row.base_url,
         apiKey: row.api_key,
         models: modelsByProvider.get(row.id) ?? [],
@@ -1203,8 +1219,8 @@ export class SettingsStore {
         db.exec("DELETE FROM settings_custom_providers");
         const insertProvider = db.prepare(`
           INSERT INTO settings_custom_providers
-            (id, name, enabled, base_url, api_key, default_model, path, supports_thinking, thinking_format, reasoning_effort_map_json, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, enabled, base_url, api_key, protocol, default_model, path, supports_thinking, thinking_format, reasoning_effort_map_json, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const insertModel = db.prepare(`
           INSERT INTO settings_custom_provider_models
@@ -1218,6 +1234,7 @@ export class SettingsStore {
             provider.enabled ? 1 : 0,
             provider.baseUrl,
             provider.apiKey,
+            provider.protocol ?? "openai-compatible",
             provider.defaultModel,
             provider.path,
             provider.supportsThinking === undefined ? null : (provider.supportsThinking ? 1 : 0),

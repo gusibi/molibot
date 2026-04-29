@@ -6,6 +6,7 @@ import type {
 } from "./thinking.js";
 
 export type ProviderMode = "pi" | "custom";
+export type CustomProviderProtocol = "openai-compatible" | "anthropic";
 
 export type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
 export type ModelCapabilityTag = "text" | "vision" | "audio_input" | "stt" | "tts" | "tool";
@@ -41,6 +42,7 @@ export interface CustomProviderConfig {
   id: string;
   name: string;
   enabled: boolean;
+  protocol?: CustomProviderProtocol;
   baseUrl: string;
   apiKey: string;
   models: ProviderModelConfig[];
