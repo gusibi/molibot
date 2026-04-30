@@ -28,3 +28,17 @@
 - 已更新 `features.md` 和 `prd.md`，记录 AI Providers / Routing 统一模型池设置体验。
 - 验证：两个改动页面通过 Svelte compiler 编译解析。
 - 完整 `npm run build` 仍失败在只读沙箱不允许写 `.svelte-kit/tsconfig.json`，未进入 Vite 构建阶段。
+
+## 2026-05-01 QQBot SDK upgrade progress
+
+- Started comparison of local package/qqbot against upstream openclaw-qqbot.
+- Confirmed workspace has pre-existing unrelated dirty files; scope will stay on package/qqbot plus required docs.
+
+- Synced package/qqbot source to upstream QQ Bot SDK v1.7.1 and patched Molibot runtime compatibility by replacing the unavailable plugin-sdk/core runtime import with local helpers plus type-only SDK imports.
+- Updated package/qqbot package metadata to 1.7.1.
+- Replaced obsolete remote-audio direct-upload assertions with stable outbound tests for missing credentials and user-facing media errors.
+- Verified package build, focused outbound tests, and full Molibot production build.
+
+- Adjusted QQ /bot-upgrade default to doc-only mode for Molibot; hot reload now requires explicit upgradeMode=hot-reload.
+
+- 2026-05-01 follow-up: patched package/qqbot/src/gateway.ts so Molibot onEvent mode skips OpenClaw runtime preflight, approval gateway, SDK slash interception, and per-message runtime lookup.

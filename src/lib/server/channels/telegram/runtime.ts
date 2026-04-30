@@ -1025,7 +1025,7 @@ export class TelegramManager extends BaseChannelRuntime {
   private rehydrateQueuedTelegramEvent(event: ChannelInboundMessage): ChannelInboundMessage {
     return {
       ...event,
-      imageContents: rebuildImageContentsFromAttachments(event.attachments, (attachment, error) => {
+      imageContents: rebuildImageContentsFromAttachments(event.attachments, this.workspaceDir, (attachment, error) => {
         momWarn("telegram", "queued_image_restore_failed", {
           chatId: event.chatId,
           scopeId: this.resolveEventScopeId(event),

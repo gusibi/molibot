@@ -4,9 +4,36 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import crypto from "node:crypto";
 
-/** QQ Bot API 最大上传文件大小：20MB */
-export const MAX_UPLOAD_SIZE = 20 * 1024 * 1024;
+/** QQ Bot API 各类型文件上传大小限制（QQ 机器人上行） */
+export const UPLOAD_SIZE_LIMITS: Record<number, number> = {
+  1: 30 * 1024 * 1024,   // IMAGE:  30MB
+  2: 100 * 1024 * 1024,  // VIDEO:  100MB
+  3: 20 * 1024 * 1024,   // VOICE:  20MB
+  4: 100 * 1024 * 1024,  // FILE:   100MB
+};
+
+/** 文件类型中文名映射 */
+const FILE_TYPE_NAMES: Record<number, string> = {
+  1: "图片",
+  2: "视频",
+  3: "语音",
+  4: "文件",
+};
+
+/** 获取文件类型的中文名称；未知类型返回 "文件" */
+export function getFileTypeName(fileType: number): string {
+  return FILE_TYPE_NAMES[fileType] ?? "文件";
+}
+
+/** 获取指定文件类型的上传大小限制；未知类型默认 100MB */
+export function getMaxUploadSize(fileType: number): number {
+  return UPLOAD_SIZE_LIMITS[fileType] ?? 100 * 1024 * 1024;
+}
+
+/** @deprecated 使用 getMaxUploadSize(fileType) 代替 */
+export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
 
 /** 大文件阈值（超过此值发送进度提示）：5MB */
 export const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024;
@@ -119,4 +146,48 @@ export function getMimeType(filePath: string): string {
     ".txt": "text/plain",
   };
   return mimeTypes[ext] ?? "application/octet-stream";
+}
+
+/**
+ * 将远端文件下载到本地目录。
+ *
+ * @param url 远端 URL
+ * @param destDir 目标目录（不存在时自动创建）
+ * @param originalFilename 可选的原始文件名（覆盖 URL 推断）
+ * @returns 本地文件完整路径；下载失败返回 null
+ */
+export async function downloadFile(url: string, destDir: string, originalFilename?: string): Promise<string | null> {
+  try {
+    if (!fs.existsSync(destDir)) {
+      fs.mkdirSync(destDir, { recursive: true });
+    }
+
+    const resp = await fetch(url, { redirect: "follow" });
+    if (!resp.ok || !resp.body) return null;
+
+    // 确定文件名：优先使用 originalFilename，否则从 URL 推断
+    let filename = originalFilename?.trim() || "";
+    if (!filename) {
+      try {
+        const urlPath = new URL(url).pathname;
+        filename = path.basename(urlPath) || "download";
+      } catch {
+        filename = "download";
+      }
+    }
+
+    // 加上时间戳避免同名冲突
+    const ts = Date.now();
+    const ext = path.extname(filename);
+    const base = path.basename(filename, ext) || "file";
+    const rand = crypto.randomBytes(3).toString("hex");
+    const safeFilename = `${base}_${ts}_${rand}${ext}`;
+
+    const destPath = path.join(destDir, safeFilename);
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    await fs.promises.writeFile(destPath, buffer);
+    return destPath;
+  } catch {
+    return null;
+  }
 }

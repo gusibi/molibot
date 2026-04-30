@@ -27,7 +27,13 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - `/settings/ai/providers` 的单模型连接测试反馈必须贴近被测试模型展示；页面级保存状态区只用于保存/加载这类全局结果。
 - 自定义 provider 的测试请求与真实 runner 请求必须共享同一 endpoint 语义；如果底层 SDK 需要 base URL 而不是完整 endpoint，运行时必须显式转换并在错误日志中展示推导后的 endpoint，避免 test 成功但实际对话 404。
 - 当 `visionModelKey` 明确配置为不同于 `textModelKey` 的可视觉模型时，图片消息必须优先走该 vision 路由；如果图片识别模型请求失败但备用模型恢复成功，需要先发送独立的用户可见失败说明，再继续模型处理。
-- 自定义 provider 的图片原生直传必须以模型 `vision` 验证通过为前提；只声明 `vision` 但未验证通过时，应先走共享的 direct image-understanding fallback payload，避免把图片交给未确认兼容的流式 SDK transport。
+- 自定义 provider 的图片原生直传必须以模型 `vision` 验证通过为前提；只声明 `vision` 但未验证通过时，应先走共享的 direct image-understanding fallback payload，备用模型也不得仅凭 `vision` tag 宣告原生图片输入，避免把图片交给未确认兼容的流式 SDK transport。
+- 入队后的图片消息必须在共享队列恢复阶段从附件文件重建 `imageContents`；Channel 可以为了持久化队列清空 base64，但恢复时必须使用 workspace-relative path 读回图片，否则 runner 不得只把图片路径交给模型猜测。
+- 当且仅当 provider 显式配置为 Anthropic 协议时，Anthropic/MiMo Messages API 请求不得把 `system` 或 `developer` 作为 `messages[].role` 发送；系统提示和开发者提示必须合并到顶层 `system` 字段，`messages` 内只保留模型协议允许的对话角色。
+- 图片 fallback 必须默认记录脱敏请求日志，至少包含 url、provider、configured/effective protocol、model、headers（密钥脱敏）和 body（图片 base64/data-url 脱敏），方便排查不同 provider 的真实传输格式。
+- 图片 fallback 的回归测试必须覆盖真实请求体里的图片字段；OpenAI-compatible 至少断言 `image_url` data URL，Anthropic 至少断言 `source.type=base64`、`media_type` 和图片 `data`。
+- 安装/初始化必须把极小的图片测试 fixture 放到用户数据工作区；provider vision 测试应从 `<DATA_DIR>/fixtures/vision-smoke.png` 读取真实图片字节，而不是依赖源码仓库路径或硬编码假 base64。
+- `package/weixin-agent-sdk` 作为 Molibot 的 Weixin 协议基础层，应跟进 `openclaw-weixin` 的通用协议能力：请求 `base_info.bot_agent`、启动/停止 lifecycle 通知、扫码登录配对码/重定向状态处理应在 SDK 层提供；OpenClaw 插件专属 hook 仍不应下沉到 SDK。
 
 ## 3. V1 Scope
 
@@ -2958,3 +2964,23 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `src/lib/server/agent/prompt.ts` 必须补充 `subagent` 的适用场景、角色说明和 chain/parallel 使用规则。
   - `src/lib/server/agent/log.ts` 必须默认输出 `subagent_start` / `subagent_task_start` / `subagent_task_end` / `subagent_end` 事件，并在 pretty 模式下带上 delegated role、step、mode、usage 等关键信息。
   - `features.md` 必须记录本次能力落地。
+
+## 199. QQ SDK 应跟进上游协议和媒体能力，但不接管共享编排 (2026-05-01)
+- Priority: P1
+- Stage: Delivered (2026-05-01)
+- Problem:
+  - 本地 `package/qqbot` 基于较早的 QQ Bot SDK 形态开发，已经落后于上游 v1.7.1 的群策略、引用消息、审批交互、Slash 命令、媒体上传和附件处理能力。
+  - 直接整包覆盖会把 OpenClaw 插件工具注册、热升级、队列/调度等宿主能力混进 Molibot 的 Channel SDK，破坏“Channel 只做平台适配，共享上层做编排”的边界。
+- Requirement:
+  - `package/qqbot` 应同步上游 QQ 协议、消息解析、媒体发送、引用上下文、审批交互和 STT 附件处理等 SDK 层能力。
+  - Molibot 自己的入站队列、会话推进、任务调度和 ACP 共享控制仍必须留在共享 runtime / Agent 层，不因 SDK 升级下沉到 QQ Channel。
+  - 上游运行时只存在于 OpenClaw 插件宿主里的入口不能成为 Molibot 构建的硬依赖；本地包需要使用 Molibot 可解析的运行时入口或本地兼容实现。
+  - 升级后必须保留可运行的媒体出站回归覆盖，尤其是缺失凭证短路和用户可见错误文案映射这类不依赖真实 QQ 网络的稳定逻辑。
+- Enforcement:
+  - `package/qqbot` 版本标记为 `1.7.1` 并同步 package lock。
+  - `package/qqbot/src/channel.ts` 不得运行时导入 Molibot 不存在的 `openclaw/plugin-sdk/core`。
+  - 当 `startGateway()` 收到 `onEvent` 回调时，表示 Molibot 已经接管入站、命令、队列和 ACP；此模式下不得无条件调用 `getQQBotRuntime()`，也不得启动 OpenClaw approval gateway 或 SDK slash-command 拦截。
+  - `/bot-upgrade` 在 Molibot 默认必须是文档指引模式，不能默认执行 npm 热更新；只有显式配置 `upgradeMode="hot-reload"` 时才允许进入热更新路径。
+  - `package/qqbot/src/outbound.test.ts` 必须覆盖升级后的稳定出站行为。
+  - `npm --prefix package/qqbot run build` 和 `npm run build` 必须通过。
+  - `features.md` / `CHANGELOG.md` / `README.md` 必须记录本次交付边界。

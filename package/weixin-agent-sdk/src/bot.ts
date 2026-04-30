@@ -1,4 +1,5 @@
 import type { Agent } from "./agent/interface.js";
+import { notifyStart, notifyStop } from "./api/api.js";
 import {
   clearAllWeixinAccounts,
   DEFAULT_BASE_URL,
@@ -11,6 +12,7 @@ import {
 } from "./auth/accounts.js";
 import {
   DEFAULT_ILINK_BOT_TYPE,
+  displayQRCode,
   startWeixinLoginWithQr,
   waitForWeixinLogin,
 } from "./auth/login-qr.js";
@@ -43,7 +45,7 @@ export async function login(opts?: LoginOptions): Promise<string> {
   const log = opts?.log ?? console.log;
   const apiBaseUrl = opts?.baseUrl ?? DEFAULT_BASE_URL;
 
-  log("正在启动微信扫码登录...");
+  log("正在启动...");
 
   const startResult = await startWeixinLoginWithQr({
     apiBaseUrl,
@@ -54,20 +56,10 @@ export async function login(opts?: LoginOptions): Promise<string> {
     throw new Error(startResult.message);
   }
 
-  log("\n使用微信扫描以下二维码，以完成连接：\n");
-  try {
-    const qrcodeterminal = await import("qrcode-terminal");
-    await new Promise<void>((resolve) => {
-      qrcodeterminal.default.generate(startResult.qrcodeUrl!, { small: true }, (qr: string) => {
-        console.log(qr);
-        resolve();
-      });
-    });
-  } catch {
-    log(`二维码链接: ${startResult.qrcodeUrl}`);
-  }
+  log("\n用手机微信扫描以下二维码，以继续连接：\n");
+  await displayQRCode(startResult.qrcodeUrl);
 
-  log("\n等待扫码...\n");
+  log("\n正在等待操作...\n");
 
   const waitResult = await waitForWeixinLogin({
     sessionKey: startResult.sessionKey,
@@ -88,7 +80,7 @@ export async function login(opts?: LoginOptions): Promise<string> {
   });
   registerWeixinAccountId(normalizedId);
 
-  log("\n✅ 与微信连接成功！");
+  log("\n已将此 OpenClaw 连接到微信。");
   return normalizedId;
 }
 
@@ -145,13 +137,33 @@ export async function start(agent: Agent, opts?: StartOptions): Promise<void> {
 
   log(`[weixin] 启动 bot, account=${account.accountId}`);
 
-  await monitorWeixinProvider({
-    baseUrl: account.baseUrl,
-    cdnBaseUrl: account.cdnBaseUrl,
-    token: account.token,
-    accountId: account.accountId,
-    agent,
-    abortSignal: opts?.abortSignal,
-    log,
-  });
+  try {
+    const resp = await notifyStart({ baseUrl: account.baseUrl, token: account.token });
+    if (resp.ret !== undefined && resp.ret !== 0) {
+      log(`[weixin] notifyStart returned ret=${resp.ret} errmsg=${resp.errmsg ?? ""}`);
+    }
+  } catch (err) {
+    log(`[weixin] notifyStart failed (ignored): ${String(err)}`);
+  }
+
+  try {
+    await monitorWeixinProvider({
+      baseUrl: account.baseUrl,
+      cdnBaseUrl: account.cdnBaseUrl,
+      token: account.token,
+      accountId: account.accountId,
+      agent,
+      abortSignal: opts?.abortSignal,
+      log,
+    });
+  } finally {
+    try {
+      const resp = await notifyStop({ baseUrl: account.baseUrl, token: account.token });
+      if (resp.ret !== undefined && resp.ret !== 0) {
+        log(`[weixin] notifyStop returned ret=${resp.ret} errmsg=${resp.errmsg ?? ""}`);
+      }
+    } catch (err) {
+      log(`[weixin] notifyStop failed (ignored): ${String(err)}`);
+    }
+  }
 }

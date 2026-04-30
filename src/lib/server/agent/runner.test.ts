@@ -3,7 +3,7 @@ import test from "node:test";
 import { applyAssistantStreamEvent } from "./assistantStream.js";
 import { defaultRuntimeSettings } from "../settings/defaults.js";
 import type { RuntimeSettings } from "../settings/schema.js";
-import { decideVisionRouting } from "./runner.js";
+import { decideVisionRouting, resolveModelSelection } from "./runner.js";
 
 test("applyAssistantStreamEvent resets buffered assistant text on a new assistant message", () => {
   const afterDelta = applyAssistantStreamEvent(
@@ -148,4 +148,43 @@ test("decideVisionRouting does not send custom images natively before vision ver
   assert.equal(decision.mode, "fallback");
   assert.equal(decision.selection.modelId, "mimo-v2.5-pro");
   assert.equal(decision.sendImagesNatively, false);
+});
+
+test("custom vision models advertise image input only after vision verification passes", () => {
+  const settings: RuntimeSettings = {
+    ...defaultRuntimeSettings,
+    providerMode: "custom" as const,
+    defaultCustomProviderId: "custom-vision",
+    modelRouting: {
+      ...defaultRuntimeSettings.modelRouting,
+      textModelKey: "custom|custom-vision|mimo-v2.5",
+      visionModelKey: "custom|custom-vision|mimo-v2.5"
+    },
+    customProviders: [
+      {
+        id: "custom-vision",
+        name: "Custom Vision",
+        enabled: true,
+        protocol: "openai-compatible" as const,
+        baseUrl: "https://example.invalid",
+        apiKey: "test-key",
+        path: "/v1/chat/completions",
+        defaultModel: "mimo-v2.5",
+        models: [
+          {
+            id: "mimo-v2.5",
+            tags: ["text", "vision"],
+            supportedRoles: ["system", "user", "assistant"]
+          }
+        ]
+      }
+    ]
+  };
+
+  const unverified = resolveModelSelection(settings, "vision");
+  assert.deepEqual(unverified.model.input, ["text"]);
+
+  settings.customProviders[0].models[0].verification = { vision: "passed" };
+  const verified = resolveModelSelection(settings, "vision");
+  assert.deepEqual(verified.model.input, ["text", "image"]);
 });

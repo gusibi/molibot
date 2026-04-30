@@ -662,7 +662,7 @@ export class WeixinManager extends BaseChannelRuntime {
   private rehydrateQueuedEvent(payload: WeixinQueuedTaskPayload): WeixinInboundEvent {
     return {
       ...payload.event,
-      imageContents: rebuildImageContentsFromAttachments(payload.event.attachments, (attachment, error) => {
+      imageContents: rebuildImageContentsFromAttachments(payload.event.attachments, this.workspaceDir, (attachment, error) => {
         momWarn("weixin", "queued_image_restore_failed", {
           botId: this.instanceId,
           chatId: payload.event.chatId,

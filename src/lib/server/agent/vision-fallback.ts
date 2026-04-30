@@ -121,6 +121,31 @@ function extractText(payload: any): string {
   return "";
 }
 
+function redactHeaders(headers: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    out[key] = /key|authorization/i.test(key) ? "<redacted>" : value;
+  }
+  return out;
+}
+
+function redactRequestBody(body: unknown): unknown {
+  if (Array.isArray(body)) return body.map((item) => redactRequestBody(item));
+  if (!body || typeof body !== "object") return body;
+  const source = body as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (key === "data" && typeof value === "string") {
+      out[key] = `<base64:${value.length} chars>`;
+    } else if (key === "url" && typeof value === "string" && value.startsWith("data:")) {
+      out[key] = `<data-url:${value.length} chars>`;
+    } else {
+      out[key] = redactRequestBody(value);
+    }
+  }
+  return out;
+}
+
 export async function describeImageViaConfiguredProvider({
   channel,
   settings,
@@ -137,7 +162,8 @@ export async function describeImageViaConfiguredProvider({
     };
   }
 
-  const url = buildApiUrl(target.baseUrl, target.path, target.protocol);
+  const effectiveProtocol = target.protocol;
+  const url = buildApiUrl(target.baseUrl, target.path, effectiveProtocol);
   let lastErrorMessage: string | null = null;
   const imageLabel = String(label ?? "image").trim() || "image";
   const mimeType = String(image.mimeType || "image/jpeg").trim() || "image/jpeg";
@@ -154,18 +180,50 @@ export async function describeImageViaConfiguredProvider({
     });
 
     try {
-      const isAnthropic = target.protocol === "anthropic";
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: isAnthropic
-          ? buildAnthropicCompatibleHeaders(target)
-          : buildOpenAICompatibleHeaders(target),
-        body: JSON.stringify(isAnthropic
-          ? {
-              model: target.model,
-              system: "You are an image understanding bridge for a text-only assistant. Be factual, concise, and avoid guessing beyond visible evidence.",
-              max_tokens: 600,
-              messages: [{
+      const isAnthropic = effectiveProtocol === "anthropic";
+      const headers = isAnthropic
+        ? buildAnthropicCompatibleHeaders(target)
+        : buildOpenAICompatibleHeaders(target);
+      const requestBody = isAnthropic
+        ? {
+            model: target.model,
+            system: "You are an image understanding bridge for a text-only assistant. Be factual, concise, and avoid guessing beyond visible evidence.",
+            max_tokens: 600,
+            messages: [{
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: [
+                    `Analyze ${imageLabel} for a text-only assistant.`,
+                    "Return exactly these sections in plain text:",
+                    "Description: <brief visual summary>",
+                    "Visible text: <OCR text, or (none)>",
+                    "Important details: <objects, UI state, errors, charts, or cues the assistant should know>",
+                    "If something is uncertain, say uncertain instead of guessing."
+                  ].join("\n")
+                },
+                {
+                  type: "image",
+                  source: {
+                    type: "base64",
+                    media_type: mimeType,
+                    data: image.data
+                  }
+                }
+              ]
+            }]
+          }
+        : {
+            model: target.model,
+            temperature: 0,
+            max_tokens: 600,
+            messages: [
+              {
+                role: "system",
+                content: "You are an image understanding bridge for a text-only assistant. Be factual, concise, and avoid guessing beyond visible evidence."
+              },
+              {
                 role: "user",
                 content: [
                   {
@@ -180,47 +238,27 @@ export async function describeImageViaConfiguredProvider({
                     ].join("\n")
                   },
                   {
-                    type: "image",
-                    source: {
-                      type: "base64",
-                      media_type: mimeType,
-                      data: image.data
-                    }
+                    type: "image_url",
+                    image_url: { url: dataUrl }
                   }
                 ]
-              }]
-            }
-          : {
-              model: target.model,
-              temperature: 0,
-              max_tokens: 600,
-              messages: [
-                {
-                  role: "system",
-                  content: "You are an image understanding bridge for a text-only assistant. Be factual, concise, and avoid guessing beyond visible evidence."
-                },
-                {
-                  role: "user",
-                  content: [
-                    {
-                      type: "text",
-                      text: [
-                        `Analyze ${imageLabel} for a text-only assistant.`,
-                        "Return exactly these sections in plain text:",
-                        "Description: <brief visual summary>",
-                        "Visible text: <OCR text, or (none)>",
-                        "Important details: <objects, UI state, errors, charts, or cues the assistant should know>",
-                        "If something is uncertain, say uncertain instead of guessing."
-                      ].join("\n")
-                    },
-                    {
-                      type: "image_url",
-                      image_url: { url: dataUrl }
-                    }
-                  ]
-                }
-              ]
-            })
+              }
+            ]
+          };
+      momLog(channel, "image_analysis_request", {
+        url,
+        providerId: target.providerId,
+        configuredProtocol: target.protocol,
+        effectiveProtocol,
+        path: target.path,
+        model: target.model,
+        headers: redactHeaders(headers),
+        body: redactRequestBody(requestBody)
+      });
+      const resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(requestBody)
       });
 
       if (!resp.ok) {

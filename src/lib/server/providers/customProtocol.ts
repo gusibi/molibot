@@ -33,6 +33,10 @@ export interface ProviderTestPayload {
   path?: string;
   model: string;
   tags?: ModelCapabilityTag[];
+  testImage?: {
+    mimeType: string;
+    data: string;
+  };
 }
 
 export interface ProviderTestResult {
@@ -116,6 +120,7 @@ export function buildAnthropicCompatibleHeaders(
 ): Record<string, string> {
   return {
     "Content-Type": "application/json",
+    "api-key": provider.apiKey,
     "x-api-key": provider.apiKey,
     "anthropic-version": ANTHROPIC_VERSION
   };
@@ -309,6 +314,10 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
     }
     verification.text = "passed";
     if (declaredTags.includes("vision")) {
+      const testImage = payload.testImage ?? {
+        mimeType: "image/png",
+        data: SAMPLE_PNG_BASE64
+      };
       const visionProbe = await runRequest(url, buildAnthropicCompatibleHeaders(payload), {
         model: payload.model,
         max_tokens: 8,
@@ -320,8 +329,8 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
               type: "image",
               source: {
                 type: "base64",
-                media_type: "image/png",
-                data: SAMPLE_PNG_BASE64
+                media_type: testImage.mimeType,
+                data: testImage.data
               }
             }
           ]
@@ -380,6 +389,10 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
   const supportedRoles: ModelRole[] = supportsDeveloper ? [...BASE_ROLES, "developer"] : [...BASE_ROLES];
 
   if (declaredTags.includes("vision")) {
+    const testImage = payload.testImage ?? {
+      mimeType: "image/png",
+      data: SAMPLE_PNG_BASE64
+    };
     const visionProbe = await runRequest(url, buildOpenAICompatibleHeaders(payload), {
       ...basePayload,
       messages: [
@@ -390,7 +403,7 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
             {
               type: "image_url",
               image_url: {
-                url: `data:image/png;base64,${SAMPLE_PNG_BASE64}`
+                url: `data:${testImage.mimeType};base64,${testImage.data}`
               }
             }
           ]

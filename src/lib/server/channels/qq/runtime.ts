@@ -472,7 +472,7 @@ export class QQManager extends BaseChannelRuntime {
   private rehydrateQueuedEvent(event: ChannelInboundMessage): ChannelInboundMessage {
     return {
       ...event,
-      imageContents: rebuildImageContentsFromAttachments(event.attachments, (attachment, error) => {
+      imageContents: rebuildImageContentsFromAttachments(event.attachments, this.workspaceDir, (attachment, error) => {
         momWarn("qq", "queued_image_restore_failed", {
           botId: this.instanceId,
           chatId: event.chatId,

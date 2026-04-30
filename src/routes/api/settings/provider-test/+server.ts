@@ -1,6 +1,8 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
+import { config } from "$lib/server/app/env";
 import { testCustomProvider, type ProviderTestPayload } from "$lib/server/providers/customProtocol";
+import { readWorkspaceVisionSmokeImage } from "$lib/server/providers/visionSmokeFixture";
 
 export const POST: RequestHandler = async ({ request }) => {
   let body: ProviderTestPayload;
@@ -18,11 +20,16 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   try {
+    const tags = Array.isArray(body.tags) ? body.tags : [];
+    const testImage = tags.includes("vision")
+      ? readWorkspaceVisionSmokeImage(config.dataDir)
+      : undefined;
     return json(await testCustomProvider({
       ...body,
       baseUrl,
       apiKey,
-      model
+      model,
+      testImage
     }));
   } catch (error) {
     return json({

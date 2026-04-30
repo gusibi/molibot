@@ -533,7 +533,7 @@ export class FeishuManager extends BaseChannelRuntime {
     private rehydrateQueuedEvent(event: ChannelInboundMessage): ChannelInboundMessage {
         return {
             ...event,
-            imageContents: rebuildImageContentsFromAttachments(event.attachments, (attachment, error) => {
+            imageContents: rebuildImageContentsFromAttachments(event.attachments, this.workspaceDir, (attachment, error) => {
                 momWarn("feishu", "queued_image_restore_failed", {
                     chatId: event.chatId,
                     file: attachment.local,

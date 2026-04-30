@@ -35,6 +35,7 @@ const KEY_LOG_EVENTS = new Set<string>([
   "voice_transcription_success",
   "image_fallback_decision",
   "image_analysis_target",
+  "image_analysis_request",
   "image_analysis_success",
   // runner critical path
   "run_start",

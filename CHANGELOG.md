@@ -4,12 +4,32 @@
 
 ---
 
+## 2026-05-01
+
+### Weixin SDK 协议同步
+- **生命周期通知**: `package/weixin-agent-sdk` 新增 `notifyStart` / `notifyStop`，高层 SDK 启停流程会尽力通知 Weixin 后端。
+- **BotAgent 元数据**: 所有 SDK API 请求的 `base_info` 现在带有经过格式清洗的 `bot_agent`，便于后端日志归因；非法值会安全降级为 `OpenClaw`。
+- **扫码登录升级**: QR 登录改为 POST 本地 token hint，支持手机配对码、验证码锁定、已绑定提示和 IDC redirect 状态。
+- **回归覆盖**: 新增 API 测试覆盖 `bot_agent` 清洗、生命周期通知请求体，以及已有发送失败/长轮询 abort 行为。
+
+### QQ SDK 上游能力同步
+- **SDK 对齐 v1.7.1**: `package/qqbot` 升级到上游 QQ Bot SDK v1.7.1 源码形态，补齐群策略、引用消息上下文、Slash 命令、审批交互、输入状态、流式消息、STT 附件处理等模块。
+- **媒体发送增强**: QQ 出站媒体现在包含分片上传、上传缓存、受保护的远程下载、图片/语音/视频/文件统一发送队列，以及更稳定的用户可见错误映射。
+- **Molibot 边界适配**: 保留 molibot 的共享队列、会话推进和任务编排职责在上层，QQ SDK 只承担平台协议、消息转换和媒体传输；同时移除了对不存在的 `openclaw/plugin-sdk/core` 运行时入口依赖，并把 `/bot-upgrade` 默认保持为文档指引模式。
+- **直连模式修复**: Molibot 通过 `onEvent` 接管 QQ 入站时，SDK 不再触发 OpenClaw runtime 预检、审批 gateway、SDK slash 拦截或消息处理时的 `getQQBotRuntime()`，避免 `QQBot runtime not initialized` 引发重连风暴和 QQ `/gateway` 限频。
+- **回归覆盖**: 更新 `package/qqbot` 媒体出站测试，覆盖缺失凭证短路和稳定错误文案映射；`package/qqbot` 编译与主工程生产构建均已通过。
+
+---
+
 ## 2026-04-30
 
 ### 图片识别传输格式修复
-- **自定义视觉直传加验证门槛**: 自定义 provider 只有在模型 `vision` 能力验证通过后，图片消息才会走原生多模态 streaming transport；未验证但已声明 `vision` 的模型改走 direct image-understanding fallback。
+- **自定义视觉直传加验证门槛**: 自定义 provider 只有在模型 `vision` 能力验证通过后，图片消息才会走原生多模态 streaming transport；未验证但已声明 `vision` 的模型和备用候选不再宣告原生图片输入，改走 direct image-understanding fallback。
+- **队列图片恢复修复**: Telegram/QQ/Weixin/Feishu 入队消息仍会清空大体积 base64，但出队处理时现在会用 workspace-relative 附件路径恢复 `imageContents`，避免图片只以文件路径形式进入模型而绕过 fallback。
+- **MiMo Anthropic 角色格式修复**: 显式配置为 Anthropic 的 custom provider，其 runner 与图片 fallback 请求会把 `system`/`developer` 内容移到顶层 `system` 字段，不再发送 `messages[].role=system`；fallback 默认打印脱敏后的 `image_analysis_request`，请求头同时兼容 MiMo 的 `api-key`。
 - **图片 payload 更可控**: fallback 路径继续使用显式 OpenAI-compatible `image_url` 或 Anthropic-compatible `image/source` 请求体，避免图片消息在未确认兼容的 SDK transport 中失效。
-- **回归覆盖**: 新增 custom protocol helper 测试，覆盖 Anthropic baseUrl 推导和图片请求头构造；现有 runner 测试补充了“未验证 vision 不原生直传”的断言。
+- **安装级图片测试资源**: `molibot init` 现在会把随包携带的 68-byte `vision-smoke.png` 复制到 `<DATA_DIR>/fixtures/vision-smoke.png`，provider vision 测试从用户工作区读取真实图片字节再发请求。
+- **回归覆盖**: 新增 custom protocol helper、queued attachment rehydration 与 image fallback 请求体测试，覆盖 Anthropic baseUrl 推导、图片请求头构造、相对附件路径读回 base64，以及 OpenAI-compatible `image_url` / Anthropic `image/source` 两种真实图片 payload。
 
 ---
 

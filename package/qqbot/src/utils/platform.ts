@@ -68,6 +68,23 @@ export function getQQBotDataDir(...subPaths: string[]): string {
   return dir;
 }
 
+/**
+ * 获取 .openclaw/media/qqbot 下的子目录路径，并自动创建
+ *
+ * 与 getQQBotDataDir 不同，此目录位于 OpenClaw 核心的媒体安全白名单
+ * (~/.openclaw/media) 之下，下载到这里的文件可以被框架的 image/media
+ * 工具直接访问，不会触发 "Local media path is not under an allowed directory" 错误。
+ *
+ * 用于存放从 QQ 下载的图片、语音等需要被框架处理的媒体文件。
+ */
+export function getQQBotMediaDir(...subPaths: string[]): string {
+  const dir = path.join(getHomeDir(), ".openclaw", "media", "qqbot", ...subPaths);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
 // ============ 临时目录 ============
 
 /**
@@ -105,11 +122,22 @@ export function expandTilde(p: string): string {
 }
 
 /**
- * 对路径进行完整的规范化处理：展开波浪线 + 去除首尾空白
+ * 对路径进行完整的规范化处理：剥离 file:// 前缀 + 展开波浪线 + 去除首尾空白
  * 所有文件操作前应通过此函数处理用户输入的路径
  */
 export function normalizePath(p: string): string {
-  return expandTilde(p.trim());
+  let result = p.trim();
+  // 剥离 file:// 协议前缀: file:///Users/... → /Users/...
+  if (result.startsWith("file://")) {
+    result = result.slice("file://".length);
+    // 处理 URL 编码（file:// 路径中空格等字符可能被编码）
+    try {
+      result = decodeURIComponent(result);
+    } catch {
+      // decodeURIComponent 失败时保留原样
+    }
+  }
+  return expandTilde(result);
 }
 
 // ============ 文件名 UTF-8 规范化 ============
@@ -163,6 +191,7 @@ export function sanitizeFileName(name: string): string {
  * - Windows 绝对路径: C:\..., D:/..., \\server\share
  * - 相对路径: ./file, ../file
  * - 波浪线路径: ~/Desktop/file.png
+ * - file:// 协议: file:///Users/..., file:///home/...
  *
  * 不匹配:
  * - http:// / https:// URL
@@ -170,6 +199,8 @@ export function sanitizeFileName(name: string): string {
  */
 export function isLocalPath(p: string): boolean {
   if (!p) return false;
+  // file:// 协议（本地文件 URI）
+  if (p.startsWith("file://")) return true;
   // 波浪线路径（Mac/Linux 用户常用）
   if (p === "~" || p.startsWith("~/") || p.startsWith("~\\")) return true;
   // Unix 绝对路径

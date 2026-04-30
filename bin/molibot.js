@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,6 +43,16 @@ function readPromptTemplate(name) {
   return readFileSync(templatePath, "utf8");
 }
 
+function ensureVisionSmokeFixture(dataDir) {
+  const sourcePath = join(rootDir, "assets/test-images/vision-smoke.png");
+  const targetDir = join(dataDir, "fixtures");
+  const targetPath = join(targetDir, "vision-smoke.png");
+  if (existsSync(targetPath)) return null;
+  mkdirSync(targetDir, { recursive: true });
+  copyFileSync(sourcePath, targetPath);
+  return targetPath;
+}
+
 function runInit() {
   const dataDir = resolveDataDir();
   mkdirSync(dataDir, { recursive: true });
@@ -64,6 +74,8 @@ function runInit() {
       created.push(path);
     }
   }
+  const fixturePath = ensureVisionSmokeFixture(dataDir);
+  if (fixturePath) created.push(fixturePath);
 
   process.stdout.write(`Initialized: ${dataDir}\n`);
   if (created.length > 0) {

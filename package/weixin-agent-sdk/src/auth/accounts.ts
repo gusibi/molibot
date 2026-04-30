@@ -234,6 +234,25 @@ export function loadConfigRouteTag(accountId?: string): string | undefined {
 }
 
 /**
+ * Read `botAgent` from `channels.openclaw-weixin.botAgent` in openclaw.json.
+ * Returns the raw configured string; callers sanitize it before sending.
+ */
+export function loadConfigBotAgent(): string | undefined {
+  try {
+    const configPath = resolveConfigPath();
+    if (!fs.existsSync(configPath)) return undefined;
+    const raw = fs.readFileSync(configPath, "utf-8");
+    const cfg = JSON.parse(raw) as Record<string, unknown>;
+    const channels = cfg.channels as Record<string, unknown> | undefined;
+    const section = channels?.["openclaw-weixin"] as Record<string, unknown> | undefined;
+    const value = section?.botAgent;
+    return typeof value === "string" && value.trim() ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * No-op stub — config reload is now handled externally via `openclaw gateway restart`.
  */
 export async function triggerWeixinChannelReload(): Promise<void> {}

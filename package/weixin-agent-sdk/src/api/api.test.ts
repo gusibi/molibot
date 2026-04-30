@@ -1,7 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { getUpdates, sendMessage } from "./api.js";
+import { buildBaseInfo, getUpdates, notifyStart, sanitizeBotAgent, sendMessage } from "./api.js";
+
+test("sanitizeBotAgent keeps valid UA-style tokens and drops invalid tokens", () => {
+  assert.equal(sanitizeBotAgent("MyBot/1.2.0"), "MyBot/1.2.0");
+  assert.equal(
+    sanitizeBotAgent("bad-token MyBot/1.2.0 (region=cn; env=prod) 中文/1"),
+    "MyBot/1.2.0 (region=cn; env=prod)",
+  );
+  assert.equal(sanitizeBotAgent("中文"), "OpenClaw");
+});
+
+test("buildBaseInfo includes sanitized bot_agent", () => {
+  const info = buildBaseInfo("MyBot/1.2.0 invalid");
+  assert.equal(info.bot_agent, "MyBot/1.2.0");
+  assert.equal(typeof info.channel_version, "string");
+});
 
 test("sendMessage throws when Weixin business ret is non-zero", async () => {
   const originalFetch = globalThis.fetch;
@@ -70,6 +85,30 @@ test("getUpdates returns empty success payload when externally aborted", async (
     assert.equal(resp.ret, 0);
     assert.deepEqual(resp.msgs, []);
     assert.equal(resp.get_updates_buf, "cursor-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("notifyStart posts lifecycle notification with bot_agent", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedUrl = "";
+  let capturedBody = "";
+
+  globalThis.fetch = async (input, init) => {
+    capturedUrl = String(input);
+    capturedBody = String(init?.body ?? "");
+    return new Response(JSON.stringify({ ret: 0 }), { status: 200 });
+  };
+
+  try {
+    await notifyStart({
+      baseUrl: "https://api.example.test",
+      token: "token-1",
+      botAgent: "MoliBot/1.5.0",
+    });
+    assert.equal(capturedUrl, "https://api.example.test/ilink/bot/msg/notifystart");
+    assert.equal(JSON.parse(capturedBody).base_info.bot_agent, "MoliBot/1.5.0");
   } finally {
     globalThis.fetch = originalFetch;
   }

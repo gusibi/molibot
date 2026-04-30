@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { extname } from "node:path";
+import { extname, isAbsolute, join } from "node:path";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import type { FileAttachment } from "../../agent/types.js";
 
@@ -16,13 +16,19 @@ function inferImageMime(pathname: string): string | null {
 
 export function rebuildImageContentsFromAttachments(
   attachments: FileAttachment[],
+  workspaceDir?: string,
   onWarning?: (attachment: FileAttachment, error: unknown) => void
 ): ImageContent[] {
   const out: ImageContent[] = [];
   for (const attachment of attachments) {
     if (!attachment.isImage) continue;
     try {
-      const bytes = readFileSync(attachment.local);
+      const localPath = isAbsolute(attachment.local)
+        ? attachment.local
+        : workspaceDir
+          ? join(workspaceDir, attachment.local)
+          : attachment.local;
+      const bytes = readFileSync(localPath);
       const mimeType = attachment.mimeType || inferImageMime(attachment.local);
       if (!mimeType) continue;
       out.push({

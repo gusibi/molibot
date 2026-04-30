@@ -255,7 +255,10 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
     ? buildAnthropicBaseUrl(selected.baseUrl, selected.path)
     : buildOpenAIBaseUrl(selected.baseUrl, selected.path);
   const configuredModel = selected.models.find((m) => m.id === modelId);
-  const supportsDeclaredVision = Boolean(configuredModel?.tags?.includes("vision"));
+  const supportsVerifiedVision = Boolean(
+    configuredModel?.tags?.includes("vision") &&
+    configuredModel?.verification?.vision === "passed"
+  );
   return {
     id: modelId,
     name: selected.name || modelId,
@@ -263,7 +266,7 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
     provider: selected.id || "custom-provider",
     baseUrl: computedBaseUrl,
     reasoning: resolveCustomProviderReasoningSupport(selected),
-    input: supportsDeclaredVision ? ["text", "image"] : ["text"],
+    input: supportsVerifiedVision ? ["text", "image"] : ["text"],
     cost: {
       input: 0,
       output: 0,
@@ -1251,6 +1254,55 @@ function mapUnsupportedDeveloperRole(
   };
 }
 
+function extractPlainTextContent(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" ? text.trim() : "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function moveAnthropicSystemMessagesToTopLevel(context: any): any {
+  if (
+    !context ||
+    typeof context !== "object" ||
+    !Array.isArray(context.messages)
+  )
+    return context;
+
+  const systemBlocks: string[] = [];
+  const messages: unknown[] = [];
+  const existingSystemPrompt =
+    typeof context.systemPrompt === "string" ? context.systemPrompt.trim() : "";
+  if (existingSystemPrompt) systemBlocks.push(existingSystemPrompt);
+
+  for (const msg of context.messages) {
+    if (!msg || typeof msg !== "object") {
+      messages.push(msg);
+      continue;
+    }
+    const role = (msg as { role?: unknown }).role;
+    if (role !== "system" && role !== "developer") {
+      messages.push(msg);
+      continue;
+    }
+    const text = extractPlainTextContent((msg as { content?: unknown }).content);
+    if (text) systemBlocks.push(text);
+  }
+
+  return {
+    ...context,
+    systemPrompt: systemBlocks.join("\n\n"),
+    messages
+  };
+}
+
 export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
   private running = false;
@@ -1340,12 +1392,14 @@ export class MomRunner implements RunnerLike {
       },
       streamFn: (selectedModel, context, opts) => {
         const settingsNow = this.getSettings();
-        const developerPatchedContext = mapUnsupportedDeveloperRole(
-          settingsNow,
-          context,
-        );
+        const rolePatchedContext = selectedModel.api === "anthropic-messages"
+          ? moveAnthropicSystemMessagesToTopLevel(context)
+          : mapUnsupportedDeveloperRole(
+              settingsNow,
+              context,
+            );
         const contextWithoutOrphanTools = removeOrphanToolResultsFromContext(
-          developerPatchedContext,
+          rolePatchedContext,
         );
         const patchedContext = stripImagePartsForTextOnlyModel(
           selectedModel as Model<any>,

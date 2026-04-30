@@ -53,7 +53,10 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Advanced Memory System**: `Mory SDK` with layered storage (`long_term`/`daily`), hybrid retrieval, cognitive control
 - **Rich Input Support**: text, image, realtime voice recording (Web), media/file ingestion (all channels)
 - **Dedicated Vision Routing**: image turns prefer the configured vision route and surface a separate recovery notice when image-model fallback is used
-- **Verified Custom Vision Transport**: custom-provider images use native multimodal transport only after `vision` verification passes; otherwise Molibot uses a direct image-understanding fallback payload
+- **Verified Custom Vision Transport**: custom-provider images use native multimodal transport only after `vision` verification passes; otherwise Molibot keeps the model transport text-only and uses a direct image-understanding fallback payload
+- **Workspace Vision Smoke Fixture**: `molibot init` installs a tiny `fixtures/vision-smoke.png` under the active data directory so provider vision tests use real workspace image bytes
+- **Queue-Safe Image Fallback**: queued channel messages restore image bytes from saved attachments before runner execution, so fallback sees actual image content instead of only a file path
+- **MiMo/Anthropic-Compatible Roles**: providers configured as Anthropic keep system instructions in the top-level `system` field, reserve `messages` for conversational roles, and log redacted image-fallback request payloads for debugging
 - **Time-Aware Prompting**: each live user turn can carry structured current-time metadata (`message_received_at` / `timezone` / `today`) for better date-sensitive replies
 - **Shared Workbench UI**: Web chat and Settings now use one reusable workbench material system for hero panels, forms, tables, config shells, and interaction feedback
 - **Current-Session File Workspace**: Web chat now includes a real files pane with searchable attachment inventory, inline preview for common formats, downloads, and copy-path actions
@@ -91,7 +94,8 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Web Chat**: Full-featured with general file upload, image upload, realtime voice recording, current-session file workspace, thinking controls, profile-only identity, theme/i18n support
 - **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, ACP control, model switching, task delivery
 - **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings
-- **Weixin Bot**: SDK-based integration, OGG voice transcoding, CDN media delivery, ACP support
+- **QQ Bot**: SDK-based integration, group policy metadata, quoted-message context, rich media delivery, typing/streaming helpers, and Molibot-owned queue/ACP control
+- **Weixin Bot**: SDK-based integration, QR pairing-code login, lifecycle notifications, OGG voice transcoding, CDN media delivery, ACP support
 - **CLI**: Local terminal conversation entrypoint
 
 ### ACP (Agent Control Plane)
@@ -151,6 +155,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 | **Web Chat** | ⭐⭐⭐ Production-Ready | Image upload + realtime voice recording + thinking controls + profile-only identity + theme/i18n |
 | **Telegram** | ⭐⭐⭐ Production-Ready | Multi-bot, ACP control, runtime commands, model switching, task delivery, media handling |
 | **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, media/file ingress and outbound handling |
+| **QQ** | ⭐⭐⭐ Production-Ready | SDK-based gateway, group/private chat, rich media, quoted context, Molibot-owned ACP/queue control |
 | **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, CDN media delivery, ACP support |
 | **CLI** | ⭐⭐ Ready | Local terminal conversation entrypoint |
 | **ACP** | ⭐⭐⭐ Active | Codex + Claude Code presets, permission management, task tracking, multi-channel |
