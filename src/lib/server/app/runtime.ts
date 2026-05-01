@@ -23,6 +23,7 @@ import {
 } from "../settings/index.js";
 import { config } from "./env.js";
 import { builtInChannelPlugins, type ChannelManager, type ChannelRuntimeDeps } from "../channels/registry.js";
+import { TaskScheduler } from "../agent/taskScheduler.js";
 import { MessageRouter } from "../channels/shared/messageRouter.js";
 import { initDb } from "../infra/db/storage.js";
 import { MemoryGateway } from "../memory/gateway.js";
@@ -46,6 +47,7 @@ interface RuntimeState {
   settings: RuntimeSettings;
   usageTracker: AiUsageTracker;
   modelErrorTracker: ModelErrorTracker;
+  taskScheduler: TaskScheduler;
   getSettings: () => RuntimeSettings;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
 }
@@ -855,6 +857,7 @@ export function getRuntime(): RuntimeState {
       currentSettings.value = state.settings;
       state.settingsStore.save(state.settings);
       applyChannelPlugins(state, applySettingsPatch);
+      state.taskScheduler.restart(state.channelManagers);
       return state.settings;
     };
 
@@ -870,6 +873,7 @@ export function getRuntime(): RuntimeState {
       settings,
       usageTracker,
       modelErrorTracker,
+      taskScheduler: new TaskScheduler(),
       getSettings: () => state.settings,
       updateSettings: applySettingsPatch
     };
@@ -900,6 +904,7 @@ export function getRuntime(): RuntimeState {
         });
     }, 60_000);
     applyChannelPlugins(state, applySettingsPatch);
+    state.taskScheduler.start(state.channelManagers);
 
     globalThis.__molibotRuntime = state;
   }

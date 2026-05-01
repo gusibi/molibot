@@ -5,19 +5,11 @@ import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
 import type { MomEvent } from "$lib/server/agent/events";
-import type { Channel } from "$lib/shared/types/message";
+import { TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/taskChannels";
 
 type TaskScope = "workspace" | "chat-scratch";
 type TaskType = "one-shot" | "periodic" | "immediate";
 type TaskState = "pending" | "running" | "completed" | "skipped" | "error";
-type TaskChannel = Extract<Channel, "telegram" | "feishu" | "qq" | "weixin">;
-
-const TASK_CHANNEL_ROOTS: Array<{ channel: TaskChannel; dir: string }> = [
-  { channel: "telegram", dir: "moli-t" },
-  { channel: "feishu", dir: "moli-f" },
-  { channel: "qq", dir: "moli-q" },
-  { channel: "weixin", dir: "moli-wx" }
-];
 
 interface EventStatus {
   state?: TaskState;

@@ -1061,8 +1061,6 @@ export class TelegramManager extends BaseChannelRuntime {
   }
 
   private startEventsWatchers(allowed: Set<string>): void {
-    this.addEventsWatcher(join(this.workspaceDir, "events"), "workspace", null);
-
     for (const chatId of allowed) {
       this.ensureChatEventsWatcher(chatId);
     }

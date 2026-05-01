@@ -541,40 +541,60 @@ export class WeixinManager extends BaseChannelRuntime {
   async triggerTask(event: unknown, _filename: string): Promise<void> {
     const task = event as MomEvent;
     if (!task || typeof task !== "object" || typeof task.chatId !== "string" || typeof task.text !== "string") {
+      momWarn("weixin", "trigger_task_invalid_payload", { filename: _filename });
       throw new Error("Invalid task payload");
     }
 
-    const now = Date.now();
-    const syntheticMessage: IncomingMessage = {
-      userId: task.chatId,
-      text: task.text,
-      type: "text",
-      raw: ({ message_id: now } as unknown) as IncomingMessage["raw"],
-      _contextToken: "",
-      timestamp: new Date(now)
-    };
-
     const delivery = this.resolveEventDeliveryMode(task);
-    if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
-      await this.sendText(task.chatId, syntheticMessage, task.text, false);
-      return;
-    }
-
-    const syntheticEvent: WeixinInboundEvent = {
+    momLog("weixin", "trigger_task_start", {
+      filename: _filename,
       chatId: task.chatId,
-      chatType: "private",
-      messageId: now,
-      userId: task.chatId,
-      userName: "EVENT",
-      text: task.text,
-      ts: normalizeTimestamp(new Date(now)),
-      attachments: [],
-      imageContents: [],
-      sourceMessage: syntheticMessage,
-      isEvent: true
-    };
+      eventType: task.type,
+      delivery
+    });
 
-    await this.processEvent(syntheticEvent, false);
+    try {
+      const now = Date.now();
+      const syntheticMessage: IncomingMessage = {
+        userId: task.chatId,
+        text: task.text,
+        type: "text",
+        raw: ({ message_id: now } as unknown) as IncomingMessage["raw"],
+        _contextToken: "",
+        timestamp: new Date(now)
+      };
+
+      if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
+        await this.sendText(task.chatId, syntheticMessage, task.text, false);
+        momLog("weixin", "trigger_task_text_done", { filename: _filename, chatId: task.chatId });
+        return;
+      }
+
+      const syntheticEvent: WeixinInboundEvent = {
+        chatId: task.chatId,
+        chatType: "private",
+        messageId: now,
+        userId: task.chatId,
+        userName: "EVENT",
+        text: task.text,
+        ts: normalizeTimestamp(new Date(now)),
+        attachments: [],
+        imageContents: [],
+        sourceMessage: syntheticMessage,
+        isEvent: true
+      };
+
+      await this.processEvent(syntheticEvent, false);
+      momLog("weixin", "trigger_task_agent_done", { filename: _filename, chatId: task.chatId });
+    } catch (error) {
+      momError("weixin", "trigger_task_failed", {
+        filename: _filename,
+        chatId: task.chatId,
+        eventType: task.type,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
   }
 
   private async sendText(chatId: string, sourceMessage: IncomingMessage, text: string, preferReply = false): Promise<void> {
@@ -595,7 +615,9 @@ export class WeixinManager extends BaseChannelRuntime {
     if (!this.bot) {
       throw new Error("Weixin bot is not running.");
     }
-    if (!payload.contextToken) {
+
+    const contextToken = payload.contextToken || this.bot.getContextToken(payload.chatId) || "";
+    if (!contextToken) {
       throw new Error("Missing Weixin context token for outbound delivery.");
     }
 
@@ -606,14 +628,15 @@ export class WeixinManager extends BaseChannelRuntime {
       chatId: payload.chatId,
       preferReply: payload.preferReply,
       sourceMessageId: payload.sourceMessageId,
-      textPreview: payload.text.slice(0, 200)
+      textPreview: payload.text.slice(0, 200),
+      contextTokenSource: payload.contextToken ? "payload" : "cache"
     };
 
     this.recordDelivery(payload.chatId, "attempt", logPayload);
     momLog("weixin", "outbound_text_attempt", logPayload);
 
     try {
-      await this.bot.sendText(payload.chatId, payload.text, payload.contextToken);
+      await this.bot.sendText(payload.chatId, payload.text, contextToken);
       this.recordDelivery(payload.chatId, "success", logPayload);
       momLog("weixin", "outbound_text_success", logPayload);
     } catch (error) {

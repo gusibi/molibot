@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } 
 import { basename, extname } from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
 import type { RuntimeSettings } from "../../settings/index.js";
-import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
+import { type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
 import type { ChannelInboundMessage } from "../../agent/types.js";
@@ -40,7 +40,6 @@ export interface FeishuConfig {
 // Orchestrates Feishu-specific inbound handling, command flow, and runner lifecycle.
 // Leaf concerns like queueing, message send/edit, and intake parsing live in sibling files.
 export class FeishuManager extends BaseChannelRuntime {
-    private static readonly CHAT_EVENTS_RELATIVE_DIR = ["events"] as const;
     private readonly acpTemplate: BasicChannelAcpTemplate<void>;
     private readonly commandService: SharedRuntimeCommandService<string>;
     private readonly outbox: SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>;
@@ -55,9 +54,6 @@ export class FeishuManager extends BaseChannelRuntime {
     private currentVerificationToken = "";
     private currentEncryptKey = "";
     private currentAllowedChatIdsKey = "";
-
-    private readonly events: EventsWatcher[] = [];
-    private readonly watchedChatEventDirs = new Set<string>();
 
     constructor(
         getSettings: () => RuntimeSettings,
@@ -230,21 +226,10 @@ export class FeishuManager extends BaseChannelRuntime {
         this.currentEncryptKey = encryptKey;
         this.currentAllowedChatIdsKey = allowedChatIdsKey;
 
-        // start event watchers and preview gen, just like telegram adapter
-        this.startEventsWatchers(allowed);
         void this.writePromptPreview(Array.from(allowed));
     }
 
     stop(): void {
-        if (this.events.length > 0) {
-            for (const watcher of this.events) {
-                watcher.stop();
-            }
-            this.events.length = 0;
-            this.watchedChatEventDirs.clear();
-            momLog("feishu", "events_watcher_stopped");
-        }
-
         if (this.wsClient) {
             try {
                 this.wsClient.close({ force: true });
@@ -568,35 +553,57 @@ export class FeishuManager extends BaseChannelRuntime {
     async triggerTask(event: unknown, _filename: string): Promise<void> {
         const task = event as MomEvent;
         if (!task || typeof task !== "object" || typeof task.chatId !== "string" || typeof task.text !== "string") {
+            momWarn("feishu", "trigger_task_invalid_payload", { filename: _filename });
             throw new Error("Invalid task payload");
         }
         if (!this.client) {
+            momWarn("feishu", "trigger_task_bot_not_running", {
+                filename: _filename,
+                chatId: task.chatId,
+                eventType: task.type
+            });
             throw new Error("Feishu bot is not running.");
         }
 
         const delivery = this.resolveEventDeliveryMode(task);
-        if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
-            await this.sendText(task.chatId, task.text);
-            return;
-        }
-
-        const now = Date.now();
-        const synthetic: ChannelInboundMessage = {
+        momLog("feishu", "trigger_task_start", {
+            filename: _filename,
             chatId: task.chatId,
-            chatType: "private",
-            messageId: now,
-            userId: "EVENT",
-            userName: "EVENT",
-            text: task.text,
-            ts: `${Math.floor(now / 1000)}.${String(now % 1000).padStart(3, "0")}`,
-            attachments: [],
-            imageContents: [],
-            isEvent: true
-        };
-        await this.processEvent(synthetic);
+            eventType: task.type,
+            delivery
+        });
+
+        try {
+            if (delivery === "text" && (task.type === "one-shot" || task.type === "immediate")) {
+                await this.sendText(task.chatId, task.text);
+                momLog("feishu", "trigger_task_text_done", { filename: _filename, chatId: task.chatId });
+                return;
+            }
+
+            const now = Date.now();
+            const synthetic: ChannelInboundMessage = {
+                chatId: task.chatId,
+                chatType: "private",
+                messageId: now,
+                userId: "EVENT",
+                userName: "EVENT",
+                text: task.text,
+                ts: `${Math.floor(now / 1000)}.${String(now % 1000).padStart(3, "0")}`,
+                attachments: [],
+                imageContents: [],
+                isEvent: true
+            };
+            await this.processEvent(synthetic);
+            momLog("feishu", "trigger_task_agent_done", { filename: _filename, chatId: task.chatId });
+        } catch (error) {
+            momError("feishu", "trigger_task_failed", {
+                filename: _filename,
+                chatId: task.chatId,
+                eventType: task.type,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
+        }
     }
 
-    private startEventsWatchers(allowed: Set<string>): void {
-        // stub
-    }
 }

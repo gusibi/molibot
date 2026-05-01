@@ -48,6 +48,10 @@ export class WeixinBot {
   private readonly onErrorCallback?: (error: unknown) => void;
   private readonly handlers: MessageHandler[] = [];
   private readonly contextTokens = new Map<string, string>();
+
+  getContextToken(userId: string): string | undefined {
+    return this.contextTokens.get(userId);
+  }
   private credentials?: Credentials;
   private currentAccountId = "";
   private cursor = "";
