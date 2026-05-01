@@ -702,7 +702,12 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
     textModelKey: String((next as { modelRouting?: { textModelKey?: unknown } }).modelRouting?.textModelKey ?? "").trim(),
     visionModelKey: String((next as { modelRouting?: { visionModelKey?: unknown } }).modelRouting?.visionModelKey ?? "").trim(),
     sttModelKey: String((next as { modelRouting?: { sttModelKey?: unknown } }).modelRouting?.sttModelKey ?? "").trim(),
-    ttsModelKey: String((next as { modelRouting?: { ttsModelKey?: unknown } }).modelRouting?.ttsModelKey ?? "").trim()
+    ttsModelKey: String((next as { modelRouting?: { ttsModelKey?: unknown } }).modelRouting?.ttsModelKey ?? "").trim(),
+    subagentModelKey: String((next as { modelRouting?: { subagentModelKey?: unknown } }).modelRouting?.subagentModelKey ?? "").trim(),
+    subagentHaikuModelKey: String((next as { modelRouting?: { subagentHaikuModelKey?: unknown } }).modelRouting?.subagentHaikuModelKey ?? "").trim(),
+    subagentSonnetModelKey: String((next as { modelRouting?: { subagentSonnetModelKey?: unknown } }).modelRouting?.subagentSonnetModelKey ?? "").trim(),
+    subagentOpusModelKey: String((next as { modelRouting?: { subagentOpusModelKey?: unknown } }).modelRouting?.subagentOpusModelKey ?? "").trim(),
+    subagentThinkingModelKey: String((next as { modelRouting?: { subagentThinkingModelKey?: unknown } }).modelRouting?.subagentThinkingModelKey ?? "").trim()
   };
   const fallbackMode = String(
     (next as { modelFallback?: { mode?: unknown } }).modelFallback?.mode ??

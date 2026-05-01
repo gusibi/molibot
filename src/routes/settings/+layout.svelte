@@ -32,6 +32,7 @@
             runHistory: "运行历史",
             tasks: "任务",
             systemGroup: "系统",
+            systemConfig: "系统配置",
             pluginsCore: "插件与核心",
             backToChat: "返回聊天",
             settings: "设置",
@@ -66,6 +67,7 @@
             runHistory: "Run History",
             tasks: "Tasks",
             systemGroup: "System",
+            systemConfig: "System Config",
             pluginsCore: "Plugins & Core",
             backToChat: "Back To Chat",
             settings: "Settings",
@@ -119,7 +121,10 @@
         },
         {
             title: "System",
-            links: [{ href: "/settings/plugins", label: "Plugins & Core", exact: true }],
+            links: [
+                { href: "/settings/system", label: "System Config", exact: true },
+                { href: "/settings/plugins", label: "Plugins & Core", exact: true },
+            ],
         },
     ];
 
@@ -244,7 +249,10 @@
         },
         {
             title: t("systemGroup"),
-            links: [{ href: "/settings/plugins", label: t("pluginsCore"), exact: true }],
+            links: [
+                { href: "/settings/system", label: t("systemConfig"), exact: true },
+                { href: "/settings/plugins", label: t("pluginsCore"), exact: true },
+            ],
         },
     ];
     $: flatLinks = navGroups.flatMap((group) => group.links);

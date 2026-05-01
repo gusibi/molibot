@@ -39,6 +39,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - [Settings Pages](#settings-pages)
 - [Data Layout](#data-layout)
 - [Common Commands](#common-commands)
+- [Production Deployment](#production-deployment)
 - [Environment](#environment)
 - [Docs](#docs)
 - [Documentation Workflow](#documentation-workflow)
@@ -58,6 +59,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Queue-Safe Image Fallback**: queued channel messages restore image bytes from saved attachments before runner execution, so fallback sees actual image content instead of only a file path
 - **MiMo/Anthropic-Compatible Roles**: providers configured as Anthropic keep system instructions in the top-level `system` field, reserve `messages` for conversational roles, and log redacted image-fallback request payloads for debugging
 - **Time-Aware Prompting**: each live user turn can carry structured current-time metadata (`message_received_at` / `timezone` / `today`) for better date-sensitive replies
+- **Subagent Model Routing**: delegated scout/planner/worker/reviewer runs use configurable `haiku` / `sonnet` / `opus` / `thinking` model levels plus a subagent fallback route instead of inheriting the main conversation model
 - **Shared Workbench UI**: Web chat and Settings now use one reusable workbench material system for hero panels, forms, tables, config shells, and interaction feedback
 - **Current-Session File Workspace**: Web chat now includes a real files pane with searchable attachment inventory, inline preview for common formats, downloads, and copy-path actions
 - **Operational Settings UI**: AI routing, agents, ACP targets, tasks, memory, skills, MCP servers
@@ -74,7 +76,7 @@ flowchart LR
     E[CLI] --> R
 
     R --> P[Agent Loop]
-    P --> M["Model Routing: text / vision / stt / tts"]
+    P --> M["Model Routing: text / vision / stt / tts / subagent levels"]
     P --> T[Tools + MCP]
     P --> MM[Mory Memory]
     P --> S[Sessions]
@@ -132,7 +134,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Verification States**: tested/untested/failed status tracking
 - **Inline Provider Tests**: Single-model connection test results stay inside the tested model card
 - **Endpoint Diagnostics**: Model error records show both transport base URL and computed endpoint URL
-- **Route-Scoped Switching**: Independent model selection for text/vision/stt/tts
+- **Route-Scoped Switching**: Independent model selection for text/vision/stt/tts and subagent fallback, with subagent level mappings for haiku/sonnet/opus/thinking
 - **Cross-Provider Fallback**: Automatic fallback on retryable errors
 
 ### Operational Tools
@@ -213,6 +215,7 @@ Open: `http://localhost:3000`
 - `Preview System Prompt`: View final assembled system prompt with source attribution
 - Runtime injects per-turn `<env>` time metadata before model calls, using the configured runtime timezone
 - Right-side `Files` pane: inspect current-session attachments, filter by type, preview common formats inline, download, and copy relative storage paths
+- Top-right version popover: shows the running version and read-only GitHub update check; use `molibot manage` for actual updates
 - Main chat and Settings now share the same workbench material language, while chat itself stays quieter and conversation-first
 - Theme toggle: `system/light/dark` mode
 - Language switch: `zh-CN/en-US`
@@ -231,8 +234,8 @@ Open: `http://localhost:3000`
 ### Model and Settings
 - `/models` - List available models
 - `/models <index|key>` - Switch model
-- `/models <text|vision|stt|tts>` - List route-specific models
-- `/models <text|vision|stt|tts> <index|key>` - Switch route-specific model
+- `/models <text|vision|stt|tts|subagent>` - List route-specific models
+- `/models <text|vision|stt|tts|subagent> <index|key>` - Switch route-specific model
 - `/skills` - List loaded skills
 - `/status` or `/state` - Show runtime status
 - `/thinking <default|off|low|medium|high>` - Override thinking level for session
@@ -260,8 +263,9 @@ Open: `http://localhost:3000`
 
 ### Core Configuration
 - `/settings` - Overview and workbench entry hub
-- `/settings/ai` - AI providers, models, routing, usage tracking, cache-hit trend visibility, auto-refreshing time windows, and runtime timezone dropdown
-- `/settings/agents` - Agent library with Markdown prompt files
+- `/settings/system` - Language, runtime timezone, and read-only GitHub/deployment version information
+- `/settings/ai` - AI providers, models, routing, including the dedicated subagent fallback route, subagent model-level mappings, usage tracking, cache-hit trend visibility, auto-refreshing time windows, and runtime timezone dropdown
+- `/settings/agents` - Agent library with Markdown prompt files plus a separate read-only Subagents view for built-in delegation roles, abstract model levels, and their effective model source
 - `/settings/web` - Web profiles and identity binding
 
 All Settings pages share one workbench-style UI layer: hero headers, translucent panels, consistent form controls, summary strips, and entity-editor shells.
@@ -319,12 +323,16 @@ Default data dir: `~/.molibot`
 molibot                 # Start development server (same as: molibot dev)
 molibot dev             # Development mode with hot reload
 molibot build           # Build for production
+molibot release         # Build a production release bundle under dist/molibot-release
+molibot manage          # Interactive install/update/service manager
 molibot start           # Production run (requires build first)
 molibot cli             # CLI mode for terminal conversation
 ```
 
 ### Service Management
 ```bash
+molibot manage                    # Configure, install/update, restart, logs, uninstall runtime files
+
 # Optional service script for background process management
 ./bin/molibot-service.sh start    # Start background service
 ./bin/molibot-service.sh stop     # Stop background service
@@ -336,6 +344,73 @@ molibot cli             # CLI mode for terminal conversation
 ```bash
 molibot init            # Initialize data directory and bootstrap files
 molibot init --force    # Re-initialize (WARNING: may overwrite existing config)
+```
+
+## Production Deployment
+
+Molibot supports two production styles. Development can still run from source with `molibot dev`; production should run from a release bundle or Docker image.
+
+### Interactive Manager
+
+For a simple guided flow, run:
+
+```bash
+molibot manage
+```
+
+The manager stores deployment settings in `${DATA_DIR}/deploy.env` by default, then can install/update from GitHub, start/stop/restart the service, show status/logs, and uninstall runtime deployment files. Uninstall keeps `DATA_DIR` by default so conversations, settings, credentials, and profile files are not deleted.
+
+### Release Bundle
+
+Build a self-contained runtime directory:
+
+```bash
+npm run release
+```
+
+The bundle is written to `dist/molibot-release/` and contains `build/`, production `node_modules/`, package metadata, runtime bootstrap assets, and service scripts. Run it without the source checkout:
+
+```bash
+cd dist/molibot-release
+NODE_ENV=production node build
+```
+
+For background service management:
+
+```bash
+MOLIBOT_APP_DIR=dist/molibot-release ./bin/molibot-service.sh restart
+```
+
+Keep `.env` and `DATA_DIR` outside the release directory so the `current` release can be replaced safely.
+
+### GitHub Auto Update
+
+On a deployment host, configure the GitHub repository and deploy directory:
+
+```bash
+export MOLIBOT_GIT_REPO=https://github.com/gusibi/molibot
+export MOLIBOT_GIT_REF=master
+export MOLIBOT_DEPLOY_DIR=$HOME/molibot
+./bin/molibot-update.sh
+```
+
+The updater defaults to `https://github.com/gusibi/molibot` on branch `master`, clones or fetches the repo into a build directory, builds a timestamped release under `releases/`, switches `current` atomically, and restarts the service with `MOLIBOT_APP_DIR=$HOME/molibot/current`.
+
+Safety guard: the updater refuses to use a non-empty deployment directory unless it contains `.molibot-deploy`. This prevents accidentally pointing deployment at an existing development workspace and overwriting accumulated local files. Release packaging also refuses to overwrite an existing non-release output directory.
+
+### Docker
+
+Build and run the production image:
+
+```bash
+docker build -t molibot:local .
+docker run --rm -p 3000:3000 --env-file .env -v molibot-data:/data molibot:local
+```
+
+Or use Compose:
+
+```bash
+docker compose up -d --build
 ```
 
 ## Environment

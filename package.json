@@ -1,6 +1,6 @@
 {
   "name": "molibot",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "imports": {
@@ -14,6 +14,8 @@
     "dev": "svelte-kit sync && vite dev --mode production",
     "build": "svelte-kit sync && vite build",
     "start": "node build",
+    "release": "bin/molibot-release.sh",
+    "manage": "node bin/molibot-manage.js",
     "cli": "tsx src/lib/server/app/index.ts --cli",
     "mory:build": "npm --prefix package/mory run build",
     "mory:test": "npm --prefix package/mory run test",
@@ -35,7 +37,9 @@
     "grammy": "^1.38.3",
     "lit": "^3.3.1",
     "marked": "^16.4.2",
+    "mpg123-decoder": "^1.0.3",
     "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
     "silk-wasm": "^3.7.1",
     "svelte": "^5.38.10",
     "typebox": "^1.1.33",

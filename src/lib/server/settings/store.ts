@@ -44,6 +44,11 @@ interface RawSettings {
     visionModelKey?: string;
     sttModelKey?: string;
     ttsModelKey?: string;
+    subagentModelKey?: string;
+    subagentHaikuModelKey?: string;
+    subagentSonnetModelKey?: string;
+    subagentOpusModelKey?: string;
+    subagentThinkingModelKey?: string;
   };
   modelFallback?: {
     mode?: string;
@@ -924,7 +929,12 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       textModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.textModelKey),
       visionModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.visionModelKey),
       sttModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.sttModelKey),
-      ttsModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.ttsModelKey)
+      ttsModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.ttsModelKey),
+      subagentModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.subagentModelKey),
+      subagentHaikuModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.subagentHaikuModelKey),
+      subagentSonnetModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.subagentSonnetModelKey),
+      subagentOpusModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.subagentOpusModelKey),
+      subagentThinkingModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.subagentThinkingModelKey)
     },
     modelFallback: sanitizeModelFallbackSettings(raw.modelFallback),
     compaction: {
@@ -1281,7 +1291,12 @@ export class SettingsStore {
         textModelKey: settings.modelRouting.textModelKey,
         visionModelKey: settings.modelRouting.visionModelKey,
         sttModelKey: settings.modelRouting.sttModelKey,
-        ttsModelKey: settings.modelRouting.ttsModelKey
+        ttsModelKey: settings.modelRouting.ttsModelKey,
+        subagentModelKey: settings.modelRouting.subagentModelKey,
+        subagentHaikuModelKey: settings.modelRouting.subagentHaikuModelKey,
+        subagentSonnetModelKey: settings.modelRouting.subagentSonnetModelKey,
+        subagentOpusModelKey: settings.modelRouting.subagentOpusModelKey,
+        subagentThinkingModelKey: settings.modelRouting.subagentThinkingModelKey
       },
       modelFallback: {
         mode: settings.modelFallback.mode

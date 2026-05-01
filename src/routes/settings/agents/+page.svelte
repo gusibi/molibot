@@ -15,6 +15,19 @@
 
   type AgentFiles = Record<string, string>;
 
+  interface BuiltInSubagentItem {
+    name: string;
+    description: string;
+    tools: string[];
+    modelHint?: string;
+    modelLevel?: string;
+    activeModelKey?: string;
+    activeModelLabel?: string;
+    activeModelSource?: string;
+  }
+
+  const subagentsNavId = "__built_in_subagents__";
+
   const fileNames = ["AGENTS.md", "SOUL.md", "IDENTITY.md", "SONG.md"];
 
   let loading = true;
@@ -23,6 +36,9 @@
   let message = "";
 
   let agents: AgentItem[] = [];
+  let builtInSubagents: BuiltInSubagentItem[] = [];
+  let subagentConfiguredModelLabel = "";
+  let subagentModelLevels: Record<string, { key: string; label: string }> = {};
   let selectedAgentId = "";
   let savedSnapshots: Record<string, string> = {};
 
@@ -80,9 +96,30 @@
     error = "";
     message = "";
     try {
-      const res = await fetch("/api/settings");
+      const [res, subagentsRes] = await Promise.all([
+        fetch("/api/settings"),
+        fetch("/api/settings/subagents")
+      ]);
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
+      const subagentData = await subagentsRes.json();
+      if (!subagentData.ok) throw new Error(subagentData.error || "Failed to load subagents");
+      builtInSubagents = Array.isArray(subagentData.subagents)
+        ? subagentData.subagents.map((item: BuiltInSubagentItem) => ({
+            name: String(item.name ?? ""),
+            description: String(item.description ?? ""),
+            tools: Array.isArray(item.tools) ? item.tools.map((tool) => String(tool)) : [],
+            modelHint: item.modelHint ? String(item.modelHint) : undefined,
+            modelLevel: item.modelLevel ? String(item.modelLevel) : "",
+            activeModelKey: item.activeModelKey ? String(item.activeModelKey) : "",
+            activeModelLabel: item.activeModelLabel ? String(item.activeModelLabel) : "",
+            activeModelSource: item.activeModelSource ? String(item.activeModelSource) : ""
+          }))
+        : [];
+      subagentConfiguredModelLabel = String(subagentData.configuredModelLabel ?? subagentData.configuredModelKey ?? "");
+      subagentModelLevels = subagentData.modelLevels && typeof subagentData.modelLevels === "object"
+        ? subagentData.modelLevels
+        : {};
       const rawAgents = Array.isArray(data.settings?.agents) ? data.settings.agents : [];
       agents = await Promise.all(
         rawAgents.map(async (agent: AgentItem) => ({
@@ -124,6 +161,13 @@
     const ok = await ensureCurrentSavedBeforeSwitch();
     if (!ok) return;
     selectedAgentId = agentId;
+  }
+
+  async function selectSubagents(): Promise<void> {
+    if (selectedAgentId === subagentsNavId) return;
+    const ok = await ensureCurrentSavedBeforeSwitch();
+    if (!ok) return;
+    selectedAgentId = subagentsNavId;
   }
 
   async function addAgent(): Promise<void> {
@@ -238,6 +282,7 @@
 
   $: selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   $: selectedFiles = selectedAgent?.profileFiles ?? emptyFiles();
+  $: showingSubagents = selectedAgentId === subagentsNavId;
   $: selectedAgentDirty = selectedAgent
     ? agentSnapshot(selectedAgent) !== (savedSnapshots[selectedAgent.id] ?? "")
     : false;
@@ -271,6 +316,20 @@
         </div>
 
         <div class="wb-config-nav-list">
+          <button
+            class={`wb-config-item ${showingSubagents ? "active" : ""}`}
+            type="button"
+            on:click={selectSubagents}
+          >
+            <span class="min-w-0">
+              <span class="wb-config-item-title truncate">Subagents</span>
+              <span class="wb-config-item-subtitle truncate">{builtInSubagents.length} built-in delegation roles</span>
+            </span>
+            <span class="wb-config-state" data-enabled={true}>
+              BUILT-IN
+            </span>
+          </button>
+
           {#each agents as agent (agent.id)}
             <button
               class={`wb-config-item ${selectedAgentId === agent.id ? "active" : ""}`}
@@ -289,7 +348,67 @@
         </div>
       </section>
 
-      {#if selectedAgent}
+      {#if showingSubagents}
+        <section class="space-y-4">
+          <section class="wb-config-panel space-y-3">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <h2 class="text-sm font-semibold text-[var(--foreground)]">Built-in Subagents</h2>
+                <p class="mt-1 text-xs text-[var(--muted-foreground)]">
+                  Read-only delegation roles used by the shared subagent tool.
+                </p>
+              </div>
+              <a class="text-sm font-medium text-[var(--primary)] hover:underline" href="/settings/ai/routing">Configure model route</a>
+            </div>
+            <div class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_55%,transparent)] p-3 text-xs text-[var(--muted-foreground)]">
+              Explicit subagent route:
+              <span class="text-[var(--foreground)]">{subagentConfiguredModelLabel || "not set"}</span>.
+              Each role first uses its model level mapping below, then this fallback route, then the text route.
+            </div>
+            <dl class="grid gap-2 text-sm md:grid-cols-2">
+              {#each ["haiku", "sonnet", "opus", "thinking"] as level}
+                <div class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_80%,transparent)] p-3">
+                  <dt class="text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{level}</dt>
+                  <dd class="mt-1 text-[var(--foreground)]">{subagentModelLevels[level]?.label || "not configured"}</dd>
+                </div>
+              {/each}
+            </dl>
+          </section>
+
+          <section class="grid gap-3 md:grid-cols-2">
+            {#each builtInSubagents as subagent (subagent.name)}
+              <article class="wb-config-panel space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <h3 class="truncate text-base font-semibold text-[var(--foreground)]">{subagent.name}</h3>
+                    <p class="mt-1 text-sm text-[var(--muted-foreground)]">{subagent.description}</p>
+                  </div>
+                  <span class="wb-config-state" data-enabled={true}>BUILT-IN</span>
+                </div>
+
+                <dl class="grid gap-2 text-sm">
+                  <div>
+                    <dt class="text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Tools</dt>
+                    <dd class="mt-1 text-[var(--foreground)]">{subagent.tools.length > 0 ? subagent.tools.join(", ") : "default"}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Model level</dt>
+                    <dd class="mt-1 text-[var(--foreground)]">{subagent.modelLevel || subagent.modelHint || "none"}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Effective model</dt>
+                    <dd class="mt-1 text-[var(--foreground)]">{subagent.activeModelLabel || subagent.activeModelKey || "not resolved"}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Source</dt>
+                    <dd class="mt-1 text-[var(--foreground)]">{subagent.activeModelSource || "unknown"}</dd>
+                  </div>
+                </dl>
+              </article>
+            {/each}
+          </section>
+        </section>
+      {:else if selectedAgent}
         <form class="space-y-4" on:submit|preventDefault={save}>
           <section class="wb-config-panel space-y-3">
             <div class="flex items-center justify-between">

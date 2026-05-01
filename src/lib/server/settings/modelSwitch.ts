@@ -1,7 +1,7 @@
 import type { RuntimeSettings } from "./index.js";
 import { isKnownProvider } from "./index.js";
 
-export type ModelRoute = "text" | "vision" | "stt" | "tts";
+export type ModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";
 
 export interface ModelOption {
   key: string;
@@ -39,11 +39,15 @@ function routePatchKey(route: ModelRoute): keyof RuntimeSettings["modelRouting"]
       ? "visionModelKey"
       : route === "stt"
         ? "sttModelKey"
-        : "ttsModelKey";
+        : route === "tts"
+          ? "ttsModelKey"
+          : "subagentModelKey";
 }
 
 export function parseModelRoute(value: string): ModelRoute | null {
-  if (value === "text" || value === "vision" || value === "stt" || value === "tts") return value;
+  if (value === "text" || value === "vision" || value === "stt" || value === "tts" || value === "subagent") {
+    return value;
+  }
   return null;
 }
 
@@ -54,8 +58,11 @@ export function currentModelKey(settings: RuntimeSettings, route: ModelRoute): s
       ? settings.modelRouting.visionModelKey?.trim()
       : route === "stt"
         ? settings.modelRouting.sttModelKey?.trim()
-        : settings.modelRouting.ttsModelKey?.trim();
+        : route === "tts"
+          ? settings.modelRouting.ttsModelKey?.trim()
+          : settings.modelRouting.subagentModelKey?.trim();
   if (routed) return routed;
+  if (route === "subagent") return currentModelKey(settings, "text");
   if (route !== "text") return "";
   if (settings.providerMode === "custom") {
     const enabledProviders = settings.customProviders.filter((p) =>
@@ -86,7 +93,7 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
   const patchKey = routePatchKey(route);
 
   const supportsRoute = (tags: string[]): boolean => {
-    if (route === "text") return tags.includes("text");
+    if (route === "text" || route === "subagent") return tags.includes("text");
     return tags.includes(route);
   };
 
@@ -114,7 +121,7 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
     });
   };
 
-  if (route === "text" || route === "vision") {
+  if (route === "text" || route === "vision" || route === "subagent") {
     pushBuiltInOption(
       settings.piModelProvider,
       resolveBuiltInProviderDefaultModel(settings, settings.piModelProvider, settings.piModelName)

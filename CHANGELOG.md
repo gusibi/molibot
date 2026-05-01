@@ -6,6 +6,12 @@
 
 ## 2026-05-01
 
+### Subagent 路由与可见性
+- **Subagent 模型级别路由**: `/settings/ai/routing` 新增 subagent fallback route，并支持把 `haiku` / `sonnet` / `opus` / `thinking` 四个抽象级别映射到任意已配置文本模型；内置 scout/planner/worker/reviewer 不再展示未配置的具体 Claude 型号作为默认模型。
+- **设置持久化修复**: 修复 runtime settings 更新路径丢弃 subagent 路由字段的问题，保存后的 DeepSeek/Sub2API 等 subagent 路由现在会真实参与后续运行与页面展示。
+- **Agents 页面只读清单**: `/settings/agents` 新增单独的 Subagents 侧边入口，右侧展示 role、描述、工具、模型级别和当前真实生效模型来源，不提供编辑入口。
+- **运行可见性**: Web trace 现在记录工具 start/end，Telegram 工具进度可识别 subagent 调用，并将工具结果摘要限制到 20 个字符。
+
 ### Weixin SDK 协议同步
 - **生命周期通知**: `package/weixin-agent-sdk` 新增 `notifyStart` / `notifyStop`，高层 SDK 启停流程会尽力通知 Weixin 后端。
 - **BotAgent 元数据**: 所有 SDK API 请求的 `base_info` 现在带有经过格式清洗的 `bot_agent`，便于后端日志归因；非法值会安全降级为 `OpenClaw`。
@@ -18,6 +24,20 @@
 - **Molibot 边界适配**: 保留 molibot 的共享队列、会话推进和任务编排职责在上层，QQ SDK 只承担平台协议、消息转换和媒体传输；同时移除了对不存在的 `openclaw/plugin-sdk/core` 运行时入口依赖，并把 `/bot-upgrade` 默认保持为文档指引模式。
 - **直连模式修复**: Molibot 通过 `onEvent` 接管 QQ 入站时，SDK 不再触发 OpenClaw runtime 预检、审批 gateway、SDK slash 拦截或消息处理时的 `getQQBotRuntime()`，避免 `QQBot runtime not initialized` 引发重连风暴和 QQ `/gateway` 限频。
 - **回归覆盖**: 更新 `package/qqbot` 媒体出站测试，覆盖缺失凭证短路和稳定错误文案映射；`package/qqbot` 编译与主工程生产构建均已通过。
+
+### 生产部署与自动更新
+- **Release Bundle**: 新增 `npm run release` / `bin/molibot-release.sh`，可构建 `dist/molibot-release`，包含 `build/`、生产依赖、运行所需模板资源和 service 脚本，生产运行不再需要源码目录。
+- **GitHub 自动更新**: 新增 `bin/molibot-update.sh`，支持拉取 GitHub 仓库、构建 timestamped release、原子切换 `current`，并用 `MOLIBOT_APP_DIR` 重启托管进程。
+- **Service 启动目录控制**: `bin/molibot-service.sh` 支持 `MOLIBOT_APP_DIR` / `MOLIBOT_START_COMMAND`，可以从 release bundle 或其他构建产物目录启动。
+- **Docker 运行路径**: 新增多阶段 `Dockerfile`、`.dockerignore` 和 `docker-compose.yml`，支持镜像化生产部署。
+- **生产依赖补齐**: 将 Weixin QR 登录运行时会动态导入的 `qrcode-terminal` 提升为根包直接依赖，避免 release/Docker 环境缺失外置依赖。
+- **交互式管理器**: 新增 `molibot manage`，用轻量菜单完成 GitHub 部署配置、安装/更新、启动、停止、重启、状态、日志查看和受保护的运行文件卸载。
+- **目录覆盖保护**: 自动更新现在要求非空部署目录带有 `.molibot-deploy` 标记，release 打包也拒绝覆盖非 release 目录，避免误把已有开发 workspace 或配置目录清空。
+- **Web 版本检查**: Web 右上角现在显示当前版本，并通过只读 `/api/version` 检查 GitHub 是否有新版本；浏览器只提示，不执行自动更新或重启。
+- **系统配置页**: 新增 `/settings/system`，集中配置界面语言、运行时时区，并只读展示 GitHub 地址/ref 和版本状态；右上角版本徽标同步放大，避免版本文字不可见。
+- **GitHub 默认来源**: 部署更新、管理器和版本检查默认使用 `https://github.com/gusibi/molibot` 的 `master` 分支，未配置时也能显示和检查默认仓库。
+- **旧仓库安装兼容**: 自动更新在拉到的源码还没有 release 管理脚本时，会从当前安装器注入必要脚本后再构建；后续如果源码目录里残留旧的未跟踪注入脚本，也会刷新为当前安装器版本，避免首次安装旧提交时报 `./bin/molibot-release.sh` 不存在或继续复用 stale 脚本。
+- **生产依赖自愈**: release 构建会在源码构建前补齐根包缺失的运行依赖（当前包括 `qrcode-terminal` 和 `mpg123-decoder`），避免旧源码 checkout 因子包动态依赖未提升到根包而构建失败。
 
 ---
 

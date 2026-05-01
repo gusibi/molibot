@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sendTelegramChatAction, sendTelegramTextSafely } from "./formatting.js";
+import { sendTelegramChatAction, sendTelegramTextSafely, summarizeTelegramToolProgressText } from "./formatting.js";
 
 test("sendTelegramChatAction retries transient network failures until a later attempt succeeds", async () => {
   let attempts = 0;
@@ -65,4 +65,10 @@ test("sendTelegramTextSafely suppresses final timeout failure instead of rethrow
   }
 
   assert.equal(attempts, 7);
+});
+
+test("summarizeTelegramToolProgressText limits summaries to 20 characters", () => {
+  const summary = summarizeTelegramToolProgressText("This is a long tool output that should be compressed");
+  assert.equal(summary.length <= 20, true);
+  assert.equal(summary.endsWith("…"), true);
 });

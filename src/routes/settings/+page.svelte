@@ -23,6 +23,7 @@
         { title: "任务", description: "检查定时任务、补跑任务和清理过期项。", href: "/settings/tasks" },
         { title: "MCP 服务", description: "管理外部工具连接和运行状态。", href: "/settings/mcp" },
         { title: "ACP 目标", description: "维护 coding-agent 目标、项目范围和默认审批方式。", href: "/settings/acp" },
+        { title: "系统配置", description: "设置语言、时区，并查看只读部署与 GitHub 信息。", href: "/settings/system" },
         { title: "插件与核心", description: "控制插件开关，以及底层运行能力的总设置。", href: "/settings/plugins" }
       ]
     },
@@ -45,6 +46,7 @@
         { title: "Tasks", description: "Check scheduled jobs, reruns, and stale work items.", href: "/settings/tasks" },
         { title: "MCP Servers", description: "Manage external tool connections and live server status.", href: "/settings/mcp" },
         { title: "ACP Targets", description: "Maintain coding-agent targets, project scope, and approval defaults.", href: "/settings/acp" },
+        { title: "System Config", description: "Set language, timezone, and inspect read-only deployment/GitHub information.", href: "/settings/system" },
         { title: "Plugins & Core", description: "Control plugin toggles and the main runtime-level settings.", href: "/settings/plugins" }
       ]
     }

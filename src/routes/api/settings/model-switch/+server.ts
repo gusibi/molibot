@@ -14,7 +14,7 @@ interface SwitchBody {
   selector?: string;
 }
 
-const ROUTES: ModelRoute[] = ["text", "vision", "stt", "tts"];
+const ROUTES: ModelRoute[] = ["text", "vision", "stt", "tts", "subagent"];
 
 export const GET: RequestHandler = async () => {
   const settings = getRuntime().getSettings();

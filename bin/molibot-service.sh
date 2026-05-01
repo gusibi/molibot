@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+APP_DIR="${MOLIBOT_APP_DIR:-$DEFAULT_APP_DIR}"
+START_COMMAND="${MOLIBOT_START_COMMAND:-node build}"
 LOG_FILE="${MOLIBOT_LOG_FILE:-$HOME/logs/molibot.log}"
 PID_FILE="${MOLIBOT_PID_FILE:-$HOME/.molibot/molibot.pid}"
 LOG_DIR="$(dirname "$LOG_FILE")"
@@ -21,13 +25,23 @@ start_service() {
     fi
   fi
 
-  nohup molibot >>"$LOG_FILE" 2>&1 < /dev/null &
+  if [[ ! -d "$APP_DIR" ]]; then
+    echo "molibot app directory not found: $APP_DIR" >&2
+    return 1
+  fi
+
+  (
+    cd "$APP_DIR"
+    exec env NODE_ENV="${NODE_ENV:-production}" bash -lc "$START_COMMAND"
+  ) >>"$LOG_FILE" 2>&1 < /dev/null &
   local pid=$!
   disown || true
   echo "$pid" > "$PID_FILE"
 
   echo "molibot started in background"
   echo "pid: $pid"
+  echo "app_dir: $APP_DIR"
+  echo "command: $START_COMMAND"
   echo "log: $LOG_FILE"
   echo "pid_file: $PID_FILE"
 }
@@ -73,6 +87,8 @@ status_service() {
   if [[ ! -f "$PID_FILE" ]]; then
     echo "status: stopped"
     echo "pid_file: $PID_FILE (missing)"
+    echo "app_dir: $APP_DIR"
+    echo "command: $START_COMMAND"
     echo "log: $LOG_FILE"
     return 1
   fi
@@ -82,6 +98,8 @@ status_service() {
   if [[ -z "${pid:-}" ]]; then
     echo "status: stopped"
     echo "pid_file: $PID_FILE (empty)"
+    echo "app_dir: $APP_DIR"
+    echo "command: $START_COMMAND"
     echo "log: $LOG_FILE"
     return 1
   fi
@@ -90,12 +108,16 @@ status_service() {
     echo "status: running"
     echo "pid: $pid"
     echo "pid_file: $PID_FILE"
+    echo "app_dir: $APP_DIR"
+    echo "command: $START_COMMAND"
     echo "log: $LOG_FILE"
     return 0
   fi
 
   echo "status: stopped"
   echo "pid_file: $PID_FILE (stale)"
+  echo "app_dir: $APP_DIR"
+  echo "command: $START_COMMAND"
   echo "log: $LOG_FILE"
   return 1
 }
@@ -107,6 +129,12 @@ Usage:
   $(basename "$0") stop
   $(basename "$0") status
   $(basename "$0") restart
+
+Environment:
+  MOLIBOT_APP_DIR        Directory to run from (default: repository/release root)
+  MOLIBOT_START_COMMAND  Start command inside app dir (default: node build)
+  MOLIBOT_LOG_FILE       Log file path
+  MOLIBOT_PID_FILE       PID file path
 EOF
 }
 

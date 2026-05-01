@@ -33,6 +33,8 @@ import { createWriteTool } from "./write.js";
 
 const SUBAGENT_NAMES = ["scout", "planner", "worker", "reviewer"] as const;
 type SubagentName = (typeof SUBAGENT_NAMES)[number];
+const SUBAGENT_MODEL_LEVELS = ["haiku", "sonnet", "opus", "thinking"] as const;
+type SubagentModelLevel = (typeof SUBAGENT_MODEL_LEVELS)[number];
 
 const taskItemSchema = Type.Object({
   agent: Type.String(),
@@ -85,12 +87,21 @@ interface SubagentToolDetails {
   results: SubagentRunResult[];
 }
 
-interface SubagentDefinition {
+export interface SubagentDefinition {
   name: SubagentName;
   description: string;
   tools?: string[];
   modelHint?: string;
+  modelLevel?: SubagentModelLevel;
   systemPrompt: string;
+}
+
+export interface BuiltInSubagentInfo {
+  name: SubagentName;
+  description: string;
+  tools: string[];
+  modelHint?: string;
+  modelLevel?: SubagentModelLevel;
 }
 
 const RUNTIME_PROMPT_APPEND = [
@@ -200,12 +211,23 @@ function loadSubagentRegistry(): Map<SubagentName, SubagentDefinition> {
         .map((value) => value.trim())
         .filter(Boolean),
       modelHint: String(frontmatter.model ?? "").trim() || undefined,
+      modelLevel: parseSubagentModelLevel(frontmatter.model),
       systemPrompt: extractBody(raw)
     });
   }
 
   cachedRegistry = next;
   return next;
+}
+
+export function listBuiltInSubagents(): BuiltInSubagentInfo[] {
+  return Array.from(loadSubagentRegistry().values()).map((agent) => ({
+    name: agent.name,
+    description: agent.description,
+    tools: agent.tools ?? [],
+    modelHint: agent.modelHint,
+    modelLevel: agent.modelLevel
+  }));
 }
 
 function getSubagentDefinition(agent: string): SubagentDefinition {
@@ -226,6 +248,23 @@ function parseModelKey(key: string): { mode: "pi" | "custom"; provider: string; 
   const model = rest.join("|").trim();
   if (!model) return null;
   return { mode, provider: provider.trim(), model };
+}
+
+function parseSubagentModelLevel(value: unknown): SubagentModelLevel | undefined {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "haiku" || normalized.includes("haiku")) return "haiku";
+  if (normalized === "sonnet" || normalized.includes("sonnet")) return "sonnet";
+  if (normalized === "opus" || normalized.includes("opus")) return "opus";
+  if (normalized === "thinking" || normalized.includes("thinking")) return "thinking";
+  return undefined;
+}
+
+function subagentModelLevelKey(settings: RuntimeSettings, level: SubagentModelLevel | undefined): string {
+  if (level === "haiku") return settings.modelRouting.subagentHaikuModelKey;
+  if (level === "sonnet") return settings.modelRouting.subagentSonnetModelKey;
+  if (level === "opus") return settings.modelRouting.subagentOpusModelKey;
+  if (level === "thinking") return settings.modelRouting.subagentThinkingModelKey;
+  return "";
 }
 
 export function resolveSubagentModelHint(
@@ -313,7 +352,7 @@ async function resolveSubagentModel(
 ): Promise<{ model: Model<any>; authStorage: AuthStorage; modelRegistry: ModelRegistry }> {
   const authStorage = AuthStorage.inMemory();
   const modelRegistry = ModelRegistry.inMemory(authStorage);
-  const routed = resolveSubagentModelHint(modelHint, settings) ?? parseModelKey(currentModelKey(settings, "text"));
+  const routed = resolveSubagentModelRoute(settings, modelHint);
 
   if (routed) {
     if (routed.mode === "pi" || isKnownProvider(routed.provider)) {
@@ -367,6 +406,17 @@ async function resolveSubagentModel(
     authStorage.setRuntimeApiKey(fallbackProvider, apiKey);
   }
   return { model: fallbackModel, authStorage, modelRegistry };
+}
+
+export function resolveSubagentModelRoute(
+  settings: RuntimeSettings,
+  modelHint?: string
+): { mode: "pi" | "custom"; provider: string; model: string } | null {
+  const level = parseSubagentModelLevel(modelHint);
+  return parseModelKey(subagentModelLevelKey(settings, level))
+    ?? parseModelKey(settings.modelRouting.subagentModelKey)
+    ?? (level ? null : resolveSubagentModelHint(modelHint, settings))
+    ?? parseModelKey(currentModelKey(settings, "text"));
 }
 
 function buildUsage(messages: AgentMessage[]): UsageStats {

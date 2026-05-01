@@ -26,6 +26,19 @@ function chunkTelegramText(text: string, chunkSize = TELEGRAM_TEXT_SOFT_LIMIT): 
   return chunks;
 }
 
+export function summarizeTelegramToolProgressText(text: string, max = 20): string {
+  const normalized = String(text ?? "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/\s+/g, " "))
+    .replace(/\s+/g, " ")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .trim();
+  if (!normalized) return "";
+  if (normalized.length <= max) return normalized;
+  if (max <= 1) return "…".slice(0, max);
+  return `${normalized.slice(0, Math.max(0, max - 1)).trim()}…`;
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")

@@ -17,6 +17,8 @@ const scriptMap = new Map([
   ["dev", "dev"],
   ["start", "start"],
   ["build", "build"],
+  ["release", "release"],
+  ["manage", "manage"],
   ["cli", "cli"]
 ]);
 
@@ -98,6 +100,8 @@ function printHelp() {
       "  molibot dev",
       "  molibot start",
       "  molibot build",
+      "  molibot release",
+      "  molibot manage",
       "  molibot cli",
       "  molibot init",
       "",
@@ -105,6 +109,7 @@ function printHelp() {
       "  npm link",
       "  molibot",
       "  molibot cli",
+      "  molibot manage",
       "  molibot init"
     ].join("\n") + "\n"
   );

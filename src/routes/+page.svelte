@@ -88,6 +88,20 @@
     bot: string[];
   }
 
+  interface VersionInfo {
+    ok: boolean;
+    currentVersion: string;
+    latestVersion: string | null;
+    updateAvailable: boolean;
+    checkedAt: string;
+    remoteConfigured: boolean;
+    remoteSource?: "release" | "package";
+    remoteUrl?: string;
+    repository?: string;
+    ref?: string;
+    error?: string;
+  }
+
   type ThemeMode = "system" | "light" | "dark";
   const LS_THEME = "molibot-web-theme";
   const LS_PROFILE = "molibot-web-profile-id";
@@ -241,7 +255,17 @@
       thisProfile: "当前",
       pinned: "置顶",
       messageCount: "条消息",
-      home: "Home"
+      home: "Home",
+      version: "版本",
+      currentVersion: "当前版本",
+      latestVersion: "最新版本",
+      checkingVersion: "检查中...",
+      checkVersion: "检查更新",
+      updateAvailable: "发现新版本",
+      upToDate: "已是最新",
+      versionCheckFailed: "检查失败",
+      versionRemoteMissing: "未配置 GitHub 仓库",
+      updateWithManager: "请用 molibot manage 更新"
     },
     "en-US": {
       quickPrompts: [
@@ -389,7 +413,17 @@
       thisProfile: "Current",
       pinned: "Pinned",
       messageCount: "messages",
-      home: "Home"
+      home: "Home",
+      version: "Version",
+      currentVersion: "Current",
+      latestVersion: "Latest",
+      checkingVersion: "Checking...",
+      checkVersion: "Check update",
+      updateAvailable: "Update available",
+      upToDate: "Up to date",
+      versionCheckFailed: "Check failed",
+      versionRemoteMissing: "GitHub repo is not configured",
+      updateWithManager: "Use molibot manage to update"
     }
   };
 
@@ -457,6 +491,9 @@
   let streamingThinkingText = "";
   let streamingDiagnostics: string[] = [];
   let activeSessionTitle = "";
+  let versionInfo: VersionInfo | null = null;
+  let versionLoading = false;
+  let showVersionPanel = false;
 
   let messagesContainer: HTMLDivElement | null = null;
   let composerEl: HTMLTextAreaElement | null = null;
@@ -594,6 +631,54 @@
       }).format(new Date(iso));
     } catch {
       return iso;
+    }
+  }
+
+  function versionBadgeLabel(): string {
+    const current = versionInfo?.currentVersion ? `v${versionInfo.currentVersion}` : "v...";
+    if (versionLoading) return current;
+    if (versionInfo?.updateAvailable) return `${current} ↑`;
+    return current;
+  }
+
+  function versionStatusLabel(): string {
+    if (versionLoading) return t("checkingVersion");
+    if (!versionInfo) return t("checkVersion");
+    if (!versionInfo.remoteConfigured) return t("versionRemoteMissing");
+    if (!versionInfo.ok) return t("versionCheckFailed");
+    return versionInfo.updateAvailable ? t("updateAvailable") : t("upToDate");
+  }
+
+  async function loadVersionInfo(): Promise<void> {
+    versionLoading = true;
+    try {
+      const response = await fetch("/api/version");
+      const payload = await response.json();
+      versionInfo = {
+        ok: Boolean(payload?.ok),
+        currentVersion: String(payload?.currentVersion ?? "0.0.0"),
+        latestVersion: payload?.latestVersion ? String(payload.latestVersion) : null,
+        updateAvailable: Boolean(payload?.updateAvailable),
+        checkedAt: String(payload?.checkedAt ?? new Date().toISOString()),
+        remoteConfigured: Boolean(payload?.remoteConfigured),
+        remoteSource: payload?.remoteSource,
+        remoteUrl: payload?.remoteUrl,
+        repository: payload?.repository,
+        ref: payload?.ref,
+        error: payload?.error ? String(payload.error) : undefined
+      };
+    } catch (error) {
+      versionInfo = {
+        ok: false,
+        currentVersion: versionInfo?.currentVersion ?? "0.0.0",
+        latestVersion: null,
+        updateAvailable: false,
+        checkedAt: new Date().toISOString(),
+        remoteConfigured: true,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    } finally {
+      versionLoading = false;
     }
   }
 
@@ -1731,6 +1816,7 @@
         });
 
         activeProfileId = String(localStorage.getItem(LS_PROFILE) ?? "default") || "default";
+        void loadVersionInfo();
 
         runtimeSettings = await fetchRuntimeSettings();
         applyWebProfilesFromSettings(runtimeSettings);
@@ -1936,6 +2022,62 @@
           </div>
 
           <div class="ml-auto flex items-center gap-2">
+            <div class="relative">
+              <button
+                class={`inline-flex min-w-[6.75rem] items-center justify-center gap-2 rounded-full border px-3.5 py-2 text-sm font-semibold leading-none shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)] ${
+                  versionInfo?.updateAvailable
+                    ? "border-[color-mix(in_oklab,var(--accent)_70%,var(--border))] bg-[color-mix(in_oklab,var(--accent)_18%,var(--card))] text-[var(--accent-foreground)]"
+                    : "border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)]"
+                }`}
+                type="button"
+                on:click={() => (showVersionPanel = !showVersionPanel)}
+                aria-label={t("version")}
+              >
+                <span class={`h-2.5 w-2.5 shrink-0 rounded-full ${versionInfo?.updateAvailable ? "bg-[var(--accent)]" : "bg-[var(--muted-foreground)]"}`}></span>
+                <span class="font-mono tabular-nums">{versionBadgeLabel()}</span>
+              </button>
+              {#if showVersionPanel}
+                <div class="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-[var(--border)] bg-[var(--card)] p-4 text-sm shadow-[var(--shadow-md)]">
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <p class="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted-foreground)]">{t("version")}</p>
+                      <p class="mt-1 font-semibold text-[var(--foreground)]">{versionStatusLabel()}</p>
+                    </div>
+                    <button
+                      class="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--muted-foreground)] transition hover:bg-[var(--muted)]"
+                      type="button"
+                      on:click={loadVersionInfo}
+                      disabled={versionLoading}
+                    >
+                      {versionLoading ? t("checkingVersion") : t("checkVersion")}
+                    </button>
+                  </div>
+                  <dl class="mt-4 space-y-2 text-xs">
+                    <div class="flex justify-between gap-4">
+                      <dt class="text-[var(--muted-foreground)]">{t("currentVersion")}</dt>
+                      <dd class="font-mono text-[var(--foreground)]">v{versionInfo?.currentVersion ?? "..."}</dd>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                      <dt class="text-[var(--muted-foreground)]">{t("latestVersion")}</dt>
+                      <dd class="font-mono text-[var(--foreground)]">{versionInfo?.latestVersion ? `v${versionInfo.latestVersion}` : "-"}</dd>
+                    </div>
+                    {#if versionInfo?.repository}
+                      <div class="flex justify-between gap-4">
+                        <dt class="text-[var(--muted-foreground)]">GitHub</dt>
+                        <dd class="max-w-40 truncate text-[var(--foreground)]">{versionInfo.repository}</dd>
+                      </div>
+                    {/if}
+                  </dl>
+                  {#if versionInfo?.updateAvailable}
+                    <p class="mt-3 rounded-md border border-[color-mix(in_oklab,var(--accent)_45%,var(--border))] bg-[color-mix(in_oklab,var(--accent)_10%,transparent)] px-3 py-2 text-xs text-[var(--foreground)]">
+                      {t("updateWithManager")}
+                    </p>
+                  {:else if versionInfo?.error}
+                    <p class="mt-3 text-xs text-[var(--muted-foreground)]">{versionInfo.error}</p>
+                  {/if}
+                </div>
+              {/if}
+            </div>
             <button
               class="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm font-semibold text-[var(--primary)] shadow-[var(--shadow-sm)] transition hover:bg-[var(--muted)]"
               type="button"

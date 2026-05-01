@@ -14,7 +14,7 @@ import type { AiUsageTracker } from "../../usage/tracker.js";
 import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
 import { applyTelegramAcpProgressEvent, createTelegramAcpProgressState } from "./acpProgress.js";
-import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText, sendTelegramTextSafely } from "./formatting.js";
+import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText, sendTelegramTextSafely, summarizeTelegramToolProgressText } from "./formatting.js";
 import { ACP_CONTROL_HELP_LINES, handleSharedAcpApprovalCommand, handleSharedAcpCommand, shouldProxyToAcpSession, type SharedAcpPromptKind } from "../shared/acp.js";
 import { BaseChannelRuntime } from "../shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
@@ -190,16 +190,8 @@ export class TelegramManager extends BaseChannelRuntime {
     return `${normalized.slice(0, Math.max(0, max - 48)).trim()}\n\n[truncated run details]`;
   }
 
-  private summarizeToolProgressText(text: string, max = 84): string {
-    const normalized = String(text ?? "")
-      .replace(/\r\n?/g, "\n")
-      .replace(/```[\s\S]*?```/g, (block) => block.replace(/\s+/g, " "))
-      .replace(/\s+/g, " ")
-      .replace(/^["'`]+|["'`]+$/g, "")
-      .trim();
-    if (!normalized) return "";
-    if (normalized.length <= max) return normalized;
-    return `${normalized.slice(0, Math.max(0, max - 1)).trim()}…`;
+  private summarizeToolProgressText(text: string, max = 20): string {
+    return summarizeTelegramToolProgressText(text, max);
   }
 
   private getTelegramToolIcon(toolName: string): string {
@@ -207,6 +199,7 @@ export class TelegramManager extends BaseChannelRuntime {
     if (normalized.includes("search")) return "🔎";
     if (normalized.includes("event")) return "📅";
     if (normalized.includes("bash") || normalized.includes("terminal")) return "💻";
+    if (normalized.includes("subagent")) return "🧭";
     if (normalized.includes("read")) return "📖";
     if (normalized.includes("write") || normalized.includes("edit")) return "✏️";
     if (normalized.includes("memory")) return "🧠";

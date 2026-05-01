@@ -1,0 +1,15 @@
+node_modules
+build
+dist
+.svelte-kit
+.git
+.env
+.env.local
+.env.*.local
+*.log
+data
+data-bak
+tmp
+.tmp
+.cache
+.DS_Store

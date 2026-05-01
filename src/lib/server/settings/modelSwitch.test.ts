@@ -182,3 +182,53 @@ test("currentModelKey does not treat built-in or STT-only providers as custom te
 
   assert.equal(currentModelKey(settings, "text"), "pi|openrouter|text-fallback");
 });
+
+test("currentModelKey falls subagent route back to current text model", () => {
+  const settings: RuntimeSettings = {
+    ...defaultRuntimeSettings,
+    piModelProvider: "openrouter" as const,
+    piModelName: "text-fallback",
+    modelRouting: {
+      ...defaultRuntimeSettings.modelRouting,
+      textModelKey: "pi|google|gemini-flash-latest",
+      subagentModelKey: ""
+    }
+  };
+
+  assert.equal(currentModelKey(settings, "subagent"), "pi|google|gemini-flash-latest");
+});
+
+test("buildModelOptions returns text-capable options for subagent route", () => {
+  const settings: RuntimeSettings = {
+    ...defaultRuntimeSettings,
+    piModelProvider: "anthropic" as const,
+    piModelName: "claude-sonnet-4-20250514",
+    customProviders: [
+      {
+        id: "fast-custom",
+        name: "Fast custom",
+        enabled: true,
+        baseUrl: "https://custom.example",
+        apiKey: "custom-key",
+        path: "/v1/chat/completions",
+        defaultModel: "flash-text",
+        models: [
+          {
+            id: "flash-text",
+            tags: ["text"],
+            supportedRoles: ["system", "user", "assistant", "tool"]
+          },
+          {
+            id: "voice-only",
+            tags: ["tts"],
+            supportedRoles: ["system", "user", "assistant", "tool"]
+          }
+        ]
+      }
+    ]
+  };
+
+  const options = buildModelOptions(settings, "subagent");
+  assert.equal(options.some((option) => option.key === "custom|fast-custom|flash-text"), true);
+  assert.equal(options.some((option) => option.key === "custom|fast-custom|voice-only"), false);
+});

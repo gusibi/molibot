@@ -22,3 +22,12 @@
 - Tests run: npm --prefix package/qqbot run build; npx tsx --test package/qqbot/src/outbound.test.ts; npm run build.
 
 - 2026-05-01 follow-up: fixed QQ direct onEvent mode after v1.7.1 sync. Root cause was an unconditional getQQBotRuntime() in connect(), plus SDK slash/approval setup running even when Molibot owns commands/ACP.
+
+## 2026-05-01 production auto-restart/update findings
+
+- Root package is a SvelteKit Node app: `npm run build` runs `svelte-kit sync && vite build`; `npm run start` runs `node build`.
+- `bin/molibot-service.sh` already provides `start/stop/status/restart`, but it launches the global `molibot` command.
+- `bin/molibot.js` defaults to `dev`; `molibot start` shells back into `npm run start` with `cwd` fixed to the repository root.
+- Current production operation therefore still depends on a source checkout and npm scripts. It does not yet define an artifact-only runtime, Docker image, or binary-style release bundle.
+- A minimal non-source path should keep development unchanged and add separate production artifacts: Docker image and/or packaged release directory with `build/`, production `node_modules`, package metadata, env example, and service/update scripts.
+- Implemented path keeps source development unchanged and adds release/Docker production paths. Release smoke test confirmed `node build` works from `dist/molibot-release` with a separate `DATA_DIR`.

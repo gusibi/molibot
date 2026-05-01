@@ -24,6 +24,11 @@ export interface ModelRoutingConfig {
   visionModelKey: string;
   sttModelKey: string;
   ttsModelKey: string;
+  subagentModelKey: string;
+  subagentHaikuModelKey: string;
+  subagentSonnetModelKey: string;
+  subagentOpusModelKey: string;
+  subagentThinkingModelKey: string;
 }
 
 export interface CompactionSettings {

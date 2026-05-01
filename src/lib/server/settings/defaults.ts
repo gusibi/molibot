@@ -292,7 +292,12 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     textModelKey: "",
     visionModelKey: "",
     sttModelKey: "",
-    ttsModelKey: ""
+    ttsModelKey: "",
+    subagentModelKey: "",
+    subagentHaikuModelKey: "",
+    subagentSonnetModelKey: "",
+    subagentOpusModelKey: "",
+    subagentThinkingModelKey: ""
   },
   modelFallback: {
     mode: "same-provider"

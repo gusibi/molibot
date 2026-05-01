@@ -1,0 +1,18 @@
+services:
+  molibot:
+    build: .
+    image: molibot:local
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - molibot-data:/data
+
+volumes:
+  molibot-data:

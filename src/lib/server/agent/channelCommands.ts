@@ -876,8 +876,8 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/thinking <default|off|low|medium|high>", value: "change thinking for current session only" },
       { label: "/models", value: "show text route models and current active model" },
       { label: "/models <index|key>", value: "switch text model" },
-      { label: "/models <text|vision|stt|tts>", value: "show models and current active model for that route" },
-      { label: "/models <text|vision|stt|tts> <index|key>", value: "switch route model" },
+      { label: "/models <text|vision|stt|tts|subagent>", value: "show models and current active model for that route" },
+      { label: "/models <text|vision|stt|tts|subagent> <index|key>", value: "switch route model" },
       { label: "/compact [instructions]", value: "summarize older context of current session" },
       ...(this.options.helpLines ?? []).map((line) => {
         const separator = line.indexOf(" - ");

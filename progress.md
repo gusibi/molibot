@@ -42,3 +42,21 @@
 - Adjusted QQ /bot-upgrade default to doc-only mode for Molibot; hot reload now requires explicit upgradeMode=hot-reload.
 
 - 2026-05-01 follow-up: patched package/qqbot/src/gateway.ts so Molibot onEvent mode skips OpenClaw runtime preflight, approval gateway, SDK slash interception, and per-message runtime lookup.
+
+## 2026-05-01 production auto-restart/update progress
+
+- Added a production release bundle flow through `bin/molibot-release.sh` and `npm run release`.
+- Updated `bin/molibot-service.sh` so managed processes can start from a release directory via `MOLIBOT_APP_DIR` and `MOLIBOT_START_COMMAND`.
+- Added `bin/molibot-update.sh` for GitHub fetch/build/timestamped release/current symlink/restart deployment.
+- Added Docker production files: `Dockerfile`, `.dockerignore`, and `docker-compose.yml`.
+- Added `qrcode-terminal` as a direct production dependency because adapter-node externalizes the Weixin QR helper import.
+- Added `bin/molibot-manage.js` and `molibot manage` for lightweight interactive install/update/service/uninstall operations.
+- Added managed-directory safeguards so update/release/uninstall refuse to overwrite or remove non-empty directories without Molibot marker files.
+- Added `/api/version` and the Web top-bar version popover for read-only GitHub update checks; browser UI does not run update or restart actions.
+- Added `/settings/system` for language, runtime timezone, and read-only GitHub/deployment version fields; widened the Web version badge for readable version text.
+- Set default GitHub source to `https://github.com/gusibi/molibot` branch `master` in update script, manager defaults, and version API.
+- Fixed update bootstrap for cloned sources that do not yet include `bin/molibot-release.sh` by injecting current installer scripts into the managed clone before packaging; release bundles now also include `molibot-release.sh` when available.
+- Added `mpg123-decoder` as a root production dependency and taught release packaging to self-heal missing root runtime dependencies before building older source checkouts.
+- Updated required docs: `readme.md`, `features.md`, `prd.md`, and `CHANGELOG.md`.
+- Verified shell syntax with `bash -n`, ran `npm run build`, generated `dist/molibot-release` with `MOLIBOT_RELEASE_SKIP_BUILD=1 npm run release`, and smoke-tested `node build` from the release bundle via `/health`.
+- Verified `bin/molibot-manage.js` with `node --check`, `node bin/molibot-manage.js --help`, `node bin/molibot.js --help`, a clean `npm run build`, release packaging, and release-bundled manager help.

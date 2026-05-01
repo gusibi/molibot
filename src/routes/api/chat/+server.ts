@@ -155,8 +155,8 @@ async function tryHandleWebCommand(
         "Available commands:",
         "/models - list text model options and current active model",
         "/models <index|key> - switch text model",
-        "/models <text|vision|stt|tts> - list a specific route",
-        "/models <text|vision|stt|tts> <index|key> - switch that route",
+        "/models <text|vision|stt|tts|subagent> - list a specific route",
+        "/models <text|vision|stt|tts|subagent> <index|key> - switch that route",
         "/skills - list loaded skills",
         "/compact [instructions] - summarize older context in current conversation",
         "/login <provider> - start OAuth login and receive the auth URL",
@@ -447,6 +447,22 @@ export const POST: RequestHandler = async ({ request }) => {
           `payload_api=${event.api}`,
           event.summary
         ].join(", ")
+      );
+      return;
+    }
+    if (event.type === "tool_execution_start") {
+      runnerDiagnostics.push(`tool_start=${event.toolName}, label=${event.label}`);
+      return;
+    }
+    if (event.type === "tool_execution_end") {
+      const summary = event.summary.replace(/\s+/g, " ").trim();
+      const preview = summary.length > 160 ? `${summary.slice(0, 159)}…` : summary;
+      runnerDiagnostics.push(
+        [
+          `tool_end=${event.toolName}`,
+          `status=${event.isError ? "error" : "ok"}`,
+          preview ? `summary=${preview}` : ""
+        ].filter(Boolean).join(", ")
       );
     }
   };

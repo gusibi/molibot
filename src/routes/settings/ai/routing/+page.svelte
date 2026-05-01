@@ -18,7 +18,8 @@
     type DefaultThinkingLevel = "off" | "low" | "medium" | "high";
     type ModelCapabilityTag = "text" | "vision" | "audio_input" | "stt" | "tts" | "tool";
     type ModelFallbackMode = "off" | "same-provider" | "any-enabled";
-    type ModelRoute = "text" | "vision" | "stt" | "tts";
+    type ModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";
+    type SubagentModelLevel = "haiku" | "sonnet" | "opus" | "thinking";
 
     interface ProviderModelForm {
         id: string;
@@ -53,6 +54,11 @@
             visionModelKey: string;
             sttModelKey: string;
             ttsModelKey: string;
+            subagentModelKey: string;
+            subagentHaikuModelKey: string;
+            subagentSonnetModelKey: string;
+            subagentOpusModelKey: string;
+            subagentThinkingModelKey: string;
         };
         modelFallback: {
             mode: ModelFallbackMode;
@@ -81,7 +87,7 @@
         ok: boolean;
         error?: string;
         routes?: Record<
-            "text" | "vision" | "stt" | "tts",
+            "text" | "vision" | "stt" | "tts" | "subagent",
             {
                 currentKey: string;
                 options: ModelRouteOption[];
@@ -101,6 +107,7 @@
         vision: [],
         stt: [],
         tts: [],
+        subagent: [],
     };
     let capabilityTags: ModelCapabilityTag[] = [
         "text",
@@ -167,6 +174,11 @@
             visionModelKey: "",
             sttModelKey: "",
             ttsModelKey: "",
+            subagentModelKey: "",
+            subagentHaikuModelKey: "",
+            subagentSonnetModelKey: "",
+            subagentOpusModelKey: "",
+            subagentThinkingModelKey: "",
         },
         modelFallback: {
             mode: "same-provider",
@@ -278,6 +290,39 @@
             description: "Voice synthesis route",
             emptyText: "No TTS model configured",
         },
+        {
+            route: "subagent",
+            title: "Subagent fallback",
+            description: "Fallback when a subagent model level is not mapped",
+            emptyText: "No text model available",
+        },
+    ];
+
+    const subagentLevelCards: Array<{
+        level: SubagentModelLevel;
+        title: string;
+        description: string;
+    }> = [
+        {
+            level: "haiku",
+            title: "Haiku",
+            description: "Fast, low-cost scout-style delegation",
+        },
+        {
+            level: "sonnet",
+            title: "Sonnet",
+            description: "Balanced planning, worker, and review delegation",
+        },
+        {
+            level: "opus",
+            title: "Opus",
+            description: "Highest-capability delegation tier",
+        },
+        {
+            level: "thinking",
+            title: "Thinking",
+            description: "Reasoning-heavy delegated tasks",
+        },
     ];
 
     function routingOptions(route: ModelRoute): ModelRouteOption[] {
@@ -293,7 +338,9 @@
               ? form.modelRouting.visionModelKey
               : route === "stt"
                 ? form.modelRouting.sttModelKey
-                : form.modelRouting.ttsModelKey;
+                : route === "tts"
+                  ? form.modelRouting.ttsModelKey
+                  : form.modelRouting.subagentModelKey;
     }
 
     function setModelRoutingValue(route: ModelRoute, value: string): void {
@@ -305,7 +352,32 @@
                   ? "visionModelKey"
                   : route === "stt"
                     ? "sttModelKey"
-                    : "ttsModelKey"]: value,
+                    : route === "tts"
+                      ? "ttsModelKey"
+                      : "subagentModelKey"]: value,
+        };
+    }
+
+    function subagentLevelValue(level: SubagentModelLevel): string {
+        return level === "haiku"
+            ? form.modelRouting.subagentHaikuModelKey
+            : level === "sonnet"
+              ? form.modelRouting.subagentSonnetModelKey
+              : level === "opus"
+                ? form.modelRouting.subagentOpusModelKey
+                : form.modelRouting.subagentThinkingModelKey;
+    }
+
+    function setSubagentLevelValue(level: SubagentModelLevel, value: string): void {
+        form.modelRouting = {
+            ...form.modelRouting,
+            [level === "haiku"
+                ? "subagentHaikuModelKey"
+                : level === "sonnet"
+                  ? "subagentSonnetModelKey"
+                  : level === "opus"
+                    ? "subagentOpusModelKey"
+                    : "subagentThinkingModelKey"]: value,
         };
     }
 
@@ -375,6 +447,17 @@
         if (!tts.some((v) => v.key === form.modelRouting.ttsModelKey)) {
             setModelRoutingValue("tts", tts[0]?.key ?? "");
         }
+
+        const subagent = routingOptions("subagent");
+        if (form.modelRouting.subagentModelKey && !subagent.some((v) => v.key === form.modelRouting.subagentModelKey)) {
+            setModelRoutingValue("subagent", "");
+        }
+        for (const row of subagentLevelCards) {
+            const current = subagentLevelValue(row.level);
+            if (current && !subagent.some((v) => v.key === current)) {
+                setSubagentLevelValue(row.level, "");
+            }
+        }
     }
 
     async function loadAll(): Promise<void> {
@@ -411,6 +494,7 @@
                 vision: modelSwitchData.routes?.vision.options ?? [],
                 stt: modelSwitchData.routes?.stt.options ?? [],
                 tts: modelSwitchData.routes?.tts.options ?? [],
+                subagent: modelSwitchData.routes?.subagent.options ?? [],
             };
 
             providers = metaData.providers ?? [];
@@ -463,6 +547,11 @@
                     visionModelKey: s.modelRouting?.visionModelKey ?? "",
                     sttModelKey: s.modelRouting?.sttModelKey ?? "",
                     ttsModelKey: s.modelRouting?.ttsModelKey ?? "",
+                    subagentModelKey: s.modelRouting?.subagentModelKey ?? "",
+                    subagentHaikuModelKey: s.modelRouting?.subagentHaikuModelKey ?? "",
+                    subagentSonnetModelKey: s.modelRouting?.subagentSonnetModelKey ?? "",
+                    subagentOpusModelKey: s.modelRouting?.subagentOpusModelKey ?? "",
+                    subagentThinkingModelKey: s.modelRouting?.subagentThinkingModelKey ?? "",
                 },
                 modelFallback: {
                     mode:
@@ -608,6 +697,9 @@
                                 {#if options.length === 0}
                                     <option value="">{card.emptyText}</option>
                                 {:else}
+                                    {#if card.route === "subagent"}
+                                        <option value="">Use text route fallback</option>
+                                    {/if}
                                     {#each options as row}
                                         <option value={row.key}>{row.label}</option>
                                     {/each}
@@ -615,6 +707,56 @@
                             </select>
 
                             <p class="route-summary">{routeSummary(card.route)}</p>
+                        </div>
+                    {/each}
+                </div>
+            </section>
+
+            <section class="settings-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Subagent model levels</p>
+                        <h2>Map delegation tiers</h2>
+                    </div>
+                </div>
+
+                <div class="info-strip">
+                    <strong>How subagents choose models:</strong>
+                    <span>
+                        Built-in roles reference levels such as `haiku` and `sonnet`, not Claude-specific model IDs.
+                        Map each level to any text-capable model in your pool. Empty levels fall back to the Subagent fallback route, then the text route.
+                    </span>
+                </div>
+
+                <div class="route-grid">
+                    {#each subagentLevelCards as card}
+                        {@const options = routingOptions("subagent")}
+                        <div class="route-card">
+                            <div class="route-card-head">
+                                <div>
+                                    <h3>{card.title}</h3>
+                                    <p>{card.description}</p>
+                                </div>
+                                <span class="transport-chip">
+                                    {transportLabel(subagentLevelValue(card.level))}
+                                </span>
+                            </div>
+
+                            <select
+                                class="control"
+                                value={subagentLevelValue(card.level)}
+                                disabled={options.length === 0}
+                                on:change={(event) =>
+                                    setSubagentLevelValue(
+                                        card.level,
+                                        (event.currentTarget as HTMLSelectElement).value,
+                                    )}
+                            >
+                                <option value="">Use subagent fallback</option>
+                                {#each options as row}
+                                    <option value={row.key}>{row.label}</option>
+                                {/each}
+                            </select>
                         </div>
                     {/each}
                 </div>
