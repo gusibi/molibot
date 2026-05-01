@@ -67,6 +67,11 @@ if [[ -d "$ROOT_DIR/src/lib/server/agent/prompts" ]]; then
   cp -R "$ROOT_DIR/src/lib/server/agent/prompts" "$OUTPUT_DIR/src/lib/server/agent/prompts"
 fi
 
+if [[ -d "$ROOT_DIR/src/lib/server/agent/tools/subagent-agents" ]]; then
+  mkdir -p "$OUTPUT_DIR/build/server/chunks"
+  cp -R "$ROOT_DIR/src/lib/server/agent/tools/subagent-agents" "$OUTPUT_DIR/build/server/chunks/subagent-agents"
+fi
+
 (
   cd "$OUTPUT_DIR"
   npm ci --omit=dev
