@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { stripTransientRuntimeNoticesFromMessages, TOOL_BUDGET_RUNTIME_NOTICE } from "./runtimeNotices.js";
+import {
+  stripTransientRuntimeNoticesFromMessages,
+  SUBAGENT_DELEGATION_RUNTIME_NOTICE,
+  TOOL_BUDGET_RUNTIME_NOTICE
+} from "./runtimeNotices.js";
 import { buildMessagesFromSessionEntries, createSessionHeader, type SessionFileEntry } from "./session.js";
 
 test("runtime event entries stay out of rebuilt model messages", () => {
@@ -48,6 +52,25 @@ test("transient tool-budget runtime notice is stripped from prompt history", () 
     {
       role: "assistant",
       content: [{ type: "text", text: "best effort answer" }],
+      timestamp: Date.now()
+    }
+  ];
+
+  const stripped = stripTransientRuntimeNoticesFromMessages(messages);
+  assert.equal(stripped.length, 1);
+  assert.equal((stripped[0] as { role?: string }).role, "assistant");
+});
+
+test("transient subagent delegation runtime notice is stripped from prompt history", () => {
+  const messages: AgentMessage[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: SUBAGENT_DELEGATION_RUNTIME_NOTICE }],
+      timestamp: Date.now()
+    },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "delegating now" }],
       timestamp: Date.now()
     }
   ];

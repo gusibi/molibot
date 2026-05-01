@@ -30,3 +30,8 @@ test("prompt source no longer embeds live time guidance in the system prompt con
   assert.doesNotMatch(promptSource, /Server timezone:/);
   assert.doesNotMatch(promptSource, /For the exact current time, run: date/);
 });
+
+test("prompt source tells codebase tasks to delegate before tool budget exhaustion", () => {
+  assert.match(promptSource, /If you expect more than about 8 direct read\/bash\/edit calls, delegate early/);
+  assert.match(promptSource, /call `subagent` before the parent run approaches the 24-tool hard limit/);
+});

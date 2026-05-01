@@ -59,7 +59,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Queue-Safe Image Fallback**: queued channel messages restore image bytes from saved attachments before runner execution, so fallback sees actual image content instead of only a file path
 - **MiMo/Anthropic-Compatible Roles**: providers configured as Anthropic keep system instructions in the top-level `system` field, reserve `messages` for conversational roles, and log redacted image-fallback request payloads for debugging
 - **Time-Aware Prompting**: each live user turn can carry structured current-time metadata (`message_received_at` / `timezone` / `today`) for better date-sensitive replies
-- **Subagent Model Routing**: delegated scout/planner/worker/reviewer runs use configurable `haiku` / `sonnet` / `opus` / `thinking` model levels plus a subagent fallback route instead of inheriting the main conversation model
+- **Subagent Model Routing**: delegated scout/planner/worker/reviewer runs use configurable `haiku` / `sonnet` / `opus` / `thinking` model levels plus a subagent fallback route, with early-delegation nudges before parent runs exhaust the 24-tool budget
 - **Shared Workbench UI**: Web chat and Settings now use one reusable workbench material system for hero panels, forms, tables, config shells, and interaction feedback
 - **Current-Session File Workspace**: Web chat now includes a real files pane with searchable attachment inventory, inline preview for common formats, downloads, and copy-path actions
 - **Operational Settings UI**: AI routing, agents, ACP targets, tasks, memory, skills, MCP servers
@@ -135,6 +135,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Inline Provider Tests**: Single-model connection test results stay inside the tested model card
 - **Endpoint Diagnostics**: Model error records show both transport base URL and computed endpoint URL
 - **Route-Scoped Switching**: Independent model selection for text/vision/stt/tts and subagent fallback, with subagent level mappings for haiku/sonnet/opus/thinking
+- **Subagent Budget Strategy**: codebase-heavy runs are prompted to delegate early, and sustained parent-tool use triggers a transient subagent recommendation before the hard tool-call limit is reached
 - **Cross-Provider Fallback**: Automatic fallback on retryable errors
 
 ### Operational Tools
@@ -333,11 +334,11 @@ molibot cli             # CLI mode for terminal conversation
 ```bash
 molibot manage                    # Configure, install/update, restart, logs, uninstall runtime files
 
-# Optional service script for background process management
-./bin/molibot-service.sh start    # Start background service
-./bin/molibot-service.sh stop     # Stop background service
-./bin/molibot-service.sh status     # Check service status
-./bin/molibot-service.sh restart  # Restart service
+# Optional service script for supervised background process management
+./bin/molibot-service.sh start    # Start supervisor + service
+./bin/molibot-service.sh stop     # Stop supervisor + service
+./bin/molibot-service.sh status   # Check supervisor/child status
+./bin/molibot-service.sh restart  # Restart supervisor + service
 ```
 
 ### Initialization
@@ -358,7 +359,7 @@ For a simple guided flow, run:
 molibot manage
 ```
 
-The manager stores deployment settings in `${DATA_DIR}/deploy.env` by default, then can install/update from GitHub, start/stop/restart the service, show status/logs, and uninstall runtime deployment files. Uninstall keeps `DATA_DIR` by default so conversations, settings, credentials, and profile files are not deleted.
+The manager stores deployment settings in `${DATA_DIR}/deploy.env` by default, then can install/update from GitHub, start/stop/restart the service, show status/logs, and uninstall runtime deployment files. Service start uses a lightweight script-level supervisor: after manual start, unexpected child-process exits are restarted after a short delay; manual stop writes an explicit stop marker so the process is not relaunched. Uninstall keeps `DATA_DIR` by default so conversations, settings, credentials, and profile files are not deleted.
 
 ### Release Bundle
 
@@ -380,6 +381,8 @@ For background service management:
 ```bash
 MOLIBOT_APP_DIR=dist/molibot-release ./bin/molibot-service.sh restart
 ```
+
+The service script does not install a boot-time OS service. It only supervises the process after you start it, and stops supervising when you run `stop`.
 
 Keep `.env` and `DATA_DIR` outside the release directory so the `current` release can be replaced safely.
 

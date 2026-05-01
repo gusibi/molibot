@@ -10,6 +10,7 @@
 - **Subagent 模型级别路由**: `/settings/ai/routing` 新增 subagent fallback route，并支持把 `haiku` / `sonnet` / `opus` / `thinking` 四个抽象级别映射到任意已配置文本模型；内置 scout/planner/worker/reviewer 不再展示未配置的具体 Claude 型号作为默认模型。
 - **设置持久化修复**: 修复 runtime settings 更新路径丢弃 subagent 路由字段的问题，保存后的 DeepSeek/Sub2API 等 subagent 路由现在会真实参与后续运行与页面展示。
 - **Agents 页面只读清单**: `/settings/agents` 新增单独的 Subagents 侧边入口，右侧展示 role、描述、工具、模型级别和当前真实生效模型来源，不提供编辑入口。
+- **提前委派策略**: 代码库任务现在会被明确要求在预计 8 次以上直接工具调用时提前使用 subagent；父 run 连续使用 12 次工具且还没用过 subagent 时，runtime 会插入一次临时委派提示，避免等到 24 次硬上限才进入无工具续写。
 - **运行可见性**: Web trace 现在记录工具 start/end，Telegram 工具进度可识别 subagent 调用，并将工具结果摘要限制到 20 个字符。
 
 ### Weixin SDK 协议同步
@@ -39,6 +40,7 @@
 - **旧仓库安装兼容**: 自动更新在拉到的源码还没有 release 管理脚本时，会从当前安装器注入必要脚本后再构建；后续如果源码目录里残留旧的未跟踪注入脚本，也会刷新为当前安装器版本，避免首次安装旧提交时报 `./bin/molibot-release.sh` 不存在或继续复用 stale 脚本。
 - **生产依赖自愈**: release 构建会在源码构建前补齐根包缺失的运行依赖（当前包括 `qrcode-terminal` 和 `mpg123-decoder`），避免旧源码 checkout 因子包动态依赖未提升到根包而构建失败。
 - **Release 资源完整性**: release bundle 现在包含内置 subagent Markdown 定义，避免生产环境 `/api/settings/subagents` 因缺少 `scout.md` 等文件报 500 并影响 Agents 设置页显示。
+- **轻量进程守护**: `bin/molibot-service.sh start` 现在启动脚本级 supervisor，Molibot 子进程异常退出后会自动延迟重启；`stop` 会写入停止标记，确保人工停止不会被守护循环重新拉起。
 
 ---
 

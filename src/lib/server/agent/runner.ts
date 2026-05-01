@@ -44,11 +44,13 @@ import {
   validateToolCallPreflight
 } from "./toolPolicy.js";
 import {
+  SUBAGENT_DELEGATION_RUNTIME_NOTICE,
   stripTransientRuntimeNoticesFromMessages,
   TOOL_BUDGET_RUNTIME_NOTICE
 } from "./runtimeNotices.js";
 
 const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
+const SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS = 12;
 
 function rewritePromptUserMessage(
   messages: AgentMessage[],
@@ -1602,6 +1604,7 @@ export class MomRunner implements RunnerLike {
     const budget = new RunBudget(DEFAULT_RUN_BUDGET);
     const usedToolNames: string[] = [];
     const failedToolNames: string[] = [];
+    let subagentDelegationNoticeSent = false;
     const botId = basename(this.store.getWorkspaceDir()) || "unknown";
     this.running = true;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
@@ -1971,6 +1974,28 @@ export class MomRunner implements RunnerLike {
         if (!budgetResult.ok) {
           enqueue(() => ctx.respondInThread(budgetResult.reason ?? "Run budget exceeded."));
           this.agent.abort();
+        } else {
+          const currentBudget = budget.snapshot();
+          const shouldRecommendSubagent =
+            !subagentDelegationNoticeSent &&
+            currentBudget.toolCalls >= SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS &&
+            !usedToolNames.includes("subagent") &&
+            this.agent.state.tools.some((tool) => tool.name === "subagent");
+          if (shouldRecommendSubagent) {
+            subagentDelegationNoticeSent = true;
+            this.agent.followUp({
+              role: "user",
+              content: [{ type: "text", text: SUBAGENT_DELEGATION_RUNTIME_NOTICE }],
+              timestamp: Date.now()
+            });
+            momWarn("runner", "subagent_delegation_notice", {
+              runId,
+              chatId: this.chatId,
+              sessionId: this.sessionId,
+              toolCalls: currentBudget.toolCalls,
+              maxToolCalls: budget.limitsSnapshot().maxToolCalls
+            });
+          }
         }
       }
 

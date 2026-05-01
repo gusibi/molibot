@@ -2,13 +2,73 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 DEFAULT_APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_DIR="${MOLIBOT_APP_DIR:-$DEFAULT_APP_DIR}"
 START_COMMAND="${MOLIBOT_START_COMMAND:-node build}"
 LOG_FILE="${MOLIBOT_LOG_FILE:-$HOME/logs/molibot.log}"
 PID_FILE="${MOLIBOT_PID_FILE:-$HOME/.molibot/molibot.pid}"
+CHILD_PID_FILE="${MOLIBOT_CHILD_PID_FILE:-${PID_FILE%.pid}.child.pid}"
+STOP_FILE="${MOLIBOT_STOP_FILE:-${PID_FILE%.pid}.stop}"
+RESTART_DELAY_SECONDS="${MOLIBOT_RESTART_DELAY_SECONDS:-2}"
 LOG_DIR="$(dirname "$LOG_FILE")"
 PID_DIR="$(dirname "$PID_FILE")"
+
+is_running() {
+  local pid="$1"
+  [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+read_pid_file() {
+  local file="$1"
+  if [[ ! -f "$file" ]]; then
+    return 0
+  fi
+  cat "$file" 2>/dev/null || true
+}
+
+supervisor_loop() {
+  local child_pid=""
+  local stopping=0
+
+  stop_child() {
+    stopping=1
+    if is_running "$child_pid"; then
+      kill "$child_pid" 2>/dev/null || true
+      wait "$child_pid" 2>/dev/null || true
+    fi
+    rm -f "$CHILD_PID_FILE"
+  }
+
+  trap stop_child TERM INT
+  echo "[molibot-service] supervisor started app_dir=$APP_DIR command=$START_COMMAND"
+
+  while true; do
+    rm -f "$STOP_FILE"
+    (
+      cd "$APP_DIR"
+      exec env NODE_ENV="${NODE_ENV:-production}" bash -lc "$START_COMMAND"
+    ) &
+    child_pid=$!
+    echo "$child_pid" > "$CHILD_PID_FILE"
+    echo "[molibot-service] child started pid=$child_pid"
+
+    set +e
+    wait "$child_pid"
+    local exit_code=$?
+    set -e
+    rm -f "$CHILD_PID_FILE"
+
+    if [[ "$stopping" == "1" || -f "$STOP_FILE" ]]; then
+      echo "[molibot-service] supervisor stopped"
+      rm -f "$STOP_FILE"
+      return 0
+    fi
+
+    echo "[molibot-service] child exited code=$exit_code; restarting in ${RESTART_DELAY_SECONDS}s"
+    sleep "$RESTART_DELAY_SECONDS"
+  done
+}
 
 start_service() {
   mkdir -p "$LOG_DIR"
@@ -16,10 +76,11 @@ start_service() {
 
   if [[ -f "$PID_FILE" ]]; then
     local old_pid
-    old_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
-    if [[ -n "${old_pid:-}" ]] && kill -0 "$old_pid" 2>/dev/null; then
+    old_pid="$(read_pid_file "$PID_FILE")"
+    if is_running "$old_pid"; then
       echo "molibot already running"
-      echo "pid: $old_pid"
+      echo "supervisor_pid: $old_pid"
+      echo "child_pid: $(read_pid_file "$CHILD_PID_FILE")"
       echo "log: $LOG_FILE"
       return 0
     fi
@@ -30,20 +91,28 @@ start_service() {
     return 1
   fi
 
-  (
-    cd "$APP_DIR"
-    exec env NODE_ENV="${NODE_ENV:-production}" bash -lc "$START_COMMAND"
-  ) >>"$LOG_FILE" 2>&1 < /dev/null &
+  rm -f "$STOP_FILE"
+  nohup env \
+    MOLIBOT_APP_DIR="$APP_DIR" \
+    MOLIBOT_START_COMMAND="$START_COMMAND" \
+    MOLIBOT_LOG_FILE="$LOG_FILE" \
+    MOLIBOT_PID_FILE="$PID_FILE" \
+    MOLIBOT_CHILD_PID_FILE="$CHILD_PID_FILE" \
+    MOLIBOT_STOP_FILE="$STOP_FILE" \
+    MOLIBOT_RESTART_DELAY_SECONDS="$RESTART_DELAY_SECONDS" \
+    "$SCRIPT_PATH" supervise >>"$LOG_FILE" 2>&1 < /dev/null &
   local pid=$!
   disown || true
   echo "$pid" > "$PID_FILE"
 
-  echo "molibot started in background"
-  echo "pid: $pid"
+  echo "molibot supervisor started in background"
+  echo "supervisor_pid: $pid"
   echo "app_dir: $APP_DIR"
   echo "command: $START_COMMAND"
+  echo "restart_delay_seconds: $RESTART_DELAY_SECONDS"
   echo "log: $LOG_FILE"
   echo "pid_file: $PID_FILE"
+  echo "child_pid_file: $CHILD_PID_FILE"
 }
 
 stop_service() {
@@ -53,15 +122,22 @@ stop_service() {
   fi
 
   local pid
-  pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+  pid="$(read_pid_file "$PID_FILE")"
   if [[ -z "${pid:-}" ]]; then
-    rm -f "$PID_FILE"
+    rm -f "$PID_FILE" "$CHILD_PID_FILE" "$STOP_FILE"
     echo "molibot not running (empty pid file, cleaned)"
     return 0
   fi
 
-  if ! kill -0 "$pid" 2>/dev/null; then
-    rm -f "$PID_FILE"
+  echo "stop" > "$STOP_FILE"
+
+  if ! is_running "$pid"; then
+    local child_pid
+    child_pid="$(read_pid_file "$CHILD_PID_FILE")"
+    if is_running "$child_pid"; then
+      kill "$child_pid" 2>/dev/null || true
+    fi
+    rm -f "$PID_FILE" "$CHILD_PID_FILE" "$STOP_FILE"
     echo "molibot not running (stale pid file cleaned)"
     return 0
   fi
@@ -69,8 +145,8 @@ stop_service() {
   kill "$pid"
 
   for _ in {1..20}; do
-    if ! kill -0 "$pid" 2>/dev/null; then
-      rm -f "$PID_FILE"
+    if ! is_running "$pid"; then
+      rm -f "$PID_FILE" "$CHILD_PID_FILE" "$STOP_FILE"
       echo "molibot stopped"
       return 0
     fi
@@ -79,7 +155,12 @@ stop_service() {
 
   echo "molibot still running, sending SIGKILL"
   kill -9 "$pid" 2>/dev/null || true
-  rm -f "$PID_FILE"
+  local child_pid
+  child_pid="$(read_pid_file "$CHILD_PID_FILE")"
+  if is_running "$child_pid"; then
+    kill -9 "$child_pid" 2>/dev/null || true
+  fi
+  rm -f "$PID_FILE" "$CHILD_PID_FILE" "$STOP_FILE"
   echo "molibot stopped"
 }
 
@@ -94,7 +175,7 @@ status_service() {
   fi
 
   local pid
-  pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+  pid="$(read_pid_file "$PID_FILE")"
   if [[ -z "${pid:-}" ]]; then
     echo "status: stopped"
     echo "pid_file: $PID_FILE (empty)"
@@ -104,12 +185,21 @@ status_service() {
     return 1
   fi
 
-  if kill -0 "$pid" 2>/dev/null; then
+  if is_running "$pid"; then
+    local child_pid
+    child_pid="$(read_pid_file "$CHILD_PID_FILE")"
     echo "status: running"
-    echo "pid: $pid"
+    echo "supervisor_pid: $pid"
+    if is_running "$child_pid"; then
+      echo "child_pid: $child_pid"
+    else
+      echo "child_pid: ${child_pid:-unknown} (starting or restarting)"
+    fi
     echo "pid_file: $PID_FILE"
+    echo "child_pid_file: $CHILD_PID_FILE"
     echo "app_dir: $APP_DIR"
     echo "command: $START_COMMAND"
+    echo "restart_delay_seconds: $RESTART_DELAY_SECONDS"
     echo "log: $LOG_FILE"
     return 0
   fi
@@ -135,6 +225,10 @@ Environment:
   MOLIBOT_START_COMMAND  Start command inside app dir (default: node build)
   MOLIBOT_LOG_FILE       Log file path
   MOLIBOT_PID_FILE       PID file path
+  MOLIBOT_CHILD_PID_FILE Child process PID file path
+  MOLIBOT_STOP_FILE      Stop marker file path
+  MOLIBOT_RESTART_DELAY_SECONDS
+                          Delay before restarting a crashed child (default: 2)
 EOF
 }
 
@@ -155,6 +249,9 @@ case "$command" in
     ;;
   help|-h|--help)
     usage
+    ;;
+  supervise)
+    supervisor_loop
     ;;
   *)
     echo "unknown command: $command" >&2

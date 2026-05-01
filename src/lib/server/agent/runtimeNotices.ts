@@ -8,6 +8,19 @@ export const TOOL_BUDGET_RUNTIME_NOTICE = [
   "[/runtime notice]"
 ].join("\n");
 
+export const SUBAGENT_DELEGATION_RUNTIME_NOTICE = [
+  "[runtime notice]",
+  "This run has already used many parent-run tool calls.",
+  "If the remaining work is codebase-heavy, multi-file, implementation, or review work, delegate now with the `subagent` tool instead of continuing direct read/bash/edit loops.",
+  "Use `scout` for further investigation, `planner` for planning, `worker` for implementation, and `reviewer` for review. If the task is already ready to answer, finish directly.",
+  "[/runtime notice]"
+].join("\n");
+
+const TRANSIENT_RUNTIME_NOTICES = new Set([
+  TOOL_BUDGET_RUNTIME_NOTICE,
+  SUBAGENT_DELEGATION_RUNTIME_NOTICE
+]);
+
 function extractTextParts(message: AgentMessage): string[] {
   if (!message || typeof message !== "object") return [];
   const row = message as { content?: unknown };
@@ -28,7 +41,7 @@ export function stripTransientRuntimeNoticesFromMessages(messages: AgentMessage[
     const row = message as { role?: unknown };
     if (row.role !== "user") return true;
     const text = extractTextParts(message).join("\n").trim();
-    if (text !== TOOL_BUDGET_RUNTIME_NOTICE) return true;
+    if (!TRANSIENT_RUNTIME_NOTICES.has(text)) return true;
     changed = true;
     return false;
   });
