@@ -19,7 +19,7 @@ import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageCo
 import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
 import { SqliteOutbox } from "../shared/outbox.js";
 import { extractWeixinAttachments, extractWeixinText, hasWeixinInlineVoiceTranscript } from "./media.js";
-import { sendWeixinFile } from "./outbound.js";
+import { hasWeixinImageReferenceText, sendWeixinFile, sendWeixinImageReferenceText } from "./outbound.js";
 
 export interface WeixinConfig {
   baseUrl?: string;
@@ -33,6 +33,7 @@ interface WeixinInboundEvent extends ChannelInboundMessage {
 interface WeixinTextOutboxPayload {
   chatId: string;
   text: string;
+  rawText?: string;
   preferReply: boolean;
   sourceMessageId: string;
   contextToken: string;
@@ -69,6 +70,28 @@ function normalizeText(text: string): string {
 
 function isInlineTextFile(filePath: string): boolean {
   return [".txt", ".md", ".json", ".csv", ".log"].includes(extname(filePath).toLowerCase());
+}
+
+function normalizeBufferedErrorText(text: string): string {
+  const normalized = normalizeText(text);
+  const shortError = normalized.match(/^_Error:\s*([\s\S]*?)_$/);
+  if (shortError?.[1]) return `Error: ${shortError[1].trim()}`;
+  return normalized;
+}
+
+function isTransientRunnerProgress(text: string): boolean {
+  return /^_→ .+_$/.test(normalizeText(text));
+}
+
+function isRunnerErrorNotice(text: string): boolean {
+  const normalized = normalizeText(text);
+  return (
+    /^_Error:[\s\S]*_$/.test(normalized) ||
+    /^Error:/i.test(normalized) ||
+    /^Run failed:/i.test(normalized) ||
+    normalized === "Sorry, something went wrong." ||
+    /^\*✗\s+/.test(normalized)
+  );
 }
 
 export class WeixinManager extends BaseChannelRuntime {
@@ -451,12 +474,41 @@ export class WeixinManager extends BaseChannelRuntime {
   private async processEvent(event: WeixinInboundEvent, preferReplyInitial = true): Promise<void> {
     const chatId = event.chatId;
     let preferReply = preferReplyInitial;
+    let hasVisibleNonErrorReply = false;
+    let lastBufferedError = "";
+
+    const bufferIfWeixinRunnerNoise = (text: string): boolean => {
+      if (isTransientRunnerProgress(text)) {
+        return true;
+      }
+      if (isRunnerErrorNotice(text)) {
+        lastBufferedError = normalizeBufferedErrorText(text);
+        return true;
+      }
+      return false;
+    };
+
+    const sendVisibleText = async (text: string, options?: { allowFinalError?: boolean }): Promise<void> => {
+      if (!options?.allowFinalError && bufferIfWeixinRunnerNoise(text)) {
+        return;
+      }
+      if (!isRunnerErrorNotice(text)) {
+        hasVisibleNonErrorReply = true;
+      }
+      await this.sendText(chatId, event.sourceMessage, text, preferReply);
+      preferReply = false;
+    };
+
     await this.runSharedTextTask(chatId, event, {
       response: {
         sendText: async (text) => {
-          await this.sendText(chatId, event.sourceMessage, text, preferReply);
-          preferReply = false;
+          await sendVisibleText(text);
           return null;
+        },
+        respondInThread: async (text) => {
+          if (!bufferIfWeixinRunnerNoise(text)) {
+            await sendVisibleText(text);
+          }
         },
         setTyping: async (isTyping) => {
           if (!this.bot) return;
@@ -486,16 +538,19 @@ export class WeixinManager extends BaseChannelRuntime {
         });
       },
       replaceWithoutEdit: async (text, state) => {
+        if (bufferIfWeixinRunnerNoise(text)) {
+          state.hasResponded = true;
+          state.accumulatedText = text;
+          return;
+        }
         if (!state.hasResponded) {
-          await this.sendText(chatId, event.sourceMessage, text, preferReply);
-          preferReply = false;
+          await sendVisibleText(text);
           state.hasResponded = true;
           state.accumulatedText = text;
           return;
         }
         if (text === state.accumulatedText.trim()) return;
-        await this.sendText(chatId, event.sourceMessage, text, preferReply);
-        preferReply = false;
+        await sendVisibleText(text);
         state.hasResponded = true;
         state.accumulatedText = text;
       },
@@ -532,6 +587,10 @@ export class WeixinManager extends BaseChannelRuntime {
         await fallbackCtx.respond(`微信这边回文件失败了：${filePath.split("/").pop() || "附件"}`);
       }
     });
+
+    if (!hasVisibleNonErrorReply && lastBufferedError) {
+      await sendVisibleText(lastBufferedError, { allowFinalError: true });
+    }
   }
 
   private resolveEventDeliveryMode(task: MomEvent): EventDeliveryMode {
@@ -598,12 +657,14 @@ export class WeixinManager extends BaseChannelRuntime {
   }
 
   private async sendText(chatId: string, sourceMessage: IncomingMessage, text: string, preferReply = false): Promise<void> {
-    const normalized = normalizeText(filterWeixinMarkdown(String(text ?? "")));
-    if (!normalized) return;
+    const rawText = normalizeText(String(text ?? ""));
+    const normalized = normalizeText(filterWeixinMarkdown(rawText));
+    if (!normalized && !hasWeixinImageReferenceText(rawText)) return;
 
     const payload: WeixinTextOutboxPayload = {
       chatId,
       text: normalized,
+      rawText,
       preferReply,
       sourceMessageId: String(sourceMessage.raw.message_id ?? ""),
       contextToken: String(sourceMessage._contextToken ?? "")
@@ -636,6 +697,17 @@ export class WeixinManager extends BaseChannelRuntime {
     momLog("weixin", "outbound_text_attempt", logPayload);
 
     try {
+      const imageSent = await sendWeixinImageReferenceText({
+        text: payload.rawText || payload.text,
+        toUserId: payload.chatId,
+        contextToken,
+        baseUrlOverride: this.currentBaseUrl || undefined
+      });
+      if (imageSent) {
+        this.recordDelivery(payload.chatId, "success", { ...logPayload, mode: "image_reference" });
+        momLog("weixin", "outbound_image_reference_success", { ...logPayload, mode: "image_reference" });
+        return;
+      }
       await this.bot.sendText(payload.chatId, payload.text, contextToken);
       this.recordDelivery(payload.chatId, "success", logPayload);
       momLog("weixin", "outbound_text_success", logPayload);

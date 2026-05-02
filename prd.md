@@ -34,6 +34,9 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - 图片 fallback 的回归测试必须覆盖真实请求体里的图片字段；OpenAI-compatible 至少断言 `image_url` data URL，Anthropic 至少断言 `source.type=base64`、`media_type` 和图片 `data`。
 - 安装/初始化必须把极小的图片测试 fixture 放到用户数据工作区；provider vision 测试应从 `<DATA_DIR>/fixtures/vision-smoke.png` 读取真实图片字节，而不是依赖源码仓库路径或硬编码假 base64。
 - `package/weixin-agent-sdk` 作为 Molibot 的 Weixin 协议基础层，应跟进 `openclaw-weixin` 的通用协议能力：请求 `base_info.bot_agent`、启动/停止 lifecycle 通知、扫码登录配对码/重定向状态处理应在 SDK 层提供；OpenClaw 插件专属 hook 仍不应下沉到 SDK。
+- Weixin channel 的出站图片必须优先作为原生 `IMAGE` 消息发送；本地图片文件应复用 `package/weixin-agent-sdk` 的媒体上传/发送协议，模型只返回单个图片 URL 或 Markdown 图片引用时，channel 层应下载图片并转发为图片消息，而不是把链接当普通文本回复。
+- Weixin 不支持像 Telegram/Feishu 那样稳定编辑同一条运行详情消息时，工具进度和中间错误聚合应留在 Weixin channel 层处理：成功运行不发送这些错误噪音；只有整轮没有正常可见答案时，才发送最后缓存的一条错误说明。
+- QQ 同样存在单轮回复条数限制，且不能稳定把中间状态更新到同一条消息上；工具进度和中间错误聚合应留在 QQ channel 层处理：成功运行不发送这些错误噪音；只有整轮没有正常可见答案时，才发送最后缓存的一条错误说明。
 - 生产部署不应依赖源码 checkout 作为运行目录；源码目录只用于开发或构建，正式服务应从 release bundle、Docker image 或等价构建产物启动，并通过进程管理脚本完成重启。
 - 部署/更新/卸载脚本必须保护已有 workspace 和数据目录：非空部署目录需要明确的 Molibot 托管标记才允许自动写入或删除，release 打包不能覆盖未标记的已有目录，卸载默认不得删除 `DATA_DIR`。
 - Subagent delegated runs need their own operator-controlled text model routing so expensive main models can delegate to cheaper/faster models without changing the main conversation route. Built-in subagent roles should reference abstract model levels (`haiku`, `sonnet`, `opus`, `thinking`) that operators map to configured models, rather than showing concrete Claude model IDs that may not exist locally. Built-in roles should be visible as read-only runtime inventory, and channel/client run traces should make subagent usage visible without dumping long tool outputs. For codebase-heavy runs, the parent agent should delegate before it approaches the 24-tool hard limit; runtime nudges for this must be transient controls and must not persist into future model context.

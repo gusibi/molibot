@@ -7,6 +7,8 @@ import { basename, extname } from "node:path";
 import { getUploadUrl as vendorGetUploadUrl, sendMessage as vendorSendMessage } from "#weixin-agent-sdk/src/api/api.js";
 import { listWeixinAccountIds, resolveWeixinAccount } from "#weixin-agent-sdk/src/auth/accounts.js";
 import { filterWeixinMarkdown } from "#weixin-agent-sdk/src/messaging/send.js";
+import { sendWeixinMediaFile } from "#weixin-agent-sdk/src/messaging/send-media.js";
+import { downloadRemoteImageToTemp } from "#weixin-agent-sdk/src/cdn/upload.js";
 import { MessageItemType, MessageState, MessageType, type MessageItem } from "#weixin-agent-sdk/src/api/types.js";
 import { momWarn } from "../../agent/log.js";
 
@@ -129,6 +131,44 @@ function normalizeInlineText(filePath: string, data: Buffer): string | null {
   } catch {
     return null;
   }
+}
+
+function isLikelyImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    return /\.(png|jpe?g|gif|webp|bmp)(?:$|[?#])/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function trimUrlPunctuation(value: string): string {
+  return value.replace(/[),，。！？!?；;：:]+$/u, "");
+}
+
+function extractSingleImageReference(text: string): { url: string; caption: string } | null {
+  const normalized = String(text ?? "").trim();
+  if (!normalized) return null;
+
+  const markdownMatches = Array.from(normalized.matchAll(/!\[[^\]]*]\((https?:\/\/[^)\s]+)\)/gi));
+  if (markdownMatches.length === 1) {
+    const match = markdownMatches[0];
+    const rawUrl = match?.[1] ? trimUrlPunctuation(match[1]) : "";
+    if (!rawUrl) return null;
+    const caption = normalized.replace(match[0], "").trim();
+    return { url: rawUrl, caption };
+  }
+
+  const bareUrlMatch = normalized.match(/^https?:\/\/\S+$/i);
+  if (!bareUrlMatch) return null;
+  const url = trimUrlPunctuation(bareUrlMatch[0]);
+  if (!isLikelyImageUrl(url)) return null;
+  return { url, caption: "" };
+}
+
+export function hasWeixinImageReferenceText(text: string): boolean {
+  return Boolean(extractSingleImageReference(text));
 }
 
 function encodeMessageAesKey(aesKeyHex: string): string {
@@ -345,7 +385,7 @@ async function uploadMedia(params: {
     token: params.token,
     timeoutMs: 15_000,
     ...requestBody
-  });
+  }) as UploadUrlResponse;
   momWarn("weixin", "getuploadurl_response", {
     source: basename(params.filePath),
     mediaType: params.mediaType,
@@ -483,33 +523,17 @@ export async function sendWeixinFile(params: {
   const text = filterWeixinMarkdown(params.text?.trim() || "").trim();
 
   if (mimeType.startsWith("image/")) {
-    const uploaded = await uploadMedia({
+    const visibleText = caption || text;
+    await sendWeixinMediaFile({
       filePath: params.filePath,
-      plaintext,
-      toUserId: params.toUserId,
-      token: account.token,
-      baseUrl,
-      cdnBaseUrl,
-      mediaType: 1
-    });
-    await sendMediaMessage({
-      toUserId: params.toUserId,
-      contextToken: params.contextToken,
-      token: account.token,
-      baseUrl,
-      caption,
-      mediaItem: {
-        type: MessageItemType.IMAGE,
-        image_item: {
-          aeskey: uploaded.aesKeyHex,
-          media: {
-            encrypt_query_param: uploaded.downloadEncryptedQueryParam,
-            aes_key: encodeMessageAesKey(uploaded.aesKeyHex),
-            encrypt_type: 1
-          },
-          mid_size: uploaded.fileSizeCiphertext
-        }
-      }
+      to: params.toUserId,
+      text: visibleText,
+      opts: {
+        baseUrl,
+        token: account.token,
+        contextToken: params.contextToken
+      },
+      cdnBaseUrl
     });
     return "image";
   }
@@ -559,7 +583,6 @@ export async function sendWeixinFile(params: {
       mediaItem: {
         type: MessageItemType.FILE,
         file_item: {
-          aeskey: uploaded.aesKeyHex,
           media: {
             encrypt_query_param: uploaded.downloadEncryptedQueryParam,
             aes_key: encodeMessageAesKey(uploaded.aesKeyHex),
@@ -580,5 +603,32 @@ export async function sendWeixinFile(params: {
   } catch (error) {
     audioPayload.cleanup();
     throw error;
+  }
+}
+
+export async function sendWeixinImageReferenceText(params: {
+  text: string;
+  toUserId: string;
+  contextToken: string;
+  baseUrlOverride?: string;
+  cdnBaseUrl?: string;
+}): Promise<boolean> {
+  const reference = extractSingleImageReference(params.text);
+  if (!reference) return false;
+
+  const tempDir = mkdtempSync(`${tmpdir()}/molibot-weixin-image-url-`);
+  try {
+    const filePath = await downloadRemoteImageToTemp(reference.url, tempDir);
+    await sendWeixinFile({
+      filePath,
+      toUserId: params.toUserId,
+      contextToken: params.contextToken,
+      caption: reference.caption,
+      baseUrlOverride: params.baseUrlOverride,
+      cdnBaseUrl: params.cdnBaseUrl
+    });
+    return true;
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
   }
 }
