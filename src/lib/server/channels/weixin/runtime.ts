@@ -94,6 +94,39 @@ function isRunnerErrorNotice(text: string): boolean {
   );
 }
 
+function createToolProgressBatcher(
+  send: (text: string) => Promise<void>,
+  batchSize = 5
+): {
+  handle(text: string): Promise<void>;
+  flush(): Promise<void>;
+} {
+  let seen = 0;
+  let pending: string[] = [];
+
+  return {
+    async handle(text: string): Promise<void> {
+      seen += 1;
+      if (seen === 1) {
+        await send(text);
+        return;
+      }
+      pending.push(text);
+      if (pending.length >= batchSize) {
+        const batch = pending.join("\n");
+        pending = [];
+        await send(batch);
+      }
+    },
+    async flush(): Promise<void> {
+      if (!pending.length) return;
+      const batch = pending.join("\n");
+      pending = [];
+      await send(batch);
+    }
+  };
+}
+
 export class WeixinManager extends BaseChannelRuntime {
   private readonly acpTemplate: BasicChannelAcpTemplate<IncomingMessage>;
   private readonly commandService: SharedRuntimeCommandService<IncomingMessage>;
@@ -477,9 +510,15 @@ export class WeixinManager extends BaseChannelRuntime {
     let hasVisibleNonErrorReply = false;
     let lastBufferedError = "";
 
-    const bufferIfWeixinRunnerNoise = (text: string): boolean => {
+    const sendRawText = async (text: string): Promise<void> => {
+      await this.sendText(chatId, event.sourceMessage, text, preferReply);
+      preferReply = false;
+    };
+    const toolProgress = createToolProgressBatcher(sendRawText);
+
+    const bufferIfWeixinRunnerError = (text: string): boolean => {
       if (isTransientRunnerProgress(text)) {
-        return true;
+        return false;
       }
       if (isRunnerErrorNotice(text)) {
         lastBufferedError = normalizeBufferedErrorText(text);
@@ -489,14 +528,18 @@ export class WeixinManager extends BaseChannelRuntime {
     };
 
     const sendVisibleText = async (text: string, options?: { allowFinalError?: boolean }): Promise<void> => {
-      if (!options?.allowFinalError && bufferIfWeixinRunnerNoise(text)) {
+      if (!options?.allowFinalError && isTransientRunnerProgress(text)) {
+        await toolProgress.handle(text);
         return;
       }
+      if (!options?.allowFinalError && bufferIfWeixinRunnerError(text)) {
+        return;
+      }
+      await toolProgress.flush();
       if (!isRunnerErrorNotice(text)) {
         hasVisibleNonErrorReply = true;
       }
-      await this.sendText(chatId, event.sourceMessage, text, preferReply);
-      preferReply = false;
+      await sendRawText(text);
     };
 
     await this.runSharedTextTask(chatId, event, {
@@ -506,9 +549,7 @@ export class WeixinManager extends BaseChannelRuntime {
           return null;
         },
         respondInThread: async (text) => {
-          if (!bufferIfWeixinRunnerNoise(text)) {
-            await sendVisibleText(text);
-          }
+          await sendVisibleText(text);
         },
         setTyping: async (isTyping) => {
           if (!this.bot) return;
@@ -538,7 +579,13 @@ export class WeixinManager extends BaseChannelRuntime {
         });
       },
       replaceWithoutEdit: async (text, state) => {
-        if (bufferIfWeixinRunnerNoise(text)) {
+        if (isTransientRunnerProgress(text)) {
+          await sendVisibleText(text);
+          state.hasResponded = true;
+          state.accumulatedText = text;
+          return;
+        }
+        if (bufferIfWeixinRunnerError(text)) {
           state.hasResponded = true;
           state.accumulatedText = text;
           return;
@@ -555,6 +602,7 @@ export class WeixinManager extends BaseChannelRuntime {
         state.accumulatedText = text;
       },
       uploadWithoutHandle: async (filePath, title, text, fallbackCtx) => {
+        await toolProgress.flush();
         try {
           await sendWeixinFile({
             filePath,
@@ -588,6 +636,7 @@ export class WeixinManager extends BaseChannelRuntime {
       }
     });
 
+    await toolProgress.flush();
     if (!hasVisibleNonErrorReply && lastBufferedError) {
       await sendVisibleText(lastBufferedError, { allowFinalError: true });
     }

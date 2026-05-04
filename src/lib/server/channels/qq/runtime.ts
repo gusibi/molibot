@@ -76,6 +76,39 @@ function isRunnerErrorNotice(text: string): boolean {
   );
 }
 
+function createToolProgressBatcher<TSent>(
+  send: (text: string) => Promise<TSent | null>,
+  batchSize = 5
+): {
+  handle(text: string): Promise<TSent | null>;
+  flush(): Promise<void>;
+} {
+  let seen = 0;
+  let pending: string[] = [];
+
+  return {
+    async handle(text: string): Promise<TSent | null> {
+      seen += 1;
+      if (seen === 1) {
+        return send(text);
+      }
+      pending.push(text);
+      if (pending.length >= batchSize) {
+        const batch = pending.join("\n");
+        pending = [];
+        return send(batch);
+      }
+      return null;
+    },
+    async flush(): Promise<void> {
+      if (!pending.length) return;
+      const batch = pending.join("\n");
+      pending = [];
+      await send(batch);
+    }
+  };
+}
+
 export class QQManager extends BaseChannelRuntime {
   private readonly acpTemplate: BasicChannelAcpTemplate<SendTarget>;
   private readonly commandService: SharedRuntimeCommandService<SendTarget>;
@@ -401,9 +434,15 @@ export class QQManager extends BaseChannelRuntime {
     let hasVisibleNonErrorReply = false;
     let lastBufferedError = "";
 
-    const bufferIfQqRunnerNoise = (text: string): boolean => {
+    const sendRawText = async (text: string): Promise<{ messageId: string | number } | null> => {
+      const result = await this.sendText(target, text, target.replyToId);
+      return result.messageId ? { messageId: result.messageId } : null;
+    };
+    const toolProgress = createToolProgressBatcher(sendRawText);
+
+    const bufferIfQqRunnerError = (text: string): boolean => {
       if (isTransientRunnerProgress(text)) {
-        return true;
+        return false;
       }
       if (isRunnerErrorNotice(text)) {
         lastBufferedError = normalizeBufferedErrorText(text);
@@ -416,14 +455,17 @@ export class QQManager extends BaseChannelRuntime {
       text: string,
       options?: { allowFinalError?: boolean }
     ): Promise<{ messageId: string | number } | null> => {
-      if (!options?.allowFinalError && bufferIfQqRunnerNoise(text)) {
+      if (!options?.allowFinalError && isTransientRunnerProgress(text)) {
+        return toolProgress.handle(text);
+      }
+      if (!options?.allowFinalError && bufferIfQqRunnerError(text)) {
         return null;
       }
+      await toolProgress.flush();
       if (!isRunnerErrorNotice(text)) {
         hasVisibleNonErrorReply = true;
       }
-      const result = await this.sendText(target, text, target.replyToId);
-      return result.messageId ? { messageId: result.messageId } : null;
+      return sendRawText(text);
     };
 
     await this.runSharedTextTask(chatId, event, {
@@ -432,14 +474,13 @@ export class QQManager extends BaseChannelRuntime {
           return sendVisibleText(text);
         },
         respondInThread: async (text) => {
-          if (!bufferIfQqRunnerNoise(text)) {
-            await sendVisibleText(text);
-          }
+          await sendVisibleText(text);
         },
         uploadFile: async (filePath, title, text) => {
           if (!this.sdkAccount) {
             throw new Error("SDK account not initialized");
           }
+          await toolProgress.flush();
           const result = await sendMedia({
             to: this.buildTargetAddress(target),
             mediaUrl: filePath,
@@ -462,7 +503,13 @@ export class QQManager extends BaseChannelRuntime {
         });
       },
       replaceWithoutEdit: async (text, state) => {
-        if (bufferIfQqRunnerNoise(text)) {
+        if (isTransientRunnerProgress(text)) {
+          await sendVisibleText(text);
+          state.hasResponded = true;
+          state.accumulatedText = text;
+          return;
+        }
+        if (bufferIfQqRunnerError(text)) {
           state.hasResponded = true;
           state.accumulatedText = text;
           return;
@@ -480,6 +527,7 @@ export class QQManager extends BaseChannelRuntime {
       }
     });
 
+    await toolProgress.flush();
     if (!hasVisibleNonErrorReply && lastBufferedError) {
       await sendVisibleText(lastBufferedError, { allowFinalError: true });
     }

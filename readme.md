@@ -96,8 +96,8 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Web Chat**: Full-featured with general file upload, image upload, realtime voice recording, current-session file workspace, thinking controls, profile-only identity, theme/i18n support
 - **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, ACP control, model switching, task delivery
 - **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings
-- **QQ Bot**: SDK-based integration, group policy metadata, quoted-message context, rich media delivery, typing/streaming helpers, channel-local error noise suppression, and Molibot-owned queue/ACP control
-- **Weixin Bot**: SDK-based integration, QR pairing-code login, lifecycle notifications, OGG voice transcoding, native image-message replies, channel-local error noise suppression, CDN media delivery, ACP support
+- **QQ Bot**: SDK-based integration, group policy metadata, quoted-message context, rich media delivery, typing/streaming helpers, channel-local progress/error compaction, and Molibot-owned queue/ACP control
+- **Weixin Bot**: SDK-based integration, QR pairing-code login, lifecycle notifications, OGG voice transcoding, native image-message replies, channel-local progress/error compaction, CDN media delivery, ACP support
 - **CLI**: Local terminal conversation entrypoint
 
 ### ACP (Agent Control Plane)
@@ -158,8 +158,8 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 | **Web Chat** | ⭐⭐⭐ Production-Ready | Image upload + realtime voice recording + thinking controls + profile-only identity + theme/i18n |
 | **Telegram** | ⭐⭐⭐ Production-Ready | Multi-bot, ACP control, runtime commands, model switching, task delivery, media handling |
 | **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, media/file ingress and outbound handling |
-| **QQ** | ⭐⭐⭐ Production-Ready | SDK-based gateway, group/private chat, rich media, quoted context, channel-local error suppression, Molibot-owned ACP/queue control |
-| **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, native image replies, channel-local error suppression, CDN media delivery, ACP support |
+| **QQ** | ⭐⭐⭐ Production-Ready | SDK-based gateway, group/private chat, rich media, quoted context, channel-local progress/error compaction, Molibot-owned ACP/queue control |
+| **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, native image replies, channel-local progress/error compaction, CDN media delivery, ACP support |
 | **CLI** | ⭐⭐ Ready | Local terminal conversation entrypoint |
 | **ACP** | ⭐⭐⭐ Active | Codex + Claude Code presets, permission management, task tracking, multi-channel |
 | **MCP** | ⭐⭐⭐ Active | stdio/HTTP transport, skill-gated injection, dynamic loading |
