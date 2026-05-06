@@ -1,8 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import PageShell from "$lib/ui/PageShell.svelte";
-  import Button from "$lib/ui/Button.svelte";
-  import Alert from "$lib/ui/Alert.svelte";
+  import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
+  import { Textarea } from "$lib/components/ui/textarea";
 
   interface AgentItem {
     id: string;
@@ -167,7 +173,7 @@
     const dirty = botSnapshot(current) !== baseline;
     if (!dirty) return true;
     if (typeof window === "undefined") return false;
-    const shouldSave = window.confirm("当前 Bot 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Bot。");
+    const shouldSave = window.confirm('当前 Bot 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Bot。');
     if (!shouldSave) return false;
     return save();
   }
@@ -322,169 +328,175 @@
   onMount(loadSettings);
 </script>
 
-<PageShell widthClass="max-w-7xl" gapClass="space-y-6">
-  <header class="wb-hero">
-    <div class="wb-hero-copy">
-    <p class="wb-eyebrow">Channel Runtime</p>
-    <h1>Telegram Settings</h1>
-    <p class="wb-copy">
-      Configure Telegram bots, link them to agents, and edit bot-level Markdown overrides.
-    </p>
+<div class="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
+  <header class="flex flex-col gap-3">
+    <Badge variant="secondary" class="w-fit">Channel Runtime</Badge>
+    <div class="flex max-w-3xl flex-col gap-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Telegram Settings</h1>
+      <p class="text-sm leading-6 text-muted-foreground">
+        Configure Telegram bots, link them to agents, and edit bot-level Markdown overrides.
+      </p>
     </div>
   </header>
 
   {#if loading}
-    <div class="wb-empty-state text-left">
-      Loading Telegram settings...
-    </div>
+    <p class="py-8 text-sm text-muted-foreground">Loading Telegram settings...</p>
   {:else}
-    <div class="wb-config-grid">
-      <section class="wb-config-nav space-y-3">
-        <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-[var(--foreground)]">Bots</h2>
-          <Button variant="outline" size="sm" type="button" on:click={addBot}>
-            Add Bot
-          </Button>
-        </div>
-
-        <div class="wb-config-nav-list">
+    <div class="grid gap-6 lg:grid-cols-[280px_1fr]">
+      <Card>
+        <CardHeader class="pb-3">
+          <div class="flex items-center justify-between">
+            <CardTitle class="text-sm">Bots</CardTitle>
+            <Button variant="outline" size="sm" type="button" onclick={addBot}>
+              Add Bot
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent class="space-y-1">
           {#each bots as bot (bot.id)}
             <button
-              class={`wb-config-item ${selectedBot?.id === bot.id ? "active" : ""}`}
+              class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-muted/60 {selectedBot?.id === bot.id ? 'bg-muted' : ''}"
               type="button"
-              on:click={() => selectBot(bot.id)}
+              onclick={() => selectBot(bot.id)}
             >
               <span class="min-w-0">
-                <span class="wb-config-item-title truncate">{bot.name || bot.id}</span>
-                <span class="wb-config-item-subtitle truncate">{bot.id}</span>
+                <span class="block truncate font-medium text-foreground">{bot.name || bot.id}</span>
+                <span class="block truncate text-xs text-muted-foreground">{bot.id}</span>
               </span>
-              <span class="wb-config-state" data-enabled={bot.enabled}>
+              <Badge variant={bot.enabled ? "default" : "outline"} class="shrink-0 text-[10px]">
                 {bot.enabled ? "ON" : "OFF"}
-              </span>
+              </Badge>
             </button>
           {/each}
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
       {#if selectedBot}
-        <form class="space-y-4" on:submit|preventDefault={save}>
-          <section class="wb-config-panel space-y-4">
-            <div class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-[var(--foreground)]">Bot Configuration</h2>
-              <Button variant="destructive" size="sm" type="button" on:click={() => removeBot(selectedBot.id)}>
-                Remove Bot
-              </Button>
-            </div>
-
-            <div class="grid gap-3 md:grid-cols-2">
-              <label class="grid gap-1.5 text-sm">
-                <span class="text-[var(--foreground)]">Bot ID</span>
-                <input
-                  class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
-                  bind:value={selectedBot.id}
-                  placeholder="marketing-bot"
-                  disabled={!selectedBot.isNew}
-                />
-              </label>
-
-              <label class="grid gap-1.5 text-sm">
-                <span class="text-[var(--foreground)]">Bot Name</span>
-                <input
-                  class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                  bind:value={selectedBot.name}
-                  placeholder="Marketing Bot"
-                />
-              </label>
-            </div>
-            {#if !selectedBot.isNew}
-              <p class="wb-note text-xs">
-                Bot ID is locked after creation to keep workspace paths and references stable.
-              </p>
-            {/if}
-
-            <label class="flex items-center gap-3 text-sm text-[var(--foreground)]">
-              <input bind:checked={selectedBot.enabled} type="checkbox" />
-              Enable this plugin instance
-            </label>
-
-            <label class="flex items-center gap-3 text-sm text-[var(--foreground)]">
-              <input bind:checked={selectedBot.streamOutput} type="checkbox" />
-              Enable streaming output (default on)
-            </label>
-
-            <label class="grid gap-1.5 text-sm">
-              <span class="text-[var(--foreground)]">Linked Agent</span>
-              <select
-                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                bind:value={selectedBot.agentId}
-              >
-                <option value="">No agent (global fallback only)</option>
-                {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
-                  <option value={agent.id}>{agent.name || agent.id}</option>
-                {/each}
-              </select>
-            </label>
-
-            <label class="grid gap-1.5 text-sm">
-              <span class="text-[var(--foreground)]">Bot token</span>
-              <div class="flex items-center gap-2">
-                <input
-                  class="flex-1 rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                  bind:value={selectedBot.token}
-                  type={showToken ? "text" : "password"}
-                  placeholder="123456:ABCDEF..."
-                />
-                <Button variant="outline" size="sm" type="button" on:click={() => (showToken = !showToken)}>
-                  {showToken ? "Hide" : "Show"}
+        <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); save(); }}>
+          <Card>
+            <CardHeader>
+              <div class="flex items-center justify-between">
+                <CardTitle class="text-sm">Bot Configuration</CardTitle>
+                <Button variant="destructive" size="sm" type="button" onclick={() => removeBot(selectedBot.id)}>
+                  Remove Bot
                 </Button>
               </div>
-            </label>
+            </CardHeader>
+            <CardContent class="space-y-4">
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="grid gap-1.5">
+                  <Label for="tg-bot-id">Bot ID</Label>
+                  <Input
+                    id="tg-bot-id"
+                    bind:value={selectedBot.id}
+                    placeholder="marketing-bot"
+                    disabled={!selectedBot.isNew}
+                  />
+                </div>
+                <div class="grid gap-1.5">
+                  <Label for="tg-bot-name">Bot Name</Label>
+                  <Input
+                    id="tg-bot-name"
+                    bind:value={selectedBot.name}
+                    placeholder="Marketing Bot"
+                  />
+                </div>
+              </div>
+              {#if !selectedBot.isNew}
+                <p class="text-xs text-muted-foreground">
+                  Bot ID is locked after creation to keep workspace paths and references stable.
+                </p>
+              {/if}
 
-            <label class="grid gap-1.5 text-sm">
-              <span class="text-[var(--foreground)]">Allowed chat IDs (comma-separated)</span>
-              <input
-                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                bind:value={selectedBot.allowedChatIds}
-                placeholder="123456789,-1001234567890"
-              />
-            </label>
-          </section>
+              <div class="flex items-center gap-3">
+                <Checkbox id="tg-enabled" bind:checked={selectedBot.enabled} />
+                <Label for="tg-enabled" class="text-sm">Enable this plugin instance</Label>
+              </div>
 
-          <section class="wb-config-panel space-y-3">
-            <div>
-              <h3 class="text-sm font-semibold text-[var(--foreground)]">Bot Markdown Overrides</h3>
-              <p class="mt-1 text-xs text-[var(--muted-foreground)]">
+              <div class="flex items-center gap-3">
+                <Checkbox id="tg-stream" bind:checked={selectedBot.streamOutput} />
+                <Label for="tg-stream" class="text-sm">Enable streaming output (default on)</Label>
+              </div>
+
+              <div class="grid gap-1.5">
+                <Label for="tg-agent">Linked Agent</Label>
+                <NativeSelect id="tg-agent" bind:value={selectedBot.agentId}>
+                  <NativeSelectOption value="">No agent (global fallback only)</NativeSelectOption>
+                  {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
+                    <NativeSelectOption value={agent.id}>{agent.name || agent.id}</NativeSelectOption>
+                  {/each}
+                </NativeSelect>
+              </div>
+
+              <div class="grid gap-1.5">
+                <Label for="tg-token">Bot token</Label>
+                <div class="flex items-center gap-2">
+                  <Input
+                    id="tg-token"
+                    bind:value={selectedBot.token}
+                    type={showToken ? "text" : "password"}
+                    placeholder="123456:ABCDEF..."
+                  />
+                  <Button variant="outline" size="sm" type="button" onclick={() => (showToken = !showToken)}>
+                    {showToken ? "Hide" : "Show"}
+                  </Button>
+                </div>
+              </div>
+
+              <div class="grid gap-1.5">
+                <Label for="tg-chat-ids">Allowed chat IDs (comma-separated)</Label>
+                <Input
+                  id="tg-chat-ids"
+                  bind:value={selectedBot.allowedChatIds}
+                  placeholder="123456789,-1001234567890"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle class="text-sm">Bot Markdown Overrides</CardTitle>
+              <CardDescription>
                 Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.
-              </p>
-            </div>
+              </CardDescription>
+            </CardHeader>
+            <CardContent class="space-y-3">
+              {#each botFileNames as fileName}
+                <div class="grid gap-1.5">
+                  <Label for="tg-{fileName}">{fileName}</Label>
+                  <Textarea
+                    id="tg-{fileName}"
+                    class="min-h-[160px] font-mono text-sm"
+                    bind:value={selectedBot.profileFiles[fileName]}
+                    placeholder={`Edit ${fileName} here`}
+                  />
+                </div>
+              {/each}
+            </CardContent>
+          </Card>
 
-            {#each botFileNames as fileName}
-              <label class="grid gap-1.5 text-sm">
-                <span class="text-[var(--foreground)]">{fileName}</span>
-                <textarea
-                  class="min-h-[160px] rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 font-mono text-sm outline-none focus:border-[var(--ring)]"
-                  bind:value={selectedBot.profileFiles[fileName]}
-                  placeholder={`Edit ${fileName} here`}
-                ></textarea>
-              </label>
-            {/each}
-          </section>
-
-          <Button variant="default" size="md" type="submit" disabled={saving}>
-            {saving ? "Saving..." : "Save This Bot"}
-          </Button>
-          {#if selectedBotDirty}
-            <p class="wb-warning-note text-xs">Current bot has unsaved changes.</p>
-          {/if}
+          <div class="flex items-center gap-3">
+            <Button variant="default" type="submit" disabled={saving}>
+              {saving ? "Saving..." : "Save This Bot"}
+            </Button>
+            {#if selectedBotDirty}
+              <span class="text-xs text-muted-foreground">Current bot has unsaved changes.</span>
+            {/if}
+          </div>
 
           {#if message}
-            <Alert variant="success">{message}</Alert>
+            <Alert variant="default">
+              <AlertDescription>{message}</AlertDescription>
+            </Alert>
           {/if}
           {#if error}
-            <Alert variant="destructive">{error}</Alert>
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           {/if}
         </form>
       {/if}
     </div>
   {/if}
-</PageShell>
+</div>

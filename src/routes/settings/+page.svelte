@@ -1,6 +1,6 @@
 <script lang="ts">
-  import PageShell from "$lib/ui/PageShell.svelte";
-  import Card from "$lib/ui/Card.svelte";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
   import { locale } from "$lib/ui/i18n";
 
   const COPY = {
@@ -55,31 +55,29 @@
   $: copy = COPY[$locale];
 </script>
 
-<PageShell widthClass="max-w-6xl" gapClass="space-y-8">
-  <header class="wb-hero">
-    <div class="wb-hero-copy">
-      <p class="wb-eyebrow">{copy.eyebrow}</p>
-      <h1>{copy.title}</h1>
-      <p class="wb-copy">{copy.subtitle}</p>
+<div class="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-8 sm:px-10 sm:py-10">
+  <header class="flex flex-col gap-3">
+    <Badge variant="secondary" class="w-fit">{copy.eyebrow}</Badge>
+    <div class="flex max-w-3xl flex-col gap-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">{copy.title}</h1>
+      <p class="text-sm leading-6 text-muted-foreground">{copy.subtitle}</p>
     </div>
   </header>
 
   <section class="space-y-4">
     <div class="flex items-center justify-between gap-3">
-      <div class="wb-badge text-[11px] uppercase tracking-[0.18em]">
-        {copy.badge}
-      </div>
+      <Badge variant="outline" class="text-[11px] uppercase tracking-[0.18em]">{copy.badge}</Badge>
     </div>
 
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {#each copy.sections as item}
         <a class="group block" href={item.href}>
-          <Card className="flex min-h-[172px] flex-col justify-between rounded-[1.4rem] p-5 transition duration-200 group-hover:-translate-y-1 group-hover:border-[color-mix(in_oklab,var(--primary)_34%,var(--border))] group-hover:shadow-[var(--shadow)]">
+          <Card class="flex min-h-[172px] h-full flex-col justify-between rounded-[1.4rem] p-5 transition duration-200 group-hover:-translate-y-1 group-hover:border-[color-mix(in_oklab,var(--primary)_34%,var(--border))] group-hover:shadow-lg">
             <div class="space-y-3">
-              <h2 class="text-lg font-semibold text-[var(--foreground)]">{item.title}</h2>
-              <p class="text-sm leading-7 text-[var(--muted-foreground)]">{item.description}</p>
+              <h2 class="text-lg font-semibold text-foreground">{item.title}</h2>
+              <p class="text-sm leading-7 text-muted-foreground">{item.description}</p>
             </div>
-            <div class="mt-5 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)] transition-colors group-hover:text-[var(--foreground)]">
+            <div class="mt-5 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground transition-colors group-hover:text-foreground">
               <span>{copy.action}</span>
               <span aria-hidden="true">→</span>
             </div>
@@ -88,4 +86,4 @@
       {/each}
     </div>
   </section>
-</PageShell>
+</div>

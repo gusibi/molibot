@@ -1,8 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import PageShell from "$lib/ui/PageShell.svelte";
-  import Button from "$lib/ui/Button.svelte";
-  import Alert from "$lib/ui/Alert.svelte";
+  import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { Textarea } from "$lib/components/ui/textarea";
 
   interface MemoryItem {
     id: string;
@@ -35,8 +39,7 @@
   async function loadRuntimeMemorySettings(): Promise<void> {
     const res = await fetch("/api/settings");
     const data = await res.json();
-    if (!data.ok)
-      throw new Error(data.error || "Failed to load memory settings");
+    if (!data.ok) throw new Error(data.error || "Failed to load memory settings");
     memoryEnabled = Boolean(data.settings?.plugins?.memory?.enabled);
     activeBackend = String(
       (data.settings?.plugins?.memory as any)?.backend ?? (data.settings?.plugins?.memory as any)?.core ?? "json-file",
@@ -191,181 +194,102 @@
   });
 </script>
 
-<PageShell widthClass="max-w-5xl" gapClass="space-y-6">
-        <header class="wb-hero">
-          <div class="wb-hero-copy">
-            <p class="wb-eyebrow">Memory Operations</p>
-            <h1>Memory Management</h1>
-            <p class="wb-copy">
-              Search, flush, edit and delete runtime memories. Settings page defaults
-              to all scopes so you can inspect everything in one place. Conflicts are
-              marked for review.
-            </p>
+<div class="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
+  <header class="flex flex-col gap-3">
+    <Badge variant="secondary" class="w-fit">Memory Operations</Badge>
+    <div class="flex max-w-3xl flex-col gap-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Memory Management</h1>
+      <p class="text-sm leading-6 text-muted-foreground">
+        Search, flush, edit and delete runtime memories. Settings page defaults to all scopes so you can inspect everything in one place. Conflicts are marked for review.
+      </p>
+    </div>
+  </header>
+
+  <div class="flex flex-wrap gap-2 text-xs">
+    <Badge variant="outline">plugin {memoryEnabled ? "enabled" : "disabled"}</Badge>
+    <Badge variant="outline">active backend {activeBackend}</Badge>
+    <a class="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-3 py-1.5 text-primary hover:bg-primary/15" href="/settings/plugins">
+      switch in plugin settings
+    </a>
+  </div>
+
+  <div class="grid gap-3 sm:grid-cols-[120px_220px_1fr_auto]">
+    <Input bind:value={channel} placeholder="channel" />
+    <Input bind:value={userId} placeholder="userId" />
+    <Input bind:value={searchText} placeholder="Search memory content..." />
+    <div class="flex items-center gap-2 rounded-lg border px-3 py-2">
+      <Checkbox id="mem-all-scopes" bind:checked={allScopes} />
+      <Label for="mem-all-scopes" class="text-sm">All scopes</Label>
+    </div>
+  </div>
+
+  <div class="flex flex-wrap gap-2">
+    <Button variant="outline" onclick={listMemory}>Search</Button>
+    <Button variant="outline" onclick={syncMemory} disabled={syncing}>
+      {syncing ? "Syncing..." : "Sync Files"}
+    </Button>
+    <Button variant="secondary" onclick={flushMemory} disabled={flushing}>
+      {flushing ? "Flushing..." : "Flush"}
+    </Button>
+    <Button variant="outline" onclick={compactMemory} disabled={compacting}>
+      {compacting ? "Deduping..." : "Deduplicate"}
+    </Button>
+  </div>
+
+  {#if message}
+    <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
+  {/if}
+  {#if syncInfo}
+    <Alert variant="default"><AlertDescription>{syncInfo}</AlertDescription></Alert>
+  {/if}
+  {#if error}
+    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
+  {/if}
+
+  {#if loading}
+    <div class="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">Loading memory...</div>
+  {:else if items.length === 0}
+    <div class="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+      No memory found. Toggle scope filters or run Sync Files if you expect imported memory.
+    </div>
+  {:else}
+    <div class="space-y-3">
+      {#each items as item (item.id)}
+        <article class="space-y-3 rounded-xl border bg-card/60 p-4">
+          <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <div class="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" class="text-[10px]">source {item.channel}:{item.externalUserId}</Badge>
+              <Badge variant="outline" class="text-[10px]">{item.layer}</Badge>
+              {#if item.sourceSessionId}
+                <Badge variant="outline" class="text-[10px]">session {item.sourceSessionId}</Badge>
+              {/if}
+              {#if item.hasConflict}
+                <Badge variant="secondary" class="border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400">conflict</Badge>
+              {/if}
+              {#if item.expiresAt}
+                <Badge variant="default" class="text-[10px]">expires {item.expiresAt.slice(0, 10)}</Badge>
+              {/if}
+            </div>
+            <span>updated {item.updatedAt.replace("T", " ").slice(0, 19)}</span>
           </div>
-        </header>
 
-        <div class="flex flex-wrap gap-2 text-xs">
-          <span
-            class="rounded border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-3 py-1.5 text-[var(--foreground)]"
-          >
-            plugin {memoryEnabled ? "enabled" : "disabled"}
-          </span>
-          <span
-            class="rounded border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-3 py-1.5 text-[var(--foreground)]"
-          >
-            active backend {activeBackend}
-          </span>
-          <a
-            class="rounded border border-[color-mix(in_oklab,var(--primary)_30%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] px-3 py-1.5 text-[color-mix(in_oklab,var(--primary)_74%,var(--foreground))] hover:bg-[color-mix(in_oklab,var(--primary)_16%,var(--card))]"
-            href="/settings/plugins"
-          >
-            switch in plugin settings
-          </a>
-        </div>
+          <Textarea class="min-h-20" bind:value={item.content} />
 
-        <div
-          class="wb-toolbar grid gap-3 sm:grid-cols-[120px_220px_1fr_auto_auto_auto_auto]"
-        >
-          <input
-            class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
-            bind:value={channel}
-            placeholder="channel"
-          />
-          <input
-            class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
-            bind:value={userId}
-            placeholder="userId"
-          />
-          <input
-            class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
-            bind:value={searchText}
-            placeholder="Search memory content..."
-          />
-          <label class="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm text-[var(--foreground)]">
-            <input bind:checked={allScopes} type="checkbox" />
-            All scopes
-          </label>
-          <Button variant="outline" size="md" on:click={listMemory}>Search</Button>
-          <Button
-            variant="outline"
-            size="md"
-            className="disabled:opacity-60"
-            on:click={syncMemory}
-            disabled={syncing}
-          >
-            {syncing ? "Syncing..." : "Sync Files"}
-          </Button>
-          <Button
-            variant="secondary"
-            size="md"
-            className="disabled:opacity-60"
-            on:click={flushMemory}
-            disabled={flushing}
-          >
-            {flushing ? "Flushing..." : "Flush"}
-          </Button>
-          <Button
-            variant="outline"
-            size="md"
-            className="disabled:opacity-60"
-            on:click={compactMemory}
-            disabled={compacting}
-          >
-            {compacting ? "Deduping..." : "Deduplicate"}
-          </Button>
-        </div>
-
-        {#if message}
-          <Alert variant="success">{message}</Alert>
-        {/if}
-        {#if syncInfo}
-          <Alert>{syncInfo}</Alert>
-        {/if}
-        {#if error}
-          <Alert variant="destructive">{error}</Alert>
-        {/if}
-
-        {#if loading}
-          <div
-            class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]"
-          >
-            Loading memory...
+          <div class="grid gap-2 sm:grid-cols-[1fr_220px_auto_auto]">
+            <Input
+              value={item.tags.join(",")}
+              onchange={(e) => {
+                const value = (e.currentTarget as HTMLInputElement).value;
+                item.tags = value.split(",").map((v) => v.trim()).filter(Boolean);
+              }}
+              placeholder="tag1,tag2"
+            />
+            <Input bind:value={item.expiresAt} placeholder="expiresAt (ISO8601)" />
+            <Button variant="outline" onclick={() => saveItem(item)}>Save</Button>
+            <Button variant="destructive" onclick={() => removeItem(item)}>Delete</Button>
           </div>
-        {:else if items.length === 0}
-          <div
-            class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]"
-          >
-            No memory found. Toggle scope filters or run Sync Files if you expect imported memory.
-          </div>
-        {:else}
-          <div class="space-y-3">
-            {#each items as item (item.id)}
-              <article
-                class="space-y-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4"
-              >
-                <div
-                  class="flex items-center justify-between gap-3 text-xs text-[var(--muted-foreground)]"
-                >
-                  <div class="flex items-center gap-2">
-                    <span class="rounded border border-[color-mix(in_oklab,var(--border)_82%,transparent)] px-2 py-0.5">
-                      source {item.channel}:{item.externalUserId}
-                    </span>
-                    <span class="rounded border border-[color-mix(in_oklab,var(--border)_82%,transparent)] px-2 py-0.5"
-                      >{item.layer}</span
-                    >
-                    {#if item.sourceSessionId}
-                      <span class="rounded border border-[color-mix(in_oklab,var(--border)_82%,transparent)] px-2 py-0.5">
-                        session {item.sourceSessionId}
-                      </span>
-                    {/if}
-                    {#if item.hasConflict}
-                      <span
-                        class="rounded border border-amber-500/50 bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] px-2 py-0.5 text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]"
-                        >conflict</span
-                      >
-                    {/if}
-                    {#if item.expiresAt}
-                      <span
-                        class="rounded border border-[color-mix(in_oklab,var(--primary)_34%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] px-2 py-0.5 text-[color-mix(in_oklab,var(--primary)_74%,var(--foreground))]"
-                        >expires {item.expiresAt.slice(0, 10)}</span
-                      >
-                    {/if}
-                  </div>
-                  <span
-                    >updated {item.updatedAt
-                      .replace("T", " ")
-                      .slice(0, 19)}</span
-                  >
-                </div>
-
-                <textarea
-                  class="min-h-20 w-full rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
-                  bind:value={item.content}
-                ></textarea>
-
-                <div class="grid gap-2 sm:grid-cols-[1fr_220px_auto_auto]">
-                  <input
-                    class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
-                    value={item.tags.join(",")}
-                    on:change={(e) => {
-                      const value = (e.currentTarget as HTMLInputElement).value;
-                      item.tags = value
-                        .split(",")
-                        .map((v) => v.trim())
-                        .filter(Boolean);
-                    }}
-                    placeholder="tag1,tag2"
-                  />
-                  <input
-                    class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm"
-                    bind:value={item.expiresAt}
-                    placeholder="expiresAt (ISO8601)"
-                  />
-                  <Button variant="outline" size="md" on:click={() => saveItem(item)}>Save</Button>
-                  <Button variant="destructive" size="md" on:click={() => removeItem(item)}>Delete</Button>
-                </div>
-              </article>
-            {/each}
-          </div>
-        {/if}
-</PageShell>
+        </article>
+      {/each}
+    </div>
+  {/if}
+</div>

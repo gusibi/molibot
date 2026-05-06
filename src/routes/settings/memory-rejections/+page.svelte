@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import Alert from "$lib/ui/Alert.svelte";
-  import Button from "$lib/ui/Button.svelte";
-  import PageShell from "$lib/ui/PageShell.svelte";
+  import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import { Input } from "$lib/components/ui/input";
 
   interface RejectionItem {
     createdAt: string;
@@ -81,81 +82,70 @@
   onMount(loadRejections);
 </script>
 
-<PageShell widthClass="max-w-6xl" gapClass="space-y-6">
-  <header class="wb-hero">
-    <div class="wb-hero-copy">
-      <p class="wb-eyebrow">Memory Governance</p>
-      <h1>Memory Rejections</h1>
-      <p class="wb-copy">
-        Review which memory writes were blocked and why.
-      </p>
-    </div>
-    <div class="wb-hero-actions">
-      <input
-        class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm text-[var(--foreground)]"
-        bind:value={searchText}
-        placeholder="Search reason or content..."
-      />
-      <Button variant="outline" size="md" on:click={loadRejections}>Refresh</Button>
+<div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
+  <header class="flex flex-col gap-3">
+    <Badge variant="secondary" class="w-fit">Memory Governance</Badge>
+    <div class="flex max-w-3xl flex-col gap-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Memory Rejections</h1>
+      <p class="text-sm leading-6 text-muted-foreground">Review which memory writes were blocked and why.</p>
     </div>
   </header>
 
+  <div class="flex flex-wrap items-center gap-2">
+    <Input class="max-w-xs" bind:value={searchText} placeholder="Search reason or content..." />
+    <Button variant="outline" onclick={loadRejections}>Refresh</Button>
+  </div>
+
   {#if message}
-    <Alert>{message}</Alert>
+    <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
   {/if}
   {#if error}
-    <Alert variant="destructive">{error}</Alert>
+    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
   {/if}
 
   {#if loading}
-    <div class="wb-empty-state text-left">
-      Loading memory rejections...
-    </div>
+    <p class="py-8 text-sm text-muted-foreground">Loading memory rejections...</p>
   {:else}
-    <section class="wb-summary-strip text-sm sm:grid-cols-3">
-      <div><span class="text-[var(--muted-foreground)]">Total:</span> {counts.total}</div>
-      <div><span class="text-[var(--muted-foreground)]">Add blocked:</span> {counts.add}</div>
-      <div><span class="text-[var(--muted-foreground)]">Update blocked:</span> {counts.update}</div>
-    </section>
+    <div class="flex flex-wrap gap-3 text-sm">
+      <Badge variant="outline">Total: {counts.total}</Badge>
+      <Badge variant="outline">Add blocked: {counts.add}</Badge>
+      <Badge variant="outline">Update blocked: {counts.update}</Badge>
+    </div>
 
     {#if diagnostics.length > 0}
-      <Alert className="whitespace-pre-wrap">{diagnostics.join("\n")}</Alert>
+      <Alert variant="default"><AlertDescription class="whitespace-pre-wrap">{diagnostics.join("\n")}</AlertDescription></Alert>
     {/if}
 
     {#if filteredItems().length === 0}
-      <div class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]">
+      <div class="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
         No blocked memory writes found.
       </div>
     {:else}
-      <section class="space-y-4">
+      <div class="space-y-4">
         {#each filteredItems() as item}
-          <article class="rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-5 text-sm text-[var(--foreground)]">
+          <article class="rounded-2xl border bg-card/60 p-5 text-sm">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div class="flex flex-wrap items-center gap-2">
-                  <span class="rounded-full border border-[color-mix(in_oklab,var(--destructive)_36%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_10%,var(--card))] px-2 py-0.5 text-xs text-[var(--destructive)]">
-                    {item.action}
-                  </span>
-                  <span class="text-sm font-semibold">{item.channel}:{item.externalUserId}</span>
+                  <Badge variant="destructive">{item.action}</Badge>
+                  <span class="text-sm font-semibold text-foreground">{item.channel}:{item.externalUserId}</span>
                   {#if item.layer}
-                    <span class="rounded-full border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--foreground)]">
-                      {item.layer}
-                    </span>
+                    <Badge variant="outline">{item.layer}</Badge>
                   {/if}
                 </div>
-                <p class="mt-2 text-sm text-[var(--destructive)]">{item.reason}</p>
+                <p class="mt-2 text-sm text-destructive">{item.reason}</p>
               </div>
-              <div class="text-xs text-[var(--muted-foreground)]">{formatDate(item.createdAt)}</div>
+              <span class="text-xs text-muted-foreground">{formatDate(item.createdAt)}</span>
             </div>
-            <div class="mt-4 rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] p-3 text-sm text-[var(--foreground)]">
+            <div class="mt-4 rounded-xl border bg-muted/40 p-3 text-sm text-foreground">
               <p class="whitespace-pre-wrap">{item.content || "(empty)"}</p>
             </div>
             {#if item.tags.length > 0}
-              <p class="mt-3 text-xs text-[var(--muted-foreground)]">Tags: {item.tags.join(", ")}</p>
+              <p class="mt-3 text-xs text-muted-foreground">Tags: {item.tags.join(", ")}</p>
             {/if}
           </article>
         {/each}
-      </section>
+      </div>
     {/if}
   {/if}
-</PageShell>
+</div>

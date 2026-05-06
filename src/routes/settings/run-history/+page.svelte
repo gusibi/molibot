@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import Alert from "$lib/ui/Alert.svelte";
-  import Button from "$lib/ui/Button.svelte";
-  import PageShell from "$lib/ui/PageShell.svelte";
+  import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
 
   interface RunHistoryItem {
     runId: string;
@@ -58,10 +58,10 @@
     return `${Math.max(1, Math.round(durationMs / 1000))} 秒`;
   }
 
-  function outcomeClass(outcome: RunHistoryItem["reflectionOutcome"]): string {
-    if (outcome === "success") return "border-emerald-500/40 bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]";
-    if (outcome === "partial") return "border-amber-500/40 bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] text-[color-mix(in_oklab,hsl(38_84%_44%)_78%,var(--foreground))]";
-    return "border-[color-mix(in_oklab,var(--destructive)_36%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_10%,var(--card))] text-[var(--destructive)]";
+  function outcomeVariant(outcome: RunHistoryItem["reflectionOutcome"]): "default" | "secondary" | "destructive" {
+    if (outcome === "success") return "default";
+    if (outcome === "partial") return "secondary";
+    return "destructive";
   }
 
   async function loadRunHistory(): Promise<void> {
@@ -91,100 +91,97 @@
   onMount(loadRunHistory);
 </script>
 
-<PageShell widthClass="max-w-6xl" gapClass="space-y-6">
-  <header class="wb-hero">
-    <div class="wb-hero-copy">
-      <p class="wb-eyebrow">Run Reflection</p>
-      <h1>Run History</h1>
-      <p class="wb-copy">
+<div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
+  <header class="flex flex-col gap-3">
+    <Badge variant="secondary" class="w-fit">Run Reflection</Badge>
+    <div class="flex max-w-3xl flex-col gap-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Run History</h1>
+      <p class="text-sm leading-6 text-muted-foreground">
         Inspect recent agent runs, outcomes, and follow-up suggestions.
       </p>
     </div>
-    <div class="wb-hero-actions">
-      <Button variant="outline" size="md" on:click={loadRunHistory}>Refresh</Button>
-    </div>
   </header>
 
+  <div class="flex items-center gap-2">
+    <Button variant="outline" onclick={loadRunHistory}>Refresh</Button>
+  </div>
+
   {#if message}
-    <Alert>{message}</Alert>
+    <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
   {/if}
   {#if error}
-    <Alert variant="destructive">{error}</Alert>
+    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
   {/if}
 
   {#if loading}
-    <div class="wb-empty-state text-left">
-      Loading run history...
-    </div>
+    <p class="py-8 text-sm text-muted-foreground">Loading run history...</p>
   {:else}
-    <section class="wb-summary-strip text-sm sm:grid-cols-4">
-      <div><span class="text-[var(--muted-foreground)]">Total:</span> {counts.total}</div>
-      <div><span class="text-[var(--muted-foreground)]">Success:</span> {counts.success}</div>
-      <div><span class="text-[var(--muted-foreground)]">Partial:</span> {counts.partial}</div>
-      <div><span class="text-[var(--muted-foreground)]">Failed:</span> {counts.failed}</div>
-    </section>
+    <div class="flex flex-wrap gap-3 text-sm">
+      <Badge variant="outline">Total: {counts.total}</Badge>
+      <Badge variant="default">Success: {counts.success}</Badge>
+      <Badge variant="secondary">Partial: {counts.partial}</Badge>
+      <Badge variant="destructive">Failed: {counts.failed}</Badge>
+    </div>
 
     {#if diagnostics.length > 0}
-      <Alert className="whitespace-pre-wrap">{diagnostics.join("\n")}</Alert>
+      <Alert variant="default"><AlertDescription class="whitespace-pre-wrap">{diagnostics.join("\n")}</AlertDescription></Alert>
     {/if}
 
     {#if items.length === 0}
-      <div class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]">
+      <div class="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
         No run records found yet.
       </div>
     {:else}
-      <section class="space-y-4">
+      <div class="space-y-4">
         {#each items as item}
-          <article class="rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-5 text-sm text-[var(--foreground)]">
+          <article class="rounded-2xl border bg-card/60 p-5 text-sm">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div class="space-y-1">
                 <div class="flex flex-wrap items-center gap-2">
-                  <h2 class="text-base font-semibold">{item.botId} / {item.chatId}</h2>
-                  <span class={`rounded-full border px-2 py-0.5 text-xs ${outcomeClass(item.reflectionOutcome)}`}>
-                    {item.reflectionOutcome}
-                  </span>
+                  <h2 class="text-base font-semibold text-foreground">{item.botId} / {item.chatId}</h2>
+                  <Badge variant={outcomeVariant(item.reflectionOutcome)}>{item.reflectionOutcome}</Badge>
                 </div>
-                <p class="text-xs text-[var(--muted-foreground)]">{formatDate(item.createdAt)} · {formatDuration(item.durationMs)} · {item.runId}</p>
+                <p class="text-xs text-muted-foreground">{formatDate(item.createdAt)} · {formatDuration(item.durationMs)} · {item.runId}</p>
               </div>
-              <div class="text-right text-xs text-[var(--muted-foreground)]">
+              <div class="text-right text-xs text-muted-foreground">
                 <div>Result: {item.stopReason}</div>
                 <div>Memory used: {item.memorySelectedCount}</div>
               </div>
             </div>
 
             <div class="mt-4 grid gap-3 sm:grid-cols-2">
-              <div class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] p-3">
-                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Summary</p>
-                <p class="mt-2 text-sm text-[var(--foreground)]">{item.reflectionSummary || "No summary"}</p>
-                <p class="mt-2 text-xs text-[var(--muted-foreground)]">Next: {item.nextAction || "-"}</p>
+              <div class="rounded-xl border bg-muted/40 p-3">
+                <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Summary</p>
+                <p class="mt-2 text-sm text-foreground">{item.reflectionSummary || "No summary"}</p>
+                <p class="mt-2 text-xs text-muted-foreground">Next: {item.nextAction || "-"}</p>
               </div>
-              <div class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] p-3">
-                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Output Snapshot</p>
-                <p class="mt-2 whitespace-pre-wrap text-sm text-[var(--foreground)]">{item.finalText || "(empty)"}</p>
+              <div class="rounded-xl border bg-muted/40 p-3">
+                <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Output Snapshot</p>
+                <p class="mt-2 whitespace-pre-wrap text-sm text-foreground">{item.finalText || "(empty)"}</p>
               </div>
             </div>
 
             <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div>
-                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Tools</p>
-                <p class="mt-1 text-sm text-[var(--foreground)]">{item.toolNames.length > 0 ? item.toolNames.join(", ") : "-"}</p>
+                <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tools</p>
+                <p class="mt-1 text-sm text-foreground">{item.toolNames.length > 0 ? item.toolNames.join(", ") : "-"}</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Failures</p>
-                <p class="mt-1 text-sm text-[var(--foreground)]">{item.failedToolNames.length > 0 ? item.failedToolNames.join(", ") : "-"}</p>
+                <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Failures</p>
+                <p class="mt-1 text-sm text-foreground">{item.failedToolNames.length > 0 ? item.failedToolNames.join(", ") : "-"}</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Explicit Skills</p>
-                <p class="mt-1 text-sm text-[var(--foreground)]">{item.explicitSkillNames.length > 0 ? item.explicitSkillNames.join(", ") : "-"}</p>
+                <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Explicit Skills</p>
+                <p class="mt-1 text-sm text-foreground">{item.explicitSkillNames.length > 0 ? item.explicitSkillNames.join(", ") : "-"}</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Fallback</p>
-                <p class="mt-1 text-sm text-[var(--foreground)]">{item.usedFallbackModel ? "Yes" : "No"}</p>
+                <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fallback</p>
+                <p class="mt-1 text-sm text-foreground">{item.usedFallbackModel ? "Yes" : "No"}</p>
               </div>
             </div>
 
             {#if item.modelFailureSummaries.length > 0 || item.skillDraftPath}
-              <div class="mt-4 rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] p-3 text-xs text-[var(--muted-foreground)]">
+              <div class="mt-4 rounded-xl border bg-muted/40 p-3 text-xs text-muted-foreground">
                 {#if item.modelFailureSummaries.length > 0}
                   <p>Model issues: {item.modelFailureSummaries.join(" | ")}</p>
                 {/if}
@@ -195,7 +192,7 @@
             {/if}
           </article>
         {/each}
-      </section>
+      </div>
     {/if}
   {/if}
-</PageShell>
+</div>

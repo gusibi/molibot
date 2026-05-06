@@ -1,30 +1,26 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import PageShell from "$lib/ui/PageShell.svelte";
-  import Button from "$lib/ui/Button.svelte";
-  import Alert from "$lib/ui/Alert.svelte";
+  import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
+  import { Textarea } from "$lib/components/ui/textarea";
 
   type AdapterKind = "codex" | "claude-code" | "custom";
   type ApprovalMode = "manual" | "auto-safe" | "auto-all";
 
   type TargetForm = {
-    id: string;
-    name: string;
-    adapter: AdapterKind;
-    enabled: boolean;
-    command: string;
-    argsText: string;
-    envText: string;
-    cwd: string;
+    id: string; name: string; adapter: AdapterKind; enabled: boolean;
+    command: string; argsText: string; envText: string; cwd: string;
   };
 
   type ProjectForm = {
-    id: string;
-    name: string;
-    enabled: boolean;
-    path: string;
-    allowedTargetIds: string[];
-    defaultApprovalMode: ApprovalMode;
+    id: string; name: string; enabled: boolean; path: string;
+    allowedTargetIds: string[]; defaultApprovalMode: ApprovalMode;
   };
 
   const approvalModes: ApprovalMode[] = ["manual", "auto-safe", "auto-all"];
@@ -32,22 +28,8 @@
   const codexPresetArgs = ["-y", "@zed-industries/codex-acp"];
   const claudeCodePresetArgs = ["-y", "@zed-industries/claude-code-acp"];
   const adapterPresets: Record<Exclude<AdapterKind, "custom">, Omit<TargetForm, "enabled" | "cwd">> = {
-    codex: {
-      id: "codex",
-      name: "Codex ACP",
-      adapter: "codex",
-      command: "npx",
-      argsText: codexPresetArgs.join("\n"),
-      envText: ""
-    },
-    "claude-code": {
-      id: "claude-code",
-      name: "Claude Code ACP",
-      adapter: "claude-code",
-      command: "npx",
-      argsText: claudeCodePresetArgs.join("\n"),
-      envText: ""
-    }
+    codex: { id: "codex", name: "Codex ACP", adapter: "codex", command: "npx", argsText: codexPresetArgs.join("\n"), envText: "" },
+    "claude-code": { id: "claude-code", name: "Claude Code ACP", adapter: "claude-code", command: "npx", argsText: claudeCodePresetArgs.join("\n"), envText: "" }
   };
 
   let loading = true;
@@ -59,10 +41,7 @@
   let projects: ProjectForm[] = [];
 
   function parseArgsText(input: string): string[] {
-    return input
-      .split("\n")
-      .map((value) => value.trim())
-      .filter(Boolean);
+    return input.split("\n").map((value) => value.trim()).filter(Boolean);
   }
 
   function formatArgs(args: unknown): string {
@@ -76,14 +55,10 @@
       const line = rawLine.trim();
       if (!line) continue;
       const separatorIndex = line.indexOf("=");
-      if (separatorIndex <= 0) {
-        throw new Error(`Invalid env line '${line}'. Use KEY=VALUE.`);
-      }
+      if (separatorIndex <= 0) throw new Error(`Invalid env line '${line}'. Use KEY=VALUE.`);
       const key = line.slice(0, separatorIndex).trim();
       const value = line.slice(separatorIndex + 1).trim();
-      if (!key) {
-        throw new Error(`Invalid env line '${line}'. Missing key.`);
-      }
+      if (!key) throw new Error(`Invalid env line '${line}'. Missing key.`);
       env[key] = value;
     }
     return env;
@@ -91,9 +66,7 @@
 
   function formatEnv(input: unknown): string {
     if (!input || typeof input !== "object" || Array.isArray(input)) return "";
-    return Object.entries(input as Record<string, unknown>)
-      .map(([key, value]) => `${key}=${String(value ?? "")}`)
-      .join("\n");
+    return Object.entries(input as Record<string, unknown>).map(([key, value]) => `${key}=${String(value ?? "")}`).join("\n");
   }
 
   function normalizeApprovalMode(input: unknown): ApprovalMode {
@@ -114,8 +87,7 @@
       const item = row && typeof row === "object" ? row as Record<string, unknown> : {};
       const id = String(item.id ?? "").trim() || `target-${index + 1}`;
       return {
-        id,
-        name: String(item.name ?? id).trim() || id,
+        id, name: String(item.name ?? id).trim() || id,
         adapter: normalizeAdapter(item.adapter),
         enabled: item.enabled === undefined ? true : Boolean(item.enabled),
         command: String(item.command ?? "").trim(),
@@ -132,11 +104,9 @@
       const item = row && typeof row === "object" ? row as Record<string, unknown> : {};
       const id = String(item.id ?? "").trim() || `project-${index + 1}`;
       const allowedTargetIds = Array.isArray(item.allowedTargetIds)
-        ? item.allowedTargetIds.map((value) => String(value ?? "").trim()).filter(Boolean)
-        : [];
+        ? item.allowedTargetIds.map((value) => String(value ?? "").trim()).filter(Boolean) : [];
       return {
-        id,
-        name: String(item.name ?? id).trim() || id,
+        id, name: String(item.name ?? id).trim() || id,
         enabled: item.enabled === undefined ? true : Boolean(item.enabled),
         path: String(item.path ?? "").trim(),
         allowedTargetIds,
@@ -148,167 +118,72 @@
   function addTarget(adapter: AdapterKind = "custom"): void {
     const nextIndex = targets.length + 1;
     if (adapter === "custom") {
-      targets = [
-        ...targets,
-        {
-          id: `target-${nextIndex}`,
-          name: `Target ${nextIndex}`,
-          adapter,
-          enabled: true,
-          command: "",
-          argsText: "",
-          envText: "",
-          cwd: "",
-        },
-      ];
+      targets = [...targets, { id: `target-${nextIndex}`, name: `Target ${nextIndex}`, adapter, enabled: true, command: "", argsText: "", envText: "", cwd: "" }];
       return;
     }
-
     const preset = adapterPresets[adapter];
-    targets = [
-      ...targets,
-      {
-        ...preset,
-        id: targets.some((target) => target.id === preset.id) ? `${preset.id}-${nextIndex}` : preset.id,
-        enabled: true,
-        cwd: "",
-      },
-    ];
+    targets = [...targets, { ...preset, id: targets.some((t) => t.id === preset.id) ? `${preset.id}-${nextIndex}` : preset.id, enabled: true, cwd: "" }];
   }
 
   function addProject(): void {
     const nextIndex = projects.length + 1;
-    projects = [
-      ...projects,
-      {
-        id: `project-${nextIndex}`,
-        name: `Project ${nextIndex}`,
-        enabled: true,
-        path: "",
-        allowedTargetIds: [],
-        defaultApprovalMode: "manual",
-      },
-    ];
+    projects = [...projects, { id: `project-${nextIndex}`, name: `Project ${nextIndex}`, enabled: true, path: "", allowedTargetIds: [], defaultApprovalMode: "manual" as ApprovalMode }];
   }
 
   function removeTarget(index: number): void {
     const removed = targets[index]?.id ?? "";
-    targets = targets.filter((_, currentIndex) => currentIndex !== index);
+    targets = targets.filter((_, i) => i !== index);
     if (!removed) return;
-    projects = projects.map((project) => ({
-      ...project,
-      allowedTargetIds: project.allowedTargetIds.filter((id) => id !== removed),
-    }));
+    projects = projects.map((p) => ({ ...p, allowedTargetIds: p.allowedTargetIds.filter((id) => id !== removed) }));
   }
 
   function removeProject(index: number): void {
-    projects = projects.filter((_, currentIndex) => currentIndex !== index);
+    projects = projects.filter((_, i) => i !== index);
   }
 
   function updateProjectTarget(projectIndex: number, targetId: string, checked: boolean): void {
-    projects = projects.map((project, index) => {
-      if (index !== projectIndex) return project;
-      const nextIds = checked
-        ? Array.from(new Set([...project.allowedTargetIds, targetId]))
-        : project.allowedTargetIds.filter((id) => id !== targetId);
-      return { ...project, allowedTargetIds: nextIds };
+    projects = projects.map((p, i) => {
+      if (i !== projectIndex) return p;
+      const nextIds = checked ? Array.from(new Set([...p.allowedTargetIds, targetId])) : p.allowedTargetIds.filter((id) => id !== targetId);
+      return { ...p, allowedTargetIds: nextIds };
     });
   }
 
   function validateUniqueIds(kind: string, ids: string[]): void {
     const seen = new Set<string>();
     for (const id of ids) {
-      if (!id) {
-        throw new Error(`${kind} id is required.`);
-      }
-      if (seen.has(id)) {
-        throw new Error(`Duplicate ${kind} id '${id}'.`);
-      }
+      if (!id) throw new Error(`${kind} id is required.`);
+      if (seen.has(id)) throw new Error(`Duplicate ${kind} id '${id}'.`);
       seen.add(id);
     }
   }
 
-  function buildPayload(): {
-    enabled: boolean;
-    targets: Array<{
-      id: string;
-      name: string;
-      adapter: AdapterKind;
-      enabled: boolean;
-      command: string;
-      args: string[];
-      env: Record<string, string>;
-      cwd: string;
-    }>;
-    projects: Array<{
-      id: string;
-      name: string;
-      enabled: boolean;
-      path: string;
-      allowedTargetIds: string[];
-      defaultApprovalMode: ApprovalMode;
-    }>;
-  } {
-    validateUniqueIds("target", targets.map((target) => target.id.trim()));
-    validateUniqueIds("project", projects.map((project) => project.id.trim()));
-
+  function buildPayload() {
+    validateUniqueIds("target", targets.map((t) => t.id.trim()));
+    validateUniqueIds("project", projects.map((p) => p.id.trim()));
     const targetPayload = targets.map((target) => {
       const id = target.id.trim();
       const command = target.command.trim();
-      if (!command) {
-        throw new Error(`Target '${id}' is missing command.`);
-      }
-      return {
-        id,
-        name: target.name.trim() || id,
-        adapter: normalizeAdapter(target.adapter),
-        enabled: target.enabled,
-        command,
-        args: parseArgsText(target.argsText),
-        env: parseEnvText(target.envText),
-        cwd: target.cwd.trim(),
-      };
+      if (!command) throw new Error(`Target '${id}' is missing command.`);
+      return { id, name: target.name.trim() || id, adapter: normalizeAdapter(target.adapter), enabled: target.enabled, command, args: parseArgsText(target.argsText), env: parseEnvText(target.envText), cwd: target.cwd.trim() };
     });
-
-    const allowedTargetIds = new Set(targetPayload.map((target) => target.id));
+    const allowedTargetIds = new Set(targetPayload.map((t) => t.id));
     const projectPayload = projects.map((project) => {
       const id = project.id.trim();
       const path = project.path.trim();
-      if (!path) {
-        throw new Error(`Project '${id}' is missing path.`);
+      if (!path) throw new Error(`Project '${id}' is missing path.`);
+      if (!path.startsWith("/")) throw new Error(`Project '${id}' path must be absolute.`);
+      const nextAllowedTargets = project.allowedTargetIds.map((tid) => tid.trim()).filter(Boolean);
+      for (const tid of nextAllowedTargets) {
+        if (!allowedTargetIds.has(tid)) throw new Error(`Project '${id}' references unknown target '${tid}'.`);
       }
-      if (!path.startsWith("/")) {
-        throw new Error(`Project '${id}' path must be absolute.`);
-      }
-      const nextAllowedTargets = project.allowedTargetIds
-        .map((targetId) => targetId.trim())
-        .filter(Boolean);
-      for (const targetId of nextAllowedTargets) {
-        if (!allowedTargetIds.has(targetId)) {
-          throw new Error(`Project '${id}' references unknown target '${targetId}'.`);
-        }
-      }
-      return {
-        id,
-        name: project.name.trim() || id,
-        enabled: project.enabled,
-        path,
-        allowedTargetIds: nextAllowedTargets,
-        defaultApprovalMode: normalizeApprovalMode(project.defaultApprovalMode),
-      };
+      return { id, name: project.name.trim() || id, enabled: project.enabled, path, allowedTargetIds: nextAllowedTargets, defaultApprovalMode: normalizeApprovalMode(project.defaultApprovalMode) };
     });
-
-    return {
-      enabled,
-      targets: targetPayload,
-      projects: projectPayload,
-    };
+    return { enabled, targets: targetPayload, projects: projectPayload };
   }
 
   async function loadSettings(): Promise<void> {
-    loading = true;
-    error = "";
-    message = "";
+    loading = true; error = ""; message = "";
     try {
       const res = await fetch("/api/settings");
       const data = await res.json();
@@ -319,23 +194,18 @@
       message = "ACP settings loaded.";
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
-      enabled = true;
-      targets = [];
-      projects = [];
+      enabled = true; targets = []; projects = [];
     } finally {
       loading = false;
     }
   }
 
   async function save(): Promise<void> {
-    saving = true;
-    error = "";
-    message = "";
+    saving = true; error = ""; message = "";
     try {
       const payload = buildPayload();
       const res = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ acp: payload }),
       });
       const data = await res.json();
@@ -354,295 +224,214 @@
   onMount(loadSettings);
 </script>
 
-<PageShell widthClass="max-w-6xl" gapClass="space-y-6">
-  <header class="wb-hero">
-    <div class="wb-hero-copy">
-      <p class="wb-eyebrow">Control Plane</p>
-      <h1>ACP Targets</h1>
-      <p class="wb-copy max-w-3xl">
-        Configure coding-agent adapters and the project allowlist used by Telegram ACP commands.
-        Projects must use absolute paths, and approval defaults are applied when a new ACP session starts.
+<div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
+  <header class="flex flex-col gap-3">
+    <Badge variant="secondary" class="w-fit">Control Plane</Badge>
+    <div class="flex max-w-3xl flex-col gap-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">ACP Targets</h1>
+      <p class="text-sm leading-6 text-muted-foreground">
+        Configure coding-agent adapters and the project allowlist used by Telegram ACP commands. Projects must use absolute paths, and approval defaults are applied when a new ACP session starts.
       </p>
     </div>
-    <div class="wb-hero-actions">
-      <Button variant="outline" size="md" on:click={loadSettings} disabled={loading || saving}>
-        Refresh
-      </Button>
-      <Button variant="default" size="md" on:click={save} disabled={loading || saving}>
+    <div class="flex items-center gap-2">
+      <Button variant="outline" onclick={loadSettings} disabled={loading || saving}>Refresh</Button>
+      <Button variant="default" onclick={save} disabled={loading || saving}>
         {saving ? "Saving..." : "Save ACP Settings"}
       </Button>
     </div>
   </header>
 
   {#if message}
-    <Alert variant="success">{message}</Alert>
+    <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
   {/if}
   {#if error}
-    <Alert variant="destructive">{error}</Alert>
+    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
   {/if}
 
   {#if loading}
-    <div class="wb-empty-state text-left">
-      Loading ACP settings...
-    </div>
+    <p class="py-8 text-sm text-muted-foreground">Loading ACP settings...</p>
   {:else}
-    <form class="space-y-6" on:submit|preventDefault={save}>
-      <section class="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <div class="space-y-1">
-          <h2 class="text-sm font-semibold text-[var(--foreground)]">Global Switch</h2>
-          <p class="text-xs leading-5 text-[var(--muted-foreground)]">
+    <form class="space-y-6" onsubmit={(e) => { e.preventDefault(); save(); }}>
+      <Card>
+        <CardHeader>
+          <CardTitle class="text-sm">Global Switch</CardTitle>
+          <CardDescription>
             Disable ACP here if you want Telegram commands to stay visible in code but reject new coding sessions.
-          </p>
-        </div>
-
-        <label class="flex items-center gap-3 text-sm text-[var(--foreground)]">
-          <input bind:checked={enabled} type="checkbox" />
-          Enable ACP control plane
-        </label>
-      </section>
-
-      <section class="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="space-y-1">
-            <h2 class="text-sm font-semibold text-[var(--foreground)]">Targets</h2>
-            <p class="max-w-3xl text-xs leading-5 text-[var(--muted-foreground)]">
-              One target equals one ACP adapter process. Built-in presets are
-              <code>codex</code> = <code>npx {codexPresetArgs.join(" ")}</code> and
-              <code>claude-code</code> = <code>npx {claudeCodePresetArgs.join(" ")}</code>.
-            </p>
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div class="flex items-center gap-3">
+            <Checkbox id="acp-enabled" bind:checked={enabled} />
+            <Label for="acp-enabled" class="text-sm">Enable ACP control plane</Label>
           </div>
-          <div class="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" on:click={() => addTarget("codex")} type="button">
-              Add Codex
-            </Button>
-            <Button variant="outline" size="sm" on:click={() => addTarget("claude-code")} type="button">
-              Add Claude Code
-            </Button>
-            <Button variant="outline" size="sm" on:click={() => addTarget("custom")} type="button">
-              Add Custom
-            </Button>
-          </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        {#if targets.length === 0}
-          <div class="rounded-xl border border-dashed border-[var(--border)] bg-[var(--muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
-            No ACP targets configured.
+      <Card>
+        <CardHeader>
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle class="text-sm">Targets</CardTitle>
+              <CardDescription>
+                One target equals one ACP adapter process. Built-in presets are <code class="font-mono text-xs">codex</code> = <code class="font-mono text-xs">npx {codexPresetArgs.join(" ")}</code> and <code class="font-mono text-xs">claude-code</code> = <code class="font-mono text-xs">npx {claudeCodePresetArgs.join(" ")}</code>.
+              </CardDescription>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onclick={() => addTarget("codex")} type="button">Add Codex</Button>
+              <Button variant="outline" size="sm" onclick={() => addTarget("claude-code")} type="button">Add Claude Code</Button>
+              <Button variant="outline" size="sm" onclick={() => addTarget("custom")} type="button">Add Custom</Button>
+            </div>
           </div>
-        {:else}
-          <div class="space-y-4">
+        </CardHeader>
+        <CardContent class="space-y-4">
+          {#if targets.length === 0}
+            <div class="rounded-xl border border-dashed bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+              No ACP targets configured.
+            </div>
+          {:else}
             {#each targets as target, index}
-              <article class="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
+              <div class="space-y-4 rounded-xl border bg-background p-4">
                 <div class="flex flex-wrap items-start justify-between gap-3">
-                  <div class="space-y-1">
-                    <h3 class="text-sm font-semibold text-[var(--foreground)]">
-                      {target.name || target.id || `Target ${index + 1}`}
-                    </h3>
-                    <p class="text-xs text-[var(--muted-foreground)]">
-                      Adapter id must stay stable because projects reference it.
-                    </p>
+                  <div>
+                    <h3 class="text-sm font-semibold text-foreground">{target.name || target.id || `Target ${index + 1}`}</h3>
+                    <p class="text-xs text-muted-foreground">Adapter id must stay stable because projects reference it.</p>
                   </div>
-                  <Button variant="destructive" size="sm" type="button" on:click={() => removeTarget(index)}>
-                    Remove
-                  </Button>
+                  <Button variant="destructive" size="sm" type="button" onclick={() => removeTarget(index)}>Remove</Button>
                 </div>
 
                 <div class="grid gap-4 md:grid-cols-2">
-                  <label class="grid gap-1.5 text-sm">
-                    <span class="text-[var(--foreground)]">Target ID</span>
-                    <input
-                      class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                      bind:value={target.id}
-                    />
-                  </label>
-
-                  <label class="grid gap-1.5 text-sm">
-                    <span class="text-[var(--foreground)]">Display Name</span>
-                    <input
-                      class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                      bind:value={target.name}
-                    />
-                  </label>
-
-                  <label class="grid gap-1.5 text-sm">
-                    <span class="text-[var(--foreground)]">Adapter</span>
-                    <select
-                      class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                      bind:value={target.adapter}
-                    >
-                      {#each adapterKinds as adapterKind}
-                        <option value={adapterKind}>{adapterKind}</option>
+                  <div class="grid gap-1.5">
+                    <Label for="acp-tid-{index}">Target ID</Label>
+                    <Input id="acp-tid-{index}" bind:value={target.id} />
+                  </div>
+                  <div class="grid gap-1.5">
+                    <Label for="acp-tname-{index}">Display Name</Label>
+                    <Input id="acp-tname-{index}" bind:value={target.name} />
+                  </div>
+                  <div class="grid gap-1.5">
+                    <Label for="acp-tadapter-{index}">Adapter</Label>
+                    <NativeSelect id="acp-tadapter-{index}" bind:value={target.adapter}>
+                      {#each adapterKinds as ak}
+                        <NativeSelectOption value={ak}>{ak}</NativeSelectOption>
                       {/each}
-                    </select>
-                  </label>
-
-                  <label class="grid gap-1.5 text-sm md:col-span-2">
-                    <span class="text-[var(--foreground)]">Command</span>
-                    <input
-                      class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                      bind:value={target.command}
-                      placeholder="npx"
-                    />
-                  </label>
-
-                  <label class="grid gap-1.5 text-sm">
-                    <span class="text-[var(--foreground)]">Args (one per line)</span>
-                    <textarea
-                      class="min-h-[120px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-xs outline-none focus:border-[var(--ring)]"
-                      bind:value={target.argsText}
-                      placeholder={target.adapter === "claude-code"
-                        ? "-y&#10;@zed-industries/claude-code-acp"
-                        : "-y&#10;@zed-industries/codex-acp"}
-                    ></textarea>
-                  </label>
-
-                  <label class="grid gap-1.5 text-sm">
-                    <span class="text-[var(--foreground)]">Env (KEY=VALUE per line)</span>
-                    <textarea
-                      class="min-h-[120px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-xs outline-none focus:border-[var(--ring)]"
-                      bind:value={target.envText}
-                      placeholder={target.adapter === "claude-code" ? "ANTHROPIC_API_KEY=..." : "OPENAI_API_KEY=..."}
-                    ></textarea>
-                  </label>
-
-                  <label class="grid gap-1.5 text-sm">
-                    <span class="text-[var(--foreground)]">Working Directory Override</span>
-                    <input
-                      class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                      bind:value={target.cwd}
-                      placeholder="."
-                    />
-                  </label>
-
-                  <label class="flex items-center gap-3 pt-7 text-sm text-[var(--foreground)]">
-                    <input bind:checked={target.enabled} type="checkbox" />
-                    Target enabled
-                  </label>
+                    </NativeSelect>
+                  </div>
+                  <div class="grid gap-1.5 md:col-span-2">
+                    <Label for="acp-tcmd-{index}">Command</Label>
+                    <Input id="acp-tcmd-{index}" bind:value={target.command} placeholder="npx" />
+                  </div>
+                  <div class="grid gap-1.5">
+                    <Label for="acp-targs-{index}">Args (one per line)</Label>
+                    <Textarea id="acp-targs-{index}" class="min-h-[120px] font-mono text-xs" bind:value={target.argsText} placeholder={target.adapter === "claude-code" ? "-y\n@zed-industries/claude-code-acp" : "-y\n@zed-industries/codex-acp"} />
+                  </div>
+                  <div class="grid gap-1.5">
+                    <Label for="acp-tenv-{index}">Env (KEY=VALUE per line)</Label>
+                    <Textarea id="acp-tenv-{index}" class="min-h-[120px] font-mono text-xs" bind:value={target.envText} placeholder={target.adapter === "claude-code" ? "ANTHROPIC_API_KEY=..." : "OPENAI_API_KEY=..."} />
+                  </div>
+                  <div class="grid gap-1.5">
+                    <Label for="acp-tcwd-{index}">Working Directory Override</Label>
+                    <Input id="acp-tcwd-{index}" bind:value={target.cwd} placeholder="." />
+                  </div>
+                  <div class="flex items-center gap-3 pt-7">
+                    <Checkbox id="acp-tenabled-{index}" bind:checked={target.enabled} />
+                    <Label for="acp-tenabled-{index}" class="text-sm">Target enabled</Label>
+                  </div>
                 </div>
-              </article>
+              </div>
             {/each}
-          </div>
-        {/if}
-      </section>
+          {/if}
+        </CardContent>
+      </Card>
 
-      <section class="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="space-y-1">
-            <h2 class="text-sm font-semibold text-[var(--foreground)]">Projects</h2>
-            <p class="max-w-3xl text-xs leading-5 text-[var(--muted-foreground)]">
-              Projects are the ACP allowlist. Telegram should select these by stable id instead of sending raw paths.
-            </p>
+      <Card>
+        <CardHeader>
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle class="text-sm">Projects</CardTitle>
+              <CardDescription>
+                Projects are the ACP allowlist. Telegram should select these by stable id instead of sending raw paths.
+              </CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onclick={addProject} type="button">Add Project</Button>
           </div>
-          <Button variant="outline" size="sm" on:click={addProject} type="button">
-            Add Project
-          </Button>
-        </div>
-
-        {#if projects.length === 0}
-          <div class="rounded-xl border border-dashed border-[var(--border)] bg-[var(--muted)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
-            No ACP projects configured.
-          </div>
-        {:else}
-          <div class="space-y-4">
+        </CardHeader>
+        <CardContent class="space-y-4">
+          {#if projects.length === 0}
+            <div class="rounded-xl border border-dashed bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+              No ACP projects configured.
+            </div>
+          {:else}
             {#each projects as project, index}
-              <article class="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
+              <div class="space-y-4 rounded-xl border bg-background p-4">
                 <div class="flex flex-wrap items-start justify-between gap-3">
-                  <div class="space-y-1">
-                    <h3 class="text-sm font-semibold text-[var(--foreground)]">
-                      {project.name || project.id || `Project ${index + 1}`}
-                    </h3>
-                    <p class="text-xs text-[var(--muted-foreground)]">
-                      Path must be absolute. Approval mode becomes the session default in Telegram ACP.
-                    </p>
+                  <div>
+                    <h3 class="text-sm font-semibold text-foreground">{project.name || project.id || `Project ${index + 1}`}</h3>
+                    <p class="text-xs text-muted-foreground">Path must be absolute. Approval mode becomes the session default in Telegram ACP.</p>
                   </div>
-                  <Button variant="destructive" size="sm" type="button" on:click={() => removeProject(index)}>
-                    Remove
-                  </Button>
+                  <Button variant="destructive" size="sm" type="button" onclick={() => removeProject(index)}>Remove</Button>
                 </div>
 
                 <div class="grid gap-4 md:grid-cols-2">
-                  <label class="grid gap-1.5 text-sm">
-                    <span class="text-[var(--foreground)]">Project ID</span>
-                    <input
-                      class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                      bind:value={project.id}
-                    />
-                  </label>
-
-                  <label class="grid gap-1.5 text-sm">
-                    <span class="text-[var(--foreground)]">Display Name</span>
-                    <input
-                      class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                      bind:value={project.name}
-                    />
-                  </label>
-
-                  <label class="grid gap-1.5 text-sm md:col-span-2">
-                    <span class="text-[var(--foreground)]">Absolute Path</span>
-                    <input
-                      class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                      bind:value={project.path}
-                      placeholder="./your-project"
-                    />
-                  </label>
-
-                  <label class="grid gap-1.5 text-sm">
-                    <span class="text-[var(--foreground)]">Default Approval Mode</span>
-                    <select
-                      class="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                      bind:value={project.defaultApprovalMode}
-                    >
+                  <div class="grid gap-1.5">
+                    <Label for="acp-pid-{index}">Project ID</Label>
+                    <Input id="acp-pid-{index}" bind:value={project.id} />
+                  </div>
+                  <div class="grid gap-1.5">
+                    <Label for="acp-pname-{index}">Display Name</Label>
+                    <Input id="acp-pname-{index}" bind:value={project.name} />
+                  </div>
+                  <div class="grid gap-1.5 md:col-span-2">
+                    <Label for="acp-ppath-{index}">Absolute Path</Label>
+                    <Input id="acp-ppath-{index}" bind:value={project.path} placeholder="./your-project" />
+                  </div>
+                  <div class="grid gap-1.5">
+                    <Label for="acp-pmode-{index}">Default Approval Mode</Label>
+                    <NativeSelect id="acp-pmode-{index}" bind:value={project.defaultApprovalMode}>
                       {#each approvalModes as mode}
-                        <option value={mode}>{mode}</option>
+                        <NativeSelectOption value={mode}>{mode}</NativeSelectOption>
                       {/each}
-                    </select>
-                  </label>
-
-                  <label class="flex items-center gap-3 pt-7 text-sm text-[var(--foreground)]">
-                    <input bind:checked={project.enabled} type="checkbox" />
-                    Project enabled
-                  </label>
+                    </NativeSelect>
+                  </div>
+                  <div class="flex items-center gap-3 pt-7">
+                    <Checkbox id="acp-penabled-{index}" bind:checked={project.enabled} />
+                    <Label for="acp-penabled-{index}" class="text-sm">Project enabled</Label>
+                  </div>
                 </div>
 
                 <div class="space-y-2">
-                  <p class="text-sm font-medium text-[var(--foreground)]">Allowed Targets</p>
+                  <p class="text-sm font-medium text-foreground">Allowed Targets</p>
                   {#if targets.length === 0}
-                    <div class="rounded-lg border border-dashed border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
+                    <div class="rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                       Add at least one target before binding projects.
                     </div>
                   {:else}
                     <div class="grid gap-2 md:grid-cols-2">
                       {#each targets as target}
-                        <label class="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm text-[var(--foreground)]">
-                          <input
-                            type="checkbox"
+                        <label class="flex items-center gap-3 rounded-lg border bg-card px-3 py-2 text-sm">
+                          <Checkbox
                             checked={project.allowedTargetIds.includes(target.id)}
-                            on:change={(event) =>
-                              updateProjectTarget(
-                                index,
-                                target.id,
-                                (event.target as HTMLInputElement).checked,
-                              )}
+                            onchange={(e) => updateProjectTarget(index, target.id, (e.currentTarget as HTMLInputElement).checked)}
                           />
                           <span class="min-w-0">
-                            <span class="block truncate font-medium">{target.name || target.id}</span>
-                            <span class="block truncate text-xs text-[var(--muted-foreground)]">{target.id}</span>
+                            <span class="block truncate font-medium text-foreground">{target.name || target.id}</span>
+                            <span class="block truncate text-xs text-muted-foreground">{target.id}</span>
                           </span>
                         </label>
                       {/each}
                     </div>
                   {/if}
                 </div>
-              </article>
+              </div>
             {/each}
-          </div>
-        {/if}
-      </section>
+          {/if}
+        </CardContent>
+      </Card>
 
       <div class="flex justify-end">
-        <Button variant="default" size="md" type="submit" disabled={saving}>
+        <Button variant="default" type="submit" disabled={saving}>
           {saving ? "Saving..." : "Save ACP Settings"}
         </Button>
       </div>
     </form>
   {/if}
-</PageShell>
+</div>

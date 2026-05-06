@@ -1,8 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import PageShell from "$lib/ui/PageShell.svelte";
-  import Button from "$lib/ui/Button.svelte";
-  import Alert from "$lib/ui/Alert.svelte";
+  import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import { Label } from "$lib/components/ui/label";
+  import { Textarea } from "$lib/components/ui/textarea";
 
   type McpServerDraft = {
     id: string;
@@ -160,71 +164,69 @@
   onMount(loadSettings);
 </script>
 
-<PageShell widthClass="max-w-5xl" gapClass="space-y-6">
-  <header class="wb-hero">
-    <div class="wb-hero-copy">
-      <p class="wb-eyebrow">Tooling Surface</p>
-      <h1>MCP Servers</h1>
-      <p class="wb-copy">
-        Paste one JSON block. Supports <code>{`{ "mcpServers": { ... } }`}</code> or direct object map.
+<div class="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
+  <header class="flex flex-col gap-3">
+    <Badge variant="secondary" class="w-fit">Tooling Surface</Badge>
+    <div class="flex max-w-3xl flex-col gap-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">MCP Servers</h1>
+      <p class="text-sm leading-6 text-muted-foreground">
+        Paste one JSON block. Supports <code class="font-mono text-xs">{`{ "mcpServers": { ... } }`}</code> or direct object map.
       </p>
     </div>
-    <div class="wb-hero-actions">
-      <Button variant="outline" size="md" on:click={loadSettings} disabled={loading || saving}>
-        Refresh
-      </Button>
-      <Button variant="outline" size="md" on:click={parseRawJson} disabled={loading || saving}>
-        Parse
-      </Button>
-      <Button variant="default" size="md" on:click={save} disabled={loading || saving}>
+    <div class="flex items-center gap-2">
+      <Button variant="outline" onclick={loadSettings} disabled={loading || saving}>Refresh</Button>
+      <Button variant="outline" onclick={parseRawJson} disabled={loading || saving}>Parse</Button>
+      <Button variant="default" onclick={save} disabled={loading || saving}>
         {saving ? "Saving..." : "Save"}
       </Button>
     </div>
   </header>
 
   {#if message}
-    <Alert>{message}</Alert>
+    <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
   {/if}
   {#if error}
-    <Alert variant="destructive">{error}</Alert>
+    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
   {/if}
 
-  <label class="wb-config-panel block space-y-2">
-    <span class="text-sm font-medium text-[var(--foreground)]">MCP JSON</span>
-    <textarea
-      class="min-h-[280px] w-full rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-4 py-3 font-mono text-xs outline-none focus:border-[var(--ring)]"
+  <div class="grid gap-1.5">
+    <Label for="mcp-json" class="text-sm font-medium">MCP JSON</Label>
+    <Textarea
+      id="mcp-json"
+      class="min-h-[280px] font-mono text-xs"
       bind:value={rawJson}
       placeholder={placeholderJson}
-    ></textarea>
-  </label>
+    />
+  </div>
 
   <section class="space-y-3">
-    <h2 class="text-sm font-semibold text-[var(--foreground)]">Parsed Servers</h2>
+    <h2 class="text-sm font-semibold text-foreground">Parsed Servers</h2>
     {#if servers.length === 0}
-      <div class="wb-empty-state text-left">No parsed MCP servers.</div>
+      <div class="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">No parsed MCP servers.</div>
     {:else}
       {#each servers as item}
-        <article class="wb-config-panel flex items-center justify-between text-sm">
-          <div class="min-w-0">
-            <p class="truncate font-semibold text-[var(--foreground)]">{item.id}</p>
-            <p class="truncate text-xs text-[var(--muted-foreground)]">
-              {item.type === "http" ? `http: ${item.url || "(missing url)"}` : `stdio: ${item.command || "(missing command)"}`}
-            </p>
-          </div>
-          <label class="inline-flex items-center gap-2 text-xs text-[var(--foreground)]">
-            <input
-              type="checkbox"
-              checked={item.enabled}
-              on:change={(event) => {
-                item.enabled = (event.target as HTMLInputElement).checked;
-                servers = [...servers];
-                syncToggleToRawJson();
-              }}
-            />
-            <span>{item.enabled ? "Enabled" : "Disabled"}</span>
-          </label>
-        </article>
+        <Card>
+          <CardContent class="flex items-center justify-between p-4">
+            <div class="min-w-0">
+              <p class="truncate font-semibold text-foreground">{item.id}</p>
+              <p class="truncate text-xs text-muted-foreground">
+                {item.type === "http" ? `http: ${item.url || "(missing url)"}` : `stdio: ${item.command || "(missing command)"}`}
+              </p>
+            </div>
+            <label class="inline-flex items-center gap-2 text-xs">
+              <Checkbox
+                checked={item.enabled}
+                onchange={(e) => {
+                  item.enabled = (e.currentTarget as HTMLInputElement).checked;
+                  servers = [...servers];
+                  syncToggleToRawJson();
+                }}
+              />
+              <span class="text-foreground">{item.enabled ? "Enabled" : "Disabled"}</span>
+            </label>
+          </CardContent>
+        </Card>
       {/each}
     {/if}
   </section>
-</PageShell>
+</div>

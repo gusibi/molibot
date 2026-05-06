@@ -1,21 +1,20 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import Alert from "$lib/ui/Alert.svelte";
-  import Button from "$lib/ui/Button.svelte";
-  import PageShell from "$lib/ui/PageShell.svelte";
+  import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
+  import { Textarea } from "$lib/components/ui/textarea";
 
   type SkillScope = "global" | "chat" | "bot";
 
   interface SkillDraftSettings {
-    autoSave: {
-      enabled: boolean;
-      minToolCalls: number;
-      allowRecoveredToolFailures: boolean;
-      allowModelRetries: boolean;
-    };
-    template: {
-      skillPath: string;
-    };
+    autoSave: { enabled: boolean; minToolCalls: number; allowRecoveredToolFailures: boolean; allowModelRetries: boolean; };
+    template: { skillPath: string; };
   }
 
   interface TemplateSkillOption {
@@ -56,15 +55,8 @@
   let items: SkillDraftItem[] = [];
   let templateSkills: TemplateSkillOption[] = [];
   let skillDrafts: SkillDraftSettings = {
-    autoSave: {
-      enabled: true,
-      minToolCalls: 4,
-      allowRecoveredToolFailures: true,
-      allowModelRetries: true
-    },
-    template: {
-      skillPath: ""
-    }
+    autoSave: { enabled: true, minToolCalls: 4, allowRecoveredToolFailures: true, allowModelRetries: true },
+    template: { skillPath: "" }
   };
   let counts: Counts = { total: 0, botCount: 0, chatCount: 0 };
   let saving = new Set<string>();
@@ -78,48 +70,34 @@
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false
+      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
     });
   }
 
   function setSaving(filePath: string, active: boolean): void {
     const next = new Set(saving);
-    if (active) next.add(filePath);
-    else next.delete(filePath);
+    if (active) next.add(filePath); else next.delete(filePath);
     saving = next;
   }
 
   function syncDraftState(rows: SkillDraftItem[]): void {
     draftContent = Object.fromEntries(rows.map((item) => [item.filePath, item.content]));
     draftName = Object.fromEntries(rows.map((item) => [item.filePath, item.name]));
-    draftScope = Object.fromEntries(rows.map((item) => [item.filePath, "chat"]));
+    draftScope = Object.fromEntries(rows.map((item) => [item.filePath, "chat" as SkillScope]));
   }
 
   function normalizeSkillDraftSettings(input: unknown): SkillDraftSettings {
     const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
-    const autoSave = source.autoSave && typeof source.autoSave === "object"
-      ? source.autoSave as Record<string, unknown>
-      : {};
-    const template = source.template && typeof source.template === "object"
-      ? source.template as Record<string, unknown>
-      : {};
+    const autoSave = source.autoSave && typeof source.autoSave === "object" ? source.autoSave as Record<string, unknown> : {};
+    const template = source.template && typeof source.template === "object" ? source.template as Record<string, unknown> : {};
     return {
       autoSave: {
         enabled: autoSave.enabled === undefined ? true : Boolean(autoSave.enabled),
         minToolCalls: Math.max(1, Number(autoSave.minToolCalls ?? 4) || 4),
-        allowRecoveredToolFailures:
-          autoSave.allowRecoveredToolFailures === undefined ? true : Boolean(autoSave.allowRecoveredToolFailures),
+        allowRecoveredToolFailures: autoSave.allowRecoveredToolFailures === undefined ? true : Boolean(autoSave.allowRecoveredToolFailures),
         allowModelRetries: autoSave.allowModelRetries === undefined ? true : Boolean(autoSave.allowModelRetries)
       },
-      template: {
-        skillPath: String(template.skillPath ?? "")
-      }
+      template: { skillPath: String(template.skillPath ?? "") }
     };
   }
 
@@ -192,11 +170,7 @@
       const res = await fetch("/api/settings/skill-drafts", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "save",
-          filePath,
-          content: draftContent[filePath] ?? item.content
-        })
+        body: JSON.stringify({ action: "save", filePath, content: draftContent[filePath] ?? item.content })
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to save draft");
@@ -219,14 +193,8 @@
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          action: "promote",
-          filePath,
-          workspaceDir: item.workspaceDir,
-          chatId: item.chatId,
-          scope: draftScope[filePath] ?? "chat",
-          name: draftName[filePath] ?? item.name,
-          overwrite: false,
-          archiveDraft: true
+          action: "promote", filePath, workspaceDir: item.workspaceDir, chatId: item.chatId,
+          scope: draftScope[filePath] ?? "chat", name: draftName[filePath] ?? item.name, overwrite: false, archiveDraft: true
         })
       });
       const data = await res.json();
@@ -249,10 +217,7 @@
       const res = await fetch("/api/settings/skill-drafts", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "delete",
-          filePath
-        })
+        body: JSON.stringify({ action: "delete", filePath })
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to delete draft");
@@ -268,209 +233,182 @@
   onMount(loadDrafts);
 
   $: if (!hasWorkflowSkillPath() && skillDrafts.autoSave.enabled) {
-    skillDrafts = {
-      ...skillDrafts,
-      autoSave: {
-        ...skillDrafts.autoSave,
-        enabled: false
-      }
-    };
+    skillDrafts = { ...skillDrafts, autoSave: { ...skillDrafts.autoSave, enabled: false } };
   }
 </script>
 
-<PageShell widthClass="max-w-6xl" gapClass="space-y-6">
-  <header class="wb-hero">
-    <div class="wb-hero-copy">
-      <p class="wb-eyebrow">Reusable Workflows</p>
-      <h1>Skill Drafts</h1>
-      <p class="wb-copy">
+<div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
+  <header class="flex flex-col gap-3">
+    <Badge variant="secondary" class="w-fit">Reusable Workflows</Badge>
+    <div class="flex max-w-3xl flex-col gap-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Skill Drafts</h1>
+      <p class="text-sm leading-6 text-muted-foreground">
         Review reusable workflow drafts before turning them into live skills.
       </p>
     </div>
-    <div class="wb-hero-actions">
-      <Button variant="outline" size="md" on:click={loadDrafts}>Refresh</Button>
-    </div>
   </header>
 
+  <div class="flex items-center gap-2">
+    <Button variant="outline" onclick={loadDrafts}>Refresh</Button>
+  </div>
+
   {#if message}
-    <Alert>{message}</Alert>
+    <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
   {/if}
   {#if error}
-    <Alert variant="destructive">{error}</Alert>
+    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
   {/if}
 
   {#if loading}
-    <div class="wb-empty-state text-left">
-      Loading skill drafts...
-    </div>
+    <p class="py-8 text-sm text-muted-foreground">Loading skill drafts...</p>
   {:else}
-    <section class="space-y-4 rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-5 text-sm text-[var(--foreground)]">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 class="text-base font-semibold">Draft Generation Rules</h2>
-          <p class="mt-1 text-sm text-[var(--muted-foreground)]">
-            Control when reusable workflow drafts are saved, and which existing skill should define the draft format.
-          </p>
+    <Card>
+      <CardHeader>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle>Draft Generation Rules</CardTitle>
+            <CardDescription>
+              Control when reusable workflow drafts are saved, and which existing skill should define the draft format.
+            </CardDescription>
+          </div>
+          <Button variant="outline" disabled={savingConfig} onclick={saveDraftSettings}>
+            {savingConfig ? "Saving..." : "Save Rules"}
+          </Button>
         </div>
-        <Button variant="outline" size="md" disabled={savingConfig} on:click={saveDraftSettings}>
-          {savingConfig ? "Saving..." : "Save Rules"}
-        </Button>
-      </div>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div class="flex items-center gap-3 rounded-xl border bg-muted/40 px-3 py-3">
+            <Checkbox id="sd-auto" bind:checked={skillDrafts.autoSave.enabled} disabled={!hasWorkflowSkillPath()} />
+            <Label for="sd-auto">Enable automatic draft saving</Label>
+          </div>
+          <div class="grid gap-1.5">
+            <Label for="sd-min-tools" class="text-xs uppercase tracking-wide text-muted-foreground">Minimum Tool Calls</Label>
+            <Input id="sd-min-tools" type="number" min="1" bind:value={skillDrafts.autoSave.minToolCalls} />
+          </div>
+        </div>
 
-      <div class="grid gap-4 sm:grid-cols-2">
-        <label class="flex items-center gap-3 rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-3">
-          <input
-            type="checkbox"
-            bind:checked={skillDrafts.autoSave.enabled}
-            disabled={!hasWorkflowSkillPath()}
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="flex items-center gap-3 rounded-xl border bg-muted/40 px-3 py-3">
+            <Checkbox id="sd-recover" bind:checked={skillDrafts.autoSave.allowRecoveredToolFailures} />
+            <Label for="sd-recover">Save draft when the run recovered from tool failures</Label>
+          </div>
+          <div class="flex items-center gap-3 rounded-xl border bg-muted/40 px-3 py-3">
+            <Checkbox id="sd-retry" bind:checked={skillDrafts.autoSave.allowModelRetries} />
+            <Label for="sd-retry">Save draft when the run needed model retries or fallback</Label>
+          </div>
+        </div>
+
+        <div class="grid gap-1.5">
+          <Label for="sd-path" class="text-xs uppercase tracking-wide text-muted-foreground">Workflow Skill Path</Label>
+          <Input
+            id="sd-path"
+            bind:value={skillDrafts.template.skillPath}
+            list={workflowSuggestionsId}
+            placeholder="~/.molibot/skills/skill-creator/SKILL.md"
           />
-          <span>Enable automatic draft saving</span>
-        </label>
-        <label class="space-y-2">
-          <span class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Minimum Tool Calls</span>
-          <input
-            type="number"
-            min="1"
-            class="w-full rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
-            bind:value={skillDrafts.autoSave.minToolCalls}
-          />
-        </label>
-      </div>
-
-      <div class="grid gap-3 sm:grid-cols-2">
-        <label class="flex items-center gap-3 rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-3">
-          <input type="checkbox" bind:checked={skillDrafts.autoSave.allowRecoveredToolFailures} />
-          <span>Save draft when the run recovered from tool failures</span>
-        </label>
-        <label class="flex items-center gap-3 rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-3">
-          <input type="checkbox" bind:checked={skillDrafts.autoSave.allowModelRetries} />
-          <span>Save draft when the run needed model retries or fallback</span>
-        </label>
-      </div>
-
-      <label class="block space-y-2">
-        <span class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Workflow Skill Path</span>
-        <input
-          class="w-full rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
-          bind:value={skillDrafts.template.skillPath}
-          list={workflowSuggestionsId}
-          placeholder="~/.molibot/skills/skill-creator/SKILL.md"
-        />
-        <datalist id={workflowSuggestionsId}>
-          {#each templateSkills as option}
-            <option value={option.filePath}>
-              {option.name} · {formatTemplateScope(option)}
-            </option>
-          {/each}
-        </datalist>
-        <p class="text-xs text-[var(--muted-foreground)]">
-          Fill in the standard workflow `SKILL.md` path. Without this path, automatic draft generation stays off.
-        </p>
-        {#if templateSkills.length > 0}
-          <div class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-3 text-xs text-[var(--muted-foreground)]">
-            Suggestions:
-            {#each templateSkills as option, index}
-              <div class={index === 0 ? "mt-2" : "mt-1"}>{option.name} · {formatTemplateScope(option)} · {option.filePath}</div>
+          <datalist id={workflowSuggestionsId}>
+            {#each templateSkills as option}
+              <option value={option.filePath}>{option.name} · {formatTemplateScope(option)}</option>
             {/each}
+          </datalist>
+          <p class="text-xs text-muted-foreground">
+            Fill in the standard workflow `SKILL.md` path. Without this path, automatic draft generation stays off.
+          </p>
+          {#if templateSkills.length > 0}
+            <div class="rounded-xl border bg-muted/40 px-3 py-3 text-xs text-muted-foreground">
+              Suggestions:
+              {#each templateSkills as option, index}
+                <div class={index === 0 ? "mt-2" : "mt-1"}>{option.name} · {formatTemplateScope(option)} · {option.filePath}</div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        {#if !hasWorkflowSkillPath()}
+          <div class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs text-amber-600 dark:text-amber-400">
+            Automatic draft generation is locked until a workflow `SKILL.md` path is configured.
           </div>
         {/if}
-      </label>
 
-      {#if !hasWorkflowSkillPath()}
-        <div class="rounded-xl border border-amber-500/20 bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] px-3 py-3 text-xs text-[color-mix(in_oklab,hsl(38_84%_44%)_72%,var(--foreground))]">
-          Automatic draft generation is locked until a workflow `SKILL.md` path is configured.
-        </div>
-      {/if}
+        {#if skillDrafts.template.skillPath}
+          <div class="rounded-xl border bg-muted/40 px-3 py-3 text-xs text-muted-foreground">
+            Selected workflow: {skillDrafts.template.skillPath}
+          </div>
+        {/if}
+      </CardContent>
+    </Card>
 
-      <!-- Keep showing the current configured path explicitly for quick confirmation. -->
-      {#if skillDrafts.template.skillPath}
-        <div class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-3 text-xs text-[var(--muted-foreground)]">
-          Selected workflow: {skillDrafts.template.skillPath}
-        </div>
-      {/if}
-    </section>
-
-    <section class="wb-summary-strip text-sm sm:grid-cols-3">
-      <div><span class="text-[var(--muted-foreground)]">Total:</span> {counts.total}</div>
-      <div><span class="text-[var(--muted-foreground)]">Bots:</span> {counts.botCount}</div>
-      <div><span class="text-[var(--muted-foreground)]">Chats:</span> {counts.chatCount}</div>
-    </section>
+    <div class="flex flex-wrap gap-3 text-sm">
+      <Badge variant="outline">Total: {counts.total}</Badge>
+      <Badge variant="outline">Bots: {counts.botCount}</Badge>
+      <Badge variant="outline">Chats: {counts.chatCount}</Badge>
+    </div>
 
     {#if diagnostics.length > 0}
-      <Alert className="whitespace-pre-wrap">{diagnostics.join("\n")}</Alert>
+      <Alert variant="default"><AlertDescription class="whitespace-pre-wrap">{diagnostics.join("\n")}</AlertDescription></Alert>
     {/if}
 
     {#if items.length === 0}
-      <div class="rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] px-4 py-3 text-sm text-[var(--foreground)]">
-        No skill drafts found yet.
-      </div>
+      <div class="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">No skill drafts found yet.</div>
     {:else}
-      <section class="space-y-4">
+      <div class="space-y-4">
         {#each items as item}
-          <article class="rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-5 text-sm text-[var(--foreground)]">
+          <article class="rounded-2xl border bg-card/60 p-5 text-sm">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div class="flex flex-wrap items-center gap-2">
-                  <h2 class="text-base font-semibold">{item.name}</h2>
-                  <span class="rounded-full border border-[color-mix(in_oklab,var(--primary)_34%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] px-2 py-0.5 text-xs text-[color-mix(in_oklab,var(--primary)_74%,var(--foreground))]">
-                    {draftScope[item.filePath] ?? "chat"}
-                  </span>
-                  <span class="rounded-full border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--foreground)]">
-                    merged {item.mergeCount ?? 1}
-                  </span>
+                  <h2 class="text-base font-semibold text-foreground">{item.name}</h2>
+                  <Badge variant="default">{draftScope[item.filePath] ?? "chat"}</Badge>
+                  <Badge variant="outline">merged {item.mergeCount ?? 1}</Badge>
                 </div>
-                <p class="mt-1 text-xs text-[var(--muted-foreground)]">{item.botId} / {item.chatId} · {formatDate(item.updatedAt)}</p>
-                <p class="mt-2 text-sm text-[var(--muted-foreground)]">{item.description || "No description"}</p>
+                <p class="mt-1 text-xs text-muted-foreground">{item.botId} / {item.chatId} · {formatDate(item.updatedAt)}</p>
+                <p class="mt-2 text-sm text-muted-foreground">{item.description || "No description"}</p>
               </div>
-              <div class="text-right text-xs text-[var(--muted-foreground)]">
+              <div class="text-right text-xs text-muted-foreground">
                 <div>{item.source || "manual review"}</div>
                 <div>{item.fileName}</div>
               </div>
             </div>
 
             <div class="mt-4 grid gap-3 sm:grid-cols-[1fr_180px]">
-              <label class="space-y-2">
-                <span class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Skill Name</span>
-                <input
-                  class="w-full rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
-                  bind:value={draftName[item.filePath]}
-                />
-              </label>
-              <label class="space-y-2">
-                <span class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Promote Scope</span>
-                <select
-                  class="w-full rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
-                  bind:value={draftScope[item.filePath]}
-                >
-                  <option value="chat">Chat</option>
-                  <option value="bot">Bot</option>
-                  <option value="global">Global</option>
-                </select>
-              </label>
+              <div class="grid gap-1.5">
+                <Label for="sd-name-{item.filePath}" class="text-xs uppercase tracking-wide text-muted-foreground">Skill Name</Label>
+                <Input id="sd-name-{item.filePath}" bind:value={draftName[item.filePath]} />
+              </div>
+              <div class="grid gap-1.5">
+                <Label for="sd-scope-{item.filePath}" class="text-xs uppercase tracking-wide text-muted-foreground">Promote Scope</Label>
+                <NativeSelect id="sd-scope-{item.filePath}" bind:value={draftScope[item.filePath]}>
+                  <NativeSelectOption value="chat">Chat</NativeSelectOption>
+                  <NativeSelectOption value="bot">Bot</NativeSelectOption>
+                  <NativeSelectOption value="global">Global</NativeSelectOption>
+                </NativeSelect>
+              </div>
             </div>
 
-            <label class="mt-4 block space-y-2">
-              <span class="text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Draft Content</span>
-              <textarea
-                class="min-h-[320px] w-full rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_52%,var(--card))] px-4 py-3 font-mono text-xs text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
+            <div class="mt-4 grid gap-1.5">
+              <Label for="sd-content-{item.filePath}" class="text-xs uppercase tracking-wide text-muted-foreground">Draft Content</Label>
+              <Textarea
+                id="sd-content-{item.filePath}"
+                class="min-h-[320px] font-mono text-xs"
                 bind:value={draftContent[item.filePath]}
-              ></textarea>
-            </label>
+              />
+            </div>
 
             <div class="mt-4 flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" disabled={saving.has(item.filePath)} on:click={() => saveDraft(item)}>
+              <Button variant="outline" size="sm" disabled={saving.has(item.filePath)} onclick={() => saveDraft(item)}>
                 Save Draft
               </Button>
-              <Button size="sm" disabled={saving.has(item.filePath)} on:click={() => promoteDraft(item)}>
+              <Button size="sm" disabled={saving.has(item.filePath)} onclick={() => promoteDraft(item)}>
                 Promote To Skill
               </Button>
-              <Button variant="destructive" size="sm" disabled={saving.has(item.filePath)} on:click={() => deleteDraft(item)}>
+              <Button variant="destructive" size="sm" disabled={saving.has(item.filePath)} onclick={() => deleteDraft(item)}>
                 Delete Draft
               </Button>
             </div>
           </article>
         {/each}
-      </section>
+      </div>
     {/if}
   {/if}
-</PageShell>
+</div>

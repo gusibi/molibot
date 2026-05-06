@@ -1,8 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import PageShell from "$lib/ui/PageShell.svelte";
-  import Button from "$lib/ui/Button.svelte";
-  import Alert from "$lib/ui/Alert.svelte";
+  import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { Textarea } from "$lib/components/ui/textarea";
 
   interface AgentItem {
     id: string;
@@ -82,12 +87,9 @@
 
   async function loadAgentFiles(agentId: string): Promise<AgentFiles> {
     if (!agentId) return emptyFiles();
-
     const res = await fetch(`/api/settings/profile-files?scope=agent&agentId=${encodeURIComponent(agentId)}`);
     const data = await res.json();
-    if (!data.ok) {
-      throw new Error(data.error || "Failed to load agent files");
-    }
+    if (!data.ok) throw new Error(data.error || "Failed to load agent files");
     return Object.assign(emptyFiles(), data.files ?? {});
   }
 
@@ -151,7 +153,7 @@
     const dirty = agentSnapshot(current) !== baseline;
     if (!dirty) return true;
     if (typeof window === "undefined") return false;
-    const shouldSave = window.confirm("当前 Agent 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Agent。");
+    const shouldSave = window.confirm('当前 Agent 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Agent。');
     if (!shouldSave) return false;
     return save();
   }
@@ -175,18 +177,12 @@
     if (!ok) return;
     const next = createAgent();
     agents = [...agents, next];
-    savedSnapshots = {
-      ...savedSnapshots,
-      [next.id]: agentSnapshot(next)
-    };
+    savedSnapshots = { ...savedSnapshots, [next.id]: agentSnapshot(next) };
     selectedAgentId = next.id;
   }
 
   async function removeAgent(agentId: string): Promise<void> {
-    const confirmed =
-      typeof window === "undefined"
-        ? true
-        : window.confirm(`Delete agent "${agentId}"? This cannot be undone.`);
+    const confirmed = typeof window === "undefined" ? true : window.confirm(`Delete agent "${agentId}"? This cannot be undone.`);
     if (!confirmed) return;
 
     const target = agents.find((agent) => agent.id === agentId);
@@ -208,10 +204,7 @@
     if (agents.length === 0) {
       const next = createAgent();
       agents = [next];
-      savedSnapshots = {
-        ...savedSnapshots,
-        [next.id]: agentSnapshot(next)
-      };
+      savedSnapshots = { ...savedSnapshots, [next.id]: agentSnapshot(next) };
     }
     selectedAgentId = agents[0]?.id ?? "";
   }
@@ -257,18 +250,12 @@
 
       agents = agents.map((agent) => {
         if (agent.id !== selected.id) return agent;
-        return {
-          ...normalized,
-          isNew: false
-        };
+        return { ...normalized, isNew: false };
       });
       if (selected.id !== normalized.id) {
         selectedAgentId = normalized.id;
       }
-      savedSnapshots = {
-        ...savedSnapshots,
-        [normalized.id]: agentSnapshot({ ...normalized, isNew: false })
-      };
+      savedSnapshots = { ...savedSnapshots, [normalized.id]: agentSnapshot({ ...normalized, isNew: false }) };
 
       message = `Saved agent: ${normalized.name || normalized.id}`;
       return true;
@@ -290,208 +277,207 @@
   onMount(loadSettings);
 </script>
 
-<PageShell widthClass="max-w-7xl" gapClass="space-y-6">
-  <header class="wb-hero">
-    <div class="wb-hero-copy">
-    <p class="wb-eyebrow">Identity Layer</p>
-    <h1>Agents</h1>
-    <p class="wb-copy">
-      Manage reusable agent identities and edit their Markdown prompt files directly.
-    </p>
+<div class="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
+  <header class="flex flex-col gap-3">
+    <Badge variant="secondary" class="w-fit">Identity Layer</Badge>
+    <div class="flex max-w-3xl flex-col gap-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Agents</h1>
+      <p class="text-sm leading-6 text-muted-foreground">
+        Manage reusable agent identities and edit their Markdown prompt files directly.
+      </p>
     </div>
   </header>
 
   {#if loading}
-    <div class="wb-empty-state text-left">
-      Loading agent settings...
-    </div>
+    <p class="py-8 text-sm text-muted-foreground">Loading agent settings...</p>
   {:else}
-    <div class="wb-config-grid">
-      <section class="wb-config-nav space-y-3">
-        <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-[var(--foreground)]">Agent List</h2>
-          <Button variant="outline" size="sm" type="button" on:click={addAgent}>
-            Add Agent
-          </Button>
-        </div>
-
-        <div class="wb-config-nav-list">
+    <div class="grid gap-6 lg:grid-cols-[280px_1fr]">
+      <Card>
+        <CardHeader class="pb-3">
+          <div class="flex items-center justify-between">
+            <CardTitle class="text-sm">Agent List</CardTitle>
+            <Button variant="outline" size="sm" type="button" onclick={addAgent}>Add Agent</Button>
+          </div>
+        </CardHeader>
+        <CardContent class="space-y-1">
           <button
-            class={`wb-config-item ${showingSubagents ? "active" : ""}`}
+            class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-muted/60 {showingSubagents ? 'bg-muted' : ''}"
             type="button"
-            on:click={selectSubagents}
+            onclick={selectSubagents}
           >
             <span class="min-w-0">
-              <span class="wb-config-item-title truncate">Subagents</span>
-              <span class="wb-config-item-subtitle truncate">{builtInSubagents.length} built-in delegation roles</span>
+              <span class="block truncate font-medium text-foreground">Subagents</span>
+              <span class="block truncate text-xs text-muted-foreground">{builtInSubagents.length} built-in delegation roles</span>
             </span>
-            <span class="wb-config-state" data-enabled={true}>
-              BUILT-IN
-            </span>
+            <Badge variant="secondary" class="shrink-0 text-[10px]">BUILT-IN</Badge>
           </button>
 
           {#each agents as agent (agent.id)}
             <button
-              class={`wb-config-item ${selectedAgentId === agent.id ? "active" : ""}`}
+              class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-muted/60 {selectedAgentId === agent.id ? 'bg-muted' : ''}"
               type="button"
-              on:click={() => selectAgent(agent.id)}
+              onclick={() => selectAgent(agent.id)}
             >
               <span class="min-w-0">
-                <span class="wb-config-item-title truncate">{agent.name || agent.id}</span>
-                <span class="wb-config-item-subtitle truncate">{agent.id}</span>
+                <span class="block truncate font-medium text-foreground">{agent.name || agent.id}</span>
+                <span class="block truncate text-xs text-muted-foreground">{agent.id}</span>
               </span>
-              <span class="wb-config-state" data-enabled={agent.enabled}>
+              <Badge variant={agent.enabled ? "default" : "outline"} class="shrink-0 text-[10px]">
                 {agent.enabled ? "ON" : "OFF"}
-              </span>
+              </Badge>
             </button>
           {/each}
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
       {#if showingSubagents}
-        <section class="space-y-4">
-          <section class="wb-config-panel space-y-3">
-            <div class="flex items-center justify-between gap-4">
-              <div>
-                <h2 class="text-sm font-semibold text-[var(--foreground)]">Built-in Subagents</h2>
-                <p class="mt-1 text-xs text-[var(--muted-foreground)]">
-                  Read-only delegation roles used by the shared subagent tool.
-                </p>
+        <div class="space-y-4">
+          <Card>
+            <CardHeader>
+              <div class="flex items-center justify-between gap-4">
+                <div>
+                  <CardTitle class="text-sm">Built-in Subagents</CardTitle>
+                  <CardDescription>
+                    Read-only delegation roles used by the shared subagent tool.
+                  </CardDescription>
+                </div>
+                <a class="text-sm font-medium text-primary hover:underline" href="/settings/ai/routing">Configure model route</a>
               </div>
-              <a class="text-sm font-medium text-[var(--primary)] hover:underline" href="/settings/ai/routing">Configure model route</a>
-            </div>
-            <div class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--muted)_55%,transparent)] p-3 text-xs text-[var(--muted-foreground)]">
-              Explicit subagent route:
-              <span class="text-[var(--foreground)]">{subagentConfiguredModelLabel || "not set"}</span>.
-              Each role first uses its model level mapping below, then this fallback route, then the text route.
-            </div>
-            <dl class="grid gap-2 text-sm md:grid-cols-2">
-              {#each ["haiku", "sonnet", "opus", "thinking"] as level}
-                <div class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_80%,transparent)] p-3">
-                  <dt class="text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{level}</dt>
-                  <dd class="mt-1 text-[var(--foreground)]">{subagentModelLevels[level]?.label || "not configured"}</dd>
+            </CardHeader>
+            <CardContent class="space-y-4">
+              <div class="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+                Explicit subagent route:
+                <span class="text-foreground">{subagentConfiguredModelLabel || "not set"}</span>.
+                Each role first uses its model level mapping below, then this fallback route, then the text route.
+              </div>
+              <dl class="grid gap-2 text-sm md:grid-cols-2">
+                {#each ["haiku", "sonnet", "opus", "thinking"] as level}
+                  <div class="rounded-lg border bg-muted/40 p-3">
+                    <dt class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{level}</dt>
+                    <dd class="mt-1 text-foreground">{subagentModelLevels[level]?.label || "not configured"}</dd>
+                  </div>
+                {/each}
+              </dl>
+            </CardContent>
+          </Card>
+
+          <div class="grid gap-3 md:grid-cols-2">
+            {#each builtInSubagents as subagent (subagent.name)}
+              <Card>
+                <CardHeader>
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                      <CardTitle class="truncate text-base">{subagent.name}</CardTitle>
+                      <CardDescription>{subagent.description}</CardDescription>
+                    </div>
+                    <Badge variant="secondary" class="shrink-0 text-[10px]">BUILT-IN</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <dl class="grid gap-2 text-sm">
+                    <div>
+                      <dt class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Tools</dt>
+                      <dd class="mt-1 text-foreground">{subagent.tools.length > 0 ? subagent.tools.join(", ") : "default"}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Model level</dt>
+                      <dd class="mt-1 text-foreground">{subagent.modelLevel || subagent.modelHint || "none"}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Effective model</dt>
+                      <dd class="mt-1 text-foreground">{subagent.activeModelLabel || subagent.activeModelKey || "not resolved"}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Source</dt>
+                      <dd class="mt-1 text-foreground">{subagent.activeModelSource || "unknown"}</dd>
+                    </div>
+                  </dl>
+                </CardContent>
+              </Card>
+            {/each}
+          </div>
+        </div>
+      {:else if selectedAgent}
+        <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); save(); }}>
+          <Card>
+            <CardHeader>
+              <div class="flex items-center justify-between">
+                <CardTitle class="text-sm">Agent Metadata</CardTitle>
+                <Button variant="destructive" size="sm" type="button" onclick={() => removeAgent(selectedAgent.id)}>
+                  Remove Agent
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent class="space-y-4">
+              <div class="grid gap-1.5">
+                <Label for="agent-id">Agent ID</Label>
+                <Input id="agent-id" bind:value={selectedAgent.id} placeholder="moli" disabled={!selectedAgent.isNew} />
+              </div>
+              {#if !selectedAgent.isNew}
+                <p class="text-xs text-muted-foreground">Agent ID is locked after creation to keep references stable.</p>
+              {/if}
+
+              <div class="grid gap-1.5">
+                <Label for="agent-name">Agent Name</Label>
+                <Input id="agent-name" bind:value={selectedAgent.name} placeholder="Moli" />
+              </div>
+
+              <div class="grid gap-1.5">
+                <Label for="agent-desc">Description</Label>
+                <Textarea
+                  id="agent-desc"
+                  class="min-h-[88px]"
+                  bind:value={selectedAgent.description}
+                  placeholder="Short description of this agent's role and identity."
+                />
+              </div>
+
+              <div class="flex items-center gap-3">
+                <Checkbox id="agent-enabled" bind:checked={selectedAgent.enabled} />
+                <Label for="agent-enabled" class="text-sm">Enable this agent</Label>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle class="text-sm">Agent Markdown Files</CardTitle>
+              <CardDescription>
+                Empty content removes the file so the runtime falls back to upper layers.
+              </CardDescription>
+            </CardHeader>
+            <CardContent class="space-y-3">
+              {#each fileNames as fileName}
+                <div class="grid gap-1.5">
+                  <Label for="agent-{fileName}">{fileName}</Label>
+                  <Textarea
+                    id="agent-{fileName}"
+                    class="min-h-[180px] font-mono text-sm"
+                    bind:value={selectedFiles[fileName]}
+                    placeholder={`Edit ${fileName} here`}
+                  />
                 </div>
               {/each}
-            </dl>
-          </section>
+            </CardContent>
+          </Card>
 
-          <section class="grid gap-3 md:grid-cols-2">
-            {#each builtInSubagents as subagent (subagent.name)}
-              <article class="wb-config-panel space-y-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="min-w-0">
-                    <h3 class="truncate text-base font-semibold text-[var(--foreground)]">{subagent.name}</h3>
-                    <p class="mt-1 text-sm text-[var(--muted-foreground)]">{subagent.description}</p>
-                  </div>
-                  <span class="wb-config-state" data-enabled={true}>BUILT-IN</span>
-                </div>
-
-                <dl class="grid gap-2 text-sm">
-                  <div>
-                    <dt class="text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Tools</dt>
-                    <dd class="mt-1 text-[var(--foreground)]">{subagent.tools.length > 0 ? subagent.tools.join(", ") : "default"}</dd>
-                  </div>
-                  <div>
-                    <dt class="text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Model level</dt>
-                    <dd class="mt-1 text-[var(--foreground)]">{subagent.modelLevel || subagent.modelHint || "none"}</dd>
-                  </div>
-                  <div>
-                    <dt class="text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Effective model</dt>
-                    <dd class="mt-1 text-[var(--foreground)]">{subagent.activeModelLabel || subagent.activeModelKey || "not resolved"}</dd>
-                  </div>
-                  <div>
-                    <dt class="text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Source</dt>
-                    <dd class="mt-1 text-[var(--foreground)]">{subagent.activeModelSource || "unknown"}</dd>
-                  </div>
-                </dl>
-              </article>
-            {/each}
-          </section>
-        </section>
-      {:else if selectedAgent}
-        <form class="space-y-4" on:submit|preventDefault={save}>
-          <section class="wb-config-panel space-y-3">
-            <div class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-[var(--foreground)]">Agent Metadata</h2>
-              <Button variant="destructive" size="sm" type="button" on:click={() => removeAgent(selectedAgent.id)}>
-                Remove Agent
-              </Button>
-            </div>
-
-            <label class="grid gap-1.5 text-sm">
-              <span class="text-[var(--foreground)]">Agent ID</span>
-              <input
-                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
-                bind:value={selectedAgent.id}
-                placeholder="moli"
-                disabled={!selectedAgent.isNew}
-              />
-            </label>
-            {#if !selectedAgent.isNew}
-              <p class="wb-note text-xs">
-                Agent ID is locked after creation to keep references stable.
-              </p>
+          <div class="flex items-center gap-3">
+            <Button variant="default" type="submit" disabled={saving}>
+              {saving ? "Saving..." : "Save This Agent"}
+            </Button>
+            {#if selectedAgentDirty}
+              <span class="text-xs text-muted-foreground">Current agent has unsaved changes.</span>
             {/if}
-
-            <label class="grid gap-1.5 text-sm">
-              <span class="text-[var(--foreground)]">Agent Name</span>
-              <input
-                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                bind:value={selectedAgent.name}
-                placeholder="Moli"
-              />
-            </label>
-
-            <label class="grid gap-1.5 text-sm">
-              <span class="text-[var(--foreground)]">Description</span>
-              <textarea
-                class="min-h-[88px] rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                bind:value={selectedAgent.description}
-                placeholder="Short description of this agent's role and identity."
-              ></textarea>
-            </label>
-
-            <label class="flex items-center gap-3 text-sm text-[var(--foreground)]">
-              <input bind:checked={selectedAgent.enabled} type="checkbox" />
-              Enable this agent
-            </label>
-          </section>
-
-          <section class="wb-config-panel space-y-4">
-            <div>
-              <h2 class="text-sm font-semibold text-[var(--foreground)]">Agent Markdown Files</h2>
-              <p class="mt-1 text-xs text-[var(--muted-foreground)]">
-                Empty content removes the file so the runtime falls back to upper layers.
-              </p>
-            </div>
-
-            {#each fileNames as fileName}
-              <label class="grid gap-1.5 text-sm">
-                <span class="text-[var(--foreground)]">{fileName}</span>
-                <textarea
-                  class="min-h-[180px] rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 font-mono text-sm outline-none focus:border-[var(--ring)]"
-                  bind:value={selectedFiles[fileName]}
-                  placeholder={`Edit ${fileName} here`}
-                ></textarea>
-              </label>
-            {/each}
-          </section>
-
-          <Button variant="default" size="md" type="submit" disabled={saving}>
-            {saving ? "Saving..." : "Save This Agent"}
-          </Button>
-          {#if selectedAgentDirty}
-            <p class="wb-warning-note text-xs">Current agent has unsaved changes.</p>
-          {/if}
+          </div>
 
           {#if message}
-            <Alert variant="success">{message}</Alert>
+            <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
           {/if}
           {#if error}
-            <Alert variant="destructive">{error}</Alert>
+            <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
           {/if}
         </form>
       {/if}
     </div>
   {/if}
-</PageShell>
+</div>
