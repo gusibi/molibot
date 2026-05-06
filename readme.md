@@ -60,7 +60,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **MiMo/Anthropic-Compatible Roles**: providers configured as Anthropic keep system instructions in the top-level `system` field, reserve `messages` for conversational roles, and log redacted image-fallback request payloads for debugging
 - **Time-Aware Prompting**: each live user turn can carry structured current-time metadata (`message_received_at` / `timezone` / `today`) for better date-sensitive replies
 - **Subagent Model Routing**: delegated scout/planner/worker/reviewer runs use configurable `haiku` / `sonnet` / `opus` / `thinking` model levels plus a subagent fallback route, with early-delegation nudges before parent runs exhaust the 24-tool budget
-- **Shared Workbench UI**: Web chat and Settings now use one reusable workbench material system for hero panels, forms, tables, config shells, and interaction feedback
+- **Settings shadcn-svelte Baseline**: Settings UI is moving toward source-owned shadcn-svelte components for cleaner, consistent forms and admin pages; `/settings/system` and `/settings/web` are the first migrated samples
 - **Current-Session File Workspace**: Web chat now includes a real files pane with searchable attachment inventory, inline preview for common formats, downloads, and copy-path actions
 - **Operational Settings UI**: AI routing, agents, ACP targets, tasks, memory, skills, MCP servers
 - **Safer Settings Persistence**: `settings.json + settings.sqlite` split design with relational tables
@@ -95,9 +95,10 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 ### Multi-Channel Support
 - **Web Chat**: Full-featured with general file upload, image upload, realtime voice recording, current-session file workspace, thinking controls, profile-only identity, theme/i18n support
 - **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, ACP control, model switching, task delivery
+- **Telegram Typing Resilience**: `sendChatAction(typing)` timeout exhaustion is treated as non-blocking, so typing-indicator failures do not abort the active run
 - **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings
 - **QQ Bot**: SDK-based integration, group policy metadata, quoted-message context, rich media delivery, typing/streaming helpers, channel-local progress/error compaction, and Molibot-owned queue/ACP control
-- **Weixin Bot**: SDK-based integration, QR pairing-code login, lifecycle notifications, OGG voice transcoding, native image-message replies, channel-local progress/error compaction, CDN media delivery, ACP support
+- **Weixin Bot**: SDK-based integration, QR pairing-code login, lifecycle notifications, OGG voice transcoding, native image-message replies, Weixin-safe progress/error compaction, CDN media delivery, ACP support
 - **CLI**: Local terminal conversation entrypoint
 
 ### ACP (Agent Control Plane)
@@ -137,6 +138,8 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Route-Scoped Switching**: Independent model selection for text/vision/stt/tts and subagent fallback, with subagent level mappings for haiku/sonnet/opus/thinking
 - **Subagent Budget Strategy**: codebase-heavy runs are prompted to delegate early, and sustained parent-tool use triggers a transient subagent recommendation before the hard tool-call limit is reached
 - **Cross-Provider Fallback**: Automatic fallback on retryable errors
+- **Provider Model Discovery**: Custom providers can batch pull remote `/models` and add discovered models one-by-one from the Settings UI
+- **Safe Provider Model Save**: settings persistence now tolerates accidental duplicate/empty model rows per provider and prevents SQLite unique-key save failures
 
 ### Operational Tools
 - **Task Management**: Event-file tasks with manual trigger/retry
@@ -159,7 +162,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 | **Telegram** | ⭐⭐⭐ Production-Ready | Multi-bot, ACP control, runtime commands, model switching, task delivery, media handling |
 | **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, media/file ingress and outbound handling |
 | **QQ** | ⭐⭐⭐ Production-Ready | SDK-based gateway, group/private chat, rich media, quoted context, channel-local progress/error compaction, Molibot-owned ACP/queue control |
-| **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, native image replies, channel-local progress/error compaction, CDN media delivery, ACP support |
+| **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, native image replies, Weixin-safe progress/error compaction, CDN media delivery, ACP support |
 | **CLI** | ⭐⭐ Ready | Local terminal conversation entrypoint |
 | **ACP** | ⭐⭐⭐ Active | Codex + Claude Code presets, permission management, task tracking, multi-channel |
 | **MCP** | ⭐⭐⭐ Active | stdio/HTTP transport, skill-gated injection, dynamic loading |
@@ -217,7 +220,7 @@ Open: `http://localhost:3000`
 - Runtime injects per-turn `<env>` time metadata before model calls, using the configured runtime timezone
 - Right-side `Files` pane: inspect current-session attachments, filter by type, preview common formats inline, download, and copy relative storage paths
 - Top-right version popover: shows the running version and read-only GitHub update check; use `molibot manage` for actual updates
-- Main chat and Settings now share the same workbench material language, while chat itself stays quieter and conversation-first
+- Settings pages are being migrated progressively toward shadcn-svelte components; the main chat page remains on its current conversation-first UI for now
 - Theme toggle: `system/light/dark` mode
 - Language switch: `zh-CN/en-US`
 
@@ -264,12 +267,12 @@ Open: `http://localhost:3000`
 
 ### Core Configuration
 - `/settings` - Overview and workbench entry hub
-- `/settings/system` - Language, runtime timezone, and read-only GitHub/deployment version information
+- `/settings/system` - Language, runtime timezone, and read-only GitHub/deployment version information; migrated to the shadcn-svelte Settings style
 - `/settings/ai` - AI providers, models, routing, including the dedicated subagent fallback route, subagent model-level mappings, usage tracking, cache-hit trend visibility, auto-refreshing time windows, and runtime timezone dropdown
 - `/settings/agents` - Agent library with Markdown prompt files plus a separate read-only Subagents view for built-in delegation roles, abstract model levels, and their effective model source
-- `/settings/web` - Web profiles and identity binding
+- `/settings/web` - Web profiles and identity binding; migrated to the shadcn-svelte Settings style
 
-All Settings pages share one workbench-style UI layer: hero headers, translucent panels, consistent form controls, summary strips, and entity-editor shells.
+Settings pages are moving progressively toward shadcn-svelte components and semantic design tokens. `/settings/system` and `/settings/web` are migrated samples; older Settings pages may still use the prior workbench layer until they are migrated.
 
 ### Channel Configuration
 - `/settings/telegram` - Multi-bot instances, ACP control, and credentials
@@ -537,7 +540,7 @@ See `.env.example` for full list and detailed descriptions.
 | **MCP Ecosystem** | ⭐⭐⭐ Active | stdio/HTTP transport, skill-gated tool injection, dynamic loading |
 | **Memory System (Mory)** | ⭐⭐⭐ Active | Layered storage, hybrid retrieval, cognitive control, standalone SDK |
 | **AI Routing** | ⭐⭐⭐ Active | Multi-provider, per-model capabilities, verification, cross-provider fallback |
-| **Settings System** | ⭐⭐⭐ Active | Relational tables, single-entity save, theme/i18n, unsaved change guards |
+| **Settings System** | ⭐⭐⭐ Active | Relational tables, single-entity save, theme/i18n, unsaved change guards, progressive shadcn-svelte migration |
 | **Python Sandbox** | ⭐⭐⭐ Active | Isolated virtualenv, auto-dependency management, security hardening |
 
 ### Development Activity

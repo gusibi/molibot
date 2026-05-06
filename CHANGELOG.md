@@ -4,6 +4,34 @@
 
 ---
 
+## 2026-05-06
+
+### Settings shadcn-svelte 迁移基线
+- **组件体系切换起点**: 新增 shadcn-svelte `components.json`，并生成 Settings 后续会复用的 Button、Card、Alert、Badge、Input、NativeSelect、Separator、Table、Tabs 等源码组件。
+- **系统配置页样板**: `/settings/system` 已从旧本地 UI wrapper 和 workbench 页面样式迁移到 shadcn 风格的语义组件组合，作为后续 Settings 页面迁移模板。
+- **Web Profiles 表单样板**: `/settings/web` 已迁移为 shadcn 风格的 profile 列表 + 配置表单，覆盖 Switch、NativeSelect、Textarea、Skeleton loading 和 Alert feedback 等更常见的管理页控件。
+- **聊天页不变**: 本轮只迁移 Settings 基础组件、系统配置页和 Web Profiles 页，主聊天页未改动。
+
+---
+
+## 2026-05-04
+
+### Telegram typing 超时非阻塞化
+- **非关键动作降级**: `setTyping` 中 `sendChatAction(typing)` 在超时重试耗尽后改为仅记录 `ctx_set_typing_failed_non_blocking` 告警日志，不再抛错中断整轮运行。
+- **运行连续性修复**: typing 指示与最终消息发送解耦；即使 typing API 失败，本轮最终正文或错误提示仍可继续发送给用户。
+
+### Weixin 工具进度发送修复
+- **纯文本进度**: Weixin 工具进度批次不再发送 `_→ ..._` Markdown 样式，改为微信更稳的 `工具调用：...` 纯文本格式。
+- **停止坏消息重试**: 已经进入 outbox 的旧工具进度批次会在重试时自动改写；如果微信仍返回 `code=-2`，这类非关键进度消息会被丢弃，不再无限重试。
+
+### AI Providers 模型拉取体验
+- **批量拉取入口**: `/settings/ai/providers` 的 Custom Provider 新增“开始”按钮，可直接请求远端 provider 的 `/models` 列表。
+- **逐条确认加入**: 拉取结果列表在每个模型右侧提供 `+` 按钮，点击后将该模型加入当前 provider 的 Attached Models，避免手动逐条输入模型 ID。
+- **新接口**: 新增 `/api/settings/provider-models`，按 provider 协议（OpenAI-compatible / Anthropic）自动拼装模型列表请求并返回去重排序后的模型 ID。
+- **保存去重兜底**: 修复 `/api/settings` 在同一 provider 出现重复模型 ID 时触发 SQLite 唯一键冲突的问题；保存时会忽略空模型 ID 和重复 model_id，避免 500。
+
+---
+
 ## 2026-05-02
 
 ### Weixin 图片消息修复

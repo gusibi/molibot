@@ -1,6 +1,26 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import PageShell from "$lib/ui/PageShell.svelte";
+    import { Alert, AlertDescription } from "$lib/components/ui/alert";
+    import { Badge } from "$lib/components/ui/badge";
+    import { Button } from "$lib/components/ui/button";
+    import {
+        Card,
+        CardContent,
+        CardDescription,
+        CardHeader,
+        CardTitle,
+    } from "$lib/components/ui/card";
+    import { Label } from "$lib/components/ui/label";
+    import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
+    import { Skeleton } from "$lib/components/ui/skeleton";
+    import {
+        Table,
+        TableBody,
+        TableCell,
+        TableHead,
+        TableHeader,
+        TableRow,
+    } from "$lib/components/ui/table";
 
     type TimeRange = "today" | "yesterday" | "last7Days" | "last30Days";
 
@@ -361,396 +381,426 @@
     $: selectedWindow = usageStats?.windows[selectedRange];
 </script>
 
-<PageShell widthClass="max-w-[1500px]" gapClass="space-y-6">
-    <section class="usage-board">
-        <header class="usage-header">
-            <div>
-                <p class="eyebrow">AI Usage Observatory</p>
-                <h1>使用统计</h1>
-                <p class="header-copy">
+<div class="mx-auto flex max-w-[1500px] flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
+    <header class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div class="flex max-w-3xl flex-col gap-3">
+            <div class="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">AI Usage Observatory</Badge>
+                <Badge variant="outline">{windowTitle(selectedRange)}</Badge>
+            </div>
+            <div class="flex flex-col gap-2">
+                <h1 class="text-3xl font-semibold tracking-tight text-foreground">使用统计</h1>
+                <p class="text-sm leading-6 text-muted-foreground">
                     基于现有 token usage 记录展示请求量、Token 消耗、模型/API 分布和最近事件；没有记录的成本、延迟、成功率不在本页伪造。
                 </p>
             </div>
-            <div class="header-actions">
-                <div class="range-tabs" aria-label="时间范围">
-                    {#each ["today", "yesterday", "last7Days", "last30Days"] as range}
-                        <button
-                            type="button"
-                            class:active={selectedRange === range}
-                            on:click={() => selectRange(range as TimeRange)}
-                        >
-                            {windowTitle(range as TimeRange)}
-                        </button>
-                    {/each}
-                </div>
-                <button class="refresh-button" type="button" on:click={loadUsage} disabled={usageLoading}>
-                    <span aria-hidden="true">↻</span>
-                    {usageLoading ? "同步中" : "刷新"}
-                </button>
+        </div>
+        <div class="flex flex-col gap-3 lg:items-end">
+            <div class="flex flex-wrap gap-2" aria-label="时间范围">
+                {#each ["today", "yesterday", "last7Days", "last30Days"] as range}
+                    <Button
+                        type="button"
+                        variant={selectedRange === range ? "default" : "outline"}
+                        size="sm"
+                        onclick={() => selectRange(range as TimeRange)}
+                    >
+                        {windowTitle(range as TimeRange)}
+                    </Button>
+                {/each}
             </div>
-        </header>
+            <Button variant="outline" type="button" onclick={loadUsage} disabled={usageLoading}>
+                {usageLoading ? "同步中" : "刷新"}
+            </Button>
+        </div>
+    </header>
 
-        {#if usageError}
-            <div class="state-card error">Error: {usageError}</div>
-        {:else if usageLoading && !usageStats}
-            <div class="state-card">正在加载 usage 记录...</div>
-        {:else if usageStats}
-            <div class="filter-bar">
-                <div class="filter-item">
-                    <label for="usage-model">模型</label>
-                    <select id="usage-model" bind:value={selectedModelId}>
-                        <option value="all">全部模型</option>
+    {#if usageError}
+        <Alert variant="destructive">
+            <AlertDescription>Error: {usageError}</AlertDescription>
+        </Alert>
+    {:else if usageLoading && !usageStats}
+        <Card>
+            <CardHeader>
+                <Skeleton class="h-5 w-40" />
+                <Skeleton class="h-4 w-80 max-w-full" />
+            </CardHeader>
+            <CardContent class="grid gap-4 md:grid-cols-3">
+                <Skeleton class="h-28 w-full" />
+                <Skeleton class="h-28 w-full" />
+                <Skeleton class="h-28 w-full" />
+            </CardContent>
+        </Card>
+    {:else if usageStats}
+        <Card>
+            <CardContent class="grid gap-4 pt-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto_1.4fr]">
+                <div class="flex flex-col gap-2">
+                    <Label for="usage-model">模型</Label>
+                    <NativeSelect id="usage-model" class="w-full" bind:value={selectedModelId}>
+                        <NativeSelectOption value="all">全部模型</NativeSelectOption>
                         {#each availableModels as model}
-                            <option value={model.id}>{model.label}</option>
+                            <NativeSelectOption value={model.id}>{model.label}</NativeSelectOption>
                         {/each}
-                    </select>
+                    </NativeSelect>
                 </div>
-                <div class="filter-item">
-                    <label for="usage-bot">Bot</label>
-                    <select id="usage-bot" bind:value={selectedBotId}>
-                        <option value="all">全部 Bot</option>
+                <div class="flex flex-col gap-2">
+                    <Label for="usage-bot">Bot</Label>
+                    <NativeSelect id="usage-bot" class="w-full" bind:value={selectedBotId}>
+                        <NativeSelectOption value="all">全部 Bot</NativeSelectOption>
                         {#each availableBots as bot}
-                            <option value={bot.id}>{bot.label}</option>
+                            <NativeSelectOption value={bot.id}>{bot.label}</NativeSelectOption>
                         {/each}
-                    </select>
+                    </NativeSelect>
                 </div>
-                <div class="filter-item">
-                    <label for="usage-channel">渠道</label>
-                    <select id="usage-channel" bind:value={selectedChannel}>
-                        <option value="all">全部渠道</option>
+                <div class="flex flex-col gap-2">
+                    <Label for="usage-channel">渠道</Label>
+                    <NativeSelect id="usage-channel" class="w-full" bind:value={selectedChannel}>
+                        <NativeSelectOption value="all">全部渠道</NativeSelectOption>
                         {#each availableChannels as channel}
-                            <option value={channel}>{channel}</option>
+                            <NativeSelectOption value={channel}>{channel}</NativeSelectOption>
                         {/each}
-                    </select>
+                    </NativeSelect>
                 </div>
-                <button class="ghost-button" type="button" on:click={resetFilters}>清空筛选</button>
-                <div class="generated-at">
+                <div class="flex items-end">
+                    <Button variant="outline" type="button" onclick={resetFilters}>清空筛选</Button>
+                </div>
+                <div class="flex flex-col justify-end gap-1 text-sm text-muted-foreground">
                     {#if selectedWindow}
-                        {selectedWindow.startDate} → {selectedWindow.endDate}
+                        <span>{selectedWindow.startDate} → {selectedWindow.endDate}</span>
                     {/if}
                     <span>更新于 {formatDateTime(usageStats.generatedAt)}</span>
                 </div>
-            </div>
+            </CardContent>
+        </Card>
 
-            <div class="metric-grid">
-                <article class="metric-card primary-card">
-                    <div class="card-topline">
-                        <span>总请求数</span>
-                        <span class="badge green">Requests</span>
+        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+            <Card class="xl:col-span-2">
+                <CardHeader>
+                    <div class="flex items-center justify-between gap-3">
+                        <CardTitle>总请求数</CardTitle>
+                        <Badge variant="secondary">Requests</Badge>
                     </div>
-                    <strong>{formatNumber(totals.requests)}</strong>
-                    <p>当前筛选范围内的 AI 调用记录数</p>
-                    <svg viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
+                    <CardDescription>当前筛选范围内的 AI 调用记录数</CardDescription>
+                </CardHeader>
+                <CardContent class="flex flex-col gap-4">
+                    <strong class="text-3xl font-semibold tracking-tight">{formatNumber(totals.requests)}</strong>
+                    <svg class="h-16 w-full fill-primary/10 stroke-primary" viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
                         <polygon points={areaPoints(trend.map((point) => point.totals.requests))}></polygon>
-                        <polyline points={linePoints(trend.map((point) => point.totals.requests))}></polyline>
+                        <polyline points={linePoints(trend.map((point) => point.totals.requests))} fill="none" stroke-width="2"></polyline>
                     </svg>
-                </article>
+                </CardContent>
+            </Card>
 
-                <article class="metric-card primary-card purple">
-                    <div class="card-topline">
-                        <span>总 Token 数</span>
-                        <span class="badge violet">Tokens</span>
+            <Card class="xl:col-span-2">
+                <CardHeader>
+                    <div class="flex items-center justify-between gap-3">
+                        <CardTitle>总 Token 数</CardTitle>
+                        <Badge variant="secondary">Tokens</Badge>
                     </div>
-                    <strong>{formatCompact(totals.totalTokens)}</strong>
-                    <p>
+                    <CardDescription>
                         输入 {formatCompact(totals.inputTokens)} · 输出 {formatCompact(totals.outputTokens)} · 缓存 {formatCompact(cacheTokens)}
-                    </p>
-                    <svg viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
+                    </CardDescription>
+                </CardHeader>
+                <CardContent class="flex flex-col gap-4">
+                    <strong class="text-3xl font-semibold tracking-tight">{formatCompact(totals.totalTokens)}</strong>
+                    <svg class="h-16 w-full fill-primary/10 stroke-primary" viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
                         <polygon points={areaPoints(trend.map((point) => point.totals.totalTokens))}></polygon>
-                        <polyline points={linePoints(trend.map((point) => point.totals.totalTokens))}></polyline>
+                        <polyline points={linePoints(trend.map((point) => point.totals.totalTokens))} fill="none" stroke-width="2"></polyline>
                     </svg>
-                </article>
+                </CardContent>
+            </Card>
 
-                <article class="metric-card small-card cyan">
-                    <span>输入 Tokens</span>
-                    <strong>{formatCompact(totals.inputTokens)}</strong>
-                    <p>{pct(totals.inputTokens, totals.totalTokens).toFixed(1)}% of total</p>
-                </article>
-                <article class="metric-card small-card amber">
-                    <span>输出 Tokens</span>
-                    <strong>{formatCompact(totals.outputTokens)}</strong>
-                    <p>{pct(totals.outputTokens, totals.totalTokens).toFixed(1)}% of total</p>
-                </article>
-                <article class="metric-card small-card lime">
-                    <span>缓存 Tokens</span>
-                    <strong>{formatCompact(cacheTokens)}</strong>
-                    <p>Read {formatCompact(totals.cacheReadTokens)} · Write {formatCompact(totals.cacheWriteTokens)}</p>
-                </article>
-                <article class="metric-card small-card teal">
-                    <span>缓存命中比例</span>
-                    <strong>{formatPercent(cacheHitRatio)}</strong>
-                    <p>
-                        {#if cachePromptBase > 0}
-                            按 cache read / (input + cache read) 计算
-                        {:else}
-                            当前范围没有可计算的 prompt cache 基数
-                        {/if}
-                    </p>
-                </article>
-            </div>
+            <Card>
+                <CardHeader>
+                    <CardDescription>输入 Tokens</CardDescription>
+                    <CardTitle>{formatCompact(totals.inputTokens)}</CardTitle>
+                </CardHeader>
+                <CardContent class="text-sm text-muted-foreground">
+                    {pct(totals.inputTokens, totals.totalTokens).toFixed(1)}% of total
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardDescription>输出 Tokens</CardDescription>
+                    <CardTitle>{formatCompact(totals.outputTokens)}</CardTitle>
+                </CardHeader>
+                <CardContent class="text-sm text-muted-foreground">
+                    {pct(totals.outputTokens, totals.totalTokens).toFixed(1)}% of total
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardDescription>缓存 Tokens</CardDescription>
+                    <CardTitle>{formatCompact(cacheTokens)}</CardTitle>
+                </CardHeader>
+                <CardContent class="text-sm text-muted-foreground">
+                    Read {formatCompact(totals.cacheReadTokens)} · Write {formatCompact(totals.cacheWriteTokens)}
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardDescription>缓存命中比例</CardDescription>
+                    <CardTitle>{formatPercent(cacheHitRatio)}</CardTitle>
+                </CardHeader>
+                <CardContent class="text-sm text-muted-foreground">
+                    {#if cachePromptBase > 0}
+                        cache read / (input + cache read)
+                    {:else}
+                        当前范围没有可计算的 prompt cache 基数
+                    {/if}
+                </CardContent>
+            </Card>
+        </div>
 
-            <div class="chart-grid">
-                <article class="panel">
-                    <div class="panel-heading">
-                        <div>
-                            <h2>请求趋势</h2>
-                            <p>{selectedRange === "today" || selectedRange === "yesterday" ? "按小时聚合" : "按天聚合"}</p>
-                        </div>
-                        <span class="legend-dot neutral">requests</span>
-                    </div>
-                    <div class="line-chart">
-                        <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="请求趋势折线图">
-                            <g class="grid-lines">
-                                <line x1="0" y1="8" x2="100" y2="8"></line>
-                                <line x1="0" y1="20" x2="100" y2="20"></line>
-                                <line x1="0" y1="32" x2="100" y2="32"></line>
-                            </g>
-                            <polygon points={areaPoints(trend.map((point) => point.totals.requests), 100, 40)}></polygon>
-                            <polyline points={linePoints(trend.map((point) => point.totals.requests), 100, 40)}></polyline>
-                        </svg>
-                    </div>
-                    <div class="axis-labels">
+        <div class="grid gap-4 xl:grid-cols-3">
+            <Card>
+                <CardHeader>
+                    <CardTitle>请求趋势</CardTitle>
+                    <CardDescription>{selectedRange === "today" || selectedRange === "yesterday" ? "按小时聚合" : "按天聚合"}</CardDescription>
+                </CardHeader>
+                <CardContent class="flex flex-col gap-3">
+                    <svg class="h-44 w-full fill-primary/10 stroke-primary" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="请求趋势折线图">
+                        <g class="stroke-border">
+                            <line x1="0" y1="8" x2="100" y2="8"></line>
+                            <line x1="0" y1="20" x2="100" y2="20"></line>
+                            <line x1="0" y1="32" x2="100" y2="32"></line>
+                        </g>
+                        <polygon points={areaPoints(trend.map((point) => point.totals.requests), 100, 40)}></polygon>
+                        <polyline points={linePoints(trend.map((point) => point.totals.requests), 100, 40)} fill="none" stroke-width="2"></polyline>
+                    </svg>
+                    <div class="flex justify-between text-xs text-muted-foreground">
                         <span>{trend[0]?.label ?? "--"}</span>
                         <span>{trend[Math.floor(trend.length / 2)]?.label ?? "--"}</span>
                         <span>{trend[trend.length - 1]?.label ?? "--"}</span>
                     </div>
-                </article>
+                </CardContent>
+            </Card>
 
-                <article class="panel">
-                    <div class="panel-heading">
-                        <div>
-                            <h2>Token 使用趋势</h2>
-                            <p>总 Token 数随时间变化</p>
-                        </div>
-                        <span class="legend-dot violet">tokens</span>
-                    </div>
-                    <div class="line-chart token-chart">
-                        <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Token 趋势折线图">
-                            <g class="grid-lines">
-                                <line x1="0" y1="8" x2="100" y2="8"></line>
-                                <line x1="0" y1="20" x2="100" y2="20"></line>
-                                <line x1="0" y1="32" x2="100" y2="32"></line>
-                            </g>
-                            <polygon points={areaPoints(trend.map((point) => point.totals.totalTokens), 100, 40)}></polygon>
-                            <polyline points={linePoints(trend.map((point) => point.totals.totalTokens), 100, 40)}></polyline>
-                        </svg>
-                    </div>
-                    <div class="axis-labels">
+            <Card>
+                <CardHeader>
+                    <CardTitle>Token 使用趋势</CardTitle>
+                    <CardDescription>总 Token 数随时间变化</CardDescription>
+                </CardHeader>
+                <CardContent class="flex flex-col gap-3">
+                    <svg class="h-44 w-full fill-primary/10 stroke-primary" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Token 趋势折线图">
+                        <g class="stroke-border">
+                            <line x1="0" y1="8" x2="100" y2="8"></line>
+                            <line x1="0" y1="20" x2="100" y2="20"></line>
+                            <line x1="0" y1="32" x2="100" y2="32"></line>
+                        </g>
+                        <polygon points={areaPoints(trend.map((point) => point.totals.totalTokens), 100, 40)}></polygon>
+                        <polyline points={linePoints(trend.map((point) => point.totals.totalTokens), 100, 40)} fill="none" stroke-width="2"></polyline>
+                    </svg>
+                    <div class="flex justify-between text-xs text-muted-foreground">
                         <span>{trend[0]?.label ?? "--"}</span>
                         <span>峰值 {formatCompact(maxTokens)}</span>
                         <span>{trend[trend.length - 1]?.label ?? "--"}</span>
                     </div>
-                </article>
+                </CardContent>
+            </Card>
 
-                <article class="panel">
-                    <div class="panel-heading">
-                        <div>
-                            <h2>缓存命中比例趋势</h2>
-                            <p>按 cache read / (input + cache read) 计算，不含 output / cache write</p>
-                        </div>
-                        <span class="legend-dot hit-rate">cache hit</span>
-                    </div>
-                    <div class="line-chart cache-hit-chart">
-                        <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="缓存命中比例趋势折线图">
-                            <g class="grid-lines">
-                                <line x1="0" y1="8" x2="100" y2="8"></line>
-                                <line x1="0" y1="20" x2="100" y2="20"></line>
-                                <line x1="0" y1="32" x2="100" y2="32"></line>
-                            </g>
-                            <polygon points={areaPoints(cacheHitTrend, 100, 40, 100)}></polygon>
-                            <polyline points={linePoints(cacheHitTrend, 100, 40, 100)}></polyline>
-                        </svg>
-                    </div>
-                    <div class="axis-labels">
+            <Card>
+                <CardHeader>
+                    <CardTitle>缓存命中比例趋势</CardTitle>
+                    <CardDescription>不含 output / cache write</CardDescription>
+                </CardHeader>
+                <CardContent class="flex flex-col gap-3">
+                    <svg class="h-44 w-full fill-primary/10 stroke-primary" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="缓存命中比例趋势折线图">
+                        <g class="stroke-border">
+                            <line x1="0" y1="8" x2="100" y2="8"></line>
+                            <line x1="0" y1="20" x2="100" y2="20"></line>
+                            <line x1="0" y1="32" x2="100" y2="32"></line>
+                        </g>
+                        <polygon points={areaPoints(cacheHitTrend, 100, 40, 100)}></polygon>
+                        <polyline points={linePoints(cacheHitTrend, 100, 40, 100)} fill="none" stroke-width="2"></polyline>
+                    </svg>
+                    <div class="flex justify-between text-xs text-muted-foreground">
                         <span>{trend[0]?.label ?? "--"}</span>
                         <span>峰值 {formatPercent(maxCacheHitRatio)}</span>
                         <span>{trend[trend.length - 1]?.label ?? "--"}</span>
                     </div>
-                </article>
-            </div>
+                </CardContent>
+            </Card>
+        </div>
 
-            <article class="panel wide-panel">
-                <div class="panel-heading">
+        <Card>
+            <CardHeader>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                        <h2>Token 类型分布</h2>
-                        <p>仅展示已记录的 input / output / cache read / cache write 字段</p>
+                        <CardTitle>Token 类型分布</CardTitle>
+                        <CardDescription>仅展示已记录的 input / output / cache read / cache write 字段</CardDescription>
                     </div>
-                    <div class="legend-row">
-                        <span class="legend-dot input">输入</span>
-                        <span class="legend-dot output">输出</span>
-                        <span class="legend-dot cache">缓存</span>
+                    <div class="flex flex-wrap gap-2">
+                        <Badge variant="outline">输入</Badge>
+                        <Badge variant="outline">输出</Badge>
+                        <Badge variant="outline">缓存</Badge>
                     </div>
                 </div>
-                <div class="stack-chart">
+            </CardHeader>
+            <CardContent class="flex flex-col gap-3">
+                <div class="flex h-44 items-end gap-1 rounded-lg border bg-muted/20 p-3">
                     {#each trend as point}
                         {@const pointCache = point.totals.cacheReadTokens + point.totals.cacheWriteTokens}
-                        <div class="stack-column" title={`${point.label}: ${formatNumber(point.totals.totalTokens)} tokens`}>
-                            <span class="bar input" style={`height:${Math.max(1, pct(point.totals.inputTokens, maxTokens))}%`}></span>
-                            <span class="bar output" style={`height:${Math.max(1, pct(point.totals.outputTokens, maxTokens))}%`}></span>
-                            <span class="bar cache" style={`height:${Math.max(1, pct(pointCache, maxTokens))}%`}></span>
+                        <div class="flex h-full min-w-1 flex-1 items-end gap-px" title={`${point.label}: ${formatNumber(point.totals.totalTokens)} tokens`}>
+                            <span class="w-full rounded-t-sm bg-primary/45" style={`height:${Math.max(1, pct(point.totals.inputTokens, maxTokens))}%`}></span>
+                            <span class="w-full rounded-t-sm bg-primary/75" style={`height:${Math.max(1, pct(point.totals.outputTokens, maxTokens))}%`}></span>
+                            <span class="w-full rounded-t-sm bg-muted-foreground/45" style={`height:${Math.max(1, pct(pointCache, maxTokens))}%`}></span>
                         </div>
                     {/each}
                 </div>
-                <div class="axis-labels">
+                <div class="flex justify-between text-xs text-muted-foreground">
                     <span>{trend[0]?.label ?? "--"}</span>
                     <span>{windowTitle(selectedRange)}</span>
                     <span>{trend[trend.length - 1]?.label ?? "--"}</span>
                 </div>
-            </article>
+            </CardContent>
+        </Card>
 
-            <div class="summary-grid">
-                <article class="panel">
-                    <div class="panel-heading">
-                        <div>
-                            <h2>API 详细统计</h2>
-                            <p>按 usage 记录中的 api 字段聚合</p>
-                        </div>
-                    </div>
-                    <div class="rank-list">
-                        {#if apiRows.length === 0}
-                            <p class="empty-copy">当前范围没有 API 记录。</p>
-                        {:else}
-                            {#each apiRows.slice(0, 8) as row}
-                                <div class="rank-row">
-                                    <div>
-                                        <strong>{row.label}</strong>
-                                        <span>{formatNumber(row.requests)} 请求</span>
-                                    </div>
-                                    <em>{formatCompact(row.totalTokens)}</em>
+        <div class="grid gap-4 xl:grid-cols-2">
+            <Card>
+                <CardHeader>
+                    <CardTitle>API 详细统计</CardTitle>
+                    <CardDescription>按 usage 记录中的 api 字段聚合</CardDescription>
+                </CardHeader>
+                <CardContent class="flex flex-col gap-2">
+                    {#if apiRows.length === 0}
+                        <p class="text-sm text-muted-foreground">当前范围没有 API 记录。</p>
+                    {:else}
+                        {#each apiRows.slice(0, 8) as row}
+                            <div class="flex items-center justify-between gap-4 rounded-lg border p-3">
+                                <div class="min-w-0">
+                                    <p class="truncate text-sm font-medium">{row.label}</p>
+                                    <p class="text-xs text-muted-foreground">{formatNumber(row.requests)} 请求</p>
                                 </div>
-                            {/each}
-                        {/if}
-                    </div>
-                </article>
-
-                <article class="panel">
-                    <div class="panel-heading">
-                        <div>
-                            <h2>模型统计</h2>
-                            <p>按 provider / model 聚合</p>
-                        </div>
-                    </div>
-                    <div class="table-wrap compact-table">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>模型名称</th>
-                                    <th>请求次数</th>
-                                    <th>Token 数量</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {#if modelRows.length === 0}
-                                    <tr><td colspan="3">当前范围没有模型记录。</td></tr>
-                                {:else}
-                                    {#each modelRows.slice(0, 8) as row}
-                                        <tr>
-                                            <td>
-                                                <strong>{row.label}</strong>
-                                                <span>{row.sublabel}</span>
-                                            </td>
-                                            <td>{formatNumber(row.requests)}</td>
-                                            <td>{formatCompact(row.totalTokens)}</td>
-                                        </tr>
-                                    {/each}
-                                {/if}
-                            </tbody>
-                        </table>
-                    </div>
-                </article>
-            </div>
-
-            {#if botRows.length > 0 || channelRows.length > 0}
-                <div class="summary-grid">
-                    <article class="panel">
-                        <div class="panel-heading">
-                            <div>
-                                <h2>Bot 分布</h2>
-                                <p>基于现有 botId 字段</p>
+                                <Badge variant="secondary">{formatCompact(row.totalTokens)}</Badge>
                             </div>
-                        </div>
-                        <div class="rank-list">
-                            {#each botRows.slice(0, 8) as row}
-                                <div class="rank-row">
-                                    <div>
-                                        <strong>{row.label}</strong>
-                                        <span>{formatNumber(row.requests)} 请求</span>
-                                    </div>
-                                    <em>{formatCompact(row.totalTokens)}</em>
-                                </div>
-                            {/each}
-                        </div>
-                    </article>
+                        {/each}
+                    {/if}
+                </CardContent>
+            </Card>
 
-                    <article class="panel">
-                        <div class="panel-heading">
-                            <div>
-                                <h2>渠道分布</h2>
-                                <p>基于现有 channel 字段</p>
-                            </div>
-                        </div>
-                        <div class="rank-list">
-                            {#each channelRows.slice(0, 8) as row}
-                                <div class="rank-row">
-                                    <div>
-                                        <strong>{row.label}</strong>
-                                        <span>{formatNumber(row.requests)} 请求</span>
-                                    </div>
-                                    <em>{formatCompact(row.totalTokens)}</em>
-                                </div>
-                            {/each}
-                        </div>
-                    </article>
-                </div>
-            {/if}
-
-            <article class="panel wide-panel">
-                <div class="panel-heading">
-                    <div>
-                        <h2>请求事件明细</h2>
-                        <p>最近 {recentRecords.length} 条匹配记录；本系统暂未记录结果、延迟、认证索引和费用。</p>
-                    </div>
-                </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>时间</th>
-                                <th>模型名称</th>
-                                <th>渠道</th>
-                                <th>Bot</th>
-                                <th>API</th>
-                                <th>输入</th>
-                                <th>输出</th>
-                                <th>缓存</th>
-                                <th>总 Token</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {#if recentRecords.length === 0}
-                                <tr><td colspan="9">当前筛选范围没有 usage 记录。</td></tr>
+            <Card>
+                <CardHeader>
+                    <CardTitle>模型统计</CardTitle>
+                    <CardDescription>按 provider / model 聚合</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>模型名称</TableHead>
+                                <TableHead>请求次数</TableHead>
+                                <TableHead>Token 数量</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {#if modelRows.length === 0}
+                                <TableRow><TableCell colspan="3" class="text-muted-foreground">当前范围没有模型记录。</TableCell></TableRow>
                             {:else}
-                                {#each recentRecords as record}
-                                    <tr>
-                                        <td>{formatDateTime(record.ts)}</td>
-                                        <td>
-                                            <strong>{record.model}</strong>
-                                            <span>{record.provider}</span>
-                                        </td>
-                                        <td>{record.channel}</td>
-                                        <td>{record.botId}</td>
-                                        <td>{record.api}</td>
-                                        <td>{formatNumber(record.inputTokens)}</td>
-                                        <td>{formatNumber(record.outputTokens)}</td>
-                                        <td>{formatNumber(record.cacheReadTokens + record.cacheWriteTokens)}</td>
-                                        <td>{formatNumber(record.totalTokens)}</td>
-                                    </tr>
+                                {#each modelRows.slice(0, 8) as row}
+                                    <TableRow>
+                                        <TableCell>
+                                            <div class="flex flex-col">
+                                                <span class="font-medium">{row.label}</span>
+                                                <span class="text-xs text-muted-foreground">{row.sublabel}</span>
+                                            </div>
+                                        </TableCell>
+                                        <TableCell>{formatNumber(row.requests)}</TableCell>
+                                        <TableCell>{formatCompact(row.totalTokens)}</TableCell>
+                                    </TableRow>
                                 {/each}
                             {/if}
-                        </tbody>
-                    </table>
-                </div>
-            </article>
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
+        </div>
+
+        {#if botRows.length > 0 || channelRows.length > 0}
+            <div class="grid gap-4 xl:grid-cols-2">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Bot 分布</CardTitle>
+                        <CardDescription>基于现有 botId 字段</CardDescription>
+                    </CardHeader>
+                    <CardContent class="flex flex-col gap-2">
+                        {#each botRows.slice(0, 8) as row}
+                            <div class="flex items-center justify-between gap-4 rounded-lg border p-3">
+                                <div class="min-w-0">
+                                    <p class="truncate text-sm font-medium">{row.label}</p>
+                                    <p class="text-xs text-muted-foreground">{formatNumber(row.requests)} 请求</p>
+                                </div>
+                                <Badge variant="secondary">{formatCompact(row.totalTokens)}</Badge>
+                            </div>
+                        {/each}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>渠道分布</CardTitle>
+                        <CardDescription>基于现有 channel 字段</CardDescription>
+                    </CardHeader>
+                    <CardContent class="flex flex-col gap-2">
+                        {#each channelRows.slice(0, 8) as row}
+                            <div class="flex items-center justify-between gap-4 rounded-lg border p-3">
+                                <div class="min-w-0">
+                                    <p class="truncate text-sm font-medium">{row.label}</p>
+                                    <p class="text-xs text-muted-foreground">{formatNumber(row.requests)} 请求</p>
+                                </div>
+                                <Badge variant="secondary">{formatCompact(row.totalTokens)}</Badge>
+                            </div>
+                        {/each}
+                    </CardContent>
+                </Card>
+            </div>
         {/if}
-    </section>
-</PageShell>
+
+        <Card>
+            <CardHeader>
+                <CardTitle>请求事件明细</CardTitle>
+                <CardDescription>最近 {recentRecords.length} 条匹配记录；本系统暂未记录结果、延迟、认证索引和费用。</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>时间</TableHead>
+                            <TableHead>模型名称</TableHead>
+                            <TableHead>渠道</TableHead>
+                            <TableHead>Bot</TableHead>
+                            <TableHead>API</TableHead>
+                            <TableHead>输入</TableHead>
+                            <TableHead>输出</TableHead>
+                            <TableHead>缓存</TableHead>
+                            <TableHead>总 Token</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {#if recentRecords.length === 0}
+                            <TableRow><TableCell colspan="9" class="text-muted-foreground">当前筛选范围没有 usage 记录。</TableCell></TableRow>
+                        {:else}
+                            {#each recentRecords as record}
+                                <TableRow>
+                                    <TableCell>{formatDateTime(record.ts)}</TableCell>
+                                    <TableCell>
+                                        <div class="flex flex-col">
+                                            <span class="font-medium">{record.model}</span>
+                                            <span class="text-xs text-muted-foreground">{record.provider}</span>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>{record.channel}</TableCell>
+                                    <TableCell>{record.botId}</TableCell>
+                                    <TableCell>{record.api}</TableCell>
+                                    <TableCell>{formatNumber(record.inputTokens)}</TableCell>
+                                    <TableCell>{formatNumber(record.outputTokens)}</TableCell>
+                                    <TableCell>{formatNumber(record.cacheReadTokens + record.cacheWriteTokens)}</TableCell>
+                                    <TableCell>{formatNumber(record.totalTokens)}</TableCell>
+                                </TableRow>
+                            {/each}
+                        {/if}
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+    {/if}
+</div>

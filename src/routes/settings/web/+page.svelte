@@ -1,8 +1,21 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import PageShell from "$lib/ui/PageShell.svelte";
-  import Button from "$lib/ui/Button.svelte";
-  import Alert from "$lib/ui/Alert.svelte";
+  import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle
+  } from "$lib/components/ui/card";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
+  import { Skeleton } from "$lib/components/ui/skeleton";
+  import { Switch } from "$lib/components/ui/switch";
+  import { Textarea } from "$lib/components/ui/textarea";
 
   interface AgentItem {
     id: string;
@@ -279,140 +292,204 @@
   onMount(loadSettings);
 </script>
 
-<PageShell widthClass="max-w-7xl" gapClass="space-y-6">
-  <header class="wb-hero">
-    <div class="wb-hero-copy">
-    <p class="wb-eyebrow">Web Runtime</p>
-    <h1>Web Profiles</h1>
-    <p class="wb-copy">
-      Configure web runtime profiles, link agents, and edit profile-level Markdown overrides.
-    </p>
+<div class="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
+  <header class="flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <Badge variant="secondary">Web Runtime</Badge>
+      <Badge variant="outline">{profiles.length} profiles</Badge>
+    </div>
+    <div class="flex max-w-3xl flex-col gap-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Web Profiles</h1>
+      <p class="text-sm leading-6 text-muted-foreground">
+        Configure web runtime profiles, link agents, and edit profile-level Markdown overrides.
+      </p>
     </div>
   </header>
 
   {#if loading}
-    <div class="wb-empty-state text-left">
-      Loading web profiles...
+    <div class="grid gap-4 lg:grid-cols-[18rem_1fr]">
+      <Card>
+        <CardHeader>
+          <Skeleton class="h-5 w-24" />
+          <Skeleton class="h-4 w-40" />
+        </CardHeader>
+        <CardContent class="flex flex-col gap-2">
+          <Skeleton class="h-14 w-full" />
+          <Skeleton class="h-14 w-full" />
+          <Skeleton class="h-14 w-full" />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <Skeleton class="h-5 w-44" />
+          <Skeleton class="h-4 w-72 max-w-full" />
+        </CardHeader>
+        <CardContent class="flex flex-col gap-4">
+          <Skeleton class="h-8 w-full" />
+          <Skeleton class="h-8 w-full" />
+          <Skeleton class="h-40 w-full" />
+        </CardContent>
+      </Card>
     </div>
   {:else}
-    <div class="wb-config-grid">
-      <section class="wb-config-nav space-y-3">
-        <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-[var(--foreground)]">Profiles</h2>
-          <Button variant="outline" size="sm" type="button" on:click={addProfile}>
-            Add Profile
-          </Button>
-        </div>
-
-        <div class="wb-config-nav-list">
+    <div class="grid gap-4 lg:grid-cols-[18rem_1fr]">
+      <Card class="h-fit">
+        <CardHeader>
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle>Profiles</CardTitle>
+              <CardDescription>{profiles.length} configured</CardDescription>
+            </div>
+            <Button variant="outline" size="sm" type="button" onclick={addProfile}>
+              Add
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent class="flex flex-col gap-2">
           {#each profiles as profile (profile.id)}
             <button
-              class={`wb-config-item ${selectedProfile?.id === profile.id ? "active" : ""}`}
+              class={`flex w-full items-start justify-between gap-3 rounded-lg border px-3 py-3 text-left transition hover:bg-muted/60 ${
+                selectedProfile?.id === profile.id ? "border-primary bg-muted" : "border-border bg-background"
+              }`}
               type="button"
-              on:click={() => selectProfile(profile.id)}
+              onclick={() => selectProfile(profile.id)}
             >
               <span class="min-w-0">
-                <span class="wb-config-item-title truncate">{profile.name || profile.id}</span>
-                <span class="wb-config-item-subtitle truncate">{profile.id}</span>
+                <span class="block truncate text-sm font-medium text-foreground">{profile.name || profile.id}</span>
+                <span class="block truncate text-xs text-muted-foreground">{profile.id}</span>
               </span>
-              <span class="wb-config-state" data-enabled={profile.enabled}>
-                {profile.enabled ? "ON" : "OFF"}
-              </span>
+              <Badge variant={profile.enabled ? "secondary" : "outline"}>
+                {profile.enabled ? "On" : "Off"}
+              </Badge>
             </button>
           {/each}
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
       {#if selectedProfile}
-        <form class="space-y-4" on:submit|preventDefault={save}>
-          <section class="wb-config-panel space-y-4">
-            <div class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-[var(--foreground)]">Profile Configuration</h2>
-              <Button variant="destructive" size="sm" type="button" on:click={() => removeProfile(selectedProfile.id)}>
-                Remove Profile
-              </Button>
-            </div>
+        <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void save(); }}>
+          <Card>
+            <CardHeader>
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle>Profile Configuration</CardTitle>
+                  <CardDescription>
+                    Profile ID, display name, enabled state, and linked agent.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  type="button"
+                  onclick={() => removeProfile(selectedProfile.id)}
+                >
+                  Remove
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent class="flex flex-col gap-5">
+              <div class="grid gap-4 md:grid-cols-2">
+                <div class="flex flex-col gap-2">
+                  <Label for="web-profile-id">Profile ID</Label>
+                  <Input
+                    id="web-profile-id"
+                    bind:value={selectedProfile.id}
+                    placeholder="marketing-web"
+                    disabled={!selectedProfile.isNew}
+                  />
+                </div>
 
-            <div class="grid gap-3 md:grid-cols-2">
-              <label class="grid gap-1.5 text-sm">
-                <span class="text-[var(--foreground)]">Profile ID</span>
-                <input
-                  class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
-                  bind:value={selectedProfile.id}
-                  placeholder="marketing-web"
-                  disabled={!selectedProfile.isNew}
-                />
-              </label>
+                <div class="flex flex-col gap-2">
+                  <Label for="web-profile-name">Profile Name</Label>
+                  <Input
+                    id="web-profile-name"
+                    bind:value={selectedProfile.name}
+                    placeholder="Marketing Web"
+                  />
+                </div>
+              </div>
 
-              <label class="grid gap-1.5 text-sm">
-                <span class="text-[var(--foreground)]">Profile Name</span>
-                <input
-                  class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                  bind:value={selectedProfile.name}
-                  placeholder="Marketing Web"
-                />
-              </label>
-            </div>
-            {#if !selectedProfile.isNew}
-              <p class="wb-note text-xs">
-                Profile ID is locked after creation to keep workspace paths and references stable.
-              </p>
-            {/if}
+              {#if !selectedProfile.isNew}
+                <p class="text-xs leading-5 text-muted-foreground">
+                  Profile ID is locked after creation to keep workspace paths and references stable.
+                </p>
+              {/if}
 
-            <label class="flex items-center gap-3 text-sm text-[var(--foreground)]">
-              <input bind:checked={selectedProfile.enabled} type="checkbox" />
-              Enable this profile instance
-            </label>
+              <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
+                <div class="flex flex-col gap-1">
+                  <Label for="web-profile-enabled">Enable this profile instance</Label>
+                  <p class="text-xs text-muted-foreground">Disabled profiles stay saved but are not selectable at runtime.</p>
+                </div>
+                <Switch id="web-profile-enabled" bind:checked={selectedProfile.enabled} />
+              </div>
 
-            <label class="grid gap-1.5 text-sm">
-              <span class="text-[var(--foreground)]">Linked Agent</span>
-              <select
-                class="rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 text-sm outline-none focus:border-[var(--ring)]"
-                bind:value={selectedProfile.agentId}
-              >
-                <option value="">No agent (global fallback only)</option>
-                {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
-                  <option value={agent.id}>{agent.name || agent.id}</option>
-                {/each}
-              </select>
-            </label>
-          </section>
+              <div class="flex flex-col gap-2">
+                <Label for="web-profile-agent">Linked Agent</Label>
+                <NativeSelect id="web-profile-agent" class="w-full" bind:value={selectedProfile.agentId}>
+                  <NativeSelectOption value="">No agent (global fallback only)</NativeSelectOption>
+                  {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
+                    <NativeSelectOption value={agent.id}>{agent.name || agent.id}</NativeSelectOption>
+                  {/each}
+                </NativeSelect>
+              </div>
+            </CardContent>
+          </Card>
 
-          <section class="wb-config-panel space-y-3">
-            <div>
-              <h3 class="text-sm font-semibold text-[var(--foreground)]">Profile Markdown Overrides</h3>
-              <p class="mt-1 text-xs text-[var(--muted-foreground)]">
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile Markdown Overrides</CardTitle>
+              <CardDescription>
                 Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.
-              </p>
-            </div>
+              </CardDescription>
+            </CardHeader>
+            <CardContent class="flex flex-col gap-4">
+              {#each profileFileNames as fileName}
+                <div class="flex flex-col gap-2">
+                  <Label for={`web-profile-${fileName}`}>{fileName}</Label>
+                  <Textarea
+                    id={`web-profile-${fileName}`}
+                    class="min-h-40 font-mono text-sm"
+                    bind:value={selectedProfile.profileFiles[fileName]}
+                    placeholder={`Edit ${fileName} here`}
+                  />
+                </div>
+              {/each}
+            </CardContent>
+          </Card>
 
-            {#each profileFileNames as fileName}
-              <label class="grid gap-1.5 text-sm">
-                <span class="text-[var(--foreground)]">{fileName}</span>
-                <textarea
-                  class="min-h-[160px] rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-3 py-2 font-mono text-sm outline-none focus:border-[var(--ring)]"
-                  bind:value={selectedProfile.profileFiles[fileName]}
-                  placeholder={`Edit ${fileName} here`}
-                ></textarea>
-              </label>
-            {/each}
-          </section>
-
-          <Button variant="default" size="md" type="submit" disabled={saving}>
-            {saving ? "Saving..." : "Save This Profile"}
-          </Button>
-          {#if selectedProfileDirty}
-            <p class="wb-warning-note text-xs">Current profile has unsaved changes.</p>
-          {/if}
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving..." : "Save This Profile"}
+            </Button>
+            {#if selectedProfileDirty}
+              <Badge variant="outline">Unsaved changes</Badge>
+            {/if}
+          </div>
 
           {#if message}
-            <Alert variant="success">{message}</Alert>
+            <Alert>
+              <AlertDescription>{message}</AlertDescription>
+            </Alert>
           {/if}
           {#if error}
-            <Alert variant="destructive">{error}</Alert>
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           {/if}
         </form>
+      {:else}
+        <Card>
+          <CardHeader>
+            <CardTitle>No profile selected</CardTitle>
+            <CardDescription>Create a profile to configure the Web runtime.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" type="button" onclick={addProfile}>
+              Add Profile
+            </Button>
+          </CardContent>
+        </Card>
       {/if}
     </div>
   {/if}
-</PageShell>
+</div>

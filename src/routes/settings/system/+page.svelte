@@ -1,7 +1,19 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import PageShell from "$lib/ui/PageShell.svelte";
-  import Card from "$lib/ui/Card.svelte";
+  import { Alert, AlertDescription } from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle
+  } from "$lib/components/ui/card";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
+  import { Separator } from "$lib/components/ui/separator";
   import { initLocale, locale, setLocale, type LocaleKey } from "$lib/ui/i18n";
 
   interface RuntimeSettings {
@@ -78,6 +90,7 @@
   let timezoneOptions: string[] = [];
   let versionInfo: VersionInfo | null = null;
   let status = "";
+  let statusVariant: "default" | "destructive" = "default";
   let loading = true;
   let saving = false;
 
@@ -119,6 +132,7 @@
   async function loadSystemConfig(): Promise<void> {
     loading = true;
     status = "";
+    statusVariant = "default";
     try {
       initLocale();
       selectedLocale = $locale;
@@ -148,6 +162,7 @@
       };
     } catch (error) {
       status = error instanceof Error ? error.message : String(error);
+      statusVariant = "destructive";
     } finally {
       loading = false;
     }
@@ -156,6 +171,7 @@
   async function saveTimezone(): Promise<void> {
     saving = true;
     status = "";
+    statusVariant = "default";
     try {
       const response = await fetch("/api/settings", {
         method: "PUT",
@@ -167,8 +183,10 @@
         throw new Error(payload?.error || copy.failedSave);
       }
       status = copy.saved;
+      statusVariant = "default";
     } catch (error) {
       status = error instanceof Error ? error.message : String(error);
+      statusVariant = "destructive";
     } finally {
       saving = false;
     }
@@ -179,103 +197,129 @@
   });
 </script>
 
-<PageShell widthClass="max-w-5xl" gapClass="space-y-8">
-  <header class="wb-hero">
-    <div class="wb-hero-copy">
-      <p class="wb-eyebrow">{copy.eyebrow}</p>
-      <h1>{copy.title}</h1>
-      <p class="wb-copy">{copy.subtitle}</p>
+<div class="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
+  <header class="flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <Badge variant="secondary">{copy.eyebrow}</Badge>
+      <Badge variant={versionInfo?.updateAvailable ? "default" : "outline"}>
+        {updateStateLabel()}
+      </Badge>
+    </div>
+    <div class="flex max-w-3xl flex-col gap-2">
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">{copy.title}</h1>
+      <p class="text-sm leading-6 text-muted-foreground">{copy.subtitle}</p>
     </div>
   </header>
 
   {#if status}
-    <div class="rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--foreground)] shadow-[var(--shadow-sm)]">
-      {status}
-    </div>
+    <Alert variant={statusVariant}>
+      <AlertDescription>{status}</AlertDescription>
+    </Alert>
   {/if}
 
-  <div class="grid gap-5 lg:grid-cols-[1fr_1.1fr]">
-    <Card className="space-y-5 rounded-[1.25rem] p-5">
-      <div>
-        <p class="wb-eyebrow">{copy.language}</p>
-        <p class="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">{copy.languageHint}</p>
-      </div>
-      <select
-        class="w-full rounded-xl border border-[var(--border)] bg-[var(--input)] px-3 py-3 text-sm outline-none focus:border-[var(--ring)]"
-        bind:value={selectedLocale}
-        on:change={onLocaleChange}
-      >
-        <option value="zh-CN">中文</option>
-        <option value="en-US">English</option>
-      </select>
+  <div class="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
+    <Card>
+      <CardHeader>
+        <CardTitle>{copy.language}</CardTitle>
+        <CardDescription>{copy.languageHint}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <NativeSelect
+          class="w-full"
+          aria-label={copy.language}
+          size="default"
+          value={selectedLocale}
+          onchange={onLocaleChange}
+        >
+          <NativeSelectOption value="zh-CN">中文</NativeSelectOption>
+          <NativeSelectOption value="en-US">English</NativeSelectOption>
+        </NativeSelect>
+      </CardContent>
     </Card>
 
-    <Card className="space-y-5 rounded-[1.25rem] p-5">
-      <div>
-        <p class="wb-eyebrow">{copy.timezone}</p>
-        <p class="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">{copy.timezoneHint}</p>
-      </div>
-      <div class="flex flex-col gap-3 sm:flex-row">
-        <select
-          class="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--input)] px-3 py-3 text-sm outline-none focus:border-[var(--ring)]"
-          bind:value={timezone}
-          disabled={loading}
-        >
-          {#each timezoneOptions as zone}
-            <option value={zone}>{zone}</option>
-          {/each}
-        </select>
-        <button
-          class="rounded-xl border border-[var(--border)] bg-[var(--primary)] px-4 py-3 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-60"
-          type="button"
-          on:click={saveTimezone}
-          disabled={saving || loading}
-        >
-          {saving ? copy.saving : copy.save}
-        </button>
-      </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>{copy.timezone}</CardTitle>
+        <CardDescription>{copy.timezoneHint}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div class="flex flex-col gap-3 sm:flex-row">
+          <NativeSelect
+            class="min-w-0 flex-1"
+            aria-label={copy.timezone}
+            bind:value={timezone}
+            disabled={loading}
+          >
+            {#each timezoneOptions as zone}
+              <NativeSelectOption value={zone}>{zone}</NativeSelectOption>
+            {/each}
+          </NativeSelect>
+          <Button type="button" onclick={saveTimezone} disabled={saving || loading}>
+            {saving ? copy.saving : copy.save}
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   </div>
 
-  <Card className="space-y-5 rounded-[1.25rem] p-5">
-    <div>
-      <p class="wb-eyebrow">{copy.deployment}</p>
-      <h2 class="mt-2 text-xl font-semibold">{copy.githubRepo}</h2>
-      <p class="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">{copy.githubRepoHint}</p>
-    </div>
+  <Card>
+    <CardHeader>
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div class="flex flex-col gap-1.5">
+          <CardTitle>{copy.deployment}</CardTitle>
+          <CardDescription>{copy.githubRepoHint}</CardDescription>
+        </div>
+        <Badge variant={versionInfo?.remoteConfigured ? "secondary" : "outline"}>
+          {updateStateLabel()}
+        </Badge>
+      </div>
+    </CardHeader>
+    <CardContent class="flex flex-col gap-5">
+      <div class="grid gap-4 lg:grid-cols-2">
+        <div class="flex flex-col gap-2">
+          <Label for="github-repo">{copy.githubRepo}</Label>
+          <Input
+            id="github-repo"
+            class="font-mono text-xs"
+            value={versionInfo?.repositoryUrl || copy.notConfigured}
+            readonly
+          />
+        </div>
+        <div class="flex flex-col gap-2">
+          <Label for="git-ref">{copy.gitRef}</Label>
+          <Input
+            id="git-ref"
+            class="font-mono text-xs"
+            value={versionInfo?.ref || copy.notConfigured}
+            readonly
+          />
+        </div>
+      </div>
 
-    <div class="grid gap-4 lg:grid-cols-2">
-      <label class="space-y-2">
-        <span class="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{copy.githubRepo}</span>
-        <input
-          class="w-full rounded-xl border border-[var(--border)] bg-[var(--muted)] px-3 py-3 font-mono text-xs text-[var(--foreground)]"
-          value={versionInfo?.repositoryUrl || copy.notConfigured}
-          readonly
-        />
-      </label>
-      <label class="space-y-2">
-        <span class="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{copy.gitRef}</span>
-        <input
-          class="w-full rounded-xl border border-[var(--border)] bg-[var(--muted)] px-3 py-3 font-mono text-xs text-[var(--foreground)]"
-          value={versionInfo?.ref || copy.notConfigured}
-          readonly
-        />
-      </label>
-      <div class="rounded-xl border border-[var(--border)] bg-[var(--muted)] p-4">
-        <p class="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{copy.currentVersion}</p>
-        <p class="mt-2 font-mono text-lg font-semibold">v{versionInfo?.currentVersion ?? "..."}</p>
+      <Separator />
+
+      <div class="grid gap-4 sm:grid-cols-3">
+        <div class="flex flex-col gap-1 rounded-lg border bg-muted/40 p-4">
+          <span class="text-xs font-medium text-muted-foreground">{copy.currentVersion}</span>
+          <span class="font-mono text-lg font-semibold">v{versionInfo?.currentVersion ?? "..."}</span>
+        </div>
+        <div class="flex flex-col gap-1 rounded-lg border bg-muted/40 p-4">
+          <span class="text-xs font-medium text-muted-foreground">{copy.latestVersion}</span>
+          <span class="font-mono text-lg font-semibold">
+            {versionInfo?.latestVersion ? `v${versionInfo.latestVersion}` : "-"}
+          </span>
+        </div>
+        <div class="flex flex-col gap-1 rounded-lg border bg-muted/40 p-4">
+          <span class="text-xs font-medium text-muted-foreground">{copy.updateState}</span>
+          <span class="text-sm font-semibold">{updateStateLabel()}</span>
+        </div>
       </div>
-      <div class="rounded-xl border border-[var(--border)] bg-[var(--muted)] p-4">
-        <p class="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{copy.latestVersion}</p>
-        <p class="mt-2 font-mono text-lg font-semibold">{versionInfo?.latestVersion ? `v${versionInfo.latestVersion}` : "-"}</p>
-      </div>
-      <div class="rounded-xl border border-[var(--border)] bg-[var(--muted)] p-4 lg:col-span-2">
-        <p class="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{copy.updateState}</p>
-        <p class="mt-2 text-sm font-semibold">{updateStateLabel()}</p>
-        {#if versionInfo?.error}
-          <p class="mt-2 text-xs leading-5 text-[var(--muted-foreground)]">{versionInfo.error}</p>
-        {/if}
-      </div>
-    </div>
+
+      {#if versionInfo?.error}
+        <Alert variant="destructive">
+          <AlertDescription>{versionInfo.error}</AlertDescription>
+        </Alert>
+      {/if}
+    </CardContent>
   </Card>
-</PageShell>
+</div>

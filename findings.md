@@ -1,33 +1,35 @@
-# Findings
+# Findings & Decisions
 
-## AI Settings Fusion
-- Browser Use 当前无法连接可用的 in-app browser pane；先基于源码和现有 theme 规则推进。
-- 后端 `src/lib/server/settings/modelSwitch.ts` 已经支持混合模型池：enabled built-in provider 生成 `pi|provider|model`，enabled custom provider 生成 `custom|provider|model`。
-- Routing 页仍暴露 `Fallback mode (legacy)`、`PI provider`、`PI model fallback`，用户会感知成两套逻辑；更合适的表达是统一模型池 + 兜底锚点。
-- Routing 页存在大量 `text-white` / `bg-black/20` / `border-white/10` 等硬编码，依赖全局 `.settings-theme` 覆盖，不利于页面自身在明暗主题下保持一致。
-- Providers 页已经做了初步两栏和 built-in 模型折叠，但页面文案仍说 built-in/custom configured separately，和“可以混着用”的产品模型冲突。
+## Requirements
+- Keep SvelteKit.
+- Switch the Settings UI component system toward shadcn-svelte.
+- Use shadcn's clean visual style rather than preserving the current Settings look.
+- Do not touch the chat page in this migration pass.
+- Keep changes staged by risk: component setup first, then a low-risk Settings page.
 
-## 2026-05-01 QQBot SDK upgrade findings
+## Research Findings
+- The project is SvelteKit with Svelte 5 and Tailwind CSS 4.
+- Current shared web UI components are small and local: Button, Card, Alert, and PageShell.
+- Most Settings UI is still direct Tailwind markup, so full consistency requires gradual page migration beyond replacing shared components.
+- shadcn-svelte supports Svelte 5 and Tailwind v4, and its CLI writes components into the source tree.
 
-- Upstream openclaw-qqbot is v1.7.1; local package/qqbot is v1.5.3.
-- Upstream adds modules for slash commands, approval interaction, group gating/history, quoted-message refs, STT attachment processing, typing keepalive, streaming, chunked upload, media-send queue helpers, SSRF guard, package version checks, update/hot-upgrade, startup greetings, and plugin tools.
-- Molibot local SDK already has rich outbound/media code but lacks many v1.7.1 modules and newer type/config fields.
-- Direct full package replacement would be risky because upstream registers OpenClaw plugin tools/hot-upgrade behavior and imports openclaw/plugin-sdk/core, while Molibot uses package/qqbot as a local SDK under its own shared channel runtime.
+## Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Use shadcn-svelte CLI and generated source components | This matches shadcn's source-owned component model and avoids hidden runtime abstractions. |
+| Keep `src/lib/ui` during transition | Existing Settings pages still import these components; deleting them now would broaden the migration unnecessarily. |
+| Start with a low-risk Settings page | Proves styling, imports, and build compatibility before touching dense AI/provider pages. |
 
-## 2026-05-01 QQBot SDK upgrade result
+## Issues Encountered
+| Issue | Resolution |
+|-------|------------|
+| shadcn-svelte component generation did not add the expected `$lib/utils.js` helper | Added `src/lib/utils.ts`; SvelteKit resolves `$lib/utils.js` to the TypeScript source during bundling. |
 
-- Upgraded package/qqbot to v1.7.1 source parity for SDK-level capabilities.
-- Kept upstream plugin tool registration out of Molibot index.ts, so Molibot does not silently expose OpenClaw-specific channel/remind tools through this local SDK.
-- Patched channel.ts to avoid a runtime dependency on openclaw/plugin-sdk/core; local config-section helpers preserve the existing account setup behavior.
-- Tests run: npm --prefix package/qqbot run build; npx tsx --test package/qqbot/src/outbound.test.ts; npm run build.
+## Resources
+- shadcn-svelte SvelteKit installation: https://www.shadcn-svelte.com/docs/installation/sveltekit
+- shadcn-svelte Tailwind v4 notes: https://shadcn-svelte.com/docs/migration/tailwind-v4
+- shadcn-svelte components.json reference: https://shadcn-svelte.com/docs/components-json
+- shadcn-svelte components list: https://www.shadcn-svelte.com/docs/components
 
-- 2026-05-01 follow-up: fixed QQ direct onEvent mode after v1.7.1 sync. Root cause was an unconditional getQQBotRuntime() in connect(), plus SDK slash/approval setup running even when Molibot owns commands/ACP.
-
-## 2026-05-01 production auto-restart/update findings
-
-- Root package is a SvelteKit Node app: `npm run build` runs `svelte-kit sync && vite build`; `npm run start` runs `node build`.
-- `bin/molibot-service.sh` already provides `start/stop/status/restart`, but it launches the global `molibot` command.
-- `bin/molibot.js` defaults to `dev`; `molibot start` shells back into `npm run start` with `cwd` fixed to the repository root.
-- Current production operation therefore still depends on a source checkout and npm scripts. It does not yet define an artifact-only runtime, Docker image, or binary-style release bundle.
-- A minimal non-source path should keep development unchanged and add separate production artifacts: Docker image and/or packaged release directory with `build/`, production `node_modules`, package metadata, env example, and service/update scripts.
-- Implemented path keeps source development unchanged and adds release/Docker production paths. Release smoke test confirmed `node build` works from `dist/molibot-release` with a separate `DATA_DIR`.
+## Visual/Browser Findings
+- No screenshots used yet.

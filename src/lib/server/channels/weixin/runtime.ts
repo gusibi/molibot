@@ -83,6 +83,29 @@ function isTransientRunnerProgress(text: string): boolean {
   return /^_→ .+_$/.test(normalizeText(text));
 }
 
+function isToolProgressBatchText(text: string): boolean {
+  const lines = normalizeText(text).split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines.length > 0 && lines.every((line) => isTransientRunnerProgress(line));
+}
+
+function formatWeixinToolProgressText(text: string): string {
+  const lines = normalizeText(text).split("\n").map((line) => line.trim()).filter(Boolean);
+  const labels = lines.map((line) => line.replace(/^_→\s*/, "").replace(/_$/, "").trim()).filter(Boolean);
+  if (labels.length === 0) return normalizeText(text);
+  if (labels.length === 1) return `工具调用：${labels[0]}`;
+  return ["工具调用：", ...labels.map((label) => `- ${label}`)].join("\n");
+}
+
+function isWeixinToolProgressDeliveryText(text: string): boolean {
+  const normalized = normalizeText(text);
+  return isToolProgressBatchText(normalized) || normalized === "工具调用：" || normalized.startsWith("工具调用：\n") || /^工具调用：\S/.test(normalized);
+}
+
+function isWeixinInvalidPayloadError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /sendMessage failed:\s*code=-2(?:\D|$)/.test(message);
+}
+
 function isRunnerErrorNotice(text: string): boolean {
   const normalized = normalizeText(text);
   return (
@@ -529,7 +552,7 @@ export class WeixinManager extends BaseChannelRuntime {
 
     const sendVisibleText = async (text: string, options?: { allowFinalError?: boolean }): Promise<void> => {
       if (!options?.allowFinalError && isTransientRunnerProgress(text)) {
-        await toolProgress.handle(text);
+        await toolProgress.handle(formatWeixinToolProgressText(text));
         return;
       }
       if (!options?.allowFinalError && bufferIfWeixinRunnerError(text)) {
@@ -757,7 +780,10 @@ export class WeixinManager extends BaseChannelRuntime {
         momLog("weixin", "outbound_image_reference_success", { ...logPayload, mode: "image_reference" });
         return;
       }
-      await this.bot.sendText(payload.chatId, payload.text, contextToken);
+      const safeText = isToolProgressBatchText(payload.text)
+        ? formatWeixinToolProgressText(payload.text)
+        : payload.text;
+      await this.bot.sendText(payload.chatId, safeText, contextToken);
       this.recordDelivery(payload.chatId, "success", logPayload);
       momLog("weixin", "outbound_text_success", logPayload);
     } catch (error) {
@@ -765,6 +791,17 @@ export class WeixinManager extends BaseChannelRuntime {
         ...logPayload,
         error: error instanceof Error ? error.message : String(error)
       };
+      if (
+        isWeixinInvalidPayloadError(error) &&
+        (isWeixinToolProgressDeliveryText(payload.rawText || "") || isWeixinToolProgressDeliveryText(payload.text))
+      ) {
+        this.recordDelivery(payload.chatId, "failure", { ...failurePayload, dropped: true, reason: "invalid_tool_progress_payload" });
+        momWarn("weixin", "outbound_tool_progress_dropped", {
+          ...failurePayload,
+          reason: "invalid_tool_progress_payload"
+        });
+        return;
+      }
       this.recordDelivery(payload.chatId, "failure", failurePayload);
       momError("weixin", "outbound_text_failure", failurePayload);
       throw error;

@@ -1678,7 +1678,16 @@ export class TelegramManager extends BaseChannelRuntime {
       setTyping: async (isTyping) => {
         momLog("telegram", "ctx_set_typing", { runId, chatId, isTyping });
         if (!isTyping) return;
-        await sendTelegramChatAction(bot, chatId, "typing", sendOptions);
+        try {
+          await sendTelegramChatAction(bot, chatId, "typing", sendOptions);
+        } catch (error) {
+          momWarn("telegram", "ctx_set_typing_failed_non_blocking", {
+            runId,
+            chatId,
+            error: error instanceof Error ? error.message : String(error),
+            errorDetails: describeTelegramError(error)
+          });
+        }
         if (
           streamOutputEnabled &&
           seededStatusText &&

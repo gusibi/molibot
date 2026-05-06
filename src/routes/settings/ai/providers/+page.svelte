@@ -112,6 +112,10 @@
     let error = "";
     let message = "";
     let modelTestResults: Record<string, ModelTestStatus> = {};
+    let discoveredProviderModels: Record<string, string[]> = {};
+    let discoveredSelectedModel: Record<string, string> = {};
+    let providerModelsPulled: Record<string, boolean> = {};
+    let loadingProviderModelsFor = "";
     let builtinProviders: Array<{ id: string; name: string }> = [];
     let builtinProviderModels: Record<string, string[]> = {};
     let expandedProviderModelIds = new Set<string>();
@@ -844,6 +848,103 @@
         modelTestResults = remaining;
     }
 
+    function discoveredModels(providerId: string): string[] {
+        return discoveredProviderModels[providerId] ?? [];
+    }
+
+    function providerHasModel(
+        provider: CustomProviderForm,
+        modelId: string,
+    ): boolean {
+        const target = modelId.trim();
+        if (!target) return false;
+        return provider.models.some((row) => row.id.trim() === target);
+    }
+
+    async function fetchProviderModels(provider: CustomProviderForm): Promise<void> {
+        const baseUrl = provider.baseUrl.trim();
+        const apiKey = provider.apiKey.trim();
+        if (!baseUrl || !apiKey) {
+            error = "Please fill API Base URL and API Key before pulling models.";
+            return;
+        }
+
+        loadingProviderModelsFor = provider.id;
+        message = "";
+        error = "";
+
+        try {
+            const res = await fetch("/api/settings/provider-models", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    protocol: provider.protocol,
+                    baseUrl,
+                    apiKey,
+                    path: provider.path,
+                }),
+            });
+            const data = (await res.json()) as {
+                ok: boolean;
+                models?: string[];
+                error?: string;
+            };
+            if (!res.ok || !data.ok) {
+                throw new Error(data.error || "Failed to pull provider models");
+            }
+            discoveredProviderModels = {
+                ...discoveredProviderModels,
+                [provider.id]: Array.isArray(data.models) ? data.models : [],
+            };
+            providerModelsPulled = {
+                ...providerModelsPulled,
+                [provider.id]: true,
+            };
+            const fetchedModels = Array.isArray(data.models) ? data.models : [];
+            discoveredSelectedModel = {
+                ...discoveredSelectedModel,
+                [provider.id]: fetchedModels[0] ?? "",
+            };
+            message = `Pulled ${data.models?.length ?? 0} models from provider.`;
+        } catch (e) {
+            providerModelsPulled = {
+                ...providerModelsPulled,
+                [provider.id]: true,
+            };
+            error = e instanceof Error ? e.message : String(e);
+        } finally {
+            loadingProviderModelsFor = "";
+        }
+    }
+
+    function addDiscoveredModel(
+        providerId: string,
+        modelId: string,
+    ): void {
+        const normalized = modelId.trim();
+        if (!normalized) return;
+        updateProviderById(providerId, (provider) => {
+            if (provider.models.some((row) => row.id.trim() === normalized)) {
+                return provider;
+            }
+            return {
+                ...provider,
+                models: [
+                    {
+                        id: normalized,
+                        tags: ["text"] as ModelCapabilityTag[],
+                        supportedRoles: ["system", "user", "assistant", "tool"],
+                    },
+                    ...provider.models,
+                ],
+            };
+        });
+    }
+
+    function selectedDiscoveredModel(providerId: string): string {
+        return discoveredSelectedModel[providerId] ?? "";
+    }
+
     async function testProviderModel(
         providerId: string,
         modelId: string,
@@ -913,6 +1014,7 @@
         error = "";
         message = "";
         modelTestResults = {};
+        discoveredProviderModels = {};
 
         try {
             const [settingsRes, metaRes] = await Promise.all([
@@ -1784,6 +1886,72 @@
                                 + Add Model
                             </Button>
                         </div>
+
+                        {#if !isBuiltinProvider(cp)}
+                            <div class="mt-4 rounded-xl border border-[var(--border)] bg-[var(--muted)] p-4">
+                                <div class="flex flex-wrap items-center justify-between gap-3">
+                                    <div class="text-sm font-semibold text-[var(--foreground)]">
+                                        Batch pull provider models
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        on:click={() => fetchProviderModels(cp)}
+                                        disabled={loadingProviderModelsFor === cp.id || !cp.enabled}
+                                    >
+                                        {loadingProviderModelsFor === cp.id ? "拉取中..." : "拉取"}
+                                    </Button>
+                                </div>
+                                <p class="mt-2 text-xs text-[var(--muted-foreground)]">
+                                    拉取 provider `/models` 后，直接用下拉框选择并添加。
+                                </p>
+                                {#if providerModelsPulled[cp.id]}
+                                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                                        {#if discoveredModels(cp.id).length > 0}
+                                            <select
+                                                class="min-w-[280px] rounded-lg border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--ring)]"
+                                                bind:value={discoveredSelectedModel[
+                                                    cp.id
+                                                ]}
+                                            >
+                                                {#each discoveredModels(cp.id) as remoteModelId}
+                                                    <option value={remoteModelId}>
+                                                        {remoteModelId}
+                                                    </option>
+                                                {/each}
+                                            </select>
+                                        {:else}
+                                            <div class="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
+                                                已拉取，但该 provider 返回 0 个模型。
+                                            </div>
+                                        {/if}
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            on:click={() =>
+                                                addDiscoveredModel(
+                                                    cp.id,
+                                                    selectedDiscoveredModel(cp.id),
+                                                )}
+                                            disabled={!selectedDiscoveredModel(cp.id) ||
+                                                providerHasModel(
+                                                    cp,
+                                                    selectedDiscoveredModel(cp.id),
+                                                )}
+                                        >
+                                            {providerHasModel(
+                                                cp,
+                                                selectedDiscoveredModel(cp.id),
+                                            )
+                                                ? "已添加"
+                                                : "添加选中模型"}
+                                        </Button>
+                                    </div>
+                                {/if}
+                            </div>
+                        {/if}
 
                         {#if cp.models.length === 0}
                             <div

@@ -1252,17 +1252,23 @@ export class SettingsStore {
             JSON.stringify(provider.reasoningEffortMap ?? {}),
             now
           );
+          const seenModelIds = new Set<string>();
+          let orderIndex = 0;
           for (let index = 0; index < provider.models.length; index += 1) {
             const model = provider.models[index];
+            const modelId = String(model.id ?? "").trim();
+            if (!modelId || seenModelIds.has(modelId)) continue;
+            seenModelIds.add(modelId);
             insertModel.run(
               provider.id,
-              model.id,
+              modelId,
               JSON.stringify(model.tags ?? []),
               JSON.stringify(model.supportedRoles ?? []),
               JSON.stringify(model.verification ?? null),
-              index,
+              orderIndex,
               now
             );
+            orderIndex += 1;
           }
         }
       }
