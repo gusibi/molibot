@@ -1261,12 +1261,12 @@
                 AI Routing.
             </p>
         </header>
-        <a
-            class="inline-flex items-center justify-center rounded-md border border-border bg-card px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted"
+        <Button
+            variant="outline"
             href="/settings/ai/routing"
         >
             Open routing
-        </a>
+        </Button>
     </div>
 
     {#if loading}
@@ -1282,8 +1282,8 @@
         >
             <!-- Providers List Pane -->
             <aside class="w-full shrink-0 md:w-[300px] xl:w-[320px]">
-                <div
-                    class="provider-panel sticky top-6 flex flex-col space-y-4 overflow-y-auto p-5 md:max-h-[calc(100vh-9rem)]"
+                <Card
+                    class="sticky top-6 flex flex-col space-y-4 overflow-y-auto p-5 md:max-h-[calc(100vh-9rem)]"
                 >
                     <div class="flex items-center justify-between">
                         <h2
@@ -1294,28 +1294,24 @@
                     </div>
 
                     <div class="grid grid-cols-2 gap-2">
-                        <button
+                        <Button
                             type="button"
-                            class={`cursor-pointer rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors ${
-                                activeProviderTab === "builtin"
-                                    ? "border-[var(--ring)] bg-[color-mix(in_oklab,var(--accent)_45%,transparent)] text-foreground"
-                                    : "border-border bg-card text-muted-foreground hover:bg-muted"
-                            }`}
+                            variant={activeProviderTab === "builtin" ? "secondary" : "outline"}
+                            size="sm"
+                            class="h-auto py-2 text-xs font-semibold uppercase tracking-wider"
                             onclick={() => switchProviderTab("builtin")}
                         >
                             Built-in
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                             type="button"
-                            class={`cursor-pointer rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors ${
-                                activeProviderTab === "custom"
-                                    ? "border-[var(--ring)] bg-[color-mix(in_oklab,var(--accent)_45%,transparent)] text-foreground"
-                                    : "border-border bg-card text-muted-foreground hover:bg-muted"
-                            }`}
+                            variant={activeProviderTab === "custom" ? "secondary" : "outline"}
+                            size="sm"
+                            class="h-auto py-2 text-xs font-semibold uppercase tracking-wider"
                             onclick={() => switchProviderTab("custom")}
                         >
                             Custom
-                        </button>
+                        </Button>
                     </div>
 
                     {#if activeProviderTab === "builtin"}
@@ -1327,22 +1323,17 @@
                             shared routing pool.
                         </div>
                     {:else}
-                        <button
+                        <Button
                             type="button"
-                            class="flex cursor-pointer items-center justify-center rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-muted"
+                            variant="outline"
+                            size="sm"
                             onclick={addCustomProvider}
                         >
                             + Create Custom Provider
-                        </button>
+                        </Button>
                     {/if}
 
-                    <div class="relative">
-                        <input
-                            class="w-full rounded-xl border border-[var(--input)] bg-card px-4 py-2.5 text-sm text-foreground outline-none focus:border-[var(--input)]"
-                            bind:value={providerSearch}
-                            placeholder="Search provider..."
-                        />
-                    </div>
+                    <Input bind:value={providerSearch} placeholder="Search provider..." />
 
                     <div class="flex flex-col space-y-2">
                         {#if filteredCustomProviders().length === 0}
@@ -1354,12 +1345,13 @@
                         {/if}
 
                         {#each filteredCustomProviders() as provider (provider.id)}
-                            <button
+                            <Button
                                 type="button"
-                                    class={`flex cursor-pointer flex-col gap-1 rounded-xl border px-4 py-3 text-left transition-all ${
+                                variant="ghost"
+                                class={`h-auto w-full flex-col items-start gap-1 px-4 py-3 text-left transition-all ${
                                     selectedProviderId === provider.id
-                                        ? "border-[var(--ring)] bg-[color-mix(in_oklab,var(--accent)_35%,transparent)] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
-                                        : "border-border bg-card hover:border-[var(--input)] hover:bg-muted"
+                                        ? "bg-muted text-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
+                                        : "text-foreground hover:bg-muted"
                                 }`}
                                 onclick={() =>
                                     (selectedProviderId = provider.id)}
@@ -1411,17 +1403,15 @@
                                             : "Unavailable"}
                                     </span>
                                 </div>
-                            </button>
+                            </Button>
                         {/each}
                     </div>
-                </div>
+                </Card>
             </aside>
 
             <!-- Provider Edit Pane -->
             <section class="flex-1 min-w-0">
-                <div
-                    class="provider-panel p-6"
-                >
+                <Card class="p-6">
                     {#if getSelectedProviderInActiveTab()}
                         {@const cp = getSelectedProviderInActiveTab()!}
 
@@ -1435,18 +1425,10 @@
                             </h2>
 
                             <div class="flex flex-wrap gap-2">
-                                <label
-                                    class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold uppercase tracking-normal text-foreground"
-                                >
-                                    <input
-                                        type="checkbox"
+                                <label class="inline-flex cursor-pointer items-center gap-2 text-xs font-semibold uppercase tracking-normal text-foreground">
+                                    <Checkbox
                                         checked={cp.enabled}
-                                        onchange={(e) =>
-                                            setProviderEnabled(
-                                                cp.id,
-                                                (e.currentTarget as HTMLInputElement)
-                                                    .checked,
-                                            )}
+                                        onclick={() => setProviderEnabled(cp.id, !cp.enabled)}
                                     />
                                     Enabled
                                 </label>
@@ -1474,46 +1456,45 @@
                             </div>
                         </div>
 
-                        <div
-                            class="provider-savebar mt-5 flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between"
+                        <Card
+                            class="mt-5 flex flex-col gap-3 bg-muted/40 p-4 lg:flex-row lg:items-center lg:justify-between"
                         >
                             <label class="flex flex-col gap-2 text-sm sm:flex-row sm:items-center">
                                 <span class="font-semibold text-foreground"
                                     >Default model in this provider</span
                                 >
-                                <select
-                                    class="min-w-[220px] rounded-lg border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-3 py-2 outline-none transition-colors focus:border-ring"
+                                <NativeSelect
+                                    class="min-w-[220px]"
                                     bind:value={cp.defaultModel}
                                     disabled={!cp.enabled}
                                 >
-                                    <option value="">(None)</option>
+                                    <NativeSelectOption value="">(None)</NativeSelectOption>
                                     {#each modelIds(cp) as modelId}
-                                        <option value={modelId}
-                                            >{modelId}</option
-                                        >
+                                        <NativeSelectOption value={modelId}>{modelId}</NativeSelectOption>
                                     {/each}
-                                </select>
+                                </NativeSelect>
                             </label>
 
                             <div class="flex flex-wrap items-center gap-3">
                                 {#if message}
-                                    <span
-                                        class="status-text success"
-                                        >{message}</span
-                                    >
+                                    <Alert class="min-w-0 flex-1 px-3 py-2">
+                                        <AlertDescription class="whitespace-pre-wrap break-words text-xs font-semibold text-foreground">
+                                            {message}
+                                        </AlertDescription>
+                                    </Alert>
                                 {/if}
                                 {#if error}
-                                    <span
-                                        class="status-text error"
-                                        title={error}>{error}</span
-                                    >
+                                    <Alert variant="destructive" class="min-w-0 flex-1 px-3 py-2" title={error}>
+                                        <AlertDescription class="whitespace-pre-wrap break-words text-xs font-semibold">
+                                            {error}
+                                        </AlertDescription>
+                                    </Alert>
                                 {/if}
 
                                 <Button
                                     type="submit"
                                     variant="default"
-                                    size="md"
-                                    className="shrink-0"
+                                    class="shrink-0"
                                     disabled={saving}
                                 >
                                     {saving
@@ -1521,28 +1502,21 @@
                                         : "Save Provider Settings"}
                                 </Button>
                             </div>
-                        </div>
+                        </Card>
 
                         <div class="mt-6 grid gap-5 md:grid-cols-2">
                             <label class="grid gap-2 text-sm">
                                 <span class="font-medium text-foreground"
                                     >Provider ID</span
                                 >
-                                <input
-                                    class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-ring"
-                                    bind:value={cp.id}
-                                    disabled={isBuiltinProvider(cp)}
-                                />
+                                <Input bind:value={cp.id} disabled={isBuiltinProvider(cp)} />
                             </label>
 
                             <label class="grid gap-2 text-sm">
                                 <span class="font-medium text-foreground"
                                     >Display Name</span
                                 >
-                                <input
-                                    class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-ring"
-                                    bind:value={cp.name}
-                                />
+                                <Input bind:value={cp.name} />
                             </label>
                             {#if isBuiltinProvider(cp)}
                                 {@const authGuide = builtinAuthGuide(cp.id)}
@@ -1623,8 +1597,8 @@
                                         <span class="font-medium text-foreground"
                                             >API Key Override (Optional)</span
                                         >
-                                        <input
-                                            class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 font-mono text-sm tracking-widest outline-none transition-colors focus:border-ring focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
+                                        <Input
+                                            class="font-mono tracking-widest"
                                             bind:value={cp.apiKey}
                                             type="password"
                                             placeholder="Leave empty to use env/OAuth source"
@@ -1638,8 +1612,8 @@
                                     <span class="font-medium text-foreground"
                                         >Protocol</span
                                     >
-                                    <select
-                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-ring focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
+                                    <NativeSelect
+                                        class="w-full"
                                         value={cp.protocol}
                                         onchange={(event) =>
                                             setProviderProtocol(
@@ -1649,13 +1623,13 @@
                                                 ),
                                             )}
                                     >
-                                        <option value="openai-compatible">
+                                        <NativeSelectOption value="openai-compatible">
                                             OpenAI-compatible
-                                        </option>
-                                        <option value="anthropic">
+                                        </NativeSelectOption>
+                                        <NativeSelectOption value="anthropic">
                                             Anthropic Messages
-                                        </option>
-                                    </select>
+                                        </NativeSelectOption>
+                                    </NativeSelect>
                                 </label>
 
                                 <label
@@ -1664,11 +1638,7 @@
                                     <span class="font-medium text-foreground"
                                         >API Base URL</span
                                     >
-                                    <input
-                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-ring focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
-                                        bind:value={cp.baseUrl}
-                                        placeholder="https://api.openai.com"
-                                    />
+                                    <Input bind:value={cp.baseUrl} placeholder="https://api.openai.com" />
                                 </label>
 
                                 <label
@@ -1677,12 +1647,9 @@
                                     <span class="font-medium text-foreground"
                                         >Path Endpoint</span
                                     >
-                                    <input
-                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-ring focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
+                                    <Input
                                         bind:value={cp.path}
-                                        placeholder={defaultPathForProtocol(
-                                            cp.protocol,
-                                        )}
+                                        placeholder={defaultPathForProtocol(cp.protocol)}
                                     />
                                 </label>
 
@@ -1692,20 +1659,17 @@
                                     <span class="font-medium text-foreground"
                                         >Thinking Support</span
                                     >
-                                    <select
-                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-ring focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
-                                        bind:value={cp.thinkingSupportMode}
-                                    >
-                                        <option value="auto">
+                                    <NativeSelect class="w-full" bind:value={cp.thinkingSupportMode}>
+                                        <NativeSelectOption value="auto">
                                             Not enabled / unknown
-                                        </option>
-                                        <option value="enabled">
+                                        </NativeSelectOption>
+                                        <NativeSelectOption value="enabled">
                                             Enabled
-                                        </option>
-                                        <option value="disabled">
+                                        </NativeSelectOption>
+                                        <NativeSelectOption value="disabled">
                                             Disabled
-                                        </option>
-                                    </select>
+                                        </NativeSelectOption>
+                                    </NativeSelect>
                                 </label>
 
                                 <label
@@ -1714,36 +1678,33 @@
                                     <span class="font-medium text-foreground"
                                         >Thinking Format</span
                                     >
-                                    <select
-                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-ring focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
-                                        bind:value={cp.thinkingFormat}
-                                    >
-                                        <option value="auto">
+                                    <NativeSelect class="w-full" bind:value={cp.thinkingFormat}>
+                                        <NativeSelectOption value="auto">
                                             Auto / OpenAI fallback
-                                        </option>
-                                        <option value="openai">
+                                        </NativeSelectOption>
+                                        <NativeSelectOption value="openai">
                                             OpenAI `reasoning_effort`
-                                        </option>
-                                        <option value="openrouter">
+                                        </NativeSelectOption>
+                                        <NativeSelectOption value="openrouter">
                                             OpenRouter `reasoning.effort`
-                                        </option>
-                                        <option value="anthropic">
+                                        </NativeSelectOption>
+                                        <NativeSelectOption value="anthropic">
                                             Anthropic adaptive `thinking`
-                                        </option>
-                                        <option value="deepseek">
+                                        </NativeSelectOption>
+                                        <NativeSelectOption value="deepseek">
                                             DeepSeek `thinking.type` + `reasoning_effort`
-                                        </option>
-                                        <option value="zai">
+                                        </NativeSelectOption>
+                                        <NativeSelectOption value="zai">
                                             z.ai `enable_thinking`
-                                        </option>
-                                        <option value="qwen">
+                                        </NativeSelectOption>
+                                        <NativeSelectOption value="qwen">
                                             Qwen `enable_thinking`
-                                        </option>
-                                        <option value="qwen-chat-template">
+                                        </NativeSelectOption>
+                                        <NativeSelectOption value="qwen-chat-template">
                                             Qwen
                                             `chat_template_kwargs.enable_thinking`
-                                        </option>
-                                    </select>
+                                        </NativeSelectOption>
+                                    </NativeSelect>
                                 </label>
 
                                 <div class="grid gap-3 text-sm md:col-span-2">
@@ -1774,8 +1735,8 @@
                                                 <span class="font-medium text-foreground"
                                                     >Reasoning Effort Mapping</span
                                                 >
-                                                <select
-                                                    class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-ring focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
+                                                <NativeSelect
+                                                    class="w-full"
                                                     value={reasoningEffortMappingMode(
                                                         cp,
                                                     )}
@@ -1786,13 +1747,13 @@
                                                                 .value as ReasoningEffortMappingMode,
                                                         )}
                                                 >
-                                                    <option value="auto">
+                                                    <NativeSelectOption value="auto">
                                                         Auto (recommended)
-                                                    </option>
-                                                    <option value="custom">
+                                                    </NativeSelectOption>
+                                                    <NativeSelectOption value="custom">
                                                         Custom override
-                                                    </option>
-                                                </select>
+                                                    </NativeSelectOption>
+                                                </NativeSelect>
                                             </label>
                                             <p class="text-xs leading-5 text-muted-foreground">
                                                 Auto maps low / medium / high for
@@ -1820,8 +1781,8 @@
                                                             class="font-medium capitalize text-muted-foreground"
                                                             >{level}</span
                                                         >
-                                                        <select
-                                                            class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 outline-none transition-colors focus:border-ring focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
+                                                        <NativeSelect
+                                                            class="w-full"
                                                             value={cp
                                                                 .reasoningEffortMap[
                                                                 level
@@ -1840,13 +1801,13 @@
                                                                 )}
                                                         >
                                                             {#each reasoningEffortOptions(cp.thinkingFormat) as option}
-                                                                <option
+                                                                <NativeSelectOption
                                                                     value={option}
                                                                 >
                                                                     {option}
-                                                                </option>
+                                                                </NativeSelectOption>
                                                             {/each}
-                                                        </select>
+                                                        </NativeSelect>
                                                     </label>
                                                 {/each}
                                             </div>
@@ -1865,8 +1826,8 @@
                                     <span class="font-medium text-foreground"
                                         >API Signature / Key</span
                                     >
-                                    <input
-                                        class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-2.5 font-mono text-sm tracking-widest outline-none transition-colors focus:border-ring focus:bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
+                                    <Input
+                                        class="font-mono tracking-widest"
                                         bind:value={cp.apiKey}
                                         type="password"
                                         placeholder="sk-..."
@@ -1917,18 +1878,18 @@
                                 {#if providerModelsPulled[cp.id]}
                                     <div class="mt-3 flex flex-wrap items-center gap-2">
                                         {#if discoveredModels(cp.id).length > 0}
-                                            <select
-                                                class="min-w-[280px] rounded-lg border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-3 py-2 text-sm outline-none transition-colors focus:border-ring"
+                                            <NativeSelect
+                                                class="min-w-[280px]"
                                                 bind:value={discoveredSelectedModel[
                                                     cp.id
                                                 ]}
                                             >
                                                 {#each discoveredModels(cp.id) as remoteModelId}
-                                                    <option value={remoteModelId}>
+                                                    <NativeSelectOption value={remoteModelId}>
                                                         {remoteModelId}
-                                                    </option>
+                                                    </NativeSelectOption>
                                                 {/each}
-                                            </select>
+                                            </NativeSelect>
                                         {:else}
                                             <div class="rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
                                                 已拉取，但该 provider 返回 0 个模型。
@@ -1988,11 +1949,7 @@
                                             <span class="hidden sr-only"
                                                 >Model ID</span
                                             >
-                                            <input
-                                                class="w-full rounded-lg border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_48%,var(--card))] px-4 py-2 text-sm outline-none transition-colors focus:border-ring"
-                                                bind:value={model.id}
-                                                placeholder="e.g. gpt-4o"
-                                            />
+                                            <Input bind:value={model.id} placeholder="e.g. gpt-4o" />
                                         </label>
 
                                         {#if !isBuiltinProvider(cp)}
@@ -2000,7 +1957,7 @@
                                                 type="button"
                                                 variant="outline"
                                                 size="sm"
-                                                className="col-span-1 sm:col-span-1"
+                                                class="col-span-1 sm:col-span-1"
                                                 onclick={() =>
                                                     testProviderModel(
                                                         cp.id,
@@ -2021,7 +1978,7 @@
                                                 type="button"
                                                 variant="outline"
                                                 size="sm"
-                                                className="col-span-1 sm:col-span-1"
+                                                class="col-span-1 sm:col-span-1"
                                                 disabled={true}
                                                 title="Built-in providers use native APIs; OpenAI compatibility test is not applicable."
                                             >
@@ -2033,7 +1990,7 @@
                                             type="button"
                                             variant="destructive"
                                             size="sm"
-                                            className="col-span-1 sm:col-span-1"
+                                            class="col-span-1 sm:col-span-1"
                                             onclick={() =>
                                                 removeModel(cp.id, index)}
                                         >
@@ -2073,30 +2030,21 @@
                                         </div>
                                         <div class="flex flex-wrap gap-2">
                                             {#each capabilityTags as tag}
-                                                <label
-                                                    class={`inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors ${
+                                                <Button
+                                                    type="button"
+                                                    variant={model.tags.includes(tag) ? "secondary" : "outline"}
+                                                    size="xs"
+                                                    class={`h-auto px-2.5 py-1 text-xs ${
                                                         model.tags.includes(tag)
-                                                            ? "bg-[color-mix(in_oklab,hsl(146_55%_42%)_14%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))] ring-1 ring-inset ring-[color-mix(in_oklab,hsl(146_55%_42%)_34%,var(--border))]"
-                                                            : "bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] text-muted-foreground ring-1 ring-inset ring-[color-mix(in_oklab,var(--border)_72%,transparent)] hover:bg-[color-mix(in_oklab,var(--muted)_54%,var(--card))]"
+                                                            ? "text-foreground"
+                                                            : "text-muted-foreground"
                                                     }`}
+                                                    onclick={() => toggleTag(cp.id, index, tag)}
                                                 >
-                                                    <input
-                                                        type="checkbox"
-                                                        class="hidden"
-                                                        checked={model.tags.includes(
-                                                            tag,
-                                                        )}
-                                                        onchange={() =>
-                                                            toggleTag(
-                                                                cp.id,
-                                                                index,
-                                                                tag,
-                                                            )}
-                                                    />
                                                     <span class="font-medium"
                                                         >{tag}</span
                                                     >
-                                                </label>
+                                                </Button>
                                             {/each}
                                         </div>
 
@@ -2216,7 +2164,7 @@
                             </p>
                         </div>
                     {/if}
-                </div>
+                </Card>
             </section>
         </form>
     {/if}

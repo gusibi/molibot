@@ -134,7 +134,10 @@ export function createSkillManageTool(options: {
           toolNames: [],
           failedToolNames: [],
           explicitSkillNames: [],
-          modelFailures: []
+          modelFailures: [],
+          requestedName: name,
+          requestedDescription: description,
+          requestedTriggers: Array.isArray(params.triggers) ? params.triggers : undefined
         });
         updateLiveSkill({
           filePath: saved.filePath,

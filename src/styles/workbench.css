@@ -1710,10 +1710,7 @@
   }
 
   .ai-routing-page .routing-hero,
-  .ai-routing-page .settings-panel,
-  .providers-page .provider-panel,
-  .providers-page .provider-footer,
-  .providers-page .provider-savebar {
+  .ai-routing-page .settings-panel {
     border: 1px solid var(--border);
     border-radius: 1rem;
     box-shadow: var(--shadow-sm);
@@ -1842,10 +1839,7 @@
     grid-column: 1 / -1;
   }
 
-  .ai-routing-page .control,
-  .providers-page input,
-  .providers-page select,
-  .providers-page textarea {
+  .ai-routing-page .control {
     width: 100%;
     border: 1px solid var(--input);
     border-radius: 0.75rem;
@@ -1855,10 +1849,7 @@
     outline: none;
   }
 
-  .ai-routing-page .control:focus,
-  .providers-page input:focus,
-  .providers-page select:focus,
-  .providers-page textarea:focus {
+  .ai-routing-page .control:focus {
     border-color: var(--ring);
     box-shadow: 0 0 0 1px color-mix(in oklab, var(--ring) 22%, transparent);
   }
@@ -1883,8 +1874,7 @@
     line-height: 1.7;
   }
 
-  .ai-routing-page .action-footer,
-  .providers-page .provider-savebar {
+  .ai-routing-page .action-footer {
     position: sticky;
     top: 0.75rem;
     z-index: 20;
@@ -1906,46 +1896,19 @@
     min-width: 0;
   }
 
-  .ai-routing-page .success-text,
-  .providers-page .status-text.success {
+  .ai-routing-page .success-text {
     color: color-mix(in oklab, var(--primary) 78%, var(--foreground));
     font-size: 0.85rem;
     font-weight: 700;
   }
 
   .ai-routing-page .error-text,
-  .ai-routing-page .warning-text,
-  .providers-page .status-text.error {
+  .ai-routing-page .warning-text {
     color: var(--destructive);
     font-size: 0.85rem;
     font-weight: 700;
   }
 
-  .providers-page {
-    --provider-panel-bg: color-mix(in oklab, var(--card) 88%, transparent);
-    --provider-panel-soft: color-mix(in oklab, var(--muted) 82%, transparent);
-  }
-
-  .providers-page .provider-panel,
-  .providers-page .provider-footer,
-  .providers-page .provider-savebar {
-    background: var(--provider-panel-bg);
-  }
-
-  .providers-page .provider-footer,
-  .providers-page .provider-savebar {
-    background:
-      linear-gradient(135deg, color-mix(in oklab, var(--primary) 10%, transparent), transparent 42%),
-      var(--provider-panel-soft);
-  }
-
-  .providers-page .status-text {
-    max-width: min(100%, 52rem);
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-    font-size: 0.75rem;
-    font-weight: 700;
-  }
 
   @media (max-width: 1100px) {
     .usage-board .usage-header,

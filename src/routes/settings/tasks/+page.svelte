@@ -4,6 +4,7 @@
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
+  import { Checkbox } from "$lib/components/ui/checkbox";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
@@ -267,12 +268,11 @@
                 {#each rowsByType(type) as item (item.filePath)}
                   <TableRow class={selected.has(item.filePath) ? "bg-muted/40" : ""}>
                     <TableCell>
-                      <input
-                        type="checkbox"
-                        class="h-4 w-4 cursor-pointer rounded"
+                      <Checkbox
                         checked={selected.has(item.filePath)}
-                        onchange={() => toggleSelection(item.filePath)}
+                        onclick={() => toggleSelection(item.filePath)}
                         disabled={deleting || triggering || saving}
+                        aria-label={`Select ${item.filename}`}
                       />
                     </TableCell>
                     <TableCell>

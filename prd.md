@@ -18,6 +18,8 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - `periodic` 事件在进入执行前必须先持久化 `status.state="running"`（包含开始时间与执行标识），同一 cron 时间槽位仅允许一次有效执行；执行完成后再回写 `pending/error`，并在运行超时后可释放陈旧锁，避免长任务导致同槽位重复触发。
 - Bot 维度配置文件 `BOT.md` 必须参与系统提示词最终合并，不仅要出现在 source 列表；合并顺序至少应覆盖 `AGENTS.md -> BOT.md -> SOUL/IDENTITY/...`，确保 bot 级规则真实生效。
 - 设置页任务清单不能只停留在只读展示；运维侧至少要支持单条删除、批量选择删除，并且删除动作必须通过受限后端接口校验目标路径属于 watched events 目录，不能直接把任意文件路径暴露给前端删。
+- `/settings/skill-drafts` 的草稿内容审核区默认不得把长草稿全部展开；超过 10 行的草稿应默认只展示 10 行预览，并通过单独编辑表单查看、编辑、保存完整内容，避免多个草稿同时出现时页面难以扫读。
+- Skill Draft 的 frontmatter metadata 必须真实遵守配置的 workflow / skill-creator 规范：`name` 是稳定、简短、可复用的功能标识，不得直接使用用户原话、抱怨句或“重试一下”这类本轮操作文本；用户原话只应出现在触发描述、示例或正文上下文中。
 - 事件发送层需要对瞬时网络故障具备有限自愈能力；至少应支持一次立即重试和短退避重试，并在设置页提供人工“立即触发/重试”入口，方便验证任务发送链路而不必等待下一个计划时间。
 - Telegram agent 的调度落地必须唯一走 watched event JSON 文件；不得退化为 memory 记录，也不得绕过 runtime 事件系统直接写入 OS 级调度器（如 `crontab` / `at` / `launchctl` / `schtasks`）。
 - `package/mory` 作为独立 SDK 应当自带可用数据库 driver 与安装依赖；不能只提供 `SqliteDriver` / `PgDriver` 接口再把真实驱动实现完全留给外部宿主。
@@ -29,6 +31,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - 当 `visionModelKey` 明确配置为不同于 `textModelKey` 的可视觉模型时，图片消息必须优先走该 vision 路由；如果图片识别模型请求失败但备用模型恢复成功，需要先发送独立的用户可见失败说明，再继续模型处理。
 - `/settings/ai/providers` 的 custom provider 模型管理应支持“批量发现 + 手动确认加入”：页面提供一次性拉取远端 `/models` 的入口，拉取结果逐条展示并由用户点击 `+` 后才写入本地 provider 模型清单，避免只能手填模型 ID。
 - `/api/settings` 在持久化 custom provider 模型时必须容忍重复输入：同一 provider 下重复的 `model_id` 与空 model 行应在保存阶段自动去重/跳过，不能把数据库唯一键错误暴露给前端。
+- Settings 页面迁移到 shadcn-svelte 后，同一页面内的表单控件、选择控件、状态反馈、卡片和按钮应优先使用 `src/lib/components/ui` 下的源码组件，避免再用页面级原生控件或全局 workbench CSS 复刻同一套交互状态。
 - 自定义 provider 的图片原生直传必须以模型 `vision` 验证通过为前提；只声明 `vision` 但未验证通过时，应先走共享的 direct image-understanding fallback payload，备用模型也不得仅凭 `vision` tag 宣告原生图片输入，避免把图片交给未确认兼容的流式 SDK transport。
 - 入队后的图片消息必须在共享队列恢复阶段从附件文件重建 `imageContents`；Channel 可以为了持久化队列清空 base64，但恢复时必须使用 workspace-relative path 读回图片，否则 runner 不得只把图片路径交给模型猜测。
 - 当且仅当 provider 显式配置为 Anthropic 协议时，Anthropic/MiMo Messages API 请求不得把 `system` 或 `developer` 作为 `messages[].role` 发送；系统提示和开发者提示必须合并到顶层 `system` 字段，`messages` 内只保留模型协议允许的对话角色。
@@ -129,6 +132,8 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-178 | Subagent model route and runtime visibility | P1 | Delivered (2026-05-01) | AI Routing should expose a dedicated subagent fallback route plus Claude Code-style `haiku` / `sonnet` / `opus` / `thinking` level mappings, built-in subagent definitions should be visible read-only in Agents settings behind one Subagents navigation entry, the displayed effective model should match runtime resolution, Web/Telegram traces should show subagent tool usage, and Telegram tool result summaries should stay compact |
 | P1-179 | Subagent early-delegation budget strategy | P1 | Delivered (2026-05-01) | Codebase-heavy parent runs should be instructed to use subagents before exhausting the 24-tool hard limit, and runtime should inject a transient delegation notice after sustained direct tool use when no subagent has been used yet |
 | P1-180 | Telegram typing action failure must not abort run | P1 | Delivered (2026-05-04) | `sendChatAction(typing)` failure in Telegram runtime should be treated as non-critical transport noise: keep retry/timeout logs for diagnostics, but never let typing-action exhaustion terminate the active run or suppress final user-visible answer/error messages |
+| P1-181 | Skill Draft metadata must use reusable skill identifiers | P1 | Delivered (2026-05-06) | Automatic and manual Skill Draft generation should normalize `name` / `description` / `aliases` through a skill-creator-aware metadata step, so raw user messages, complaint wording, or generic retry commands are preserved only as trigger context and never become the draft skill name |
+| P1-182 | Skill Draft metadata subagent execution path | P1 | Delivered (2026-05-06) | Automatic Skill Draft saves should exercise a dedicated read-only `skill-drafter` subagent to generate frontmatter metadata, while preserving local normalization fallback if the subagent fails, returns invalid JSON, or is unavailable |
 | P1-162 | Cache-safe time awareness split | P1 | Delivered (2026-04-26) | Current-time awareness should live in the live per-message env wrapper instead of the runtime-owned system prompt, so prompt caching is not invalidated by time-bearing guidance that no longer needs to be in the cached system layer |
 | P2-160 | AI Providers maintenance UX | P2 | Delivered (2026-04-24) | Providers settings should reduce long-list noise and thinking-config misinterpretation with an earlier two-pane layout, independently scrolling provider list, collapsed built-in models, and explicit reasoning parameter guidance |
 | P1-165 | DeepSeek v4 upstream compatibility | P1 | Delivered (2026-04-25) | Runtime should use pi-mono's built-in DeepSeek v4 provider support instead of Molibot-specific payload patches, migrate stale `custom|deepseek|...` routes to built-in `pi|deepseek|...` routes, and keep only generic old-session cleanup for orphan tool-result messages |
@@ -2581,6 +2586,8 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `Skill Drafts` 设置页必须允许配置“什么时候自动保存草稿”，至少支持总开关、最少工具调用次数，以及是否把“工具失败后恢复成功”“模型重试/回退成功”视为可保存场景。
   - `Skill Drafts` 设置页必须允许指定一个标准 workflow `SKILL.md` 路径；如果没有配置这个路径，就不能打开自动生成开关。
   - 自动生成草稿时，如果已经配置标准 workflow，新草稿必须优先复用该 workflow 的章节骨架，而不是继续使用松散的默认格式。
+  - 自动生成草稿时，frontmatter metadata 必须单独规范化：`name` 使用稳定功能标识，`description` 描述功能和触发场景，不能把本轮用户消息原样当作 `name`。
+  - 自动生成草稿时，应优先调用专用 `skill-drafter` subagent 生成 metadata；如果子代理失败或输出不可解析，必须回退到本地规范化逻辑，不能阻断草稿保存。
 - Enforcement:
   - `src/lib/server/settings/{schema,defaults,store}.ts` 与 `src/lib/server/app/runtime.ts` 必须持久化并校验新的 `skillDrafts` 配置。
   - `src/lib/server/agent/runner.ts` 必须在决定是否保存草稿时使用新配置。

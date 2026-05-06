@@ -14,13 +14,14 @@ test("checked-in subagents use model levels instead of concrete Claude models", 
   const subagents = listBuiltInSubagents();
   assert.equal(subagents.find((agent) => agent.name === "scout")?.modelLevel, "haiku");
   assert.equal(subagents.find((agent) => agent.name === "planner")?.modelLevel, "sonnet");
+  assert.equal(subagents.find((agent) => agent.name === "skill-drafter")?.modelLevel, "haiku");
   assert.equal(subagents.some((agent) => String(agent.modelHint ?? "").startsWith("claude-")), false);
 });
 
 test("subagent model route overrides model level fallback", () => {
   const settings = {
     ...defaultRuntimeSettings,
-    piModelProvider: "openai",
+    piModelProvider: "openai" as const,
     piModelName: "gpt-4.1-mini",
     modelRouting: {
       ...defaultRuntimeSettings.modelRouting,
@@ -38,7 +39,7 @@ test("subagent model route overrides model level fallback", () => {
 test("subagent model level route overrides generic subagent route", () => {
   const settings = {
     ...defaultRuntimeSettings,
-    piModelProvider: "openai",
+    piModelProvider: "openai" as const,
     piModelName: "gpt-4.1-mini",
     modelRouting: {
       ...defaultRuntimeSettings.modelRouting,

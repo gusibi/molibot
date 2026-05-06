@@ -6,10 +6,18 @@
 
 ## 2026-05-06
 
+### Skill Draft metadata 规范化
+- **skill-creator 规则落地**: 自动 Skill Draft 生成现在会在配置的 workflow `SKILL.md` 使用 skill-creator 规则时，按“功能标识符 + 触发描述”生成 frontmatter metadata，不再把用户原话直接写成 `name`。
+- **专用子代理生成**: 新增内置 `skill-drafter` subagent；自动保存草稿前会优先用隔离子代理生成 metadata，失败时回退到本地规范化逻辑。
+- **重试类消息兜底**: “重试一下 / 再试一次”这类泛化消息不会成为草稿名；系统会优先从最终结果和工具路径推断可复用功能名。
+- **回归覆盖**: 新增自演化测试覆盖昨日数据回顾命名和重试消息命名，保证草稿 `name` 保持可用。
+
 ### Settings shadcn-svelte 迁移基线
 - **组件体系切换起点**: 新增 shadcn-svelte `components.json`，并生成 Settings 后续会复用的 Button、Card、Alert、Badge、Input、NativeSelect、Separator、Table、Tabs 等源码组件。
 - **系统配置页样板**: `/settings/system` 已从旧本地 UI wrapper 和 workbench 页面样式迁移到 shadcn 风格的语义组件组合，作为后续 Settings 页面迁移模板。
 - **Web Profiles 表单样板**: `/settings/web` 已迁移为 shadcn 风格的 profile 列表 + 配置表单，覆盖 Switch、NativeSelect、Textarea、Skeleton loading 和 Alert feedback 等更常见的管理页控件。
+- **Providers/Tasks 补齐**: `/settings/ai/providers` 的 provider/model 表单、状态反馈和模型发现控件已切到 shadcn-svelte 组件；`/settings/tasks` 行选择框改用共享 Checkbox；旧 providers-page 全局样式钩子已移除。
+- **Skill Drafts 扫读优化**: `/settings/skill-drafts` 的长草稿内容默认只显示前 10 行，完整内容通过弹窗表单编辑并保存。
 - **聊天页不变**: 本轮只迁移 Settings 基础组件、系统配置页和 Web Profiles 页，主聊天页未改动。
 
 ---

@@ -60,7 +60,8 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **MiMo/Anthropic-Compatible Roles**: providers configured as Anthropic keep system instructions in the top-level `system` field, reserve `messages` for conversational roles, and log redacted image-fallback request payloads for debugging
 - **Time-Aware Prompting**: each live user turn can carry structured current-time metadata (`message_received_at` / `timezone` / `today`) for better date-sensitive replies
 - **Subagent Model Routing**: delegated scout/planner/worker/reviewer runs use configurable `haiku` / `sonnet` / `opus` / `thinking` model levels plus a subagent fallback route, with early-delegation nudges before parent runs exhaust the 24-tool budget
-- **Settings shadcn-svelte Baseline**: Settings UI is moving toward source-owned shadcn-svelte components for cleaner, consistent forms and admin pages; `/settings/system` and `/settings/web` are the first migrated samples
+- **Skill Draft Governance**: reusable workflow drafts use a dedicated `skill-drafter` subagent plus skill-creator-aware local fallback so draft names stay concise and reusable instead of mirroring raw user messages or retry prompts
+- **Settings shadcn-svelte Baseline**: Settings UI is moving toward source-owned shadcn-svelte components for cleaner, consistent forms and admin pages; `/settings/system`, `/settings/web`, `/settings/ai/providers`, and `/settings/tasks` now use the shared component baseline for key forms and controls
 - **Current-Session File Workspace**: Web chat now includes a real files pane with searchable attachment inventory, inline preview for common formats, downloads, and copy-path actions
 - **Operational Settings UI**: AI routing, agents, ACP targets, tasks, memory, skills, MCP servers
 - **Safer Settings Persistence**: `settings.json + settings.sqlite` split design with relational tables
@@ -115,6 +116,12 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Skill-Gated Activation**: Explicit skill invocation required for MCP activation
 - **Dynamic Loading**: `load_mcp` tool for runtime server management
 - **Settings UI**: Visual editor for MCP server configuration
+
+### Skills and Drafts
+- **Multi-Scope Skills**: global, bot, and chat skills load with deterministic precedence
+- **Skill Draft Review**: `/settings/skill-drafts` lists generated drafts for review and promotion
+- **skill-drafter Subagent**: automatic draft saves first ask a read-only `haiku`-level subagent to generate frontmatter metadata, then fall back to local normalization if the subagent cannot return valid JSON
+- **skill-creator Metadata Rules**: automatic drafts normalize `name`, `description`, and `aliases` separately from raw user text, keeping user messages as trigger context rather than unusable skill identifiers
 
 ### Profile-Driven Architecture
 - **Three-Layer System**: Global, Agent, Bot/Profile prompt system
@@ -268,11 +275,12 @@ Open: `http://localhost:3000`
 ### Core Configuration
 - `/settings` - Overview and workbench entry hub
 - `/settings/system` - Language, runtime timezone, and read-only GitHub/deployment version information; migrated to the shadcn-svelte Settings style
-- `/settings/ai` - AI providers, models, routing, including the dedicated subagent fallback route, subagent model-level mappings, usage tracking, cache-hit trend visibility, auto-refreshing time windows, and runtime timezone dropdown
+- `/settings/ai` - AI providers, models, routing, including the dedicated subagent fallback route, subagent model-level mappings, usage tracking, cache-hit trend visibility, auto-refreshing time windows, runtime timezone dropdown, and shadcn-svelte provider/model forms
 - `/settings/agents` - Agent library with Markdown prompt files plus a separate read-only Subagents view for built-in delegation roles, abstract model levels, and their effective model source
+- `/settings/skill-drafts` - Review generated reusable workflow drafts with long draft content shown as a 10-line preview and full editing handled in a focused modal form
 - `/settings/web` - Web profiles and identity binding; migrated to the shadcn-svelte Settings style
 
-Settings pages are moving progressively toward shadcn-svelte components and semantic design tokens. `/settings/system` and `/settings/web` are migrated samples; older Settings pages may still use the prior workbench layer until they are migrated.
+Settings pages are moving progressively toward shadcn-svelte components and semantic design tokens. `/settings/system`, `/settings/web`, `/settings/ai/providers`, and `/settings/tasks` now cover the main form, provider, and table-control patterns; older Settings pages may still use the prior workbench layer until they are migrated.
 
 ### Channel Configuration
 - `/settings/telegram` - Multi-bot instances, ACP control, and credentials

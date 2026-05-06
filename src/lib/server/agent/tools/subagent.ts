@@ -31,7 +31,7 @@ import { createEditTool } from "./edit.js";
 import { createReadTool } from "./read.js";
 import { createWriteTool } from "./write.js";
 
-const SUBAGENT_NAMES = ["scout", "planner", "worker", "reviewer"] as const;
+const SUBAGENT_NAMES = ["scout", "planner", "worker", "reviewer", "skill-drafter"] as const;
 type SubagentName = (typeof SUBAGENT_NAMES)[number];
 const SUBAGENT_MODEL_LEVELS = ["haiku", "sonnet", "opus", "thinking"] as const;
 type SubagentModelLevel = (typeof SUBAGENT_MODEL_LEVELS)[number];
@@ -72,7 +72,7 @@ interface UsageStats {
   turns: number;
 }
 
-interface SubagentRunResult {
+export interface SubagentRunResult {
   agent: SubagentName;
   task: string;
   output: string;
@@ -134,7 +134,8 @@ const MODEL_REASONING_HINTS: Record<SubagentName, ThinkingLevel> = {
   scout: "low",
   planner: "medium",
   worker: "medium",
-  reviewer: "medium"
+  reviewer: "medium",
+  "skill-drafter": "low"
 };
 
 let cachedRegistry: Map<SubagentName, SubagentDefinition> | null = null;
@@ -656,6 +657,25 @@ async function runSingleSubagent(
   }
 }
 
+export async function runBuiltInSubagentTask(options: {
+  agent: string;
+  task: string;
+  cwd: string;
+  workspaceDir: string;
+  chatId: string;
+  settings: RuntimeSettings;
+  signal?: AbortSignal;
+}): Promise<SubagentRunResult> {
+  const agent = getSubagentDefinition(options.agent);
+  return runSingleSubagent(agent, options.task, {
+    cwd: options.cwd,
+    workspaceDir: options.workspaceDir,
+    chatId: options.chatId,
+    settings: options.settings,
+    signal: options.signal
+  });
+}
+
 async function mapWithConcurrency<TIn, TOut>(
   rows: TIn[],
   concurrency: number,
@@ -707,7 +727,11 @@ export function createSubagentTool(options: {
       });
 
       onUpdate?.({
-        content: [{ type: "text", text: buildStatusText(parsed.mode, 0, parsed.tasks.length) }]
+        content: [{ type: "text", text: buildStatusText(parsed.mode, 0, parsed.tasks.length) }],
+        details: {
+          mode: parsed.mode,
+          results: []
+        }
       });
 
       const finished: SubagentRunResult[] = [];

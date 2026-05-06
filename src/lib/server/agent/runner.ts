@@ -10,6 +10,7 @@ import { momError, momLog, momWarn } from "./log.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { buildRunReflection, formatRunClosingNote, type RunSummary } from "./runSummary.js";
 import { saveSkillDraft, shouldSuggestSkillDraft } from "./skillDraft.js";
+import { buildSkillDraftMetadataViaSubagent } from "./skillDraftSubagent.js";
 import { DEFAULT_RUN_BUDGET, RunBudget } from "./runtimeBudget.js";
 import { MomRuntimeStore } from "./store.js";
 import { applyAssistantStreamEvent } from "./assistantStream.js";
@@ -2706,6 +2707,18 @@ export class MomRunner implements RunnerLike {
           settings: settings.skillDrafts
         })
       ) {
+        const templateSkillPath = String(settings.skillDrafts.template.skillPath ?? "").trim();
+        const draftMetadata = await buildSkillDraftMetadataViaSubagent({
+          userMessage: effectiveInputText,
+          finalAnswer: finalText,
+          toolNames: usedToolNames,
+          templateSkillPath
+        }, {
+          cwd: this.store.getScratchDir(this.chatId),
+          workspaceDir: this.store.getWorkspaceDir(),
+          chatId: this.chatId,
+          settings
+        });
         savedSkillDraft = saveSkillDraft({
           workspaceDir: this.store.getWorkspaceDir(),
           chatId: this.chatId,
@@ -2715,6 +2728,7 @@ export class MomRunner implements RunnerLike {
           failedToolNames,
           explicitSkillNames: explicitlyInvokedSkills.map((skill) => skill.name),
           modelFailures: modelFailures.map(formatModelAttemptFailure),
+          draftMetadata: draftMetadata ?? undefined,
           settings: settings.skillDrafts
         });
       }

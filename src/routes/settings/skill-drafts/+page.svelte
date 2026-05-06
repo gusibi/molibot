@@ -64,6 +64,8 @@
   let draftName: Record<string, string> = {};
   let draftScope: Record<string, SkillScope> = {};
   let workflowSuggestionsId = "skill-draft-workflow-suggestions";
+  let editingDraftItem: SkillDraftItem | undefined;
+  const collapsedDraftLineLimit = 10;
 
   function formatDate(value: string): string {
     if (!value) return "-";
@@ -84,6 +86,32 @@
     draftContent = Object.fromEntries(rows.map((item) => [item.filePath, item.content]));
     draftName = Object.fromEntries(rows.map((item) => [item.filePath, item.name]));
     draftScope = Object.fromEntries(rows.map((item) => [item.filePath, "chat" as SkillScope]));
+  }
+
+  function draftLines(item: SkillDraftItem): string[] {
+    const content = draftContent[item.filePath] ?? item.content ?? "";
+    return content.split(/\r\n|\r|\n/);
+  }
+
+  function draftLineCount(item: SkillDraftItem): number {
+    return draftLines(item).length;
+  }
+
+  function collapsedDraftContent(item: SkillDraftItem): string {
+    return draftLines(item).slice(0, collapsedDraftLineLimit).join("\n");
+  }
+
+  function openDraftEditor(item: SkillDraftItem): void {
+    editingDraftItem = item;
+  }
+
+  function closeDraftEditor(): void {
+    editingDraftItem = undefined;
+  }
+
+  async function saveEditingDraft(item: SkillDraftItem): Promise<void> {
+    const saved = await saveDraft(item);
+    if (saved) closeDraftEditor();
   }
 
   function normalizeSkillDraftSettings(input: unknown): SkillDraftSettings {
@@ -161,7 +189,7 @@
     }
   }
 
-  async function saveDraft(item: SkillDraftItem): Promise<void> {
+  async function saveDraft(item: SkillDraftItem): Promise<boolean> {
     const filePath = item.filePath;
     setSaving(filePath, true);
     error = "";
@@ -176,8 +204,10 @@
       if (!res.ok || !data.ok) throw new Error(data.error || "Failed to save draft");
       message = "Draft saved.";
       await loadDrafts();
+      return true;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
+      return false;
     } finally {
       setSaving(filePath, false);
     }
@@ -354,6 +384,7 @@
     {:else}
       <div class="space-y-4">
         {#each items as item}
+          {@const lineCount = draftLineCount(item)}
           <article class="rounded-2xl border bg-card/60 p-5 text-sm">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -387,12 +418,21 @@
             </div>
 
             <div class="mt-4 grid gap-1.5">
-              <Label for="sd-content-{item.filePath}" class="text-xs uppercase tracking-wide text-muted-foreground">Draft Content</Label>
-              <Textarea
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <Label for="sd-content-{item.filePath}" class="text-xs uppercase tracking-wide text-muted-foreground">Draft Content</Label>
+                <Button variant="outline" size="xs" type="button" onclick={() => openDraftEditor(item)}>
+                  Edit full draft
+                </Button>
+              </div>
+              <pre
                 id="sd-content-{item.filePath}"
-                class="min-h-[320px] font-mono text-xs"
-                bind:value={draftContent[item.filePath]}
-              />
+                class="max-h-[13.5rem] overflow-hidden whitespace-pre-wrap rounded-lg border border-input bg-transparent px-2.5 py-2 font-mono text-xs leading-5 text-foreground"
+              >{collapsedDraftContent(item)}</pre>
+              {#if lineCount > collapsedDraftLineLimit}
+                <p class="text-xs text-muted-foreground">
+                  Showing first {collapsedDraftLineLimit} of {lineCount} lines. Open the editor to view and edit the full draft.
+                </p>
+              {/if}
             </div>
 
             <div class="mt-4 flex flex-wrap gap-2">
@@ -412,3 +452,48 @@
     {/if}
   {/if}
 </div>
+
+{#if editingDraftItem}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
+    <Card class="max-h-[90dvh] w-full max-w-5xl overflow-hidden">
+      <CardHeader>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="min-w-0">
+            <CardTitle>Edit Draft Content</CardTitle>
+            <CardDescription class="break-all">
+              {editingDraftItem.fileName}
+            </CardDescription>
+          </div>
+          <Button variant="outline" size="sm" type="button" onclick={closeDraftEditor}>
+            Close
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent class="space-y-4 overflow-y-auto">
+        <div class="grid gap-1.5">
+          <Label for="sd-modal-content" class="text-xs uppercase tracking-wide text-muted-foreground">
+            Full Draft Content
+          </Label>
+          <Textarea
+            id="sd-modal-content"
+            rows={28}
+            class="min-h-[60dvh] font-mono text-xs leading-5"
+            bind:value={draftContent[editingDraftItem.filePath]}
+          />
+        </div>
+        <div class="flex flex-wrap justify-end gap-2">
+          <Button variant="outline" type="button" onclick={closeDraftEditor}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={saving.has(editingDraftItem.filePath)}
+            onclick={() => editingDraftItem && saveEditingDraft(editingDraftItem)}
+          >
+            {saving.has(editingDraftItem.filePath) ? "Saving..." : "Save Draft"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  </div>
+{/if}

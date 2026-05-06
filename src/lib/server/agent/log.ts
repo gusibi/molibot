@@ -54,6 +54,8 @@ const KEY_LOG_EVENTS = new Set<string>([
   "subagent_task_start",
   "subagent_task_end",
   "subagent_end",
+  "skill_draft_subagent_start",
+  "skill_draft_subagent_end",
   // tool and channel
   "tool_start",
   "tool_end",

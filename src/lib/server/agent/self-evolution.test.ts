@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { assessMemoryWrite } from "../memory/classifier.js";
 import { parseMemoryGovernanceLine } from "../memory/governanceLog.js";
 import { parseRunHistoryLine, parseSkillDraftItem } from "./reviewData.js";
@@ -14,6 +16,30 @@ import {
 import { buildRunReflection, formatRunClosingNote } from "./runSummary.js";
 
 const WORKFLOW_SKILL_PATH = fileURLToPath(new URL("../../../../skills/find-skills/SKILL.md", import.meta.url));
+
+function withSkillCreatorTemplate<T>(fn: (skillPath: string) => T): T {
+  const dir = mkdtempSync(join(process.cwd(), ".tmp-skill-creator-"));
+  const skillPath = join(dir, "SKILL.md");
+  writeFileSync(
+    skillPath,
+    [
+      "---",
+      "name: skill-creator",
+      "description: Create new skills and require name to be a concise skill identifier.",
+      "---",
+      "",
+      "# Write the SKILL.md",
+      "- name: Skill identifier, not the user's raw request.",
+      "- description: Describe what the skill does and when it should trigger."
+    ].join("\n"),
+    "utf8"
+  );
+  try {
+    return fn(skillPath);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 test("suggests skill draft for successful complex runs", () => {
   assert.equal(
@@ -188,6 +214,54 @@ test("skill draft markdown can reuse a configured template skill structure", () 
   assert.match(built.content, /# When To Use/);
   assert.match(built.content, /帮我整理日报/);
   assert.match(built.content, /read, write/);
+});
+
+test("skill draft metadata follows skill-creator naming rules", () => {
+  withSkillCreatorTemplate((skillPath) => {
+    const built = buildSkillDraftMarkdown({
+      workspaceDir: "/tmp/workspace",
+      chatId: "chat-1",
+      userMessage: "为什么没有昨日数据回顾，只有今天的数据，我这个是要有昨日数据回顾的，要在第一条就列出来昨日数据",
+      finalAnswer: "已补充昨日数据回顾",
+      toolNames: ["web_search", "write"],
+      failedToolNames: [],
+      explicitSkillNames: [],
+      modelFailures: [],
+      settings: {
+        template: {
+          skillPath
+        }
+      }
+    });
+
+    assert.equal(built.name, "yesterday-data-review");
+    assert.match(built.content, /name: yesterday-data-review/);
+    assert.match(built.content, /description: Use when the user needs this reusable workflow:/);
+    assert.doesNotMatch(built.content, /name: 为什么没有/);
+  });
+});
+
+test("generic retry messages do not become skill draft names", () => {
+  withSkillCreatorTemplate((skillPath) => {
+    const built = buildSkillDraftMarkdown({
+      workspaceDir: "/tmp/workspace",
+      chatId: "chat-1",
+      userMessage: "重试一下",
+      finalAnswer: "已完成昨日数据回顾，并把昨日数据放在第一条。",
+      toolNames: ["web_search"],
+      failedToolNames: [],
+      explicitSkillNames: [],
+      modelFailures: [],
+      settings: {
+        template: {
+          skillPath
+        }
+      }
+    });
+
+    assert.equal(built.name, "yesterday-data-review");
+    assert.doesNotMatch(built.content, /name: 重试一下/);
+  });
 });
 
 test("run closing note includes budget and draft path", () => {

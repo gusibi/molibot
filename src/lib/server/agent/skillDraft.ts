@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { SkillScope } from "./skills.js";
+import { buildSkillDraftMetadata, slugifySkillName, type SkillDraftMetadata } from "./skillDraftMetadata.js";
 import { parseSkillFrontmatter } from "./skillFrontmatter.js";
 import { resolveDataRootFromWorkspacePath } from "./workspace.js";
 
@@ -13,6 +14,10 @@ export interface SkillDraftContext {
   failedToolNames: string[];
   explicitSkillNames: string[];
   modelFailures: string[];
+  requestedName?: string;
+  requestedDescription?: string;
+  requestedTriggers?: string[];
+  draftMetadata?: SkillDraftMetadata;
   settings?: SkillDraftGenerationSettings;
 }
 
@@ -37,26 +42,13 @@ export interface SkillDraftGenerationSettings {
 }
 
 function slugify(input: string, fallback = "workflow"): string {
-  const slug = String(input ?? "")
-    .toLowerCase()
-    .replace(/[`"'()[\]{}]+/g, "")
-    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-  return slug || fallback;
+  return slugifySkillName(input, fallback);
 }
 
 function compactLine(input: string, max = 120): string {
   const normalized = String(input ?? "").replace(/\s+/g, " ").trim();
   if (!normalized) return "";
   return normalized.length <= max ? normalized : `${normalized.slice(0, max - 1).trimEnd()}…`;
-}
-
-function inferDraftName(message: string): string {
-  const source = compactLine(message, 48)
-    .replace(/^\/[^\s]+\s*/i, "")
-    .replace(/^(请|帮我|麻烦|现在|直接)\s*/u, "");
-  return slugify(source, "reusable-workflow");
 }
 
 function unique(values: string[]): string[] {
@@ -173,10 +165,6 @@ function readTemplateSkillContent(filePath: string): string {
   } catch {
     return "";
   }
-}
-
-function buildDraftDescription(message: string): string {
-  return `Reusable workflow draft for: ${compactLine(message, 96)}`;
 }
 
 function buildAliases(name: string): string[] {
@@ -465,16 +453,25 @@ export function shouldSuggestSkillDraft(input: {
 }
 
 export function buildSkillDraftMarkdown(context: SkillDraftContext): { name: string; content: string } {
-  const name = inferDraftName(context.userMessage);
-  const aliases = buildAliases(name);
   const templateSkillPath = resolveWorkflowSkillPath(context.settings);
+  const metadata = context.draftMetadata ?? buildSkillDraftMetadata({
+    userMessage: context.userMessage,
+    finalAnswer: context.finalAnswer,
+    toolNames: context.toolNames,
+    templateSkillPath,
+    requestedName: context.requestedName,
+    requestedDescription: context.requestedDescription,
+    requestedTriggers: context.requestedTriggers
+  });
+  const name = metadata.name;
+  const aliases = unique([...metadata.aliases, ...buildAliases(name)]);
   const templateContent = readTemplateSkillContent(templateSkillPath);
   const defaultBody = buildDefaultDraftBody(context);
   const body = buildTemplateDrivenBody(templateContent, context) || defaultBody;
   const lines = [
     "---",
     `name: ${name}`,
-    `description: ${buildDraftDescription(context.userMessage)}`,
+    `description: ${metadata.description}`,
     `aliases: [${aliases.join(", ")}]`,
     "draft: true",
     "source: auto-run-summary",
@@ -503,7 +500,15 @@ export function saveSkillDraft(context: SkillDraftContext): SavedSkillDraft {
     if (
       areSkillDraftsSimilar({
         candidateName: built.name,
-        candidateDescription: buildDraftDescription(context.userMessage),
+        candidateDescription: (context.draftMetadata ?? buildSkillDraftMetadata({
+          userMessage: context.userMessage,
+          finalAnswer: context.finalAnswer,
+          toolNames: context.toolNames,
+          templateSkillPath: resolveWorkflowSkillPath(context.settings),
+          requestedName: context.requestedName,
+          requestedDescription: context.requestedDescription,
+          requestedTriggers: context.requestedTriggers
+        })).description,
         candidateMessage: context.userMessage,
         existingFileName: entry.name,
         existingContent: existing
