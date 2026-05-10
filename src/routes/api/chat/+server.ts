@@ -451,7 +451,7 @@ export const POST: RequestHandler = async ({ request }) => {
       return;
     }
     if (event.type === "tool_execution_start") {
-      runnerDiagnostics.push(`tool_start=${event.toolName}, label=${event.label}`);
+      runnerDiagnostics.push(`tool_start=${event.displayName ?? event.toolName}, label=${event.label}`);
       return;
     }
     if (event.type === "tool_execution_end") {
@@ -459,7 +459,7 @@ export const POST: RequestHandler = async ({ request }) => {
       const preview = summary.length > 160 ? `${summary.slice(0, 159)}…` : summary;
       runnerDiagnostics.push(
         [
-          `tool_end=${event.toolName}`,
+          `tool_end=${event.displayName ?? event.toolName}`,
           `status=${event.isError ? "error" : "ok"}`,
           preview ? `summary=${preview}` : ""
         ].filter(Boolean).join(", ")

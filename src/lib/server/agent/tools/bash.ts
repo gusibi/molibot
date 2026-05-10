@@ -5,7 +5,10 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { config } from "../../app/env.js";
+import type { ToolSandboxSettings } from "../../settings/index.js";
+import { momWarn } from "../log.js";
 import { execCommand, normalizeCommandOutput, shellEscape, stripAnsi } from "./helpers.js";
+import { prepareToolSandboxExecution } from "./sandbox.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "./truncate.js";
 
 const bashSchema = Type.Object({
@@ -17,6 +20,13 @@ const bashSchema = Type.Object({
 interface BashToolDetails {
   truncation?: TruncationResult;
   fullOutputPath?: string;
+  sandboxApplied?: boolean;
+  sandboxWarning?: string;
+}
+
+export interface BashToolSandboxOptions {
+  settings: ToolSandboxSettings;
+  workspaceDir: string;
 }
 
 const PYTHON_SANDBOX_ROOT = join(config.dataDir, "tooling", "python");
@@ -271,7 +281,7 @@ function captureSayTranscript(command: string, fallbackCwd: string): void {
   writeFileSync(`${outputPath}.transcript.txt`, `${transcript.trim()}\n`, "utf8");
 }
 
-export function createBashTool(cwd: string, options?: { artifactDir?: string }): AgentTool<typeof bashSchema> {
+export function createBashTool(cwd: string, options?: { artifactDir?: string; sandbox?: BashToolSandboxOptions }): AgentTool<typeof bashSchema> {
   const artifactDir = options?.artifactDir?.trim();
   return {
     name: "bash",
@@ -311,12 +321,36 @@ export function createBashTool(cwd: string, options?: { artifactDir?: string }):
         ...(artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: artifactDir } : {})
       };
       const wrappedCommand = wrapCommandWithPythonSandbox(params.command);
+      const sandboxed = options?.sandbox
+        ? await prepareToolSandboxExecution({
+            settings: options.sandbox.settings,
+            workspaceDir: options.sandbox.workspaceDir,
+            cwd,
+            command: wrappedCommand,
+            env: sandboxEnv,
+            signal
+          })
+        : {
+            command: wrappedCommand,
+            env: sandboxEnv,
+            inheritProcessEnv: true,
+            sandboxApplied: false,
+            warning: undefined
+          };
 
-      const result = await execCommand(wrappedCommand, {
+      if (sandboxed.warning) {
+        momWarn("runner", "tool_sandbox_disabled", {
+          cwd,
+          reason: sandboxed.warning
+        });
+      }
+
+      const result = await execCommand(sandboxed.command, {
         cwd,
         timeoutSeconds: params.timeout,
         signal,
-        env: sandboxEnv
+        env: sandboxed.env,
+        inheritProcessEnv: sandboxed.inheritProcessEnv
       });
       const movedArtifacts = moveNewRootArtifacts(cwd, artifactDir, rootFilesBefore);
 
@@ -333,7 +367,9 @@ export function createBashTool(cwd: string, options?: { artifactDir?: string }):
 
       const truncation = truncateMiddle(output);
       let rendered = truncation.content || "(no output)";
-      let details: BashToolDetails | undefined;
+      let details: BashToolDetails | undefined = sandboxed.sandboxApplied || sandboxed.warning
+        ? { sandboxApplied: sandboxed.sandboxApplied, sandboxWarning: sandboxed.warning }
+        : undefined;
       if (movedArtifacts.length > 0) {
         rendered += `\n\n[Moved generated artifact(s) into dated scratch folder: ${movedArtifacts.join(", ")}]`;
       }
@@ -342,7 +378,7 @@ export function createBashTool(cwd: string, options?: { artifactDir?: string }):
         const fullOutputPath = buildTempOutputPath(cwd);
         writeFileSync(fullOutputPath, output, "utf8");
         rendered += `\n\n[Output compressed from ${truncation.totalLines} lines / ${formatSize(truncation.totalBytes)}. Full output: ${fullOutputPath}]`;
-        details = { truncation, fullOutputPath };
+        details = { ...details, truncation, fullOutputPath };
       }
 
       if (result.code !== 0) {

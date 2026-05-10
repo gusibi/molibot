@@ -6,6 +6,14 @@
 
 ## 2026-05-10
 
+### Agent Bash OS Sandbox
+- **默认关闭**: 新增 `toolSandbox` runtime settings，第一版只覆盖主 Agent `bash` 和内置 subagent `bash`，初始化失败默认软降级并告警。
+- **环境变量 allowlist 注入**: Molibot 宿主解析 workspace `.env.sandbox.local`，只把 allowlisted key 注入 sandbox 子进程；诊断与 UI 只显示 key，不暴露 value。
+- **边界清晰**: Browser、Computer Use、ACP、MCP、Channel 收发消息不进入该 sandbox；sandbox 开启时会阻断 `open`、`osascript`、直接启动浏览器等明显绕行命令。
+- **设置与诊断**: 新增 `/settings/sandbox` 和只读诊断 API，可检查平台、依赖、env 文件、可注入 key、初始化状态、网络和文件系统策略。
+- **输出标记**: sandbox 路径生效时，Web/Telegram/tool thread 展示为 `bash (sandbox)`；初始化失败软降级时展示为 `bash (sandbox disabled)`。
+- **回归覆盖**: 新增 settings sanitization、env 注入、env 文件 denyRead/denyWrite、host app bypass、sandbox 关闭旧行为保持等 focused tests。
+
 ### Scratch 生成物日期归档
 - **默认日期目录**: 每轮模型输入新增 transient `scratch_artifact_dir`，普通会话生成物默认进入 `scratch/YYYY/MM/DD/`，不再继续堆在 chat scratch 根目录。
 - **工具层兜底**: `write` 工具会把普通文件名自动路由到当天目录；`bash` 暴露 `$MOLIBOT_SCRATCH_ARTIFACT_DIR`，并在命令结束后把新生成在 scratch 根目录的普通产物搬进当天目录。

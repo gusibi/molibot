@@ -45,13 +45,13 @@ function buildRunnerDiagnostic(event: RunnerUiEvent): string | null {
     ].join(", ");
   }
   if (event.type === "tool_execution_start") {
-    return `tool_start=${event.toolName}, label=${event.label}`;
+    return `tool_start=${event.displayName ?? event.toolName}, label=${event.label}`;
   }
   if (event.type === "tool_execution_end") {
     const summary = event.summary.replace(/\s+/g, " ").trim();
     const preview = summary.length > 160 ? `${summary.slice(0, 159)}…` : summary;
     return [
-      `tool_end=${event.toolName}`,
+      `tool_end=${event.displayName ?? event.toolName}`,
       `status=${event.isError ? "error" : "ok"}`,
       preview ? `summary=${preview}` : ""
     ].filter(Boolean).join(", ");

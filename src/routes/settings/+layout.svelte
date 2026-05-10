@@ -35,6 +35,7 @@
       tasks: "任务",
       systemGroup: "系统",
       systemConfig: "系统配置",
+      sandbox: "Sandbox",
       pluginsCore: "插件与核心",
       backToChat: "返回聊天",
       settings: "设置",
@@ -70,6 +71,7 @@
       tasks: "Tasks",
       systemGroup: "System",
       systemConfig: "System Config",
+      sandbox: "Sandbox",
       pluginsCore: "Plugins & Core",
       backToChat: "Back To Chat",
       settings: "Settings",
@@ -125,6 +127,7 @@
       title: "System",
       links: [
         { href: "/settings/system", label: "System Config", exact: true },
+        { href: "/settings/sandbox", label: "Sandbox", exact: true },
         { href: "/settings/plugins", label: "Plugins & Core", exact: true },
       ],
     },
@@ -251,6 +254,7 @@
       title: t("systemGroup"),
       links: [
         { href: "/settings/system", label: t("systemConfig"), exact: true },
+        { href: "/settings/sandbox", label: t("sandbox"), exact: true },
         { href: "/settings/plugins", label: t("pluginsCore"), exact: true },
       ],
     },

@@ -219,8 +219,8 @@ export class TelegramManager extends BaseChannelRuntime {
     const visible = entries.slice(-maxEntries);
     const hidden = entries.length - visible.length;
     const lines = visible.map((entry) => {
-      const statusIcon = entry.isError ? "❌" : this.getTelegramToolIcon(entry.toolName);
-      const name = entry.toolName || entry.label || "tool";
+      const name = entry.displayName || entry.toolName || entry.label || "tool";
+      const statusIcon = entry.isError ? "❌" : this.getTelegramToolIcon(name);
       const rawSummary = entry.summary || (entry.label !== entry.toolName ? entry.label : "");
       const summary = this.summarizeToolProgressText(rawSummary);
       return summary ? `${statusIcon} ${name}: "${summary}"` : `${statusIcon} ${name}`;
@@ -1310,18 +1310,19 @@ export class TelegramManager extends BaseChannelRuntime {
     const refreshProgressText = () => {
       status.progressText = this.formatTelegramToolProgress(status.toolProgressEntries ?? [], plainProgressText);
     };
-    const updateToolProgress = (toolName: string, label: string, summary?: string, isError?: boolean) => {
+    const updateToolProgress = (toolName: string, label: string, summary?: string, isError?: boolean, displayName?: string) => {
       const entries = status.toolProgressEntries ?? [];
       if (summary !== undefined || isError !== undefined) {
         const existing = [...entries].reverse().find((entry) => entry.toolName === toolName && entry.summary === undefined);
         if (existing) {
+          existing.displayName = displayName;
           existing.summary = summary;
           existing.isError = isError;
           refreshProgressText();
           return;
         }
       }
-      entries.push({ toolName, label, summary, isError });
+      entries.push({ toolName, displayName, label, summary, isError });
       status.toolProgressEntries = entries;
       refreshProgressText();
     };
@@ -1839,7 +1840,7 @@ export class TelegramManager extends BaseChannelRuntime {
         }
 
         if (runnerEvent.type === "tool_execution_start") {
-          updateToolProgress(runnerEvent.toolName, runnerEvent.label);
+          updateToolProgress(runnerEvent.toolName, runnerEvent.label, undefined, undefined, runnerEvent.displayName);
           if (streamOutputEnabled) {
             scheduleRender();
           }
@@ -1851,7 +1852,8 @@ export class TelegramManager extends BaseChannelRuntime {
             runnerEvent.toolName,
             runnerEvent.toolName,
             runnerEvent.summary,
-            runnerEvent.isError
+            runnerEvent.isError,
+            runnerEvent.displayName
           );
           if (streamOutputEnabled) {
             scheduleRender();

@@ -541,8 +541,13 @@ function createEditDefinition(cwd: string, workspaceDir: string): ToolDefinition
   });
 }
 
-function createBashDefinition(cwd: string, readOnly: boolean): ToolDefinition {
-  const tool = createBashTool(cwd);
+function createBashDefinition(cwd: string, workspaceDir: string, settings: RuntimeSettings, readOnly: boolean): ToolDefinition {
+  const tool = createBashTool(cwd, {
+    sandbox: {
+      settings: settings.toolSandbox,
+      workspaceDir
+    }
+  });
   const schema = Type.Object({
     command: Type.String(),
     timeout: Type.Optional(Type.Number())
@@ -556,7 +561,7 @@ function createBashDefinition(cwd: string, readOnly: boolean): ToolDefinition {
     promptSnippet: "Run shell commands when file tools are insufficient",
     promptGuidelines: ["Use bash only when dedicated file tools cannot complete the task directly."],
     parameters: schema,
-      execute: async (toolCallId, params, signal) => {
+    execute: async (toolCallId, params, signal) => {
       const command = String(params.command ?? "").trim();
       if (readOnly && !isSafeReadOnlySubagentCommand(command)) {
         throw new Error(
@@ -570,12 +575,12 @@ function createBashDefinition(cwd: string, readOnly: boolean): ToolDefinition {
 
 function createCustomTools(
   agent: SubagentDefinition,
-  options: { cwd: string; workspaceDir: string; chatId: string }
+  options: { cwd: string; workspaceDir: string; chatId: string; settings: RuntimeSettings }
 ): ToolDefinition[] {
   const readOnlyShell = agent.name === "scout" || agent.name === "planner" || agent.name === "reviewer";
   const tools: ToolDefinition[] = [
     createReadDefinition(options.cwd, options.workspaceDir),
-    createBashDefinition(options.cwd, readOnlyShell)
+    createBashDefinition(options.cwd, options.workspaceDir, options.settings, readOnlyShell)
   ];
   if (agent.name === "worker") {
     tools.push(createEditDefinition(options.cwd, options.workspaceDir));
@@ -615,7 +620,8 @@ async function runSingleSubagent(
   const customTools = createCustomTools(agent, {
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
-    chatId: options.chatId
+    chatId: options.chatId,
+    settings: options.settings
   });
 
   const sessionManager = SessionManager.inMemory(options.cwd);

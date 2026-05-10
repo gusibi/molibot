@@ -21,6 +21,7 @@ import {
   type McpServerConfig,
   type RuntimeSettings
 } from "../settings/index.js";
+import { sanitizeToolSandboxSettings } from "../settings/toolSandbox.js";
 import { config } from "./env.js";
 import { builtInChannelPlugins, type ChannelManager, type ChannelRuntimeDeps } from "../channels/registry.js";
 import { TaskScheduler } from "../agent/taskScheduler.js";
@@ -757,6 +758,7 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   next.mcpServers = sanitizeMcpServers(next.mcpServers ?? current.mcpServers);
   next.skillSearch = sanitizeSkillSearchSettings(next.skillSearch ?? current.skillSearch, current.skillSearch);
   next.skillDrafts = sanitizeSkillDraftSettings(next.skillDrafts ?? current.skillDrafts, current.skillDrafts);
+  next.toolSandbox = sanitizeToolSandboxSettings(next.toolSandbox ?? current.toolSandbox, current.toolSandbox);
   next.disabledSkillPaths = Array.isArray(next.disabledSkillPaths)
     ? next.disabledSkillPaths.map((v) => String(v).trim()).filter(Boolean)
     : current.disabledSkillPaths;

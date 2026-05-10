@@ -10,6 +10,7 @@ export interface StatusSession {
   detailsText?: string;
   toolProgressEntries?: Array<{
     toolName: string;
+    displayName?: string;
     label: string;
     summary?: string;
     isError?: boolean;

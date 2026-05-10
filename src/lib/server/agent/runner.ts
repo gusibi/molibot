@@ -24,6 +24,7 @@ import { compactContextMessages, shouldCompactContext } from "./compaction.js";
 import { hasConfiguredAuth, resolveProviderApiKey } from "./auth.js";
 import { isRetryableModelError, resolvePromptAttemptDecision, shouldEmitFinalRunnerError } from "./runnerRetryState.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
+import { resolveToolDisplayName } from "./toolDisplay.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
 import type { ModelErrorTracker } from "../usage/modelErrorTracker.js";
 import {
@@ -1928,18 +1929,28 @@ export class MomRunner implements RunnerLike {
 
       if (event.type === "tool_execution_start") {
         const args = event.args as { label?: string };
-        const label = args.label || event.toolName;
+        const displayName = resolveToolDisplayName(event.toolName, {
+          sandboxAttempted: Boolean(this.getSettings().toolSandbox.enabled)
+        });
+        const rawLabel = args.label || event.toolName;
+        const label = displayName !== event.toolName
+          ? rawLabel && rawLabel !== event.toolName
+            ? `${displayName}: ${rawLabel}`
+            : displayName
+          : rawLabel;
         usedToolNames.push(event.toolName);
         momLog("runner", "tool_start", {
           runId,
           chatId: this.chatId,
           tool: event.toolName,
+          displayName,
           label,
         });
         if (ctx.onRunnerEvent) {
           enqueue(() => ctx.onRunnerEvent!({
             type: "tool_execution_start",
             toolName: event.toolName,
+            displayName,
             label
           }));
         }
@@ -1948,6 +1959,10 @@ export class MomRunner implements RunnerLike {
 
       if (event.type === "tool_execution_end") {
         const body = extractTextFromResult(event.result);
+        const displayName = resolveToolDisplayName(event.toolName, {
+          result: event.result,
+          sandboxAttempted: Boolean(this.getSettings().toolSandbox.enabled)
+        });
         const status = event.isError ? "✗" : "✓";
         const budgetResult = budget.recordToolResult(event.isError);
         if (event.isError) {
@@ -1957,6 +1972,7 @@ export class MomRunner implements RunnerLike {
           runId,
           chatId: this.chatId,
           tool: event.toolName,
+          displayName,
           isError: event.isError,
           resultPreview: body.slice(0, 160),
         });
@@ -1964,11 +1980,12 @@ export class MomRunner implements RunnerLike {
           enqueue(() => ctx.onRunnerEvent!({
             type: "tool_execution_end",
             toolName: event.toolName,
+            displayName,
             isError: event.isError,
             summary: body
           }));
         }
-        const text = `*${status} ${event.toolName}*\n\`\`\`\n${body}\n\`\`\``;
+        const text = `*${status} ${displayName}*\n\`\`\`\n${body}\n\`\`\``;
         if (event.isError) {
           enqueue(() => ctx.respondInThread(text));
           enqueue(() => ctx.respond(`_Error: ${body.slice(0, 200)}_`, false));

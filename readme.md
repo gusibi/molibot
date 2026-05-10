@@ -60,8 +60,9 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **MiMo/Anthropic-Compatible Roles**: providers configured as Anthropic keep system instructions in the top-level `system` field, reserve `messages` for conversational roles, and log redacted image-fallback request payloads for debugging
 - **Time-Aware Prompting**: each live user turn can carry structured current-time metadata (`message_received_at` / `timezone` / `today`) for better date-sensitive replies
 - **Subagent Model Routing**: delegated scout/planner/worker/reviewer runs use configurable `haiku` / `sonnet` / `opus` / `thinking` model levels plus a subagent fallback route, with early-delegation nudges before parent runs exhaust the 24-tool budget
+- **Agent Bash Sandbox**: optional OS-level sandboxing for main and built-in subagent `bash`, with allowlisted workspace env-file injection, redacted diagnostics, and `bash (sandbox)` tool-output markers
 - **Skill Draft Governance**: reusable workflow drafts use a dedicated `skill-drafter` subagent plus skill-creator-aware local fallback so draft names stay concise and reusable instead of mirroring raw user messages or retry prompts
-- **Settings shadcn-svelte Baseline**: Settings UI is moving toward source-owned shadcn-svelte components for cleaner, consistent forms and admin pages; `/settings/system`, `/settings/web`, `/settings/ai/providers`, and `/settings/tasks` now use the shared component baseline for key forms and controls
+- **Settings shadcn-svelte Baseline**: Settings UI is moving toward source-owned shadcn-svelte components for cleaner, consistent forms and admin pages; `/settings/system`, `/settings/web`, `/settings/ai/providers`, `/settings/tasks`, and `/settings/sandbox` now use the shared component baseline for key forms and controls
 - **Current-Session File Workspace**: Web chat now includes a real files pane with searchable attachment inventory, inline preview for common formats, downloads, and copy-path actions
 - **Operational Settings UI**: AI routing, agents, ACP targets, tasks, memory, skills, MCP servers
 - **Safer Settings Persistence**: `settings.json + settings.sqlite` split design with relational tables
@@ -157,6 +158,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 
 ### Developer Experience
 - **Python Sandbox**: Isolated virtualenv for bash tool execution
+- **OS Tool Sandbox**: Optional `@anthropic-ai/sandbox-runtime` boundary for agent shell execution only; Browser, Computer Use, ACP, MCP, and channel transports remain explicit host-access surfaces
 - **Theme System**: Solar Dusk palette with light/dark mode
 - **i18n**: zh-CN/en-US language switching
 - **TypeScript**: Full type coverage across codebase
@@ -275,12 +277,13 @@ Open: `http://localhost:3000`
 ### Core Configuration
 - `/settings` - Overview and workbench entry hub
 - `/settings/system` - Language, runtime timezone, and read-only GitHub/deployment version information; migrated to the shadcn-svelte Settings style
+- `/settings/sandbox` - Opt-in OS-level sandbox policy for agent and subagent bash, including env allow/deny keys, network domains, filesystem read/write rules, and redacted diagnostics
 - `/settings/ai` - AI providers, models, routing, including the dedicated subagent fallback route, subagent model-level mappings, usage tracking, cache-hit trend visibility, auto-refreshing time windows, runtime timezone dropdown, and shadcn-svelte provider/model forms
 - `/settings/agents` - Agent library with Markdown prompt files plus a separate read-only Subagents view for built-in delegation roles, abstract model levels, and their effective model source
 - `/settings/skill-drafts` - Review generated reusable workflow drafts with long draft content shown as a 10-line preview and full editing handled in a focused modal form
 - `/settings/web` - Web profiles and identity binding; migrated to the shadcn-svelte Settings style
 
-Settings pages are moving progressively toward shadcn-svelte components and semantic design tokens. `/settings/system`, `/settings/web`, `/settings/ai/providers`, and `/settings/tasks` now cover the main form, provider, and table-control patterns; older Settings pages may still use the prior workbench layer until they are migrated.
+Settings pages are moving progressively toward shadcn-svelte components and semantic design tokens. `/settings/system`, `/settings/web`, `/settings/ai/providers`, `/settings/tasks`, and `/settings/sandbox` now cover the main form, provider, policy, and table-control patterns; older Settings pages may still use the prior workbench layer until they are migrated.
 
 ### Channel Configuration
 - `/settings/telegram` - Multi-bot instances, ACP control, and credentials
@@ -313,6 +316,7 @@ Default data dir: `~/.molibot`
     bots/
       <botId>/
         skills/          # Bot-scoped skills
+        .env.sandbox.local # Optional sandbox env file; parsed by Molibot and deny-read from sandboxed bash
         <chatId>/
           attachments/   # User-shared files
           contexts/      # Session entry logs
@@ -330,6 +334,7 @@ Default data dir: `~/.molibot`
 - `skills/`: Hierarchical skill repository (global/bot/chat scopes)
 - `usage/`: Token usage analytics with aggregated dashboards
 - Chat `scratch/`: tool cwd; ordinary generated artifacts default to dated `YYYY/MM/DD/` folders, including plain `write` outputs and new root-level bash artifacts, while `scratch/events/` remains the watched runtime event directory
+- Workspace `.env.sandbox.local`: optional env source for sandboxed bash; Molibot parses it and injects only allowlisted keys into child processes, while sandbox filesystem policy denies direct reads of the env file
 
 ## Common Commands
 
@@ -478,6 +483,7 @@ docker compose up -d --build
 ### Security & Safety
 - `BASH_TOOL_ENABLED` - Enable bash tool (default: true)
 - `BASH_PYTHON_SANDBOX` - Enable Python sandbox (default: true)
+- Agent bash OS sandbox policy is configured in `/settings/sandbox` rather than through environment variables; default env source is workspace `.env.sandbox.local`
 - `ALLOWED_FILE_EXTENSIONS` - Comma-separated list of allowed file extensions
 
 ### Logging & Debugging
@@ -553,6 +559,7 @@ See `.env.example` for full list and detailed descriptions.
 | **AI Routing** | ⭐⭐⭐ Active | Multi-provider, per-model capabilities, verification, cross-provider fallback |
 | **Settings System** | ⭐⭐⭐ Active | Relational tables, single-entity save, theme/i18n, unsaved change guards, progressive shadcn-svelte migration |
 | **Python Sandbox** | ⭐⭐⭐ Active | Isolated virtualenv, auto-dependency management, security hardening |
+| **Agent Bash Sandbox** | ⭐⭐ Opt-in | OS-level sandbox for main and built-in subagent bash, redacted diagnostics, allowlisted env injection, visible sandbox tool-output markers |
 
 ### Development Activity
 

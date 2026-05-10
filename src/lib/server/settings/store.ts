@@ -20,6 +20,7 @@ import {
   type ProviderMode,
   type RuntimeSettings
 } from "../settings/index.js";
+import { sanitizeToolSandboxSettings } from "../settings/toolSandbox.js";
 import {
   resolveCustomProviderThinkingFormat,
   sanitizeOptionalThinkingSupport,
@@ -94,6 +95,7 @@ interface RawSettings {
   mcpServers?: unknown;
   skillSearch?: unknown;
   skillDrafts?: unknown;
+  toolSandbox?: unknown;
   disabledSkillPaths?: unknown;
   acp?: unknown;
 }
@@ -895,6 +897,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const mcpServers = sanitizeMcpServers(raw.mcpServers ?? defaultRuntimeSettings.mcpServers);
   const skillSearch = sanitizeSkillSearchSettings(raw.skillSearch ?? defaultRuntimeSettings.skillSearch);
   const skillDrafts = sanitizeSkillDraftSettings(raw.skillDrafts ?? defaultRuntimeSettings.skillDrafts);
+  const toolSandbox = sanitizeToolSandboxSettings(raw.toolSandbox ?? defaultRuntimeSettings.toolSandbox);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
   const compactionEnabledRaw = raw.compaction?.enabled;
   const compactionEnabled =
@@ -951,6 +954,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     mcpServers,
     skillSearch,
     skillDrafts,
+    toolSandbox,
     disabledSkillPaths,
     telegramBots: effectiveTelegramBots,
     qqBots: effectiveQQBots,
@@ -1336,6 +1340,7 @@ export class SettingsStore {
       mcpServers: settings.mcpServers,
       skillSearch: settings.skillSearch,
       skillDrafts: settings.skillDrafts,
+      toolSandbox: settings.toolSandbox,
       disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,
       telegramAllowedChatIds: settings.telegramAllowedChatIds

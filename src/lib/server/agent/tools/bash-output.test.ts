@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { createBashTool } from "./bash.js";
 import { normalizeCommandOutput } from "./helpers.js";
 import { truncateMiddle } from "./truncate.js";
+import { defaultToolSandboxSettings } from "../../settings/toolSandbox.js";
 
 test("normalizeCommandOutput keeps final carriage-return update", () => {
   const raw = "start\nprogress 10%\rprogress 50%\rprogress 100%\nend";
@@ -64,6 +65,33 @@ test("bash leaves non-artifact root support files in place", async () => {
     assert.equal(readFileSync(join(cwd, "package.json"), "utf8"), "{}");
     assert.equal(existsSync(join(cwd, "2026/05/10/package.json")), false);
   } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("bash keeps legacy host env inheritance when tool sandbox is disabled", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  const previous = process.env.MOLIBOT_BASH_HOST_ENV_TEST;
+  process.env.MOLIBOT_BASH_HOST_ENV_TEST = "host-visible";
+  try {
+    const tool = createBashTool(cwd, {
+      sandbox: {
+        settings: { ...defaultToolSandboxSettings, enabled: false },
+        workspaceDir: cwd
+      }
+    });
+    const result = await tool.execute("tool-1", {
+      label: "bash",
+      command: "printf '%s' \"$MOLIBOT_BASH_HOST_ENV_TEST\""
+    });
+
+    assert.equal(result.content[0]?.text, "host-visible");
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MOLIBOT_BASH_HOST_ENV_TEST;
+    } else {
+      process.env.MOLIBOT_BASH_HOST_ENV_TEST = previous;
+    }
     rmSync(cwd, { recursive: true, force: true });
   }
 });

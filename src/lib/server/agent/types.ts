@@ -76,11 +76,13 @@ export type RunnerUiEvent =
   | {
       type: "tool_execution_start";
       toolName: string;
+      displayName?: string;
       label: string;
     }
   | {
       type: "tool_execution_end";
       toolName: string;
+      displayName?: string;
       isError: boolean;
       summary: string;
     };

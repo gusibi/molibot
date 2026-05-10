@@ -228,7 +228,13 @@ export function createMomTools(options: {
     }),
     ...deferredEntries.map((item) => item.stub),
     createReadTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
-    createBashTool(options.cwd, { artifactDir }),
+    createBashTool(options.cwd, {
+      artifactDir,
+      sandbox: {
+        settings: options.getSettings().toolSandbox,
+        workspaceDir: options.workspaceDir
+      }
+    }),
     createEditTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
     createWriteTool({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir }),
     createSubagentTool({

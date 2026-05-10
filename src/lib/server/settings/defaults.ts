@@ -15,6 +15,7 @@ import {
   type RuntimeSettings,
   type TelegramBotConfig
 } from "./schema.js";
+import { defaultToolSandboxSettings } from "./toolSandbox.js";
 import { sanitizeRuntimeThinkingLevel } from "./thinking.js";
 import { normalizeTimeZone } from "../time.js";
 
@@ -344,6 +345,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   mcpServers: defaultMcpServers,
   skillSearch: defaultSkillSearchSettings,
   skillDrafts: defaultSkillDraftSettings,
+  toolSandbox: defaultToolSandboxSettings,
   disabledSkillPaths: [],
   telegramBots: defaultTelegramBots,
   qqBots: defaultQQBots,

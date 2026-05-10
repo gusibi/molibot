@@ -219,6 +219,35 @@ export interface SkillDraftSettings {
   template: SkillDraftTemplateSettings;
 }
 
+export type ToolSandboxInitFailureMode = "warn-disable" | "block";
+export type ToolSandboxEnvInheritMode = "minimal" | "allowlist" | "full";
+
+export interface ToolSandboxEnvSettings {
+  inheritMode: ToolSandboxEnvInheritMode;
+  allow: string[];
+  deny: string[];
+}
+
+export interface ToolSandboxNetworkSettings {
+  allowedDomains: string[];
+  deniedDomains: string[];
+}
+
+export interface ToolSandboxFilesystemSettings {
+  denyRead: string[];
+  allowWrite: string[];
+  denyWrite: string[];
+}
+
+export interface ToolSandboxSettings {
+  enabled: boolean;
+  initFailureMode: ToolSandboxInitFailureMode;
+  envFilePath: string;
+  env: ToolSandboxEnvSettings;
+  network: ToolSandboxNetworkSettings;
+  filesystem: ToolSandboxFilesystemSettings;
+}
+
 export interface RuntimeSettings {
   providerMode: ProviderMode;
   piModelProvider: KnownProvider;
@@ -237,6 +266,7 @@ export interface RuntimeSettings {
   mcpServers: McpServerConfig[];
   skillSearch: SkillSearchSettings;
   skillDrafts: SkillDraftSettings;
+  toolSandbox: ToolSandboxSettings;
   disabledSkillPaths: string[];
   telegramBots: TelegramBotConfig[];
   feishuBots: FeishuBotConfig[];
