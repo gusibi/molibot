@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-05-10
+
+### Scratch 生成物日期归档
+- **默认日期目录**: 每轮模型输入新增 transient `scratch_artifact_dir`，普通会话生成物默认进入 `scratch/YYYY/MM/DD/`，不再继续堆在 chat scratch 根目录。
+- **工具层兜底**: `write` 工具会把普通文件名自动路由到当天目录；`bash` 暴露 `$MOLIBOT_SCRATCH_ARTIFACT_DIR`，并在命令结束后把新生成在 scratch 根目录的普通产物搬进当天目录。
+- **运行时目录不动**: `scratch` 仍是工具 cwd，`scratch/events` 等 watched event/control 路径保持原语义，显式路径不会被日期规则改写。
+- **附件兼容**: 如果模型随后仍按旧根路径 attach，`attach` 会查找当天目录里的同名文件，避免 bash 自动归档后发送失败。
+- **回归覆盖**: 新增测试覆盖 transient env 字段、`write` basename 路由、显式 `events/...` 路径保持不变、bash artifact env 变量、bash 根目录产物归档，以及 attach 兼容查找。
+
+---
+
 ## 2026-05-06
 
 ### Skill Draft metadata 规范化

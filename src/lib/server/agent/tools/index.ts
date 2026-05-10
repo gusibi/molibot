@@ -18,6 +18,7 @@ import { createWriteTool } from "./write.js";
 import { createFeaturePluginTools } from "../../plugins/feature-registry.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import { momLog } from "../log.js";
+import { resolveScratchArtifactDir } from "../scratchArtifacts.js";
 import { shouldSerializeToolCall } from "../toolPolicy.js";
 
 function wrapSerializedTool<T extends AgentTool<any>>(tool: T): T {
@@ -98,6 +99,7 @@ export function createMomTools(options: {
   workspaceDir: string;
   chatId: string;
   timezone: string;
+  messageTimestamp?: string | number | Date;
   memory: MemoryGateway;
   getSettings: () => RuntimeSettings;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
@@ -108,6 +110,7 @@ export function createMomTools(options: {
   exposeLoadMcpTool?: boolean;
   uploadFile: (filePath: string, title?: string, text?: string) => Promise<void>;
 }): AgentTool<any>[] {
+  const artifactDir = resolveScratchArtifactDir(options.timezone, options.messageTimestamp);
   const loadedDeferredToolNames = new Set<string>();
   const createEventRuntimeTool = wrapSerializedTool(createEventTool({
     workspaceDir: options.workspaceDir,
@@ -225,16 +228,16 @@ export function createMomTools(options: {
     }),
     ...deferredEntries.map((item) => item.stub),
     createReadTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
-    createBashTool(options.cwd),
+    createBashTool(options.cwd, { artifactDir }),
     createEditTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
-    createWriteTool({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId }),
+    createWriteTool({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir }),
     createSubagentTool({
       cwd: options.cwd,
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,
       getSettings: options.getSettings
     }),
-    createAttachTool(options)
+    createAttachTool({ ...options, artifactDir })
   ].map((tool) => wrapSerializedTool(tool));
 
   if (options.exposeLoadMcpTool) {

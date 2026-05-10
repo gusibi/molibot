@@ -314,9 +314,11 @@ Default data dir: `~/.molibot`
       <botId>/
         skills/          # Bot-scoped skills
         <chatId>/
-          scratch/       # Chat working directory
-          events/        # Watched event files
+          attachments/   # User-shared files
           contexts/      # Session entry logs
+          scratch/       # Chat tool working directory
+            YYYY/MM/DD/  # Default ordinary generated artifacts
+            events/      # Chat-local watched event files
   moli-f/                # Feishu workspace (similar structure)
   moli-w/                # Weixin workspace (similar structure)
 ```
@@ -327,6 +329,7 @@ Default data dir: `~/.molibot`
 - `memory/`: Mory SDK data with layered storage and hybrid retrieval
 - `skills/`: Hierarchical skill repository (global/bot/chat scopes)
 - `usage/`: Token usage analytics with aggregated dashboards
+- Chat `scratch/`: tool cwd; ordinary generated artifacts default to dated `YYYY/MM/DD/` folders, including plain `write` outputs and new root-level bash artifacts, while `scratch/events/` remains the watched runtime event directory
 
 ## Common Commands
 

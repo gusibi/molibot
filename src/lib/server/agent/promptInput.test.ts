@@ -17,6 +17,7 @@ test("buildPromptInputEnvelope wraps the live prompt with env metadata without p
       "message_received_at: 2026-04-26T10:59:24+08:00",
       "timezone: Asia/Shanghai",
       "today: 2026-04-26",
+      "scratch_artifact_dir: 2026/04/26",
       "</env>",
       "",
       "<user_message>",

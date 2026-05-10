@@ -45,6 +45,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - 生产部署不应依赖源码 checkout 作为运行目录；源码目录只用于开发或构建，正式服务应从 release bundle、Docker image 或等价构建产物启动，并通过进程管理脚本完成重启。
 - 部署/更新/卸载脚本必须保护已有 workspace 和数据目录：非空部署目录需要明确的 Molibot 托管标记才允许自动写入或删除，release 打包不能覆盖未标记的已有目录，卸载默认不得删除 `DATA_DIR`。
 - Subagent delegated runs need their own operator-controlled text model routing so expensive main models can delegate to cheaper/faster models without changing the main conversation route. Built-in subagent roles should reference abstract model levels (`haiku`, `sonnet`, `opus`, `thinking`) that operators map to configured models, rather than showing concrete Claude model IDs that may not exist locally. Built-in roles should be visible as read-only runtime inventory, and channel/client run traces should make subagent usage visible without dumping long tool outputs. For codebase-heavy runs, the parent agent should delegate before it approaches the 24-tool hard limit; runtime nudges for this must be transient controls and must not persist into future model context.
+- 普通会话生成物应默认写入 `scratch/YYYY/MM/DD/` 三级日期目录，避免长期堆在 chat scratch 根目录；`scratch` 仍是工具运行根目录，`scratch/events` 等运行时控制目录不得被日期归档规则改写。
 
 ## 3. V1 Scope
 
@@ -3010,3 +3011,21 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `package/qqbot/src/outbound.test.ts` 必须覆盖升级后的稳定出站行为。
   - `npm --prefix package/qqbot run build` 和 `npm run build` 必须通过。
   - `features.md` / `CHANGELOG.md` / `README.md` 必须记录本次交付边界。
+
+## 200. 普通 scratch 生成物应按日期目录归档 (2026-05-10)
+- Priority: P1
+- Stage: Delivered (2026-05-10)
+- Problem:
+  - 同一个 chat 的普通生成文件长期平铺在 `scratch/` 根目录下，数量变多后难以查找、清理和判断文件产生时间。
+  - 直接把工具 cwd 改到日期目录会破坏既有路径语义，尤其是 `scratch/events` 这类 watched runtime 目录。
+- Requirement:
+  - `scratch` 必须继续作为工具运行根目录，保持现有相对路径、安全护栏和事件监听语义。
+  - 普通生成物默认写入 `scratch/YYYY/MM/DD/`，日期按 runtime timezone 计算。
+  - `events/`、显式用户路径、技能/工具要求的特定路径必须保持原路径，不得被自动移入日期目录。
+  - Agent 每轮模型输入应提供当前默认产物目录，且该运行时提示不能污染持久化 session 对话内容。
+- Enforcement:
+  - `buildPromptInputEnvelope()` 必须在 transient `<env>` 中提供 `scratch_artifact_dir`，但 persisted message 仍只保存原始用户消息和附件标记。
+  - 共享 `write` 工具对普通文件名应用日期目录默认路由；带目录的显式路径和绝对路径保持不变。
+  - 共享 `bash` 工具必须暴露 `$MOLIBOT_SCRATCH_ARTIFACT_DIR`，方便 shell 命令把普通产物写入同一个日期目录；对命令新生成在 scratch 根目录的普通产物文件，应在命令结束后自动归档到当天目录。
+  - `attach` 对 bash 自动归档后的普通产物应提供兼容查找：当旧根路径缺失且当天目录存在同名文件时，发送当天目录文件。
+  - 系统提示必须明确普通产物与 runtime/control 文件的边界，避免把 event JSON 写进日期目录。

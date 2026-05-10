@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { delimiter, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
@@ -24,6 +24,17 @@ const PYTHON_VENV_DIR = join(PYTHON_SANDBOX_ROOT, "venv");
 const PYTHON_UV_CACHE_DIR = join(PYTHON_SANDBOX_ROOT, "uv-cache");
 const PYTHON_PIP_CACHE_DIR = join(PYTHON_SANDBOX_ROOT, "pip-cache");
 const PYTHON_TMP_DIR = join(PYTHON_SANDBOX_ROOT, "tmp");
+const ROOT_ARTIFACT_EXTENSIONS = new Set([
+  ".aac", ".aif", ".aiff", ".amr", ".avif", ".csv", ".doc", ".docx", ".gif", ".html",
+  ".jpeg", ".jpg", ".json", ".m4a", ".md", ".mp3", ".mp4", ".oga", ".ogg", ".opus",
+  ".pdf", ".png", ".svg", ".txt", ".wav", ".webm", ".webp", ".xls", ".xlsx", ".zip"
+]);
+const ROOT_ARTIFACT_EXCLUDED_NAMES = new Set([
+  "package.json",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock"
+]);
 
 function resolveVenvBinDir(venvDir: string): string {
   return process.platform === "win32" ? join(venvDir, "Scripts") : join(venvDir, "bin");
@@ -173,6 +184,57 @@ function buildTempOutputPath(cwd: string): string {
   return join(dir, `bash-${Date.now()}-${randomBytes(4).toString("hex")}.log`);
 }
 
+function listRootFileNames(cwd: string): Set<string> {
+  try {
+    return new Set(
+      readdirSync(cwd, { withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => entry.name)
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function shouldMoveRootArtifact(name: string): boolean {
+  if (!name || name.startsWith(".")) return false;
+  if (ROOT_ARTIFACT_EXCLUDED_NAMES.has(name.toLowerCase())) return false;
+  return ROOT_ARTIFACT_EXTENSIONS.has(extname(name).toLowerCase());
+}
+
+function uniqueArtifactPath(dir: string, name: string): string {
+  const ext = extname(name);
+  const stem = ext ? name.slice(0, -ext.length) : name;
+  let candidate = join(dir, name);
+  let index = 1;
+  while (existsSync(candidate)) {
+    candidate = join(dir, `${stem}-${index}${ext}`);
+    index += 1;
+  }
+  return candidate;
+}
+
+function moveNewRootArtifacts(cwd: string, artifactDir: string | undefined, before: Set<string>): string[] {
+  if (!artifactDir) return [];
+  const targetDir = resolve(cwd, artifactDir);
+  mkdirSync(targetDir, { recursive: true });
+  const moved: string[] = [];
+
+  for (const name of listRootFileNames(cwd)) {
+    if (before.has(name) || !shouldMoveRootArtifact(name)) continue;
+    const from = resolve(cwd, name);
+    const to = uniqueArtifactPath(targetDir, name);
+    try {
+      renameSync(from, to);
+      moved.push(relative(cwd, to).replace(/\\/g, "/"));
+    } catch {
+      // Keep the original file if relocation fails; command output remains authoritative.
+    }
+  }
+
+  return moved;
+}
+
 function stripShellQuotes(value: string): string {
   const trimmed = value.trim();
   if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
@@ -209,12 +271,13 @@ function captureSayTranscript(command: string, fallbackCwd: string): void {
   writeFileSync(`${outputPath}.transcript.txt`, `${transcript.trim()}\n`, "utf8");
 }
 
-export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
+export function createBashTool(cwd: string, options?: { artifactDir?: string }): AgentTool<typeof bashSchema> {
+  const artifactDir = options?.artifactDir?.trim();
   return {
     name: "bash",
     label: "bash",
     description:
-      `Execute a bash command in scratch workspace. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
+      `Execute a bash command in scratch workspace. When creating ordinary generated files, prefer $MOLIBOT_SCRATCH_ARTIFACT_DIR. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
     parameters: bashSchema,
     execute: async (_toolCallId, params, signal) => {
       if (isDeferredWaitCommand(params.command)) {
@@ -238,7 +301,15 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
         );
       }
 
-      const sandboxEnv = buildPythonSandboxEnv();
+      if (artifactDir) {
+        mkdirSync(resolve(cwd, artifactDir), { recursive: true });
+      }
+      const rootFilesBefore = listRootFileNames(cwd);
+
+      const sandboxEnv = {
+        ...buildPythonSandboxEnv(),
+        ...(artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: artifactDir } : {})
+      };
       const wrappedCommand = wrapCommandWithPythonSandbox(params.command);
 
       const result = await execCommand(wrappedCommand, {
@@ -247,6 +318,7 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
         signal,
         env: sandboxEnv
       });
+      const movedArtifacts = moveNewRootArtifacts(cwd, artifactDir, rootFilesBefore);
 
       try {
         captureSayTranscript(params.command, cwd);
@@ -262,6 +334,9 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema> {
       const truncation = truncateMiddle(output);
       let rendered = truncation.content || "(no output)";
       let details: BashToolDetails | undefined;
+      if (movedArtifacts.length > 0) {
+        rendered += `\n\n[Moved generated artifact(s) into dated scratch folder: ${movedArtifacts.join(", ")}]`;
+      }
 
       if (truncation.truncated) {
         const fullOutputPath = buildTempOutputPath(cwd);

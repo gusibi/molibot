@@ -1,4 +1,5 @@
 import { formatIsoInTimeZone, localDateKeyInTimeZone, normalizeTimeZone } from "../time.js";
+import { resolveScratchArtifactDir } from "./scratchArtifacts.js";
 
 interface PromptInputEnvelopeOptions {
   messageText: string;
@@ -47,6 +48,7 @@ export function buildPromptInputEnvelope(options: PromptInputEnvelopeOptions): {
   const attachmentPaths = [...(options.attachmentPaths ?? [])].filter(Boolean);
   const receivedAt = formatIsoInTimeZone(messageDate, timeZone);
   const today = localDateKeyInTimeZone(messageDate, timeZone);
+  const scratchArtifactDir = resolveScratchArtifactDir(timeZone, messageDate);
   const persistedMessage = appendAttachmentBlock(options.messageText, attachmentPaths);
   const modelMessage = appendAttachmentBlock(
     [
@@ -54,6 +56,7 @@ export function buildPromptInputEnvelope(options: PromptInputEnvelopeOptions): {
       `message_received_at: ${receivedAt}`,
       `timezone: ${timeZone}`,
       `today: ${today}`,
+      `scratch_artifact_dir: ${scratchArtifactDir}`,
       "</env>",
       "",
       "<user_message>",

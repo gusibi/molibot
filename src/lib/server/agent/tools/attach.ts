@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { createPathGuard, resolveToolPath } from "./path.js";
@@ -14,9 +14,11 @@ const attachSchema = Type.Object({
 export function createAttachTool(options: {
   cwd: string;
   workspaceDir: string;
+  artifactDir?: string;
   uploadFile: (filePath: string, title?: string, text?: string) => Promise<void>;
 }): AgentTool<typeof attachSchema> {
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
+  const artifactDir = options.artifactDir?.trim();
 
   function isAudioFile(filePath: string): boolean {
     return /\.(aac|aif|aiff|amr|m4a|mp3|oga|ogg|opus|silk|wav)$/i.test(filePath);
@@ -29,6 +31,24 @@ export function createAttachTool(options: {
     return text || undefined;
   }
 
+  function resolveAttachPath(inputPath: string): string {
+    const filePath = resolveToolPath(options.cwd, inputPath);
+    if (existsSync(filePath) || !artifactDir) return filePath;
+
+    const cwd = resolve(options.cwd);
+    const rel = relative(cwd, filePath);
+    const isMissingRootFile =
+      rel &&
+      !rel.startsWith("..") &&
+      !isAbsolute(rel) &&
+      !rel.includes("/") &&
+      !rel.includes("\\");
+    if (!isMissingRootFile) return filePath;
+
+    const datedCandidate = resolve(cwd, artifactDir, basename(filePath));
+    return existsSync(datedCandidate) ? datedCandidate : filePath;
+  }
+
   return {
     name: "attach",
     label: "attach",
@@ -39,7 +59,7 @@ export function createAttachTool(options: {
         throw new Error("Aborted");
       }
 
-      const filePath = resolveToolPath(options.cwd, params.path);
+      const filePath = resolveAttachPath(params.path);
       ensureAllowedPath(filePath);
       const title = params.title || basename(filePath);
       const text = typeof params.text === "string" ? params.text.trim() : "";

@@ -226,6 +226,9 @@ function buildEnvironmentSection(vars: PromptRenderVars): string {
     `- Bash working directory for tools: ${vars.scratchDir}`,
     "- Be careful with system modifications",
     `- When writing files in scratch, use relative paths from scratch (do not prepend ${vars.scratchDir} again)`,
+    "- For ordinary generated artifacts in scratch, default to the per-message `scratch_artifact_dir` from `<env>` (for example `YYYY/MM/DD/report.md`).",
+    "- Keep runtime/control files in their required locations, such as event JSON under watched event directories; do not move them into the dated artifact folder.",
+    "- If the user explicitly requests a path, or a tool/skill requires a specific path, use that path instead of the dated artifact default.",
     `- Active bot runtime root: ${vars.workspaceDir}`,
     `- Global skills directory (canonical): ${vars.globalSkillsDir}`,
     `- Bot-level skills directory (bot-scoped): ${vars.botSkillsDir}`,
@@ -283,6 +286,7 @@ function buildWorkspaceLayoutSection(vars: PromptRenderVars): string {
     `    │   └── ${vars.sessionId}.jsonl   # Active session entry log`,
     "    ├── attachments/             # User-shared files",
     "    └── scratch/                 # Tool working directory",
+    "        ├── YYYY/MM/DD/          # Default ordinary generated artifacts",
     "        └── events/              # Chat-local watched events",
   ]);
 }

@@ -25,6 +25,9 @@ You are running directly on the host machine.
 - Bash working directory for tools: ~/.molibot/moli-t/bots/molipi_bot/7706709760/scratch
 - Be careful with system modifications
 - When writing files in scratch, use relative paths from scratch (do not prepend ~/.molibot/moli-t/bots/molipi_bot/7706709760/scratch again)
+- For ordinary generated artifacts in scratch, default to the per-message `scratch_artifact_dir` from `<env>` (for example `YYYY/MM/DD/report.md`).
+- Keep runtime/control files in their required locations, such as event JSON under watched event directories; do not move them into the dated artifact folder.
+- If the user explicitly requests a path, or a tool/skill requires a specific path, use that path instead of the dated artifact default.
 - Global workspace root: ~/.molibot/moli-t/bots/molipi_bot
 - Global skills directory (canonical): ~/.molibot/skills
 - Chat-local skills directory (session-specific): ~/.molibot/moli-t/bots/molipi_bot/7706709760/skills
@@ -75,6 +78,7 @@ You are running directly on the host machine.
     │   └── s-mm5n2ji6.json    # Active session context
     ├── attachments/             # User-shared files
     └── scratch/                 # Tool working directory
+        ├── YYYY/MM/DD/          # Default ordinary generated artifacts
         └── events/              # Chat-local watched events
 
 ## Skills (Custom CLI Tools)

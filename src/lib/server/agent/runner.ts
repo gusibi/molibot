@@ -1827,6 +1827,7 @@ export class MomRunner implements RunnerLike {
       workspaceDir: this.store.getWorkspaceDir(),
       chatId: this.chatId,
       timezone: settings.timezone,
+      messageTimestamp: ctx.message.ts,
       memory: this.memory,
       getSettings: this.getSettings,
       updateSettings: this.updateSettings,
