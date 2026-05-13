@@ -20,6 +20,13 @@ import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
 import { SqliteOutbox } from "../shared/outbox.js";
 import { extractWeixinAttachments, extractWeixinText, hasWeixinInlineVoiceTranscript } from "./media.js";
 import { hasWeixinImageReferenceText, sendWeixinFile, sendWeixinImageReferenceText } from "./outbound.js";
+import {
+  createToolProgressBatcher,
+  formatWeixinToolProgressText,
+  isToolProgressBatchText,
+  isTransientRunnerProgress,
+  isWeixinToolProgressDeliveryText
+} from "./toolProgress.js";
 
 export interface WeixinConfig {
   baseUrl?: string;
@@ -79,28 +86,6 @@ function normalizeBufferedErrorText(text: string): string {
   return normalized;
 }
 
-function isTransientRunnerProgress(text: string): boolean {
-  return /^_→ .+_$/.test(normalizeText(text));
-}
-
-function isToolProgressBatchText(text: string): boolean {
-  const lines = normalizeText(text).split("\n").map((line) => line.trim()).filter(Boolean);
-  return lines.length > 0 && lines.every((line) => isTransientRunnerProgress(line));
-}
-
-function formatWeixinToolProgressText(text: string): string {
-  const lines = normalizeText(text).split("\n").map((line) => line.trim()).filter(Boolean);
-  const labels = lines.map((line) => line.replace(/^_→\s*/, "").replace(/_$/, "").trim()).filter(Boolean);
-  if (labels.length === 0) return normalizeText(text);
-  if (labels.length === 1) return `工具调用：${labels[0]}`;
-  return ["工具调用：", ...labels.map((label) => `- ${label}`)].join("\n");
-}
-
-function isWeixinToolProgressDeliveryText(text: string): boolean {
-  const normalized = normalizeText(text);
-  return isToolProgressBatchText(normalized) || normalized === "工具调用：" || normalized.startsWith("工具调用：\n") || /^工具调用：\S/.test(normalized);
-}
-
 function isWeixinInvalidPayloadError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /sendMessage failed:\s*code=-2(?:\D|$)/.test(message);
@@ -115,39 +100,6 @@ function isRunnerErrorNotice(text: string): boolean {
     normalized === "Sorry, something went wrong." ||
     /^\*✗\s+/.test(normalized)
   );
-}
-
-function createToolProgressBatcher(
-  send: (text: string) => Promise<void>,
-  batchSize = 5
-): {
-  handle(text: string): Promise<void>;
-  flush(): Promise<void>;
-} {
-  let seen = 0;
-  let pending: string[] = [];
-
-  return {
-    async handle(text: string): Promise<void> {
-      seen += 1;
-      if (seen === 1) {
-        await send(text);
-        return;
-      }
-      pending.push(text);
-      if (pending.length >= batchSize) {
-        const batch = pending.join("\n");
-        pending = [];
-        await send(batch);
-      }
-    },
-    async flush(): Promise<void> {
-      if (!pending.length) return;
-      const batch = pending.join("\n");
-      pending = [];
-      await send(batch);
-    }
-  };
 }
 
 export class WeixinManager extends BaseChannelRuntime {
@@ -467,11 +419,9 @@ export class WeixinManager extends BaseChannelRuntime {
     }
 
     const commandText = lowered === "stop" ? "/stop" : text;
-    if (lowered.startsWith("/") || lowered === "stop") {
-      const handled = await this.handleCommand(chatId, commandText, message);
-      if (handled) {
-        return;
-      }
+    const handled = await this.handleCommand(chatId, commandText, message);
+    if (handled) {
+      return;
     }
 
     const event: WeixinInboundEvent = {
@@ -552,7 +502,7 @@ export class WeixinManager extends BaseChannelRuntime {
 
     const sendVisibleText = async (text: string, options?: { allowFinalError?: boolean }): Promise<void> => {
       if (!options?.allowFinalError && isTransientRunnerProgress(text)) {
-        await toolProgress.handle(formatWeixinToolProgressText(text));
+        await toolProgress.handle(text);
         return;
       }
       if (!options?.allowFinalError && bufferIfWeixinRunnerError(text)) {

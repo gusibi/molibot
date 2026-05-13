@@ -16,6 +16,7 @@ export interface ProviderModelConfig {
   id: string;
   tags: ModelCapabilityTag[];
   supportedRoles: ModelRole[];
+  contextWindow?: number;
   verification?: Partial<Record<ModelCapabilityTag, ModelCapabilityVerification>>;
 }
 
@@ -33,8 +34,10 @@ export interface ModelRoutingConfig {
 
 export interface CompactionSettings {
   enabled: boolean;
+  thresholdPercent: number;
   reserveTokens: number;
   keepRecentTokens: number;
+  defaultContextWindow: number;
 }
 
 export type ModelFallbackMode = "off" | "same-provider" | "any-enabled";
@@ -248,6 +251,59 @@ export interface ToolSandboxSettings {
   filesystem: ToolSandboxFilesystemSettings;
 }
 
+export type HostToolApprovalStatus = "pending" | "approved" | "rejected";
+export type HostToolNetworkAccess = "none" | "loopback" | "internet";
+export type HostToolFilesystemAccess = "none" | "scratch-only" | "workspace-read" | "workspace-write";
+
+export interface HostToolPermissions {
+  envAllowlist: string[];
+  filesystem: HostToolFilesystemAccess;
+  network: HostToolNetworkAccess;
+}
+
+export interface HostToolPendingAction {
+  kind: "run_approved_host_tool";
+  originalCommand: string;
+  args: string[];
+  stdin?: string;
+  timeout?: number;
+}
+
+export interface HostToolApprovalRequest {
+  id: string;
+  toolId: string;
+  displayName: string;
+  command: string;
+  reason: string;
+  permissions: HostToolPermissions;
+  channel: string;
+  chatId: string;
+  scopeId: string;
+  requestedAt: string;
+  status: HostToolApprovalStatus;
+  resolvedAt?: string;
+  pendingAction?: HostToolPendingAction;
+}
+
+export interface ApprovedHostTool {
+  toolId: string;
+  displayName: string;
+  command: string;
+  reason: string;
+  permissions: HostToolPermissions;
+  approvedAt: string;
+  approvedFromRequestId: string;
+  channel: string;
+  chatId: string;
+  scopeId: string;
+  enabled: boolean;
+}
+
+export interface HostToolSettings {
+  pendingApprovals: HostToolApprovalRequest[];
+  approvedTools: ApprovedHostTool[];
+}
+
 export interface RuntimeSettings {
   providerMode: ProviderMode;
   piModelProvider: KnownProvider;
@@ -267,6 +323,7 @@ export interface RuntimeSettings {
   skillSearch: SkillSearchSettings;
   skillDrafts: SkillDraftSettings;
   toolSandbox: ToolSandboxSettings;
+  hostTools: HostToolSettings;
   disabledSkillPaths: string[];
   telegramBots: TelegramBotConfig[];
   feishuBots: FeishuBotConfig[];

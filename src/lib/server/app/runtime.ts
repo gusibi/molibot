@@ -21,6 +21,7 @@ import {
   type McpServerConfig,
   type RuntimeSettings
 } from "../settings/index.js";
+import { sanitizeHostToolSettings } from "../settings/hostTools.js";
 import { sanitizeToolSandboxSettings } from "../settings/toolSandbox.js";
 import { config } from "./env.js";
 import { builtInChannelPlugins, type ChannelManager, type ChannelRuntimeDeps } from "../channels/registry.js";
@@ -656,6 +657,7 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
         id,
         tags: sanitizeModelTags(modelObj.tags),
         supportedRoles: sanitizeRoles(modelObj.supportedRoles ?? (row as { supportedRoles?: unknown }).supportedRoles),
+        contextWindow: typeof modelObj.contextWindow === "number" && modelObj.contextWindow > 0 ? modelObj.contextWindow : undefined,
         verification: Object.keys(verification ?? {}).length > 0 ? verification : undefined
       });
     }
@@ -663,7 +665,8 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
       models.push({
         id: legacyModel,
         tags: [...DEFAULT_MODEL_TAGS],
-        supportedRoles: sanitizeRoles((row as { supportedRoles?: unknown }).supportedRoles)
+        supportedRoles: sanitizeRoles((row as { supportedRoles?: unknown }).supportedRoles),
+        contextWindow: undefined
       });
     }
     const modelIds = models.map((m) => m.id);
@@ -726,10 +729,14 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   const compactionInput = next.compaction ?? current.compaction;
   const reserveTokensRaw = Number(compactionInput?.reserveTokens ?? current.compaction.reserveTokens);
   const keepRecentTokensRaw = Number(compactionInput?.keepRecentTokens ?? current.compaction.keepRecentTokens);
+  const thresholdPercentRaw = Number(compactionInput?.thresholdPercent ?? current.compaction.thresholdPercent);
+  const defaultContextWindowRaw = Number(compactionInput?.defaultContextWindow ?? current.compaction.defaultContextWindow);
   next.compaction = {
     enabled: compactionInput?.enabled === undefined ? current.compaction.enabled : Boolean(compactionInput.enabled),
+    thresholdPercent: Number.isFinite(thresholdPercentRaw) ? Math.max(10, Math.min(95, Math.round(thresholdPercentRaw))) : current.compaction.thresholdPercent,
     reserveTokens: Number.isFinite(reserveTokensRaw) ? Math.max(1024, Math.round(reserveTokensRaw)) : current.compaction.reserveTokens,
-    keepRecentTokens: Number.isFinite(keepRecentTokensRaw) ? Math.max(2048, Math.round(keepRecentTokensRaw)) : current.compaction.keepRecentTokens
+    keepRecentTokens: Number.isFinite(keepRecentTokensRaw) ? Math.max(2048, Math.round(keepRecentTokensRaw)) : current.compaction.keepRecentTokens,
+    defaultContextWindow: Number.isFinite(defaultContextWindowRaw) ? Math.max(1024, Math.round(defaultContextWindowRaw)) : current.compaction.defaultContextWindow
   };
 
   next.systemPrompt = String(next.systemPrompt ?? "").trim() || defaultRuntimeSettings.systemPrompt;
@@ -759,6 +766,7 @@ function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSetti
   next.skillSearch = sanitizeSkillSearchSettings(next.skillSearch ?? current.skillSearch, current.skillSearch);
   next.skillDrafts = sanitizeSkillDraftSettings(next.skillDrafts ?? current.skillDrafts, current.skillDrafts);
   next.toolSandbox = sanitizeToolSandboxSettings(next.toolSandbox ?? current.toolSandbox, current.toolSandbox);
+  next.hostTools = sanitizeHostToolSettings(next.hostTools ?? current.hostTools);
   next.disabledSkillPaths = Array.isArray(next.disabledSkillPaths)
     ? next.disabledSkillPaths.map((v) => String(v).trim()).filter(Boolean)
     : current.disabledSkillPaths;

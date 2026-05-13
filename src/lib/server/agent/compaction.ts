@@ -65,7 +65,10 @@ export function shouldCompactContext(
   settings: CompactionSettings
 ): boolean {
   if (!settings.enabled) return false;
-  return estimateContextTokens(messages) > Math.max(0, contextWindow - settings.reserveTokens);
+  const percentLimit = Math.max(0, Math.floor(contextWindow * settings.thresholdPercent / 100));
+  const reserveLimit = Math.max(0, contextWindow - settings.reserveTokens);
+  const threshold = Math.min(percentLimit, reserveLimit);
+  return estimateContextTokens(messages) > threshold;
 }
 
 function findFirstKeptIndex(messages: AgentMessage[], keepRecentTokens: number): number {
@@ -82,6 +85,16 @@ function findFirstKeptIndex(messages: AgentMessage[], keepRecentTokens: number):
   }
 
   return firstKeptIndex;
+}
+
+function findManualFirstKeptIndex(messages: AgentMessage[], keepRecentTokens: number): number {
+  const firstKeptIndex = findFirstKeptIndex(messages, keepRecentTokens);
+  if (firstKeptIndex > 0 || messages.length <= 1) return firstKeptIndex;
+
+  const totalTokens = estimateContextTokens(messages);
+  if (totalTokens <= 0) return 0;
+
+  return findFirstKeptIndex(messages, Math.max(1, Math.floor(totalTokens / 2)));
 }
 
 function serializeMessage(message: AgentMessage, index: number): string {
@@ -138,7 +151,9 @@ export async function compactContextMessages(options: {
   signal?: AbortSignal;
 }): Promise<ContextCompactionResult> {
   const beforeTokens = estimateContextTokens(options.messages);
-  const firstKeptIndex = findFirstKeptIndex(options.messages, options.settings.keepRecentTokens);
+  const firstKeptIndex = options.reason === "manual"
+    ? findManualFirstKeptIndex(options.messages, options.settings.keepRecentTokens)
+    : findFirstKeptIndex(options.messages, options.settings.keepRecentTokens);
   const messagesToSummarize = options.messages.slice(0, firstKeptIndex);
   const keptMessages = options.messages.slice(firstKeptIndex);
 

@@ -27,9 +27,13 @@ function wrapSerializedTool<T extends AgentTool<any>>(tool: T): T {
     ...tool,
     execute: async (toolCallId, params, signal, onUpdate) => {
       if (!shouldSerializeToolCall(tool.name, params)) {
+        if (signal?.aborted) throw new Error("Aborted");
         return tool.execute(toolCallId, params, signal, onUpdate);
       }
-      const run = async () => tool.execute(toolCallId, params, signal, onUpdate);
+      const run = async () => {
+        if (signal?.aborted) throw new Error("Aborted");
+        return tool.execute(toolCallId, params, signal, onUpdate);
+      };
       const result = chain.then(run, run);
       chain = result.then(() => undefined, () => undefined);
       return result;
@@ -233,6 +237,13 @@ export function createMomTools(options: {
       sandbox: {
         settings: options.getSettings().toolSandbox,
         workspaceDir: options.workspaceDir
+      },
+      hostApproval: {
+        channel: options.channel,
+        chatId: options.chatId,
+        scopeId: options.chatId,
+        getSettings: options.getSettings,
+        updateSettings: options.updateSettings
       }
     }),
     createEditTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),

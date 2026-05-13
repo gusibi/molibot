@@ -1,20 +1,62 @@
 import { existsSync, mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { delimiter, extname, isAbsolute, join, relative, resolve } from "node:path";
-import { execFileSync, spawnSync } from "node:child_process";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { config } from "../../app/env.js";
-import type { ToolSandboxSettings } from "../../settings/index.js";
+import type {
+  ApprovedHostTool,
+  RuntimeSettings,
+  ToolSandboxSettings
+} from "../../settings/index.js";
+import {
+  buildHostToolApprovalPrompt,
+  parseHostToolShellCommand,
+  requestHostToolApproval,
+  sanitizeHostToolId,
+  type HostToolApprovalPrompt
+} from "../../settings/hostTools.js";
+import { executeApprovedHostTool } from "../hostToolExec.js";
 import { momWarn } from "../log.js";
 import { execCommand, normalizeCommandOutput, shellEscape, stripAnsi } from "./helpers.js";
 import { prepareToolSandboxExecution } from "./sandbox.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "./truncate.js";
 
+const SANDBOX_VENV_DIR = join(config.dataDir, "tooling", "sandbox-venv");
+
+function wrapCommandWithVenv(command: string): string {
+  const venvBin = process.platform === "win32" ? join(SANDBOX_VENV_DIR, "Scripts") : join(SANDBOX_VENV_DIR, "bin");
+  const venvPython = process.platform === "win32" ? join(venvBin, "python.exe") : join(venvBin, "python");
+  return [
+    `if [ ! -f ${shellEscape(venvPython)} ]; then python3 -m venv ${shellEscape(SANDBOX_VENV_DIR)} 2>/dev/null || true; fi`,
+    `export PATH=${shellEscape(venvBin)}:$PATH`,
+    `export VIRTUAL_ENV=${shellEscape(SANDBOX_VENV_DIR)}`,
+    command
+  ].join("\n");
+}
+
 const bashSchema = Type.Object({
   label: Type.String(),
   command: Type.String(),
-  timeout: Type.Optional(Type.Number())
+  timeout: Type.Optional(Type.Number()),
+  hostApproval: Type.Optional(Type.Object({
+    reason: Type.String(),
+    displayName: Type.Optional(Type.String()),
+    permissions: Type.Optional(Type.Object({
+      envAllowlist: Type.Optional(Type.Array(Type.String())),
+      filesystem: Type.Optional(Type.Union([
+        Type.Literal("none"),
+        Type.Literal("scratch-only"),
+        Type.Literal("workspace-read"),
+        Type.Literal("workspace-write")
+      ])),
+      network: Type.Optional(Type.Union([
+        Type.Literal("none"),
+        Type.Literal("loopback"),
+        Type.Literal("internet")
+      ]))
+    }, { additionalProperties: false }))
+  }, { additionalProperties: false }))
 });
 
 interface BashToolDetails {
@@ -22,6 +64,13 @@ interface BashToolDetails {
   fullOutputPath?: string;
   sandboxApplied?: boolean;
   sandboxWarning?: string;
+  hostToolApproval?: HostToolApprovalPrompt;
+}
+
+interface ParsedHostToolCommand {
+  command: string;
+  args: string[];
+  originalCommand: string;
 }
 
 export interface BashToolSandboxOptions {
@@ -29,11 +78,14 @@ export interface BashToolSandboxOptions {
   workspaceDir: string;
 }
 
-const PYTHON_SANDBOX_ROOT = join(config.dataDir, "tooling", "python");
-const PYTHON_VENV_DIR = join(PYTHON_SANDBOX_ROOT, "venv");
-const PYTHON_UV_CACHE_DIR = join(PYTHON_SANDBOX_ROOT, "uv-cache");
-const PYTHON_PIP_CACHE_DIR = join(PYTHON_SANDBOX_ROOT, "pip-cache");
-const PYTHON_TMP_DIR = join(PYTHON_SANDBOX_ROOT, "tmp");
+export interface BashToolHostApprovalOptions {
+  channel: string;
+  chatId: string;
+  scopeId: string;
+  getSettings: () => RuntimeSettings;
+  updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
+}
+
 const ROOT_ARTIFACT_EXTENSIONS = new Set([
   ".aac", ".aif", ".aiff", ".amr", ".avif", ".csv", ".doc", ".docx", ".gif", ".html",
   ".jpeg", ".jpg", ".json", ".m4a", ".md", ".mp3", ".mp4", ".oga", ".ogg", ".opus",
@@ -45,148 +97,6 @@ const ROOT_ARTIFACT_EXCLUDED_NAMES = new Set([
   "pnpm-lock.yaml",
   "yarn.lock"
 ]);
-
-function resolveVenvBinDir(venvDir: string): string {
-  return process.platform === "win32" ? join(venvDir, "Scripts") : join(venvDir, "bin");
-}
-
-function resolveVenvPythonPath(venvDir: string): string {
-  return process.platform === "win32" ? join(resolveVenvBinDir(venvDir), "python.exe") : join(resolveVenvBinDir(venvDir), "python");
-}
-
-function resolveVenvActivatePath(venvDir: string): string {
-  return process.platform === "win32" ? join(resolveVenvBinDir(venvDir), "activate") : join(resolveVenvBinDir(venvDir), "activate");
-}
-
-function probeCommand(command: string): boolean {
-  const result = spawnSync(command, ["--version"], { stdio: "ignore" });
-  return result.status === 0;
-}
-
-function pickPythonLauncher(): string {
-  const candidates = [process.env.MOLIBOT_PYTHON_BIN?.trim(), "python3", "python"].filter((value): value is string => Boolean(value));
-  for (const candidate of candidates) {
-    if (probeCommand(candidate)) return candidate;
-  }
-  throw new Error(
-    "No Python runtime found for bash tool sandbox. Install python3 (with venv support) or set MOLIBOT_PYTHON_BIN."
-  );
-}
-
-function ensurePythonVirtualEnv(): void {
-  const pythonPath = resolveVenvPythonPath(PYTHON_VENV_DIR);
-  if (!existsSync(pythonPath)) {
-    mkdirSync(PYTHON_SANDBOX_ROOT, { recursive: true });
-
-    const launcher = pickPythonLauncher();
-    try {
-      execFileSync(launcher, ["-m", "venv", PYTHON_VENV_DIR], { stdio: "pipe" });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `Failed to initialize Python sandbox virtualenv at ${PYTHON_VENV_DIR}. ${message}`
-      );
-    }
-  }
-
-  try {
-    execFileSync(pythonPath, ["-m", "pip", "--version"], { stdio: "pipe" });
-  } catch {
-    try {
-      execFileSync(pythonPath, ["-m", "ensurepip", "--upgrade"], { stdio: "pipe" });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `Python sandbox at ${PYTHON_VENV_DIR} is missing pip and ensurepip failed. ${message}`
-      );
-    }
-  }
-}
-
-function buildPythonSandboxEnv(): NodeJS.ProcessEnv {
-  ensurePythonVirtualEnv();
-  mkdirSync(PYTHON_UV_CACHE_DIR, { recursive: true });
-  mkdirSync(PYTHON_PIP_CACHE_DIR, { recursive: true });
-  mkdirSync(PYTHON_TMP_DIR, { recursive: true });
-
-  const venvBinDir = resolveVenvBinDir(PYTHON_VENV_DIR);
-  const venvPythonPath = resolveVenvPythonPath(PYTHON_VENV_DIR);
-  const currentPath = process.env.PATH ?? "";
-  const mergedPath = currentPath ? `${venvBinDir}${delimiter}${currentPath}` : venvBinDir;
-
-  return {
-    PATH: mergedPath,
-    VIRTUAL_ENV: PYTHON_VENV_DIR,
-    UV_PROJECT_ENVIRONMENT: PYTHON_VENV_DIR,
-    UV_CACHE_DIR: PYTHON_UV_CACHE_DIR,
-    UV_PYTHON: venvPythonPath,
-    PIP_CACHE_DIR: PYTHON_PIP_CACHE_DIR,
-    PIP_REQUIRE_VIRTUALENV: "true",
-    PIP_DISABLE_PIP_VERSION_CHECK: "1",
-    PIP_ROOT_USER_ACTION: "ignore",
-    TMPDIR: PYTHON_TMP_DIR,
-    PYTHONNOUSERSITE: "1"
-  };
-}
-
-function sanitizePythonCommand(command: string): string {
-  return command
-    .replace(/\s--break-system-packages(?=\s|$)/g, "")
-    .replace(/\s--user(?=\s|$)/g, "");
-}
-
-function wrapCommandWithPythonSandbox(command: string): string {
-  const venvPythonPath = resolveVenvPythonPath(PYTHON_VENV_DIR);
-  const venvActivatePath = resolveVenvActivatePath(PYTHON_VENV_DIR);
-  const sanitized = sanitizePythonCommand(command);
-  return [
-    `VENV_PYTHON=${shellEscape(venvPythonPath)}`,
-    `. ${shellEscape(venvActivatePath)} >/dev/null 2>&1 || true`,
-    "python() { \"$VENV_PYTHON\" \"$@\"; }",
-    "python3() { \"$VENV_PYTHON\" \"$@\"; }",
-    "pip() { \"$VENV_PYTHON\" -m pip \"$@\"; }",
-    "pip3() { \"$VENV_PYTHON\" -m pip \"$@\"; }",
-    sanitized
-  ].join("\n");
-}
-
-function isDeferredWaitCommand(command: string): boolean {
-  const normalized = command.toLowerCase();
-  return (
-    /\bsleep\b/.test(normalized) ||
-    /\btimeout\b/.test(normalized) ||
-    /\bwait\b/.test(normalized) ||
-    /\bping\s+-c\b/.test(normalized)
-  );
-}
-
-function touchesExternalScheduler(command: string): boolean {
-  const normalized = command.toLowerCase();
-  return (
-    /\bcrontab\b/.test(normalized) ||
-    /\bat\b/.test(normalized) ||
-    /\batq\b/.test(normalized) ||
-    /\batrm\b/.test(normalized) ||
-    /\blaunchctl\b/.test(normalized) ||
-    /\bschtasks\b/.test(normalized)
-  );
-}
-
-function touchesMemoryFiles(command: string): boolean {
-  const normalized = command.toLowerCase();
-  if (normalized.includes("/api/memory")) return false;
-  return /memory\.md|\/memory\//i.test(command);
-}
-
-function touchesSettingsFile(command: string): boolean {
-  const normalized = command.toLowerCase();
-  const fullSettingsPath = config.settingsFile.replace(/\\/g, "/").toLowerCase();
-  return (
-    normalized.includes(fullSettingsPath) ||
-    normalized.includes("~/.molibot/settings.json") ||
-    normalized.includes("/.molibot/settings.json")
-  );
-}
 
 function buildTempOutputPath(cwd: string): string {
   const dir = join(cwd, ".mom-tool-output");
@@ -281,7 +191,114 @@ function captureSayTranscript(command: string, fallbackCwd: string): void {
   writeFileSync(`${outputPath}.transcript.txt`, `${transcript.trim()}\n`, "utf8");
 }
 
-export function createBashTool(cwd: string, options?: { artifactDir?: string; sandbox?: BashToolSandboxOptions }): AgentTool<typeof bashSchema> {
+function requestApprovalFromBash(
+  options: BashToolHostApprovalOptions,
+  command: string,
+  timeoutSeconds: number | undefined,
+  approval: {
+    reason: string;
+    displayName?: string;
+    permissions?: {
+      envAllowlist?: string[];
+      filesystem?: "none" | "scratch-only" | "workspace-read" | "workspace-write";
+      network?: "none" | "loopback" | "internet";
+    };
+  }
+): { text: string; prompt?: HostToolApprovalPrompt } {
+  const parsed = parseHostToolShellCommand(command);
+  const requested = requestHostToolApproval(options.getSettings().hostTools, {
+    command: parsed.command,
+    displayName: approval.displayName,
+    reason: approval.reason,
+    permissions: approval.permissions,
+    pendingAction: {
+      kind: "run_approved_host_tool",
+      originalCommand: parsed.originalCommand,
+      args: parsed.args,
+      timeout: timeoutSeconds
+    },
+    channel: options.channel,
+    chatId: options.chatId,
+    scopeId: options.scopeId
+  });
+
+  if (requested.kind === "existing-approved" && requested.approved) {
+    return {
+      text: `${requested.approved.displayName} is already approved as host tool ${requested.approved.toolId}.`
+    };
+  }
+
+  if (requested.kind === "existing-pending" && requested.approval) {
+    return {
+      text: [
+        `Host tool approval is already pending: ${requested.approval.id}`,
+        `Tool: ${requested.approval.displayName}`,
+        `Command: ${requested.approval.command}`,
+        "",
+        "Operator can approve or reject it from a structured action."
+      ].join("\n"),
+      prompt: buildHostToolApprovalPrompt(requested.approval)
+    };
+  }
+
+  const nextSettings = options.updateSettings({ hostTools: requested.settings });
+  const saved = nextSettings.hostTools.pendingApprovals[0];
+  if (!saved) throw new Error("Failed to persist host tool approval request.");
+  return {
+    text: [
+      "Host tool approval requested.",
+      `Approval ID: ${saved.id}`,
+      `Tool: ${saved.displayName} (${saved.toolId})`,
+      `Command: ${saved.command}`,
+      saved.pendingAction?.args?.length ? `Args: ${saved.pendingAction.args.join(" ")}` : "",
+      `Reason: ${saved.reason}`,
+      `Permissions: filesystem=${saved.permissions.filesystem}, network=${saved.permissions.network}, env=${saved.permissions.envAllowlist.join(", ") || "(none)"}`,
+      "",
+      "Approve or reject it from the structured action UI."
+    ].filter(Boolean).join("\n"),
+    prompt: buildHostToolApprovalPrompt(saved)
+  };
+}
+
+function tryParseHostToolCommand(command: string): ParsedHostToolCommand | null {
+  try {
+    return parseHostToolShellCommand(command);
+  } catch {
+    return null;
+  }
+}
+
+function findApprovedHostTool(
+  settings: RuntimeSettings,
+  parsed: ParsedHostToolCommand | null
+): ApprovedHostTool | undefined {
+  if (!parsed) return undefined;
+  const toolId = sanitizeHostToolId(parsed.command);
+  return settings.hostTools.approvedTools.find((item) => item.enabled && item.toolId === toolId);
+}
+
+function isSandboxPermissionFailure(output: string): boolean {
+  const text = output.toLowerCase();
+  return [
+    "operation not permitted",
+    "permission denied",
+    "not permitted",
+    "sandbox",
+    "access denied",
+    "socket",
+    "ipc"
+  ].some((pattern) => text.includes(pattern));
+}
+
+function buildAutomaticHostApprovalReason(parsed: ParsedHostToolCommand): string {
+  return `Sandbox denied host-level access for \`${parsed.originalCommand}\`. Approve this executable as a controlled host capability if you want future runs to bypass sandbox for this command.`;
+}
+
+export function createBashTool(cwd: string, options?: {
+  artifactDir?: string;
+  sandbox?: BashToolSandboxOptions;
+  hostApproval?: BashToolHostApprovalOptions;
+}): AgentTool<typeof bashSchema> {
   const artifactDir = options?.artifactDir?.trim();
   return {
     name: "bash",
@@ -290,25 +307,44 @@ export function createBashTool(cwd: string, options?: { artifactDir?: string; sa
       `Execute a bash command in scratch workspace. When creating ordinary generated files, prefer $MOLIBOT_SCRATCH_ARTIFACT_DIR. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
     parameters: bashSchema,
     execute: async (_toolCallId, params, signal) => {
-      if (isDeferredWaitCommand(params.command)) {
-        throw new Error(
-          "Waiting/sleep commands are not allowed. For delayed reminders, use toolSearch to load createEvent, then create a one-shot event."
-        );
+      const parsedHostToolCommand = options?.hostApproval
+        ? tryParseHostToolCommand(params.command)
+        : null;
+      const approvedHostTool = options?.hostApproval
+        ? findApprovedHostTool(options.hostApproval.getSettings(), parsedHostToolCommand)
+        : undefined;
+
+      if (approvedHostTool && parsedHostToolCommand) {
+        const executed = await executeApprovedHostTool({
+          tool: approvedHostTool,
+          cwd,
+          args: parsedHostToolCommand.args,
+          timeoutSeconds: params.timeout,
+          signal
+        });
+        return {
+          content: [{ type: "text", text: executed.rendered }],
+          details: executed.details
+        };
       }
-      if (touchesExternalScheduler(params.command)) {
-        throw new Error(
-          "External schedulers (crontab/at/launchctl/schtasks) are not allowed. Use toolSearch to load createEvent for reminders and recurring tasks."
+
+      if (params.hostApproval) {
+        if (!options?.hostApproval) {
+          throw new Error("Host tool approval is not configured for this bash tool instance.");
+        }
+        const requested = requestApprovalFromBash(
+          options.hostApproval,
+          params.command,
+          params.timeout,
+          params.hostApproval
         );
-      }
-      if (touchesMemoryFiles(params.command)) {
-        throw new Error(
-          "Direct memory file operations are blocked. Use the memory tool (or /api/memory gateway) for all memory reads/writes/updates."
-        );
-      }
-      if (touchesSettingsFile(params.command)) {
-        throw new Error(
-          "Direct runtime settings-file operations are blocked. Use the switchModel tool or a settings API/runtime update path instead of editing settings.json."
-        );
+        return {
+          content: [{
+            type: "text",
+            text: requested.text
+          }],
+          details: requested.prompt ? { hostToolApproval: requested.prompt } : undefined
+        };
       }
 
       if (artifactDir) {
@@ -316,12 +352,9 @@ export function createBashTool(cwd: string, options?: { artifactDir?: string; sa
       }
       const rootFilesBefore = listRootFileNames(cwd);
 
-      const sandboxEnv = {
-        ...buildPythonSandboxEnv(),
-        ...(artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: artifactDir } : {})
-      };
-      const wrappedCommand = wrapCommandWithPythonSandbox(params.command);
-      const sandboxed = options?.sandbox
+      const sandboxEnv = artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: artifactDir } : {};
+      const wrappedCommand = wrapCommandWithVenv(params.command);
+      const sandboxed = options?.sandbox?.settings.enabled
         ? await prepareToolSandboxExecution({
             settings: options.sandbox.settings,
             workspaceDir: options.sandbox.workspaceDir,
@@ -382,7 +415,40 @@ export function createBashTool(cwd: string, options?: { artifactDir?: string; sa
       }
 
       if (result.code !== 0) {
-        throw new Error(`${rendered}\n\nCommand exited with code ${result.code}`.trim());
+        let errorBody = `${rendered}\n\nCommand exited with code ${result.code}`.trim();
+        if (sandboxed.sandboxApplied && options?.hostApproval && isSandboxPermissionFailure(rendered)) {
+          if (parsedHostToolCommand) {
+            const requested = requestApprovalFromBash(
+              options.hostApproval,
+              params.command,
+              params.timeout,
+              {
+                reason: buildAutomaticHostApprovalReason(parsedHostToolCommand)
+              }
+            );
+            return {
+              content: [{
+                type: "text",
+                text: [
+                  "Sandbox blocked this command and host approval was requested automatically.",
+                  "",
+                  requested.text,
+                  "",
+                  "Original sandbox error:",
+                  rendered
+                ].join("\n")
+              }],
+              details: {
+                ...details,
+                hostToolApproval: requested.prompt
+              }
+            };
+          }
+          errorBody += "\n\n[SANDBOX] This command appears to need host-level access, but automatic approval only supports a single executable command with structured argv. Split it into one command and retry.";
+        } else if (sandboxed.sandboxApplied) {
+          errorBody += "\n\n[SANDBOX] This command ran inside the OS sandbox. If it failed due to filesystem or network restrictions (e.g. \"Operation not permitted\", \"Permission denied\", socket/IPC errors), request host access through `bash` with `hostApproval.reason`. Once approved, runtime will execute the stored host action automatically. Do not retry the same command through plain bash.";
+        }
+        throw new Error(errorBody);
       }
 
       return {

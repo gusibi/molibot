@@ -4,6 +4,68 @@
 
 ---
 
+## 2026-05-13
+
+### Concise sandbox labels and Weixin tool batches
+- **展示文案收短**: 所有用户可见的 sandboxed bash 工具展示统一改为 `Sandbox`，初始化失败软降级时显示 `Sandbox disabled`，不再使用冗长的 `bash (sandbox)` / `bash (sandbox disabled)`。
+- **微信批量工具进度可读性**: Weixin channel 现在会先聚合原始工具进度，再一次性格式化成多行列表发送，避免 5 次工具调用挤成一行。
+- **回归覆盖**: 新增 Weixin runtime tests 覆盖多行工具进度格式化与批量发送行为，并同步更新 sandbox 展示名测试。
+
+### Bash-routed host approval
+- **入口收敛**: 移除单独的 `hostToolApproval` agent 工具，把 host capability 审批申请收回到 `bash` 入口。
+- **审批保持不变**: `bash.hostApproval` 继续写入同一套 pending/approved host tool registry，聊天里的 `安装` / `批准` / `approve` 确认流程保持不变。
+- **执行面内收**: `hostToolRun` 也已移除；审批通过后由运行时直接执行保存下来的受控 host action，不暴露第二个 agent 工具，也不会退化成 host shell。
+- **结构化审批**: host approval 现在会产出结构化审批 payload，包含标题、正文、选项和请求元数据，供 API/Web/Telegram/Feishu 渲染原生按钮或卡片。
+- **自动续跑**: 审批通过后会立刻执行挂起的 host action，不再停在“已批准、等待继续”这一步。
+- **白名单直达**: `bash` 现在会先检查已批准 host capability 白名单；命中后直接执行内部 host action，不再先走 sandbox 再失败一次。
+- **失败自动提审**: 对可解析成单个 executable + argv 的命令，sandbox 权限失败会直接创建结构化审批请求，而不是等模型再显式补发一次 `bash.hostApproval`。
+
+### Interactive manager TTY disconnect guard
+- **交互兜底**: `molibot manage` 现在会把 `readline` 上来自 TTY 断开的 `EIO` 读错误当成正常关闭处理，不再抛出未处理的 `Interface` error。
+- **等待态收尾**: 菜单选择和“Press Enter to continue”这类挂起中的 prompt 会在接口关闭时自行结束，避免卡死在未完成的 `rl.question()`。
+- **运维体验**: 关闭终端、断开附着会话，或其他导致 stdin 消失的场景下，管理器会安静退出而不是打印 Node 崩溃堆栈。
+
+---
+
+## 2026-05-14
+
+### Host approval rejection acknowledgement
+- **拒绝可见回执**: Telegram 和 Feishu 的 host approval 拒绝动作现在会额外发送一条普通文本回复，明确告知该审批已被拒绝，不再只依赖卡片/原消息状态变化。
+- **审批阻塞当前轮次**: sandbox 权限失败自动触发 host approval 时，runner 现在会立刻中止本轮并停在“等待审批”状态，不再把“已发起审批”当成成功工具结果继续生成后续答案。
+
+---
+
+## 2026-05-12
+
+### Chat-first host tool approval
+- **bash 入口路由**: host tool 审批申请现在由 `bash` 入口承接；模型在 sandbox 权限失败后通过 `bash.hostApproval` 创建 pending approval，不再暴露单独的 `hostToolApproval` agent 工具。
+- **聊天确认**: Telegram/Feishu/QQ/Weixin 的共享命令层会拦截同一会话里的 `安装` / `批准` / `approve`，把对应 pending request 写入 approved host tool registry。
+- **受控执行**: 审批后只能执行登记时固定的 command，并通过结构化 argv 传参；不使用 shell。
+- **沙箱边界**: `bash` 不会自动升级成 host；已批准项是受控 host capability，不是通用 host shell。
+- **提示词约束**: 系统提示词要求模型遇到 host-only 工具时通过 `bash.hostApproval` 申请审批，而不是继续用 sandbox bash 绕行。
+
+---
+
+### Manual `/compact` force behavior
+- **Keep-window false negative fixed**: Manual `/compact` can now summarize older context even when `keepRecentTokens` is configured larger than the current session context.
+- **Auto behavior preserved**: Threshold/overflow compaction still respects the configured keep-recent window; only explicit manual compaction gets force semantics.
+- **Root cause clarified**: The previous runner/store sync fix worked for stale runner memory, but this case was caused by the keep-recent setting making the summarizable slice empty.
+
+---
+
+## 2026-05-11
+
+### Manual `/compact` session-state sync
+- **Idle runner reload**: Manual `/compact` now reloads the latest persisted session into the idle runner before summarizing.
+- **False negative removed**: Fixes cases where `/status` reported a large live context but `/compact` incorrectly returned `Nothing to compact yet.` because runner memory was older than the session log.
+
+### Telegram live-control 命令修复
+- **命令入口补齐**: Telegram 现在会把 `/steer`、`/followup`、`/follow_up` 和 `/queue` 先交给共享命令处理器，而不是在忙碌时当成普通消息入队。
+- **队列注入恢复**: `/steer <queueId>` 会按已有队列 ID 注入当前任务，不再出现 `/steer 352` 被重新排成 `#353` 的问题。
+- **回归覆盖**: 新增 Telegram 命令注册测试，并继续覆盖共享 `/steer <queueId>` 提升逻辑。
+
+---
+
 ## 2026-05-10
 
 ### Agent Bash OS Sandbox

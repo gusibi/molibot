@@ -1,32 +1,21 @@
-# Findings & Decisions
+# Findings & Decisions: Chat Host Tool Approval
 
 ## Requirements
-- Add OS-level sandbox support for Agent shell execution only.
-- Keep sandbox disabled by default.
-- Soft-disable and warn when sandbox initialization fails.
-- Load skill/API environment variables from a workspace env file and inject only allowed keys.
-- Prevent sandboxed bash from directly reading the env file.
-- Add full Settings UI and diagnostics for sandbox policy.
-- Update project documentation after implementation.
+- Provide a chat-driven approval flow for external tools that need host execution.
+- Avoid adding one-off services per external tool.
+- Do not let AI decide or directly grant sandbox bypass.
+- Keep the implementation compatible with later skill-provided manifests.
 
-## Research Findings
-- Main Agent `bash` is implemented in `src/lib/server/agent/tools/bash.ts` and currently calls `execCommand`.
-- `execCommand` currently merges `process.env` into all child processes.
-- Subagents create their own bash tool in `src/lib/server/agent/tools/subagent.ts`; sandbox must be passed there explicitly.
-- Runtime settings are typed in `src/lib/server/settings/schema.ts`, defaulted in `defaults.ts`, and sanitized in both `settings/store.ts` and `app/runtime.ts`.
-- Settings already uses shadcn-svelte components under `src/lib/components/ui`.
+## Findings
+- `createMomTools()` is the right place to expose a request-only approval tool because it already has `channel`, `chatId`, `getSettings`, and `updateSettings`.
+- Runtime settings already persist static JSON fields through `SettingsStore.toStaticSettings()`, so a small `hostTools` setting is enough for pending approvals and approved registry without adding a database migration.
+- `SharedRuntimeCommandService.handle()` can safely inspect non-slash messages first because it returns `false` when there is no pending host approval and no slash command.
+- Telegram normal messages previously bypassed the shared command service except registered slash commands and `stop`; it needs one extra pre-run check so plain `安装` can approve a pending request.
 
-## Technical Decisions
+## Decisions
 | Decision | Rationale |
 |----------|-----------|
-| Keep `execCommand` default env inheritance | Avoid changing read/write/edit and unrelated shell helpers. |
-| Add an explicit non-inheriting exec option for sandbox bash | Prevent full host env leakage when sandbox is active. |
-| Store `toolSandbox` in static settings JSON | It is stable runtime policy, not high-churn dynamic domain data. |
-| Use workspace-relative `.env.sandbox.local` by default | Matches user preference and avoids machine-specific absolute paths in defaults. |
-| Never return env values from diagnostics | Diagnostics should expose key names/status only. |
-| Do not parse workspace env files when sandbox is disabled | The default-off path should preserve legacy behavior and avoid touching secret files unless the sandbox path or diagnostics explicitly needs them. |
-
-## Issues Encountered
-| Issue | Resolution |
-|-------|------------|
-| Settings enum sanitizer did not explicitly accept `warn-disable` and `minimal` when a non-default fallback was passed. | Fixed sanitizer to accept all valid enum literals before falling back, and covered it in targeted tests. |
+| AI can request but not approve host tools | Approval changes the runtime security boundary and must stay operator-controlled. |
+| Host capability is not host bash | A host tool must be a structured, allowlisted capability with schema and fixed command metadata. |
+| First pass registers approvals but does not execute host tools | This adds the security/approval substrate without exposing a new host execution surface in the same change. |
+| Host execution should use `spawn(command, args)` without shell | This allows approved external tools to run while avoiding shell interpolation and host bash exposure. |

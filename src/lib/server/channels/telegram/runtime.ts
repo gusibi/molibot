@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { basename, extname, join } from "node:path";
 import { Bot, InlineKeyboard, InputFile } from "grammy";
 import type { RuntimeSettings } from "../../settings/index.js";
+import type { HostToolApprovalPrompt } from "../../settings/hostTools.js";
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
@@ -20,6 +21,8 @@ import { BaseChannelRuntime } from "../shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
 import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
 import type { ParsedRelativeReminder, StatusSession } from "./types.js";
+import { TELEGRAM_SHARED_COMMANDS } from "./commands.js";
+import { executeApprovedHostTool } from "../../agent/hostToolExec.js";
 
 export interface TelegramConfig {
   token: string;
@@ -58,6 +61,11 @@ export class TelegramManager extends BaseChannelRuntime {
     optionId?: string;
   }>();
   private readonly acpPermissionInputs = new Map<string, { requestId: string }>();
+  private readonly hostToolApprovalActions = new Map<string, {
+    scopeId: string;
+    requestId: string;
+    action: "approve" | "reject";
+  }>();
   private readonly events: EventsWatcher[] = [];
   private readonly watchedChatEventDirs = new Set<string>();
   private authDisabled = false;
@@ -169,6 +177,19 @@ export class TelegramManager extends BaseChannelRuntime {
       maybeHandleAcpCommand: (scopeId, cmd, rawArg, target) =>
         this.maybeHandleTelegramAcpCommand(scopeId, cmd, rawArg, target),
       sendText: (target, text) => this.sendTelegramCommandText(target, text),
+      executeApprovedHostTool: async (input, approved, request) => {
+        if (!request.pendingAction || !this.bot) return;
+        const target = this.parseChatScopeId(input.scopeId);
+        const executed = await executeApprovedHostTool({
+          tool: approved,
+          cwd: this.store.getChatDir(input.scopeId),
+          args: request.pendingAction.args,
+          stdin: request.pendingAction.stdin,
+          timeoutSeconds: request.pendingAction.timeout
+        });
+        await sendTelegramText(this.bot, target.chatId, executed.rendered, this.buildTelegramSendOptions(target.messageThreadId));
+        return "Approved and executed immediately.";
+      },
       onSessionMutation: (scopeId) => {
         void this.writePromptPreview([this.parseChatScopeId(scopeId).chatId]);
       },
@@ -460,6 +481,16 @@ export class TelegramManager extends BaseChannelRuntime {
     return `acp:${token}`;
   }
 
+  private registerHostToolApprovalAction(
+    scopeId: string,
+    requestId: string,
+    action: "approve" | "reject"
+  ): string {
+    const token = randomUUID().replace(/-/g, "").slice(0, 24);
+    this.hostToolApprovalActions.set(token, { scopeId, requestId, action });
+    return `hta:${token}`;
+  }
+
   private buildAcpPermissionKeyboard(scopeId: string, permission: AcpPendingPermissionView): InlineKeyboard {
     const keyboard = new InlineKeyboard();
     let buttonsInRow = 0;
@@ -498,6 +529,32 @@ export class TelegramManager extends BaseChannelRuntime {
       bot,
       target.chatId,
       buildAcpPermissionText(permission),
+      {
+        reply_markup: keyboard,
+        ...this.buildTelegramSendOptions(target.messageThreadId),
+        ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {})
+      }
+    );
+  }
+
+  private buildHostToolApprovalKeyboard(scopeId: string, prompt: HostToolApprovalPrompt): InlineKeyboard {
+    return new InlineKeyboard()
+      .text("Approve", this.registerHostToolApprovalAction(scopeId, prompt.requestId, "approve"))
+      .text("Reject", this.registerHostToolApprovalAction(scopeId, prompt.requestId, "reject"));
+  }
+
+  private async sendHostToolApprovalCard(
+    bot: Bot,
+    scopeId: string,
+    prompt: HostToolApprovalPrompt,
+    replyTo?: number | null
+  ): Promise<void> {
+    const target = this.parseChatScopeId(scopeId);
+    const keyboard = this.buildHostToolApprovalKeyboard(scopeId, prompt);
+    await sendTelegramText(
+      bot,
+      target.chatId,
+      `*${prompt.title}*\n\n\`\`\`\n${prompt.body}\n\`\`\``,
       {
         reply_markup: keyboard,
         ...this.buildTelegramSendOptions(target.messageThreadId),
@@ -623,28 +680,7 @@ export class TelegramManager extends BaseChannelRuntime {
       momLog("telegram", "chatid_command", { chatId, scopeId, chatType, allowed: allowedNow });
     });
 
-    const sharedTelegramCommands = [
-      "stop",
-      "new",
-      "clear",
-      "sessions",
-      "delete_sessions",
-      "acp",
-      "approve",
-      "deny",
-      "help",
-      "start",
-      "skills",
-      "compact",
-      "login",
-      "logout",
-      "models",
-      "status",
-      "state",
-      "thinking"
-    ] as const;
-
-    for (const command of sharedTelegramCommands) {
+    for (const command of TELEGRAM_SHARED_COMMANDS) {
       bot.command(command, async (ctx) => {
         await this.handleTelegramSharedCommand(ctx, allowed);
       });
@@ -731,6 +767,61 @@ export class TelegramManager extends BaseChannelRuntime {
       }
     });
 
+    bot.callbackQuery(/^hta:/, async (ctx) => {
+      const callbackMessage = ctx.callbackQuery.message;
+      const chatId = String(callbackMessage?.chat.id ?? "");
+      const messageThreadId =
+        callbackMessage && "message_thread_id" in callbackMessage && Number.isFinite(callbackMessage.message_thread_id)
+          ? Number(callbackMessage.message_thread_id)
+          : undefined;
+      const scopeId = this.buildChatScopeId(chatId, messageThreadId);
+      if (!chatId) {
+        await ctx.answerCallbackQuery({ text: "Chat context is unavailable." });
+        return;
+      }
+      if (allowed.size > 0 && !allowed.has(chatId)) {
+        await ctx.answerCallbackQuery({ text: "Chat not allowed." });
+        return;
+      }
+
+      const token = ctx.callbackQuery.data.slice(4);
+      const action = this.hostToolApprovalActions.get(token);
+      if (!action || action.scopeId !== scopeId) {
+        await ctx.answerCallbackQuery({ text: "This host approval request is no longer available." });
+        return;
+      }
+
+      const input = {
+        chatId,
+        scopeId,
+        text: "",
+        target: this.buildTelegramCommandTarget({ chat: { id: chatId }, msg: { message_thread_id: messageThreadId } })
+      };
+      const result = action.action === "approve"
+        ? await this.commandService.approveHostTool(input, action.requestId)
+        : await this.commandService.rejectHostTool(input, action.requestId);
+      this.hostToolApprovalActions.delete(token);
+      await ctx.answerCallbackQuery({ text: action.action === "approve" ? "Approved." : "Rejected." });
+      const messageId = callbackMessage?.message_id;
+      if (messageId) {
+        await editTelegramMessage(
+          bot,
+          chatId,
+          messageId,
+          result.message,
+          { ...this.buildTelegramSendOptions(messageThreadId), reply_markup: undefined }
+        );
+      }
+      if (action.action === "reject") {
+        await sendTelegramText(
+          bot,
+          chatId,
+          result.message,
+          this.buildTelegramSendOptions(messageThreadId)
+        );
+      }
+    });
+
     bot.on("message", async (ctx) => {
       const chatId = String(ctx.chat.id);
       const messageThreadId = Number.isFinite(ctx.msg?.message_thread_id) ? Number(ctx.msg.message_thread_id) : undefined;
@@ -781,6 +872,16 @@ export class TelegramManager extends BaseChannelRuntime {
           await ctx.reply(error instanceof Error ? error.message : String(error));
         }
         return;
+      }
+
+      if (rawText) {
+        const approvalHandled = await this.commandService.handle({
+          chatId,
+          scopeId,
+          text: rawText,
+          target: this.buildTelegramCommandTarget(ctx)
+        });
+        if (approvalHandled) return;
       }
 
       if (initialStatusText) {
@@ -1848,6 +1949,9 @@ export class TelegramManager extends BaseChannelRuntime {
         }
 
         if (runnerEvent.type === "tool_execution_end") {
+          if (runnerEvent.hostToolApproval) {
+            await this.sendHostToolApprovalCard(bot, scopeId, runnerEvent.hostToolApproval);
+          }
           updateToolProgress(
             runnerEvent.toolName,
             runnerEvent.toolName,

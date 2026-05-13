@@ -39,6 +39,7 @@
         id: string;
         tags: ModelCapabilityTag[];
         supportedRoles: ModelRole[];
+        contextWindow?: number;
         verification?: Partial<
             Record<ModelCapabilityTag, ModelCapabilityVerification>
         >;
@@ -436,6 +437,7 @@
                               "assistant",
                               "tool",
                           ],
+                          contextWindow: undefined,
                       }
                     : {
                           id: String(m.id ?? ""),
@@ -443,6 +445,7 @@
                           supportedRoles: Array.isArray(m.supportedRoles)
                               ? m.supportedRoles
                               : ["system", "user", "assistant", "tool"],
+                          contextWindow: typeof (m as any).contextWindow === "number" && (m as any).contextWindow > 0 ? (m as any).contextWindow : undefined,
                           verification:
                               m.verification &&
                               typeof m.verification === "object"
@@ -553,6 +556,7 @@
                     id: "",
                     tags: ["text"] as ModelCapabilityTag[],
                     supportedRoles: ["system", "user", "assistant", "tool"],
+                    contextWindow: undefined,
                 },
                 ...provider.models,
             ],
@@ -1114,6 +1118,7 @@
                                                   "assistant",
                                                   "tool",
                                               ],
+                                  contextWindow: typeof m.contextWindow === "number" && m.contextWindow > 0 ? m.contextWindow : undefined,
                                   verification:
                                       m.verification &&
                                       typeof m.verification === "object"
@@ -1196,6 +1201,7 @@
                         id: model.id.trim(),
                         tags: [...model.tags],
                         supportedRoles: [...model.supportedRoles],
+                        contextWindow: model.contextWindow && model.contextWindow > 0 ? model.contextWindow : undefined,
                         verification:
                             model.verification &&
                             Object.keys(model.verification).length > 0
@@ -1996,6 +2002,23 @@
                                         >
                                             Remove
                                         </Button>
+                                    </div>
+
+                                    <div class="grid gap-y-2 border-t px-4 py-3 sm:grid-cols-[1fr_1fr] sm:gap-x-3">
+                                        <label class="grid gap-1">
+                                            <span class="text-xs text-muted-foreground">Context window (tokens)</span>
+                                            <Input
+                                                type="number"
+                                                min="0"
+                                                step="1000"
+                                                placeholder="e.g. 200000"
+                                                value={model.contextWindow ?? ""}
+                                                oninput={(e) => {
+                                                    const v = Number((e.currentTarget as HTMLInputElement).value);
+                                                    model.contextWindow = v > 0 ? v : undefined;
+                                                }}
+                                            />
+                                        </label>
                                     </div>
 
                                     {#if testResult}

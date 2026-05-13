@@ -1,5 +1,6 @@
 import type { AssistantMessageEvent, ImageContent } from "@mariozechner/pi-ai";
 import type { RuntimeThinkingLevel } from "../settings/index.js";
+import type { HostToolApprovalPrompt } from "../settings/hostTools.js";
 
 export type AttachmentMediaType = "image" | "audio" | "video" | "file";
 
@@ -85,6 +86,7 @@ export type RunnerUiEvent =
       displayName?: string;
       isError: boolean;
       summary: string;
+      hostToolApproval?: HostToolApprovalPrompt;
     };
 
 export interface MomContext {

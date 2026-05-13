@@ -4,19 +4,6 @@ import type {
   ToolSandboxSettings
 } from "./schema.js";
 
-const DEFAULT_ALLOWED_DOMAINS = [
-  "npmjs.org",
-  "*.npmjs.org",
-  "registry.npmjs.org",
-  "registry.yarnpkg.com",
-  "pypi.org",
-  "*.pypi.org",
-  "github.com",
-  "*.github.com",
-  "api.github.com",
-  "raw.githubusercontent.com"
-];
-
 const DEFAULT_DENY_READ = [
   "~/.ssh",
   "~/.aws",
@@ -34,21 +21,21 @@ const DEFAULT_DENY_WRITE = [
 ];
 
 export const defaultToolSandboxSettings: ToolSandboxSettings = {
-  enabled: false,
+  enabled: true,
   initFailureMode: "warn-disable",
   envFilePath: ".env.sandbox.local",
   env: {
-    inheritMode: "minimal",
+    inheritMode: "full",
     allow: [],
     deny: []
   },
   network: {
-    allowedDomains: DEFAULT_ALLOWED_DOMAINS,
+    allowedDomains: ["*"],
     deniedDomains: []
   },
   filesystem: {
     denyRead: DEFAULT_DENY_READ,
-    allowWrite: [".", "/tmp"],
+    allowWrite: [],
     denyWrite: DEFAULT_DENY_WRITE
   }
 };

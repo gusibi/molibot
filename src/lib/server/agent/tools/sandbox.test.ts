@@ -6,8 +6,7 @@ import { tmpdir } from "node:os";
 import { defaultToolSandboxSettings, sanitizeToolSandboxSettings } from "../../settings/toolSandbox.js";
 import {
   buildToolSandboxEnv,
-  getToolSandboxDiagnostics,
-  hostAppBypassReason
+  getToolSandboxDiagnostics
 } from "./sandbox.js";
 
 test("sanitizeToolSandboxSettings keeps safe defaults for invalid input", () => {
@@ -68,6 +67,7 @@ test("buildToolSandboxEnv injects only allowed env keys from workspace env file"
     const settings = sanitizeToolSandboxSettings({
       ...defaultToolSandboxSettings,
       enabled: true,
+      envFilePath: join(workspaceDir, ".env.sandbox.local"),
       env: {
         inheritMode: "minimal",
         allow: ["OPENAI_API_KEY", "PLAIN"],
@@ -93,20 +93,11 @@ test("sandbox diagnostics deny direct reads of the workspace env file", async ()
     const settings = sanitizeToolSandboxSettings(defaultToolSandboxSettings);
     const diagnostics = await getToolSandboxDiagnostics(settings, workspaceDir);
 
-    assert.equal(diagnostics.enabled, false);
+    assert.equal(diagnostics.enabled, true);
     assert.equal(diagnostics.envFilePath.endsWith(".env.sandbox.local"), true);
     assert.equal(diagnostics.effectiveFilesystem.denyRead.includes(diagnostics.envFilePath), true);
     assert.equal(diagnostics.effectiveFilesystem.denyWrite.includes(diagnostics.envFilePath), true);
   } finally {
     rmSync(workspaceDir, { recursive: true, force: true });
   }
-});
-
-test("host app bypass commands are rejected for sandboxed bash", () => {
-  assert.match(hostAppBypassReason("open http://localhost:3000") ?? "", /Browser or Computer Use/);
-  assert.match(hostAppBypassReason("open .") ?? "", /Browser or Computer Use/);
-  assert.match(hostAppBypassReason("xdg-open http://localhost:3000") ?? "", /Browser or Computer Use/);
-  assert.match(hostAppBypassReason("osascript -e 'tell app \"Safari\" to activate'") ?? "", /AppleScript/);
-  assert.match(hostAppBypassReason("npx playwright open http://localhost:3000") ?? "", /Browser/);
-  assert.equal(hostAppBypassReason("npm test"), null);
 });

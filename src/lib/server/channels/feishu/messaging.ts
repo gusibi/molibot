@@ -1,5 +1,6 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
+import type { HostToolApprovalPrompt } from "../../settings/hostTools.js";
 import { momWarn } from "../../agent/log.js";
 import { markdownToFeishuMarkdown, parseFeishuRichTextSegments, type FeishuRichTextSegment } from "./formatting.js";
 
@@ -15,6 +16,14 @@ interface FeishuCardActionValue {
   chatId: string;
   requestId: string;
   optionId?: string;
+}
+
+interface FeishuHostToolApprovalActionValue {
+  action: "approve" | "reject";
+  kind: "host_tool_approval";
+  botId: string;
+  chatId: string;
+  requestId: string;
 }
 
 interface StatusCardOptions {
@@ -374,6 +383,65 @@ export function buildFeishuAcpPermissionResultCard(
       }
     ]
   };
+}
+
+export function buildFeishuHostToolApprovalCard(
+  prompt: HostToolApprovalPrompt,
+  options: PermissionCardOptions
+): lark.InteractiveCard {
+  const actionButtons: lark.InteractiveCardActionItem[] = prompt.options.map((option) => ({
+    tag: "button",
+    type: option.style === "primary" ? "primary" : "danger",
+    text: {
+      tag: "plain_text",
+      content: option.label
+    },
+    value: {
+      kind: "host_tool_approval",
+      action: option.id,
+      botId: options.botId,
+      chatId: options.chatId,
+      requestId: prompt.requestId
+    } satisfies FeishuHostToolApprovalActionValue
+  }));
+
+  return {
+    config: {
+      wide_screen_mode: true,
+      enable_forward: true,
+      update_multi: true
+    },
+    header: {
+      template: "orange",
+      title: {
+        tag: "plain_text",
+        content: prompt.title
+      }
+    },
+    elements: [
+      {
+        tag: "markdown",
+        content: markdownToFeishuMarkdown(prompt.body)
+      },
+      {
+        tag: "action",
+        layout: "flow",
+        actions: actionButtons
+      }
+    ]
+  };
+}
+
+export function buildFeishuHostToolApprovalResultCard(
+  prompt: HostToolApprovalPrompt,
+  outcome: string,
+  tone: CardTone = "green"
+): lark.InteractiveCard {
+  return buildFeishuStatusCard({
+    title: prompt.title,
+    body: `${prompt.body}\n\n${outcome}`.trim(),
+    tone
+  });
 }
 
 export function formatFeishuText(text: string): string {

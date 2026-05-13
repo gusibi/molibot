@@ -40,12 +40,12 @@
       subagentOpusModelKey: string; subagentThinkingModelKey: string;
     };
     modelFallback: { mode: ModelFallbackMode };
-    compaction: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
+    compaction: { enabled: boolean; thresholdPercent: number; reserveTokens: number; keepRecentTokens: number; defaultContextWindow: number };
     systemPrompt: string; timezone: string;
   }
 
   interface MetaResponse { providers: Array<{ id: string; name: string }>; providerModels: Record<string, string[]>; capabilityTags: ModelCapabilityTag[]; }
-  interface ModelRouteOption { key: string; label: string; }
+  interface ModelRouteOption { key: string; label: string; contextWindow?: number; }
   interface ModelSwitchResponse { ok: boolean; error?: string; routes?: Record<"text" | "vision" | "stt" | "tts" | "subagent", { currentKey: string; options: ModelRouteOption[] }>; }
 
   let loading = true; let saving = false; let error = ""; let message = "";
@@ -79,7 +79,7 @@
     defaultThinkingLevel: "off", defaultCustomProviderId: "", customProviders: [],
     modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "", ttsModelKey: "", subagentModelKey: "", subagentHaikuModelKey: "", subagentSonnetModelKey: "", subagentOpusModelKey: "", subagentThinkingModelKey: "" },
     modelFallback: { mode: "same-provider" },
-    compaction: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 },
+    compaction: { enabled: true, thresholdPercent: 75, reserveTokens: 8192, keepRecentTokens: 20000, defaultContextWindow: 200000 },
     systemPrompt: "You are Molibot, a concise and helpful assistant.",
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   };
@@ -187,6 +187,26 @@
     return `${transportLabel(option.key)} / ${providerFromKey(option.key)} / ${modelFromKey(option.key)}`;
   }
 
+  function textModelContextWindow(): number {
+    const option = selectedRouteOption("text");
+    return option?.contextWindow ?? 200000;
+  }
+
+  function compactionTriggerPreview(): { window: number; trigger: number; reason: string; fromModel: boolean } {
+    const win = textModelContextWindow();
+    const pct = form.compaction.thresholdPercent || 75;
+    const reserve = form.compaction.reserveTokens || 8192;
+    const pctLimit = Math.floor(win * pct / 100);
+    const resLimit = win - reserve;
+    const trigger = Math.min(pctLimit, resLimit);
+    return {
+      window: win,
+      trigger,
+      reason: pctLimit <= resLimit ? "threshold %" : "reserve",
+      fromModel: win !== form.compaction.defaultContextWindow
+    };
+  }
+
   function enabledProviderCounts(): { builtin: number; custom: number; models: number } {
     let builtin = 0; let custom = 0; let models = 0;
     for (const p of form.customProviders) {
@@ -264,7 +284,7 @@
           subagentOpusModelKey: s.modelRouting?.subagentOpusModelKey ?? "", subagentThinkingModelKey: s.modelRouting?.subagentThinkingModelKey ?? "",
         },
         modelFallback: { mode: s.modelFallback?.mode === "off" || s.modelFallback?.mode === "any-enabled" ? s.modelFallback.mode : "same-provider" },
-        compaction: { enabled: s.compaction?.enabled ?? true, reserveTokens: Number(s.compaction?.reserveTokens ?? 16384), keepRecentTokens: Number(s.compaction?.keepRecentTokens ?? 20000) },
+        compaction: { enabled: s.compaction?.enabled ?? true, thresholdPercent: Number(s.compaction?.thresholdPercent ?? 75), reserveTokens: Number(s.compaction?.reserveTokens ?? 8192), keepRecentTokens: Number(s.compaction?.keepRecentTokens ?? 20000), defaultContextWindow: Number(s.compaction?.defaultContextWindow ?? 200000) },
         systemPrompt: s.systemPrompt,
         timezone: s.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
       };
@@ -455,16 +475,41 @@
             </div>
 
             <div class="grid gap-1.5">
+              <Label for="rt-default-cw">Default context window</Label>
+              <Input id="rt-default-cw" type="number" min="1024" step="1000" bind:value={form.compaction.defaultContextWindow} />
+              <p class="text-xs text-muted-foreground">Fallback context window when the model doesn't report one. Default 200000 (200K).</p>
+            </div>
+
+            <div class="grid gap-1.5">
+              <Label for="rt-threshold">Compaction threshold (%)</Label>
+              <Input id="rt-threshold" type="number" min="10" max="95" step="5" bind:value={form.compaction.thresholdPercent} />
+              <p class="text-xs text-muted-foreground">Trigger compaction when context exceeds this % of the model's context window. Default 75%.</p>
+            </div>
+
+            <div class="grid gap-1.5">
               <Label for="rt-reserve">Reserve tokens</Label>
               <Input id="rt-reserve" type="number" min="1024" step="256" bind:value={form.compaction.reserveTokens} />
-              <p class="text-xs text-muted-foreground">Headroom kept for the next model response.</p>
+              <p class="text-xs text-muted-foreground">Safety margin for model output. Also caps the trigger line at (window − reserve). Default 8192.</p>
             </div>
 
             <div class="grid gap-1.5">
               <Label for="rt-keep">Keep recent tokens</Label>
               <Input id="rt-keep" type="number" min="2048" step="512" bind:value={form.compaction.keepRecentTokens} />
-              <p class="text-xs text-muted-foreground">Recent turns preserved verbatim.</p>
+              <p class="text-xs text-muted-foreground">Recent turns preserved verbatim during compaction. Default 20000.</p>
             </div>
+
+            {#if true}
+              {@const preview = compactionTriggerPreview()}
+              <div class="rounded-lg border bg-muted/40 px-3 py-3 text-xs text-muted-foreground md:col-span-2">
+                <strong class="text-foreground">Trigger preview</strong> — current text model context window: <strong class="text-foreground">{(preview.window / 1000)}K</strong>, compaction fires when estimated tokens &gt; <strong class="text-foreground">{(preview.trigger / 1000).toFixed(preview.trigger % 1000 !== 0 ? 1 : 0)}K</strong> ({preview.reason})
+
+                {#if preview.fromModel}
+                  <span class="ml-1">(window from model metadata)</span>
+                {:else}
+                  <span class="ml-1">(using default context window)</span>
+                {/if}
+              </div>
+            {/if}
           </div>
         </CardContent>
       </Card>

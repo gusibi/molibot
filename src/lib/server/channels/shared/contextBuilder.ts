@@ -1,4 +1,5 @@
 import type { MomContext, ChannelInboundMessage } from "../../agent/types.js";
+import type { RunnerUiEvent } from "../../agent/types.js";
 import type { SessionStore } from "../../sessions/store.js";
 import type { MomRuntimeStore } from "../../agent/store.js";
 import type { Channel } from "../../../shared/types/message.js";
@@ -40,6 +41,7 @@ interface BuildTextChannelContextOptions<TSent extends ContextSentMessageRef> {
   replaceWithoutEdit?: (text: string, state: ContextBuilderState<TSent>, ctx: MomContext) => Promise<void>;
   deleteWithoutHandle?: (state: ContextBuilderState<TSent>) => Promise<void>;
   uploadWithoutHandle?: (filePath: string, title: string | undefined, text: string | undefined, ctx: MomContext) => Promise<void>;
+  onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
 }
 
 export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
@@ -162,7 +164,8 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
       if (options.uploadWithoutHandle) {
         await options.uploadWithoutHandle(filePath, title, text, ctx);
       }
-    }
+    },
+    onRunnerEvent: options.onRunnerEvent
   };
 
   return ctx;

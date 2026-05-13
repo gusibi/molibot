@@ -35,3 +35,12 @@ test("prompt source tells codebase tasks to delegate before tool budget exhausti
   assert.match(promptSource, /If you expect more than about 8 direct read\/bash\/edit calls, delegate early/);
   assert.match(promptSource, /call `subagent` before the parent run approaches the 24-tool hard limit/);
 });
+
+test("prompt source requires host tool approval instead of sandbox bypass", () => {
+  assert.match(promptSource, /Host Tool Approval/);
+  assert.match(promptSource, /Use `bash` with `hostApproval.reason`/);
+  assert.match(promptSource, /After approval, runtime immediately executes the stored host action/);
+  assert.doesNotMatch(promptSource, /hostToolRun/);
+  assert.match(promptSource, /must never claim to approve host tools itself/);
+  assert.match(promptSource, /Approved host tools are controlled capabilities, not a general host shell/);
+});

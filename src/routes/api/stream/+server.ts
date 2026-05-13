@@ -190,6 +190,9 @@ export const POST: RequestHandler = async ({ request }) => {
                 writeEvent(controller, encoder, "payload", event);
                 return;
               }
+              if (event.type === "tool_execution_end" && event.hostToolApproval) {
+                writeEvent(controller, encoder, "host_tool_approval", event.hostToolApproval);
+              }
               if (event.type !== "assistant_message_event") return;
 
               if (event.event.type === "thinking_start") {

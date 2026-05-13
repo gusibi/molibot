@@ -27,7 +27,8 @@ export const GET: RequestHandler = async () => {
           currentKey: currentModelKey(settings, route),
           options: buildModelOptions(settings, route).map((option) => ({
             key: option.key,
-            label: option.label
+            label: option.label,
+            contextWindow: option.contextWindow
           }))
         }
       ])

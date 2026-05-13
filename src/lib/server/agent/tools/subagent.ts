@@ -388,7 +388,7 @@ async function resolveSubagentModel(
         reasoning: resolveCustomProviderReasoningSupport(customProvider),
         input: configuredModel?.tags?.includes("vision") ? ["text", "image"] : ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 200000,
+        contextWindow: configuredModel?.contextWindow || 200000,
         maxTokens: 8192,
         compat: protocol === "anthropic" ? undefined : buildCustomProviderCompat(customProvider)
       };

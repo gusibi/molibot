@@ -1,5 +1,7 @@
 import { getModels } from "@mariozechner/pi-ai";
 import type { RuntimeSettings, RuntimeThinkingLevel } from "../settings/index.js";
+import type { ApprovedHostTool, HostToolApprovalRequest } from "../settings/index.js";
+import { approveHostToolRequest, findPendingHostToolApproval } from "../settings/hostTools.js";
 import { RUNTIME_THINKING_LEVELS } from "../settings/index.js";
 import {
   buildModelOptions,
@@ -41,6 +43,11 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   cancelAcpRun?: (scopeId: string) => Promise<boolean>;
   maybeHandleAcpCommand?: (scopeId: string, cmd: string, rawArg: string, target: TTarget) => Promise<boolean>;
   sendText: (target: TTarget, text: string) => Promise<void>;
+  executeApprovedHostTool?: (
+    input: SharedRuntimeCommandContext<TTarget>,
+    approved: ApprovedHostTool,
+    request: HostToolApprovalRequest
+  ) => Promise<string | void>;
   onSessionMutation?: (scopeId: string) => void | Promise<void>;
   getQueueSize?: (scopeId: string) => number;
   listQueue?: (scopeId: string) => Promise<Array<{ id: number; status: string; preview: string; createdAt: string }>>;
@@ -85,8 +92,74 @@ export class SharedRuntimeCommandService<TTarget> {
 
   constructor(private readonly options: SharedRuntimeCommandOptions<TTarget>) {}
 
+  async approveHostTool(input: SharedRuntimeCommandContext<TTarget>, approvalId?: string): Promise<{
+    ok: boolean;
+    message: string;
+    request?: HostToolApprovalRequest;
+  }> {
+    if (!this.options.updateSettings) {
+      return { ok: false, message: "Host tool approval is unavailable in current runtime." };
+    }
+    const settings = this.options.getSettings();
+    const approved = approveHostToolRequest(settings.hostTools, input.scopeId, approvalId || undefined);
+    if (!approved) {
+      return { ok: false, message: "No matching pending host tool approval found." };
+    }
+    this.options.updateSettings({ hostTools: approved.settings });
+    let message = [
+      `Approved host tool: ${approved.approved.displayName}`,
+      `Tool ID: ${approved.approved.toolId}`,
+      `Command: ${approved.approved.command}`
+    ].join("\n");
+    if (approved.request.pendingAction && this.options.executeApprovedHostTool) {
+      try {
+        const runSummary = await this.options.executeApprovedHostTool(input, approved.approved, approved.request);
+        if (runSummary) {
+          message += `\n\n${runSummary}`;
+        }
+      } catch (error) {
+        message += `\n\nApproved, but automatic execution failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    } else {
+      message += "\nThe tool is now registered as an approved host capability. It is not a host shell.";
+    }
+    return { ok: true, message, request: approved.request };
+  }
+
+  async rejectHostTool(input: SharedRuntimeCommandContext<TTarget>, approvalId?: string): Promise<{
+    ok: boolean;
+    message: string;
+    request?: HostToolApprovalRequest;
+  }> {
+    if (!this.options.updateSettings) {
+      return { ok: false, message: "Host tool approval is unavailable in current runtime." };
+    }
+    const settings = this.options.getSettings();
+    const request = findPendingHostToolApproval(settings.hostTools, input.scopeId, approvalId);
+    if (!request) {
+      return { ok: false, message: "No matching pending host tool approval found." };
+    }
+    const now = new Date().toISOString();
+    const nextPending = settings.hostTools.pendingApprovals.map((item) =>
+      item.id === request.id ? { ...item, status: "rejected" as const, resolvedAt: now } : item
+    );
+    this.options.updateSettings({
+      hostTools: {
+        pendingApprovals: nextPending,
+        approvedTools: settings.hostTools.approvedTools
+      }
+    });
+    return {
+      ok: true,
+      message: `Rejected host tool approval ${request.id} (${request.displayName}).`,
+      request
+    };
+  }
+
   async handle(input: SharedRuntimeCommandContext<TTarget>): Promise<boolean> {
     const text = String(input.text ?? "").trim();
+    const hostToolApprovalHandled = await this.tryHandleHostToolApproval(input, text);
+    if (hostToolApprovalHandled) return true;
     if (!text.startsWith("/")) return false;
 
     const parts = text.split(/\s+/);
@@ -224,6 +297,11 @@ export class SharedRuntimeCommandService<TTarget> {
           "/queue delete <queueId>"
         ].join("\n")
       );
+      return true;
+    }
+
+    if (cmd === "/hosttools" || cmd === "/host-tools") {
+      await this.handleHostToolsCommand(input, rawArg);
       return true;
     }
 
@@ -534,6 +612,84 @@ export class SharedRuntimeCommandService<TTarget> {
     }
 
     return false;
+  }
+
+  private isApprovalText(text: string): boolean {
+    return /^(安装|批准|同意|确认|允许|approve|approved|yes|y)$/i.test(text.trim());
+  }
+
+  private isRejectText(text: string): boolean {
+    return /^(拒绝|取消|不批准|deny|reject|no|n)$/i.test(text.trim());
+  }
+
+  private async tryHandleHostToolApproval(input: SharedRuntimeCommandContext<TTarget>, text: string): Promise<boolean> {
+    if (!this.options.updateSettings) return false;
+    const settings = this.options.getSettings();
+    const pending = settings.hostTools.pendingApprovals.filter((item) =>
+      item.status === "pending" && item.scopeId === input.scopeId
+    );
+    if (pending.length === 0) return false;
+    if (!this.isApprovalText(text) && !this.isRejectText(text)) return false;
+
+    if (pending.length > 1) {
+      await this.options.sendText(
+        input.target,
+        [
+          "There are multiple pending host tool approvals. Use one of:",
+          ...pending.map((item) => `/hosttools approve ${item.id} - ${item.displayName}`)
+        ].join("\n")
+      );
+      return true;
+    }
+
+    const request = pending[0];
+    if (this.isRejectText(text)) {
+      const rejected = await this.rejectHostTool(input, request.id);
+      await this.options.sendText(input.target, rejected.message);
+      return true;
+    }
+
+    const approved = await this.approveHostTool(input, request.id);
+    await this.options.sendText(input.target, approved.message);
+    return true;
+  }
+
+  private async handleHostToolsCommand(input: SharedRuntimeCommandContext<TTarget>, rawArg: string): Promise<void> {
+    if (!this.options.updateSettings) {
+      await this.options.sendText(input.target, "Host tool approval is unavailable in current runtime.");
+      return;
+    }
+    const [subcommand = "list", approvalId = ""] = rawArg.split(/\s+/).filter(Boolean);
+    const settings = this.options.getSettings();
+    if (subcommand === "list") {
+      const pending = settings.hostTools.pendingApprovals.filter((item) => item.status === "pending" && item.scopeId === input.scopeId);
+      const approved = settings.hostTools.approvedTools.filter((item) => item.enabled);
+      await this.options.sendText(
+        input.target,
+        [
+          `Pending host tool approvals: ${pending.length}`,
+          ...pending.map((item) => `- ${item.id}: ${item.displayName} (${item.command})`),
+          "",
+          `Approved host tools: ${approved.length}`,
+          ...approved.map((item) => `- ${item.toolId}: ${item.displayName} (${item.command})`)
+        ].join("\n").trim()
+      );
+      return;
+    }
+    if (subcommand === "approve") {
+      const approved = await this.approveHostTool(input, approvalId || undefined);
+      await this.options.sendText(input.target, approved.message);
+      return;
+    }
+    await this.options.sendText(
+      input.target,
+      [
+        "Host tool usage:",
+        "/hosttools",
+        "/hosttools approve <approvalId>",
+        "Or reply `批准`, `安装`, or `approve` when exactly one approval is pending in this chat."
+      ].join("\n")
+    );
   }
 
   private resolveSessionSelection(scopeId: string, selector: string): string | null {

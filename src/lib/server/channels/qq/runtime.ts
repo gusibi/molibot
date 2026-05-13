@@ -387,11 +387,9 @@ export class QQManager extends BaseChannelRuntime {
 
     const lowered = text.toLowerCase();
     const commandText = lowered === "stop" ? "/stop" : text;
-    if (lowered.startsWith("/") || lowered === "stop") {
-      const handled = await this.handleCommand(chatId, commandText, event);
-      if (handled) {
-        return;
-      }
+    const handled = await this.handleCommand(chatId, commandText, event);
+    if (handled) {
+      return;
     }
 
     const runId = createRunId(chatId, messageId);

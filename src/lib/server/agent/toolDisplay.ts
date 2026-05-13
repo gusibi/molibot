@@ -11,9 +11,9 @@ export function resolveToolDisplayName(
   if (toolName !== "bash") return toolName;
   const details = extractToolResultDetails(options.result);
   if (details) {
-    if (details.sandboxApplied === true) return "bash (sandbox)";
-    if (typeof details.sandboxWarning === "string" && details.sandboxWarning) return "bash (sandbox disabled)";
+    if (details.sandboxApplied === true) return "Sandbox";
+    if (typeof details.sandboxWarning === "string" && details.sandboxWarning) return "Sandbox disabled";
     if (details.sandboxApplied === false) return toolName;
   }
-  return options.sandboxAttempted ? "bash (sandbox)" : toolName;
+  return options.sandboxAttempted ? "Sandbox" : toolName;
 }

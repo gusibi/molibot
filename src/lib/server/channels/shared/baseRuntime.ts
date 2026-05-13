@@ -14,7 +14,7 @@ import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
 import { momLog, momWarn } from "../../agent/log.js";
 import { SharedRuntimeCommandService, type SharedRuntimeCommandOptions } from "../../agent/channelCommands.js";
 import { buildTextChannelContext, type ChannelResponseHandle, type ContextSentMessageRef } from "./contextBuilder.js";
-import type { ChannelInboundMessage } from "../../agent/types.js";
+import type { ChannelInboundMessage, RunnerUiEvent } from "../../agent/types.js";
 import { ChannelQueue } from "./queue.js";
 import type { PromptChannel } from "../../agent/prompt-channel.js";
 import type { Channel } from "../../../shared/types/message.js";
@@ -248,6 +248,7 @@ export abstract class BaseChannelRuntime {
       replaceWithoutEdit?: Parameters<typeof buildTextChannelContext<TSent>>[0]["replaceWithoutEdit"];
       deleteWithoutHandle?: Parameters<typeof buildTextChannelContext<TSent>>[0]["deleteWithoutHandle"];
       uploadWithoutHandle?: Parameters<typeof buildTextChannelContext<TSent>>[0]["uploadWithoutHandle"];
+      onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
       onSessionAppendWarning?: (error: unknown) => void;
       role?: "user" | "system";
     }
@@ -281,6 +282,7 @@ export abstract class BaseChannelRuntime {
       replaceWithoutEdit: options.replaceWithoutEdit,
       deleteWithoutHandle: options.deleteWithoutHandle,
       uploadWithoutHandle: options.uploadWithoutHandle,
+      onRunnerEvent: options.onRunnerEvent,
       onSessionAppendWarning: options.onSessionAppendWarning
     });
 

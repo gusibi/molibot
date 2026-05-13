@@ -20,6 +20,7 @@ import {
   type ProviderMode,
   type RuntimeSettings
 } from "../settings/index.js";
+import { sanitizeHostToolSettings } from "../settings/hostTools.js";
 import { sanitizeToolSandboxSettings } from "../settings/toolSandbox.js";
 import {
   resolveCustomProviderThinkingFormat,
@@ -56,8 +57,10 @@ interface RawSettings {
   };
   compaction?: {
     enabled?: boolean | string;
+    thresholdPercent?: number | string;
     reserveTokens?: number | string;
     keepRecentTokens?: number | string;
+    defaultContextWindow?: number | string;
   };
   systemPrompt?: string;
   plugins?: {
@@ -96,6 +99,7 @@ interface RawSettings {
   skillSearch?: unknown;
   skillDrafts?: unknown;
   toolSandbox?: unknown;
+  hostTools?: unknown;
   disabledSkillPaths?: unknown;
   acp?: unknown;
 }
@@ -386,6 +390,7 @@ function sanitizeModels(
       id,
       tags: sanitizeModelTags(obj.tags),
       supportedRoles: sanitizeRoles(obj.supportedRoles ?? providerRoles),
+      contextWindow: typeof obj.contextWindow === "number" && obj.contextWindow > 0 ? obj.contextWindow : undefined,
       verification: sanitizeVerification(obj.verification)
     });
   }
@@ -898,6 +903,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const skillSearch = sanitizeSkillSearchSettings(raw.skillSearch ?? defaultRuntimeSettings.skillSearch);
   const skillDrafts = sanitizeSkillDraftSettings(raw.skillDrafts ?? defaultRuntimeSettings.skillDrafts);
   const toolSandbox = sanitizeToolSandboxSettings(raw.toolSandbox ?? defaultRuntimeSettings.toolSandbox);
+  const hostTools = sanitizeHostToolSettings(raw.hostTools ?? defaultRuntimeSettings.hostTools);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
   const compactionEnabledRaw = raw.compaction?.enabled;
   const compactionEnabled =
@@ -908,12 +914,20 @@ function sanitize(raw: RawSettings): RuntimeSettings {
         : String(compactionEnabledRaw).toLowerCase() === "true";
   const reserveTokensRaw = Number(raw.compaction?.reserveTokens ?? defaultRuntimeSettings.compaction.reserveTokens);
   const keepRecentTokensRaw = Number(raw.compaction?.keepRecentTokens ?? defaultRuntimeSettings.compaction.keepRecentTokens);
+  const thresholdPercentRaw = Number(raw.compaction?.thresholdPercent ?? defaultRuntimeSettings.compaction.thresholdPercent);
   const reserveTokens = Number.isFinite(reserveTokensRaw)
     ? Math.max(1024, Math.round(reserveTokensRaw))
     : defaultRuntimeSettings.compaction.reserveTokens;
   const keepRecentTokens = Number.isFinite(keepRecentTokensRaw)
     ? Math.max(2048, Math.round(keepRecentTokensRaw))
     : defaultRuntimeSettings.compaction.keepRecentTokens;
+  const thresholdPercent = Number.isFinite(thresholdPercentRaw)
+    ? Math.max(10, Math.min(95, Math.round(thresholdPercentRaw)))
+    : defaultRuntimeSettings.compaction.thresholdPercent;
+  const defaultContextWindowRaw = Number(raw.compaction?.defaultContextWindow ?? defaultRuntimeSettings.compaction.defaultContextWindow);
+  const defaultContextWindow = Number.isFinite(defaultContextWindowRaw)
+    ? Math.max(1024, Math.round(defaultContextWindowRaw))
+    : defaultRuntimeSettings.compaction.defaultContextWindow;
 
   return {
     providerMode: sanitizeMode(raw.providerMode ?? defaultRuntimeSettings.providerMode),
@@ -942,8 +956,10 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     modelFallback: sanitizeModelFallbackSettings(raw.modelFallback),
     compaction: {
       enabled: compactionEnabled,
+      thresholdPercent,
       reserveTokens,
-      keepRecentTokens
+      keepRecentTokens,
+      defaultContextWindow
     },
     systemPrompt:
       String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
@@ -955,6 +971,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     skillSearch,
     skillDrafts,
     toolSandbox,
+    hostTools,
     disabledSkillPaths,
     telegramBots: effectiveTelegramBots,
     qqBots: effectiveQQBots,
@@ -1021,6 +1038,7 @@ export class SettingsStore {
         model_id TEXT NOT NULL,
         tags_json TEXT NOT NULL,
         supported_roles_json TEXT NOT NULL,
+        context_window INTEGER,
         verification_json TEXT NOT NULL,
         order_index INTEGER NOT NULL,
         updated_at TEXT NOT NULL,
@@ -1047,6 +1065,11 @@ export class SettingsStore {
     }
     try {
       db.exec("ALTER TABLE settings_custom_providers ADD COLUMN reasoning_effort_map_json TEXT NOT NULL DEFAULT '{}'");
+    } catch {
+      // column already exists
+    }
+    try {
+      db.exec("ALTER TABLE settings_custom_provider_models ADD COLUMN context_window INTEGER");
     } catch {
       // column already exists
     }
@@ -1138,7 +1161,7 @@ export class SettingsStore {
         reasoning_effort_map_json: string;
       }>;
       const modelRows = db.prepare(`
-        SELECT provider_id, model_id, tags_json, supported_roles_json, verification_json
+        SELECT provider_id, model_id, tags_json, supported_roles_json, context_window, verification_json
         FROM settings_custom_provider_models
         ORDER BY provider_id ASC, order_index ASC, model_id ASC
       `).all() as Array<{
@@ -1146,6 +1169,7 @@ export class SettingsStore {
         model_id: string;
         tags_json: string;
         supported_roles_json: string;
+        context_window: number | null;
         verification_json: string;
       }>;
       const modelsByProvider = new Map<string, ProviderModelConfig[]>();
@@ -1155,6 +1179,7 @@ export class SettingsStore {
           id: row.model_id,
           tags: this.parseDynamicValue(row.tags_json, []),
           supportedRoles: this.parseDynamicValue(row.supported_roles_json, []),
+          contextWindow: row.context_window && row.context_window > 0 ? row.context_window : undefined,
           verification: this.parseDynamicValue(row.verification_json, undefined)
         });
         modelsByProvider.set(row.provider_id, list);
@@ -1238,8 +1263,8 @@ export class SettingsStore {
         `);
         const insertModel = db.prepare(`
           INSERT INTO settings_custom_provider_models
-            (provider_id, model_id, tags_json, supported_roles_json, verification_json, order_index, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+            (provider_id, model_id, tags_json, supported_roles_json, context_window, verification_json, order_index, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const provider of settings.customProviders) {
           insertProvider.run(
@@ -1268,6 +1293,7 @@ export class SettingsStore {
               modelId,
               JSON.stringify(model.tags ?? []),
               JSON.stringify(model.supportedRoles ?? []),
+              model.contextWindow && model.contextWindow > 0 ? model.contextWindow : null,
               JSON.stringify(model.verification ?? null),
               orderIndex,
               now
@@ -1313,8 +1339,10 @@ export class SettingsStore {
       },
       compaction: {
         enabled: settings.compaction.enabled,
+        thresholdPercent: settings.compaction.thresholdPercent,
         reserveTokens: settings.compaction.reserveTokens,
-        keepRecentTokens: settings.compaction.keepRecentTokens
+        keepRecentTokens: settings.compaction.keepRecentTokens,
+        defaultContextWindow: settings.compaction.defaultContextWindow
       },
       systemPrompt: settings.systemPrompt,
       plugins: {
@@ -1341,6 +1369,7 @@ export class SettingsStore {
       skillSearch: settings.skillSearch,
       skillDrafts: settings.skillDrafts,
       toolSandbox: settings.toolSandbox,
+      hostTools: settings.hostTools,
       disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,
       telegramAllowedChatIds: settings.telegramAllowedChatIds

@@ -172,8 +172,8 @@ function buildMessageProcessingPipeline(): string {
     "",
     "**[PRE-CHECK: The \"No-Reinvention\" & \"No-Guessing\" Rules]**",
     "- FORBIDDEN to use internal knowledge for real-time requests (e.g., today's prices, news, weather).",
-    "- FORBIDDEN to jump straight to `bash` or manual workarounds when an installed skill may already solve the task.",
-    "- Skills are \"Specialized Experts\". Tools (like bash) are \"Low-level hands\". ALWAYS prefer the Expert.",
+    "- Prefer installed skills over manual `bash` workarounds when a skill already solves the task.",
+    "- Skills are \"Specialized Experts\". Tools (like bash) are \"Low-level hands\". Prefer the Expert when available.",
 
     "Step 0 — Skill Routing (mandatory, always execute first)",
     "  a) Explicit Invocation: (`/skill-name`, `$skill-name`, `skill:skill-name`) → unconditionally execute that skill.",
@@ -182,7 +182,23 @@ function buildMessageProcessingPipeline(): string {
     "  d) If `skillSearch` returns no match, continue to generic tools or a direct answer as appropriate.",
 
     "Step 1 — Tool Match (Fallback for local workspace tasks)",
-    "Only proceed here if NO SKILL matched. Use the Tool Priority Table to select a dedicated tool (read, write, bash). Remember: `bash` is for local file manipulation or executing valid scripts, not for reinventing existing Skills.",
+    "Only proceed here if NO SKILL matched. Use the Tool Priority Table to select a dedicated tool (read, write, bash). All bash commands run sandboxed — use freely for ordinary scripting, package installs, file operations, and data processing. If a task needs a host-only external tool, request host tool approval instead of trying to bypass sandbox.",
+    "",
+    "### Bash Sandbox",
+    "- All `bash` commands run inside an OS-level sandbox (macOS `sandbox-exec` / Linux `bubblewrap`).",
+    "- Do not use `bash` to bypass sandbox for host IPC, browser process control, desktop app control, or host-only external tools.",
+    "- No command restrictions — `pip install`, `npm install`, `curl`, `git clone`, and Python scripting all work directly.",
+    "- Filesystem: writes allowed in current scratch directory and `/tmp`. Sensitive paths (`~/.ssh`, `~/.aws`, `.env`) are read-denied by default.",
+    "- Network: all domains allowed by default. Operator can add domain denylists via `/settings/sandbox`.",
+    "- Python: a shared venv is auto-activated. Use `pip install <pkg>` to add dependencies — they persist across commands.",
+    "",
+    "### Sandbox Permission Errors → Host Tool Approval",
+    "- `bash` first checks the approved host-tool registry for single executable commands. If the executable is already approved, runtime executes it directly on the host with structured argv.",
+    "- When a sandboxed bash command hits permission errors (\"Operation not permitted\", \"Permission denied\", socket/IPC errors, or any [SANDBOX] hint), runtime should create a host-tool approval request automatically when the command can be represented as one executable plus argv.",
+    "- **MUST**: Use `bash` with `hostApproval.reason` only when the agent already knows in advance that a host-only tool is required. Provide the exact tool command, a clear reason why host access is needed, and minimal permissions.",
+    "- **MUST NOT**: Retry the same command through bash, try workarounds to bypass sandbox restrictions, or silently report failure without requesting approval.",
+    "- After the operator approves, runtime will execute the stored host action automatically on the host.",
+    "",
 
     "Step 2 — Freshness & Verification",
     "If you are processing time-sensitive info, and you bypassed Step 0 because you thought you knew the answer, STOP. Go back to Step 0 and run `skillSearch` for a search/real-time skill. Never present stale knowledge as current fact.",
@@ -444,11 +460,12 @@ function buildToolsSection(): string {
     "| Memory operations | `memory` | direct read/write MEMORY.md |",
     "| Search installed skills | `skillSearch` | guessing from memory or prompt alone |",
     "| Search deferred tools | `toolSearch` | assuming every tool is already loaded |",
+    "| Request host external-tool approval | `bash` with `hostApproval` | trying to bypass sandbox with bash |",
     "| Draft/save reusable skills | `toolSearch` then `skillManage` | ad-hoc notes in random files |",
     "| Send file to user | `attach` | bash echo redirect |",
     "| Load MCP servers | `loadMcp` | only in explicit MCP scenarios |",
     "| Long codebase investigation / isolated implementation / review | `subagent` | keeping the whole task inside one run |",
-    "| Shell commands (last resort) | `bash` | — |",
+    "| Shell commands | `bash` | — |",
     "",
     "### Tool Parameters",
     "- `memory(operation, key?, value?, query?)` — operations: add, search, list, update, delete, flush, sync",
@@ -456,12 +473,28 @@ function buildToolsSection(): string {
     "- `toolSearch(query, maxResults?)` — find and load deferred tools before calling them",
     "- `subagent(agent?, task?, tasks?, chain?)` — delegate codebase-heavy work to isolated roles: `scout`, `planner`, `worker`, `reviewer`",
     "- `attach(file_path)` — send local file through active channel",
-    "- `bash(command)` — shell execution in scratch directory",
+    "- `bash(command, timeout?, hostApproval?)` — shell execution in scratch directory. All bash commands run inside an OS-level sandbox by default. `hostApproval` creates a pending host-tool approval for the command instead of executing it. Python is available with a shared venv already activated (`pip install` works directly).",
     "",
     "- Default to parallel only for local, read-only, low-risk tool calls with no fallback or retry coordination.",
     "- Default to sequential or tightly limited parallelism for remote/network calls, especially search or fetch steps with timeouts, retries, fallbacks, quotas, or result-normalization requirements.",
     "- If later tool calls depend on whether an earlier call succeeded, timed out, or chose a fallback path, those calls are not truly independent and must be run sequentially.",
     "- `TOOLS.md` is guidance about conventions and paths; it does not control actual tool availability.",
+  ].join("\n"));
+}
+
+function buildHostToolApprovalSection(): string {
+  return xmlBlock("host-tool-approval", [
+    "## Host Tool Approval",
+    "- Some external tools cannot run inside sandbox because they need host IPC, browser processes, desktop integration, OAuth callbacks, or other host-only capabilities.",
+    "- If a skill or task requires such an external tool, do not keep retrying it through `bash` and do not ask for unsandboxed bash.",
+    "- `bash` first checks the approved host-tool registry. If the executable is already approved, runtime executes it directly on the host with structured argv.",
+    "- When a sandboxed bash command fails with sandbox permission errors (filesystem, network, socket/IPC), runtime should request host approval automatically when the command is a single executable plus argv.",
+    "- Use `bash(command, hostApproval={ reason, permissions? })` to create a pending approval for one specific tool.",
+    "- The request must name the exact tool, fixed command, reason host execution is required, and minimal permissions.",
+    "- AI can request approval but must never claim to approve host tools itself.",
+    "- After requesting approval, tell the operator to reply `批准`, `安装`, or `approve` in the same chat. Runtime will register the host capability only after that explicit operator confirmation.",
+    "- After approval, runtime immediately executes the stored host action; the agent does not call a second host-run tool.",
+    "- Approved host tools are controlled capabilities, not a general host shell."
   ].join("\n"));
 }
 
@@ -546,6 +579,8 @@ function buildBaseSystemPromptWithOptions(
     buildToolSearchProtocolSection(),
     "",
     buildToolsSection(),
+    "",
+    buildHostToolApprovalSection(),
     "",
     buildSubagentSection(),
     "",

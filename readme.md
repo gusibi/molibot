@@ -60,7 +60,8 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **MiMo/Anthropic-Compatible Roles**: providers configured as Anthropic keep system instructions in the top-level `system` field, reserve `messages` for conversational roles, and log redacted image-fallback request payloads for debugging
 - **Time-Aware Prompting**: each live user turn can carry structured current-time metadata (`message_received_at` / `timezone` / `today`) for better date-sensitive replies
 - **Subagent Model Routing**: delegated scout/planner/worker/reviewer runs use configurable `haiku` / `sonnet` / `opus` / `thinking` model levels plus a subagent fallback route, with early-delegation nudges before parent runs exhaust the 24-tool budget
-- **Agent Bash Sandbox**: optional OS-level sandboxing for main and built-in subagent `bash`, with allowlisted workspace env-file injection, redacted diagnostics, and `bash (sandbox)` tool-output markers
+- **Agent Bash Sandbox**: optional OS-level sandboxing for main and built-in subagent `bash`, with allowlisted workspace env-file injection, redacted diagnostics, and concise `Sandbox` / `Sandbox disabled` tool-output markers
+- **Chat Host Tool Approval**: host-only external tools are approved from chat through a pending request flow rooted at the `bash` entry; structured approval payloads can render channel-native buttons/cards, and approval immediately continues the stored host action through structured argv without exposing host bash or a second host-run agent tool
 - **Skill Draft Governance**: reusable workflow drafts use a dedicated `skill-drafter` subagent plus skill-creator-aware local fallback so draft names stay concise and reusable instead of mirroring raw user messages or retry prompts
 - **Settings shadcn-svelte Baseline**: Settings UI is moving toward source-owned shadcn-svelte components for cleaner, consistent forms and admin pages; `/settings/system`, `/settings/web`, `/settings/ai/providers`, `/settings/tasks`, and `/settings/sandbox` now use the shared component baseline for key forms and controls
 - **Current-Session File Workspace**: Web chat now includes a real files pane with searchable attachment inventory, inline preview for common formats, downloads, and copy-path actions
@@ -153,6 +154,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Task Management**: Event-file tasks with manual trigger/retry
 - **Memory Management**: Search/flush/edit/delete operations
 - **Skills Management**: Global/bot/chat scoped skill inventory
+- **Host Tool Approval**: chat-first approval registry and controlled runner for external tools that require host IPC or other host-only capabilities; `bash` first checks approved host capabilities, auto-requests approval after sandbox permission failures for eligible single commands, pauses the current run while that approval is pending, persists approved executables for direct reuse, and sends an explicit chat acknowledgement when an approval is rejected
 - **Usage Tracking**: Per-request token accounting with dashboards
 - **Settings**: Relational tables with single-entity save flow
 
@@ -265,12 +267,21 @@ Open: `http://localhost:3000`
 - `/approve [note]` - Approve ACP permission request
 - `/deny [note]` - Deny ACP permission request
 
+### Live Control and Queue
+- `/stop` - Stop current run and clear pending queued tasks
+- `/steer <text|queueId>` - Inject a correction into the current running task
+- `/followup <text|queueId>` or `/follow_up <text|queueId>` - Queue a live follow-up after the current task
+- `/queue` - List running and pending queued tasks
+- `/queue front <text>` - Insert a new task at the front of the queue
+- `/queue delete <queueId>` - Delete a pending queued task
+
 ### Utility
 - `/help` - Show help
-- `/stop` - Stop current run
 - `/login` - Login to AI provider
 - `/logout` - Logout from AI provider
-- `/compact [instructions]` - Compact conversation context
+- `/compact [instructions]` - Manually compact conversation context using the latest persisted session state, forcing an older-context summary even below the automatic keep window
+- `/hosttools` - List pending and approved host tool capabilities
+- `/hosttools approve <approvalId>` - Approve a specific pending host tool request; when exactly one request is pending in the chat, replying `安装`, `批准`, or `approve` also approves it
 
 ## Settings Pages
 
@@ -379,6 +390,7 @@ molibot manage
 ```
 
 The manager stores deployment settings in `${DATA_DIR}/deploy.env` by default, then can install/update from GitHub, start/stop/restart the service, show status/logs, and uninstall runtime deployment files. Service start uses a lightweight script-level supervisor: after manual start, unexpected child-process exits are restarted after a short delay; manual stop writes an explicit stop marker so the process is not relaunched. Uninstall keeps `DATA_DIR` by default so conversations, settings, credentials, and profile files are not deleted.
+If the controlling terminal closes while the menu is waiting for input, the manager now exits quietly instead of crashing on an unhandled `readline` / TTY `EIO` read error.
 
 ### Release Bundle
 
@@ -559,7 +571,8 @@ See `.env.example` for full list and detailed descriptions.
 | **AI Routing** | ⭐⭐⭐ Active | Multi-provider, per-model capabilities, verification, cross-provider fallback |
 | **Settings System** | ⭐⭐⭐ Active | Relational tables, single-entity save, theme/i18n, unsaved change guards, progressive shadcn-svelte migration |
 | **Python Sandbox** | ⭐⭐⭐ Active | Isolated virtualenv, auto-dependency management, security hardening |
-| **Agent Bash Sandbox** | ⭐⭐ Opt-in | OS-level sandbox for main and built-in subagent bash, redacted diagnostics, allowlisted env injection, visible sandbox tool-output markers |
+| **Agent Bash Sandbox** | ⭐⭐ Opt-in | OS-level sandbox for main and built-in subagent bash, redacted diagnostics, allowlisted env injection, and concise `Sandbox` / `Sandbox disabled` tool-output markers |
+| **Host Tool Approval** | ⭐⭐ Active | Chat-first approval for specific host-only external tool capabilities; `bash` checks approved executables first, auto-creates approval on eligible sandbox permission failures, and approved tools run fixed commands through structured argv, not host shell access |
 
 ### Development Activity
 

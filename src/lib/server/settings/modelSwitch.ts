@@ -1,11 +1,13 @@
 import type { RuntimeSettings } from "./index.js";
 import { isKnownProvider } from "./index.js";
+import { getModels } from "@mariozechner/pi-ai";
 
 export type ModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";
 
 export interface ModelOption {
   key: string;
   label: string;
+  contextWindow?: number;
   patch: Partial<RuntimeSettings>;
 }
 
@@ -107,9 +109,16 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
 
   const pushBuiltInOption = (providerId: string, modelId: string): void => {
     const key = `pi|${providerId}|${modelId}`;
+    let contextWindow: number | undefined;
+    try {
+      const models = getModels(providerId as any);
+      const found = models.find((m) => m.id === modelId);
+      if (found) contextWindow = found.contextWindow;
+    } catch { /* ignore */ }
     pushOption({
       key,
       label: `[PI] ${providerId} / ${modelId}`,
+      contextWindow,
       patch: {
         piModelProvider: providerId as RuntimeSettings["piModelProvider"],
         piModelName: modelId,
@@ -145,6 +154,7 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
       options.push({
         key: `custom|${provider.id}|${modelId}`,
         label: `[Custom] ${provider.name} / ${modelId}`,
+        contextWindow: model.contextWindow,
         patch: {
           defaultCustomProviderId: route === "text" ? provider.id : settings.defaultCustomProviderId,
           customProviders: route === "text" ? updatedProviders : settings.customProviders,

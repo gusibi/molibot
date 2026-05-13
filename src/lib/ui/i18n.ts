@@ -295,7 +295,55 @@ const ZH_SETTINGS_TEXT: Record<string, string> = {
   "Inputs": "输入",
   "Outputs": "输出",
   "Tokens Used": "已用 Token",
-  "Loading Analytics...": "正在加载分析数据..."
+  "Loading Analytics...": "正在加载分析数据...",
+
+  // Sandbox settings page
+  "Tool Security": "工具安全",
+  "Sandbox Policy": "沙箱策略",
+  "Restrict Agent shell commands without changing browser, ACP, MCP, or channel delivery behavior.": "限制 Agent 的 shell 命令，不影响浏览器、ACP、MCP 或渠道投递行为。",
+  "Loading sandbox settings...": "正在加载沙箱设置...",
+  "Runtime Mode": "运行时模式",
+  "Sandbox applies only to Agent bash and subagent bash. It is off by default.": "沙箱仅对 Agent bash 和 subagent bash 生效，默认关闭。",
+  "Enable OS sandbox for bash": "为 bash 启用系统沙箱",
+  "When enabled, bash runs with filtered env, filesystem write limits, and network allowlists.": "启用后，bash 将在过滤环境变量、文件系统写入限制和网络白名单下运行。",
+  "Initialization failure mode": "初始化失败模式",
+  "Warn and disable sandbox": "警告并禁用沙箱",
+  "Block bash when sandbox fails": "沙箱失败时阻止 bash",
+  "Environment inheritance": "环境变量继承",
+  "Minimal + allowlist": "最小化 + 白名单",
+  "Host/env-file allowlist": "宿主机/环境文件白名单",
+  "Full host env minus denylist": "完整宿主机环境变量排除黑名单",
+  "Environment Injection": "环境变量注入",
+  "Molibot parses the workspace env file and injects only allowed keys into sandboxed child processes.": "Molibot 解析工作区环境文件，仅将允许的键注入沙箱子进程。",
+  "Workspace env file": "工作区环境文件",
+  "Use a relative path for project-local secrets. The sandbox denies direct reads of this file.": "使用相对路径指向项目本地密钥，沙箱会阻止直接读取此文件。",
+  "Allowed env keys": "允许的环境变量键",
+  "Denied env keys": "拒绝的环境变量键",
+  "Network Policy": "网络策略",
+  "Network access is allowlist based when sandboxing is active.": "沙箱激活时，网络访问基于白名单。",
+  "Allowed domains": "允许的域名",
+  "Denied domains": "拒绝的域名",
+  "Filesystem Policy": "文件系统策略",
+  "Reads are denylist based; writes are allowlist based.": "读取基于黑名单，写入基于白名单。",
+  "Allowed write paths": "允许的写入路径",
+  "Denied read paths": "拒绝的读取路径",
+  "Denied write paths": "拒绝的写入路径",
+  "Checks platform support, dependencies, env parsing, and effective policy without exposing values.": "检查平台支持、依赖项、环境解析和生效策略，不暴露实际值。",
+  "Run diagnostics": "运行诊断",
+  "Checking...": "检查中...",
+  "Dependencies": "依赖项",
+  "Initialized": "已初始化",
+  "Env file": "环境文件",
+  "Injected keys": "已注入的键",
+  "Denied:": "已拒绝：",
+  "Run diagnostics to inspect the effective sandbox state.": "运行诊断以查看沙箱生效状态。",
+  "Reset": "重置",
+  "Save sandbox policy": "保存沙箱策略",
+  "None": "无",
+  "Failed to load settings": "加载设置失败",
+  "Failed to save sandbox settings": "保存沙箱设置失败",
+  "Sandbox settings saved. New runs will use the updated policy.": "沙箱设置已保存，新的运行将使用更新后的策略。",
+  "Failed to run diagnostics": "运行诊断失败"
 };
 
 const TEXT_OR_ATTRIBUTE_ORIGINAL = new WeakMap<Node, string>();
@@ -317,6 +365,8 @@ function translateDynamicValue(value: string, nextLocale: LocaleKey): string | u
   if (savedBotMatch) return `已保存 Bot：${savedBotMatch[1]}`;
   const savedProfileMatch = compact.match(/^Saved profile: (.+)$/);
   if (savedProfileMatch) return `已保存配置：${savedProfileMatch[1]}`;
+  const moreMatch = compact.match(/^(.+)\s+\+(\d+)\s+more$/);
+  if (moreMatch) return `${moreMatch[1]} +${moreMatch[2]} 更多`;
   return undefined;
 }
 

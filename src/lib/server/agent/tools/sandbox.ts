@@ -5,6 +5,8 @@ import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox
 import { config } from "../../app/env.js";
 import type { ToolSandboxSettings } from "../../settings/index.js";
 
+const SANDBOX_VENV_DIR = join(config.dataDir, "tooling", "sandbox-venv");
+
 export interface ToolSandboxPrepareInput {
   settings: ToolSandboxSettings;
   cwd: string;
@@ -50,30 +52,6 @@ const INTERNAL_ENV_KEYS = new Set([
   "LC_ALL",
   "SHELL"
 ]);
-const PYTHON_SANDBOX_ROOT = join(config.dataDir, "tooling", "python");
-const HOST_APP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
-  {
-    pattern: /(^|[;&|\n\s])osascript\b/i,
-    reason: "AppleScript/browser automation must use Browser or Computer Use, not sandboxed bash."
-  },
-  {
-    pattern: /(^|[;&|\n\s])(?:open|xdg-open|gnome-open|kde-open)\b/i,
-    reason: "Opening host applications must use Browser or Computer Use, not sandboxed bash."
-  },
-  {
-    pattern: /(^|[;&|\n\s])gio\s+open\b/i,
-    reason: "Opening host applications must use Browser or Computer Use, not sandboxed bash."
-  },
-  {
-    pattern: /\b(playwright|npx\s+playwright|pnpm\s+playwright|yarn\s+playwright)\s+open\b/i,
-    reason: "Interactive browser automation must use Browser, not sandboxed bash."
-  },
-  {
-    pattern: /\b(Google Chrome|Google\\ Chrome|Safari|Firefox|Chromium|Brave Browser|Brave\\ Browser)\b/i,
-    reason: "Launching host browsers must use Browser or Computer Use, not sandboxed bash."
-  }
-];
-
 let initializedConfigKey = "";
 let initializationPromise: Promise<void> | null = null;
 let lastInitializationError = "";
@@ -101,9 +79,9 @@ function matchesPattern(value: string, patterns: string[]): boolean {
   return patterns.some((pattern) => pattern === value || patternToRegex(pattern).test(value));
 }
 
-function resolveEnvFilePath(settings: ToolSandboxSettings, workspaceDir: string): string {
+function resolveEnvFilePath(settings: ToolSandboxSettings): string {
   const rawPath = settings.envFilePath.trim() || ".env.sandbox.local";
-  return isAbsolute(rawPath) ? rawPath : resolve(workspaceDir, rawPath);
+  return isAbsolute(rawPath) ? rawPath : resolve(config.dataDir, rawPath);
 }
 
 function readEnvFile(filePath: string): { values: Record<string, string>; error?: string } {
@@ -174,7 +152,7 @@ export function buildToolSandboxEnv(settings: ToolSandboxSettings, workspaceDir:
   injectedKeys: string[];
   deniedKeys: string[];
 } {
-  const envFilePath = resolveEnvFilePath(settings, workspaceDir);
+  const envFilePath = resolveEnvFilePath(settings);
   const envFileExists = existsSync(envFilePath);
   const envFile = readEnvFile(envFilePath);
   const external = buildExternalEnv(settings, envFile.values);
@@ -207,16 +185,22 @@ function checkSandboxDependencies(): boolean {
   }
 }
 
+function isAllowAll(domains: string[]): boolean {
+  return domains.length === 1 && domains[0] === "*";
+}
+
 function buildEffectiveSandboxConfig(settings: ToolSandboxSettings, cwd: string, workspaceDir: string): SandboxRuntimeConfig {
-  const envFilePath = resolveEnvFilePath(settings, workspaceDir);
+  const envFilePath = resolveEnvFilePath(settings);
   return {
     network: {
-      allowedDomains: settings.network.allowedDomains,
+      allowedDomains: isAllowAll(settings.network.allowedDomains)
+        ? ["*"]
+        : settings.network.allowedDomains,
       deniedDomains: settings.network.deniedDomains
     },
     filesystem: {
       denyRead: unique([...settings.filesystem.denyRead, envFilePath]),
-      allowWrite: unique([...settings.filesystem.allowWrite, ".", cwd, PYTHON_SANDBOX_ROOT, "/tmp"]),
+      allowWrite: unique([...settings.filesystem.allowWrite, ".", cwd, "/tmp", SANDBOX_VENV_DIR]),
       denyWrite: unique([...settings.filesystem.denyWrite, envFilePath])
     }
   };
@@ -232,12 +216,17 @@ async function ensureSandboxInitialized(settings: ToolSandboxSettings, cwd: stri
   if (initializedConfigKey === nextKey && !lastInitializationError) return;
   if (initializationPromise) return initializationPromise;
 
+  const allowAll = isAllowAll(settings.network.allowedDomains);
+  const sandboxAskCallback = allowAll
+    ? async () => true
+    : undefined;
+
   initializationPromise = (async () => {
     try {
       if (initializedConfigKey && initializedConfigKey !== nextKey) {
         await SandboxManager.reset();
       }
-      await SandboxManager.initialize(effective);
+      await SandboxManager.initialize(effective, sandboxAskCallback);
       initializedConfigKey = nextKey;
       lastInitializationError = "";
     } catch (error) {
@@ -252,13 +241,6 @@ async function ensureSandboxInitialized(settings: ToolSandboxSettings, cwd: stri
   return initializationPromise;
 }
 
-export function hostAppBypassReason(command: string): string | null {
-  for (const row of HOST_APP_PATTERNS) {
-    if (row.pattern.test(command)) return row.reason;
-  }
-  return null;
-}
-
 export async function prepareToolSandboxExecution(input: ToolSandboxPrepareInput): Promise<ToolSandboxPrepareResult> {
   if (!input.settings.enabled) {
     return {
@@ -267,11 +249,6 @@ export async function prepareToolSandboxExecution(input: ToolSandboxPrepareInput
       inheritProcessEnv: true,
       sandboxApplied: false
     };
-  }
-
-  const hostBypassReason = hostAppBypassReason(input.command);
-  if (hostBypassReason) {
-    throw new Error(hostBypassReason);
   }
 
   if (!isSupportedPlatform()) {

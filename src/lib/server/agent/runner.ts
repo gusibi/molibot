@@ -277,7 +277,7 @@ function resolveCustomModel(selected: CustomProviderConfig, modelId: string): Mo
       cacheRead: 0,
       cacheWrite: 0,
     },
-    contextWindow: 200000,
+    contextWindow: configuredModel?.contextWindow || 200000,
     maxTokens: 8192,
     compat: protocol === "anthropic" ? undefined : buildCustomProviderCompat(selected)
   };
@@ -1055,6 +1055,15 @@ function extractTextFromResult(result: unknown): string {
   return parts.join("\n") || JSON.stringify(result);
 }
 
+function extractHostToolApprovalPrompt(result: unknown) {
+  if (!result || typeof result !== "object") return undefined;
+  const details = (result as { details?: unknown }).details;
+  if (!details || typeof details !== "object") return undefined;
+  const prompt = (details as { hostToolApproval?: unknown }).hostToolApproval;
+  if (!prompt || typeof prompt !== "object") return undefined;
+  return prompt;
+}
+
 function normalizeAudioMimeType(mimeType?: string | null): string {
   const value = String(mimeType || "").toLowerCase().trim();
   if (!value || value === "application/octet-stream") return "audio/ogg";
@@ -1513,6 +1522,13 @@ export class MomRunner implements RunnerLike {
     summarizedMessages: number;
     keptMessages: number;
   }> {
+    if (!this.running) {
+      const saved = this.store.loadContext(this.chatId, this.sessionId);
+      if (saved.length > 0) {
+        this.agent.state.messages = saved;
+      }
+    }
+
     const settings = this.getSettings();
     const selection = resolveModelSelection(settings, "text");
     const apiKey = await resolveApiKeyForModel(selection.model, settings);
@@ -1521,7 +1537,7 @@ export class MomRunner implements RunnerLike {
     }
 
     const currentMessages = [...(this.agent.state.messages as AgentMessage[])];
-    const contextWindow = selection.model.contextWindow || 200000;
+    const contextWindow = selection.model.contextWindow || settings.compaction.defaultContextWindow;
     if (
       options?.reason !== "manual" &&
       !shouldCompactContext(currentMessages, contextWindow, settings.compaction)
@@ -1875,6 +1891,8 @@ export class MomRunner implements RunnerLike {
 
     let stopReason: "stop" | "aborted" | "error" = "stop";
     let errorMessage: string | undefined;
+    let blockedOnHostToolApproval = false;
+    const hostToolApprovalWaitMessage = "Host tool approval requested. Waiting for your decision.";
     let finalUsage = {
       inputTokens: 0,
       outputTokens: 0,
@@ -1976,13 +1994,21 @@ export class MomRunner implements RunnerLike {
           isError: event.isError,
           resultPreview: body.slice(0, 160),
         });
+        const hostToolApproval = extractHostToolApprovalPrompt(event.result);
+        if (event.isError && hostToolApproval) {
+          blockedOnHostToolApproval = true;
+          stopReason = "aborted";
+          errorMessage = undefined;
+          this.agent.abort();
+        }
         if (ctx.onRunnerEvent) {
           enqueue(() => ctx.onRunnerEvent!({
             type: "tool_execution_end",
             toolName: event.toolName,
             displayName,
             isError: event.isError,
-            summary: body
+            summary: body,
+            hostToolApproval
           }));
         }
         const text = `*${status} ${displayName}*\n\`\`\`\n${body}\n\`\`\``;
@@ -2331,6 +2357,11 @@ export class MomRunner implements RunnerLike {
               provider: selectedModel.provider,
               model: selectedModel.id
             });
+
+            if (blockedOnHostToolApproval) {
+              candidateFinalText = hostToolApprovalWaitMessage;
+              break;
+            }
 
             const messages = this.agent.state.messages as AgentMessage[];
             const lastAssistant = [...messages]

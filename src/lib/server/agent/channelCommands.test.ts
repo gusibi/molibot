@@ -2,7 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { SharedRuntimeCommandService } from "./channelCommands.js";
 import { defaultRuntimeSettings } from "../settings/defaults.js";
-import type { RuntimeSettings } from "../settings/index.js";
+import type { HostToolApprovalRequest, RuntimeSettings } from "../settings/index.js";
+
+function minimalStore() {
+  return {
+    getActiveSession: () => "session-1",
+    listSessions: () => ["session-1"],
+    getSessionThinkingLevelOverride: () => null
+  };
+}
 
 test("status command includes current session token stats", async () => {
   const sent: string[] = [];
@@ -60,6 +68,76 @@ test("status command includes current session token stats", async () => {
   assert.match(sent[0] ?? "", /Session token total: 181/);
   assert.match(sent[0] ?? "", /Session input\/output: 123 \/ 45/);
   assert.match(sent[0] ?? "", /Compactions: 1/);
+});
+
+test("plain approval text approves the only pending host tool request in the chat", async () => {
+  const sent: string[] = [];
+  const pending: HostToolApprovalRequest = {
+    id: "hta-agent-browser-1",
+    toolId: "agent-browser",
+    displayName: "Agent Browser",
+    command: "agent-browser",
+    reason: "Requires browser IPC outside sandbox.",
+    permissions: {
+      envAllowlist: ["PATH", "HOME"],
+      filesystem: "scratch-only",
+      network: "internet"
+    },
+    channel: "telegram",
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    requestedAt: "2026-05-12T00:00:00.000Z",
+    status: "pending",
+    pendingAction: {
+      kind: "run_approved_host_tool",
+      originalCommand: "agent-browser --open",
+      args: ["--open"]
+    }
+  };
+  let autoExecuted = false;
+  let settings: RuntimeSettings = {
+    ...structuredClone(defaultRuntimeSettings),
+    hostTools: {
+      pendingApprovals: [pending],
+      approvedTools: []
+    }
+  };
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => settings,
+    updateSettings: (patch) => {
+      settings = { ...settings, ...patch } as RuntimeSettings;
+      return settings;
+    },
+    executeApprovedHostTool: async () => {
+      autoExecuted = true;
+      return "Approved and executed immediately.";
+    },
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  const handled = await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "安装",
+    target: "target-1"
+  });
+
+  assert.equal(handled, true);
+  assert.equal(autoExecuted, true);
+  assert.equal(settings.hostTools.pendingApprovals[0]?.status, "approved");
+  assert.equal(settings.hostTools.approvedTools[0]?.toolId, "agent-browser");
+  assert.match(sent[0] ?? "", /Approved host tool: Agent Browser/);
+  assert.match(sent[0] ?? "", /Approved and executed immediately/);
 });
 
 test("status command renders markdown table on qq", async () => {

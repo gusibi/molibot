@@ -16,6 +16,7 @@ import {
   type TelegramBotConfig
 } from "./schema.js";
 import { defaultToolSandboxSettings } from "./toolSandbox.js";
+import { defaultHostToolSettings } from "./hostTools.js";
 import { sanitizeRuntimeThinkingLevel } from "./thinking.js";
 import { normalizeTimeZone } from "../time.js";
 
@@ -305,8 +306,10 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   },
   compaction: {
     enabled: String(process.env.MOLIBOT_COMPACTION_ENABLED ?? "true").toLowerCase() !== "false",
-    reserveTokens: Math.max(1024, Number(process.env.MOLIBOT_COMPACTION_RESERVE_TOKENS ?? 16384) || 16384),
-    keepRecentTokens: Math.max(2048, Number(process.env.MOLIBOT_COMPACTION_KEEP_RECENT_TOKENS ?? 20000) || 20000)
+    thresholdPercent: Math.max(10, Math.min(95, Number(process.env.MOLIBOT_COMPACTION_THRESHOLD_PERCENT ?? 75) || 75)),
+    reserveTokens: Math.max(1024, Number(process.env.MOLIBOT_COMPACTION_RESERVE_TOKENS ?? 8192) || 8192),
+    keepRecentTokens: Math.max(2048, Number(process.env.MOLIBOT_COMPACTION_KEEP_RECENT_TOKENS ?? 20000) || 20000),
+    defaultContextWindow: Math.max(1024, Number(process.env.MOLIBOT_COMPACTION_DEFAULT_CONTEXT_WINDOW ?? 200000) || 200000)
   },
   systemPrompt:
     process.env.MOLIBOT_SYSTEM_PROMPT ??
@@ -346,6 +349,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   skillSearch: defaultSkillSearchSettings,
   skillDrafts: defaultSkillDraftSettings,
   toolSandbox: defaultToolSandboxSettings,
+  hostTools: defaultHostToolSettings,
   disabledSkillPaths: [],
   telegramBots: defaultTelegramBots,
   qqBots: defaultQQBots,

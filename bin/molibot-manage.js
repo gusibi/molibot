@@ -119,25 +119,42 @@ function run(command, args, env, allowFailure = false) {
   });
 }
 
+function isIgnorablePromptError(error) {
+  return Boolean(error) && typeof error === "object" && error.code === "EIO" && error.syscall === "read";
+}
+
 function createPrompt() {
-  return readline.createInterface({
+  const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
   });
+  rl.on("error", (error) => {
+    if (isIgnorablePromptError(error)) {
+      rl.close();
+      return;
+    }
+    throw error;
+  });
+  return rl;
 }
 
 function ask(rl, question, fallback = "") {
   const suffix = fallback ? ` [${fallback}]` : "";
   return new Promise((resolveAsk) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      rl.off("close", handleClose);
+      resolveAsk(value);
+    };
+    const handleClose = () => finish("");
+    rl.once("close", handleClose);
     rl.question(`${question}${suffix}: `, (answer) => {
       const trimmed = answer.trim();
-      resolveAsk(trimmed || fallback);
+      finish(trimmed || fallback);
     });
   });
-}
-
-async function pause(rl) {
-  await ask(rl, "Press Enter to continue");
 }
 
 function printHelp() {
@@ -250,6 +267,7 @@ async function main() {
     while (true) {
       printMenu(config);
       const choice = await ask(rl, "Choose");
+      if (!choice) break;
       if (choice === "1") config = await configure(rl, config);
       else if (choice === "2") config = await installOrUpdate(rl, config);
       else if (choice === "3") await service("start", config);
@@ -260,7 +278,10 @@ async function main() {
       else if (choice === "8") await uninstallRuntime(rl, config);
       else if (choice === "9" || choice.toLowerCase() === "q") break;
       else console.log("Unknown choice.");
-      if (choice !== "9" && choice.toLowerCase() !== "q") await pause(rl);
+      if (choice !== "9" && choice.toLowerCase() !== "q") {
+        const shouldContinue = await ask(rl, "Press Enter to continue");
+        if (!shouldContinue && rl.closed) break;
+      }
     }
   } finally {
     rl.close();

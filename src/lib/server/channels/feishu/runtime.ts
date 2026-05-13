@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } 
 import { basename, extname } from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
 import type { RuntimeSettings } from "../../settings/index.js";
+import { buildHostToolApprovalPrompt, type HostToolApprovalPrompt } from "../../settings/hostTools.js";
 import { type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
@@ -14,6 +15,8 @@ import type { AcpPendingPermissionView } from "../../acp/types.js";
 import {
     buildFeishuAcpPermissionResultCard,
     buildFeishuAcpPermissionCard,
+    buildFeishuHostToolApprovalCard,
+    buildFeishuHostToolApprovalResultCard,
     deleteFeishuMessage,
     editFeishuStatusCard,
     editFeishuText,
@@ -28,6 +31,7 @@ import { BaseChannelRuntime } from "../shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
 import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
 import { SqliteOutbox } from "../shared/outbox.js";
+import { executeApprovedHostTool } from "../../agent/hostToolExec.js";
 
 export interface FeishuConfig {
     appId: string;
@@ -114,6 +118,18 @@ export class FeishuManager extends BaseChannelRuntime {
                 this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, undefined),
             sendText: async (chatId, text) => {
                 await this.sendText(chatId, text);
+            },
+            executeApprovedHostTool: async (input, approved, request) => {
+                if (!request.pendingAction) return;
+                const executed = await executeApprovedHostTool({
+                    tool: approved,
+                    cwd: this.store.getChatDir(input.scopeId),
+                    args: request.pendingAction.args,
+                    stdin: request.pendingAction.stdin,
+                    timeoutSeconds: request.pendingAction.timeout
+                });
+                await this.sendText(input.chatId, executed.rendered);
+                return "Approved and executed immediately.";
             },
             onSessionMutation: (scopeId) => {
                 void this.writePromptPreview([scopeId]);
@@ -259,6 +275,13 @@ export class FeishuManager extends BaseChannelRuntime {
         }));
     }
 
+    private async sendHostToolApprovalCard(chatId: string, prompt: HostToolApprovalPrompt): Promise<void> {
+        await sendFeishuCard(this.client, chatId, buildFeishuHostToolApprovalCard(prompt, {
+            botId: this.instanceId,
+            chatId
+        }));
+    }
+
     private async sendText(chatId: string, text: string): Promise<{ message_id: string } | null> {
         const normalized = String(text ?? "").trim();
         if (!normalized) return null;
@@ -278,6 +301,50 @@ export class FeishuManager extends BaseChannelRuntime {
     private async handleCardActionEvent(event: lark.InteractiveCardActionEvent): Promise<lark.InteractiveCard | undefined> {
         const rawValue = event.action?.value;
         const value = rawValue && typeof rawValue === "object" ? rawValue as Record<string, unknown> : {};
+        if (String(value.kind ?? "").trim() === "host_tool_approval") {
+            if (String(value.botId ?? "").trim() !== this.instanceId) return undefined;
+            const chatId = String(value.chatId ?? "").trim();
+            const requestId = String(value.requestId ?? "").trim();
+            const action = String(value.action ?? "").trim();
+            if (!chatId || !requestId || !action) return undefined;
+            const input = { chatId, scopeId: chatId, text: "", target: chatId };
+            const settings = this.getSettings();
+            const request = settings.hostTools.pendingApprovals.find((item) => item.id === requestId && item.scopeId === chatId);
+            const prompt = request ? buildHostToolApprovalPrompt(request) : {
+                type: "host_tool_approval" as const,
+                requestId,
+                title: "Host tool approval",
+                body: "Request no longer available.",
+                options: [],
+                request: {
+                    toolId: "",
+                    displayName: "",
+                    command: "",
+                    args: [],
+                    reason: "",
+                    permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
+                    requestedAt: new Date().toISOString()
+                }
+            };
+            try {
+                if (action === "approve") {
+                    const result = await this.commandService.approveHostTool(input, requestId);
+                    return buildFeishuHostToolApprovalResultCard(prompt, result.message, result.ok ? "green" : "red");
+                }
+                if (action === "reject") {
+                    const result = await this.commandService.rejectHostTool(input, requestId);
+                    await this.sendText(chatId, result.message);
+                    return buildFeishuHostToolApprovalResultCard(prompt, result.message, result.ok ? "red" : "red");
+                }
+                return buildFeishuHostToolApprovalResultCard(prompt, `Unsupported action: ${action}`, "red");
+            } catch (error) {
+                return buildFeishuHostToolApprovalResultCard(
+                    prompt,
+                    error instanceof Error ? error.message : String(error),
+                    "red"
+                );
+            }
+        }
         if (String(value.kind ?? "").trim() !== "acp_permission") return undefined;
         if (String(value.botId ?? "").trim() !== this.instanceId) return undefined;
 
@@ -426,11 +493,9 @@ export class FeishuManager extends BaseChannelRuntime {
         }
 
         const commandText = lowered === "stop" ? "/stop" : event.text;
-        if (lowered.startsWith("/") || lowered === "stop") {
-            const isCommand = await this.handleCommand(chatId, commandText);
-            if (isCommand) {
-                return;
-            }
+        const isCommand = await this.handleCommand(chatId, commandText);
+        if (isCommand) {
+            return;
         }
 
         const runId = createRunId(chatId, event.messageId);
@@ -487,6 +552,11 @@ export class FeishuManager extends BaseChannelRuntime {
                     const filename = title || filePath.split("/").pop() || "file";
                     const bytes = readFileSync(filePath);
                     await sendFeishuFile(this.client, chatId, bytes, filename);
+                }
+            },
+            onRunnerEvent: async (runnerEvent) => {
+                if (runnerEvent.type === "tool_execution_end" && runnerEvent.hostToolApproval) {
+                    await this.sendHostToolApprovalCard(chatId, runnerEvent.hostToolApproval);
                 }
             },
             createBotMessageId: () => Date.now(),
