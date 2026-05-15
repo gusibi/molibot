@@ -60,6 +60,8 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **MiMo/Anthropic-Compatible Roles**: providers configured as Anthropic keep system instructions in the top-level `system` field, reserve `messages` for conversational roles, and log redacted image-fallback request payloads for debugging
 - **Time-Aware Prompting**: each live user turn can carry structured current-time metadata (`message_received_at` / `timezone` / `today`) for better date-sensitive replies
 - **Subagent Model Routing**: delegated scout/planner/worker/reviewer runs use configurable `haiku` / `sonnet` / `opus` / `thinking` model levels plus a subagent fallback route, with early-delegation nudges before parent runs exhaust the 24-tool budget
+- **Cross-Channel Subagent Visibility**: delegated runs now emit explicit run/task start/end notices across Web, Telegram, Feishu, Weixin, and other shared text channels, so operators can tell when work moved into a child agent
+- **Best-Effort Subagent Progress**: subagent lifecycle notices are UI-only signals delivered through the shared runner queue, so sink failures do not abort delegated work and failed runs still close their visible progress state cleanly
 - **Agent Bash Sandbox**: optional OS-level sandboxing for main and built-in subagent `bash`, with allowlisted workspace env-file injection, redacted diagnostics, and concise `Sandbox` / `Sandbox disabled` tool-output markers
 - **Chat Host Tool Approval**: host-only external tools are approved from chat through a pending request flow rooted at the `bash` entry; structured approval payloads can render channel-native buttons/cards, and approval immediately continues the stored host action through structured argv without exposing host bash or a second host-run agent tool
 - **Skill Draft Governance**: reusable workflow drafts use a dedicated `skill-drafter` subagent plus skill-creator-aware local fallback so draft names stay concise and reusable instead of mirroring raw user messages or retry prompts
@@ -97,6 +99,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 
 ### Multi-Channel Support
 - **Web Chat**: Full-featured with general file upload, image upload, realtime voice recording, current-session file workspace, thinking controls, profile-only identity, theme/i18n support
+- **Web Live Run Diagnostics**: streaming chat now surfaces tool/subagent runner events in the live diagnostics panel, including delegated task lifecycle notices
 - **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, ACP control, model switching, task delivery
 - **Telegram Typing Resilience**: `sendChatAction(typing)` timeout exhaustion is treated as non-blocking, so typing-indicator failures do not abort the active run
 - **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings
@@ -514,6 +517,7 @@ See `.env.example` for full list and detailed descriptions.
 |------|------|
 | `README.md` | Project entrypoint: positioning, setup, surface overview, and doc navigation |
 | `AGENTS.md` | Long-lived collaboration rules, architecture boundaries, and doc-maintenance rules |
+| `DESIGN.md` | UI/page design source of truth for visual language, typography, color, spacing, and component styling constraints |
 | `prd.md` | Planned scope, priorities, acceptance criteria, and still-open implementation requirements |
 | `features.md` | Delivered features, implementation notes, and detailed internal update log |
 | `CHANGELOG.md` | High-level release history and milestone summaries worth preserving outside `features.md` |
@@ -543,8 +547,10 @@ See `.env.example` for full list and detailed descriptions.
 1. Before implementing a new feature, confirm the requirement or gap in `prd.md`.
 2. After shipping, update `features.md` with the delivered fact and a dated log entry.
 3. If the change adds or clarifies a long-lived rule, extract only that evergreen rule into `AGENTS.md`.
-4. If the change affects onboarding, project positioning, or doc navigation, update `README.md`.
-5. If the change is meaningful at release-summary level, add a concise entry to `CHANGELOG.md`.
+4. If the change affects page/UI implementation, verify it against `DESIGN.md` before editing code or styles.
+5. Unless existing `shadcn-svelte` primitives truly cannot support the UI change, prefer `src/lib/components/ui` over non-shadcn components or page-local reimplementations.
+6. If the change affects onboarding, project positioning, or doc navigation, update `README.md`.
+7. If the change is meaningful at release-summary level, add a concise entry to `CHANGELOG.md`.
 
 ## Current Status
 

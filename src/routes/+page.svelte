@@ -1355,6 +1355,13 @@
           ];
           continue;
         }
+        if (parsed.event === "runner_event") {
+          const diagnostic = String(payload.diagnostic ?? "").trim();
+          if (diagnostic) {
+            streamingDiagnostics = [...streamingDiagnostics, diagnostic];
+          }
+          continue;
+        }
         if (parsed.event === "thinking_delta") {
           streamingThinkingText += String(payload.delta ?? "");
           await scrollMessagesToBottom(true);

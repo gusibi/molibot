@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-05-15
+
+### DESIGN.md 页面改动治理
+- **AGENTS 规则补充**: 新增长期协作规则，凡是页面、界面、交互样式等前端展示改动，都必须先遵循 `DESIGN.md`，但不把具体设计细节重复搬进 `AGENTS.md`。
+- **文档分工对齐**: `README.md` 与 `prd.md` 现在都把 `DESIGN.md` 标记为页面设计事实来源，避免后续 UI 改动时只看协作规则、不看设计规范。
+- **流程约束落地**: `README.md` 的 Documentation Workflow 新增一步，要求页面/UI 改动先校对 `DESIGN.md` 再动代码或样式。
+
+### shadcn-first 页面组件原则
+- **组件优先级明确**: 新增长期规则，页面/UI 改动默认优先使用 `shadcn-svelte` 和 `src/lib/components/ui`，除非现有组件体系确实无法实现需求，否则不要回退到非 shadcn 组件。
+- **流程同步**: `README.md` 的文档流程与 `prd.md` 的文档结构说明已同步这条原则，后续前端改动会按同一口径执行。
+
 ## 2026-05-13
 
 ### Concise sandbox labels and Weixin tool batches
@@ -32,6 +43,12 @@
 ### Host approval rejection acknowledgement
 - **拒绝可见回执**: Telegram 和 Feishu 的 host approval 拒绝动作现在会额外发送一条普通文本回复，明确告知该审批已被拒绝，不再只依赖卡片/原消息状态变化。
 - **审批阻塞当前轮次**: sandbox 权限失败自动触发 host approval 时，runner 现在会立刻中止本轮并停在“等待审批”状态，不再把“已发起审批”当成成功工具结果继续生成后续答案。
+
+### Cross-channel subagent execution notices
+- **统一事件层**: 共享 `subagent` 工具现在会发出 `subagent_execution` 运行事件，覆盖 run start/end 与 task start/end，不再只写 pretty log。
+- **共享展示链路**: parent runner 会把这些事件转成与工具调用同级的 transient progress 提示，保持 delegation 能力在共享上层实现，而不是在各 Channel 里各写一套 subagent 逻辑。
+- **各端可见性**: Telegram 直播进度块原生显示 Sub Agent 生命周期；Web SSE 把这些事件流式送到聊天诊断面板；Feishu/Weixin/QQ 通过共享文本运行时自动收到“Sub Agent started / task started / task finished / finished”提示。
+- **失败隔离与收口**: subagent UI 事件现在走 runner 的 best-effort UI 队列，前端/通道 sink 抛错不再中断实际 delegation；同时 delegated run 失败时会补发终态 `end` 事件，避免跨端进度面板停在 started 状态。
 
 ---
 

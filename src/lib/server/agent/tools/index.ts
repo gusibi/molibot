@@ -20,6 +20,7 @@ import type { RuntimeSettings } from "../../settings/index.js";
 import { momLog } from "../log.js";
 import { resolveScratchArtifactDir } from "../scratchArtifacts.js";
 import { shouldSerializeToolCall } from "../toolPolicy.js";
+import type { RunnerUiEvent } from "../types.js";
 
 function wrapSerializedTool<T extends AgentTool<any>>(tool: T): T {
   let chain = Promise.resolve();
@@ -113,6 +114,7 @@ export function createMomTools(options: {
   onLocalToolsChanged?: (tools: AgentTool<any>[]) => void;
   exposeLoadMcpTool?: boolean;
   uploadFile: (filePath: string, title?: string, text?: string) => Promise<void>;
+  emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
 }): AgentTool<any>[] {
   const artifactDir = resolveScratchArtifactDir(options.timezone, options.messageTimestamp);
   const loadedDeferredToolNames = new Set<string>();
@@ -252,7 +254,8 @@ export function createMomTools(options: {
       cwd: options.cwd,
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,
-      getSettings: options.getSettings
+      getSettings: options.getSettings,
+      emitRunnerEvent: options.emitRunnerEvent
     }),
     createAttachTool({ ...options, artifactDir })
   ].map((tool) => wrapSerializedTool(tool));

@@ -1,5 +1,6 @@
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
 import type { RunnerUiEvent } from "$lib/server/agent/types";
 import { sanitizeRuntimeThinkingLevel } from "$lib/server/settings";
 import {
@@ -55,6 +56,9 @@ function buildRunnerDiagnostic(event: RunnerUiEvent): string | null {
       `status=${event.isError ? "error" : "ok"}`,
       preview ? `summary=${preview}` : ""
     ].filter(Boolean).join(", ");
+  }
+  if (event.type === "subagent_execution") {
+    return buildSubagentDiagnostic(event);
   }
   return null;
 }
@@ -190,8 +194,14 @@ export const POST: RequestHandler = async ({ request }) => {
                 writeEvent(controller, encoder, "payload", event);
                 return;
               }
-              if (event.type === "tool_execution_end" && event.hostToolApproval) {
-                writeEvent(controller, encoder, "host_tool_approval", event.hostToolApproval);
+              if (event.type === "tool_execution_start" || event.type === "tool_execution_end" || event.type === "subagent_execution") {
+                writeEvent(controller, encoder, "runner_event", {
+                  diagnostic: diagnostic ?? ""
+                });
+                if (event.type === "tool_execution_end" && event.hostToolApproval) {
+                  writeEvent(controller, encoder, "host_tool_approval", event.hostToolApproval);
+                }
+                return;
               }
               if (event.type !== "assistant_message_event") return;
 

@@ -23,6 +23,7 @@ import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace } from "./skills.j
 import { compactContextMessages, shouldCompactContext } from "./compaction.js";
 import { hasConfiguredAuth, resolveProviderApiKey } from "./auth.js";
 import { isRetryableModelError, resolvePromptAttemptDecision, shouldEmitFinalRunnerError } from "./runnerRetryState.js";
+import { formatSubagentProgressLabel } from "./subagentProgress.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
 import { resolveToolDisplayName } from "./toolDisplay.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
@@ -1860,6 +1861,15 @@ export class MomRunner implements RunnerLike {
       exposeLoadMcpTool,
       uploadFile: async (filePath, title, text) => {
         await ctx.uploadFile(filePath, title, text);
+      },
+      emitRunnerEvent: async (event) => {
+        const sink = this.activeRunnerEventSink;
+        if (sink) {
+          enqueue(() => sink(event));
+        }
+        if (event.type === "subagent_execution") {
+          enqueue(() => ctx.respond(`_→ ${formatSubagentProgressLabel(event)}_`, false));
+        }
       },
     });
     const scopedMcpServers = resolveScopedMcpServers();

@@ -6,6 +6,7 @@ import type { RuntimeSettings } from "../../settings/index.js";
 import type { HostToolApprovalPrompt } from "../../settings/hostTools.js";
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
+import { formatSubagentProgressLabel, formatSubagentProgressSummary } from "../../agent/subagentProgress.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
 import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
@@ -1958,6 +1959,26 @@ export class TelegramManager extends BaseChannelRuntime {
             runnerEvent.summary,
             runnerEvent.isError,
             runnerEvent.displayName
+          );
+          if (streamOutputEnabled) {
+            scheduleRender();
+          }
+          return;
+        }
+
+        if (runnerEvent.type === "subagent_execution") {
+          const eventKey = runnerEvent.phase === "task_start" || runnerEvent.phase === "task_end"
+            ? `subagent:${runnerEvent.agent ?? "subagent"}:${runnerEvent.taskIndex ?? 0}`
+            : `subagent:${runnerEvent.phase}`;
+          const summary = runnerEvent.phase === "task_end" || runnerEvent.phase === "end"
+            ? formatSubagentProgressSummary(runnerEvent)
+            : undefined;
+          updateToolProgress(
+            eventKey,
+            formatSubagentProgressLabel(runnerEvent),
+            summary,
+            runnerEvent.stopReason === "error",
+            "subagent"
           );
           if (streamOutputEnabled) {
             scheduleRender();

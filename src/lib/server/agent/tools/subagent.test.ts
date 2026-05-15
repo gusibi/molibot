@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { defaultRuntimeSettings } from "../../settings/defaults.js";
-import { isSafeReadOnlySubagentCommand, listBuiltInSubagents, resolveSubagentModelRoute } from "./subagent.js";
+import { createSubagentTool, isSafeReadOnlySubagentCommand, listBuiltInSubagents, resolveSubagentModelRoute } from "./subagent.js";
 
 test("read-only subagent bash rejects shell control operators", () => {
   assert.equal(isSafeReadOnlySubagentCommand("git diff -- src/lib/server/agent/runner.ts"), true);
@@ -53,4 +53,33 @@ test("subagent model level route overrides generic subagent route", () => {
     provider: "deepseek",
     model: "deepseek-v4-flash"
   });
+});
+
+test("subagent emits a terminal error event when execution fails before producing results", async () => {
+  const events: Array<Record<string, unknown>> = [];
+  const tool = createSubagentTool({
+    cwd: process.cwd(),
+    workspaceDir: process.cwd(),
+    chatId: "chat-1",
+    getSettings: () => defaultRuntimeSettings,
+    emitRunnerEvent: async (event) => {
+      events.push(event as unknown as Record<string, unknown>);
+    }
+  });
+
+  await assert.rejects(
+    tool.execute("tool-1", {
+      agent: "missing-agent",
+      task: "Inspect the patch"
+    }, undefined, undefined),
+    /Unknown subagent/
+  );
+
+  assert.deepEqual(
+    events.map((event) => ({ phase: event.phase, stopReason: event.stopReason })),
+    [
+      { phase: "start", stopReason: undefined },
+      { phase: "end", stopReason: "error" }
+    ]
+  );
 });

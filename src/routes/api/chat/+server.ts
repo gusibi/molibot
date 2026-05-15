@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
 import { loadSkillsFromWorkspace } from "$lib/server/agent/skills";
 import {
   listOAuthProviderIds,
@@ -464,6 +465,10 @@ export const POST: RequestHandler = async ({ request }) => {
           preview ? `summary=${preview}` : ""
         ].filter(Boolean).join(", ")
       );
+      return;
+    }
+    if (event.type === "subagent_execution") {
+      runnerDiagnostics.push(buildSubagentDiagnostic(event));
     }
   };
 

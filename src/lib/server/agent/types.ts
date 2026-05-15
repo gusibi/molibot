@@ -87,6 +87,17 @@ export type RunnerUiEvent =
       isError: boolean;
       summary: string;
       hostToolApproval?: HostToolApprovalPrompt;
+    }
+  | {
+      type: "subagent_execution";
+      phase: "start" | "task_start" | "task_end" | "end";
+      mode: "single" | "parallel" | "chain";
+      agent?: string;
+      task?: string;
+      taskIndex?: number;
+      taskCount: number;
+      stopReason?: "stop" | "aborted" | "error";
+      errorMessage?: string;
     };
 
 export interface MomContext {

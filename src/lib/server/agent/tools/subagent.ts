@@ -26,6 +26,7 @@ import { KNOWN_PROVIDER_LIST } from "../../settings/schema.js";
 import { resolveProviderApiKey } from "../auth.js";
 import { momLog } from "../log.js";
 import { parseSkillFrontmatter } from "../skillFrontmatter.js";
+import type { RunnerUiEvent } from "../types.js";
 import { createBashTool } from "./bash.js";
 import { createEditTool } from "./edit.js";
 import { createReadTool } from "./read.js";
@@ -144,6 +145,10 @@ function previewTask(text: string, max = 160): string {
   const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
   if (normalized.length <= max) return normalized;
   return `${normalized.slice(0, max - 1)}…`;
+}
+
+function normalizeSubagentStopReason(stopReason: string | undefined): "stop" | "aborted" | "error" {
+  return stopReason === "stop" || stopReason === "aborted" || stopReason === "error" ? stopReason : "error";
 }
 
 function parseSubagentMode(input: SubagentInput): {
@@ -711,6 +716,7 @@ export function createSubagentTool(options: {
   workspaceDir: string;
   chatId: string;
   getSettings: () => RuntimeSettings;
+  emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
 }): AgentTool<typeof subagentSchema> {
   return {
     name: "subagent",
@@ -721,6 +727,7 @@ export function createSubagentTool(options: {
     execute: async (_toolCallId, params, signal, onUpdate): Promise<AgentToolResult<SubagentToolDetails>> => {
       const parsed = parseSubagentMode(params as SubagentInput);
       const settings = options.getSettings();
+      let endEventSent = false;
       momLog("runner", "subagent_start", {
         chatId: options.chatId,
         mode: parsed.mode,
@@ -730,6 +737,12 @@ export function createSubagentTool(options: {
           agent: item.agent,
           task: previewTask(item.task, 120)
         }))
+      });
+      await options.emitRunnerEvent?.({
+        type: "subagent_execution",
+        phase: "start",
+        mode: parsed.mode,
+        taskCount: parsed.tasks.length
       });
 
       onUpdate?.({
@@ -751,84 +764,21 @@ export function createSubagentTool(options: {
         });
       };
 
-      let results: SubagentRunResult[];
-      if (parsed.mode === "single") {
-        const item = parsed.tasks[0];
-        if (!item) throw new Error("Missing subagent task.");
+      const emitEndEvent = async (stopReason: "stop" | "aborted" | "error"): Promise<void> => {
+        endEventSent = true;
+        await options.emitRunnerEvent?.({
+          type: "subagent_execution",
+          phase: "end",
+          mode: parsed.mode,
+          taskCount: parsed.tasks.length,
+          stopReason
+        });
+      };
+
+      const runTask = async (item: SingleTaskInput, index: number, task: string): Promise<SubagentRunResult> => {
         const agent = getSubagentDefinition(item.agent);
-        momLog("runner", "subagent_task_start", {
-          chatId: options.chatId,
-          mode: parsed.mode,
-          agent: agent.name,
-          taskIndex: 1,
-          taskCount: parsed.tasks.length,
-          taskPreview: previewTask(item.task)
-        });
-        const result = await runSingleSubagent(agent, item.task, {
-          cwd: options.cwd,
-          workspaceDir: options.workspaceDir,
-          chatId: options.chatId,
-          settings,
-          signal
-        });
-        momLog("runner", "subagent_task_end", {
-          chatId: options.chatId,
-          mode: parsed.mode,
-          agent: result.agent,
-          taskIndex: 1,
-          taskCount: parsed.tasks.length,
-          taskPreview: previewTask(item.task),
-          stopReason: result.stopReason,
-          model: result.model,
-          usageTotal: result.usage.total,
-          outputPreview: previewTask(result.output, 200),
-          errorMessage: result.errorMessage
-        });
-        finished.push(result);
-        results = [result];
-      } else if (parsed.mode === "parallel") {
-        results = await mapWithConcurrency(parsed.tasks, parsed.maxConcurrency, async (item, index) => {
-          const agent = getSubagentDefinition(item.agent);
-          momLog("runner", "subagent_task_start", {
-            chatId: options.chatId,
-            mode: parsed.mode,
-            agent: agent.name,
-            taskIndex: index + 1,
-            taskCount: parsed.tasks.length,
-            taskPreview: previewTask(item.task)
-          });
-          const result = await runSingleSubagent(agent, item.task, {
-            cwd: options.cwd,
-            workspaceDir: options.workspaceDir,
-            chatId: options.chatId,
-            settings,
-            signal
-          });
-          momLog("runner", "subagent_task_end", {
-            chatId: options.chatId,
-            mode: parsed.mode,
-            agent: result.agent,
-            taskIndex: index + 1,
-            taskCount: parsed.tasks.length,
-            taskPreview: previewTask(item.task),
-            stopReason: result.stopReason,
-            model: result.model,
-            usageTotal: result.usage.total,
-            outputPreview: previewTask(result.output, 200),
-            errorMessage: result.errorMessage
-          });
-          finished.push(result);
-          emitProgress();
-          return result;
-        });
-      } else {
-        const chainResults: SubagentRunResult[] = [];
-        let previousOutput = "";
-        for (const [index, item] of parsed.tasks.entries()) {
-          const agent = getSubagentDefinition(item.agent);
-          const task = item.task.includes("{previous}")
-            ? item.task.replaceAll("{previous}", previousOutput)
-            : item.task;
+        let started = false;
+        try {
           momLog("runner", "subagent_task_start", {
             chatId: options.chatId,
             mode: parsed.mode,
@@ -837,6 +787,16 @@ export function createSubagentTool(options: {
             taskCount: parsed.tasks.length,
             taskPreview: previewTask(task)
           });
+          await options.emitRunnerEvent?.({
+            type: "subagent_execution",
+            phase: "task_start",
+            mode: parsed.mode,
+            agent: agent.name,
+            task,
+            taskIndex: index + 1,
+            taskCount: parsed.tasks.length
+          });
+          started = true;
           const result = await runSingleSubagent(agent, task, {
             cwd: options.cwd,
             workspaceDir: options.workspaceDir,
@@ -857,30 +817,93 @@ export function createSubagentTool(options: {
             outputPreview: previewTask(result.output, 200),
             errorMessage: result.errorMessage
           });
-          chainResults.push(result);
-          finished.push(result);
-          previousOutput = result.output;
-          emitProgress();
-        }
-        results = chainResults;
-      }
-
-      const hasFailure = results.some((result) => result.stopReason === "error" || result.stopReason === "aborted");
-      momLog("runner", "subagent_end", {
-        chatId: options.chatId,
-        mode: parsed.mode,
-        taskCount: results.length,
-        hasFailure,
-        stopReasons: results.map((result) => result.stopReason)
-      });
-
-      return {
-        content: [{ type: "text", text: summarizeResults(parsed.mode, results) }],
-        details: {
-          mode: parsed.mode,
-          results
+          await options.emitRunnerEvent?.({
+            type: "subagent_execution",
+            phase: "task_end",
+            mode: parsed.mode,
+            agent: result.agent,
+            task,
+            taskIndex: index + 1,
+            taskCount: parsed.tasks.length,
+            stopReason: normalizeSubagentStopReason(result.stopReason),
+            errorMessage: result.errorMessage
+          });
+          return result;
+        } catch (error) {
+          if (started) {
+            await options.emitRunnerEvent?.({
+              type: "subagent_execution",
+              phase: "task_end",
+              mode: parsed.mode,
+              agent: agent.name,
+              task,
+              taskIndex: index + 1,
+              taskCount: parsed.tasks.length,
+              stopReason: signal?.aborted ? "aborted" : "error",
+              errorMessage: error instanceof Error ? error.message : String(error)
+            });
+          }
+          throw error;
         }
       };
+
+      try {
+        let results: SubagentRunResult[];
+        if (parsed.mode === "single") {
+          const item = parsed.tasks[0];
+          if (!item) throw new Error("Missing subagent task.");
+          const result = await runTask(item, 0, item.task);
+          finished.push(result);
+          results = [result];
+        } else if (parsed.mode === "parallel") {
+          results = await mapWithConcurrency(parsed.tasks, parsed.maxConcurrency, async (item, index) => {
+            const result = await runTask(item, index, item.task);
+            finished.push(result);
+            emitProgress();
+            return result;
+          });
+        } else {
+          const chainResults: SubagentRunResult[] = [];
+          let previousOutput = "";
+          for (const [index, item] of parsed.tasks.entries()) {
+            const task = item.task.includes("{previous}")
+              ? item.task.replaceAll("{previous}", previousOutput)
+              : item.task;
+            const result = await runTask(item, index, task);
+            chainResults.push(result);
+            finished.push(result);
+            previousOutput = result.output;
+            emitProgress();
+          }
+          results = chainResults;
+        }
+
+        const hasFailure = results.some((result) => result.stopReason === "error" || result.stopReason === "aborted");
+        const endStopReason = hasFailure
+          ? (results.some((result) => result.stopReason === "error") ? "error" : "aborted")
+          : "stop";
+        momLog("runner", "subagent_end", {
+          chatId: options.chatId,
+          mode: parsed.mode,
+          taskCount: results.length,
+          hasFailure,
+          stopReasons: results.map((result) => result.stopReason)
+        });
+        await emitEndEvent(endStopReason);
+
+        return {
+          content: [{ type: "text", text: summarizeResults(parsed.mode, results) }],
+          details: {
+            mode: parsed.mode,
+            results
+          }
+        };
+      } catch (error) {
+        if (!endEventSent) {
+          await emitEndEvent(signal?.aborted ? "aborted" : "error");
+        }
+        throw error;
+      }
     }
   };
 }
