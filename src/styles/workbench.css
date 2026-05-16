@@ -1,4 +1,201 @@
 @layer components {
+  .settings-shell {
+    background:
+      radial-gradient(circle at top right, color-mix(in oklab, #cc785c 20%, transparent), transparent 24rem),
+      radial-gradient(circle at bottom left, color-mix(in oklab, #5db8a6 14%, transparent), transparent 30rem),
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, #faf9f5 82%, var(--background)),
+        color-mix(in oklab, #f5f0e8 74%, var(--background))
+      );
+  }
+
+  .dark .settings-shell {
+    background:
+      radial-gradient(circle at top right, color-mix(in oklab, #cc785c 16%, transparent), transparent 24rem),
+      radial-gradient(circle at bottom left, color-mix(in oklab, #5db8a6 10%, transparent), transparent 28rem),
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, #181715 88%, var(--background)),
+        color-mix(in oklab, #252320 78%, var(--background))
+      );
+  }
+
+  .settings-nav {
+    border-right: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, #faf9f5 72%, var(--card)),
+        color-mix(in oklab, #efe9de 58%, var(--card))
+      );
+  }
+
+  .dark .settings-nav {
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, #1f1e1b 88%, var(--card)),
+        color-mix(in oklab, #181715 82%, var(--card))
+      );
+  }
+
+  .settings-stage {
+    background: transparent;
+  }
+
+  .settings-viewport > div {
+    width: min(100%, 96rem);
+    max-width: min(96rem, calc(100vw - 2rem)) !important;
+    padding: clamp(1.5rem, 2vw, 2.5rem) clamp(1rem, 3vw, 2.5rem) 3rem !important;
+    gap: 1.75rem !important;
+  }
+
+  .settings-viewport > div > header:first-child:has(h1) {
+    display: block;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .settings-viewport > div > div:first-child:has(> header h1) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1.25rem;
+    padding: clamp(1rem, 1.6vw, 1.35rem);
+    border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+    border-radius: 1.35rem;
+    background:
+      linear-gradient(
+        135deg,
+        color-mix(in oklab, #faf9f5 86%, var(--card)),
+        color-mix(in oklab, #efe9de 70%, var(--card)) 58%,
+        color-mix(in oklab, #cc785c 10%, transparent)
+      );
+    box-shadow: var(--shadow);
+  }
+
+  .dark .settings-viewport > div > div:first-child:has(> header h1) {
+    background:
+      linear-gradient(
+        135deg,
+        color-mix(in oklab, #252320 88%, var(--card)),
+        color-mix(in oklab, #1f1e1b 80%, var(--card)) 58%,
+        color-mix(in oklab, #cc785c 10%, transparent)
+      );
+  }
+
+  .settings-viewport > div > div:first-child:has(> header h1) {
+    align-items: flex-end;
+  }
+
+  .settings-viewport > div > :first-child:is(header, div):has(h1) h1 {
+    font-family: Copernicus, Tiempos Headline, serif;
+    font-size: clamp(1.6rem, 3vw, 2.35rem);
+    line-height: 1;
+    font-weight: 400;
+    letter-spacing: -0.04em;
+  }
+
+  .settings-viewport > div > header:first-child:has(h1) > * + * {
+    margin-top: 0.45rem;
+  }
+
+  .settings-viewport > div > div:first-child:has(> header h1) > header {
+    flex: 1 1 32rem;
+    min-width: min(100%, 18rem);
+  }
+
+  .settings-viewport > div > div:first-child:has(> header h1) > :last-child {
+    display: flex;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+  }
+
+  .settings-viewport > div > :first-child:is(header, div):has(h1) p:first-child {
+    margin-bottom: 0.28rem;
+    color: color-mix(in oklab, #cc785c 72%, var(--foreground));
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .settings-viewport > div > :first-child:is(header, div):has(h1) p:last-child {
+    max-width: 52rem;
+    line-height: 1.58;
+  }
+
+  .settings-viewport [data-slot="card"] {
+    border-color: color-mix(in oklab, var(--border) 58%, transparent);
+    border-radius: 1.35rem;
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, #faf9f5 76%, var(--card)),
+        color-mix(in oklab, var(--card) 94%, transparent)
+      ),
+      var(--card);
+    box-shadow: var(--shadow);
+  }
+
+  .dark .settings-viewport [data-slot="card"] {
+    border-color: color-mix(in oklab, var(--border) 34%, transparent);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, #252320 78%, var(--card)),
+        color-mix(in oklab, var(--card) 94%, transparent)
+      ),
+      var(--card);
+  }
+
+  .settings-viewport [data-slot="card"][data-size="sm"] {
+    border-radius: 1.1rem;
+  }
+
+  .settings-viewport [data-slot="button"].bg-primary,
+  .settings-viewport [data-slot="button"][class*="bg-primary"] {
+    background: #cc785c;
+    border-color: color-mix(in oklab, #a9583e 70%, transparent);
+    color: #fff;
+  }
+
+  .settings-viewport [data-slot="button"][class*="bg-primary"]:hover {
+    background: #a9583e;
+  }
+
+  .settings-viewport [data-slot="button"][class*="bg-background"],
+  .settings-viewport [data-slot="button"][class*="bg-card"] {
+    background: color-mix(in oklab, #faf9f5 72%, var(--card));
+  }
+
+  .settings-viewport > div > :nth-child(2):is([data-slot="card"], div, form, section) {
+    margin-top: 0.15rem;
+  }
+
+  @media (max-width: 1023px) {
+    .settings-viewport > div {
+      max-width: calc(100vw - 1rem) !important;
+      padding: 1rem 0.75rem 2rem !important;
+    }
+
+    .settings-viewport > div > :first-child:is(header, div):has(h1) {
+      align-items: flex-start;
+    }
+
+    .settings-viewport > div > div:first-child:has(> header h1) > :last-child {
+      justify-content: flex-start;
+    }
+  }
+
   .wb-page {
     --wb-panel-border: color-mix(in oklab, var(--border) 86%, transparent);
     --wb-panel-bg:

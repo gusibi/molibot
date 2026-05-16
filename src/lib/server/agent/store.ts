@@ -14,6 +14,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { RuntimeThinkingLevel } from "../settings/index.js";
 import { RUNTIME_THINKING_LEVELS, sanitizeRuntimeThinkingLevel } from "../settings/index.js";
 import type { FileAttachment, LoggedMessage } from "./types.js";
+import { parseRunDetailEntries, type RunDetailEntry } from "./runDetail.js";
 import {
   buildMessagesFromSessionEntries,
   createCompactionSummaryMessage,
@@ -707,6 +708,53 @@ export class MomRuntimeStore {
       ...summary
     };
     appendFileSync(file, `${JSON.stringify(record)}\n`, "utf8");
+  }
+
+  private getRunDetailsDir(chatId: string): string {
+    const dir = join(this.getChatDir(chatId), "run-details");
+    ensureDir(dir);
+    return dir;
+  }
+
+  getRunDetailPath(chatId: string, runId: string): string {
+    const safeRunId = String(runId ?? "").replace(/[^a-zA-Z0-9._-]/g, "_").trim();
+    return join(this.getRunDetailsDir(chatId), `${safeRunId || "unknown"}.jsonl`);
+  }
+
+  appendRunDetail(chatId: string, runId: string, entry: RunDetailEntry): void {
+    const file = this.getRunDetailPath(chatId, runId);
+    appendFileSync(file, `${JSON.stringify(entry)}\n`, "utf8");
+  }
+
+  readRunDetail(chatId: string, runId: string): RunDetailEntry[] {
+    const file = this.getRunDetailPath(chatId, runId);
+    if (!existsSync(file)) return [];
+    try {
+      return parseRunDetailEntries(readFileSync(file, "utf8"));
+    } catch {
+      return [];
+    }
+  }
+
+  readLatestRunSummary(chatId: string): Record<string, unknown> | null {
+    const file = this.getRunSummaryLogPath(chatId);
+    try {
+      const lines = readFileSync(file, "utf8")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      for (let index = lines.length - 1; index >= 0; index -= 1) {
+        try {
+          const parsed = JSON.parse(lines[index]) as Record<string, unknown>;
+          if (parsed && typeof parsed === "object") return parsed;
+        } catch {
+          // skip invalid line
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
   }
 
   getSessionStatusSnapshot(chatId: string, sessionId?: string): SessionStatusSnapshot {

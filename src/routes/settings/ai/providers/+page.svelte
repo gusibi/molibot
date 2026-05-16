@@ -1252,28 +1252,31 @@
 </script>
 
 <div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-    <div class="flex flex-col justify-between gap-3 md:flex-row md:items-end">
-        <header>
-            <p class="mb-1 text-xs font-bold uppercase tracking-normal text-muted-foreground">
+    <header class="space-y-3">
+        <div class="flex flex-col justify-between gap-3 md:flex-row md:items-end">
+            <div>
+                <p class="mb-1 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-muted-foreground">
                 Unified model pool
-            </p>
-            <h1 class="text-3xl font-bold tracking-tight text-foreground">
-                Providers & Models
-            </h1>
-            <p class="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                Built-in transports plus custom OpenAI-compatible or Anthropic
-                endpoints feed the same routing pool. Enable providers here,
-                declare model capabilities, then choose any enabled model from
-                AI Routing.
-            </p>
-        </header>
-        <Button
-            variant="outline"
-            href="/settings/ai/routing"
-        >
-            Open routing
-        </Button>
-    </div>
+                </p>
+                <h1 class="text-[clamp(1.6rem,3vw,2.35rem)] font-normal tracking-[-0.04em] text-foreground [font-family:Copernicus,Tiempos_Headline,serif]">
+                    Providers & Models
+                </h1>
+            </div>
+            <Button
+                variant="outline"
+                size="sm"
+                href="/settings/ai/routing"
+            >
+                Open routing
+            </Button>
+        </div>
+        <p class="max-w-3xl text-sm leading-[1.58] text-muted-foreground">
+            Built-in transports plus custom OpenAI-compatible or Anthropic
+            endpoints feed the same routing pool. Enable providers here,
+            declare model capabilities, then choose any enabled model from
+            AI Routing.
+        </p>
+    </header>
 
     {#if loading}
         <div

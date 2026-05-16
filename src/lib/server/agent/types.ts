@@ -48,6 +48,7 @@ export interface LoggedMessage {
 }
 
 export interface RunResult {
+  runId?: string;
   stopReason: "stop" | "aborted" | "error";
   errorMessage?: string;
 }

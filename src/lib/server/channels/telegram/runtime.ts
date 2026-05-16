@@ -9,6 +9,7 @@ import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { formatSubagentProgressLabel, formatSubagentProgressSummary } from "../../agent/subagentProgress.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
+import { formatRunArchiveNotice } from "../../agent/runDetail.js";
 import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
 import type { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
@@ -23,7 +24,7 @@ import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageCo
 import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
 import type { ParsedRelativeReminder, StatusSession } from "./types.js";
 import { TELEGRAM_SHARED_COMMANDS } from "./commands.js";
-import { executeApprovedHostTool } from "../../agent/hostToolExec.js";
+import { executeHostToolApproval } from "../../agent/hostToolExec.js";
 
 export interface TelegramConfig {
   token: string;
@@ -178,15 +179,14 @@ export class TelegramManager extends BaseChannelRuntime {
       maybeHandleAcpCommand: (scopeId, cmd, rawArg, target) =>
         this.maybeHandleTelegramAcpCommand(scopeId, cmd, rawArg, target),
       sendText: (target, text) => this.sendTelegramCommandText(target, text),
+      uploadFile: (target, filePath, title, text) => this.sendTelegramCommandFile(target, filePath, title, text),
       executeApprovedHostTool: async (input, approved, request) => {
         if (!request.pendingAction || !this.bot) return;
         const target = this.parseChatScopeId(input.scopeId);
-        const executed = await executeApprovedHostTool({
-          tool: approved,
+        const executed = await executeHostToolApproval({
+          request,
+          approvedTool: approved,
           cwd: this.store.getChatDir(input.scopeId),
-          args: request.pendingAction.args,
-          stdin: request.pendingAction.stdin,
-          timeoutSeconds: request.pendingAction.timeout
         });
         await sendTelegramText(this.bot, target.chatId, executed.rendered, this.buildTelegramSendOptions(target.messageThreadId));
         return "Approved and executed immediately.";
@@ -260,6 +260,19 @@ export class TelegramManager extends BaseChannelRuntime {
     for (const chunk of chunks) {
       await sendTelegramText(this.bot, target.chatId, chunk, sendOptions);
     }
+  }
+
+  private async sendTelegramCommandFile(
+    target: TelegramCommandTarget,
+    filePath: string,
+    title?: string,
+    text?: string
+  ): Promise<void> {
+    if (!this.bot) return;
+    await this.bot.api.sendDocument(target.chatId, new InputFile(filePath, title || filePath.split("/").pop() || "runlog.txt"), {
+      ...(this.buildTelegramSendOptions(target.messageThreadId) ?? {}),
+      caption: text || title || "runlog.txt"
+    });
   }
 
   private async maybeHandleTelegramAcpCommand(
@@ -1376,6 +1389,11 @@ export class TelegramManager extends BaseChannelRuntime {
     const chatId = parsedScope.chatId;
     const messageThreadId = event.messageThreadId ?? parsedScope.messageThreadId;
     const sendOptions = this.buildTelegramSendOptions(messageThreadId);
+    const answerSendOptions = !event.isEvent
+      ? this.mergeTelegramSendOptions(sendOptions, {
+        reply_parameters: { message_id: event.messageId }
+      })
+      : sendOptions;
     this.ensureChatEventsWatcher(scopeId);
     const sessionId = event.sessionId || this.store.getActiveSession(scopeId);
     const sessionThinkingLevelOverride = this.store.getSessionThinkingLevelOverride(scopeId, sessionId);
@@ -1409,6 +1427,7 @@ export class TelegramManager extends BaseChannelRuntime {
       isWorking: true
     };
     let plainProgressText = event.initialStatusText ?? "";
+    let detailEventCount = 0;
     const refreshProgressText = () => {
       status.progressText = this.formatTelegramToolProgress(status.toolProgressEntries ?? [], plainProgressText);
     };
@@ -1608,7 +1627,7 @@ export class TelegramManager extends BaseChannelRuntime {
         }
       }
 
-      const sent = await sendTelegramText(bot, chatId, display, sendOptions);
+      const sent = await sendTelegramText(bot, chatId, display, answerSendOptions);
       status.answerMessageId = sent.message_id;
       lastAnswerRenderAt = Date.now();
     };
@@ -1714,7 +1733,7 @@ export class TelegramManager extends BaseChannelRuntime {
         answerForceNextRender = false;
         const sent = status.answerMessageId
           ? (await editTelegramText(bot, chatId, status.answerMessageId, text), { message_id: status.answerMessageId })
-          : await sendTelegramText(bot, chatId, text, sendOptions);
+          : await sendTelegramText(bot, chatId, text, answerSendOptions);
         status.answerMessageId = sent.message_id;
         lastAnswerRenderAt = Date.now();
         this.store.logBotResponse(scopeId, text, status.answerMessageId);
@@ -1750,6 +1769,7 @@ export class TelegramManager extends BaseChannelRuntime {
         answerForceNextRender = false;
       },
       respondInThread: async (text) => {
+        detailEventCount += 1;
         status.detailsText = status.detailsText ? `${status.detailsText}\n\n${text}` : text;
         const detailsTitle = "运行详情";
         const display = `${detailsTitle}\n\n${this.truncateTelegramBlock(status.detailsText)}`;
@@ -2048,6 +2068,17 @@ export class TelegramManager extends BaseChannelRuntime {
           scopeId,
           source: "process_aborted"
         });
+      } else if (result.stopReason === "stop" && detailEventCount > 0 && result.runId) {
+        const archiveNotice = formatRunArchiveNotice(result.runId);
+        if (status.detailsMessageId) {
+          await editTelegramText(bot, chatId, status.detailsMessageId, archiveNotice);
+        } else {
+          await sendTelegramTextSafely(bot, chatId, archiveNotice, answerSendOptions, {
+            runId,
+            scopeId,
+            source: "process_archive_notice"
+          });
+        }
       }
     } catch (error) {
       momError("telegram", "process_failed", {

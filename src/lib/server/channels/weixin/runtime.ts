@@ -5,6 +5,8 @@ import { type IncomingMessage, WeixinBot } from "./client.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import type { EventDeliveryMode, MomEvent } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
+import { buildNonInteractiveHostToolApprovalText } from "../../settings/hostTools.js";
+import { formatRunArchiveNotice } from "../../agent/runDetail.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
 import type { ChannelInboundMessage } from "../../agent/types.js";
@@ -177,6 +179,8 @@ export class WeixinManager extends BaseChannelRuntime {
       maybeHandleAcpCommand: (scopeId, cmd, rawArg, sourceMessage) =>
         this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, sourceMessage),
       sendText: (sourceMessage, text) => this.replyCommand((sourceMessage as IncomingMessage).userId, sourceMessage, text),
+      uploadFile: (sourceMessage, filePath, title, text) =>
+        this.sendCommandFile((sourceMessage as IncomingMessage).userId, sourceMessage as IncomingMessage, filePath, title, text),
       onSessionMutation: (scopeId) => {
         void this.writePromptPreview([scopeId]);
       },
@@ -551,6 +555,15 @@ export class WeixinManager extends BaseChannelRuntime {
           error: error instanceof Error ? error.message : String(error)
         });
       },
+      onRunnerEvent: async (runnerEvent) => {
+        if (runnerEvent.type !== "tool_execution_end" || !runnerEvent.hostToolApproval) return;
+        await sendVisibleText(buildNonInteractiveHostToolApprovalText(runnerEvent.hostToolApproval));
+      },
+      onRunComplete: async (result, meta) => {
+        if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId) {
+          await sendVisibleText(formatRunArchiveNotice(result.runId));
+        }
+      },
       replaceWithoutEdit: async (text, state) => {
         if (isTransientRunnerProgress(text)) {
           await sendVisibleText(text);
@@ -769,6 +782,30 @@ export class WeixinManager extends BaseChannelRuntime {
 
   private async replyCommand(chatId: string, sourceMessage: IncomingMessage, text: string): Promise<void> {
     await this.sendText(chatId, sourceMessage, text, true);
+  }
+
+  private async sendCommandFile(
+    chatId: string,
+    sourceMessage: IncomingMessage,
+    filePath: string,
+    title?: string,
+    text?: string
+  ): Promise<void> {
+    if (!this.bot) {
+      throw new Error("Weixin bot is not running.");
+    }
+    const contextToken = String(sourceMessage._contextToken ?? "") || this.bot.getContextToken(chatId) || "";
+    if (!contextToken) {
+      throw new Error("Missing Weixin context token for outbound file delivery.");
+    }
+    await sendWeixinFile({
+      filePath,
+      toUserId: chatId,
+      contextToken,
+      caption: title,
+      text,
+      baseUrlOverride: this.currentBaseUrl || undefined
+    });
   }
 
   private serializeQueuedEvent(event: WeixinInboundEvent): WeixinQueuedTaskPayload {

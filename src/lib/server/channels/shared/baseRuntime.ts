@@ -249,6 +249,14 @@ export abstract class BaseChannelRuntime {
       deleteWithoutHandle?: Parameters<typeof buildTextChannelContext<TSent>>[0]["deleteWithoutHandle"];
       uploadWithoutHandle?: Parameters<typeof buildTextChannelContext<TSent>>[0]["uploadWithoutHandle"];
       onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
+      onRunComplete?: (result: {
+        runId?: string;
+        stopReason: "stop" | "aborted" | "error";
+        errorMessage?: string;
+      }, meta: {
+        activeSessionId: string;
+        threadEventCount: number;
+      }) => Promise<void>;
       onSessionAppendWarning?: (error: unknown) => void;
       role?: "user" | "system";
     }
@@ -266,6 +274,7 @@ export abstract class BaseChannelRuntime {
     );
 
     const runner = this.runners.get(scopeId, activeSessionId);
+    let threadEventCount = 0;
     const ctx = buildTextChannelContext({
       channel: this.channelName as Channel,
       event,
@@ -276,7 +285,15 @@ export abstract class BaseChannelRuntime {
       instanceId: this.instanceId,
       activeSessionId,
       conversationKey: `bot:${this.instanceId}:chat:${scopeId}:${activeSessionId}`,
-      response: options.response,
+      response: {
+        ...options.response,
+        respondInThread: options.response.respondInThread
+          ? async (text) => {
+            threadEventCount += 1;
+            await options.response.respondInThread!(text);
+          }
+          : undefined
+      },
       createBotMessageId: options.createBotMessageId,
       normalizeText: options.normalizeText,
       replaceWithoutEdit: options.replaceWithoutEdit,
@@ -287,7 +304,8 @@ export abstract class BaseChannelRuntime {
     });
 
     try {
-      await runner.run(ctx);
+      const result = await runner.run(ctx);
+      await options.onRunComplete?.(result, { activeSessionId, threadEventCount });
     } finally {
       this.running.delete(scopeId);
     }

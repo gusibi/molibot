@@ -84,6 +84,7 @@
   };
 
   let themeMode: ThemeMode = "light";
+  let expandedGroups = new Set<string>(["General", "AI Engine", "Channels", "Agent Data", "System"]);
 
   let navGroups = [
     {
@@ -137,6 +138,12 @@
     return COPY[$locale][key] ?? key;
   }
 
+  function toggleGroup(title: string): void {
+    const next = new Set(expandedGroups);
+    if (next.has(title)) next.delete(title); else next.add(title);
+    expandedGroups = next;
+  }
+
   function normalizePath(path: string): string {
     if (path.length > 1 && path.endsWith("/")) return path.slice(0, -1);
     return path;
@@ -155,10 +162,10 @@
     exact: boolean = false,
   ): string {
     const base =
-      "block rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200";
+      "block rounded-xl border px-3 py-2 text-xs font-medium transition-all duration-200";
     const state = isActive(pathname, href, exact)
-      ? "bg-muted text-foreground"
-      : "text-muted-foreground hover:bg-muted hover:text-foreground";
+      ? "border-[color-mix(in_oklab,var(--primary)_26%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] text-foreground shadow-sm"
+      : "border-transparent text-muted-foreground hover:border-[color-mix(in_oklab,var(--border)_88%,transparent)] hover:bg-[color-mix(in_oklab,var(--muted)_44%,var(--card))] hover:text-foreground";
     return `${base} ${state}`;
   }
 
@@ -263,74 +270,86 @@
 </script>
 
 <main
-  class="flex h-[100dvh] w-full bg-background text-foreground antialiased selection:bg-[color-mix(in_oklab,var(--primary)_30%,transparent)]"
+  class="settings-shell settings-theme flex h-[100dvh] w-full text-foreground antialiased selection:bg-[color-mix(in_oklab,var(--primary)_30%,transparent)]"
   use:localizeSettings={$locale}
 >
-  <div class="grid h-full w-full grid-cols-1 lg:grid-cols-[300px_1fr]">
+  <div class="grid h-full w-full grid-cols-1 lg:grid-cols-[320px_1fr]">
     <aside
-      class="hidden flex-col border-r border-border bg-sidebar p-4 lg:flex"
+      class="settings-nav hidden flex-col p-5 lg:flex"
     >
-      <div class="mb-6 space-y-3 px-3">
+      <div class="mb-6 space-y-4 px-3">
         <a
           href="/"
-          class="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-semibold uppercase tracking-wide text-foreground transition hover:border-primary hover:text-primary"
+          class="inline-flex items-center gap-2 rounded-full border border-[color-mix(in_oklab,var(--border)_84%,transparent)] bg-[color-mix(in_oklab,var(--card)_70%,#faf9f5)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground transition hover:border-[color-mix(in_oklab,var(--primary)_35%,var(--border))] hover:text-[color-mix(in_oklab,var(--primary)_82%,var(--foreground))]"
         >
           <span aria-hidden="true">←</span>
           {t("backToChat")}
         </a>
-        <h2 class="text-lg font-bold tracking-tight text-foreground">
-          {t("settings")}
-        </h2>
+        <div class="space-y-2">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+            {t("workspaceTitle")}
+          </p>
+          <h2 class="text-[2rem] font-semibold leading-none tracking-[-0.04em] text-foreground [font-family:Copernicus,Tiempos_Headline,serif]">
+            {t("settings")}
+          </h2>
+        </div>
       </div>
 
       {#key $page.url.pathname}
-        <nav class="flex-1 space-y-6 overflow-y-auto pr-2">
+        <nav class="flex-1 space-y-4 overflow-y-auto pr-2">
           {#each navGroups as group}
-            <div class="space-y-2">
-              <h3
-                class="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+            <div class="space-y-1">
+              <button
+                type="button"
+                onclick={() => toggleGroup(group.title)}
+                class="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground hover:text-foreground transition-colors"
               >
-                {group.title}
-              </h3>
-              <div class="space-y-0.5">
-                {#each group.links as link}
-                  <a
-                    href={link.href}
-                    class={navLinkClass(
-                      $page.url.pathname,
-                      link.href,
-                      (link as any).exact,
-                    )}
-                    aria-current={isActive(
-                      $page.url.pathname,
-                      link.href,
-                      (link as any).exact,
-                    )
-                      ? "page"
-                      : undefined}
-                  >
-                    {link.label}
-                  </a>
-                {/each}
-              </div>
+                <span>{group.title}</span>
+                <span class="transition-transform duration-200" class:rotate-90={expandedGroups.has(group.title)}>
+                  ▸
+                </span>
+              </button>
+              {#if expandedGroups.has(group.title)}
+                <div class="space-y-1">
+                  {#each group.links as link}
+                    <a
+                      href={link.href}
+                      class={navLinkClass(
+                        $page.url.pathname,
+                        link.href,
+                        (link as any).exact,
+                      )}
+                      aria-current={isActive(
+                        $page.url.pathname,
+                        link.href,
+                        (link as any).exact,
+                      )
+                        ? "page"
+                        : undefined}
+                    >
+                      {link.label}
+                    </a>
+                  {/each}
+                </div>
+              {/if}
             </div>
           {/each}
         </nav>
       {/key}
     </aside>
 
-    <section class="relative min-h-0 w-full overflow-y-auto">
+    <section class="settings-stage relative min-h-0 w-full overflow-y-auto">
       <header
-        class="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-5 py-4 sm:px-7"
+        class="sticky top-0 z-10 border-b border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--background)_58%,#faf9f5)]/95 px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-[color-mix(in_oklab,var(--background)_52%,#faf9f5)]/75 sm:px-7"
       >
         <div class="flex items-center justify-between gap-3">
           <div class="min-w-0">
             <p
-              class="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground"
+              class="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground"
             >
               {t("workspaceTitle")}
             </p>
-            <h1 class="truncate text-lg font-semibold text-foreground">
+            <h1 class="truncate text-lg font-semibold text-foreground [font-family:StyreneB,Inter,sans-serif]">
               {currentPageLabel($page.url.pathname)}
             </h1>
           </div>
@@ -356,26 +375,26 @@
             </NativeSelect>
             <a
               href="/"
-              class="hidden rounded-xl border border-border px-3 py-2 text-xs font-semibold text-foreground transition hover:border-primary hover:text-primary sm:inline-flex"
+              class="hidden rounded-full border border-[color-mix(in_oklab,var(--border)_84%,transparent)] bg-[color-mix(in_oklab,var(--card)_74%,#faf9f5)] px-3 py-2 text-xs font-semibold text-foreground transition hover:border-[color-mix(in_oklab,var(--primary)_35%,var(--border))] hover:text-[color-mix(in_oklab,var(--primary)_82%,var(--foreground))] sm:inline-flex"
             >
               {t("openChat")}
             </a>
           </div>
         </div>
 
-        <details class="mt-3 rounded-xl border border-border bg-card p-2 lg:hidden">
-          <summary class="cursor-pointer select-none px-2 py-1 text-sm font-medium text-foreground">
+        <details class="mt-3 rounded-2xl border border-[color-mix(in_oklab,var(--border)_82%,transparent)] bg-[color-mix(in_oklab,var(--card)_82%,#faf9f5)] p-2 lg:hidden">
+          <summary class="cursor-pointer select-none px-2 py-1 text-xs font-medium text-foreground">
             {t("navigateSettings")}
           </summary>
-          <div class="mt-2 space-y-4 px-1 pb-1">
+          <div class="mt-2 space-y-3 px-1 pb-1">
             <a
               href="/"
-              class="block rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground"
+              class="block rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground"
             >
               ← {t("backToChat")}
             </a>
             {#each navGroups as group}
-              <div class="space-y-2">
+              <div class="space-y-1">
                 <p class="px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   {group.title}
                 </p>
@@ -398,7 +417,9 @@
           </div>
         </details>
       </header>
-      <slot />
+      <div class="settings-viewport">
+        <slot />
+      </div>
     </section>
   </div>
 </main>

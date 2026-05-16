@@ -11,6 +11,7 @@ import type {
 } from "../../settings/index.js";
 import {
   buildHostToolApprovalPrompt,
+  parseHostToolApprovalCommand,
   parseHostToolShellCommand,
   requestHostToolApproval,
   sanitizeHostToolId,
@@ -205,18 +206,26 @@ function requestApprovalFromBash(
     };
   }
 ): { text: string; prompt?: HostToolApprovalPrompt } {
-  const parsed = parseHostToolShellCommand(command);
+  const parsed = parseHostToolApprovalCommand(command);
   const requested = requestHostToolApproval(options.getSettings().hostTools, {
+    toolId: parsed.toolId,
     command: parsed.command,
+    approvalMode: parsed.approvalMode,
     displayName: approval.displayName,
     reason: approval.reason,
     permissions: approval.permissions,
-    pendingAction: {
-      kind: "run_approved_host_tool",
-      originalCommand: parsed.originalCommand,
-      args: parsed.args,
-      timeout: timeoutSeconds
-    },
+    pendingAction: parsed.approvalMode === "persistent"
+      ? {
+          kind: "run_approved_host_tool",
+          originalCommand: parsed.originalCommand,
+          args: parsed.args,
+          timeout: timeoutSeconds
+        }
+      : {
+          kind: "run_one_time_host_script",
+          originalCommand: parsed.originalCommand,
+          timeout: timeoutSeconds
+        },
     channel: options.channel,
     chatId: options.chatId,
     scopeId: options.scopeId
@@ -234,6 +243,7 @@ function requestApprovalFromBash(
         `Host tool approval is already pending: ${requested.approval.id}`,
         `Tool: ${requested.approval.displayName}`,
         `Command: ${requested.approval.command}`,
+        requested.approval.approvalMode === "ephemeral" ? "Mode: one-time" : "Mode: persistent",
         "",
         "Operator can approve or reject it from a structured action."
       ].join("\n"),
@@ -250,6 +260,7 @@ function requestApprovalFromBash(
       `Approval ID: ${saved.id}`,
       `Tool: ${saved.displayName} (${saved.toolId})`,
       `Command: ${saved.command}`,
+      `Mode: ${saved.approvalMode === "ephemeral" ? "one-time" : "persistent"}`,
       saved.pendingAction?.args?.length ? `Args: ${saved.pendingAction.args.join(" ")}` : "",
       `Reason: ${saved.reason}`,
       `Permissions: filesystem=${saved.permissions.filesystem}, network=${saved.permissions.network}, env=${saved.permissions.envAllowlist.join(", ") || "(none)"}`,

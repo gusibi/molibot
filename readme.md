@@ -63,9 +63,17 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Cross-Channel Subagent Visibility**: delegated runs now emit explicit run/task start/end notices across Web, Telegram, Feishu, Weixin, and other shared text channels, so operators can tell when work moved into a child agent
 - **Best-Effort Subagent Progress**: subagent lifecycle notices are UI-only signals delivered through the shared runner queue, so sink failures do not abort delegated work and failed runs still close their visible progress state cleanly
 - **Agent Bash Sandbox**: optional OS-level sandboxing for main and built-in subagent `bash`, with allowlisted workspace env-file injection, redacted diagnostics, and concise `Sandbox` / `Sandbox disabled` tool-output markers
+- **Archived Run Details**: successful IM runs now collapse bulky detail threads into one archive notice, while structured per-run detail logs stay available through `/runlog latest` or `/runlog <runId>` and Telegram final answers/notice messages can reply to the original user message for easier thread scanning
 - **Chat Host Tool Approval**: host-only external tools are approved from chat through a pending request flow rooted at the `bash` entry; structured approval payloads can render channel-native buttons/cards, and approval immediately continues the stored host action through structured argv without exposing host bash or a second host-run agent tool
+- **Text Fallback for Non-Interactive Channels**: when a channel such as Weixin or QQ cannot render host-approval buttons, Molibot now sends explicit reply-based approve/reject instructions plus per-request `/hosttools approve|reject <approvalId>` guidance instead of telling operators to click missing UI
+- **Two Host Approval Modes**: a single executable command becomes a reusable approved host capability after one approval, while a compound multi-step shell command is treated as a one-time exact host action approval that runs once and is not saved into the reusable host whitelist
 - **Skill Draft Governance**: reusable workflow drafts use a dedicated `skill-drafter` subagent plus skill-creator-aware local fallback so draft names stay concise and reusable instead of mirroring raw user messages or retry prompts
 - **Settings shadcn-svelte Baseline**: Settings UI is moving toward source-owned shadcn-svelte components for cleaner, consistent forms and admin pages; `/settings/system`, `/settings/web`, `/settings/ai/providers`, `/settings/tasks`, and `/settings/sandbox` now use the shared component baseline for key forms and controls
+- **Unified Settings Frame**: the shared `/settings` shell now uses one DESIGN-driven warm-canvas frame for left navigation, top chrome, page hero, card surfaces, and first-screen action hierarchy before deeper per-page cleanup
+- **Settings Frame Restraint**: ordinary settings page headers stay compact instead of expanding into oversized hero blocks, and shared dark-mode card borders are intentionally kept soft and low-contrast
+- **Providers Header Alignment**: `/settings/ai/providers` now follows the same compact settings-header rhythm as the rest of the settings workspace instead of keeping a special oversized intro block
+- **Softer Card Primitive**: the shared shadcn `Card` base now uses a softer border-and-shadow separation instead of a hard ring outline, which keeps reused management surfaces from looking boxed in
+- **Tasks Overflow Hardening**: `/settings/tasks` now wraps long operational text instead of letting file paths, ids, errors, and action controls push the layout out of bounds
 - **Current-Session File Workspace**: Web chat now includes a real files pane with searchable attachment inventory, inline preview for common formats, downloads, and copy-path actions
 - **Operational Settings UI**: AI routing, agents, ACP targets, tasks, memory, skills, MCP servers
 - **Safer Settings Persistence**: `settings.json + settings.sqlite` split design with relational tables
@@ -157,7 +165,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Task Management**: Event-file tasks with manual trigger/retry
 - **Memory Management**: Search/flush/edit/delete operations
 - **Skills Management**: Global/bot/chat scoped skill inventory
-- **Host Tool Approval**: chat-first approval registry and controlled runner for external tools that require host IPC or other host-only capabilities; `bash` first checks approved host capabilities, auto-requests approval after sandbox permission failures for eligible single commands, pauses the current run while that approval is pending, persists approved executables for direct reuse, and sends an explicit chat acknowledgement when an approval is rejected
+- **Host Tool Approval**: chat-first approval registry and controlled runner for external tools that require host IPC or other host-only capabilities; `bash` first checks approved host capabilities, auto-requests approval after sandbox permission failures for eligible single commands, pauses the current run while that approval is pending, persists approved executables for direct reuse, routes compound shell installs through one-time exact approvals instead of promoting them into the reusable whitelist, and sends an explicit chat acknowledgement when an approval is rejected
 - **Usage Tracking**: Per-request token accounting with dashboards
 - **Settings**: Relational tables with single-entity save flow
 
@@ -256,6 +264,8 @@ Open: `http://localhost:3000`
 - `/models <text|vision|stt|tts|subagent> <index|key>` - Switch route-specific model
 - `/skills` - List loaded skills
 - `/status` or `/state` - Show runtime status
+- `/runlog latest` - Return the latest archived run detail log, preferably as a `.txt` file on chat channels that support file delivery
+- `/runlog <runId>` - Return a specific archived run detail log, preferably as a `.txt` file on chat channels that support file delivery
 - `/thinking <default|off|low|medium|high>` - Override thinking level for session
 
 ### ACP (Agent Control Plane)
@@ -285,6 +295,7 @@ Open: `http://localhost:3000`
 - `/compact [instructions]` - Manually compact conversation context using the latest persisted session state, forcing an older-context summary even below the automatic keep window
 - `/hosttools` - List pending and approved host tool capabilities
 - `/hosttools approve <approvalId>` - Approve a specific pending host tool request; when exactly one request is pending in the chat, replying `安装`, `批准`, or `approve` also approves it
+- `/hosttools reject <approvalId>` - Reject a specific pending host tool request; when exactly one request is pending in the chat, replying `拒绝` or `reject` also rejects it
 
 ## Settings Pages
 

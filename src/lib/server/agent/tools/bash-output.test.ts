@@ -133,9 +133,42 @@ test("bash can request host tool approval without a separate approval tool", asy
 
     assert.equal(settings.hostTools.pendingApprovals.length, 1);
     assert.equal(settings.hostTools.pendingApprovals[0]?.command, "agent-browser");
+    assert.equal(settings.hostTools.pendingApprovals[0]?.approvalMode, "persistent");
     assert.deepEqual(settings.hostTools.pendingApprovals[0]?.pendingAction?.args, ["--open"]);
     assert.match(firstText(result), /Host tool approval requested/);
     assert.equal(Boolean(result.details && "hostToolApproval" in result.details), true);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("bash can request one-time host approval for compound shell commands", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
+  try {
+    const tool = createBashTool(cwd, {
+      hostApproval: {
+        channel: "telegram",
+        chatId: "chat-1",
+        scopeId: "chat-1",
+        getSettings: () => settings,
+        updateSettings: (patch) => {
+          settings = { ...settings, ...patch } as RuntimeSettings;
+          return settings;
+        }
+      }
+    });
+    const result = await tool.execute("tool-1", {
+      label: "bash",
+      command: "mkdir -p ~/.molibot/skills\nmv ./weread-skills ~/.molibot/skills/",
+      hostApproval: { reason: "Needs one-time install flow." }
+    });
+
+    assert.equal(settings.hostTools.pendingApprovals.length, 1);
+    assert.equal(settings.hostTools.pendingApprovals[0]?.approvalMode, "ephemeral");
+    assert.equal(settings.hostTools.pendingApprovals[0]?.pendingAction?.kind, "run_one_time_host_script");
+    assert.equal(settings.hostTools.approvedTools.length, 0);
+    assert.match(firstText(result), /Host tool approval requested/);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -147,6 +180,7 @@ test("bash runs approved host tools directly before sandbox/plain execution", as
     ...structuredClone(defaultRuntimeSettings),
     hostTools: {
       pendingApprovals: [],
+      approvalHistory: [],
       approvedTools: [{
         toolId: "printf",
         displayName: "printf",
@@ -238,31 +272,6 @@ test("bash auto-requests host approval after sandbox permission failure for sing
       return;
     }
     throw error;
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-test("bash host approval rejects compound shell commands", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
-  try {
-    const tool = createBashTool(cwd, {
-      hostApproval: {
-        channel: "telegram",
-        chatId: "chat-1",
-        scopeId: "chat-1",
-        getSettings: () => structuredClone(defaultRuntimeSettings),
-        updateSettings: () => structuredClone(defaultRuntimeSettings)
-      }
-    });
-    await assert.rejects(
-      () => tool.execute("tool-1", {
-        label: "bash",
-        command: "agent-browser --open | cat",
-        hostApproval: { reason: "Needs host IPC." }
-      }),
-      /single executable command with structured argv/
-    );
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

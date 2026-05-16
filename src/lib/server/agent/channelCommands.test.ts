@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { SharedRuntimeCommandService } from "./channelCommands.js";
 import { defaultRuntimeSettings } from "../settings/defaults.js";
 import type { HostToolApprovalRequest, RuntimeSettings } from "../settings/index.js";
@@ -87,6 +88,7 @@ test("plain approval text approves the only pending host tool request in the cha
     chatId: "chat-1",
     scopeId: "chat-1",
     requestedAt: "2026-05-12T00:00:00.000Z",
+    approvalMode: "persistent",
     status: "pending",
     pendingAction: {
       kind: "run_approved_host_tool",
@@ -99,6 +101,7 @@ test("plain approval text approves the only pending host tool request in the cha
     ...structuredClone(defaultRuntimeSettings),
     hostTools: {
       pendingApprovals: [pending],
+      approvalHistory: [],
       approvedTools: []
     }
   };
@@ -134,10 +137,71 @@ test("plain approval text approves the only pending host tool request in the cha
 
   assert.equal(handled, true);
   assert.equal(autoExecuted, true);
-  assert.equal(settings.hostTools.pendingApprovals[0]?.status, "approved");
+  assert.equal(settings.hostTools.pendingApprovals.length, 0);
+  assert.equal(settings.hostTools.approvalHistory[0]?.status, "approved");
   assert.equal(settings.hostTools.approvedTools[0]?.toolId, "agent-browser");
   assert.match(sent[0] ?? "", /Approved host tool: Agent Browser/);
   assert.match(sent[0] ?? "", /Approved and executed immediately/);
+});
+
+test("hosttools reject rejects a specific pending host tool request", async () => {
+  const sent: string[] = [];
+  const pending: HostToolApprovalRequest = {
+    id: "hta-agent-browser-1",
+    toolId: "agent-browser",
+    displayName: "Agent Browser",
+    command: "agent-browser",
+    reason: "Requires browser IPC outside sandbox.",
+    permissions: {
+      envAllowlist: ["PATH", "HOME"],
+      filesystem: "scratch-only",
+      network: "internet"
+    },
+    channel: "qq",
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    requestedAt: "2026-05-12T00:00:00.000Z",
+    approvalMode: "persistent",
+    status: "pending"
+  };
+  let settings: RuntimeSettings = {
+    ...structuredClone(defaultRuntimeSettings),
+    hostTools: {
+      pendingApprovals: [pending],
+      approvalHistory: [],
+      approvedTools: []
+    }
+  };
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "qq",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "qq",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => settings,
+    updateSettings: (patch) => {
+      settings = { ...settings, ...patch } as RuntimeSettings;
+      return settings;
+    },
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  const handled = await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/hosttools reject hta-agent-browser-1",
+    target: "target-1"
+  });
+
+  assert.equal(handled, true);
+  assert.equal(settings.hostTools.pendingApprovals.length, 0);
+  assert.equal(settings.hostTools.approvalHistory[0]?.status, "rejected");
+  assert.match(sent[0] ?? "", /Rejected host tool approval hta-agent-browser-1/);
 });
 
 test("status command renders markdown table on qq", async () => {
@@ -189,6 +253,102 @@ test("status command renders markdown table on qq", async () => {
   assert.match(sent[0] ?? "", /\*\*Status\*\*/);
   assert.match(sent[0] ?? "", /\| Item \| Value \|/);
   assert.match(sent[0] ?? "", /\| Current context≈ \| 3,456 tokens \|/);
+});
+
+test("runlog latest renders archived detail entries", async () => {
+  const sent: string[] = [];
+  const store = {
+    getActiveSession: () => "session-1",
+    readLatestRunSummary: () => ({ runId: "run-123" }),
+    readRunDetail: () => ([
+      { timestamp: "2026-05-16T10:00:00.000Z", type: "run_start", summary: "Run started." },
+      { timestamp: "2026-05-16T10:00:01.000Z", type: "tool_start", summary: "Sandbox: query notes", toolName: "bash", displayName: "Sandbox" },
+      { timestamp: "2026-05-16T10:00:03.000Z", type: "tool_end", summary: "Found 5 books", toolName: "bash", displayName: "Sandbox", isError: false },
+      { timestamp: "2026-05-16T10:00:04.000Z", type: "final", summary: "Run finished successfully." }
+    ]),
+    listSessions: () => ["session-1"],
+    getSessionThinkingLevelOverride: () => null
+  };
+
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: store as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  const handled = await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/runlog latest",
+    target: "target-1"
+  });
+
+  assert.equal(handled, true);
+  assert.match(sent[0] ?? "", /运行记录 run-123/);
+  assert.match(sent[0] ?? "", /Sandbox: Found 5 books/);
+  assert.match(sent[0] ?? "", /结束: Run finished successfully/);
+});
+
+test("runlog prefers file upload when channel supports it", async () => {
+  const sent: string[] = [];
+  const uploaded: Array<{ filePath: string; title?: string; text?: string; content: string }> = [];
+  const store = {
+    getActiveSession: () => "session-1",
+    getScratchDir: () => process.cwd(),
+    readLatestRunSummary: () => ({ runId: "run-456" }),
+    readRunDetail: () => ([
+      { timestamp: "2026-05-16T10:00:00.000Z", type: "run_start", summary: "Run started." },
+      { timestamp: "2026-05-16T10:00:04.000Z", type: "final", summary: "Run finished successfully." }
+    ]),
+    listSessions: () => ["session-1"],
+    getSessionThinkingLevelOverride: () => null
+  };
+
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: store as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    },
+    uploadFile: async (_target, filePath, title, text) => {
+      uploaded.push({
+        filePath,
+        title,
+        text,
+        content: readFileSync(filePath, "utf8")
+      });
+    }
+  });
+
+  const handled = await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/runlog latest",
+    target: "target-1"
+  });
+
+  assert.equal(handled, true);
+  assert.equal(sent.length, 0);
+  assert.equal(uploaded.length, 1);
+  assert.match(uploaded[0]?.title ?? "", /run-456\.txt/);
+  assert.match(uploaded[0]?.text ?? "", /运行记录已导出：run-456/);
+  assert.match(uploaded[0]?.content ?? "", /运行记录 run-456/);
 });
 
 test("help command renders markdown table on weixin but stays plain text on telegram", async () => {

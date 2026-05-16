@@ -1,6 +1,7 @@
 import type {
   ApprovedHostTool,
   HostToolApprovalRequest,
+  HostToolApprovalMode,
   HostToolFilesystemAccess,
   HostToolNetworkAccess,
   HostToolPendingAction,
@@ -16,6 +17,7 @@ export const defaultHostToolPermissions: HostToolPermissions = {
 
 export const defaultHostToolSettings: HostToolSettings = {
   pendingApprovals: [],
+  approvalHistory: [],
   approvedTools: []
 };
 
@@ -102,14 +104,14 @@ function sanitizeHostToolPendingAction(input: unknown): HostToolPendingAction | 
   if (!input || typeof input !== "object") return undefined;
   const source = input as Record<string, unknown>;
   const kind = sanitizeString(source.kind);
-  if (kind !== "run_approved_host_tool") return undefined;
+  if (kind !== "run_approved_host_tool" && kind !== "run_one_time_host_script") return undefined;
   const originalCommand = sanitizeString(source.originalCommand).slice(0, 4000);
-  const args = sanitizeArgList(source.args);
+  const args = kind === "run_approved_host_tool" ? sanitizeArgList(source.args) : undefined;
   const stdin = sanitizeOptionalString(source.stdin, 20000);
   const timeoutRaw = Number(source.timeout);
   const timeout = Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? Math.min(Math.round(timeoutRaw), 600) : undefined;
   return {
-    kind: "run_approved_host_tool",
+    kind,
     originalCommand,
     args,
     stdin,
@@ -132,6 +134,7 @@ export interface HostToolApprovalPrompt {
     displayName: string;
     command: string;
     args: string[];
+    approvalMode: HostToolApprovalMode;
     reason: string;
     permissions: HostToolPermissions;
     requestedAt: string;
@@ -139,11 +142,13 @@ export interface HostToolApprovalPrompt {
 }
 
 export function buildHostToolApprovalPrompt(request: HostToolApprovalRequest): HostToolApprovalPrompt {
+  const approvalLabel = request.approvalMode === "ephemeral" ? "One-time host approval" : "Host tool approval";
   return {
     type: "host_tool_approval",
     requestId: request.id,
-    title: `Host tool approval: ${request.displayName}`,
+    title: `${approvalLabel}: ${request.displayName}`,
     body: [
+      `Mode: ${request.approvalMode === "ephemeral" ? "one-time" : "persistent"}`,
       `Tool ID: ${request.toolId}`,
       `Command: ${request.command}`,
       request.pendingAction?.args?.length ? `Args: ${request.pendingAction.args.join(" ")}` : "",
@@ -159,11 +164,30 @@ export function buildHostToolApprovalPrompt(request: HostToolApprovalRequest): H
       displayName: request.displayName,
       command: request.command,
       args: request.pendingAction?.args ?? [],
+      approvalMode: request.approvalMode,
       reason: request.reason,
       permissions: request.permissions,
       requestedAt: request.requestedAt
     }
   };
+}
+
+export function buildNonInteractiveHostToolApprovalText(prompt: HostToolApprovalPrompt): string {
+  const isEphemeral = prompt.request.approvalMode === "ephemeral";
+  return [
+    prompt.title,
+    prompt.body,
+    "",
+    "This channel does not support approval buttons.",
+    isEphemeral
+      ? "Approving this request will allow only this exact host command/script to run once."
+      : "Approving this request will register the command as a reusable host capability for later runs.",
+    "Reply `批准`, `安装`, or `approve` to approve when exactly one host-tool approval is pending in this chat.",
+    "Reply `拒绝` or `reject` to reject when exactly one host-tool approval is pending in this chat.",
+    "If multiple approvals are pending, use:",
+    `- /hosttools approve ${prompt.requestId}`,
+    `- /hosttools reject ${prompt.requestId}`
+  ].join("\n");
 }
 
 export function parseHostToolShellCommand(input: string): {
@@ -255,12 +279,79 @@ function buildApprovalId(toolId: string): string {
   return `hta-${toolId}-${Date.now().toString(36)}`;
 }
 
+interface PersistentHostToolCommand {
+  approvalMode: "persistent";
+  toolId: string;
+  command: string;
+  args: string[];
+  originalCommand: string;
+}
+
+interface EphemeralHostToolCommand {
+  approvalMode: "ephemeral";
+  toolId: string;
+  command: string;
+  originalCommand: string;
+}
+
+export type ParsedHostToolApprovalCommand = PersistentHostToolCommand | EphemeralHostToolCommand;
+
+export function parseHostToolApprovalCommand(input: string): ParsedHostToolApprovalCommand {
+  const raw = sanitizeString(input);
+  if (!raw) {
+    throw new Error("command is required for host tool approval requests.");
+  }
+
+  const hasCompoundShellSyntax =
+    /[\r\n]/.test(raw) ||
+    Array.from(FORBIDDEN_SHELL_TOKENS).some((token) => raw.includes(token)) ||
+    raw.includes("$(") ||
+    raw.includes("`");
+
+  if (hasCompoundShellSyntax) {
+    const firstToken = raw.split(/\s+/)[0] ?? "";
+    const sanitizedFirst = sanitizeHostCommand(firstToken);
+    const toolId = sanitizeHostToolId(sanitizedFirst ? `one-time-${sanitizedFirst}` : "one-time-host-script");
+    return {
+      approvalMode: "ephemeral",
+      toolId,
+      command: sanitizedFirst || "host-script",
+      originalCommand: raw.slice(0, 4000)
+    };
+  }
+
+  try {
+    const parsed = parseHostToolShellCommand(raw);
+    return {
+      approvalMode: "persistent",
+      toolId: sanitizeHostToolId(parsed.command),
+      command: parsed.command,
+      args: parsed.args,
+      originalCommand: parsed.originalCommand
+    };
+  } catch (error) {
+    const firstToken = raw.split(/\s+/)[0] ?? "";
+    const sanitizedFirst = sanitizeHostCommand(firstToken);
+    const toolId = sanitizeHostToolId(sanitizedFirst ? `one-time-${sanitizedFirst}` : "one-time-host-script");
+    return {
+      approvalMode: "ephemeral",
+      toolId,
+      command: sanitizedFirst || "host-script",
+      originalCommand: raw.slice(0, 4000)
+    };
+  }
+}
+
 function sanitizeApproval(input: unknown): HostToolApprovalRequest | null {
   if (!input || typeof input !== "object") return null;
   const source = input as Record<string, unknown>;
   const id = sanitizeString(source.id).slice(0, 80);
   const toolId = sanitizeHostToolId(source.toolId);
-  const command = sanitizeHostCommand(source.command);
+  const approvalModeRaw = sanitizeString(source.approvalMode);
+  const approvalMode: HostToolApprovalMode = approvalModeRaw === "ephemeral" ? "ephemeral" : "persistent";
+  const command = approvalMode === "ephemeral"
+    ? sanitizeString(source.command).slice(0, 240)
+    : sanitizeHostCommand(source.command);
   if (!id || !toolId || !command) return null;
   const statusRaw = sanitizeString(source.status);
   const status = statusRaw === "approved" || statusRaw === "rejected" ? statusRaw : "pending";
@@ -275,6 +366,7 @@ function sanitizeApproval(input: unknown): HostToolApprovalRequest | null {
     chatId: sanitizeString(source.chatId).slice(0, 160),
     scopeId: sanitizeString(source.scopeId).slice(0, 200),
     requestedAt: sanitizeString(source.requestedAt, new Date().toISOString()),
+    approvalMode,
     status,
     resolvedAt: source.resolvedAt ? sanitizeString(source.resolvedAt) : undefined,
     pendingAction: sanitizeHostToolPendingAction(source.pendingAction)
@@ -305,10 +397,13 @@ function sanitizeApprovedTool(input: unknown): ApprovedHostTool | null {
 export function sanitizeHostToolSettings(input: unknown): HostToolSettings {
   const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
   const approvals = Array.isArray(source.pendingApprovals) ? source.pendingApprovals : [];
+  const history = Array.isArray(source.approvalHistory) ? source.approvalHistory : [];
   const approved = Array.isArray(source.approvedTools) ? source.approvedTools : [];
-  const pendingApprovals = approvals
+  const allApprovals = [...approvals, ...history]
     .map(sanitizeApproval)
     .filter((item): item is HostToolApprovalRequest => Boolean(item));
+  const pendingApprovals = allApprovals.filter((item) => item.status === "pending");
+  const approvalHistory = allApprovals.filter((item) => item.status !== "pending");
   const approvedTools: ApprovedHostTool[] = [];
   const seenApproved = new Set<string>();
   for (const item of approved.map(sanitizeApprovedTool)) {
@@ -316,7 +411,7 @@ export function sanitizeHostToolSettings(input: unknown): HostToolSettings {
     seenApproved.add(item.toolId);
     approvedTools.push(item);
   }
-  return { pendingApprovals, approvedTools };
+  return { pendingApprovals, approvalHistory, approvedTools };
 }
 
 export function findPendingHostToolApproval(
@@ -333,13 +428,22 @@ export function approveHostToolRequest(
   settings: HostToolSettings,
   scopeId: string,
   approvalId?: string
-): { settings: HostToolSettings; approved: ApprovedHostTool; request: HostToolApprovalRequest } | null {
+): { settings: HostToolSettings; approved?: ApprovedHostTool; request: HostToolApprovalRequest } | null {
   const pending = findPendingHostToolApproval(settings, scopeId, approvalId);
   if (!pending) return null;
   const now = new Date().toISOString();
-  const nextPending = settings.pendingApprovals.map((item) =>
-    item.id === pending.id ? { ...item, status: "approved" as const, resolvedAt: now } : item
-  );
+  const resolvedPending = { ...pending, status: "approved" as const, resolvedAt: now };
+  const nextPending = settings.pendingApprovals.filter((item) => item.id !== pending.id);
+  if (pending.approvalMode === "ephemeral") {
+    return {
+      settings: {
+        pendingApprovals: nextPending,
+        approvalHistory: [resolvedPending, ...settings.approvalHistory],
+        approvedTools: settings.approvedTools
+      },
+      request: pending
+    };
+  }
   const approved: ApprovedHostTool = {
     toolId: pending.toolId,
     displayName: pending.displayName,
@@ -357,7 +461,15 @@ export function approveHostToolRequest(
     approved,
     ...settings.approvedTools.filter((item) => item.toolId !== approved.toolId)
   ];
-  return { settings: { pendingApprovals: nextPending, approvedTools }, approved, request: pending };
+  return {
+    settings: {
+      pendingApprovals: nextPending,
+      approvalHistory: [resolvedPending, ...settings.approvalHistory],
+      approvedTools
+    },
+    approved,
+    request: pending
+  };
 }
 
 export function requestHostToolApproval(
@@ -367,6 +479,7 @@ export function requestHostToolApproval(
     displayName?: unknown;
     command: unknown;
     reason: unknown;
+    approvalMode?: unknown;
     permissions?: unknown;
     pendingAction?: unknown;
     channel: unknown;
@@ -381,12 +494,18 @@ export function requestHostToolApproval(
 } {
   const command = sanitizeHostCommand(input.command);
   const toolId = sanitizeHostToolId(input.toolId ?? command);
+  const approvalModeRaw = sanitizeString(input.approvalMode);
+  const approvalMode: HostToolApprovalMode = approvalModeRaw === "ephemeral" ? "ephemeral" : "persistent";
   const reason = sanitizeString(input.reason).slice(0, 1000);
   const channel = sanitizeString(input.channel).slice(0, 80);
   const chatId = sanitizeString(input.chatId).slice(0, 160);
   const scopeId = sanitizeString(input.scopeId).slice(0, 200);
   const displayName = sanitizeString(input.displayName, toolId || command).slice(0, 120) || toolId || command;
-  if (!command) {
+  const pendingAction = sanitizeHostToolPendingAction(input.pendingAction);
+  const effectiveCommand = approvalMode === "ephemeral"
+    ? sanitizeString(input.command).slice(0, 240)
+    : command;
+  if (!effectiveCommand) {
     const rawCommand = sanitizeString(input.command);
     throw new Error(
       rawCommand && isForbiddenHostCommand(rawCommand)
@@ -397,17 +516,25 @@ export function requestHostToolApproval(
   if (!toolId) throw new Error("toolId is required for host tool approval requests.");
   if (!reason) throw new Error("reason is required for host tool approval requests.");
 
-  const existingApproved = settings.approvedTools.find((item) => item.toolId === toolId && item.enabled);
-  if (existingApproved) {
-    return {
-      kind: "existing-approved",
-      settings,
-      approved: existingApproved
-    };
+  if (approvalMode === "persistent") {
+    const existingApproved = settings.approvedTools.find((item) => item.toolId === toolId && item.enabled);
+    if (existingApproved) {
+      return {
+        kind: "existing-approved",
+        settings,
+        approved: existingApproved
+      };
+    }
   }
 
   const existingPending = settings.pendingApprovals.find((item) =>
-    item.status === "pending" && item.scopeId === scopeId && item.toolId === toolId
+    item.status === "pending" &&
+    item.scopeId === scopeId &&
+    (
+      approvalMode === "persistent"
+        ? item.toolId === toolId && item.approvalMode === "persistent"
+        : item.approvalMode === "ephemeral" && item.pendingAction?.originalCommand === pendingAction?.originalCommand
+    )
   );
   if (existingPending) {
     return {
@@ -421,23 +548,25 @@ export function requestHostToolApproval(
     id: buildApprovalId(toolId),
     toolId,
     displayName,
-    command,
+    command: effectiveCommand,
     reason,
     permissions: sanitizeHostToolPermissions(input.permissions),
     channel,
     chatId,
     scopeId,
     requestedAt: new Date().toISOString(),
+    approvalMode,
     status: "pending",
-    pendingAction: sanitizeHostToolPendingAction(input.pendingAction)
+    pendingAction
   };
 
   return {
-    kind: "created",
-    settings: {
-      pendingApprovals: [request, ...settings.pendingApprovals],
-      approvedTools: settings.approvedTools
-    },
-    approval: request
+      kind: "created",
+      settings: {
+        pendingApprovals: [request, ...settings.pendingApprovals],
+        approvalHistory: settings.approvalHistory,
+        approvedTools: settings.approvedTools
+      },
+      approval: request
   };
 }

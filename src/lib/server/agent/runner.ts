@@ -9,6 +9,7 @@ import { currentModelKey, resolveBuiltInProviderDefaultModel } from "../settings
 import { momError, momLog, momWarn } from "./log.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { buildRunReflection, formatRunClosingNote, type RunSummary } from "./runSummary.js";
+import type { RunDetailEntry } from "./runDetail.js";
 import { saveSkillDraft, shouldSuggestSkillDraft } from "./skillDraft.js";
 import { buildSkillDraftMetadataViaSubagent } from "./skillDraftSubagent.js";
 import { DEFAULT_RUN_BUDGET, RunBudget } from "./runtimeBudget.js";
@@ -51,6 +52,7 @@ import {
   stripTransientRuntimeNoticesFromMessages,
   TOOL_BUDGET_RUNTIME_NOTICE
 } from "./runtimeNotices.js";
+import type { HostToolApprovalPrompt } from "../settings/hostTools.js";
 
 const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
 const SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS = 12;
@@ -1056,13 +1058,13 @@ function extractTextFromResult(result: unknown): string {
   return parts.join("\n") || JSON.stringify(result);
 }
 
-function extractHostToolApprovalPrompt(result: unknown) {
+function extractHostToolApprovalPrompt(result: unknown): HostToolApprovalPrompt | undefined {
   if (!result || typeof result !== "object") return undefined;
   const details = (result as { details?: unknown }).details;
   if (!details || typeof details !== "object") return undefined;
   const prompt = (details as { hostToolApproval?: unknown }).hostToolApproval;
   if (!prompt || typeof prompt !== "object") return undefined;
-  return prompt;
+  return prompt as HostToolApprovalPrompt;
 }
 
 function normalizeAudioMimeType(mimeType?: string | null): string {
@@ -1620,6 +1622,18 @@ export class MomRunner implements RunnerLike {
       (ctx.message as { runId?: string }).runId ??
       `${this.chatId}-${this.sessionId}-${ctx.message.messageId}`;
     const runStartedAt = Date.now();
+    const logRunDetail = (entry: Omit<RunDetailEntry, "timestamp">): void => {
+      this.store.appendRunDetail(this.chatId, runId, {
+        timestamp: new Date().toISOString(),
+        ...entry
+      });
+    };
+    const respondInThread = async (text: string): Promise<void> => {
+      const normalized = String(text ?? "").trim();
+      if (!normalized) return;
+      logRunDetail({ type: "info", summary: normalized });
+      await ctx.respondInThread(normalized);
+    };
     const budget = new RunBudget(DEFAULT_RUN_BUDGET);
     const usedToolNames: string[] = [];
     const failedToolNames: string[] = [];
@@ -1637,6 +1651,10 @@ export class MomRunner implements RunnerLike {
       attachments: ctx.message.attachments.length,
       images: ctx.message.imageContents.length,
       isEvent: Boolean(ctx.message.isEvent),
+    });
+    logRunDetail({
+      type: "run_start",
+      summary: `Run started for session ${this.sessionId}.`
     });
 
     const queue: Array<() => Promise<void>> = [];
@@ -1673,7 +1691,8 @@ export class MomRunner implements RunnerLike {
       await ctx.setTyping(true);
       await ctx.setWorking(false);
       await ctx.replaceMessage(settingsError);
-      return { stopReason: "error", errorMessage: settingsError };
+      logRunDetail({ type: "final", summary: settingsError, isError: true });
+      return { runId, stopReason: "error", errorMessage: settingsError };
     }
 
     const audioDecision = decideAudioRouting(
@@ -1699,7 +1718,7 @@ export class MomRunner implements RunnerLike {
       hasTranscripts: audioEnrichedInput.text !== ctx.message.text
     });
     if (audioEnrichedInput.transcriptionErrors.length > 0) {
-      await ctx.respondInThread(
+      await respondInThread(
         [
           "语音识别失败，已降级为未转写消息。",
           ...audioEnrichedInput.transcriptionErrors,
@@ -1740,7 +1759,7 @@ export class MomRunner implements RunnerLike {
       hasAnalyses: enrichedInput.text !== audioEnrichedInput.text
     });
     if (enrichedInput.analysisErrors.length > 0) {
-      await ctx.respondInThread(
+      await respondInThread(
         [
           "图片识别不可用，已降级为仅保留图片附件占位信息。",
           ...enrichedInput.analysisErrors,
@@ -1974,6 +1993,12 @@ export class MomRunner implements RunnerLike {
           displayName,
           label,
         });
+        logRunDetail({
+          type: "tool_start",
+          toolName: event.toolName,
+          displayName,
+          summary: label
+        });
         if (ctx.onRunnerEvent) {
           enqueue(() => ctx.onRunnerEvent!({
             type: "tool_execution_start",
@@ -2022,12 +2047,19 @@ export class MomRunner implements RunnerLike {
           }));
         }
         const text = `*${status} ${displayName}*\n\`\`\`\n${body}\n\`\`\``;
+        logRunDetail({
+          type: "tool_end",
+          toolName: event.toolName,
+          displayName,
+          summary: body,
+          isError: event.isError
+        });
         if (event.isError) {
-          enqueue(() => ctx.respondInThread(text));
+          enqueue(() => respondInThread(text));
           enqueue(() => ctx.respond(`_Error: ${body.slice(0, 200)}_`, false));
         }
         if (!budgetResult.ok) {
-          enqueue(() => ctx.respondInThread(budgetResult.reason ?? "Run budget exceeded."));
+          enqueue(() => respondInThread(budgetResult.reason ?? "Run budget exceeded."));
           this.agent.abort();
         } else {
           const currentBudget = budget.snapshot();
@@ -2218,7 +2250,8 @@ export class MomRunner implements RunnerLike {
             }
             await ctx.setWorking(false);
             await ctx.replaceMessage(keyError);
-            return { stopReason: "error", errorMessage: keyError };
+            logRunDetail({ type: "final", summary: keyError, isError: true });
+            return { runId, stopReason: "error", errorMessage: keyError };
           }
           continue;
         }
@@ -2260,7 +2293,7 @@ export class MomRunner implements RunnerLike {
             await this.compact({
               reason: "threshold",
               notify: async (text) => {
-                await ctx.respondInThread(text);
+                await respondInThread(text);
               }
             });
           } catch (error) {
@@ -2425,14 +2458,14 @@ export class MomRunner implements RunnerLike {
                 if (ctx.beginContinuationResponse) {
                   await ctx.beginContinuationResponse(partialBeforeContinuation, toolBudgetNotice);
                 } else {
-                  await ctx.respondInThread(toolBudgetNotice);
+                  await respondInThread(toolBudgetNotice);
                 }
                 streamedAssistantText = "";
                 assistantTextStreamed = false;
                 candidateFinalText = "";
                 const previousTools = this.agent.state.tools;
                 this.agent.state.tools = [];
-                await ctx.respondInThread(
+                await respondInThread(
                   "工具调用已达到本轮上限，正在自动发起一次无工具续写，尽量保留已有结果并给出当前最佳答案。"
                 );
                 momWarn("runner", "tool_budget_continuation_prompt", {
@@ -2556,7 +2589,7 @@ export class MomRunner implements RunnerLike {
               const compacted = await this.compact({
                 reason: "threshold",
                 notify: async (text) => {
-                  await ctx.respondInThread(text);
+                  await respondInThread(text);
                 }
               });
               if (compacted.changed) {
@@ -2702,7 +2735,7 @@ export class MomRunner implements RunnerLike {
           const recoveredFailureTitle = modelUseCase === "vision"
             ? "图片识别模型请求失败，已自动切换到备用模型继续处理。"
             : "主模型请求失败，已自动切换到备用模型。";
-          await ctx.respondInThread(
+          await respondInThread(
             [
               recoveredFailureTitle,
               ...modelFailures.map((failure, index) => `${index + 1}. ${formatModelAttemptFailure(failure)}`),
@@ -2726,7 +2759,7 @@ export class MomRunner implements RunnerLike {
           `All model attempts failed. Last model returned empty response after ${finalAttemptCount} attempt(s). ` +
           `(${modelInfo}) — ${modelFailures.map(formatModelAttemptFailure).join(" | ")}`;
         await ctx.replaceMessage(emptyResponseMessage);
-        await ctx.respondInThread(
+        await respondInThread(
           [
             `All model attempts failed. Last model info — ${modelInfo}`,
             ...modelFailures.map((failure, index) => `${index + 1}. ${formatModelAttemptFailure(failure)}`)
@@ -2745,7 +2778,7 @@ export class MomRunner implements RunnerLike {
           errorMessage,
         });
         await ctx.replaceMessage("Sorry, something went wrong.");
-        await ctx.respondInThread(`Error: ${errorMessage}`);
+        await respondInThread(`Error: ${errorMessage}`);
       }
 
       momLog("runner", "run_end", {
@@ -2826,11 +2859,18 @@ export class MomRunner implements RunnerLike {
         errorMessage
       };
       this.store.appendRunSummary(this.chatId, runSummary as unknown as Record<string, unknown>);
+      logRunDetail({
+        type: "final",
+        summary: stopReason === "stop"
+          ? "Run finished successfully."
+          : errorMessage || `Run finished with stopReason=${stopReason}.`,
+        isError: stopReason !== "stop"
+      });
 
       if (!finalText.startsWith("[SILENT]") && Boolean(savedSkillDraft)) {
-        await ctx.respondInThread(formatRunClosingNote(runSummary));
+        await respondInThread(formatRunClosingNote(runSummary));
       }
-      return { stopReason, errorMessage };
+      return { runId, stopReason, errorMessage };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const partialText = streamedAssistantText.trim();
@@ -2865,16 +2905,17 @@ export class MomRunner implements RunnerLike {
         errorMessage: message
       };
       this.store.appendRunSummary(this.chatId, failedSummary as unknown as Record<string, unknown>);
+      logRunDetail({ type: "final", summary: message, isError: true });
       try {
         await ctx.setWorking(false);
         if (!partialText) {
           await ctx.replaceMessage(`Run failed: ${message}`);
         }
-        await ctx.respondInThread(`Error: ${message}`);
+        await respondInThread(`Error: ${message}`);
       } catch {
         // ignore secondary UI errors
       }
-      return { stopReason: "error", errorMessage: message };
+      return { runId, stopReason: "error", errorMessage: message };
     } finally {
       unsubscribe();
       this.activeRunBudget = undefined;

@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-05-16
+
+### Archived run details and success-path chat cleanup
+- **成功后不再挂着大段运行详情**: 成功执行后，Telegram 会把原 `运行详情` 消息收尾替换成一条简短归档提示；QQ / Weixin / Feishu 会补发同样的归档提示，而不是把成功路径的长执行记录一直留在聊天流里。
+- **完整记录转为按 run 归档**: runner 现在会把结构化执行明细按 run 写入每个 chat 工作区的 `run-details/*.jsonl`，保留工具开始/结束、重要说明和最终状态，便于之后追查“前几次失败、最后一次成功”的整条执行轨迹。
+- **按需查看入口**: 共享命令层新增 `/runlog latest` 与 `/runlog <runId>`，会优先把归档执行记录作为 `.txt` 文件返回到支持文件发送的聊天渠道，避免再次把超长日志刷进会话；Web 现有诊断视图保持不变。
+- **Telegram 结果默认引用原消息**: Telegram 最终答案首发和必要时单独发送的成功归档提示，现在都会默认引用用户原始提问消息，便于在聊天流里快速看出“这条结果是回复哪一句”的对应关系。
+
+### Weixin / QQ host approval text fallback
+- **无按钮渠道改明示指令**: 微信和 QQ 在收到 host tool approval 时，不再提示用户去点不存在的按钮；现在会发送共享的纯文本降级说明，明确告诉操作者可以直接回复 `批准` / `安装` / `approve` 或 `拒绝` / `reject`。
+- **多待审批也可拒绝**: 共享命令层补上 `/hosttools reject <approvalId>`，让无按钮渠道在存在多条 pending approval 时也能像 approve 一样按 id 精确拒绝。
+- **共享层收口**: 非交互渠道的 host approval 提示文案现在由共享 formatter 统一生成，QQ/Weixin 只负责消费运行时事件，不再各自复写一套审批说明。
+
+### Single vs one-time host approval
+- **两层审批模型**: host approval 现在明确区分“单命令持久授权”和“多命令一次性授权”。像 `mv` / `pip` / `mkdir` 这类单 executable 命令，审批一次后会继续进入 `approvedTools` 复用；带换行、`&&`、管道或其他复合 shell 语法的安装脚本，则只会生成一条精确的一次性 host action 审批。
+- **不再伪装成单命令**: 多步骤 shell 流程不再被错误塞进 `mkdir` 之类的持久 host tool 记录里执行，避免“批准的是 mkdir，实际执行的是整段安装脚本”这种语义错位。
+- **待审批列表收紧**: 已批准/已拒绝请求现在会从 `pendingApprovals` 挪到独立 history；`pendingApprovals` 只保留真正还在等待操作员处理的请求。
+
 ## 2026-05-15
 
 ### DESIGN.md 页面改动治理
@@ -14,6 +32,18 @@
 ### shadcn-first 页面组件原则
 - **组件优先级明确**: 新增长期规则，页面/UI 改动默认优先使用 `shadcn-svelte` 和 `src/lib/components/ui`，除非现有组件体系确实无法实现需求，否则不要回退到非 shadcn 组件。
 - **流程同步**: `README.md` 的文档流程与 `prd.md` 的文档结构说明已同步这条原则，后续前端改动会按同一口径执行。
+
+### Settings 首屏框架统一
+- **共享壳层收口**: `src/routes/settings/+layout.svelte` 现在统一了暖色设置工作台外壳、左侧导航层级、顶部工具条和移动端导航折叠样式。
+- **首屏层级统一**: `src/styles/workbench.css` 新增一套针对 settings 的共享画布、hero、卡片和按钮规则，让各设置页进入后的第一屏先具备一致的宽度节奏、视觉层级和主操作气质，而不需要先重写各页业务逻辑。
+- **范围控制**: 这次主要统一框架与首屏，不重写各页面深层表单和保存流；后续如果继续打磨，会按页面逐个清理内部结构。
+
+### Settings 视觉收敛回调
+- **页头收紧**: 普通 settings 页面 header 不再被强行包装成大面积 hero，大标题区改回更紧凑的进入节奏，避免首屏空耗高度。
+- **卡片边框降噪**: 共享 settings card 边框整体降对比，尤其暗色模式不再出现发白、发硬的简陋描边。
+- **Providers 页面补齐**: `/settings/ai/providers` 旧的自定义 `div + header + action` 首屏结构也已改成紧凑 header，避免它继续保留一块明显更大的页头。
+- **Card 基础组件去硬描边**: 共享 `Card` 组件默认不再使用 `ring-foreground/10 ring-1`，改成更柔和的边框和轻阴影，避免卡片出现生硬的黑边或亮边。
+- **Tasks 页面防溢出**: `/settings/tasks` 现在会对长路径、长 id、错误文本和状态说明自动换行，并把表格列宽和操作按钮收进固定节奏里，不再被长文本顶出页面。
 
 ## 2026-05-13
 

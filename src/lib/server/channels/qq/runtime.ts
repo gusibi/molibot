@@ -3,6 +3,8 @@ import type { RuntimeSettings } from "../../settings/index.js";
 import type { EventDeliveryMode, MomEvent } from "../../agent/events.js";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
+import { buildNonInteractiveHostToolApprovalText } from "../../settings/hostTools.js";
+import { formatRunArchiveNotice } from "../../agent/runDetail.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
 import type { ChannelInboundMessage, FileAttachment } from "../../agent/types.js";
@@ -192,6 +194,7 @@ export class QQManager extends BaseChannelRuntime {
       maybeHandleAcpCommand: (scopeId, cmd, rawArg, target) =>
         this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, target),
       sendText: (target, text) => this.replyCommand(target, text),
+      uploadFile: (target, filePath, title, text) => this.sendCommandFile(target, filePath, title, text),
       onSessionMutation: (scopeId) => {
         void this.writePromptPreview([scopeId]);
       },
@@ -500,6 +503,15 @@ export class QQManager extends BaseChannelRuntime {
           error: error instanceof Error ? error.message : String(error)
         });
       },
+      onRunnerEvent: async (runnerEvent) => {
+        if (runnerEvent.type !== "tool_execution_end" || !runnerEvent.hostToolApproval) return;
+        await sendVisibleText(buildNonInteractiveHostToolApprovalText(runnerEvent.hostToolApproval));
+      },
+      onRunComplete: async (result, meta) => {
+        if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId) {
+          await sendVisibleText(formatRunArchiveNotice(result.runId));
+        }
+      },
       replaceWithoutEdit: async (text, state) => {
         if (isTransientRunnerProgress(text)) {
           await sendVisibleText(text);
@@ -584,6 +596,23 @@ export class QQManager extends BaseChannelRuntime {
 
   private async replyCommand(target: SendTarget, text: string): Promise<void> {
     await this.sendText(target, text, target.replyToId);
+  }
+
+  private async sendCommandFile(target: SendTarget, filePath: string, title?: string, text?: string): Promise<void> {
+    if (!this.sdkAccount) {
+      throw new Error("SDK account not initialized");
+    }
+    const result = await sendMedia({
+      to: this.buildTargetAddress(target),
+      mediaUrl: filePath,
+      text: text ?? title ?? "",
+      accountId: this.sdkAccount.accountId,
+      replyToId: target.replyToId ?? null,
+      account: this.sdkAccount
+    });
+    if (result.error) {
+      throw new Error(result.error);
+    }
   }
 
   private rehydrateQueuedEvent(event: ChannelInboundMessage): ChannelInboundMessage {

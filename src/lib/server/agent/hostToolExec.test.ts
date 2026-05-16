@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { executeApprovedHostTool } from "./hostToolExec.js";
-import type { ApprovedHostTool } from "../settings/index.js";
+import { executeApprovedHostTool, executeHostToolApproval } from "./hostToolExec.js";
+import type { ApprovedHostTool, HostToolApprovalRequest } from "../settings/index.js";
 
 function approvedPrintfTool(): ApprovedHostTool {
   return {
@@ -63,4 +63,40 @@ test("executeApprovedHostTool surfaces non-zero exits", async () => {
     }),
     /Host tool exited with code 7/
   );
+});
+
+test("executeHostToolApproval runs one-time host script approvals without persisting a reusable tool", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-host-tool-"));
+  const outputPath = join(cwd, "ephemeral.txt");
+  const request: HostToolApprovalRequest = {
+    id: "hta-one-time-1",
+    toolId: "one-time-mkdir",
+    displayName: "One-time install script",
+    command: "mkdir",
+    reason: "test",
+    permissions: {
+      envAllowlist: ["PATH"],
+      filesystem: "workspace-write",
+      network: "none"
+    },
+    channel: "test",
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    requestedAt: "2026-05-16T00:00:00.000Z",
+    approvalMode: "ephemeral",
+    status: "approved",
+    pendingAction: {
+      kind: "run_one_time_host_script",
+      originalCommand: `printf '%s' 'hello once' > ${JSON.stringify(outputPath)}`,
+      timeout: 10
+    }
+  };
+
+  const result = await executeHostToolApproval({
+    request,
+    cwd
+  });
+
+  assert.equal(result.details.hostTool, true);
+  assert.equal(readFileSync(outputPath, "utf8"), "hello once");
 });

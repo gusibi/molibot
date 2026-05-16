@@ -6,6 +6,7 @@ import { buildHostToolApprovalPrompt, type HostToolApprovalPrompt } from "../../
 import { type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
+import { formatRunArchiveNotice } from "../../agent/runDetail.js";
 import type { ChannelInboundMessage } from "../../agent/types.js";
 import type { SessionStore } from "../../sessions/store.js";
 import type { MemoryGateway } from "../../memory/gateway.js";
@@ -31,7 +32,7 @@ import { BaseChannelRuntime } from "../shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
 import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
 import { SqliteOutbox } from "../shared/outbox.js";
-import { executeApprovedHostTool } from "../../agent/hostToolExec.js";
+import { executeHostToolApproval } from "../../agent/hostToolExec.js";
 
 export interface FeishuConfig {
     appId: string;
@@ -119,14 +120,20 @@ export class FeishuManager extends BaseChannelRuntime {
             sendText: async (chatId, text) => {
                 await this.sendText(chatId, text);
             },
+            uploadFile: async (chatId, filePath, title) => {
+                if (!this.client) {
+                    throw new Error("Feishu client is not running.");
+                }
+                const filename = title || filePath.split("/").pop() || "runlog.txt";
+                const bytes = readFileSync(filePath);
+                await sendFeishuFile(this.client, chatId, bytes, filename);
+            },
             executeApprovedHostTool: async (input, approved, request) => {
                 if (!request.pendingAction) return;
-                const executed = await executeApprovedHostTool({
-                    tool: approved,
-                    cwd: this.store.getChatDir(input.scopeId),
-                    args: request.pendingAction.args,
-                    stdin: request.pendingAction.stdin,
-                    timeoutSeconds: request.pendingAction.timeout
+                const executed = await executeHostToolApproval({
+                    request,
+                    approvedTool: approved,
+                    cwd: this.store.getChatDir(input.scopeId)
                 });
                 await this.sendText(input.chatId, executed.rendered);
                 return "Approved and executed immediately.";
@@ -540,6 +547,9 @@ export class FeishuManager extends BaseChannelRuntime {
                     const resp = await this.sendText(chatId, text);
                     return resp?.message_id ? { messageId: resp.message_id } : null;
                 },
+                respondInThread: async (text) => {
+                    await this.sendText(chatId, text);
+                },
                 editText: async (message, text) => {
                     await editFeishuText(this.client, String(message.messageId), text);
                     return true;
@@ -557,6 +567,11 @@ export class FeishuManager extends BaseChannelRuntime {
             onRunnerEvent: async (runnerEvent) => {
                 if (runnerEvent.type === "tool_execution_end" && runnerEvent.hostToolApproval) {
                     await this.sendHostToolApprovalCard(chatId, runnerEvent.hostToolApproval);
+                }
+            },
+            onRunComplete: async (result, meta) => {
+                if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId) {
+                    await this.sendText(chatId, formatRunArchiveNotice(result.runId));
                 }
             },
             createBotMessageId: () => Date.now(),

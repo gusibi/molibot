@@ -252,6 +252,7 @@ export interface ToolSandboxSettings {
 }
 
 export type HostToolApprovalStatus = "pending" | "approved" | "rejected";
+export type HostToolApprovalMode = "persistent" | "ephemeral";
 export type HostToolNetworkAccess = "none" | "loopback" | "internet";
 export type HostToolFilesystemAccess = "none" | "scratch-only" | "workspace-read" | "workspace-write";
 
@@ -262,9 +263,9 @@ export interface HostToolPermissions {
 }
 
 export interface HostToolPendingAction {
-  kind: "run_approved_host_tool";
+  kind: "run_approved_host_tool" | "run_one_time_host_script";
   originalCommand: string;
-  args: string[];
+  args?: string[];
   stdin?: string;
   timeout?: number;
 }
@@ -280,6 +281,7 @@ export interface HostToolApprovalRequest {
   chatId: string;
   scopeId: string;
   requestedAt: string;
+  approvalMode: HostToolApprovalMode;
   status: HostToolApprovalStatus;
   resolvedAt?: string;
   pendingAction?: HostToolPendingAction;
@@ -301,6 +303,7 @@ export interface ApprovedHostTool {
 
 export interface HostToolSettings {
   pendingApprovals: HostToolApprovalRequest[];
+  approvalHistory: HostToolApprovalRequest[];
   approvedTools: ApprovedHostTool[];
 }
 

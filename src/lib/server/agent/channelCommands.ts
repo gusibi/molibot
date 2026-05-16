@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { getModels } from "@mariozechner/pi-ai";
 import type { RuntimeSettings, RuntimeThinkingLevel } from "../settings/index.js";
 import type { ApprovedHostTool, HostToolApprovalRequest } from "../settings/index.js";
@@ -18,6 +20,7 @@ import type { RunnerPool } from "./runner.js";
 import type { MomRuntimeStore } from "./store.js";
 import { resolveThinkingLevel } from "../providers/customThinking.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "./workspace.js";
+import { formatRunLogText } from "./runDetail.js";
 
 export interface SharedRuntimeCommandContext<TTarget> {
   chatId: string;
@@ -43,9 +46,10 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   cancelAcpRun?: (scopeId: string) => Promise<boolean>;
   maybeHandleAcpCommand?: (scopeId: string, cmd: string, rawArg: string, target: TTarget) => Promise<boolean>;
   sendText: (target: TTarget, text: string) => Promise<void>;
+  uploadFile?: (target: TTarget, filePath: string, title?: string, text?: string) => Promise<void>;
   executeApprovedHostTool?: (
     input: SharedRuntimeCommandContext<TTarget>,
-    approved: ApprovedHostTool,
+    approved: ApprovedHostTool | undefined,
     request: HostToolApprovalRequest
   ) => Promise<string | void>;
   onSessionMutation?: (scopeId: string) => void | Promise<void>;
@@ -106,11 +110,18 @@ export class SharedRuntimeCommandService<TTarget> {
       return { ok: false, message: "No matching pending host tool approval found." };
     }
     this.options.updateSettings({ hostTools: approved.settings });
-    let message = [
-      `Approved host tool: ${approved.approved.displayName}`,
-      `Tool ID: ${approved.approved.toolId}`,
-      `Command: ${approved.approved.command}`
-    ].join("\n");
+    const registered = approved.approved;
+    let message = registered
+      ? [
+          `Approved host tool: ${registered.displayName}`,
+          `Tool ID: ${registered.toolId}`,
+          `Command: ${registered.command}`
+        ].join("\n")
+      : [
+          `Approved one-time host action: ${approved.request.displayName}`,
+          `Request ID: ${approved.request.id}`,
+          `Command: ${approved.request.command}`
+        ].join("\n");
     if (approved.request.pendingAction && this.options.executeApprovedHostTool) {
       try {
         const runSummary = await this.options.executeApprovedHostTool(input, approved.approved, approved.request);
@@ -120,8 +131,10 @@ export class SharedRuntimeCommandService<TTarget> {
       } catch (error) {
         message += `\n\nApproved, but automatic execution failed: ${error instanceof Error ? error.message : String(error)}`;
       }
-    } else {
+    } else if (registered) {
       message += "\nThe tool is now registered as an approved host capability. It is not a host shell.";
+    } else {
+      message += "\nThis approval is one-time only and will not be reused for future host commands.";
     }
     return { ok: true, message, request: approved.request };
   }
@@ -140,12 +153,12 @@ export class SharedRuntimeCommandService<TTarget> {
       return { ok: false, message: "No matching pending host tool approval found." };
     }
     const now = new Date().toISOString();
-    const nextPending = settings.hostTools.pendingApprovals.map((item) =>
-      item.id === request.id ? { ...item, status: "rejected" as const, resolvedAt: now } : item
-    );
+    const resolvedRequest = { ...request, status: "rejected" as const, resolvedAt: now };
+    const nextPending = settings.hostTools.pendingApprovals.filter((item) => item.id !== request.id);
     this.options.updateSettings({
       hostTools: {
         pendingApprovals: nextPending,
+        approvalHistory: [resolvedRequest, ...settings.hostTools.approvalHistory],
         approvedTools: settings.hostTools.approvedTools
       }
     });
@@ -566,6 +579,37 @@ export class SharedRuntimeCommandService<TTarget> {
       return true;
     }
 
+    if (cmd === "/runlog") {
+      const selector = rawArg.split(/\s+/)[0]?.trim() || "latest";
+      const latestSummary = selector === "latest"
+        ? this.options.store.readLatestRunSummary(input.scopeId)
+        : null;
+      const runId = selector === "latest"
+        ? String(latestSummary?.runId ?? "").trim()
+        : selector;
+      if (!runId) {
+        await this.options.sendText(input.target, "No archived run log found yet.");
+        return true;
+      }
+      const rendered = formatRunLogText(runId, this.options.store.readRunDetail(input.scopeId, runId));
+      if (this.options.uploadFile) {
+        const dir = join(this.options.store.getScratchDir(input.scopeId), "runlogs");
+        mkdirSync(dir, { recursive: true });
+        const safeRunId = runId.replace(/[^a-zA-Z0-9._-]/g, "_") || "runlog";
+        const filePath = join(dir, `${safeRunId}.txt`);
+        writeFileSync(filePath, `${rendered}\n`, "utf8");
+        await this.options.uploadFile(
+          input.target,
+          filePath,
+          `${safeRunId}.txt`,
+          `运行记录已导出：${runId}`
+        );
+      } else {
+        await this.options.sendText(input.target, rendered);
+      }
+      return true;
+    }
+
     if (cmd === "/thinking") {
       const sessionId = this.options.store.getActiveSession(input.scopeId);
       const normalized = rawArg.split(/\s+/)[0]?.trim().toLowerCase() ?? "";
@@ -636,7 +680,10 @@ export class SharedRuntimeCommandService<TTarget> {
         input.target,
         [
           "There are multiple pending host tool approvals. Use one of:",
-          ...pending.map((item) => `/hosttools approve ${item.id} - ${item.displayName}`)
+          ...pending.flatMap((item) => [
+            `/hosttools approve ${item.id} - ${item.displayName}`,
+            `/hosttools reject ${item.id} - ${item.displayName}`
+          ])
         ].join("\n")
       );
       return true;
@@ -681,12 +728,18 @@ export class SharedRuntimeCommandService<TTarget> {
       await this.options.sendText(input.target, approved.message);
       return;
     }
+    if (subcommand === "reject") {
+      const rejected = await this.rejectHostTool(input, approvalId || undefined);
+      await this.options.sendText(input.target, rejected.message);
+      return;
+    }
     await this.options.sendText(
       input.target,
       [
         "Host tool usage:",
         "/hosttools",
         "/hosttools approve <approvalId>",
+        "/hosttools reject <approvalId>",
         "Or reply `批准`, `安装`, or `approve` when exactly one approval is pending in this chat."
       ].join("\n")
     );
@@ -1028,6 +1081,8 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/delete_sessions <index|sessionId>", value: "delete a session" },
       { label: "/status", value: "show current bot/session/runtime status" },
       { label: "/state", value: "alias of /status" },
+      { label: "/runlog latest", value: "show the latest archived run log" },
+      { label: "/runlog <runId>", value: "show an archived run log by id" },
       { label: "/thinking", value: "show current session thinking setting" },
       { label: "/thinking <default|off|low|medium|high>", value: "change thinking for current session only" },
       { label: "/models", value: "show text route models and current active model" },
