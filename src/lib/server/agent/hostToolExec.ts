@@ -49,20 +49,24 @@ function buildHostEnv(permissions: HostToolPermissions): NodeJS.ProcessEnv {
 }
 
 async function runHostCommand(input: {
-  tool: ApprovedHostTool;
+  command: string;
+  permissions: HostToolPermissions;
   cwd: string;
-  args: string[];
-  stdin?: string;
   timeoutSeconds?: number;
+  stdin?: string;
   signal?: AbortSignal;
 }): Promise<HostRunResult> {
+  const shell = process.env.SHELL || (process.platform === "win32" ? "cmd.exe" : "zsh");
+  const shellArgs = process.platform === "win32"
+    ? ["/d", "/s", "/c", input.command]
+    : ["-lc", input.command];
   return new Promise((resolve, reject) => {
     const timeoutSeconds = input.timeoutSeconds && input.timeoutSeconds > 0
       ? Math.min(Math.round(input.timeoutSeconds), 600)
       : 60;
-    const child = spawn(input.tool.command, input.args, {
+    const child = spawn(shell, shellArgs, {
       cwd: input.cwd,
-      env: buildHostEnv(input.tool.permissions),
+      env: buildHostEnv(input.permissions),
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],
       shell: false
@@ -141,12 +145,20 @@ async function runHostCommand(input: {
 export async function executeApprovedHostTool(input: {
   tool: ApprovedHostTool;
   cwd: string;
+  originalCommand: string;
   args: string[];
   stdin?: string;
   timeoutSeconds?: number;
   signal?: AbortSignal;
 }): Promise<ApprovedHostToolRunOutput> {
-  const result = await runHostCommand(input);
+  const result = await runHostCommand({
+    command: input.originalCommand,
+    permissions: input.tool.permissions,
+    cwd: input.cwd,
+    timeoutSeconds: input.timeoutSeconds,
+    stdin: input.stdin,
+    signal: input.signal
+  });
 
   let output = "";
   if (result.stdout) output += result.stdout;
@@ -187,89 +199,13 @@ async function runOneTimeHostScript(input: {
   if (!pendingAction || pendingAction.kind !== "run_one_time_host_script") {
     throw new Error("Missing one-time host script payload.");
   }
-  const shell = process.env.SHELL || (process.platform === "win32" ? "cmd.exe" : "zsh");
-  const shellArgs = process.platform === "win32"
-    ? ["/d", "/s", "/c", pendingAction.originalCommand]
-    : ["-lc", pendingAction.originalCommand];
-  const timeoutSeconds = pendingAction.timeout && pendingAction.timeout > 0
-    ? Math.min(Math.round(pendingAction.timeout), 600)
-    : 60;
-  const result = await new Promise<HostRunResult>((resolve, reject) => {
-    const child = spawn(shell, shellArgs, {
-      cwd: input.cwd,
-      env: buildHostEnv(input.request.permissions),
-      detached: process.platform !== "win32",
-      stdio: ["pipe", "pipe", "pipe"],
-      shell: false
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    const killChild = (): void => {
-      try {
-        if (process.platform === "win32") {
-          child.kill("SIGKILL");
-        } else if (child.pid) {
-          process.kill(-child.pid, "SIGKILL");
-        }
-      } catch {
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // ignore
-        }
-      }
-    };
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killChild();
-    }, timeoutSeconds * 1000);
-
-    const onAbort = (): void => {
-      killChild();
-    };
-    if (input.signal) {
-      if (input.signal.aborted) {
-        onAbort();
-      } else {
-        input.signal.addEventListener("abort", onAbort, { once: true });
-      }
-    }
-
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
-      if (stdout.length > 10 * 1024 * 1024) stdout = stdout.slice(0, 10 * 1024 * 1024);
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-      if (stderr.length > 10 * 1024 * 1024) stderr = stderr.slice(0, 10 * 1024 * 1024);
-    });
-
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      if (input.signal) input.signal.removeEventListener("abort", onAbort);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (input.signal) input.signal.removeEventListener("abort", onAbort);
-      if (input.signal?.aborted) {
-        reject(new Error("Host tool command aborted"));
-        return;
-      }
-      if (timedOut) {
-        reject(new Error(`Host tool command timed out after ${timeoutSeconds} seconds`));
-        return;
-      }
-      resolve({ stdout, stderr, code: code ?? 0 });
-    });
-
-    if (pendingAction.stdin) {
-      child.stdin?.end(pendingAction.stdin);
-    } else {
-      child.stdin?.end();
-    }
+  const result = await runHostCommand({
+    command: pendingAction.originalCommand,
+    permissions: input.request.permissions,
+    cwd: input.cwd,
+    timeoutSeconds: pendingAction.timeout,
+    stdin: pendingAction.stdin,
+    signal: input.signal
   });
 
   let output = "";
@@ -324,6 +260,7 @@ export async function executeHostToolApproval(input: {
   return executeApprovedHostTool({
     tool: input.approvedTool,
     cwd: input.cwd,
+    originalCommand: input.request.pendingAction.originalCommand,
     args: input.request.pendingAction.args ?? [],
     stdin: input.request.pendingAction.stdin,
     timeoutSeconds: input.request.pendingAction.timeout,

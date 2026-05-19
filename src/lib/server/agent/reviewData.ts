@@ -16,7 +16,7 @@ export interface RunHistoryItem {
   chatId: string;
   workspaceDir: string;
   filePath: string;
-  stopReason: "stop" | "aborted" | "error";
+  stopReason: "stop" | "aborted" | "error" | "waiting_for_approval";
   durationMs: number;
   finalText: string;
   toolNames: string[];
@@ -99,7 +99,12 @@ function parseRunSummaryLine(raw: string, createdAtFallback: string): RunSummary
     const parsed = JSON.parse(text) as Partial<RunSummary> & { createdAt?: string };
     return {
       runId: String(parsed.runId ?? ""),
-      stopReason: parsed.stopReason === "aborted" || parsed.stopReason === "error" ? parsed.stopReason : "stop",
+      stopReason:
+        parsed.stopReason === "aborted" ||
+        parsed.stopReason === "error" ||
+        parsed.stopReason === "waiting_for_approval"
+          ? parsed.stopReason
+          : "stop",
       durationMs: Number(parsed.durationMs ?? 0),
       finalText: String(parsed.finalText ?? ""),
       toolNames: Array.isArray(parsed.toolNames) ? parsed.toolNames.map((item) => String(item ?? "")) : [],
@@ -193,7 +198,13 @@ export function readRunHistory(dataRoot: string, limit = 200): { items: RunHisto
         explicitSkillNames: unique(parsed.explicitSkillNames),
         usedFallbackModel: parsed.usedFallbackModel,
         modelFailureSummaries: unique(parsed.modelFailureSummaries),
-        reflectionOutcome: parsed.reflection?.outcome ?? (parsed.stopReason === "error" ? "failed" : "success"),
+        reflectionOutcome: parsed.reflection?.outcome ?? (
+          parsed.stopReason === "error"
+            ? "failed"
+            : parsed.stopReason === "waiting_for_approval"
+              ? "partial"
+              : "success"
+        ),
         reflectionSummary: parsed.reflection?.summary ?? "",
         nextAction: parsed.reflection?.nextAction ?? "",
         memorySelectedCount: Number(parsed.memorySnapshot?.selectedCount ?? 0),

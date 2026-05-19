@@ -62,9 +62,9 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Subagent Model Routing**: delegated scout/planner/worker/reviewer runs use configurable `haiku` / `sonnet` / `opus` / `thinking` model levels plus a subagent fallback route, with early-delegation nudges before parent runs exhaust the 24-tool budget
 - **Cross-Channel Subagent Visibility**: delegated runs now emit explicit run/task start/end notices across Web, Telegram, Feishu, Weixin, and other shared text channels, so operators can tell when work moved into a child agent
 - **Best-Effort Subagent Progress**: subagent lifecycle notices are UI-only signals delivered through the shared runner queue, so sink failures do not abort delegated work and failed runs still close their visible progress state cleanly
-- **Agent Bash Sandbox**: optional OS-level sandboxing for main and built-in subagent `bash`, with allowlisted workspace env-file injection, redacted diagnostics, and concise `Sandbox` / `Sandbox disabled` tool-output markers
+- **Agent Bash Sandbox**: optional OS-level sandboxing for main and built-in subagent `bash`, with allowlisted env resolution from host env plus `.env.sandbox.local` (env file takes precedence), redacted diagnostics, startup missing-key warnings, and concise `Sandbox` / `Sandbox disabled` tool-output markers
 - **Archived Run Details**: successful IM runs now collapse bulky detail threads into one archive notice, while structured per-run detail logs stay available through `/runlog latest` or `/runlog <runId>` and Telegram final answers/notice messages can reply to the original user message for easier thread scanning
-- **Chat Host Tool Approval**: host-only external tools are approved from chat through a pending request flow rooted at the `bash` entry; structured approval payloads can render channel-native buttons/cards, and approval immediately continues the stored host action through structured argv without exposing host bash or a second host-run agent tool
+- **Chat Host Tool Approval**: host-only external tools are approved from chat through a pending request flow rooted at the `bash` entry; structured approval payloads can render channel-native buttons/cards, approval immediately continues the stored host action through the original shell command so variables and quoting behave like normal bash, and a pending approval now pauses the current turn in an explicit waiting state instead of ending it as if the run were manually stopped
 - **Text Fallback for Non-Interactive Channels**: when a channel such as Weixin or QQ cannot render host-approval buttons, Molibot now sends explicit reply-based approve/reject instructions plus per-request `/hosttools approve|reject <approvalId>` guidance instead of telling operators to click missing UI
 - **Two Host Approval Modes**: a single executable command becomes a reusable approved host capability after one approval, while a compound multi-step shell command is treated as a one-time exact host action approval that runs once and is not saved into the reusable host whitelist
 - **Skill Draft Governance**: reusable workflow drafts use a dedicated `skill-drafter` subagent plus skill-creator-aware local fallback so draft names stay concise and reusable instead of mirroring raw user messages or retry prompts
@@ -132,6 +132,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 
 ### Skills and Drafts
 - **Multi-Scope Skills**: global, bot, and chat skills load with deterministic precedence
+- **WeRead Skill Reliability Guard**: the global WeRead skill now must verify `WEREAD_API_KEY` with an actual env preflight before blaming local configuration, and on API failures it should surface the real `api_name` plus request/error context instead of flattening server-side `用户不存在`-style responses into a generic env-missing diagnosis
 - **Skill Draft Review**: `/settings/skill-drafts` lists generated drafts for review and promotion
 - **skill-drafter Subagent**: automatic draft saves first ask a read-only `haiku`-level subagent to generate frontmatter metadata, then fall back to local normalization if the subagent cannot return valid JSON
 - **skill-creator Metadata Rules**: automatic drafts normalize `name`, `description`, and `aliases` separately from raw user text, keeping user messages as trigger context rather than unusable skill identifiers
@@ -165,7 +166,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Task Management**: Event-file tasks with manual trigger/retry
 - **Memory Management**: Search/flush/edit/delete operations
 - **Skills Management**: Global/bot/chat scoped skill inventory
-- **Host Tool Approval**: chat-first approval registry and controlled runner for external tools that require host IPC or other host-only capabilities; `bash` first checks approved host capabilities, auto-requests approval after sandbox permission failures for eligible single commands, pauses the current run while that approval is pending, persists approved executables for direct reuse, routes compound shell installs through one-time exact approvals instead of promoting them into the reusable whitelist, and sends an explicit chat acknowledgement when an approval is rejected
+- **Host Tool Approval**: chat-first approval registry and controlled runner for external tools that require host IPC or other host-only capabilities; `bash` first checks approved host capabilities, auto-requests approval after sandbox permission failures for eligible single commands, pauses the current run while that approval is pending, keeps that waiting state distinct from a manual stop, persists approved executables for direct reuse, routes compound shell installs through one-time exact approvals instead of promoting them into the reusable whitelist, and sends an explicit chat acknowledgement when an approval is rejected
 - **Usage Tracking**: Per-request token accounting with dashboards
 - **Settings**: Relational tables with single-entity save flow
 
@@ -262,7 +263,9 @@ Open: `http://localhost:3000`
 - `/models <index|key>` - Switch model
 - `/models <text|vision|stt|tts|subagent>` - List route-specific models
 - `/models <text|vision|stt|tts|subagent> <index|key>` - Switch route-specific model
-- `/skills` - List loaded skills
+- `/skills` - Show a table of loaded skill names and file paths
+- `/skills <id>` - Show details for one loaded skill
+- `/skills-detail` - Show full details for all loaded skills
 - `/status` or `/state` - Show runtime status
 - `/runlog latest` - Return the latest archived run detail log, preferably as a `.txt` file on chat channels that support file delivery
 - `/runlog <runId>` - Return a specific archived run detail log, preferably as a `.txt` file on chat channels that support file delivery
@@ -359,7 +362,7 @@ Default data dir: `~/.molibot`
 - `skills/`: Hierarchical skill repository (global/bot/chat scopes)
 - `usage/`: Token usage analytics with aggregated dashboards
 - Chat `scratch/`: tool cwd; ordinary generated artifacts default to dated `YYYY/MM/DD/` folders, including plain `write` outputs and new root-level bash artifacts, while `scratch/events/` remains the watched runtime event directory
-- Workspace `.env.sandbox.local`: optional env source for sandboxed bash; Molibot parses it and injects only allowlisted keys into child processes, while sandbox filesystem policy denies direct reads of the env file
+- Workspace `.env.sandbox.local`: optional high-precedence env source for sandboxed bash; Molibot resolves allowlisted keys from host env plus this file, lets the file override same-named host variables, reports missing allowlist keys in startup logs and diagnostics, and still denies direct reads of the env file from sandboxed bash
 
 ## Common Commands
 
@@ -509,7 +512,8 @@ docker compose up -d --build
 ### Security & Safety
 - `BASH_TOOL_ENABLED` - Enable bash tool (default: true)
 - `BASH_PYTHON_SANDBOX` - Enable Python sandbox (default: true)
-- Agent bash OS sandbox policy is configured in `/settings/sandbox` rather than through environment variables; default env source is workspace `.env.sandbox.local`
+- Agent bash OS sandbox policy is configured in `/settings/sandbox` rather than through environment variables; sandbox allowlist keys are resolved from host env and workspace `.env.sandbox.local`, with the env file overriding host values when both exist
+- Approved host tools bypass sandbox only after chat approval, but execute the original command through shell semantics rather than direct structured argv, so `$ENV_VAR` expansion behaves like ordinary bash
 - `ALLOWED_FILE_EXTENSIONS` - Comma-separated list of allowed file extensions
 
 ### Logging & Debugging

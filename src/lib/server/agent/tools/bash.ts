@@ -329,6 +329,7 @@ export function createBashTool(cwd: string, options?: {
         const executed = await executeApprovedHostTool({
           tool: approvedHostTool,
           cwd,
+          originalCommand: parsedHostToolCommand.originalCommand,
           args: parsedHostToolCommand.args,
           timeoutSeconds: params.timeout,
           signal

@@ -24,7 +24,7 @@ export type PromptAttemptDecision =
   | { kind: "terminal_empty" };
 
 export function resolvePromptAttemptDecision(input: {
-  stopReason?: "stop" | "aborted" | "error";
+  stopReason?: "stop" | "aborted" | "error" | "waiting_for_approval";
   errorMessage?: string;
   finalText: string;
   attemptCount: number;

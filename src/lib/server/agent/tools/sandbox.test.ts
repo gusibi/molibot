@@ -81,8 +81,50 @@ test("buildToolSandboxEnv injects only allowed env keys from workspace env file"
     assert.equal(result.env.TELEGRAM_BOT_TOKEN, undefined);
     assert.equal(result.env.MOLIBOT_SCRATCH_ARTIFACT_DIR, "2026/05/10");
     assert.deepEqual(result.injectedKeys, ["OPENAI_API_KEY", "PLAIN"]);
-    assert.deepEqual(result.deniedKeys, ["TELEGRAM_BOT_TOKEN"]);
+    assert.equal(result.deniedKeys.includes("TELEGRAM_BOT_TOKEN"), true);
   } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+test("buildToolSandboxEnv falls back to process env for allowlisted keys missing from env file", () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-sandbox-fallback-"));
+  const previous = process.env.OPENAI_API_KEY;
+  const previousTavily = process.env.TAVILY_API_KEY;
+  try {
+    process.env.OPENAI_API_KEY = "host-openai";
+    process.env.TAVILY_API_KEY = "host-tavily";
+    writeFileSync(
+      join(workspaceDir, ".env.sandbox.local"),
+      [
+        "OPENAI_API_KEY=file-openai",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const settings = sanitizeToolSandboxSettings({
+      ...defaultToolSandboxSettings,
+      enabled: true,
+      envFilePath: join(workspaceDir, ".env.sandbox.local"),
+      env: {
+        inheritMode: "minimal",
+        allow: ["OPENAI_API_KEY", "TAVILY_API_KEY", "MISSING_API_KEY"],
+        deny: []
+      }
+    });
+    const result = buildToolSandboxEnv(settings, workspaceDir);
+
+    assert.equal(result.env.OPENAI_API_KEY, "file-openai");
+    assert.equal(result.env.TAVILY_API_KEY, "host-tavily");
+    assert.equal(result.env.MISSING_API_KEY, undefined);
+    assert.deepEqual(result.injectedKeys, ["OPENAI_API_KEY", "TAVILY_API_KEY"]);
+    assert.deepEqual(result.missingKeys, ["MISSING_API_KEY"]);
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previous;
+    if (previousTavily === undefined) delete process.env.TAVILY_API_KEY;
+    else process.env.TAVILY_API_KEY = previousTavily;
     rmSync(workspaceDir, { recursive: true, force: true });
   }
 });
@@ -97,6 +139,7 @@ test("sandbox diagnostics deny direct reads of the workspace env file", async ()
     assert.equal(diagnostics.envFilePath.endsWith(".env.sandbox.local"), true);
     assert.equal(diagnostics.effectiveFilesystem.denyRead.includes(diagnostics.envFilePath), true);
     assert.equal(diagnostics.effectiveFilesystem.denyWrite.includes(diagnostics.envFilePath), true);
+    assert.deepEqual(diagnostics.envKeysMissing, []);
   } finally {
     rmSync(workspaceDir, { recursive: true, force: true });
   }

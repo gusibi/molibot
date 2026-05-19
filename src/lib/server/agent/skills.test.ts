@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { findExplicitlyInvokedSkills, type LoadedSkill } from "./skills.js";
+import {
+  findExplicitlyInvokedSkills,
+  findSkillBySelector,
+  formatSkillDetailText,
+  formatSkillsDetailText,
+  formatSkillsSummaryText,
+  type LoadedSkill
+} from "./skills.js";
 
 function createSkill(name: string, scope: LoadedSkill["scope"], filePath: string, aliases?: string[]): LoadedSkill {
   return {
@@ -59,4 +66,42 @@ test("does not match URL path fragments as skills", () => {
   ];
   const matched = findExplicitlyInvokedSkills(skills, "看这个链接 https://example.com/web-search");
   assert.equal(matched.length, 0);
+});
+
+test("findSkillBySelector resolves normalized alias and prefers exact match", () => {
+  const skills: LoadedSkill[] = [
+    createSkill("image-gen", "global", "/tmp/global/skills/image-gen/SKILL.md", ["image-gen", "image_gen"]),
+    createSkill("image-gen-chat", "chat", "/tmp/chat/skills/image-gen-chat/SKILL.md", ["imagegen"])
+  ];
+
+  assert.equal(findSkillBySelector(skills, "image_gen")?.name, "image-gen");
+  assert.equal(findSkillBySelector(skills, "imagegen")?.name, "image-gen-chat");
+  assert.equal(findSkillBySelector(skills, "missing"), null);
+});
+
+test("skill text formatters split summary and detail views", () => {
+  const skill = createSkill("web-search", "bot", "/tmp/bot/skills/web-search/SKILL.md", ["web-search", "websearch"]);
+  skill.mcpServers = ["tavily"];
+  const diagnostics = ["Duplicate skill ignored"];
+
+  const summary = formatSkillsSummaryText([skill], diagnostics, {
+    footerLines: ["Use /skills <id> for details."]
+  });
+  assert.match(summary, /当前技能列表（共1个）/);
+  assert.match(summary, /\| 编号 \| 名称 \| 路径 \|/);
+  assert.match(summary, /\| 1 \| web-search \| \/tmp\/bot\/skills\/web-search\/SKILL\.md \|/);
+  assert.doesNotMatch(summary, /description:/);
+  assert.match(summary, /Use \/skills <id> for details\./);
+  assert.match(summary, /Diagnostics:/);
+
+  const detail = formatSkillDetailText(skill);
+  assert.match(detail, /Skill: web-search/);
+  assert.match(detail, /Description: web-search description/);
+  assert.match(detail, /Aliases: web-search, websearch/);
+  assert.match(detail, /MCP servers: tavily/);
+
+  const detailList = formatSkillsDetailText([skill], diagnostics);
+  assert.match(detailList, /1\. web-search/);
+  assert.match(detailList, /- description: web-search description/);
+  assert.match(detailList, /- mcp_servers: tavily/);
 });

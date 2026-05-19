@@ -36,6 +36,7 @@ export interface ToolSandboxDiagnostics {
   envKeysAvailable: string[];
   envKeysInjected: string[];
   envKeysDenied: string[];
+  envKeysMissing: string[];
   sandboxInitialized: boolean;
   sandboxError?: string;
   effectiveNetwork: ToolSandboxSettings["network"];
@@ -110,12 +111,9 @@ function buildExternalEnv(settings: ToolSandboxSettings, envFileValues: Record<s
   availableKeys: string[];
   injectedKeys: string[];
   deniedKeys: string[];
+  missingKeys: string[];
 } {
-  const inherited = settings.env.inheritMode === "full"
-    ? { ...process.env }
-    : settings.env.inheritMode === "allowlist"
-      ? { ...process.env }
-      : {};
+  const inherited = { ...process.env };
   const source: Record<string, string | undefined> = {
     ...inherited,
     ...envFileValues
@@ -124,6 +122,10 @@ function buildExternalEnv(settings: ToolSandboxSettings, envFileValues: Record<s
   const env: NodeJS.ProcessEnv = {};
   const injectedKeys: string[] = [];
   const deniedKeys: string[] = [];
+  const missingKeys: string[] = [];
+  const requiredAllowKeys = settings.env.inheritMode === "full"
+    ? []
+    : unique(settings.env.allow);
 
   for (const key of availableKeys) {
     const denied = matchesPattern(key, settings.env.deny);
@@ -139,7 +141,13 @@ function buildExternalEnv(settings: ToolSandboxSettings, envFileValues: Record<s
     injectedKeys.push(key);
   }
 
-  return { env, availableKeys, injectedKeys, deniedKeys };
+  for (const key of requiredAllowKeys) {
+    if (source[key] === undefined) {
+      missingKeys.push(key);
+    }
+  }
+
+  return { env, availableKeys, injectedKeys, deniedKeys, missingKeys };
 }
 
 export function buildToolSandboxEnv(settings: ToolSandboxSettings, workspaceDir: string, internalEnv: NodeJS.ProcessEnv = {}): {
@@ -151,6 +159,7 @@ export function buildToolSandboxEnv(settings: ToolSandboxSettings, workspaceDir:
   availableKeys: string[];
   injectedKeys: string[];
   deniedKeys: string[];
+  missingKeys: string[];
 } {
   const envFilePath = resolveEnvFilePath(settings);
   const envFileExists = existsSync(envFilePath);
@@ -169,7 +178,28 @@ export function buildToolSandboxEnv(settings: ToolSandboxSettings, workspaceDir:
     envFileError: envFile.error,
     availableKeys: external.availableKeys,
     injectedKeys: external.injectedKeys,
-    deniedKeys: external.deniedKeys
+    deniedKeys: external.deniedKeys,
+    missingKeys: external.missingKeys
+  };
+}
+
+export interface ToolSandboxEnvStartupReport {
+  enabled: boolean;
+  envFilePath: string;
+  envKeysInjected: string[];
+  envKeysMissing: string[];
+}
+
+export function getToolSandboxEnvStartupReport(
+  settings: ToolSandboxSettings,
+  workspaceDir: string
+): ToolSandboxEnvStartupReport {
+  const envDetails = buildToolSandboxEnv(settings, workspaceDir);
+  return {
+    enabled: settings.enabled,
+    envFilePath: envDetails.envFilePath,
+    envKeysInjected: envDetails.injectedKeys,
+    envKeysMissing: envDetails.missingKeys
   };
 }
 
@@ -325,6 +355,7 @@ export async function getToolSandboxDiagnostics(
     envKeysAvailable: envDetails.availableKeys,
     envKeysInjected: envDetails.injectedKeys,
     envKeysDenied: envDetails.deniedKeys,
+    envKeysMissing: envDetails.missingKeys,
     sandboxInitialized,
     sandboxError,
     effectiveNetwork: effective.network,

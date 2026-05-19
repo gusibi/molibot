@@ -11,7 +11,7 @@ export interface RunReflection {
 export interface RunSummary {
   runId: string;
   sessionId?: string;
-  stopReason: "stop" | "aborted" | "error";
+  stopReason: "stop" | "aborted" | "error" | "waiting_for_approval";
   durationMs: number;
   finalText: string;
   toolNames: string[];
@@ -92,7 +92,7 @@ export function formatRunClosingNote(summary: RunSummary): string {
 }
 
 export function buildRunReflection(input: {
-  stopReason: "stop" | "aborted" | "error";
+  stopReason: "stop" | "aborted" | "error" | "waiting_for_approval";
   finalText: string;
   failedToolNames: string[];
   usedFallbackModel: boolean;
@@ -106,6 +106,14 @@ export function buildRunReflection(input: {
       nextAction: input.failedToolNames.length > 0
         ? `Check the failing path first: ${unique(input.failedToolNames).join(", ")}.`
         : "Retry only after checking the blocking runtime or model issue."
+    };
+  }
+
+  if (input.stopReason === "waiting_for_approval") {
+    return {
+      outcome: "partial",
+      summary: "Run is paused and waiting for host-tool approval.",
+      nextAction: "Approve or reject the pending host-tool request before continuing."
     };
   }
 

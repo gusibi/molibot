@@ -26,11 +26,12 @@ function approvedPrintfTool(): ApprovedHostTool {
   };
 }
 
-test("executeApprovedHostTool executes an approved fixed command with structured args", async () => {
+test("executeApprovedHostTool executes approved command through shell", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-host-tool-"));
   const result = await executeApprovedHostTool({
     tool: approvedPrintfTool(),
     cwd,
+    originalCommand: "printf 'hello %s' world",
     args: ["hello %s", "world"]
   });
 
@@ -38,15 +39,21 @@ test("executeApprovedHostTool executes an approved fixed command with structured
   assert.equal(result.details.hostTool, true);
 });
 
-test("executeApprovedHostTool passes shell metacharacters as plain argv", async () => {
+test("executeApprovedHostTool expands environment variables through shell", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-host-tool-"));
-  const result = await executeApprovedHostTool({
-    tool: approvedPrintfTool(),
-    cwd,
-    args: ["%s", "hello; echo injected"]
-  });
+  process.env.MOLIBOT_HOST_TOOL_TEST_TOKEN = "expanded";
+  try {
+    const result = await executeApprovedHostTool({
+      tool: approvedPrintfTool(),
+      cwd,
+      originalCommand: "printf '%s' \"$MOLIBOT_HOST_TOOL_TEST_TOKEN\"",
+      args: ["%s", "$MOLIBOT_HOST_TOOL_TEST_TOKEN"]
+    });
 
-  assert.equal(result.rendered, "hello; echo injected");
+    assert.equal(result.rendered, "expanded");
+  } finally {
+    delete process.env.MOLIBOT_HOST_TOOL_TEST_TOKEN;
+  }
 });
 
 test("executeApprovedHostTool surfaces non-zero exits", async () => {
@@ -59,6 +66,7 @@ test("executeApprovedHostTool surfaces non-zero exits", async () => {
         command: "sh"
       },
       cwd,
+      originalCommand: "printf fail >&2; exit 7",
       args: ["-c", "printf fail >&2; exit 7"]
     }),
     /Host tool exited with code 7/

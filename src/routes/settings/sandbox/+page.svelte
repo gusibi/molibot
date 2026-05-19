@@ -45,6 +45,7 @@
     envKeysAvailable: string[];
     envKeysInjected: string[];
     envKeysDenied: string[];
+    envKeysMissing: string[];
     sandboxInitialized: boolean;
     sandboxError?: string;
     effectiveNetwork: ToolSandboxSettings["network"];
@@ -372,6 +373,7 @@
                 <p class="font-medium text-foreground">Injected keys</p>
                 <p class="mt-1 text-xs text-muted-foreground">{previewKeys(diagnostics.envKeysInjected)}</p>
                 <p class="mt-2 text-xs text-muted-foreground">Denied: {previewKeys(diagnostics.envKeysDenied)}</p>
+                <p class="mt-2 text-xs text-muted-foreground">Missing allowlist: {previewKeys(diagnostics.envKeysMissing)}</p>
               </div>
             </div>
 
@@ -391,4 +393,3 @@
     </form>
   {/if}
 </div>
-

@@ -251,7 +251,7 @@ export abstract class BaseChannelRuntime {
       onRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
       onRunComplete?: (result: {
         runId?: string;
-        stopReason: "stop" | "aborted" | "error";
+        stopReason: "stop" | "aborted" | "error" | "waiting_for_approval";
         errorMessage?: string;
       }, meta: {
         activeSessionId: string;

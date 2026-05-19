@@ -4,7 +4,35 @@
 
 ---
 
+## 2026-05-19
+
+### Approved host tool shell parity
+- **已批准命令回到 shell 语义**: reusable approved host tool 命中后现在执行原始命令字符串，不再把命令拆成 `command + argv` 直接 `spawn`。
+- **环境变量展开一致**: `curl -H "Authorization: Bearer $WEREAD_API_KEY"` 这类命令会按普通 shell 规则展开环境变量，避免把 `$WEREAD_API_KEY` 字面量发给远端服务。
+- **sandbox 分支保持清晰**: 未命中 approved host tool 时仍按设置走 sandbox；未开启 sandbox 时继续走普通 bash/shell。
+
+### Sandbox env precedence and missing-key audit
+- **env 文件优先，系统变量兜底**: sandbox allowlist 变量现在同时从宿主进程环境变量和 `.env.sandbox.local` 解析，同名 key 仍以 `.env.sandbox.local` 为准。
+- **启动期缺失告警**: runtime 启动时会检查 sandbox allowlist 中声明但两处都未提供的变量，并把缺失 key 名打印到日志，方便尽早发现配置漏项。
+- **诊断面补齐**: `/settings/sandbox` 与诊断 API 现在会额外返回缺失的 allowlist key，只显示变量名，不暴露值。
+
+### WeRead skill env/error discipline
+- **先验环境再下结论**: 全局 WeRead skill 现在必须先执行 `printenv WEREAD_API_KEY`，只有检查为空时才允许提示用户重新 `export WEREAD_API_KEY=...`。
+- **失败必须回显真实调用**: WeRead 请求失败时，skill 现在必须带上实际 `api_name` 和最终请求体上下文，不再只给笼统的“环境变量缺失”判断。
+- **服务端业务错不再误判成本地缺 env**: 对 `用户不存在`、鉴权失败、`errcode != 0` 这类 WeRead 服务端返回，skill 现在默认视为真实业务/鉴权错误，而不是自动归因到 sandbox 注入失败。
+
+### Host approval waiting-state semantics
+- **等待不再伪装成停止**: sandbox host approval 挂起当前轮次时，runner 现在返回专门的 `waiting_for_approval` 状态，不再复用通用 `aborted`。
+- **Telegram 不再误报已停止**: Telegram 运行时不再把这条路径当成手动停止处理，因此不会在审批尚未发生时额外发送误导性的 `Stopped.` 收尾消息。
+- **等待提示不写回会话**: Telegram 不再把“Waiting for your decision”这类临时等待提示持久化成正常 assistant 会话内容，避免审批后续跑时带着伪最终答案污染上下文。
+
 ## 2026-05-16
+
+### Layered skills command output
+- **默认先看索引**: `/skills` 现在只返回已加载技能的名字和路径，不再默认把 description、aliases 等完整元数据全部刷出来。
+- **摘要改成表格**: `/skills` 的默认索引视图现在使用和 `/models` 一样的 Markdown 表格输出，按 `编号 / 名称 / 路径` 展示，扫读更稳定。
+- **按需下钻详情**: 新增 `/skills <id>` 单项详情查看，按技能名或 alias 命中后返回 scope、description、aliases、MCP servers、file/base dir 等完整信息。
+- **保留完整清单入口**: 新增 `/skills-detail`，用于查看所有已加载技能的完整详情列表；共享聊天命令和 Web chat 的本地命令处理已经统一到同一套输出规则。
 
 ### Archived run details and success-path chat cleanup
 - **成功后不再挂着大段运行详情**: 成功执行后，Telegram 会把原 `运行详情` 消息收尾替换成一条简短归档提示；QQ / Weixin / Feishu 会补发同样的归档提示，而不是把成功路径的长执行记录一直留在聊天流里。

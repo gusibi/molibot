@@ -432,7 +432,7 @@ export function mergeSkillDraftMarkdown(
 }
 
 export function shouldSuggestSkillDraft(input: {
-  stopReason: "stop" | "aborted" | "error";
+  stopReason: "stop" | "aborted" | "error" | "waiting_for_approval";
   finalText: string;
   toolCalls: number;
   toolFailures: number;

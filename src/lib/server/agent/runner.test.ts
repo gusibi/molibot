@@ -267,7 +267,7 @@ test("manual compact reloads the latest persisted session before summarizing", a
   assert.match(appended[0]?.summary ?? "", /Earlier conversation was compacted|## Summary/);
 });
 
-test("host approval tool failures abort the current run and wait for approval", async () => {
+test("host approval tool failures pause the current run and wait for approval", async () => {
   const replaced: string[] = [];
   let savedContextCalls = 0;
 
@@ -424,7 +424,7 @@ test("host approval tool failures abort the current run and wait for approval", 
   } as any);
 
   assert.equal(aborted, true);
-  assert.equal(result.stopReason, "aborted");
+  assert.equal(result.stopReason, "waiting_for_approval");
   assert.equal(savedContextCalls, 0);
   assert.equal(replaced.at(-1), "Host tool approval requested. Waiting for your decision.");
 });

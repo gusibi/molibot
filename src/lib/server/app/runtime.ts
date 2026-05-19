@@ -23,6 +23,7 @@ import {
 } from "../settings/index.js";
 import { sanitizeHostToolSettings } from "../settings/hostTools.js";
 import { sanitizeToolSandboxSettings } from "../settings/toolSandbox.js";
+import { getToolSandboxEnvStartupReport } from "../agent/tools/sandbox.js";
 import { config } from "./env.js";
 import { builtInChannelPlugins, type ChannelManager, type ChannelRuntimeDeps } from "../channels/registry.js";
 import { TaskScheduler } from "../agent/taskScheduler.js";
@@ -207,6 +208,19 @@ function logMemoryStartup(state: RuntimeState): void {
   console.log(
     `${memoryLabel("memory")} startup enabled=${state.memory.isEnabled() ? color("true", ANSI_GREEN) : color("false", ANSI_YELLOW)} selected_backend=${color(state.memory.getActiveBackendKey(), `${ANSI_BOLD}${ANSI_GREEN}`)} available_backends=[${formatList(state.memory.listAvailableBackendKeys())}] importers=[${formatList(state.memory.listImporterKeys())}]`
   );
+}
+
+function logSandboxEnvStartup(state: RuntimeState): void {
+  const report = getToolSandboxEnvStartupReport(state.settings.toolSandbox, config.webWorkspaceDir);
+  const prefix = `${runtimeLabel("runtime")} sandbox_env`;
+  console.log(
+    `${prefix} enabled=${report.enabled ? color("true", ANSI_GREEN) : color("false", ANSI_YELLOW)} env_file=${report.envFilePath} injected=[${formatList(report.envKeysInjected)}]`
+  );
+  if (report.envKeysMissing.length > 0) {
+    console.warn(
+      `${prefix} ${color("missing_allowlist", `${ANSI_BOLD}${ANSI_YELLOW}`)} keys=[${formatList(report.envKeysMissing)}]`
+    );
+  }
 }
 
 function logChannelPluginApplication(state: RuntimeState, applied: Array<{ key: string; instances: string[] }>): void {
@@ -891,6 +905,7 @@ export function getRuntime(): RuntimeState {
     state.settings = sanitizeSettings({}, state.settings);
     currentSettings.value = state.settings;
     logMemoryStartup(state);
+    logSandboxEnvStartup(state);
     void state.memory.syncExternalMemories()
       .then((result) => {
         console.log(

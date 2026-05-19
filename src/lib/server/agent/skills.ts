@@ -164,6 +164,10 @@ function resolveSkillBySelector(skills: LoadedSkill[], selector: string): Loaded
   return best;
 }
 
+export function findSkillBySelector(skills: LoadedSkill[], selector: string): LoadedSkill | null {
+  return resolveSkillBySelector(skills, selector);
+}
+
 function resolveExplicitInvocationMatches(skills: LoadedSkill[], inputText: string): LoadedSkill[] {
   const selectors = collectExplicitInvocationTokens(inputText);
   if (selectors.length === 0) return [];
@@ -307,6 +311,94 @@ export function formatSkillsForPrompt(
         }`
     )
     .join("\n");
+}
+
+export function formatSkillsSummaryText(
+  skills: LoadedSkill[],
+  diagnostics: string[],
+  options?: { emptyText?: string; footerLines?: string[] }
+): string {
+  const lines = [`当前技能列表（共${skills.length}个）：`, ""];
+
+  if (skills.length === 0) {
+    lines.push(options?.emptyText ?? "No skills loaded.");
+  } else {
+    lines.push("| 编号 | 名称 | 路径 |");
+    lines.push("|------|------|------|");
+    skills.forEach((skill, index) => {
+      lines.push(`| ${index + 1} | ${skill.name} | ${skill.filePath} |`);
+    });
+  }
+
+  if ((options?.footerLines?.length ?? 0) > 0) {
+    lines.push("");
+    lines.push(...(options?.footerLines ?? []));
+  }
+
+  if (diagnostics.length > 0) {
+    lines.push("");
+    lines.push("Diagnostics:");
+    for (const line of diagnostics) lines.push(`- ${line}`);
+  }
+
+  return lines.join("\n");
+}
+
+export function formatSkillDetailText(skill: LoadedSkill): string {
+  const lines = [
+    `Skill: ${skill.name}`,
+    `Scope: ${skill.scope}`,
+    `File: ${skill.filePath}`,
+    `Base dir: ${skill.baseDir}`,
+    `Description: ${skill.description}`
+  ];
+
+  if (skill.aliases.length > 0) {
+    lines.push(`Aliases: ${skill.aliases.join(", ")}`);
+  }
+  if (skill.mcpServers.length > 0) {
+    lines.push(`MCP servers: ${skill.mcpServers.join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+export function formatSkillsDetailText(
+  skills: LoadedSkill[],
+  diagnostics: string[],
+  options?: { emptyText?: string; footerLines?: string[] }
+): string {
+  const lines = [`Loaded skills: ${skills.length}`, ""];
+
+  if (skills.length === 0) {
+    lines.push(options?.emptyText ?? "No skills loaded.");
+  } else {
+    skills.forEach((skill, index) => {
+      lines.push(`${index + 1}. ${skill.name}`);
+      lines.push(`   - scope: ${skill.scope}`);
+      lines.push(`   - description: ${skill.description}`);
+      if (skill.aliases.length > 0) {
+        lines.push(`   - aliases: ${skill.aliases.join(", ")}`);
+      }
+      if (skill.mcpServers.length > 0) {
+        lines.push(`   - mcp_servers: ${skill.mcpServers.join(", ")}`);
+      }
+      lines.push(`   - file: ${skill.filePath}`);
+    });
+  }
+
+  if ((options?.footerLines?.length ?? 0) > 0) {
+    lines.push("");
+    lines.push(...(options?.footerLines ?? []));
+  }
+
+  if (diagnostics.length > 0) {
+    lines.push("");
+    lines.push("Diagnostics:");
+    for (const line of diagnostics) lines.push(`- ${line}`);
+  }
+
+  return lines.join("\n");
 }
 
 export function findExplicitlyInvokedSkills(skills: LoadedSkill[], inputText: string): LoadedSkill[] {

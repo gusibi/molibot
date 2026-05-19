@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SharedRuntimeCommandService } from "./channelCommands.js";
 import { defaultRuntimeSettings } from "../settings/defaults.js";
 import type { HostToolApprovalRequest, RuntimeSettings } from "../settings/index.js";
@@ -424,6 +426,73 @@ test("help command renders markdown table on weixin but stays plain text on tele
   assert.doesNotMatch(telegramSent[0] ?? "", /\| Item \| Value \|/);
   assert.match(telegramSent[0] ?? "", /Available commands:/);
   assert.match(telegramSent[0] ?? "", /\/status - show current bot\/session\/runtime status/);
+  assert.match(telegramSent[0] ?? "", /\/skills <id> - show details for one loaded skill/);
+  assert.match(telegramSent[0] ?? "", /\/skills-detail - show full details for all loaded skills/);
+});
+
+test("skills commands split summary and detail output", async () => {
+  const sent: string[] = [];
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-skills-"));
+  const skillDir = join(workspaceDir, "skills", "web-search");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "SKILL.md"), [
+    "---",
+    "name: web-search",
+    "description: Search the web for current information.",
+    "aliases: web-search, websearch",
+    "mcp_servers: tavily",
+    "---",
+    "",
+    "# Web Search"
+  ].join("\n"));
+
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir,
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/skills",
+    target: "target-1"
+  });
+  await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/skills websearch",
+    target: "target-1"
+  });
+  await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/skills-detail",
+    target: "target-1"
+  });
+
+  assert.match(sent[0] ?? "", /当前技能列表（共1个）/);
+  assert.match(sent[0] ?? "", /\| 编号 \| 名称 \| 路径 \|/);
+  assert.match(sent[0] ?? "", /\| 1 \| web-search \| .*\/skills\/web-search\/SKILL\.md \|/);
+  assert.match(sent[0] ?? "", /Use \/skills <id> for details\./);
+  assert.doesNotMatch(sent[0] ?? "", /description:/);
+
+  assert.match(sent[1] ?? "", /Skill: web-search/);
+  assert.match(sent[1] ?? "", /Description: Search the web for current information\./);
+  assert.match(sent[1] ?? "", /MCP servers: tavily/);
+
+  assert.match(sent[2] ?? "", /1\. web-search/);
+  assert.match(sent[2] ?? "", /- description: Search the web for current information\./);
+  assert.match(sent[2] ?? "", /- mcp_servers: tavily/);
 });
 
 test("models command renders numbered markdown table with provider and model columns", async () => {

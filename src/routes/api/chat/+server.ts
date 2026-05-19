@@ -2,7 +2,13 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
-import { loadSkillsFromWorkspace } from "$lib/server/agent/skills";
+import {
+  findSkillBySelector,
+  formatSkillDetailText,
+  formatSkillsDetailText,
+  formatSkillsSummaryText,
+  loadSkillsFromWorkspace
+} from "$lib/server/agent/skills";
 import {
   listOAuthProviderIds,
   removeStoredAuth,
@@ -97,6 +103,7 @@ function buildModelsText(profileId: string, route: ModelRoute): string {
     lines.push("/models <key>");
   }
   lines.push(`/skills`);
+  lines.push(`/skills-detail`);
   lines.push(`/compact [instructions]`);
   lines.push(`/login <provider>`);
   lines.push(`/login <provider> <code-or-redirect-url>`);
@@ -106,29 +113,38 @@ function buildModelsText(profileId: string, route: ModelRoute): string {
   return lines.join("\n");
 }
 
-function buildSkillsText(profileId: string): string {
+function buildSkillsText(profileId: string, rawArg = "", detailMode = false): string {
   const { store } = getWebRuntimeContext(profileId);
   const { skills, diagnostics } = loadSkillsFromWorkspace(store.getWorkspaceDir(), "web");
-  const lines = [
-    `Loaded skills: ${skills.length}`,
-    ""
-  ];
-  for (const skill of skills) {
-    lines.push(`- ${skill.name}: ${skill.description || "(no description)"}`);
-    if (skill.aliases.length > 0) {
-      lines.push(`  aliases: ${skill.aliases.join(", ")}`);
+  const selector = rawArg.trim();
+  if (selector) {
+    const skill = findSkillBySelector(skills, selector);
+    if (!skill) {
+      return [
+        `Skill not found: ${selector}`,
+        "",
+        formatSkillsSummaryText(skills, diagnostics, {
+          footerLines: [
+            "Usage: /skills",
+            "Usage: /skills <id>",
+            "Usage: /skills-detail"
+          ]
+        })
+      ].join("\n");
     }
-    lines.push(`  ${skill.filePath}`);
+    return formatSkillDetailText(skill);
   }
-  if (skills.length === 0) {
-    lines.push("No skills loaded.");
+
+  if (detailMode) {
+    return formatSkillsDetailText(skills, diagnostics);
   }
-  if (diagnostics.length > 0) {
-    lines.push("");
-    lines.push("Diagnostics:");
-    for (const line of diagnostics) lines.push(`- ${line}`);
-  }
-  return lines.join("\n");
+
+  return formatSkillsSummaryText(skills, diagnostics, {
+    footerLines: [
+      "Use /skills <id> for details.",
+      "Use /skills-detail for the full list."
+    ]
+  });
 }
 
 function buildLoginScope(profileId: string, externalUserId?: string): string {
@@ -158,7 +174,9 @@ async function tryHandleWebCommand(
         "/models <index|key> - switch text model",
         "/models <text|vision|stt|tts|subagent> - list a specific route",
         "/models <text|vision|stt|tts|subagent> <index|key> - switch that route",
-        "/skills - list loaded skills",
+        "/skills - list loaded skill names and file paths",
+        "/skills <id> - show details for one loaded skill",
+        "/skills-detail - show full details for all loaded skills",
         "/compact [instructions] - summarize older context in current conversation",
         "/login <provider> - start OAuth login and receive the auth URL",
         "/login <provider> <code-or-redirect-url> - finish OAuth login",
@@ -171,7 +189,14 @@ async function tryHandleWebCommand(
   if (cmd === "/skills") {
     return {
       ok: true,
-      response: buildSkillsText(profileId)
+      response: buildSkillsText(profileId, rawArg, false)
+    };
+  }
+
+  if (cmd === "/skills-detail") {
+    return {
+      ok: true,
+      response: buildSkillsText(profileId, rawArg, true)
     };
   }
 

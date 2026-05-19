@@ -49,7 +49,7 @@ export interface LoggedMessage {
 
 export interface RunResult {
   runId?: string;
-  stopReason: "stop" | "aborted" | "error";
+  stopReason: "stop" | "aborted" | "error" | "waiting_for_approval";
   errorMessage?: string;
 }
 
@@ -97,7 +97,7 @@ export type RunnerUiEvent =
       task?: string;
       taskIndex?: number;
       taskCount: number;
-      stopReason?: "stop" | "aborted" | "error";
+      stopReason?: "stop" | "aborted" | "error" | "waiting_for_approval";
       errorMessage?: string;
     };
 

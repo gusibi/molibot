@@ -2037,7 +2037,7 @@ export class TelegramManager extends BaseChannelRuntime {
       });
 
       const finalAssistantText = status.accumulatedText.trim();
-      if (finalAssistantText) {
+      if (finalAssistantText && result.stopReason !== "waiting_for_approval") {
         try {
           const conv = this.sessions.getOrCreateConversation(
             "telegram",
@@ -2058,6 +2058,12 @@ export class TelegramManager extends BaseChannelRuntime {
             error: error instanceof Error ? error.message : String(error)
           });
         }
+      } else if (result.stopReason === "waiting_for_approval") {
+        momLog("telegram", "session_assistant_append_skipped_waiting_for_approval", {
+          runId,
+          chatId,
+          scopeId
+        });
       } else {
         momWarn("telegram", "session_assistant_skipped_empty", { runId, chatId });
       }
@@ -2067,6 +2073,12 @@ export class TelegramManager extends BaseChannelRuntime {
           runId,
           scopeId,
           source: "process_aborted"
+        });
+      } else if (result.stopReason === "waiting_for_approval") {
+        momLog("telegram", "process_waiting_for_approval", {
+          runId,
+          chatId,
+          scopeId
         });
       } else if (result.stopReason === "stop" && detailEventCount > 0 && result.runId) {
         const archiveNotice = formatRunArchiveNotice(result.runId);

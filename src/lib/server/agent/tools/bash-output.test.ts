@@ -174,8 +174,9 @@ test("bash can request one-time host approval for compound shell commands", asyn
   }
 });
 
-test("bash runs approved host tools directly before sandbox/plain execution", async () => {
+test("bash runs approved host tools through shell before sandbox/plain execution", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  process.env.MOLIBOT_APPROVED_BASH_TOKEN = "expanded";
   let settings: RuntimeSettings = {
     ...structuredClone(defaultRuntimeSettings),
     hostTools: {
@@ -215,12 +216,13 @@ test("bash runs approved host tools directly before sandbox/plain execution", as
     });
     const result = await tool.execute("tool-1", {
       label: "bash",
-      command: "printf 'hello %s' world"
+      command: "printf 'hello %s' \"$MOLIBOT_APPROVED_BASH_TOKEN\""
     });
 
-    assert.equal(firstText(result), "hello world");
+    assert.equal(firstText(result), "hello expanded");
     assert.equal((result.details as { hostTool?: boolean } | undefined)?.hostTool, true);
   } finally {
+    delete process.env.MOLIBOT_APPROVED_BASH_TOKEN;
     rmSync(cwd, { recursive: true, force: true });
   }
 });

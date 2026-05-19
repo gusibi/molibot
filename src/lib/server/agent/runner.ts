@@ -1918,7 +1918,7 @@ export class MomRunner implements RunnerLike {
     });
     this.agent.state.tools = [...localTools, ...mcpTools];
 
-    let stopReason: "stop" | "aborted" | "error" = "stop";
+    let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
     let errorMessage: string | undefined;
     let blockedOnHostToolApproval = false;
     const hostToolApprovalWaitMessage = "Host tool approval requested. Waiting for your decision.";
@@ -2032,7 +2032,7 @@ export class MomRunner implements RunnerLike {
         const hostToolApproval = extractHostToolApprovalPrompt(event.result);
         if (event.isError && hostToolApproval) {
           blockedOnHostToolApproval = true;
-          stopReason = "aborted";
+          stopReason = "waiting_for_approval";
           errorMessage = undefined;
           this.agent.abort();
         }
@@ -2091,7 +2091,7 @@ export class MomRunner implements RunnerLike {
         (event.message as { role?: string }).role === "assistant"
       ) {
         const msg = event.message as {
-          stopReason?: "stop" | "aborted" | "error";
+          stopReason?: "stop" | "aborted" | "error" | "waiting_for_approval";
           errorMessage?: string;
           content?: Array<{ type: string; text?: string }>;
           api?: string;

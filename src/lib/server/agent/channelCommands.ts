@@ -15,7 +15,13 @@ import {
 } from "../settings/modelSwitch.js";
 import { listOAuthProviderIds, removeStoredAuth, resolveAuthFilePath, startOAuthLogin, submitOAuthLoginCode } from "./auth.js";
 import { momLog } from "./log.js";
-import { loadSkillsFromWorkspace } from "./skills.js";
+import {
+  findSkillBySelector,
+  formatSkillDetailText,
+  formatSkillsDetailText,
+  formatSkillsSummaryText,
+  loadSkillsFromWorkspace
+} from "./skills.js";
 import type { RunnerPool } from "./runner.js";
 import type { MomRuntimeStore } from "./store.js";
 import { resolveThinkingLevel } from "../providers/customThinking.js";
@@ -570,7 +576,12 @@ export class SharedRuntimeCommandService<TTarget> {
     }
 
     if (cmd === "/skills") {
-      await this.options.sendText(input.target, this.skillsText(input.scopeId));
+      await this.options.sendText(input.target, this.skillsText(input.scopeId, rawArg, false));
+      return true;
+    }
+
+    if (cmd === "/skills-detail") {
+      await this.options.sendText(input.target, this.skillsText(input.scopeId, rawArg, true));
       return true;
     }
 
@@ -825,51 +836,55 @@ export class SharedRuntimeCommandService<TTarget> {
     };
   }
 
-  private skillsText(scopeId: string): string {
+  private skillsText(scopeId: string, rawArg = "", detailMode = false): string {
     const { skills, diagnostics } = loadSkillsFromWorkspace(this.options.workspaceDir, scopeId, {
       disabledSkillPaths: this.options.getSettings().disabledSkillPaths
     });
     const globalSkillsDir = resolveGlobalSkillsDirFromWorkspacePath(this.options.workspaceDir);
     const botSkillsDir = `${this.options.workspaceDir}/skills`;
     const chatSkillsDir = `${this.options.workspaceDir}/${scopeId}/skills`;
-    const scopeLabel: Record<string, string> = {
-      chat: "chat",
-      global: "global",
-      bot: "bot"
-    };
-    const lines = [
+    const footerLines = [
       `Workspace: ${this.options.workspaceDir}`,
       `Global skills dir: ${globalSkillsDir}`,
       `Bot skills dir: ${botSkillsDir}`,
-      `Chat skills dir: ${chatSkillsDir}`,
-      `Loaded skills: ${skills.length}`,
-      ""
+      `Chat skills dir: ${chatSkillsDir}`
     ];
-
-    if (skills.length === 0) {
-      lines.push("(no skills loaded)");
-    } else {
-      for (let i = 0; i < skills.length; i += 1) {
-        const skill = skills[i];
-        lines.push(`${i + 1}. ${skill.name}`);
-        lines.push(`   - scope: ${scopeLabel[skill.scope] ?? skill.scope}`);
-        lines.push(`   - description: ${skill.description}`);
-        if (skill.aliases.length > 0) {
-          lines.push(`   - aliases: ${skill.aliases.join(", ")}`);
-        }
-        lines.push(`   - file: ${skill.filePath}`);
+    const selector = rawArg.trim();
+    if (selector) {
+      const skill = findSkillBySelector(skills, selector);
+      if (!skill) {
+        return [
+          `Skill not found: ${selector}`,
+          "",
+          formatSkillsSummaryText(skills, diagnostics, {
+            emptyText: "(no skills loaded)",
+            footerLines: [
+              ...footerLines,
+              "Usage: /skills",
+              "Usage: /skills <id>",
+              "Usage: /skills-detail"
+            ]
+          })
+        ].join("\n");
       }
+      return formatSkillDetailText(skill);
     }
 
-    if (diagnostics.length > 0) {
-      lines.push("");
-      lines.push("Diagnostics:");
-      for (const row of diagnostics) {
-        lines.push(`- ${row}`);
-      }
+    if (detailMode) {
+      return formatSkillsDetailText(skills, diagnostics, {
+        emptyText: "(no skills loaded)",
+        footerLines
+      });
     }
 
-    return lines.join("\n");
+    return formatSkillsSummaryText(skills, diagnostics, {
+      emptyText: "(no skills loaded)",
+      footerLines: [
+        ...footerLines,
+        "Use /skills <id> for details.",
+        "Use /skills-detail for the full list."
+      ]
+    });
   }
 
   private parseConfiguredModelKey(key: string): { mode: "pi" | "custom"; provider: string; model: string } | null {
@@ -1101,7 +1116,9 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/login <provider>", value: "start OAuth login" },
       { label: "/login <provider> <code-or-redirect-url>", value: "finish OAuth login" },
       { label: "/logout <provider>", value: "remove stored auth" },
-      { label: "/skills", value: "list currently loaded skills" },
+      { label: "/skills", value: "list loaded skill names and file paths" },
+      { label: "/skills <id>", value: "show details for one loaded skill" },
+      { label: "/skills-detail", value: "show full details for all loaded skills" },
       { label: "/help", value: "show this help" }
     ];
 
