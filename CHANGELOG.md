@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-05-20
+
+### Telegram group mention trigger
+- **启动时先拿 bot username**: Telegram 运行时现在先通过 `getMe()` 初始化 bot username，再开始 polling，避免运行期间 username 为空导致直接 `@bot` 被误判为未提及。
+- **直接 @ 可触发**: Telegram 群聊和超群现在会同时识别 message entities 与纯文本 `@username`，避免直接 `@bot` 的消息已经入站却被当成未提及 bot 丢弃。
+- **回复路径保持不变**: 回复 bot 消息仍然继续放行，只是 direct mention 的入口补齐到同等可靠。
+
 ## 2026-05-19
 
 ### Approved host tool shell parity

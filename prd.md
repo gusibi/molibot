@@ -48,6 +48,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - 普通会话生成物应默认写入 `scratch/YYYY/MM/DD/` 三级日期目录，避免长期堆在 chat scratch 根目录；`scratch` 仍是工具运行根目录，`scratch/events` 等运行时控制目录不得被日期归档规则改写。
 - 第一版 OS 级 sandbox 只覆盖 Agent shell 执行通道：主 Agent `bash` 与内置 subagent `bash`。浏览器、Computer Use、ACP、MCP 与 Channel 收发消息不进入该 sandbox；需要打开本机 App 或复用本机浏览器状态的场景必须走对应 host-access 工具。workspace env 文件由 Molibot 宿主解析后按 allowlist 注入子进程，sandboxed bash 不应直接读取 env 文件本身。
 - Approved host tool 是“已批准的 host shell 执行入口”，不是结构化 argv 的替代 shell；命中 approved host tool 后应执行原始命令字符串并保留普通 shell 语义（变量展开、引号、换行等），未命中时才按 sandbox 设置决定是否进入 sandbox。
+- Telegram 群聊触发必须同时支持“回复 bot 消息”和“直接 @ bot”。直接 @ 的判定应优先使用 Telegram `message.entities` / `caption_entities` 中的 mention 信息，并保留纯文本 `@username` 兜底，避免群聊消息已入站但被误判为未提及 bot。
 
 ## 3. V1 Scope
 

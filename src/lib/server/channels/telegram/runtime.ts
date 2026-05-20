@@ -25,6 +25,7 @@ import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
 import type { ParsedRelativeReminder, StatusSession } from "./types.js";
 import { TELEGRAM_SHARED_COMMANDS } from "./commands.js";
 import { executeHostToolApproval } from "../../agent/hostToolExec.js";
+import { isTelegramBotMention, stripTelegramBotMention, type TelegramMessageEntityLike } from "./mentions.js";
 
 export interface TelegramConfig {
   token: string;
@@ -1046,24 +1047,25 @@ export class TelegramManager extends BaseChannelRuntime {
       });
     });
 
-    bot
-      .start()
-      .then(async () => {
+    void (async () => {
+      try {
         const me = await bot.api.getMe();
+        if (this.bot !== bot) return;
         this.botUsername = me.username || "";
         if (this.botUsername) {
           writeFileSync(join(this.workspaceDir, "BOT_USERNAME.txt"), this.botUsername, "utf8");
         }
         momLog("telegram", "adapter_started", { botUsername: this.botUsername || "unknown" });
-      })
-      .catch((error) => {
+        await bot.start();
+      } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         momError("telegram", "adapter_start_failed", {
           botId: this.instanceId,
           error: message
         });
         this.disableInstanceOnAuthFailure(message);
-      });
+      }
+    })();
 
     this.bot = bot;
     this.currentToken = token;
@@ -2158,17 +2160,14 @@ export class TelegramManager extends BaseChannelRuntime {
     return Array.from(normalized).length <= TelegramManager.TELEGRAM_TEXT_SOFT_LIMIT;
   }
 
-  private shouldTriggerGroupMessage(text: string, replyToBot: boolean, messageThreadId?: number): boolean {
+  private shouldTriggerGroupMessage(text: string, entities: TelegramMessageEntityLike[], replyToBot: boolean, messageThreadId?: number): boolean {
     if (Number.isFinite(messageThreadId) && Number(messageThreadId) > 0) return true;
     if (replyToBot) return true;
-    if (!this.botUsername) return false;
-    const mention = new RegExp(`@${this.botUsername}(\\b|$)`, "i");
-    return mention.test(text);
+    return isTelegramBotMention(text, entities, this.botUsername);
   }
 
-  private stripMention(text: string): string {
-    if (!this.botUsername) return text.trim();
-    return text.replace(new RegExp(`@${this.botUsername}(\\b|$)`, "ig"), "").trim();
+  private stripMention(text: string, entities: TelegramMessageEntityLike[]): string {
+    return stripTelegramBotMention(text, entities, this.botUsername);
   }
 
   private mimeFromFilename(filename: string): string | undefined {
@@ -2335,14 +2334,17 @@ export class TelegramManager extends BaseChannelRuntime {
     const messageThreadId = Number.isFinite(msg.message_thread_id) ? Number(msg.message_thread_id) : undefined;
     const scopeId = this.buildChatScopeId(chatId, messageThreadId);
     const rawText = String(msg.text || msg.caption || "");
+    const textEntities = Array.isArray(msg.text ? msg.entities : msg.caption_entities)
+      ? (msg.text ? msg.entities : msg.caption_entities) as TelegramMessageEntityLike[]
+      : [];
 
     const replyToBot = Boolean(msg.reply_to_message?.from?.is_bot);
-    if ((chatType === "group" || chatType === "supergroup") && !this.shouldTriggerGroupMessage(rawText, replyToBot, messageThreadId)) {
+    if ((chatType === "group" || chatType === "supergroup") && !this.shouldTriggerGroupMessage(rawText, textEntities, replyToBot, messageThreadId)) {
       momLog("telegram", "group_message_ignored_no_mention", { chatId, messageId: msg.message_id });
       return null;
     }
 
-    let cleaned = (chatType === "group" || chatType === "supergroup") ? this.stripMention(rawText) : rawText.trim();
+    let cleaned = (chatType === "group" || chatType === "supergroup") ? this.stripMention(rawText, textEntities) : rawText.trim();
     if (!cleaned && !msg.document && !msg.photo && !msg.voice && !msg.audio) {
       momLog("telegram", "message_ignored_empty", { chatId, messageId: msg.message_id });
       return null;

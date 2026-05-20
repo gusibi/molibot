@@ -108,7 +108,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 ### Multi-Channel Support
 - **Web Chat**: Full-featured with general file upload, image upload, realtime voice recording, current-session file workspace, thinking controls, profile-only identity, theme/i18n support
 - **Web Live Run Diagnostics**: streaming chat now surfaces tool/subagent runner events in the live diagnostics panel, including delegated task lifecycle notices
-- **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, ACP control, model switching, task delivery
+- **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, ACP control, model switching, task delivery, and group replies via direct `@bot` mentions or replies to bot messages
 - **Telegram Typing Resilience**: `sendChatAction(typing)` timeout exhaustion is treated as non-blocking, so typing-indicator failures do not abort the active run
 - **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings
 - **QQ Bot**: SDK-based integration, group policy metadata, quoted-message context, rich media delivery, typing/streaming helpers, channel-local progress/error compaction, and Molibot-owned queue/ACP control
