@@ -66,6 +66,24 @@ test("bash relocates newly generated root artifacts into dated artifact director
   }
 });
 
+test("bash relocates modified existing root artifacts into dated artifact directory", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  try {
+    writeFileSync(join(cwd, "gold_daily_20260524_momo.html"), "old", "utf8");
+    const tool = createBashTool(cwd, { artifactDir: "2026/05/24" });
+    const result = await tool.execute("tool-1", {
+      label: "bash",
+      command: "sleep 0.01; printf 'new' > gold_daily_20260524_momo.html"
+    });
+
+    assert.equal(existsSync(join(cwd, "gold_daily_20260524_momo.html")), false);
+    assert.equal(readFileSync(join(cwd, "2026/05/24/gold_daily_20260524_momo.html"), "utf8"), "new");
+    assert.match(firstText(result), /Moved generated artifact\(s\).*2026\/05\/24\/gold_daily_20260524_momo\.html/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("bash leaves non-artifact root support files in place", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
   try {

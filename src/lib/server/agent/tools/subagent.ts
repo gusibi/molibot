@@ -27,7 +27,9 @@ import { resolveProviderApiKey } from "../auth.js";
 import { momLog } from "../log.js";
 import { parseSkillFrontmatter } from "../skillFrontmatter.js";
 import type { RunnerUiEvent } from "../types.js";
-import { createBashTool } from "./bash.js";
+import type { HostBashApprovalPrompt } from "../../hostBash/index.js";
+import type { MomRuntimeStore } from "../store.js";
+import { createBashTool, type BashToolHostApprovalOptions } from "./bash.js";
 import { createEditTool } from "./edit.js";
 import { createReadTool } from "./read.js";
 import { createWriteTool } from "./write.js";
@@ -511,8 +513,8 @@ function createReadDefinition(cwd: string, workspaceDir: string): ToolDefinition
   });
 }
 
-function createWriteDefinition(cwd: string, workspaceDir: string, chatId: string): ToolDefinition {
-  const tool = createWriteTool({ cwd, workspaceDir, chatId });
+function createWriteDefinition(cwd: string, workspaceDir: string, chatId: string, artifactDir?: string): ToolDefinition {
+  const tool = createWriteTool({ cwd, workspaceDir, chatId, artifactDir });
   const schema = Type.Object({
     path: Type.String(),
     content: Type.String()
@@ -546,8 +548,17 @@ function createEditDefinition(cwd: string, workspaceDir: string): ToolDefinition
   });
 }
 
-function createBashDefinition(cwd: string, workspaceDir: string, settings: RuntimeSettings, readOnly: boolean): ToolDefinition {
+function createBashDefinition(
+  cwd: string,
+  workspaceDir: string,
+  settings: RuntimeSettings,
+  readOnly: boolean,
+  artifactDir?: string,
+  hostApproval?: BashToolHostApprovalOptions
+): ToolDefinition {
   const tool = createBashTool(cwd, {
+    artifactDir,
+    hostApproval,
     sandbox: {
       settings: settings.toolSandbox,
       workspaceDir
@@ -580,16 +591,30 @@ function createBashDefinition(cwd: string, workspaceDir: string, settings: Runti
 
 function createCustomTools(
   agent: SubagentDefinition,
-  options: { cwd: string; workspaceDir: string; chatId: string; settings: RuntimeSettings }
+  options: {
+    cwd: string;
+    workspaceDir: string;
+    chatId: string;
+    settings: RuntimeSettings;
+    artifactDir?: string;
+    hostApproval?: BashToolHostApprovalOptions;
+  }
 ): ToolDefinition[] {
   const readOnlyShell = agent.name === "scout" || agent.name === "planner" || agent.name === "reviewer";
   const tools: ToolDefinition[] = [
     createReadDefinition(options.cwd, options.workspaceDir),
-    createBashDefinition(options.cwd, options.workspaceDir, options.settings, readOnlyShell)
+    createBashDefinition(
+      options.cwd,
+      options.workspaceDir,
+      options.settings,
+      readOnlyShell,
+      options.artifactDir,
+      options.hostApproval
+    )
   ];
   if (agent.name === "worker") {
     tools.push(createEditDefinition(options.cwd, options.workspaceDir));
-    tools.push(createWriteDefinition(options.cwd, options.workspaceDir, options.chatId));
+    tools.push(createWriteDefinition(options.cwd, options.workspaceDir, options.chatId, options.artifactDir));
   }
   return tools;
 }
@@ -602,13 +627,32 @@ async function runSingleSubagent(
     workspaceDir: string;
     chatId: string;
     settings: RuntimeSettings;
+    artifactDir?: string;
+    hostApproval?: BashToolHostApprovalOptions;
+    emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
     signal?: AbortSignal;
   }
 ): Promise<SubagentRunResult> {
   const { model, authStorage, modelRegistry } = await resolveSubagentModel(options.settings, agent.modelHint);
+  momLog("runner", "subagent_model_resolved", {
+    chatId: options.chatId,
+    agent: agent.name,
+    modelId: model.id,
+    provider: model.provider,
+    api: model.api
+  });
+
   const settingsManager = SettingsManager.inMemory({
     compaction: { enabled: false }
   });
+  const artifactPrompt = options.artifactDir
+    ? [
+      `Default generated artifact directory: ${options.artifactDir}`,
+      "- Put ordinary generated files in that directory, relative to the scratch working directory.",
+      "- Plain file names passed to write and new root-level bash artifacts are automatically routed there.",
+      "- Report output paths using the routed relative path so the parent agent can read them."
+    ].join("\n")
+    : "";
   const resourceLoader = new DefaultResourceLoader({
     cwd: options.cwd,
     agentDir: options.cwd,
@@ -618,7 +662,7 @@ async function runSingleSubagent(
     noPromptTemplates: true,
     noThemes: true,
     noContextFiles: true,
-    appendSystemPrompt: [RUNTIME_PROMPT_APPEND, agent.systemPrompt]
+    appendSystemPrompt: [RUNTIME_PROMPT_APPEND, artifactPrompt, agent.systemPrompt].filter(Boolean)
   });
   await resourceLoader.reload();
 
@@ -626,7 +670,16 @@ async function runSingleSubagent(
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
     chatId: options.chatId,
-    settings: options.settings
+    settings: options.settings,
+    artifactDir: options.artifactDir,
+    hostApproval: options.hostApproval
+  });
+
+  momLog("runner", "subagent_session_creating", {
+    chatId: options.chatId,
+    agent: agent.name,
+    modelId: model.id,
+    toolNames: agent.tools && agent.tools.length > 0 ? agent.tools : ["read", "bash", "edit", "write"]
   });
 
   const sessionManager = SessionManager.inMemory(options.cwd);
@@ -644,28 +697,150 @@ async function runSingleSubagent(
     customTools
   });
 
+  momLog("runner", "subagent_session_created", {
+    chatId: options.chatId,
+    agent: agent.name,
+    modelId: model.id
+  });
+
   const onAbort = () => {
     void session.abort();
   };
   options.signal?.addEventListener("abort", onAbort, { once: true });
 
+  let hostBashApproval: HostBashApprovalPrompt | undefined;
+  let subagentToolCallCount = 0;
+  let subagentLlmCallCount = 0;
+  const unsubscribe = session.subscribe((event: any) => {
+    if (event.type === "message_start" && event.message?.role === "assistant") {
+      subagentLlmCallCount += 1;
+      momLog("runner", "subagent_llm_call_start", {
+        chatId: options.chatId,
+        agent: agent.name,
+        callIndex: subagentLlmCallCount
+      });
+      return;
+    }
+
+    if (event.type === "message_end" && event.message?.role === "assistant") {
+      const msg = event.message as { stopReason?: string; usage?: { input?: number; output?: number; totalTokens?: number } };
+      momLog("runner", "subagent_llm_call_end", {
+        chatId: options.chatId,
+        agent: agent.name,
+        callIndex: subagentLlmCallCount,
+        stopReason: msg.stopReason,
+        usageTotal: msg.usage?.totalTokens
+      });
+      return;
+    }
+
+    if (event.type === "tool_execution_start") {
+      subagentToolCallCount += 1;
+      momLog("runner", "subagent_tool_start", {
+        chatId: options.chatId,
+        agent: agent.name,
+        tool: event.toolName,
+        toolIndex: subagentToolCallCount,
+        llmCallIndex: subagentLlmCallCount
+      });
+      return;
+    }
+
+    if (event.type !== "tool_execution_end") return;
+
+    const toolName = String((event as { toolName?: unknown }).toolName ?? "unknown");
+    const isError = Boolean((event as { isError?: unknown }).isError);
+    momLog("runner", "subagent_tool_end", {
+      chatId: options.chatId,
+      agent: agent.name,
+      tool: toolName,
+      isError,
+      toolIndex: subagentToolCallCount
+    });
+
+    const prompt = extractHostBashApprovalPrompt(event.result);
+    if (!prompt) return;
+    hostBashApproval = prompt;
+    void options.emitRunnerEvent?.({
+      type: "tool_execution_end",
+      toolName,
+      displayName: "subagent bash",
+      isError: true,
+      summary: extractTextFromToolResult(event.result),
+      hostBashApproval: prompt
+    });
+    void session.abort();
+  });
+
   try {
+    momLog("runner", "subagent_prompt_start", {
+      chatId: options.chatId,
+      agent: agent.name,
+      taskPreview: previewTask(task, 200)
+    });
     await session.prompt(task);
+    momLog("runner", "subagent_prompt_end", {
+      chatId: options.chatId,
+      agent: agent.name,
+      llmCalls: subagentLlmCallCount,
+      toolCalls: subagentToolCallCount
+    });
+
     const messages = session.state.messages;
     const lastAssistant = getLastAssistant(messages);
     return {
       agent: agent.name,
       task,
       output: getAssistantText(lastAssistant),
-      stopReason: lastAssistant?.stopReason ?? "stop",
-      errorMessage: lastAssistant?.errorMessage,
+      stopReason: hostBashApproval ? "waiting_for_approval" : lastAssistant?.stopReason ?? "stop",
+      errorMessage: hostBashApproval ? undefined : lastAssistant?.errorMessage,
       usage: buildUsage(messages),
       model: session.model?.id
     };
+  } catch (error) {
+    momLog("runner", "subagent_prompt_error", {
+      chatId: options.chatId,
+      agent: agent.name,
+      llmCalls: subagentLlmCallCount,
+      toolCalls: subagentToolCallCount,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
   } finally {
     options.signal?.removeEventListener("abort", onAbort);
+    unsubscribe();
     session.dispose();
+    momLog("runner", "subagent_session_disposed", {
+      chatId: options.chatId,
+      agent: agent.name,
+      llmCalls: subagentLlmCallCount,
+      toolCalls: subagentToolCallCount
+    });
   }
+}
+
+function extractHostBashApprovalPrompt(result: unknown): HostBashApprovalPrompt | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const details = (result as { details?: unknown }).details;
+  if (!details || typeof details !== "object") return undefined;
+  const prompt = (details as { hostBashApproval?: unknown }).hostBashApproval;
+  if (!prompt || typeof prompt !== "object") return undefined;
+  return prompt as HostBashApprovalPrompt;
+}
+
+function extractTextFromToolResult(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (!result || typeof result !== "object") return JSON.stringify(result);
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return JSON.stringify(result);
+  return content
+    .map((item) => {
+      if (!item || typeof item !== "object") return "";
+      const text = (item as { text?: unknown }).text;
+      return typeof text === "string" ? text : "";
+    })
+    .filter(Boolean)
+    .join("\n") || JSON.stringify(result);
 }
 
 export async function runBuiltInSubagentTask(options: {
@@ -675,6 +850,7 @@ export async function runBuiltInSubagentTask(options: {
   workspaceDir: string;
   chatId: string;
   settings: RuntimeSettings;
+  artifactDir?: string;
   signal?: AbortSignal;
 }): Promise<SubagentRunResult> {
   const agent = getSubagentDefinition(options.agent);
@@ -683,6 +859,7 @@ export async function runBuiltInSubagentTask(options: {
     workspaceDir: options.workspaceDir,
     chatId: options.chatId,
     settings: options.settings,
+    artifactDir: options.artifactDir,
     signal: options.signal
   });
 }
@@ -712,9 +889,13 @@ async function mapWithConcurrency<TIn, TOut>(
 }
 
 export function createSubagentTool(options: {
+  channel?: string;
   cwd: string;
   workspaceDir: string;
   chatId: string;
+  sessionId?: string;
+  store?: MomRuntimeStore;
+  artifactDir?: string;
   getSettings: () => RuntimeSettings;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
 }): AgentTool<typeof subagentSchema> {
@@ -802,6 +983,17 @@ export function createSubagentTool(options: {
             workspaceDir: options.workspaceDir,
             chatId: options.chatId,
             settings,
+            artifactDir: options.artifactDir,
+            hostApproval: options.channel && options.sessionId && options.store
+              ? {
+                channel: options.channel,
+                chatId: options.chatId,
+                scopeId: options.chatId,
+                sessionId: options.sessionId,
+                store: options.store
+              }
+              : undefined,
+            emitRunnerEvent: options.emitRunnerEvent,
             signal
           });
           momLog("runner", "subagent_task_end", {

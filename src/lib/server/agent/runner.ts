@@ -1858,6 +1858,10 @@ export class MomRunner implements RunnerLike {
 
     const exposeLoadMcpTool =
       mcpExplicitlyInvoked || skillRequiresMcp || this.selectedMcpServerIds.size > 0;
+    let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
+    let errorMessage: string | undefined;
+    let blockedOnHostBashApproval = false;
+    const hostBashApprovalWaitMessage = "Host Bash approval requested. Waiting for your decision.";
     localTools = createMomTools({
       channel: ctx.channel,
       cwd: this.store.getScratchDir(this.chatId),
@@ -1887,6 +1891,13 @@ export class MomRunner implements RunnerLike {
         const sink = this.activeRunnerEventSink;
         if (sink) {
           enqueue(() => sink(event));
+        }
+        if (event.type === "tool_execution_end" && event.hostBashApproval) {
+          blockedOnHostBashApproval = true;
+          stopReason = "waiting_for_approval";
+          errorMessage = undefined;
+          this.agent.abort();
+          return;
         }
         if (event.type === "subagent_execution") {
           enqueue(() => ctx.respond(`_→ ${formatSubagentProgressLabel(event)}_`, false));
@@ -1920,10 +1931,6 @@ export class MomRunner implements RunnerLike {
     });
     this.agent.state.tools = [...localTools, ...mcpTools];
 
-    let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
-    let errorMessage: string | undefined;
-    let blockedOnHostBashApproval = false;
-    const hostBashApprovalWaitMessage = "Host Bash approval requested. Waiting for your decision.";
     let finalUsage = {
       inputTokens: 0,
       outputTokens: 0,
@@ -2032,7 +2039,7 @@ export class MomRunner implements RunnerLike {
           resultPreview: body.slice(0, 160),
         });
         const hostBashApproval = extractHostBashApprovalPrompt(event.result);
-        if (event.isError && hostBashApproval) {
+        if (hostBashApproval) {
           blockedOnHostBashApproval = true;
           stopReason = "waiting_for_approval";
           errorMessage = undefined;
@@ -2063,7 +2070,7 @@ export class MomRunner implements RunnerLike {
         if (!budgetResult.ok) {
           enqueue(() => respondInThread(budgetResult.reason ?? "Run budget exceeded."));
           this.agent.abort();
-        } else {
+        } else if (!hostBashApproval) {
           const currentBudget = budget.snapshot();
           const shouldRecommendSubagent =
             !subagentDelegationNoticeSent &&

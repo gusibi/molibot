@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
@@ -135,15 +135,20 @@ function buildTempOutputPath(cwd: string): string {
   return join(dir, `bash-${Date.now()}-${randomBytes(4).toString("hex")}.log`);
 }
 
-function listRootFileNames(cwd: string): Set<string> {
+function snapshotRootFiles(cwd: string): Map<string, number> {
   try {
-    return new Set(
-      readdirSync(cwd, { withFileTypes: true })
-        .filter((entry) => entry.isFile())
-        .map((entry) => entry.name)
-    );
+    const snapshot = new Map<string, number>();
+    for (const entry of readdirSync(cwd, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      try {
+        snapshot.set(entry.name, statSync(resolve(cwd, entry.name)).mtimeMs);
+      } catch {
+        snapshot.set(entry.name, 0);
+      }
+    }
+    return snapshot;
   } catch {
-    return new Set();
+    return new Map();
   }
 }
 
@@ -165,14 +170,16 @@ function uniqueArtifactPath(dir: string, name: string): string {
   return candidate;
 }
 
-function moveNewRootArtifacts(cwd: string, artifactDir: string | undefined, before: Set<string>): string[] {
+function moveNewRootArtifacts(cwd: string, artifactDir: string | undefined, before: Map<string, number>): string[] {
   if (!artifactDir) return [];
   const targetDir = resolve(cwd, artifactDir);
   mkdirSync(targetDir, { recursive: true });
   const moved: string[] = [];
 
-  for (const name of listRootFileNames(cwd)) {
-    if (before.has(name) || !shouldMoveRootArtifact(name)) continue;
+  for (const [name, mtimeMs] of snapshotRootFiles(cwd)) {
+    if (!shouldMoveRootArtifact(name)) continue;
+    const previousMtimeMs = before.get(name);
+    if (previousMtimeMs !== undefined && previousMtimeMs === mtimeMs) continue;
     const from = resolve(cwd, name);
     const to = uniqueArtifactPath(targetDir, name);
     try {
@@ -395,7 +402,7 @@ export function createBashTool(cwd: string, options?: {
       if (artifactDir) {
         mkdirSync(resolve(cwd, artifactDir), { recursive: true });
       }
-      const rootFilesBefore = listRootFileNames(cwd);
+      const rootFilesBefore = snapshotRootFiles(cwd);
 
       const sandboxEnv = artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: artifactDir } : {};
       const wrappedCommand = wrapCommandWithVenv(params.command);

@@ -254,9 +254,13 @@ export function createMomTools(options: {
     createEditTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),
     createWriteTool({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir }),
     createSubagentTool({
+      channel: options.channel,
       cwd: options.cwd,
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,
+      sessionId: options.sessionId,
+      store: options.store,
+      artifactDir,
       getSettings: options.getSettings,
       emitRunnerEvent: options.emitRunnerEvent
     }),

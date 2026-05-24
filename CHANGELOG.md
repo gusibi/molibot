@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-05-24
+
+### Subagent artifact routing
+- **Subagent 产物路径统一**: 子 Agent 现在继承主 Agent 的日期产物目录，`bash/write` 默认把普通生成文件放入 `scratch/YYYY/MM/DD/`，避免日报文件落在 scratch 根目录导致父 Agent 读取错路径。
+- **根目录产物覆盖修复**: `bash` 现在会识别新建或修改过的根目录 HTML/PNG/JSON 等产物，并移动到日期产物目录，避免重复文件名时仍读取旧版本。
+- **Subagent 权限审批继承**: 子 Agent 的 `bash` 现在使用主 Agent 的 Host Bash 审批上下文，同一 chat/session 下已批准或本 session 放行的权限会直接生效；子 Agent 新触发审批时也会复用现有 channel 审批卡片。
+
 ## 2026-05-20
 
 ### Telegram group mention trigger
