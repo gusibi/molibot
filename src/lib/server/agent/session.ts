@@ -4,6 +4,7 @@ import type { RuntimeThinkingLevel } from "../settings/index.js";
 
 export interface SessionPreferences {
   thinkingLevelOverride?: RuntimeThinkingLevel | null;
+  hostApprovalMode?: "default" | "session";
 }
 
 export interface SessionHeaderEntry {

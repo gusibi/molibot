@@ -11,7 +11,10 @@ function minimalStore() {
   return {
     getActiveSession: () => "session-1",
     listSessions: () => ["session-1"],
-    getSessionThinkingLevelOverride: () => null
+    getSessionThinkingLevelOverride: () => null,
+    getSessionHostApprovalMode: () => "default",
+    setSessionHostApprovalMode: () => "session",
+    appendRuntimeEvent: () => {}
   };
 }
 
@@ -204,6 +207,93 @@ test("hosttools reject rejects a specific pending host tool request", async () =
   assert.equal(settings.hostTools.pendingApprovals.length, 0);
   assert.equal(settings.hostTools.approvalHistory[0]?.status, "rejected");
   assert.match(sent[0] ?? "", /Rejected host tool approval hta-agent-browser-1/);
+});
+
+test("hosttools approve-session enables session fallback without persisting approved tool", async () => {
+  const sent: string[] = [];
+  const runtimeEvents: string[] = [];
+  const pending: HostToolApprovalRequest = {
+    id: "hta-cat-1",
+    toolId: "cat",
+    displayName: "cat",
+    command: "cat",
+    reason: "Needs host file access.",
+    permissions: {
+      envAllowlist: [],
+      filesystem: "workspace-read",
+      network: "none"
+    },
+    channel: "weixin",
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    requestedAt: "2026-05-23T00:00:00.000Z",
+    approvalMode: "persistent",
+    status: "pending",
+    pendingAction: {
+      kind: "run_approved_host_tool",
+      originalCommand: "cat blocked.txt",
+      args: ["blocked.txt"]
+    }
+  };
+  let autoExecuted = false;
+  let sessionMode: "default" | "session" = "default";
+  let settings: RuntimeSettings = {
+    ...structuredClone(defaultRuntimeSettings),
+    hostTools: {
+      pendingApprovals: [pending],
+      approvalHistory: [],
+      approvedTools: []
+    }
+  };
+  const store = {
+    ...minimalStore(),
+    setSessionHostApprovalMode: (_scopeId: string, _sessionId: string, value: "default" | "session") => {
+      sessionMode = value;
+      return value;
+    },
+    appendRuntimeEvent: (_scopeId: string, event: { code: string }) => {
+      runtimeEvents.push(event.code);
+    }
+  };
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "weixin",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "weixin",
+    store: store as any,
+    runners: {} as any,
+    getSettings: () => settings,
+    updateSettings: (patch) => {
+      settings = { ...settings, ...patch } as RuntimeSettings;
+      return settings;
+    },
+    executeApprovedHostTool: async () => {
+      autoExecuted = true;
+      return "Executed immediately.";
+    },
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  const handled = await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/hosttools approve-session hta-cat-1",
+    target: "target-1"
+  });
+
+  assert.equal(handled, true);
+  assert.equal(autoExecuted, true);
+  assert.equal(sessionMode, "session");
+  assert.equal(settings.hostTools.pendingApprovals.length, 0);
+  assert.equal(settings.hostTools.approvedTools.length, 0);
+  assert.equal(settings.hostTools.approvalHistory[0]?.status, "approved");
+  assert.deepEqual(runtimeEvents, ["SESSION_HOST_APPROVAL_ENABLED"]);
+  assert.match(sent[0] ?? "", /Approved for current session only/);
+  assert.match(sent[0] ?? "", /Future sandbox permission denials in this session will fall back to host bash automatically/);
 });
 
 test("status command renders markdown table on qq", async () => {

@@ -125,7 +125,7 @@ export interface HostToolApprovalPrompt {
   title: string;
   body: string;
   options: Array<{
-    id: "approve" | "reject";
+    id: "approve" | "approve_session" | "reject";
     label: string;
     style: "primary" | "danger";
   }>;
@@ -157,6 +157,7 @@ export function buildHostToolApprovalPrompt(request: HostToolApprovalRequest): H
     ].filter(Boolean).join("\n"),
     options: [
       { id: "approve", label: "Approve", style: "primary" },
+      { id: "approve_session", label: "Approve This Session", style: "primary" },
       { id: "reject", label: "Reject", style: "danger" }
     ],
     request: {
@@ -182,10 +183,12 @@ export function buildNonInteractiveHostToolApprovalText(prompt: HostToolApproval
     isEphemeral
       ? "Approving this request will allow only this exact host command/script to run once."
       : "Approving this request will register the command as a reusable host capability for later runs.",
+    "Reply `本session允许` or `approve session` to allow this request and auto-approve sandbox fallback for the current session only.",
     "Reply `批准`, `安装`, or `approve` to approve when exactly one host-tool approval is pending in this chat.",
     "Reply `拒绝` or `reject` to reject when exactly one host-tool approval is pending in this chat.",
     "If multiple approvals are pending, use:",
     `- /hosttools approve ${prompt.requestId}`,
+    `- /hosttools approve-session ${prompt.requestId}`,
     `- /hosttools reject ${prompt.requestId}`
   ].join("\n");
 }
@@ -427,14 +430,16 @@ export function findPendingHostToolApproval(
 export function approveHostToolRequest(
   settings: HostToolSettings,
   scopeId: string,
-  approvalId?: string
+  approvalId?: string,
+  options?: { persistApprovedTool?: boolean }
 ): { settings: HostToolSettings; approved?: ApprovedHostTool; request: HostToolApprovalRequest } | null {
   const pending = findPendingHostToolApproval(settings, scopeId, approvalId);
   if (!pending) return null;
+  const persistApprovedTool = options?.persistApprovedTool ?? true;
   const now = new Date().toISOString();
   const resolvedPending = { ...pending, status: "approved" as const, resolvedAt: now };
   const nextPending = settings.pendingApprovals.filter((item) => item.id !== pending.id);
-  if (pending.approvalMode === "ephemeral") {
+  if (pending.approvalMode === "ephemeral" || !persistApprovedTool) {
     return {
       settings: {
         pendingApprovals: nextPending,

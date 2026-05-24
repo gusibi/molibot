@@ -1,6 +1,6 @@
 import type { AssistantMessageEvent, ImageContent } from "@mariozechner/pi-ai";
 import type { RuntimeThinkingLevel } from "../settings/index.js";
-import type { HostToolApprovalPrompt } from "../settings/hostTools.js";
+import type { HostBashApprovalPrompt } from "../hostBash/index.js";
 
 export type AttachmentMediaType = "image" | "audio" | "video" | "file";
 
@@ -87,7 +87,7 @@ export type RunnerUiEvent =
       displayName?: string;
       isError: boolean;
       summary: string;
-      hostToolApproval?: HostToolApprovalPrompt;
+      hostBashApproval?: HostBashApprovalPrompt;
     }
   | {
       type: "subagent_execution";

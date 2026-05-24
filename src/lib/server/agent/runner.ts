@@ -52,7 +52,7 @@ import {
   stripTransientRuntimeNoticesFromMessages,
   TOOL_BUDGET_RUNTIME_NOTICE
 } from "./runtimeNotices.js";
-import type { HostToolApprovalPrompt } from "../settings/hostTools.js";
+import type { HostBashApprovalPrompt } from "../hostBash/index.js";
 
 const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
 const SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS = 12;
@@ -1058,13 +1058,13 @@ function extractTextFromResult(result: unknown): string {
   return parts.join("\n") || JSON.stringify(result);
 }
 
-function extractHostToolApprovalPrompt(result: unknown): HostToolApprovalPrompt | undefined {
+function extractHostBashApprovalPrompt(result: unknown): HostBashApprovalPrompt | undefined {
   if (!result || typeof result !== "object") return undefined;
   const details = (result as { details?: unknown }).details;
   if (!details || typeof details !== "object") return undefined;
-  const prompt = (details as { hostToolApproval?: unknown }).hostToolApproval;
+  const prompt = (details as { hostBashApproval?: unknown }).hostBashApproval;
   if (!prompt || typeof prompt !== "object") return undefined;
-  return prompt as HostToolApprovalPrompt;
+  return prompt as HostBashApprovalPrompt;
 }
 
 function normalizeAudioMimeType(mimeType?: string | null): string {
@@ -1863,8 +1863,10 @@ export class MomRunner implements RunnerLike {
       cwd: this.store.getScratchDir(this.chatId),
       workspaceDir: this.store.getWorkspaceDir(),
       chatId: this.chatId,
+      sessionId: this.sessionId,
       timezone: settings.timezone,
       messageTimestamp: ctx.message.ts,
+      store: this.store,
       memory: this.memory,
       getSettings: this.getSettings,
       updateSettings: this.updateSettings,
@@ -1920,8 +1922,8 @@ export class MomRunner implements RunnerLike {
 
     let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
     let errorMessage: string | undefined;
-    let blockedOnHostToolApproval = false;
-    const hostToolApprovalWaitMessage = "Host tool approval requested. Waiting for your decision.";
+    let blockedOnHostBashApproval = false;
+    const hostBashApprovalWaitMessage = "Host Bash approval requested. Waiting for your decision.";
     let finalUsage = {
       inputTokens: 0,
       outputTokens: 0,
@@ -2029,9 +2031,9 @@ export class MomRunner implements RunnerLike {
           isError: event.isError,
           resultPreview: body.slice(0, 160),
         });
-        const hostToolApproval = extractHostToolApprovalPrompt(event.result);
-        if (event.isError && hostToolApproval) {
-          blockedOnHostToolApproval = true;
+        const hostBashApproval = extractHostBashApprovalPrompt(event.result);
+        if (event.isError && hostBashApproval) {
+          blockedOnHostBashApproval = true;
           stopReason = "waiting_for_approval";
           errorMessage = undefined;
           this.agent.abort();
@@ -2043,7 +2045,7 @@ export class MomRunner implements RunnerLike {
             displayName,
             isError: event.isError,
             summary: body,
-            hostToolApproval
+            hostBashApproval
           }));
         }
         const text = `*${status} ${displayName}*\n\`\`\`\n${body}\n\`\`\``;
@@ -2401,8 +2403,8 @@ export class MomRunner implements RunnerLike {
               model: selectedModel.id
             });
 
-            if (blockedOnHostToolApproval) {
-              candidateFinalText = hostToolApprovalWaitMessage;
+            if (blockedOnHostBashApproval) {
+              candidateFinalText = hostBashApprovalWaitMessage;
               break;
             }
 

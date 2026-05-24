@@ -2,9 +2,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getModels } from "@mariozechner/pi-ai";
 import type { RuntimeSettings, RuntimeThinkingLevel } from "../settings/index.js";
-import type { ApprovedHostTool, HostToolApprovalRequest } from "../settings/index.js";
-import { approveHostToolRequest, findPendingHostToolApproval } from "../settings/hostTools.js";
 import { RUNTIME_THINKING_LEVELS } from "../settings/index.js";
+import type { ApprovedHostBashEntry, HostBashApprovalRecord, HostBashStore } from "../hostBash/index.js";
+import { getHostBashStore } from "../hostBash/index.js";
 import {
   buildModelOptions,
   currentModelKey,
@@ -44,6 +44,7 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   runners: RunnerPool;
   getSettings: () => RuntimeSettings;
   updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
+  hostBashStore?: HostBashStore;
   getAuthScopeKey?: (input: SharedRuntimeCommandContext<TTarget>) => string;
   isRunning: (scopeId: string) => boolean;
   stopRun: (scopeId: string) => { aborted: boolean };
@@ -53,10 +54,10 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   maybeHandleAcpCommand?: (scopeId: string, cmd: string, rawArg: string, target: TTarget) => Promise<boolean>;
   sendText: (target: TTarget, text: string) => Promise<void>;
   uploadFile?: (target: TTarget, filePath: string, title?: string, text?: string) => Promise<void>;
-  executeApprovedHostTool?: (
+  executeApprovedHostBash?: (
     input: SharedRuntimeCommandContext<TTarget>,
-    approved: ApprovedHostTool | undefined,
-    request: HostToolApprovalRequest
+    approved: ApprovedHostBashEntry | undefined,
+    request: HostBashApprovalRecord
   ) => Promise<string | void>;
   onSessionMutation?: (scopeId: string) => void | Promise<void>;
   getQueueSize?: (scopeId: string) => number;
@@ -99,78 +100,116 @@ const FIXED_COMMAND_RENDER_MODE: Record<FixedCommandName, FixedCommandRenderMode
 
 export class SharedRuntimeCommandService<TTarget> {
   private readonly thinkingLevels = new Set<string>(RUNTIME_THINKING_LEVELS);
+  private readonly hostBashStore: HostBashStore;
 
-  constructor(private readonly options: SharedRuntimeCommandOptions<TTarget>) {}
+  constructor(private readonly options: SharedRuntimeCommandOptions<TTarget>) {
+    this.hostBashStore = options.hostBashStore ?? getHostBashStore();
+  }
 
   async approveHostTool(input: SharedRuntimeCommandContext<TTarget>, approvalId?: string): Promise<{
     ok: boolean;
     message: string;
-    request?: HostToolApprovalRequest;
+    request?: HostBashApprovalRecord;
   }> {
-    if (!this.options.updateSettings) {
-      return { ok: false, message: "Host tool approval is unavailable in current runtime." };
-    }
-    const settings = this.options.getSettings();
-    const approved = approveHostToolRequest(settings.hostTools, input.scopeId, approvalId || undefined);
+    const approved = this.hostBashStore.approve(input.scopeId, approvalId || undefined);
     if (!approved) {
-      return { ok: false, message: "No matching pending host tool approval found." };
+      return { ok: false, message: "No matching pending Host Bash approval found." };
     }
-    this.options.updateSettings({ hostTools: approved.settings });
     const registered = approved.approved;
     let message = registered
       ? [
-          `Approved host tool: ${registered.displayName}`,
+          `Approved Host Bash: ${registered.displayName}`,
           `Tool ID: ${registered.toolId}`,
           `Command: ${registered.command}`
         ].join("\n")
       : [
-          `Approved one-time host action: ${approved.request.displayName}`,
-          `Request ID: ${approved.request.id}`,
-          `Command: ${approved.request.command}`
+          `Approved one-time host action: ${approved.record.displayName}`,
+          `Request ID: ${approved.record.id}`,
+          `Command: ${approved.record.command}`
         ].join("\n");
-    if (approved.request.pendingAction && this.options.executeApprovedHostTool) {
+    if (approved.record.pendingAction && this.options.executeApprovedHostBash) {
       try {
-        const runSummary = await this.options.executeApprovedHostTool(input, approved.approved, approved.request);
+        const runSummary = await this.options.executeApprovedHostBash(input, approved.approved, approved.record);
+        this.hostBashStore.markExecution(approved.record.id, "executed");
         if (runSummary) {
           message += `\n\n${runSummary}`;
         }
       } catch (error) {
+        this.hostBashStore.markExecution(
+          approved.record.id,
+          "failed",
+          error instanceof Error ? error.message : String(error)
+        );
         message += `\n\nApproved, but automatic execution failed: ${error instanceof Error ? error.message : String(error)}`;
       }
     } else if (registered) {
-      message += "\nThe tool is now registered as an approved host capability. It is not a host shell.";
+      message += "\nThis command is now registered as a reusable Host Bash whitelist entry.";
     } else {
       message += "\nThis approval is one-time only and will not be reused for future host commands.";
     }
-    return { ok: true, message, request: approved.request };
+    return { ok: true, message, request: approved.record };
+  }
+
+  async approveHostToolForSession(input: SharedRuntimeCommandContext<TTarget>, approvalId?: string): Promise<{
+    ok: boolean;
+    message: string;
+    request?: HostBashApprovalRecord;
+  }> {
+    const sessionId = this.options.store.getActiveSession(input.scopeId);
+    const approved = this.hostBashStore.approve(input.scopeId, approvalId || undefined, { persistWhitelist: false });
+    if (!approved) {
+      return { ok: false, message: "No matching pending Host Bash approval found." };
+    }
+    this.options.store.setSessionHostApprovalMode(input.scopeId, sessionId, "session");
+    this.options.store.appendRuntimeEvent(input.scopeId, {
+      code: "SESSION_HOST_APPROVAL_ENABLED",
+      level: "info",
+      summary: "Enabled session-only sandbox fallback approval.",
+      details: {
+        sessionId,
+        requestId: approved.record.id,
+        command: approved.record.command
+      }
+    }, sessionId);
+
+    let message = [
+      `Approved for current session only: ${approved.record.displayName}`,
+      `Request ID: ${approved.record.id}`,
+      `Command: ${approved.record.command}`,
+      `Session: ${sessionId}`,
+      "Future sandbox permission denials in this session will fall back to Host Bash automatically."
+    ].join("\n");
+    if (approved.record.pendingAction && this.options.executeApprovedHostBash) {
+      try {
+        const runSummary = await this.options.executeApprovedHostBash(input, undefined, approved.record);
+        this.hostBashStore.markExecution(approved.record.id, "executed");
+        if (runSummary) {
+          message += `\n\n${runSummary}`;
+        }
+      } catch (error) {
+        this.hostBashStore.markExecution(
+          approved.record.id,
+          "failed",
+          error instanceof Error ? error.message : String(error)
+        );
+        message += `\n\nApproved for this session, but automatic execution failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    return { ok: true, message, request: approved.record };
   }
 
   async rejectHostTool(input: SharedRuntimeCommandContext<TTarget>, approvalId?: string): Promise<{
     ok: boolean;
     message: string;
-    request?: HostToolApprovalRequest;
+    request?: HostBashApprovalRecord;
   }> {
-    if (!this.options.updateSettings) {
-      return { ok: false, message: "Host tool approval is unavailable in current runtime." };
-    }
-    const settings = this.options.getSettings();
-    const request = findPendingHostToolApproval(settings.hostTools, input.scopeId, approvalId);
+    const request = this.hostBashStore.reject(input.scopeId, approvalId);
     if (!request) {
-      return { ok: false, message: "No matching pending host tool approval found." };
+      return { ok: false, message: "No matching pending Host Bash approval found." };
     }
-    const now = new Date().toISOString();
-    const resolvedRequest = { ...request, status: "rejected" as const, resolvedAt: now };
-    const nextPending = settings.hostTools.pendingApprovals.filter((item) => item.id !== request.id);
-    this.options.updateSettings({
-      hostTools: {
-        pendingApprovals: nextPending,
-        approvalHistory: [resolvedRequest, ...settings.hostTools.approvalHistory],
-        approvedTools: settings.hostTools.approvedTools
-      }
-    });
     return {
       ok: true,
-      message: `Rejected host tool approval ${request.id} (${request.displayName}).`,
+      message: `Rejected Host Bash approval ${request.id} (${request.displayName}).`,
       request
     };
   }
@@ -673,24 +712,24 @@ export class SharedRuntimeCommandService<TTarget> {
     return /^(安装|批准|同意|确认|允许|approve|approved|yes|y)$/i.test(text.trim());
   }
 
+  private isSessionApprovalText(text: string): boolean {
+    return /^(本session允许|本轮session允许|approve session|session approve)$/i.test(text.trim());
+  }
+
   private isRejectText(text: string): boolean {
     return /^(拒绝|取消|不批准|deny|reject|no|n)$/i.test(text.trim());
   }
 
   private async tryHandleHostToolApproval(input: SharedRuntimeCommandContext<TTarget>, text: string): Promise<boolean> {
-    if (!this.options.updateSettings) return false;
-    const settings = this.options.getSettings();
-    const pending = settings.hostTools.pendingApprovals.filter((item) =>
-      item.status === "pending" && item.scopeId === input.scopeId
-    );
+    const pending = this.hostBashStore.listPending(input.scopeId);
     if (pending.length === 0) return false;
-    if (!this.isApprovalText(text) && !this.isRejectText(text)) return false;
+    if (!this.isApprovalText(text) && !this.isRejectText(text) && !this.isSessionApprovalText(text)) return false;
 
     if (pending.length > 1) {
       await this.options.sendText(
         input.target,
         [
-          "There are multiple pending host tool approvals. Use one of:",
+          "There are multiple pending Host Bash approvals. Use one of:",
           ...pending.flatMap((item) => [
             `/hosttools approve ${item.id} - ${item.displayName}`,
             `/hosttools reject ${item.id} - ${item.displayName}`
@@ -707,28 +746,29 @@ export class SharedRuntimeCommandService<TTarget> {
       return true;
     }
 
+    if (this.isSessionApprovalText(text)) {
+      const approved = await this.approveHostToolForSession(input, request.id);
+      await this.options.sendText(input.target, approved.message);
+      return true;
+    }
+
     const approved = await this.approveHostTool(input, request.id);
     await this.options.sendText(input.target, approved.message);
     return true;
   }
 
   private async handleHostToolsCommand(input: SharedRuntimeCommandContext<TTarget>, rawArg: string): Promise<void> {
-    if (!this.options.updateSettings) {
-      await this.options.sendText(input.target, "Host tool approval is unavailable in current runtime.");
-      return;
-    }
     const [subcommand = "list", approvalId = ""] = rawArg.split(/\s+/).filter(Boolean);
-    const settings = this.options.getSettings();
     if (subcommand === "list") {
-      const pending = settings.hostTools.pendingApprovals.filter((item) => item.status === "pending" && item.scopeId === input.scopeId);
-      const approved = settings.hostTools.approvedTools.filter((item) => item.enabled);
+      const pending = this.hostBashStore.listPending(input.scopeId);
+      const approved = this.hostBashStore.listWhitelist().filter((item) => item.enabled);
       await this.options.sendText(
         input.target,
         [
-          `Pending host tool approvals: ${pending.length}`,
+          `Pending Host Bash approvals: ${pending.length}`,
           ...pending.map((item) => `- ${item.id}: ${item.displayName} (${item.command})`),
           "",
-          `Approved host tools: ${approved.length}`,
+          `Host Bash whitelist entries: ${approved.length}`,
           ...approved.map((item) => `- ${item.toolId}: ${item.displayName} (${item.command})`)
         ].join("\n").trim()
       );
@@ -736,6 +776,11 @@ export class SharedRuntimeCommandService<TTarget> {
     }
     if (subcommand === "approve") {
       const approved = await this.approveHostTool(input, approvalId || undefined);
+      await this.options.sendText(input.target, approved.message);
+      return;
+    }
+    if (subcommand === "approve-session") {
+      const approved = await this.approveHostToolForSession(input, approvalId || undefined);
       await this.options.sendText(input.target, approved.message);
       return;
     }
@@ -747,11 +792,13 @@ export class SharedRuntimeCommandService<TTarget> {
     await this.options.sendText(
       input.target,
       [
-        "Host tool usage:",
+        "Host Bash usage:",
         "/hosttools",
         "/hosttools approve <approvalId>",
+        "/hosttools approve-session <approvalId>",
         "/hosttools reject <approvalId>",
-        "Or reply `批准`, `安装`, or `approve` when exactly one approval is pending in this chat."
+        "Or reply `批准`, `安装`, or `approve` when exactly one approval is pending in this chat.",
+        "Reply `本session允许` or `approve session` to allow only the current session."
       ].join("\n")
     );
   }

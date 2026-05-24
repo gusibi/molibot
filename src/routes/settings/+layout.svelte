@@ -33,6 +33,7 @@
       skillDrafts: "技能草稿",
       runHistory: "运行历史",
       tasks: "任务",
+      hostBash: "Host Bash",
       systemGroup: "系统",
       systemConfig: "系统配置",
       sandbox: "Sandbox",
@@ -69,6 +70,7 @@
       skillDrafts: "Skill Drafts",
       runHistory: "Run History",
       tasks: "Tasks",
+      hostBash: "Host Bash",
       systemGroup: "System",
       systemConfig: "System Config",
       sandbox: "Sandbox",
@@ -122,6 +124,7 @@
         { href: "/settings/skill-drafts", label: "Skill Drafts", exact: true },
         { href: "/settings/run-history", label: "Run History", exact: true },
         { href: "/settings/tasks", label: "Tasks", exact: true },
+        { href: "/settings/host-bash", label: "Host Bash", exact: true },
       ],
     },
     {
@@ -255,6 +258,7 @@
         { href: "/settings/skill-drafts", label: t("skillDrafts"), exact: true },
         { href: "/settings/run-history", label: t("runHistory"), exact: true },
         { href: "/settings/tasks", label: t("tasks"), exact: true },
+        { href: "/settings/host-bash", label: t("hostBash"), exact: true },
       ],
     },
     {

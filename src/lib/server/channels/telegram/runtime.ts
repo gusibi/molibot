@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { basename, extname, join } from "node:path";
 import { Bot, InlineKeyboard, InputFile } from "grammy";
 import type { RuntimeSettings } from "../../settings/index.js";
-import type { HostToolApprovalPrompt } from "../../settings/hostTools.js";
+import type { HostBashApprovalPrompt } from "../../hostBash/index.js";
 import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
 import { formatSubagentProgressLabel, formatSubagentProgressSummary } from "../../agent/subagentProgress.js";
@@ -24,7 +24,7 @@ import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageCo
 import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
 import type { ParsedRelativeReminder, StatusSession } from "./types.js";
 import { TELEGRAM_SHARED_COMMANDS } from "./commands.js";
-import { executeHostToolApproval } from "../../agent/hostToolExec.js";
+import { executeHostBashApproval } from "../../agent/hostBashExec.js";
 import { isTelegramBotMention, stripTelegramBotMention, type TelegramMessageEntityLike } from "./mentions.js";
 
 export interface TelegramConfig {
@@ -64,10 +64,10 @@ export class TelegramManager extends BaseChannelRuntime {
     optionId?: string;
   }>();
   private readonly acpPermissionInputs = new Map<string, { requestId: string }>();
-  private readonly hostToolApprovalActions = new Map<string, {
+  private readonly hostBashApprovalActions = new Map<string, {
     scopeId: string;
     requestId: string;
-    action: "approve" | "reject";
+    action: "approve" | "approve_session" | "reject";
   }>();
   private readonly events: EventsWatcher[] = [];
   private readonly watchedChatEventDirs = new Set<string>();
@@ -181,11 +181,11 @@ export class TelegramManager extends BaseChannelRuntime {
         this.maybeHandleTelegramAcpCommand(scopeId, cmd, rawArg, target),
       sendText: (target, text) => this.sendTelegramCommandText(target, text),
       uploadFile: (target, filePath, title, text) => this.sendTelegramCommandFile(target, filePath, title, text),
-      executeApprovedHostTool: async (input, approved, request) => {
+      executeApprovedHostBash: async (input, approved, request) => {
         if (!request.pendingAction || !this.bot) return;
         const target = this.parseChatScopeId(input.scopeId);
-        const executed = await executeHostToolApproval({
-          request,
+        const executed = await executeHostBashApproval({
+          record: request,
           approvedTool: approved,
           cwd: this.store.getChatDir(input.scopeId),
         });
@@ -496,13 +496,13 @@ export class TelegramManager extends BaseChannelRuntime {
     return `acp:${token}`;
   }
 
-  private registerHostToolApprovalAction(
+  private registerHostBashApprovalAction(
     scopeId: string,
     requestId: string,
-    action: "approve" | "reject"
+    action: "approve" | "approve_session" | "reject"
   ): string {
     const token = randomUUID().replace(/-/g, "").slice(0, 24);
-    this.hostToolApprovalActions.set(token, { scopeId, requestId, action });
+    this.hostBashApprovalActions.set(token, { scopeId, requestId, action });
     return `hta:${token}`;
   }
 
@@ -552,20 +552,22 @@ export class TelegramManager extends BaseChannelRuntime {
     );
   }
 
-  private buildHostToolApprovalKeyboard(scopeId: string, prompt: HostToolApprovalPrompt): InlineKeyboard {
+  private buildHostBashApprovalKeyboard(scopeId: string, prompt: HostBashApprovalPrompt): InlineKeyboard {
     return new InlineKeyboard()
-      .text("Approve", this.registerHostToolApprovalAction(scopeId, prompt.requestId, "approve"))
-      .text("Reject", this.registerHostToolApprovalAction(scopeId, prompt.requestId, "reject"));
+      .text("Approve", this.registerHostBashApprovalAction(scopeId, prompt.requestId, "approve"))
+      .text("This Session", this.registerHostBashApprovalAction(scopeId, prompt.requestId, "approve_session"))
+      .row()
+      .text("Reject", this.registerHostBashApprovalAction(scopeId, prompt.requestId, "reject"));
   }
 
-  private async sendHostToolApprovalCard(
+  private async sendHostBashApprovalCard(
     bot: Bot,
     scopeId: string,
-    prompt: HostToolApprovalPrompt,
+    prompt: HostBashApprovalPrompt,
     replyTo?: number | null
   ): Promise<void> {
     const target = this.parseChatScopeId(scopeId);
-    const keyboard = this.buildHostToolApprovalKeyboard(scopeId, prompt);
+    const keyboard = this.buildHostBashApprovalKeyboard(scopeId, prompt);
     await sendTelegramText(
       bot,
       target.chatId,
@@ -800,7 +802,7 @@ export class TelegramManager extends BaseChannelRuntime {
       }
 
       const token = ctx.callbackQuery.data.slice(4);
-      const action = this.hostToolApprovalActions.get(token);
+      const action = this.hostBashApprovalActions.get(token);
       if (!action || action.scopeId !== scopeId) {
         await ctx.answerCallbackQuery({ text: "This host approval request is no longer available." });
         return;
@@ -814,9 +816,17 @@ export class TelegramManager extends BaseChannelRuntime {
       };
       const result = action.action === "approve"
         ? await this.commandService.approveHostTool(input, action.requestId)
-        : await this.commandService.rejectHostTool(input, action.requestId);
-      this.hostToolApprovalActions.delete(token);
-      await ctx.answerCallbackQuery({ text: action.action === "approve" ? "Approved." : "Rejected." });
+        : action.action === "approve_session"
+          ? await this.commandService.approveHostToolForSession(input, action.requestId)
+          : await this.commandService.rejectHostTool(input, action.requestId);
+      this.hostBashApprovalActions.delete(token);
+      await ctx.answerCallbackQuery({
+        text: action.action === "reject"
+          ? "Rejected."
+          : action.action === "approve_session"
+            ? "Approved for this session."
+            : "Approved."
+      });
       const messageId = callbackMessage?.message_id;
       if (messageId) {
         await editTelegramMessage(
@@ -1972,8 +1982,8 @@ export class TelegramManager extends BaseChannelRuntime {
         }
 
         if (runnerEvent.type === "tool_execution_end") {
-          if (runnerEvent.hostToolApproval) {
-            await this.sendHostToolApprovalCard(bot, scopeId, runnerEvent.hostToolApproval);
+          if (runnerEvent.hostBashApproval) {
+            await this.sendHostBashApprovalCard(bot, scopeId, runnerEvent.hostBashApproval);
           }
           updateToolProgress(
             runnerEvent.toolName,

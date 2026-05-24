@@ -10,6 +10,12 @@ import { defaultToolSandboxSettings } from "../../settings/toolSandbox.js";
 import { defaultRuntimeSettings } from "../../settings/defaults.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 
+function hostApprovalStore(sessionMode: "default" | "session" = "default"): any {
+  return {
+    getSessionHostApprovalMode: () => sessionMode
+  };
+}
+
 function firstText(result: Awaited<ReturnType<ReturnType<typeof createBashTool>["execute"]>>): string {
   const item = result.content[0];
   return item?.type === "text" ? item.text : "";
@@ -112,6 +118,8 @@ test("bash can request host tool approval without a separate approval tool", asy
         channel: "telegram",
         chatId: "chat-1",
         scopeId: "chat-1",
+        sessionId: "session-1",
+        store: hostApprovalStore(),
         getSettings: () => settings,
         updateSettings: (patch) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
@@ -151,6 +159,8 @@ test("bash can request one-time host approval for compound shell commands", asyn
         channel: "telegram",
         chatId: "chat-1",
         scopeId: "chat-1",
+        sessionId: "session-1",
+        store: hostApprovalStore(),
         getSettings: () => settings,
         updateSettings: (patch) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
@@ -207,6 +217,8 @@ test("bash runs approved host tools through shell before sandbox/plain execution
         channel: "telegram",
         chatId: "chat-1",
         scopeId: "chat-1",
+        sessionId: "session-1",
+        store: hostApprovalStore(),
         getSettings: () => settings,
         updateSettings: (patch) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
@@ -249,6 +261,8 @@ test("bash auto-requests host approval after sandbox permission failure for sing
         channel: "telegram",
         chatId: "chat-1",
         scopeId: "chat-1",
+        sessionId: "session-1",
+        store: hostApprovalStore(),
         getSettings: () => settings,
         updateSettings: (patch) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
@@ -268,6 +282,60 @@ test("bash auto-requests host approval after sandbox permission failure for sing
     assert.equal(settings.hostTools.pendingApprovals.length, 1);
     assert.equal(settings.hostTools.pendingApprovals[0]?.command, "cat");
     assert.equal(Boolean(result.details && "hostToolApproval" in result.details), true);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/Sandbox is not supported|sandbox-runtime|dependencies/i.test(message)) {
+      return;
+    }
+    throw error;
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("bash falls back to host bash after sandbox denial when session approval mode is enabled", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  const blockedFile = join(cwd, "blocked.txt");
+  writeFileSync(blockedFile, "secret", "utf8");
+  let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
+  try {
+    const tool = createBashTool(cwd, {
+      sandbox: {
+        settings: {
+          ...defaultToolSandboxSettings,
+          enabled: true,
+          filesystem: {
+            ...defaultToolSandboxSettings.filesystem,
+            denyRead: [...defaultToolSandboxSettings.filesystem.denyRead, blockedFile]
+          }
+        },
+        workspaceDir: cwd
+      },
+      hostApproval: {
+        channel: "telegram",
+        chatId: "chat-1",
+        scopeId: "chat-1",
+        sessionId: "session-1",
+        store: hostApprovalStore("session") as any,
+        getSettings: () => settings,
+        updateSettings: (patch) => {
+          settings = { ...settings, ...patch } as RuntimeSettings;
+          return settings;
+        }
+      }
+    });
+    const result = await tool.execute("tool-1", {
+      label: "bash",
+      command: `cat ${JSON.stringify(blockedFile)}`
+    });
+
+    const details = result.details as { sandboxApplied?: boolean; sandboxWarning?: string } | undefined;
+    if (!details?.sandboxWarning?.includes("session-approved host bash fallback")) {
+      return;
+    }
+    assert.match(firstText(result), /secret/);
+    assert.match(firstText(result), /\[SESSION\] Sandbox was bypassed for this session/);
+    assert.equal(settings.hostTools.pendingApprovals.length, 0);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/Sandbox is not supported|sandbox-runtime|dependencies/i.test(message)) {

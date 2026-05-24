@@ -1,6 +1,6 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
 import type { AcpPendingPermissionView } from "../../acp/types.js";
-import type { HostToolApprovalPrompt } from "../../settings/hostTools.js";
+import type { HostBashApprovalPrompt } from "../../hostBash/index.js";
 import { momWarn } from "../../agent/log.js";
 import { markdownToFeishuMarkdown, parseFeishuRichTextSegments, type FeishuRichTextSegment } from "./formatting.js";
 
@@ -19,8 +19,8 @@ interface FeishuCardActionValue {
 }
 
 interface FeishuHostToolApprovalActionValue {
-  action: "approve" | "reject";
-  kind: "host_tool_approval";
+  action: "approve" | "approve_session" | "reject";
+  kind: "host_bash_approval";
   botId: string;
   chatId: string;
   requestId: string;
@@ -386,7 +386,7 @@ export function buildFeishuAcpPermissionResultCard(
 }
 
 export function buildFeishuHostToolApprovalCard(
-  prompt: HostToolApprovalPrompt,
+  prompt: HostBashApprovalPrompt,
   options: PermissionCardOptions
 ): lark.InteractiveCard {
   const actionButtons: lark.InteractiveCardActionItem[] = prompt.options.map((option) => ({
@@ -397,7 +397,7 @@ export function buildFeishuHostToolApprovalCard(
       content: option.label
     },
     value: {
-      kind: "host_tool_approval",
+      kind: "host_bash_approval",
       action: option.id,
       botId: options.botId,
       chatId: options.chatId,
@@ -433,7 +433,7 @@ export function buildFeishuHostToolApprovalCard(
 }
 
 export function buildFeishuHostToolApprovalResultCard(
-  prompt: HostToolApprovalPrompt,
+  prompt: HostBashApprovalPrompt,
   outcome: string,
   tone: CardTone = "green"
 ): lark.InteractiveCard {

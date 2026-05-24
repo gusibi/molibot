@@ -198,8 +198,8 @@ export const POST: RequestHandler = async ({ request }) => {
                 writeEvent(controller, encoder, "runner_event", {
                   diagnostic: diagnostic ?? ""
                 });
-                if (event.type === "tool_execution_end" && event.hostToolApproval) {
-                  writeEvent(controller, encoder, "host_tool_approval", event.hostToolApproval);
+                if (event.type === "tool_execution_end" && event.hostBashApproval) {
+                  writeEvent(controller, encoder, "host_bash_approval", event.hostBashApproval);
                 }
                 return;
               }

@@ -21,6 +21,7 @@ import { momLog } from "../log.js";
 import { resolveScratchArtifactDir } from "../scratchArtifacts.js";
 import { shouldSerializeToolCall } from "../toolPolicy.js";
 import type { RunnerUiEvent } from "../types.js";
+import type { MomRuntimeStore } from "../store.js";
 
 function wrapSerializedTool<T extends AgentTool<any>>(tool: T): T {
   let chain = Promise.resolve();
@@ -103,8 +104,10 @@ export function createMomTools(options: {
   cwd: string;
   workspaceDir: string;
   chatId: string;
+  sessionId: string;
   timezone: string;
   messageTimestamp?: string | number | Date;
+  store: MomRuntimeStore;
   memory: MemoryGateway;
   getSettings: () => RuntimeSettings;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
@@ -244,8 +247,8 @@ export function createMomTools(options: {
         channel: options.channel,
         chatId: options.chatId,
         scopeId: options.chatId,
-        getSettings: options.getSettings,
-        updateSettings: options.updateSettings
+        sessionId: options.sessionId,
+        store: options.store
       }
     }),
     createEditTool({ cwd: options.cwd, workspaceDir: options.workspaceDir }),

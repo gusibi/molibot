@@ -37,6 +37,7 @@ import { SessionStore } from "../sessions/store.js";
 import { SettingsStore } from "../settings/store.js";
 import { AiUsageTracker } from "../usage/tracker.js";
 import { ModelErrorTracker } from "../usage/modelErrorTracker.js";
+import { getHostBashStore, type HostBashStore } from "../hostBash/index.js";
 
 interface RuntimeState {
   sessions: SessionStore;
@@ -47,6 +48,7 @@ interface RuntimeState {
   memory: MemoryGateway;
   memorySyncTimer: ReturnType<typeof setInterval> | null;
   settingsStore: SettingsStore;
+  hostBashStore: HostBashStore;
   settings: RuntimeSettings;
   usageTracker: AiUsageTracker;
   modelErrorTracker: ModelErrorTracker;
@@ -860,6 +862,15 @@ export function getRuntime(): RuntimeState {
 
     const settingsStore = new SettingsStore();
     const settings = settingsStore.load();
+    const hostBashStore = getHostBashStore();
+    hostBashStore.migrateLegacySettings(settings.hostTools);
+    if (
+      settings.hostTools.pendingApprovals.length > 0 ||
+      settings.hostTools.approvalHistory.length > 0 ||
+      settings.hostTools.approvedTools.length > 0
+    ) {
+      settingsStore.save(settings);
+    }
 
     const sessions = new SessionStore();
     const currentSettings = { value: settings };
@@ -894,6 +905,7 @@ export function getRuntime(): RuntimeState {
       memory,
       memorySyncTimer: null,
       settingsStore,
+      hostBashStore,
       settings,
       usageTracker,
       modelErrorTracker,

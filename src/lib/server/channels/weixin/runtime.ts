@@ -5,7 +5,7 @@ import { type IncomingMessage, WeixinBot } from "./client.js";
 import type { RuntimeSettings } from "../../settings/index.js";
 import type { EventDeliveryMode, MomEvent } from "../../agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
-import { buildNonInteractiveHostToolApprovalText } from "../../settings/hostTools.js";
+import { buildNonInteractiveHostBashApprovalText } from "../../hostBash/index.js";
 import { formatRunArchiveNotice } from "../../agent/runDetail.js";
 import { buildAcpPermissionText } from "../../acp/prompt.js";
 import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
@@ -556,8 +556,8 @@ export class WeixinManager extends BaseChannelRuntime {
         });
       },
       onRunnerEvent: async (runnerEvent) => {
-        if (runnerEvent.type !== "tool_execution_end" || !runnerEvent.hostToolApproval) return;
-        await sendVisibleText(buildNonInteractiveHostToolApprovalText(runnerEvent.hostToolApproval));
+        if (runnerEvent.type !== "tool_execution_end" || !runnerEvent.hostBashApproval) return;
+        await sendVisibleText(buildNonInteractiveHostBashApprovalText(runnerEvent.hostBashApproval));
       },
       onRunComplete: async (result, meta) => {
         if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId) {

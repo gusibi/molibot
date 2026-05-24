@@ -659,6 +659,34 @@ export class MomRuntimeStore {
     return normalized;
   }
 
+  getSessionHostApprovalMode(chatId: string, sessionId?: string): "default" | "session" {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    return this.readSessionHeader(chatId, id).preferences?.hostApprovalMode === "session"
+      ? "session"
+      : "default";
+  }
+
+  setSessionHostApprovalMode(
+    chatId: string,
+    sessionId: string,
+    value: "default" | "session"
+  ): "default" | "session" {
+    const id = this.sanitizeSessionId(sessionId);
+    this.updateSessionHeader(chatId, id, (current) => {
+      const nextPreferences = { ...(current.preferences ?? {}) };
+      if (value === "session") {
+        nextPreferences.hostApprovalMode = "session";
+      } else {
+        delete nextPreferences.hostApprovalMode;
+      }
+      return {
+        ...current,
+        preferences: Object.keys(nextPreferences).length > 0 ? nextPreferences : undefined
+      };
+    });
+    return value;
+  }
+
   appendCompaction(
     chatId: string,
     summary: string,

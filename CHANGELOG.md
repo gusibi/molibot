@@ -33,6 +33,19 @@
 - **Telegram 不再误报已停止**: Telegram 运行时不再把这条路径当成手动停止处理，因此不会在审批尚未发生时额外发送误导性的 `Stopped.` 收尾消息。
 - **等待提示不写回会话**: Telegram 不再把“Waiting for your decision”这类临时等待提示持久化成正常 assistant 会话内容，避免审批后续跑时带着伪最终答案污染上下文。
 
+## 2026-05-23
+
+### Added
+- Added a session-scoped host approval option (`This Session` / `/hosttools approve-session`) that approves the current blocked command without registering a reusable global host tool.
+- Added automatic plain-bash fallback for later sandbox permission denials within that same active session only.
+- Added a dedicated `/settings/host-bash` management page and `/api/settings/host-bash` backend for reviewing pending approvals, durable whitelist entries, and Host Bash approval history.
+
+### Changed
+- Host approval prompts and channel-native approval UIs now expose three choices: approve permanently, approve for this session, or reject.
+- Session-only sandbox bypass state now persists in session preferences and expires naturally when the operator creates a new session or switches bot scope.
+- Host Bash approval persistence now lives in SQLite tables (`host_bash_approval_records`, `host_bash_whitelist`) instead of being appended into settings JSON payloads; legacy `hostTools` settings are migrated once at runtime startup.
+- Fixed the new `/settings/host-bash` management page so whitelist and history action buttons now fire correctly from the shared Button component.
+
 ## 2026-05-16
 
 ### Layered skills command output

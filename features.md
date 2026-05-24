@@ -1,5 +1,14 @@
 # Molibot Features
 
+## 2026-05-23
+
+### Session-scoped sandbox approval fallback
+- **第三种审批选项**: host tool approval 现在新增 `This Session` / `approve-session` 路径，批准后不会把命令写进全局 `approvedTools`，只对当前聊天 session 生效。
+- **sandbox 自动回退**: 一旦当前 session 进入该模式，后续被 sandbox 权限拦住的 `bash` 命令会直接 fallback 到 host bash 执行，不再对同一 session 中的每条命令重复审批。
+- **生命周期正确**: 该放行状态存进 session header preference，不会作为普通对话消息回灌给模型；新建 session（如 `/new`）或切换 bot 后自然失效，并额外写入 runtime event 供排障查看。
+- **交互入口补齐**: Telegram/Feishu 审批卡片现在有三种操作：`Approve`、`This Session`、`Reject`；无按钮渠道可用 `/hosttools approve-session <approvalId>` 或回复 `本session允许` / `approve session`。
+- **回归覆盖**: 新增共享命令测试覆盖 session-only approval 行为，并补 bash 工具测试覆盖 session 模式下的 sandbox denial fallback 分支。
+
 ## Implemented Features
 | ID | Feature | Status | Notes |
 |---|---|---|---|
@@ -1031,3 +1040,6 @@
 - 2026-05-15: Hardened `/settings/tasks` against text overflow. Summary badges now wrap, the tasks table uses fixed widths with wrapping/break-all behavior for long filenames, file paths, bot/chat ids, timezones, status reasons, and errors, and action buttons now stay inside their column instead of stretching the row.
 - 2026-05-16: Split shared skills inspection into layered command outputs. `/skills` now shows only skill names and file paths, `/skills <id>` resolves one loaded skill by name/alias for full detail, and `/skills-detail` keeps the full multi-skill inventory view across shared chat commands and Web chat.
 - 2026-05-16: Changed `/skills` summary output to a markdown table (`编号 / 名称 / 路径`) so it scans like `/models` instead of a loose line list.
+- 2026-05-23: Moved Host Bash approval persistence out of `settings.json` / `settings_dynamic` and into dedicated SQLite tables: `host_bash_approval_records` for full request history and `host_bash_whitelist` for durable approved commands. Runtime now migrates legacy `hostTools` data once on startup, stops writing Host Bash state back into settings JSON, and keeps session-only sandbox fallback approval behavior unchanged.
+- 2026-05-23: Added `/settings/host-bash` plus `/api/settings/host-bash` for Host Bash operations. Operators can now inspect pending approvals, review one-time/session/persistent approval history, enable/disable or delete whitelist entries, and delete historical approval records without touching raw JSON files.
+- 2026-05-23: Fixed `/settings/host-bash` action buttons so whitelist `Disable` / `Delete` and history `Delete` now use the current shadcn Button event binding style and actually trigger their POST actions.

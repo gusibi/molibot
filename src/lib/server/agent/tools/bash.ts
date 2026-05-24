@@ -4,21 +4,22 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { config } from "../../app/env.js";
+import type { ToolSandboxSettings } from "../../settings/index.js";
 import type {
-  ApprovedHostTool,
-  RuntimeSettings,
-  ToolSandboxSettings
-} from "../../settings/index.js";
+  ApprovedHostBashEntry,
+  HostBashApprovalPrompt,
+  HostBashStore
+} from "../../hostBash/index.js";
 import {
-  buildHostToolApprovalPrompt,
-  parseHostToolApprovalCommand,
-  parseHostToolShellCommand,
-  requestHostToolApproval,
-  sanitizeHostToolId,
-  type HostToolApprovalPrompt
-} from "../../settings/hostTools.js";
-import { executeApprovedHostTool } from "../hostToolExec.js";
+  buildHostBashApprovalPrompt,
+  getHostBashStore,
+  parseHostBashApprovalCommand,
+  parseHostBashShellCommand,
+  sanitizeHostBashId
+} from "../../hostBash/index.js";
+import { executeApprovedHostBash } from "../hostBashExec.js";
 import { momWarn } from "../log.js";
+import type { MomRuntimeStore } from "../store.js";
 import { execCommand, normalizeCommandOutput, shellEscape, stripAnsi } from "./helpers.js";
 import { prepareToolSandboxExecution } from "./sandbox.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "./truncate.js";
@@ -65,10 +66,10 @@ interface BashToolDetails {
   fullOutputPath?: string;
   sandboxApplied?: boolean;
   sandboxWarning?: string;
-  hostToolApproval?: HostToolApprovalPrompt;
+  hostBashApproval?: HostBashApprovalPrompt;
 }
 
-interface ParsedHostToolCommand {
+interface ParsedHostBashCommand {
   command: string;
   args: string[];
   originalCommand: string;
@@ -83,8 +84,37 @@ export interface BashToolHostApprovalOptions {
   channel: string;
   chatId: string;
   scopeId: string;
-  getSettings: () => RuntimeSettings;
-  updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
+  sessionId: string;
+  store: MomRuntimeStore;
+  hostBashStore?: HostBashStore;
+}
+
+interface PreparedBashOutput {
+  rendered: string;
+  details?: BashToolDetails;
+}
+
+function buildBashOutput(
+  cwd: string,
+  output: string,
+  details: BashToolDetails | undefined,
+  movedArtifacts: string[]
+): PreparedBashOutput {
+  const truncation = truncateMiddle(output);
+  let rendered = truncation.content || "(no output)";
+  let nextDetails = details;
+  if (movedArtifacts.length > 0) {
+    rendered += `\n\n[Moved generated artifact(s) into dated scratch folder: ${movedArtifacts.join(", ")}]`;
+  }
+
+  if (truncation.truncated) {
+    const fullOutputPath = buildTempOutputPath(cwd);
+    writeFileSync(fullOutputPath, output, "utf8");
+    rendered += `\n\n[Output compressed from ${truncation.totalLines} lines / ${formatSize(truncation.totalBytes)}. Full output: ${fullOutputPath}]`;
+    nextDetails = { ...nextDetails, truncation, fullOutputPath };
+  }
+
+  return { rendered, details: nextDetails };
 }
 
 const ROOT_ARTIFACT_EXTENSIONS = new Set([
@@ -205,9 +235,10 @@ function requestApprovalFromBash(
       network?: "none" | "loopback" | "internet";
     };
   }
-): { text: string; prompt?: HostToolApprovalPrompt } {
-  const parsed = parseHostToolApprovalCommand(command);
-  const requested = requestHostToolApproval(options.getSettings().hostTools, {
+): { text: string; prompt?: HostBashApprovalPrompt } {
+  const store = options.hostBashStore ?? getHostBashStore();
+  const parsed = parseHostBashApprovalCommand(command);
+  const requested = store.requestApproval({
     toolId: parsed.toolId,
     command: parsed.command,
     approvalMode: parsed.approvalMode,
@@ -228,35 +259,35 @@ function requestApprovalFromBash(
         },
     channel: options.channel,
     chatId: options.chatId,
-    scopeId: options.scopeId
+    scopeId: options.scopeId,
+    sessionId: options.sessionId
   });
 
   if (requested.kind === "existing-approved" && requested.approved) {
     return {
-      text: `${requested.approved.displayName} is already approved as host tool ${requested.approved.toolId}.`
+      text: `${requested.approved.displayName} is already approved as Host Bash ${requested.approved.toolId}.`
     };
   }
 
   if (requested.kind === "existing-pending" && requested.approval) {
     return {
       text: [
-        `Host tool approval is already pending: ${requested.approval.id}`,
+        `Host Bash approval is already pending: ${requested.approval.id}`,
         `Tool: ${requested.approval.displayName}`,
         `Command: ${requested.approval.command}`,
         requested.approval.approvalMode === "ephemeral" ? "Mode: one-time" : "Mode: persistent",
         "",
         "Operator can approve or reject it from a structured action."
       ].join("\n"),
-      prompt: buildHostToolApprovalPrompt(requested.approval)
+      prompt: buildHostBashApprovalPrompt(requested.approval)
     };
   }
 
-  const nextSettings = options.updateSettings({ hostTools: requested.settings });
-  const saved = nextSettings.hostTools.pendingApprovals[0];
-  if (!saved) throw new Error("Failed to persist host tool approval request.");
+  const saved = requested.approval;
+  if (!saved) throw new Error("Failed to persist Host Bash approval request.");
   return {
     text: [
-      "Host tool approval requested.",
+      "Host Bash approval requested.",
       `Approval ID: ${saved.id}`,
       `Tool: ${saved.displayName} (${saved.toolId})`,
       `Command: ${saved.command}`,
@@ -267,25 +298,26 @@ function requestApprovalFromBash(
       "",
       "Approve or reject it from the structured action UI."
     ].filter(Boolean).join("\n"),
-    prompt: buildHostToolApprovalPrompt(saved)
+    prompt: buildHostBashApprovalPrompt(saved)
   };
 }
 
-function tryParseHostToolCommand(command: string): ParsedHostToolCommand | null {
+function tryParseHostBashCommand(command: string): ParsedHostBashCommand | null {
   try {
-    return parseHostToolShellCommand(command);
+    return parseHostBashShellCommand(command);
   } catch {
     return null;
   }
 }
 
-function findApprovedHostTool(
-  settings: RuntimeSettings,
-  parsed: ParsedHostToolCommand | null
-): ApprovedHostTool | undefined {
+function findApprovedHostBash(
+  store: HostBashStore,
+  parsed: ParsedHostBashCommand | null
+): ApprovedHostBashEntry | undefined {
   if (!parsed) return undefined;
-  const toolId = sanitizeHostToolId(parsed.command);
-  return settings.hostTools.approvedTools.find((item) => item.enabled && item.toolId === toolId);
+  const toolId = sanitizeHostBashId(parsed.command);
+  const approved = store.getApprovedEntry(toolId);
+  return approved?.enabled ? approved : undefined;
 }
 
 function isSandboxPermissionFailure(output: string): boolean {
@@ -301,7 +333,7 @@ function isSandboxPermissionFailure(output: string): boolean {
   ].some((pattern) => text.includes(pattern));
 }
 
-function buildAutomaticHostApprovalReason(parsed: ParsedHostToolCommand): string {
+function buildAutomaticHostApprovalReason(parsed: ParsedHostBashCommand): string {
   return `Sandbox denied host-level access for \`${parsed.originalCommand}\`. Approve this executable as a controlled host capability if you want future runs to bypass sandbox for this command.`;
 }
 
@@ -318,19 +350,20 @@ export function createBashTool(cwd: string, options?: {
       `Execute a bash command in scratch workspace. When creating ordinary generated files, prefer $MOLIBOT_SCRATCH_ARTIFACT_DIR. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
     parameters: bashSchema,
     execute: async (_toolCallId, params, signal) => {
-      const parsedHostToolCommand = options?.hostApproval
-        ? tryParseHostToolCommand(params.command)
+      const hostBashStore = options?.hostApproval?.hostBashStore ?? getHostBashStore();
+      const parsedHostBashCommand = options?.hostApproval
+        ? tryParseHostBashCommand(params.command)
         : null;
-      const approvedHostTool = options?.hostApproval
-        ? findApprovedHostTool(options.hostApproval.getSettings(), parsedHostToolCommand)
+      const approvedHostBash = options?.hostApproval
+        ? findApprovedHostBash(hostBashStore, parsedHostBashCommand)
         : undefined;
 
-      if (approvedHostTool && parsedHostToolCommand) {
-        const executed = await executeApprovedHostTool({
-          tool: approvedHostTool,
+      if (approvedHostBash && parsedHostBashCommand) {
+        const executed = await executeApprovedHostBash({
+          tool: approvedHostBash,
           cwd,
-          originalCommand: parsedHostToolCommand.originalCommand,
-          args: parsedHostToolCommand.args,
+          originalCommand: parsedHostBashCommand.originalCommand,
+          args: parsedHostBashCommand.args,
           timeoutSeconds: params.timeout,
           signal
         });
@@ -342,7 +375,7 @@ export function createBashTool(cwd: string, options?: {
 
       if (params.hostApproval) {
         if (!options?.hostApproval) {
-          throw new Error("Host tool approval is not configured for this bash tool instance.");
+          throw new Error("Host Bash approval is not configured for this bash tool instance.");
         }
         const requested = requestApprovalFromBash(
           options.hostApproval,
@@ -355,7 +388,7 @@ export function createBashTool(cwd: string, options?: {
             type: "text",
             text: requested.text
           }],
-          details: requested.prompt ? { hostToolApproval: requested.prompt } : undefined
+          details: requested.prompt ? { hostBashApproval: requested.prompt } : undefined
         };
       }
 
@@ -409,33 +442,54 @@ export function createBashTool(cwd: string, options?: {
       if (result.stdout) output += result.stdout;
       if (result.stderr) output += `${output ? "\n" : ""}${result.stderr}`;
       output = normalizeCommandOutput(stripAnsi(output));
-
-      const truncation = truncateMiddle(output);
-      let rendered = truncation.content || "(no output)";
       let details: BashToolDetails | undefined = sandboxed.sandboxApplied || sandboxed.warning
         ? { sandboxApplied: sandboxed.sandboxApplied, sandboxWarning: sandboxed.warning }
         : undefined;
-      if (movedArtifacts.length > 0) {
-        rendered += `\n\n[Moved generated artifact(s) into dated scratch folder: ${movedArtifacts.join(", ")}]`;
-      }
-
-      if (truncation.truncated) {
-        const fullOutputPath = buildTempOutputPath(cwd);
-        writeFileSync(fullOutputPath, output, "utf8");
-        rendered += `\n\n[Output compressed from ${truncation.totalLines} lines / ${formatSize(truncation.totalBytes)}. Full output: ${fullOutputPath}]`;
-        details = { ...details, truncation, fullOutputPath };
-      }
+      const built = buildBashOutput(cwd, output, details, movedArtifacts);
+      let rendered = built.rendered;
+      details = built.details;
 
       if (result.code !== 0) {
         let errorBody = `${rendered}\n\nCommand exited with code ${result.code}`.trim();
         if (sandboxed.sandboxApplied && options?.hostApproval && isSandboxPermissionFailure(rendered)) {
-          if (parsedHostToolCommand) {
+          if (options.hostApproval.store.getSessionHostApprovalMode(options.hostApproval.scopeId, options.hostApproval.sessionId) === "session") {
+            const fallbackResult = await execCommand(wrappedCommand, {
+              cwd,
+              timeoutSeconds: params.timeout,
+              signal,
+              env: sandboxEnv,
+              inheritProcessEnv: true
+            });
+            const fallbackMovedArtifacts = moveNewRootArtifacts(cwd, artifactDir, rootFilesBefore);
+            let fallbackOutput = "";
+            if (fallbackResult.stdout) fallbackOutput += fallbackResult.stdout;
+            if (fallbackResult.stderr) fallbackOutput += `${fallbackOutput ? "\n" : ""}${fallbackResult.stderr}`;
+            fallbackOutput = normalizeCommandOutput(stripAnsi(fallbackOutput));
+            const fallbackBuilt = buildBashOutput(
+              cwd,
+              fallbackOutput,
+              {
+                ...details,
+                sandboxApplied: false,
+                sandboxWarning: "Sandbox blocked this command. Re-ran with session-approved host bash fallback."
+              },
+              fallbackMovedArtifacts
+            );
+            if (fallbackResult.code !== 0) {
+              throw new Error(`${fallbackBuilt.rendered}\n\nCommand exited with code ${fallbackResult.code}`.trim());
+            }
+            return {
+              content: [{ type: "text", text: `${fallbackBuilt.rendered}\n\n[SESSION] Sandbox was bypassed for this session after a permission denial.`.trim() }],
+              details: fallbackBuilt.details
+            };
+          }
+          if (parsedHostBashCommand) {
             const requested = requestApprovalFromBash(
               options.hostApproval,
               params.command,
               params.timeout,
               {
-                reason: buildAutomaticHostApprovalReason(parsedHostToolCommand)
+                reason: buildAutomaticHostApprovalReason(parsedHostBashCommand)
               }
             );
             return {
@@ -452,7 +506,7 @@ export function createBashTool(cwd: string, options?: {
               }],
               details: {
                 ...details,
-                hostToolApproval: requested.prompt
+                hostBashApproval: requested.prompt
               }
             };
           }

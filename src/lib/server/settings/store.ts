@@ -1369,7 +1369,6 @@ export class SettingsStore {
       skillSearch: settings.skillSearch,
       skillDrafts: settings.skillDrafts,
       toolSandbox: settings.toolSandbox,
-      hostTools: settings.hostTools,
       disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,
       telegramAllowedChatIds: settings.telegramAllowedChatIds
