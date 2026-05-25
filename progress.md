@@ -1,35 +1,36 @@
-# Progress Log: Chat Host Tool Approval
+# Progress Log: Subagent Sandbox Research
 
-## Session: 2026-05-12
+## Session: 2026-05-25
 
-### Phase 1: Trace Existing Extension Points
+### Local Baseline Review
 - **Status:** complete
-- Started from `createMomTools`, prompt tool guidance, and runtime settings schema.
-- Confirmed settings static JSON is sufficient for the MVP approval registry.
+- Read `prd.md`, `features.md`, `CHANGELOG.md`, README/readme, and relevant source files.
+- Confirmed there is a dirty worktree with both docs and source changes that predate this research task. I will not revert or rewrite those changes.
 
-### Phase 2: Implement Minimal Approval Store and Tool
+### Competitor Research
 - **Status:** complete
-- Added `hostTools` runtime settings, sanitization, a request-only `hostToolApproval` agent tool, and wired it into the default tool set.
+- Collected official/source documentation for:
+  - Claude Code subagents, settings, hooks
+  - OpenAI Codex CLI sandboxing and approvals
+  - GitHub Copilot cloud agent custom agents and firewall
+  - Replit Agent checkpoints/rollback and work habits
+  - Devin environment snapshots/blueprints
+  - OpenHands sandbox providers
+  - Cursor agent modes and permissions
 
-### Phase 3: Prompt and Confirmation Flow
+### Product Spec Draft
 - **Status:** complete
-- Added prompt guidance and shared command handling for `安装` / `批准` / `approve` approvals.
-- Adjusted Telegram, Feishu, QQ, and Weixin inbound text paths to let the shared command service intercept pending host approval confirmations before normal agent execution.
+- Created `docs/subagent-sandbox-research.md`.
+- Covered users, competitor research, recommended boundary, non-goals, target data structures, page interactions, acceptance criteria, open questions, and recommended next step.
 
-### Phase 5: Controlled Host Tool Runner
+### Documentation Sync
 - **Status:** complete
-- Added `hostToolRun` for approved host capabilities.
-- The runner executes only the approved fixed command, passes model-provided values as argv, and sets `shell:false`.
-- Updated prompt and docs to point approved host-only external tools at `hostToolRun`, not host bash.
+- Updated `features.md`, `prd.md`, `CHANGELOG.md`, and README/readme navigation with the research document and next-stage backlog note.
 
-## Test Results
-| Test | Expected | Actual | Status |
-|------|----------|--------|--------|
-| `npx tsx --test src/lib/server/agent/tools/hostToolApproval.test.ts src/lib/server/agent/tools/hostToolRun.test.ts src/lib/server/agent/channelCommands.test.ts src/lib/server/agent/prompt.test.ts src/lib/server/channels/telegram/runtime.test.ts` | Host approval tool, host runner, chat approval, prompt tests, and Telegram command registration pass | 22 passed | pass |
-| `npx tsx --test src/lib/server/channels/telegram/runtime.test.ts` | Telegram shared command registration still passes | 1 passed | pass |
-| `npx tsc --noEmit` | Typecheck repository | Failed on existing missing deps/type errors plus one new test narrowing issue; fixed the new test issue | partial |
-
-## Error Log
-| Timestamp | Error | Attempt | Resolution |
-|-----------|-------|---------|------------|
-| 2026-05-12 | `npx tsc --noEmit` reports many existing repository errors including missing `undici-types`, `openclaw/plugin-sdk`, Svelte export type issues, and package test typing problems | Ran full TypeScript check after focused tests | Fixed the one new `hostToolApproval.test.ts` text-content narrowing issue and relied on focused tests because the rest are pre-existing repository-wide issues |
+## Verification Log
+| Check | Result |
+|-------|--------|
+| Business code edits | None made |
+| Web research | Completed with official sources where possible |
+| Existing worktree | Dirty before this task; preserved |
+| Placeholder scan | New research/planning files contain no placeholder markers; older historical docs still contain pre-existing mory backlog wording |

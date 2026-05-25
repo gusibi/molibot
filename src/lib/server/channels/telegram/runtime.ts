@@ -24,7 +24,7 @@ import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageCo
 import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
 import type { ParsedRelativeReminder, StatusSession } from "./types.js";
 import { TELEGRAM_SHARED_COMMANDS } from "./commands.js";
-import { executeHostBashApproval } from "../../agent/hostBashExec.js";
+import { executeHostBashApproval, hasVisibleHostBashOutput } from "../../agent/hostBashExec.js";
 import { isTelegramBotMention, stripTelegramBotMention, type TelegramMessageEntityLike } from "./mentions.js";
 
 export interface TelegramConfig {
@@ -187,9 +187,11 @@ export class TelegramManager extends BaseChannelRuntime {
         const executed = await executeHostBashApproval({
           record: request,
           approvedTool: approved,
-          cwd: this.store.getChatDir(input.scopeId),
+          cwd: this.store.getScratchDir(input.scopeId),
         });
-        await sendTelegramText(this.bot, target.chatId, executed.rendered, this.buildTelegramSendOptions(target.messageThreadId));
+        if (hasVisibleHostBashOutput(executed.rendered)) {
+          await sendTelegramText(this.bot, target.chatId, executed.rendered, this.buildTelegramSendOptions(target.messageThreadId));
+        }
         return "Approved and executed immediately.";
       },
       onSessionMutation: (scopeId) => {
@@ -792,20 +794,68 @@ export class TelegramManager extends BaseChannelRuntime {
           ? Number(callbackMessage.message_thread_id)
           : undefined;
       const scopeId = this.buildChatScopeId(chatId, messageThreadId);
+      const answerCallbackSafely = async (text: string): Promise<void> => {
+        try {
+          await ctx.answerCallbackQuery({ text });
+        } catch (error) {
+          momWarn("telegram", "host_bash_callback_answer_failed", {
+            chatId,
+            scopeId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      };
+      const editApprovalMessageSafely = async (messageId: number, text: string): Promise<boolean> => {
+        try {
+          await editTelegramMessage(
+            bot,
+            chatId,
+            messageId,
+            text,
+            { ...this.buildTelegramSendOptions(messageThreadId), reply_markup: undefined }
+          );
+          return true;
+        } catch (error) {
+          momWarn("telegram", "host_bash_approval_edit_failed", {
+            chatId,
+            scopeId,
+            messageId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return false;
+        }
+      };
       if (!chatId) {
-        await ctx.answerCallbackQuery({ text: "Chat context is unavailable." });
+        await answerCallbackSafely("Chat context is unavailable.");
         return;
       }
       if (allowed.size > 0 && !allowed.has(chatId)) {
-        await ctx.answerCallbackQuery({ text: "Chat not allowed." });
+        await answerCallbackSafely("Chat not allowed.");
         return;
       }
 
       const token = ctx.callbackQuery.data.slice(4);
       const action = this.hostBashApprovalActions.get(token);
       if (!action || action.scopeId !== scopeId) {
-        await ctx.answerCallbackQuery({ text: "This host approval request is no longer available." });
+        await answerCallbackSafely("This host approval request is no longer available.");
         return;
+      }
+
+      const messageId = callbackMessage?.message_id;
+      const acceptedText = action.action === "reject"
+        ? "Rejecting host request..."
+        : action.action === "approve_session"
+          ? "Approved for this session. Executing..."
+          : "Approved. Executing...";
+      this.hostBashApprovalActions.delete(token);
+      await answerCallbackSafely(acceptedText);
+      if (messageId) {
+        const edited = await editApprovalMessageSafely(messageId, `${acceptedText}\n\nRequest ID: ${action.requestId}`);
+        if (!edited) {
+          await sendTelegramText(bot, chatId, acceptedText, this.buildTelegramSendOptions(messageThreadId));
+        }
+      } else {
+        await sendTelegramText(bot, chatId, acceptedText, this.buildTelegramSendOptions(messageThreadId));
       }
 
       const input = {
@@ -819,25 +869,18 @@ export class TelegramManager extends BaseChannelRuntime {
         : action.action === "approve_session"
           ? await this.commandService.approveHostToolForSession(input, action.requestId)
           : await this.commandService.rejectHostTool(input, action.requestId);
-      this.hostBashApprovalActions.delete(token);
-      await ctx.answerCallbackQuery({
-        text: action.action === "reject"
-          ? "Rejected."
-          : action.action === "approve_session"
-            ? "Approved for this session."
-            : "Approved."
-      });
-      const messageId = callbackMessage?.message_id;
+      let finalResultSent = false;
       if (messageId) {
-        await editTelegramMessage(
-          bot,
-          chatId,
-          messageId,
-          result.message,
-          { ...this.buildTelegramSendOptions(messageThreadId), reply_markup: undefined }
-        );
+        const edited = await editApprovalMessageSafely(messageId, result.message);
+        if (!edited) {
+          await sendTelegramText(bot, chatId, result.message, this.buildTelegramSendOptions(messageThreadId));
+          finalResultSent = true;
+        }
+      } else {
+        await sendTelegramText(bot, chatId, result.message, this.buildTelegramSendOptions(messageThreadId));
+        finalResultSent = true;
       }
-      if (action.action === "reject") {
+      if (action.action === "reject" && !finalResultSent) {
         await sendTelegramText(
           bot,
           chatId,

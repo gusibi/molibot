@@ -1862,6 +1862,13 @@ export class MomRunner implements RunnerLike {
     let errorMessage: string | undefined;
     let blockedOnHostBashApproval = false;
     const hostBashApprovalWaitMessage = "Host Bash approval requested. Waiting for your decision.";
+    const emittedHostBashApprovalIds = new Set<string>();
+    const shouldForwardHostBashApproval = (approval: HostBashApprovalPrompt | undefined): boolean => {
+      if (!approval) return true;
+      if (emittedHostBashApprovalIds.has(approval.requestId)) return false;
+      emittedHostBashApprovalIds.add(approval.requestId);
+      return true;
+    };
     localTools = createMomTools({
       channel: ctx.channel,
       cwd: this.store.getScratchDir(this.chatId),
@@ -1888,15 +1895,18 @@ export class MomRunner implements RunnerLike {
         await ctx.uploadFile(filePath, title, text);
       },
       emitRunnerEvent: async (event) => {
-        const sink = this.activeRunnerEventSink;
-        if (sink) {
-          enqueue(() => sink(event));
-        }
         if (event.type === "tool_execution_end" && event.hostBashApproval) {
           blockedOnHostBashApproval = true;
           stopReason = "waiting_for_approval";
           errorMessage = undefined;
           this.agent.abort();
+          if (!shouldForwardHostBashApproval(event.hostBashApproval)) return;
+        }
+        const sink = this.activeRunnerEventSink;
+        if (sink) {
+          enqueue(() => sink(event));
+        }
+        if (event.type === "tool_execution_end" && event.hostBashApproval) {
           return;
         }
         if (event.type === "subagent_execution") {
@@ -2039,13 +2049,14 @@ export class MomRunner implements RunnerLike {
           resultPreview: body.slice(0, 160),
         });
         const hostBashApproval = extractHostBashApprovalPrompt(event.result);
+        const forwardHostBashApproval = shouldForwardHostBashApproval(hostBashApproval);
         if (hostBashApproval) {
           blockedOnHostBashApproval = true;
           stopReason = "waiting_for_approval";
           errorMessage = undefined;
           this.agent.abort();
         }
-        if (ctx.onRunnerEvent) {
+        if (ctx.onRunnerEvent && forwardHostBashApproval) {
           enqueue(() => ctx.onRunnerEvent!({
             type: "tool_execution_end",
             toolName: event.toolName,
@@ -2114,8 +2125,12 @@ export class MomRunner implements RunnerLike {
             totalTokens?: number;
           };
         };
-        if (msg.stopReason) stopReason = msg.stopReason;
-        if (msg.errorMessage) errorMessage = msg.errorMessage;
+        if (msg.stopReason) {
+          stopReason = blockedOnHostBashApproval && msg.stopReason === "aborted"
+            ? "waiting_for_approval"
+            : msg.stopReason;
+        }
+        if (!blockedOnHostBashApproval && msg.errorMessage) errorMessage = msg.errorMessage;
         if (msg.errorMessage) {
           momWarn("runner", "assistant_error_message", {
             runId,
@@ -2411,7 +2426,10 @@ export class MomRunner implements RunnerLike {
             });
 
             if (blockedOnHostBashApproval) {
+              stopReason = "waiting_for_approval";
+              errorMessage = undefined;
               candidateFinalText = hostBashApprovalWaitMessage;
+              this.agent.state.messages = beforeAttempt;
               break;
             }
 

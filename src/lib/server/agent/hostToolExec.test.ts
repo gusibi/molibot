@@ -1,8 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { executeApprovedHostTool, executeHostToolApproval } from "./hostToolExec.js";
 import type { ApprovedHostTool, HostToolApprovalRequest } from "../settings/index.js";
 
@@ -27,7 +24,7 @@ function approvedPrintfTool(): ApprovedHostTool {
 }
 
 test("executeApprovedHostTool executes approved command through shell", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "molibot-host-tool-"));
+  const cwd = process.cwd();
   const result = await executeApprovedHostTool({
     tool: approvedPrintfTool(),
     cwd,
@@ -39,12 +36,18 @@ test("executeApprovedHostTool executes approved command through shell", async ()
   assert.equal(result.details.hostTool, true);
 });
 
-test("executeApprovedHostTool expands environment variables through shell", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "molibot-host-tool-"));
+test("executeApprovedHostTool expands inherited environment variables through shell", async () => {
+  const cwd = process.cwd();
   process.env.MOLIBOT_HOST_TOOL_TEST_TOKEN = "expanded";
   try {
     const result = await executeApprovedHostTool({
-      tool: approvedPrintfTool(),
+      tool: {
+        ...approvedPrintfTool(),
+        permissions: {
+          ...approvedPrintfTool().permissions,
+          envAllowlist: ["PATH", "MOLIBOT_HOST_TOOL_TEST_TOKEN"]
+        }
+      },
       cwd,
       originalCommand: "printf '%s' \"$MOLIBOT_HOST_TOOL_TEST_TOKEN\"",
       args: ["%s", "$MOLIBOT_HOST_TOOL_TEST_TOKEN"]
@@ -56,8 +59,25 @@ test("executeApprovedHostTool expands environment variables through shell", asyn
   }
 });
 
+test("executeApprovedHostTool inherits process environment by default", async () => {
+  const cwd = process.cwd();
+  process.env.MOLIBOT_HOST_TOOL_TEST_TOKEN = "inherited";
+  try {
+    const result = await executeApprovedHostTool({
+      tool: approvedPrintfTool(),
+      cwd,
+      originalCommand: "printf '%s' \"${MOLIBOT_HOST_TOOL_TEST_TOKEN:-}\"",
+      args: ["%s", "$MOLIBOT_HOST_TOOL_TEST_TOKEN"]
+    });
+
+    assert.equal(result.rendered, "inherited");
+  } finally {
+    delete process.env.MOLIBOT_HOST_TOOL_TEST_TOKEN;
+  }
+});
+
 test("executeApprovedHostTool surfaces non-zero exits", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "molibot-host-tool-"));
+  const cwd = process.cwd();
   await assert.rejects(
     () => executeApprovedHostTool({
       tool: {
@@ -74,8 +94,7 @@ test("executeApprovedHostTool surfaces non-zero exits", async () => {
 });
 
 test("executeHostToolApproval runs one-time host script approvals without persisting a reusable tool", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "molibot-host-tool-"));
-  const outputPath = join(cwd, "ephemeral.txt");
+  const cwd = process.cwd();
   const request: HostToolApprovalRequest = {
     id: "hta-one-time-1",
     toolId: "one-time-mkdir",
@@ -95,7 +114,7 @@ test("executeHostToolApproval runs one-time host script approvals without persis
     status: "approved",
     pendingAction: {
       kind: "run_one_time_host_script",
-      originalCommand: `printf '%s' 'hello once' > ${JSON.stringify(outputPath)}`,
+      originalCommand: "printf '%s' 'hello once'",
       timeout: 10
     }
   };
@@ -106,5 +125,5 @@ test("executeHostToolApproval runs one-time host script approvals without persis
   });
 
   assert.equal(result.details.hostTool, true);
-  assert.equal(readFileSync(outputPath, "utf8"), "hello once");
+  assert.equal(result.rendered, "hello once");
 });

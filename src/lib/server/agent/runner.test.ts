@@ -267,7 +267,7 @@ test("manual compact reloads the latest persisted session before summarizing", a
   assert.match(appended[0]?.summary ?? "", /Earlier conversation was compacted|## Summary/);
 });
 
-test("host approval tool failures pause the current run and wait for approval", async () => {
+test("host bash approval pauses the current run even when abort ends the assistant message", async () => {
   const replaced: string[] = [];
   let savedContextCalls = 0;
 
@@ -368,17 +368,18 @@ test("host approval tool failures pause the current run and wait for approval", 
         result: {
           content: [{ type: "text", text: "Host tool approval requested." }],
           details: {
-            hostToolApproval: {
-              type: "host_tool_approval",
-              requestId: "hta-1",
-              title: "Host tool approval",
+            hostBashApproval: {
+              type: "host_bash_approval",
+              requestId: "hba-1",
+              title: "Host Bash approval",
               body: "approve me",
               options: [],
               request: {
-                toolId: "cat",
-                displayName: "cat",
-                command: "cat",
-                args: [".env"],
+                toolId: "longbridge",
+                displayName: "longbridge",
+                command: "longbridge",
+                args: ["--version"],
+                approvalMode: "persistent",
                 reason: "test",
                 permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
                 requestedAt: new Date().toISOString()
@@ -426,5 +427,5 @@ test("host approval tool failures pause the current run and wait for approval", 
   assert.equal(aborted, true);
   assert.equal(result.stopReason, "waiting_for_approval");
   assert.equal(savedContextCalls, 0);
-  assert.equal(replaced.at(-1), "Host tool approval requested. Waiting for your decision.");
+  assert.equal(replaced.at(-1), "Host Bash approval requested. Waiting for your decision.");
 });

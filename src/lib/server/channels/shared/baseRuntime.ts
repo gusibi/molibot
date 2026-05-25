@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { config } from "../../app/env.js";
 import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
+import { executeHostBashApproval, hasVisibleHostBashOutput } from "../../agent/hostBashExec.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
 import { RunnerPool } from "../../agent/runner.js";
 import { MomRuntimeStore } from "../../agent/store.js";
@@ -234,6 +235,18 @@ export abstract class BaseChannelRuntime {
       runners: this.runners,
       getSettings: this.getSettings,
       updateSettings: this.updateSettings,
+      executeApprovedHostBash: options.executeApprovedHostBash ?? (async (input, approved, request) => {
+        if (!request.pendingAction) return;
+        const executed = await executeHostBashApproval({
+          record: request,
+          approvedTool: approved,
+          cwd: this.store.getScratchDir(input.scopeId)
+        });
+        if (hasVisibleHostBashOutput(executed.rendered)) {
+          await options.sendText(input.target, executed.rendered);
+        }
+        return "Approved and executed immediately.";
+      }),
       ...options
     });
   }

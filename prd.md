@@ -52,7 +52,20 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Approved host tool 是“已批准的 host shell 执行入口”，不是结构化 argv 的替代 shell；命中 approved host tool 后应执行原始命令字符串并保留普通 shell 语义（变量展开、引号、换行等），未命中时才按 sandbox 设置决定是否进入 sandbox。
 - Host tool approval 需要支持第三种“仅当前 session 放行”决策：它不会把 executable 写入全局 approved host tools，只会在当前聊天/session 内暂时允许被 sandbox 拦住的 bash 命令自动回退到 host bash；换 bot 或 `/new` 后必须失效。
 - Host Bash 审批与白名单数据不能继续堆在 `settings.json` / `settings_dynamic` 中；需要迁移到独立 SQLite 表，保留完整审批历史、长期白名单当前态，并提供设置页查看 pending / history / whitelist 以及启用、禁用、删除等运维操作，但不在设置页里手动批准/拒绝 pending。
+- Host Bash 审批频率优化不能降低人工审批边界：主 Agent 与 subagent 触发的同一 pending approval 应在父 runner 内去重展示；`approve-session` 必须能执行当前 pending action 但不得创建长期白名单；当前热修复阶段 approved Host Bash / legacy host tool 继续继承宿主 `process.env`，后续如要收紧敏感 env，必须先提供可审计、可回滚且不会破坏现有 API key 使用的审批/配置方案。
+- Host Bash pending action 必须保存 Host Bash 自己的 action kind，并在批准后使用原始 bash 执行目录语义继续运行；不得因为迁移自 legacy host tool 命名而丢失 pending payload，也不得把相对路径从 scratch 偏移到 chat 根目录。
+- Host Bash 审批卡、sandbox 原始长错误、subagent 工具日志和运行进度都不得作为普通对话内容写入模型上下文；需要排障时写入 runtime event / run detail，给父 Agent 的 subagent 结果应是压缩后的可决策摘要。
+- Subagent 触发 Host Bash 审批时必须保留 `waiting_for_approval` 语义到父 runner 和客户端响应；chain 模式不得在上一步等待审批、错误或被中止后继续执行下一步，也不得把临时等待提示保存为普通 assistant 历史。
+- Host Bash 审批触发 runner 内部 abort 时，最终客户端状态必须继续保持 `waiting_for_approval`，不得退化成用户主动停止语义；审批后自动执行成功但无输出时也不得向用户额外发送 `(no output)` 噪音。
+- Telegram Host Bash 审批按钮必须先确认 callback 并给出可见“执行中”状态，再执行审批后的 host action；长命令不得因为 Telegram callback 超时而让用户误判点击无效。
 - Telegram 群聊触发必须同时支持“回复 bot 消息”和“直接 @ bot”。直接 @ 的判定应优先使用 Telegram `message.entities` / `caption_entities` 中的 mention 信息，并保留纯文本 `@username` 兜底，避免群聊消息已入站但被误判为未提及 bot。
+
+## 2.2 Subagent Sandbox Research Backlog (2026-05-25)
+- 竞品调研与下一阶段产品边界记录在 `docs/subagent-sandbox-research.md`。
+- 下一阶段不应先扩大 Host Bash 能力；应先补齐策略模板、run ledger、审批/诊断/产物关联和恢复边界。
+- P1 建议新增命名 sandbox profile（Observe / Build / Strict / Host-Assisted / Custom），把用户能理解的工作模式映射到底层 env/network/filesystem/approval 策略。
+- P1 建议新增 parent/subagent run ledger，持久化 run tree、模型路由、有效 sandbox profile、审批记录、诊断事件、产物清单和终止原因。
+- P2 建议引入 checkpoint/recovery：至少提供 run 前后 changed-file 摘要、artifact manifest、失败原因和可恢复边界；完整 workspace rollback 或 Docker/remote sandbox provider 应放在恢复模型稳定之后。
 
 ## 3. V1 Scope
 

@@ -9,6 +9,7 @@ import { truncateMiddle } from "./truncate.js";
 import { defaultToolSandboxSettings } from "../../settings/toolSandbox.js";
 import { defaultRuntimeSettings } from "../../settings/defaults.js";
 import type { RuntimeSettings } from "../../settings/index.js";
+import { createHostBashApprovalRecord, type ApprovedHostBashEntry, type HostBashApprovalRecord } from "../../hostBash/index.js";
 
 function hostApprovalStore(sessionMode: "default" | "session" = "default"): any {
   return {
@@ -19,6 +20,17 @@ function hostApprovalStore(sessionMode: "default" | "session" = "default"): any 
 function firstText(result: Awaited<ReturnType<ReturnType<typeof createBashTool>["execute"]>>): string {
   const item = result.content[0];
   return item?.type === "text" ? item.text : "";
+}
+
+function capturingHostBashStore(pending: HostBashApprovalRecord[]): any {
+  return {
+    requestApproval: (input: Parameters<typeof createHostBashApprovalRecord>[0]) => {
+      const approval = createHostBashApprovalRecord(input);
+      pending.push(approval);
+      return { kind: "created", approval };
+    },
+    getApprovedEntry: () => undefined
+  };
 }
 
 test("normalizeCommandOutput keeps final carriage-return update", () => {
@@ -129,6 +141,7 @@ test("bash keeps legacy host env inheritance when tool sandbox is disabled", asy
 
 test("bash can request host tool approval without a separate approval tool", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  const pendingApprovals: HostBashApprovalRecord[] = [];
   let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
   try {
     const tool = createBashTool(cwd, {
@@ -138,6 +151,7 @@ test("bash can request host tool approval without a separate approval tool", asy
         scopeId: "chat-1",
         sessionId: "session-1",
         store: hostApprovalStore(),
+        hostBashStore: capturingHostBashStore(pendingApprovals),
         getSettings: () => settings,
         updateSettings: (patch) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
@@ -157,12 +171,13 @@ test("bash can request host tool approval without a separate approval tool", asy
       }
     });
 
-    assert.equal(settings.hostTools.pendingApprovals.length, 1);
-    assert.equal(settings.hostTools.pendingApprovals[0]?.command, "agent-browser");
-    assert.equal(settings.hostTools.pendingApprovals[0]?.approvalMode, "persistent");
-    assert.deepEqual(settings.hostTools.pendingApprovals[0]?.pendingAction?.args, ["--open"]);
-    assert.match(firstText(result), /Host tool approval requested/);
-    assert.equal(Boolean(result.details && "hostToolApproval" in result.details), true);
+    assert.equal(pendingApprovals.length, 1);
+    assert.equal(pendingApprovals[0]?.command, "agent-browser");
+    assert.equal(pendingApprovals[0]?.approvalMode, "persistent");
+    assert.equal(pendingApprovals[0]?.pendingAction?.kind, "run_approved_host_bash");
+    assert.deepEqual(pendingApprovals[0]?.pendingAction?.args, ["--open"]);
+    assert.match(firstText(result), /Host Bash approval requested/);
+    assert.equal(Boolean(result.details && "hostBashApproval" in result.details), true);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -203,8 +218,26 @@ test("bash can request one-time host approval for compound shell commands", asyn
 });
 
 test("bash runs approved host tools through shell before sandbox/plain execution", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  const cwd = process.cwd();
   process.env.MOLIBOT_APPROVED_BASH_TOKEN = "expanded";
+  const approvedHostBash: ApprovedHostBashEntry = {
+    id: "hbw-printf",
+    toolId: "printf",
+    displayName: "printf",
+    command: "printf",
+    reason: "approved for host execution",
+    permissions: {
+      envAllowlist: ["PATH"],
+      filesystem: "scratch-only",
+      network: "none"
+    },
+    approvedAt: "2026-05-13T00:00:00.000Z",
+    approvedFromRecordId: "hba-printf",
+    channel: "telegram",
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    enabled: true
+  };
   let settings: RuntimeSettings = {
     ...structuredClone(defaultRuntimeSettings),
     hostTools: {
@@ -237,6 +270,9 @@ test("bash runs approved host tools through shell before sandbox/plain execution
         scopeId: "chat-1",
         sessionId: "session-1",
         store: hostApprovalStore(),
+        hostBashStore: {
+          getApprovedEntry: (toolId: string) => toolId === "printf" ? approvedHostBash : undefined
+        } as any,
         getSettings: () => settings,
         updateSettings: (patch) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
@@ -250,10 +286,9 @@ test("bash runs approved host tools through shell before sandbox/plain execution
     });
 
     assert.equal(firstText(result), "hello expanded");
-    assert.equal((result.details as { hostTool?: boolean } | undefined)?.hostTool, true);
+    assert.equal((result.details as { hostBash?: boolean } | undefined)?.hostBash, true);
   } finally {
     delete process.env.MOLIBOT_APPROVED_BASH_TOKEN;
-    rmSync(cwd, { recursive: true, force: true });
   }
 });
 
@@ -299,7 +334,7 @@ test("bash auto-requests host approval after sandbox permission failure for sing
     assert.match(firstText(result), /host approval was requested automatically/i);
     assert.equal(settings.hostTools.pendingApprovals.length, 1);
     assert.equal(settings.hostTools.pendingApprovals[0]?.command, "cat");
-    assert.equal(Boolean(result.details && "hostToolApproval" in result.details), true);
+    assert.equal(Boolean(result.details && "hostBashApproval" in result.details), true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/Sandbox is not supported|sandbox-runtime|dependencies/i.test(message)) {

@@ -1,6 +1,27 @@
 # Molibot Features
 
+## 2026-05-25
+
+### Subagent sandbox research and product boundary
+- **竞品调研文档**: 新增 `docs/subagent-sandbox-research.md`，系统梳理 Claude Code、Codex、GitHub Copilot cloud agent、Replit Agent、Devin、OpenHands、Cursor 在 subagent、sandbox、审批、环境快照、回滚和页面交互上的实现方式。
+- **下一阶段边界明确**: 文档把 Molibot 当前第一版能力和缺口拆成 P0/P1/P2/P3，建议先补齐策略模板、run ledger、审批/产物/诊断关联和恢复边界，再扩大 host access 或 Docker sandbox provider。
+
+### Host approval environment hotfix
+- **Host approval env 恢复继承**: approved Host Bash / legacy host tool 执行器恢复继承宿主 `process.env`，避免开启 sandbox 后审批执行拿不到 API key、PATH、HOME 等运行变量。
+- **env allowlist 暂保留兼容**: `envAllowlist` 仍保留在审批记录和白名单结构里，但当前热修复不再把它作为默认清空宿主环境的强制边界；后续再设计可审计的敏感 env 审批。
+- **Subagent 审批等待状态修复**: subagent chain/parallel 汇总现在保留 `waiting_for_approval`，chain 在子任务等待审批或失败时停止继续传递 `{previous}`；Web chat 和 streaming API 不再把等待审批提示持久化为普通 assistant 会话消息。
+- **审批后自动执行路径修复**: 新建 Host Bash pending action 统一使用 `run_approved_host_bash`，审批后的自动执行恢复拿到原始命令 payload，并从 chat scratch 目录运行，避免相对路径偏移到 chat 根目录。
+- **审批等待不再被内部 abort 覆盖**: Host Bash 审批触发的内部 `abort()` 不再把 runner 最终状态改回 `aborted`，Telegram 因此不会在等待审批路径额外发送 `Stopped.`。
+- **审批后空输出减噪**: Host Bash pending action 自动执行成功但无 stdout/stderr 时，不再向 Telegram/Feishu/Web/Base 额外发送 `(no output)`，只保留审批已执行的确认消息；失败输出仍照常展示。
+- **Telegram 审批点击立即反馈**: Telegram Host Bash 按钮现在先确认 callback 并把审批卡改成“已收到/执行中”，再执行可能较慢的 Host Bash pending action，避免 Telegram callback 超时后用户看不出点击是否生效。
+
 ## 2026-05-24
+
+### Host Bash approval friction reduction
+- **Host Bash 审批执行补齐**: approved Host Bash / legacy host tool 执行器补齐 session-only pending action 自动执行路径；环境变量默认继承行为已在 2026-05-25 热修复中恢复。
+- **Session-only 执行闭环**: `approve-session` 不写长期白名单时，pending Host Bash action 也能用审批记录自身权限执行一次，避免“本 session 允许”后立即执行失败。
+- **跨渠道审批执行补齐**: QQ / Weixin 通过共享 channel runtime 继承默认 Host Bash pending action 执行回调；Web Chat 新增 `/hosttools approve|approve-session|reject` 命令闭环。
+- **上下文瘦身**: 等待 Host Bash 审批时回滚本轮模型消息，避免审批卡和 sandbox 长错误写入会话上下文；subagent 返回给父 Agent 的超长输出会压缩，完整结果保留在 tool details / run trace。
 
 ### Subagent artifact routing
 - **Subagent 日期目录继承**: 主 Agent 传入的 `scratch_artifact_dir` 会继续传给 subagent 的 `bash/write` 工具；子 Agent 普通产物和主 Agent 一样默认进入 `scratch/YYYY/MM/DD/`，并在提示中要求回报 routed relative path。
@@ -27,6 +48,7 @@
 | DOC-06 | Documentation cleanup | Done | Removed redundant docs and added file-purpose navigation in `readme.md` |
 | DOC-07 | Global SOUL profile tone optimization | Done | Rewrote `~/.molibot/SOUL.md` with decisive, concise, non-corporate voice and explicit direct-answer constraints |
 | DOC-13 | Plugin authoring and installation tutorial | Done | Added a full plugin tutorial covering plugin types, current support boundaries, how to write/install/enable built-in plugins, manifest limits for external plugins, and a Cloudflare HTML publish demo |
+| DOC-18 | Subagent sandbox research spec | Done | Added `docs/subagent-sandbox-research.md` covering users, competitor patterns, functional boundaries, target data structures, page interactions, non-goals, and phased acceptance criteria for the next sandbox/subagent product iteration |
 | ENG-01 | Unified message router implementation | Done | Shared message router now lives at `src/lib/server/channels/shared/messageRouter.ts` with validation, rate limit, and shared pipeline |
 | ENG-153 | Agent hierarchy settings and prompt overlays | Done | Added reusable agent settings, agent-linked bots, in-page Markdown editors for agent/bot profile files, and runtime prompt layering `global -> agent -> bot` |
 | ENG-190 | Shared inbound task ownership above channels | Done | Inbound queue ownership, queue commands, and resume flow now live in shared runtime helpers instead of per-channel queue wiring |
@@ -99,6 +121,7 @@
 | ENG-351 | Approved host tool shell parity | Done | Reusable approved host tools now execute the original approved command through the same shell-style path as bash instead of direct structured argv, so normal shell expansion such as `$WEREAD_API_KEY` works consistently while sandboxed commands still use the sandbox path when no host approval matches |
 | ENG-352 | Telegram group mention trigger repair | Done | Telegram loads the bot username before polling and recognizes group/supergroup mentions from Telegram message entities as well as raw `@username` text, so direct mentions trigger consistently while replies to bot messages continue to work |
 | ENG-353 | Subagent artifact directory and approval inheritance | Done | Built-in subagents inherit the parent message's dated scratch artifact directory and Host Bash approval context, route worker `write` outputs and subagent `bash` artifacts into that directory, move modified root-level artifact files, and bubble new approval prompts through the parent runner's existing channel approval UI |
+| ENG-354 | Host Bash approval friction and context hygiene | Done | Session-only approvals can execute pending actions without a durable whitelist entry, QQ/Weixin/Web share the approval execution path, duplicate same-run approval events are suppressed, long subagent outputs are compressed before returning to the parent model context, and host approval env inheritance was restored in the 2026-05-25 hotfix |
 | ENG-341 | Settings shell and first-screen hierarchy unification | Done | Reworked the shared `/settings` shell around one warmer editorial frame aligned to `DESIGN.md`, tightening left-nav hierarchy, top chrome, page-hero treatment, content width, card surfaces, and primary action styling so settings pages enter with one consistent first-screen structure without rewriting each page's business logic |
 | ENG-342 | Settings header compactness and softer dark-card borders | Done | Tuned the shared settings shell so ordinary page headers stay compact instead of expanding into oversized hero blocks, and reduced card-border contrast across settings pages, especially in dark mode where the old bright outline felt crude |
 | ENG-343 | Card primitive border softening | Done | Replaced the shared shadcn `Card` primitive's `ring-foreground/10 ring-1` outline with a softer semantic border and lighter shadow so cards stop reading as black-edged/light-edged boxes across settings and other reused surfaces |

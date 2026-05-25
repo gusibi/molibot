@@ -4,7 +4,27 @@
 
 ---
 
+## 2026-05-25
+
+### Subagent sandbox research
+- **竞品与产品边界文档**: 新增 `docs/subagent-sandbox-research.md`，对 Claude Code、Codex、GitHub Copilot cloud agent、Replit Agent、Devin、OpenHands、Cursor 的 subagent/sandbox/审批/恢复设计做对比，并转化为 Molibot 下一阶段的用户、边界、数据结构、页面交互和验收标准。
+
+### Host approval environment hotfix
+- **审批后环境变量恢复**: approved Host Bash / legacy host tool 执行恢复继承宿主 `process.env`，避免 API key、PATH、HOME 等变量在审批后丢失。
+- **安全收窄改为后续设计**: `envAllowlist` 字段继续保留兼容，但本次不再默认用它清空宿主环境；更细粒度的敏感 env 审批另行设计。
+- **Subagent 等待审批不再误收尾**: 子 Agent 触发 Host Bash 审批时，`waiting_for_approval` 会贯穿 subagent 汇总和 chain 执行；Web chat / streaming API 不再把临时等待提示写成普通助手历史。
+- **审批自动执行恢复**: Host Bash 新审批记录现在保留正确 pending action 类型，批准后按原始 scratch 工作目录自动执行，避免批准成功但命令未继续运行。
+- **等待审批不再误报停止**: Host Bash 权限请求触发的内部中断不再覆盖 `waiting_for_approval`，Telegram 不会在审批卡后追加 `Stopped.`。
+- **空输出审批执行减噪**: 审批后自动执行成功但没有命令输出时，不再额外发送 `(no output)`，保留成功执行确认并继续展示真实失败输出。
+- **Telegram 审批按钮即时响应**: Host Bash 审批按钮会先回复 callback 并更新卡片为执行中，再运行审批后的命令，避免长命令导致 Telegram 报 callback query 过期且用户误以为按钮无效。
+
 ## 2026-05-24
+
+### Host Bash approval and context hygiene
+- **审批执行跨渠道一致**: QQ / Weixin 现在继承共享 Host Bash pending action 执行路径，Web Chat 也可用 `/hosttools approve|approve-session|reject` 完成审批闭环。
+- **Session-only 审批可立即执行**: `approve-session` 不创建长期白名单时，也能基于审批记录自身权限执行当前 pending action，避免批准后自动执行失败。
+- **Host Bash 审批链路补齐**: approved Host Bash 执行路径支持 pending action 闭环，环境变量行为在 2026-05-25 热修复中恢复为继承宿主进程环境。
+- **运行上下文减噪**: 等待审批时不会把审批卡和长 sandbox 错误写回模型上下文；subagent 超长输出会压缩后再返回父 Agent。
 
 ### Subagent artifact routing
 - **Subagent 产物路径统一**: 子 Agent 现在继承主 Agent 的日期产物目录，`bash/write` 默认把普通生成文件放入 `scratch/YYYY/MM/DD/`，避免日报文件落在 scratch 根目录导致父 Agent 读取错路径。

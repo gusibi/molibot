@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SharedRuntimeCommandService } from "./channelCommands.js";
 import { defaultRuntimeSettings } from "../settings/defaults.js";
-import type { HostToolApprovalRequest, RuntimeSettings } from "../settings/index.js";
+import type { RuntimeSettings } from "../settings/index.js";
+import type { ApprovedHostBashEntry, HostBashApprovalRecord } from "../hostBash/index.js";
 
 function minimalStore() {
   return {
@@ -15,6 +16,65 @@ function minimalStore() {
     getSessionHostApprovalMode: () => "default",
     setSessionHostApprovalMode: () => "session",
     appendRuntimeEvent: () => {}
+  };
+}
+
+function createTestHostBashStore(
+  pending: HostBashApprovalRecord[],
+  history: HostBashApprovalRecord[] = [],
+  whitelist: ApprovedHostBashEntry[] = []
+) {
+  const approve = (scopeId: string, approvalId?: string, options?: { persistWhitelist?: boolean }) => {
+    const index = pending.findIndex((item) =>
+      item.scopeId === scopeId && item.status === "pending" && (!approvalId || item.id === approvalId)
+    );
+    if (index < 0) return null;
+    const [record] = pending.splice(index, 1);
+    if (!record) return null;
+    record.status = "approved";
+    history.push(record);
+    let approved: ApprovedHostBashEntry | undefined;
+    if (record.approvalMode === "persistent" && (options?.persistWhitelist ?? true)) {
+      approved = {
+        id: `hbw-${record.toolId}`,
+        toolId: record.toolId,
+        displayName: record.displayName,
+        command: record.command,
+        reason: record.reason,
+        channel: record.channel,
+        chatId: record.chatId,
+        scopeId: record.scopeId,
+        permissions: record.permissions,
+        approvedAt: "2026-05-25T00:00:00.000Z",
+        approvedFromRecordId: record.id,
+        enabled: true
+      };
+      whitelist.push(approved);
+    }
+    return { record, approved };
+  };
+
+  return {
+    listPending: (scopeId: string) => pending.filter((item) => item.scopeId === scopeId && item.status === "pending"),
+    listWhitelist: () => whitelist,
+    approve,
+    reject: (scopeId: string, approvalId?: string) => {
+      const index = pending.findIndex((item) =>
+        item.scopeId === scopeId && item.status === "pending" && (!approvalId || item.id === approvalId)
+      );
+      if (index < 0) return null;
+      const [record] = pending.splice(index, 1);
+      if (!record) return null;
+      record.status = "rejected";
+      history.push(record);
+      return record;
+    },
+    markExecution: (recordId: string, status: "executed" | "failed", errorText?: string) => {
+      const record = history.find((item) => item.id === recordId);
+      if (!record) return;
+      record.status = status;
+      record.errorText = errorText;
+    }
   };
 }
 
@@ -78,7 +138,7 @@ test("status command includes current session token stats", async () => {
 
 test("plain approval text approves the only pending host tool request in the chat", async () => {
   const sent: string[] = [];
-  const pending: HostToolApprovalRequest = {
+  const pending: HostBashApprovalRecord = {
     id: "hta-agent-browser-1",
     toolId: "agent-browser",
     displayName: "Agent Browser",
@@ -96,20 +156,15 @@ test("plain approval text approves the only pending host tool request in the cha
     approvalMode: "persistent",
     status: "pending",
     pendingAction: {
-      kind: "run_approved_host_tool",
+      kind: "run_approved_host_bash",
       originalCommand: "agent-browser --open",
       args: ["--open"]
     }
   };
   let autoExecuted = false;
-  let settings: RuntimeSettings = {
-    ...structuredClone(defaultRuntimeSettings),
-    hostTools: {
-      pendingApprovals: [pending],
-      approvalHistory: [],
-      approvedTools: []
-    }
-  };
+  const pendingApprovals = [pending];
+  const approvalHistory: HostBashApprovalRecord[] = [];
+  const approvedTools: ApprovedHostBashEntry[] = [];
   const service = new SharedRuntimeCommandService<string>({
     channel: "telegram",
     instanceId: "bot-test",
@@ -117,12 +172,9 @@ test("plain approval text approves the only pending host tool request in the cha
     authScopePrefix: "telegram",
     store: minimalStore() as any,
     runners: {} as any,
-    getSettings: () => settings,
-    updateSettings: (patch) => {
-      settings = { ...settings, ...patch } as RuntimeSettings;
-      return settings;
-    },
-    executeApprovedHostTool: async () => {
+    getSettings: () => defaultRuntimeSettings,
+    hostBashStore: createTestHostBashStore(pendingApprovals, approvalHistory, approvedTools) as any,
+    executeApprovedHostBash: async () => {
       autoExecuted = true;
       return "Approved and executed immediately.";
     },
@@ -142,16 +194,16 @@ test("plain approval text approves the only pending host tool request in the cha
 
   assert.equal(handled, true);
   assert.equal(autoExecuted, true);
-  assert.equal(settings.hostTools.pendingApprovals.length, 0);
-  assert.equal(settings.hostTools.approvalHistory[0]?.status, "approved");
-  assert.equal(settings.hostTools.approvedTools[0]?.toolId, "agent-browser");
-  assert.match(sent[0] ?? "", /Approved host tool: Agent Browser/);
+  assert.equal(pendingApprovals.length, 0);
+  assert.equal(approvalHistory[0]?.status, "executed");
+  assert.equal(approvedTools[0]?.toolId, "agent-browser");
+  assert.match(sent[0] ?? "", /Approved Host Bash: Agent Browser/);
   assert.match(sent[0] ?? "", /Approved and executed immediately/);
 });
 
 test("hosttools reject rejects a specific pending host tool request", async () => {
   const sent: string[] = [];
-  const pending: HostToolApprovalRequest = {
+  const pending: HostBashApprovalRecord = {
     id: "hta-agent-browser-1",
     toolId: "agent-browser",
     displayName: "Agent Browser",
@@ -169,14 +221,8 @@ test("hosttools reject rejects a specific pending host tool request", async () =
     approvalMode: "persistent",
     status: "pending"
   };
-  let settings: RuntimeSettings = {
-    ...structuredClone(defaultRuntimeSettings),
-    hostTools: {
-      pendingApprovals: [pending],
-      approvalHistory: [],
-      approvedTools: []
-    }
-  };
+  const pendingApprovals = [pending];
+  const approvalHistory: HostBashApprovalRecord[] = [];
   const service = new SharedRuntimeCommandService<string>({
     channel: "qq",
     instanceId: "bot-test",
@@ -184,11 +230,8 @@ test("hosttools reject rejects a specific pending host tool request", async () =
     authScopePrefix: "qq",
     store: minimalStore() as any,
     runners: {} as any,
-    getSettings: () => settings,
-    updateSettings: (patch) => {
-      settings = { ...settings, ...patch } as RuntimeSettings;
-      return settings;
-    },
+    getSettings: () => defaultRuntimeSettings,
+    hostBashStore: createTestHostBashStore(pendingApprovals, approvalHistory) as any,
     isRunning: () => false,
     stopRun: () => ({ aborted: false }),
     sendText: async (_target, text) => {
@@ -204,15 +247,15 @@ test("hosttools reject rejects a specific pending host tool request", async () =
   });
 
   assert.equal(handled, true);
-  assert.equal(settings.hostTools.pendingApprovals.length, 0);
-  assert.equal(settings.hostTools.approvalHistory[0]?.status, "rejected");
-  assert.match(sent[0] ?? "", /Rejected host tool approval hta-agent-browser-1/);
+  assert.equal(pendingApprovals.length, 0);
+  assert.equal(approvalHistory[0]?.status, "rejected");
+  assert.match(sent[0] ?? "", /Rejected Host Bash approval hta-agent-browser-1/);
 });
 
 test("hosttools approve-session enables session fallback without persisting approved tool", async () => {
   const sent: string[] = [];
   const runtimeEvents: string[] = [];
-  const pending: HostToolApprovalRequest = {
+  const pending: HostBashApprovalRecord = {
     id: "hta-cat-1",
     toolId: "cat",
     displayName: "cat",
@@ -230,21 +273,16 @@ test("hosttools approve-session enables session fallback without persisting appr
     approvalMode: "persistent",
     status: "pending",
     pendingAction: {
-      kind: "run_approved_host_tool",
+      kind: "run_approved_host_bash",
       originalCommand: "cat blocked.txt",
       args: ["blocked.txt"]
     }
   };
   let autoExecuted = false;
   let sessionMode: "default" | "session" = "default";
-  let settings: RuntimeSettings = {
-    ...structuredClone(defaultRuntimeSettings),
-    hostTools: {
-      pendingApprovals: [pending],
-      approvalHistory: [],
-      approvedTools: []
-    }
-  };
+  const pendingApprovals = [pending];
+  const approvalHistory: HostBashApprovalRecord[] = [];
+  const approvedTools: ApprovedHostBashEntry[] = [];
   const store = {
     ...minimalStore(),
     setSessionHostApprovalMode: (_scopeId: string, _sessionId: string, value: "default" | "session") => {
@@ -262,12 +300,9 @@ test("hosttools approve-session enables session fallback without persisting appr
     authScopePrefix: "weixin",
     store: store as any,
     runners: {} as any,
-    getSettings: () => settings,
-    updateSettings: (patch) => {
-      settings = { ...settings, ...patch } as RuntimeSettings;
-      return settings;
-    },
-    executeApprovedHostTool: async () => {
+    getSettings: () => defaultRuntimeSettings,
+    hostBashStore: createTestHostBashStore(pendingApprovals, approvalHistory, approvedTools) as any,
+    executeApprovedHostBash: async () => {
       autoExecuted = true;
       return "Executed immediately.";
     },
@@ -288,12 +323,12 @@ test("hosttools approve-session enables session fallback without persisting appr
   assert.equal(handled, true);
   assert.equal(autoExecuted, true);
   assert.equal(sessionMode, "session");
-  assert.equal(settings.hostTools.pendingApprovals.length, 0);
-  assert.equal(settings.hostTools.approvedTools.length, 0);
-  assert.equal(settings.hostTools.approvalHistory[0]?.status, "approved");
+  assert.equal(pendingApprovals.length, 0);
+  assert.equal(approvedTools.length, 0);
+  assert.equal(approvalHistory[0]?.status, "executed");
   assert.deepEqual(runtimeEvents, ["SESSION_HOST_APPROVAL_ENABLED"]);
   assert.match(sent[0] ?? "", /Approved for current session only/);
-  assert.match(sent[0] ?? "", /Future sandbox permission denials in this session will fall back to host bash automatically/);
+  assert.match(sent[0] ?? "", /Future sandbox permission denials in this session will fall back to Host Bash automatically/);
 });
 
 test("status command renders markdown table on qq", async () => {

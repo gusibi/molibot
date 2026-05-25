@@ -254,7 +254,7 @@ function requestApprovalFromBash(
     permissions: approval.permissions,
     pendingAction: parsed.approvalMode === "persistent"
       ? {
-          kind: "run_approved_host_tool",
+          kind: "run_approved_host_bash",
           originalCommand: parsed.originalCommand,
           args: parsed.args,
           timeout: timeoutSeconds

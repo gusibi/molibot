@@ -33,6 +33,8 @@ import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
 import { sanitizeRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
 import type { RunnerUiEvent } from "$lib/server/agent/types";
 import type { ConversationAttachment } from "$lib/shared/types/message";
+import { executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec";
+import { getHostBashStore } from "$lib/server/hostBash";
 
 interface ChatBody {
   userId?: string;
@@ -151,6 +153,115 @@ function buildLoginScope(profileId: string, externalUserId?: string): string {
   return `web:${profileId}:${externalUserId || "anonymous"}`;
 }
 
+async function handleWebHostToolsCommand(
+  rawArg: string,
+  profileId: string,
+  conversationId: string | undefined,
+  externalUserId: string | undefined
+): Promise<WebCommandResult> {
+  if (!externalUserId) {
+    return { ok: true, response: "No active Web chat scope for Host Bash approvals." };
+  }
+  const { store } = getWebRuntimeContext(profileId);
+  const hostBashStore = getHostBashStore();
+  const [subcommand = "list", approvalId = ""] = rawArg.split(/\s+/).filter(Boolean);
+  const scopeId = externalUserId;
+  const sessionId = conversationId || store.getActiveSession(scopeId);
+
+  if (subcommand === "list") {
+    const pending = hostBashStore.listPending(scopeId);
+    const approved = hostBashStore.listWhitelist().filter((item) => item.enabled);
+    return {
+      ok: true,
+      response: [
+        `Pending Host Bash approvals: ${pending.length}`,
+        ...pending.map((item) => `- ${item.id}: ${item.displayName} (${item.command})`),
+        "",
+        `Host Bash whitelist entries: ${approved.length}`,
+        ...approved.map((item) => `- ${item.toolId}: ${item.displayName} (${item.command})`)
+      ].join("\n").trim()
+    };
+  }
+
+  if (subcommand === "reject") {
+    const rejected = hostBashStore.reject(scopeId, approvalId || undefined);
+    return {
+      ok: true,
+      response: rejected
+        ? `Rejected Host Bash approval ${rejected.id} (${rejected.displayName}).`
+        : "No matching pending Host Bash approval found."
+    };
+  }
+
+  if (subcommand !== "approve" && subcommand !== "approve-session") {
+    return {
+      ok: true,
+      response: [
+        "Host Bash usage:",
+        "/hosttools",
+        "/hosttools approve <approvalId>",
+        "/hosttools approve-session <approvalId>",
+        "/hosttools reject <approvalId>"
+      ].join("\n")
+    };
+  }
+
+  const approved = hostBashStore.approve(scopeId, approvalId || undefined, {
+    persistWhitelist: subcommand !== "approve-session"
+  });
+  if (!approved) {
+    return { ok: true, response: "No matching pending Host Bash approval found." };
+  }
+  if (subcommand === "approve-session") {
+    store.setSessionHostApprovalMode(scopeId, sessionId, "session");
+    store.appendRuntimeEvent(scopeId, {
+      code: "SESSION_HOST_APPROVAL_ENABLED",
+      level: "info",
+      summary: "Enabled session-only sandbox fallback approval from Web chat.",
+      details: {
+        sessionId,
+        requestId: approved.record.id,
+        command: approved.record.command
+      }
+    }, sessionId);
+  }
+
+  const lines = [
+    subcommand === "approve-session"
+      ? `Approved for current session only: ${approved.record.displayName}`
+      : `Approved Host Bash: ${approved.record.displayName}`,
+    `Request ID: ${approved.record.id}`,
+    `Command: ${approved.record.command}`
+  ];
+  if (subcommand === "approve-session") {
+    lines.push(`Session: ${sessionId}`);
+    lines.push("Future sandbox permission denials in this session will fall back to Host Bash automatically.");
+  } else if (approved.approved) {
+    lines.push("This command is now registered as a reusable Host Bash whitelist entry.");
+  }
+
+  if (approved.record.pendingAction) {
+    try {
+      const executed = await executeHostBashApproval({
+        record: approved.record,
+        approvedTool: approved.approved,
+        cwd: store.getScratchDir(scopeId)
+      });
+      hostBashStore.markExecution(approved.record.id, "executed");
+      if (hasVisibleHostBashOutput(executed.rendered)) {
+        lines.push("", executed.rendered);
+      }
+      lines.push("", "Approved and executed immediately.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      hostBashStore.markExecution(approved.record.id, "failed", message);
+      lines.push("", `${subcommand === "approve-session" ? "Approved for this session" : "Approved"}, but automatic execution failed: ${message}`);
+    }
+  }
+
+  return { ok: true, response: lines.join("\n") };
+}
+
 async function tryHandleWebCommand(
   message: string,
   profileId: string,
@@ -181,6 +292,10 @@ async function tryHandleWebCommand(
         "/login <provider> - start OAuth login and receive the auth URL",
         "/login <provider> <code-or-redirect-url> - finish OAuth login",
         "/logout <provider> - remove stored auth from auth.json",
+        "/hosttools - list pending Host Bash approvals",
+        "/hosttools approve <approvalId> - approve and execute a pending Host Bash request",
+        "/hosttools approve-session <approvalId> - approve only for the current session",
+        "/hosttools reject <approvalId> - reject a pending Host Bash request",
         "/help - show this help"
       ].join("\n")
     };
@@ -322,6 +437,10 @@ async function tryHandleWebCommand(
         ? `Removed stored auth for '${rawArg.split(/\s+/)[0]}'.`
         : `No stored auth found for '${rawArg.split(/\s+/)[0]}'.`
     };
+  }
+
+  if (cmd === "/hosttools" || cmd === "/host-tools") {
+    return handleWebHostToolsCommand(rawArg, profileId, conversationId, externalUserId);
   }
 
   return null;
@@ -543,7 +662,9 @@ export const POST: RequestHandler = async ({ request }) => {
     result.errorMessage ||
     "(empty response)";
 
-  runtime.sessions.appendMessage(conversation.id, "assistant", assistantText);
+  if (result.stopReason !== "waiting_for_approval") {
+    runtime.sessions.appendMessage(conversation.id, "assistant", assistantText);
+  }
 
   return json({
     ok: true,

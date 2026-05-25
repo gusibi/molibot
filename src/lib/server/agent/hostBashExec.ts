@@ -33,6 +33,11 @@ export interface ApprovedHostBashRunOutput {
   details: HostBashExecutionDetails;
 }
 
+export function hasVisibleHostBashOutput(rendered: string): boolean {
+  const normalized = rendered.trim();
+  return normalized.length > 0 && normalized !== "(no output)";
+}
+
 function buildTempOutputPath(cwd: string): string {
   const dir = join(cwd, ".mom-tool-output");
   mkdirSync(dir, { recursive: true });
@@ -232,6 +237,54 @@ async function runOneTimeHostScript(input: {
   return { rendered, details };
 }
 
+async function runApprovedRecordHostBash(input: {
+  record: HostBashApprovalRecord;
+  cwd: string;
+  signal?: AbortSignal;
+}): Promise<ApprovedHostBashRunOutput> {
+  const pendingAction = input.record.pendingAction;
+  if (!pendingAction || pendingAction.kind !== "run_approved_host_bash") {
+    throw new Error("Missing approved host bash payload.");
+  }
+  const result = await runHostCommand({
+    command: pendingAction.originalCommand,
+    permissions: input.record.permissions,
+    cwd: input.cwd,
+    timeoutSeconds: pendingAction.timeout,
+    stdin: pendingAction.stdin,
+    signal: input.signal
+  });
+
+  let output = "";
+  if (result.stdout) output += result.stdout;
+  if (result.stderr) output += `${output ? "\n" : ""}${result.stderr}`;
+  output = normalizeCommandOutput(stripAnsi(output));
+
+  const truncation = truncateMiddle(output, { maxBytes: DEFAULT_MAX_BYTES, maxLines: DEFAULT_MAX_LINES });
+  let rendered = truncation.content || "(no output)";
+  const details: HostBashExecutionDetails = {
+    hostBash: true,
+    toolId: input.record.toolId,
+    command: input.record.command,
+    args: pendingAction.args ?? [],
+    exitCode: result.code
+  };
+
+  if (truncation.truncated) {
+    const fullOutputPath = buildTempOutputPath(input.cwd);
+    writeFileSync(fullOutputPath, output, "utf8");
+    rendered += `\n\n[Output compressed from ${truncation.totalLines} lines / ${formatSize(truncation.totalBytes)}. Full output: ${fullOutputPath}]`;
+    details.truncation = truncation;
+    details.fullOutputPath = fullOutputPath;
+  }
+
+  if (result.code !== 0) {
+    throw new Error(`${rendered}\n\nHost Bash exited with code ${result.code}`.trim());
+  }
+
+  return { rendered, details };
+}
+
 export async function executeHostBashApproval(input: {
   record: HostBashApprovalRecord;
   approvedTool?: ApprovedHostBashEntry;
@@ -249,7 +302,11 @@ export async function executeHostBashApproval(input: {
     });
   }
   if (!input.approvedTool) {
-    throw new Error("Missing approved Host Bash definition.");
+    return runApprovedRecordHostBash({
+      record: input.record,
+      cwd: input.cwd,
+      signal: input.signal
+    });
   }
   return executeApprovedHostBash({
     tool: input.approvedTool,

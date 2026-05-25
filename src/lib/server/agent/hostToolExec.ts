@@ -238,6 +238,54 @@ async function runOneTimeHostScript(input: {
   return { rendered, details };
 }
 
+async function runApprovedRequestHostTool(input: {
+  request: HostToolApprovalRequest;
+  cwd: string;
+  signal?: AbortSignal;
+}): Promise<ApprovedHostToolRunOutput> {
+  const pendingAction = input.request.pendingAction;
+  if (!pendingAction || pendingAction.kind !== "run_approved_host_tool") {
+    throw new Error("Missing approved host tool payload.");
+  }
+  const result = await runHostCommand({
+    command: pendingAction.originalCommand,
+    permissions: input.request.permissions,
+    cwd: input.cwd,
+    timeoutSeconds: pendingAction.timeout,
+    stdin: pendingAction.stdin,
+    signal: input.signal
+  });
+
+  let output = "";
+  if (result.stdout) output += result.stdout;
+  if (result.stderr) output += `${output ? "\n" : ""}${result.stderr}`;
+  output = normalizeCommandOutput(stripAnsi(output));
+
+  const truncation = truncateMiddle(output, { maxBytes: DEFAULT_MAX_BYTES, maxLines: DEFAULT_MAX_LINES });
+  let rendered = truncation.content || "(no output)";
+  const details: HostToolExecutionDetails = {
+    hostTool: true,
+    toolId: input.request.toolId,
+    command: input.request.command,
+    args: pendingAction.args ?? [],
+    exitCode: result.code
+  };
+
+  if (truncation.truncated) {
+    const fullOutputPath = buildTempOutputPath(input.cwd);
+    writeFileSync(fullOutputPath, output, "utf8");
+    rendered += `\n\n[Output compressed from ${truncation.totalLines} lines / ${formatSize(truncation.totalBytes)}. Full output: ${fullOutputPath}]`;
+    details.truncation = truncation;
+    details.fullOutputPath = fullOutputPath;
+  }
+
+  if (result.code !== 0) {
+    throw new Error(`${rendered}\n\nHost tool exited with code ${result.code}`.trim());
+  }
+
+  return { rendered, details };
+}
+
 export async function executeHostToolApproval(input: {
   request: HostToolApprovalRequest;
   approvedTool?: ApprovedHostTool;
@@ -255,7 +303,11 @@ export async function executeHostToolApproval(input: {
     });
   }
   if (!input.approvedTool) {
-    throw new Error("Missing approved host tool definition.");
+    return runApprovedRequestHostTool({
+      request: input.request,
+      cwd: input.cwd,
+      signal: input.signal
+    });
   }
   return executeApprovedHostTool({
     tool: input.approvedTool,

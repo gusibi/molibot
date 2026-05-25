@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { defaultRuntimeSettings } from "../../settings/defaults.js";
-import { createSubagentTool, isSafeReadOnlySubagentCommand, listBuiltInSubagents, resolveSubagentModelRoute } from "./subagent.js";
+import {
+  createSubagentTool,
+  isSafeReadOnlySubagentCommand,
+  listBuiltInSubagents,
+  normalizeSubagentStopReason,
+  resolveSubagentModelRoute,
+  summarizeSubagentStopReason,
+  summarizeSubagentResultsForParent
+} from "./subagent.js";
 
 test("read-only subagent bash rejects shell control operators", () => {
   assert.equal(isSafeReadOnlySubagentCommand("git diff -- src/lib/server/agent/runner.ts"), true);
@@ -81,5 +89,47 @@ test("subagent emits a terminal error event when execution fails before producin
       { phase: "start", stopReason: undefined },
       { phase: "end", stopReason: "error" }
     ]
+  );
+});
+
+test("subagent result summary compresses long child output for parent context", () => {
+  const output = `${"a".repeat(5000)}\nIMPORTANT\n${"z".repeat(2500)}`;
+  const summary = summarizeSubagentResultsForParent("single", [{
+    agent: "scout",
+    task: "inspect",
+    output,
+    stopReason: "stop",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      total: 0,
+      cost: 0,
+      turns: 0
+    }
+  }]);
+
+  assert.ok(summary.length < output.length);
+  assert.match(summary, /subagent output compressed for parent context/);
+  assert.match(summary, /^aaaa/);
+  assert.match(summary, /zzzz$/);
+});
+
+test("subagent stop reason preserves waiting_for_approval", () => {
+  assert.equal(normalizeSubagentStopReason("waiting_for_approval"), "waiting_for_approval");
+  assert.equal(
+    summarizeSubagentStopReason([
+      { stopReason: "stop" },
+      { stopReason: "waiting_for_approval" }
+    ]),
+    "waiting_for_approval"
+  );
+  assert.equal(
+    summarizeSubagentStopReason([
+      { stopReason: "waiting_for_approval" },
+      { stopReason: "error" }
+    ]),
+    "error"
   );
 });

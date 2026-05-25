@@ -32,7 +32,7 @@ import { BaseChannelRuntime } from "../shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
 import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
 import { SqliteOutbox } from "../shared/outbox.js";
-import { executeHostBashApproval } from "../../agent/hostBashExec.js";
+import { executeHostBashApproval, hasVisibleHostBashOutput } from "../../agent/hostBashExec.js";
 
 export interface FeishuConfig {
     appId: string;
@@ -133,9 +133,11 @@ export class FeishuManager extends BaseChannelRuntime {
                 const executed = await executeHostBashApproval({
                     record: request,
                     approvedTool: approved,
-                    cwd: this.store.getChatDir(input.scopeId)
+                    cwd: this.store.getScratchDir(input.scopeId)
                 });
-                await this.sendText(input.chatId, executed.rendered);
+                if (hasVisibleHostBashOutput(executed.rendered)) {
+                    await this.sendText(input.chatId, executed.rendered);
+                }
                 return "Approved and executed immediately.";
             },
             onSessionMutation: (scopeId) => {

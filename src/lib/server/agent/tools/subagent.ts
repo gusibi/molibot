@@ -149,8 +149,26 @@ function previewTask(text: string, max = 160): string {
   return `${normalized.slice(0, max - 1)}…`;
 }
 
-function normalizeSubagentStopReason(stopReason: string | undefined): "stop" | "aborted" | "error" {
-  return stopReason === "stop" || stopReason === "aborted" || stopReason === "error" ? stopReason : "error";
+export function normalizeSubagentStopReason(
+  stopReason: string | undefined
+): "stop" | "aborted" | "error" | "waiting_for_approval" {
+  return stopReason === "stop" ||
+    stopReason === "aborted" ||
+    stopReason === "error" ||
+    stopReason === "waiting_for_approval"
+    ? stopReason
+    : "error";
+}
+
+export function summarizeSubagentStopReason(
+  results: Array<{ stopReason?: string }>
+): "stop" | "aborted" | "error" | "waiting_for_approval" {
+  if (results.some((result) => result.stopReason === "error")) return "error";
+  if (results.some((result) => result.stopReason === "waiting_for_approval")) {
+    return "waiting_for_approval";
+  }
+  if (results.some((result) => result.stopReason === "aborted")) return "aborted";
+  return "stop";
 }
 
 function parseSubagentMode(input: SubagentInput): {
@@ -473,18 +491,33 @@ function getAssistantText(message: AssistantMessage | null): string {
     .trim();
 }
 
-function summarizeResults(mode: "single" | "parallel" | "chain", results: SubagentRunResult[]): string {
+export function summarizeSubagentResultsForParent(mode: "single" | "parallel" | "chain", results: SubagentRunResult[]): string {
   if (results.length === 0) return "Subagent finished with no output.";
+
+  const compressOutput = (text: string): string => {
+    const body = text || "(no text output)";
+    const max = 6000;
+    if (body.length <= max) return body;
+    const head = body.slice(0, 4000).trimEnd();
+    const tail = body.slice(-1500).trimStart();
+    return [
+      head,
+      "",
+      `[... subagent output compressed for parent context; omitted ${body.length - head.length - tail.length} characters ...]`,
+      "",
+      tail
+    ].join("\n");
+  };
 
   if (mode === "single") {
     const [result] = results;
     if (!result) return "Subagent finished with no output.";
-    return result.output || `${result.agent} finished without text output.`;
+    return compressOutput(result.output || `${result.agent} finished without text output.`);
   }
 
   return results
     .map((result, index) => {
-      const body = result.output || "(no text output)";
+      const body = compressOutput(result.output);
       return `## ${index + 1}. ${result.agent}\n\n${body}`;
     })
     .join("\n\n");
@@ -805,6 +838,18 @@ async function runSingleSubagent(
       toolCalls: subagentToolCallCount,
       error: error instanceof Error ? error.message : String(error)
     });
+    if (hostBashApproval) {
+      const messages = session.state.messages;
+      const lastAssistant = getLastAssistant(messages);
+      return {
+        agent: agent.name,
+        task,
+        output: getAssistantText(lastAssistant),
+        stopReason: "waiting_for_approval",
+        usage: buildUsage(messages),
+        model: session.model?.id
+      };
+    }
     throw error;
   } finally {
     options.signal?.removeEventListener("abort", onAbort);
@@ -945,7 +990,9 @@ export function createSubagentTool(options: {
         });
       };
 
-      const emitEndEvent = async (stopReason: "stop" | "aborted" | "error"): Promise<void> => {
+      const emitEndEvent = async (
+        stopReason: "stop" | "aborted" | "error" | "waiting_for_approval"
+      ): Promise<void> => {
         endEventSent = true;
         await options.emitRunnerEvent?.({
           type: "subagent_execution",
@@ -1066,25 +1113,25 @@ export function createSubagentTool(options: {
             finished.push(result);
             previousOutput = result.output;
             emitProgress();
+            if (result.stopReason !== "stop") {
+              break;
+            }
           }
           results = chainResults;
         }
 
-        const hasFailure = results.some((result) => result.stopReason === "error" || result.stopReason === "aborted");
-        const endStopReason = hasFailure
-          ? (results.some((result) => result.stopReason === "error") ? "error" : "aborted")
-          : "stop";
+        const endStopReason = summarizeSubagentStopReason(results);
         momLog("runner", "subagent_end", {
           chatId: options.chatId,
           mode: parsed.mode,
           taskCount: results.length,
-          hasFailure,
+          hasFailure: endStopReason !== "stop",
           stopReasons: results.map((result) => result.stopReason)
         });
         await emitEndEvent(endStopReason);
 
         return {
-          content: [{ type: "text", text: summarizeResults(parsed.mode, results) }],
+          content: [{ type: "text", text: summarizeSubagentResultsForParent(parsed.mode, results) }],
           details: {
             mode: parsed.mode,
             results

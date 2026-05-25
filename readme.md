@@ -68,10 +68,13 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Archived Run Details**: successful IM runs now collapse bulky detail threads into one archive notice, while structured per-run detail logs stay available through `/runlog latest` or `/runlog <runId>` and Telegram final answers/notice messages can reply to the original user message for easier thread scanning
 - **Chat Host Tool Approval**: host-only external tools are approved from chat through a pending request flow rooted at the `bash` entry; structured approval payloads can render channel-native buttons/cards, approval immediately continues the stored host action through the original shell command so variables and quoting behave like normal bash, and a pending approval now pauses the current turn in an explicit waiting state instead of ending it as if the run were manually stopped
 - **Session-Scoped Sandbox Bypass**: host approval now includes a current-session-only option that approves the blocked request without registering a reusable host tool, then auto-falls back from sandbox denial to plain host bash for the rest of that active session only; `/new` or switching bots clears that temporary bypass automatically
+- **Lower-Noise Host Approval Flow**: approved Host Bash execution inherits the runtime environment so existing API keys keep working, session-only approvals can execute the current pending action from the same scratch working directory without creating a durable whitelist entry, Telegram approval buttons acknowledge clicks before long host execution starts, QQ/Weixin/Web share the approval execution path, and waiting-for-approval details stay out of the model context
+- **Subagent Approval Pause Semantics**: delegated runs preserve `waiting_for_approval` through chain/parallel summaries, stop chained follow-up tasks when a child is waiting or failed, and keep Web waiting prompts out of normal session history
 - **SQLite-Backed Host Bash Audit Trail**: Host Bash pending approvals, durable whitelist entries, and approval history now live in dedicated SQLite tables instead of `settings.json`, and operators can review/manage them from `/settings/host-bash`
 - **Text Fallback for Non-Interactive Channels**: when a channel such as Weixin or QQ cannot render host-approval buttons, Molibot now sends explicit reply-based approve/reject instructions plus per-request `/hosttools approve|reject <approvalId>` guidance instead of telling operators to click missing UI
 - **Two Host Approval Modes**: a single executable command becomes a reusable approved host capability after one approval, while a compound multi-step shell command is treated as a one-time exact host action approval that runs once and is not saved into the reusable host whitelist
 - **Skill Draft Governance**: reusable workflow drafts use a dedicated `skill-drafter` subagent plus skill-creator-aware local fallback so draft names stay concise and reusable instead of mirroring raw user messages or retry prompts
+- **Parent-Friendly Subagent Output**: delegated runs keep full details in run traces but compress very long child-agent text before returning it to the parent model, reducing context bloat during report and codebase-heavy workflows
 - **Settings shadcn-svelte Baseline**: Settings UI is moving toward source-owned shadcn-svelte components for cleaner, consistent forms and admin pages; `/settings/system`, `/settings/web`, `/settings/ai/providers`, `/settings/tasks`, and `/settings/sandbox` now use the shared component baseline for key forms and controls
 - **Unified Settings Frame**: the shared `/settings` shell now uses one DESIGN-driven warm-canvas frame for left navigation, top chrome, page hero, card surfaces, and first-screen action hierarchy before deeper per-page cleanup
 - **Settings Frame Restraint**: ordinary settings page headers stay compact instead of expanding into oversized hero blocks, and shared dark-mode card borders are intentionally kept soft and low-contrast
@@ -549,6 +552,7 @@ See `.env.example` for full list and detailed descriptions.
 - `docs/plugin-authoring-guide.md` - Practical plugin tutorial: how to write, install, enable, and demo plugins
 - `src/lib/server/plugins/cloudflareHtml/README.md` - Cloudflare HTML publish plugin notes, including Worker mode vs Direct R2 mode
 - `docs/acp-codex-mvp.md` - ACP (Agent Control Plane) documentation
+- `docs/subagent-sandbox-research.md` - Research and product boundary for the next Agent/Subagent sandbox iteration
 - `docs/molibot-architecture.svg` - Architecture diagram source
 
 ### Project Governance
@@ -599,7 +603,7 @@ See `.env.example` for full list and detailed descriptions.
 | **Settings System** | ⭐⭐⭐ Active | Relational tables, single-entity save, theme/i18n, unsaved change guards, progressive shadcn-svelte migration |
 | **Python Sandbox** | ⭐⭐⭐ Active | Isolated virtualenv, auto-dependency management, security hardening |
 | **Agent Bash Sandbox** | ⭐⭐ Opt-in | OS-level sandbox for main and built-in subagent bash, redacted diagnostics, allowlisted env injection, and concise `Sandbox` / `Sandbox disabled` tool-output markers |
-| **Host Tool Approval** | ⭐⭐ Active | Chat-first approval for specific host-only external tool capabilities; `bash` checks approved executables first, auto-creates approval on eligible sandbox permission failures, and approved tools run fixed commands through structured argv, not host shell access |
+| **Host Bash Approval** | ⭐⭐ Active | Chat-first approval for sandbox-blocked shell commands; `bash` checks approved entries first, auto-creates approval on eligible sandbox permission failures, waits with `waiting_for_approval` instead of `Stopped.`, and suppresses empty `(no output)` success noise after approval auto-execution |
 
 ### Development Activity
 
@@ -633,6 +637,6 @@ See `.env.example` for full list and detailed descriptions.
 
 ---
 
-*Last updated: March 29, 2026*
+*Last updated: May 25, 2026*
 *Version: 1.0.0*
 *Status: Production Ready*

@@ -235,7 +235,9 @@ export const POST: RequestHandler = async ({ request }) => {
             result.errorMessage ||
             "(empty response)";
 
-          runtime.sessions.appendMessage(conversation.id, "assistant", assistantText);
+          if (result.stopReason !== "waiting_for_approval") {
+            runtime.sessions.appendMessage(conversation.id, "assistant", assistantText);
+          }
           writeEvent(controller, encoder, "done", {
             ok: true,
             response: assistantText,
