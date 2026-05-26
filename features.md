@@ -1,5 +1,20 @@
 # Molibot Features
 
+## 2026-05-27
+
+### Agent session persistence hardening
+- **Compaction 顺序修正**: Runner 自动压缩上下文时先写入 compaction entry，再追加本轮用户消息，避免当前 prompt 被新 compaction 快照截断。
+- **错误 assistant 上下文隔离**: 没有 partial 文本的 assistant error 仍作为审计消息保存在 Agent session，但从下一轮模型上下文中过滤，避免空 assistant error turn 污染推理。
+- **Sandbox 写权限收窄**: Longbridge 日志目录不再被加入所有 sandbox 命令的默认 `allowWrite`，后续如需放行应走命令级或配置级边界。
+
+## 2026-05-26
+
+### Agent session persistence parity
+- **失败轮次保存对齐 Pi/Pae**: Runner 现在在本轮开始时保存用户消息，并在 assistant 成功、失败、partial 输出或工具结果完成时追加 Agent session 记录；自动重试和工具预算续写可继续隔离错误 assistant 的模型上下文，但不会删除 session 审计历史。
+
+### Host Bash tool display accuracy
+- **Host Bash 显示名修正**: `bash` 命中已批准 Host Bash 白名单或当前 session host fallback 时，runner 进度、run detail 和客户端诊断显示为 `Host Bash`，不再因为全局 sandbox 开启而误标成 `Sandbox` / `Sandbox disabled`。
+
 ## 2026-05-25
 
 ### Subagent sandbox research and product boundary
@@ -122,6 +137,8 @@
 | ENG-352 | Telegram group mention trigger repair | Done | Telegram loads the bot username before polling and recognizes group/supergroup mentions from Telegram message entities as well as raw `@username` text, so direct mentions trigger consistently while replies to bot messages continue to work |
 | ENG-353 | Subagent artifact directory and approval inheritance | Done | Built-in subagents inherit the parent message's dated scratch artifact directory and Host Bash approval context, route worker `write` outputs and subagent `bash` artifacts into that directory, move modified root-level artifact files, and bubble new approval prompts through the parent runner's existing channel approval UI |
 | ENG-354 | Host Bash approval friction and context hygiene | Done | Session-only approvals can execute pending actions without a durable whitelist entry, QQ/Weixin/Web share the approval execution path, duplicate same-run approval events are suppressed, long subagent outputs are compressed before returning to the parent model context, and host approval env inheritance was restored in the 2026-05-25 hotfix |
+| ENG-355 | Host Bash execution-path display labels | Done | Runner start/end events, diagnostics, and run detail now show `Host Bash` for approved Host Bash direct execution and session-approved host fallback, while reserving `Sandbox` for actual OS sandbox execution and `Sandbox disabled` for sandbox initialization soft-disable |
+| ENG-356 | Agent session failure-turn persistence parity | Done | Agent session persistence now follows Pi/Pae-style message-boundary semantics: user prompts are saved at run start, assistant error/partial messages and tool results are appended as they happen, transient runtime notices stay out of normal history, and model retry/fallback can isolate error assistant messages without deleting audit history |
 | ENG-341 | Settings shell and first-screen hierarchy unification | Done | Reworked the shared `/settings` shell around one warmer editorial frame aligned to `DESIGN.md`, tightening left-nav hierarchy, top chrome, page-hero treatment, content width, card surfaces, and primary action styling so settings pages enter with one consistent first-screen structure without rewriting each page's business logic |
 | ENG-342 | Settings header compactness and softer dark-card borders | Done | Tuned the shared settings shell so ordinary page headers stay compact instead of expanding into oversized hero blocks, and reduced card-border contrast across settings pages, especially in dark mode where the old bright outline felt crude |
 | ENG-343 | Card primitive border softening | Done | Replaced the shared shadcn `Card` primitive's `ring-foreground/10 ring-1` outline with a softer semantic border and lighter shadow so cards stop reading as black-edged/light-edged boxes across settings and other reused surfaces |
@@ -1075,3 +1092,5 @@
 - 2026-05-23: Moved Host Bash approval persistence out of `settings.json` / `settings_dynamic` and into dedicated SQLite tables: `host_bash_approval_records` for full request history and `host_bash_whitelist` for durable approved commands. Runtime now migrates legacy `hostTools` data once on startup, stops writing Host Bash state back into settings JSON, and keeps session-only sandbox fallback approval behavior unchanged.
 - 2026-05-23: Added `/settings/host-bash` plus `/api/settings/host-bash` for Host Bash operations. Operators can now inspect pending approvals, review one-time/session/persistent approval history, enable/disable or delete whitelist entries, and delete historical approval records without touching raw JSON files.
 - 2026-05-23: Fixed `/settings/host-bash` action buttons so whitelist `Disable` / `Delete` and history `Delete` now use the current shadcn Button event binding style and actually trigger their POST actions.
+- 2026-05-26: Corrected user-facing bash execution labels. Approved Host Bash direct execution and session-approved host fallback now display as `Host Bash` in runner progress, diagnostics, and run detail, while `Sandbox` remains reserved for actual OS sandbox execution and `Sandbox disabled` for sandbox initialization soft-disable.
+- 2026-05-26: Aligned Agent session persistence with Pi/Pae message-boundary semantics. Failed or partial runs now preserve the user prompt plus assistant error/partial output and completed tool results, while runtime control notices remain excluded from normal model history.

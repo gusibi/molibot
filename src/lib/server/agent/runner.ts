@@ -26,7 +26,7 @@ import { hasConfiguredAuth, resolveProviderApiKey } from "./auth.js";
 import { isRetryableModelError, resolvePromptAttemptDecision, shouldEmitFinalRunnerError } from "./runnerRetryState.js";
 import { formatSubagentProgressLabel } from "./subagentProgress.js";
 import type { MomContext, RunResult, RunnerLike } from "./types.js";
-import { resolveToolDisplayName } from "./toolDisplay.js";
+import { resolvePlannedBashDisplayName, resolveToolDisplayName } from "./toolDisplay.js";
 import type { AiUsageTracker } from "../usage/tracker.js";
 import type { ModelErrorTracker } from "../usage/modelErrorTracker.js";
 import {
@@ -52,7 +52,7 @@ import {
   stripTransientRuntimeNoticesFromMessages,
   TOOL_BUDGET_RUNTIME_NOTICE
 } from "./runtimeNotices.js";
-import type { HostBashApprovalPrompt } from "../hostBash/index.js";
+import { getHostBashStore, type HostBashApprovalPrompt } from "../hostBash/index.js";
 
 const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
 const SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS = 12;
@@ -87,6 +87,101 @@ function rewritePromptUserMessage(
     content: nextContent
   } as AgentMessage;
   return nextMessages;
+}
+
+function getMessageText(message: AgentMessage): string {
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part): part is { type?: unknown; text?: unknown } =>
+      Boolean(part && typeof part === "object" && !Array.isArray(part))
+    )
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text as string)
+    .join("\n");
+}
+
+function rewritePromptUserMessageForPersistence(
+  message: AgentMessage,
+  modelMessage: string,
+  persistedText: string
+): AgentMessage {
+  const row = message as AgentMessage & {
+    role?: string;
+    content?: string | Array<{ type?: unknown; text?: unknown }>;
+  };
+  if (row.role !== "user") return message;
+  if (getMessageText(message).trim() !== modelMessage.trim()) return message;
+
+  if (typeof row.content === "string") {
+    return { ...row, content: persistedText } as AgentMessage;
+  }
+
+  const content = Array.isArray(row.content) ? row.content : [];
+  let replaced = false;
+  const nextContent = content.map((part) => {
+    if (!replaced && part?.type === "text") {
+      replaced = true;
+      return { ...part, text: persistedText };
+    }
+    return part;
+  });
+  if (!replaced) {
+    nextContent.unshift({ type: "text", text: persistedText });
+  }
+  return { ...row, content: nextContent } as AgentMessage;
+}
+
+function createPersistedUserMessage(content: string, timestamp?: string | number): AgentMessage {
+  const numericTimestamp = typeof timestamp === "number"
+    ? timestamp
+    : typeof timestamp === "string" && /^-?\d+(?:\.\d+)?$/.test(timestamp.trim())
+      ? Number(timestamp)
+      : Date.parse(String(timestamp ?? ""));
+  const ms = Number.isFinite(numericTimestamp)
+    ? Math.abs(numericTimestamp) < 1e12
+      ? numericTimestamp * 1000
+      : numericTimestamp
+    : Date.now();
+  return {
+    role: "user",
+    content: [{ type: "text", text: content }],
+    timestamp: ms
+  } as AgentMessage;
+}
+
+function createAssistantErrorMessage(options: {
+  text?: string;
+  errorMessage: string;
+  model: Model<any>;
+}): AgentMessage {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text: options.text ?? "" }],
+    api: options.model.api,
+    provider: options.model.provider,
+    model: options.model.id,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0
+    },
+    stopReason: "error",
+    errorMessage: options.errorMessage,
+    timestamp: Date.now()
+  } as AgentMessage;
+}
+
+function shouldHideFromModelContext(message: AgentMessage): boolean {
+  const row = message as AgentMessage & { role?: string; stopReason?: string };
+  return row.role === "assistant" && row.stopReason === "error" && getMessageText(message).trim().length === 0;
+}
+
+function prepareMessagesForModelContext(messages: AgentMessage[]): AgentMessage[] {
+  return stripTransientRuntimeNoticesFromMessages(messages).filter((message) => !shouldHideFromModelContext(message));
 }
 
 function resolvePiModel(settings: RuntimeSettings): Model<any> {
@@ -1462,7 +1557,7 @@ export class MomRunner implements RunnerLike {
 
     const saved = this.store.loadContext(this.chatId, this.sessionId);
     if (saved.length > 0) {
-      this.agent.state.messages = saved;
+      this.agent.state.messages = prepareMessagesForModelContext(saved);
     }
   }
 
@@ -1528,7 +1623,7 @@ export class MomRunner implements RunnerLike {
     if (!this.running) {
       const saved = this.store.loadContext(this.chatId, this.sessionId);
       if (saved.length > 0) {
-        this.agent.state.messages = saved;
+        this.agent.state.messages = prepareMessagesForModelContext(saved);
       }
     }
 
@@ -1861,6 +1956,10 @@ export class MomRunner implements RunnerLike {
     let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
     let errorMessage: string | undefined;
     let blockedOnHostBashApproval = false;
+    let currentModelPromptMessage = "";
+    let currentPersistedPromptMessage = "";
+    let promptUserPersisted = false;
+    let assistantMessagePersisted = false;
     const hostBashApprovalWaitMessage = "Host Bash approval requested. Waiting for your decision.";
     const emittedHostBashApprovalIds = new Set<string>();
     const shouldForwardHostBashApproval = (approval: HostBashApprovalPrompt | undefined): boolean => {
@@ -1994,10 +2093,14 @@ export class MomRunner implements RunnerLike {
       }
 
       if (event.type === "tool_execution_start") {
-        const args = event.args as { label?: string };
-        const displayName = resolveToolDisplayName(event.toolName, {
-          sandboxAttempted: Boolean(this.getSettings().toolSandbox.enabled)
-        });
+        const args = event.args as { command?: unknown; label?: string };
+        const displayName = event.toolName === "bash"
+          ? resolvePlannedBashDisplayName({
+              command: args.command,
+              hostBashStore: getHostBashStore(),
+              sandboxAttempted: Boolean(this.getSettings().toolSandbox.enabled)
+            })
+          : resolveToolDisplayName(event.toolName);
         const rawLabel = args.label || event.toolName;
         const label = displayName !== event.toolName
           ? rawLabel && rawLabel !== event.toolName
@@ -2106,6 +2209,25 @@ export class MomRunner implements RunnerLike {
         }
       }
 
+      if (event.type === "message_end") {
+        const message = event.message as AgentMessage & { role?: string };
+        if (message.role === "user") {
+          const persisted = rewritePromptUserMessageForPersistence(
+            message,
+            currentModelPromptMessage,
+            currentPersistedPromptMessage
+          );
+          const isCurrentPrompt = getMessageText(message).trim() === currentModelPromptMessage.trim();
+          const isTransientRuntimeNotice = stripTransientRuntimeNoticesFromMessages([message]).length === 0;
+          if (!isCurrentPrompt && !isTransientRuntimeNotice) {
+            this.store.appendContextMessage(this.chatId, persisted, this.sessionId);
+          }
+        } else if ((message.role === "assistant" || message.role === "toolResult") && !blockedOnHostBashApproval) {
+          this.store.appendContextMessage(this.chatId, message, this.sessionId);
+          if (message.role === "assistant") assistantMessagePersisted = true;
+        }
+      }
+
       if (
         event.type === "message_end" &&
         (event.message as { role?: string }).role === "assistant"
@@ -2201,7 +2323,7 @@ export class MomRunner implements RunnerLike {
 
     try {
       this.activeRunBudget = budget;
-      this.agent.state.messages = stripTransientRuntimeNoticesFromMessages(
+      this.agent.state.messages = prepareMessagesForModelContext(
         this.agent.state.messages as AgentMessage[]
       );
       await ctx.setTyping(true);
@@ -2217,6 +2339,8 @@ export class MomRunner implements RunnerLike {
         timezone: settings.timezone
       });
       const userMessage = promptInput.modelMessage;
+      currentModelPromptMessage = userMessage;
+      currentPersistedPromptMessage = promptInput.persistedMessage;
 
       let finalText = "";
       let finalAttemptCount = 0;
@@ -2243,6 +2367,14 @@ export class MomRunner implements RunnerLike {
         const selectedCustom = settings.customProviders.find((p) => p.id === selectedModel.provider);
         const resolvedKey = await resolveApiKeyForModel(selectedModel, settings);
         if (!resolvedKey) {
+          if (!promptUserPersisted) {
+            this.store.appendContextMessage(
+              this.chatId,
+              createPersistedUserMessage(promptInput.persistedMessage, ctx.message.ts),
+              this.sessionId
+            );
+            promptUserPersisted = true;
+          }
           const keyError =
             `AI settings error: missing API key for active model provider '${selectedModel.provider}'. ` +
             "Please check current model routing and provider key configuration.";
@@ -2274,6 +2406,15 @@ export class MomRunner implements RunnerLike {
             }
             await ctx.setWorking(false);
             await ctx.replaceMessage(keyError);
+            this.store.appendContextMessage(
+              this.chatId,
+              createAssistantErrorMessage({
+                errorMessage: keyError,
+                model: selectedModel
+              }),
+              this.sessionId
+            );
+            assistantMessagePersisted = true;
             logRunDetail({ type: "final", summary: keyError, isError: true });
             return { runId, stopReason: "error", errorMessage: keyError };
           }
@@ -2329,6 +2470,14 @@ export class MomRunner implements RunnerLike {
               error: error instanceof Error ? error.message : String(error)
             });
           }
+        }
+        if (!promptUserPersisted) {
+          this.store.appendContextMessage(
+            this.chatId,
+            createPersistedUserMessage(promptInput.persistedMessage, ctx.message.ts),
+            this.sessionId
+          );
+          promptUserPersisted = true;
         }
         momLog("runner", "model_selected", {
           runId,
@@ -2513,7 +2662,7 @@ export class MomRunner implements RunnerLike {
                 } finally {
                   this.agent.state.tools = previousTools;
                 }
-                this.agent.state.messages = stripTransientRuntimeNoticesFromMessages(
+                this.agent.state.messages = prepareMessagesForModelContext(
                   this.agent.state.messages as AgentMessage[]
                 );
                 while (queueRunning || queue.length > 0) {
@@ -2586,7 +2735,6 @@ export class MomRunner implements RunnerLike {
                 promptInput.persistedMessage
               );
               this.agent.state.messages = finalMessages;
-              this.store.saveContext(this.chatId, finalMessages, this.sessionId);
               momLog("runner", "context_saved", {
                 runId,
                 chatId: this.chatId,
@@ -2808,6 +2956,19 @@ export class MomRunner implements RunnerLike {
         await respondInThread(`Error: ${errorMessage}`);
       }
 
+      if (stopReason === "error" && errorMessage && !assistantMessagePersisted) {
+        this.store.appendContextMessage(
+          this.chatId,
+          createAssistantErrorMessage({
+            text: finalText || streamedAssistantText.trim(),
+            errorMessage,
+            model: activeSelection.model
+          }),
+          this.sessionId
+        );
+        assistantMessagePersisted = true;
+      }
+
       momLog("runner", "run_end", {
         runId,
         chatId: this.chatId,
@@ -2901,6 +3062,18 @@ export class MomRunner implements RunnerLike {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const partialText = streamedAssistantText.trim();
+      if (!assistantMessagePersisted) {
+        this.store.appendContextMessage(
+          this.chatId,
+          createAssistantErrorMessage({
+            text: partialText,
+            errorMessage: message,
+            model: activeSelection.model
+          }),
+          this.sessionId
+        );
+        assistantMessagePersisted = true;
+      }
       momError("runner", "run_exception", {
         runId,
         chatId: this.chatId,
@@ -2945,6 +3118,12 @@ export class MomRunner implements RunnerLike {
       return { runId, stopReason: "error", errorMessage: message };
     } finally {
       unsubscribe();
+      try {
+        const saved = this.store.loadContext(this.chatId, this.sessionId);
+        this.agent.state.messages = prepareMessagesForModelContext(saved);
+      } catch {
+        // keep in-memory state if session reload fails
+      }
       this.activeRunBudget = undefined;
       this.activeRunnerEventSink = undefined;
       this.activePayloadContext = undefined;

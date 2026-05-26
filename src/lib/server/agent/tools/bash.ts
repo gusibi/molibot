@@ -62,6 +62,7 @@ const bashSchema = Type.Object({
 });
 
 interface BashToolDetails {
+  hostBash?: boolean;
   truncation?: TruncationResult;
   fullOutputPath?: string;
   sandboxApplied?: boolean;
@@ -477,6 +478,7 @@ export function createBashTool(cwd: string, options?: {
               fallbackOutput,
               {
                 ...details,
+                hostBash: true,
                 sandboxApplied: false,
                 sandboxWarning: "Sandbox blocked this command. Re-ran with session-approved host bash fallback."
               },

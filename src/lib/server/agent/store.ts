@@ -628,6 +628,23 @@ export class MomRuntimeStore {
     this.writeSessionFileEntries(chatId, id, entries);
   }
 
+  appendContextMessage(chatId: string, message: AgentMessage, sessionId?: string): void {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    this.appendSessionEntry(chatId, id, {
+      type: "message",
+      id: createEntryId(),
+      parentId: null,
+      timestamp: new Date(
+        typeof (message as { timestamp?: number }).timestamp === "number"
+          ? (message as { timestamp: number }).timestamp
+          : Date.now()
+      ).toISOString(),
+      message
+    });
+    const snapshot = this.loadContext(chatId, id);
+    writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+  }
+
   getSessionThinkingLevelOverride(chatId: string, sessionId?: string): RuntimeThinkingLevel | null {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
     const raw = this.readSessionHeader(chatId, id).preferences?.thinkingLevelOverride;

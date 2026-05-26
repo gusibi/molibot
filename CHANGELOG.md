@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-05-27
+
+### Agent session persistence hardening
+- **失败轮次上下文隔离修正**: 自动 compaction 现在先完成摘要再追加本轮用户消息；无内容的 assistant error 仍保留在 session 审计历史，但不会作为空 assistant turn 回灌到后续模型上下文。
+- **Sandbox 写权限收窄**: 移除 Longbridge 日志目录的全局 sandbox 写入放行，避免所有 sandbox 命令都继承额外宿主目录写权限。
+
+## 2026-05-26
+
+### Agent session persistence parity
+- **失败轮次持久化对齐 Pi/Pae**: Agent session 现在按消息边界保存用户消息、assistant 失败/partial 输出和工具结果，避免工具预算超限或模型中途报错后继续对话时丢失本轮上下文。
+
+### Host Bash display accuracy
+- **工具进度标签修正**: 已批准 Host Bash 直达执行和 session-approved host bash fallback 现在显示为 `Host Bash`，避免 sandbox 开启时在 Web/Telegram/run detail 中误提示为 `Sandbox`。
+
 ## 2026-05-25
 
 ### Subagent sandbox research

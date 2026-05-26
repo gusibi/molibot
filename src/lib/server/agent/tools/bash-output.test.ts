@@ -386,6 +386,7 @@ test("bash falls back to host bash after sandbox denial when session approval mo
     if (!details?.sandboxWarning?.includes("session-approved host bash fallback")) {
       return;
     }
+    assert.equal((result.details as { hostBash?: boolean } | undefined)?.hostBash, true);
     assert.match(firstText(result), /secret/);
     assert.match(firstText(result), /\[SESSION\] Sandbox was bypassed for this session/);
     assert.equal(settings.hostTools.pendingApprovals.length, 0);
