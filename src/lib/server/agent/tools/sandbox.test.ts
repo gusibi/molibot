@@ -6,7 +6,11 @@ import { tmpdir } from "node:os";
 import { defaultToolSandboxSettings, sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
 import {
   buildToolSandboxEnv,
-  getToolSandboxDiagnostics
+  getToolSandboxDiagnostics,
+  setSandboxProvider,
+  getSandboxProvider,
+  prepareToolSandboxExecution,
+  type SandboxProvider
 } from "$lib/server/agent/tools/sandbox.js";
 
 test("sanitizeToolSandboxSettings keeps safe defaults for invalid input", () => {
@@ -144,3 +148,57 @@ test("sandbox diagnostics deny direct reads of the workspace env file", async ()
     rmSync(workspaceDir, { recursive: true, force: true });
   }
 });
+
+test("pluggable sandbox provider dynamically intercepts sandbox execution", async () => {
+  const originalProvider = getSandboxProvider();
+  
+  let initializedWithConfig: any = null;
+  let wrappedCommand: string | null = null;
+  
+  const dummyProvider: SandboxProvider = {
+    name: "dummy-test-sandbox",
+    checkDependencies() {
+      return true;
+    },
+    async initialize(config) {
+      initializedWithConfig = config;
+    },
+    async reset() {},
+    async wrapWithSandbox(command) {
+      wrappedCommand = command;
+      return `mocked-sandbox-exec ${command}`;
+    },
+    isInitialized() {
+      return initializedWithConfig !== null;
+    },
+    getLastError() {
+      return undefined;
+    }
+  };
+
+  try {
+    setSandboxProvider(dummyProvider);
+    assert.equal(getSandboxProvider(), dummyProvider);
+
+    const settings = sanitizeToolSandboxSettings({
+      ...defaultToolSandboxSettings,
+      enabled: true
+    });
+
+    const result = await prepareToolSandboxExecution({
+      settings,
+      cwd: "/mock-cwd",
+      workspaceDir: "/mock-workspace",
+      command: "echo hello",
+      env: {}
+    });
+
+    assert.equal(result.sandboxApplied, true);
+    assert.equal(result.command, "mocked-sandbox-exec echo hello");
+    assert.equal(wrappedCommand, "echo hello");
+    assert.ok(initializedWithConfig);
+  } finally {
+    setSandboxProvider(originalProvider);
+  }
+});
+

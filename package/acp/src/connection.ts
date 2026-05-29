@@ -6,7 +6,7 @@ import type {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcSuccess
-} from "$lib/server/acp/types.js";
+} from "./types.js";
 
 interface JsonRpcHandlers {
   onRequest: (request: JsonRpcRequest) => Promise<unknown>;

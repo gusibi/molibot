@@ -1038,7 +1038,8 @@ export class MomRunner implements RunnerLike {
     }
 
     const { skills } = loadSkillsFromWorkspace(this.store.getWorkspaceDir(), this.chatId, {
-      disabledSkillPaths: settings.disabledSkillPaths
+      disabledSkillPaths: settings.disabledSkillPaths,
+      workspaceId
     });
     const explicitlyInvokedSkills = findExplicitlyInvokedSkills(skills, enrichedInput.text);
     const skillExplicitlyInvoked = explicitlyInvokedSkills.length > 0;
@@ -1074,8 +1075,12 @@ export class MomRunner implements RunnerLike {
           });
         }
       });
-      loadedMcpTools = mcpTools;
-      this.agent.state.tools = [...localTools, ...mcpTools];
+      const wrapHelper = (localTools as any).wrapTool;
+      const wrappedMcpTools = wrapHelper
+        ? mcpTools.map((t) => wrapHelper(t))
+        : mcpTools;
+      loadedMcpTools = wrappedMcpTools;
+      this.agent.state.tools = [...localTools, ...wrappedMcpTools];
       return {
         serverCount: scoped.length,
         toolCount: mcpTools.length
@@ -1159,7 +1164,11 @@ export class MomRunner implements RunnerLike {
         });
       }
     });
-    loadedMcpTools = mcpTools;
+    const wrapHelper = (localTools as any).wrapTool;
+    const wrappedMcpTools = wrapHelper
+      ? mcpTools.map((t) => wrapHelper(t))
+      : mcpTools;
+    loadedMcpTools = wrappedMcpTools;
     momLog("runner", "mcp_tools_loaded", {
       runId,
       chatId: this.chatId,
@@ -1171,7 +1180,7 @@ export class MomRunner implements RunnerLike {
       mcpServerCount: scopedMcpServers.filter((server) => server.enabled).length,
       mcpToolCount: mcpTools.length
     });
-    this.agent.state.tools = [...localTools, ...mcpTools];
+    this.agent.state.tools = [...localTools, ...wrappedMcpTools];
 
     let finalUsage = {
       inputTokens: 0,

@@ -76,6 +76,7 @@ export interface BashToolHostApprovalOptions {
   sessionId: string;
   store: MomRuntimeStore;
   hostBashStore?: HostBashStore;
+  requestedByDepth?: number;
 }
 
 interface PreparedBashOutput {
@@ -256,7 +257,8 @@ function requestApprovalFromBash(
     channel: options.channel,
     chatId: options.chatId,
     scopeId: options.scopeId,
-    sessionId: options.sessionId
+    sessionId: options.sessionId,
+    requestedByDepth: options.requestedByDepth
   });
 
   if (requested.kind === "existing-approved" && requested.approved) {

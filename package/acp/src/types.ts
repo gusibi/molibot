@@ -1,4 +1,31 @@
-import type { AcpAdapterKind, AcpApprovalMode } from "$lib/server/settings/index.js";
+export type AcpApprovalMode = "manual" | "auto-safe" | "auto-all";
+export type AcpAdapterKind = "codex" | "claude-code" | "custom";
+
+export interface AcpTargetConfig {
+  id: string;
+  name: string;
+  adapter: AcpAdapterKind;
+  enabled: boolean;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd: string;
+}
+
+export interface AcpProjectConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  path: string;
+  allowedTargetIds: string[];
+  defaultApprovalMode: AcpApprovalMode;
+}
+
+export interface AcpSettings {
+  enabled: boolean;
+  targets: AcpTargetConfig[];
+  projects: AcpProjectConfig[];
+}
 
 export interface JsonRpcRequest {
   jsonrpc: "2.0";

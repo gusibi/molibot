@@ -7,6 +7,7 @@ import type {
   ToolExecutionContext,
   ToolResult
 } from "$lib/server/agent/tools/toolTypes.js";
+import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 
 export type ToolPolicyDecider = (tool: ToolDefinition, input: unknown, ctx: ToolExecutionContext) => PolicyDecision;
 
@@ -39,6 +40,17 @@ export class ToolRuntime {
   ) {}
 
   async executeToolCall(call: ToolCallInput): Promise<ToolResult> {
+    const workspaceId = call.context.workspaceId;
+    if (workspaceId) {
+      const workspace = getWorkspaceStore().getWorkspace(workspaceId);
+      if (workspace) {
+        const whitelisted = workspace.enabledToolIds;
+        if (whitelisted.length > 0 && !whitelisted.includes("*") && !whitelisted.includes(call.toolId)) {
+          return { ok: false, error: "Tool execution is rejected by workspace security policy." };
+        }
+      }
+    }
+
     const tool = this.registry.get(call.toolId);
     if (!tool) {
       return { ok: false, error: `Unknown tool: ${call.toolId}` };

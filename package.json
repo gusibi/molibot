@@ -5,7 +5,8 @@
   "type": "module",
   "imports": {
     "#weixin-agent-sdk/*": "./package/weixin-agent-sdk/*",
-    "#qqbot/*": "./package/qqbot/*"
+    "#qqbot/*": "./package/qqbot/*",
+    "#acp/*": "./package/acp/src/*"
   },
   "bin": {
     "molibot": "./bin/molibot.js"

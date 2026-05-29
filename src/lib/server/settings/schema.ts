@@ -131,34 +131,6 @@ export interface PluginSettings {
   cloudflareHtml: CloudflareHtmlPluginSettings;
 }
 
-export type AcpApprovalMode = "manual" | "auto-safe" | "auto-all";
-export type AcpAdapterKind = "codex" | "claude-code" | "custom";
-
-export interface AcpTargetConfig {
-  id: string;
-  name: string;
-  adapter: AcpAdapterKind;
-  enabled: boolean;
-  command: string;
-  args: string[];
-  env: Record<string, string>;
-  cwd: string;
-}
-
-export interface AcpProjectConfig {
-  id: string;
-  name: string;
-  enabled: boolean;
-  path: string;
-  allowedTargetIds: string[];
-  defaultApprovalMode: AcpApprovalMode;
-}
-
-export interface AcpSettings {
-  enabled: boolean;
-  targets: AcpTargetConfig[];
-  projects: AcpProjectConfig[];
-}
 
 export type McpTransport = "stdio" | "http";
 
@@ -319,7 +291,6 @@ export interface RuntimeSettings {
   compaction: CompactionSettings;
   systemPrompt: string;
   timezone: string;
-  acp: AcpSettings;
   agents: AgentSettings[];
   channels: ChannelSettingsMap;
   mcpServers: McpServerConfig[];
@@ -340,8 +311,8 @@ export const KNOWN_PROVIDER_LIST: KnownProvider[] = [
   "amazon-bedrock",
   "anthropic",
   "google",
-  "google-gemini-cli",
-  "google-antigravity",
+  "google-gemini-cli" as KnownProvider,
+  "google-antigravity" as KnownProvider,
   "google-vertex",
   "openai",
   "azure-openai-responses",

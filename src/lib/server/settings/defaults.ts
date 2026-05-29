@@ -1,7 +1,6 @@
 import type { KnownProvider } from "@mariozechner/pi-ai";
 import {
   type AgentSettings,
-  type AcpSettings,
   isKnownProvider,
   type ChannelInstanceSettings,
   type CustomProviderConfig,
@@ -273,11 +272,6 @@ const defaultCloudflareHtmlPluginSettings: RuntimeSettings["plugins"]["cloudflar
   objectPrefix: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_OBJECT_PREFIX ?? "html/").trim() || "html/"
 };
 
-const defaultAcpSettings: AcpSettings = {
-  enabled: false,
-  targets: [],
-  projects: []
-};
 
 export const defaultRuntimeSettings: RuntimeSettings = {
   providerMode,
@@ -313,7 +307,6 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   timezone: normalizeTimeZone(
     String(process.env.MOLIBOT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone)
   ),
-  acp: defaultAcpSettings,
   agents: defaultAgents,
   channels: {
     web: {

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import { resolveDataRootFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
+import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 
 export type SkillScope = "chat" | "global" | "bot";
 
@@ -28,6 +29,7 @@ export interface SkillSearchMatch {
 
 interface SkillLoadOptions {
   disabledSkillPaths?: string[];
+  workspaceId?: string;
 }
 
 const TOKEN_PATTERN = /[a-z0-9][a-z0-9:_-]*/i;
@@ -271,8 +273,28 @@ export function loadSkillsFromWorkspace(
     });
   }
 
+  let skills = Array.from(deduped.values()).sort((a, b) => a.name.localeCompare(b.name));
+
+  if (options?.workspaceId) {
+    const workspace = getWorkspaceStore().getWorkspace(options.workspaceId);
+    if (workspace) {
+      const whitelisted = workspace.enabledSkillPaths;
+      if (whitelisted.length > 0 && !whitelisted.includes("*")) {
+        skills = skills.filter((skill) => {
+          return whitelisted.some((pattern) => {
+            const normalizedPattern = pattern.toLowerCase();
+            if (skill.name.toLowerCase() === normalizedPattern) return true;
+            if (skill.aliases.some((alias) => alias.toLowerCase() === normalizedPattern)) return true;
+            if (skill.filePath.toLowerCase().includes(normalizedPattern)) return true;
+            return false;
+          });
+        });
+      }
+    }
+  }
+
   return {
-    skills: Array.from(deduped.values()).sort((a, b) => a.name.localeCompare(b.name)),
+    skills,
     diagnostics
   };
 }

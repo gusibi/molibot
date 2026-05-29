@@ -1,5 +1,4 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
-import type { AcpPendingPermissionView } from "$lib/server/acp/types.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import { momWarn } from "$lib/server/agent/common/log.js";
 import { markdownToFeishuMarkdown, parseFeishuRichTextSegments, type FeishuRichTextSegment } from "$lib/server/channels/feishu/formatting.js";
@@ -9,14 +8,6 @@ const FEISHU_CARD_TITLE_LIMIT = 60;
 
 type CardTone = "blue" | "green" | "yellow" | "orange" | "red" | "grey" | "wathet" | "indigo";
 
-interface FeishuCardActionValue {
-  action: "approve" | "deny";
-  kind: "acp_permission";
-  botId: string;
-  chatId: string;
-  requestId: string;
-  optionId?: string;
-}
 
 interface FeishuHostToolApprovalActionValue {
   action: "approve" | "approve_session" | "reject";
@@ -241,149 +232,6 @@ export function buildFeishuStatusCard(options: StatusCardOptions): lark.Interact
   };
 }
 
-export function buildFeishuAcpPermissionCard(
-  permission: AcpPendingPermissionView,
-  options: PermissionCardOptions
-): lark.InteractiveCard {
-  const fields: lark.InteractiveCardField[] = [
-    {
-      is_short: true,
-      text: {
-        tag: "lark_md",
-        content: `**Request**\n${permission.id}`
-      }
-    },
-    {
-      is_short: true,
-      text: {
-        tag: "lark_md",
-        content: `**Kind**\n${permission.kind}`
-      }
-    }
-  ];
-
-  const actionButtons: lark.InteractiveCardActionItem[] = permission.options.slice(0, 3).map((option, index) => ({
-    tag: "button",
-    type: index === 0 ? "primary" : "default",
-    text: {
-      tag: "plain_text",
-      content: option.name || option.optionId
-    },
-    value: {
-      kind: "acp_permission",
-      action: "approve",
-      botId: options.botId,
-      chatId: options.chatId,
-      requestId: permission.id,
-      optionId: option.optionId
-    } satisfies FeishuCardActionValue
-  }));
-
-  actionButtons.push({
-    tag: "button",
-    type: "danger",
-    text: {
-      tag: "plain_text",
-      content: "Reject"
-    },
-    value: {
-      kind: "acp_permission",
-      action: "deny",
-      botId: options.botId,
-      chatId: options.chatId,
-      requestId: permission.id
-    } satisfies FeishuCardActionValue
-  });
-
-  const optionLines = permission.options
-    .map((option) => {
-      const pieces = [option.name || option.optionId, option.description].filter(Boolean);
-      return `- \`${option.optionId}\` ${pieces.join(" | ")}`.trim();
-    })
-    .join("\n");
-
-  return {
-    config: {
-      wide_screen_mode: true,
-      enable_forward: true,
-      update_multi: true
-    },
-    header: {
-      template: "orange",
-      title: {
-        tag: "plain_text",
-        content: `Approval Needed: ${permission.title}`
-      }
-    },
-    elements: [
-      {
-        tag: "div",
-        text: {
-          tag: "lark_md",
-          content: permission.inputPreview
-            ? `**What needs approval**\n${permission.inputPreview}`
-            : `**What needs approval**\n${permission.title}`
-        },
-        fields
-      },
-      {
-        tag: "markdown",
-        content: optionLines || "_No approval options returned_"
-      },
-      {
-        tag: "action",
-        layout: "flow",
-        actions: actionButtons
-      }
-    ]
-  };
-}
-
-export function buildFeishuAcpPermissionResultCard(
-  permission: AcpPendingPermissionView,
-  outcome: string,
-  tone: CardTone = "green"
-): lark.InteractiveCard {
-  return {
-    config: {
-      wide_screen_mode: true,
-      enable_forward: true,
-      update_multi: true
-    },
-    header: {
-      template: tone,
-      title: {
-        tag: "plain_text",
-        content: `Approval ${tone === "green" ? "Handled" : "Failed"}`
-      }
-    },
-    elements: [
-      {
-        tag: "div",
-        text: {
-          tag: "lark_md",
-          content: `**${permission.title}**\n${outcome}`
-        },
-        fields: [
-          {
-            is_short: true,
-            text: {
-              tag: "lark_md",
-              content: `**Request**\n${permission.id}`
-            }
-          },
-          {
-            is_short: true,
-            text: {
-              tag: "lark_md",
-              content: `**Kind**\n${permission.kind}`
-            }
-          }
-        ]
-      }
-    ]
-  };
-}
 
 export function buildFeishuHostToolApprovalCard(
   prompt: HostBashApprovalPrompt,

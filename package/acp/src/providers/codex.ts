@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AcpTargetConfig } from "$lib/server/settings/schema.js";
-import type { AcpProviderProfile } from "$lib/server/acp/providers/types.js";
+import type { AcpTargetConfig } from "../types.js";
+import type { AcpProviderProfile } from "./types.js";
 
 function mergedEnv(target: AcpTargetConfig): Record<string, string> {
   return {

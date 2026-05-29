@@ -1,4 +1,4 @@
-import type { AcpPendingPermissionView } from "$lib/server/acp/types.js";
+import type { AcpPendingPermissionView } from "./types.js";
 
 export function buildStructuredAcpTaskPrompt(prompt: string): string {
   return [

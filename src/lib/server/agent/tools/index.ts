@@ -300,13 +300,14 @@ export function createMomTools(options: {
 
   const wrapWithToolRuntime = (originalTool: AgentTool<any>): AgentTool<any> => {
     if (!registry.get(originalTool.name)) {
+      const isMcp = originalTool.name.startsWith("mcp__");
       const toolDef: ToolDefinition = {
         id: originalTool.name,
         name: originalTool.label ?? originalTool.name,
         description: originalTool.description,
         inputSchema: originalTool.parameters,
         risk: originalTool.name === "bash" ? "high" : (["write", "edit"].includes(originalTool.name) ? "medium" : "low"),
-        source: originalTool.name === "bash" ? "host" : "builtin",
+        source: originalTool.name === "bash" ? "host" : (isMcp ? "mcp" : "builtin"),
         handler: async (input, ctx) => {
           const res = (await originalTool.execute(ctx.runId, input)) as any;
           return {
@@ -501,7 +502,8 @@ export function createMomTools(options: {
       store: options.store,
       artifactDir,
       getSettings: options.getSettings,
-      emitRunnerEvent: options.emitRunnerEvent
+      emitRunnerEvent: options.emitRunnerEvent,
+      runId: options.runId
     }),
     createAttachTool({ ...options, artifactDir })
   ].map((tool) => wrapSerializedTool(tool));
@@ -515,5 +517,7 @@ export function createMomTools(options: {
     })));
   }
 
-  return getActiveTools();
+  const resultTools = getActiveTools();
+  (resultTools as any).wrapTool = wrapWithToolRuntime;
+  return resultTools;
 }

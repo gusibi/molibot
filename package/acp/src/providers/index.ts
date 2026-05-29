@@ -1,7 +1,7 @@
-import type { AcpAdapterKind, AcpTargetConfig } from "$lib/server/settings/schema.js";
-import { claudeCodeAcpProvider } from "$lib/server/acp/providers/claude-code.js";
-import { codexAcpProvider } from "$lib/server/acp/providers/codex.js";
-import type { AcpProviderProfile } from "$lib/server/acp/providers/types.js";
+import type { AcpAdapterKind, AcpTargetConfig } from "../types.js";
+import { claudeCodeAcpProvider } from "./claude-code.js";
+import { codexAcpProvider } from "./codex.js";
+import type { AcpProviderProfile } from "./types.js";
 
 const ACP_PROVIDER_PROFILES: AcpProviderProfile[] = [codexAcpProvider, claudeCodeAcpProvider];
 

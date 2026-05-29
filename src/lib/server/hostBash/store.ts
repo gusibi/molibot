@@ -312,6 +312,7 @@ export class HostBashStore {
     chatId: unknown;
     scopeId: unknown;
     sessionId?: unknown;
+    requestedByDepth?: number;
   }): {
     kind: "created" | "existing-pending" | "existing-approved";
     approval?: HostBashApprovalRecord;
@@ -368,7 +369,7 @@ export class HostBashStore {
       action_json: JSON.stringify(action),
       reason: record.reason,
       status: record.status,
-      requested_by_json: JSON.stringify({ agentId: "agent-1", depth: 0 }),
+      requested_by_json: JSON.stringify({ agentId: "agent-1", depth: input.requestedByDepth ?? 0 }),
       scope_options_json: JSON.stringify(["once", "session", "persistent"]),
       created_at: record.requestedAt
     });

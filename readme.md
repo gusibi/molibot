@@ -48,9 +48,9 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 ## Key Highlights
 
 - **Multi-Channel in One Runtime**: `Web + Telegram + Feishu + Weixin + CLI`
-- **ACP Legacy Surface**: ACP source is retained for compatibility, but the active runtime and settings surface now treat ACP as inactive
+- **ACP Externalized Dependency**: Legacy ACP has been physically cleaned up from the main codebase and relocated to `package/acp/` as an external dependency mapping to `#acp/*`.
 - **Minimum Workspace Boundary**: runtime startup creates a default `personal` workspace registry entry, and new run archives carry `workspaceId` for future workspace-scoped tools, approvals, and memory policy
-- **Agent v2.2 Runtime Integration**: TurnOrchestrator now manages the complete turn lifecycle—including session concurrency locking, 10-minute timeout releases, memory synchronizations, context compactions, and status archiving. `runner.ts` has been refactored and slimmed by delegating these concerns to the orchestrator. All built-in tools are registered to ToolRegistry and wrapped with ToolRuntime to enforce policy/approval checking.
+- **Agent v2.2 Runtime Integration**: TurnOrchestrator now manages the complete turn lifecycle—including session concurrency locking, 10-minute timeout releases, memory synchronizations, context compactions, and status archiving. `runner.ts` has been refactored and slimmed by delegating these concerns to the orchestrator. All built-in and MCP tools are registered to ToolRegistry and wrapped with ToolRuntime to enforce policy/approval checking, supporting subagent approval bubbling and depth tracking.
 - **MCP Ecosystem**: stdio/HTTP transport support, skill-gated tool injection, dynamic loading
 - **Profile-Driven Chat**: `global -> agent -> bot/profile` prompt layering with file-based governance
 - **Advanced Memory System**: `Mory SDK` with layered storage (`long_term`/`daily`), hybrid retrieval, cognitive control
@@ -124,14 +124,19 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Weixin Bot**: SDK-based integration, QR pairing-code login, lifecycle notifications, OGG voice transcoding, native image-message replies, Weixin-safe progress/error compaction, and CDN media delivery
 - **CLI**: Local terminal conversation entrypoint
 
-### ACP Legacy Compatibility
-- ACP source modules are retained only so older configurations can still load until the final v2.2 cleanup phase.
-- ACP commands, automatic channel proxying, and editable ACP settings are inactive.
+### ACP Externalized Dependency
+- Legacy ACP is physically removed from the main codebase and moved to `package/acp/` as a relocatable external package.
+- Imports mapping is registered under `#acp/*` in `package.json` for future reuse.
 
 ### Workspace Boundary
 - `settings.sqlite` contains a lightweight `workspaces` registry with a default `personal` workspace.
 - New Web/shared-channel runs carry `workspaceId` into run summaries and run detail archives.
 - TurnOrchestrator now centralizes initial run/session/workspace metadata preparation without changing existing session/chat directory layout.
+
+### Pluggable Sandbox Runtime
+- **Sandbox Decoupling**: Sandbox runner operations are abstracted into a pluggable `SandboxProvider` interface, decoupling the execution path from the Anthropic Sandbox SDK.
+- **Dynamic Swapping**: Dynamic registration using `setSandboxProvider` supports swapping out the default Anthropic Sandbox SDK wrapper (`AnthropicSandboxProvider`) with custom backends (such as Docker, Bubblewrap, or gVisor) at runtime.
+
 
 ### MCP Ecosystem
 - **Transport Support**: stdio and HTTP transport
@@ -198,7 +203,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 | **QQ** | ⭐⭐⭐ Production-Ready | SDK-based gateway, group/private chat, rich media, quoted context, channel-local progress/error compaction, Molibot-owned queue control |
 | **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, native image replies, Weixin-safe progress/error compaction, CDN media delivery |
 | **CLI** | ⭐⭐ Ready | Local terminal conversation entrypoint |
-| **ACP** | Legacy inactive | Source retained for compatibility; active commands, proxying, and editable settings are inactive |
+| **ACP** | 📦 Externalized | Relocated to `package/acp/` as a relocatable external package |
 | **MCP** | ⭐⭐⭐ Active | stdio/HTTP transport, skill-gated injection, dynamic loading |
 | **Mory** | ⭐⭐⭐ Active | Layered storage, hybrid retrieval, cognitive control, standalone SDK |
 
@@ -580,7 +585,7 @@ See `.env.example` for full list and detailed descriptions.
 | **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, media/file ingress and outbound handling |
 | **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, CDN media delivery |
 | **CLI** | ⭐⭐ Ready | Local terminal conversation entrypoint |
-| **ACP** | Legacy inactive | Source retained for compatibility; active commands, proxying, and editable settings are inactive |
+| **ACP** | 📦 Externalized | Relocated to `package/acp/` as a relocatable external package |
 | **MCP** | ⭐⭐⭐ Active | stdio/HTTP transport, skill-gated injection, dynamic loading |
 | **Mory** | ⭐⭐⭐ Active | Layered storage, hybrid retrieval, cognitive control, standalone SDK |
 
@@ -588,7 +593,7 @@ See `.env.example` for full list and detailed descriptions.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| **ACP (Agent Control Plane)** | Legacy inactive | Source retained for compatibility; active commands, proxying, and editable settings are inactive |
+| **ACP (Agent Control Plane)** | 📦 Externalized | Relocated to `package/acp/` as a relocatable external package |
 | **MCP Ecosystem** | ⭐⭐⭐ Active | stdio/HTTP transport, skill-gated tool injection, dynamic loading |
 | **Memory System (Mory)** | ⭐⭐⭐ Active | Layered storage, hybrid retrieval, cognitive control, standalone SDK |
 | **AI Routing** | ⭐⭐⭐ Active | Multi-provider, per-model capabilities, verification, cross-provider fallback |

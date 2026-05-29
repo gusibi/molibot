@@ -4,16 +4,15 @@ import { dirname, resolve } from "node:path";
 import type {
   AcpApprovalMode,
   AcpProjectConfig,
-  AcpTargetConfig,
-  RuntimeSettings
-} from "$lib/server/settings/index.js";
+  AcpTargetConfig
+} from "./types.js";
 import {
   buildAcpAuthHint,
   formatAcpAdapterLabel,
   formatProviderScopedCommands,
   resolveAcpProviderProfile
-} from "$lib/server/acp/providers/index.js";
-import { JsonRpcStdioConnection } from "$lib/server/acp/connection.js";
+} from "./providers/index.js";
+import { JsonRpcStdioConnection } from "./connection.js";
 import type {
   AcpProgressEvent,
   AcpListedSession,
@@ -26,7 +25,7 @@ import type {
   AcpToolCallSnapshot,
   JsonRpcNotification,
   JsonRpcRequest
-} from "$lib/server/acp/types.js";
+} from "./types.js";
 
 interface AcpPermissionDecision {
   outcome: "selected" | "cancelled";
@@ -172,12 +171,22 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
+interface OptionItem {
+  optionId?: unknown;
+  id?: unknown;
+  name?: unknown;
+  title?: unknown;
+  kind?: unknown;
+  description?: unknown;
+  summary?: unknown;
+}
+
 function normalizePermissionOptions(input: unknown): AcpPermissionOption[] {
   if (!Array.isArray(input)) return [];
   return input
     .map((row) => {
       if (!row || typeof row !== "object") return null;
-      const item = row as Record<string, unknown>;
+      const item = row as OptionItem;
       const optionId = String(item.optionId ?? item.id ?? "").trim();
       if (!optionId) return null;
       return {
@@ -352,19 +361,22 @@ function normalizeListedSessions(input: unknown): AcpListedSession[] {
 function extractChunkText(update: Record<string, unknown>): string {
   const chunk = update.delta ?? update.text ?? update.content ?? update.message;
   if (typeof chunk === "string") return chunk;
+  interface TextNode {
+    text?: unknown;
+  }
   if (Array.isArray(chunk)) {
     return chunk
       .map((part) => {
         if (typeof part === "string") return part;
-        if (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string") {
-          return String((part as { text?: unknown }).text);
+        if (part && typeof part === "object" && typeof (part as TextNode).text === "string") {
+          return String((part as TextNode).text);
         }
         return "";
       })
       .join("");
   }
-  if (chunk && typeof chunk === "object" && typeof (chunk as { text?: unknown }).text === "string") {
-    return String((chunk as { text?: unknown }).text);
+  if (chunk && typeof chunk === "object" && typeof (chunk as TextNode).text === "string") {
+    return String((chunk as TextNode).text);
   }
   return "";
 }
@@ -496,8 +508,8 @@ export class AcpService {
   private readonly persisted = new Map<string, PersistedChatSession>();
 
   constructor(
-    private readonly getSettings: () => RuntimeSettings,
-    private readonly updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
+    private readonly getSettings: () => any,
+    private readonly updateSettings: (patch: Partial<any>) => any,
     options?: { stateFilePath?: string }
   ) {
     this.stateFilePath = options?.stateFilePath;
@@ -505,29 +517,32 @@ export class AcpService {
   }
 
   listTargets(): AcpTargetConfig[] {
-    return [...(this.getSettings().acp.targets ?? [])];
+    return [...(this.getSettings().acp?.targets ?? [])];
   }
 
   listProjects(): AcpProjectConfig[] {
-    return [...(this.getSettings().acp.projects ?? [])];
+    return [...(this.getSettings().acp?.projects ?? [])];
   }
 
   async listSessions(chatKey: string): Promise<AcpSessionsList> {
     const active = this.chats.get(chatKey);
     const saved = this.persisted.get(chatKey);
     const settings = this.getSettings().acp;
+    if (!settings) {
+      throw new Error("ACP settings not found.");
+    }
 
-    const targetId = active?.target.id ?? saved?.targetId ?? settings.targets.find((target) => target.enabled)?.id ?? "";
+    const targetId = active?.target.id ?? saved?.targetId ?? settings.targets.find((target: any) => target.enabled)?.id ?? "";
     if (!targetId) {
       throw new Error("No enabled ACP target is available.");
     }
-    const target = settings.targets.find((item) => item.id === targetId && item.enabled);
+    const target = settings.targets.find((item: any) => item.id === targetId && item.enabled);
     if (!target) {
       throw new Error(`Unknown or disabled ACP target: ${targetId}`);
     }
 
     const projectId = active?.project.id ?? saved?.projectId;
-    const project = projectId ? settings.projects.find((item) => item.id === projectId) : undefined;
+    const project = projectId ? settings.projects.find((item: any) => item.id === projectId) : undefined;
     const projectPath = project?.path ? resolve(project.path) : active?.project.path ?? saved?.projectPath ?? "";
     const currentSessionId = active?.remoteSessionId ?? saved?.remoteSessionId;
 
@@ -564,15 +579,15 @@ export class AcpService {
     if (!persisted) return null;
 
     const settings = this.getSettings().acp;
-    if (!settings.enabled) {
+    if (!settings || !settings.enabled) {
       throw new Error("ACP is disabled in runtime settings.");
     }
-    const target = settings.targets.find((item) => item.id === persisted.targetId && item.enabled);
+    const target = settings.targets.find((item: any) => item.id === persisted.targetId && item.enabled);
     if (!target) {
       this.clearPersistedSession(chatKey);
       throw new Error(`Saved ACP target is unavailable: ${persisted.targetId}`);
     }
-    const project = settings.projects.find((item) => item.id === persisted.projectId && item.enabled);
+    const project = settings.projects.find((item: any) => item.id === persisted.projectId && item.enabled);
     if (!project) {
       this.clearPersistedSession(chatKey);
       throw new Error(`Saved ACP project is unavailable: ${persisted.projectId}`);
@@ -650,15 +665,15 @@ export class AcpService {
     await this.closeSession(chatKey);
 
     const settings = this.getSettings().acp;
-    if (!settings.enabled) {
+    if (!settings || !settings.enabled) {
       throw new Error("ACP is disabled in runtime settings.");
     }
-    const target = settings.targets.find((item) => item.id === targetId && item.enabled);
+    const target = settings.targets.find((item: any) => item.id === targetId && item.enabled);
     if (!target) {
       throw new Error(`Unknown or disabled ACP target: ${targetId}`);
     }
 
-    const project = settings.projects.find((item) => item.id === projectId && item.enabled);
+    const project = settings.projects.find((item: any) => item.id === projectId && item.enabled);
     if (!project) {
       throw new Error(`Unknown or disabled ACP project: ${projectId}`);
     }
@@ -998,10 +1013,10 @@ export class AcpService {
     }
 
     const current = this.getSettings();
-    const existing = current.acp.projects.find((item) => item.id === id);
-    const defaultAllowedTargetIds = current.acp.targets
-      .filter((item) => item.enabled)
-      .map((item) => item.id);
+    const existing = current.acp?.projects.find((item: any) => item.id === id);
+    const defaultAllowedTargetIds = (current.acp?.targets ?? [])
+      .filter((item: any) => item.enabled)
+      .map((item: any) => item.id);
     const nextProject: AcpProjectConfig = {
       id,
       name: existing?.name || id,
@@ -1010,12 +1025,12 @@ export class AcpService {
       allowedTargetIds: existing?.allowedTargetIds ?? defaultAllowedTargetIds,
       defaultApprovalMode: existing?.defaultApprovalMode ?? "manual"
     };
-    const nextProjects = current.acp.projects.filter((item) => item.id !== id);
+    const nextProjects = (current.acp?.projects ?? []).filter((item: any) => item.id !== id);
     nextProjects.push(nextProject);
     this.updateSettings({
       acp: {
         ...current.acp,
-        projects: nextProjects.sort((a, b) => a.id.localeCompare(b.id))
+        projects: nextProjects.sort((a: any, b: any) => a.id.localeCompare(b.id))
       }
     });
     return nextProject;
@@ -1025,8 +1040,8 @@ export class AcpService {
     const id = projectId.trim();
     if (!id) return false;
     const current = this.getSettings();
-    const nextProjects = current.acp.projects.filter((item) => item.id !== id);
-    if (nextProjects.length === current.acp.projects.length) {
+    const nextProjects = (current.acp?.projects ?? []).filter((item: any) => item.id !== id);
+    if (nextProjects.length === (current.acp?.projects ?? []).length) {
       return false;
     }
     this.updateSettings({

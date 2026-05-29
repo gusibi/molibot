@@ -3,6 +3,7 @@ import test from "node:test";
 import { ApprovalBroker, MemoryApprovalBrokerStore } from "$lib/server/approval/approvalBroker.js";
 import { ToolRegistry, ToolRuntime } from "$lib/server/agent/tools/toolRuntime.js";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
+import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 
 function context(events: RunDetailEntry[] = []): ToolExecutionContext {
@@ -116,3 +117,38 @@ test("ToolRuntime uses existing approval grant to execute high-risk tool", async
   assert.equal(result.ok, true);
   assert.equal(result.content, "ran");
 });
+
+test("ToolRuntime blocks tool execution if not in workspace whitelist", async () => {
+  const store = getWorkspaceStore();
+  store.upsertWorkspace({
+    id: "test-whitelist",
+    name: "Test Whitelist",
+    enabledToolIds: ["echo"]
+  });
+
+  const registry = new ToolRegistry();
+  registry.register(tool({ id: "echo" }));
+  registry.register(tool({ id: "run_command" }));
+
+  const okResult = await new ToolRuntime(registry).executeToolCall({
+    toolId: "echo",
+    input: "hello",
+    context: {
+      ...context(),
+      workspaceId: "test-whitelist"
+    }
+  });
+  assert.equal(okResult.ok, true);
+
+  const blockedResult = await new ToolRuntime(registry).executeToolCall({
+    toolId: "run_command",
+    input: "ls",
+    context: {
+      ...context(),
+      workspaceId: "test-whitelist"
+    }
+  });
+  assert.equal(blockedResult.ok, false);
+  assert.match(blockedResult.error ?? "", /workspace security policy/);
+});
+

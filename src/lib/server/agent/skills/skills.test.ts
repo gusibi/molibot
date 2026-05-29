@@ -6,8 +6,12 @@ import {
   formatSkillDetailText,
   formatSkillsDetailText,
   formatSkillsSummaryText,
+  loadSkillsFromWorkspace,
   type LoadedSkill
 } from "$lib/server/agent/skills/skills.js";
+import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 function createSkill(name: string, scope: LoadedSkill["scope"], filePath: string, aliases?: string[]): LoadedSkill {
   return {
@@ -105,3 +109,43 @@ test("skill text formatters split summary and detail views", () => {
   assert.match(detailList, /- description: web-search description/);
   assert.match(detailList, /- mcp_servers: tavily/);
 });
+
+test("loadSkillsFromWorkspace filters loaded skills based on workspace whitelist", () => {
+  const workspaceDir = "./.tmp/test-skills-workspace";
+  const skillDir1 = join(workspaceDir, "skills/allowed-skill");
+  const skillDir2 = join(workspaceDir, "skills/blocked-skill");
+  mkdirSync(skillDir1, { recursive: true });
+  mkdirSync(skillDir2, { recursive: true });
+
+  writeFileSync(join(skillDir1, "skill.md"), `---
+name: Allowed Skill
+description: description
+---
+allowed skill
+`);
+
+  writeFileSync(join(skillDir2, "skill.md"), `---
+name: Blocked Skill
+description: description
+---
+blocked skill
+`);
+
+  const store = getWorkspaceStore();
+  store.upsertWorkspace({
+    id: "test-skills-whitelist",
+    name: "Test Skills Whitelist",
+    enabledSkillPaths: ["Allowed Skill"]
+  });
+
+  const result = loadSkillsFromWorkspace(workspaceDir, undefined, {
+    workspaceId: "test-skills-whitelist"
+  });
+
+  assert.equal(result.skills.length, 1);
+  assert.equal(result.skills[0]?.name, "Allowed Skill");
+
+  // Cleanup
+  rmSync(workspaceDir, { recursive: true, force: true });
+});
+

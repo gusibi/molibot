@@ -79,6 +79,10 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 
 ## 2.5 Agent v2.1 Simplification Plan (2026-05-27)
 - v2.1 的执行计划记录在 `docs/agent-v2.1-development-plan.md`，目标是把 `v2.1.md` 的架构方案拆成可逐条执行的 TODO。
+- **Sprint A / Phase 5 (2026-05-29) 已顺利完成**:
+  - Legacy ACP (Agent-Channel Proxy) 被物理清除并移至 `package/acp/` 作为外部依赖，并注册了 `#acp/*` node subpath import。
+  - 主代码库中的配置 schema、验证 sanitize、默认值 defaults 与 store 均与 `acp` 彻底解耦，Feishu 渠道中无用的 ACP 卡片卡槽代码均已被物理清理。
+  - 完成了工作区级的安全策略闭环：在 `ToolRuntime` 中对非白名单工具进行了严格拦截阻断，在 `loadSkillsFromWorkspace` 中根据工作区的技能白名单过滤加载，且在 runner 执行流中实现了 `workspaceId` 对齐透传。
 - 短期第一优先级是删除 ACP 主路径并引入最小 Workspace 边界，先降低配置、权限、Channel 和 runtime 分支复杂度。
 - Phase 1 验收口径：代码主路径不再依赖 ACP；默认 `personal` workspace 可创建/解析；Web 和 CLI 可在默认 workspace 下正常运行；新 run 可以记录 `workspaceId`。
 - Phase 1 第一批已先完成 ACP active runtime path 下线：Channel runtime 不再实例化 ACP service，四个 IM 渠道不再自动 proxy 到 ACP，`/acp` / `/approve` / `/deny` 返回 inactive-path 提示，Settings 不再导航到 ACP 页面；旧 ACP schema/source 暂保留兼容。
@@ -3131,7 +3135,10 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - Phase 4: 渐进迁移第一批 settings 配置至 SQLite，保留 settings.json 引导和自动落库逻辑。
   - Phase 5: 新架构稳定后物理清除 `acp/` 源码库及兼容过渡开关。
 - Progress:
+  - 2026-05-29 (Pluggable Sandbox Runtime): Refactored the sandbox implementation inside `sandbox.ts` to be pluggable and decoupled from the Anthropic SDK. Defined standard configuration type shapes and the generic `SandboxProvider` interface. Enclosed Anthropic SDK inside `AnthropicSandboxProvider` and added getter/setter registration methods. Wrote dynamic mock provider tests inside `sandbox.test.ts` and verified 100% green regression test pass.
+  - 2026-05-29 (Phase 3 Integration): Fully integrated ToolRuntime and ApprovalBroker. Wrapped dynamically loaded MCP tools and labeled their source as `"mcp"`. Propagated parent `runId` to subagents as `scopeId` with `requestedByDepth: 1` to bubble up subagent approvals. Persistent `requestedByDepth` in `approval_requests` SQLite table via `HostBashStore`. Verified zero compilation errors and all agent and approval tests passed successfully.
   - 2026-05-29: Built-in tools (read, write, edit, bash) have been fully refactored as ToolDefinitions. SafeFsApi (including readBuffer), SafeShellApi (with sandbox metadata), and SafeNetworkApi are fully implemented in ToolExecutionContext. Custom decidePolicy for ToolRuntime orchestrates sandbox checks and Host Bash approvals. Legacy bridge toolDefToAgentTool introduced for subagents backwards compatibility. Modified files type-check with zero errors.
   - 2026-05-29 (Relocation & Modularity): Fully relocated and structured all 60+ agent files into dedicated subdirectories (`core`, `routing`, `prompts`, `tools`, `skills`, `session`, `identity`, `common`, `commands`). Resolved all relative and absolute imports workspace-wide. Wrote a custom Node.js ESM test loader (`md-loader.js` and `register-loader.js`) to support raw markdown imports. Fixed various logic, mock, path, and directory-creation bugs across the test suite. Regression test run successfully verified with **100% green tests** (25/25 suites passed).
   - 2026-05-28: v2.2 核心优化与重构整合已全面落地：`TurnOrchestrator` 已完全接入 `runner.ts` 并在所有分支更新状态、并在 `runtime.ts` 中完成启动死锁清理，在 `baseRuntime.ts` 中直接进行 turn 准备；所有内置工具通过 `ToolRuntime` 及 `ToolRegistry` 统一进行执行、鉴权和审批；`ApprovalBroker` 与 `HostBashStore` 已完全重构，直接映射到 SQLite 的 request/grant 表中；`runtime.ts` 已被模块化解耦，配置清洗抽取至 `settings/sanitize.ts`，插件激活提取至 `plugins/loader.ts`，主引导文件缩减至 150 行以内。
   - Remaining: 仅剩 Phase 5 遗留清理——待新架构稳定运行后物理清除 `acp/` 源码库与旧过渡兼容代码。
+

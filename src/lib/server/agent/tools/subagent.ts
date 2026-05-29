@@ -943,6 +943,7 @@ export function createSubagentTool(options: {
   artifactDir?: string;
   getSettings: () => RuntimeSettings;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
+  runId?: string;
 }): AgentTool<typeof subagentSchema> {
   return {
     name: "subagent",
@@ -1035,9 +1036,10 @@ export function createSubagentTool(options: {
               ? {
                 channel: options.channel,
                 chatId: options.chatId,
-                scopeId: options.chatId,
+                scopeId: options.runId ?? options.chatId,
                 sessionId: options.sessionId,
-                store: options.store
+                store: options.store,
+                requestedByDepth: 1
               }
               : undefined,
             emitRunnerEvent: options.emitRunnerEvent,

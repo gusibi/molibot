@@ -1,11 +1,110 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import dotenv from "dotenv";
-import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import { SandboxManager, type SandboxRuntimeConfig as AnthropicSandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import { config } from "$lib/server/app/env.js";
 import type { ToolSandboxSettings } from "$lib/server/settings/index.js";
 
 const SANDBOX_VENV_DIR = join(config.dataDir, "tooling", "sandbox-venv");
+
+// Decoupled Configuration Types
+export interface SandboxNetworkConfig {
+  allowedDomains: string[];
+  deniedDomains?: string[];
+}
+
+export interface SandboxFilesystemConfig {
+  denyRead?: string[];
+  allowWrite?: string[];
+  denyWrite?: string[];
+}
+
+export interface SandboxRuntimeConfig {
+  network?: SandboxNetworkConfig;
+  filesystem?: SandboxFilesystemConfig;
+}
+
+// Decoupled Sandbox Provider Interface
+export interface SandboxProvider {
+  readonly name: string;
+  checkDependencies(): boolean;
+  initialize(config: SandboxRuntimeConfig, callback?: () => Promise<boolean>): Promise<void>;
+  reset(): Promise<void>;
+  wrapWithSandbox(command: string, options?: { signal?: AbortSignal }): Promise<string>;
+  isInitialized(): boolean;
+  getLastError(): string | undefined;
+}
+
+// Anthropic Sandbox Runtime SDK Implementation
+export class AnthropicSandboxProvider implements SandboxProvider {
+  readonly name = "anthropic";
+  private initializedConfigKey = "";
+  private initializationPromise: Promise<void> | null = null;
+  private lastInitializationError = "";
+
+  checkDependencies(): boolean {
+    try {
+      return SandboxManager.checkDependencies();
+    } catch {
+      return false;
+    }
+  }
+
+  async initialize(config: SandboxRuntimeConfig, callback?: () => Promise<boolean>): Promise<void> {
+    const nextKey = JSON.stringify(config);
+    if (this.initializedConfigKey === nextKey && !this.lastInitializationError) return;
+    if (this.initializationPromise) return this.initializationPromise;
+
+    this.initializationPromise = (async () => {
+      try {
+        if (this.initializedConfigKey && this.initializedConfigKey !== nextKey) {
+          await SandboxManager.reset();
+        }
+        await SandboxManager.initialize(config as AnthropicSandboxRuntimeConfig, callback);
+        this.initializedConfigKey = nextKey;
+        this.lastInitializationError = "";
+      } catch (error) {
+        this.initializedConfigKey = "";
+        this.lastInitializationError = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
+        this.initializationPromise = null;
+      }
+    })();
+
+    return this.initializationPromise;
+  }
+
+  async reset(): Promise<void> {
+    await SandboxManager.reset();
+    this.initializedConfigKey = "";
+    this.initializationPromise = null;
+    this.lastInitializationError = "";
+  }
+
+  async wrapWithSandbox(command: string, options?: { signal?: AbortSignal }): Promise<string> {
+    return SandboxManager.wrapWithSandbox(command, undefined, undefined, options?.signal);
+  }
+
+  isInitialized(): boolean {
+    return !!this.initializedConfigKey && !this.lastInitializationError;
+  }
+
+  getLastError(): string | undefined {
+    return this.lastInitializationError || undefined;
+  }
+}
+
+// Provider Registry / Dynamic Binding
+let activeSandboxProvider: SandboxProvider = new AnthropicSandboxProvider();
+
+export function getSandboxProvider(): SandboxProvider {
+  return activeSandboxProvider;
+}
+
+export function setSandboxProvider(provider: SandboxProvider): void {
+  activeSandboxProvider = provider;
+}
 
 export interface ToolSandboxPrepareInput {
   settings: ToolSandboxSettings;
@@ -53,9 +152,6 @@ const INTERNAL_ENV_KEYS = new Set([
   "LC_ALL",
   "SHELL"
 ]);
-let initializedConfigKey = "";
-let initializationPromise: Promise<void> | null = null;
-let lastInitializationError = "";
 
 function unique(values: string[]): string[] {
   const out: string[] = [];
@@ -204,15 +300,10 @@ export function getToolSandboxEnvStartupReport(
 }
 
 function isSupportedPlatform(platform: NodeJS.Platform = process.platform): boolean {
-  return platform === "darwin" || platform === "linux";
-}
-
-function checkSandboxDependencies(): boolean {
-  try {
-    return SandboxManager.checkDependencies();
-  } catch {
-    return false;
+  if (activeSandboxProvider.name === "anthropic") {
+    return platform === "darwin" || platform === "linux";
   }
+  return true;
 }
 
 function isAllowAll(domains: string[]): boolean {
@@ -236,41 +327,6 @@ function buildEffectiveSandboxConfig(settings: ToolSandboxSettings, cwd: string,
   };
 }
 
-function configKey(configValue: SandboxRuntimeConfig): string {
-  return JSON.stringify(configValue);
-}
-
-async function ensureSandboxInitialized(settings: ToolSandboxSettings, cwd: string, workspaceDir: string): Promise<void> {
-  const effective = buildEffectiveSandboxConfig(settings, cwd, workspaceDir);
-  const nextKey = configKey(effective);
-  if (initializedConfigKey === nextKey && !lastInitializationError) return;
-  if (initializationPromise) return initializationPromise;
-
-  const allowAll = isAllowAll(settings.network.allowedDomains);
-  const sandboxAskCallback = allowAll
-    ? async () => true
-    : undefined;
-
-  initializationPromise = (async () => {
-    try {
-      if (initializedConfigKey && initializedConfigKey !== nextKey) {
-        await SandboxManager.reset();
-      }
-      await SandboxManager.initialize(effective, sandboxAskCallback);
-      initializedConfigKey = nextKey;
-      lastInitializationError = "";
-    } catch (error) {
-      initializedConfigKey = "";
-      lastInitializationError = error instanceof Error ? error.message : String(error);
-      throw error;
-    } finally {
-      initializationPromise = null;
-    }
-  })();
-
-  return initializationPromise;
-}
-
 export async function prepareToolSandboxExecution(input: ToolSandboxPrepareInput): Promise<ToolSandboxPrepareResult> {
   if (!input.settings.enabled) {
     return {
@@ -292,13 +348,18 @@ export async function prepareToolSandboxExecution(input: ToolSandboxPrepareInput
   }
 
   const envDetails = buildToolSandboxEnv(input.settings, input.workspaceDir, input.env);
+  const provider = getSandboxProvider();
 
   try {
-    if (!checkSandboxDependencies()) {
+    if (!provider.checkDependencies()) {
       throw new Error("Sandbox dependencies are missing.");
     }
-    await ensureSandboxInitialized(input.settings, input.cwd, input.workspaceDir);
-    const command = await SandboxManager.wrapWithSandbox(input.command, undefined, undefined, input.signal);
+    const effective = buildEffectiveSandboxConfig(input.settings, input.cwd, input.workspaceDir);
+    const allowAll = isAllowAll(input.settings.network.allowedDomains);
+    const sandboxAskCallback = allowAll ? async () => true : undefined;
+
+    await provider.initialize(effective, sandboxAskCallback);
+    const command = await provider.wrapWithSandbox(input.command, { signal: input.signal });
     return {
       command,
       env: envDetails.env,
@@ -327,19 +388,23 @@ export async function getToolSandboxDiagnostics(
 ): Promise<ToolSandboxDiagnostics> {
   const envDetails = buildToolSandboxEnv(settings, workspaceDir);
   const supportedPlatform = isSupportedPlatform();
-  const dependenciesAvailable = supportedPlatform ? checkSandboxDependencies() : false;
+  const provider = getSandboxProvider();
+  const dependenciesAvailable = supportedPlatform ? provider.checkDependencies() : false;
   let sandboxInitialized = false;
   let sandboxError: string | undefined;
 
   if (settings.enabled && supportedPlatform && dependenciesAvailable) {
     try {
-      await ensureSandboxInitialized(settings, cwd, workspaceDir);
+      const effective = buildEffectiveSandboxConfig(settings, cwd, workspaceDir);
+      const allowAll = isAllowAll(settings.network.allowedDomains);
+      const sandboxAskCallback = allowAll ? async () => true : undefined;
+      await provider.initialize(effective, sandboxAskCallback);
       sandboxInitialized = true;
     } catch (error) {
       sandboxError = error instanceof Error ? error.message : String(error);
     }
-  } else if (lastInitializationError) {
-    sandboxError = lastInitializationError;
+  } else {
+    sandboxError = provider.getLastError();
   }
 
   const effective = buildEffectiveSandboxConfig(settings, cwd, workspaceDir);
@@ -358,7 +423,14 @@ export async function getToolSandboxDiagnostics(
     envKeysMissing: envDetails.missingKeys,
     sandboxInitialized,
     sandboxError,
-    effectiveNetwork: effective.network,
-    effectiveFilesystem: effective.filesystem
+    effectiveNetwork: {
+      allowedDomains: effective.network?.allowedDomains ?? [],
+      deniedDomains: effective.network?.deniedDomains ?? []
+    },
+    effectiveFilesystem: {
+      denyRead: effective.filesystem?.denyRead ?? [],
+      allowWrite: effective.filesystem?.allowWrite ?? [],
+      denyWrite: effective.filesystem?.denyWrite ?? []
+    }
   };
 }

@@ -2,6 +2,28 @@
 
 ## 2026-05-29
 
+### Legacy ACP 物理清理与工作区安全策略闭环 (Sprint A)
+- **Legacy ACP 物理清理与依赖包外置**: 将遗留的 ACP (Agent-Channel Proxy) 模块从主代码库中彻底剥离并迁移至 `package/acp/`。删除了 `src/lib/server/acp/`、`src/routes/settings/acp/` 目录以及 `src/lib/server/channels/telegram/acpProgress.ts` 临时进度管理文件。
+- **配置与设置层彻底解耦**: 移除了 `src/lib/server/settings/` 目录下 schema、defaults、sanitize 和 store 中所有关于 `acp` 的数据结构、验证、默认值和序列化逻辑。
+- **外部依赖 subpath imports 注册**: 在根 `package.json` 的 `imports` 字段中注册了 `"#acp/*": "./package/acp/src/*"` 别名映射，以便在未来需要时可以将其作为标准外部依赖即插即用。
+- **Feishu 渠道无用逻辑清理**: 移除了 `src/lib/server/channels/feishu/messaging.ts` 中未被引用的 `AcpPendingPermissionView` 导入和专属于 ACP 的卡片生成函数 `buildFeishuAcpPermissionCard` 与 `buildFeishuAcpPermissionResultCard`。
+- **工作区工具与技能执行策略闭环**: 
+  - **Tool 拦截**: 重构了 `ToolRuntime.executeToolCall`，使其读取当前工作区的 `enabledToolIds` 字段；当配置不为空且不包含 `*` 时，强行阻断所有未列入白名单的工具执行，并返回拒绝提示。
+  - **Skill 过滤**: 扩展了 `loadSkillsFromWorkspace` 的 `SkillLoadOptions`，支持接收 `workspaceId` 并自动根据工作区的 `enabledSkillPaths` 过滤被加载的技能，且在 `runner.ts` 的执行流中对齐传递了活跃的 `workspaceId`。
+- **单元测试与回归校验**: 在 `toolRuntime.test.ts` 与 `skills.test.ts` 中分别为工具及技能白名单过滤编写了高可靠性的单元测试，模拟创建测试工作区记录并验证策略阻断和过滤通过。所有 25/25 Agent 测试套件与 SvelteKit TypeScript 编译通过，无任何回归问题。
+
+### 可插拔沙盒运行环境模块化重构 (Pluggable Sandbox Runtime)
+- **解耦的沙盒接口定义**: 在 [sandbox.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/tools/sandbox.ts) 中定义了通用的 `SandboxProvider` 接口，以及与具体 SDK 无关的通用配置类型（`SandboxNetworkConfig`, `SandboxFilesystemConfig`, `SandboxRuntimeConfig`），确保底层沙盒逻辑与上层工具彻底解耦。
+- **默认 Anthropic 沙盒包装器**: 实现了 `AnthropicSandboxProvider` 类，将原有的 `@anthropic-ai/sandbox-runtime` SDK 整合封装于其内，作为系统默认激活的沙盒后端。
+- **沙盒管理器注册与动态切换**: 提供了 `getSandboxProvider()` 与 `setSandboxProvider()` 注册机制，支持运行时自由插拔更换底层沙盒实现（如 Docker、Bubblewrap 等）。重构了 `prepareToolSandboxExecution` 和 `getToolSandboxDiagnostics` 诊断函数，使其完全动态委托给当前激活的沙盒提供者。
+- **自定义沙盒插拔测试验证**: 在 [sandbox.test.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/tools/sandbox.test.ts) 中新增了 `pluggable sandbox provider dynamically intercepts sandbox execution` 单元测试，注册 Mock 沙盒提供者并验证其执行阻断、配置传递与环境隔离行为，且在测试结束后安全还原，确保测试隔离。运行 25/25 Agent 测试套件全部绿灯通过。
+
+### ToolRuntime 与 ApprovalBroker 深度集成 (v2.2 Phase 3)
+- **MCP 工具安全收口与动态包装**: 重构了 MCP 工具的加载与包装流程。在 `index.ts` 中更新 `wrapWithToolRuntime`，对以 `mcp__` 开头的 MCP 工具将其 `source` 统一标识为 `"mcp"`，并暴露出 `wrapTool` 辅助方法；在 `runner.ts` 的加载及刷新流程中，动态使用该方法将 MCP 工具包裹进 `ToolRuntime` 控制流下，确保 MCP 工具执行受到统一安全策略（沙箱/审批）监管。
+- **子代理审批冒泡 (Subagent Approval Bubbling)**: 在 `subagent.ts` 中扩展 `createSubagentTool` 接收父任务的 `runId`，在子任务触发敏感工具需宿主审批时，将父任务的 `runId` 作为 `scopeId` 并将 `requestedByDepth` 设为 `1`。由此让前端 Channel 适配器能直接在主会话中为用户渲染并提醒子代理的审批请求。
+- **审批深度持久化追踪**: 修改了 `HostBashStore.requestApproval` 存储适配层与 `bash.ts`，支持接收并持久化 `requestedByDepth` 参数，将其安全地记录在 SQLite 表 `approval_requests` 中，完成了子代理审批深度的库表字段落地。
+- **测试回归验证**: 运行类型校验和 25/25 Agent 测试套件，以及 5/5 的 `approvalBroker.test.ts` / `approvalStore.test.ts` 测试套件，结果全部绿灯通过。
+
 ### TurnOrchestrator 核心生命周期接管与 runner.ts 瘦身 (v2.2 Phase 2)
 - **核心生命周期委托**: 将原本耦合在 `runner.ts` 中的 Session 并发锁、10 分钟锁超时释放、内存同步与 Prompt 快照加载、以及上下文自动压缩机制全面委托给 `TurnOrchestrator` 管理。
 - **并发锁与超时机制**: `TurnOrchestrator.prepareTurn` 实现了基于 SQLite 的 Session 锁，在同个会话出现并发调用时拦截并报错；支持 10 分钟锁自动超时置为 `failed` 状态并自动释放重构，保证系统不会因异常崩溃而产生永久死锁。

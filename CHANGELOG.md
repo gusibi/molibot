@@ -6,6 +6,26 @@
 
 ## 2026-05-29
 
+### Legacy ACP Cleanup & Workspace Policy Enforcement (Sprint A)
+- **Legacy ACP Physical Deletion**: Moved the legacy ACP (Agent-Channel Proxy) module to `package/acp/` as a relocatable external dependency. Deleted the `src/lib/server/acp/` and `src/routes/settings/acp/` directories, and the `src/lib/server/channels/telegram/acpProgress.ts` file from the main application paths.
+- **Config & Settings Decoupling**: Removed all ACP targets, projects, and approval mode schemas, sanitizers, default values, and serialization properties from SettingsStore and the RuntimeSettings interface.
+- **Subpath Imports Mapping**: Registered `#acp/*` mapping to `./package/acp/src/*` in `package.json` imports.
+- **Feishu Logic Cleanup**: Cleaned up the unused `AcpPendingPermissionView` import and card generators (`buildFeishuAcpPermissionCard`/`buildFeishuAcpPermissionResultCard`) from Feishu messaging.
+- **Workspace Security Policies**: Implemented runtime workspace policy checks for tool executions and skill loading. `ToolRuntime.executeToolCall` validates toolId against the workspace's `enabledToolIds` whitelist, and `loadSkillsFromWorkspace` filters skills according to `enabledSkillPaths`.
+- **Regression Verification**: Added unit tests in `toolRuntime.test.ts` and `skills.test.ts` to verify whitelist enforcement. All 25/25 agent tests passed successfully.
+
+### Pluggable Sandbox Runtime Module Refactoring
+- **Decoupled Sandbox Interface**: Introduced the `SandboxProvider` interface and generic config type shapes (`SandboxNetworkConfig`, `SandboxFilesystemConfig`, `SandboxRuntimeConfig`) inside `sandbox.ts` to decouple sandbox executions from the Anthropic Sandbox SDK.
+- **Anthropic Sandbox Wrapper**: Enclosed the default `@anthropic-ai/sandbox-runtime` SDK integration inside `AnthropicSandboxProvider`, which implements the new `SandboxProvider` interface.
+- **Registry and Dynamic Selection**: Added getter and setter helper registration functions (`getSandboxProvider()` and `setSandboxProvider()`) to support dynamic switching of sandbox runtimes. Refactored preparation and diagnostics helpers in `sandbox.ts` to delegate actions to the active provider.
+- **Mock Verification Test**: Added unit test in `sandbox.test.ts` to verify mock provider registration, execution interception, config propagation, and restore isolation. Verified 100% green tests in the agent regression suite.
+
+### ToolRuntime & ApprovalBroker Integration (v2.2 Phase 3)
+- **MCP Tool Safety Wrapping**: Modified MCP tool loader in `runner.ts` and `index.ts` to dynamically wrap loaded MCP tools under `ToolRuntime`. Labeled their source as `"mcp"` when their name is prefixed with `mcp__`.
+- **Subagent Approval Bubbling**: Propagated parent `runId` from `createMomTools` down to subagents in `subagent.ts` as the `scopeId`. Set `requestedByDepth: 1` during subagent tool approval creation to bubble up permissions.
+- **Approval Depth Tracking**: Updated `HostBashStore` SQLite wrapper and `bash.ts` to accept and persist `requestedByDepth` into the `approval_requests` SQLite table, facilitating context tracking of subagent execution vs parent run execution.
+- **Verification**: Verified zero compilation errors and full 100% pass rate in both the 25/25 agent test suite and the 5/5 approval/broker test suites.
+
 ### TurnOrchestrator Lifecycle Delegation & runner.ts Slimming (v2.2 Phase 2)
 - **Lifecycle Delegation**: Delegated turn lifecycle duties—specifically session concurrency locking, memory sync/snapshots preparation, and context compaction—to `TurnOrchestrator`.
 - **Session Locking**: Implemented database-backed session locking in `TurnOrchestrator.prepareTurn()` to prevent concurrent active turns in the same session, with a 10-minute auto-release timeout.

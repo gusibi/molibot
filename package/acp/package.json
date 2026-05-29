@@ -1,0 +1,9 @@
+{
+  "name": "acp",
+  "version": "0.1.0",
+  "description": "Agent-Channel Proxy (ACP) legacy module, preserved as an external package",
+  "type": "module",
+  "main": "./src/service.ts",
+  "types": "./src/service.ts",
+  "private": true
+}
