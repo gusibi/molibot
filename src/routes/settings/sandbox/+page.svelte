@@ -223,7 +223,7 @@
     <div class="flex max-w-3xl flex-col gap-2">
       <h1 class="text-3xl font-semibold tracking-tight text-foreground">Sandbox Policy</h1>
       <p class="text-sm leading-6 text-muted-foreground">
-        Restrict Agent shell commands without changing browser, ACP, MCP, or channel delivery behavior.
+        Restrict Agent shell commands without changing browser, MCP, or channel delivery behavior.
       </p>
     </div>
   </header>

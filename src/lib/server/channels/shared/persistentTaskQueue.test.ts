@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { PersistentTaskQueue } from "./persistentTaskQueue.js";
+import { PersistentTaskQueue } from "$lib/server/channels/shared/persistentTaskQueue.js";
 
 test("PersistentTaskQueue runs front-inserted task before older pending task", async () => {
   const steps: string[] = [];

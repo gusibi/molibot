@@ -4,7 +4,61 @@
 
 ---
 
+## 2026-05-29
+
+### TurnOrchestrator Lifecycle Delegation & runner.ts Slimming (v2.2 Phase 2)
+- **Lifecycle Delegation**: Delegated turn lifecycle duties—specifically session concurrency locking, memory sync/snapshots preparation, and context compaction—to `TurnOrchestrator`.
+- **Session Locking**: Implemented database-backed session locking in `TurnOrchestrator.prepareTurn()` to prevent concurrent active turns in the same session, with a 10-minute auto-release timeout.
+- **Memory Snapshot Integration**: Extracted memory sync (`syncExternalMemories`) and snapshot fingerprinting to `TurnOrchestrator.prepareTurnMemory()`.
+- **Context Compaction**: Extracted context compaction flow (calculation, model completion, and saving results to session store) to `TurnOrchestrator.compactSessionContext()`.
+- **Turn Summary Committing**: Relocated `commitTurn()` to `TurnOrchestrator` to log `RunSummary` and update SQLite run statuses (`completed`, `aborted`, `waiting_for_approval`, `failed`).
+- **`runner.ts` Refactoring**: Refactored `MomRunner` to delete these helper functions, reducing its codebase footprint while keeping the client interfaces (`MomRunner.run` and `RunnerPool`) intact.
+- **Test Coverage**: Added robust unit tests in `turnOrchestrator.test.ts` verifying concurrent locking, expiration timeouts, memory prep, and status committing. Passed the entire regression suite (25/25 suites green).
+
+### Agent Module Restructuring & Verification (Step 5)
+- **Folder Clustering & Modularization**: Relocated and grouped all 60+ cluttered files in `src/lib/server/agent/` into dedicated functional subdirectories: `core/`, `routing/`, `prompts/`, `tools/`, `skills/`, `session/`, `identity/`, `common/`, and `commands/`.
+- **Absolute and Relative Path Updates**: Corrected all module imports in JS/TS and Svelte pages workspace-wide to use the structured paths via the SvelteKit `$lib` alias.
+- **Node.js ESM Test Loader Hook**: Created `scripts/md-loader.js` and `scripts/register-loader.js` to register a custom Node.js ESM load hook during testing, converting Vite `?raw` markdown templates into valid JS ESM modules on the fly to bypass `ERR_UNKNOWN_FILE_EXTENSION` crashes.
+- **Regression Bugs Resolved**:
+  - Implemented automatic directory creation (`mkdir(..., { recursive: true })`) in `write.ts` to prevent `ENOENT` crashes when writing scratch artifacts.
+  - Adjusted context compaction threshold check from strictly greater than (`>`) to greater than or equal to (`>=`) in `compaction.ts`, resolving compaction tests.
+  - Fixed relative URL depth for templates loading in `self-evolution.test.ts` (updated `../../../../` to `../../../../../` due to nested directory depth).
+  - Aligned mock error trackers (`modelErrorTracker` and `usageTracker`) in `runner.test.ts` to fix `tracker.record is not a function` mock failures.
+- **Verification**: Verified the refactored architecture with `npx node scripts/run-all-agent-tests.js` executing all 25 test suites, obtaining **100% green test results** (25/25 passed).
+
+### Agent Module Refactoring (Step 1, Step 2, and Step 4)
+- **Model & Media Helpers Extraction**: Decanted provider/model selection, model routing fallbacks, STT routing, and image description fallbacks from `runner.ts` into new modules `modelRouting.ts` and `mediaFallback.ts`.
+- **Double prepareTurn Call Prevention**: Adjusted `turnOrchestrator.ts` to set `input.message.runId` and optimized `runner.ts` to skip redundant DB writes if `runId` is already resolved.
+- **ToolRegistry & ToolRuntime Standardized Integration**: Completely refactored built-in tools (`read`, `write`, `edit`, `bash`) to export `ToolDefinition` schemas. Integrated them into the unified `ToolRegistry` and executed them strictly via `ToolRuntime.executeToolCall`.
+- **Sandbox & Host Approvals Centralization**: Replaced mock stubs in `ToolExecutionContext` with functional path-guarded filesystem APIs (`fs.readText`, `fs.writeText`, `fs.readBuffer`) and sandbox-wrapped shell runner (`shell.run`). Centralized sandbox permission failures and approval routing in `decidePolicy`.
+- **Backward Compatibility**: Introduced a legacy bridge wrapper `toolDefToAgentTool` to keep `subagent.ts` and legacy callers fully functional with zero regressions.
+
+## 2026-05-28
+
+### Agent v2.2 Runtime Integration
+- **TurnOrchestrator 完整整合**: 新增 `src/lib/server/agent/turnOrchestrator.ts`；在 `runner.ts` 包含的所有执行出口路径下调用 `updateRunStatus` 将 run 状态置为非 running；并在 `runtime.ts` 启动时通过 `cleanupStaleRunningTurns` 清理挂起的死锁任务；在 `baseRuntime.ts` 中直接由渠道层预备 turn 状态。
+- **ToolRuntime 拦截所有工具**: 所有由 `createMomTools()` 返回的活跃本地工具通过 `wrapWithToolRuntime` 动态接入 `ToolRegistry` 并委托给 `ToolRuntime.executeToolCall()`，以进行鉴权、安全性策略拦截和审批检查。
+- **SQLite 审批流融合**: 独立的 `ApprovalBroker` 已完全重写并打通 SQLite 表 `approval_requests` 与 `approval_grants` 的持久化支持。`HostBashStore` 现已映射在该共享表上。
+- **Runtime 模块化解耦**: 将包含 650+ 行配置清洗逻辑的 sanitizers 从 `runtime.ts` 提取至 `src/lib/server/settings/sanitize.ts`；将 channel 插件热装载逻辑 `applyChannelPlugins` 提取至 `src/lib/server/plugins/loader.ts`。`runtime.ts` 文件体积大幅缩减至 150 行以内。
+- **验证**: 单元测试和聚焦测试完全通过，并在 `turnOrchestrator` 中增加了测试环境下的自动创建表机制。
+
+### Agent v2.2 Refactoring Design Spec (Refined)
+- **输出可执行架构规范**: 整合 v2.0 与 v2.1 方案优点，设计并撰写了 `v2.2.md`，确立了由 TurnOrchestrator, PiAgentRuntime, ToolRuntime, ApprovalBroker 和 Workspace 构成的分层重构路线。
+- **融入技术评审与安全性收窄**: 吸收 `v2.2-review.md` 建议，明确 Workspace ID 的逻辑属性，决不碰物理目录；将 ACP 下线解耦为第一阶段清引用、最后阶段物理清理；将 TurnOrchestrator 切流灰度化并逐步压缩 runner.ts；在 ToolRuntime/ApprovalBroker 中划分子任务切片、细化 `runs` 状态与索引，提升重构稳定性和安全性。
+
+
+### Minimum Workspace boundary
+- **默认 Workspace registry**: 新增 `workspaces` SQLite 表与默认 `personal` bootstrap，Web/shared channel/runner 路径会解析并携带 `workspaceId`。
+- **运行归档可追踪 Workspace**: 新 run summary 和 run detail JSONL 写入 `workspaceId`，为后续 TurnOrchestrator、ToolRuntime 和 Approval scope 收口提供最小边界；本批不迁移既有 session/chat 数据。
+
+
 ## 2026-05-27
+
+### Agent v2.1 simplification planning
+- **开发计划落地**: 新增 `docs/agent-v2.1-development-plan.md`，把 `v2.1.md` 转成可执行 TODO 清单，并明确短期先删除 ACP 主路径、建立最小 Workspace 边界，再进入 TurnOrchestrator、ToolRuntime、Approval scope 和 Settings 拆分。
+
+### ACP active runtime path removal
+- **ACP 主路径下线**: Channel runtime 不再实例化 ACP service，Telegram/Feishu/QQ/Weixin 移除 ACP 自动代理和权限回调，`/acp` / `/approve` / `/deny` 改为返回 inactive-path 提示；Settings 与 README 不再把 ACP 展示为活跃能力。
 
 ### Agent session persistence hardening
 - **失败轮次上下文隔离修正**: 自动 compaction 现在先完成摘要再追加本轮用户消息；无内容的 assistant error 仍保留在 session 审计历史，但不会作为空 assistant turn 回灌到后续模型上下文。

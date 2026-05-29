@@ -7,7 +7,7 @@
 <h2 align="center">A Simpler OpenClaw-Style Personal AI Assistant</h2>
 
 <p align="center">
-  Multi-Channel · Agent Profiles · ACP Control · MCP Ecosystem · Local-First Data
+  Multi-Channel · Agent Profiles · MCP Ecosystem · Local-First Data
 </p>
 
 <p align="center">
@@ -48,7 +48,9 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 ## Key Highlights
 
 - **Multi-Channel in One Runtime**: `Web + Telegram + Feishu + Weixin + CLI`
-- **ACP (Agent Control Plane)**: Remote coding control via Codex/Claude Code with permission management
+- **ACP Legacy Surface**: ACP source is retained for compatibility, but the active runtime and settings surface now treat ACP as inactive
+- **Minimum Workspace Boundary**: runtime startup creates a default `personal` workspace registry entry, and new run archives carry `workspaceId` for future workspace-scoped tools, approvals, and memory policy
+- **Agent v2.2 Runtime Integration**: TurnOrchestrator now manages the complete turn lifecycle—including session concurrency locking, 10-minute timeout releases, memory synchronizations, context compactions, and status archiving. `runner.ts` has been refactored and slimmed by delegating these concerns to the orchestrator. All built-in tools are registered to ToolRegistry and wrapped with ToolRuntime to enforce policy/approval checking.
 - **MCP Ecosystem**: stdio/HTTP transport support, skill-gated tool injection, dynamic loading
 - **Profile-Driven Chat**: `global -> agent -> bot/profile` prompt layering with file-based governance
 - **Advanced Memory System**: `Mory SDK` with layered storage (`long_term`/`daily`), hybrid retrieval, cognitive control
@@ -83,7 +85,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Softer Card Primitive**: the shared shadcn `Card` base now uses a softer border-and-shadow separation instead of a hard ring outline, which keeps reused management surfaces from looking boxed in
 - **Tasks Overflow Hardening**: `/settings/tasks` now wraps long operational text instead of letting file paths, ids, errors, and action controls push the layout out of bounds
 - **Current-Session File Workspace**: Web chat now includes a real files pane with searchable attachment inventory, inline preview for common formats, downloads, and copy-path actions
-- **Operational Settings UI**: AI routing, agents, ACP targets, tasks, memory, skills, MCP servers
+- **Operational Settings UI**: AI routing, agents, tasks, memory, skills, MCP servers
 - **Host Bash Management UI**: `/settings/host-bash` shows pending Host Bash approvals, current whitelist state, and historical one-time/session/persistent approval records
 - **Safer Settings Persistence**: `settings.json + settings.sqlite` split design with relational tables
 
@@ -103,8 +105,6 @@ flowchart LR
     P --> MM[Mory Memory]
     P --> S[Sessions]
     P --> F[Profile Files]
-    P --> ACP[ACP Control]
-
     F --> L["Prompt Layers: global -> agent -> bot/profile"]
 ```
 
@@ -117,20 +117,21 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 ### Multi-Channel Support
 - **Web Chat**: Full-featured with general file upload, image upload, realtime voice recording, current-session file workspace, thinking controls, profile-only identity, theme/i18n support
 - **Web Live Run Diagnostics**: streaming chat now surfaces tool/subagent runner events in the live diagnostics panel, including delegated task lifecycle notices
-- **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, ACP control, model switching, task delivery, and group replies via direct `@bot` mentions or replies to bot messages
+- **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, model switching, task delivery, and group replies via direct `@bot` mentions or replies to bot messages
 - **Telegram Typing Resilience**: `sendChatAction(typing)` timeout exhaustion is treated as non-blocking, so typing-indicator failures do not abort the active run
 - **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings
-- **QQ Bot**: SDK-based integration, group policy metadata, quoted-message context, rich media delivery, typing/streaming helpers, channel-local progress/error compaction, and Molibot-owned queue/ACP control
-- **Weixin Bot**: SDK-based integration, QR pairing-code login, lifecycle notifications, OGG voice transcoding, native image-message replies, Weixin-safe progress/error compaction, CDN media delivery, ACP support
+- **QQ Bot**: SDK-based integration, group policy metadata, quoted-message context, rich media delivery, typing/streaming helpers, channel-local progress/error compaction, and Molibot-owned queue control
+- **Weixin Bot**: SDK-based integration, QR pairing-code login, lifecycle notifications, OGG voice transcoding, native image-message replies, Weixin-safe progress/error compaction, and CDN media delivery
 - **CLI**: Local terminal conversation entrypoint
 
-### ACP (Agent Control Plane)
-- **Multi-Provider Support**: Codex and Claude Code preset providers
-- **Project Management**: Project registration and chat-scoped ACP session lifecycle
-- **Permission Control**: Permission request handling with inline approval/denial
-- **Remote Execution**: Remote command execution with provider prefix
-- **Task Tracking**: Task progress tracking with structured output
-- **Multi-Channel**: Telegram, Feishu, QQ, Weixin support
+### ACP Legacy Compatibility
+- ACP source modules are retained only so older configurations can still load until the final v2.2 cleanup phase.
+- ACP commands, automatic channel proxying, and editable ACP settings are inactive.
+
+### Workspace Boundary
+- `settings.sqlite` contains a lightweight `workspaces` registry with a default `personal` workspace.
+- New Web/shared-channel runs carry `workspaceId` into run summaries and run detail archives.
+- TurnOrchestrator now centralizes initial run/session/workspace metadata preparation without changing existing session/chat directory layout.
 
 ### MCP Ecosystem
 - **Transport Support**: stdio and HTTP transport
@@ -182,7 +183,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 
 ### Developer Experience
 - **Python Sandbox**: Isolated virtualenv for bash tool execution
-- **OS Tool Sandbox**: Optional `@anthropic-ai/sandbox-runtime` boundary for agent shell execution only; Browser, Computer Use, ACP, MCP, and channel transports remain explicit host-access surfaces
+- **OS Tool Sandbox**: Optional `@anthropic-ai/sandbox-runtime` boundary for agent shell execution only; Browser, Computer Use, MCP, and channel transports remain explicit host-access surfaces
 - **Theme System**: Solar Dusk palette with light/dark mode
 - **i18n**: zh-CN/en-US language switching
 - **TypeScript**: Full type coverage across codebase
@@ -192,12 +193,12 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 | Surface | Maturity | Key Capabilities |
 |---------|----------|------------------|
 | **Web Chat** | ⭐⭐⭐ Production-Ready | Image upload + realtime voice recording + thinking controls + profile-only identity + theme/i18n |
-| **Telegram** | ⭐⭐⭐ Production-Ready | Multi-bot, ACP control, runtime commands, model switching, task delivery, media handling |
+| **Telegram** | ⭐⭐⭐ Production-Ready | Multi-bot, runtime commands, model switching, task delivery, media handling |
 | **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, media/file ingress and outbound handling |
-| **QQ** | ⭐⭐⭐ Production-Ready | SDK-based gateway, group/private chat, rich media, quoted context, channel-local progress/error compaction, Molibot-owned ACP/queue control |
-| **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, native image replies, Weixin-safe progress/error compaction, CDN media delivery, ACP support |
+| **QQ** | ⭐⭐⭐ Production-Ready | SDK-based gateway, group/private chat, rich media, quoted context, channel-local progress/error compaction, Molibot-owned queue control |
+| **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, native image replies, Weixin-safe progress/error compaction, CDN media delivery |
 | **CLI** | ⭐⭐ Ready | Local terminal conversation entrypoint |
-| **ACP** | ⭐⭐⭐ Active | Codex + Claude Code presets, permission management, task tracking, multi-channel |
+| **ACP** | Legacy inactive | Source retained for compatibility; active commands, proxying, and editable settings are inactive |
 | **MCP** | ⭐⭐⭐ Active | stdio/HTTP transport, skill-gated injection, dynamic loading |
 | **Mory** | ⭐⭐⭐ Active | Layered storage, hybrid retrieval, cognitive control, standalone SDK |
 
@@ -232,11 +233,10 @@ Open: `http://localhost:3000`
 2. `/settings/agents`: Create agent with identity layer (SOUL.md, IDENTITY.md)
 3. `/settings/web`: Create Web Profile and bind to agent
 4. (Optional) Configure message channels:
-   - `/settings/telegram` - multi-bot support, ACP control
+   - `/settings/telegram` - multi-bot support
    - `/settings/feishu` - complete media support
    - `/settings/weixin` - SDK-based integration
 5. (Optional) Configure advanced features:
-   - `/settings/acp` - ACP targets (Codex/Claude Code)
    - `/settings/mcp` - MCP servers
    - `/settings/memory` - memory backend
 6. Back to `/` to start chatting
@@ -281,17 +281,8 @@ Open: `http://localhost:3000`
 - `/runlog <runId>` - Return a specific archived run detail log, preferably as a `.txt` file on chat channels that support file delivery
 - `/thinking <default|off|low|medium|high>` - Override thinking level for session
 
-### ACP (Agent Control Plane)
-- `/acp` or `/acp status` - Show ACP status
-- `/acp new <project>` - Create new ACP session
-- `/acp task <description>` - Create ACP task
-- `/acp cancel` or `/acp stop` - Cancel current ACP task
-- `/acp mode <proxy|inline>` - Set ACP mode
-- `/acp remote <command>` - Execute remote command
-- `/acp sessions` - List ACP sessions
-- `/acp close` - Close ACP session
-- `/approve [note]` - Approve ACP permission request
-- `/deny [note]` - Deny ACP permission request
+### ACP Legacy Commands
+- `/acp`, `/approve`, and `/deny` now return an inactive-path notice instead of entering ACP control flow.
 
 ### Live Control and Queue
 - `/stop` - Stop current run and clear pending queued tasks
@@ -324,12 +315,11 @@ Open: `http://localhost:3000`
 Settings pages are moving progressively toward shadcn-svelte components and semantic design tokens. `/settings/system`, `/settings/web`, `/settings/ai/providers`, `/settings/tasks`, and `/settings/sandbox` now cover the main form, provider, policy, and table-control patterns; older Settings pages may still use the prior workbench layer until they are migrated.
 
 ### Channel Configuration
-- `/settings/telegram` - Multi-bot instances, ACP control, and credentials
+- `/settings/telegram` - Multi-bot instances and credentials
 - `/settings/feishu` - Feishu bot configuration and media settings
 - `/settings/weixin` - Weixin SDK integration and CDN settings
 
 ### Advanced Features
-- `/settings/acp` - ACP targets and project management
 - `/settings/mcp` - MCP servers and tool injection
 - `/settings/memory` - Memory backend and governance
 - `/settings/skills` - Skill inventory and scope management
@@ -366,7 +356,7 @@ Default data dir: `~/.molibot`
 ```
 
 - `settings.json`: Bootstrap configuration (env paths, feature flags, bootstrap providers)
-- `settings.sqlite`: Relational tables for agents, channels, providers, models, ACP targets, MCP servers
+- `settings.sqlite`: Relational tables for agents, channels, providers, models, workspaces, MCP servers, and legacy-compatible settings
 - `sessions/`: Per-session entry logs with context reconstruction
 - `memory/`: Mory SDK data with layered storage and hybrid retrieval
 - `skills/`: Hierarchical skill repository (global/bot/chat scopes)
@@ -506,10 +496,8 @@ docker compose up -d --build
 - `WEIXIN_SECRET` - Weixin app secret
 - `WEIXIN_TOKEN` - Message validation token
 
-### ACP (Agent Control Plane)
-- `ACP_ENABLED` - Enable ACP feature
-- `CODEX_API_KEY` - OpenAI/Codex API key
-- `CLAUDE_CODE_API_KEY` - Anthropic API key
+### ACP Legacy Compatibility
+- Existing ACP settings may remain in old configuration files, but ACP is no longer active in the runtime path.
 
 ### MCP (Model Context Protocol)
 - `MCP_SERVERS_CONFIG` - Path to MCP servers JSON config
@@ -547,11 +535,14 @@ See `.env.example` for full list and detailed descriptions.
 | `features.md` | Delivered features, implementation notes, and detailed internal update log |
 | `CHANGELOG.md` | High-level release history and milestone summaries worth preserving outside `features.md` |
 | `architecture.md` | Architecture decisions, module structure, and design patterns |
+| `v2.2.md` | Agent refactoring design specification: TurnOrchestrator, PiAgentRuntime, ToolRuntime, and ApprovalBroker |
+
 
 ### Development Documentation
 - `docs/plugin-development.md` - Plugin contract and development guide
 - `docs/plugin-authoring-guide.md` - Practical plugin tutorial: how to write, install, enable, and demo plugins
 - `src/lib/server/plugins/cloudflareHtml/README.md` - Cloudflare HTML publish plugin notes, including Worker mode vs Direct R2 mode
+- `docs/agent-v2.1-development-plan.md` - Executable TODO plan for the v2.1 Agent simplification work: ACP removal, Workspace, TurnOrchestrator, ToolRuntime, approval scope, and settings split
 - `docs/acp-codex-mvp.md` - ACP (Agent Control Plane) documentation
 - `docs/subagent-sandbox-research.md` - Research and product boundary for the next Agent/Subagent sandbox iteration
 - `docs/molibot-architecture.svg` - Architecture diagram source
@@ -585,11 +576,11 @@ See `.env.example` for full list and detailed descriptions.
 | Channel | Maturity | Key Capabilities |
 |---------|----------|------------------|
 | **Web Chat** | ⭐⭐⭐ Production-Ready | Image upload + realtime voice recording + thinking controls + profile-only identity + theme/i18n |
-| **Telegram** | ⭐⭐⭐ Production-Ready | Multi-bot, ACP control, runtime commands, model switching, task delivery, media handling |
+| **Telegram** | ⭐⭐⭐ Production-Ready | Multi-bot, runtime commands, model switching, task delivery, media handling |
 | **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, media/file ingress and outbound handling |
-| **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, CDN media delivery, ACP support |
+| **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, CDN media delivery |
 | **CLI** | ⭐⭐ Ready | Local terminal conversation entrypoint |
-| **ACP** | ⭐⭐⭐ Active | Codex + Claude Code presets, permission management, task tracking, multi-channel |
+| **ACP** | Legacy inactive | Source retained for compatibility; active commands, proxying, and editable settings are inactive |
 | **MCP** | ⭐⭐⭐ Active | stdio/HTTP transport, skill-gated injection, dynamic loading |
 | **Mory** | ⭐⭐⭐ Active | Layered storage, hybrid retrieval, cognitive control, standalone SDK |
 
@@ -597,7 +588,7 @@ See `.env.example` for full list and detailed descriptions.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| **ACP (Agent Control Plane)** | ⭐⭐⭐ Active | Codex + Claude Code presets, permission management, multi-channel support |
+| **ACP (Agent Control Plane)** | Legacy inactive | Source retained for compatibility; active commands, proxying, and editable settings are inactive |
 | **MCP Ecosystem** | ⭐⭐⭐ Active | stdio/HTTP transport, skill-gated tool injection, dynamic loading |
 | **Memory System (Mory)** | ⭐⭐⭐ Active | Layered storage, hybrid retrieval, cognitive control, standalone SDK |
 | **AI Routing** | ⭐⭐⭐ Active | Multi-provider, per-model capabilities, verification, cross-provider fallback |
@@ -639,6 +630,6 @@ See `.env.example` for full list and detailed descriptions.
 
 ---
 
-*Last updated: May 25, 2026*
+*Last updated: May 28, 2026*
 *Version: 1.0.0*
 *Status: Production Ready*

@@ -1,24 +1,21 @@
 import { extname } from "node:path";
-import type { RuntimeSettings } from "../../settings/index.js";
-import type { EventDeliveryMode, MomEvent } from "../../agent/events.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { EventDeliveryMode, MomEvent } from "$lib/server/agent/events.js";
 import type { ImageContent } from "@mariozechner/pi-ai";
-import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
-import { buildNonInteractiveHostBashApprovalText } from "../../hostBash/index.js";
-import { formatRunArchiveNotice } from "../../agent/runDetail.js";
-import { buildAcpPermissionText } from "../../acp/prompt.js";
-import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
-import type { ChannelInboundMessage, FileAttachment } from "../../agent/types.js";
-import type { SessionStore } from "../../sessions/store.js";
-import type { MemoryGateway } from "../../memory/gateway.js";
-import type { AiUsageTracker } from "../../usage/tracker.js";
-import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
-import type { AcpPendingPermissionView } from "../../acp/types.js";
-import { BasicChannelAcpTemplate } from "../shared/acp.js";
-import { BaseChannelRuntime } from "../shared/baseRuntime.js";
-import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
-import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
-import { SqliteOutbox } from "../shared/outbox.js";
-import { type ResolvedQQBotAccount, initApiConfig, clearTokenCache } from "./sdk-adapter.js";
+import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
+import { buildNonInteractiveHostBashApprovalText } from "$lib/server/hostBash/index.js";
+import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
+import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
+import type { ChannelInboundMessage, FileAttachment } from "$lib/server/agent/core/types.js";
+import type { SessionStore } from "$lib/server/sessions/store.js";
+import type { MemoryGateway } from "$lib/server/memory/gateway.js";
+import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
+import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
+import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
+import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
+import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
+import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
+import { type ResolvedQQBotAccount, initApiConfig, clearTokenCache } from "$lib/server/channels/qq/sdk-adapter.js";
 import { sendText, sendMedia, type OutboundResult } from "#qqbot/src/outbound.js";
 import { startGateway, type GatewayContext } from "#qqbot/src/gateway.js";
 
@@ -112,7 +109,6 @@ function createToolProgressBatcher<TSent>(
 }
 
 export class QQManager extends BaseChannelRuntime {
-  private readonly acpTemplate: BasicChannelAcpTemplate<SendTarget>;
   private readonly commandService: SharedRuntimeCommandService<SendTarget>;
   private readonly outbox: SqliteOutbox<{ target: SendTarget; text: string; replyToId?: string }, OutboundResult>;
   private readonly inboundTasks: InboundTaskCoordinator<QQQueuedTaskPayload, SendTarget>;
@@ -154,16 +150,6 @@ export class QQManager extends BaseChannelRuntime {
       });
     }
 
-    this.acpTemplate = new BasicChannelAcpTemplate<SendTarget>({
-      acp: this.acp,
-      sendText: async (_chatId, target, text) => {
-        await this.replyCommand(target, text);
-      },
-      runPrompt: async (chatId, target, request) => {
-        await this.runAcpPrompt(chatId, request.prompt, target, request.startText);
-      }
-    });
-
     this.inboundTasks = new InboundTaskCoordinator<QQQueuedTaskPayload, SendTarget>({
       channel: "qq",
       instanceId: this.instanceId,
@@ -190,16 +176,12 @@ export class QQManager extends BaseChannelRuntime {
       stopRun: (scopeId) => this.stopChatWork(scopeId),
       steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
       followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
-      cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
-      maybeHandleAcpCommand: (scopeId, cmd, rawArg, target) =>
-        this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, target),
       sendText: (target, text) => this.replyCommand(target, text),
       uploadFile: (target, filePath, title, text) => this.sendCommandFile(target, filePath, title, text),
       onSessionMutation: (scopeId) => {
         void this.writePromptPreview([scopeId]);
       },
-      ...this.inboundTasks.toCommandOptions(),
-      helpLines: this.acpTemplate.helpLines()
+      ...this.inboundTasks.toCommandOptions()
     });
     this.outbox = new SqliteOutbox<{ target: SendTarget; text: string; replyToId?: string }, OutboundResult>({
       channel: "qq",
@@ -268,7 +250,6 @@ export class QQManager extends BaseChannelRuntime {
     }
     this.gatewayRunning = false;
     clearTokenCache();
-    void this.acp.dispose();
     momLog("qq", "adapter_stopped");
   }
 
@@ -378,15 +359,6 @@ export class QQManager extends BaseChannelRuntime {
       attachments: attachmentResult.attachments,
       imageContents: attachmentResult.imageContents
     };
-
-    try {
-      if (await this.acpTemplate.maybeProxy(chatId, text, this.toSendTarget(event))) {
-        return;
-      }
-    } catch (error) {
-      await this.replyCommand(this.toSendTarget(event), error instanceof Error ? error.message : String(error));
-      return;
-    }
 
     const lowered = text.toLowerCase();
     const commandText = lowered === "stop" ? "/stop" : text;
@@ -655,28 +627,6 @@ export class QQManager extends BaseChannelRuntime {
       return target.id;
     }
     return `${target.mode}:${target.id}`;
-  }
-
-  private async sendAcpPermissionCard(target: SendTarget, permission: AcpPendingPermissionView): Promise<void> {
-    await this.replyCommand(target, buildAcpPermissionText(permission));
-  }
-
-  private async runAcpPrompt(chatId: string, prompt: string, target: SendTarget, startText: string): Promise<void> {
-    await this.replyCommand(target, startText);
-    const result = await this.acp.runTask(chatId, prompt, {
-      onStatus: async (text) => {
-        await this.replyCommand(target, text);
-      },
-      onEvent: async (text) => {
-        await this.replyCommand(target, text);
-      },
-      onPermissionRequest: async (permission) => {
-        await this.sendAcpPermissionCard(target, permission);
-      }
-    });
-    if (result.assistantText.trim()) {
-      await this.replyCommand(target, result.assistantText.trim());
-    }
   }
 
   private resolveChatId(event: GatewayEvent): string {

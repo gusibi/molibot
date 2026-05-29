@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { SkillScope } from "../skills.js";
+import type { SkillScope } from "$lib/server/agent/skills/skills.js";
 import {
   mergeSkillDraftMarkdown,
   promoteDraftToLiveSkill,
@@ -10,7 +10,7 @@ import {
   saveLiveSkill,
   saveSkillDraft,
   updateLiveSkill
-} from "../skillDraft.js";
+} from "$lib/server/agent/skills/skillDraft.js";
 
 const skillManageSchema = Type.Object({
   action: Type.Union([

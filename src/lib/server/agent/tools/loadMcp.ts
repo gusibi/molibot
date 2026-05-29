@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { RuntimeSettings } from "../../settings/index.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 const loadMcpSchema = Type.Object({
   action: Type.Union([

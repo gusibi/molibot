@@ -1,34 +1,31 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { filterWeixinMarkdown } from "#weixin-agent-sdk/src/messaging/send.js";
-import { type IncomingMessage, WeixinBot } from "./client.js";
-import type { RuntimeSettings } from "../../settings/index.js";
-import type { EventDeliveryMode, MomEvent } from "../../agent/events.js";
-import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
-import { buildNonInteractiveHostBashApprovalText } from "../../hostBash/index.js";
-import { formatRunArchiveNotice } from "../../agent/runDetail.js";
-import { buildAcpPermissionText } from "../../acp/prompt.js";
-import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
-import type { ChannelInboundMessage } from "../../agent/types.js";
-import type { SessionStore } from "../../sessions/store.js";
-import type { MemoryGateway } from "../../memory/gateway.js";
-import type { AiUsageTracker } from "../../usage/tracker.js";
-import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
-import type { AcpPendingPermissionView } from "../../acp/types.js";
-import { BasicChannelAcpTemplate } from "../shared/acp.js";
-import { BaseChannelRuntime } from "../shared/baseRuntime.js";
-import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
-import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
-import { SqliteOutbox } from "../shared/outbox.js";
-import { extractWeixinAttachments, extractWeixinText, hasWeixinInlineVoiceTranscript } from "./media.js";
-import { hasWeixinImageReferenceText, sendWeixinFile, sendWeixinImageReferenceText } from "./outbound.js";
+import { type IncomingMessage, WeixinBot } from "$lib/server/channels/weixin/client.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { EventDeliveryMode, MomEvent } from "$lib/server/agent/events.js";
+import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
+import { buildNonInteractiveHostBashApprovalText } from "$lib/server/hostBash/index.js";
+import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
+import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
+import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
+import type { SessionStore } from "$lib/server/sessions/store.js";
+import type { MemoryGateway } from "$lib/server/memory/gateway.js";
+import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
+import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
+import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
+import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
+import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
+import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
+import { extractWeixinAttachments, extractWeixinText, hasWeixinInlineVoiceTranscript } from "$lib/server/channels/weixin/media.js";
+import { hasWeixinImageReferenceText, sendWeixinFile, sendWeixinImageReferenceText } from "$lib/server/channels/weixin/outbound.js";
 import {
   createToolProgressBatcher,
   formatWeixinToolProgressText,
   isToolProgressBatchText,
   isTransientRunnerProgress,
   isWeixinToolProgressDeliveryText
-} from "./toolProgress.js";
+} from "$lib/server/channels/weixin/toolProgress.js";
 
 export interface WeixinConfig {
   baseUrl?: string;
@@ -105,7 +102,6 @@ function isRunnerErrorNotice(text: string): boolean {
 }
 
 export class WeixinManager extends BaseChannelRuntime {
-  private readonly acpTemplate: BasicChannelAcpTemplate<IncomingMessage>;
   private readonly commandService: SharedRuntimeCommandService<IncomingMessage>;
 
   private bot: WeixinBot | undefined;
@@ -137,15 +133,6 @@ export class WeixinManager extends BaseChannelRuntime {
       sessionStore,
       options
     });
-    this.acpTemplate = new BasicChannelAcpTemplate<IncomingMessage>({
-      acp: this.acp,
-      sendText: async (chatId, sourceMessage, text) => {
-        await this.replyCommand(chatId, sourceMessage, text);
-      },
-      runPrompt: async (chatId, sourceMessage, request) => {
-        await this.runAcpPrompt(chatId, sourceMessage, request.prompt, request.startText);
-      }
-    });
     this.inboundTasks = new InboundTaskCoordinator<WeixinQueuedTaskPayload, IncomingMessage>({
       channel: "weixin",
       instanceId: this.instanceId,
@@ -175,17 +162,13 @@ export class WeixinManager extends BaseChannelRuntime {
       stopRun: (scopeId) => this.stopChatWork(scopeId),
       steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
       followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
-      cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
-      maybeHandleAcpCommand: (scopeId, cmd, rawArg, sourceMessage) =>
-        this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, sourceMessage),
       sendText: (sourceMessage, text) => this.replyCommand((sourceMessage as IncomingMessage).userId, sourceMessage, text),
       uploadFile: (sourceMessage, filePath, title, text) =>
         this.sendCommandFile((sourceMessage as IncomingMessage).userId, sourceMessage as IncomingMessage, filePath, title, text),
       onSessionMutation: (scopeId) => {
         void this.writePromptPreview([scopeId]);
       },
-      ...this.inboundTasks.toCommandOptions(),
-      helpLines: this.acpTemplate.helpLines()
+      ...this.inboundTasks.toCommandOptions()
     });
     this.outbox = new SqliteOutbox<WeixinTextOutboxPayload, { delivered: true }>({
       channel: "weixin",
@@ -251,7 +234,6 @@ export class WeixinManager extends BaseChannelRuntime {
     this.bot = undefined;
     this.currentBaseUrl = "";
     this.currentAllowedChatIdsKey = "";
-    void this.acp.dispose();
     momLog("weixin", "adapter_stopped", { botId: this.instanceId });
   }
 
@@ -306,50 +288,6 @@ export class WeixinManager extends BaseChannelRuntime {
       if (!this.stopped && startId === this.startSequence) {
         momWarn("weixin", "adapter_stopped_unexpectedly", { botId: this.instanceId });
       }
-    }
-  }
-
-  private async sendAcpPermissionCard(chatId: string, sourceMessage: IncomingMessage, permission: AcpPendingPermissionView): Promise<void> {
-    await this.replyCommand(chatId, sourceMessage, buildAcpPermissionText(permission));
-  }
-
-  private async runAcpPrompt(chatId: string, sourceMessage: IncomingMessage, prompt: string, startText: string): Promise<void> {
-    await this.replyCommand(chatId, sourceMessage, startText);
-    let lastStatus = startText;
-    const result = await this.acp.runTask(chatId, prompt, {
-      onStatus: async (text) => {
-        lastStatus = text;
-      },
-      onEvent: async (text) => {
-        await this.replyCommand(chatId, sourceMessage, text);
-      },
-      onPermissionRequest: async (permission) => {
-        await this.sendAcpPermissionCard(chatId, sourceMessage, permission);
-      }
-    });
-
-    const completedTools = result.toolCalls.filter((tool) => tool.status === "completed");
-    const failedTools = result.toolCalls.filter((tool) => tool.status === "failed");
-    const touchedLocations = Array.from(
-      new Set(
-        completedTools
-          .flatMap((tool) => tool.locations)
-          .map((location) => location.trim())
-          .filter(Boolean)
-      )
-    );
-    const summaryLines = [
-      "ACP result:",
-      `Stop reason: ${result.stopReason}`,
-      `Tool calls: ${result.toolCalls.length}`,
-      lastStatus ? `Last status: ${lastStatus}` : ""
-    ].filter(Boolean);
-    if (completedTools.length > 0) summaryLines.push(`Completed tools: ${completedTools.length}`);
-    if (failedTools.length > 0) summaryLines.push(`Failed tools: ${failedTools.length}`);
-    if (touchedLocations.length > 0) summaryLines.push(`Touched: ${touchedLocations.slice(0, 8).join(", ")}`);
-    await this.replyCommand(chatId, sourceMessage, summaryLines.join("\n"));
-    if (result.assistantText.trim()) {
-      await this.replyCommand(chatId, sourceMessage, result.assistantText.trim());
     }
   }
 
@@ -413,14 +351,6 @@ export class WeixinManager extends BaseChannelRuntime {
     }
 
     const lowered = text.toLowerCase();
-    try {
-      if (await this.acpTemplate.maybeProxy(chatId, text, message)) {
-        return;
-      }
-    } catch (error) {
-      await this.replyCommand(chatId, message, error instanceof Error ? error.message : String(error));
-      return;
-    }
 
     const commandText = lowered === "stop" ? "/stop" : text;
     const handled = await this.handleCommand(chatId, commandText, message);

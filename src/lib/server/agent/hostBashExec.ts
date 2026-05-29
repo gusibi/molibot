@@ -2,15 +2,15 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ApprovedHostBashEntry, HostBashApprovalRecord, HostBashPermissions } from "../hostBash/index.js";
-import { normalizeCommandOutput, stripAnsi } from "./tools/helpers.js";
+import type { ApprovedHostBashEntry, HostBashApprovalRecord, HostBashPermissions } from "$lib/server/hostBash/index.js";
+import { normalizeCommandOutput, stripAnsi } from "$lib/server/agent/tools/helpers.js";
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
   formatSize,
   truncateMiddle,
   type TruncationResult
-} from "./tools/truncate.js";
+} from "$lib/server/agent/tools/truncate.js";
 
 interface HostBashExecutionDetails {
   hostBash: true;

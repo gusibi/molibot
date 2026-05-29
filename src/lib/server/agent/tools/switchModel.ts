@@ -1,13 +1,13 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { RuntimeSettings } from "../../settings/index.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import {
   buildModelOptions,
   currentModelKey,
   parseModelRoute,
   switchModelSelection,
   type ModelRoute
-} from "../../settings/modelSwitch.js";
+} from "$lib/server/settings/modelSwitch.js";
 
 const switchModelSchema = Type.Object({
   action: Type.Union([Type.Literal("list"), Type.Literal("switch")]),

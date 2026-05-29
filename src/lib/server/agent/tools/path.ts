@@ -2,7 +2,7 @@ import { basename, isAbsolute, relative, resolve } from "node:path";
 import {
   resolveDataRootFromWorkspacePath,
   resolveMemoryRootFromWorkspacePath
-} from "../workspace.js";
+} from "$lib/server/agent/session/workspace.js";
 
 const GLOBAL_PROFILE_FILES = ["SOUL.md", "TOOLS.md", "BOOTSTRAP.md", "IDENTITY.md", "USER.md"] as const;
 

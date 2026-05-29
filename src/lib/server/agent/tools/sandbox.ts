@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import dotenv from "dotenv";
 import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import { config } from "../../app/env.js";
-import type { ToolSandboxSettings } from "../../settings/index.js";
+import { config } from "$lib/server/app/env.js";
+import type { ToolSandboxSettings } from "$lib/server/settings/index.js";
 
 const SANDBOX_VENV_DIR = join(config.dataDir, "tooling", "sandbox-venv");
 

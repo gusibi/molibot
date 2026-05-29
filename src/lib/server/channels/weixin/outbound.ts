@@ -10,7 +10,7 @@ import { filterWeixinMarkdown } from "#weixin-agent-sdk/src/messaging/send.js";
 import { sendWeixinMediaFile } from "#weixin-agent-sdk/src/messaging/send-media.js";
 import { downloadRemoteImageToTemp } from "#weixin-agent-sdk/src/cdn/upload.js";
 import { MessageItemType, MessageState, MessageType, type MessageItem } from "#weixin-agent-sdk/src/api/types.js";
-import { momWarn } from "../../agent/log.js";
+import { momWarn } from "$lib/server/agent/common/log.js";
 
 const WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
 const execFileAsync = promisify(execFile);

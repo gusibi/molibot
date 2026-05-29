@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { defaultToolSandboxSettings, sanitizeToolSandboxSettings } from "../../settings/toolSandbox.js";
+import { defaultToolSandboxSettings, sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
 import {
   buildToolSandboxEnv,
   getToolSandboxDiagnostics
-} from "./sandbox.js";
+} from "$lib/server/agent/tools/sandbox.js";
 
 test("sanitizeToolSandboxSettings keeps safe defaults for invalid input", () => {
   const settings = sanitizeToolSandboxSettings({

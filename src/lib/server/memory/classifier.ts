@@ -1,4 +1,4 @@
-import type { MemoryAddInput, MemoryLayer, MemoryRecord } from "./types.js";
+import type { MemoryAddInput, MemoryLayer, MemoryRecord } from "$lib/server/memory/types.js";
 
 export interface MemoryWriteAssessment {
   allowed: boolean;

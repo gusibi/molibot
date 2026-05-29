@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
-import { readRunHistory } from "$lib/server/agent/reviewData";
+import { readRunHistory } from "$lib/server/agent/session/reviewData";
 
 export const GET: RequestHandler = async ({ url }) => {
   const dataRoot = resolve(config.dataDir);

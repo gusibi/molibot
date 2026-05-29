@@ -1,7 +1,7 @@
-import Root from "./tabs.svelte";
-import Content from "./tabs-content.svelte";
-import List, { tabsListVariants, type TabsListVariant } from "./tabs-list.svelte";
-import Trigger from "./tabs-trigger.svelte";
+import Root from "$lib/components/ui/tabs/tabs.svelte";
+import Content from "$lib/components/ui/tabs/tabs-content.svelte";
+import List, { tabsListVariants, type TabsListVariant } from "$lib/components/ui/tabs/tabs-list.svelte";
+import Trigger from "$lib/components/ui/tabs/tabs-trigger.svelte";
 
 export {
 	Root,

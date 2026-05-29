@@ -4,7 +4,7 @@ import type {
   RuntimeReasoningEffortLevel,
   RuntimeSettings,
   RuntimeThinkingLevel
-} from "../settings/index.js";
+} from "$lib/server/settings/index.js";
 
 const DEEPSEEK_REASONING_EFFORT_MAP = {
   low: "high",

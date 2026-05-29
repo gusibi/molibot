@@ -8,15 +8,15 @@ import {
   formatSkillsDetailText,
   formatSkillsSummaryText,
   loadSkillsFromWorkspace
-} from "$lib/server/agent/skills";
+} from "$lib/server/agent/skills/skills";
 import {
   listOAuthProviderIds,
   removeStoredAuth,
   resolveAuthFilePath,
   startOAuthLogin,
   submitOAuthLoginCode
-} from "$lib/server/agent/auth";
-import type { ChannelInboundMessage, FileAttachment } from "$lib/server/agent/types";
+} from "$lib/server/agent/identity/auth";
+import type { ChannelInboundMessage, FileAttachment } from "$lib/server/agent/core/types";
 import {
   buildModelOptions,
   currentModelKey,
@@ -31,8 +31,9 @@ import {
 } from "$lib/server/web/identity";
 import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
 import { sanitizeRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
-import type { RunnerUiEvent } from "$lib/server/agent/types";
+import type { RunnerUiEvent } from "$lib/server/agent/core/types";
 import type { ConversationAttachment } from "$lib/shared/types/message";
+import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec";
 import { getHostBashStore } from "$lib/server/hostBash";
 
@@ -512,6 +513,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const runtime = getRuntime();
+  const workspaceId = resolveWorkspaceId();
   const externalUserId = toWebExternalUserId(parsed.userId, parsed.profileId);
   const conversation = runtime.sessions.getOrCreateConversation(
     "web",
@@ -623,6 +625,7 @@ export const POST: RequestHandler = async ({ request }) => {
     thinkingLevelOverride: parsed.thinkingLevel,
     message: {
       chatId: externalUserId,
+      workspaceId,
       chatType: "private",
       messageId,
       userId: externalUserId,

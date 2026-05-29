@@ -2,9 +2,9 @@ import { createDecipheriv } from "node:crypto";
 import { extname } from "node:path";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import { MessageItemType, type MessageItem } from "#weixin-agent-sdk/src/api/types.js";
-import type { IncomingMessage } from "./client.js";
-import type { FileAttachment } from "../../agent/types.js";
-import { MomRuntimeStore } from "../../agent/store.js";
+import type { IncomingMessage } from "$lib/server/channels/weixin/client.js";
+import type { FileAttachment } from "$lib/server/agent/core/types.js";
+import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 
 const WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
 

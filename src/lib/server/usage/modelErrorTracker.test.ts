@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ModelErrorTracker } from "./modelErrorTracker.js";
+import { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 
 test("ModelErrorTracker records failures and returns summary", () => {
   let file = "";

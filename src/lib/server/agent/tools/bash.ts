@@ -3,39 +3,27 @@ import { randomBytes } from "node:crypto";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { config } from "../../app/env.js";
-import type { ToolSandboxSettings } from "../../settings/index.js";
+import { config } from "$lib/server/app/env.js";
+import type { ToolSandboxSettings } from "$lib/server/settings/index.js";
 import type {
   ApprovedHostBashEntry,
   HostBashApprovalPrompt,
   HostBashStore
-} from "../../hostBash/index.js";
+} from "$lib/server/hostBash/index.js";
 import {
   buildHostBashApprovalPrompt,
   getHostBashStore,
   parseHostBashApprovalCommand,
   parseHostBashShellCommand,
   sanitizeHostBashId
-} from "../../hostBash/index.js";
-import { executeApprovedHostBash } from "../hostBashExec.js";
-import { momWarn } from "../log.js";
-import type { MomRuntimeStore } from "../store.js";
-import { execCommand, normalizeCommandOutput, shellEscape, stripAnsi } from "./helpers.js";
-import { prepareToolSandboxExecution } from "./sandbox.js";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "./truncate.js";
-
-const SANDBOX_VENV_DIR = join(config.dataDir, "tooling", "sandbox-venv");
-
-function wrapCommandWithVenv(command: string): string {
-  const venvBin = process.platform === "win32" ? join(SANDBOX_VENV_DIR, "Scripts") : join(SANDBOX_VENV_DIR, "bin");
-  const venvPython = process.platform === "win32" ? join(venvBin, "python.exe") : join(venvBin, "python");
-  return [
-    `if [ ! -f ${shellEscape(venvPython)} ]; then python3 -m venv ${shellEscape(SANDBOX_VENV_DIR)} 2>/dev/null || true; fi`,
-    `export PATH=${shellEscape(venvBin)}:$PATH`,
-    `export VIRTUAL_ENV=${shellEscape(SANDBOX_VENV_DIR)}`,
-    command
-  ].join("\n");
-}
+} from "$lib/server/hostBash/index.js";
+import { executeApprovedHostBash } from "$lib/server/agent/hostBashExec.js";
+import { momWarn } from "$lib/server/agent/common/log.js";
+import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import { execCommand, normalizeCommandOutput, shellEscape, stripAnsi, wrapCommandWithVenv, toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
+import { prepareToolSandboxExecution } from "$lib/server/agent/tools/sandbox.js";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "$lib/server/agent/tools/truncate.js";
+import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
 
 const bashSchema = Type.Object({
   label: Type.String(),
@@ -310,7 +298,7 @@ function requestApprovalFromBash(
   };
 }
 
-function tryParseHostBashCommand(command: string): ParsedHostBashCommand | null {
+export function tryParseHostBashCommand(command: string): ParsedHostBashCommand | null {
   try {
     return parseHostBashShellCommand(command);
   } catch {
@@ -318,7 +306,7 @@ function tryParseHostBashCommand(command: string): ParsedHostBashCommand | null 
   }
 }
 
-function findApprovedHostBash(
+export function findApprovedHostBash(
   store: HostBashStore,
   parsed: ParsedHostBashCommand | null
 ): ApprovedHostBashEntry | undefined {
@@ -345,45 +333,50 @@ function buildAutomaticHostApprovalReason(parsed: ParsedHostBashCommand): string
   return `Sandbox denied host-level access for \`${parsed.originalCommand}\`. Approve this executable as a controlled host capability if you want future runs to bypass sandbox for this command.`;
 }
 
-export function createBashTool(cwd: string, options?: {
-  artifactDir?: string;
-  sandbox?: BashToolSandboxOptions;
-  hostApproval?: BashToolHostApprovalOptions;
-}): AgentTool<typeof bashSchema> {
-  const artifactDir = options?.artifactDir?.trim();
+export function getBashToolDefinition(
+  options: {
+    cwd: string;
+    artifactDir?: string;
+    sandbox?: BashToolSandboxOptions;
+    hostApproval?: BashToolHostApprovalOptions;
+  }
+): ToolDefinition {
+  const artifactDir = options.artifactDir?.trim();
   return {
+    id: "bash",
     name: "bash",
-    label: "bash",
     description:
       `Execute a bash command in scratch workspace. When creating ordinary generated files, prefer $MOLIBOT_SCRATCH_ARTIFACT_DIR. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
-    parameters: bashSchema,
-    execute: async (_toolCallId, params, signal) => {
-      const hostBashStore = options?.hostApproval?.hostBashStore ?? getHostBashStore();
-      const parsedHostBashCommand = options?.hostApproval
+    inputSchema: bashSchema,
+    risk: "high",
+    source: "host",
+    handler: async (params: any, ctx) => {
+      const hostBashStore = options.hostApproval?.hostBashStore ?? getHostBashStore();
+      const parsedHostBashCommand = options.hostApproval
         ? tryParseHostBashCommand(params.command)
         : null;
-      const approvedHostBash = options?.hostApproval
+      const approvedHostBash = options.hostApproval
         ? findApprovedHostBash(hostBashStore, parsedHostBashCommand)
         : undefined;
 
       if (approvedHostBash && parsedHostBashCommand) {
         const executed = await executeApprovedHostBash({
           tool: approvedHostBash,
-          cwd,
+          cwd: ctx.cwd,
           originalCommand: parsedHostBashCommand.originalCommand,
           args: parsedHostBashCommand.args,
           timeoutSeconds: params.timeout,
-          signal
         });
         return {
+          ok: true,
           content: [{ type: "text", text: executed.rendered }],
           details: executed.details
         };
       }
 
       if (params.hostApproval) {
-        if (!options?.hostApproval) {
-          throw new Error("Host Bash approval is not configured for this bash tool instance.");
+        if (!options.hostApproval) {
+          return { ok: false, error: "Host Bash approval is not configured for this bash tool instance." };
         }
         const requested = requestApprovalFromBash(
           options.hostApproval,
@@ -392,89 +385,62 @@ export function createBashTool(cwd: string, options?: {
           params.hostApproval
         );
         return {
-          content: [{
-            type: "text",
-            text: requested.text
-          }],
+          ok: false,
+          error: requested.text || "Tool execution is waiting for approval.",
+          metadata: {
+            status: "waiting_for_approval"
+          },
           details: requested.prompt ? { hostBashApproval: requested.prompt } : undefined
         };
       }
 
       if (artifactDir) {
-        mkdirSync(resolve(cwd, artifactDir), { recursive: true });
+        mkdirSync(resolve(ctx.cwd, artifactDir), { recursive: true });
       }
-      const rootFilesBefore = snapshotRootFiles(cwd);
+      const rootFilesBefore = snapshotRootFiles(ctx.cwd);
 
-      const sandboxEnv = artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: artifactDir } : {};
-      const wrappedCommand = wrapCommandWithVenv(params.command);
-      const sandboxed = options?.sandbox?.settings.enabled
-        ? await prepareToolSandboxExecution({
-            settings: options.sandbox.settings,
-            workspaceDir: options.sandbox.workspaceDir,
-            cwd,
-            command: wrappedCommand,
-            env: sandboxEnv,
-            signal
-          })
-        : {
-            command: wrappedCommand,
-            env: sandboxEnv,
-            inheritProcessEnv: true,
-            sandboxApplied: false,
-            warning: undefined
-          };
-
-      if (sandboxed.warning) {
-        momWarn("runner", "tool_sandbox_disabled", {
-          cwd,
-          reason: sandboxed.warning
-        });
-      }
-
-      const result = await execCommand(sandboxed.command, {
-        cwd,
-        timeoutSeconds: params.timeout,
-        signal,
-        env: sandboxed.env,
-        inheritProcessEnv: sandboxed.inheritProcessEnv
+      const result = await ctx.shell.run(params.command, {
+        cwd: ctx.cwd,
+        timeoutMs: params.timeout ? params.timeout * 1000 : undefined
       });
-      const movedArtifacts = moveNewRootArtifacts(cwd, artifactDir, rootFilesBefore);
+
+      const movedArtifacts = moveNewRootArtifacts(ctx.cwd, artifactDir, rootFilesBefore);
 
       try {
-        captureSayTranscript(params.command, cwd);
+        captureSayTranscript(params.command, ctx.cwd);
       } catch {
-        // Ignore transcript sidecar capture failures; command output remains authoritative.
+        // Ignore
       }
 
       let output = "";
       if (result.stdout) output += result.stdout;
       if (result.stderr) output += `${output ? "\n" : ""}${result.stderr}`;
       output = normalizeCommandOutput(stripAnsi(output));
-      let details: BashToolDetails | undefined = sandboxed.sandboxApplied || sandboxed.warning
-        ? { sandboxApplied: sandboxed.sandboxApplied, sandboxWarning: sandboxed.warning }
+
+      let details: BashToolDetails | undefined = result.sandboxApplied || result.warning
+        ? { sandboxApplied: result.sandboxApplied, sandboxWarning: result.warning }
         : undefined;
-      const built = buildBashOutput(cwd, output, details, movedArtifacts);
+      const built = buildBashOutput(ctx.cwd, output, details, movedArtifacts);
       let rendered = built.rendered;
       details = built.details;
 
-      if (result.code !== 0) {
-        let errorBody = `${rendered}\n\nCommand exited with code ${result.code}`.trim();
-        if (sandboxed.sandboxApplied && options?.hostApproval && isSandboxPermissionFailure(rendered)) {
+      if (result.exitCode !== 0) {
+        let errorBody = `${rendered}\n\nCommand exited with code ${result.exitCode}`.trim();
+        if (result.sandboxApplied && options.hostApproval && isSandboxPermissionFailure(rendered)) {
           if (options.hostApproval.store.getSessionHostApprovalMode(options.hostApproval.scopeId, options.hostApproval.sessionId) === "session") {
+            const wrappedCommand = wrapCommandWithVenv(params.command);
             const fallbackResult = await execCommand(wrappedCommand, {
-              cwd,
+              cwd: ctx.cwd,
               timeoutSeconds: params.timeout,
-              signal,
-              env: sandboxEnv,
               inheritProcessEnv: true
             });
-            const fallbackMovedArtifacts = moveNewRootArtifacts(cwd, artifactDir, rootFilesBefore);
+            const fallbackMovedArtifacts = moveNewRootArtifacts(ctx.cwd, artifactDir, rootFilesBefore);
             let fallbackOutput = "";
             if (fallbackResult.stdout) fallbackOutput += fallbackResult.stdout;
             if (fallbackResult.stderr) fallbackOutput += `${fallbackOutput ? "\n" : ""}${fallbackResult.stderr}`;
             fallbackOutput = normalizeCommandOutput(stripAnsi(fallbackOutput));
             const fallbackBuilt = buildBashOutput(
-              cwd,
+              ctx.cwd,
               fallbackOutput,
               {
                 ...details,
@@ -485,9 +451,10 @@ export function createBashTool(cwd: string, options?: {
               fallbackMovedArtifacts
             );
             if (fallbackResult.code !== 0) {
-              throw new Error(`${fallbackBuilt.rendered}\n\nCommand exited with code ${fallbackResult.code}`.trim());
+              return { ok: false, error: `${fallbackBuilt.rendered}\n\nCommand exited with code ${fallbackResult.code}`.trim() };
             }
             return {
+              ok: true,
               content: [{ type: "text", text: `${fallbackBuilt.rendered}\n\n[SESSION] Sandbox was bypassed for this session after a permission denial.`.trim() }],
               details: fallbackBuilt.details
             };
@@ -502,17 +469,11 @@ export function createBashTool(cwd: string, options?: {
               }
             );
             return {
-              content: [{
-                type: "text",
-                text: [
-                  "Sandbox blocked this command and host approval was requested automatically.",
-                  "",
-                  requested.text,
-                  "",
-                  "Original sandbox error:",
-                  rendered
-                ].join("\n")
-              }],
+              ok: false,
+              error: "Sandbox blocked this command and host approval was requested automatically.",
+              metadata: {
+                status: "waiting_for_approval"
+              },
               details: {
                 ...details,
                 hostBashApproval: requested.prompt
@@ -520,16 +481,27 @@ export function createBashTool(cwd: string, options?: {
             };
           }
           errorBody += "\n\n[SANDBOX] This command appears to need host-level access, but automatic approval only supports a single executable command with structured argv. Split it into one command and retry.";
-        } else if (sandboxed.sandboxApplied) {
+        } else if (result.sandboxApplied) {
           errorBody += "\n\n[SANDBOX] This command ran inside the OS sandbox. If it failed due to filesystem or network restrictions (e.g. \"Operation not permitted\", \"Permission denied\", socket/IPC errors), request host access through `bash` with `hostApproval.reason`. Once approved, runtime will execute the stored host action automatically. Do not retry the same command through plain bash.";
         }
-        throw new Error(errorBody);
+        return { ok: false, error: errorBody, details };
       }
 
       return {
+        ok: true,
         content: [{ type: "text", text: rendered }],
         details
       };
     }
   };
+}
+
+export function createBashTool(cwd: string, options?: {
+  artifactDir?: string;
+  sandbox?: BashToolSandboxOptions;
+  hostApproval?: BashToolHostApprovalOptions;
+}): AgentTool<typeof bashSchema> {
+  const def = getBashToolDefinition({ cwd, ...options });
+  const env = options?.artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: options.artifactDir } : undefined;
+  return toolDefToAgentTool(def, cwd, env);
 }

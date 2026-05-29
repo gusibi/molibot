@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { SessionStore } from "../sessions/store.js";
-import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
-import type { Channel } from "../../shared/types/message.js";
+import type { SessionStore } from "$lib/server/sessions/store.js";
+import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
+import type { Channel } from "$lib/shared/types/message.js";
 import {
   MoryEngine,
   createSqliteStorageAdapter
@@ -20,11 +20,11 @@ import type {
   MemorySearchInput,
   MemorySearchMode,
   MemoryUpdateInput
-} from "./types.js";
+} from "$lib/server/memory/types.js";
 import {
   classifyAutoMemoryCandidate,
   inferFactKey
-} from "./classifier.js";
+} from "$lib/server/memory/classifier.js";
 
 interface ScopeIndexData {
   scopes: Record<string, MemoryScope>;

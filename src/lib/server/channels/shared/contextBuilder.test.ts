@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildTextChannelContext } from "./contextBuilder.js";
+import { buildTextChannelContext } from "$lib/server/channels/shared/contextBuilder.js";
 
 function createEvent() {
   return {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { createAttachTool } from "./attach.js";
+import { createAttachTool } from "$lib/server/agent/tools/attach.js";
 
 test("attach uses transcript sidecar for audio files when text is omitted", async () => {
   const cwd = process.cwd();

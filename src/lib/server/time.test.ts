@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatIsoInTimeZone, isValidTimeZone, localDateKeyInTimeZone, normalizeTimeZone } from "./time.js";
+import { formatIsoInTimeZone, isValidTimeZone, localDateKeyInTimeZone, normalizeTimeZone } from "$lib/server/time.js";
 
 test("formatIsoInTimeZone renders local timestamp with IANA offset", () => {
   const date = new Date("2026-04-26T02:59:24Z");

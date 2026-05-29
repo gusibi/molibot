@@ -1,16 +1,16 @@
 import { Agent } from "@mariozechner/pi-agent-core";
 import { getModels } from "@mariozechner/pi-ai";
-import { isKnownProvider, type CustomProviderConfig, type RuntimeSettings } from "../settings/index.js";
-import type { ConversationMessage } from "../../shared/types/message.js";
-import type { AiUsageTracker } from "../usage/tracker.js";
-import type { ModelErrorTracker } from "../usage/modelErrorTracker.js";
+import { isKnownProvider, type CustomProviderConfig, type RuntimeSettings } from "$lib/server/settings/index.js";
+import type { ConversationMessage } from "$lib/shared/types/message.js";
+import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
+import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import {
   DEFAULT_AGENT_MAX_RETRY_DELAY_MS,
   resolvePreferredTransport
-} from "../agent/runtimeOptions.js";
+} from "$lib/server/agent/core/runtimeOptions.js";
 import {
   callDirectCustomProvider
-} from "./customProtocol.js";
+} from "$lib/server/providers/customProtocol.js";
 
 interface ProviderReply {
   text: string;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { InboundTaskCoordinator } from "./inboundCoordinator.js";
+import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 
 test("InboundTaskCoordinator exposes queue command operations", async () => {
   let releaseCurrent: (() => void) | null = null;

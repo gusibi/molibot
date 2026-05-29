@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { storagePaths } from "../../infra/db/storage.js";
-import { isImportSuppressed } from "../importTombstones.js";
-import type { MemoryImportSink, MemoryImporter } from "../importers.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { isImportSuppressed } from "$lib/server/memory/importTombstones.js";
+import type { MemoryImportSink, MemoryImporter } from "$lib/server/memory/importers.js";
 
 function normalizeContent(input: string): string {
   return input.replace(/\s+/g, " ").trim();

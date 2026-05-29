@@ -1,24 +1,25 @@
 import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { config } from "../../app/env.js";
-import { buildPromptChannelSections } from "../../agent/prompt-channel.js";
-import { executeHostBashApproval, hasVisibleHostBashOutput } from "../../agent/hostBashExec.js";
-import { buildSystemPromptPreview, getSystemPromptSources } from "../../agent/prompt.js";
-import { RunnerPool } from "../../agent/runner.js";
-import { MomRuntimeStore } from "../../agent/store.js";
-import { SessionStore } from "../../sessions/store.js";
-import { AcpService } from "../../acp/service.js";
-import type { RuntimeSettings } from "../../settings/index.js";
-import type { MemoryGateway } from "../../memory/gateway.js";
-import type { AiUsageTracker } from "../../usage/tracker.js";
-import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
-import { momLog, momWarn } from "../../agent/log.js";
-import { SharedRuntimeCommandService, type SharedRuntimeCommandOptions } from "../../agent/channelCommands.js";
-import { buildTextChannelContext, type ChannelResponseHandle, type ContextSentMessageRef } from "./contextBuilder.js";
-import type { ChannelInboundMessage, RunnerUiEvent } from "../../agent/types.js";
-import { ChannelQueue } from "./queue.js";
-import type { PromptChannel } from "../../agent/prompt-channel.js";
-import type { Channel } from "../../../shared/types/message.js";
+import { config } from "$lib/server/app/env.js";
+import { buildPromptChannelSections } from "$lib/server/agent/prompts/prompt-channel.js";
+import { executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec.js";
+import { buildSystemPromptPreview, getSystemPromptSources } from "$lib/server/agent/prompts/prompt.js";
+import { RunnerPool } from "$lib/server/agent/core/runner.js";
+import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
+import { SessionStore } from "$lib/server/sessions/store.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { MemoryGateway } from "$lib/server/memory/gateway.js";
+import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
+import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
+import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
+import { momLog, momWarn } from "$lib/server/agent/common/log.js";
+import { SharedRuntimeCommandService, type SharedRuntimeCommandOptions } from "$lib/server/agent/commands/channelCommands.js";
+import { buildTextChannelContext, type ChannelResponseHandle, type ContextSentMessageRef } from "$lib/server/channels/shared/contextBuilder.js";
+import type { ChannelInboundMessage, RunnerUiEvent } from "$lib/server/agent/core/types.js";
+import { ChannelQueue } from "$lib/server/channels/shared/queue.js";
+import type { PromptChannel } from "$lib/server/agent/prompts/prompt-channel.js";
+import type { Channel } from "$lib/shared/types/message.js";
 
 interface BaseChannelRuntimeInit {
   channel: PromptChannel;
@@ -39,13 +40,13 @@ export abstract class BaseChannelRuntime {
   private static readonly INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
 
   protected readonly channelName: PromptChannel;
+  protected readonly workspaceId: string;
   protected readonly workspaceDir: string;
   protected readonly store: MomRuntimeStore;
   protected readonly sessions: SessionStore;
   protected readonly runners: RunnerPool;
   protected readonly memory: MemoryGateway;
   protected readonly instanceId: string;
-  protected readonly acp: AcpService;
   protected readonly getSettings: () => RuntimeSettings;
   protected readonly updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
 
@@ -56,6 +57,7 @@ export abstract class BaseChannelRuntime {
   protected constructor(init: BaseChannelRuntimeInit) {
     const runtimeOptions = init.options;
     this.channelName = init.channel as PromptChannel;
+    this.workspaceId = getWorkspaceStore().ensureDefaultWorkspace().id;
     this.getSettings = init.getSettings;
     this.updateSettings = init.updateSettings;
     this.workspaceDir = runtimeOptions?.workspaceDir ?? resolve(config.dataDir, init.defaultWorkspaceName);
@@ -75,11 +77,6 @@ export abstract class BaseChannelRuntime {
       runtimeOptions.usageTracker,
       runtimeOptions.modelErrorTracker,
       runtimeOptions.memory
-    );
-    this.acp = new AcpService(
-      this.getSettings,
-      this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
-      { stateFilePath: join(this.workspaceDir, "acp_sessions.json") }
     );
   }
 
@@ -274,7 +271,16 @@ export abstract class BaseChannelRuntime {
       role?: "user" | "system";
     }
   ): Promise<void> {
+    event.workspaceId = event.workspaceId || this.workspaceId;
     const activeSessionId = event.sessionId || this.store.getActiveSession(scopeId);
+    
+    // Prepare turn metadata via TurnOrchestrator
+    getTurnOrchestrator().prepareTurn({
+      chatId: scopeId,
+      sessionId: activeSessionId,
+      message: event
+    });
+
     this.running.add(scopeId);
 
     this.appendConversationMessage(

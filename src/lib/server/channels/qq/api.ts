@@ -32,7 +32,7 @@ export {
   type OutboundContext,
   type MediaOutboundContext,
   type UploadMediaResponse,
-} from "./sdk-adapter.js";
+} from "$lib/server/channels/qq/sdk-adapter.js";
 
 // ===== 向后兼容的 API 函数 =====
 
@@ -41,7 +41,7 @@ import {
   sdkSendMedia,
   sdkGetAccessToken,
   type ResolvedQQBotAccount
-} from "./sdk-adapter.js";
+} from "$lib/server/channels/qq/sdk-adapter.js";
 
 /**
  * 发送 C2C 消息（向后兼容）

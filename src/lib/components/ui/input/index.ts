@@ -1,4 +1,4 @@
-import Root from "./input.svelte";
+import Root from "$lib/components/ui/input/input.svelte";
 
 export {
 	Root,

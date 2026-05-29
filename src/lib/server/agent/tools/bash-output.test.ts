@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createBashTool } from "./bash.js";
-import { normalizeCommandOutput } from "./helpers.js";
-import { truncateMiddle } from "./truncate.js";
-import { defaultToolSandboxSettings } from "../../settings/toolSandbox.js";
-import { defaultRuntimeSettings } from "../../settings/defaults.js";
-import type { RuntimeSettings } from "../../settings/index.js";
-import { createHostBashApprovalRecord, type ApprovedHostBashEntry, type HostBashApprovalRecord } from "../../hostBash/index.js";
+import { createBashTool } from "$lib/server/agent/tools/bash.js";
+import { normalizeCommandOutput } from "$lib/server/agent/tools/helpers.js";
+import { truncateMiddle } from "$lib/server/agent/tools/truncate.js";
+import { defaultToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
+import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { getHostBashStore, createHostBashApprovalRecord, type ApprovedHostBashEntry, type HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
 
 function hostApprovalStore(sessionMode: "default" | "session" = "default"): any {
   return {
@@ -153,11 +153,11 @@ test("bash can request host tool approval without a separate approval tool", asy
         store: hostApprovalStore(),
         hostBashStore: capturingHostBashStore(pendingApprovals),
         getSettings: () => settings,
-        updateSettings: (patch) => {
+        updateSettings: (patch: any) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
           return settings;
         }
-      }
+      } as any
     });
     const result = await tool.execute("tool-1", {
       label: "bash",
@@ -186,6 +186,9 @@ test("bash can request host tool approval without a separate approval tool", asy
 test("bash can request one-time host approval for compound shell commands", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
   let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
+  const dbStore = getHostBashStore() as any;
+  dbStore.db.exec("DELETE FROM approval_requests");
+  dbStore.db.exec("DELETE FROM approval_grants");
   try {
     const tool = createBashTool(cwd, {
       hostApproval: {
@@ -195,11 +198,11 @@ test("bash can request one-time host approval for compound shell commands", asyn
         sessionId: "session-1",
         store: hostApprovalStore(),
         getSettings: () => settings,
-        updateSettings: (patch) => {
+        updateSettings: (patch: any) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
           return settings;
         }
-      }
+      } as any
     });
     const result = await tool.execute("tool-1", {
       label: "bash",
@@ -207,11 +210,12 @@ test("bash can request one-time host approval for compound shell commands", asyn
       hostApproval: { reason: "Needs one-time install flow." }
     });
 
-    assert.equal(settings.hostTools.pendingApprovals.length, 1);
-    assert.equal(settings.hostTools.pendingApprovals[0]?.approvalMode, "ephemeral");
-    assert.equal(settings.hostTools.pendingApprovals[0]?.pendingAction?.kind, "run_one_time_host_script");
+    const pending = getHostBashStore().listPending("chat-1");
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0]?.approvalMode, "ephemeral");
+    assert.equal(pending[0]?.pendingAction?.kind, "run_one_time_host_script");
     assert.equal(settings.hostTools.approvedTools.length, 0);
-    assert.match(firstText(result), /Host tool approval requested/);
+    assert.match(firstText(result), /Host (Bash|tool) approval requested/);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -274,11 +278,11 @@ test("bash runs approved host tools through shell before sandbox/plain execution
           getApprovedEntry: (toolId: string) => toolId === "printf" ? approvedHostBash : undefined
         } as any,
         getSettings: () => settings,
-        updateSettings: (patch) => {
+        updateSettings: (patch: any) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
           return settings;
         }
-      }
+      } as any
     });
     const result = await tool.execute("tool-1", {
       label: "bash",
@@ -297,6 +301,9 @@ test("bash auto-requests host approval after sandbox permission failure for sing
   const blockedFile = join(cwd, "blocked.txt");
   writeFileSync(blockedFile, "secret", "utf8");
   let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
+  const dbStore = getHostBashStore() as any;
+  dbStore.db.exec("DELETE FROM approval_requests");
+  dbStore.db.exec("DELETE FROM approval_grants");
   try {
     const tool = createBashTool(cwd, {
       sandbox: {
@@ -317,11 +324,11 @@ test("bash auto-requests host approval after sandbox permission failure for sing
         sessionId: "session-1",
         store: hostApprovalStore(),
         getSettings: () => settings,
-        updateSettings: (patch) => {
+        updateSettings: (patch: any) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
           return settings;
         }
-      }
+      } as any
     });
     const result = await tool.execute("tool-1", {
       label: "bash",
@@ -332,8 +339,9 @@ test("bash auto-requests host approval after sandbox permission failure for sing
       return;
     }
     assert.match(firstText(result), /host approval was requested automatically/i);
-    assert.equal(settings.hostTools.pendingApprovals.length, 1);
-    assert.equal(settings.hostTools.pendingApprovals[0]?.command, "cat");
+    const pending = getHostBashStore().listPending("chat-1");
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0]?.command, "cat");
     assert.equal(Boolean(result.details && "hostBashApproval" in result.details), true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -351,6 +359,9 @@ test("bash falls back to host bash after sandbox denial when session approval mo
   const blockedFile = join(cwd, "blocked.txt");
   writeFileSync(blockedFile, "secret", "utf8");
   let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
+  const dbStore = getHostBashStore() as any;
+  dbStore.db.exec("DELETE FROM approval_requests");
+  dbStore.db.exec("DELETE FROM approval_grants");
   try {
     const tool = createBashTool(cwd, {
       sandbox: {
@@ -371,11 +382,11 @@ test("bash falls back to host bash after sandbox denial when session approval mo
         sessionId: "session-1",
         store: hostApprovalStore("session") as any,
         getSettings: () => settings,
-        updateSettings: (patch) => {
+        updateSettings: (patch: any) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
           return settings;
         }
-      }
+      } as any
     });
     const result = await tool.execute("tool-1", {
       label: "bash",
@@ -389,7 +400,7 @@ test("bash falls back to host bash after sandbox denial when session approval mo
     assert.equal((result.details as { hostBash?: boolean } | undefined)?.hostBash, true);
     assert.match(firstText(result), /secret/);
     assert.match(firstText(result), /\[SESSION\] Sandbox was bypassed for this session/);
-    assert.equal(settings.hostTools.pendingApprovals.length, 0);
+    assert.equal(getHostBashStore().listPending("chat-1").length, 0);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/Sandbox is not supported|sandbox-runtime|dependencies/i.test(message)) {

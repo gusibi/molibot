@@ -5,7 +5,7 @@ import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
 import type { MomEvent } from "$lib/server/agent/events";
-import { TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/taskChannels";
+import { TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/commands/taskChannels";
 
 type TaskScope = "workspace" | "chat-scratch";
 type TaskType = "one-shot" | "periodic" | "immediate";

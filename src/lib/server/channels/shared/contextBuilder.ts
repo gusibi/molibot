@@ -1,9 +1,9 @@
-import type { MomContext, ChannelInboundMessage } from "../../agent/types.js";
-import type { RunnerUiEvent } from "../../agent/types.js";
-import type { SessionStore } from "../../sessions/store.js";
-import type { MomRuntimeStore } from "../../agent/store.js";
-import type { Channel } from "../../../shared/types/message.js";
-import { momLog } from "../../agent/log.js";
+import type { MomContext, ChannelInboundMessage } from "$lib/server/agent/core/types.js";
+import type { RunnerUiEvent } from "$lib/server/agent/core/types.js";
+import type { SessionStore } from "$lib/server/sessions/store.js";
+import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import type { Channel } from "$lib/shared/types/message.js";
+import { momLog } from "$lib/server/agent/common/log.js";
 
 export interface ContextSentMessageRef {
   messageId: string | number;

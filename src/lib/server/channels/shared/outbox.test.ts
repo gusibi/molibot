@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { SqliteOutbox } from "./outbox.js";
+import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
 
 test("SqliteOutbox resolves an enqueued message after successful delivery", async () => {
   const delivered: string[] = [];

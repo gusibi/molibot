@@ -5,7 +5,7 @@ import {
   readProfileFiles,
   validateProfileWriteRequest,
   writeProfileFiles
-} from "$lib/server/agent/profiles";
+} from "$lib/server/agent/prompts/profiles";
 
 type Scope = "global" | "agent" | "bot";
 

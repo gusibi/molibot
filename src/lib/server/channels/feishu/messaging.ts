@@ -1,8 +1,8 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
-import type { AcpPendingPermissionView } from "../../acp/types.js";
-import type { HostBashApprovalPrompt } from "../../hostBash/index.js";
-import { momWarn } from "../../agent/log.js";
-import { markdownToFeishuMarkdown, parseFeishuRichTextSegments, type FeishuRichTextSegment } from "./formatting.js";
+import type { AcpPendingPermissionView } from "$lib/server/acp/types.js";
+import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
+import { momWarn } from "$lib/server/agent/common/log.js";
+import { markdownToFeishuMarkdown, parseFeishuRichTextSegments, type FeishuRichTextSegment } from "$lib/server/channels/feishu/formatting.js";
 
 const FEISHU_CARD_MARKDOWN_LIMIT = 3500;
 const FEISHU_CARD_TITLE_LIMIT = 60;

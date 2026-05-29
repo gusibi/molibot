@@ -1,5 +1,4 @@
 import { DatabaseSync } from "node:sqlite";
-import { inferAcpAdapterKind } from "../acp/providers/index.js";
 import {
   type AcpAdapterKind,
   type AgentSettings,
@@ -19,17 +18,17 @@ import {
   isKnownProvider,
   type ProviderMode,
   type RuntimeSettings
-} from "../settings/index.js";
-import { sanitizeHostToolSettings } from "../settings/hostTools.js";
-import { sanitizeToolSandboxSettings } from "../settings/toolSandbox.js";
+} from "$lib/server/settings/index.js";
+import { sanitizeHostToolSettings } from "$lib/server/settings/hostTools.js";
+import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
 import {
   resolveCustomProviderThinkingFormat,
   sanitizeOptionalThinkingSupport,
   sanitizeReasoningEffortMap,
   sanitizeRuntimeThinkingLevel
-} from "../settings/thinking.js";
-import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
-import { normalizeTimeZone } from "../time.js";
+} from "$lib/server/settings/thinking.js";
+import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
+import { normalizeTimeZone } from "$lib/server/time.js";
 
 type DynamicSettingKey = "customProviders" | "channels" | "agents";
 const DYNAMIC_SETTING_KEYS: DynamicSettingKey[] = ["customProviders", "channels", "agents"];
@@ -516,14 +515,7 @@ function sanitizeAcpSettings(input: unknown): AcpSettings {
         name,
         adapter: sanitizeAcpAdapterKind(
           item.adapter,
-          inferAcpAdapterKind({
-            id,
-            name,
-            command,
-            args: Array.isArray(item.args)
-              ? item.args.map((value) => String(value ?? "").trim()).filter(Boolean)
-              : []
-          })
+          "custom"
         ),
         enabled: item.enabled === undefined ? true : Boolean(item.enabled),
         command,
@@ -1044,9 +1036,22 @@ export class SettingsStore {
         updated_at TEXT NOT NULL,
         PRIMARY KEY (provider_id, model_id)
       );
+      CREATE TABLE IF NOT EXISTS workspaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        root_path TEXT,
+        enabled_skill_paths TEXT NOT NULL DEFAULT '[]',
+        enabled_tool_ids TEXT NOT NULL DEFAULT '[]',
+        sandbox_profile_id TEXT,
+        approval_profile_id TEXT,
+        memory_scope TEXT NOT NULL DEFAULT 'workspace',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_settings_channel_instances_channel ON settings_channel_instances(channel_key);
       CREATE INDEX IF NOT EXISTS idx_settings_provider_models_provider ON settings_custom_provider_models(provider_id);
       CREATE INDEX IF NOT EXISTS idx_settings_provider_models_order ON settings_custom_provider_models(provider_id, order_index);
+      CREATE INDEX IF NOT EXISTS idx_workspaces_updated_at ON workspaces(updated_at);
     `);
     try {
       db.exec("ALTER TABLE settings_custom_providers ADD COLUMN protocol TEXT NOT NULL DEFAULT 'openai-compatible'");

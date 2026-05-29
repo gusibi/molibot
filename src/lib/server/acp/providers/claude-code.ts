@@ -1,5 +1,5 @@
-import type { AcpTargetConfig } from "../../settings/schema.js";
-import type { AcpProviderProfile } from "./types.js";
+import type { AcpTargetConfig } from "$lib/server/settings/schema.js";
+import type { AcpProviderProfile } from "$lib/server/acp/providers/types.js";
 
 function mergedEnv(target: AcpTargetConfig): Record<string, string> {
   return {

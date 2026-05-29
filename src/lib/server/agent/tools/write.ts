@@ -1,8 +1,10 @@
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute } from "node:path";
+import fs from "node:fs";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { execCommand, shellEscape } from "./helpers.js";
-import { createPathGuard, resolveToolPath } from "./path.js";
+import { toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
+import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
+import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
 
 const writeSchema = Type.Object({
   label: Type.String(),
@@ -35,25 +37,27 @@ function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { re
   };
 }
 
-export function createWriteTool(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string }): AgentTool<typeof writeSchema> {
+export function getWriteToolDefinition(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string }): ToolDefinition {
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
 
   return {
+    id: "write",
     name: "write",
-    label: "write",
     description: "Create or overwrite a file. Parent directories are created automatically. Plain file names for ordinary scratch artifacts are routed to the current dated artifact folder; explicit directories and absolute paths are left unchanged.",
-    parameters: writeSchema,
-    execute: async (_toolCallId, params, signal) => {
+    inputSchema: writeSchema,
+    risk: "medium",
+    source: "builtin",
+    handler: async (params: any, ctx) => {
       const target = routeDefaultArtifactPath(params.path, options.artifactDir);
-      const filePath = resolveToolPath(options.cwd, target.path);
+      const filePath = resolveToolPath(ctx.cwd, target.path);
       ensureAllowedPath(filePath);
+
       const dir = dirname(filePath);
-      const cmd = `mkdir -p ${shellEscape(dir)} && printf '%s' ${shellEscape(params.content)} > ${shellEscape(filePath)}`;
-      const result = await execCommand(cmd, { cwd: options.cwd, signal });
-      if (result.code !== 0) {
-        throw new Error(result.stderr || `Failed to write ${target.path}`);
-      }
+      await fs.promises.mkdir(dir, { recursive: true });
+      await ctx.fs.writeText(filePath, params.content);
+
       return {
+        ok: true,
         content: [{
           type: "text",
           text: target.routed
@@ -64,4 +68,9 @@ export function createWriteTool(options: { cwd: string; workspaceDir: string; ch
       };
     }
   };
+}
+
+export function createWriteTool(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string }): AgentTool<typeof writeSchema> {
+  const def = getWriteToolDefinition(options);
+  return toolDefToAgentTool(def, options.cwd);
 }

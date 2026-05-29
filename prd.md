@@ -68,6 +68,23 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - P1 建议新增命名 sandbox profile（Observe / Build / Strict / Host-Assisted / Custom），把用户能理解的工作模式映射到底层 env/network/filesystem/approval 策略。
 - P1 建议新增 parent/subagent run ledger，持久化 run tree、模型路由、有效 sandbox profile、审批记录、诊断事件、产物清单和终止原因。
 - P2 建议引入 checkpoint/recovery：至少提供 run 前后 changed-file 摘要、artifact manifest、失败原因和可恢复边界；完整 workspace rollback 或 Docker/remote sandbox provider 应放在恢复模型稳定之后。
+## 2.4 Agent v2.2 Refactoring Progress (2026-05-29)
+- **Phase 2 (TurnOrchestrator Lifecycle Delegation & runner.ts Slimming) Completed**:
+  - Encapsulated concurrent session locking and lock auto-expiration timeouts (>10 minutes) inside `TurnOrchestrator`.
+  - Moved memory gateway synchronization and prompt snapshotting into `TurnOrchestrator.prepareTurnMemory()`.
+  - Relocated context compaction calculations and runtime compaction saving mechanisms to `TurnOrchestrator.compactSessionContext()`.
+  - Shifted run summary serialization and status updates (`completed`, `aborted`, `waiting_for_approval`, `failed`) to `TurnOrchestrator.commitTurn()`.
+  - Refactored and simplified `runner.ts` to delegate all these concerns to the orchestrator.
+  - Verified 100% test coverage with all 25 agent-related test suites successfully passing.
+
+## 2.5 Agent v2.1 Simplification Plan (2026-05-27)
+- v2.1 的执行计划记录在 `docs/agent-v2.1-development-plan.md`，目标是把 `v2.1.md` 的架构方案拆成可逐条执行的 TODO。
+- 短期第一优先级是删除 ACP 主路径并引入最小 Workspace 边界，先降低配置、权限、Channel 和 runtime 分支复杂度。
+- Phase 1 验收口径：代码主路径不再依赖 ACP；默认 `personal` workspace 可创建/解析；Web 和 CLI 可在默认 workspace 下正常运行；新 run 可以记录 `workspaceId`。
+- Phase 1 第一批已先完成 ACP active runtime path 下线：Channel runtime 不再实例化 ACP service，四个 IM 渠道不再自动 proxy 到 ACP，`/acp` / `/approve` / `/deny` 返回 inactive-path 提示，Settings 不再导航到 ACP 页面；旧 ACP schema/source 暂保留兼容。
+- Phase 1 的最小 Workspace 边界已建立：`settings.sqlite` 新增 `workspaces` registry，启动和运行入口会确保默认 `personal` workspace，可选保留技能、工具、sandbox、approval profile 字段；新 run summary/detail 记录 `workspaceId`，但本批不迁移既有 session/chat 文件位置。
+- Phase 2 才进入 TurnOrchestrator、ToolRuntime、Approval scope 和 sandbox fallback 收口，避免一次性改动所有渠道和工具路径。
+- 非目标：不新建 PluginManager，不重写 Skill/Memory/Subagent 类型系统，不引入完整 PolicyEngine 或 SandboxRuntime。
 
 ## 3. V1 Scope
 
@@ -3093,3 +3110,28 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 选择器解析与 summary/detail formatter 必须放在 `src/lib/server/agent/skills.ts` 这类共享技能层，而不是散落在具体 Channel 或 Web handler 里各写一套。
   - `src/lib/server/agent/channelCommands.ts` 与 `src/routes/api/chat/+server.ts` 都必须支持 `/skills`、`/skills <id>`、`/skills-detail`，并同步更新 `/help` 文案。
   - 回归测试至少覆盖 summary、single detail、full detail 三种输出模式。
+
+## 202. Agent 精简优化架构改造 (v2.2) (2026-05-28)
+- Priority: P0
+- Stage: In Progress
+- Problem:
+  - 核心组件 `runner.ts` (3226 行) 承担了过多的职责（turn生命周期、LLM推理、工具运行、审批、内存加载等），极难进行维护和扩展。
+  - ACP (Agent Control Plane) 模块引入了多余的复杂度，对于单用户的 personal agent 来说没必要。
+  - 工具执行路径碎片化且缺乏统一控制，审批逻辑中也缺少一次性/会话/工作空间级 Scope 授权，容易造成频繁审批或越权。
+- Requirement:
+  - 隔离下线 ACP 业务，新增 SQLite-backed workspaces 管理，替代 ACP 确立上下文和权限边界。Workspace ID 必须作为逻辑权限与隔离边界，绝不干预或搬移物理文件目录结构。
+  - 将 `runner.ts` 拆解为 `TurnOrchestrator`（控制 turn 生命周期、Session 锁、Workspace 绑定和 Memory 读写）和 `PiAgentRuntime`（只负责 LLM 推理循环）。
+  - 实现统一的 `ToolRuntime` 收口所有内置、MCP、宿主和插件工具的执行，引入 inline policy 判断。废除全局 bypass 开关，改用渐进注册限制。
+  - 新建独立的 `ApprovalBroker`，支持 once/turn/session/workspace/persistent 五级授权 scope、1.5 秒 debounce 审批聚合、subagent 审批上提到父任务 chat 会话，以及 5 分钟超时自动 expire 机制。
+  - 渐进将 workspaces、channel_settings、plugin_settings 配置项从 settings.json 拆分至 SQLite 关系表。
+- Enforcement:
+  - Phase 1: 仅下线 ACP 活跃引用并保留源码为 legacy inactive，不物理删除 acp 目录。创建 workspaces 数据库表及 `WorkspaceStore` / `WorkspaceResolver`，默认空间绑定 `"personal"`。
+  - Phase 2: 以增量（additive）方式编写 `TurnOrchestrator`，逐步将管道按 Web -> stream -> shared IM -> Telegram -> CLI 灰度迁移，最终剥离 MomRunner 的生命周期逻辑，将 `runner.ts` 精简至 1500 行以内。对并发请求启用 10 分钟锁超时控制，启动时释放 running 遗留锁。
+  - Phase 3: 切片式建立 `ToolRuntime`（先收口 Built-in，再对 Host Bash/MCP 实施迁移，沙箱崩溃禁止 fallback 宿主直接执行）与 `ApprovalBroker`（以 SQLite 存储 grants 和 requests，对接 Channel 层的 `renderApproval()`，加入 Subagent 审批冒泡、1.5秒 Debounce 和 5分钟超时 Expire）。
+  - Phase 4: 渐进迁移第一批 settings 配置至 SQLite，保留 settings.json 引导和自动落库逻辑。
+  - Phase 5: 新架构稳定后物理清除 `acp/` 源码库及兼容过渡开关。
+- Progress:
+  - 2026-05-29: Built-in tools (read, write, edit, bash) have been fully refactored as ToolDefinitions. SafeFsApi (including readBuffer), SafeShellApi (with sandbox metadata), and SafeNetworkApi are fully implemented in ToolExecutionContext. Custom decidePolicy for ToolRuntime orchestrates sandbox checks and Host Bash approvals. Legacy bridge toolDefToAgentTool introduced for subagents backwards compatibility. Modified files type-check with zero errors.
+  - 2026-05-29 (Relocation & Modularity): Fully relocated and structured all 60+ agent files into dedicated subdirectories (`core`, `routing`, `prompts`, `tools`, `skills`, `session`, `identity`, `common`, `commands`). Resolved all relative and absolute imports workspace-wide. Wrote a custom Node.js ESM test loader (`md-loader.js` and `register-loader.js`) to support raw markdown imports. Fixed various logic, mock, path, and directory-creation bugs across the test suite. Regression test run successfully verified with **100% green tests** (25/25 suites passed).
+  - 2026-05-28: v2.2 核心优化与重构整合已全面落地：`TurnOrchestrator` 已完全接入 `runner.ts` 并在所有分支更新状态、并在 `runtime.ts` 中完成启动死锁清理，在 `baseRuntime.ts` 中直接进行 turn 准备；所有内置工具通过 `ToolRuntime` 及 `ToolRegistry` 统一进行执行、鉴权和审批；`ApprovalBroker` 与 `HostBashStore` 已完全重构，直接映射到 SQLite 的 request/grant 表中；`runtime.ts` 已被模块化解耦，配置清洗抽取至 `settings/sanitize.ts`，插件激活提取至 `plugins/loader.ts`，主引导文件缩减至 150 行以内。
+  - Remaining: 仅剩 Phase 5 遗留清理——待新架构稳定运行后物理清除 `acp/` 源码库与旧过渡兼容代码。

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildDiff } from "./edit.js";
+import { buildDiff } from "$lib/server/agent/tools/edit.js";
 
 test("edit reports line-aware diff with insertion and deletion context", async () => {
   const diff = buildDiff(

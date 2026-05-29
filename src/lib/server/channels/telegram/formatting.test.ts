@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sendTelegramChatAction, sendTelegramTextSafely, summarizeTelegramToolProgressText } from "./formatting.js";
+import { sendTelegramChatAction, sendTelegramTextSafely, summarizeTelegramToolProgressText } from "$lib/server/channels/telegram/formatting.js";
 
 test("sendTelegramChatAction retries transient network failures until a later attempt succeeds", async () => {
   let attempts = 0;

@@ -1,6 +1,6 @@
 import path from "node:path";
-import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
-import type { MemoryLayer, MemoryScope } from "./types.js";
+import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
+import type { MemoryLayer, MemoryScope } from "$lib/server/memory/types.js";
 
 interface ImportTombstoneRecord {
   channel: string;

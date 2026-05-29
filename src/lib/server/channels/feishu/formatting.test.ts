@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { markdownToFeishuMarkdown } from "./formatting.js";
+import { markdownToFeishuMarkdown } from "$lib/server/channels/feishu/formatting.js";
 
 describe("markdownToFeishuMarkdown", () => {
   it("converts headers to bold", () => {

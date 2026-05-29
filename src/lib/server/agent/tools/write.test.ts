@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createWriteTool } from "./write.js";
+import { createWriteTool } from "$lib/server/agent/tools/write.js";
 
 test("write routes plain scratch artifacts into dated artifact folder", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-write-"));
@@ -23,7 +23,7 @@ test("write routes plain scratch artifacts into dated artifact folder", async ()
 
     assert.equal(readFileSync(join(cwd, "2026/05/10/report.md"), "utf8"), "hello");
     assert.equal(existsSync(join(cwd, "report.md")), false);
-    assert.match(result.content[0]?.text ?? "", /2026\/05\/10\/report\.md/);
+    assert.match((result.content[0] as any)?.text ?? "", /2026\/05\/10\/report\.md/);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

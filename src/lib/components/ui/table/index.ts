@@ -1,11 +1,11 @@
-import Root from "./table.svelte";
-import Body from "./table-body.svelte";
-import Caption from "./table-caption.svelte";
-import Cell from "./table-cell.svelte";
-import Footer from "./table-footer.svelte";
-import Head from "./table-head.svelte";
-import Header from "./table-header.svelte";
-import Row from "./table-row.svelte";
+import Root from "$lib/components/ui/table/table.svelte";
+import Body from "$lib/components/ui/table/table-body.svelte";
+import Caption from "$lib/components/ui/table/table-caption.svelte";
+import Cell from "$lib/components/ui/table/table-cell.svelte";
+import Footer from "$lib/components/ui/table/table-footer.svelte";
+import Head from "$lib/components/ui/table/table-head.svelte";
+import Header from "$lib/components/ui/table/table-header.svelte";
+import Row from "$lib/components/ui/table/table-row.svelte";
 
 export {
 	Root,

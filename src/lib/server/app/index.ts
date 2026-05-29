@@ -1,5 +1,5 @@
-import { startCli } from "../adapters/cli.js";
-import { getRuntime } from "./runtime.js";
+import { startCli } from "$lib/server/adapters/cli.js";
+import { getRuntime } from "$lib/server/app/runtime.js";
 
 function main(): void {
   const runtime = getRuntime();

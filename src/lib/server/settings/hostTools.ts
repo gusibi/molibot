@@ -7,7 +7,7 @@ import type {
   HostToolPendingAction,
   HostToolPermissions,
   HostToolSettings
-} from "./schema.js";
+} from "$lib/server/settings/schema.js";
 
 export const defaultHostToolPermissions: HostToolPermissions = {
   envAllowlist: [],

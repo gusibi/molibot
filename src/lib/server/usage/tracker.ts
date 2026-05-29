@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { storagePaths } from "../infra/db/storage.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 
 export interface AiUsageRecord {
   ts: string;

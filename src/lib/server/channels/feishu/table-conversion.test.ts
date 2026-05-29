@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseFeishuRichTextSegments } from "./formatting.js";
-import { buildFeishuReplyCards } from "./messaging.js";
+import { parseFeishuRichTextSegments } from "$lib/server/channels/feishu/formatting.js";
+import { buildFeishuReplyCards } from "$lib/server/channels/feishu/messaging.js";
 
 test("parseFeishuRichTextSegments extracts markdown tables and preserves surrounding text", () => {
   const input = [

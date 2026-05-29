@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createToolProgressBatcher, formatWeixinToolProgressText } from "./toolProgress.js";
+import { createToolProgressBatcher, formatWeixinToolProgressText } from "$lib/server/channels/weixin/toolProgress.js";
 
 test("formatWeixinToolProgressText renders batched tool progress as a multi-line list", () => {
   assert.equal(

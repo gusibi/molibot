@@ -1,27 +1,29 @@
-# Findings & Decisions: Subagent Sandbox Research
+# Findings & Decisions: Agent v2.2 Optimization
 
-## Current Molibot Baseline
-- Molibot already has built-in subagents: `scout`, `planner`, `worker`, `reviewer`, and `skill-drafter`.
-- Subagents are defined as checked-in Markdown files with frontmatter and are exposed through `/api/settings/subagents` plus the Agents settings page.
-- Model routing is abstracted through subagent levels: `haiku`, `sonnet`, `opus`, and `thinking`, with fallback to a generic subagent route and then text route.
-- The current sandbox applies only to main Agent `bash` and built-in subagent `bash`; Browser, Computer Use, ACP, MCP, and channel I/O remain host-access surfaces.
-- Host Bash approvals support persistent, one-time, and session-only approval modes, backed by SQLite tables for records and whitelist entries.
-- `/settings/sandbox` handles sandbox policy and diagnostics; `/settings/host-bash` handles audit/whitelist management but keeps approval decisions in chat.
+## Current v2.2 Baseline
+- `src/lib/server/workspaces/store.ts` already creates a `workspaces` table and default `personal` workspace.
+- `src/lib/server/agent/runner.ts` already resolves `ctx.message.workspaceId`, writes it into run detail entries, and includes it in run summary metadata.
+- `src/lib/server/channels/shared/baseRuntime.ts` stores a default `workspaceId`, but still constructs physical `workspaceDir` from the channel default workspace name. This matches the v2.2 rule that logical Workspace must not migrate physical directories.
+- `src/lib/server/agent/channelCommands.ts` already intercepts `/acp`, `/approve`, and `/deny` with an inactive runtime message.
+- Host Bash approvals already have SQLite-backed storage and support pending/history/whitelist concepts, but they are still in the Host Bash-specific model rather than the generalized `ApprovalBroker` model.
 
-## Competitor Patterns
-- Claude Code treats subagents as Markdown + YAML frontmatter, with scoped prompts, model selection, tool allow/deny, permissions, memory, hooks, background execution, and optional worktree isolation.
-- Codex CLI separates sandbox modes from approval policy. It uses read-only/workspace-write/full-access style boundaries and supports approve-on-request/on-failure/session/policy escalation patterns.
-- GitHub Copilot cloud agent pushes work into a GitHub Actions-powered ephemeral environment, works on branches/PRs, exposes custom agents as repository/org/enterprise agent profiles, and adds network firewall governance.
-- Replit Agent emphasizes product safety through checkpoints and rollback: project files, environment config, AI conversation context, memory, and optional database state can be restored together.
-- Devin's strongest lesson is environment readiness: declarative blueprints build snapshots so every session starts from a known-good VM image.
-- OpenHands is the clearest open-source sandbox baseline: Docker sandbox is recommended; process mode is faster but unsafe; remote sandbox supports hosted deployments.
-- Cursor emphasizes mode-level permissions and developer flow: Agent/Ask/Manual/Custom modes map tool access to the intent of the task.
+## Resolved In This Slice
+- `src/lib/server/settings/defaults.ts` no longer imports ACP provider presets and now defaults ACP to disabled with no targets.
+- `src/lib/server/settings/store.ts` no longer imports ACP adapter inference from the legacy ACP provider module.
+- `src/routes/settings/acp/+page.svelte` is now a read-only inactive notice instead of an editable ACP target/project manager.
+- `src/lib/server/agent/turnOrchestrator.ts` exists and `runner.ts` delegates run/session/workspace metadata preparation to it.
+- `src/lib/server/agent/tools/toolTypes.ts` and `toolRuntime.ts` define the first unified tool execution boundary.
+- `src/lib/server/approval/approvalTypes.ts` and `approvalBroker.ts` define the first shared approval scope boundary.
 
-## Initial Product Decisions
-| Decision | Rationale |
-|----------|-----------|
-| Keep sandbox boundary at shared Agent/tool layer, not Channel layer | This matches existing Molibot architecture and prevents each channel from reimplementing security semantics. |
-| Treat host approval as a run pause, not a chat message | Existing rules already require transient controls and user-facing notices to stay out of persisted model context. |
-| Add checkpoints/recovery as a product concept before broadening sandbox powers | Competitors show that recovery is what makes autonomy tolerable; without it, broader sandbox/host access is too risky. |
-| Prefer named policy profiles over free-form toggles only | Users need understandable modes like observe/build/restricted/full-host more than raw filesystem/network controls. |
-| Make subagent runs inspectable but summarized | Full logs belong in run details; parent context and chat streams need compact summaries. |
+## Remaining Gaps Against v2.2
+- `src/lib/server/settings/schema.ts` still includes `AcpSettings` in `RuntimeSettings` for compatibility; final removal belongs to the later legacy cleanup phase.
+- `src/lib/server/app/runtime.ts` still contains ACP sanitization helpers for old config compatibility.
+- `TurnOrchestrator` has not yet migrated the full channel pipeline, session lock, memory, skill loading, or run event archival responsibilities.
+- `ToolRuntime` has not yet migrated the existing built-in tools, Host Bash path, MCP tools, or plugin tools.
+- `ApprovalBroker` is not yet backed by SQLite `approval_requests` / `approval_grants`, and debounce/subagent bubbling are still pending.
+- `messageRouter.ts` still exists under shared channels, even though v2.2 marks it as a later deletion target.
+
+## Implementation Decisions
+- Do not physically delete `src/lib/server/acp/` in early phases.
+- Prefer additive modules and focused tests first, because `runner.ts` is large and existing behavior is broad.
+- Treat Phase 5 as a real gate, not a paper-complete item; it needs stabilization evidence before ACP source deletion.

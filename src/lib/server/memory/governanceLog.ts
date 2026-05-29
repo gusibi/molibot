@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { MemoryAddInput, MemoryScope } from "./types.js";
+import type { MemoryAddInput, MemoryScope } from "$lib/server/memory/types.js";
 
 export interface MemoryGovernanceRejection {
   createdAt: string;

@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { storagePaths } from "../infra/db/storage.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 import {
   coerceApprovalMode,
   createHostBashApprovalRecord,
@@ -7,13 +7,13 @@ import {
   sanitizeHostBashId,
   sanitizeHostBashPendingAction,
   sanitizeHostBashPermissions
-} from "./approval.js";
+} from "$lib/server/hostBash/approval.js";
 import type {
   ApprovedHostBashEntry,
   HostBashApprovalRecord,
   HostBashApprovalStatus,
   HostBashListFilters
-} from "./types.js";
+} from "$lib/server/hostBash/types.js";
 
 interface LegacyHostToolPermissions {
   envAllowlist?: unknown;
@@ -74,53 +74,66 @@ function parseJson<T>(raw: string, fallback: T): T {
   }
 }
 
-function boolFromSql(value: unknown): boolean {
-  return Number(value) === 1;
-}
-
 function normalizeStatus(input: unknown): HostBashApprovalStatus {
   const value = String(input ?? "").trim();
   if (value === "approved" || value === "rejected" || value === "executed" || value === "failed") return value;
   return "pending";
 }
 
-function rowToApprovalRecord(row: Record<string, unknown>): HostBashApprovalRecord {
+function capabilityToToolId(capability: string): string {
+  if (capability.startsWith("bash:")) return capability.slice(5);
+  return capability;
+}
+
+function selectedScopeToApprovalMode(selectedScope: string | null, fallbackMode: string): any {
+  if (selectedScope === "persistent") return "persistent";
+  if (selectedScope === "session") return "session";
+  if (selectedScope === "once") return "ephemeral";
+  return coerceApprovalMode(fallbackMode);
+}
+
+function rowToApprovalRecord(row: Record<string, any>): HostBashApprovalRecord {
+  const action = parseJson<any>(row.action_json, {});
+  const toolId = action.toolName || capabilityToToolId(row.capability);
+
   return {
-    id: String(row.id ?? ""),
-    toolId: String(row.tool_id ?? ""),
-    displayName: String(row.display_name ?? ""),
-    command: String(row.command ?? ""),
-    reason: String(row.reason ?? ""),
-    channel: String(row.channel ?? ""),
-    chatId: String(row.chat_id ?? ""),
-    scopeId: String(row.scope_id ?? ""),
-    sessionId: String(row.session_id ?? "").trim() || undefined,
-    approvalMode: coerceApprovalMode(row.approval_mode),
+    id: row.id,
+    toolId,
+    displayName: action.displayName || toolId,
+    command: action.command || "",
+    reason: row.reason,
+    channel: action.channel || "",
+    chatId: action.chatId || "",
+    scopeId: row.run_id,
+    sessionId: row.session_id || undefined,
+    approvalMode: selectedScopeToApprovalMode(row.selected_scope, action.approvalMode),
     status: normalizeStatus(row.status),
-    permissions: sanitizeHostBashPermissions(parseJson(String(row.permissions_json ?? "{}"), {})),
-    pendingAction: sanitizeHostBashPendingAction(parseJson(String(row.pending_action_json ?? "null"), null)),
-    requestedAt: String(row.requested_at ?? ""),
-    resolvedAt: String(row.resolved_at ?? "").trim() || undefined,
-    executedAt: String(row.executed_at ?? "").trim() || undefined,
-    approvedBashId: String(row.approved_bash_id ?? "").trim() || undefined,
-    errorText: String(row.error_text ?? "").trim() || undefined
+    permissions: action.permissions || defaultHostBashPermissions,
+    pendingAction: action.pendingAction,
+    requestedAt: row.created_at,
+    resolvedAt: row.resolved_at || undefined,
+    executedAt: action.executedAt || undefined,
+    approvedBashId: row.selected_scope === "persistent" ? `hbw-${toolId}` : undefined,
+    errorText: action.errorText || undefined
   };
 }
 
-function rowToWhitelistEntry(row: Record<string, unknown>): ApprovedHostBashEntry {
+function rowToWhitelistEntry(row: Record<string, any>): ApprovedHostBashEntry {
+  const toolId = capabilityToToolId(row.capability);
+  const metadata = parseJson<any>(row.action_fingerprint, {});
   return {
-    id: String(row.id ?? ""),
-    toolId: String(row.tool_id ?? ""),
-    displayName: String(row.display_name ?? ""),
-    command: String(row.command ?? ""),
-    reason: String(row.reason ?? ""),
-    channel: String(row.channel ?? ""),
-    chatId: String(row.chat_id ?? ""),
-    scopeId: String(row.scope_id ?? ""),
-    permissions: sanitizeHostBashPermissions(parseJson(String(row.permissions_json ?? "{}"), {})),
-    approvedAt: String(row.approved_at ?? ""),
-    approvedFromRecordId: String(row.approved_from_record_id ?? ""),
-    enabled: boolFromSql(row.enabled)
+    id: row.id,
+    toolId,
+    displayName: metadata.displayName || toolId,
+    command: metadata.command || "",
+    reason: metadata.reason || "",
+    channel: metadata.channel || "",
+    chatId: metadata.chatId || "",
+    scopeId: metadata.scopeId || "",
+    permissions: metadata.permissions || defaultHostBashPermissions,
+    approvedAt: row.created_at,
+    approvedFromRecordId: row.run_id || "",
+    enabled: row.revoked_at === null
   };
 }
 
@@ -134,59 +147,54 @@ export class HostBashStore {
   constructor(dbPath = storagePaths.settingsDbFile) {
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS host_bash_approval_records (
+      CREATE TABLE IF NOT EXISTS approval_requests (
         id TEXT PRIMARY KEY,
-        tool_id TEXT NOT NULL,
-        display_name TEXT NOT NULL,
-        command TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        capability TEXT NOT NULL,
+        risk_level TEXT NOT NULL,
+        action_json TEXT NOT NULL,
         reason TEXT NOT NULL,
-        channel TEXT NOT NULL,
-        chat_id TEXT NOT NULL,
-        scope_id TEXT NOT NULL,
-        session_id TEXT,
-        approval_mode TEXT NOT NULL,
         status TEXT NOT NULL,
-        permissions_json TEXT NOT NULL,
-        pending_action_json TEXT,
-        requested_at TEXT NOT NULL,
-        resolved_at TEXT,
-        executed_at TEXT,
-        approved_bash_id TEXT,
-        error_text TEXT
+        requested_by_json TEXT NOT NULL,
+        scope_options_json TEXT NOT NULL,
+        selected_scope TEXT,
+        action_fingerprint TEXT,
+        created_at TEXT NOT NULL,
+        resolved_at TEXT
       );
-      CREATE INDEX IF NOT EXISTS idx_host_bash_records_scope_requested
-        ON host_bash_approval_records(scope_id, requested_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_host_bash_records_status_requested
-        ON host_bash_approval_records(status, requested_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_host_bash_records_mode_status_requested
-        ON host_bash_approval_records(approval_mode, status, requested_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_approval_requests_run_status ON approval_requests(run_id, status);
+      CREATE INDEX IF NOT EXISTS idx_approval_requests_session_status ON approval_requests(session_id, status);
+      CREATE INDEX IF NOT EXISTS idx_approval_requests_workspace_cap_status ON approval_requests(workspace_id, capability, status);
+      CREATE INDEX IF NOT EXISTS idx_approval_requests_created ON approval_requests(created_at);
 
-      CREATE TABLE IF NOT EXISTS host_bash_whitelist (
+      CREATE TABLE IF NOT EXISTS approval_grants (
         id TEXT PRIMARY KEY,
-        tool_id TEXT NOT NULL UNIQUE,
-        display_name TEXT NOT NULL,
-        command TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        channel TEXT NOT NULL,
-        chat_id TEXT NOT NULL,
-        scope_id TEXT NOT NULL,
-        permissions_json TEXT NOT NULL,
-        approved_at TEXT NOT NULL,
-        approved_from_record_id TEXT NOT NULL,
-        enabled INTEGER NOT NULL DEFAULT 1
+        scope TEXT NOT NULL,
+        capability TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        workspace_id TEXT,
+        session_id TEXT,
+        run_id TEXT,
+        action_fingerprint TEXT,
+        expires_at TEXT,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT
       );
-      CREATE INDEX IF NOT EXISTS idx_host_bash_whitelist_enabled_tool
-        ON host_bash_whitelist(enabled, tool_id);
-      CREATE INDEX IF NOT EXISTS idx_host_bash_whitelist_scope_enabled
-        ON host_bash_whitelist(scope_id, enabled);
+      CREATE INDEX IF NOT EXISTS idx_approval_grants_capability_actor ON approval_grants(capability, actor_id);
+      CREATE INDEX IF NOT EXISTS idx_approval_grants_workspace ON approval_grants(workspace_id, capability);
+      CREATE INDEX IF NOT EXISTS idx_approval_grants_session ON approval_grants(session_id, capability);
+      CREATE INDEX IF NOT EXISTS idx_approval_grants_run ON approval_grants(run_id, capability);
     `);
   }
 
   hasAnyData(): boolean {
     const row = this.db.prepare(`
       SELECT
-        (SELECT COUNT(*) FROM host_bash_approval_records) AS record_count,
-        (SELECT COUNT(*) FROM host_bash_whitelist) AS whitelist_count
+        (SELECT COUNT(*) FROM approval_requests WHERE capability LIKE 'bash:%') AS record_count,
+        (SELECT COUNT(*) FROM approval_grants WHERE capability LIKE 'bash:%') AS whitelist_count
     `).get() as Record<string, unknown> | undefined;
     return Number(row?.record_count ?? 0) > 0 || Number(row?.whitelist_count ?? 0) > 0;
   }
@@ -200,23 +208,23 @@ export class HostBashStore {
     if (pendingApprovals.length === 0 && approvalHistory.length === 0 && approvedTools.length === 0) return;
 
     const insertRecord = this.db.prepare(`
-      INSERT OR IGNORE INTO host_bash_approval_records (
-        id, tool_id, display_name, command, reason, channel, chat_id, scope_id, session_id,
-        approval_mode, status, permissions_json, pending_action_json, requested_at, resolved_at,
-        executed_at, approved_bash_id, error_text
+      INSERT OR IGNORE INTO approval_requests (
+        id, run_id, session_id, workspace_id, actor_id, capability, risk_level,
+        action_json, reason, status, requested_by_json, scope_options_json,
+        selected_scope, action_fingerprint, created_at, resolved_at
       ) VALUES (
-        @id, @tool_id, @display_name, @command, @reason, @channel, @chat_id, @scope_id, @session_id,
-        @approval_mode, @status, @permissions_json, @pending_action_json, @requested_at, @resolved_at,
-        @executed_at, @approved_bash_id, @error_text
+        @id, @run_id, @session_id, @workspace_id, @actor_id, @capability, @risk_level,
+        @action_json, @reason, @status, @requested_by_json, @scope_options_json,
+        @selected_scope, @action_fingerprint, @created_at, @resolved_at
       )
     `);
     const insertWhitelist = this.db.prepare(`
-      INSERT OR IGNORE INTO host_bash_whitelist (
-        id, tool_id, display_name, command, reason, channel, chat_id, scope_id,
-        permissions_json, approved_at, approved_from_record_id, enabled
+      INSERT OR IGNORE INTO approval_grants (
+        id, scope, capability, actor_id, workspace_id, session_id, run_id,
+        action_fingerprint, expires_at, created_at, revoked_at
       ) VALUES (
-        @id, @tool_id, @display_name, @command, @reason, @channel, @chat_id, @scope_id,
-        @permissions_json, @approved_at, @approved_from_record_id, @enabled
+        @id, @scope, @capability, @actor_id, @workspace_id, @session_id, @run_id,
+        @action_fingerprint, @expires_at, @created_at, @revoked_at
       )
     `);
 
@@ -224,30 +232,40 @@ export class HostBashStore {
       const command = String(row.command ?? "").trim();
       const toolId = sanitizeHostBashId(row.toolId ?? command);
       if (!toolId || !command) continue;
-      insertRecord.run({
-        id: String(row.id ?? `legacy-${toolId}-${Date.now().toString(36)}`),
-        tool_id: toolId,
-        display_name: String(row.displayName ?? toolId).trim() || toolId,
+
+      const approvalMode = coerceApprovalMode(row.approvalMode);
+      const action = {
+        type: "bash",
         command,
-        reason: String(row.reason ?? "").trim(),
+        displayName: String(row.displayName ?? toolId).trim() || toolId,
         channel: String(row.channel ?? "").trim(),
-        chat_id: String(row.chatId ?? "").trim(),
-        scope_id: String(row.scopeId ?? "").trim(),
-        session_id: null,
-        approval_mode: coerceApprovalMode(row.approvalMode),
-        status: normalizeStatus(row.status),
-        permissions_json: toSqlJson(sanitizeHostBashPermissions(row.permissions ?? defaultHostBashPermissions)),
-        pending_action_json: row.pendingAction ? toSqlJson({
+        chatId: String(row.chatId ?? "").trim(),
+        pendingAction: row.pendingAction ? {
           ...row.pendingAction,
           kind: String(row.pendingAction.kind ?? "").trim() === "run_approved_host_tool"
             ? "run_approved_host_bash"
             : row.pendingAction.kind
-        }) : null,
-        requested_at: String(row.requestedAt ?? new Date().toISOString()).trim() || new Date().toISOString(),
-        resolved_at: String(row.resolvedAt ?? "").trim() || null,
-        executed_at: null,
-        approved_bash_id: null,
-        error_text: null
+        } : null,
+        permissions: sanitizeHostBashPermissions(row.permissions ?? defaultHostBashPermissions)
+      };
+
+      insertRecord.run({
+        id: String(row.id ?? `legacy-bash-${toolId}-${Date.now().toString(36)}`),
+        run_id: String(row.scopeId ?? "").trim(),
+        session_id: "",
+        workspace_id: "personal",
+        actor_id: "agent-1",
+        capability: `bash:${toolId}`,
+        risk_level: "high",
+        action_json: JSON.stringify(action),
+        reason: String(row.reason ?? "").trim(),
+        status: normalizeStatus(row.status),
+        requested_by_json: JSON.stringify({ agentId: "agent-1", depth: 0 }),
+        scope_options_json: JSON.stringify(["once", "session", "persistent"]),
+        selected_scope: approvalMode === "persistent" ? "persistent" : approvalMode === "session" ? "session" : "once",
+        action_fingerprint: null,
+        created_at: String(row.requestedAt ?? new Date().toISOString()).trim() || new Date().toISOString(),
+        resolved_at: String(row.resolvedAt ?? "").trim() || null
       });
     }
 
@@ -256,19 +274,28 @@ export class HostBashStore {
       const toolId = sanitizeHostBashId(row.toolId ?? command);
       if (!toolId || !command) continue;
       const approvedFromRecordId = String(row.approvedFromRequestId ?? `legacy-${toolId}`).trim() || `legacy-${toolId}`;
-      insertWhitelist.run({
-        id: `hbw-${toolId}`,
-        tool_id: toolId,
-        display_name: String(row.displayName ?? toolId).trim() || toolId,
+      const metadata = {
+        displayName: String(row.displayName ?? toolId).trim() || toolId,
         command,
         reason: String(row.reason ?? "").trim(),
         channel: String(row.channel ?? "").trim(),
-        chat_id: String(row.chatId ?? "").trim(),
-        scope_id: String(row.scopeId ?? "").trim(),
-        permissions_json: toSqlJson(sanitizeHostBashPermissions(row.permissions ?? defaultHostBashPermissions)),
-        approved_at: String(row.approvedAt ?? new Date().toISOString()).trim() || new Date().toISOString(),
-        approved_from_record_id: approvedFromRecordId,
-        enabled: row.enabled === false ? 0 : 1
+        chatId: String(row.chatId ?? "").trim(),
+        scopeId: String(row.scopeId ?? "").trim(),
+        permissions: sanitizeHostBashPermissions(row.permissions ?? defaultHostBashPermissions)
+      };
+
+      insertWhitelist.run({
+        id: `hbw-${toolId}`,
+        scope: "persistent",
+        capability: `bash:${toolId}`,
+        actor_id: "agent-1",
+        workspace_id: "personal",
+        session_id: null,
+        run_id: approvedFromRecordId,
+        action_fingerprint: JSON.stringify(metadata),
+        expires_at: null,
+        created_at: String(row.approvedAt ?? new Date().toISOString()).trim() || new Date().toISOString(),
+        revoked_at: row.enabled === false ? new Date().toISOString() : null
       });
     }
   }
@@ -309,31 +336,43 @@ export class HostBashStore {
       return { kind: "existing-pending", approval: existingPending };
     }
 
+    const action = {
+      type: "bash",
+      command: record.command,
+      displayName: record.displayName,
+      channel: record.channel,
+      chatId: record.chatId,
+      pendingAction: record.pendingAction,
+      permissions: record.permissions,
+      approvalMode: record.approvalMode
+    };
+
     this.db.prepare(`
-      INSERT INTO host_bash_approval_records (
-        id, tool_id, display_name, command, reason, channel, chat_id, scope_id, session_id,
-        approval_mode, status, permissions_json, pending_action_json, requested_at, resolved_at,
-        executed_at, approved_bash_id, error_text
+      INSERT INTO approval_requests (
+        id, run_id, session_id, workspace_id, actor_id, capability, risk_level,
+        action_json, reason, status, requested_by_json, scope_options_json,
+        selected_scope, action_fingerprint, created_at, resolved_at
       ) VALUES (
-        @id, @tool_id, @display_name, @command, @reason, @channel, @chat_id, @scope_id, @session_id,
-        @approval_mode, @status, @permissions_json, @pending_action_json, @requested_at, NULL, NULL, NULL, NULL
+        @id, @run_id, @session_id, @workspace_id, @actor_id, @capability, @risk_level,
+        @action_json, @reason, @status, @requested_by_json, @scope_options_json,
+        NULL, NULL, @created_at, NULL
       )
     `).run({
       id: record.id,
-      tool_id: record.toolId,
-      display_name: record.displayName,
-      command: record.command,
+      run_id: record.scopeId,
+      session_id: record.sessionId ?? "",
+      workspace_id: "personal",
+      actor_id: "agent-1",
+      capability: `bash:${record.toolId}`,
+      risk_level: "high",
+      action_json: JSON.stringify(action),
       reason: record.reason,
-      channel: record.channel,
-      chat_id: record.chatId,
-      scope_id: record.scopeId,
-      session_id: record.sessionId ?? null,
-      approval_mode: record.approvalMode,
       status: record.status,
-      permissions_json: toSqlJson(record.permissions),
-      pending_action_json: record.pendingAction ? toSqlJson(record.pendingAction) : null,
-      requested_at: record.requestedAt
+      requested_by_json: JSON.stringify({ agentId: "agent-1", depth: 0 }),
+      scope_options_json: JSON.stringify(["once", "session", "persistent"]),
+      created_at: record.requestedAt
     });
+
     return { kind: "created", approval: record };
   }
 
@@ -356,52 +395,56 @@ export class HostBashStore {
 
     if (record.approvalMode === "persistent" && persistWhitelist) {
       const whitelistId = `hbw-${record.toolId}`;
-      this.db.prepare(`
-        INSERT INTO host_bash_whitelist (
-          id, tool_id, display_name, command, reason, channel, chat_id, scope_id,
-          permissions_json, approved_at, approved_from_record_id, enabled
-        ) VALUES (
-          @id, @tool_id, @display_name, @command, @reason, @channel, @chat_id, @scope_id,
-          @permissions_json, @approved_at, @approved_from_record_id, 1
-        )
-        ON CONFLICT(tool_id) DO UPDATE SET
-          display_name = excluded.display_name,
-          command = excluded.command,
-          reason = excluded.reason,
-          channel = excluded.channel,
-          chat_id = excluded.chat_id,
-          scope_id = excluded.scope_id,
-          permissions_json = excluded.permissions_json,
-          approved_at = excluded.approved_at,
-          approved_from_record_id = excluded.approved_from_record_id,
-          enabled = 1
-      `).run({
-        id: whitelistId,
-        tool_id: record.toolId,
-        display_name: record.displayName,
+      const metadata = {
+        displayName: record.displayName,
         command: record.command,
         reason: record.reason,
         channel: record.channel,
-        chat_id: record.chatId,
-        scope_id: record.scopeId,
-        permissions_json: toSqlJson(record.permissions),
-        approved_at: now,
-        approved_from_record_id: record.id
+        chatId: record.chatId,
+        scopeId: record.scopeId,
+        permissions: record.permissions
+      };
+
+      this.db.prepare(`
+        INSERT INTO approval_grants (
+          id, scope, capability, actor_id, workspace_id, session_id, run_id,
+          action_fingerprint, expires_at, created_at, revoked_at
+        ) VALUES (
+          @id, 'persistent', @capability, 'agent-1', 'personal', NULL, @run_id,
+          @action_fingerprint, NULL, @created_at, NULL
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          scope = excluded.scope,
+          capability = excluded.capability,
+          run_id = excluded.run_id,
+          action_fingerprint = excluded.action_fingerprint,
+          created_at = excluded.created_at,
+          revoked_at = NULL
+      `).run({
+        id: whitelistId,
+        capability: `bash:${record.toolId}`,
+        run_id: record.id,
+        action_fingerprint: JSON.stringify(metadata),
+        created_at: now
       });
       approved = this.getApprovedEntry(record.toolId) ?? undefined;
     }
 
+    const row = this.db.prepare("SELECT action_json FROM approval_requests WHERE id = ?").get(record.id) as { action_json: string } | undefined;
+    const action = row ? parseJson<any>(row.action_json, {}) : {};
+
     this.db.prepare(`
-      UPDATE host_bash_approval_records
+      UPDATE approval_requests
       SET status = 'approved',
           resolved_at = @resolved_at,
-          approved_bash_id = @approved_bash_id,
-          error_text = NULL
+          selected_scope = @selected_scope,
+          action_json = @action_json
       WHERE id = @id
     `).run({
       id: record.id,
       resolved_at: now,
-      approved_bash_id: approved?.id ?? null
+      selected_scope: record.approvalMode === "persistent" ? "persistent" : record.approvalMode === "session" ? "session" : "once",
+      action_json: JSON.stringify(action)
     });
 
     return { record: this.getApprovalRecord(record.id) ?? { ...record, status: "approved", resolvedAt: now }, approved };
@@ -412,33 +455,36 @@ export class HostBashStore {
     if (!record) return null;
     const now = new Date().toISOString();
     this.db.prepare(`
-      UPDATE host_bash_approval_records
+      UPDATE approval_requests
       SET status = 'rejected',
-          resolved_at = @resolved_at,
-          error_text = NULL
+          resolved_at = @resolved_at
       WHERE id = @id
     `).run({ id: record.id, resolved_at: now });
     return this.getApprovalRecord(record.id) ?? { ...record, status: "rejected", resolvedAt: now };
   }
 
   markExecution(recordId: string, status: "executed" | "failed", errorText?: string): void {
+    const row = this.db.prepare("SELECT action_json FROM approval_requests WHERE id = ?").get(recordId) as { action_json: string } | undefined;
+    if (!row) return;
+    const action = parseJson<any>(row.action_json, {});
+    action.executedAt = new Date().toISOString();
+    action.errorText = errorText ? String(errorText).slice(0, 4000) : null;
+
     this.db.prepare(`
-      UPDATE host_bash_approval_records
+      UPDATE approval_requests
       SET status = @status,
-          executed_at = @executed_at,
-          error_text = @error_text
+          action_json = @action_json
       WHERE id = @id
     `).run({
       id: recordId,
       status,
-      executed_at: new Date().toISOString(),
-      error_text: errorText ? String(errorText).slice(0, 4000) : null
+      action_json: JSON.stringify(action)
     });
   }
 
   getApprovalRecord(recordId: string): HostBashApprovalRecord | null {
     const row = this.db.prepare(`
-      SELECT * FROM host_bash_approval_records WHERE id = ? LIMIT 1
+      SELECT * FROM approval_requests WHERE id = ? LIMIT 1
     `).get(recordId) as Record<string, unknown> | undefined;
     return row ? rowToApprovalRecord(row) : null;
   }
@@ -447,22 +493,22 @@ export class HostBashStore {
     const normalizedId = sanitizeHostBashId(toolId);
     if (!normalizedId) return null;
     const row = this.db.prepare(`
-      SELECT * FROM host_bash_whitelist WHERE tool_id = ? LIMIT 1
-    `).get(normalizedId) as Record<string, unknown> | undefined;
+      SELECT * FROM approval_grants WHERE id = ? LIMIT 1
+    `).get(`hbw-${normalizedId}`) as Record<string, unknown> | undefined;
     return row ? rowToWhitelistEntry(row) : null;
   }
 
   listPending(scopeId?: string): HostBashApprovalRecord[] {
     const stmt = scopeId
       ? this.db.prepare(`
-          SELECT * FROM host_bash_approval_records
-          WHERE status = 'pending' AND scope_id = ?
-          ORDER BY requested_at DESC
+          SELECT * FROM approval_requests
+          WHERE status = 'pending' AND run_id = ? AND capability LIKE 'bash:%'
+          ORDER BY created_at DESC
         `)
       : this.db.prepare(`
-          SELECT * FROM host_bash_approval_records
-          WHERE status = 'pending'
-          ORDER BY requested_at DESC
+          SELECT * FROM approval_requests
+          WHERE status = 'pending' AND capability LIKE 'bash:%'
+          ORDER BY created_at DESC
         `);
     const rows = (scopeId ? stmt.all(scopeId) : stmt.all()) as Array<Record<string, unknown>>;
     return rows.map(rowToApprovalRecord);
@@ -470,8 +516,9 @@ export class HostBashStore {
 
   listWhitelist(): ApprovedHostBashEntry[] {
     const rows = this.db.prepare(`
-      SELECT * FROM host_bash_whitelist
-      ORDER BY enabled DESC, approved_at DESC
+      SELECT * FROM approval_grants
+      WHERE scope = 'persistent' AND capability LIKE 'bash:%'
+      ORDER BY revoked_at ASC, created_at DESC
     `).all() as Array<Record<string, unknown>>;
     return rows.map(rowToWhitelistEntry);
   }
@@ -481,21 +528,22 @@ export class HostBashStore {
     const status = filters?.status && filters.status !== "all" ? filters.status : null;
     const approvalMode = filters?.approvalMode && filters.approvalMode !== "all" ? filters.approvalMode : null;
 
-    const clauses = ["status != 'pending'"];
+    const clauses = ["status != 'pending'", "capability LIKE 'bash:%'"];
     const params: Array<string> = [];
     if (status) {
       clauses.push("status = ?");
       params.push(status);
     }
     if (approvalMode) {
-      clauses.push("approval_mode = ?");
-      params.push(approvalMode);
+      const scopeVal = approvalMode === "persistent" ? "persistent" : approvalMode === "session" ? "session" : "once";
+      clauses.push("selected_scope = ?");
+      params.push(scopeVal);
     }
 
     const rows = this.db.prepare(`
-      SELECT * FROM host_bash_approval_records
+      SELECT * FROM approval_requests
       WHERE ${clauses.join(" AND ")}
-      ORDER BY COALESCE(executed_at, resolved_at, requested_at) DESC
+      ORDER BY COALESCE(resolved_at, created_at) DESC
     `).all(...params) as Array<Record<string, unknown>>;
 
     const items = rows.map(rowToApprovalRecord);
@@ -515,25 +563,31 @@ export class HostBashStore {
   }
 
   setWhitelistEnabled(id: string, enabled: boolean): ApprovedHostBashEntry | null {
-    this.db.prepare(`
-      UPDATE host_bash_whitelist SET enabled = ? WHERE id = ?
-    `).run(enabled ? 1 : 0, id);
+    if (enabled) {
+      this.db.prepare(`
+        UPDATE approval_grants SET revoked_at = NULL WHERE id = ?
+      `).run(id);
+    } else {
+      this.db.prepare(`
+        UPDATE approval_grants SET revoked_at = ? WHERE id = ?
+      `).run(new Date().toISOString(), id);
+    }
     const row = this.db.prepare(`
-      SELECT * FROM host_bash_whitelist WHERE id = ? LIMIT 1
+      SELECT * FROM approval_grants WHERE id = ? LIMIT 1
     `).get(id) as Record<string, unknown> | undefined;
     return row ? rowToWhitelistEntry(row) : null;
   }
 
   deleteWhitelistEntry(id: string): boolean {
     const result = this.db.prepare(`
-      DELETE FROM host_bash_whitelist WHERE id = ?
+      DELETE FROM approval_grants WHERE id = ?
     `).run(id);
     return Number(result.changes ?? 0) > 0;
   }
 
   deleteHistoryRecord(id: string): boolean {
     const result = this.db.prepare(`
-      DELETE FROM host_bash_approval_records WHERE id = ? AND status != 'pending'
+      DELETE FROM approval_requests WHERE id = ? AND status != 'pending'
     `).run(id);
     return Number(result.changes ?? 0) > 0;
   }

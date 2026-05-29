@@ -1,4 +1,4 @@
-import Root from "./checkbox.svelte";
+import Root from "$lib/components/ui/checkbox/checkbox.svelte";
 export {
 	Root,
 	//

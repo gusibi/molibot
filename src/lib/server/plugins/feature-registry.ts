@@ -1,7 +1,7 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { RuntimeSettings } from "../settings/index.js";
-import { cloudflareHtmlFeaturePlugin } from "./cloudflareHtml/plugin.js";
-import type { BuiltInFeaturePlugin, FeaturePluginContext, InstalledPluginCatalogEntry } from "./types.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { cloudflareHtmlFeaturePlugin } from "$lib/server/plugins/cloudflareHtml/plugin.js";
+import type { BuiltInFeaturePlugin, FeaturePluginContext, InstalledPluginCatalogEntry } from "$lib/server/plugins/types.js";
 
 export const builtInFeaturePlugins: BuiltInFeaturePlugin[] = [
   cloudflareHtmlFeaturePlugin

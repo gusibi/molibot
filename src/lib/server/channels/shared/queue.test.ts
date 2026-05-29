@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ChannelQueue } from "./queue.js";
+import { ChannelQueue } from "$lib/server/channels/shared/queue.js";
 
 test("ChannelQueue runs jobs in order", async () => {
   const queue = new ChannelQueue("test");

@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { momLog } from "../log.js";
+import { momLog } from "$lib/server/agent/common/log.js";
 
 export interface DeferredToolEntry {
   name: string;

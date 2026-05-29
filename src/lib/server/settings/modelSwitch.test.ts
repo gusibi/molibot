@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultRuntimeSettings } from "./defaults.js";
-import { buildModelOptions, currentModelKey, switchModelSelection } from "./modelSwitch.js";
-import type { RuntimeSettings } from "./index.js";
+import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
+import { buildModelOptions, currentModelKey, switchModelSelection } from "$lib/server/settings/modelSwitch.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 test("buildModelOptions treats enabled built-in providers as pi routes", () => {
   const settings: RuntimeSettings = {

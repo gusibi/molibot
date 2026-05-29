@@ -13,26 +13,26 @@ import {
   type ToolDefinition
 } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
-import { buildCustomProviderCompat, resolveCustomProviderReasoningSupport } from "../../providers/customThinking.js";
+import { buildCustomProviderCompat, resolveCustomProviderReasoningSupport } from "$lib/server/providers/customThinking.js";
 import {
   buildAnthropicBaseUrl,
   buildOpenAIBaseUrl,
   resolveCustomProviderProtocol
-} from "../../providers/customProtocol.js";
-import { currentModelKey } from "../../settings/modelSwitch.js";
-import type { RuntimeSettings } from "../../settings/index.js";
-import { isKnownProvider } from "../../settings/index.js";
-import { KNOWN_PROVIDER_LIST } from "../../settings/schema.js";
-import { resolveProviderApiKey } from "../auth.js";
-import { momLog } from "../log.js";
-import { parseSkillFrontmatter } from "../skillFrontmatter.js";
-import type { RunnerUiEvent } from "../types.js";
-import type { HostBashApprovalPrompt } from "../../hostBash/index.js";
-import type { MomRuntimeStore } from "../store.js";
-import { createBashTool, type BashToolHostApprovalOptions } from "./bash.js";
-import { createEditTool } from "./edit.js";
-import { createReadTool } from "./read.js";
-import { createWriteTool } from "./write.js";
+} from "$lib/server/providers/customProtocol.js";
+import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { isKnownProvider } from "$lib/server/settings/index.js";
+import { KNOWN_PROVIDER_LIST } from "$lib/server/settings/schema.js";
+import { resolveProviderApiKey } from "$lib/server/agent/identity/auth.js";
+import { momLog } from "$lib/server/agent/common/log.js";
+import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
+import type { RunnerUiEvent } from "$lib/server/agent/core/types.js";
+import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
+import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import { createBashTool, type BashToolHostApprovalOptions } from "$lib/server/agent/tools/bash.js";
+import { createEditTool } from "$lib/server/agent/tools/edit.js";
+import { createReadTool } from "$lib/server/agent/tools/read.js";
+import { createWriteTool } from "$lib/server/agent/tools/write.js";
 
 const SUBAGENT_NAMES = ["scout", "planner", "worker", "reviewer", "skill-drafter"] as const;
 type SubagentName = (typeof SUBAGENT_NAMES)[number];

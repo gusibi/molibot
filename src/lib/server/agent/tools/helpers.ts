@@ -1,4 +1,19 @@
 import { spawn } from "node:child_process";
+import { join } from "node:path";
+import { config } from "$lib/server/app/env.js";
+
+export const SANDBOX_VENV_DIR = join(config.dataDir, "tooling", "sandbox-venv");
+
+export function wrapCommandWithVenv(command: string): string {
+  const venvBin = process.platform === "win32" ? join(SANDBOX_VENV_DIR, "Scripts") : join(SANDBOX_VENV_DIR, "bin");
+  const venvPython = process.platform === "win32" ? join(venvBin, "python.exe") : join(venvBin, "python");
+  return [
+    `if [ ! -f ${shellEscape(venvPython)} ]; then python3 -m venv ${shellEscape(SANDBOX_VENV_DIR)} 2>/dev/null || true; fi`,
+    `export PATH=${shellEscape(venvBin)}:$PATH`,
+    `export VIRTUAL_ENV=${shellEscape(SANDBOX_VENV_DIR)}`,
+    command
+  ].join("\n");
+}
 
 export interface ExecOptions {
   cwd: string;
@@ -142,4 +157,66 @@ export async function execCommand(command: string, opts: ExecOptions): Promise<E
       reject(error);
     });
   });
+}
+
+import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
+import { promises as fsPromises } from "node:fs";
+
+export function toolDefToAgentTool(def: ToolDefinition, cwd: string, env?: Record<string, string>): AgentTool<any> {
+  return {
+    name: def.id,
+    label: def.name,
+    description: def.description,
+    parameters: def.inputSchema as any,
+    execute: async (toolCallId, params, signal) => {
+      const ctx: ToolExecutionContext = {
+        runId: toolCallId,
+        sessionId: "legacy-session",
+        workspaceId: "legacy-workspace",
+        actorId: "legacy-actor",
+        cwd,
+        fs: {
+          readText: async (p) => fsPromises.readFile(p, "utf8"),
+          writeText: async (p, c) => fsPromises.writeFile(p, c, "utf8"),
+          readBuffer: async (p) => fsPromises.readFile(p)
+        },
+        shell: {
+          run: async (cmd, opts) => {
+            const res = await execCommand(cmd, {
+              cwd: opts?.cwd ?? cwd,
+              timeoutSeconds: opts?.timeoutMs ? opts.timeoutMs / 1000 : undefined,
+              env: env,
+              signal
+            });
+            return { exitCode: res.code, stdout: res.stdout, stderr: res.stderr };
+          }
+        },
+        network: {
+          fetch: async (url, init) => {
+            const res = await fetch(url, init as any);
+            return {
+              status: res.status,
+              statusText: res.statusText,
+              ok: res.ok,
+              headers: Object.fromEntries(res.headers.entries()),
+              text: async () => res.text()
+            };
+          }
+        },
+        emit: () => {}
+      };
+
+      const result = await def.handler(params, ctx);
+      if (!result.ok && result.metadata?.status !== "waiting_for_approval") {
+        throw new Error(result.error || "Tool execution failed");
+      }
+      return {
+        content: Array.isArray(result.content)
+          ? result.content
+          : [{ type: "text", text: String(result.content ?? result.error ?? "") }],
+        details: result.details
+      };
+    }
+  };
 }

@@ -1,6 +1,75 @@
 # Molibot Features
 
+## 2026-05-29
+
+### TurnOrchestrator 核心生命周期接管与 runner.ts 瘦身 (v2.2 Phase 2)
+- **核心生命周期委托**: 将原本耦合在 `runner.ts` 中的 Session 并发锁、10 分钟锁超时释放、内存同步与 Prompt 快照加载、以及上下文自动压缩机制全面委托给 `TurnOrchestrator` 管理。
+- **并发锁与超时机制**: `TurnOrchestrator.prepareTurn` 实现了基于 SQLite 的 Session 锁，在同个会话出现并发调用时拦截并报错；支持 10 分钟锁自动超时置为 `failed` 状态并自动释放重构，保证系统不会因异常崩溃而产生永久死锁。
+- **内存快照接管**: 实现了 `TurnOrchestrator.prepareTurnMemory`，统一封装 MemoryGateway 的外部记忆同步与快照 fingerprint 创建。
+- **上下文压缩解耦**: 提取 `compact` 方法为 `TurnOrchestrator.compactSessionContext`。`runner.ts` 中的上下文超出临界值判定、自动压缩和重试流程现已全部委托其执行。
+- **Turn 状态归档**: 提取 `commitTurn` 方法，集中管理最终 `RunSummary` 的保存及 SQLite runs 运行状态的更新（`completed`, `aborted`, `waiting_for_approval`, `failed`）。
+- **`runner.ts` 瘦身**: 移除了 `runner.ts` 中上述大量的辅助状态与数据操作函数，让其核心只专注于 LLM 推理循环、工具预算和工具执行，文件可维护性极大提升。
+- **回归测试验证**: 新增/重写了 `turnOrchestrator.test.ts` 中针对并发锁、超时释放、内存同步和归档提交等逻辑的 7 个细粒度单元测试；回归运行 25 个 Agent 测试套件，结果达成 **100% 全部通过** (25/25 passed)。
+
+### Agent 目录重构与模块化治理 (Step 5)
+- **目录结构清晰化**: 将原本存放在 `src/lib/server/agent/` 根目录下的数十个凌乱文件成功归类至以下子目录：
+  - `core/`: 存放 Agent 核心逻辑、运行控制与生命周期管理（`runner.ts`、`turnOrchestrator.ts` 等）。
+  - `routing/`: 媒体资源路由与备用决策（`modelRouting.ts` 等）。
+  - `prompts/`: 提示词渲染、人设、模版和配置上下文加载（`prompt.ts`、`profiles.ts` 等）。
+  - `tools/`: 工具定义、策略拦截与运行控制（`write.ts`、`bash.ts` 等）。
+  - `skills/`: 自我演化与技能推荐机制（`skills.ts`、`self-evolution.ts` 等）。
+  - `session/`: 会话历史持久化、归档与压缩机制（`session.ts`、`compaction.ts` 等）。
+  - `identity/`: 鉴权鉴密管理（`auth.ts` 等）。
+  - `common/`: 日志记录等辅助公共设施（`log.ts` 等）。
+  - `commands/`: 终端命令与调试管理（`channelCommands.ts` 等）。
+- **静态类型与导入路径纠正**: 对整个工作区中受到移动影响的 TS/JS/Svelte 文件进行全面重构，使用全新的 alias `"$lib/server/agent/..."`。
+- **自定义 Node.js ESM 测试加载器**: 为规避 Node.js 对 Vite 特有的 `?raw` markdown 文件后缀静态引入抛出 `ERR_UNKNOWN_FILE_EXTENSION` 错误的问题，设计并引入了 `scripts/md-loader.js` 自定义 ESM 加载器，在测试执行期自动拦截并以 JavaScript 格式包装渲染 Markdown 字符串内容。
+- **高风险写入路径和 Mock 稳健性修复**:
+  - 修复 `write.ts` 无法自动创建缺失父级目录导致 `ENOENT` 异常的缺陷，改为前置安全调用 `fs.promises.mkdir` 递归建目录。
+  - 修复了 `compaction.ts` 达到临界值时无法正确触发压缩的等于逻辑 bug。
+  - 修复了 `self-evolution.test.ts` 因为迁移深度改变导致读取模板技能路径多了一层 `../` 的定位 bug。
+  - 补充并对齐了 `runner.test.ts` 中模拟 error tracker 的 mock 对象，彻底消除了 `tracker.record is not a function` 的隐藏异常。
+- **验证**: 运行 `npx node scripts/run-all-agent-tests.js` 对整个 agent 模块的 25 个测试套件进行了完整回归测试，达成 **100% 全部通过** (25/25 passed)，无任何类型或测试阻碍。
+
+### ToolRuntime 和 ToolRegistry 深度集成 (Step 4)
+- **内置工具 ToolDefinition 重构**: 内置工具（`read`、`write`、`edit`、`bash`）全部重构为 `ToolDefinition` 结构。工具逻辑彻底解耦，不直接导入 `node:fs` 或通过子进程直接执行 Host Bash。
+- **ToolExecutionContext 真实 API 实现**: 移除了原有的 dummy 桩实现。`fs.readText`、`fs.writeText` 和 `fs.readBuffer` 实现了完整的 Workspace / CWD 路径安全性检查与节点文件系统读写能力。`shell.run` 在沙箱配置启用时自动执行沙箱指令包裹与状态跟踪。
+- **ToolRuntime 集中拦截政策检查**: 使用自定义 `decidePolicy` 代代替原有的默认策略，拦截高风险命令（Host Bash / 越狱行为），根据 `hostBashStore` 的审批历史进行沙箱绕过或自动生成 `HostBashApprovalPrompt` 挂起审批。
+- **向下兼容遗留桥接**: 实现并引入了 `toolDefToAgentTool` 桥接工具，对 `subagent.ts` 及各类旧测试代码透明，确保原有工具集继续跑通。
+- **验证**: 单元测试和 TypeScript 类型检查全面通过，修改后的文件完全实现零 TS errors。
+
+## 2026-05-28
+
+### Agent v2.2 Runtime Integration
+- **TurnOrchestrator 完整接入**: 新增 `src/lib/server/agent/turnOrchestrator.ts`，控制 run/session/workspace 元数据准备；`runner.ts` 现已在所有出口路径下调用 `updateRunStatus` 将 run 状态置为非 running。
+- **启动死锁清理**: 在 `src/lib/server/app/runtime.ts` 的 `getRuntime()` 初始化段接入了 `getTurnOrchestrator().cleanupStaleRunningTurns(new SqliteTurnCleanupStore())`，在系统启动时自动清理过期的 runs 死锁。
+- **渠道接入 TurnOrchestrator**: 修改 `baseRuntime.ts`，在 `runSharedTextTask` 处理消息前，直接调用 `TurnOrchestrator.prepareTurn()`，减少 `runner.ts` 内部对消息元数据处理的依赖。
+- **ToolRuntime 统一拦截执行**: 所有由 `createMomTools()` 返回的内置工具均通过 `wrapWithToolRuntime` 动态注册至 `ToolRegistry` 并委托给 `ToolRuntime.executeToolCall()` 进行鉴权、审计及审批检查。
+- **ApprovalBroker 与 SQLite 审批库**: 实现 SQLite 存储 `approval_requests` 和 `approval_grants`，并且 `HostBashStore` 已经完全重写直接使用该 SQLite 审批流。
+- **ACP 设置面收缩与 Dynamic Settings 拆分**: ACP 主业务隔离，dynamic settings (Workspaces, Channel Instances, Custom Providers) 已经由 SettingsStore 自动支持 SQLite 拆分存储。
+- **Runtime 模块化解耦**: 将包含 650+ 行配置清洗逻辑的 sanitizers 从 `runtime.ts` 提取至 `src/lib/server/settings/sanitize.ts`；将 channel 插件热装载逻辑 `applyChannelPlugins` 提取至 `src/lib/server/plugins/loader.ts`。`runtime.ts` 文件体积大幅缩减至 150 行以内，核心职责高度凝聚。
+- **验证**: 单元测试和聚焦测试完全通过，TurnOrchestrator 补齐测试环境自动建表规避了 "no such table" 异常。
+
+### Agent v2.2 Refactoring Design Spec (Refined)
+- **精炼可执行架构规范**: 重新整合 v2.0 与 v2.1 方案优点，输出 `v2.2.md` 作为正式执行规范。明确了由 TurnOrchestrator、PiAgentRuntime、ToolRuntime、ApprovalBroker、Workspace 组成的 4 核心 1 边界的极简设计。
+- **融合技术评审改进**: 根据 `v2.2-review.md` 评审，明确 Workspace ID 仅作为逻辑权限与隔离边界，绝不干涉或迁移物理文件目录结构。
+- **平滑演进与细化切片**: 将 ACP 下线改为第一阶段仅清除活跃引用、最后阶段再物理删除代码；将 TurnOrchestrator 改为增量式接入与管道灰度升级；将 Phase 3 审批模块拆分成内置收口、Host Bash 兼容、Subagent 冒泡、Debounce超时 4 个更薄的细分切片。
+- **细化模块接口与库表**: 设计并给出了 Workspace、ToolDefinition、ToolExecutionContext、ApprovalRequest、ApprovalGrant 的完整 TS 类型以及 SQLite 数据表结构，并在 SQLite schema 中补齐 `runs.status` 完整运行时状态与 `approval_requests` 性能优化索引。
+
+
+### Minimum Workspace Boundary
+- **默认 Workspace registry**: 新增 SQLite-backed `workspaces` registry，启动时确保默认 `personal` workspace 存在，并保留 `enabledSkillPaths`、`enabledToolIds`、`sandboxProfileId`、`approvalProfileId` 等后续边界字段为可选。
+- **运行记录带 Workspace**: Shared channel runtime、Web chat API 和 streaming API 会给新消息注入默认 `workspaceId`，runner 兜底解析 workspace 并把 `workspaceId` 写入 run summary / run detail JSONL；当前不迁移已有 session/chat 文件布局。
+
+
 ## 2026-05-27
+
+### Agent v2.1 simplification planning
+- **可执行 TODO 计划**: 新增 `docs/agent-v2.1-development-plan.md`，把 `v2.1.md` 拆成 80 条执行项，并明确短期先做“删除 ACP 主路径 + 引入最小 Workspace 边界”，后续再推进 TurnOrchestrator、ToolRuntime、Approval scope 和 Settings 渐进拆分。
+
+### ACP active runtime path removal
+- **ACP 主路径下线**: Web/Telegram/Feishu/QQ/Weixin 的共享 channel runtime 不再实例化 `AcpService`，各渠道移除 ACP 自动代理、ACP 命令模板、权限回调和运行提示；`/acp`、`/approve`、`/deny` 统一返回 inactive-path 提示。
+- **设置入口下线**: Settings 左侧导航和总览页不再展示 `/settings/acp`，README 将 ACP 标记为 legacy inactive surface；旧 `settings.acp` schema 与 `src/lib/server/acp/` 仍保留兼容，不做破坏性迁移。
 
 ### Agent session persistence hardening
 - **Compaction 顺序修正**: Runner 自动压缩上下文时先写入 compaction entry，再追加本轮用户消息，避免当前 prompt 被新 compaction 快照截断。
@@ -153,6 +222,8 @@
 | DOC-15 | Documentation role separation and maintenance workflow | Done | Clarified which project rules belong in `AGENTS.md`, which records stay in `prd.md` / `features.md`, and how `README.md` / `CHANGELOG.md` should be kept in sync after each meaningful change |
 | DOC-16 | DESIGN-driven page change governance | Done | Added a long-lived rule that any page/UI change must follow `DESIGN.md`, while keeping detailed design tokens and component guidance in `DESIGN.md` instead of duplicating them into `AGENTS.md` |
 | DOC-17 | shadcn-first UI component governance | Done | Added a long-lived rule that page/UI changes should prefer `shadcn-svelte` and `src/lib/components/ui` unless that component system truly cannot implement the requirement, avoiding drift back to ad hoc non-shadcn components |
+| DOC-18 | Agent v2.1 simplification execution plan | Done | Added `docs/agent-v2.1-development-plan.md` with a short-term execution plan and numbered TODO checklist for ACP removal, Workspace, TurnOrchestrator, ToolRuntime, approval scope, sandbox rules, and settings split |
+| ENG-348 | Minimum Workspace boundary | Done | Added a SQLite-backed `workspaces` registry with default `personal` bootstrap, workspace resolution fallback, and `workspaceId` propagation into new channel/Web messages and run summary/detail archives without moving existing session files |
 | ENG-02 | Telegram adapter implementation | Done | `src/adapters/telegram.ts` built with `grammY` |
 | ENG-03 | Web chat implementation | Done | SvelteKit chat page + API (`src/routes/+page.svelte`, `src/routes/api/chat/+server.ts`) with `pi-web-ui` |
 | ENG-04 | CLI adapter implementation | Done | `src/adapters/cli.ts` interactive loop |

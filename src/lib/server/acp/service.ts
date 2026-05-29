@@ -6,14 +6,14 @@ import type {
   AcpProjectConfig,
   AcpTargetConfig,
   RuntimeSettings
-} from "../settings/index.js";
+} from "$lib/server/settings/index.js";
 import {
   buildAcpAuthHint,
   formatAcpAdapterLabel,
   formatProviderScopedCommands,
   resolveAcpProviderProfile
-} from "./providers/index.js";
-import { JsonRpcStdioConnection } from "./connection.js";
+} from "$lib/server/acp/providers/index.js";
+import { JsonRpcStdioConnection } from "$lib/server/acp/connection.js";
 import type {
   AcpProgressEvent,
   AcpListedSession,
@@ -26,7 +26,7 @@ import type {
   AcpToolCallSnapshot,
   JsonRpcNotification,
   JsonRpcRequest
-} from "./types.js";
+} from "$lib/server/acp/types.js";
 
 interface AcpPermissionDecision {
   outcome: "selected" | "cancelled";

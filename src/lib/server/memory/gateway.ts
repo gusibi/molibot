@@ -1,8 +1,8 @@
-import type { RuntimeSettings } from "../settings/index.js";
-import type { SessionStore } from "../sessions/store.js";
-import { builtInMemoryImporters } from "./importerRegistry.js";
-import type { MemoryImporter } from "./importers.js";
-import { builtInMemoryBackends, type MemoryBackendDefinition } from "./registry.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { SessionStore } from "$lib/server/sessions/store.js";
+import { builtInMemoryImporters } from "$lib/server/memory/importerRegistry.js";
+import type { MemoryImporter } from "$lib/server/memory/importers.js";
+import { builtInMemoryBackends, type MemoryBackendDefinition } from "$lib/server/memory/registry.js";
 import type {
   MemoryAddInput,
   MemoryBackend,
@@ -15,19 +15,19 @@ import type {
   MemorySearchInput,
   MemorySyncResult,
   MemoryUpdateInput
-} from "./types.js";
+} from "$lib/server/memory/types.js";
 import {
   clearImportedMemorySuppression,
   suppressImportedMemory
-} from "./importTombstones.js";
+} from "$lib/server/memory/importTombstones.js";
 import {
   assessMemoryWrite,
   inferMemoryTags,
   normalizeMemoryContent,
   prepareMemoryAddInput,
   selectPromptMemoryRows
-} from "./classifier.js";
-import { appendMemoryGovernanceRejection } from "./governanceLog.js";
+} from "$lib/server/memory/classifier.js";
+import { appendMemoryGovernanceRejection } from "$lib/server/memory/governanceLog.js";
 
 export class MemoryGateway {
   private readonly backends: Record<string, MemoryBackend>;

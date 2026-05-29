@@ -1,12 +1,12 @@
-import { type RuntimeSettings } from "../settings/index.js";
-import type { MemoryGateway } from "../memory/gateway.js";
-import type { SessionStore } from "../sessions/store.js";
-import type { AiUsageTracker } from "../usage/tracker.js";
-import type { ModelErrorTracker } from "../usage/modelErrorTracker.js";
-import { feishuChannelPlugin } from "./feishu/index.js";
-import { qqChannelPlugin } from "./qq/index.js";
-import { telegramChannelPlugin } from "./telegram/index.js";
-import { weixinChannelPlugin } from "./weixin/index.js";
+import { type RuntimeSettings } from "$lib/server/settings/index.js";
+import type { MemoryGateway } from "$lib/server/memory/gateway.js";
+import type { SessionStore } from "$lib/server/sessions/store.js";
+import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
+import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
+import { feishuChannelPlugin } from "$lib/server/channels/feishu/index.js";
+import { qqChannelPlugin } from "$lib/server/channels/qq/index.js";
+import { telegramChannelPlugin } from "$lib/server/channels/telegram/index.js";
+import { weixinChannelPlugin } from "$lib/server/channels/weixin/index.js";
 
 export interface ChannelManager {
   apply(config: unknown): void;

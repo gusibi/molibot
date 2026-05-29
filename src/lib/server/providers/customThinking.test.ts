@@ -3,8 +3,8 @@ import test from "node:test";
 import {
   applyDirectReasoningParams,
   buildCustomProviderCompat
-} from "./customThinking.js";
-import { resolveCustomProviderThinkingFormat } from "../settings/thinking.js";
+} from "$lib/server/providers/customThinking.js";
+import { resolveCustomProviderThinkingFormat } from "$lib/server/settings/thinking.js";
 
 test("deepseek format uses upstream-compatible thinking parameters", () => {
   const provider = {

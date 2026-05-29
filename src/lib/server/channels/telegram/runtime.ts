@@ -2,30 +2,26 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import { randomUUID } from "node:crypto";
 import { basename, extname, join } from "node:path";
 import { Bot, InlineKeyboard, InputFile } from "grammy";
-import type { RuntimeSettings } from "../../settings/index.js";
-import type { HostBashApprovalPrompt } from "../../hostBash/index.js";
-import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
-import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
-import { formatSubagentProgressLabel, formatSubagentProgressSummary } from "../../agent/subagentProgress.js";
-import { buildAcpPermissionText } from "../../acp/prompt.js";
-import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
-import { formatRunArchiveNotice } from "../../agent/runDetail.js";
-import type { ChannelInboundMessage, MomContext } from "../../agent/types.js";
-import type { SessionStore } from "../../sessions/store.js";
-import type { MemoryGateway } from "../../memory/gateway.js";
-import type { AiUsageTracker } from "../../usage/tracker.js";
-import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
-import type { AcpPendingPermissionView } from "../../acp/types.js";
-import { applyTelegramAcpProgressEvent, createTelegramAcpProgressState } from "./acpProgress.js";
-import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText, sendTelegramTextSafely, summarizeTelegramToolProgressText } from "./formatting.js";
-import { ACP_CONTROL_HELP_LINES, handleSharedAcpApprovalCommand, handleSharedAcpCommand, shouldProxyToAcpSession, type SharedAcpPromptKind } from "../shared/acp.js";
-import { BaseChannelRuntime } from "../shared/baseRuntime.js";
-import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
-import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
-import type { ParsedRelativeReminder, StatusSession } from "./types.js";
-import { TELEGRAM_SHARED_COMMANDS } from "./commands.js";
-import { executeHostBashApproval, hasVisibleHostBashOutput } from "../../agent/hostBashExec.js";
-import { isTelegramBotMention, stripTelegramBotMention, type TelegramMessageEntityLike } from "./mentions.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
+import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
+import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
+import { formatSubagentProgressLabel, formatSubagentProgressSummary } from "$lib/server/agent/subagentProgress.js";
+import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
+import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
+import type { ChannelInboundMessage, MomContext } from "$lib/server/agent/core/types.js";
+import type { SessionStore } from "$lib/server/sessions/store.js";
+import type { MemoryGateway } from "$lib/server/memory/gateway.js";
+import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
+import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
+import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText, sendTelegramTextSafely, summarizeTelegramToolProgressText } from "$lib/server/channels/telegram/formatting.js";
+import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
+import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
+import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
+import type { ParsedRelativeReminder, StatusSession } from "$lib/server/channels/telegram/types.js";
+import { TELEGRAM_SHARED_COMMANDS } from "$lib/server/channels/telegram/commands.js";
+import { executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec.js";
+import { isTelegramBotMention, stripTelegramBotMention, type TelegramMessageEntityLike } from "$lib/server/channels/telegram/mentions.js";
 
 export interface TelegramConfig {
   token: string;
@@ -57,13 +53,6 @@ export class TelegramManager extends BaseChannelRuntime {
   private currentToken = "";
   private currentAllowedChatIdsKey = "";
   private botUsername = "";
-  private readonly acpPermissionActions = new Map<string, {
-    scopeId: string;
-    requestId: string;
-    action: "select" | "deny" | "deny_with_note";
-    optionId?: string;
-  }>();
-  private readonly acpPermissionInputs = new Map<string, { requestId: string }>();
   private readonly hostBashApprovalActions = new Map<string, {
     scopeId: string;
     requestId: string;
@@ -176,9 +165,6 @@ export class TelegramManager extends BaseChannelRuntime {
       stopRun: (scopeId) => this.stopChatWork(scopeId),
       steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
       followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
-      cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
-      maybeHandleAcpCommand: (scopeId, cmd, rawArg, target) =>
-        this.maybeHandleTelegramAcpCommand(scopeId, cmd, rawArg, target),
       sendText: (target, text) => this.sendTelegramCommandText(target, text),
       uploadFile: (target, filePath, title, text) => this.sendTelegramCommandFile(target, filePath, title, text),
       executeApprovedHostBash: async (input, approved, request) => {
@@ -198,8 +184,7 @@ export class TelegramManager extends BaseChannelRuntime {
         void this.writePromptPreview([this.parseChatScopeId(scopeId).chatId]);
       },
       ...this.inboundTasks.toCommandOptions(),
-      getStatusExtras: (_scopeId, target) => this.getTelegramStatusExtras(target),
-      helpLines: ACP_CONTROL_HELP_LINES
+      getStatusExtras: (_scopeId, target) => this.getTelegramStatusExtras(target)
     });
   }
 
@@ -278,46 +263,6 @@ export class TelegramManager extends BaseChannelRuntime {
     });
   }
 
-  private async maybeHandleTelegramAcpCommand(
-    scopeId: string,
-    cmd: string,
-    rawArg: string,
-    target: TelegramCommandTarget
-  ): Promise<boolean> {
-    if (!this.bot) return false;
-
-    if (cmd === "/acp") {
-      await handleSharedAcpCommand({
-        acp: this.acp,
-        chatId: scopeId,
-        cmd,
-        rawArg,
-        sendText: async (replyText) => {
-          await this.sendTelegramCommandText(target, replyText);
-        },
-        runPrompt: async ({ prompt, startText, kind }) => {
-          await this.runAcpPrompt(this.bot!, scopeId, prompt, startText, kind);
-        }
-      });
-      return true;
-    }
-
-    if (cmd === "/approve" || cmd === "/deny") {
-      await handleSharedAcpApprovalCommand({
-        acp: this.acp,
-        chatId: scopeId,
-        cmd,
-        rawArg,
-        sendText: async (replyText) => {
-          await this.sendTelegramCommandText(target, replyText);
-        }
-      });
-      return true;
-    }
-
-    return false;
-  }
-
   private getTelegramStatusExtras(target: TelegramCommandTarget): string[] {
     return [
       `Stream output: ${this.isStreamingOutputEnabled() ? "on" : "off"}`,
@@ -339,165 +284,6 @@ export class TelegramManager extends BaseChannelRuntime {
     });
   }
 
-  private async runAcpPrompt(
-    bot: Bot,
-    scopeId: string,
-    prompt: string,
-    startText: string,
-    kind: SharedAcpPromptKind
-  ): Promise<void> {
-    const trimmedPrompt = prompt.trim();
-    if (!trimmedPrompt) return;
-    const target = this.parseChatScopeId(scopeId);
-    const chatId = target.chatId;
-    const sendOptions = this.buildTelegramSendOptions(target.messageThreadId);
-    const sent = await sendTelegramText(bot, chatId, startText, sendOptions);
-    const progressState = createTelegramAcpProgressState(startText);
-    let statusText = startText;
-    let pendingStatusText: string | null = null;
-    let statusFlush: Promise<void> | null = null;
-    let lastStatusEditAt = 0;
-    const statusEditIntervalMs = 1500;
-    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-    const flushStatus = async () => {
-      while (pendingStatusText && pendingStatusText !== statusText) {
-        const nextText = pendingStatusText;
-        pendingStatusText = null;
-        const waitMs = Math.max(0, statusEditIntervalMs - (Date.now() - lastStatusEditAt));
-        if (waitMs > 0) {
-          await sleep(waitMs);
-        }
-        try {
-          await editTelegramText(bot, chatId, sent.message_id, nextText);
-          lastStatusEditAt = Date.now();
-        } catch (error) {
-          momWarn("telegram", "acp_status_edit_failed", {
-            chatId,
-            messageId: sent.message_id,
-            error: error instanceof Error ? error.message : String(error),
-            errorDetails: describeTelegramError(error)
-          });
-        }
-        statusText = nextText;
-      }
-      statusFlush = null;
-    };
-    const setStatus = async (text: string) => {
-      if (text === statusText || text === pendingStatusText) return;
-      pendingStatusText = text;
-      if (!statusFlush) {
-        statusFlush = flushStatus().catch((error) => {
-          momWarn("telegram", "acp_status_flush_failed", {
-            chatId,
-            messageId: sent.message_id,
-            error: error instanceof Error ? error.message : String(error),
-            errorDetails: describeTelegramError(error)
-          });
-          statusFlush = null;
-        });
-      }
-      await statusFlush;
-    };
-
-    const result = await this.acp.runTask(scopeId, trimmedPrompt, {
-      onStatus: async () => undefined,
-      onEvent: async (text) => {
-        await sendTelegramText(
-          bot,
-          chatId,
-          text,
-          this.mergeTelegramSendOptions(sendOptions, {
-            reply_parameters: { message_id: sent.message_id }
-          })
-        );
-      },
-      onProgress: async (event) => {
-        await setStatus(applyTelegramAcpProgressEvent(progressState, event));
-      },
-      onPermissionRequest: async (permission) => {
-        await this.sendAcpPermissionCard(bot, scopeId, permission, sent.message_id);
-      }
-    });
-
-    const summaryLines = [
-      kind === "remote" ? "## ACP Remote Result" : "## ACP Result",
-      `- Stop reason: \`${result.stopReason}\``,
-      `- Tool calls: ${result.toolCalls.length}`,
-      result.lastStatus ? `- Last status: ${result.lastStatus}` : ""
-    ].filter(Boolean);
-    const completedTools = result.toolCalls.filter((tool) => tool.status === "completed");
-    const failedTools = result.toolCalls.filter((tool) => tool.status === "failed");
-    const touchedLocations = Array.from(
-      new Set(
-        completedTools
-          .flatMap((tool) => tool.locations)
-          .map((location) => location.trim())
-          .filter(Boolean)
-      )
-    );
-    if (completedTools.length > 0) {
-      summaryLines.push(`- Completed tools: ${completedTools.length}`);
-    }
-    if (failedTools.length > 0) {
-      summaryLines.push(`- Failed tools: ${failedTools.length}`);
-    }
-    if (touchedLocations.length > 0) {
-      summaryLines.push(`- Touched: ${touchedLocations.slice(0, 8).map((location) => `\`${location}\``).join(", ")}`);
-    }
-    await sendTelegramText(
-      bot,
-      chatId,
-      summaryLines.join("\n"),
-      this.mergeTelegramSendOptions(sendOptions, {
-        reply_parameters: { message_id: sent.message_id }
-      })
-    );
-    if (result.assistantText) {
-      const chunks = this.chunkTelegramText(result.assistantText);
-      for (const chunk of chunks) {
-        await sendTelegramText(
-          bot,
-          chatId,
-          chunk,
-          this.mergeTelegramSendOptions(sendOptions, {
-            reply_parameters: { message_id: sent.message_id }
-          })
-        );
-      }
-    }
-  }
-
-  private async runAcpProxyPrompt(bot: Bot, scopeId: string, prompt: string): Promise<void> {
-    const trimmedPrompt = prompt.trim();
-    if (!trimmedPrompt) return;
-    await this.runAcpPrompt(bot, scopeId, trimmedPrompt, `ACP proxy started\n${trimmedPrompt}`, "task");
-  }
-
-  private formatAcpPermissionOptionLabel(optionId: string, fallback: string): string {
-    const normalized = optionId.toLowerCase();
-    if (normalized.includes("execpolicy") || normalized.includes("dont") || normalized.includes("always")) {
-      return "Always approve";
-    }
-    if (normalized.includes("approve") || normalized.includes("allow") || normalized.includes("yes")) {
-      return "Approve";
-    }
-    if (normalized.includes("deny") || normalized.includes("reject") || normalized.includes("cancel") || normalized.includes("abort")) {
-      return "Deny";
-    }
-    return fallback.length <= 28 ? fallback : `${fallback.slice(0, 27)}…`;
-  }
-
-  private registerAcpPermissionAction(
-    scopeId: string,
-    requestId: string,
-    action: "select" | "deny" | "deny_with_note",
-    optionId?: string
-  ): string {
-    const token = randomUUID().replace(/-/g, "").slice(0, 24);
-    this.acpPermissionActions.set(token, { scopeId, requestId, action, optionId });
-    return `acp:${token}`;
-  }
-
   private registerHostBashApprovalAction(
     scopeId: string,
     requestId: string,
@@ -506,52 +292,6 @@ export class TelegramManager extends BaseChannelRuntime {
     const token = randomUUID().replace(/-/g, "").slice(0, 24);
     this.hostBashApprovalActions.set(token, { scopeId, requestId, action });
     return `hta:${token}`;
-  }
-
-  private buildAcpPermissionKeyboard(scopeId: string, permission: AcpPendingPermissionView): InlineKeyboard {
-    const keyboard = new InlineKeyboard();
-    let buttonsInRow = 0;
-    for (const option of permission.options.slice(0, 4)) {
-      keyboard.text(
-        this.formatAcpPermissionOptionLabel(option.optionId, option.name || option.optionId),
-        this.registerAcpPermissionAction(scopeId, permission.id, "select", option.optionId)
-      );
-      buttonsInRow += 1;
-      if (buttonsInRow >= 2) {
-        keyboard.row();
-        buttonsInRow = 0;
-      }
-    }
-
-    if (buttonsInRow > 0) {
-      keyboard.row();
-    }
-
-    keyboard
-      .text("Deny", this.registerAcpPermissionAction(scopeId, permission.id, "deny"))
-      .text("Deny with note", this.registerAcpPermissionAction(scopeId, permission.id, "deny_with_note"));
-
-    return keyboard;
-  }
-
-  private async sendAcpPermissionCard(
-    bot: Bot,
-    scopeId: string,
-    permission: AcpPendingPermissionView,
-    replyTo?: number | null
-  ): Promise<void> {
-    const target = this.parseChatScopeId(scopeId);
-    const keyboard = this.buildAcpPermissionKeyboard(scopeId, permission);
-    await sendTelegramText(
-      bot,
-      target.chatId,
-      buildAcpPermissionText(permission),
-      {
-        reply_markup: keyboard,
-        ...this.buildTelegramSendOptions(target.messageThreadId),
-        ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {})
-      }
-    );
   }
 
   private buildHostBashApprovalKeyboard(scopeId: string, prompt: HostBashApprovalPrompt): InlineKeyboard {
@@ -641,45 +381,6 @@ export class TelegramManager extends BaseChannelRuntime {
       return lastResult;
     });
 
-    bot.use(async (ctx, next) => {
-      const message = ctx.msg;
-      const chatId = String(ctx.chat?.id ?? "");
-      const scopeId = this.getScopeIdFromTelegramContext(ctx);
-      if (!message || !chatId) {
-        await next();
-        return;
-      }
-      if (allowed.size > 0 && !allowed.has(chatId)) {
-        await next();
-        return;
-      }
-      if (this.acpPermissionInputs.has(scopeId)) {
-        await next();
-        return;
-      }
-      const text = typeof message.text === "string" ? message.text.trim() : "";
-      if (!text) {
-        await next();
-        return;
-      }
-
-      if (!await shouldProxyToAcpSession(this.acp, scopeId, text)) {
-        await next();
-        return;
-      }
-
-      try {
-        await this.runAcpProxyPrompt(bot, scopeId, text);
-      } catch (error) {
-        await sendTelegramText(
-          bot,
-          chatId,
-          error instanceof Error ? error.message : String(error),
-          this.buildTelegramSendOptions(this.parseChatScopeId(scopeId).messageThreadId)
-        );
-      }
-    });
-
     bot.command("chatid", async (ctx) => {
       const chatId = String(ctx.chat.id);
       const scopeId = this.getScopeIdFromTelegramContext(ctx);
@@ -704,87 +405,6 @@ export class TelegramManager extends BaseChannelRuntime {
         await this.handleTelegramSharedCommand(ctx, allowed);
       });
     }
-
-    bot.callbackQuery(/^acp:/, async (ctx) => {
-      const callbackMessage = ctx.callbackQuery.message;
-      const chatId = String(callbackMessage?.chat.id ?? "");
-      const messageThreadId =
-        callbackMessage && "message_thread_id" in callbackMessage && Number.isFinite(callbackMessage.message_thread_id)
-          ? Number(callbackMessage.message_thread_id)
-          : undefined;
-      const scopeId = this.buildChatScopeId(chatId, messageThreadId);
-      const sendOptions = this.buildTelegramSendOptions(messageThreadId);
-      if (!chatId) {
-        await ctx.answerCallbackQuery({ text: "Chat context is unavailable." });
-        return;
-      }
-      if (allowed.size > 0 && !allowed.has(chatId)) {
-        await ctx.answerCallbackQuery({ text: "Chat not allowed." });
-        return;
-      }
-
-      const token = ctx.callbackQuery.data.slice(4);
-      const action = this.acpPermissionActions.get(token);
-      if (!action || action.scopeId !== scopeId) {
-        await ctx.answerCallbackQuery({ text: "This permission request is no longer available." });
-        return;
-      }
-
-      const messageId = callbackMessage?.message_id;
-      const currentText =
-        (callbackMessage && "text" in callbackMessage && typeof callbackMessage.text === "string")
-          ? callbackMessage.text
-          : null;
-
-      try {
-        if (action.action === "deny_with_note") {
-          const permission = this.acp.getPendingPermission(scopeId, action.requestId);
-          if (!permission) {
-            this.acpPermissionActions.delete(token);
-            await ctx.answerCallbackQuery({ text: "Request already resolved." });
-            return;
-          }
-          this.acpPermissionInputs.set(scopeId, { requestId: action.requestId });
-          await ctx.answerCallbackQuery({ text: "Send your note in the next message." });
-          await sendTelegramText(
-            bot,
-            chatId,
-            [
-              `Reply with your note for ACP request \`${action.requestId}\`.`,
-              "Your next text message will be recorded as an operator note and the request will be denied.",
-              "Send `cancel` to keep the permission request pending."
-            ].join("\n"),
-            sendOptions
-          );
-          return;
-        }
-
-        const result = action.action === "select" && action.optionId
-          ? await this.acp.respondToPermission(scopeId, action.requestId, action.optionId)
-          : await this.acp.deny(scopeId, action.requestId);
-        this.acpPermissionActions.delete(token);
-        this.acpPermissionInputs.delete(scopeId);
-        await ctx.answerCallbackQuery({
-          text: action.action === "select" ? "Submitted." : "Denied."
-        });
-        if (messageId && currentText) {
-          await editTelegramMessage(
-            bot,
-            chatId,
-            messageId,
-            `${currentText}\n\nResolved: ${result}`,
-            { reply_markup: { inline_keyboard: [] } }
-          );
-        } else {
-          await sendTelegramText(bot, chatId, result, sendOptions);
-        }
-      } catch (error) {
-        this.acpPermissionActions.delete(token);
-        await ctx.answerCallbackQuery({
-          text: error instanceof Error ? this.summarizeForTelegram(error.message, 180) : "ACP action failed."
-        });
-      }
-    });
 
     bot.callbackQuery(/^hta:/, async (ctx) => {
       const callbackMessage = ctx.callbackQuery.message;
@@ -914,31 +534,6 @@ export class TelegramManager extends BaseChannelRuntime {
 
       if (allowed.size > 0 && !allowed.has(chatId)) {
         momWarn("telegram", "message_blocked_chat", { chatId, userId, messageId });
-        return;
-      }
-
-      const pendingPermissionInput = this.acpPermissionInputs.get(scopeId);
-      if (pendingPermissionInput && rawText) {
-        if (/^cancel$/i.test(rawText)) {
-          this.acpPermissionInputs.delete(scopeId);
-          await ctx.reply(`Cancelled note entry for ACP request ${pendingPermissionInput.requestId}. Permission is still pending.`);
-          return;
-        }
-
-        try {
-          const result = await this.acp.deny(scopeId, pendingPermissionInput.requestId);
-          this.acpPermissionInputs.delete(scopeId);
-          await ctx.reply(
-            [
-              result,
-              `Operator note: ${this.summarizeForTelegram(rawText, 500)}`,
-              "If you want the ACP agent to try a different approach, send a new `/acp task ...` instruction."
-            ].join("\n")
-          );
-        } catch (error) {
-          this.acpPermissionInputs.delete(scopeId);
-          await ctx.reply(error instanceof Error ? error.message : String(error));
-        }
         return;
       }
 
@@ -1165,7 +760,6 @@ export class TelegramManager extends BaseChannelRuntime {
   }
 
   stop(): void {
-    void this.acp.dispose();
     if (this.events.length > 0) {
       for (const watcher of this.events) {
         watcher.stop();

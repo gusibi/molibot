@@ -1,5 +1,5 @@
-import type { RuntimeSettings } from "./index.js";
-import { isKnownProvider } from "./index.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { isKnownProvider } from "$lib/server/settings/index.js";
 import { getModels } from "@mariozechner/pi-ai";
 
 export type ModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";

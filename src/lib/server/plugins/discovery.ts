@@ -1,10 +1,10 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { config } from "../app/env.js";
-import { defaultRuntimeSettings, KNOWN_PROVIDER_LIST, type RuntimeSettings } from "../settings/index.js";
-import { builtInChannelPlugins } from "../channels/registry.js";
-import { builtInMemoryBackends } from "../memory/registry.js";
-import { builtInFeaturePlugins, createFeaturePluginCatalog } from "./feature-registry.js";
+import { config } from "$lib/server/app/env.js";
+import { defaultRuntimeSettings, KNOWN_PROVIDER_LIST, type RuntimeSettings } from "$lib/server/settings/index.js";
+import { builtInChannelPlugins } from "$lib/server/channels/registry.js";
+import { builtInMemoryBackends } from "$lib/server/memory/registry.js";
+import { builtInFeaturePlugins, createFeaturePluginCatalog } from "$lib/server/plugins/feature-registry.js";
 import type {
   ExternalPluginLoadResult,
   InstalledPluginCatalogEntry,
@@ -12,7 +12,7 @@ import type {
   PluginManifest,
   FeaturePlugin,
   ProviderPlugin
-} from "./types.js";
+} from "$lib/server/plugins/types.js";
 
 function readManifest(filePath: string): PluginManifest | null {
   try {

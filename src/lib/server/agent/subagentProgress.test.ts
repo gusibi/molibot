@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSubagentDiagnostic, formatSubagentProgressLabel, formatSubagentProgressSummary } from "./subagentProgress.js";
+import { buildSubagentDiagnostic, formatSubagentProgressLabel, formatSubagentProgressSummary } from "$lib/server/agent/subagentProgress.js";
 
 test("formatSubagentProgressLabel renders task start with role and index", () => {
   assert.equal(

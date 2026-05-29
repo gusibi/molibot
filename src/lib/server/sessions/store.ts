@@ -1,14 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
-import { readJsonFile, storagePaths, writeJsonFile } from "../infra/db/storage.js";
+import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
 import type {
   Channel,
   Conversation,
   ConversationAttachment,
   ConversationMessage,
   Role
-} from "../../shared/types/message.js";
+} from "$lib/shared/types/message.js";
 
 interface SessionsIndex {
   byUserKey: Record<string, string[]>;

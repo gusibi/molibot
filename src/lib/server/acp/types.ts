@@ -1,4 +1,4 @@
-import type { AcpAdapterKind, AcpApprovalMode } from "../settings/index.js";
+import type { AcpAdapterKind, AcpApprovalMode } from "$lib/server/settings/index.js";
 
 export interface JsonRpcRequest {
   jsonrpc: "2.0";

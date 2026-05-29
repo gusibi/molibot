@@ -2,7 +2,7 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "n
 import { join, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { EventStatus, MomEvent } from "../events.js";
+import type { EventStatus, MomEvent } from "$lib/server/agent/events.js";
 
 const eventSchema = Type.Object({
     type: Type.Union([

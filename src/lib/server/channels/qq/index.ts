@@ -3,14 +3,14 @@
  * 使用 package/qqbot 中的 SDK 实现
  */
 
-import type { RuntimeSettings } from "../../settings/index.js";
-import type { ChannelPlugin, ChannelPluginInstance } from "../registry.js";
-import { config } from "../../app/env.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { ChannelPlugin, ChannelPluginInstance } from "$lib/server/channels/registry.js";
+import { config } from "$lib/server/app/env.js";
 import { resolve } from "node:path";
 import type { ResolvedQQBotAccount, QQBotAccountConfig } from "#qqbot/src/types.js";
 import { sendText, sendMedia, sendProactiveMessage, type OutboundResult } from "#qqbot/src/outbound.js";
 import { getAccessToken, initApiConfig } from "#qqbot/src/api.js";
-import { QQManager } from "./runtime.js";
+import { QQManager } from "$lib/server/channels/qq/runtime.js";
 
 export interface QQConfig {
   appId: string;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TELEGRAM_SHARED_COMMANDS } from "./commands.js";
+import { TELEGRAM_SHARED_COMMANDS } from "$lib/server/channels/telegram/commands.js";
 
 test("telegram registers shared live-control, queue, and host-tool commands", () => {
   const registered = new Set<string>(TELEGRAM_SHARED_COMMANDS);

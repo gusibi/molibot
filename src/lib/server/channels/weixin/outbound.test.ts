@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sendWeixinFile, sendWeixinImageReferenceText } from "./outbound.js";
+import { sendWeixinFile, sendWeixinImageReferenceText } from "$lib/server/channels/weixin/outbound.js";
 import { filterWeixinMarkdown } from "#weixin-agent-sdk/src/messaging/send.js";
 
 test("sendWeixinFile sends audio replies as text plus mp3 file attachment", async () => {

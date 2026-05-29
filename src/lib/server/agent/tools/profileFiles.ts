@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { getAgentDir, getAgentForBot, writeProfileFiles } from "../profiles.js";
-import type { RuntimeSettings } from "../../settings/index.js";
-import { resolveDataRootFromWorkspacePath } from "../workspace.js";
+import { getAgentDir, getAgentForBot, writeProfileFiles } from "$lib/server/agent/prompts/profiles.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { resolveDataRootFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
 
 const PROFILE_FILE_NAMES = ["BOT.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md", "SONG.md"] as const;
 type ProfileFileName = (typeof PROFILE_FILE_NAMES)[number];

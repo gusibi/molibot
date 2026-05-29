@@ -6,7 +6,7 @@ import type {
   HostBashNetworkAccess,
   HostBashPendingAction,
   HostBashPermissions
-} from "./types.js";
+} from "$lib/server/hostBash/types.js";
 
 export const defaultHostBashPermissions: HostBashPermissions = {
   envAllowlist: [],

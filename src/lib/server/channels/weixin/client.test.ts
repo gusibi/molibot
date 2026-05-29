@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { WeixinBot } from "./client.js";
+import { WeixinBot } from "$lib/server/channels/weixin/client.js";
 
 test("WeixinBot sendText splits long text into independent FINISH messages", async () => {
   const originalFetch = globalThis.fetch;

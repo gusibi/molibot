@@ -1,8 +1,8 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { loadSkillsFromWorkspace, searchSkillsLocally, type LoadedSkill, type SkillSearchMatch } from "../skills.js";
-import { momLog } from "../log.js";
-import type { RuntimeSettings } from "../../settings/index.js";
+import { loadSkillsFromWorkspace, searchSkillsLocally, type LoadedSkill, type SkillSearchMatch } from "$lib/server/agent/skills/skills.js";
+import { momLog } from "$lib/server/agent/common/log.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 const skillSearchSchema = Type.Object({
   intent: Type.String(),

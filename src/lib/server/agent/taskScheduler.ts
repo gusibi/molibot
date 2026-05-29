@@ -1,10 +1,10 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { config } from "../app/env.js";
-import { EventsWatcher } from "./events.js";
-import { momLog, momWarn } from "./log.js";
-import { TASK_CHANNEL_ROOTS } from "./taskChannels.js";
-import type { ChannelManager } from "../channels/registry.js";
+import { config } from "$lib/server/app/env.js";
+import { EventsWatcher } from "$lib/server/agent/events.js";
+import { momLog, momWarn } from "$lib/server/agent/common/log.js";
+import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
+import type { ChannelManager } from "$lib/server/channels/registry.js";
 
 export class TaskScheduler {
   private watchers: EventsWatcher[] = [];

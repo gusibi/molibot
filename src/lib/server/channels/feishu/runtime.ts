@@ -1,38 +1,32 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { basename, extname } from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
-import type { RuntimeSettings } from "../../settings/index.js";
-import { buildHostBashApprovalPrompt, getHostBashStore, type HostBashApprovalPrompt } from "../../hostBash/index.js";
-import { type MomEvent, type EventDeliveryMode } from "../../agent/events.js";
-import { createRunId, momError, momLog, momWarn } from "../../agent/log.js";
-import { SharedRuntimeCommandService } from "../../agent/channelCommands.js";
-import { formatRunArchiveNotice } from "../../agent/runDetail.js";
-import type { ChannelInboundMessage } from "../../agent/types.js";
-import type { SessionStore } from "../../sessions/store.js";
-import type { MemoryGateway } from "../../memory/gateway.js";
-import type { AiUsageTracker } from "../../usage/tracker.js";
-import type { ModelErrorTracker } from "../../usage/modelErrorTracker.js";
-import type { AcpPendingPermissionView } from "../../acp/types.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { buildHostBashApprovalPrompt, getHostBashStore, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
+import { type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
+import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
+import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
+import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
+import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
+import type { SessionStore } from "$lib/server/sessions/store.js";
+import type { MemoryGateway } from "$lib/server/memory/gateway.js";
+import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
+import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import {
-    buildFeishuAcpPermissionResultCard,
-    buildFeishuAcpPermissionCard,
     buildFeishuHostToolApprovalCard,
     buildFeishuHostToolApprovalResultCard,
     deleteFeishuMessage,
-    editFeishuStatusCard,
     editFeishuText,
     sendFeishuCard,
     sendFeishuFile,
-    sendFeishuStatusCard,
     sendFeishuText
-} from "./messaging.js";
-import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "./message-intake.js";
-import { BasicChannelAcpTemplate } from "../shared/acp.js";
-import { BaseChannelRuntime } from "../shared/baseRuntime.js";
-import { rebuildImageContentsFromAttachments } from "../shared/attachmentImageContents.js";
-import { InboundTaskCoordinator } from "../shared/inboundCoordinator.js";
-import { SqliteOutbox } from "../shared/outbox.js";
-import { executeHostBashApproval, hasVisibleHostBashOutput } from "../../agent/hostBashExec.js";
+} from "$lib/server/channels/feishu/messaging.js";
+import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "$lib/server/channels/feishu/message-intake.js";
+import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
+import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
+import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
+import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
+import { executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec.js";
 
 export interface FeishuConfig {
     appId: string;
@@ -45,7 +39,6 @@ export interface FeishuConfig {
 // Orchestrates Feishu-specific inbound handling, command flow, and runner lifecycle.
 // Leaf concerns like queueing, message send/edit, and intake parsing live in sibling files.
 export class FeishuManager extends BaseChannelRuntime {
-    private readonly acpTemplate: BasicChannelAcpTemplate<void>;
     private readonly commandService: SharedRuntimeCommandService<string>;
     private readonly outbox: SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>;
     private readonly inboundTasks: InboundTaskCoordinator<ChannelInboundMessage, string>;
@@ -80,15 +73,6 @@ export class FeishuManager extends BaseChannelRuntime {
             sessionStore,
             options
         });
-        this.acpTemplate = new BasicChannelAcpTemplate<void>({
-            acp: this.acp,
-            sendText: async (chatId, _context, text) => {
-                await this.sendText(chatId, text);
-            },
-            runPrompt: async (chatId, _context, request) => {
-                await this.runAcpPrompt(chatId, request.prompt, request.startText);
-            }
-        });
         this.inboundTasks = new InboundTaskCoordinator<ChannelInboundMessage, string>({
             channel: "feishu",
             instanceId: this.instanceId,
@@ -114,9 +98,6 @@ export class FeishuManager extends BaseChannelRuntime {
             stopRun: (scopeId) => this.stopChatWork(scopeId),
             steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
             followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
-            cancelAcpRun: (scopeId) => this.acp.cancelRun(scopeId),
-            maybeHandleAcpCommand: (scopeId, cmd, rawArg) =>
-                this.acpTemplate.maybeHandleCommand(scopeId, cmd, rawArg, undefined),
             sendText: async (chatId, text) => {
                 await this.sendText(chatId, text);
             },
@@ -143,8 +124,7 @@ export class FeishuManager extends BaseChannelRuntime {
             onSessionMutation: (scopeId) => {
                 void this.writePromptPreview([scopeId]);
             },
-            ...this.inboundTasks.toCommandOptions(),
-            helpLines: this.acpTemplate.helpLines()
+            ...this.inboundTasks.toCommandOptions()
         });
         this.outbox = new SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>({
             channel: "feishu",
@@ -274,14 +254,6 @@ export class FeishuManager extends BaseChannelRuntime {
         this.currentVerificationToken = "";
         this.currentEncryptKey = "";
         this.currentAllowedChatIdsKey = "";
-        void this.acp.dispose();
-    }
-
-    private async sendAcpPermissionCard(chatId: string, permission: AcpPendingPermissionView): Promise<void> {
-        await sendFeishuCard(this.client, chatId, buildFeishuAcpPermissionCard(permission, {
-            botId: this.instanceId,
-            chatId
-        }));
     }
 
     private async sendHostToolApprovalCard(chatId: string, prompt: HostBashApprovalPrompt): Promise<void> {
@@ -358,103 +330,7 @@ export class FeishuManager extends BaseChannelRuntime {
                 );
             }
         }
-        if (String(value.kind ?? "").trim() !== "acp_permission") return undefined;
-        if (String(value.botId ?? "").trim() !== this.instanceId) return undefined;
-
-        const chatId = String(value.chatId ?? "").trim();
-        const requestId = String(value.requestId ?? "").trim();
-        const action = String(value.action ?? "").trim();
-        const optionId = String(value.optionId ?? "").trim();
-        if (!chatId || !requestId || !action) return undefined;
-
-        const permission = this.acp.getPendingPermission(chatId, requestId) ?? {
-            id: requestId,
-            title: "Approval Request",
-            kind: "permission",
-            options: [],
-            createdAt: new Date().toISOString()
-        };
-
-        try {
-            let outcome = "";
-            if (action === "approve") {
-                if (!optionId) {
-                    throw new Error("Missing optionId for approve action.");
-                }
-                outcome = await this.acp.approve(chatId, requestId, optionId);
-                return buildFeishuAcpPermissionResultCard(permission, outcome, "green");
-            }
-            if (action === "deny") {
-                outcome = await this.acp.deny(chatId, requestId);
-                return buildFeishuAcpPermissionResultCard(permission, outcome, "red");
-            }
-            return buildFeishuAcpPermissionResultCard(permission, `Unsupported action: ${action}`, "red");
-        } catch (error) {
-            return buildFeishuAcpPermissionResultCard(
-                permission,
-                error instanceof Error ? error.message : String(error),
-                "red"
-            );
-        }
-    }
-
-    private async runAcpPrompt(chatId: string, prompt: string, startText: string): Promise<void> {
-        const started = await sendFeishuStatusCard(this.client, chatId, {
-            title: "ACP Running",
-            body: startText,
-            tone: "blue"
-        });
-        const statusMessageId = started?.message_id ?? null;
-        let lastStatus = startText;
-        const setStatus = async (text: string) => {
-            if (!statusMessageId || !text.trim() || text === lastStatus) return;
-            await editFeishuStatusCard(this.client, statusMessageId, {
-                title: "ACP Running",
-                body: text,
-                tone: "blue"
-            });
-            lastStatus = text;
-        };
-
-        const result = await this.acp.runTask(chatId, prompt, {
-            onStatus: async (text) => {
-                await setStatus(text);
-            },
-            onEvent: async (text) => {
-                await this.sendText(chatId, text);
-            },
-            onPermissionRequest: async (permission) => {
-                await this.sendAcpPermissionCard(chatId, permission);
-            }
-        });
-
-        const completedTools = result.toolCalls.filter((tool) => tool.status === "completed");
-        const failedTools = result.toolCalls.filter((tool) => tool.status === "failed");
-        const touchedLocations = Array.from(
-            new Set(
-                completedTools
-                    .flatMap((tool) => tool.locations)
-                    .map((location) => location.trim())
-                    .filter(Boolean)
-            )
-        );
-        const summaryLines = [
-            "ACP result:",
-            `Stop reason: ${result.stopReason}`,
-            `Tool calls: ${result.toolCalls.length}`,
-            result.lastStatus ? `Last status: ${result.lastStatus}` : ""
-        ].filter(Boolean);
-        if (completedTools.length > 0) summaryLines.push(`Completed tools: ${completedTools.length}`);
-        if (failedTools.length > 0) summaryLines.push(`Failed tools: ${failedTools.length}`);
-        if (touchedLocations.length > 0) summaryLines.push(`Touched: ${touchedLocations.slice(0, 8).join(", ")}`);
-        await sendFeishuStatusCard(this.client, chatId, {
-            title: result.stopReason === "completed" ? "ACP Finished" : "ACP Stopped",
-            body: summaryLines.join("\n"),
-            tone: result.stopReason === "completed" ? "green" : "orange"
-        });
-        if (result.assistantText.trim()) {
-            await this.sendText(chatId, result.assistantText.trim());
-        }
+        return undefined;
     }
 
     private async handleIncomingMessage(message: Record<string, any>, sender: Record<string, any>, allowed: Set<string>): Promise<void> {
@@ -496,14 +372,6 @@ export class FeishuManager extends BaseChannelRuntime {
         }
 
         const lowered = event.text.trim().toLowerCase();
-        try {
-            if (await this.acpTemplate.maybeProxy(chatId, event.text, undefined)) {
-                return;
-            }
-        } catch (error) {
-            await this.sendText(chatId, error instanceof Error ? error.message : String(error));
-            return;
-        }
 
         const commandText = lowered === "stop" ? "/stop" : event.text;
         const isCommand = await this.handleCommand(chatId, commandText);

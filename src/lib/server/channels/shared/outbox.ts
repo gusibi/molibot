@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { storagePaths } from "../../infra/db/storage.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 
 type OutboxStatus = "pending" | "processing";
 

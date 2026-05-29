@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createCipheriv, randomBytes } from "node:crypto";
 import { MessageItemType, MessageType } from "#weixin-agent-sdk/src/api/types.js";
-import { extractWeixinAttachments } from "./media.js";
-import type { IncomingMessage } from "./client.js";
+import { extractWeixinAttachments } from "$lib/server/channels/weixin/media.js";
+import type { IncomingMessage } from "$lib/server/channels/weixin/client.js";
 
 function encryptAesEcb(data: Buffer, key: Buffer): Buffer {
   const cipher = createCipheriv("aes-128-ecb", key, null);

@@ -1,7 +1,7 @@
-import type { SessionStore } from "../sessions/store.js";
-import { JsonFileMemoryBackend } from "./jsonFileCore.js";
-import { MoryMemoryBackend } from "./moryCore.js";
-import type { MemoryBackend } from "./types.js";
+import type { SessionStore } from "$lib/server/sessions/store.js";
+import { JsonFileMemoryBackend } from "$lib/server/memory/jsonFileCore.js";
+import { MoryMemoryBackend } from "$lib/server/memory/moryCore.js";
+import type { MemoryBackend } from "$lib/server/memory/types.js";
 
 export interface MemoryBackendDefinition {
   key: string;

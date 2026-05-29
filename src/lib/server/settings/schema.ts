@@ -3,7 +3,7 @@ import type {
   CustomProviderThinkingFormat,
   ReasoningEffortMap,
   RuntimeThinkingLevel
-} from "./thinking.js";
+} from "$lib/server/settings/thinking.js";
 
 export type ProviderMode = "pi" | "custom";
 export type CustomProviderProtocol = "openai-compatible" | "anthropic";

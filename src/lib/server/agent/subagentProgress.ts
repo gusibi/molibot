@@ -1,4 +1,4 @@
-import type { RunnerUiEvent } from "./types.js";
+import type { RunnerUiEvent } from "$lib/server/agent/core/types.js";
 
 type SubagentRunnerEvent = Extract<RunnerUiEvent, { type: "subagent_execution" }>;
 

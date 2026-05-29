@@ -1,4 +1,4 @@
-import type { AcpProgressEvent } from "../../acp/types.js";
+import type { AcpProgressEvent } from "$lib/server/acp/types.js";
 
 const HISTORY_LIMIT = 20;
 const TEXT_LIMIT = 3600;

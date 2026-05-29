@@ -1,5 +1,4 @@
 import type { KnownProvider } from "@mariozechner/pi-ai";
-import { createAcpTargetPreset } from "../acp/providers/index.js";
 import {
   type AgentSettings,
   type AcpSettings,
@@ -14,11 +13,11 @@ import {
   type SkillSearchSettings,
   type RuntimeSettings,
   type TelegramBotConfig
-} from "./schema.js";
-import { defaultToolSandboxSettings } from "./toolSandbox.js";
-import { defaultHostToolSettings } from "./hostTools.js";
-import { sanitizeRuntimeThinkingLevel } from "./thinking.js";
-import { normalizeTimeZone } from "../time.js";
+} from "$lib/server/settings/schema.js";
+import { defaultToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
+import { defaultHostToolSettings } from "$lib/server/settings/hostTools.js";
+import { sanitizeRuntimeThinkingLevel } from "$lib/server/settings/thinking.js";
+import { normalizeTimeZone } from "$lib/server/time.js";
 
 function listFromEnv(name: string): string[] {
   const raw = process.env[name] ?? "";
@@ -275,11 +274,8 @@ const defaultCloudflareHtmlPluginSettings: RuntimeSettings["plugins"]["cloudflar
 };
 
 const defaultAcpSettings: AcpSettings = {
-  enabled: true,
-  targets: [
-    createAcpTargetPreset("codex"),
-    createAcpTargetPreset("claude-code")
-  ],
+  enabled: false,
+  targets: [],
   projects: []
 };
 

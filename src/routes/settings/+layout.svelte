@@ -18,7 +18,6 @@
       usageStats: "用量统计",
       modelErrors: "模型报错记录",
       mcpServers: "MCP 服务",
-      acpTargets: "ACP 目标",
       channels: "渠道",
       webProfiles: "Web 配置",
       telegramBot: "Telegram 机器人",
@@ -55,7 +54,6 @@
       usageStats: "Usage Stats",
       modelErrors: "Model Error Logs",
       mcpServers: "MCP Servers",
-      acpTargets: "ACP Targets",
       channels: "Channels",
       webProfiles: "Web Profiles",
       telegramBot: "Telegram Bot",
@@ -101,7 +99,6 @@
         { href: "/settings/ai/usage", label: "Usage Stats", exact: true },
         { href: "/settings/ai/errors", label: "Model Error Logs", exact: true },
         { href: "/settings/mcp", label: "MCP Servers", exact: true },
-        { href: "/settings/acp", label: "ACP Targets", exact: true },
       ],
     },
     {
@@ -235,7 +232,6 @@
         { href: "/settings/ai/usage", label: t("usageStats"), exact: true },
         { href: "/settings/ai/errors", label: t("modelErrors"), exact: true },
         { href: "/settings/mcp", label: t("mcpServers"), exact: true },
-        { href: "/settings/acp", label: t("acpTargets"), exact: true },
       ],
     },
     {

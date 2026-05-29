@@ -1,6 +1,6 @@
-import type { ChannelPlugin } from "../channels/registry.js";
+import type { ChannelPlugin } from "$lib/server/channels/registry.js";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { RuntimeSettings } from "../settings/index.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 export type InstalledPluginKind = "channel" | "provider" | "feature" | "memory-backend";
 export type InstalledPluginSource = "built-in" | "external";

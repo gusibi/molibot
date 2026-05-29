@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isTelegramBotMention, stripTelegramBotMention } from "./mentions.js";
+import { isTelegramBotMention, stripTelegramBotMention } from "$lib/server/channels/telegram/mentions.js";
 
 test("telegram bot mention matches direct username text", () => {
   const text = "@molipi_bot hi";

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { getRuntime } from "$lib/server/app/runtime";
-import { RunnerPool } from "$lib/server/agent/runner";
-import { MomRuntimeStore } from "$lib/server/agent/store";
+import { RunnerPool } from "$lib/server/agent/core/runner";
+import { MomRuntimeStore } from "$lib/server/agent/session/store";
 import { storagePaths } from "$lib/server/infra/db/storage";
 import {
   sanitizeWebProfileId,

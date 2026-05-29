@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultRuntimeSettings } from "../../settings/defaults.js";
+import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import {
   createSubagentTool,
   isSafeReadOnlySubagentCommand,
@@ -9,7 +9,7 @@ import {
   resolveSubagentModelRoute,
   summarizeSubagentStopReason,
   summarizeSubagentResultsForParent
-} from "./subagent.js";
+} from "$lib/server/agent/tools/subagent.js";
 
 test("read-only subagent bash rejects shell control operators", () => {
   assert.equal(isSafeReadOnlySubagentCommand("git diff -- src/lib/server/agent/runner.ts"), true);

@@ -4,7 +4,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
-import { parseSkillFrontmatter } from "$lib/server/agent/skillFrontmatter.js";
+import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import { isKnownProvider } from "$lib/server/settings";
 
 type SkillScope = "global" | "chat" | "bot";

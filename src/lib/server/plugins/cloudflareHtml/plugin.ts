@@ -1,6 +1,6 @@
-import type { RuntimeSettings } from "../../settings/index.js";
-import type { BuiltInFeaturePlugin, PluginSettingField } from "../types.js";
-import { createCloudflareHtmlPublishTool } from "./publishHtmlTool.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { BuiltInFeaturePlugin, PluginSettingField } from "$lib/server/plugins/types.js";
+import { createCloudflareHtmlPublishTool } from "$lib/server/plugins/cloudflareHtml/publishHtmlTool.js";
 
 const cloudflareHtmlSettingsFields: PluginSettingField[] = [
   {

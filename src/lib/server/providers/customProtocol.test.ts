@@ -8,8 +8,8 @@ import {
   buildAnthropicCompatibleHeaders,
   buildOpenAICompatibleHeaders,
   testCustomProvider
-} from "./customProtocol.js";
-import { readWorkspaceVisionSmokeImage } from "./visionSmokeFixture.js";
+} from "$lib/server/providers/customProtocol.js";
+import { readWorkspaceVisionSmokeImage } from "$lib/server/providers/visionSmokeFixture.js";
 
 test("custom protocol helpers build documented image-capable request headers", () => {
   assert.deepEqual(buildOpenAICompatibleHeaders({ apiKey: "test-key" }), {

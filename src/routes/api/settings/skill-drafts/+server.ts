@@ -4,10 +4,10 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
-import { deleteSkillDraftFile, overwriteSkillDraft, readSkillDrafts } from "$lib/server/agent/reviewData";
-import { parseSkillFrontmatter } from "$lib/server/agent/skillFrontmatter";
-import { promoteDraftToLiveSkill } from "$lib/server/agent/skillDraft";
-import type { SkillScope } from "$lib/server/agent/skills";
+import { deleteSkillDraftFile, overwriteSkillDraft, readSkillDrafts } from "$lib/server/agent/session/reviewData";
+import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter";
+import { promoteDraftToLiveSkill } from "$lib/server/agent/skills/skillDraft";
+import type { SkillScope } from "$lib/server/agent/skills/skills";
 
 type SkillDraftAction = "save" | "delete" | "promote";
 

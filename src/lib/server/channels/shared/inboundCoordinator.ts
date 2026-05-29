@@ -3,8 +3,8 @@ import {
   type PersistentTaskListItem,
   type PersistentTaskPreviewResult,
   type PersistentTaskQueueOptions
-} from "./persistentTaskQueue.js";
-import type { SharedRuntimeCommandOptions, SharedRuntimeCommandContext } from "../../agent/channelCommands.js";
+} from "$lib/server/channels/shared/persistentTaskQueue.js";
+import type { SharedRuntimeCommandOptions, SharedRuntimeCommandContext } from "$lib/server/agent/commands/channelCommands.js";
 
 interface InboundTaskCoordinatorOptions<TPayload, TTarget>
   extends Omit<PersistentTaskQueueOptions<TPayload>, "process"> {

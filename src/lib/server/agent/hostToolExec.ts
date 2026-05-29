@@ -2,15 +2,15 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ApprovedHostTool, HostToolApprovalRequest, HostToolPermissions } from "../settings/index.js";
-import { normalizeCommandOutput, stripAnsi } from "./tools/helpers.js";
+import type { ApprovedHostTool, HostToolApprovalRequest, HostToolPermissions } from "$lib/server/settings/index.js";
+import { normalizeCommandOutput, stripAnsi } from "$lib/server/agent/tools/helpers.js";
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
   formatSize,
   truncateMiddle,
   type TruncationResult
-} from "./tools/truncate.js";
+} from "$lib/server/agent/tools/truncate.js";
 
 interface HostToolExecutionDetails {
   hostTool: true;

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { executeApprovedHostBash, executeHostBashApproval, hasVisibleHostBashOutput } from "./hostBashExec.js";
-import type { ApprovedHostBashEntry, HostBashApprovalRecord } from "../hostBash/index.js";
+import { executeApprovedHostBash, executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec.js";
+import type { ApprovedHostBashEntry, HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
 
 function approvedPrintfBash(envAllowlist: string[] = ["PATH"]): ApprovedHostBashEntry {
   return {

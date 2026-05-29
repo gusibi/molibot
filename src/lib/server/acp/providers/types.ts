@@ -1,4 +1,4 @@
-import type { AcpAdapterKind, AcpTargetConfig } from "../../settings/schema.js";
+import type { AcpAdapterKind, AcpTargetConfig } from "$lib/server/settings/schema.js";
 
 export interface AcpProviderProfile {
   id: Exclude<AcpAdapterKind, "custom">;

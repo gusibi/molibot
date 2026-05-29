@@ -1,4 +1,4 @@
-import type { ModelOption as SharedModelOption, ModelRoute as SharedModelRoute } from "../../settings/modelSwitch.js";
+import type { ModelOption as SharedModelOption, ModelRoute as SharedModelRoute } from "$lib/server/settings/modelSwitch.js";
 
 export interface StatusSession {
   statusMessageId: number | null;

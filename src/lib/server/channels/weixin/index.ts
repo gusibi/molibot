@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
-import { config } from "../../app/env.js";
-import type { RuntimeSettings } from "../../settings/index.js";
-import type { ChannelPlugin, ChannelPluginInstance } from "../registry.js";
-import { WeixinManager, type WeixinConfig } from "./runtime.js";
+import { config } from "$lib/server/app/env.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { ChannelPlugin, ChannelPluginInstance } from "$lib/server/channels/registry.js";
+import { WeixinManager, type WeixinConfig } from "$lib/server/channels/weixin/runtime.js";
 
 function listInstances(settings: RuntimeSettings): ChannelPluginInstance<WeixinConfig>[] {
   return (settings.channels.weixin?.instances ?? [])

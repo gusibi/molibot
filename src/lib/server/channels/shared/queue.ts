@@ -1,4 +1,4 @@
-import { momError } from "../../agent/log.js";
+import { momError } from "$lib/server/agent/common/log.js";
 
 export class ChannelQueue {
   private readonly queue: Array<() => Promise<void>> = [];

@@ -1,8 +1,9 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import * as Diff from "diff";
-import { execCommand, shellEscape } from "./helpers.js";
-import { createPathGuard, resolveToolPath } from "./path.js";
+import { toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
+import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
+import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
 
 const editSchema = Type.Object({
   label: Type.String(),
@@ -84,48 +85,45 @@ export function buildDiff(oldText: string, newText: string, contextLines = 4): s
   return out.join("\n");
 }
 
-export function createEditTool(options: { cwd: string; workspaceDir: string }): AgentTool<typeof editSchema> {
+export function getEditToolDefinition(options: { cwd: string; workspaceDir: string }): ToolDefinition {
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
 
   return {
+    id: "edit",
     name: "edit",
-    label: "edit",
     description: "Replace exact text in a file.",
-    parameters: editSchema,
-    execute: async (_toolCallId, params, signal) => {
-      const filePath = resolveToolPath(options.cwd, params.path);
+    inputSchema: editSchema,
+    risk: "medium",
+    source: "builtin",
+    handler: async (params: any, ctx) => {
+      const filePath = resolveToolPath(ctx.cwd, params.path);
       ensureAllowedPath(filePath);
 
-      const readResult = await execCommand(`cat ${shellEscape(filePath)}`, { cwd: options.cwd, signal });
-      if (readResult.code !== 0) {
-        throw new Error(readResult.stderr || `Failed to open ${params.path}`);
-      }
-
-      const content = readResult.stdout;
+      const content = await ctx.fs.readText(filePath);
       if (!content.includes(params.oldText)) {
-        throw new Error("oldText not found in file");
+        return { ok: false, error: "oldText not found in file" };
       }
       if (content.split(params.oldText).length - 1 > 1) {
-        throw new Error("oldText appears multiple times; provide a unique snippet");
+        return { ok: false, error: "oldText appears multiple times; provide a unique snippet" };
       }
 
       const replaced = content.replace(params.oldText, params.newText);
       if (content === replaced) {
-        throw new Error(`No changes made to ${params.path}; replacement produced identical content`);
+        return { ok: false, error: `No changes made to ${params.path}; replacement produced identical content` };
       }
 
-      const writeResult = await execCommand(`printf '%s' ${shellEscape(replaced)} > ${shellEscape(filePath)}`, {
-        cwd: options.cwd,
-        signal
-      });
-      if (writeResult.code !== 0) {
-        throw new Error(writeResult.stderr || `Failed to write ${params.path}`);
-      }
+      await ctx.fs.writeText(filePath, replaced);
 
       return {
+        ok: true,
         content: [{ type: "text", text: `Updated ${params.path}` }],
         details: { diff: buildDiff(content, replaced) }
       };
     }
   };
+}
+
+export function createEditTool(options: { cwd: string; workspaceDir: string }): AgentTool<typeof editSchema> {
+  const def = getEditToolDefinition(options);
+  return toolDefToAgentTool(def, options.cwd);
 }

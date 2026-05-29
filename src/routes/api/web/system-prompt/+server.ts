@@ -6,7 +6,7 @@ import { storagePaths } from "$lib/server/infra/db/storage";
 import {
   buildSystemPromptPreview,
   getSystemPromptSources
-} from "$lib/server/agent/prompt";
+} from "$lib/server/agent/prompts/prompt";
 import {
   sanitizeWebProfileId,
   sanitizeWebUserId,

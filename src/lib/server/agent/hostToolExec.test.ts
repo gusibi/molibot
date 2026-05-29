@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { executeApprovedHostTool, executeHostToolApproval } from "./hostToolExec.js";
-import type { ApprovedHostTool, HostToolApprovalRequest } from "../settings/index.js";
+import { executeApprovedHostTool, executeHostToolApproval } from "$lib/server/agent/hostToolExec.js";
+import type { ApprovedHostTool, HostToolApprovalRequest } from "$lib/server/settings/index.js";
 
 function approvedPrintfTool(): ApprovedHostTool {
   return {

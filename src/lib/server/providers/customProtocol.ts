@@ -5,12 +5,12 @@ import type {
   ModelCapabilityVerification,
   ModelRole,
   RuntimeSettings
-} from "../settings/index.js";
+} from "$lib/server/settings/index.js";
 import {
   applyDirectReasoningParams,
   resolveThinkingLevel
-} from "./customThinking.js";
-import type { ConversationMessage } from "../../shared/types/message.js";
+} from "$lib/server/providers/customThinking.js";
+import type { ConversationMessage } from "$lib/shared/types/message.js";
 
 export interface DirectProviderReply {
   text: string;

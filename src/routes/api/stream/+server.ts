@@ -1,7 +1,7 @@
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
-import type { RunnerUiEvent } from "$lib/server/agent/types";
+import type { RunnerUiEvent } from "$lib/server/agent/core/types";
 import { sanitizeRuntimeThinkingLevel } from "$lib/server/settings";
 import {
   sanitizeWebProfileId,
@@ -9,6 +9,7 @@ import {
   toWebExternalUserId
 } from "$lib/server/web/identity";
 import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
+import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 
 interface StreamBody {
   userId?: string;
@@ -88,6 +89,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const runtime = getRuntime();
+  const workspaceId = resolveWorkspaceId();
   const externalUserId = toWebExternalUserId(userId, profileId);
   const conversation = runtime.sessions.getOrCreateConversation(
     "web",
@@ -135,6 +137,7 @@ export const POST: RequestHandler = async ({ request }) => {
             thinkingLevelOverride: thinkingLevel,
             message: {
               chatId: externalUserId,
+              workspaceId,
               chatType: "private",
               messageId: Date.now(),
               userId: externalUserId,

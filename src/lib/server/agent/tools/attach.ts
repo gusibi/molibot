@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { createPathGuard, resolveToolPath } from "./path.js";
+import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 
 const attachSchema = Type.Object({
   label: Type.String(),

@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
-import { config } from "../../app/env.js";
-import type { RuntimeSettings } from "../../settings/index.js";
-import type { ChannelPlugin, ChannelPluginInstance } from "../registry.js";
-import { FeishuManager, type FeishuConfig } from "./runtime.js";
+import { config } from "$lib/server/app/env.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { ChannelPlugin, ChannelPluginInstance } from "$lib/server/channels/registry.js";
+import { FeishuManager, type FeishuConfig } from "$lib/server/channels/feishu/runtime.js";
 
 function listInstances(settings: RuntimeSettings): ChannelPluginInstance<FeishuConfig>[] {
   return (settings.channels.feishu?.instances ?? [])

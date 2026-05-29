@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildHostToolApprovalPrompt, buildNonInteractiveHostToolApprovalText } from "./hostTools.js";
-import type { HostToolApprovalRequest } from "./index.js";
+import { buildHostToolApprovalPrompt, buildNonInteractiveHostToolApprovalText } from "$lib/server/settings/hostTools.js";
+import type { HostToolApprovalRequest } from "$lib/server/settings/index.js";
 
 test("non-interactive host tool approval text explains text fallback and explicit commands", () => {
   const request: HostToolApprovalRequest = {

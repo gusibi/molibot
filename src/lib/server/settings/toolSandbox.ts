@@ -2,7 +2,7 @@ import type {
   ToolSandboxEnvInheritMode,
   ToolSandboxInitFailureMode,
   ToolSandboxSettings
-} from "./schema.js";
+} from "$lib/server/settings/schema.js";
 
 const DEFAULT_DENY_READ = [
   "~/.ssh",
