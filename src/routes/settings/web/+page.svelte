@@ -28,6 +28,7 @@
     name: string;
     enabled: boolean;
     agentId: string;
+    sandboxEnabled?: boolean;
     profileFiles: Record<string, string>;
     isNew: boolean;
   }
@@ -114,11 +115,13 @@
             name?: string;
             enabled?: boolean;
             agentId?: string;
+            sandboxEnabled?: boolean;
           }) => ({
             id: profile.id ?? createProfileId(),
             name: profile.name ?? "",
             enabled: profile.enabled ?? true,
             agentId: profile.agentId ?? "",
+            sandboxEnabled: profile.sandboxEnabled,
             profileFiles: emptyProfileFiles(),
             isNew: false
           }))
@@ -238,6 +241,7 @@
             name: normalized.name,
             enabled: normalized.enabled,
             agentId: normalized.agentId,
+            sandboxEnabled: normalized.sandboxEnabled,
             credentials: {},
             allowedChatIds: []
           }
@@ -421,6 +425,38 @@
                   <p class="text-xs text-muted-foreground">Disabled profiles stay saved but are not selectable at runtime.</p>
                 </div>
                 <Switch id="web-profile-enabled" bind:checked={selectedProfile.enabled} />
+              </div>
+
+              <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
+                <div class="flex flex-col gap-1">
+                  <Label for="web-profile-sandbox">Sandbox override</Label>
+                  <p class="text-xs text-muted-foreground">Override the global sandbox setting for this profile. Leave unchecked to inherit.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  {#if selectedProfile.sandboxEnabled !== undefined}
+                    <Badge variant={selectedProfile.sandboxEnabled ? "secondary" : "destructive"}>
+                      {selectedProfile.sandboxEnabled ? "Force ON" : "Force OFF"}
+                    </Badge>
+                  {/if}
+                  <Switch
+                    id="web-profile-sandbox"
+                    checked={selectedProfile.sandboxEnabled === true}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        selectedProfile.sandboxEnabled = true;
+                      } else if (selectedProfile.sandboxEnabled === true) {
+                        selectedProfile.sandboxEnabled = false;
+                      } else {
+                        selectedProfile.sandboxEnabled = undefined;
+                      }
+                    }}
+                  />
+                  {#if selectedProfile.sandboxEnabled !== undefined}
+                    <Button variant="ghost" size="sm" type="button" onclick={() => { selectedProfile.sandboxEnabled = undefined; }}>
+                      Reset
+                    </Button>
+                  {/if}
+                </div>
               </div>
 
               <div class="flex flex-col gap-2">

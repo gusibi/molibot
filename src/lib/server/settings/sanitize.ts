@@ -212,7 +212,8 @@ export function sanitizeAgents(input: unknown): AgentSettings[] {
       id,
       name: String(item.name ?? "").trim() || id,
       description: String(item.description ?? "").trim(),
-      enabled: item.enabled === undefined ? true : Boolean(item.enabled)
+      enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+      sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled)
     });
   }
   return out;
@@ -371,7 +372,8 @@ export function sanitizeChannels(
           credentials,
           allowedChatIds: Array.isArray(item.allowedChatIds)
             ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
-            : []
+            : [],
+          sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled)
         };
       })
       .filter(Boolean) as ChannelSettingsMap[string]["instances"];

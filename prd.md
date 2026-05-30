@@ -69,6 +69,15 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - P1 建议新增 parent/subagent run ledger，持久化 run tree、模型路由、有效 sandbox profile、审批记录、诊断事件、产物清单和终止原因。
 - P2 建议引入 checkpoint/recovery：至少提供 run 前后 changed-file 摘要、artifact manifest、失败原因和可恢复边界；完整 workspace rollback 或 Docker/remote sandbox provider 应放在恢复模型稳定之后。
 ## 2.4 Agent v2.2 Refactoring Progress (2026-05-30)
+- **Review Optimization Tasks 4 & 5 Completed (2026-05-30)**:
+  - Fixed subagent approval depth propagation by adding `requestedByDepth` to `createSubagentTool` options and incrementing it `(options.requestedByDepth ?? 0) + 1` for host approval payload construction.
+  - Documented security boundary in `TurnOrchestrator.prepareTurn`, clarifying that channel runtimes authenticate/authorize actors before turn execution, while TurnOrchestrator only persists normalized `userId` for auditing.
+  - Resolved runner unit test flakiness by using randomized test session IDs to avoid turn-lock constraint conflicts on persistent local SQLite databases.
+- **Named Sandbox Profiles Completed (2026-05-30)**:
+  - Defined templates for Observe (read-only, network wildcard), Build (read-write workdir, standard registry domains), and Strict (isolated, block failure mode, no network, tmp write only).
+  - Implemented automatic sandbox profile detection matching active settings in Svelte settings UI, showing "Custom Profile" badge and warning if local edits deviate from preset templates.
+  - Implemented interactive preset selection cards at the top of `/settings/sandbox` form with glassmorphism hover and active borders.
+  - Localized preset titles, descriptions, and custom/active status badges in Chinese and English.
 - **Configurable Agent Run Budget Limits Completed (2026-05-30)**:
   - Extracted agent run budget limits (max tool calls, max tool failures, max model attempts) into `RuntimeSettings` and settings JSON/SQLite stores.
   - Implemented automatic value range clamping (max tool calls `1-500`, failure/attempt limits `1-100`) inside configuration sanitizers.
@@ -201,6 +210,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 | P1-202 | Host Bash approvals move from settings JSON to SQLite with management UI | P1 | Delivered (2026-05-23) | Host Bash approvals and whitelist entries should persist in dedicated SQLite tables instead of runtime settings JSON, migrate legacy data once, keep session-only fallback semantics unchanged, and expose `/settings/host-bash` for pending/history/whitelist inspection plus whitelist/history management (enable, disable, delete) without adding manual approve/reject controls to the web page. |
 | P1-203 | Host Bash labels reflect real execution path | P1 | Delivered (2026-05-26) | `bash` progress, diagnostics, and run detail should show `Host Bash` when an approved host entry or session-approved host fallback executes, reserve `Sandbox` for actual OS sandbox execution, and use `Sandbox disabled` only when sandbox initialization soft-disables. |
 | P1-204 | Agent session failure-turn persistence parity | P1 | Delivered (2026-05-27) | Agent session persistence should match Pi/Pae-style message-boundary behavior: save the user prompt at run start, keep assistant error/partial messages and completed tool results, write compaction before the current prompt when threshold compaction runs, exclude transient runtime notices from normal history, and allow retry/fallback to isolate error assistant messages from the next model attempt without deleting audit history. |
+| P1-205 | Named sandbox profile security configuration | P1 | Delivered (2026-05-30) | Provide three preset sandbox profile configuration cards (Observe, Build, Strict) on `/settings/sandbox` page with dynamic auto-detection and custom adjustments, localized in Chinese and English. |
 | P1-188 | Concise sandbox labels and readable Weixin tool batches | P1 | Delivered (2026-05-13) | User-facing tool progress should prefer concise sandbox labels (`Sandbox` / `Sandbox disabled`) over repetitive `bash (...)` wording, and Weixin grouped tool-progress deliveries must render each tool call on its own line instead of collapsing a batch into a single dense line |
 | P1-184 | Telegram live-control commands bypass busy enqueue | P1 | Delivered (2026-05-11) | Telegram slash-command registration must include shared `/steer`, `/followup`, `/follow_up`, and `/queue` commands so they reach shared runtime command handling before ordinary busy-message queuing. In particular, `/steer <queueId>` must promote the referenced pending queue item instead of being queued as a new task. |
 | P1-185 | Chat-first host tool approval | P1 | Delivered (2026-05-12) | When a skill or task needs a host-only external tool, the agent should request a specific host capability through the `bash` entry itself instead of trying to bypass sandbox with plain shell retries; Telegram/Feishu/QQ/Weixin operators can approve a single pending request from chat by replying `安装` / `批准` / `approve`, and the result is persisted as an approved host tool registry entry that can only run its fixed command through structured argv, not through a general host shell. |
@@ -3160,3 +3170,20 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 2026-05-28: v2.2 核心优化与重构整合已全面落地：`TurnOrchestrator` 已完全接入 `runner.ts` 并在所有分支更新状态、并在 `runtime.ts` 中完成启动死锁清理，在 `baseRuntime.ts` 中直接进行 turn 准备；所有内置工具通过 `ToolRuntime` 及 `ToolRegistry` 统一进行执行、鉴权和审批；`ApprovalBroker` 与 `HostBashStore` 已完全重构，直接映射到 SQLite 的 request/grant 表中；`runtime.ts` 已被模块化解耦，配置清洗抽取至 `settings/sanitize.ts`，插件激活提取至 `plugins/loader.ts`，主引导文件缩减至 150 行以内。
   - Remaining: 仅剩 Phase 5 遗留清理——待新架构稳定运行后物理清除 `acp/` 源码库与旧过渡兼容代码。
 
+## 203. 沙盒多层控制与审批自动恢复优化 (2026-05-30)
+- Priority: P0
+- Stage: Delivered (2026-05-30)
+- Problem:
+  - 缺乏会话 (Session)、渠道实例 (Bot)、智能体 (Agent) 级别的沙盒精细化控制。一旦全局启用沙箱，所有会话均强制使用，无法按需关闭。
+  - 主机命令审批流程体验繁复，审批通过后执行流往往中断，需要用户在会话中手动操作才能继续推进，导致交互体验极不顺滑。
+  - 工具执行时的开发环境（如 Python 虚拟环境、GOPATH、GOCACHE 等）缺乏统一的管理目录，容易散落在不同的临时会话中，导致工具依赖反复安装或环境不一致。
+- Requirement:
+  - 支持 `Session Override > Bot Instance Override > Agent Override > Global Default` 的沙盒控制链。
+  - 新增终端指令 `/sandbox`，支持直接查询当前会话的有效沙盒状态，并允许对其进行 Session、Bot、Agent 级别的临时/永久开关重写。
+  - 自动执行恢复机制：当敏感主机命令被用户批准后，自动定位会话上下文中对应的 toolCall 和 toolResult 消息，重写执行输出结果为真实 stdout/stderr，并自动在后台唤醒/触发 runner 继续执行，实现无缝连贯的对话交互。
+  - 可定制的主机工具运行目录：提供统一的工具安装及运行环境根目录（如 `~/.molibot/tooling`），自动为 `bash` 等主机工具注入独立的 `venv`、`GOPATH` 和 `GOCACHE` 等路径，避免环境受限于单次会话临时目录。
+- Enforcement:
+  - 在 `settings/schema.ts`、`sanitize.ts` 和各设置接口中支持 `sandboxEnabled` 字段，并在 Settings SQLite 存储中支持数据库表自动 ALTER COLUMN 迁移。
+  - 在 `channelCommands.ts` 中实现 `/sandbox` 指令的指令解析与生效范围覆盖逻辑。
+  - 在 `baseRuntime.ts` 与 Web API `+server.ts` 中实现 approved 命令自动重写上下文消息和后台触发 runner.run / runSharedTextTask。
+  - 在 `helpers.ts` 与 `sandbox.ts` 中实现工具依赖环境变量注入与白名单目录自动解析，支持通过环境变量 `MOLIBOT_TOOLING_DIR` 或默认目录 `~/.molibot/tooling` 隔离工具环境。

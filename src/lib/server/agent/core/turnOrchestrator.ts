@@ -10,6 +10,8 @@ import type { RunSummary } from "$lib/server/agent/session/runSummary.js";
 import { resolveModelSelection, resolveApiKeyForModel } from "$lib/server/agent/routing/modelRouting.js";
 import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
 import { momLog } from "$lib/server/agent/common/log.js";
+import type { ApprovalBroker } from "$lib/server/approval/approvalBroker.js";
+import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 
 export const DEFAULT_TURN_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -72,6 +74,12 @@ export class SqliteTurnCleanupStore implements TurnCleanupStore {
 }
 
 export class TurnOrchestrator {
+  private readonly approvalBroker?: ApprovalBroker;
+
+  constructor(approvalBroker?: ApprovalBroker) {
+    this.approvalBroker = approvalBroker;
+  }
+
   prepareTurn(input: {
     chatId: string;
     sessionId: string;
@@ -130,6 +138,10 @@ export class TurnOrchestrator {
         }
       }
 
+      // Security/Auth Boundary: Channel runtimes are responsible for authenticating and
+      // authorizing external users/actors before invoking the shared turn orchestrator pipeline.
+      // The TurnOrchestrator trusts the incoming message and persists the normalized userId
+      // as actor_id purely for audit, session records, and workspace mapping.
       db.prepare(`
         INSERT OR IGNORE INTO runs (id, session_id, workspace_id, actor_id, channel_id, status, started_at)
         VALUES (?, ?, ?, ?, ?, 'running', ?)
@@ -189,7 +201,11 @@ export class TurnOrchestrator {
         new Date().toISOString(),
         sessionId
       );
-      return Number(result.changes ?? 0);
+      const count = Number(result.changes ?? 0);
+      if (count > 0) {
+        this.approvalBroker?.revokeSessionGrants(sessionId);
+      }
+      return count;
     } finally {
       db.close();
     }
@@ -349,12 +365,13 @@ export class TurnOrchestrator {
         ? "aborted"
         : (runSummary.stopReason === "waiting_for_approval" ? "waiting_for_approval" : "failed"));
     this.updateRunStatus(runSummary.runId, runStatus, runSummary.errorMessage);
+    this.approvalBroker?.revokeTurnGrants(runSummary.runId);
   }
 }
 
 let turnOrchestrator: TurnOrchestrator | null = null;
 
 export function getTurnOrchestrator(): TurnOrchestrator {
-  turnOrchestrator ??= new TurnOrchestrator();
+  turnOrchestrator ??= new TurnOrchestrator(getApprovalBroker());
   return turnOrchestrator;
 }

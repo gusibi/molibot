@@ -34,7 +34,7 @@ import { sanitizeRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/se
 import type { RunnerUiEvent } from "$lib/server/agent/core/types";
 import type { ConversationAttachment } from "$lib/shared/types/message";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
-import { executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec";
+import { executeHostBashApproval, hasVisibleHostBashOutput, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec";
 import { getHostBashStore } from "$lib/server/hostBash";
 
 interface ChatBody {
@@ -253,6 +253,67 @@ async function handleWebHostToolsCommand(
         lines.push("", executed.rendered);
       }
       lines.push("", "Approved and executed immediately.");
+
+      try {
+        const messages = store.loadContext(scopeId, sessionId);
+        const rewritten = rewriteApprovalToolResultInContext(messages, approved.record.command, executed.rendered);
+
+        if (rewritten) {
+          store.saveContext(scopeId, messages, sessionId);
+          const { pool } = getWebRuntimeContext(profileId);
+          pool.reset(scopeId, sessionId);
+          const runner = pool.get(scopeId, sessionId);
+
+          const workspaceId = resolveWorkspaceId();
+          const messageId = Date.now();
+          const ts = `${Date.now() / 1000}`;
+
+          void runner.run({
+            channel: "web",
+            workspaceDir: store.getWorkspaceDir(),
+            chatDir: store.getChatDir(scopeId),
+            message: {
+              chatId: scopeId,
+              workspaceId,
+              chatType: "private",
+              messageId,
+              userId: scopeId,
+              userName: scopeId,
+              text: "",
+              ts,
+              attachments: [],
+              imageContents: [],
+              sessionId,
+              isEvent: true
+            },
+            respond: async (text: string) => {
+              if (text.trim()) {
+                getRuntime().sessions.appendMessage(sessionId, "assistant", text);
+              }
+            },
+            replaceMessage: async (text: string) => {
+              if (text.trim()) {
+                getRuntime().sessions.appendMessage(sessionId, "assistant", text);
+              }
+            },
+            respondInThread: async (text: string) => {
+              if (text.trim()) {
+                getRuntime().sessions.appendMessage(sessionId, "assistant", text);
+              }
+            },
+            setTyping: async () => {},
+            setWorking: async () => {},
+            deleteMessage: async () => {},
+            uploadFile: async () => {}
+          });
+        }
+      } catch (error) {
+        console.error("[web:auto-resume]", "background rewrite or re-run failed", {
+          scopeId,
+          sessionId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       hostBashStore.markExecution(approved.record.id, "failed", message);

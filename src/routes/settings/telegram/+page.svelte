@@ -10,6 +10,8 @@
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { Textarea } from "$lib/components/ui/textarea";
 
+  import { Switch } from "$lib/components/ui/switch";
+
   interface AgentItem {
     id: string;
     name: string;
@@ -24,6 +26,7 @@
     agentId: string;
     token: string;
     allowedChatIds: string;
+    sandboxEnabled?: boolean;
     profileFiles: Record<string, string>;
     isNew: boolean;
   }
@@ -61,6 +64,7 @@
       agentId: "",
       token: "",
       allowedChatIds: "",
+      sandboxEnabled: undefined,
       profileFiles: emptyBotFiles(),
       isNew: true
     };
@@ -80,6 +84,7 @@
         .map((v) => v.trim())
         .filter(Boolean)
         .join(","),
+      sandboxEnabled: bot.sandboxEnabled,
       profileFiles: Object.fromEntries(
         botFileNames.map((fileName) => [fileName, String(bot.profileFiles[fileName] ?? "")])
       ),
@@ -123,6 +128,7 @@
             agentId?: string;
             credentials?: { token?: string; streamOutput?: string };
             allowedChatIds?: string[];
+            sandboxEnabled?: boolean;
           }) => ({
             id: bot.id ?? createBotId(),
             name: bot.name ?? "",
@@ -131,6 +137,7 @@
             agentId: bot.agentId ?? "",
             token: bot.credentials?.token ?? "",
             allowedChatIds: (bot.allowedChatIds ?? []).join(","),
+            sandboxEnabled: bot.sandboxEnabled,
             profileFiles: emptyBotFiles(),
             isNew: false
           }))
@@ -145,6 +152,7 @@
                   agentId: "",
                   token,
                   allowedChatIds: (data.settings.telegramAllowedChatIds ?? []).join(","),
+                  sandboxEnabled: undefined,
                   profileFiles: emptyBotFiles(),
                   isNew: false
                 }]
@@ -264,6 +272,7 @@
             name: normalized.name,
             enabled: normalized.enabled,
             agentId: normalized.agentId,
+            sandboxEnabled: selected.sandboxEnabled,
             credentials: { token: normalized.token, streamOutput: String(normalized.streamOutput) },
             allowedChatIds: normalized.allowedChatIds
               .split(",")
@@ -426,6 +435,38 @@
                     <NativeSelectOption value={agent.id}>{agent.name || agent.id}</NativeSelectOption>
                   {/each}
                 </NativeSelect>
+              </div>
+
+              <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4 mt-2">
+                <div class="flex flex-col gap-1">
+                  <Label for="tg-sandbox">Sandbox override</Label>
+                  <p class="text-xs text-muted-foreground">Override the global sandbox setting for this bot. Leave unchecked to inherit.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  {#if selectedBot.sandboxEnabled !== undefined}
+                    <Badge variant={selectedBot.sandboxEnabled ? "secondary" : "destructive"}>
+                      {selectedBot.sandboxEnabled ? "Force ON" : "Force OFF"}
+                    </Badge>
+                  {/if}
+                  <Switch
+                    id="tg-sandbox"
+                    checked={selectedBot.sandboxEnabled === true}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        selectedBot.sandboxEnabled = true;
+                      } else if (selectedBot.sandboxEnabled === true) {
+                        selectedBot.sandboxEnabled = false;
+                      } else {
+                        selectedBot.sandboxEnabled = undefined;
+                      }
+                    }}
+                  />
+                  {#if selectedBot.sandboxEnabled !== undefined}
+                    <Button variant="ghost" size="sm" type="button" onclick={() => { selectedBot.sandboxEnabled = undefined; }}>
+                      Reset
+                    </Button>
+                  {/if}
+                </div>
               </div>
 
               <div class="grid gap-1.5">

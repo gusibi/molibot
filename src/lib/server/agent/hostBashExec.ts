@@ -318,3 +318,35 @@ export async function executeHostBashApproval(input: {
     signal: input.signal
   });
 }
+
+export function rewriteApprovalToolResultInContext(
+  messages: any[],
+  command: string,
+  renderedOutput: string
+): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role === "assistant" && Array.isArray(msg.content)) {
+      const toolCall = msg.content.find(
+        (part: any) =>
+          part.type === "toolCall" &&
+          part.name === "bash" &&
+          typeof part.arguments === "object" &&
+          part.arguments !== null &&
+          typeof part.arguments.command === "string" &&
+          part.arguments.command.trim() === command.trim()
+      ) as any;
+      if (toolCall) {
+        const toolCallId = toolCall.id;
+        for (let j = messages.length - 1; j >= 0; j--) {
+          const resultMsg = messages[j];
+          if (resultMsg.role === "toolResult" && resultMsg.toolCallId === toolCallId) {
+            resultMsg.content = [{ type: "text", text: renderedOutput }];
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}

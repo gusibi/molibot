@@ -179,6 +179,27 @@ export class SqliteApprovalStore implements ApprovalBrokerStore {
     );
   }
 
+  revokeGrant(grantId: string, revokedAt?: Date): boolean {
+    const result = this.db.prepare(
+      "UPDATE approval_grants SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL"
+    ).run((revokedAt ?? new Date()).toISOString(), grantId);
+    return result.changes > 0;
+  }
+
+  revokeTurnGrants(runId: string, revokedAt?: Date): number {
+    const result = this.db.prepare(
+      "UPDATE approval_grants SET revoked_at = ? WHERE scope IN ('turn', 'once') AND run_id = ? AND revoked_at IS NULL"
+    ).run((revokedAt ?? new Date()).toISOString(), runId);
+    return Number(result.changes ?? 0);
+  }
+
+  revokeSessionGrants(sessionId: string, revokedAt?: Date): number {
+    const result = this.db.prepare(
+      "UPDATE approval_grants SET revoked_at = ? WHERE scope = 'session' AND session_id = ? AND revoked_at IS NULL"
+    ).run((revokedAt ?? new Date()).toISOString(), sessionId);
+    return Number(result.changes ?? 0);
+  }
+
   saveRequest(request: ApprovalRequest): void {
     this.writeRequest(request);
   }

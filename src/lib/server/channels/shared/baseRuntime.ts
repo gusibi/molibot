@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { config } from "$lib/server/app/env.js";
 import { buildPromptChannelSections } from "$lib/server/agent/prompts/prompt-channel.js";
-import { executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec.js";
+import { executeHostBashApproval, hasVisibleHostBashOutput, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "$lib/server/agent/prompts/prompt.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
@@ -255,6 +255,47 @@ export abstract class BaseChannelRuntime {
         if (hasVisibleHostBashOutput(executed.rendered)) {
           await options.sendText(input.target, executed.rendered);
         }
+
+        try {
+          const sessionId = this.store.getActiveSession(input.scopeId);
+          const messages = this.store.loadContext(input.scopeId, sessionId);
+          const rewritten = rewriteApprovalToolResultInContext(messages, request.command, executed.rendered);
+
+          if (rewritten) {
+            this.store.saveContext(input.scopeId, messages, sessionId);
+            this.runners.reset(input.scopeId, sessionId);
+
+            const event: ChannelInboundMessage = {
+              chatId: input.chatId,
+              chatType: "private",
+              userId: "system",
+              messageId: Date.now(),
+              text: "",
+              ts: (Date.now() / 1000).toFixed(6),
+              attachments: [],
+              imageContents: [],
+              isEvent: true
+            };
+            void this.runSharedTextTask(input.scopeId, event, {
+              createBotMessageId: () => Math.floor(Math.random() * 1000000),
+              response: {
+                sendText: async (text) => {
+                  await options.sendText(input.target, text);
+                  return null;
+                },
+                respondInThread: async (text) => {
+                  await options.sendText(input.target, text);
+                }
+              }
+            });
+          }
+        } catch (error) {
+          momWarn(this.channelName, "auto_resume_rewrite_failed", {
+            chatId: input.scopeId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+
         return "Approved and executed immediately.";
       }),
       ...options

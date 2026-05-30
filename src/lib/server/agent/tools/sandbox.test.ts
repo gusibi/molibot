@@ -10,6 +10,7 @@ import {
   setSandboxProvider,
   getSandboxProvider,
   prepareToolSandboxExecution,
+  resolveEffectiveSandboxSettings,
   type SandboxProvider
 } from "$lib/server/agent/tools/sandbox.js";
 
@@ -200,5 +201,84 @@ test("pluggable sandbox provider dynamically intercepts sandbox execution", asyn
   } finally {
     setSandboxProvider(originalProvider);
   }
+});
+
+test("resolveEffectiveSandboxSettings correctly prioritizes scopes", () => {
+  const mockSettings = {
+    toolSandbox: {
+      enabled: false,
+      initFailureMode: "warn-disable",
+      envFilePath: "",
+      env: { inheritMode: "minimal", allow: [], deny: [] },
+      network: { allowedDomains: [] },
+      filesystem: { denyRead: [], allowWrite: [], denyWrite: [] }
+    },
+    channels: {
+      telegram: {
+        instances: [
+          {
+            id: "my_bot",
+            name: "My Bot",
+            enabled: true,
+            agentId: "my_agent",
+            credentials: {},
+            allowedChatIds: [],
+            sandboxEnabled: true
+          }
+        ]
+      }
+    },
+    agents: [
+      {
+        id: "my_agent",
+        name: "My Agent",
+        description: "",
+        enabled: true,
+        sandboxEnabled: false
+      }
+    ]
+  } as any;
+
+  const getSettings = () => mockSettings;
+
+  // Case 1: Global Default
+  const res1 = resolveEffectiveSandboxSettings({ getSettings });
+  assert.equal(res1.enabled, false);
+
+  // Case 2: Agent Override
+  const res2 = resolveEffectiveSandboxSettings({ getSettings, agentId: "my_agent" });
+  assert.equal(res2.enabled, false);
+
+  // Case 3: Bot Override
+  const res3 = resolveEffectiveSandboxSettings({ getSettings, channel: "telegram", botId: "my_bot" });
+  assert.equal(res3.enabled, true);
+
+  // Case 4: Session Override
+  const mockStore = {
+    getSessionSandboxOverride: (chatId: string, sessionId: string) => false
+  } as any;
+  const res4 = resolveEffectiveSandboxSettings({
+    getSettings,
+    store: mockStore,
+    chatId: "chat1",
+    sessionId: "session1",
+    channel: "telegram",
+    botId: "my_bot"
+  });
+  assert.equal(res4.enabled, false);
+
+  // Case 5: Session Override (true)
+  const mockStoreTrue = {
+    getSessionSandboxOverride: (chatId: string, sessionId: string) => true
+  } as any;
+  const res5 = resolveEffectiveSandboxSettings({
+    getSettings,
+    store: mockStoreTrue,
+    chatId: "chat1",
+    sessionId: "session1",
+    channel: "telegram",
+    botId: "my_bot"
+  });
+  assert.equal(res5.enabled, true);
 });
 

@@ -704,6 +704,35 @@ export class MomRuntimeStore {
     return value;
   }
 
+  getSessionSandboxOverride(chatId: string, sessionId?: string): boolean | null {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const val = this.readSessionHeader(chatId, id).preferences?.sandboxOverride;
+    if (val === true) return true;
+    if (val === false) return false;
+    return null;
+  }
+
+  setSessionSandboxOverride(
+    chatId: string,
+    sessionId: string,
+    value: boolean | null
+  ): boolean | null {
+    const id = this.sanitizeSessionId(sessionId);
+    this.updateSessionHeader(chatId, id, (current) => {
+      const nextPreferences = { ...(current.preferences ?? {}) };
+      if (value === null) {
+        delete nextPreferences.sandboxOverride;
+      } else {
+        nextPreferences.sandboxOverride = value;
+      }
+      return {
+        ...current,
+        preferences: Object.keys(nextPreferences).length > 0 ? nextPreferences : undefined
+      };
+    });
+    return value;
+  }
+
   appendCompaction(
     chatId: string,
     summary: string,

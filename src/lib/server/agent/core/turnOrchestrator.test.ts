@@ -4,6 +4,8 @@ import { TurnOrchestrator, type TurnCleanupStore, type RunningTurnRecord } from 
 import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { DatabaseSync } from "node:sqlite";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { ApprovalBroker } from "$lib/server/approval/approvalBroker.js";
+import { SqliteApprovalStore } from "$lib/server/approval/approvalStore.js";
 
 function message(input: Partial<ChannelInboundMessage> = {}): ChannelInboundMessage & { runId?: string } {
   return {
@@ -201,7 +203,7 @@ test("commitTurn updates status and appends summary to store", () => {
   const orchestrator = new TurnOrchestrator();
   const runId = `run-commit-${Date.now()}-${Math.random()}`;
   const sessionId = `session-commit-${Date.now()}-${Math.random()}`;
-  
+
   let appendedSummary: any = null;
   const mockStore = {
     appendRunSummary: (chatId: string, summary: any) => {
@@ -235,14 +237,150 @@ test("commitTurn updates status and appends summary to store", () => {
   };
 
   orchestrator.commitTurn("chat-1", summary, mockStore as any);
-  
+
   assert.deepEqual(appendedSummary, summary);
 
   // Check database status
   const db2 = new DatabaseSync(storagePaths.settingsDbFile);
   const row = db2.prepare("SELECT status, error FROM runs WHERE id = ?").get(runId) as { status: string; error: string };
   db2.close();
-  
+
   assert.equal(row.status, "completed");
   assert.equal(row.error, "no error");
+});
+
+test("commitTurn revokes turn-scoped grants but not session grants", () => {
+  const runId = `run-cleanup-${Date.now()}-${Math.random()}`;
+  const sessionId = `session-cleanup-${Date.now()}-${Math.random()}`;
+
+  // Use in-memory approval store for test isolation
+  const approvalStore = new SqliteApprovalStore(':memory:');
+  const approvalBroker = new ApprovalBroker(approvalStore);
+  const orchestrator = new TurnOrchestrator(approvalBroker);
+
+  const mockStore = { appendRunSummary: () => {} };
+
+  // Pre-insert run record into settings DB (required by TurnOrchestrator internals)
+  const db = new DatabaseSync(storagePaths.settingsDbFile);
+  // Insert grants into the in-memory store with unique IDs
+  const now = new Date().toISOString();
+  const grantTurnId = `grant-turn-${Date.now()}-${Math.random()}`;
+  const grantOnceId = `grant-once-${Date.now()}-${Math.random()}`;
+  const grantSessionId = `grant-session-${Date.now()}-${Math.random()}`;
+  try {
+    db.prepare(`
+      INSERT INTO runs (id, session_id, actor_id, channel_id, status, started_at)
+      VALUES (?, ?, 'user-1', 'web', 'running', datetime('now'))
+    `).run(runId, sessionId);
+
+    approvalStore.saveGrant({ id: grantTurnId, scope: "turn", capability: "host:bash", actorId: "agent-1", workspaceId: "personal", sessionId, runId, createdAt: now });
+    approvalStore.saveGrant({ id: grantOnceId, scope: "once", capability: "host:bash", actorId: "agent-1", workspaceId: "personal", sessionId, runId, createdAt: now });
+    approvalStore.saveGrant({ id: grantSessionId, scope: "session", capability: "host:bash", actorId: "agent-1", workspaceId: "personal", sessionId, runId, createdAt: now });
+  } finally {
+    db.close();
+  }
+
+  const summary = {
+    runId,
+    sessionId,
+    stopReason: "stop" as const,
+    durationMs: 123,
+    finalText: "ok",
+    toolNames: [],
+    failedToolNames: [],
+    explicitSkillNames: [],
+    usedFallbackModel: false,
+    modelFailureSummaries: [],
+    budget: {} as any,
+    budgetLimits: {} as any
+  };
+
+  try {
+    orchestrator.commitTurn("chat-1", summary, mockStore as any);
+
+    // Check grants in the in-memory store via listActiveGrants (filters revoked)
+    const grants = approvalStore.listActiveGrants();
+    const byId = Object.fromEntries(grants.map((g: any) => [g.id, g]));
+
+    // turn and once grants should be revoked (absent from active list)
+    assert.equal(byId[grantTurnId], undefined, "turn grant should be revoked");
+    assert.equal(byId[grantOnceId], undefined, "once grant should be revoked");
+    // session grant should NOT be revoked (still in active list)
+    assert.ok(byId[grantSessionId], "session grant should remain active");
+  } finally {
+    approvalStore.close();
+    // Clean up run record from settings DB
+    const db2 = new DatabaseSync(storagePaths.settingsDbFile);
+    try {
+      db2.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    } finally {
+      db2.close();
+    }
+  }
+});
+
+test("abortRunningTurnsForSession revokes session grants only when turns were aborted", () => {
+  const sessionId = `session-abort-grants-${Date.now()}-${Math.random()}`;
+  const runId = `run-abort-grants-${Date.now()}-${Math.random()}`;
+
+  const approvalStore = new SqliteApprovalStore(':memory:');
+  const approvalBroker = new ApprovalBroker(approvalStore);
+  const orchestrator = new TurnOrchestrator(approvalBroker);
+
+  const db = new DatabaseSync(storagePaths.settingsDbFile);
+  try {
+    db.prepare(`
+      INSERT INTO runs (id, session_id, actor_id, channel_id, status, started_at)
+      VALUES (?, ?, 'user-1', 'web', 'running', datetime('now'))
+    `).run(runId, sessionId);
+
+    const now = new Date().toISOString();
+    const grantSessionId = `grant-session-${Date.now()}-${Math.random()}`;
+    approvalStore.saveGrant({ id: grantSessionId, scope: "session", capability: "host:bash", actorId: "agent-1", workspaceId: "personal", sessionId, runId, createdAt: now });
+  } finally {
+    db.close();
+  }
+
+  try {
+    const count = orchestrator.abortRunningTurnsForSession(sessionId, "Stopped by user.");
+    assert.equal(count, 1);
+
+    // Check session grant is revoked (not in active grants)
+    const activeGrants = approvalStore.listActiveGrants();
+    assert.equal(activeGrants.length, 0, "session grant should be revoked after abort");
+  } finally {
+    approvalStore.close();
+    // Clean up run record
+    const db2 = new DatabaseSync(storagePaths.settingsDbFile);
+    try {
+      db2.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    } finally {
+      db2.close();
+    }
+  }
+});
+
+test("abortRunningTurnsForSession does not revoke session grants when no turns were aborted", () => {
+  const sessionId = `session-noabort-grants-${Date.now()}-${Math.random()}`;
+
+  const approvalStore = new SqliteApprovalStore(':memory:');
+  const approvalBroker = new ApprovalBroker(approvalStore);
+  const orchestrator = new TurnOrchestrator(approvalBroker);
+
+  // No running turns for this session
+  const now = new Date().toISOString();
+  const grantSessionId = `grant-session-${Date.now()}-${Math.random()}`;
+  approvalStore.saveGrant({ id: grantSessionId, scope: "session", capability: "host:bash", actorId: "agent-1", workspaceId: "personal", sessionId, runId: "run-other", createdAt: now });
+
+  try {
+    const count = orchestrator.abortRunningTurnsForSession(sessionId, "Stopped by user.");
+    assert.equal(count, 0);
+
+    // Check session grant is NOT revoked (still in active grants)
+    const activeGrants = approvalStore.listActiveGrants();
+    assert.equal(activeGrants.length, 1, "session grant should NOT be revoked when no turns were aborted");
+    assert.equal(activeGrants[0].id, grantSessionId);
+  } finally {
+    approvalStore.close();
+  }
 });

@@ -283,7 +283,8 @@ test("manual compact reloads the latest persisted session before summarizing", a
     loadContext: () => persistedMessages,
     appendCompaction: (_chatId: string, summary: string, keptMessages: unknown[], _before: number, _after: number, summarizedMessages: number) => {
       appended.push({ summary, summarizedMessages, keptMessages: keptMessages.length });
-    }
+    },
+    getSessionSandboxOverride: () => null
   };
 
   const settings: RuntimeSettings = {
@@ -315,10 +316,11 @@ test("manual compact reloads the latest persisted session before summarizing", a
     ]
   };
 
+  const testSessionId = `session-compact-${Date.now()}-${Math.random()}`;
   const runner = new MomRunner(
     "telegram",
     "chat-1",
-    "session-1",
+    testSessionId,
     store as any,
     () => settings,
     () => settings,
@@ -388,13 +390,15 @@ test("host bash approval is forwarded to runner event sink but does not abort ex
     appendRunSummary: () => {},
     appendRunDetail: () => {},
     appendRuntimeEvent: () => {},
-    loadContext: () => appendedMessages
+    loadContext: () => appendedMessages,
+    getSessionSandboxOverride: () => null
   };
 
+  const testSessionId = `session-bash-approval-${Date.now()}-${Math.random()}`;
   const runner = new MomRunner(
     "telegram",
     "chat-1",
-    "session-1",
+    testSessionId,
     store as any,
     () => settings,
     () => settings,
@@ -538,13 +542,15 @@ test("runner persists user and partial assistant error when a run throws after s
     appendRunSummary: () => {},
     appendRunDetail: () => {},
     appendRuntimeEvent: () => {},
-    loadContext: () => appendedMessages
+    loadContext: () => appendedMessages,
+    getSessionSandboxOverride: () => null
   };
 
+  const testSessionId = `session-throw-after-stream-${Date.now()}-${Math.random()}`;
   const runner = new MomRunner(
     "telegram",
     "chat-1",
-    "session-1",
+    testSessionId,
     store as any,
     () => settings,
     () => settings,
@@ -616,13 +622,15 @@ test("runner persists user and assistant error when a run throws before output",
     appendRunSummary: () => {},
     appendRunDetail: () => {},
     appendRuntimeEvent: () => {},
-    loadContext: () => appendedMessages
+    loadContext: () => appendedMessages,
+    getSessionSandboxOverride: () => null
   };
 
+  const testSessionId = `session-throw-before-output-${Date.now()}-${Math.random()}`;
   const runner = new MomRunner(
     "telegram",
     "chat-1",
-    "session-1",
+    testSessionId,
     store as any,
     () => settings,
     () => settings,

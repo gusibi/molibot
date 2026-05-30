@@ -9,6 +9,7 @@ interface ChannelInstancePayload {
   agentId?: string;
   credentials?: Record<string, string>;
   allowedChatIds?: string[];
+  sandboxEnabled?: boolean;
 }
 
 function sanitizeInstance(input: ChannelInstancePayload): {
@@ -18,6 +19,7 @@ function sanitizeInstance(input: ChannelInstancePayload): {
   agentId: string;
   credentials: Record<string, string>;
   allowedChatIds: string[];
+  sandboxEnabled?: boolean;
 } {
   const id = String(input.id ?? "").trim();
   if (!id) {
@@ -39,7 +41,8 @@ function sanitizeInstance(input: ChannelInstancePayload): {
     credentials,
     allowedChatIds: Array.isArray(input.allowedChatIds)
       ? input.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
-      : []
+      : [],
+    sandboxEnabled: input.sandboxEnabled === undefined ? undefined : Boolean(input.sandboxEnabled)
   };
 }
 

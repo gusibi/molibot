@@ -9,6 +9,7 @@
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { Switch } from "$lib/components/ui/switch";
   import { Textarea } from "$lib/components/ui/textarea";
+  import { initLocale, locale } from "$lib/ui/i18n";
 
   type InitFailureMode = "warn-disable" | "block";
   type EnvInheritMode = "minimal" | "allowlist" | "full";
@@ -91,6 +92,137 @@
   let sandbox: ToolSandboxSettings = structuredClone(defaultSandbox);
   let diagnostics: Diagnostics | null = null;
 
+  type SandboxProfileName = "observe" | "build" | "strict" | "custom";
+
+  interface ProfileTemplate {
+    name: SandboxProfileName;
+    enabled: boolean;
+    initFailureMode: InitFailureMode;
+    envFilePath: string;
+    env: {
+      inheritMode: EnvInheritMode;
+      allow: string[];
+      deny: string[];
+    };
+    network: {
+      allowedDomains: string[];
+      deniedDomains: string[];
+    };
+    filesystem: {
+      denyRead: string[];
+      allowWrite: string[];
+      denyWrite: string[];
+    };
+  }
+
+  const DEFAULT_DENY_READ = ["~/.ssh", "~/.aws", "~/.gnupg", ".env", ".env.*", ".env.sandbox.local"];
+  const DEFAULT_DENY_WRITE = [".env", ".env.*", "*.pem", "*.key"];
+
+  const profiles: Record<"observe" | "build" | "strict", ProfileTemplate> = {
+    observe: {
+      name: "observe",
+      enabled: true,
+      initFailureMode: "warn-disable",
+      envFilePath: ".env.sandbox.local",
+      env: {
+        inheritMode: "minimal",
+        allow: [],
+        deny: []
+      },
+      network: {
+        allowedDomains: ["*"],
+        deniedDomains: []
+      },
+      filesystem: {
+        denyRead: DEFAULT_DENY_READ,
+        allowWrite: ["/tmp", "scratch"],
+        denyWrite: DEFAULT_DENY_WRITE
+      }
+    },
+    build: {
+      name: "build",
+      enabled: true,
+      initFailureMode: "warn-disable",
+      envFilePath: ".env.sandbox.local",
+      env: {
+        inheritMode: "full",
+        allow: [],
+        deny: []
+      },
+      network: {
+        allowedDomains: [
+          "npmjs.org",
+          "*.npmjs.org",
+          "registry.npmjs.org",
+          "registry.yarnpkg.com",
+          "pypi.org",
+          "*.pypi.org",
+          "github.com",
+          "*.github.com",
+          "api.github.com",
+          "raw.githubusercontent.com"
+        ],
+        deniedDomains: []
+      },
+      filesystem: {
+        denyRead: DEFAULT_DENY_READ,
+        allowWrite: [".", "/tmp", "scratch"],
+        denyWrite: DEFAULT_DENY_WRITE
+      }
+    },
+    strict: {
+      name: "strict",
+      enabled: true,
+      initFailureMode: "block",
+      envFilePath: ".env.sandbox.local",
+      env: {
+        inheritMode: "minimal",
+        allow: [],
+        deny: []
+      },
+      network: {
+        allowedDomains: [],
+        deniedDomains: []
+      },
+      filesystem: {
+        denyRead: DEFAULT_DENY_READ,
+        allowWrite: ["/tmp"],
+        denyWrite: DEFAULT_DENY_WRITE
+      }
+    }
+  };
+
+  const COPY = {
+    "zh-CN": {
+      observeTitle: "Observe 只读观察",
+      observeDesc: "只读运行。允许网络访问但禁止改写项目源文件，适用于只读分析或代码库搜索任务。",
+      buildTitle: "Build 构建生成",
+      buildDesc: "代码生成与运行。允许网络访问标准源并可写工作区，适用于编译、自动重构与工具链调用。",
+      strictTitle: "Strict 极度隔离",
+      strictDesc: "最高级密闭沙盒。禁止一切网络访问，禁止改写源文件，最小化环境变量注入。",
+      presetTitle: "安全策略预设 (Sandbox Profiles)",
+      presetDesc: "选择预设模式一键配置沙盒规则。您仍可以在下方微调所有细节。",
+      customProfile: "自定义配置策略 (Custom Profile) · 已根据下方细节做了修改",
+      activeProfile: "当前策略级别",
+      badgeCustom: "自定义",
+      badgeActive: "当前生效"
+    },
+    "en-US": {
+      observeTitle: "Observe (Read-Only)",
+      observeDesc: "Read-only execution. Allows network access but blocks writes to the project workspace. Best for analysis and search tasks.",
+      buildTitle: "Build (Read/Write)",
+      buildDesc: "Code generation and execution. Allows standard network access and workspace modifications. Best for builds and refactoring.",
+      strictTitle: "Strict (Isolated)",
+      strictDesc: "Maximum sandbox isolation. Disables all network access, blocks workspace writes, and restricts env variables.",
+      presetTitle: "Security Profile Presets",
+      presetDesc: "Choose a preset mode to configure sandbox rules instantly. You can still fine-tune all details below.",
+      customProfile: "Custom Profile · Modified from presets below",
+      activeProfile: "Active Security Profile",
+      badgeCustom: "Custom",
+      badgeActive: "Active"
+    }
+  } as const;
+
   let envAllowText = "";
   let envDenyText = "";
   let networkAllowText = "";
@@ -98,6 +230,84 @@
   let denyReadText = "";
   let allowWriteText = "";
   let denyWriteText = "";
+
+  $: copy = COPY[$locale] ?? COPY["en-US"];
+
+  function arraysMatch(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    const sortedA = [...a].sort();
+    const sortedB = [...b].sort();
+    return sortedA.every((val, index) => val === sortedB[index]);
+  }
+
+  function detectProfile(
+    enabled: boolean,
+    initFailureMode: InitFailureMode,
+    envInheritMode: EnvInheritMode,
+    envAllow: string,
+    envDeny: string,
+    netAllow: string,
+    netDeny: string,
+    fsDenyRead: string,
+    fsAllowWrite: string,
+    fsDenyWrite: string
+  ): SandboxProfileName {
+    if (!enabled) return "custom";
+    const parsedEnvAllow = textToList(envAllow);
+    const parsedEnvDeny = textToList(envDeny);
+    const parsedNetAllow = textToList(netAllow);
+    const parsedNetDeny = textToList(netDeny);
+    const parsedFsDenyRead = textToList(fsDenyRead);
+    const parsedFsAllowWrite = textToList(fsAllowWrite);
+    const parsedFsDenyWrite = textToList(fsDenyWrite);
+
+    for (const [key, profile] of Object.entries(profiles) as [["observe" | "build" | "strict", ProfileTemplate]]) {
+      if (
+        enabled === profile.enabled &&
+        initFailureMode === profile.initFailureMode &&
+        envInheritMode === profile.env.inheritMode &&
+        arraysMatch(parsedEnvAllow, profile.env.allow) &&
+        arraysMatch(parsedEnvDeny, profile.env.deny) &&
+        arraysMatch(parsedNetAllow, profile.network.allowedDomains) &&
+        arraysMatch(parsedNetDeny, profile.network.deniedDomains) &&
+        arraysMatch(parsedFsDenyRead, profile.filesystem.denyRead) &&
+        arraysMatch(parsedFsAllowWrite, profile.filesystem.allowWrite) &&
+        arraysMatch(parsedFsDenyWrite, profile.filesystem.denyWrite)
+      ) {
+        return key;
+      }
+    }
+    return "custom";
+  }
+
+  $: activeProfile = detectProfile(
+    sandbox.enabled,
+    sandbox.initFailureMode,
+    sandbox.env.inheritMode,
+    envAllowText,
+    envDenyText,
+    networkAllowText,
+    networkDenyText,
+    denyReadText,
+    allowWriteText,
+    denyWriteText
+  );
+
+  function applyProfile(profileName: "observe" | "build" | "strict"): void {
+    const profile = profiles[profileName];
+    sandbox.enabled = profile.enabled;
+    sandbox.initFailureMode = profile.initFailureMode;
+    sandbox.env.inheritMode = profile.env.inheritMode;
+    sandbox.envFilePath = profile.envFilePath;
+    
+    envAllowText = listToText(profile.env.allow);
+    envDenyText = listToText(profile.env.deny);
+    networkAllowText = listToText(profile.network.allowedDomains);
+    networkDenyText = listToText(profile.network.deniedDomains);
+    denyReadText = listToText(profile.filesystem.denyRead);
+    allowWriteText = listToText(profile.filesystem.allowWrite);
+    denyWriteText = listToText(profile.filesystem.denyWrite);
+  }
 
   function listToText(values: string[]): string {
     return values.join("\n");
@@ -214,7 +424,10 @@
     }
   }
 
-  onMount(loadSettings);
+  onMount(() => {
+    initLocale();
+    void loadSettings();
+  });
 </script>
 
 <div class="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
@@ -238,6 +451,67 @@
       {#if error}
         <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
       {/if}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{copy.presetTitle}</CardTitle>
+          <CardDescription>{copy.presetDesc}</CardDescription>
+        </CardHeader>
+        <CardContent class="flex flex-col gap-4">
+          <div class="grid gap-4 md:grid-cols-3">
+            <button
+              type="button"
+              onclick={() => applyProfile("observe")}
+              class="flex flex-col text-left rounded-xl border p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md cursor-pointer {activeProfile === 'observe' ? 'border-[color-mix(in_oklab,var(--primary)_50%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] ring-2 ring-primary/20' : 'bg-card border-border hover:border-muted-foreground/30'}"
+            >
+              <div class="flex items-center justify-between w-full">
+                <span class="font-semibold text-foreground text-sm">{copy.observeTitle}</span>
+                {#if activeProfile === 'observe'}
+                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold tracking-wide uppercase">{copy.badgeActive}</Badge>
+                {/if}
+              </div>
+              <p class="mt-2 text-xs leading-relaxed text-muted-foreground flex-1">{copy.observeDesc}</p>
+            </button>
+
+            <button
+              type="button"
+              onclick={() => applyProfile("build")}
+              class="flex flex-col text-left rounded-xl border p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md cursor-pointer {activeProfile === 'build' ? 'border-[color-mix(in_oklab,var(--primary)_50%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] ring-2 ring-primary/20' : 'bg-card border-border hover:border-muted-foreground/30'}"
+            >
+              <div class="flex items-center justify-between w-full">
+                <span class="font-semibold text-foreground text-sm">{copy.buildTitle}</span>
+                {#if activeProfile === 'build'}
+                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold tracking-wide uppercase">{copy.badgeActive}</Badge>
+                {/if}
+              </div>
+              <p class="mt-2 text-xs leading-relaxed text-muted-foreground flex-1">{copy.buildDesc}</p>
+            </button>
+
+            <button
+              type="button"
+              onclick={() => applyProfile("strict")}
+              class="flex flex-col text-left rounded-xl border p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md cursor-pointer {activeProfile === 'strict' ? 'border-[color-mix(in_oklab,var(--primary)_50%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] ring-2 ring-primary/20' : 'bg-card border-border hover:border-muted-foreground/30'}"
+            >
+              <div class="flex items-center justify-between w-full">
+                <span class="font-semibold text-foreground text-sm">{copy.strictTitle}</span>
+                {#if activeProfile === 'strict'}
+                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold tracking-wide uppercase">{copy.badgeActive}</Badge>
+                {/if}
+              </div>
+              <p class="mt-2 text-xs leading-relaxed text-muted-foreground flex-1">{copy.strictDesc}</p>
+            </button>
+          </div>
+
+          {#if activeProfile === 'custom'}
+            <div class="mt-2 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-500">
+              <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+              </svg>
+              <span>{copy.customProfile}</span>
+            </div>
+          {/if}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

@@ -5,6 +5,7 @@ import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 export interface SessionPreferences {
   thinkingLevelOverride?: RuntimeThinkingLevel | null;
   hostApprovalMode?: "default" | "session";
+  sandboxOverride?: boolean | null;
 }
 
 export interface SessionHeaderEntry {

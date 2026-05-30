@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { getModels, type AssistantMessage, type Model } from "@mariozechner/pi-ai";
@@ -33,6 +34,7 @@ import { createBashTool, type BashToolHostApprovalOptions } from "$lib/server/ag
 import { createEditTool } from "$lib/server/agent/tools/edit.js";
 import { createReadTool } from "$lib/server/agent/tools/read.js";
 import { createWriteTool } from "$lib/server/agent/tools/write.js";
+import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 
 const SUBAGENT_NAMES = ["scout", "planner", "worker", "reviewer", "skill-drafter"] as const;
 type SubagentName = (typeof SUBAGENT_NAMES)[number];
@@ -589,11 +591,20 @@ function createBashDefinition(
   artifactDir?: string,
   hostApproval?: BashToolHostApprovalOptions
 ): ToolDefinition {
+  const botId = basename(workspaceDir) || "unknown";
+  const sandboxSettings = resolveEffectiveSandboxSettings({
+    getSettings: () => settings,
+    chatId: hostApproval?.chatId,
+    sessionId: hostApproval?.sessionId,
+    store: hostApproval?.store,
+    channel: hostApproval?.channel,
+    botId
+  });
   const tool = createBashTool(cwd, {
     artifactDir,
     hostApproval,
     sandbox: {
-      settings: settings.toolSandbox,
+      settings: sandboxSettings,
       workspaceDir
     }
   });
@@ -944,6 +955,7 @@ export function createSubagentTool(options: {
   getSettings: () => RuntimeSettings;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
   runId?: string;
+  requestedByDepth?: number;
 }): AgentTool<typeof subagentSchema> {
   return {
     name: "subagent",
@@ -1026,22 +1038,28 @@ export function createSubagentTool(options: {
             taskCount: parsed.tasks.length
           });
           started = true;
+          const hostApproval = options.channel && options.sessionId && options.store
+            ? {
+              channel: options.channel,
+              chatId: options.chatId,
+              scopeId: options.runId ?? options.chatId,
+              sessionId: options.sessionId,
+              store: options.store,
+              requestedByDepth: (options.requestedByDepth ?? 0) + 1
+            }
+            : undefined;
+
+          if ((options as any)._testHostApprovalCallback) {
+            (options as any)._testHostApprovalCallback(hostApproval);
+          }
+
           const result = await runSingleSubagent(agent, task, {
             cwd: options.cwd,
             workspaceDir: options.workspaceDir,
             chatId: options.chatId,
             settings,
             artifactDir: options.artifactDir,
-            hostApproval: options.channel && options.sessionId && options.store
-              ? {
-                channel: options.channel,
-                chatId: options.chatId,
-                scopeId: options.runId ?? options.chatId,
-                sessionId: options.sessionId,
-                store: options.store,
-                requestedByDepth: 1
-              }
-              : undefined,
+            hostApproval,
             emitRunnerEvent: options.emitRunnerEvent,
             signal
           });

@@ -10,6 +10,8 @@
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { Textarea } from "$lib/components/ui/textarea";
 
+  import { Switch } from "$lib/components/ui/switch";
+
   interface AgentItem {
     id: string;
     name: string;
@@ -24,6 +26,7 @@
     appId: string;
     clientSecret: string;
     allowedChatIds: string;
+    sandboxEnabled?: boolean;
     profileFiles: Record<string, string>;
     isNew: boolean;
   }
@@ -61,6 +64,7 @@
       appId: "",
       clientSecret: "",
       allowedChatIds: "",
+      sandboxEnabled: undefined,
       profileFiles: emptyBotFiles(),
       isNew: true
     };
@@ -80,6 +84,7 @@
         .map((v) => v.trim())
         .filter(Boolean)
         .join(","),
+      sandboxEnabled: bot.sandboxEnabled,
       profileFiles: Object.fromEntries(
         botFileNames.map((fileName) => [fileName, String(bot.profileFiles[fileName] ?? "")])
       ),
@@ -123,6 +128,7 @@
             agentId?: string;
             credentials?: { appId?: string; clientSecret?: string };
             allowedChatIds?: string[];
+            sandboxEnabled?: boolean;
           }) => ({
             id: bot.id ?? createBotId(),
             name: bot.name ?? "",
@@ -131,6 +137,7 @@
             appId: bot.credentials?.appId ?? "",
             clientSecret: bot.credentials?.clientSecret ?? "",
             allowedChatIds: (bot.allowedChatIds ?? []).join(","),
+            sandboxEnabled: bot.sandboxEnabled,
             profileFiles: emptyBotFiles(),
             isNew: false
           }))
@@ -241,6 +248,7 @@
             name: normalized.name,
             enabled: normalized.enabled,
             agentId: normalized.agentId,
+            sandboxEnabled: selected.sandboxEnabled,
             credentials: {
               appId: normalized.appId,
               clientSecret: normalized.clientSecret
@@ -380,6 +388,38 @@
                     <NativeSelectOption value={agent.id}>{agent.name || agent.id}</NativeSelectOption>
                   {/each}
                 </NativeSelect>
+              </div>
+
+              <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4 mt-2">
+                <div class="flex flex-col gap-1">
+                  <Label for="qq-sandbox">Sandbox override</Label>
+                  <p class="text-xs text-muted-foreground">Override the global sandbox setting for this bot. Leave unchecked to inherit.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  {#if selectedBot.sandboxEnabled !== undefined}
+                    <Badge variant={selectedBot.sandboxEnabled ? "secondary" : "destructive"}>
+                      {selectedBot.sandboxEnabled ? "Force ON" : "Force OFF"}
+                    </Badge>
+                  {/if}
+                  <Switch
+                    id="qq-sandbox"
+                    checked={selectedBot.sandboxEnabled === true}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        selectedBot.sandboxEnabled = true;
+                      } else if (selectedBot.sandboxEnabled === true) {
+                        selectedBot.sandboxEnabled = false;
+                      } else {
+                        selectedBot.sandboxEnabled = undefined;
+                      }
+                    }}
+                  />
+                  {#if selectedBot.sandboxEnabled !== undefined}
+                    <Button variant="ghost" size="sm" type="button" onclick={() => { selectedBot.sandboxEnabled = undefined; }}>
+                      Reset
+                    </Button>
+                  {/if}
+                </div>
               </div>
 
               <div class="grid gap-3 md:grid-cols-2">

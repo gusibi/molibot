@@ -5,6 +5,24 @@
 
 ## 2026-05-30
 
+### Subagent Depth Propagation & Authentication Boundary Documentation (Review Optimization Tasks 4 & 5)
+- **Subagent Approval Depth Propagation**: Added `requestedByDepth` parameters to `createSubagentTool()` and propagated it dynamically by incrementing depth `(options.requestedByDepth ?? 0) + 1` in host approval payloads to ensure correct subagent caller depth visibility.
+- **Actor Authentication Boundary Clarified**: Added descriptive inline documentation inside `TurnOrchestrator.prepareTurn()` to define the auth boundaries of turn operations. Clarifies that external actors are authenticated/authorized at the channel runtime level, and TurnOrchestrator only archives their normalized `message.userId` as `actor_id` for session auditing.
+- **Test Session Isolation & Mock Alignment**: Resolved runner unit test flakiness caused by hardcoded `"session-1"` collisions on the persistent sqlite settings database by using randomized test session IDs. Fixed mock store signatures in unit tests to include `getSessionSandboxOverride: () => null`.
+
+### Sandbox Multi-Level Control & Approval Auto-Resume
+- **Granular Control Chain**: Introduced override resolution hierarchy supporting `Session Override > Bot Instance Override > Agent Override > Global Default`. Allows enabling or disabling sandboxing on specific sessions, bots, and agents dynamically.
+- **SQLite Settings Migrations & Storage**: Added `sandboxEnabled` flags to schemas, sanitizers, and settings routes, implementing automatic SQLite database table column updates (`ALTER TABLE ... ADD COLUMN sandbox_enabled INTEGER`) for channels and agents upon server startup. Full configuration load/save mapping and Switch override UIs have been implemented across Web, Telegram, Feishu, QQ, and Weixin settings pages to avoid silent data loss when saving configurations.
+- **Terminal Control Command**: Implemented the `/sandbox` chat command supporting real-time status diagnostics and scope configuration overrides (e.g. `/sandbox session off`, `/sandbox bot on`, etc.).
+- **Automatic Resume Flow**: Completed automatic resumption flow for approved commands. Re-writes message history (replacing the temporary approval result placeholder with the real stdout/stderr) and fires a background runner execution (using `isEvent: true` flags) once a sensitive bash command is approved.
+- **Dedicated Environment isolation**: Integrated tooling path resolution under `MOLIBOT_TOOLING_DIR` (defaulting to `~/.molibot/tooling`). Built-in shell runner dynamically isolates venv, GOPATH, and GOCACHE within this directory instead of creating temporary virtual environments for every single session.
+
+### Named Sandbox Profiles (Sandbox Profiles)
+- **Defined Sandbox Templates**: Introduced three pre-defined sandbox configuration templates (`Observe` read-only mode, `Build` read-write compilation mode, and `Strict` maximum isolation mode) mapping security settings onto environment, network, and filesystem policies.
+- **Dynamic Profile Matching & Detection**: Implemented client-side detection to dynamically match active settings with standard profiles. Automatically displays a "Custom Profile" notice if the user alters any individual configuration field in the form.
+- **Interactive UI Preset Selector**: Embedded a styled three-card selector group at the top of the `/settings/sandbox` page with smooth hover focus scales, subtle elevation shadows, and active outlines using shadcn-svelte conventions.
+- **Chinese & English Localization**: Supported full translation mappings for preset titles, configuration descriptions, custom badges, and status labels in both `zh-CN` and `en-US`.
+
 ### Configurable Agent Run Budget Limits
 - **Schema & Configuration Store Expansion**: Added `budget: RunBudgetLimits` property to `RuntimeSettings` interface and `schema.ts`. Introduced support for environment variables `MOLIBOT_MAX_TOOL_CALLS`, `MOLIBOT_MAX_TOOL_FAILURES`, and `MOLIBOT_MAX_MODEL_ATTEMPTS`.
 - **Sanitization & Clamping Protection**: Implemented custom validation/clamping rules inside settings store and `sanitizeSettings` to automatically restrict user-configured variables to safe ranges (e.g. tool call limits between `1` and `500`).

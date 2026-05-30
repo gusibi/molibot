@@ -1,7 +1,7 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { promises as fs } from "node:fs";
-import { dirname as pathDirname } from "node:path";
+import { dirname as pathDirname, basename } from "node:path";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import { createAttachTool } from "$lib/server/agent/tools/attach.js";
 import { getBashToolDefinition, tryParseHostBashCommand, findApprovedHostBash } from "$lib/server/agent/tools/bash.js";
@@ -29,8 +29,9 @@ import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { wrapCommandWithVenv, execCommand } from "$lib/server/agent/tools/helpers.js";
-import { prepareToolSandboxExecution } from "$lib/server/agent/tools/sandbox.js";
+import { prepareToolSandboxExecution, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { getHostBashStore } from "$lib/server/hostBash/index.js";
+import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
 
 function wrapSerializedTool<T extends AgentTool<any>>(tool: T): T {
   let chain = Promise.resolve();
@@ -131,6 +132,15 @@ export function createMomTools(options: {
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
 }): AgentTool<any>[] {
   const artifactDir = resolveScratchArtifactDir(options.timezone, options.messageTimestamp);
+  const botId = basename(options.workspaceDir) || "unknown";
+  const sandboxSettings = resolveEffectiveSandboxSettings({
+    getSettings: options.getSettings,
+    chatId: options.chatId,
+    sessionId: options.sessionId,
+    store: options.store,
+    channel: options.channel,
+    botId
+  });
   const loadedDeferredToolNames = new Set<string>();
   const createEventRuntimeTool = wrapSerializedTool(createEventTool({
     workspaceDir: options.workspaceDir,
@@ -177,7 +187,6 @@ export function createMomTools(options: {
         return { type: "allow" };
       }
 
-      const sandboxSettings = options.getSettings().toolSandbox;
       if (sandboxSettings.enabled) {
         return { type: "allow" };
       }
@@ -235,7 +244,6 @@ export function createMomTools(options: {
           const targetCwd = runOpts?.cwd ?? options.cwd;
           const timeoutSeconds = runOpts?.timeoutMs ? runOpts.timeoutMs / 1000 : undefined;
           
-          const sandboxSettings = options.getSettings().toolSandbox;
           const sandboxEnv = artifactDir ? { MOLIBOT_SCRATCH_ARTIFACT_DIR: artifactDir } : {};
           const wrappedCommand = wrapCommandWithVenv(cmd);
           const sandboxed = sandboxSettings.enabled
@@ -302,14 +310,14 @@ export function createMomTools(options: {
 
   const wrapWithToolRuntime = (originalTool: AgentTool<any>): AgentTool<any> => {
     if (!registry.get(originalTool.name)) {
-      const isMcp = originalTool.name.startsWith("mcp__");
+      const { risk, source } = getRuntimeToolClassification(originalTool.name);
       const toolDef: ToolDefinition = {
         id: originalTool.name,
         name: originalTool.label ?? originalTool.name,
         description: originalTool.description,
         inputSchema: originalTool.parameters,
-        risk: originalTool.name === "bash" ? "high" : (["write", "edit"].includes(originalTool.name) ? "medium" : "low"),
-        source: originalTool.name === "bash" ? "host" : (isMcp ? "mcp" : "builtin"),
+        risk,
+        source,
         handler: async (input, ctx) => {
           const res = (await originalTool.execute(ctx.runId, input)) as any;
           return {
@@ -385,7 +393,7 @@ export function createMomTools(options: {
     cwd: options.cwd,
     artifactDir,
     sandbox: {
-      settings: options.getSettings().toolSandbox,
+      settings: sandboxSettings,
       workspaceDir: options.workspaceDir
     },
     hostApproval: {

@@ -133,3 +133,32 @@ test("subagent stop reason preserves waiting_for_approval", () => {
     "error"
   );
 });
+
+test("createSubagentTool requestedByDepth is incremented and propagated to hostApproval", async () => {
+  let capturedHostApproval: any = null;
+  const tool = createSubagentTool({
+    cwd: process.cwd(),
+    workspaceDir: process.cwd(),
+    chatId: "chat-1",
+    channel: "telegram",
+    sessionId: "session-1",
+    store: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    requestedByDepth: 2,
+    _testHostApprovalCallback: (hostApproval: any) => {
+      capturedHostApproval = hostApproval;
+      throw new Error("test-depth-success");
+    }
+  } as any);
+
+  await assert.rejects(
+    tool.execute("tool-1", {
+      agent: "scout",
+      task: "Inspect the patch"
+    }, undefined, undefined),
+    /test-depth-success/
+  );
+
+  assert.ok(capturedHostApproval);
+  assert.equal(capturedHostApproval.requestedByDepth, 3);
+});

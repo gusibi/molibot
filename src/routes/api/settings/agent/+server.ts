@@ -7,6 +7,7 @@ interface AgentPayload {
   name?: string;
   description?: string;
   enabled?: boolean;
+  sandboxEnabled?: boolean;
 }
 
 function sanitizeAgent(input: AgentPayload): {
@@ -14,6 +15,7 @@ function sanitizeAgent(input: AgentPayload): {
   name: string;
   description: string;
   enabled: boolean;
+  sandboxEnabled?: boolean;
 } {
   const id = String(input.id ?? "").trim();
   if (!id) {
@@ -24,7 +26,8 @@ function sanitizeAgent(input: AgentPayload): {
     id,
     name: String(input.name ?? "").trim() || id,
     description: String(input.description ?? "").trim(),
-    enabled: input.enabled === undefined ? true : Boolean(input.enabled)
+    enabled: input.enabled === undefined ? true : Boolean(input.enabled),
+    sandboxEnabled: input.sandboxEnabled === undefined ? undefined : Boolean(input.sandboxEnabled)
   };
 }
 

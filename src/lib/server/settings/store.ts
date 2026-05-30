@@ -526,7 +526,8 @@ function sanitizeAgents(input: unknown): AgentSettings[] {
       id,
       name: String(item.name ?? "").trim() || id,
       description: String(item.description ?? "").trim(),
-      enabled: item.enabled === undefined ? true : Boolean(item.enabled)
+      enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+      sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled)
     });
   }
 
@@ -657,7 +658,8 @@ function sanitizeChannels(
               .map(([credKey, credValue]) => [credKey, String(credValue ?? "").trim()])
               .filter(([, credValue]) => Boolean(credValue))
           ),
-          allowedChatIds: sanitizeList(item.allowedChatIds)
+          allowedChatIds: sanitizeList(item.allowedChatIds),
+          sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled)
         };
       })
       .filter(Boolean) as ChannelSettingsMap[string]["instances"];
@@ -1020,6 +1022,16 @@ export class SettingsStore {
     } catch {
       // column already exists
     }
+    try {
+      db.exec("ALTER TABLE settings_agents ADD COLUMN sandbox_enabled INTEGER");
+    } catch {
+      // column already exists
+    }
+    try {
+      db.exec("ALTER TABLE settings_channel_instances ADD COLUMN sandbox_enabled INTEGER");
+    } catch {
+      // column already exists
+    }
     return db;
   }
 
@@ -1051,21 +1063,23 @@ export class SettingsStore {
     try {
       const legacy = this.loadLegacyDynamicSettings(db);
 
-      const agentsRows = db.prepare("SELECT id, name, description, enabled FROM settings_agents ORDER BY id ASC").all() as Array<{
+      const agentsRows = db.prepare("SELECT id, name, description, enabled, sandbox_enabled FROM settings_agents ORDER BY id ASC").all() as Array<{
         id: string;
         name: string;
         description: string;
         enabled: number;
+        sandbox_enabled: number | null;
       }>;
       const agents = agentsRows.map((row) => ({
         id: row.id,
         name: row.name,
         description: row.description,
-        enabled: Boolean(row.enabled)
+        enabled: Boolean(row.enabled),
+        sandboxEnabled: row.sandbox_enabled === null ? undefined : Boolean(row.sandbox_enabled)
       }));
 
       const channelRows = db.prepare(`
-        SELECT channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json
+        SELECT channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, sandbox_enabled
         FROM settings_channel_instances
         ORDER BY channel_key ASC, id ASC
       `).all() as Array<{
@@ -1076,6 +1090,7 @@ export class SettingsStore {
         agent_id: string;
         credentials_json: string;
         allowed_chat_ids_json: string;
+        sandbox_enabled: number | null;
       }>;
       const channels: ChannelSettingsMap = {};
       for (const row of channelRows) {
@@ -1086,7 +1101,8 @@ export class SettingsStore {
           enabled: Boolean(row.enabled),
           agentId: row.agent_id || "",
           credentials: this.parseDynamicValue(row.credentials_json, {}),
-          allowedChatIds: this.parseDynamicValue(row.allowed_chat_ids_json, [])
+          allowedChatIds: this.parseDynamicValue(row.allowed_chat_ids_json, []),
+          sandboxEnabled: row.sandbox_enabled === null ? undefined : Boolean(row.sandbox_enabled)
         });
       }
 
@@ -1169,11 +1185,18 @@ export class SettingsStore {
       if (keys.includes("agents")) {
         db.exec("DELETE FROM settings_agents");
         const insertAgent = db.prepare(`
-          INSERT INTO settings_agents (id, name, description, enabled, updated_at)
-          VALUES (?, ?, ?, ?, ?)
+          INSERT INTO settings_agents (id, name, description, enabled, sandbox_enabled, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
         `);
         for (const agent of settings.agents) {
-          insertAgent.run(agent.id, agent.name, agent.description ?? "", agent.enabled ? 1 : 0, now);
+          insertAgent.run(
+            agent.id,
+            agent.name,
+            agent.description ?? "",
+            agent.enabled ? 1 : 0,
+            agent.sandboxEnabled === undefined ? null : (agent.sandboxEnabled ? 1 : 0),
+            now
+          );
         }
       }
 
@@ -1181,8 +1204,8 @@ export class SettingsStore {
         db.exec("DELETE FROM settings_channel_instances");
         const insertChannel = db.prepare(`
           INSERT INTO settings_channel_instances
-            (channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, sandbox_enabled, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const [channelKey, channel] of Object.entries(settings.channels ?? {})) {
           for (const instance of channel.instances ?? []) {
@@ -1194,6 +1217,7 @@ export class SettingsStore {
               instance.agentId ?? "",
               JSON.stringify(instance.credentials ?? {}),
               JSON.stringify(instance.allowedChatIds ?? []),
+              instance.sandboxEnabled === undefined ? null : (instance.sandboxEnabled ? 1 : 0),
               now
             );
           }

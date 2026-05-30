@@ -17,6 +17,7 @@ import { applyAssistantStreamEvent } from "$lib/server/agent/core/assistantStrea
 import { buildPromptInputEnvelope } from "$lib/server/agent/prompts/promptInput.js";
 import { createMomTools } from "$lib/server/agent/tools/index.js";
 import { getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
+import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
 import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
 import { isRetryableModelError, resolvePromptAttemptDecision, shouldEmitFinalRunnerError } from "$lib/server/agent/core/runnerRetryState.js";
@@ -110,6 +111,18 @@ export class MomRunner implements RunnerLike {
         effectiveThinkingLevel: RuntimeSettings["defaultThinkingLevel"];
       }
     | undefined;
+
+  private getEffectiveSandboxEnabled(): boolean {
+    const botId = basename(this.store.getWorkspaceDir()) || "unknown";
+    return resolveEffectiveSandboxSettings({
+      getSettings: this.getSettings,
+      chatId: this.chatId,
+      sessionId: this.sessionId,
+      store: this.store,
+      channel: this.channel,
+      botId
+    }).enabled;
+  }
 
   constructor(
     private readonly channel: string,
@@ -668,7 +681,7 @@ export class MomRunner implements RunnerLike {
           ? resolvePlannedBashDisplayName({
               command: args.command,
               hostBashStore: getHostBashStore(),
-              sandboxAttempted: Boolean(this.getSettings().toolSandbox.enabled)
+              sandboxAttempted: this.getEffectiveSandboxEnabled()
             })
           : resolveToolDisplayName(event.toolName);
         const rawLabel = args.label || event.toolName;
@@ -706,7 +719,7 @@ export class MomRunner implements RunnerLike {
         const body = extractTextFromResult(event.result);
         const displayName = resolveToolDisplayName(event.toolName, {
           result: event.result,
-          sandboxAttempted: Boolean(this.getSettings().toolSandbox.enabled)
+          sandboxAttempted: this.getEffectiveSandboxEnabled()
         });
         const status = event.isError ? "✗" : "✓";
         const budgetResult = budget.recordToolResult(event.isError);

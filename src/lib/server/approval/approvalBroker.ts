@@ -3,6 +3,9 @@ import type { ApprovalGrant, ApprovalMatchContext, ApprovalRequest, ApprovalScop
 export interface ApprovalBrokerStore {
   listActiveGrants(): ApprovalGrant[];
   saveGrant(grant: ApprovalGrant): void;
+  revokeGrant(grantId: string, revokedAt?: Date): boolean;
+  revokeTurnGrants(runId: string, revokedAt?: Date): number;
+  revokeSessionGrants(sessionId: string, revokedAt?: Date): number;
   saveRequest(request: ApprovalRequest): void;
   updateRequest(request: ApprovalRequest): void;
   listPendingRequests(): ApprovalRequest[];
@@ -19,6 +22,39 @@ export class MemoryApprovalBrokerStore implements ApprovalBrokerStore {
 
   saveGrant(grant: ApprovalGrant): void {
     this.grants.set(grant.id, grant);
+  }
+
+  revokeGrant(grantId: string, revokedAt?: Date): boolean {
+    const existing = this.grants.get(grantId);
+    if (!existing || existing.revokedAt) return false;
+    this.grants.set(grantId, { ...existing, revokedAt: (revokedAt ?? new Date()).toISOString() });
+    return true;
+  }
+
+  revokeTurnGrants(runId: string, revokedAt?: Date): number {
+    const timestamp = (revokedAt ?? new Date()).toISOString();
+    let count = 0;
+    for (const [id, grant] of this.grants) {
+      if (grant.revokedAt) continue;
+      if ((grant.scope === "turn" || grant.scope === "once") && grant.runId === runId) {
+        this.grants.set(id, { ...grant, revokedAt: timestamp });
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  revokeSessionGrants(sessionId: string, revokedAt?: Date): number {
+    const timestamp = (revokedAt ?? new Date()).toISOString();
+    let count = 0;
+    for (const [id, grant] of this.grants) {
+      if (grant.revokedAt) continue;
+      if (grant.scope === "session" && grant.sessionId === sessionId) {
+        this.grants.set(id, { ...grant, revokedAt: timestamp });
+        count += 1;
+      }
+    }
+    return count;
   }
 
   saveRequest(request: ApprovalRequest): void {
@@ -122,6 +158,18 @@ export class ApprovalBroker {
     }
 
     return expired;
+  }
+
+  revokeGrant(grantId: string, revokedAt?: Date): boolean {
+    return this.store.revokeGrant(grantId, revokedAt);
+  }
+
+  revokeTurnGrants(runId: string, revokedAt?: Date): number {
+    return this.store.revokeTurnGrants(runId, revokedAt);
+  }
+
+  revokeSessionGrants(sessionId: string, revokedAt?: Date): number {
+    return this.store.revokeSessionGrants(sessionId, revokedAt);
   }
 
   private matchesGrant(grant: ApprovalGrant, input: ApprovalMatchContext, now: Date): boolean {

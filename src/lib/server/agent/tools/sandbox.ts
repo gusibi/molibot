@@ -3,9 +3,9 @@ import { isAbsolute, join, resolve } from "node:path";
 import dotenv from "dotenv";
 import { SandboxManager, type SandboxRuntimeConfig as AnthropicSandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import { config } from "$lib/server/app/env.js";
-import type { ToolSandboxSettings } from "$lib/server/settings/index.js";
-
-const SANDBOX_VENV_DIR = join(config.dataDir, "tooling", "sandbox-venv");
+import type { ToolSandboxSettings, RuntimeSettings } from "$lib/server/settings/index.js";
+import { getSandboxVenvDir } from "$lib/server/agent/tools/helpers.js";
+import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 
 // Decoupled Configuration Types
 export interface SandboxNetworkConfig {
@@ -312,6 +312,7 @@ function isAllowAll(domains: string[]): boolean {
 
 function buildEffectiveSandboxConfig(settings: ToolSandboxSettings, cwd: string, workspaceDir: string): SandboxRuntimeConfig {
   const envFilePath = resolveEnvFilePath(settings);
+  const effectiveVenvDir = getSandboxVenvDir();
   return {
     network: {
       allowedDomains: isAllowAll(settings.network.allowedDomains)
@@ -321,7 +322,7 @@ function buildEffectiveSandboxConfig(settings: ToolSandboxSettings, cwd: string,
     },
     filesystem: {
       denyRead: unique([...settings.filesystem.denyRead, envFilePath]),
-      allowWrite: unique([...settings.filesystem.allowWrite, ".", cwd, "/tmp", SANDBOX_VENV_DIR]),
+      allowWrite: unique([...settings.filesystem.allowWrite, ".", cwd, "/tmp", effectiveVenvDir]),
       denyWrite: unique([...settings.filesystem.denyWrite, envFilePath])
     }
   };
@@ -433,4 +434,55 @@ export async function getToolSandboxDiagnostics(
       denyWrite: effective.filesystem?.denyWrite ?? []
     }
   };
+}
+
+export function resolveEffectiveSandboxSettings(options: {
+  getSettings: () => RuntimeSettings;
+  chatId?: string;
+  sessionId?: string;
+  store?: MomRuntimeStore;
+  channel?: string;
+  botId?: string;
+  agentId?: string;
+}): ToolSandboxSettings {
+  const settings = options.getSettings();
+  const baseSettings = settings.toolSandbox;
+
+  // 1. Session Override
+  if (options.store && options.chatId && options.sessionId) {
+    const sessionOverride = options.store.getSessionSandboxOverride(options.chatId, options.sessionId);
+    if (sessionOverride !== null) {
+      return { ...baseSettings, enabled: sessionOverride };
+    }
+  }
+
+  // 2. Bot Instance Override
+  const channel = options.channel;
+  const botId = options.botId;
+  if (channel && botId) {
+    const instances = settings.channels[channel]?.instances ?? [];
+    const instance = instances.find((inst) => inst.id === botId);
+    if (instance && instance.sandboxEnabled !== undefined) {
+      return { ...baseSettings, enabled: instance.sandboxEnabled };
+    }
+  }
+
+  // 3. Agent Override
+  let agentId = options.agentId;
+  if (!agentId && channel && botId) {
+    const instances = settings.channels[channel]?.instances ?? [];
+    const instance = instances.find((inst) => inst.id === botId);
+    if (instance && instance.agentId) {
+      agentId = instance.agentId;
+    }
+  }
+  if (agentId) {
+    const agent = settings.agents.find((a) => a.id === agentId);
+    if (agent && agent.sandboxEnabled !== undefined) {
+      return { ...baseSettings, enabled: agent.sandboxEnabled };
+    }
+  }
+
+  // 4. Global Default
+  return baseSettings;
 }

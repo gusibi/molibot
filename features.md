@@ -3,6 +3,24 @@
 
 ## 2026-05-30
 
+### 智能体优化：审批深度传播与安全认证边界记录 (Review Optimization Tasks 4 & 5)
+- **子智能体审批深度传播 (Subagent Approval Depth Propagation)**: 在 `createSubagentTool` 的选项中新增并传递了 `requestedByDepth` 参数，且在生成子智能体的 `hostApproval` 载荷时将其递增 `(options.requestedByDepth ?? 0) + 1`，确保子智能体执行敏感操作（如 `bash` 命令）时能够向上级与宿主持久化正确的调用层级深度，彻底修复了原先硬编码为 `1` 的逻辑缺陷。
+- **TurnOrchestrator 认证边界文档化 (Actor Authentication Boundary Documentation)**: 在 `TurnOrchestrator.prepareTurn` 中为 SQLite `runs` 表写入 `actor_id` 时补充了明确的注释文档，声明 Channel 渠道运行时应在调用共享的 turn 编排管道前完成外部 Actor 的鉴权与授权，而 TurnOrchestrator 仅对已标准化的 `message.userId` 进行归档以做审计与工作区映射，明确了系统安全边界。
+- **测试环境会话与沙盒隔离优化 (Test Session Isolation & Mock Alignment)**: 优化了 `runner.test.ts` 中硬编码 `session-1` 导致的并发或遗留锁冲突，改为在各测试用例中生成独一无二的随机 session ID 进行测试；同时在 store Mock 对象中对齐补全了 `getSessionSandboxOverride: () => null`，使得测试完全在干净且隔离的模拟数据库环境中执行，修复了多个脆弱与 flaky 的单元测试。
+
+### 沙盒多层控制与审批自动恢复优化 (Sandbox Multi-Level Control & Approval Auto-Resume)
+- **多层控制链 (Multi-level Control Chain)**: 支持 `Session Override > Bot Instance Override > Agent Override > Global Default` 的沙盒控制优先度。当底层检测到有 Session 级别的覆盖时优先使用该覆盖，方便针对单次会话灵活控制沙盒。
+- **配置持久化与迁移 (Configuration Persistence & Migration)**: 在 `schema.ts`、`sanitize.ts` 和各个设置接口中打通了 `sandboxEnabled` 字段的读写，且在启动时通过 SQLite 迁移代码自动为 channels 表和 agents 表添加 `sandbox_enabled` 列。同时，在 Web、Telegram、Feishu、QQ、Weixin 的 Svelte 设置页面中全面接入了 `sandboxEnabled` 的字段加载与保存映射（并提供 UI 覆盖开关），彻底解决了保存其他渠道配置时 sandboxEnabled 字段被静默覆盖清空的数据丢失隐患。
+- **沙盒开关控制指令 (Sandbox Command override)**: 新增 `/sandbox` 会话指令，支持展示当前有效沙盒状态，并可接受 `/sandbox session on/off`，`/sandbox bot on/off`，`/sandbox agent on/off` 级别覆盖重写。
+- **主机命令审批自动恢复 (Approval Auto-Resume)**: 重构了主机命令批准后的执行流程，当用户通过客户端或 Web API 批准命令执行后，自动修改会话上下文中对应的 toolCall 对应的 toolResult 消息，将其内容替换为真实 stdout/stderr。随后，自动在后台重新触发 `runner.run(...)` 或 `runSharedTextTask(...)`，彻底解决以往命令审批通过后对话被截断的痛点。
+- **主机工具运行目录定制 (Customizable Tooling Directory)**: 内置主机 bash 工具在执行前，将检查环境变量 `MOLIBOT_TOOLING_DIR`（默认 `~/.molibot/tooling`），并在此目录下单独建立 `venv`、`GOPATH` 和 `GOCACHE`，确保智能体独立运行环境持久化并独立管理，防止依赖包或环境配置污染。
+
+### 命名沙盒安全策略卡片 (Named Sandbox Profiles)
+- **定义标准沙盒策略模板**: 在 Web UI 中预定义了三种安全级别模板：`Observe`（只读，允许网络通配符，可写 `/tmp` 和 `scratch`），`Build`（可读写工作区，限制网络至标准依赖源），以及 `Strict`（极度隔离，无网络，仅可写 `/tmp`）。
+- **动态策略匹配与状态检测**: 实现了 Svelte 端对当前生效沙盒规则的自动比对匹配。若检测到用户更改了底层任何细节，卡片状态将自动高亮显示“自定义配置策略 (Custom Profile)”，方便用户随时重置或查看。
+- **可视化预设选择卡片**: 在 `/settings/sandbox` 顶部新增了三张拥有精美悬停悬浮阴影、过渡动效和当前生效激活边框的卡片。
+- **完善的国际化支持**: 针对预设卡片名称、模式描述以及自定义状态和生效徽标等，全部提供了完整的中文与英文双语翻译支持。
+
 ### 可配置的智能体运行预算限制 (Configurable Run Budget Limits)
 - **Schema 与配置持久化扩展**: 在 `RuntimeSettings` 接口和 `schema.ts` 中新增了 `budget: RunBudgetLimits` 结构，声明最大工具调用次数 (`maxToolCalls`)、最大允许工具失败次数 (`maxToolFailures`) 和最大模型尝试次数 (`maxModelAttempts`)，并增加对应环境变量 `MOLIBOT_MAX_TOOL_CALLS` 等的支持。
 - **Sanitization 与 Clamping 保护机制**: 在 `sanitize.ts` 与 `store.ts` 中新增并集成了 `sanitizeBudgetSettings` 辅助方法，将用户的数值输入安全地夹逼（clamp）在合理范围（如工具调用最大限额 `1` 至 `500`），避免死循环或配置溢出。

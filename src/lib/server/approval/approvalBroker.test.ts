@@ -87,6 +87,138 @@ test("resolveRequest creates scoped grant only when approved", () => {
   }));
 });
 
+test("revokeGrant marks grant inactive and checkGrant returns null", () => {
+  const store = new MemoryApprovalBrokerStore();
+  store.saveGrant(grant({ id: "grant-1", scope: "session" }));
+  const broker = new ApprovalBroker(store);
+
+  assert.ok(broker.checkGrant({
+    capability: "bash:git",
+    actorId: "agent-1",
+    workspaceId: "personal",
+    sessionId: "session-1",
+    runId: "run-1"
+  }));
+
+  const result = broker.revokeGrant("grant-1");
+  assert.equal(result, true);
+
+  assert.equal(broker.checkGrant({
+    capability: "bash:git",
+    actorId: "agent-1",
+    workspaceId: "personal",
+    sessionId: "session-1",
+    runId: "run-1"
+  }), null);
+});
+
+test("revokeGrant returns false for unknown grant id", () => {
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+
+  assert.equal(broker.revokeGrant("nonexistent"), false);
+});
+
+test("revokeGrant returns false for already revoked grant", () => {
+  const store = new MemoryApprovalBrokerStore();
+  store.saveGrant(grant({ id: "grant-1", revokedAt: "2026-05-28T00:01:00.000Z" }));
+  const broker = new ApprovalBroker(store);
+
+  assert.equal(broker.revokeGrant("grant-1"), false);
+});
+
+test("revokeTurnGrants revokes turn-scoped grants for a run and leaves other grants active", () => {
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+
+  store.saveGrant(grant({ id: "grant-turn", scope: "turn", runId: "run-1" }));
+  store.saveGrant(grant({ id: "grant-once", scope: "once", runId: "run-1" }));
+  store.saveGrant(grant({ id: "grant-session", scope: "session", sessionId: "session-1", runId: "run-1" }));
+  store.saveGrant(grant({ id: "grant-other-turn", scope: "turn", runId: "run-2" }));
+
+  const count = broker.revokeTurnGrants("run-1");
+
+  assert.equal(count, 2);
+
+  // turn/once grants for run-1 should be revoked:
+  // checkGrant with a different session so the session grant doesn't match
+  assert.equal(broker.checkGrant({
+    capability: "bash:git", actorId: "agent-1", workspaceId: "personal",
+    sessionId: "other-session", runId: "run-1"
+  }), null);
+
+  // session-scoped grant should still be active (different run, same session)
+  assert.ok(broker.checkGrant({
+    capability: "bash:git", actorId: "agent-1", workspaceId: "personal",
+    sessionId: "session-1", runId: "run-99"
+  }));
+
+  // other-run turn grant should still be active
+  assert.ok(broker.checkGrant({
+    capability: "bash:git", actorId: "agent-1", workspaceId: "personal",
+    sessionId: "session-1", runId: "run-2"
+  }));
+});
+
+test("revokeSessionGrants revokes session-scoped grants and leaves other grants active", () => {
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+
+  store.saveGrant(grant({ id: "grant-session", scope: "session", sessionId: "session-1" }));
+  store.saveGrant(grant({ id: "grant-turn", scope: "turn", runId: "run-1", sessionId: "session-1" }));
+  store.saveGrant(grant({ id: "grant-once", scope: "once", runId: "run-1", sessionId: "session-1" }));
+  store.saveGrant(grant({ id: "grant-other-session", scope: "session", sessionId: "session-2" }));
+
+  const count = broker.revokeSessionGrants("session-1");
+
+  assert.equal(count, 1);
+
+  // session-scoped for session-1 should be revoked
+  assert.equal(broker.checkGrant({
+    capability: "bash:git", actorId: "agent-1", workspaceId: "personal",
+    sessionId: "session-1", runId: "run-99"
+  }), null);
+
+  // turn-scoped for session-1 should still be active (it matches by runId)
+  assert.ok(broker.checkGrant({
+    capability: "bash:git", actorId: "agent-1", workspaceId: "personal",
+    sessionId: "session-1", runId: "run-1"
+  }));
+
+  // other-session grant should still be active
+  assert.ok(broker.checkGrant({
+    capability: "bash:git", actorId: "agent-1", workspaceId: "personal",
+    sessionId: "session-2", runId: "run-99"
+  }));
+});
+
+test("revokeTurnGrants returns 0 when no matching grants exist", () => {
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+
+  const count = broker.revokeTurnGrants("no-such-run");
+  assert.equal(count, 0);
+});
+
+test("revokeSessionGrants returns 0 when no matching grants exist", () => {
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+
+  const count = broker.revokeSessionGrants("no-such-session");
+  assert.equal(count, 0);
+});
+
+test("revokeTurnGrants does not double-count already revoked grants", () => {
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+
+  store.saveGrant(grant({ id: "grant-turn", scope: "turn", runId: "run-1" }));
+  store.saveGrant(grant({ id: "grant-once-revoked", scope: "once", runId: "run-1", revokedAt: "2026-05-28T00:01:00.000Z" }));
+
+  const count = broker.revokeTurnGrants("run-1");
+  assert.equal(count, 1);
+});
+
 test("expirePendingRequests marks old pending requests expired", () => {
   const store = new MemoryApprovalBrokerStore();
   const broker = new ApprovalBroker(store);

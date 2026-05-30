@@ -91,6 +91,7 @@ export interface AgentSettings {
   name: string;
   description: string;
   enabled: boolean;
+  sandboxEnabled?: boolean;
 }
 
 export interface ChannelInstanceSettings {
@@ -100,6 +101,7 @@ export interface ChannelInstanceSettings {
   agentId?: string;
   credentials: Record<string, string>;
   allowedChatIds: string[];
+  sandboxEnabled?: boolean;
 }
 
 export interface ChannelPluginSettings {

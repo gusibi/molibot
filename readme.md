@@ -48,9 +48,10 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 ## Key Highlights
 
 - **Multi-Channel in One Runtime**: `Web + Telegram + Feishu + Weixin + CLI`
+- **Sandbox Multi-Level Control & Approval Auto-Resume**: Supports sandbox overrides with a resolution priority order of `Session Override > Bot Instance Override > Agent Override > Global Default`. Direct chat control is enabled via the `/sandbox` command. Approved bash commands auto-rewrite execution context history and dynamically resume runners in the background. Built-in tools automatically target isolated venv, GOPATH, and GOCACHE environments in `MOLIBOT_TOOLING_DIR` (defaulting to `~/.molibot/tooling`).
 - **ACP Externalized Dependency**: Legacy ACP has been physically cleaned up from the main codebase and relocated to `package/acp/` as an external dependency mapping to `#acp/*`.
 - **Minimum Workspace Boundary**: runtime startup creates a default `personal` workspace registry entry, and new run archives carry `workspaceId` for future workspace-scoped tools, approvals, and memory policy
-- **Agent v2.2 Runtime Integration**: TurnOrchestrator now manages the complete turn lifecycle—including session concurrency locking, 10-minute timeout releases, memory synchronizations, context compactions, and status archiving. `runner.ts` has been refactored and slimmed by delegating these concerns to the orchestrator. All built-in and MCP tools are registered to ToolRegistry and wrapped with ToolRuntime to enforce policy/approval checking, supporting subagent approval bubbling and depth tracking.
+- **Agent v2.2 Runtime Integration & Review Optimization**: TurnOrchestrator now manages the complete turn lifecycle—including session concurrency locking, 10-minute timeout releases, memory synchronizations, context compactions, and status archiving. `runner.ts` has been refactored and slimmed by delegating these concerns to the orchestrator. All built-in and MCP tools are registered to ToolRegistry and wrapped with ToolRuntime to enforce policy/approval checking, supporting subagent approval bubbling, depth tracking (`requestedByDepth` propagation), and documented actor auth boundaries.
 - **Agent runner.ts Slimming & Input Enrichment Extraction**: Extracted top-level helpers and media/vision enrichment blocks from `runner.ts` into standalone modular files (`runnerHelpers.ts` and `runnerInputEnricher.ts`). Completely removed the legacy `blockedOnHostBashApproval` pausing and agent abort logic to transition fully to the new coroutine-blocking model, shrinking `runner.ts` to 1693 lines while preserving all runtime execution pathways.
 - **MCP Ecosystem**: stdio/HTTP transport support, skill-gated tool injection, dynamic loading
 - **Profile-Driven Chat**: `global -> agent -> bot/profile` prompt layering with file-based governance
@@ -68,7 +69,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Best-Effort Subagent Progress**: subagent lifecycle notices are UI-only signals delivered through the shared runner queue, so sink failures do not abort delegated work and failed runs still close their visible progress state cleanly
 - **Subagent Artifact Routing**: delegated runs inherit the parent message's dated scratch artifact directory, so generated reports and data files default to `scratch/YYYY/MM/DD/` whether they are created by the parent agent or a subagent
 - **Subagent Host Bash Inheritance**: delegated runs use the parent Agent's Host Bash approval context, so existing approvals and current-session sandbox fallback apply inside subagents and new approval prompts reuse the same channel UI
-- **Agent Bash Sandbox**: optional OS-level sandboxing for main and built-in subagent `bash`, with allowlisted env resolution from host env plus `.env.sandbox.local` (env file takes precedence), redacted diagnostics, startup missing-key warnings, and execution-path-aware `Sandbox` / `Host Bash` / `Sandbox disabled` tool-output markers
+- **Agent Bash Sandbox & Profiles**: optional OS-level sandboxing for main and built-in subagent `bash`, with allowlisted env resolution from host env plus `.env.sandbox.local` (env file takes precedence), redacted diagnostics, startup missing-key warnings, execution-path-aware `Sandbox` / `Host Bash` / `Sandbox disabled` tool-output markers, and pre-defined Named Sandbox Profiles (Observe, Build, Strict) with dynamic matching and custom presets on the settings page
 - **Archived Run Details**: successful IM runs now collapse bulky detail threads into one archive notice, while structured per-run detail logs stay available through `/runlog latest` or `/runlog <runId>` and Telegram final answers/notice messages can reply to the original user message for easier thread scanning
 - **Chat Host Tool Approval**: host-only external tools are approved from chat through a pending request flow rooted at the `bash` entry; structured approval payloads can render channel-native buttons/cards, approval immediately continues the stored host action through the original shell command so variables and quoting behave like normal bash, and a pending approval now pauses the current turn in an explicit waiting state instead of ending it as if the run were manually stopped
 - **Session-Scoped Sandbox Bypass**: host approval now includes a current-session-only option that approves the blocked request without registering a reusable host tool, then auto-falls back from sandbox denial to plain host bash for the rest of that active session only; `/new` or switching bots clears that temporary bypass automatically
@@ -312,7 +313,7 @@ Open: `http://localhost:3000`
 ### Core Configuration
 - `/settings` - Overview and workbench entry hub
 - `/settings/system` - Language, runtime timezone, and read-only GitHub/deployment version information; migrated to the shadcn-svelte Settings style
-- `/settings/sandbox` - Opt-in OS-level sandbox policy for agent and subagent bash, including env allow/deny keys, network domains, filesystem read/write rules, and redacted diagnostics
+- `/settings/sandbox` - Opt-in OS-level sandbox policy for agent and subagent bash, including env allow/deny keys, network domains, filesystem read/write rules, redacted diagnostics, and Named Sandbox Profiles presets (Observe, Build, Strict)
 - `/settings/ai` - AI providers, models, routing, including the dedicated subagent fallback route, subagent model-level mappings, usage tracking, cache-hit trend visibility, auto-refreshing time windows, runtime timezone dropdown, and shadcn-svelte provider/model forms
 - `/settings/agents` - Agent library with Markdown prompt files plus a separate read-only Subagents view for built-in delegation roles, abstract model levels, and their effective model source
 - `/settings/skill-drafts` - Review generated reusable workflow drafts with long draft content shown as a 10-line preview and full editing handled in a focused modal form
@@ -513,6 +514,11 @@ docker compose up -d --build
 - `MEMORY_BACKEND` (`json-file`|`mory`) - Memory backend type
 - `MORY_DB_PATH` - Mory SQLite database path
 
+### Execution Budget
+- `MOLIBOT_MAX_TOOL_CALLS` - Max tool calls per session (default: 24)
+- `MOLIBOT_MAX_TOOL_FAILURES` - Max allowed tool failures (default: 6)
+- `MOLIBOT_MAX_MODEL_ATTEMPTS` - Max model attempts / reasoning loops (default: 6)
+
 ### Security & Safety
 - `BASH_TOOL_ENABLED` - Enable bash tool (default: true)
 - `BASH_PYTHON_SANDBOX` - Enable Python sandbox (default: true)
@@ -601,7 +607,7 @@ See `.env.example` for full list and detailed descriptions.
 | **Settings System** | ⭐⭐⭐ Active | Relational tables, single-entity save, theme/i18n, unsaved change guards, progressive shadcn-svelte migration |
 | **Python Sandbox** | ⭐⭐⭐ Active | Isolated virtualenv, auto-dependency management, security hardening |
 | **Agent Sessions** | ⭐⭐⭐ Active | Pi/Pae-style message-boundary persistence for user prompts, assistant partial/error output, completed tool results, compaction, runtime-event separation, and continuation after failed turns |
-| **Agent Bash Sandbox** | ⭐⭐ Opt-in | OS-level sandbox for main and built-in subagent bash, redacted diagnostics, allowlisted env injection, and execution-path-aware `Sandbox` / `Host Bash` / `Sandbox disabled` tool-output markers |
+| **Agent Bash Sandbox** | ⭐⭐ Opt-in | OS-level sandbox for main and built-in subagent bash, redacted diagnostics, allowlisted env injection, execution-path-aware markers, and Named Sandbox Profiles presets |
 | **Host Bash Approval** | ⭐⭐ Active | Chat-first approval for sandbox-blocked shell commands; `bash` checks approved entries first, auto-creates approval on eligible sandbox permission failures, waits with `waiting_for_approval` instead of `Stopped.`, and suppresses empty `(no output)` success noise after approval auto-execution |
 
 ### Development Activity

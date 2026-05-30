@@ -728,6 +728,144 @@ export class SharedRuntimeCommandService<TTarget> {
       return true;
     }
 
+    if (cmd === "/sandbox") {
+      const sessionId = this.options.store.getActiveSession(input.scopeId);
+      const args = rawArg.split(/\s+/).filter(Boolean);
+
+      if (args.length === 0) {
+        await this.options.sendText(input.target, this.formatSandboxStatus(input.scopeId, sessionId));
+        return true;
+      }
+
+      const scope = args[0]?.toLowerCase();
+
+      // Session override only requires store access, not updateSettings
+      if (scope !== "bot" && scope !== "agent") {
+        const action = scope;
+        let nextValue: boolean | null;
+        if (action === "on") nextValue = true;
+        else if (action === "off") nextValue = false;
+        else if (action === "reset") nextValue = null;
+        else {
+          await this.options.sendText(input.target, "Usage:\n- /sandbox [on|off|reset]\n- /sandbox bot [on|off|reset]\n- /sandbox agent [on|off|reset]");
+          return true;
+        }
+
+        this.options.store.setSessionSandboxOverride(input.scopeId, sessionId, nextValue);
+        await this.options.sendText(
+          input.target,
+          `Session '${sessionId}' sandbox override set to: ${nextValue === null ? "Inherit" : nextValue ? "ON" : "OFF"}\n\n` +
+          this.formatSandboxStatus(input.scopeId, sessionId)
+        );
+        return true;
+      }
+
+      // Bot and agent overrides require settings write access
+      if (!this.options.updateSettings) {
+        await this.options.sendText(input.target, "Settings updates are unavailable in current runtime.");
+        return true;
+      }
+
+      if (scope === "bot") {
+        const action = args[1]?.toLowerCase();
+        const settings = this.options.getSettings();
+        const channel = this.options.channel;
+        const instanceId = this.options.instanceId;
+        const channelSettings = settings.channels[channel];
+        if (!channelSettings) {
+          await this.options.sendText(input.target, `Channel '${channel}' settings not found.`);
+          return true;
+        }
+
+        let nextValue: boolean | undefined;
+        if (action === "on") nextValue = true;
+        else if (action === "off") nextValue = false;
+        else if (action === "reset") nextValue = undefined;
+        else {
+          await this.options.sendText(input.target, "Usage: /sandbox bot [on|off|reset]");
+          return true;
+        }
+
+        const instances = channelSettings.instances.map((inst) => {
+          if (inst.id === instanceId) {
+            return { ...inst, sandboxEnabled: nextValue };
+          }
+          return inst;
+        });
+        
+        this.options.updateSettings({
+          channels: {
+            ...settings.channels,
+            [channel]: { ...channelSettings, instances }
+          }
+        });
+
+        await this.options.sendText(
+          input.target,
+          `Bot '${instanceId}' sandbox override set to: ${nextValue === undefined ? "Inherit" : nextValue ? "ON" : "OFF"}\n\n` +
+          this.formatSandboxStatus(input.scopeId, sessionId)
+        );
+        return true;
+      }
+
+      if (scope === "agent") {
+        const action = args[1]?.toLowerCase();
+        const settings = this.options.getSettings();
+        const channel = this.options.channel;
+        const instanceId = this.options.instanceId;
+        const instance = settings.channels[channel]?.instances.find((inst) => inst.id === instanceId);
+        const agentId = instance?.agentId;
+        if (!agentId) {
+          await this.options.sendText(input.target, "No default agent linked to this bot instance.");
+          return true;
+        }
+
+        let nextValue: boolean | undefined;
+        if (action === "on") nextValue = true;
+        else if (action === "off") nextValue = false;
+        else if (action === "reset") nextValue = undefined;
+        else {
+          await this.options.sendText(input.target, "Usage: /sandbox agent [on|off|reset]");
+          return true;
+        }
+
+        const agents = settings.agents.map((ag) => {
+          if (ag.id === agentId) {
+            return { ...ag, sandboxEnabled: nextValue };
+          }
+          return ag;
+        });
+
+        this.options.updateSettings({ agents });
+
+        await this.options.sendText(
+          input.target,
+          `Agent '${agentId}' sandbox override set to: ${nextValue === undefined ? "Inherit" : nextValue ? "ON" : "OFF"}\n\n` +
+          this.formatSandboxStatus(input.scopeId, sessionId)
+        );
+        return true;
+      }
+
+      // Default to session override
+      const action = scope;
+      let nextValue: boolean | null;
+      if (action === "on") nextValue = true;
+      else if (action === "off") nextValue = false;
+      else if (action === "reset") nextValue = null;
+      else {
+        await this.options.sendText(input.target, "Usage:\n- /sandbox [on|off|reset]\n- /sandbox bot [on|off|reset]\n- /sandbox agent [on|off|reset]");
+        return true;
+      }
+
+      this.options.store.setSessionSandboxOverride(input.scopeId, sessionId, nextValue);
+      await this.options.sendText(
+        input.target,
+        `Session '${sessionId}' sandbox override set to: ${nextValue === null ? "Inherit" : nextValue ? "ON" : "OFF"}\n\n` +
+        this.formatSandboxStatus(input.scopeId, sessionId)
+      );
+      return true;
+    }
+
     if (cmd === "/help" || cmd === "/start") {
       await this.options.sendText(input.target, this.helpText());
       return true;
@@ -1282,5 +1420,62 @@ export class SharedRuntimeCommandService<TTarget> {
         : `Queued task ${id} will now run as live follow-up after the current task.`
     );
     return true;
+  }
+
+  private formatSandboxStatus(scopeId: string, sessionId: string): string {
+    const settings = this.options.getSettings();
+    const channel = this.options.channel;
+    const instanceId = this.options.instanceId;
+    
+    // 1. Session Override
+    const sessionOverride = this.options.store.getSessionSandboxOverride(scopeId, sessionId);
+    const sessionText = sessionOverride === true ? "ON (Override)" : sessionOverride === false ? "OFF (Override)" : "Inherit";
+
+    // 2. Bot Override
+    const instance = settings.channels[channel]?.instances.find((inst) => inst.id === instanceId);
+    const botOverride = instance?.sandboxEnabled;
+    const botText = botOverride === true ? "ON (Override)" : botOverride === false ? "OFF (Override)" : "Inherit";
+
+    // 3. Agent Override
+    const agentId = instance?.agentId;
+    const agent = agentId ? settings.agents.find((a) => a.id === agentId) : null;
+    const agentOverride = agent?.sandboxEnabled;
+    const agentText = agentOverride === true ? "ON (Override)" : agentOverride === false ? "OFF (Override)" : "Inherit";
+
+    // 4. Global Default
+    const globalDefault = settings.toolSandbox.enabled;
+    const globalText = globalDefault ? "ON (Default)" : "OFF (Default)";
+
+    // Resolved Status
+    let resolved = globalDefault;
+    let resolvedFrom = "Global Default";
+    
+    if (agentOverride !== undefined) {
+      resolved = agentOverride;
+      resolvedFrom = `Agent Override (${agentId})`;
+    }
+    if (botOverride !== undefined) {
+      resolved = botOverride;
+      resolvedFrom = `Bot Override (${instanceId})`;
+    }
+    if (sessionOverride !== null) {
+      resolved = sessionOverride;
+      resolvedFrom = `Session Override (${sessionId})`;
+    }
+
+    return [
+      "=== Sandbox Configurations ===",
+      `Resolved Status: ${resolved ? "ENABLED" : "DISABLED"} (via ${resolvedFrom})`,
+      "",
+      `1. Session Override [${sessionId}]: ${sessionText}`,
+      `2. Bot Override [${instanceId}]: ${botText}`,
+      `3. Agent Override [${agentId ?? "none"}]: ${agentText}`,
+      `4. Global Default: ${globalText}`,
+      "",
+      "Usage:",
+      " - `/sandbox [on|off|reset]` : toggle session sandbox override",
+      " - `/sandbox bot [on|off|reset]` : toggle current bot sandbox override",
+      " - `/sandbox agent [on|off|reset]` : toggle default agent sandbox override"
+    ].join("\n");
   }
 }

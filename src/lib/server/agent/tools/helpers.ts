@@ -1,16 +1,45 @@
 import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import os from "node:os";
 import { config } from "$lib/server/app/env.js";
 
+export function resolvePath(p: string): string {
+  const trimmed = p.trim();
+  if (trimmed.startsWith("~/") || trimmed === "~") {
+    return join(os.homedir(), trimmed.slice(1));
+  }
+  return resolve(trimmed);
+}
+
+export function getSandboxVenvDir(): string {
+  const custom = process.env.MOLIBOT_TOOLING_DIR || process.env.MOLIBOT_VENV_DIR;
+  if (custom) {
+    return resolvePath(custom);
+  }
+  return join(config.dataDir, "tooling", "sandbox-venv");
+}
+
+// Deprecated: use getSandboxVenvDir() instead, kept for interface compatibility
 export const SANDBOX_VENV_DIR = join(config.dataDir, "tooling", "sandbox-venv");
 
 export function wrapCommandWithVenv(command: string): string {
-  const venvBin = process.platform === "win32" ? join(SANDBOX_VENV_DIR, "Scripts") : join(SANDBOX_VENV_DIR, "bin");
+  const venvDir = getSandboxVenvDir();
+  const venvBin = process.platform === "win32" ? join(venvDir, "Scripts") : join(venvDir, "bin");
   const venvPython = process.platform === "win32" ? join(venvBin, "python.exe") : join(venvBin, "python");
+  
+  const customToolingDir = process.env.MOLIBOT_TOOLING_DIR;
+  const goEnvLines = customToolingDir
+    ? [
+        `export GOPATH=${shellEscape(join(resolvePath(customToolingDir), "go"))}`,
+        `export GOCACHE=${shellEscape(join(resolvePath(customToolingDir), "go-cache"))}`
+      ]
+    : [];
+
   return [
-    `if [ ! -f ${shellEscape(venvPython)} ]; then python3 -m venv ${shellEscape(SANDBOX_VENV_DIR)} 2>/dev/null || true; fi`,
+    `if [ ! -f ${shellEscape(venvPython)} ]; then python3 -m venv ${shellEscape(venvDir)} 2>/dev/null || true; fi`,
     `export PATH=${shellEscape(venvBin)}:$PATH`,
-    `export VIRTUAL_ENV=${shellEscape(SANDBOX_VENV_DIR)}`,
+    `export VIRTUAL_ENV=${shellEscape(venvDir)}`,
+    ...goEnvLines,
     command
   ].join("\n");
 }
