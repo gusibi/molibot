@@ -16,8 +16,15 @@
   import { Separator } from "$lib/components/ui/separator";
   import { initLocale, locale, setLocale, type LocaleKey } from "$lib/ui/i18n";
 
+  interface RunBudgetLimits {
+    maxToolCalls: number;
+    maxToolFailures: number;
+    maxModelAttempts: number;
+  }
+
   interface RuntimeSettings {
     timezone: string;
+    budget: RunBudgetLimits;
   }
 
   interface VersionInfo {
@@ -35,12 +42,19 @@
   const COPY = {
     "zh-CN": {
       eyebrow: "系统配置",
-      title: "语言、时区和部署信息",
+      title: "系统语言、时区与运行预算",
       subtitle: "这些是跨页面、跨运行时的基础配置。GitHub 地址只读展示，避免在网页里误改部署来源。",
       language: "界面语言",
       languageHint: "语言偏好保存在当前浏览器，本地切换不会重启服务。",
       timezone: "运行时时区",
       timezoneHint: "用于日期感知、用量统计和任务调度展示。保存后对后续请求生效。",
+      budgetTitle: "智能体运行预算限制",
+      budgetSubtitle: "控制单次执行会话中允许的工具调用和模型尝试的最大次数，防止死循环或超额扣费。",
+      maxToolCalls: "最大工具调用次数",
+      maxToolFailures: "最大允许工具失败次数",
+      maxModelAttempts: "最大模型尝试（思考）次数",
+      saveBudget: "保存预算限制",
+      savingBudget: "保存预算中...",
       deployment: "部署信息",
       githubRepo: "GitHub 地址",
       githubRepoHint: "只读。请通过部署环境或 molibot manage 修改，不在 Web UI 内编辑。",
@@ -60,12 +74,19 @@
     },
     "en-US": {
       eyebrow: "System Config",
-      title: "Language, timezone, and deployment information",
+      title: "Language, timezone, and execution budget",
       subtitle: "These settings affect the whole runtime. GitHub is read-only here so the web UI cannot accidentally change the deployment source.",
       language: "Interface language",
       languageHint: "Language is stored in this browser and does not restart the service.",
       timezone: "Runtime timezone",
       timezoneHint: "Used for date-aware prompts, usage analytics, and scheduled task display. Applies to future requests after saving.",
+      budgetTitle: "Agent Run Budget Limits",
+      budgetSubtitle: "Control the maximum number of tool calls and model attempts allowed per session to avoid loops or billing surprises.",
+      maxToolCalls: "Max tool calls per session",
+      maxToolFailures: "Max allowed tool failures",
+      maxModelAttempts: "Max model attempts (reasoning cycles)",
+      saveBudget: "Save budget limits",
+      savingBudget: "Saving budget limits...",
       deployment: "Deployment",
       githubRepo: "GitHub URL",
       githubRepoHint: "Read-only. Change it through deployment environment or molibot manage, not the Web UI.",
@@ -93,6 +114,11 @@
   let statusVariant: "default" | "destructive" = "default";
   let loading = true;
   let saving = false;
+
+  let maxToolCalls = 24;
+  let maxToolFailures = 6;
+  let maxModelAttempts = 6;
+  let savingBudget = false;
 
   $: copy = COPY[$locale];
 
@@ -149,6 +175,11 @@
       const settings = settingsPayload.settings as RuntimeSettings;
       timezone = settings.timezone || timezone;
       timezoneOptions = buildTimeZoneOptions(timezone);
+      if (settings.budget) {
+        maxToolCalls = settings.budget.maxToolCalls ?? maxToolCalls;
+        maxToolFailures = settings.budget.maxToolFailures ?? maxToolFailures;
+        maxModelAttempts = settings.budget.maxModelAttempts ?? maxModelAttempts;
+      }
       versionInfo = {
         ok: Boolean(versionPayload?.ok),
         currentVersion: String(versionPayload?.currentVersion ?? "0.0.0"),
@@ -189,6 +220,36 @@
       statusVariant = "destructive";
     } finally {
       saving = false;
+    }
+  }
+
+  async function saveBudget(): Promise<void> {
+    savingBudget = true;
+    status = "";
+    statusVariant = "default";
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          budget: {
+            maxToolCalls: Number(maxToolCalls),
+            maxToolFailures: Number(maxToolFailures),
+            maxModelAttempts: Number(maxModelAttempts)
+          }
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || copy.failedSave);
+      }
+      status = copy.saved;
+      statusVariant = "default";
+    } catch (error) {
+      status = error instanceof Error ? error.message : String(error);
+      statusVariant = "destructive";
+    } finally {
+      savingBudget = false;
     }
   }
 
@@ -261,6 +322,55 @@
       </CardContent>
     </Card>
   </div>
+
+  <Card>
+    <CardHeader>
+      <CardTitle>{copy.budgetTitle}</CardTitle>
+      <CardDescription>{copy.budgetSubtitle}</CardDescription>
+    </CardHeader>
+    <CardContent class="flex flex-col gap-5">
+      <div class="grid gap-4 sm:grid-cols-3">
+        <div class="flex flex-col gap-2">
+          <Label for="max-tool-calls">{copy.maxToolCalls}</Label>
+          <Input
+            id="max-tool-calls"
+            type="number"
+            min="1"
+            max="500"
+            bind:value={maxToolCalls}
+            disabled={loading}
+          />
+        </div>
+        <div class="flex flex-col gap-2">
+          <Label for="max-tool-failures">{copy.maxToolFailures}</Label>
+          <Input
+            id="max-tool-failures"
+            type="number"
+            min="1"
+            max="100"
+            bind:value={maxToolFailures}
+            disabled={loading}
+          />
+        </div>
+        <div class="flex flex-col gap-2">
+          <Label for="max-model-attempts">{copy.maxModelAttempts}</Label>
+          <Input
+            id="max-model-attempts"
+            type="number"
+            min="1"
+            max="100"
+            bind:value={maxModelAttempts}
+            disabled={loading}
+          />
+        </div>
+      </div>
+      <div class="flex justify-end">
+        <Button type="button" onclick={saveBudget} disabled={savingBudget || loading}>
+          {savingBudget ? copy.savingBudget : copy.saveBudget}
+        </Button>
+      </div>
+    </CardContent>
+  </Card>
 
   <Card>
     <CardHeader>

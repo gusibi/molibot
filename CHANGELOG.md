@@ -2,6 +2,30 @@
 
 ## Version 1.0
 
+
+## 2026-05-30
+
+### Configurable Agent Run Budget Limits
+- **Schema & Configuration Store Expansion**: Added `budget: RunBudgetLimits` property to `RuntimeSettings` interface and `schema.ts`. Introduced support for environment variables `MOLIBOT_MAX_TOOL_CALLS`, `MOLIBOT_MAX_TOOL_FAILURES`, and `MOLIBOT_MAX_MODEL_ATTEMPTS`.
+- **Sanitization & Clamping Protection**: Implemented custom validation/clamping rules inside settings store and `sanitizeSettings` to automatically restrict user-configured variables to safe ranges (e.g. tool call limits between `1` and `500`).
+- **Agent Runner Budget Integration**: Updated `runner.ts` to instantiate `RunBudget` dynamically using the SvelteKit settings store's configured limits instead of the hardcoded `DEFAULT_RUN_BUDGET` constant.
+- **Web UI & Localizations**: Created a dedicated "Agent Budget Limits" configuration panel under `/settings/system` settings, allowing administrators to modify limits via the browser with full en-US and zh-CN localizations.
+
+### Agent runner.ts Slimming & Input Enrichment Extraction (v2.2 Phase 5)
+- **Top-Level Helper Functions Extraction**: Extracted 16 utility/helper functions from `runner.ts` into a new modular file `runnerHelpers.ts`.
+- **Inbound Message Enrichment Extraction**: Extracted audio transcription (STT) routing, vision/image routing fallbacks, and model candidate fallback resolution logic into `runnerInputEnricher.ts`.
+- **`runner.ts` Footprint Reduction**: Refactored `MomRunner` to import helper utilities and delegate input preparation to `prepareEnrichedInput`. Completely removed the legacy `blockedOnHostBashApproval` pausing and agent abort logic to transition fully to the new coroutine-blocking model, shrinking `runner.ts` to 1693 lines.
+- **`RunnerPool` Isolation**: Decoupled `RunnerPool` from `runner.ts` into `runnerPool.ts` and updated imports in `channelCommands.ts`, `baseRuntime.ts`, and `runtimeContext.ts`.
+- **Type Integration & Safety**: Added explicit exported TypeScript interfaces (`AudioRouteDecision`, `VisionRouteDecision`, `ImageFallbackRouteDecision`) to `mediaFallback.ts` to ensure type-safe interfaces across core runner modules.
+
+### Approval Integration & Compatibility Hardening (v2.2 Phase 3D)
+- **Tool Coroutine Blocking & Polling**: Implemented a 5-minute timeout polling loop inside `executeToolCall` in `toolRuntime.ts` to suspend the coroutine while waiting for user approval.
+- **1.5s Debounce Aggregation**: Added 1.5-second debounce aggregation for `low` and `medium` risk approvals in `toolRuntime.ts` to combine high-frequency operations into a single card prompt.
+- **Compatibility Prefix Mapping**: Adjusted host bash tool capability to start with `bash:` (e.g. `bash:${toolId}`), aligning with the old `LIKE 'bash:%'` SQLite filters to restore correct rendering in control commands and setting pages.
+- **Parallel Execution Prevention**: Updated `channelCommands.ts` (`approveHostTool` and `approveHostToolForSession`) to verify if the runner is currently active (`status = 'running'`) before executing approved commands, preventing duplicate execution.
+- **Abort Signal Integration**: Added `signal` to `ToolExecutionContext` and updated `tools/index.ts` to propagate it, allowing blocked tool coroutines to abort immediately if the runner is canceled.
+- **Approval-Pause Decoupling**: Decoupled the old `waiting_for_approval` abort mechanism from `runner.ts`, allowing the runner to stay active (`running = true`) and properly hold the turn lock while suspended in-coroutine. Rewrote `runner.test.ts` to verify event forwarding under this non-aborting flow.
+
 ---
 
 ## 2026-05-29

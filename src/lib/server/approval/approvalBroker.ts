@@ -55,6 +55,14 @@ export class ApprovalBroker {
     return request;
   }
 
+  getRequest(id: string): ApprovalRequest | null {
+    return this.store.getRequest(id);
+  }
+
+  updateRequest(request: ApprovalRequest): void {
+    this.store.updateRequest(request);
+  }
+
   resolveRequest(input: {
     requestId: string;
     status: "approved" | "rejected";

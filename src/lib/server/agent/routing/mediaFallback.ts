@@ -40,12 +40,14 @@ export function supportsAudioInputConfigured(
   );
 }
 
-export function decideVisionRouting(settings: RuntimeSettings, hasImages: boolean): {
+export interface VisionRouteDecision {
   selection: ResolvedModelSelection;
   sendImagesNatively: boolean;
   mode: "text" | "vision" | "fallback";
   reason: string;
-} {
+}
+
+export function decideVisionRouting(settings: RuntimeSettings, hasImages: boolean): VisionRouteDecision {
   const textSelection = resolveModelSelection(settings, "text");
   if (!hasImages) {
     return {
@@ -101,12 +103,14 @@ export function decideVisionRouting(settings: RuntimeSettings, hasImages: boolea
   };
 }
 
-export function decideAudioRouting(settings: RuntimeSettings, hasAudio: boolean): {
+export interface AudioRouteDecision {
   shouldTranscribe: boolean;
   mode: "none" | "stt" | "fallback";
   reason: string;
   userNotice?: string;
-} {
+}
+
+export function decideAudioRouting(settings: RuntimeSettings, hasAudio: boolean): AudioRouteDecision {
   if (!hasAudio) {
     return {
       shouldTranscribe: false,
@@ -168,16 +172,18 @@ export function decideAudioRouting(settings: RuntimeSettings, hasAudio: boolean)
   };
 }
 
-export function decideImageFallbackRouting(
-  settings: RuntimeSettings,
-  hasImages: boolean,
-  visionDecision: { sendImagesNatively: boolean; reason: string }
-): {
+export interface ImageFallbackRouteDecision {
   shouldAnalyze: boolean;
   mode: "none" | "native" | "vision" | "fallback";
   reason: string;
   userNotice?: string;
-} {
+}
+
+export function decideImageFallbackRouting(
+  settings: RuntimeSettings,
+  hasImages: boolean,
+  visionDecision: { sendImagesNatively: boolean; reason: string }
+): ImageFallbackRouteDecision {
   if (!hasImages) {
     return {
       shouldAnalyze: false,
@@ -270,7 +276,7 @@ export function ensureAudioFilename(filename: string, mimeType?: string | null):
 export async function enrichMessageTextWithAudio(
   ctx: MomContext,
   settings: RuntimeSettings,
-  audioDecision: { shouldTranscribe: boolean; reason: string; userNotice?: string },
+  audioDecision: AudioRouteDecision,
   baseText: string = ctx.message.text
 ): Promise<{
   text: string;
@@ -342,7 +348,7 @@ export async function enrichMessageTextWithAudio(
 export async function enrichMessageTextWithImages(
   ctx: MomContext,
   settings: RuntimeSettings,
-  imageDecision: { shouldAnalyze: boolean; reason: string; userNotice?: string },
+  imageDecision: ImageFallbackRouteDecision,
   baseText: string
 ): Promise<{
   text: string;

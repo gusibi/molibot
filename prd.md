@@ -68,8 +68,26 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - P1 建议新增命名 sandbox profile（Observe / Build / Strict / Host-Assisted / Custom），把用户能理解的工作模式映射到底层 env/network/filesystem/approval 策略。
 - P1 建议新增 parent/subagent run ledger，持久化 run tree、模型路由、有效 sandbox profile、审批记录、诊断事件、产物清单和终止原因。
 - P2 建议引入 checkpoint/recovery：至少提供 run 前后 changed-file 摘要、artifact manifest、失败原因和可恢复边界；完整 workspace rollback 或 Docker/remote sandbox provider 应放在恢复模型稳定之后。
-## 2.4 Agent v2.2 Refactoring Progress (2026-05-29)
-- **Phase 2 (TurnOrchestrator Lifecycle Delegation & runner.ts Slimming) Completed**:
+## 2.4 Agent v2.2 Refactoring Progress (2026-05-30)
+- **Configurable Agent Run Budget Limits Completed (2026-05-30)**:
+  - Extracted agent run budget limits (max tool calls, max tool failures, max model attempts) into `RuntimeSettings` and settings JSON/SQLite stores.
+  - Implemented automatic value range clamping (max tool calls `1-500`, failure/attempt limits `1-100`) inside configuration sanitizers.
+  - Updated `runner.ts` to instantiate `RunBudget` dynamically using custom limits if configured.
+  - Added a dedicated "Agent Budget Limits" (智能体运行预算限制) management card in the "System Config" Settings page, supporting real-time PUT updates and localized en-US/zh-CN copy.
+- **Phase 5 (runner.ts Slimming & Input Enrichment Extraction) Completed (2026-05-30)**:
+  - Extracted 16 utility/helper functions from `runner.ts` into a new modular file `runnerHelpers.ts`.
+  - Extracted audio transcription (STT) routing, vision/image routing fallbacks, and model candidate fallback resolution logic into `runnerInputEnricher.ts`.
+  - Refactored `MomRunner` to import helper utilities and delegate input preparation to `prepareEnrichedInput`. Completely removed the legacy `blockedOnHostBashApproval` pausing and agent abort logic to transition fully to the new coroutine-blocking model, shrinking `runner.ts` to 1693 lines.
+  - Decoupled `RunnerPool` from `runner.ts` into a separate `runnerPool.ts` file, and updated imports across commands, web context, and shared runtime layers.
+  - Defined and exported `AudioRouteDecision`, `VisionRouteDecision`, and `ImageFallbackRouteDecision` interfaces in `mediaFallback.ts` to ensure type safety.
+- **Phase 3D (Approval Integration & Compatibility Hardening) Completed (2026-05-30)**:
+  - Implemented 5-minute timeout polling loop inside `executeToolCall` in `toolRuntime.ts` to block and wake tool execution.
+  - Implemented 1.5s debounce aggregation for low/medium risk approvals in `toolRuntime.ts` using session-scoped batch map.
+  - Mapped host bash tool capability to `bash:${toolId}` prefix to preserve compatibility with the old setting pages and CLI commands.
+  - Integrated `AbortSignal` to unblock tool coroutines when the runner is canceled.
+  - Added duplicate execution checks in `channelCommands.ts` to prevent running approved tasks in parallel if the runner is active.
+  - Decoupled legacy `blockedOnHostBashApproval` abort mechanism from `runner.ts` and rewrote corresponding tests, allowing the runner to hold the lock and stay active while suspended.
+- **Phase 2 (TurnOrchestrator Lifecycle Delegation & runner.ts Slimming) Completed (2026-05-29)**:
   - Encapsulated concurrent session locking and lock auto-expiration timeouts (>10 minutes) inside `TurnOrchestrator`.
   - Moved memory gateway synchronization and prompt snapshotting into `TurnOrchestrator.prepareTurnMemory()`.
   - Relocated context compaction calculations and runtime compaction saving mechanisms to `TurnOrchestrator.compactSessionContext()`.

@@ -11,6 +11,7 @@ import {
   type SkillDraftSettings,
   type SkillSearchSettings,
   type RuntimeSettings,
+  type RunBudgetLimits,
   type TelegramBotConfig
 } from "$lib/server/settings/schema.js";
 import { defaultToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
@@ -353,5 +354,10 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   },
   telegramBotToken: defaultTelegramBotToken,
   telegramAllowedChatIds: defaultTelegramAllowedChatIds,
-  feishuBots: defaultFeishuBots
+  feishuBots: defaultFeishuBots,
+  budget: {
+    maxToolCalls: Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_CALLS ?? 24) || 24),
+    maxToolFailures: Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_FAILURES ?? 6) || 6),
+    maxModelAttempts: Math.max(1, Number(process.env.MOLIBOT_MAX_MODEL_ATTEMPTS ?? 6) || 6)
+  }
 };

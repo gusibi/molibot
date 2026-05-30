@@ -4,7 +4,7 @@ import { config } from "$lib/server/app/env.js";
 import { buildPromptChannelSections } from "$lib/server/agent/prompts/prompt-channel.js";
 import { executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "$lib/server/agent/prompts/prompt.js";
-import { RunnerPool } from "$lib/server/agent/core/runner.js";
+import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
@@ -111,12 +111,25 @@ export abstract class BaseChannelRuntime {
     return queue;
   }
 
-  protected stopChatWork(scopeId: string): { aborted: boolean } {
+  protected stopChatWork(scopeId: string): { aborted: boolean; clearedStale?: boolean } {
     const activeSessionId = this.store.getActiveSession(scopeId);
     const aborted = this.runners.abort(scopeId, activeSessionId);
-    if (!aborted) return { aborted: false };
-    momLog(this.channelName, "stop_requested", { chatId: scopeId, sessionId: activeSessionId });
-    return { aborted: true };
+    if (aborted) {
+      momLog(this.channelName, "stop_requested", { chatId: scopeId, sessionId: activeSessionId });
+      return { aborted: true };
+    }
+
+    const cleared = getTurnOrchestrator().abortRunningTurnsForSession(
+      activeSessionId,
+      "Stopped stale running turn after active runner was unavailable."
+    );
+    if (cleared > 0) {
+      this.runners.reset(scopeId, activeSessionId);
+      momWarn(this.channelName, "stale_turn_lock_cleared", { chatId: scopeId, sessionId: activeSessionId, cleared });
+      return { aborted: false, clearedStale: true };
+    }
+
+    return { aborted: false };
   }
 
   protected steerChatWork(scopeId: string, text: string): { queued: boolean } {

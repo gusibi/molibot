@@ -211,6 +211,7 @@ export function createMomTools(options: {
       workspaceId: options.workspaceId ?? "personal",
       actorId: options.chatId,
       cwd: options.cwd,
+      signal,
       fs: {
         readText: async (path) => {
           const filePath = resolveToolPath(options.cwd, path);
@@ -291,7 +292,8 @@ export function createMomTools(options: {
             displayName: detailEntry.displayName,
             label: detailEntry.summary,
             summary: detailEntry.summary,
-            isError: detailEntry.isError
+            isError: detailEntry.isError,
+            hostBashApproval: (detailEntry as any).hostBashApproval
           } as any);
         }
       }

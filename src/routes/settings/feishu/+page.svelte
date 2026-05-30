@@ -26,6 +26,7 @@
     verificationToken: string;
     encryptKey: string;
     allowedChatIds: string;
+    streamOutput: boolean;
     profileFiles: Record<string, string>;
     isNew: boolean;
   }
@@ -65,6 +66,7 @@
       verificationToken: "",
       encryptKey: "",
       allowedChatIds: "",
+      streamOutput: true,
       profileFiles: emptyBotFiles(),
       isNew: true
     };
@@ -86,6 +88,7 @@
         .map((v) => v.trim())
         .filter(Boolean)
         .join(","),
+      streamOutput: bot.streamOutput !== false,
       profileFiles: Object.fromEntries(
         botFileNames.map((fileName) => [fileName, String(bot.profileFiles[fileName] ?? "")])
       ),
@@ -127,7 +130,7 @@
             name?: string;
             enabled?: boolean;
             agentId?: string;
-            credentials?: { appId?: string; appSecret?: string; verificationToken?: string; encryptKey?: string };
+            credentials?: { appId?: string; appSecret?: string; verificationToken?: string; encryptKey?: string; streamOutput?: string };
             allowedChatIds?: string[];
           }) => ({
             id: bot.id ?? createBotId(),
@@ -138,6 +141,7 @@
             appSecret: bot.credentials?.appSecret ?? "",
             verificationToken: bot.credentials?.verificationToken ?? "",
             encryptKey: bot.credentials?.encryptKey ?? "",
+            streamOutput: String(bot.credentials?.streamOutput ?? "").toLowerCase() !== "false",
             allowedChatIds: (bot.allowedChatIds ?? []).join(","),
             profileFiles: emptyBotFiles(),
             isNew: false
@@ -253,7 +257,8 @@
               appId: normalized.appId,
               appSecret: normalized.appSecret,
               verificationToken: normalized.verificationToken,
-              encryptKey: normalized.encryptKey
+              encryptKey: normalized.encryptKey,
+              streamOutput: String(normalized.streamOutput)
             },
             allowedChatIds: normalized.allowedChatIds
               .split(",")
@@ -380,6 +385,11 @@
               <div class="flex items-center gap-3">
                 <Checkbox id="feishu-enabled" bind:checked={selectedBot.enabled} />
                 <Label for="feishu-enabled" class="text-sm">Enable this plugin instance</Label>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <Checkbox id="feishu-stream-output" bind:checked={selectedBot.streamOutput} />
+                <Label for="feishu-stream-output" class="text-sm">Stream agent output with CardKit</Label>
               </div>
 
               <div class="grid gap-1.5">

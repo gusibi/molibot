@@ -279,6 +279,12 @@ export interface HostToolSettings {
   approvedTools: ApprovedHostTool[];
 }
 
+export interface RunBudgetLimits {
+  maxToolCalls: number;
+  maxToolFailures: number;
+  maxModelAttempts: number;
+}
+
 export interface RuntimeSettings {
   providerMode: ProviderMode;
   piModelProvider: KnownProvider;
@@ -305,6 +311,7 @@ export interface RuntimeSettings {
   plugins: PluginSettings;
   telegramBotToken: string;
   telegramAllowedChatIds: string[];
+  budget: RunBudgetLimits;
 }
 
 export const KNOWN_PROVIDER_LIST: KnownProvider[] = [

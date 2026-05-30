@@ -4,6 +4,7 @@ import { momWarn } from "$lib/server/agent/common/log.js";
 import { markdownToFeishuMarkdown, parseFeishuRichTextSegments, type FeishuRichTextSegment } from "$lib/server/channels/feishu/formatting.js";
 
 const FEISHU_CARD_MARKDOWN_LIMIT = 3500;
+const FEISHU_POST_MARKDOWN_LIMIT = 4000;
 const FEISHU_CARD_TITLE_LIMIT = 60;
 
 type CardTone = "blue" | "green" | "yellow" | "orange" | "red" | "grey" | "wathet" | "indigo";
@@ -159,6 +160,14 @@ function chunkSegmentsForCards(segments: FeishuRichTextSegment[]): FeishuRichTex
   }
 
   return cards.length > 0 ? cards : [[{ type: "markdown", content: "" }]];
+}
+
+export function buildFeishuPostContent(text: string): string {
+  return JSON.stringify({
+    zh_cn: {
+      content: [[{ tag: "md", text: formatFeishuText(text) }]]
+    }
+  });
 }
 
 export function buildFeishuReplyCards(text: string): lark.InteractiveCard[] {
@@ -318,6 +327,22 @@ export async function sendFeishuCard(
   }
 }
 
+async function sendFeishuPost(
+  client: lark.Client,
+  chatId: string,
+  text: string
+): Promise<{ message_id: string } | null> {
+  const res = await client.im.message.create({
+    params: { receive_id_type: "chat_id" },
+    data: {
+      receive_id: chatId,
+      msg_type: "post",
+      content: buildFeishuPostContent(text)
+    }
+  });
+  return { message_id: res.data?.message_id || "" };
+}
+
 export async function editFeishuCard(
   client: lark.Client | undefined,
   messageId: string,
@@ -363,8 +388,8 @@ export async function sendFeishuText(
   try {
     let firstMessage: { message_id: string } | null = null;
 
-    for (const card of buildFeishuReplyCards(text)) {
-      const sent = await sendFeishuCard(client, chatId, card);
+    for (const chunk of chunkMarkdown(text, FEISHU_POST_MARKDOWN_LIMIT)) {
+      const sent = await sendFeishuPost(client, chatId, chunk);
       if (!firstMessage) firstMessage = sent;
     }
 
@@ -380,9 +405,20 @@ export async function editFeishuText(
   messageId: string,
   text: string
 ): Promise<string | null> {
-  if (!client || !text.trim()) return null;
-  const firstCard = buildFeishuReplyCards(text)[0];
-  return editFeishuCard(client, messageId, firstCard);
+  if (!client || !messageId.trim() || !text.trim()) return null;
+  try {
+    await client.im.message.update({
+      path: { message_id: messageId },
+      data: {
+        msg_type: "post",
+        content: buildFeishuPostContent(text)
+      }
+    });
+    return messageId;
+  } catch (error) {
+    momWarn("feishu", "edit_message_failed", { error: String(error) });
+    return null;
+  }
 }
 
 function detectImageMime(filename: string, bytes: Buffer): string | null {

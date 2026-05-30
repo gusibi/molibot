@@ -6,7 +6,7 @@ import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/too
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 
-function context(events: RunDetailEntry[] = []): ToolExecutionContext {
+function context(events: RunDetailEntry[] = [], signal?: AbortSignal): ToolExecutionContext {
   return {
     runId: "run-1",
     sessionId: "session-1",
@@ -25,7 +25,8 @@ function context(events: RunDetailEntry[] = []): ToolExecutionContext {
     },
     emit: (event) => {
       events.push(event);
-    }
+    },
+    signal
   };
 }
 
@@ -59,7 +60,49 @@ test("ToolRuntime executes allowed tools and emits audit events", async () => {
   assert.equal(events[0]?.workspaceId, "personal");
 });
 
-test("ToolRuntime creates approval request for high-risk tools without bypassing execution", async () => {
+test("ToolRuntime blocks high-risk tool and executes when approved", async () => {
+  const registry = new ToolRegistry();
+  let executed = false;
+  registry.register(tool({
+    id: "host-bash",
+    name: "Host Bash",
+    risk: "high",
+    source: "host",
+    handler: async () => {
+      executed = true;
+      return { ok: true, content: "ran" };
+    }
+  }));
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+  const runtime = new ToolRuntime(registry, { approvalBroker: broker });
+
+  // Approve the request after a short delay
+  setTimeout(() => {
+    const pending = store.listPendingRequests();
+    if (pending.length > 0) {
+      const req = pending[0];
+      broker.updateRequest({
+        ...req,
+        status: "approved",
+        resolvedAt: new Date().toISOString()
+      });
+    }
+  }, 50);
+
+  const result = await runtime.executeToolCall({
+    toolId: "host-bash",
+    input: { command: "git status" },
+    context: context()
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.content, "ran");
+  assert.equal(executed, true);
+  assert.equal(store.listPendingRequests().length, 0);
+});
+
+test("ToolRuntime blocks high-risk tool and rejects when rejected by user", async () => {
   const registry = new ToolRegistry();
   let executed = false;
   registry.register(tool({
@@ -73,7 +116,21 @@ test("ToolRuntime creates approval request for high-risk tools without bypassing
     }
   }));
   const store = new MemoryApprovalBrokerStore();
-  const runtime = new ToolRuntime(registry, { approvalBroker: new ApprovalBroker(store) });
+  const broker = new ApprovalBroker(store);
+  const runtime = new ToolRuntime(registry, { approvalBroker: broker });
+
+  // Reject the request after a short delay
+  setTimeout(() => {
+    const pending = store.listPendingRequests();
+    if (pending.length > 0) {
+      const req = pending[0];
+      broker.updateRequest({
+        ...req,
+        status: "rejected",
+        resolvedAt: new Date().toISOString()
+      });
+    }
+  }, 50);
 
   const result = await runtime.executeToolCall({
     toolId: "host-bash",
@@ -82,9 +139,42 @@ test("ToolRuntime creates approval request for high-risk tools without bypassing
   });
 
   assert.equal(result.ok, false);
-  assert.equal(result.metadata?.status, "waiting_for_approval");
+  assert.match(result.error ?? "", /rejected by user/);
   assert.equal(executed, false);
-  assert.equal(store.listPendingRequests().length, 1);
+});
+
+test("ToolRuntime stops polling and expires when signal is aborted", async () => {
+  const registry = new ToolRegistry();
+  let executed = false;
+  registry.register(tool({
+    id: "host-bash",
+    name: "Host Bash",
+    risk: "high",
+    source: "host",
+    handler: async () => {
+      executed = true;
+      return { ok: true };
+    }
+  }));
+  const store = new MemoryApprovalBrokerStore();
+  const broker = new ApprovalBroker(store);
+  const runtime = new ToolRuntime(registry, { approvalBroker: broker });
+
+  const controller = new AbortController();
+  // Abort after a short delay
+  setTimeout(() => {
+    controller.abort();
+  }, 50);
+
+  const result = await runtime.executeToolCall({
+    toolId: "host-bash",
+    input: { command: "git status" },
+    context: context([], controller.signal)
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /timeout/);
+  assert.equal(executed, false);
 });
 
 test("ToolRuntime uses existing approval grant to execute high-risk tool", async () => {
@@ -101,7 +191,7 @@ test("ToolRuntime uses existing approval grant to execute high-risk tool", async
   store.saveGrant({
     id: "grant-1",
     scope: "session",
-    capability: "host:host-bash",
+    capability: "bash:host-bash",
     actorId: "agent-1",
     workspaceId: "personal",
     sessionId: "session-1",

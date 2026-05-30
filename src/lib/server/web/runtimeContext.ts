@@ -1,6 +1,6 @@
 import path from "node:path";
 import { getRuntime } from "$lib/server/app/runtime";
-import { RunnerPool } from "$lib/server/agent/core/runner";
+import { RunnerPool } from "$lib/server/agent/core/runnerPool";
 import { MomRuntimeStore } from "$lib/server/agent/session/store";
 import { storagePaths } from "$lib/server/infra/db/storage";
 import {

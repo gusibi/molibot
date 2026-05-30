@@ -423,6 +423,20 @@ export function sanitizeCustomProviderProtocol(input: unknown): CustomProviderPr
   return String(input ?? "").trim() === "anthropic" ? "anthropic" : "openai-compatible";
 }
 
+export function sanitizeBudgetSettings(
+  input: unknown,
+  fallback: RuntimeSettings["budget"]
+): RuntimeSettings["budget"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  return {
+    maxToolCalls: clampNumber(source.maxToolCalls, fallback.maxToolCalls, 1, 500),
+    maxToolFailures: clampNumber(source.maxToolFailures, fallback.maxToolFailures, 1, 100),
+    maxModelAttempts: clampNumber(source.maxModelAttempts, fallback.maxModelAttempts, 1, 100)
+  };
+}
+
 export function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSettings): RuntimeSettings {
   const next: RuntimeSettings = {
     ...current,
@@ -619,6 +633,8 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
       current.plugins.cloudflareHtml
     )
   };
+
+  next.budget = sanitizeBudgetSettings(next.budget ?? current.budget, current.budget);
 
   return next;
 }

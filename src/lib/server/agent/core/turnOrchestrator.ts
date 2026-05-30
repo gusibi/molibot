@@ -167,6 +167,34 @@ export class TurnOrchestrator {
     }
   }
 
+  failRunIfRunning(runId: string, error: string): boolean {
+    const db = new DatabaseSync(storagePaths.settingsDbFile);
+    try {
+      const result = db.prepare("UPDATE runs SET status = 'failed', error = ?, finished_at = ? WHERE id = ? AND status = 'running'").run(
+        error,
+        new Date().toISOString(),
+        runId
+      );
+      return Number(result.changes ?? 0) > 0;
+    } finally {
+      db.close();
+    }
+  }
+
+  abortRunningTurnsForSession(sessionId: string, error = "Stopped by user."): number {
+    const db = new DatabaseSync(storagePaths.settingsDbFile);
+    try {
+      const result = db.prepare("UPDATE runs SET status = 'aborted', error = ?, finished_at = ? WHERE session_id = ? AND status = 'running'").run(
+        error,
+        new Date().toISOString(),
+        sessionId
+      );
+      return Number(result.changes ?? 0);
+    } finally {
+      db.close();
+    }
+  }
+
   cleanupStaleRunningTurns(
     store: TurnCleanupStore,
     options: { now?: Date; timeoutMs?: number } = {}

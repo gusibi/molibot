@@ -1,5 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { getModels } from "@mariozechner/pi-ai";
 import type { RuntimeSettings, RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import { RUNTIME_THINKING_LEVELS } from "$lib/server/settings/index.js";
@@ -22,7 +24,7 @@ import {
   formatSkillsSummaryText,
   loadSkillsFromWorkspace
 } from "$lib/server/agent/skills/skills.js";
-import type { RunnerPool } from "$lib/server/agent/core/runner.js";
+import type { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { resolveThinkingLevel } from "$lib/server/providers/customThinking.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
@@ -49,7 +51,7 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   hostBashStore?: HostBashStore;
   getAuthScopeKey?: (input: SharedRuntimeCommandContext<TTarget>) => string;
   isRunning: (scopeId: string) => boolean;
-  stopRun: (scopeId: string) => { aborted: boolean };
+  stopRun: (scopeId: string) => { aborted: boolean; clearedStale?: boolean };
   steerRun?: (scopeId: string, text: string) => { queued: boolean };
   followUpRun?: (scopeId: string, text: string) => { queued: boolean };
   sendText: (target: TTarget, text: string) => Promise<void>;
@@ -106,6 +108,17 @@ export class SharedRuntimeCommandService<TTarget> {
     this.hostBashStore = options.hostBashStore ?? getHostBashStore();
   }
 
+  private isRunActive(runId: string): boolean {
+    try {
+      const db = new DatabaseSync(storagePaths.settingsDbFile);
+      const row = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string } | undefined;
+      db.close();
+      return row?.status === "running";
+    } catch {
+      return false;
+    }
+  }
+
   async approveHostTool(input: SharedRuntimeCommandContext<TTarget>, approvalId?: string): Promise<{
     ok: boolean;
     message: string;
@@ -128,19 +141,24 @@ export class SharedRuntimeCommandService<TTarget> {
           `Command: ${approved.record.command}`
         ].join("\n");
     if (approved.record.pendingAction && this.options.executeApprovedHostBash) {
-      try {
-        const runSummary = await this.options.executeApprovedHostBash(input, approved.approved, approved.record);
-        this.hostBashStore.markExecution(approved.record.id, "executed");
-        if (runSummary) {
-          message += `\n\n${runSummary}`;
+      const runId = approved.record.scopeId;
+      if (this.isRunActive(runId)) {
+        message += "\n\nApproved. The active agent run will execute the command automatically.";
+      } else {
+        try {
+          const runSummary = await this.options.executeApprovedHostBash(input, approved.approved, approved.record);
+          this.hostBashStore.markExecution(approved.record.id, "executed");
+          if (runSummary) {
+            message += `\n\n${runSummary}`;
+          }
+        } catch (error) {
+          this.hostBashStore.markExecution(
+            approved.record.id,
+            "failed",
+            error instanceof Error ? error.message : String(error)
+          );
+          message += `\n\nApproved, but automatic execution failed: ${error instanceof Error ? error.message : String(error)}`;
         }
-      } catch (error) {
-        this.hostBashStore.markExecution(
-          approved.record.id,
-          "failed",
-          error instanceof Error ? error.message : String(error)
-        );
-        message += `\n\nApproved, but automatic execution failed: ${error instanceof Error ? error.message : String(error)}`;
       }
     } else if (registered) {
       message += "\nThis command is now registered as a reusable Host Bash whitelist entry.";
@@ -180,19 +198,24 @@ export class SharedRuntimeCommandService<TTarget> {
       "Future sandbox permission denials in this session will fall back to Host Bash automatically."
     ].join("\n");
     if (approved.record.pendingAction && this.options.executeApprovedHostBash) {
-      try {
-        const runSummary = await this.options.executeApprovedHostBash(input, undefined, approved.record);
-        this.hostBashStore.markExecution(approved.record.id, "executed");
-        if (runSummary) {
-          message += `\n\n${runSummary}`;
+      const runId = approved.record.scopeId;
+      if (this.isRunActive(runId)) {
+        message += "\n\nApproved. The active agent run will execute the command automatically.";
+      } else {
+        try {
+          const runSummary = await this.options.executeApprovedHostBash(input, undefined, approved.record);
+          this.hostBashStore.markExecution(approved.record.id, "executed");
+          if (runSummary) {
+            message += `\n\n${runSummary}`;
+          }
+        } catch (error) {
+          this.hostBashStore.markExecution(
+            approved.record.id,
+            "failed",
+            error instanceof Error ? error.message : String(error)
+          );
+          message += `\n\nApproved for this session, but automatic execution failed: ${error instanceof Error ? error.message : String(error)}`;
         }
-      } catch (error) {
-        this.hostBashStore.markExecution(
-          approved.record.id,
-          "failed",
-          error instanceof Error ? error.message : String(error)
-        );
-        message += `\n\nApproved for this session, but automatic execution failed: ${error instanceof Error ? error.message : String(error)}`;
       }
     }
     return { ok: true, message, request: approved.record };
@@ -238,6 +261,13 @@ export class SharedRuntimeCommandService<TTarget> {
           cancelledQueued > 0
             ? `Stopping... Cleared ${cancelledQueued} queued task(s).`
             : "Stopping..."
+        );
+      } else if (result.clearedStale) {
+        await this.options.sendText(
+          input.target,
+          cancelledQueued > 0
+            ? `Cleared stale running task. Cleared ${cancelledQueued} queued task(s).`
+            : "Cleared stale running task."
         );
       } else {
         if (cancelledQueued > 0) {

@@ -340,10 +340,11 @@ test("manual compact reloads the latest persisted session before summarizing", a
   assert.match(appended[0]?.summary ?? "", /Earlier conversation was compacted|## Summary/);
 });
 
-test("host bash approval pauses the current run even when abort ends the assistant message", async () => {
+test("host bash approval is forwarded to runner event sink but does not abort execution", async () => {
   const replaced: string[] = [];
   let savedContextCalls = 0;
   const appendedMessages: any[] = [];
+  const events: any[] = [];
 
   const settings: RuntimeSettings = {
     ...defaultRuntimeSettings,
@@ -466,12 +467,18 @@ test("host bash approval pauses the current run even when abort ends the assista
           }
         }
       });
+      const assistantMessage = {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "Done" }],
+        timestamp: Date.now()
+      };
+      (runner as any).agent.state.messages.push(assistantMessage);
       subscriber?.({
         type: "message_end",
         message: {
           role: "assistant",
-          stopReason: "aborted",
-          content: []
+          stopReason: "stop",
+          content: [{ type: "text", text: "Done" }]
         }
       });
     }
@@ -499,15 +506,20 @@ test("host bash approval pauses the current run even when abort ends the assista
     setTyping: async () => {},
     setWorking: async () => {},
     deleteMessage: async () => {},
-    uploadFile: async () => {}
+    uploadFile: async () => {},
+    onRunnerEvent: async (event: any) => {
+      events.push(event);
+    }
   } as any);
 
-  assert.equal(aborted, true);
-  assert.equal(result.stopReason, "waiting_for_approval");
-  assert.equal(savedContextCalls, 0);
-  assert.equal(appendedMessages.length, 1);
+  assert.equal(aborted, false);
+  assert.equal(result.stopReason, "stop");
+  assert.equal(appendedMessages.length, 2);
   assert.equal(appendedMessages[0]?.role, "user");
-  assert.equal(replaced.at(-1), "Host Bash approval requested. Waiting for your decision.");
+  assert.equal(appendedMessages[1]?.role, "assistant");
+  const approvalEvent = events.find((e) => e.hostBashApproval);
+  assert.ok(approvalEvent);
+  assert.equal(approvalEvent.hostBashApproval.requestId, "hba-1");
 });
 
 test("runner persists user and partial assistant error when a run throws after streaming", async () => {

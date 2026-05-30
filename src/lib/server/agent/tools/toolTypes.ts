@@ -42,6 +42,7 @@ export interface ToolExecutionContext {
   shell: SafeShellApi;
   network: SafeNetworkApi;
   emit: (event: RunDetailEntry) => void;
+  signal?: AbortSignal;
 }
 
 export interface ToolDefinition {

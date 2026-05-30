@@ -1,5 +1,5 @@
 import type { ApprovalBroker } from "$lib/server/approval/approvalBroker.js";
-import type { ApprovalRequest } from "$lib/server/approval/approvalTypes.js";
+import type { ApprovalRequest, ApprovalGrant } from "$lib/server/approval/approvalTypes.js";
 import type {
   PolicyDecision,
   ToolCallInput,
@@ -8,6 +8,7 @@ import type {
   ToolResult
 } from "$lib/server/agent/tools/toolTypes.js";
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
+import { buildHostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 
 export type ToolPolicyDecider = (tool: ToolDefinition, input: unknown, ctx: ToolExecutionContext) => PolicyDecision;
 
@@ -29,6 +30,16 @@ export class ToolRegistry {
     return Array.from(this.tools.values());
   }
 }
+
+interface DebounceBatch {
+  requestId: string;
+  capability: string;
+  requests: ApprovalRequest[];
+  resolvers: Array<(decision: "approved" | "rejected" | "expired") => void>;
+  timer: NodeJS.Timeout;
+}
+
+const activeDebounceBatches = new Map<string, DebounceBatch>();
 
 export class ToolRuntime {
   constructor(
@@ -70,16 +81,96 @@ export class ToolRuntime {
         runId: decision.request.runId,
         actionFingerprint: decision.request.actionFingerprint
       });
+
       if (!grant) {
-        this.options.approvalBroker?.createRequest(decision.request);
-        return {
-          ok: false,
-          error: "Tool execution is waiting for approval.",
-          metadata: {
-            approvalRequestId: decision.request.id,
-            status: "waiting_for_approval"
+        let resolution: "approved" | "rejected" | "expired";
+        const isHighRisk = tool.risk === "high" || tool.risk === "critical";
+
+        if (isHighRisk) {
+          this.options.approvalBroker?.createRequest(decision.request);
+          resolution = await this.pollApprovalRequest(decision.request, call.context);
+        } else {
+          // Low/medium risk debounce aggregation (1.5 seconds)
+          const batchKey = `${decision.request.sessionId}::${decision.request.capability}`;
+          let batch = activeDebounceBatches.get(batchKey);
+
+          if (!batch) {
+            batch = {
+              requestId: `${decision.request.runId}-debounce-${decision.request.capability}-${Date.now()}`,
+              capability: decision.request.capability,
+              requests: [],
+              resolvers: [],
+              timer: null as any
+            };
+            activeDebounceBatches.set(batchKey, batch);
+
+            const currentBatch = batch;
+            batch.timer = setTimeout(() => {
+              activeDebounceBatches.delete(batchKey);
+              const consolidatedReason = `Aggregated approval request for ${tool.name} and related tools.`;
+              const consolidatedRequest: ApprovalRequest = {
+                ...decision.request,
+                id: currentBatch.requestId,
+                reason: consolidatedReason,
+                action: {
+                  type: decision.request.action.type,
+                  toolName: `${decision.request.action.toolName} (x${currentBatch.requests.length} aggregated)`
+                },
+                actionFingerprint: JSON.stringify({
+                  fingerprints: currentBatch.requests.map((r) => r.actionFingerprint)
+                })
+              };
+
+              this.options.approvalBroker?.createRequest(consolidatedRequest);
+
+              void (async () => {
+                const res = await this.pollApprovalRequest(consolidatedRequest, call.context);
+                for (const resolve of currentBatch.resolvers) {
+                  resolve(res);
+                }
+              })();
+            }, 1500);
           }
-        };
+
+          batch.requests.push(decision.request);
+          resolution = await new Promise<"approved" | "rejected" | "expired">((resolve) => {
+            batch!.resolvers.push(resolve);
+          });
+        }
+
+        if (resolution === "approved") {
+          // Approved! Fall through to tool handler execution.
+        } else {
+          const status = resolution === "rejected" ? "rejected" : "expired";
+          const errorMsg = resolution === "rejected"
+            ? "Tool execution is rejected by user approval."
+            : "Tool execution is rejected: User approval timeout.";
+          return {
+            ok: false,
+            error: errorMsg,
+            metadata: {
+              approvalRequestId: decision.request.id,
+              status: "waiting_for_approval"
+            },
+            details: {
+              hostBashApproval: buildHostBashApprovalPrompt({
+                id: decision.request.id,
+                toolId: tool.id,
+                displayName: tool.name,
+                command: tool.name,
+                reason: decision.request.reason,
+                channel: "",
+                chatId: call.context.actorId,
+                scopeId: decision.request.runId,
+                sessionId: decision.request.sessionId,
+                approvalMode: "ephemeral",
+                status: status === "expired" ? "failed" : status,
+                permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
+                requestedAt: decision.request.createdAt
+              })
+            }
+          };
+        }
       }
     }
 
@@ -103,6 +194,78 @@ export class ToolRuntime {
       isError: !result.ok
     });
     return result;
+  }
+
+  private async pollApprovalRequest(
+    request: ApprovalRequest,
+    context: ToolExecutionContext
+  ): Promise<"approved" | "rejected" | "expired"> {
+    // Emit runner event with hostBashApproval to trigger client approval cards immediately
+    context.emit({
+      timestamp: new Date().toISOString(),
+      workspaceId: context.workspaceId,
+      type: "tool_end",
+      toolName: request.action.toolName || "tool",
+      displayName: request.action.toolName || "tool",
+      summary: `Waiting for user approval: ${request.reason}`,
+      hostBashApproval: buildHostBashApprovalPrompt({
+        id: request.id,
+        toolId: request.action.toolName || "tool",
+        displayName: request.action.toolName || "tool",
+        command: request.action.toolName || "tool",
+        reason: request.reason,
+        channel: "",
+        chatId: context.actorId,
+        scopeId: request.runId,
+        sessionId: request.sessionId,
+        approvalMode: "ephemeral",
+        status: "pending",
+        permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
+        pendingAction: {
+          kind: "run_one_time_host_script",
+          originalCommand: request.action.toolName || "tool",
+          args: [],
+          timeout: 300
+        },
+        requestedAt: request.createdAt
+      })
+    } as any);
+
+    const start = Date.now();
+    const timeoutMs = 5 * 60 * 1000; // 5 minutes timeout
+
+    while (Date.now() - start < timeoutMs) {
+      if (context.signal?.aborted) {
+        return "expired";
+      }
+
+      const req = this.options.approvalBroker?.getRequest(request.id);
+      if (req) {
+        if (req.status === "approved") {
+          return "approved";
+        }
+        if (req.status === "rejected") {
+          return "rejected";
+        }
+        if (req.status === "expired") {
+          return "expired";
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    // Mark as expired in DB/broker
+    const req = this.options.approvalBroker?.getRequest(request.id);
+    if (req && req.status === "pending") {
+      const expiredRequest = {
+        ...req,
+        status: "expired" as const,
+        resolvedAt: new Date().toISOString()
+      };
+      this.options.approvalBroker?.updateRequest(expiredRequest);
+    }
+    return "expired";
   }
 }
 
@@ -128,7 +291,7 @@ export function createDefaultApprovalRequest(
     sessionId: ctx.sessionId,
     workspaceId: ctx.workspaceId,
     actorId: ctx.actorId,
-    capability: `${tool.source}:${tool.id}`,
+    capability: tool.source === "host" ? `bash:${tool.id}` : `${tool.source}:${tool.id}`,
     riskLevel: tool.risk,
     action: {
       type: tool.source === "mcp" ? "mcp_tool" : tool.source === "host" ? "bash" : "file_write",

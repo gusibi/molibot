@@ -1,13 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
-import { basename, extname } from "node:path";
+import { readFileSync } from "node:fs";
 import * as lark from "@larksuiteoapi/node-sdk";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { buildHostBashApprovalPrompt, getHostBashStore, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import { type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
+import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
-import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
+import type { ChannelInboundMessage, MomContext, RunResult } from "$lib/server/agent/core/types.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
@@ -24,6 +24,7 @@ import {
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "$lib/server/channels/feishu/message-intake.js";
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
+import { FeishuStreamingSession } from "$lib/server/channels/feishu/streamingSession.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
 import { executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec.js";
@@ -414,6 +415,109 @@ export class FeishuManager extends BaseChannelRuntime {
 
     private async processEvent(event: ChannelInboundMessage): Promise<void> {
         if (!this.client) return;
+        if (!this.isStreamingOutputEnabled()) {
+            await this.runSharedFeishuTextTask(event);
+            return;
+        }
+
+        const chatId = event.chatId;
+        event.workspaceId = event.workspaceId || this.workspaceId;
+        const activeSessionId = event.sessionId || this.store.getActiveSession(chatId);
+        const turn = getTurnOrchestrator().prepareTurn({
+            chatId,
+            sessionId: activeSessionId,
+            message: event
+        });
+        const runId = turn.runId;
+
+        this.running.add(chatId);
+        this.appendConversationMessage(
+            this.channelName,
+            `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`,
+            event.isEvent ? "system" : "user",
+            event.text,
+            "session_user_append_failed",
+            { chatId, scopeId: chatId }
+        );
+
+        const runner = this.runners.get(chatId, activeSessionId);
+        const streaming = new FeishuStreamingSession({
+            client: this.client,
+            chatId,
+            runId,
+            title: "Molibot"
+        });
+        let threadEventCount = 0;
+        let result: RunResult | null = null;
+
+        const ctx: MomContext = {
+            channel: "feishu",
+            message: event,
+            workspaceDir: this.workspaceDir,
+            chatDir: this.store.getChatDir(chatId),
+            respond: async (text, shouldLog = true) => {
+                await streaming.respond(text, shouldLog);
+            },
+            replaceMessage: async (text) => {
+                await streaming.replaceAnswer(text);
+            },
+            beginContinuationResponse: async (partialText, notice) => {
+                await streaming.beginContinuationResponse(partialText, notice);
+            },
+            respondInThread: async (text) => {
+                threadEventCount += 1;
+                await streaming.respondInThread(text);
+            },
+            setTyping: async () => {},
+            setWorking: async () => {},
+            deleteMessage: async () => {},
+            uploadFile: async (filePath, title) => {
+                const filename = title || filePath.split("/").pop() || "file";
+                const bytes = readFileSync(filePath);
+                await sendFeishuFile(this.client, chatId, bytes, filename);
+            },
+            onRunnerEvent: async (runnerEvent) => {
+                if (runnerEvent.type === "tool_execution_end" && runnerEvent.hostBashApproval) {
+                    await this.sendHostToolApprovalCard(chatId, runnerEvent.hostBashApproval);
+                }
+                await streaming.handleRunnerEvent(runnerEvent);
+            }
+        };
+
+        try {
+            result = await runner.run(ctx);
+        } catch (error) {
+            getTurnOrchestrator().failRunIfRunning(
+                runId,
+                error instanceof Error ? error.message : String(error)
+            );
+            throw error;
+        } finally {
+            this.running.delete(chatId);
+            await streaming.finalize(result ?? { runId, stopReason: "error", errorMessage: "Run did not complete." });
+        }
+
+        const finalText = streaming.finalText;
+        if (finalText) {
+            const numericMessageId = Number(streaming.sentMessageId || Date.now());
+            this.store.logBotResponse(chatId, finalText, Number.isFinite(numericMessageId) ? numericMessageId : Date.now());
+            this.appendConversationMessage(
+                this.channelName,
+                `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`,
+                "assistant",
+                finalText,
+                "session_assistant_append_failed",
+                { chatId, scopeId: chatId }
+            );
+        }
+
+        if (result?.stopReason === "stop" && threadEventCount > 0 && result.runId) {
+            await this.sendText(chatId, formatRunArchiveNotice(result.runId));
+        }
+    }
+
+    private async runSharedFeishuTextTask(event: ChannelInboundMessage): Promise<void> {
+        if (!this.client) return;
         const chatId = event.chatId;
         await this.runSharedTextTask(chatId, event, {
             response: {
@@ -454,8 +558,16 @@ export class FeishuManager extends BaseChannelRuntime {
                     chatId,
                     error: error instanceof Error ? error.message : String(error)
                 });
-            }
+            },
+            role: event.isEvent ? "system" : "user"
         });
+    }
+
+    private isStreamingOutputEnabled(): boolean {
+        const instance = this.getSettings().channels?.feishu?.instances?.find((item) => item.id === this.instanceId);
+        const raw = String(instance?.credentials?.streamOutput ?? "").trim().toLowerCase();
+        if (!raw) return true;
+        return !(raw === "false" || raw === "0" || raw === "off" || raw === "no");
     }
 
     private async handleCommand(chatId: string, text: string): Promise<boolean> {

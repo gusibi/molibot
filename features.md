@@ -1,5 +1,29 @@
 # Molibot Features
 
+
+## 2026-05-30
+
+### 可配置的智能体运行预算限制 (Configurable Run Budget Limits)
+- **Schema 与配置持久化扩展**: 在 `RuntimeSettings` 接口和 `schema.ts` 中新增了 `budget: RunBudgetLimits` 结构，声明最大工具调用次数 (`maxToolCalls`)、最大允许工具失败次数 (`maxToolFailures`) 和最大模型尝试次数 (`maxModelAttempts`)，并增加对应环境变量 `MOLIBOT_MAX_TOOL_CALLS` 等的支持。
+- **Sanitization 与 Clamping 保护机制**: 在 `sanitize.ts` 与 `store.ts` 中新增并集成了 `sanitizeBudgetSettings` 辅助方法，将用户的数值输入安全地夹逼（clamp）在合理范围（如工具调用最大限额 `1` 至 `500`），避免死循环或配置溢出。
+- **Agent 预算动态实例化**: 重构了 `runner.ts` 中的 `RunBudget` 实例化逻辑，由原本的硬编码默认值 `DEFAULT_RUN_BUDGET` 改为优先读取当前 Settings 的 `settings.budget` 配置。
+- **系统配置 Web UI 深度集成**: 在 `/settings/system`（系统配置）界面中新增了“智能体运行预算限制”配置卡片，支持中英文双语翻译与实时配置保存，完美对接 `/api/settings` 后端更新接口。
+
+### Agent runner.ts 瘦身与输入 Enrichment 抽取 (v2.2 Phase 5)
+- **Top-Level Helper 提取**: 将 `runner.ts` 顶部的 16 个辅助函数（如 `envVarForProvider`, `getMessageText`, `prepareMessagesForModelContext`, `validateRuntimeSettings` 等）完整提取至独立的 `runnerHelpers.ts` 文件中，使核心文件结构更为聚焦。
+- **输入 Enrichment 模块抽取**: 将包含语音识别转写（STT）路由、视觉/图像路由降级（Vision Route/Image Fallback）以及候选模型兜底决议逻辑的 Enrichment 链条，从 `runner.ts` 的 `run()` 方法中提取至 `runnerInputEnricher.ts` 的 `prepareEnrichedInput()` 纯净辅助函数中。
+- **`runner.ts` 代码精简与重构**: 更新 `runner.ts` 导入新抽取的 `runnerHelpers` 和 `runnerInputEnricher`。修改 `activeSelection` 解构为 `let` 变量以支持在模型候选重试循环中被重新赋值。彻底移除兼容旧版中断审批的 `blockedOnHostBashApproval` 临时逻辑与 `agent.abort()`，成功将文件精简至 1693 行。
+- **`RunnerPool` 模块化解耦**: 将 `RunnerPool` 从 `runner.ts` 剥离至独立的 `runnerPool.ts`，并重构了所有渠道 runtime 与命令相关的引用路径，使得生命周期与池管理逻辑更清晰。
+- **媒体路由类型安全化**: 在 `mediaFallback.ts` 中定义并导出了明确的 `AudioRouteDecision`、`VisionRouteDecision`、`ImageFallbackRouteDecision` 接口，解决跨模块导入类型推导问题，打通了 TypeScript 全局类型校验。
+
+### 审批运行期阻塞唤醒与兼容性对齐 (v2.2 Phase 3D)
+- **Tool 协程挂起与轮询**: 在 `toolRuntime.ts` 的 `executeToolCall` 中实现了 5 分钟超时限制的轮询机制，在需要审批且无授权时阻塞 Tool 的执行协程，待用户在客户端（Telegram / Web）做出选择后自动唤醒。
+- **1.5s 审批 Debounce 聚合**: 针对 `low` 和 `medium` 风险的敏感操作实现了 1.5 秒 Debounce 合并逻辑，连续触发的类似审批会聚合成单张操作卡片，避免弹窗泛滥。
+- **Capability 标识符映射**: 重构了 Host Bash 类型的能力标识符生成策略，统一映射为 `bash:${toolId}` 格式，完美兼容旧版控制命令和 `/settings/host-bash` 设置页中的 `LIKE 'bash:%'` 过滤规则。
+- **重复执行并发拦截**: 在 `channelCommands.ts` 的审批执行方法中增加了 `isRunActive` 校验；如果被审批的 Run 当前处于 `'running'` 激活状态，将不调用后台并发执行通道，而是交由被挂起的协程直接继续完成执行，避免重复执行命令。
+- **Abort 信号深度打通**: 在 `ToolExecutionContext` 中新增 `signal` 字段，并在 `tools/index.ts` 包装层及 `toolRuntime.ts` 轮询层进行对齐透传，当 Runner 主动中止（abort）时，被挂起的协程能够立刻感知并退出轮询。
+- **暂停中断逻辑解耦**: 清理了 `runner.ts` 内部对 `waiting_for_approval` 中断的强制依赖，确保当审批挂起时 Runner 仍保持活跃 `running` 状态并正确持有分布式锁，只有在真正取消（`/stop`）时才中止。对 [runner.test.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/core/runner.test.ts) 中的审批通知推送与不中止执行流进行了同步重写与回归验证。
+
 ## 2026-05-29
 
 ### Legacy ACP 物理清理与工作区安全策略闭环 (Sprint A)

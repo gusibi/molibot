@@ -1,5 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename } from "node:path";
 import { Agent, type AgentEvent } from "@mariozechner/pi-agent-core";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { streamSimple, type Model } from "@mariozechner/pi-ai";
@@ -59,538 +58,40 @@ import {
   type ModelAttemptFailure,
   getCustomModelRoles
 } from "$lib/server/agent/routing/modelRouting.js";
-import {
-  decideVisionRouting,
-  decideAudioRouting,
-  decideImageFallbackRouting,
-  enrichMessageTextWithAudio,
-  enrichMessageTextWithImages,
-  stripImagePartsForTextOnlyModel
-} from "$lib/server/agent/routing/mediaFallback.js";
 import { hasConfiguredAuth, resolveProviderApiKey } from "$lib/server/agent/identity/auth.js";
 import {
   buildAnthropicBaseUrl,
   buildOpenAIBaseUrl,
   resolveCustomProviderProtocol
 } from "$lib/server/providers/customProtocol.js";
+import { stripImagePartsForTextOnlyModel } from "$lib/server/agent/routing/mediaFallback.js";
+
+// Imported helpers from extracted runnerHelpers.ts and runnerInputEnricher.ts
+import {
+  rewritePromptUserMessage,
+  getMessageText,
+  rewritePromptUserMessageForPersistence,
+  createPersistedUserMessage,
+  createAssistantErrorMessage,
+  prepareMessagesForModelContext,
+  formatPayloadReasoningSummary,
+  removeOrphanToolResultsFromContext,
+  hasExplicitMcpInvocation,
+  injectExplicitSkillInvocationContext,
+  injectExplicitSkillFileContext,
+  buildPromptRefreshKey,
+  validateRuntimeSettings,
+  isContextOverflowError,
+  extractTextFromResult,
+  extractHostBashApprovalPrompt,
+  mapUnsupportedDeveloperRole,
+  moveAnthropicSystemMessagesToTopLevel
+} from "$lib/server/agent/core/runnerHelpers.js";
+
+import { prepareEnrichedInput } from "$lib/server/agent/core/runnerInputEnricher.js";
 
 const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
 const SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS = 12;
-
-function envVarForProvider(provider: string): string | null {
-  switch (provider) {
-    case "anthropic":
-      return "ANTHROPIC_API_KEY";
-    case "openai":
-    case "openai-codex":
-      return "OPENAI_API_KEY";
-    case "google":
-    case "google-antigravity":
-    case "google-gemini-cli":
-      return "GOOGLE_API_KEY";
-    case "xai":
-      return "XAI_API_KEY";
-    case "groq":
-      return "GROQ_API_KEY";
-    case "cerebras":
-      return "CEREBRAS_API_KEY";
-    case "openrouter":
-      return "OPENROUTER_API_KEY";
-    case "mistral":
-      return "MISTRAL_API_KEY";
-    case "zai":
-      return "ZAI_API_KEY";
-    case "minimax":
-    case "minimax-cn":
-      return "MINIMAX_API_KEY";
-    case "huggingface":
-      return "HUGGINGFACE_API_KEY";
-    default:
-      return null;
-  }
-}
-
-function rewritePromptUserMessage(
-  messages: AgentMessage[],
-  userMessageIndex: number,
-  persistedText: string
-): AgentMessage[] {
-  const target = messages[userMessageIndex] as AgentMessage & {
-    role?: string;
-    content?: Array<{ type?: string; text?: string }>;
-  };
-  if (!target || target.role !== "user") return messages;
-
-  const content = Array.isArray(target.content) ? target.content : [];
-  let replaced = false;
-  const nextContent = content.map((part) => {
-    if (!replaced && part.type === "text") {
-      replaced = true;
-      return { ...part, text: persistedText };
-    }
-    return part;
-  });
-  if (!replaced) {
-    nextContent.unshift({ type: "text", text: persistedText });
-  }
-
-  const nextMessages = [...messages];
-  nextMessages[userMessageIndex] = {
-    ...target,
-    content: nextContent
-  } as AgentMessage;
-  return nextMessages;
-}
-
-function getMessageText(message: AgentMessage): string {
-  const content = (message as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((part): part is { type?: unknown; text?: unknown } =>
-      Boolean(part && typeof part === "object" && !Array.isArray(part))
-    )
-    .filter((part) => part.type === "text" && typeof part.text === "string")
-    .map((part) => part.text as string)
-    .join("\n");
-}
-
-function rewritePromptUserMessageForPersistence(
-  message: AgentMessage,
-  modelMessage: string,
-  persistedText: string
-): AgentMessage {
-  const row = message as AgentMessage & {
-    role?: string;
-    content?: string | Array<{ type?: unknown; text?: unknown }>;
-  };
-  if (row.role !== "user") return message;
-  if (getMessageText(message).trim() !== modelMessage.trim()) return message;
-
-  if (typeof row.content === "string") {
-    return { ...row, content: persistedText } as AgentMessage;
-  }
-
-  const content = Array.isArray(row.content) ? row.content : [];
-  let replaced = false;
-  const nextContent = content.map((part) => {
-    if (!replaced && part?.type === "text") {
-      replaced = true;
-      return { ...part, text: persistedText };
-    }
-    return part;
-  });
-  if (!replaced) {
-    nextContent.unshift({ type: "text", text: persistedText });
-  }
-  return { ...row, content: nextContent } as AgentMessage;
-}
-
-function createPersistedUserMessage(content: string, timestamp?: string | number): AgentMessage {
-  const numericTimestamp = typeof timestamp === "number"
-    ? timestamp
-    : typeof timestamp === "string" && /^-?\d+(?:\.\d+)?$/.test(timestamp.trim())
-      ? Number(timestamp)
-      : Date.parse(String(timestamp ?? ""));
-  const ms = Number.isFinite(numericTimestamp)
-    ? Math.abs(numericTimestamp) < 1e12
-      ? numericTimestamp * 1000
-      : numericTimestamp
-    : Date.now();
-  return {
-    role: "user",
-    content: [{ type: "text", text: content }],
-    timestamp: ms
-  } as AgentMessage;
-}
-
-function createAssistantErrorMessage(options: {
-  text?: string;
-  errorMessage: string;
-  model: Model<any>;
-}): AgentMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text: options.text ?? "" }],
-    api: options.model.api,
-    provider: options.model.provider,
-    model: options.model.id,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0
-    },
-    stopReason: "error",
-    errorMessage: options.errorMessage,
-    timestamp: Date.now()
-  } as AgentMessage;
-}
-
-function shouldHideFromModelContext(message: AgentMessage): boolean {
-  const row = message as AgentMessage & { role?: string; stopReason?: string };
-  return row.role === "assistant" && row.stopReason === "error" && getMessageText(message).trim().length === 0;
-}
-
-function prepareMessagesForModelContext(messages: AgentMessage[]): AgentMessage[] {
-  return stripTransientRuntimeNoticesFromMessages(messages).filter((message) => !shouldHideFromModelContext(message));
-}
-
-
-
-function formatPayloadReasoningSummary(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return "reasoning: unavailable";
-
-  const raw = payload as Record<string, unknown>;
-  const reasoningEffort = typeof raw.reasoning_effort === "string"
-    ? raw.reasoning_effort
-    : undefined;
-  const reasoningObject = raw.reasoning && typeof raw.reasoning === "object"
-    ? raw.reasoning as Record<string, unknown>
-    : undefined;
-  const openRouterEffort = typeof reasoningObject?.effort === "string"
-    ? reasoningObject.effort
-    : undefined;
-  const enableThinking = typeof raw.enable_thinking === "boolean"
-    ? raw.enable_thinking
-    : undefined;
-  const chatTemplateKwargs = raw.chat_template_kwargs && typeof raw.chat_template_kwargs === "object"
-    ? raw.chat_template_kwargs as Record<string, unknown>
-    : undefined;
-  const chatTemplateEnableThinking = typeof chatTemplateKwargs?.enable_thinking === "boolean"
-    ? chatTemplateKwargs.enable_thinking
-    : undefined;
-  const thinkingObject = raw.thinking && typeof raw.thinking === "object"
-    ? raw.thinking as Record<string, unknown>
-    : undefined;
-  const thinkingType = typeof thinkingObject?.type === "string"
-    ? thinkingObject.type
-    : undefined;
-  const thinkingEnabled = typeof thinkingObject?.enabled === "boolean"
-    ? thinkingObject.enabled
-    : undefined;
-  const thinkingLevel = typeof thinkingObject?.level === "string"
-    ? thinkingObject.level
-    : undefined;
-  const thinkingBudget = typeof thinkingObject?.budgetTokens === "number"
-    ? thinkingObject.budgetTokens
-    : typeof thinkingObject?.budget_tokens === "number"
-      ? thinkingObject.budget_tokens
-      : undefined;
-
-  const parts = [
-    reasoningEffort ? `reasoning_effort=${reasoningEffort}` : null,
-    openRouterEffort ? `reasoning.effort=${openRouterEffort}` : null,
-    enableThinking !== undefined ? `enable_thinking=${String(enableThinking)}` : null,
-    chatTemplateEnableThinking !== undefined
-      ? `chat_template_kwargs.enable_thinking=${String(chatTemplateEnableThinking)}`
-      : null,
-    thinkingType ? `thinking.type=${thinkingType}` : null,
-    thinkingEnabled !== undefined ? `thinking.enabled=${String(thinkingEnabled)}` : null,
-    thinkingLevel ? `thinking.level=${thinkingLevel}` : null,
-    thinkingBudget !== undefined ? `thinking.budget=${thinkingBudget}` : null
-  ].filter(Boolean);
-
-  return parts.length > 0 ? parts.join(", ") : "reasoning: none";
-}
-
-
-function removeOrphanToolResultsFromContext(context: any): any {
-  if (!context || typeof context !== "object" || !Array.isArray(context.messages)) return context;
-
-  const messages: unknown[] = [];
-  let pendingToolCallIds = new Set<string>();
-
-  for (const message of context.messages) {
-    if (!message || typeof message !== "object" || Array.isArray(message)) {
-      messages.push(message);
-      pendingToolCallIds = new Set();
-      continue;
-    }
-
-    const row = message as { role?: unknown; toolCallId?: unknown; content?: unknown };
-    if (row.role === "toolResult") {
-      const toolCallId = String(row.toolCallId ?? "");
-      if (toolCallId && pendingToolCallIds.has(toolCallId)) {
-        messages.push(message);
-        pendingToolCallIds.delete(toolCallId);
-      }
-      continue;
-    }
-
-    messages.push(message);
-
-    if (row.role === "assistant" && Array.isArray(row.content)) {
-      pendingToolCallIds = new Set(
-        row.content
-          .filter((part): part is { type?: unknown; id?: unknown } =>
-            Boolean(part && typeof part === "object" && !Array.isArray(part))
-          )
-          .filter((part) => part.type === "toolCall")
-          .map((part) => String(part.id ?? ""))
-          .filter(Boolean)
-      );
-    } else {
-      pendingToolCallIds = new Set();
-    }
-  }
-
-  return messages.length === context.messages.length
-    ? context
-    : { ...context, messages };
-}
-
-
-
-function hasExplicitMcpInvocation(inputText: string): boolean {
-  const text = String(inputText ?? "");
-  if (!text.trim()) return false;
-
-  const lower = text.toLowerCase();
-  const directPatterns = [
-    /\bloadMcp\b/i,
-    /(?:^|\s)\/mcp(?:\s|$)/i
-  ];
-  if (directPatterns.some((pattern) => pattern.test(lower))) {
-    return true;
-  }
-
-  // Language-agnostic fallback: standalone MCP token anywhere in the sentence.
-  return /(?:^|[\s([{'"“‘])mcp(?=$|[\s)\]}'"”’，。,.!?;:：])/i.test(lower);
-}
-
-function injectExplicitSkillInvocationContext(
-  inputText: string,
-  skills: Array<{ name: string; scope: string; filePath: string; baseDir?: string; aliases?: string[] }>
-): string {
-  if (skills.length === 0) return inputText;
-  const lines = skills.map(
-    (skill) =>
-      `- name: ${skill.name}\n  scope: ${skill.scope}\n  skill_file: ${skill.filePath}${
-        skill.baseDir ? `\n  base_dir: ${skill.baseDir}` : ""
-      }${
-        Array.isArray(skill.aliases) && skill.aliases.length > 0 ? `\n  aliases: ${skill.aliases.join(", ")}` : ""
-      }`
-  );
-  return `${inputText}\n\n[explicit skill invocation]\n${lines.join("\n")}\n[/explicit skill invocation]`;
-}
-
-function injectExplicitSkillFileContext(
-  inputText: string,
-  skills: Array<{ name: string; scope: string; filePath: string; baseDir?: string }>
-): string {
-  if (skills.length === 0) return inputText;
-
-  const blocks: string[] = [];
-  for (const skill of skills) {
-    try {
-      const raw = readFileSync(skill.filePath, "utf8").trim();
-      if (!raw) {
-        blocks.push(
-          [
-            `- name: ${skill.name}`,
-            `  scope: ${skill.scope}`,
-            `  skill_file: ${skill.filePath}`,
-            ...(skill.baseDir ? [`  base_dir: ${skill.baseDir}`] : []),
-            "  status: empty"
-          ].join("\n")
-        );
-        continue;
-      }
-
-      blocks.push(
-        [
-          `- name: ${skill.name}`,
-          `  scope: ${skill.scope}`,
-          `  skill_file: ${skill.filePath}`,
-          ...(skill.baseDir ? [`  base_dir: ${skill.baseDir}`] : []),
-          "  status: loaded",
-          "  content: |",
-          ...raw.split("\n").map((line) => `    ${line}`)
-        ].join("\n")
-      );
-    } catch (error) {
-      blocks.push(
-        [
-          `- name: ${skill.name}`,
-          `  scope: ${skill.scope}`,
-          `  skill_file: ${skill.filePath}`,
-          ...(skill.baseDir ? [`  base_dir: ${skill.baseDir}`] : []),
-          `  status: read_failed`,
-          `  error: ${error instanceof Error ? error.message : String(error)}`
-        ].join("\n")
-      );
-    }
-  }
-
-  return `${inputText}\n\n[explicit skill file]\n${blocks.join("\n")}\n[/explicit skill file]`;
-}
-
-function buildPromptRefreshKey(
-  settings: RuntimeSettings,
-  channel: string,
-  workspaceDir: string
-): string {
-  const botId = basename(workspaceDir);
-  const instances = settings.channels?.[channel]?.instances ?? [];
-  const activeInstance = instances.find((instance) => instance.id === botId);
-  return JSON.stringify({
-    channel,
-    botId,
-    botAgentId: String(activeInstance?.agentId ?? "").trim(),
-    botInstanceEnabled: activeInstance?.enabled !== false,
-    timezone: settings.timezone,
-    systemPrompt: settings.systemPrompt,
-    disabledSkillPaths: settings.disabledSkillPaths,
-    mcpServers: settings.mcpServers
-  });
-}
-
-
-
-export function validateRuntimeSettings(settings: RuntimeSettings): string | null {
-  const selection = resolveModelSelection(settings, "text");
-  if (selection.source === "custom") {
-    const selected = getCustomProviderById(settings, selection.providerId);
-    if (!selected) {
-      return `AI settings error: active custom model provider '${selection.providerId}' is missing from provider settings.`;
-    }
-    if (!selected.baseUrl?.trim() || !selected.apiKey?.trim() || !selection.modelId) {
-      return "AI settings error: active custom model requires baseUrl, apiKey, and a valid model.";
-    }
-    return null;
-  }
-
-  const configuredBuiltInProvider = settings.customProviders.find((provider) => provider.id === selection.model.provider);
-  if (!hasConfiguredAuth(selection.model.provider, () => configuredBuiltInProvider?.apiKey?.trim() || undefined)) {
-    const envVar = envVarForProvider(selection.model.provider);
-    const hint = envVar ? `${envVar} or auth.json` : "auth.json";
-    return `AI settings error: missing credentials for provider '${selection.model.provider}'. Configure ${hint}.`;
-  }
-  return null;
-}
-
-function isContextOverflowError(message: string): boolean {
-  const text = message.toLowerCase();
-  return [
-    "context length",
-    "context window",
-    "maximum context length",
-    "prompt is too long",
-    "too many tokens",
-    "token limit",
-    "maximum tokens",
-    "input is too long"
-  ].some((needle) => text.includes(needle));
-}
-
-function extractTextFromResult(result: unknown): string {
-  if (typeof result === "string") return result;
-  if (!result || typeof result !== "object") return JSON.stringify(result);
-  const obj = result as { content?: Array<{ type?: string; text?: string }> };
-  if (!Array.isArray(obj.content)) return JSON.stringify(result);
-  const parts = obj.content
-    .filter((item) => item.type === "text" && typeof item.text === "string")
-    .map((item) => item.text as string);
-  return parts.join("\n") || JSON.stringify(result);
-}
-
-function extractHostBashApprovalPrompt(result: unknown): HostBashApprovalPrompt | undefined {
-  if (!result || typeof result !== "object") return undefined;
-  const details = (result as { details?: unknown }).details;
-  if (!details || typeof details !== "object") return undefined;
-  const prompt = (details as { hostBashApproval?: unknown }).hostBashApproval;
-  if (!prompt || typeof prompt !== "object") return undefined;
-  return prompt as HostBashApprovalPrompt;
-}
-
-
-
-function mapUnsupportedDeveloperRole(
-  settings: RuntimeSettings,
-  context: any,
-): any {
-  const shouldCheckCustom = resolveModelSelection(settings, "text").source === "custom";
-  if (!shouldCheckCustom) return context;
-  const roles = getCustomModelRoles(settings);
-  if (roles.includes("developer")) return context;
-
-  if (
-    !context ||
-    typeof context !== "object" ||
-    !Array.isArray(context.messages)
-  )
-    return context;
-  const mappedMessages = context.messages.map((msg: any) => {
-    if (!msg || typeof msg !== "object") return msg;
-    if (msg.role !== "developer") return msg;
-    return { ...msg, role: "system" };
-  });
-
-  // For some OpenAI-compatible adapters, systemPrompt can be emitted as a "developer" message.
-  // Move it into explicit system message to force compatible role shape.
-  const prompt =
-    typeof context.systemPrompt === "string" ? context.systemPrompt.trim() : "";
-  if (!prompt) {
-    return { ...context, messages: mappedMessages };
-  }
-
-  return {
-    ...context,
-    systemPrompt: "",
-    messages: [{ role: "system", content: prompt }, ...mappedMessages],
-  };
-}
-
-function extractPlainTextContent(content: unknown): string {
-  if (typeof content === "string") return content.trim();
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (!part || typeof part !== "object") return "";
-      const text = (part as { text?: unknown }).text;
-      return typeof text === "string" ? text.trim() : "";
-    })
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-}
-
-function moveAnthropicSystemMessagesToTopLevel(context: any): any {
-  if (
-    !context ||
-    typeof context !== "object" ||
-    !Array.isArray(context.messages)
-  )
-    return context;
-
-  const systemBlocks: string[] = [];
-  const messages: unknown[] = [];
-  const existingSystemPrompt =
-    typeof context.systemPrompt === "string" ? context.systemPrompt.trim() : "";
-  if (existingSystemPrompt) systemBlocks.push(existingSystemPrompt);
-
-  for (const msg of context.messages) {
-    if (!msg || typeof msg !== "object") {
-      messages.push(msg);
-      continue;
-    }
-    const role = (msg as { role?: unknown }).role;
-    if (role !== "system" && role !== "developer") {
-      messages.push(msg);
-      continue;
-    }
-    const text = extractPlainTextContent((msg as { content?: unknown }).content);
-    if (text) systemBlocks.push(text);
-  }
-
-  return {
-    ...context,
-    systemPrompt: systemBlocks.join("\n\n"),
-    messages
-  };
-}
 
 export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
@@ -858,7 +359,7 @@ export class MomRunner implements RunnerLike {
       logRunDetail({ type: "info", summary: normalized });
       await ctx.respondInThread(normalized);
     };
-    const budget = new RunBudget(DEFAULT_RUN_BUDGET);
+    const budget = new RunBudget(this.getSettings().budget ?? DEFAULT_RUN_BUDGET);
     const usedToolNames: string[] = [];
     const failedToolNames: string[] = [];
     let subagentDelegationNoticeSent = false;
@@ -921,86 +422,19 @@ export class MomRunner implements RunnerLike {
       return { runId, stopReason: "error", errorMessage: settingsError };
     }
 
-    const audioDecision = decideAudioRouting(
-      settings,
-      ctx.message.attachments.some((item) => item.isAudio)
-    );
-    momLog("runner", "audio_route_decision", {
-      runId,
-      chatId: this.chatId,
-      sessionId: this.sessionId,
-      mode: audioDecision.mode,
-      reason: audioDecision.reason,
-      audioRouteKey: currentModelKey(settings, "stt"),
-      hasAudioInput: ctx.message.attachments.some((item) => item.isAudio),
-    });
-
-    const audioEnrichedInput = await enrichMessageTextWithAudio(ctx, settings, audioDecision);
-    momLog("runner", "voice_transcription_success", {
-      runId,
-      chatId: this.chatId,
-      sessionId: this.sessionId,
-      transcriptionErrors: audioEnrichedInput.transcriptionErrors.length,
-      hasTranscripts: audioEnrichedInput.text !== ctx.message.text
-    });
-    if (audioEnrichedInput.transcriptionErrors.length > 0) {
-      await respondInThread(
-        [
-          "语音识别失败，已降级为未转写消息。",
-          ...audioEnrichedInput.transcriptionErrors,
-          "建议：检查 STT provider 的 baseUrl/path/model 是否正确。"
-        ].join("\n")
-      );
-    }
-
-    const visionDecision = decideVisionRouting(
-      settings,
-      Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0
-    );
-    const imageDecision = decideImageFallbackRouting(
-      settings,
-      Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0,
-      visionDecision
-    );
-    momLog("runner", "image_fallback_decision", {
-      runId,
-      chatId: this.chatId,
-      sessionId: this.sessionId,
-      mode: imageDecision.mode,
-      reason: imageDecision.reason,
-      visionRouteKey: currentModelKey(settings, "vision"),
-      hasImages: Array.isArray(ctx.message.imageContents) && ctx.message.imageContents.length > 0,
-    });
-    const enrichedInput = await enrichMessageTextWithImages(
+    let { enrichedText, activeSelection, modelCandidates, modelUseCase, audioDecision, visionDecision } = await prepareEnrichedInput({
       ctx,
       settings,
-      imageDecision,
-      audioEnrichedInput.text
-    );
-    momLog("runner", "image_analysis_success", {
+      respondInThread,
       runId,
       chatId: this.chatId,
-      sessionId: this.sessionId,
-      analysisErrors: enrichedInput.analysisErrors.length,
-      hasAnalyses: enrichedInput.text !== audioEnrichedInput.text
+      sessionId: this.sessionId
     });
-    if (enrichedInput.analysisErrors.length > 0) {
-      await respondInThread(
-        [
-          "图片识别不可用，已降级为仅保留图片附件占位信息。",
-          ...enrichedInput.analysisErrors,
-          "建议：检查 vision provider 的 baseUrl/path/model，以及模型是否声明 `vision` 能力。"
-        ].join("\n")
-      );
-    }
 
-    const modelUseCase: "text" | "vision" = visionDecision.sendImagesNatively ? "vision" : "text";
-    const modelCandidates = buildModelFallbackSelections(settings, visionDecision.selection, modelUseCase);
-    let activeSelection = modelCandidates[0] ?? visionDecision.selection;
     const memorySnapshot = await getTurnOrchestrator().prepareTurnMemory(
       this.channel,
       this.chatId,
-      enrichedInput.text,
+      enrichedText,
       this.memory
     );
     const nextPromptKey = buildPromptRefreshKey(settings, this.channel, this.store.getWorkspaceDir());
@@ -1041,12 +475,12 @@ export class MomRunner implements RunnerLike {
       disabledSkillPaths: settings.disabledSkillPaths,
       workspaceId
     });
-    const explicitlyInvokedSkills = findExplicitlyInvokedSkills(skills, enrichedInput.text);
+    const explicitlyInvokedSkills = findExplicitlyInvokedSkills(skills, enrichedText);
     const skillExplicitlyInvoked = explicitlyInvokedSkills.length > 0;
-    const mcpExplicitlyInvoked = hasExplicitMcpInvocation(enrichedInput.text);
+    const mcpExplicitlyInvoked = hasExplicitMcpInvocation(enrichedText);
     const skillRequiresMcp = explicitlyInvokedSkills.some((skill) => skill.mcpServers.length > 0);
     const effectiveInputText = injectExplicitSkillFileContext(
-      injectExplicitSkillInvocationContext(enrichedInput.text, explicitlyInvokedSkills),
+      injectExplicitSkillInvocationContext(enrichedText, explicitlyInvokedSkills),
       explicitlyInvokedSkills
     );
     const resolveScopedMcpServers = (): RuntimeSettings["mcpServers"] => {
@@ -1091,12 +525,10 @@ export class MomRunner implements RunnerLike {
       mcpExplicitlyInvoked || skillRequiresMcp || this.selectedMcpServerIds.size > 0;
     let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
     let errorMessage: string | undefined;
-    let blockedOnHostBashApproval = false;
     let currentModelPromptMessage = "";
     let currentPersistedPromptMessage = "";
     let promptUserPersisted = false;
     let assistantMessagePersisted = false;
-    const hostBashApprovalWaitMessage = "Host Bash approval requested. Waiting for your decision.";
     const emittedHostBashApprovalIds = new Set<string>();
     const shouldForwardHostBashApproval = (approval: HostBashApprovalPrompt | undefined): boolean => {
       if (!approval) return true;
@@ -1133,10 +565,6 @@ export class MomRunner implements RunnerLike {
       },
       emitRunnerEvent: async (event) => {
         if (event.type === "tool_execution_end" && event.hostBashApproval) {
-          blockedOnHostBashApproval = true;
-          stopReason = "waiting_for_approval";
-          errorMessage = undefined;
-          this.agent.abort();
           if (!shouldForwardHostBashApproval(event.hostBashApproval)) return;
         }
         const sink = this.activeRunnerEventSink;
@@ -1295,20 +723,14 @@ export class MomRunner implements RunnerLike {
         });
         const hostBashApproval = extractHostBashApprovalPrompt(event.result);
         const forwardHostBashApproval = shouldForwardHostBashApproval(hostBashApproval);
-        if (hostBashApproval) {
-          blockedOnHostBashApproval = true;
-          stopReason = "waiting_for_approval";
-          errorMessage = undefined;
-          this.agent.abort();
-        }
-        if (ctx.onRunnerEvent && forwardHostBashApproval) {
+        if (ctx.onRunnerEvent) {
           enqueue(() => ctx.onRunnerEvent!({
             type: "tool_execution_end",
             toolName: event.toolName,
             displayName,
             isError: event.isError,
             summary: body,
-            hostBashApproval
+            hostBashApproval: forwardHostBashApproval ? hostBashApproval : undefined
           }));
         }
         const text = `*${status} ${displayName}*\n\`\`\`\n${body}\n\`\`\``;
@@ -1364,7 +786,7 @@ export class MomRunner implements RunnerLike {
           if (!isCurrentPrompt && !isTransientRuntimeNotice) {
             this.store.appendContextMessage(this.chatId, persisted, this.sessionId);
           }
-        } else if ((message.role === "assistant" || message.role === "toolResult") && !blockedOnHostBashApproval) {
+        } else if (message.role === "assistant" || message.role === "toolResult") {
           this.store.appendContextMessage(this.chatId, message, this.sessionId);
           if (message.role === "assistant") assistantMessagePersisted = true;
         }
@@ -1390,11 +812,9 @@ export class MomRunner implements RunnerLike {
           };
         };
         if (msg.stopReason) {
-          stopReason = blockedOnHostBashApproval && msg.stopReason === "aborted"
-            ? "waiting_for_approval"
-            : msg.stopReason;
+          stopReason = msg.stopReason;
         }
-        if (!blockedOnHostBashApproval && msg.errorMessage) errorMessage = msg.errorMessage;
+        if (msg.errorMessage) errorMessage = msg.errorMessage;
         if (msg.errorMessage) {
           momWarn("runner", "assistant_error_message", {
             runId,
@@ -1717,13 +1137,7 @@ export class MomRunner implements RunnerLike {
               model: selectedModel.id
             });
 
-            if (blockedOnHostBashApproval) {
-              stopReason = "waiting_for_approval";
-              errorMessage = undefined;
-              candidateFinalText = hostBashApprovalWaitMessage;
-              this.agent.state.messages = beforeAttempt;
-              break;
-            }
+
 
             const messages = this.agent.state.messages as AgentMessage[];
             const lastAssistant = [...messages]
@@ -2277,87 +1691,3 @@ export class MomRunner implements RunnerLike {
   }
 }
 
-export class RunnerPool {
-  private readonly map = new Map<string, MomRunner>();
-
-  constructor(
-    private readonly channel: string,
-    private readonly store: MomRuntimeStore,
-    private readonly getSettings: () => RuntimeSettings,
-    private readonly updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
-    private readonly usageTracker: AiUsageTracker,
-    private readonly modelErrorTracker: ModelErrorTracker,
-    private readonly memory: MemoryGateway,
-  ) { }
-
-  private key(chatId: string, sessionId: string): string {
-    return `${chatId}::${sessionId}`;
-  }
-
-  get(chatId: string, sessionId: string): MomRunner {
-    const key = this.key(chatId, sessionId);
-    const existing = this.map.get(key);
-    if (existing) return existing;
-    const runner = new MomRunner(
-      this.channel,
-      chatId,
-      sessionId,
-      this.store,
-      this.getSettings,
-      this.updateSettings,
-      this.usageTracker,
-      this.modelErrorTracker,
-      this.memory,
-    );
-    this.map.set(key, runner);
-    return runner;
-  }
-
-  abort(chatId: string, sessionId: string): boolean {
-    const runner = this.get(chatId, sessionId);
-    if (!runner.isRunning()) return false;
-    runner.abort();
-    return true;
-  }
-
-  steer(chatId: string, sessionId: string, text: string): boolean {
-    return this.get(chatId, sessionId).steer(text);
-  }
-
-  followUp(chatId: string, sessionId: string, text: string): boolean {
-    return this.get(chatId, sessionId).followUp(text);
-  }
-
-  reset(chatId: string, sessionId: string): void {
-    this.map.delete(this.key(chatId, sessionId));
-  }
-
-  async compact(
-    chatId: string,
-    sessionId: string,
-    options?: {
-      reason?: "threshold" | "manual";
-      customInstructions?: string;
-    }
-  ): Promise<{
-    changed: boolean;
-    summary: string;
-    beforeTokens: number;
-    afterTokens: number;
-    summarizedMessages: number;
-    keptMessages: number;
-  }> {
-    return this.get(chatId, sessionId).compact(options);
-  }
-}
-
-export function readBotUsernameFromMemory(workspaceDir: string): string | null {
-  const path = join(workspaceDir, "BOT_USERNAME.txt");
-  if (!existsSync(path)) return null;
-  try {
-    const text = readFileSync(path, "utf8").trim();
-    return text || null;
-  } catch {
-    return null;
-  }
-}

@@ -160,6 +160,43 @@ test("prepareTurnMemory invokes sync and snapshot gateway functions", async () =
   assert.equal(snapshot.fingerprint, "fp-123");
 });
 
+test("abortRunningTurnsForSession only clears running turns for that session", () => {
+  const orchestrator = new TurnOrchestrator();
+  const sessionId = `session-abort-${Date.now()}-${Math.random()}`;
+  const otherSessionId = `session-abort-other-${Date.now()}-${Math.random()}`;
+  const runId = `run-abort-${Date.now()}-${Math.random()}`;
+  const completedRunId = `run-abort-completed-${Date.now()}-${Math.random()}`;
+  const otherRunId = `run-abort-other-${Date.now()}-${Math.random()}`;
+
+  const db = new DatabaseSync(storagePaths.settingsDbFile);
+  db.prepare(`
+    INSERT INTO runs (id, session_id, actor_id, channel_id, status, started_at)
+    VALUES (?, ?, 'user-1', 'web', 'running', datetime('now'))
+  `).run(runId, sessionId);
+  db.prepare(`
+    INSERT INTO runs (id, session_id, actor_id, channel_id, status, started_at)
+    VALUES (?, ?, 'user-1', 'web', 'completed', datetime('now'))
+  `).run(completedRunId, sessionId);
+  db.prepare(`
+    INSERT INTO runs (id, session_id, actor_id, channel_id, status, started_at)
+    VALUES (?, ?, 'user-1', 'web', 'running', datetime('now'))
+  `).run(otherRunId, otherSessionId);
+  db.close();
+
+  const count = orchestrator.abortRunningTurnsForSession(sessionId, "Stopped stale lock.");
+
+  const db2 = new DatabaseSync(storagePaths.settingsDbFile);
+  const rows = db2.prepare("SELECT id, status, error FROM runs WHERE id IN (?, ?, ?)").all(runId, completedRunId, otherRunId) as Array<{ id: string; status: string; error: string | null }>;
+  db2.close();
+  const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
+
+  assert.equal(count, 1);
+  assert.equal(byId[runId].status, "aborted");
+  assert.equal(byId[runId].error, "Stopped stale lock.");
+  assert.equal(byId[completedRunId].status, "completed");
+  assert.equal(byId[otherRunId].status, "running");
+});
+
 test("commitTurn updates status and appends summary to store", () => {
   const orchestrator = new TurnOrchestrator();
   const runId = `run-commit-${Date.now()}-${Math.random()}`;
@@ -184,7 +221,7 @@ test("commitTurn updates status and appends summary to store", () => {
   const summary = {
     runId,
     sessionId,
-    stopReason: "stop",
+    stopReason: "stop" as const,
     durationMs: 456,
     finalText: "done",
     toolNames: [],

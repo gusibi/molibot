@@ -97,6 +97,11 @@ interface RawSettings {
   toolSandbox?: unknown;
   hostTools?: unknown;
   disabledSkillPaths?: unknown;
+  budget?: {
+    maxToolCalls?: number | string;
+    maxToolFailures?: number | string;
+    maxModelAttempts?: number | string;
+  };
 }
 
 type ModelRole = "system" | "user" | "assistant" | "tool" | "developer";
@@ -199,6 +204,31 @@ function sanitizeSkillDraftSettings(input: unknown): RuntimeSettings["skillDraft
     template: {
       skillPath: String(template.skillPath ?? defaultRuntimeSettings.skillDrafts.template.skillPath).trim()
     }
+  };
+}
+
+function sanitizeBudgetSettings(input: unknown): RuntimeSettings["budget"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const maxToolCallsRaw = Number(source.maxToolCalls ?? defaultRuntimeSettings.budget.maxToolCalls);
+  const maxToolFailuresRaw = Number(source.maxToolFailures ?? defaultRuntimeSettings.budget.maxToolFailures);
+  const maxModelAttemptsRaw = Number(source.maxModelAttempts ?? defaultRuntimeSettings.budget.maxModelAttempts);
+
+  const maxToolCalls = Number.isFinite(maxToolCallsRaw)
+    ? Math.max(1, Math.min(500, Math.round(maxToolCallsRaw)))
+    : defaultRuntimeSettings.budget.maxToolCalls;
+  const maxToolFailures = Number.isFinite(maxToolFailuresRaw)
+    ? Math.max(1, Math.min(100, Math.round(maxToolFailuresRaw)))
+    : defaultRuntimeSettings.budget.maxToolFailures;
+  const maxModelAttempts = Number.isFinite(maxModelAttemptsRaw)
+    ? Math.max(1, Math.min(100, Math.round(maxModelAttemptsRaw)))
+    : defaultRuntimeSettings.budget.maxModelAttempts;
+
+  return {
+    maxToolCalls,
+    maxToolFailures,
+    maxModelAttempts
   };
 }
 
@@ -808,6 +838,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const toolSandbox = sanitizeToolSandboxSettings(raw.toolSandbox ?? defaultRuntimeSettings.toolSandbox);
   const hostTools = sanitizeHostToolSettings(raw.hostTools ?? defaultRuntimeSettings.hostTools);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
+  const budget = sanitizeBudgetSettings(raw.budget);
   const compactionEnabledRaw = raw.compaction?.enabled;
   const compactionEnabled =
     typeof compactionEnabledRaw === "boolean"
@@ -890,7 +921,8 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     ),
     telegramBotToken: primaryBot?.token ?? "",
     telegramAllowedChatIds: primaryBot?.allowedChatIds ?? [],
-    feishuBots: effectiveFeishuBots
+    feishuBots: effectiveFeishuBots,
+    budget
   };
 }
 
@@ -1285,7 +1317,12 @@ export class SettingsStore {
       toolSandbox: settings.toolSandbox,
       disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,
-      telegramAllowedChatIds: settings.telegramAllowedChatIds
+      telegramAllowedChatIds: settings.telegramAllowedChatIds,
+      budget: {
+        maxToolCalls: settings.budget.maxToolCalls,
+        maxToolFailures: settings.budget.maxToolFailures,
+        maxModelAttempts: settings.budget.maxModelAttempts
+      }
     };
   }
 

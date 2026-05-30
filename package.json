@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.26",
-    "@larksuiteoapi/node-sdk": "^1.59.0",
+    "@larksuiteoapi/node-sdk": "^1.66.0",
     "@mariozechner/mini-lit": "^0.2.0",
     "@mariozechner/pi-agent-core": "^0.73.1",
     "@mariozechner/pi-ai": "^0.73.1",
