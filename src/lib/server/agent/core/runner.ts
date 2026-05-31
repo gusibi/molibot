@@ -372,6 +372,26 @@ export class MomRunner implements RunnerLike {
       logRunDetail({ type: "info", summary: normalized });
       await ctx.respondInThread(normalized);
     };
+    let mainAnswerCommitted = false;
+    const commitMainAnswer = async (text: string): Promise<void> => {
+      const normalized = String(text ?? "").trim();
+      if (!normalized) return;
+      if (ctx.commitMainAnswer) {
+        await ctx.commitMainAnswer(normalized);
+      } else {
+        await ctx.replaceMessage(normalized);
+      }
+      mainAnswerCommitted = true;
+    };
+    const sendSupplement = async (text: string): Promise<void> => {
+      const normalized = String(text ?? "").trim();
+      if (!normalized) return;
+      if (ctx.sendSupplement) {
+        await ctx.sendSupplement(normalized);
+        return;
+      }
+      await respondInThread(normalized);
+    };
     const budget = new RunBudget(this.getSettings().budget ?? DEFAULT_RUN_BUDGET);
     const usedToolNames: string[] = [];
     const failedToolNames: string[] = [];
@@ -874,7 +894,7 @@ export class MomRunner implements RunnerLike {
           .map((part) => part.text as string)
           .join("\n");
 
-        if (text.trim() && !assistantTextStreamed) {
+        if (text.trim() && !assistantTextStreamed && msg.stopReason !== "stop") {
           momLog("runner", "assistant_text_chunk", {
             runId,
             chatId: this.chatId,
@@ -918,6 +938,7 @@ export class MomRunner implements RunnerLike {
       currentPersistedPromptMessage = promptInput.persistedMessage;
 
       let finalText = "";
+      let finalSupplements: string[] = [];
       let finalAttemptCount = 0;
       let successfulCandidateIndex = -1;
       const pendingModelErrorEvents: Array<{
@@ -1153,25 +1174,37 @@ export class MomRunner implements RunnerLike {
 
 
             const messages = this.agent.state.messages as AgentMessage[];
+            const attemptMessages = messages.slice(beforeAttempt.length);
+            const terminalAssistants = attemptMessages
+              .filter((item) => {
+                const row = item as { role?: string; stopReason?: string };
+                return row.role === "assistant" && row.stopReason === "stop" && getMessageText(item).trim();
+              })
+              .map((message) => ({
+                message,
+                text: getMessageText(message).trim()
+              }));
             const lastAssistant = [...messages]
               .reverse()
-              .find((item) => (item as { role?: string }).role === "assistant") as
-              | { content?: Array<{ type: string; text?: string }> }
-              | undefined;
+              .find((item) => (item as { role?: string }).role === "assistant") as AgentMessage | undefined;
 
-            candidateFinalText = (lastAssistant?.content || [])
-              .filter((part) => part.type === "text" && typeof part.text === "string")
-              .map((part) => part.text as string)
-              .join("\n")
-              .trim();
-            const lastAssistantContentCount = Array.isArray(lastAssistant?.content)
-              ? lastAssistant.content.length
+            finalSupplements = [];
+            if (terminalAssistants.length > 1) {
+              candidateFinalText = terminalAssistants[0]?.text ?? "";
+              finalSupplements = terminalAssistants.slice(1).map((item) => item.text).filter(Boolean);
+            } else {
+              candidateFinalText = lastAssistant ? getMessageText(lastAssistant).trim() : "";
+            }
+            const lastAssistantContentCount = Array.isArray((lastAssistant as { content?: unknown } | undefined)?.content)
+              ? ((lastAssistant as { content?: unknown[] }).content).length
               : 0;
             momLog("runner", "final_text_evaluated", {
               runId,
               chatId: this.chatId,
               finalTextLength: candidateFinalText.length,
               lastAssistantContentCount,
+              terminalAssistantCount: terminalAssistants.length,
+              supplementCount: finalSupplements.length,
               attempt: attemptCount,
               provider: selectedModel.provider,
               model: selectedModel.id
@@ -1203,6 +1236,11 @@ export class MomRunner implements RunnerLike {
                 const partialBeforeContinuation = candidateFinalText || streamedAssistantText.trim();
                 if (ctx.beginContinuationResponse) {
                   await ctx.beginContinuationResponse(partialBeforeContinuation, toolBudgetNotice);
+                  if (partialBeforeContinuation.trim()) {
+                    mainAnswerCommitted = true;
+                  }
+                } else if (partialBeforeContinuation.trim()) {
+                  await commitMainAnswer([partialBeforeContinuation, toolBudgetNotice].filter(Boolean).join("\n\n"));
                 } else {
                   await respondInThread(toolBudgetNotice);
                 }
@@ -1492,8 +1530,18 @@ export class MomRunner implements RunnerLike {
           runId,
           chatId: this.chatId,
           finalTextLength: finalText.length,
+          mainAnswerCommitted,
         });
-        await ctx.replaceMessage(finalText);
+        if (mainAnswerCommitted) {
+          await sendSupplement(finalText);
+        } else {
+          await ctx.replaceMessage(finalText);
+        }
+        for (const supplement of finalSupplements) {
+          if (supplement.trim() && supplement.trim() !== finalText.trim()) {
+            await sendSupplement(supplement);
+          }
+        }
       } else {
         const modelInfo = [
           `provider: ${activeSelection.model.provider}`,
@@ -1703,4 +1751,3 @@ export class MomRunner implements RunnerLike {
     }
   }
 }
-

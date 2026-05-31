@@ -106,3 +106,25 @@ test("FeishuStreamingSession uses one editable post fallback when CardKit creati
   assert.equal(messageUpdateCalls.length >= 1, true);
   assert.equal(messageCreateCalls.length, 1);
 });
+
+test("FeishuStreamingSession sends reasoning as a separate editable message", async () => {
+  const { client, messageCreateCalls } = createMockClient();
+  const session = new FeishuStreamingSession({
+    client,
+    chatId: "oc_chat",
+    runId: "run_1",
+    title: "Molibot",
+    displayConfig: { toolProgress: "all", showReasoning: "stream", gatewayNotifyInterval: 0 }
+  });
+
+  await session.handleRunnerEvent({
+    type: "assistant_message_event",
+    event: { type: "thinking_delta", delta: "先理解问题。" } as never
+  });
+  await session.finalize({ runId: "run_1", stopReason: "stop" });
+
+  assert.equal(messageCreateCalls.length, 1);
+  assert.equal(messageCreateCalls[0].data.msg_type, "post");
+  assert.equal(JSON.stringify(messageCreateCalls[0]).includes("思考"), true);
+  assert.equal(session.sentMessageId, null);
+});

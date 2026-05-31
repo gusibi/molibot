@@ -265,6 +265,14 @@ export abstract class BaseChannelRuntime {
             this.store.saveContext(input.scopeId, messages, sessionId);
             this.runners.reset(input.scopeId, sessionId);
 
+            const isEnglishChannel = this.channelName === "telegram" || this.channelName === "feishu";
+            await options.sendText(
+              input.target,
+              isEnglishChannel
+                ? "✅ Command executed successfully. Resuming agent execution to continue the task..."
+                : "✅ 命令执行成功。正在重新拉起智能体会话以继续刚才的任务..."
+            );
+
             const event: ChannelInboundMessage = {
               chatId: input.chatId,
               chatType: "private",

@@ -38,7 +38,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - 图片 fallback 必须默认记录脱敏请求日志，至少包含 url、provider、configured/effective protocol、model、headers（密钥脱敏）和 body（图片 base64/data-url 脱敏），方便排查不同 provider 的真实传输格式。
 - 图片 fallback 的回归测试必须覆盖真实请求体里的图片字段；OpenAI-compatible 至少断言 `image_url` data URL，Anthropic 至少断言 `source.type=base64`、`media_type` 和图片 `data`。
 - 安装/初始化必须把极小的图片测试 fixture 放到用户数据工作区；provider vision 测试应从 `<DATA_DIR>/fixtures/vision-smoke.png` 读取真实图片字节，而不是依赖源码仓库路径或硬编码假 base64。
-- `package/weixin-agent-sdk` 作为 Molibot 的 Weixin 协议基础层，应跟进 `openclaw-weixin` 的通用协议能力：请求 `base_info.bot_agent`、启动/停止 lifecycle 通知、扫码登录配对码/重定向状态处理应在 SDK 层提供；OpenClaw 插件专属 hook 仍不应下沉到 SDK。
+- [Done] `package/weixin-agent-sdk` 作为 Molibot 的 Weixin 协议基础层，应跟进 `openclaw-weixin` 的通用协议能力：请求 `base_info.bot_agent`、启动/停止 lifecycle 通知、扫码登录配对码/重定向状态处理应在 SDK 层提供；OpenClaw 插件专属 hook 仍不应下沉到 SDK。
 - Weixin channel 的出站图片必须优先作为原生 `IMAGE` 消息发送；本地图片文件应复用 `package/weixin-agent-sdk` 的媒体上传/发送协议，模型只返回单个图片 URL 或 Markdown 图片引用时，channel 层应下载图片并转发为图片消息，而不是把链接当普通文本回复。
 - Weixin 不支持像 Telegram/Feishu 那样稳定编辑同一条运行详情消息时，工具进度和中间错误聚合应留在 Weixin channel 层处理：首条工具进度单独发送，后续工具进度每 5 条合并发送；工具进度必须使用微信可接受的纯文本格式，不能把 `_→ ..._` 这类运行态 Markdown 原样发给 Weixin API；中间错误成功运行不发送，只有整轮没有正常可见答案时才发送最后缓存的一条错误说明。
 - QQ 同样存在单轮回复条数限制，且不能稳定把中间状态更新到同一条消息上；工具进度和中间错误聚合应留在 QQ channel 层处理：首条工具进度单独发送，后续工具进度每 5 条合并发送；中间错误成功运行不发送，只有整轮没有正常可见答案时才发送最后缓存的一条错误说明。
@@ -61,6 +61,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Host Bash 审批触发 runner 内部 abort 时，最终客户端状态必须继续保持 `waiting_for_approval`，不得退化成用户主动停止语义；审批后自动执行成功但无输出时也不得向用户额外发送 `(no output)` 噪音。
 - Telegram Host Bash 审批按钮必须先确认 callback 并给出可见“执行中”状态，再执行审批后的 host action；长命令不得因为 Telegram callback 超时而让用户误判点击无效。
 - Telegram 群聊触发必须同时支持“回复 bot 消息”和“直接 @ bot”。直接 @ 的判定应优先使用 Telegram `message.entities` / `caption_entities` 中的 mention 信息，并保留纯文本 `@username` 兜底，避免群聊消息已入站但被误判为未提及 bot。
+- 主答案展示必须有明确生命周期：draft 阶段允许流式编辑或 buffer 替换；一旦 runner 提交主答案，后续 assistant 文本不得覆盖已提交内容。若同一轮模型返回多条独立 terminal assistant 消息，必须按消息边界逐条展示（一条就一条，两条就两条），不得用文本语义猜测去丢弃或覆盖。该规则必须在 shared runtime / context 语义中表达，Channel 层只负责按平台能力渲染。
 
 ## 2.2 Subagent Sandbox Research Backlog (2026-05-25)
 - 竞品调研与下一阶段产品边界记录在 `docs/subagent-sandbox-research.md`。
@@ -69,6 +70,12 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - P1 建议新增 parent/subagent run ledger，持久化 run tree、模型路由、有效 sandbox profile、审批记录、诊断事件、产物清单和终止原因。
 - P2 建议引入 checkpoint/recovery：至少提供 run 前后 changed-file 摘要、artifact manifest、失败原因和可恢复边界；完整 workspace rollback 或 Docker/remote sandbox provider 应放在恢复模型稳定之后。
 ## 2.4 Agent v2.2 Refactoring Progress (2026-05-30)
+- **微信通道底层 SDK 升级与上下文 Token 持久化 (Weixin SDK Upstream Upgrade & Context Token Persistence) (2026-05-30)**:
+  - 同步了 `package/weixin-agent-sdk` 至最新的 `openclaw-weixin` upstream 版本（版本号为 `0.3.1`），移除了所有 OpenClaw 专属插件 Hook 依赖。
+  - 在 `package/weixin-agent-sdk/src/messaging/inbound.ts` 中实现了 `persistContextTokens`/`restoreContextTokens`/`clearContextTokensForAccount` 磁盘持久化机制，并在清除账号时删除关联的磁盘文件。
+  - 更新了 `src/lib/server/channels/weixin/client.ts`，在启动时自动调用 `restoreContextTokens`，在运行时将 context tokens 进行双向桥接，并且适配了 `alreadyConnected` 状态实现绑定重定向自愈。
+  - 将 `filterWeixinMarkdown` 设置为 no-op 管道，并更新了 `outbound.test.ts` 与 `send.test.ts` 相关的 markdown 断言。
+  - 补齐了 `src/api/api.ts` 的外部中止链路：`apiPostFetch` 现在会合并 timeout controller 与外部 `AbortSignal`，`getUpdates` 也统一走这条路径，确保 Weixin 长轮询在停止与热重载时可立即退出。
 - **Review Optimization Tasks 4 & 5 Completed (2026-05-30)**:
   - Fixed subagent approval depth propagation by adding `requestedByDepth` to `createSubagentTool` options and incrementing it `(options.requestedByDepth ?? 0) + 1` for host approval payload construction.
   - Documented security boundary in `TurnOrchestrator.prepareTurn`, clarifying that channel runtimes authenticate/authorize actors before turn execution, while TurnOrchestrator only persists normalized `userId` for auditing.
@@ -3187,3 +3194,20 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 在 `channelCommands.ts` 中实现 `/sandbox` 指令的指令解析与生效范围覆盖逻辑。
   - 在 `baseRuntime.ts` 与 Web API `+server.ts` 中实现 approved 命令自动重写上下文消息和后台触发 runner.run / runSharedTextTask。
   - 在 `helpers.ts` 与 `sandbox.ts` 中实现工具依赖环境变量注入与白名单目录自动解析，支持通过环境变量 `MOLIBOT_TOOLING_DIR` 或默认目录 `~/.molibot/tooling` 隔离工具环境。
+
+## 204. 消息返回与展示布局优化 (Message Return & Display Layout Optimization) (2026-05-30)
+- Priority: P0
+- Stage: Delivered (2026-05-30)
+- Problem:
+  - 消息展示布局在不同渠道（Telegram, Feishu, QQ, Weixin）中很乱，工具调用进度、模型思考过程以及错误信息经常混杂在一起，用户交互不够清晰。
+  - 缺乏细粒度的展示控制。之前只依赖一个粗粒度开关控制流式输出，一旦关闭则连正常的回答流都全被关闭。
+- Requirement:
+  - 提取出统一的 `DisplayFormatter` 作为共享展示格式化层，以实现消息布局的归一化与解耦。
+  - 支持实例级别（Bot/渠道实例维度）的细粒度展示设置，包括工具进度等级 (`toolProgress`: `off` | `new` | `all` | `verbose`) 以及模型思考展示 (`showReasoning`: `off` | `on` | `stream` | `new`)。
+  - `showReasoning` 必须与最终答案解耦：`on`/`stream` 使用独立思考消息展示完整 reasoning，`new` 仅动态展示最近一句 reasoning，用于判断模型是否仍在推进。
+  - 增加两个独立的机器人会话指令 `/toolprogress` 和 `/showreasoning`，用于在终端直接调整当前渠道实例的独立展示行为，且互不干扰。
+- Enforcement:
+  - 扩展 settings 相关的 schema、sanitize 逻辑，添加对 `display`（`toolProgress`、`showReasoning`、`gatewayNotifyInterval`）属性的保存、校验与去静默抹除支持。
+  - 在 `channelCommands.ts` 中完成独立指令 `/toolprogress` 和 `/showreasoning` 的开发，并打通 SQLite `settings_channel_instances` 表的 `display_json` 字段及 `settings.json` 的全局序列化存储，以确保在系统重启后独立展示配置能够被持久保留。
+  - 在共享格式化层 `DisplayFormatter` 中统一处理思考块的捕获（`thinking_start/delta/end`）、工具运行状态整合、答案渲染和独立 reasoning 渲染。
+  - 在 Telegram 运行时、Feishu 运行时和 StreamingSession 中引入 `DisplayFormatter` 与配置适配；在 QQ/Weixin 中接入 `toolProgress === 'off'` 判断，跳过中间进度信息的批量发送，防止刷屏。同时，在 QQ 和微信中引入消息流缓冲区（`messagesBuffer`），将工具执行进度、模型思考、错误及最终答复进行合并缓冲，在运行结束、触发敏感审批或上传文件前一次性拼接并以单个消息气泡发送，极大限度地消除了在不支持消息编辑的平台上的刷屏问题。

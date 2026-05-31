@@ -18,6 +18,7 @@ import {
 } from "$lib/server/settings/index.js";
 import { sanitizeHostToolSettings } from "$lib/server/settings/hostTools.js";
 import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
+import { sanitizeChannelInstanceDisplaySettings } from "$lib/server/settings/sanitize.js";
 import {
   resolveCustomProviderThinkingFormat,
   sanitizeOptionalThinkingSupport,
@@ -101,6 +102,10 @@ interface RawSettings {
     maxToolCalls?: number | string;
     maxToolFailures?: number | string;
     maxModelAttempts?: number | string;
+  };
+  display?: unknown;
+  browserAutomation?: {
+    defaultTimeoutMs?: number | string;
   };
 }
 
@@ -230,6 +235,17 @@ function sanitizeBudgetSettings(input: unknown): RuntimeSettings["budget"] {
     maxToolFailures,
     maxModelAttempts
   };
+}
+
+function sanitizeBrowserAutomationSettings(input: unknown): RuntimeSettings["browserAutomation"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const defaultTimeoutMsRaw = Number(source.defaultTimeoutMs ?? defaultRuntimeSettings.browserAutomation.defaultTimeoutMs);
+  const defaultTimeoutMs = Number.isFinite(defaultTimeoutMsRaw)
+    ? Math.max(5000, Math.min(300000, Math.round(defaultTimeoutMsRaw)))
+    : defaultRuntimeSettings.browserAutomation.defaultTimeoutMs;
+  return { defaultTimeoutMs };
 }
 
 function sanitizeCloudflareHtmlPluginSettings(input: unknown): RuntimeSettings["plugins"]["cloudflareHtml"] {
@@ -659,7 +675,8 @@ function sanitizeChannels(
               .filter(([, credValue]) => Boolean(credValue))
           ),
           allowedChatIds: sanitizeList(item.allowedChatIds),
-          sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled)
+          sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
+          display: item.display ? sanitizeChannelInstanceDisplaySettings(item.display) : undefined
         };
       })
       .filter(Boolean) as ChannelSettingsMap[string]["instances"];
@@ -841,6 +858,13 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const hostTools = sanitizeHostToolSettings(raw.hostTools ?? defaultRuntimeSettings.hostTools);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
   const budget = sanitizeBudgetSettings(raw.budget);
+  const browserAutomation = sanitizeBrowserAutomationSettings(raw.browserAutomation);
+  const displayInput = raw.display ?? defaultRuntimeSettings.display;
+  const display = {
+    toolProgress: displayInput && ["off", "new", "all", "verbose"].includes(String((displayInput as any).toolProgress)) ? ((displayInput as any).toolProgress as any) : (defaultRuntimeSettings.display?.toolProgress ?? "all"),
+    showReasoning: displayInput && ["off", "on", "stream", "new"].includes(String((displayInput as any).showReasoning)) ? ((displayInput as any).showReasoning as any) : (defaultRuntimeSettings.display?.showReasoning ?? "off"),
+    gatewayNotifyInterval: displayInput && !isNaN(Number((displayInput as any).gatewayNotifyInterval)) ? Number((displayInput as any).gatewayNotifyInterval) : (defaultRuntimeSettings.display?.gatewayNotifyInterval ?? 0)
+  };
   const compactionEnabledRaw = raw.compaction?.enabled;
   const compactionEnabled =
     typeof compactionEnabledRaw === "boolean"
@@ -924,7 +948,9 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     telegramBotToken: primaryBot?.token ?? "",
     telegramAllowedChatIds: primaryBot?.allowedChatIds ?? [],
     feishuBots: effectiveFeishuBots,
-    budget
+    budget,
+    browserAutomation,
+    display
   };
 }
 
@@ -952,6 +978,8 @@ export class SettingsStore {
         agent_id TEXT NOT NULL,
         credentials_json TEXT NOT NULL,
         allowed_chat_ids_json TEXT NOT NULL,
+        sandbox_enabled INTEGER,
+        display_json TEXT,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (channel_key, id)
       );
@@ -1032,6 +1060,11 @@ export class SettingsStore {
     } catch {
       // column already exists
     }
+    try {
+      db.exec("ALTER TABLE settings_channel_instances ADD COLUMN display_json TEXT");
+    } catch {
+      // column already exists
+    }
     return db;
   }
 
@@ -1079,7 +1112,7 @@ export class SettingsStore {
       }));
 
       const channelRows = db.prepare(`
-        SELECT channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, sandbox_enabled
+        SELECT channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, sandbox_enabled, display_json
         FROM settings_channel_instances
         ORDER BY channel_key ASC, id ASC
       `).all() as Array<{
@@ -1091,6 +1124,7 @@ export class SettingsStore {
         credentials_json: string;
         allowed_chat_ids_json: string;
         sandbox_enabled: number | null;
+        display_json: string | null;
       }>;
       const channels: ChannelSettingsMap = {};
       for (const row of channelRows) {
@@ -1102,7 +1136,8 @@ export class SettingsStore {
           agentId: row.agent_id || "",
           credentials: this.parseDynamicValue(row.credentials_json, {}),
           allowedChatIds: this.parseDynamicValue(row.allowed_chat_ids_json, []),
-          sandboxEnabled: row.sandbox_enabled === null ? undefined : Boolean(row.sandbox_enabled)
+          sandboxEnabled: row.sandbox_enabled === null ? undefined : Boolean(row.sandbox_enabled),
+          display: row.display_json ? this.parseDynamicValue(row.display_json, undefined) : undefined
         });
       }
 
@@ -1204,8 +1239,8 @@ export class SettingsStore {
         db.exec("DELETE FROM settings_channel_instances");
         const insertChannel = db.prepare(`
           INSERT INTO settings_channel_instances
-            (channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, sandbox_enabled, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, sandbox_enabled, display_json, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const [channelKey, channel] of Object.entries(settings.channels ?? {})) {
           for (const instance of channel.instances ?? []) {
@@ -1218,6 +1253,7 @@ export class SettingsStore {
               JSON.stringify(instance.credentials ?? {}),
               JSON.stringify(instance.allowedChatIds ?? []),
               instance.sandboxEnabled === undefined ? null : (instance.sandboxEnabled ? 1 : 0),
+              instance.display ? JSON.stringify(instance.display) : null,
               now
             );
           }
@@ -1346,6 +1382,14 @@ export class SettingsStore {
         maxToolCalls: settings.budget.maxToolCalls,
         maxToolFailures: settings.budget.maxToolFailures,
         maxModelAttempts: settings.budget.maxModelAttempts
+      },
+      display: settings.display ? {
+        toolProgress: settings.display.toolProgress,
+        showReasoning: settings.display.showReasoning,
+        gatewayNotifyInterval: settings.display.gatewayNotifyInterval
+      } : undefined,
+      browserAutomation: {
+        defaultTimeoutMs: settings.browserAutomation.defaultTimeoutMs
       }
     };
   }

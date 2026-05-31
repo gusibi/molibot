@@ -1,8 +1,7 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
-import type { AssistantMessageEvent } from "@mariozechner/pi-ai";
 import type { RunnerUiEvent, RunResult } from "$lib/server/agent/core/types.js";
+import { DisplayFormatter, type DisplayConfig } from "$lib/server/agent/core/displayFormatter.js";
 import { momWarn } from "$lib/server/agent/common/log.js";
-import { formatSubagentProgressLabel, formatSubagentProgressSummary } from "$lib/server/agent/subagentProgress.js";
 import { editFeishuText, sendFeishuText } from "$lib/server/channels/feishu/messaging.js";
 import {
   FEISHU_STREAMING_ELEMENT_ID,
@@ -24,6 +23,7 @@ export interface FeishuStreamingSessionOptions {
   chatId: string;
   runId: string;
   title?: string;
+  displayConfig?: DisplayConfig;
 }
 
 export class FeishuStreamingSession {
@@ -32,9 +32,9 @@ export class FeishuStreamingSession {
   private readonly chatId: string;
   private readonly runId: string;
   private readonly title: string;
-  private answerText = "";
+  private readonly displayConfig: DisplayConfig;
+  private readonly formatter = new DisplayFormatter();
   private detailsText = "";
-  private tools: FeishuToolProgressEntry[] = [];
   private cardId: string | null = null;
   private messageId: string | null = null;
   private fallbackMessageId: string | null = null;
@@ -46,16 +46,28 @@ export class FeishuStreamingSession {
   private closed = false;
   private usePostFallback = false;
   private lastStreamedAnswer = "";
+  private reasoningMessageId: string | null = null;
+  private lastReasoningText = "";
+  private reasoningFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private reasoningFlushInFlight: Promise<void> | null = null;
+  private reasoningPendingFlush = false;
+  private mainAnswerCommitted = false;
+  private committedMainAnswerText = "";
 
   constructor(options: FeishuStreamingSessionOptions) {
     this.client = options.client;
     this.chatId = options.chatId;
     this.runId = options.runId;
     this.title = options.title ?? "Molibot";
+    this.displayConfig = options.displayConfig ?? {
+      toolProgress: "all",
+      showReasoning: "off",
+      gatewayNotifyInterval: 0
+    };
   }
 
   get finalText(): string {
-    return this.answerText.trim();
+    return this.formatter.answerText.trim();
   }
 
   get sentMessageId(): string | null {
@@ -71,22 +83,44 @@ export class FeishuStreamingSession {
       this.scheduleFlush();
       return;
     }
-    this.answerText = this.answerText ? `${this.answerText}\n${normalized}` : normalized;
+    if (this.mainAnswerCommitted) return;
+    this.formatter.feedTextDelta(text);
     this.scheduleFlush(true);
   }
 
   async replaceAnswer(text: string): Promise<void> {
-    this.answerText = String(text ?? "").trim();
+    if (this.mainAnswerCommitted) {
+      await this.respondInThread(text);
+      return;
+    }
+    this.formatter.answerText = String(text ?? "").trim();
     this.lastStreamedAnswer = "";
     this.scheduleFlush(true);
     await this.flushNow();
   }
 
+  async commitMainAnswer(text: string): Promise<void> {
+    const normalized = String(text ?? "").trim();
+    if (!normalized) return;
+    if (this.mainAnswerCommitted) {
+      await this.respondInThread(normalized);
+      return;
+    }
+    await this.replaceAnswer(normalized);
+    this.mainAnswerCommitted = true;
+    this.committedMainAnswerText = normalized;
+  }
+
+  async sendSupplement(text: string): Promise<void> {
+    const normalized = String(text ?? "").trim();
+    if (!normalized) return;
+    if (normalized === this.committedMainAnswerText.trim()) return;
+    await this.respondInThread(normalized);
+  }
+
   async beginContinuationResponse(partialText: string, notice: string): Promise<void> {
-    const finalized = [partialText.trim() || this.answerText.trim(), notice.trim()].filter(Boolean).join("\n\n");
-    this.answerText = finalized;
-    this.lastStreamedAnswer = "";
-    await this.flushNow();
+    const finalized = [partialText.trim() || this.formatter.answerText.trim(), notice.trim()].filter(Boolean).join("\n\n");
+    await this.commitMainAnswer(finalized);
   }
 
   async respondInThread(text: string): Promise<void> {
@@ -97,40 +131,56 @@ export class FeishuStreamingSession {
   }
 
   async handleRunnerEvent(event: RunnerUiEvent): Promise<void> {
+    if (this.mainAnswerCommitted && event.type === "assistant_message_event") return;
+    this.formatter.feedEvent(event);
     if (event.type === "assistant_message_event") {
-      await this.handleAssistantEvent(event.event);
-      return;
-    }
-    if (event.type === "tool_execution_start") {
-      this.addToolStart(event.toolName, event.label, event.displayName);
-      this.scheduleFlush();
-      return;
-    }
-    if (event.type === "tool_execution_end") {
-      this.finishTool(event.toolName, event.summary, event.isError, event.displayName);
-      this.scheduleFlush();
-      return;
-    }
-    if (event.type === "subagent_execution") {
-      const toolName = event.phase === "task_start" || event.phase === "task_end"
-        ? `subagent:${event.agent ?? "subagent"}:${event.taskIndex ?? 0}`
-        : `subagent:${event.phase}`;
-      const label = formatSubagentProgressLabel(event);
-      const summary = event.phase === "task_end" || event.phase === "end" ? formatSubagentProgressSummary(event) : undefined;
-      if (summary || event.stopReason) {
-        this.finishTool(toolName, summary ?? label, event.stopReason === "error", "Subagent");
-      } else {
-        this.addToolStart(toolName, label, "Subagent");
+      const candidate = event.event as { type?: string };
+      if (candidate.type === "thinking_start" || candidate.type === "thinking_delta" || candidate.type === "thinking_end") {
+        this.scheduleReasoningFlush();
+        return;
       }
-      this.scheduleFlush();
+      if (candidate.type !== "text_delta") return;
     }
+    this.scheduleFlush();
+  }
+
+  private getCardTools(): FeishuToolProgressEntry[] {
+    if (this.displayConfig.toolProgress === "off") return [];
+    if (this.displayConfig.toolProgress === "new") {
+      return this.formatter.tools
+        .filter((t) => t.status === "running")
+        .map((t) => ({
+          toolName: t.toolName,
+          displayName: t.displayName,
+          label: t.label,
+          status: t.status as any,
+          summary: t.summary
+        }));
+    }
+    return this.formatter.tools.map((t) => ({
+      toolName: t.toolName,
+      displayName: t.displayName,
+      label: t.label,
+      status: t.status as any,
+      summary: t.status === "running" && this.displayConfig.toolProgress !== "verbose" ? undefined : t.summary
+    }));
   }
 
   async finalize(result: RunResult): Promise<void> {
     this.closed = true;
     this.clearTimer();
+    this.clearReasoningTimer();
+    if (this.displayConfig.showReasoning === "new") {
+      await this.completeLatestReasoningNotice();
+    } else {
+      await this.flushReasoningNow();
+    }
+
+    const finalAnswer = this.formatter.renderAnswerMarkdown();
+    const cardTools = this.getCardTools();
+
+    if (!this.messageId && !this.fallbackMessageId && !finalAnswer.trim() && cardTools.length === 0 && !this.detailsText.trim()) return;
     await this.flushNow();
-    if (!this.messageId && !this.fallbackMessageId && !this.answerText.trim() && this.tools.length === 0 && !this.detailsText.trim()) return;
     const elapsedMs = Date.now() - this.startedAt;
     if (this.usePostFallback || !this.cardId) {
       await this.flushPostFallback(true);
@@ -145,8 +195,8 @@ export class FeishuStreamingSession {
         this.cardId,
         buildFeishuFinalCard({
           title: result.stopReason === "error" ? "Error" : result.stopReason === "aborted" ? "Stopped" : "Completed",
-          answerText: this.answerText,
-          tools: this.tools,
+          answerText: finalAnswer,
+          tools: cardTools,
           detailsText: this.detailsText,
           stopReason: result.stopReason,
           elapsedMs
@@ -160,26 +210,53 @@ export class FeishuStreamingSession {
     }
   }
 
-  private async handleAssistantEvent(event: AssistantMessageEvent): Promise<void> {
-    const candidate = event as { type?: string; delta?: string };
-    if (candidate.type !== "text_delta") return;
-    this.answerText += candidate.delta ?? "";
-    this.scheduleFlush();
+  private scheduleReasoningFlush(force = false): void {
+    this.reasoningPendingFlush = true;
+    if (force) this.clearReasoningTimer();
+    if (this.reasoningFlushTimer || this.reasoningFlushInFlight) return;
+    this.reasoningFlushTimer = setTimeout(() => {
+      this.reasoningFlushTimer = null;
+      void this.flushReasoningNow();
+    }, force ? 0 : CARDKIT_FLUSH_INTERVAL_MS);
   }
 
-  private addToolStart(toolName: string, label: string, displayName?: string): void {
-    this.tools.push({ toolName, displayName, label, status: "running" });
+  private clearReasoningTimer(): void {
+    if (!this.reasoningFlushTimer) return;
+    clearTimeout(this.reasoningFlushTimer);
+    this.reasoningFlushTimer = null;
   }
 
-  private finishTool(toolName: string, summary: string | undefined, isError: boolean, displayName?: string): void {
-    const existing = [...this.tools].reverse().find((tool) => tool.toolName === toolName && tool.status === "running");
-    if (existing) {
-      existing.status = isError ? "error" : "success";
-      existing.summary = summary;
-      existing.displayName = displayName ?? existing.displayName;
-      return;
-    }
-    this.tools.push({ toolName, displayName, label: toolName, status: isError ? "error" : "success", summary });
+  private async flushReasoningNow(): Promise<void> {
+    this.clearReasoningTimer();
+    if (this.reasoningFlushInFlight) await this.reasoningFlushInFlight;
+    if (!this.reasoningPendingFlush && !this.closed) return;
+    this.reasoningPendingFlush = false;
+    const reasoningText = this.formatter.renderReasoningMarkdown(this.displayConfig).trim();
+    if (!reasoningText || reasoningText === this.lastReasoningText) return;
+    this.reasoningFlushInFlight = (async () => {
+      if (this.reasoningMessageId) {
+        await editFeishuText(this.client, this.reasoningMessageId, reasoningText);
+      } else {
+        const sent = await sendFeishuText(this.client, this.chatId, reasoningText);
+        this.reasoningMessageId = sent?.message_id ?? null;
+      }
+      this.lastReasoningText = reasoningText;
+    })().finally(() => {
+      this.reasoningFlushInFlight = null;
+      if (this.reasoningPendingFlush && !this.closed) this.scheduleReasoningFlush();
+    });
+    await this.reasoningFlushInFlight;
+  }
+
+  private async completeLatestReasoningNotice(): Promise<void> {
+    this.clearReasoningTimer();
+    this.reasoningPendingFlush = false;
+    if (this.reasoningFlushInFlight) await this.reasoningFlushInFlight;
+    if (!this.reasoningMessageId) return;
+    const text = "思考完成";
+    if (text === this.lastReasoningText) return;
+    await editFeishuText(this.client, this.reasoningMessageId, text);
+    this.lastReasoningText = text;
   }
 
   private scheduleFlush(force = false): void {
@@ -216,10 +293,12 @@ export class FeishuStreamingSession {
     if (this.cardCreation) return this.cardCreation;
     this.cardCreation = (async () => {
       try {
+        const finalAnswer = this.formatter.renderAnswerMarkdown();
+        const cardTools = this.getCardTools();
         const initialCard = buildFeishuStreamingCard({
           title: this.title,
-          answerText: this.answerText,
-          tools: this.tools,
+          answerText: finalAnswer,
+          tools: cardTools,
           detailsText: this.detailsText,
           isWorking: true
         });
@@ -242,23 +321,25 @@ export class FeishuStreamingSession {
       return;
     }
     try {
+      const finalAnswer = this.formatter.renderAnswerMarkdown();
+      const cardTools = this.getCardTools();
       this.sequence += 1;
       await updateFeishuCardEntity(
         this.client,
         this.cardId,
         buildFeishuStreamingCard({
           title: this.title,
-          answerText: this.answerText,
-          tools: this.tools,
+          answerText: finalAnswer,
+          tools: cardTools,
           detailsText: this.detailsText,
           isWorking: !this.closed
         }),
         this.sequence
       );
-      if (this.answerText !== this.lastStreamedAnswer) {
+      if (finalAnswer !== this.lastStreamedAnswer) {
         this.sequence += 1;
-        await streamFeishuCardContent(this.client, this.cardId, FEISHU_STREAMING_ELEMENT_ID, this.answerText, this.sequence);
-        this.lastStreamedAnswer = this.answerText;
+        await streamFeishuCardContent(this.client, this.cardId, FEISHU_STREAMING_ELEMENT_ID, finalAnswer, this.sequence);
+        this.lastStreamedAnswer = finalAnswer;
       }
     } catch (error) {
       momWarn("feishu", "streaming_cardkit_update_failed_fallback_post", { runId: this.runId, error: String(error) });
@@ -268,14 +349,16 @@ export class FeishuStreamingSession {
   }
 
   private renderPostFallbackText(isFinal: boolean): string {
-    const toolLines = this.tools.map((tool) => {
+    const cardTools = this.getCardTools();
+    const toolLines = cardTools.map((tool) => {
       const status = tool.status === "running" ? "running" : tool.status === "error" ? "failed" : "done";
       const name = tool.displayName || tool.toolName;
       return tool.summary ? `[${status}] ${name}: ${tool.summary}` : `[${status}] ${name}`;
     });
+    const finalAnswer = this.formatter.renderAnswerMarkdown();
     return [
       toolLines.length > 0 ? `工具调用\n${toolLines.join("\n")}` : "",
-      this.answerText.trim() ? `回答\n${this.answerText.trim()}${isFinal ? "" : " ..."}` : "",
+      finalAnswer.trim() ? `回答\n${finalAnswer.trim()}${isFinal ? "" : " ..."}` : "",
       this.detailsText.trim() ? `运行详情\n${this.detailsText.trim()}` : ""
     ].filter(Boolean).join("\n\n") || (isFinal ? "_No response._" : "处理中...");
   }

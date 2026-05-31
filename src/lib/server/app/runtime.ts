@@ -98,7 +98,7 @@ export function getRuntime(): RuntimeState {
 
     try {
       const cleanupStore = new SqliteTurnCleanupStore();
-      const cleaned = getTurnOrchestrator().cleanupStaleRunningTurns(cleanupStore);
+      const cleaned = getTurnOrchestrator().cleanupStaleRunningTurns(cleanupStore, { forceAll: true });
       if (cleaned > 0) {
         console.log(`[runtime] Cleaned up ${cleaned} stale running turns on startup.`);
       }

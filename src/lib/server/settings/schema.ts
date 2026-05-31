@@ -94,6 +94,12 @@ export interface AgentSettings {
   sandboxEnabled?: boolean;
 }
 
+export interface ChannelInstanceDisplaySettings {
+  toolProgress?: "off" | "new" | "all" | "verbose";
+  showReasoning?: "off" | "on" | "stream" | "new";
+  gatewayNotifyInterval?: number;
+}
+
 export interface ChannelInstanceSettings {
   id: string;
   name: string;
@@ -102,6 +108,7 @@ export interface ChannelInstanceSettings {
   credentials: Record<string, string>;
   allowedChatIds: string[];
   sandboxEnabled?: boolean;
+  display?: ChannelInstanceDisplaySettings;
 }
 
 export interface ChannelPluginSettings {
@@ -281,6 +288,11 @@ export interface HostToolSettings {
   approvedTools: ApprovedHostTool[];
 }
 
+export interface BrowserAutomationSettings {
+  /** Playwright navigation/action default timeout in ms */
+  defaultTimeoutMs: number;
+}
+
 export interface RunBudgetLimits {
   maxToolCalls: number;
   maxToolFailures: number;
@@ -314,6 +326,14 @@ export interface RuntimeSettings {
   telegramBotToken: string;
   telegramAllowedChatIds: string[];
   budget: RunBudgetLimits;
+  browserAutomation: BrowserAutomationSettings;
+  display?: GlobalDisplaySettings;
+}
+
+export interface GlobalDisplaySettings {
+  toolProgress: "off" | "new" | "all" | "verbose";
+  showReasoning: "off" | "on" | "stream" | "new";
+  gatewayNotifyInterval: number;
 }
 
 export const KNOWN_PROVIDER_LIST: KnownProvider[] = [

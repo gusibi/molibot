@@ -1,7 +1,50 @@
 # Molibot Features
 
+## 2026-05-31
+
+### 独立思考消息与最新进度模式 (Separate Reasoning Messages & Latest Progress Mode)
+- **`/showreasoning new` 模式**: `showReasoning` 配置扩展为 `off/on/stream/new`，聊天命令、Settings → System 下拉选项、settings schema/sanitize/store 均接受并保留 `new`。
+- **思考与答案分离**: `DisplayFormatter` 新增独立的答案与 reasoning 渲染方法。Telegram 与 Feishu 不再把 reasoning 拼进最终答案消息，避免打开思考后需要先翻过大段 reasoning 才能看到正文。
+- **Telegram 实时展示优化**: Telegram 运行时新增独立 `reasoningMessageId`。`thinking_delta` 只刷新独立思考消息，`text_delta` 只刷新答案消息；`new` 模式运行中只显示最近一句思考，结束后删除临时思考进度消息。
+- **Feishu 流式会话适配**: Feishu CardKit 答案卡片保持原有流式输出，reasoning 改为独立可编辑文本消息；`new` 模式结束时将临时思考消息收尾为“思考完成”。
+- **回归测试补充**: `FeishuStreamingSession` 新增 reasoning 独立消息测试，覆盖思考内容不创建空答案卡片的路径。
+
+### 主答案生命周期与跨渠道展示冻结 (Main Answer Lifecycle & Display Commit)
+- **Runner 主答案提交语义**: 在共享 `MomContext` 中新增可选 `commitMainAnswer` 与 `sendSupplement` 语义。Runner 会按模型返回的 terminal assistant 消息边界展示内容：一条返回一条，多条则第一条作为主答案、后续条作为补充消息，不再用最后一条覆盖前面的完整答案。
+- **共享文本渠道冻结逻辑**: `buildTextChannelContext` 增加 `draft/committed` 主答案阶段。Weixin / QQ 等不支持编辑的渠道在 draft 阶段仍可通过 buffer 替换草稿，但 committed 后的后续文本会作为补充发送，不会从 `messagesBuffer` 中删除已提交主答案。
+- **Telegram / Feishu 对齐**: Telegram 手写 context 与 Feishu 卡片流式会话接入同样的提交语义。主答案 committed 后，后续 assistant 文本或续写结果改为补充消息/详情，不再编辑覆盖原主答案。
+- **回归测试补充**: 为 shared context 增加 committed 后 replacement 转补充的单元测试，覆盖不支持编辑渠道最容易丢失主答案的路径。
 
 ## 2026-05-30
+
+### 微信通道底层 SDK 升级与上下文 Token 持久化 (Weixin SDK Upstream Upgrade & Context Token Persistence)
+- **底层 SDK 协议同步与升级**: 同步了本地 `package/weixin-agent-sdk` 至最新的 `openclaw-weixin` upstream 版本（版本号升至 `0.3.1`），移除了所有 OpenClaw 专属插件 Hook (如 `channel.ts` 等) 以保持 SDK 的独立性。
+- **上下文 Token 磁盘持久化**: 在 `package/weixin-agent-sdk/src/messaging/inbound.ts` 中实现了上下文 Token 磁盘持久化机制 (`persistContextTokens`, `restoreContextTokens`)。当 Weixin 轮询到新消息时，其对应的 `context_token` 会自动保存至 `{accountId}.context-tokens.json` 文件中，系统重启后会自动重新载入内存，彻底解决了服务器重启时丢失上下文 Token 导致无法主动回复消息的问题。
+- **WeChat 账号清理行为增强**: 在 `clearWeixinAccount` 中增加了同步清理对应的 `.sync.json` 和 `.context-tokens.json` 文件的逻辑，确保敏感凭证与缓存数据能够被物理清除。
+- **长轮询中止链路补齐**: 在 `package/weixin-agent-sdk/src/api/api.ts` 中补齐了 `combineAbortSignals` 合并逻辑，并让 `getUpdates` 走支持外部 `AbortSignal` 的 `apiPostFetch`。这样 Weixin 长轮询在停止、热重载或运行时切换时可以立即中断，不再依赖超时自然返回。
+- **SvelteKit 运行期无缝对接与自愈**:
+  - 重写了 `src/lib/server/channels/weixin/client.ts`，在 Weixin 客户端启动与重连加载凭证时，自动调用 `restoreContextTokens` 载入历史 Token 缓存，并将 `getContextToken`/`setContextToken` 进行双向桥接，使 Svelte 运行期的所有发送与打字提示消息均获得持久化 Token 保护。
+  - 针对扫码登录返回的 `binded_redirect` 重定向状态，实现了 `alreadyConnected` 状态捕获与自愈处理。如果用户扫描了已连接的机器人二维码，不会再抛出登录失败异常，而是自动解析加载已存的本地 credentials 并恢复正常服务。
+- **去除过时的 Markdown 过滤规则**: 鉴于微信对 Markdown 的支持已趋于完善，移除或将 `filterWeixinMarkdown` 逻辑弱化为无操作（no-op）的透明管道，并在单元测试中更新回归校验，彻底避免因旧版 SDK 移除 Markdown 特性导致的 import 错误及格式破坏。
+
+### 浏览器自动化超时可配置 (Browser Automation Timeout Configuration)
+- **Settings 页面配置**: 在 Settings → System 页面新增「浏览器自动化」配置卡片，支持通过 Web UI 直接调整 `agent-browser` (Playwright) 的默认超时时间（毫秒），无需修改 `.env` 或重启服务。
+- **全局显示、思考过程及沙盒安全可视化配置**: 
+  - **显示与思考设置**: 在 Settings → System 页面新增「显示与思考设置」配置卡片，支持直接通过 Web UI 调整模型思考过程显示模式 (`showReasoning`)、工具执行进度展示详细度 (`toolProgress`) 及网关通知发送间隔 (`gatewayNotifyInterval`)，避免手动注入参数。
+  - **工具沙盒安全限制**: 新增「工具沙盒安全限制」配置卡片，支持可视化一键开关全局 Bash 命令沙盒隔离 (`toolSandbox.enabled`)，并包含直达沙盒详细规则配置页面的链接，极大地提升了系统的安全易用性。
+- **Schema 与持久化**: 在 `RuntimeSettings` 中新增 `browserAutomation: { defaultTimeoutMs }` 字段，配合完整的 sanitize、store 序列化/反序列化链路，确保配置修改即时生效且重启后持久保留。
+- **环境变量自动注入**: `hostBashExec.ts` 的 `buildHostEnv` 自动将配置值注入为 `AGENT_BROWSER_DEFAULT_TIMEOUT` 环境变量，所有通过 Host Bash 执行的 `agent-browser` 命令自动继承。
+- **默认值调整**: 默认超时从 25s 提升至 60s，解决了 feishu.cn 等加载较慢网站的超时问题。范围约束 5s~300s。
+- **统一的渲染格式化层 (Unified DisplayFormatter)**: 实现了 [displayFormatter.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/core/displayFormatter.ts) 作为共享逻辑层。统一捕获 `thinking_start/delta/end`、工具调用与子智能体执行事件，规范化输出适用于各个渠道的 Markdown 排版，使得展示逻辑完全与 Channel 消息收发解耦，严格遵守 `AGENTS.md` 的规范边界。
+- **展示设置持久化与校验逻辑**: 扩展了 `schema.ts`、`defaults.ts` 与 `sanitize.ts`，为 `RuntimeSettings` 及各渠道实例的 `ChannelInstanceSettings` 新增了 `display` 配置（包含 `toolProgress`、`showReasoning`、`gatewayNotifyInterval`）。升级了 sanitizer，打通了 SQLite `settings_channel_instances` 表中的 `display_json` 字段及 `settings.json` 中的全局 `display` 属性的持久化存储、动态读取与自动迁移，保证指令 `/toolprogress` 及 `/showreasoning` 的修改状态在系统重启后能够被持久保留。同时将展示配置指令与 `/sandbox` 多级控制指令统一整理编写为指南文档 [session-control-commands.md](file:///Users/gusi/Github/molipibot/docs/session-control-commands.md)。
+- **独立会话指令控制 (/toolprogress & /showreasoning)**: 在 [channelCommands.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/commands/channelCommands.ts) 中增加了 `/toolprogress` 与 `/showreasoning` 两个独立的聊天命令。仅修改并写回当前渠道的 Bot 实例设置，实现了精细化的 Bot (Channel Instance) 维度控制，各个平台/Bot 互不干扰。
+- **多渠道渲染适配与进度拦截**:
+  - **Telegram**: 重构了 Telegram 的消息发送与编辑管道，全面接入 `DisplayFormatter`；若 `toolProgress === 'off'`，则彻底跳过状态消息的生成与编辑。修复了在 `"new"` 进度显示级别下，最后一条临时状态（如 `⏳ 正在运行: bash...`）在智能体执行完成后仍残留于界面的 bug。现已支持在运行终期自动将其物理删除。
+  - **Feishu**: 重构了 `FeishuStreamingSession` 与 `FeishuManager`，根据 `displayConfig` 动态渲染飞书流式交互卡片的工具进度及状态，当设为 `off` 时隐藏工具历史元素。
+  - **QQ & Weixin (防刷屏气泡缓冲合并)**: 重构了 QQ 与微信的 `processEvent` 函数，分别获取当前实例的 `displayConfig`。当 `toolProgress === 'off'` 时跳过进度消息。同时，引入了 `messagesBuffer` 缓冲区，将工具进度日志、运行归档提示、错误信息及中间 streaming 结果在运行期间于内存中聚合，直至运行彻底结束、触发敏感授权（如 Host Bash 审批）或上传文件时才一次性拼接并通过单个气泡发出，彻底杜绝了这两个平台由于不支持消息编辑而产生多个消息气泡的刷屏缺陷。
+- **`/help` 帮助指令丰富**: 在 [channelCommands.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/commands/channelCommands.ts) 的 `helpText` 帮助信息中，补充了包含会话（Session）、机器人实例（Bot）和智能体（Agent）多层覆盖的 `/sandbox` 开关指令及 `/toolprogress`、`/showreasoning` 展示指令的使用说明，方便用户随时查阅。
+- **审批自愈流式自动恢复优化**: 移除了 Telegram 和 Feishu 渠道对 `executeApprovedHostBash` 的冗余重写，恢复复用 `baseRuntime.ts` 默认提供的审批自动唤醒流程。扩展了 `isSessionApprovalText` 会话批准正则，支持包括“允许本轮”、“本轮允许”、“本会话允许”等自然中文，并在自愈完成后添加了状态提示消息。
+- **修复主机工具审批 Scope 冲突导致的卡顿缺陷**: 修复了由 `ToolRuntime`（对于插件/MCP工具）写入数据库的 `run_id` (实际为 UUID) 与 Channel 审批指令解析查询的 `scopeId` (实际为 chatId) 不匹配，导致审批时报错 `No matching pending Host Bash approval found.` 且执行流程卡死的 bug。`HostBashStore` 现支持 `sessionId` 级联 fallback 检索，全渠道及 Web 端审批完美打通。
 
 ### 智能体优化：审批深度传播与安全认证边界记录 (Review Optimization Tasks 4 & 5)
 - **子智能体审批深度传播 (Subagent Approval Depth Propagation)**: 在 `createSubagentTool` 的选项中新增并传递了 `requestedByDepth` 参数，且在生成子智能体的 `hostApproval` 载荷时将其递增 `(options.requestedByDepth ?? 0) + 1`，确保子智能体执行敏感操作（如 `bash` 命令）时能够向上级与宿主持久化正确的调用层级深度，彻底修复了原先硬编码为 `1` 的逻辑缺陷。

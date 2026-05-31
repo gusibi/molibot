@@ -44,11 +44,19 @@ function buildTempOutputPath(cwd: string): string {
   return join(dir, `host-bash-${Date.now()}-${randomBytes(4).toString("hex")}.log`);
 }
 
-function buildHostEnv(permissions: HostBashPermissions): NodeJS.ProcessEnv {
+async function buildHostEnv(permissions: HostBashPermissions): Promise<NodeJS.ProcessEnv> {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of permissions.envAllowlist) {
     const value = process.env[key];
     if (value !== undefined) env[key] = value;
+  }
+  // Inject browser automation timeout from runtime settings (lazy import to break circular dependency)
+  try {
+    const { getRuntime } = await import("$lib/server/app/runtime.js");
+    const settings = getRuntime().getSettings();
+    env.AGENT_BROWSER_DEFAULT_TIMEOUT = String(settings.browserAutomation.defaultTimeoutMs);
+  } catch {
+    // Runtime may not be initialized during tests; fall through to process.env
   }
   return env;
 }
@@ -63,13 +71,14 @@ async function runHostCommand(input: {
 }): Promise<HostRunResult> {
   const shell = process.env.SHELL || (process.platform === "win32" ? "cmd.exe" : "zsh");
   const shellArgs = process.platform === "win32" ? ["/d", "/s", "/c", input.command] : ["-lc", input.command];
+  const env = await buildHostEnv(input.permissions);
   return new Promise((resolve, reject) => {
     const timeoutSeconds = input.timeoutSeconds && input.timeoutSeconds > 0
       ? Math.min(Math.round(input.timeoutSeconds), 600)
       : 60;
     const child = spawn(shell, shellArgs, {
       cwd: input.cwd,
-      env: buildHostEnv(input.permissions),
+      env,
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],
       shell: false

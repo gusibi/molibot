@@ -2,8 +2,47 @@
 
 ## Version 1.0
 
+## 2026-05-31
+
+### Separate Reasoning Messages & Latest Progress Mode
+- Added `/showreasoning new` across settings, sanitization, commands, and the System settings UI.
+- Split reasoning display from final answer rendering for Telegram and Feishu, so visible thinking no longer prefixes or buries the actual answer.
+- Updated Telegram streaming so `thinking_delta` refreshes only the reasoning message while `text_delta` refreshes the answer message; `new` mode shows only the latest reasoning sentence and deletes the temporary progress message at completion.
+- Updated Feishu streaming so reasoning uses a separate editable text message while the answer remains in the CardKit streaming card; `new` mode closes the temporary reasoning message with a short completion notice.
+- Added a Feishu streaming regression test for separate reasoning messages.
+
+### Main Answer Lifecycle & Display Commit
+- Added explicit main-answer commit semantics to the runner/channel context boundary. If a model returns multiple terminal assistant messages in one turn, Molibot now shows them as separate user-visible messages instead of letting the last one overwrite the earlier full answer.
+- Updated shared text channels, Telegram, and Feishu streaming paths to freeze committed main answers and route later text as supplements instead of replacing the original answer.
+- Added a shared context regression test covering committed-answer replacement behavior for non-editable channels.
 
 ## 2026-05-30
+
+### Weixin SDK Upstream Upgrade & Context Token Persistence
+- **SDK Protocol Sync**: Upgraded vendored `package/weixin-agent-sdk` to match the latest `openclaw-weixin` upstream, selectively migrating messaging-related improvements while keeping the SDK free of OpenClaw plugin dependencies.
+- **Context Token Disk Persistence**: Context tokens (required for every outbound Weixin message) are now persisted to `{accountId}.context-tokens.json` on disk and restored automatically on startup, surviving gateway restarts.
+- **Account Cleanup Enhancement**: `clearWeixinAccount` now removes associated `.sync.json` and `.context-tokens.json` files alongside the main credentials file.
+- **Already-Connected Login Handling**: QR login now gracefully handles the `binded_redirect` status (bot already bound), resolving existing local credentials instead of throwing a login failure.
+- **Markdown Filter No-Op**: `filterWeixinMarkdown` is now a transparent pass-through since Weixin natively supports Markdown rendering.
+- **Node 24 Compatibility**: Removed manual `Content-Length` header from `buildHeaders` in `apiPostFetch` to avoid conflicts with Node 24 / undici's automatic content-length calculation.
+- **Weixin Long-Poll Abort Completion**: Completed the remaining `apiPostFetch` abort merge path so `getUpdates` now honors external `AbortSignal` cancellation immediately during channel stop or hot reload, instead of waiting for the long-poll timeout.
+
+### Browser Automation Timeout Configuration
+- **Settings UI**: Added a "Browser Automation" configuration card in Settings → System. Users can now adjust the `agent-browser` (Playwright) default timeout directly via the Web UI without editing `.env` or restarting the service.
+- **Display, Reasoning, & Sandbox Settings Configuration**:
+  - **Display & Reasoning**: Added a "Display & Reasoning" card in Settings → System to configure model thinking process display (`showReasoning`), tool progress details level (`toolProgress`), and notification limits (`gatewayNotifyInterval`) globally.
+  - **Sandbox Security Toggle**: Added a "Tool Sandbox Security" card in Settings → System to easily toggle the OS sandbox for bash command execution (`toolSandbox.enabled`), along with a quick link to the detailed Sandbox Policy page.
+- **Environment Variable Injection**: `buildHostEnv` in `hostBashExec.ts` now automatically injects the configured timeout as `AGENT_BROWSER_DEFAULT_TIMEOUT`, so all `agent-browser` commands inherit the setting.
+- **Default Changed**: Default timeout increased from 25s to 60s to resolve timeouts on slower-loading sites (e.g. feishu.cn). Range clamped to 5s–300s.
+
+### Message Return & Display Layout Optimization
+- **Unified DisplayFormatter logic**: Extracted a centralized Markdown message formatter class [displayFormatter.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/core/displayFormatter.ts) supporting thinking/reasoning blocks, tool progress, and subagent state outputs.
+- **Bot Instance Display Settings & Commands**: Added `display` settings configuration (`toolProgress`, `showReasoning`, `gatewayNotifyInterval`) to the global and channel instance schemas. Developed two new independent commands `/toolprogress` and `/showreasoning` in [channelCommands.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/commands/channelCommands.ts) to read and write database-backed configurations scoped to the active Bot/Channel instance. Implemented SQLite table migrations (`display_json` column) and static settings serialization mapping to ensure configurations are fully reboot-resistant. Documented both display settings and sandbox overrides in the new unified user guide [session-control-commands.md](file:///Users/gusi/Github/molipibot/docs/session-control-commands.md).
+  - Refactored Telegram runner and Feishu card streaming session to consume the new `DisplayFormatter`. Integrated progress overrides into QQ and Weixin `processEvent` execution loops: if `toolProgress` is configured as `"off"`, the transient runner progress messages (`_→ tool_` logs) are entirely discarded. Introduced a memory `messagesBuffer` in WeChat and QQ runtimes to batch all progress updates, running state details, run archive notifications, errors, and final response blocks. The buffer is concatenated with double newlines and sent in a single consolidated chat bubble once the execution finishes, or when a file is uploaded or sensitive approval is triggered, avoiding multiple bubble spam.
+  - Added sandbox override controls (`/sandbox [session|bot|agent] [on|off|reset]`), `/toolprogress`, and `/showreasoning` commands to the default `/help` command text.
+  - Restored Telegram and Feishu auto-resume flow by returning execution orchestration to `baseRuntime.ts`'s unified `executeApprovedHostBash` wrapper. Enhanced session approval regex support for natural Chinese variations (e.g. "允许本轮", "本会话允许", "本轮允许").
+  - Fixed a Telegram bug where the final progress message (e.g. `⏳ 正在运行: bash...`) remained permanently visible in `"new"` mode; it is now deleted automatically when the runner completes.
+- **Host Bash Approval Scope Resolution Bug Fix**: Fixed a critical bug where approvals for plugins/MCP tools (like `agent-browser`) written by `ToolRuntime` under a UUID `run_id` could not be matched by channel command queries filtering strictly on the chat's `scopeId`. `HostBashStore` now dynamically queries using active `sessionId` fallbacks, resolving execution freezes across Web and IM channels.
 
 ### Subagent Depth Propagation & Authentication Boundary Documentation (Review Optimization Tasks 4 & 5)
 - **Subagent Approval Depth Propagation**: Added `requestedByDepth` parameters to `createSubagentTool()` and propagated it dynamically by incrementing depth `(options.requestedByDepth ?? 0) + 1` in host approval payloads to ensure correct subagent caller depth visibility.

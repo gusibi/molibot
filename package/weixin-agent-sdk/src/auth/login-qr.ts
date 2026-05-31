@@ -150,6 +150,7 @@ export type WeixinQrStartResult = {
 
 export type WeixinQrWaitResult = {
   connected: boolean;
+  alreadyConnected?: boolean;
   botToken?: string;
   accountId?: string;
   baseUrl?: string;
@@ -378,6 +379,7 @@ export async function waitForWeixinLogin(opts: {
           activeLogins.delete(opts.sessionKey);
           return {
             connected: false,
+            alreadyConnected: true,
             message: "已连接过此 OpenClaw，无需重复连接。",
           };
         }

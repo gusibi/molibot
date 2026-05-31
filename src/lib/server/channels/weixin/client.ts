@@ -13,6 +13,11 @@ import {
 } from "#weixin-agent-sdk/src/auth/accounts.js";
 import { startWeixinLoginWithQr, waitForWeixinLogin } from "#weixin-agent-sdk/src/auth/login-qr.js";
 import {
+  getContextToken,
+  setContextToken,
+  restoreContextTokens
+} from "#weixin-agent-sdk/src/messaging/inbound.js";
+import {
   MessageItemType,
   MessageState,
   MessageType,
@@ -50,7 +55,8 @@ export class WeixinBot {
   private readonly contextTokens = new Map<string, string>();
 
   getContextToken(userId: string): string | undefined {
-    return this.contextTokens.get(userId);
+    const fromSdk = this.currentAccountId ? getContextToken(this.currentAccountId, userId) : undefined;
+    return fromSdk ?? this.contextTokens.get(userId);
   }
   private credentials?: Credentials;
   private currentAccountId = "";
@@ -94,6 +100,18 @@ export class WeixinBot {
         timeoutMs: 480_000
       });
       if (!waitResult.connected || !waitResult.botToken || !waitResult.accountId || !waitResult.userId) {
+        if (waitResult.alreadyConnected) {
+          const stored = this.loadStoredCredentials();
+          if (stored) {
+            this.credentials = stored;
+            this.baseUrl = stored.baseUrl;
+            this.currentAccountId = normalizeAccountId(stored.accountId);
+            this.log(`Already connected as ${stored.userId}`);
+            restoreContextTokens(this.currentAccountId);
+            return stored;
+          }
+          throw new Error("Weixin QR login indicated already connected, but no local credentials found.");
+        }
         if (/过期|超时|expired/i.test(waitResult.message || "")) {
           this.log("QR code expired. Requesting a new one...");
           continue;
@@ -119,6 +137,8 @@ export class WeixinBot {
       this.baseUrl = credentials.baseUrl;
       this.currentAccountId = accountId;
 
+      restoreContextTokens(accountId);
+
       if (previousToken && previousToken !== credentials.token) {
         this.cursor = "";
         this.contextTokens.clear();
@@ -143,12 +163,15 @@ export class WeixinBot {
 
   async reply(message: IncomingMessage, text: string): Promise<void> {
     this.contextTokens.set(message.userId, message._contextToken);
+    if (this.currentAccountId && message._contextToken) {
+      setContextToken(this.currentAccountId, message.userId, message._contextToken);
+    }
     await this.sendText(message.userId, text, message._contextToken);
     this.stopTyping(message.userId).catch(() => {});
   }
 
   async sendTyping(userId: string): Promise<void> {
-    const contextToken = this.contextTokens.get(userId);
+    const contextToken = this.getContextToken(userId);
     if (!contextToken) {
       throw new Error(`No cached context token for user ${userId}. Reply to an incoming message first.`);
     }
@@ -179,7 +202,7 @@ export class WeixinBot {
   }
 
   async stopTyping(userId: string): Promise<void> {
-    const contextToken = this.contextTokens.get(userId);
+    const contextToken = this.getContextToken(userId);
     if (!contextToken) return;
 
     const credentials = await this.ensureCredentials();
@@ -205,7 +228,7 @@ export class WeixinBot {
   }
 
   async send(userId: string, text: string): Promise<void> {
-    const contextToken = this.contextTokens.get(userId);
+    const contextToken = this.getContextToken(userId);
     if (!contextToken) {
       throw new Error(`No cached context token for user ${userId}. Reply to an incoming message first.`);
     }
@@ -307,6 +330,7 @@ export class WeixinBot {
       this.credentials = stored;
       this.baseUrl = stored.baseUrl;
       this.currentAccountId = normalizeAccountId(stored.accountId);
+      restoreContextTokens(this.currentAccountId);
       return stored;
     }
 
@@ -347,6 +371,9 @@ export class WeixinBot {
     const userId = message.message_type === MessageType.USER ? message.from_user_id : message.to_user_id;
     if (userId && message.context_token) {
       this.contextTokens.set(userId, message.context_token);
+      if (this.currentAccountId) {
+        setContextToken(this.currentAccountId, userId, message.context_token);
+      }
     }
   }
 

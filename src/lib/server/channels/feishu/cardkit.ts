@@ -115,16 +115,17 @@ function buildSummaryContent(options: { isWorking?: boolean; stopReason?: StopRe
 }
 
 export function buildFeishuStreamingCard(options: BuildStreamingCardOptions): Record<string, unknown> {
-  const elements: Record<string, unknown>[] = [
-    buildToolPanel(options.tools),
-    {
-      tag: "markdown",
-      content: markdownToFeishuMarkdown(options.answerText || " "),
-      text_align: "left",
-      text_size: "normal_v2",
-      element_id: FEISHU_STREAMING_ELEMENT_ID
-    }
-  ];
+  const elements: Record<string, unknown>[] = [];
+  if (options.tools.length > 0) {
+    elements.push(buildToolPanel(options.tools));
+  }
+  elements.push({
+    tag: "markdown",
+    content: markdownToFeishuMarkdown(options.answerText || " "),
+    text_align: "left",
+    text_size: "normal_v2",
+    element_id: FEISHU_STREAMING_ELEMENT_ID
+  });
   const details = buildDetailsPanel(options.detailsText);
   if (details) elements.push(details);
   return {

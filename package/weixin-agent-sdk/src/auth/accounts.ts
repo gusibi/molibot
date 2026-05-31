@@ -172,12 +172,20 @@ export function saveWeixinAccount(
   }
 }
 
-/** Remove account data file. */
+/** Remove account data files (credentials, sync buffer, context tokens). */
 export function clearWeixinAccount(accountId: string): void {
-  try {
-    fs.unlinkSync(resolveAccountPath(accountId));
-  } catch {
-    // ignore if not found
+  const dir = resolveAccountsDir();
+  const accountFiles = [
+    `${accountId}.json`,
+    `${accountId}.sync.json`,
+    `${accountId}.context-tokens.json`,
+  ];
+  for (const file of accountFiles) {
+    try {
+      fs.unlinkSync(path.join(dir, file));
+    } catch {
+      // ignore if not found
+    }
   }
 }
 

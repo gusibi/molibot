@@ -124,7 +124,8 @@ export class SharedRuntimeCommandService<TTarget> {
     message: string;
     request?: HostBashApprovalRecord;
   }> {
-    const approved = this.hostBashStore.approve(input.scopeId, approvalId || undefined);
+    const sessionId = this.options.store.getActiveSession(input.scopeId);
+    const approved = this.hostBashStore.approve(input.scopeId, approvalId || undefined, { sessionId });
     if (!approved) {
       return { ok: false, message: "No matching pending Host Bash approval found." };
     }
@@ -174,7 +175,7 @@ export class SharedRuntimeCommandService<TTarget> {
     request?: HostBashApprovalRecord;
   }> {
     const sessionId = this.options.store.getActiveSession(input.scopeId);
-    const approved = this.hostBashStore.approve(input.scopeId, approvalId || undefined, { persistWhitelist: false });
+    const approved = this.hostBashStore.approve(input.scopeId, approvalId || undefined, { persistWhitelist: false, sessionId });
     if (!approved) {
       return { ok: false, message: "No matching pending Host Bash approval found." };
     }
@@ -226,7 +227,8 @@ export class SharedRuntimeCommandService<TTarget> {
     message: string;
     request?: HostBashApprovalRecord;
   }> {
-    const request = this.hostBashStore.reject(input.scopeId, approvalId);
+    const sessionId = this.options.store.getActiveSession(input.scopeId);
+    const request = this.hostBashStore.reject(input.scopeId, approvalId, sessionId);
     if (!request) {
       return { ok: false, message: "No matching pending Host Bash approval found." };
     }
@@ -866,6 +868,148 @@ export class SharedRuntimeCommandService<TTarget> {
       return true;
     }
 
+    if (cmd === "/toolprogress" || cmd === "/tool-progress") {
+      const settings = this.options.getSettings();
+      const channel = this.options.channel;
+      const instanceId = this.options.instanceId;
+      const channelSettings = settings.channels[channel];
+      const instance = channelSettings?.instances.find((inst) => inst.id === instanceId);
+
+      const normalized = rawArg.split(/\s+/)[0]?.trim().toLowerCase() ?? "";
+
+      if (!normalized) {
+        const globalVal = settings.display?.toolProgress ?? "all";
+        const botVal = instance?.display?.toolProgress ?? "inherit";
+        const effectiveVal = instance?.display?.toolProgress ?? globalVal;
+        await this.options.sendText(
+          input.target,
+          `Tool progress display config for Bot '${instanceId}':\n` +
+          `- Global: ${globalVal}\n` +
+          `- Bot: ${botVal}\n` +
+          `- Effective: ${effectiveVal}\n\n` +
+          `To change, use:\n` +
+          `- /toolprogress [off|new|all|verbose|reset]`
+        );
+        return true;
+      }
+
+      if (!this.options.updateSettings) {
+        await this.options.sendText(input.target, "Settings updates are unavailable in current runtime.");
+        return true;
+      }
+
+      let nextValue: "off" | "new" | "all" | "verbose" | undefined;
+      if (normalized === "off") nextValue = "off";
+      else if (normalized === "new") nextValue = "new";
+      else if (normalized === "all") nextValue = "all";
+      else if (normalized === "verbose") nextValue = "verbose";
+      else if (normalized === "reset" || normalized === "inherit") nextValue = undefined;
+      else {
+        await this.options.sendText(input.target, "Usage: /toolprogress [off|new|all|verbose|reset]");
+        return true;
+      }
+
+      const instances = (channelSettings?.instances ?? []).map((inst) => {
+        if (inst.id === instanceId) {
+          return {
+            ...inst,
+            display: {
+              ...(inst.display ?? {}),
+              toolProgress: nextValue
+            }
+          };
+        }
+        return inst;
+      });
+
+      this.options.updateSettings({
+        channels: {
+          ...settings.channels,
+          [channel]: { ...channelSettings, instances }
+        }
+      });
+
+      const effectiveVal = nextValue ?? settings.display?.toolProgress ?? "all";
+      await this.options.sendText(
+        input.target,
+        `Bot '${instanceId}' tool progress display set to: ${nextValue === undefined ? "Inherit" : nextValue}\n` +
+        `Effective value: ${effectiveVal}`
+      );
+
+      return true;
+    }
+
+    if (cmd === "/showreasoning" || cmd === "/show-reasoning") {
+      const settings = this.options.getSettings();
+      const channel = this.options.channel;
+      const instanceId = this.options.instanceId;
+      const channelSettings = settings.channels[channel];
+      const instance = channelSettings?.instances.find((inst) => inst.id === instanceId);
+
+      const normalized = rawArg.split(/\s+/)[0]?.trim().toLowerCase() ?? "";
+
+      if (!normalized) {
+        const globalVal = settings.display?.showReasoning ?? "off";
+        const botVal = instance?.display?.showReasoning ?? "inherit";
+        const effectiveVal = instance?.display?.showReasoning ?? globalVal;
+        await this.options.sendText(
+          input.target,
+          `Show reasoning config for Bot '${instanceId}':\n` +
+          `- Global: ${globalVal}\n` +
+          `- Bot: ${botVal}\n` +
+          `- Effective: ${effectiveVal}\n\n` +
+          `To change, use:\n` +
+          `- /showreasoning [off|on|stream|new|reset]`
+        );
+        return true;
+      }
+
+      if (!this.options.updateSettings) {
+        await this.options.sendText(input.target, "Settings updates are unavailable in current runtime.");
+        return true;
+      }
+
+      let nextValue: "off" | "on" | "stream" | "new" | undefined;
+      if (normalized === "off") nextValue = "off";
+      else if (normalized === "on") nextValue = "on";
+      else if (normalized === "stream") nextValue = "stream";
+      else if (normalized === "new") nextValue = "new";
+      else if (normalized === "reset" || normalized === "inherit") nextValue = undefined;
+      else {
+        await this.options.sendText(input.target, "Usage: /showreasoning [off|on|stream|new|reset]");
+        return true;
+      }
+
+      const instances = (channelSettings?.instances ?? []).map((inst) => {
+        if (inst.id === instanceId) {
+          return {
+            ...inst,
+            display: {
+              ...(inst.display ?? {}),
+              showReasoning: nextValue
+            }
+          };
+        }
+        return inst;
+      });
+
+      this.options.updateSettings({
+        channels: {
+          ...settings.channels,
+          [channel]: { ...channelSettings, instances }
+        }
+      });
+
+      const effectiveVal = nextValue ?? settings.display?.showReasoning ?? "off";
+      await this.options.sendText(
+        input.target,
+        `Bot '${instanceId}' show reasoning set to: ${nextValue === undefined ? "Inherit" : nextValue}\n` +
+        `Effective value: ${effectiveVal}`
+      );
+
+      return true;
+    }
+
     if (cmd === "/help" || cmd === "/start") {
       await this.options.sendText(input.target, this.helpText());
       return true;
@@ -879,7 +1023,7 @@ export class SharedRuntimeCommandService<TTarget> {
   }
 
   private isSessionApprovalText(text: string): boolean {
-    return /^(本session允许|本轮session允许|approve session|session approve)$/i.test(text.trim());
+    return /^(本session允许|本轮session允许|本轮允许|允许本轮|允许会话|本会话允许|允许本会话|session允许|session批准|approve session|session approve)$/i.test(text.trim());
   }
 
   private isRejectText(text: string): boolean {
@@ -887,7 +1031,8 @@ export class SharedRuntimeCommandService<TTarget> {
   }
 
   private async tryHandleHostToolApproval(input: SharedRuntimeCommandContext<TTarget>, text: string): Promise<boolean> {
-    const pending = this.hostBashStore.listPending(input.scopeId);
+    const sessionId = this.options.store.getActiveSession(input.scopeId);
+    const pending = this.hostBashStore.listPending(input.scopeId, sessionId);
     if (pending.length === 0) return false;
     if (!this.isApprovalText(text) && !this.isRejectText(text) && !this.isSessionApprovalText(text)) return false;
 
@@ -926,7 +1071,8 @@ export class SharedRuntimeCommandService<TTarget> {
   private async handleHostToolsCommand(input: SharedRuntimeCommandContext<TTarget>, rawArg: string): Promise<void> {
     const [subcommand = "list", approvalId = ""] = rawArg.split(/\s+/).filter(Boolean);
     if (subcommand === "list") {
-      const pending = this.hostBashStore.listPending(input.scopeId);
+      const sessionId = this.options.store.getActiveSession(input.scopeId);
+      const pending = this.hostBashStore.listPending(input.scopeId, sessionId);
       const approved = this.hostBashStore.listWhitelist().filter((item) => item.enabled);
       await this.options.sendText(
         input.target,
@@ -1313,6 +1459,14 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/runlog <runId>", value: "show an archived run log by id" },
       { label: "/thinking", value: "show current session thinking setting" },
       { label: "/thinking <default|off|low|medium|high>", value: "change thinking for current session only" },
+      { label: "/toolprogress", value: "show current bot tool progress configuration" },
+      { label: "/toolprogress <off|new|all|verbose|reset>", value: "change tool progress configuration for this bot instance" },
+      { label: "/showreasoning", value: "show current show reasoning configuration" },
+      { label: "/showreasoning <off|on|stream|new|reset>", value: "change show reasoning configuration for this bot instance" },
+      { label: "/sandbox", value: "show current sandbox override configurations" },
+      { label: "/sandbox <on|off|reset>", value: "change sandbox override for current session only" },
+      { label: "/sandbox bot <on|off|reset>", value: "change sandbox override for this bot instance" },
+      { label: "/sandbox agent <on|off|reset>", value: "change sandbox override for this agent" },
       { label: "/models", value: "show text route models and current active model" },
       { label: "/models <index|key>", value: "switch text model" },
       { label: "/models <text|vision|stt|tts|subagent>", value: "show models and current active model for that route" },

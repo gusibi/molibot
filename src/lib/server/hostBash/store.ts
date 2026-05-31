@@ -377,17 +377,23 @@ export class HostBashStore {
     return { kind: "created", approval: record };
   }
 
-  getPendingApproval(scopeId: string, approvalId?: string): HostBashApprovalRecord | null {
-    const pending = this.listPending(scopeId);
-    if (approvalId) return pending.find((item) => item.id === approvalId) ?? null;
+  getPendingApproval(scopeId: string, approvalId?: string, sessionId?: string): HostBashApprovalRecord | null {
+    if (approvalId) {
+      const record = this.getApprovalRecord(approvalId);
+      if (record && record.status === "pending") {
+        return record;
+      }
+      return null;
+    }
+    const pending = this.listPending(scopeId, sessionId);
     return pending.length === 1 ? pending[0] : null;
   }
 
-  approve(scopeId: string, approvalId?: string, options?: { persistWhitelist?: boolean }): {
+  approve(scopeId: string, approvalId?: string, options?: { persistWhitelist?: boolean; sessionId?: string }): {
     record: HostBashApprovalRecord;
     approved?: ApprovedHostBashEntry;
   } | null {
-    const record = this.getPendingApproval(scopeId, approvalId);
+    const record = this.getPendingApproval(scopeId, approvalId, options?.sessionId);
     if (!record) return null;
 
     const persistWhitelist = options?.persistWhitelist ?? true;
@@ -451,8 +457,8 @@ export class HostBashStore {
     return { record: this.getApprovalRecord(record.id) ?? { ...record, status: "approved", resolvedAt: now }, approved };
   }
 
-  reject(scopeId: string, approvalId?: string): HostBashApprovalRecord | null {
-    const record = this.getPendingApproval(scopeId, approvalId);
+  reject(scopeId: string, approvalId?: string, sessionId?: string): HostBashApprovalRecord | null {
+    const record = this.getPendingApproval(scopeId, approvalId, sessionId);
     if (!record) return null;
     const now = new Date().toISOString();
     this.db.prepare(`
@@ -499,19 +505,30 @@ export class HostBashStore {
     return row ? rowToWhitelistEntry(row) : null;
   }
 
-  listPending(scopeId?: string): HostBashApprovalRecord[] {
-    const stmt = scopeId
-      ? this.db.prepare(`
-          SELECT * FROM approval_requests
-          WHERE status = 'pending' AND run_id = ? AND capability LIKE 'bash:%'
-          ORDER BY created_at DESC
-        `)
-      : this.db.prepare(`
-          SELECT * FROM approval_requests
-          WHERE status = 'pending' AND capability LIKE 'bash:%'
-          ORDER BY created_at DESC
-        `);
-    const rows = (scopeId ? stmt.all(scopeId) : stmt.all()) as Array<Record<string, unknown>>;
+  listPending(scopeId?: string, sessionId?: string): HostBashApprovalRecord[] {
+    if (scopeId) {
+      const stmt = sessionId
+        ? this.db.prepare(`
+            SELECT * FROM approval_requests
+            WHERE status = 'pending' AND (run_id = ? OR session_id = ?) AND capability LIKE 'bash:%'
+            ORDER BY created_at DESC
+          `)
+        : this.db.prepare(`
+            SELECT * FROM approval_requests
+            WHERE status = 'pending' AND run_id = ? AND capability LIKE 'bash:%'
+            ORDER BY created_at DESC
+          `);
+      const rows = sessionId
+        ? stmt.all(scopeId, sessionId)
+        : stmt.all(scopeId);
+      return rows.map(rowToApprovalRecord) as HostBashApprovalRecord[];
+    }
+    const stmt = this.db.prepare(`
+        SELECT * FROM approval_requests
+        WHERE status = 'pending' AND capability LIKE 'bash:%'
+        ORDER BY created_at DESC
+      `);
+    const rows = stmt.all() as Array<Record<string, unknown>>;
     return rows.map(rowToApprovalRecord);
   }
 

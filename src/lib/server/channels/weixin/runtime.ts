@@ -417,11 +417,47 @@ export class WeixinManager extends BaseChannelRuntime {
     let hasVisibleNonErrorReply = false;
     let lastBufferedError = "";
 
+    const settings = this.getSettings();
+    const weixinInstance = settings.channels?.weixin?.instances?.find((item) => item.id === this.instanceId);
+    const displayConfig = {
+      toolProgress: weixinInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
+      showReasoning: weixinInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
+      gatewayNotifyInterval: weixinInstance?.display?.gatewayNotifyInterval ?? settings.display?.gatewayNotifyInterval ?? 0
+    };
+
+    const messagesBuffer: string[] = [];
+
     const sendRawText = async (text: string): Promise<void> => {
       await this.sendText(chatId, event.sourceMessage, text, preferReply);
       preferReply = false;
     };
-    const toolProgress = createToolProgressBatcher(sendRawText);
+
+    const flushBuffer = async (): Promise<void> => {
+      if (messagesBuffer.length === 0) return;
+      const combinedText = messagesBuffer.join("\n\n").trim();
+      messagesBuffer.length = 0;
+      if (combinedText) {
+        await sendRawText(combinedText);
+      }
+    };
+
+    const sendVisibleText = async (text: string, options?: { allowFinalError?: boolean }): Promise<void> => {
+      if (!options?.allowFinalError && isTransientRunnerProgress(text)) {
+        if (displayConfig.toolProgress === "off") {
+          return;
+        }
+        const formatted = formatWeixinToolProgressText(text);
+        messagesBuffer.push(formatted);
+        return;
+      }
+      if (!options?.allowFinalError && bufferIfWeixinRunnerError(text)) {
+        return;
+      }
+      if (!isRunnerErrorNotice(text)) {
+        hasVisibleNonErrorReply = true;
+      }
+      messagesBuffer.push(text);
+    };
 
     const bufferIfWeixinRunnerError = (text: string): boolean => {
       if (isTransientRunnerProgress(text)) {
@@ -432,21 +468,6 @@ export class WeixinManager extends BaseChannelRuntime {
         return true;
       }
       return false;
-    };
-
-    const sendVisibleText = async (text: string, options?: { allowFinalError?: boolean }): Promise<void> => {
-      if (!options?.allowFinalError && isTransientRunnerProgress(text)) {
-        await toolProgress.handle(text);
-        return;
-      }
-      if (!options?.allowFinalError && bufferIfWeixinRunnerError(text)) {
-        return;
-      }
-      await toolProgress.flush();
-      if (!isRunnerErrorNotice(text)) {
-        hasVisibleNonErrorReply = true;
-      }
-      await sendRawText(text);
     };
 
     await this.runSharedTextTask(chatId, event, {
@@ -487,7 +508,8 @@ export class WeixinManager extends BaseChannelRuntime {
       },
       onRunnerEvent: async (runnerEvent) => {
         if (runnerEvent.type !== "tool_execution_end" || !runnerEvent.hostBashApproval) return;
-        await sendVisibleText(buildNonInteractiveHostBashApprovalText(runnerEvent.hostBashApproval));
+        await flushBuffer();
+        await sendRawText(buildNonInteractiveHostBashApprovalText(runnerEvent.hostBashApproval));
       },
       onRunComplete: async (result, meta) => {
         if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId) {
@@ -506,19 +528,19 @@ export class WeixinManager extends BaseChannelRuntime {
           state.accumulatedText = text;
           return;
         }
-        if (!state.hasResponded) {
-          await sendVisibleText(text);
-          state.hasResponded = true;
-          state.accumulatedText = text;
-          return;
-        }
         if (text === state.accumulatedText.trim()) return;
-        await sendVisibleText(text);
+        if (state.accumulatedText) {
+          const idx = messagesBuffer.indexOf(state.accumulatedText);
+          if (idx !== -1) {
+            messagesBuffer.splice(idx, 1);
+          }
+        }
+        messagesBuffer.push(text);
         state.hasResponded = true;
         state.accumulatedText = text;
       },
       uploadWithoutHandle: async (filePath, title, text, fallbackCtx) => {
-        await toolProgress.flush();
+        await flushBuffer();
         try {
           await sendWeixinFile({
             filePath,
@@ -552,10 +574,10 @@ export class WeixinManager extends BaseChannelRuntime {
       }
     });
 
-    await toolProgress.flush();
     if (!hasVisibleNonErrorReply && lastBufferedError) {
-      await sendVisibleText(lastBufferedError, { allowFinalError: true });
+      messagesBuffer.push(lastBufferedError);
     }
+    await flushBuffer();
   }
 
   private resolveEventDeliveryMode(task: MomEvent): EventDeliveryMode {

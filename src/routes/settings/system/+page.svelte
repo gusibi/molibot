@@ -14,6 +14,7 @@
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { Separator } from "$lib/components/ui/separator";
+  import { Switch } from "$lib/components/ui/switch";
   import { initLocale, locale, setLocale, type LocaleKey } from "$lib/ui/i18n";
 
   interface RunBudgetLimits {
@@ -22,9 +23,26 @@
     maxModelAttempts: number;
   }
 
+  interface BrowserAutomationSettings {
+    defaultTimeoutMs: number;
+  }
+
+  interface GlobalDisplaySettings {
+    toolProgress: "off" | "new" | "all" | "verbose";
+    showReasoning: "off" | "on" | "stream" | "new";
+    gatewayNotifyInterval: number;
+  }
+
+  interface ToolSandboxSettings {
+    enabled: boolean;
+  }
+
   interface RuntimeSettings {
     timezone: string;
     budget: RunBudgetLimits;
+    browserAutomation: BrowserAutomationSettings;
+    display?: GlobalDisplaySettings;
+    toolSandbox?: ToolSandboxSettings;
   }
 
   interface VersionInfo {
@@ -47,7 +65,7 @@
       language: "界面语言",
       languageHint: "语言偏好保存在当前浏览器，本地切换不会重启服务。",
       timezone: "运行时时区",
-      timezoneHint: "用于日期感知、用量统计和任务调度展示。保存后对后续请求生效。",
+      timezoneHint: "用于日期感知、用量统计 and 任务调度展示。保存后对后续请求生效。",
       budgetTitle: "智能体运行预算限制",
       budgetSubtitle: "控制单次执行会话中允许的工具调用和模型尝试的最大次数，防止死循环或超额扣费。",
       maxToolCalls: "最大工具调用次数",
@@ -55,6 +73,37 @@
       maxModelAttempts: "最大模型尝试（思考）次数",
       saveBudget: "保存预算限制",
       savingBudget: "保存预算中...",
+      browserTitle: "浏览器自动化",
+      browserSubtitle: "agent-browser (Playwright) 在执行页面导航、点击等操作时的默认超时。某些加载较慢的网站需要更长的超时时间。",
+      browserTimeout: "默认超时（毫秒）",
+      browserTimeoutHint: "推荐 60000ms (60s)，范围 5000–300000ms",
+      saveBrowser: "保存浏览器设置",
+      savingBrowser: "保存中...",
+      displayTitle: "显示与思考设置",
+      displaySubtitle: "控制 AI 助手在各个渠道中如何展示其思考过程、工具调用进度及限频机制。",
+      toolProgress: "工具执行进度展示",
+      toolProgressHint: "决定在聊天界面中展示多少工具执行的详细步骤和信息。",
+      toolProgressOff: "关闭 (Off)",
+      toolProgressNew: "仅展示新步骤 (Only new steps)",
+      toolProgressAll: "展示全部步骤 (All steps)",
+      toolProgressVerbose: "详细输出包含输入输出 (Verbose)",
+      showReasoning: "显示模型思考过程",
+      showReasoningHint: "对于支持 Thinking (思考型) 的模型，决定如何呈现其思考链路。",
+      showReasoningOff: "关闭思考过程 (Off)",
+      showReasoningOn: "思考完成后展示 (On)",
+      showReasoningStream: "流式实时输出思考过程 (Stream)",
+      showReasoningNew: "仅动态展示最近一句 (New)",
+      gatewayNotifyInterval: "网关通知发送间隔 (秒)",
+      gatewayNotifyIntervalHint: "限制向外部渠道（如飞书、微信、Telegram）发送进度消息的频率，设为 0 表示实时发送不限频。",
+      saveDisplay: "保存显示与思考设置",
+      savingDisplay: "保存中...",
+      sandboxTitle: "工具沙盒安全限制",
+      sandboxSubtitle: "沙盒可以在隔离环境下执行 AI 编写的代码与 Bash 命令，避免破坏宿主机系统。",
+      sandboxEnabled: "启用工具执行沙盒",
+      sandboxEnabledHint: "强烈建议开启。如果关闭，助手的所有 Bash 命令和代码执行将在宿主机直接运行。",
+      sandboxDetailLink: "前往沙盒详细策略页面配置网络与文件读写规则",
+      saveSandbox: "保存沙盒设置",
+      savingSandbox: "保存中...",
       deployment: "部署信息",
       githubRepo: "GitHub 地址",
       githubRepoHint: "只读。请通过部署环境或 molibot manage 修改，不在 Web UI 内编辑。",
@@ -87,6 +136,37 @@
       maxModelAttempts: "Max model attempts (reasoning cycles)",
       saveBudget: "Save budget limits",
       savingBudget: "Saving budget limits...",
+      browserTitle: "Browser Automation",
+      browserSubtitle: "Default timeout for agent-browser (Playwright) when navigating, clicking, or interacting with pages. Increase for slow-loading sites.",
+      browserTimeout: "Default timeout (ms)",
+      browserTimeoutHint: "Recommended: 60000ms (60s). Range: 5000–300000ms",
+      saveBrowser: "Save browser settings",
+      savingBrowser: "Saving...",
+      displayTitle: "Display & Reasoning",
+      displaySubtitle: "Control how the AI assistant displays its thinking process, tool execution progress, and notification intervals across channels.",
+      toolProgress: "Tool Execution Progress",
+      toolProgressHint: "Decide how much details of tool execution is shown in the chat window.",
+      toolProgressOff: "Off",
+      toolProgressNew: "Only show new steps",
+      toolProgressAll: "Show all steps",
+      toolProgressVerbose: "Verbose (includes inputs/outputs)",
+      showReasoning: "Show Reasoning Process",
+      showReasoningHint: "For models supporting thinking/reasoning, decide how the thought process is rendered.",
+      showReasoningOff: "Off",
+      showReasoningOn: "Show after completed",
+      showReasoningStream: "Show in real-time stream",
+      showReasoningNew: "Live latest sentence only",
+      gatewayNotifyInterval: "Gateway Notify Interval (seconds)",
+      gatewayNotifyIntervalHint: "Frequency limit for sending progress messages to chat channels. Set to 0 to send immediately without limits.",
+      saveDisplay: "Save display & reasoning settings",
+      savingDisplay: "Saving...",
+      sandboxTitle: "Tool Sandbox Security",
+      sandboxSubtitle: "The sandbox executes AI-generated code and Bash commands in an isolated environment to prevent system damage.",
+      sandboxEnabled: "Enable Tool Execution Sandbox",
+      sandboxEnabledHint: "Highly recommended. If disabled, all Bash commands and code will run directly on the host system.",
+      sandboxDetailLink: "Go to Sandbox Policy page to configure network & filesystem rules",
+      saveSandbox: "Save sandbox settings",
+      savingSandbox: "Saving...",
       deployment: "Deployment",
       githubRepo: "GitHub URL",
       githubRepoHint: "Read-only. Change it through deployment environment or molibot manage, not the Web UI.",
@@ -119,6 +199,17 @@
   let maxToolFailures = 6;
   let maxModelAttempts = 6;
   let savingBudget = false;
+
+  let browserTimeoutMs = 60000;
+  let savingBrowser = false;
+
+  let toolProgress: "off" | "new" | "all" | "verbose" = "all";
+  let showReasoning: "off" | "on" | "stream" | "new" = "off";
+  let gatewayNotifyInterval = 0;
+  let savingDisplay = false;
+
+  let sandboxEnabled = true;
+  let savingSandbox = false;
 
   $: copy = COPY[$locale];
 
@@ -179,6 +270,17 @@
         maxToolCalls = settings.budget.maxToolCalls ?? maxToolCalls;
         maxToolFailures = settings.budget.maxToolFailures ?? maxToolFailures;
         maxModelAttempts = settings.budget.maxModelAttempts ?? maxModelAttempts;
+      }
+      if (settings.browserAutomation) {
+        browserTimeoutMs = settings.browserAutomation.defaultTimeoutMs ?? browserTimeoutMs;
+      }
+      if (settings.display) {
+        toolProgress = settings.display.toolProgress ?? toolProgress;
+        showReasoning = settings.display.showReasoning ?? showReasoning;
+        gatewayNotifyInterval = settings.display.gatewayNotifyInterval ?? gatewayNotifyInterval;
+      }
+      if (settings.toolSandbox) {
+        sandboxEnabled = settings.toolSandbox.enabled ?? sandboxEnabled;
       }
       versionInfo = {
         ok: Boolean(versionPayload?.ok),
@@ -250,6 +352,92 @@
       statusVariant = "destructive";
     } finally {
       savingBudget = false;
+    }
+  }
+
+  async function saveBrowserSettings(): Promise<void> {
+    savingBrowser = true;
+    status = "";
+    statusVariant = "default";
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          browserAutomation: {
+            defaultTimeoutMs: Number(browserTimeoutMs)
+          }
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || copy.failedSave);
+      }
+      status = copy.saved;
+      statusVariant = "default";
+    } catch (error) {
+      status = error instanceof Error ? error.message : String(error);
+      statusVariant = "destructive";
+    } finally {
+      savingBrowser = false;
+    }
+  }
+
+  async function saveDisplaySettings(): Promise<void> {
+    savingDisplay = true;
+    status = "";
+    statusVariant = "default";
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          display: {
+            toolProgress,
+            showReasoning,
+            gatewayNotifyInterval: Number(gatewayNotifyInterval)
+          }
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || copy.failedSave);
+      }
+      status = copy.saved;
+      statusVariant = "default";
+    } catch (error) {
+      status = error instanceof Error ? error.message : String(error);
+      statusVariant = "destructive";
+    } finally {
+      savingDisplay = false;
+    }
+  }
+
+  async function saveSandboxEnabled(): Promise<void> {
+    savingSandbox = true;
+    status = "";
+    statusVariant = "default";
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toolSandbox: {
+            enabled: sandboxEnabled
+          }
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || copy.failedSave);
+      }
+      status = copy.saved;
+      statusVariant = "default";
+    } catch (error) {
+      status = error instanceof Error ? error.message : String(error);
+      statusVariant = "destructive";
+    } finally {
+      savingSandbox = false;
     }
   }
 
@@ -367,6 +555,109 @@
       <div class="flex justify-end">
         <Button type="button" onclick={saveBudget} disabled={savingBudget || loading}>
           {savingBudget ? copy.savingBudget : copy.saveBudget}
+        </Button>
+      </div>
+    </CardContent>
+  </Card>
+
+  <Card>
+    <CardHeader>
+      <CardTitle>{copy.browserTitle}</CardTitle>
+      <CardDescription>{copy.browserSubtitle}</CardDescription>
+    </CardHeader>
+    <CardContent class="flex flex-col gap-5">
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div class="flex flex-col gap-2">
+          <Label for="browser-timeout">{copy.browserTimeout}</Label>
+          <Input
+            id="browser-timeout"
+            type="number"
+            min="5000"
+            max="300000"
+            step="1000"
+            bind:value={browserTimeoutMs}
+            disabled={loading}
+          />
+          <p class="text-xs text-muted-foreground">{copy.browserTimeoutHint}</p>
+        </div>
+      </div>
+      <div class="flex justify-end">
+        <Button type="button" onclick={saveBrowserSettings} disabled={savingBrowser || loading}>
+          {savingBrowser ? copy.savingBrowser : copy.saveBrowser}
+        </Button>
+      </div>
+    </CardContent>
+  </Card>
+
+  <Card>
+    <CardHeader>
+      <CardTitle>{copy.displayTitle}</CardTitle>
+      <CardDescription>{copy.displaySubtitle}</CardDescription>
+    </CardHeader>
+    <CardContent class="flex flex-col gap-5">
+      <div class="grid gap-4 sm:grid-cols-3">
+        <div class="flex flex-col gap-2">
+          <Label for="show-reasoning">{copy.showReasoning}</Label>
+          <NativeSelect id="show-reasoning" bind:value={showReasoning} disabled={loading}>
+            <NativeSelectOption value="off">{copy.showReasoningOff}</NativeSelectOption>
+            <NativeSelectOption value="on">{copy.showReasoningOn}</NativeSelectOption>
+            <NativeSelectOption value="stream">{copy.showReasoningStream}</NativeSelectOption>
+            <NativeSelectOption value="new">{copy.showReasoningNew}</NativeSelectOption>
+          </NativeSelect>
+          <p class="text-xs text-muted-foreground">{copy.showReasoningHint}</p>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <Label for="tool-progress">{copy.toolProgress}</Label>
+          <NativeSelect id="tool-progress" bind:value={toolProgress} disabled={loading}>
+            <NativeSelectOption value="off">{copy.toolProgressOff}</NativeSelectOption>
+            <NativeSelectOption value="new">{copy.toolProgressNew}</NativeSelectOption>
+            <NativeSelectOption value="all">{copy.toolProgressAll}</NativeSelectOption>
+            <NativeSelectOption value="verbose">{copy.toolProgressVerbose}</NativeSelectOption>
+          </NativeSelect>
+          <p class="text-xs text-muted-foreground">{copy.toolProgressHint}</p>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <Label for="gateway-notify-interval">{copy.gatewayNotifyInterval}</Label>
+          <Input
+            id="gateway-notify-interval"
+            type="number"
+            min="0"
+            bind:value={gatewayNotifyInterval}
+            disabled={loading}
+          />
+          <p class="text-xs text-muted-foreground">{copy.gatewayNotifyIntervalHint}</p>
+        </div>
+      </div>
+      <div class="flex justify-end">
+        <Button type="button" onclick={saveDisplaySettings} disabled={savingDisplay || loading}>
+          {savingDisplay ? copy.savingDisplay : copy.saveDisplay}
+        </Button>
+      </div>
+    </CardContent>
+  </Card>
+
+  <Card>
+    <CardHeader>
+      <CardTitle>{copy.sandboxTitle}</CardTitle>
+      <CardDescription>{copy.sandboxSubtitle}</CardDescription>
+    </CardHeader>
+    <CardContent class="flex flex-col gap-5">
+      <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 px-4 py-3">
+        <div class="flex flex-col gap-1">
+          <Label for="sandbox-enabled">{copy.sandboxEnabled}</Label>
+          <p class="text-xs text-muted-foreground">{copy.sandboxEnabledHint}</p>
+        </div>
+        <Switch id="sandbox-enabled" bind:checked={sandboxEnabled} disabled={loading} />
+      </div>
+
+      <div class="flex items-center justify-between">
+        <a href="/settings/sandbox" class="text-xs text-primary underline hover:text-primary/80">
+          {copy.sandboxDetailLink} &rarr;
+        </a>
+        <Button type="button" onclick={saveSandboxEnabled} disabled={savingSandbox || loading}>
+          {savingSandbox ? copy.savingSandbox : copy.saveSandbox}
         </Button>
       </div>
     </CardContent>

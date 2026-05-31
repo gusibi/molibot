@@ -111,6 +111,8 @@ export interface MomContext {
   thinkingLevelOverride?: RuntimeThinkingLevel;
   respond: (text: string, shouldLog?: boolean) => Promise<void>;
   replaceMessage: (text: string) => Promise<void>;
+  commitMainAnswer?: (text: string) => Promise<void>;
+  sendSupplement?: (text: string) => Promise<void>;
   beginContinuationResponse?: (partialText: string, notice: string) => Promise<void>;
   respondInThread: (text: string) => Promise<void>;
   setTyping: (isTyping: boolean) => Promise<void>;

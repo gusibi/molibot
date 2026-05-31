@@ -10,6 +10,7 @@ import { formatSubagentProgressLabel, formatSubagentProgressSummary } from "$lib
 import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
 import { formatRunArchiveNotice } from "$lib/server/agent/session/runDetail.js";
 import type { ChannelInboundMessage, MomContext } from "$lib/server/agent/core/types.js";
+import { DisplayFormatter } from "$lib/server/agent/core/displayFormatter.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
@@ -20,7 +21,6 @@ import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import type { ParsedRelativeReminder, StatusSession } from "$lib/server/channels/telegram/types.js";
 import { TELEGRAM_SHARED_COMMANDS } from "$lib/server/channels/telegram/commands.js";
-import { executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec.js";
 import { isTelegramBotMention, stripTelegramBotMention, type TelegramMessageEntityLike } from "$lib/server/channels/telegram/mentions.js";
 
 export interface TelegramConfig {
@@ -167,19 +167,6 @@ export class TelegramManager extends BaseChannelRuntime {
       followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
       sendText: (target, text) => this.sendTelegramCommandText(target, text),
       uploadFile: (target, filePath, title, text) => this.sendTelegramCommandFile(target, filePath, title, text),
-      executeApprovedHostBash: async (input, approved, request) => {
-        if (!request.pendingAction || !this.bot) return;
-        const target = this.parseChatScopeId(input.scopeId);
-        const executed = await executeHostBashApproval({
-          record: request,
-          approvedTool: approved,
-          cwd: this.store.getScratchDir(input.scopeId),
-        });
-        if (hasVisibleHostBashOutput(executed.rendered)) {
-          await sendTelegramText(this.bot, target.chatId, executed.rendered, this.buildTelegramSendOptions(target.messageThreadId));
-        }
-        return "Approved and executed immediately.";
-      },
       onSessionMutation: (scopeId) => {
         void this.writePromptPreview([this.parseChatScopeId(scopeId).chatId]);
       },
@@ -1049,6 +1036,15 @@ export class TelegramManager extends BaseChannelRuntime {
     const runner = this.runners.get(scopeId, sessionId);
     const runId = (event as ChannelInboundMessage & { runId?: string }).runId ?? createRunId(scopeId, event.messageId);
     const streamOutputEnabled = this.isStreamingOutputEnabled();
+    const settings = this.getSettings();
+    const telegramInstance = settings.channels?.telegram?.instances?.find((item) => item.id === this.instanceId);
+    const displayConfig = {
+      toolProgress: telegramInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
+      showReasoning: telegramInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
+      gatewayNotifyInterval: telegramInstance?.display?.gatewayNotifyInterval ?? settings.display?.gatewayNotifyInterval ?? 0
+    };
+
+    const formatter = new DisplayFormatter();
     this.running.add(scopeId);
 
     momLog("telegram", "process_start", {
@@ -1061,41 +1057,25 @@ export class TelegramManager extends BaseChannelRuntime {
       messageId: event.messageId,
       userId: event.userId,
       isEvent: Boolean(event.isEvent),
-      streamOutputEnabled
+      streamOutputEnabled,
+      displayConfig
     });
 
     const status: StatusSession = {
-      statusMessageId: event.initialStatusMessageId ?? null,
+      statusMessageId: displayConfig.toolProgress === "off" ? null : (event.initialStatusMessageId ?? null),
       answerMessageId: null,
+      reasoningMessageId: null,
       detailsMessageId: null,
       threadMessageIds: [],
       accumulatedText: "",
-      progressText: event.initialStatusText ?? "",
+      reasoningText: "",
+      progressText: displayConfig.toolProgress === "off" ? "" : (event.initialStatusText ?? ""),
       detailsText: "",
       toolProgressEntries: [],
       isWorking: true
     };
     let plainProgressText = event.initialStatusText ?? "";
     let detailEventCount = 0;
-    const refreshProgressText = () => {
-      status.progressText = this.formatTelegramToolProgress(status.toolProgressEntries ?? [], plainProgressText);
-    };
-    const updateToolProgress = (toolName: string, label: string, summary?: string, isError?: boolean, displayName?: string) => {
-      const entries = status.toolProgressEntries ?? [];
-      if (summary !== undefined || isError !== undefined) {
-        const existing = [...entries].reverse().find((entry) => entry.toolName === toolName && entry.summary === undefined);
-        if (existing) {
-          existing.displayName = displayName;
-          existing.summary = summary;
-          existing.isError = isError;
-          refreshProgressText();
-          return;
-        }
-      }
-      entries.push({ toolName, displayName, label, summary, isError });
-      status.toolProgressEntries = entries;
-      refreshProgressText();
-    };
     const seededStatusText = event.initialStatusText?.trim() || "";
     let hasAssistantDelta = false;
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1120,9 +1100,25 @@ export class TelegramManager extends BaseChannelRuntime {
     let answerRenderPending = false;
     let answerForceNextRender = false;
     let answerRenderInFlight: Promise<void> | null = null;
+    let lastReasoningRenderAt = 0;
+    let reasoningRenderTimer: ReturnType<typeof setTimeout> | null = null;
+    let reasoningRenderPending = false;
+    let reasoningForceNextRender = false;
+    let reasoningRenderInFlight: Promise<void> | null = null;
 
     const performProgressRender = async (text: string): Promise<void> => {
-      const display = status.isWorking ? `${text} ...` : text;
+      const display = (status.isWorking ? `${text} ...` : text).trim();
+      if (!display) {
+        if (status.statusMessageId) {
+          try {
+            await bot.api.deleteMessage(chatId, status.statusMessageId);
+          } catch {
+            // ignore
+          }
+          status.statusMessageId = null;
+        }
+        return;
+      }
       if (status.statusMessageId) {
         try {
           await editTelegramText(bot, chatId, status.statusMessageId, display, {
@@ -1342,6 +1338,139 @@ export class TelegramManager extends BaseChannelRuntime {
       }
     };
 
+    const performReasoningRender = async (text: string): Promise<void> => {
+      const normalized = text.trim();
+      if (!normalized) return;
+      if (status.reasoningMessageId) {
+        try {
+          await editTelegramText(bot, chatId, status.reasoningMessageId, normalized, {
+            maxRetryAfterMs: TelegramManager.STREAM_EDIT_RETRY_AFTER_CAP_MS,
+            requestTimeoutMs: TelegramManager.STREAM_EDIT_REQUEST_TIMEOUT_MS
+          });
+          lastReasoningRenderAt = Date.now();
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (isTelegramRateLimitError(error) || message.includes("message is not modified")) {
+            return;
+          }
+          momWarn("telegram", "reasoning_edit_failed", {
+            runId,
+            chatId,
+            reasoningMessageId: status.reasoningMessageId,
+            error: message,
+            errorDetails: describeTelegramError(error)
+          });
+          if (isTelegramMissingEditTargetError(error)) {
+            status.reasoningMessageId = null;
+          } else {
+            return;
+          }
+        }
+      }
+
+      const sent = await sendTelegramText(bot, chatId, normalized, answerSendOptions);
+      status.reasoningMessageId = sent.message_id;
+      lastReasoningRenderAt = Date.now();
+    };
+
+    const clearReasoningRenderTimer = () => {
+      if (!reasoningRenderTimer) return;
+      clearTimeout(reasoningRenderTimer);
+      reasoningRenderTimer = null;
+    };
+
+    const flushQueuedReasoningRender = async (): Promise<void> => {
+      clearReasoningRenderTimer();
+      if (reasoningRenderInFlight || !reasoningRenderPending) return;
+      reasoningRenderPending = false;
+      const forceRender = reasoningForceNextRender;
+      reasoningForceNextRender = false;
+
+      reasoningRenderInFlight = (async () => {
+        if (!forceRender && status.reasoningMessageId && lastReasoningRenderAt > 0) {
+          const waitMs = Math.max(0, TelegramManager.STREAM_RENDER_INTERVAL_MS - (Date.now() - lastReasoningRenderAt));
+          if (waitMs > 0) {
+            await sleep(waitMs);
+          }
+        }
+        await performReasoningRender(status.reasoningText ?? "");
+      })().finally(() => {
+        reasoningRenderInFlight = null;
+        if (reasoningRenderPending) {
+          scheduleReasoningRender(reasoningForceNextRender);
+        }
+      });
+
+      await reasoningRenderInFlight;
+    };
+
+    const scheduleReasoningRender = (force = false): void => {
+      reasoningRenderPending = true;
+      reasoningForceNextRender = reasoningForceNextRender || force;
+      if (force) {
+        clearReasoningRenderTimer();
+      }
+      if (reasoningRenderInFlight || reasoningRenderTimer) return;
+
+      const delayMs = reasoningForceNextRender || !status.reasoningMessageId || lastReasoningRenderAt === 0
+        ? 0
+        : Math.max(0, TelegramManager.STREAM_RENDER_INTERVAL_MS - (Date.now() - lastReasoningRenderAt));
+
+      reasoningRenderTimer = setTimeout(() => {
+        reasoningRenderTimer = null;
+        void flushQueuedReasoningRender();
+      }, delayMs);
+    };
+
+    const forceReasoningRenderNow = async (): Promise<void> => {
+      reasoningRenderPending = true;
+      reasoningForceNextRender = true;
+      clearReasoningRenderTimer();
+      if (reasoningRenderInFlight) {
+        await reasoningRenderInFlight;
+      }
+      if (reasoningRenderPending) {
+        await flushQueuedReasoningRender();
+      }
+    };
+
+    const deleteReasoningMessage = async (): Promise<void> => {
+      clearReasoningRenderTimer();
+      reasoningRenderPending = false;
+      reasoningForceNextRender = false;
+      if (reasoningRenderInFlight) {
+        await reasoningRenderInFlight;
+      }
+      if (!status.reasoningMessageId) return;
+      try {
+        await bot.api.deleteMessage(chatId, status.reasoningMessageId);
+      } catch {
+        // ignore
+      }
+      status.reasoningMessageId = null;
+    };
+
+    let mainAnswerCommitted = false;
+    let committedMainAnswerText = "";
+    const sendAnswerSupplement = async (text: string): Promise<void> => {
+      const normalized = text.trim();
+      if (!normalized) return;
+      if (normalized === committedMainAnswerText.trim()) return;
+      const sent = await sendTelegramText(
+        bot,
+        chatId,
+        normalized,
+        status.answerMessageId
+          ? this.mergeTelegramSendOptions(answerSendOptions, {
+            reply_parameters: { message_id: status.answerMessageId }
+          })
+          : answerSendOptions
+      );
+      status.threadMessageIds.push(sent.message_id);
+      this.store.logBotResponse(scopeId, normalized, sent.message_id);
+    };
+
     const ctx: MomContext = {
       channel: "telegram",
       message: event,
@@ -1350,14 +1479,15 @@ export class TelegramManager extends BaseChannelRuntime {
       thinkingLevelOverride: sessionThinkingLevelOverride ?? undefined,
       respond: async (text, shouldLog = true) => {
         if (shouldLog) {
-          status.accumulatedText = status.accumulatedText ? `${status.accumulatedText}\n${text}` : text;
+          formatter.feedTextDelta(text);
+          status.accumulatedText = formatter.renderAnswerMarkdown();
         } else {
           const normalizedProgress = text.trim();
           if (/^_?→\s+/.test(normalizedProgress) || /^_?Error:/.test(normalizedProgress)) {
             return;
           }
           plainProgressText = plainProgressText ? `${plainProgressText}\n${text}` : text;
-          refreshProgressText();
+          status.progressText = formatter.formatToolProgressText(displayConfig, plainProgressText);
         }
         momLog("telegram", "ctx_respond", {
           runId,
@@ -1366,12 +1496,21 @@ export class TelegramManager extends BaseChannelRuntime {
           accumulatedLength: shouldLog ? status.accumulatedText.length : (status.progressText ?? "").length,
           shouldLog
         });
-        if (streamOutputEnabled && !shouldLog) {
+        if (streamOutputEnabled && !shouldLog && displayConfig.toolProgress !== "off") {
           scheduleRender();
         }
       },
       replaceMessage: async (text) => {
-        status.accumulatedText = text;
+        if (mainAnswerCommitted) {
+          await sendAnswerSupplement(text);
+          return;
+        }
+        let display = text;
+        if (text !== status.accumulatedText) {
+          formatter.answerText = text;
+          display = formatter.renderAnswerMarkdown();
+          status.accumulatedText = display;
+        }
         momLog("telegram", "ctx_replace", { runId, chatId, textLength: text.length });
         clearAnswerRenderTimer();
         if (answerRenderInFlight) {
@@ -1381,12 +1520,24 @@ export class TelegramManager extends BaseChannelRuntime {
         answerRenderPending = false;
         answerForceNextRender = false;
         const sent = status.answerMessageId
-          ? (await editTelegramText(bot, chatId, status.answerMessageId, text), { message_id: status.answerMessageId })
-          : await sendTelegramText(bot, chatId, text, answerSendOptions);
+          ? (await editTelegramText(bot, chatId, status.answerMessageId, display), { message_id: status.answerMessageId })
+          : await sendTelegramText(bot, chatId, display, answerSendOptions);
         status.answerMessageId = sent.message_id;
         lastAnswerRenderAt = Date.now();
-        this.store.logBotResponse(scopeId, text, status.answerMessageId);
+        this.store.logBotResponse(scopeId, display, status.answerMessageId);
       },
+      commitMainAnswer: async (text) => {
+        const normalized = text.trim();
+        if (!normalized) return;
+        if (mainAnswerCommitted) {
+          await sendAnswerSupplement(normalized);
+          return;
+        }
+        await ctx.replaceMessage(normalized);
+        mainAnswerCommitted = true;
+        committedMainAnswerText = normalized;
+      },
+      sendSupplement: sendAnswerSupplement,
       beginContinuationResponse: async (partialText, notice) => {
         const finalized = [partialText.trim(), notice.trim()].filter(Boolean).join("\n\n");
         momLog("telegram", "ctx_begin_continuation_response", {
@@ -1402,15 +1553,17 @@ export class TelegramManager extends BaseChannelRuntime {
         answerRenderPending = false;
         answerForceNextRender = false;
         if (finalized) {
-          status.accumulatedText = finalized;
+          formatter.answerText = finalized;
+          const display = formatter.renderAnswerMarkdown();
+          status.accumulatedText = display;
           status.isWorking = false;
-          await performAnswerRender(finalized);
+          await performAnswerRender(display);
           if (status.answerMessageId) {
-            this.store.logBotResponse(scopeId, finalized, status.answerMessageId);
+            this.store.logBotResponse(scopeId, display, status.answerMessageId);
           }
+          mainAnswerCommitted = true;
+          committedMainAnswerText = finalized;
         }
-        status.answerMessageId = null;
-        status.accumulatedText = "";
         status.isWorking = true;
         hasAssistantDelta = false;
         lastAnswerRenderAt = 0;
@@ -1497,6 +1650,7 @@ export class TelegramManager extends BaseChannelRuntime {
             // ignore
           }
         }
+        await deleteReasoningMessage();
       },
       uploadFile: async (filePath, title) => {
         const rawName = title || filePath.split("/").pop() || "file";
@@ -1582,6 +1736,8 @@ export class TelegramManager extends BaseChannelRuntime {
         });
       },
       onRunnerEvent: async (runnerEvent) => {
+        formatter.feedEvent(runnerEvent);
+
         if (runnerEvent.type === "thinking_config") {
           momLog("telegram", "runner_thinking_config", {
             runId,
@@ -1610,69 +1766,56 @@ export class TelegramManager extends BaseChannelRuntime {
           return;
         }
 
-        if (runnerEvent.type === "tool_execution_start") {
-          updateToolProgress(runnerEvent.toolName, runnerEvent.label, undefined, undefined, runnerEvent.displayName);
-          if (streamOutputEnabled) {
-            scheduleRender();
-          }
-          return;
+        if (runnerEvent.type === "tool_execution_end" && runnerEvent.hostBashApproval) {
+          await this.sendHostBashApprovalCard(bot, scopeId, runnerEvent.hostBashApproval);
         }
 
-        if (runnerEvent.type === "tool_execution_end") {
-          if (runnerEvent.hostBashApproval) {
-            await this.sendHostBashApprovalCard(bot, scopeId, runnerEvent.hostBashApproval);
-          }
-          updateToolProgress(
-            runnerEvent.toolName,
-            runnerEvent.toolName,
-            runnerEvent.summary,
-            runnerEvent.isError,
-            runnerEvent.displayName
-          );
-          if (streamOutputEnabled) {
-            scheduleRender();
-          }
-          return;
+        // Synchronize display texts
+        status.isWorking = formatter.isWorking;
+        status.progressText = formatter.formatToolProgressText(displayConfig, plainProgressText);
+        status.reasoningText = formatter.renderReasoningMarkdown(displayConfig);
+        if (!mainAnswerCommitted) {
+          status.accumulatedText = formatter.renderAnswerMarkdown();
         }
 
-        if (runnerEvent.type === "subagent_execution") {
-          const eventKey = runnerEvent.phase === "task_start" || runnerEvent.phase === "task_end"
-            ? `subagent:${runnerEvent.agent ?? "subagent"}:${runnerEvent.taskIndex ?? 0}`
-            : `subagent:${runnerEvent.phase}`;
-          const summary = runnerEvent.phase === "task_end" || runnerEvent.phase === "end"
-            ? formatSubagentProgressSummary(runnerEvent)
-            : undefined;
-          updateToolProgress(
-            eventKey,
-            formatSubagentProgressLabel(runnerEvent),
-            summary,
-            runnerEvent.stopReason === "error",
-            "subagent"
-          );
-          if (streamOutputEnabled) {
+        if (streamOutputEnabled) {
+          if (displayConfig.toolProgress !== "off" && (status.progressText ?? "").trim()) {
             scheduleRender();
           }
-          return;
+          if (!mainAnswerCommitted && runnerEvent.type === "assistant_message_event") {
+            const ae = runnerEvent.event;
+            if (ae.type === "text_delta") {
+              hasAssistantDelta = true;
+              scheduleAnswerRender();
+            } else if ((ae.type === "thinking_delta" || ae.type === "thinking_end") && (status.reasoningText ?? "").trim()) {
+              scheduleReasoningRender();
+            }
+          }
         }
-
-        if (runnerEvent.type !== "assistant_message_event") return;
-        if (runnerEvent.event.type !== "text_delta" || !streamOutputEnabled) return;
-
-        status.accumulatedText = hasAssistantDelta
-          ? `${status.accumulatedText}${runnerEvent.event.delta}`
-          : runnerEvent.event.delta;
-        hasAssistantDelta = true;
-        scheduleAnswerRender();
       }
     };
 
     try {
       const result = await runner.run(ctx);
       clearAnswerRenderTimer();
+      clearReasoningRenderTimer();
+      status.reasoningText = formatter.renderReasoningMarkdown(displayConfig);
       if (streamOutputEnabled && status.accumulatedText.trim()) {
         await forceAnswerRenderNow();
       }
-      if (streamOutputEnabled && (status.progressText ?? "").trim()) {
+      if (displayConfig.showReasoning === "new") {
+        await deleteReasoningMessage();
+      } else if ((status.reasoningText ?? "").trim()) {
+        await forceReasoningRenderNow();
+      }
+      if (displayConfig.toolProgress === "new" && status.statusMessageId) {
+        try {
+          await bot.api.deleteMessage(chatId, status.statusMessageId);
+        } catch {
+          // ignore
+        }
+        status.statusMessageId = null;
+      } else if (streamOutputEnabled && (status.progressText ?? "").trim()) {
         await forceRenderNow();
       }
       if (!streamOutputEnabled && status.accumulatedText.trim()) {

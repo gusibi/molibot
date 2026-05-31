@@ -22,6 +22,7 @@ interface ContextBuilderState<TSent extends ContextSentMessageRef> {
   accumulatedText: string;
   hasResponded: boolean;
   lastSentMessage: TSent | null;
+  mainAnswerPhase: "draft" | "committed";
 }
 
 interface BuildTextChannelContextOptions<TSent extends ContextSentMessageRef> {
@@ -51,7 +52,8 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
   const state: ContextBuilderState<TSent> = {
     accumulatedText: "",
     hasResponded: false,
-    lastSentMessage: null
+    lastSentMessage: null,
+    mainAnswerPhase: "draft"
   };
 
   const appendAssistantMessage = (text: string) => {
@@ -70,6 +72,41 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
       options.sessions.appendMessage(conv.id, "assistant", text);
     } catch (error) {
       options.onSessionAppendWarning?.(error);
+    }
+  };
+
+  const sendSupplement = async (text: string) => {
+    const normalized = normalize(text);
+    if (!normalized) return;
+    if (normalized === state.accumulatedText.trim()) return;
+    if (options.response.respondInThread) {
+      await options.response.respondInThread(normalized);
+      return;
+    }
+    await ctx.respond(normalized);
+  };
+
+  const replaceDraftMessage = async (text: string) => {
+    const normalized = normalize(text);
+    if (!normalized) return;
+    if (state.lastSentMessage && options.response.editText) {
+      const runId = (options.event as { runId?: string }).runId;
+      momLog(options.channel, "channel_sending_start", {
+        runId,
+        chatId: options.event.chatId,
+        textLength: normalized.length,
+        isEdit: true
+      });
+      const edited = await options.response.editText(state.lastSentMessage, normalized);
+      if (edited) {
+        state.accumulatedText = normalized;
+        return;
+      }
+    }
+    if (options.replaceWithoutEdit) {
+      await options.replaceWithoutEdit(normalized, state, ctx);
+    } else {
+      await ctx.respond(normalized);
     }
   };
 
@@ -97,37 +134,33 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
     replaceMessage: async (text: string) => {
       const normalized = normalize(text);
       if (!normalized) return;
-      if (state.lastSentMessage && options.response.editText) {
-        const runId = (options.event as { runId?: string }).runId;
-        momLog(options.channel, "channel_sending_start", {
-          runId,
-          chatId: options.event.chatId,
-          textLength: normalized.length,
-          isEdit: true
-        });
-        const edited = await options.response.editText(state.lastSentMessage, normalized);
-        if (edited) {
-          state.accumulatedText = normalized;
-          return;
-        }
+      if (state.mainAnswerPhase === "committed") {
+        await sendSupplement(normalized);
+        return;
       }
-      if (options.replaceWithoutEdit) {
-        await options.replaceWithoutEdit(normalized, state, ctx);
-      } else {
-        await ctx.respond(normalized);
-      }
+      await replaceDraftMessage(normalized);
     },
+    commitMainAnswer: async (text: string) => {
+      const normalized = normalize(text);
+      if (!normalized) return;
+      if (state.mainAnswerPhase === "committed") {
+        await sendSupplement(normalized);
+        return;
+      }
+      await replaceDraftMessage(normalized);
+      state.mainAnswerPhase = "committed";
+    },
+    sendSupplement,
     beginContinuationResponse: async (partialText: string, notice: string) => {
       const partial = normalize(partialText);
       const normalizedNotice = normalize(notice);
       const finalized = [partial || state.accumulatedText, normalizedNotice].filter(Boolean).join("\n\n");
       if (finalized) {
-        await ctx.replaceMessage(finalized);
+        await ctx.commitMainAnswer?.(finalized);
       } else if (normalizedNotice) {
         await ctx.respond(normalizedNotice);
       }
       state.lastSentMessage = null;
-      state.accumulatedText = "";
     },
     respondInThread: async (text: string) => {
       const normalized = normalize(text);

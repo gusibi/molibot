@@ -18,6 +18,7 @@ import {
   type ProviderMode,
   type McpServerConfig,
   type RuntimeSettings,
+  type ChannelInstanceSettings,
   sanitizeHostToolSettings,
   sanitizeToolSandboxSettings
 } from "$lib/server/settings/index.js";
@@ -324,7 +325,26 @@ export function sanitizeMcpServers(input: unknown): McpServerConfig[] {
   return out;
 }
 
-export function sanitizeChannels(
+export function sanitizeChannelInstanceDisplaySettings(input: unknown): ChannelInstanceSettings["display"] {
+  if (!input || typeof input !== "object") return undefined;
+  const raw = input as Record<string, unknown>;
+  const toolProgress = raw.toolProgress !== undefined && ["off", "new", "all", "verbose"].includes(String(raw.toolProgress))
+    ? (raw.toolProgress as any)
+    : undefined;
+  const showReasoning = raw.showReasoning !== undefined && ["off", "on", "stream", "new"].includes(String(raw.showReasoning))
+    ? (raw.showReasoning as any)
+    : undefined;
+  const gatewayNotifyInterval = raw.gatewayNotifyInterval !== undefined && !isNaN(Number(raw.gatewayNotifyInterval))
+    ? Number(raw.gatewayNotifyInterval)
+    : undefined;
+
+  if (toolProgress === undefined && showReasoning === undefined && gatewayNotifyInterval === undefined) {
+    return undefined;
+  }
+  return { toolProgress, showReasoning, gatewayNotifyInterval };
+}
+
+function sanitizeChannels(
   input: unknown,
   telegramBots: TelegramBotConfig[],
   feishuBots: FeishuBotConfig[],
@@ -338,7 +358,8 @@ export function sanitizeChannels(
         instances: (value?.instances ?? []).map((instance) => ({
           ...instance,
           credentials: { ...(instance.credentials ?? {}) },
-          allowedChatIds: [...(instance.allowedChatIds ?? [])]
+          allowedChatIds: [...(instance.allowedChatIds ?? [])],
+          display: instance.display ? sanitizeChannelInstanceDisplaySettings(instance.display) : undefined
         }))
       }
     ])
@@ -373,7 +394,8 @@ export function sanitizeChannels(
           allowedChatIds: Array.isArray(item.allowedChatIds)
             ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
             : [],
-          sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled)
+          sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
+          display: item.display ? sanitizeChannelInstanceDisplaySettings(item.display) : undefined
         };
       })
       .filter(Boolean) as ChannelSettingsMap[string]["instances"];
@@ -618,6 +640,13 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
     : current.disabledSkillPaths;
   next.channels = sanitizeChannels(next.channels, next.telegramBots, next.feishuBots, next.qqBots, current.channels);
 
+  const displayInput = next.display ?? current.display;
+  next.display = {
+    toolProgress: displayInput && ["off", "new", "all", "verbose"].includes(String(displayInput.toolProgress)) ? (displayInput.toolProgress as any) : (current.display?.toolProgress ?? "all"),
+    showReasoning: displayInput && ["off", "on", "stream", "new"].includes(String(displayInput.showReasoning)) ? (displayInput.showReasoning as any) : (current.display?.showReasoning ?? "off"),
+    gatewayNotifyInterval: displayInput && !isNaN(Number(displayInput.gatewayNotifyInterval)) ? Number(displayInput.gatewayNotifyInterval) : (current.display?.gatewayNotifyInterval ?? 0)
+  };
+
   next.telegramBotToken = next.telegramBots[0]?.token ?? "";
   next.telegramAllowedChatIds = next.telegramBots[0]?.allowedChatIds ?? [];
   const memoryPluginInput = next.plugins?.memory ?? current.plugins.memory;
@@ -637,6 +666,14 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   };
 
   next.budget = sanitizeBudgetSettings(next.budget ?? current.budget, current.budget);
+
+  const browserInput = next.browserAutomation ?? current.browserAutomation;
+  const browserTimeoutRaw = browserInput?.defaultTimeoutMs;
+  next.browserAutomation = {
+    defaultTimeoutMs: browserTimeoutRaw != null && Number.isFinite(Number(browserTimeoutRaw))
+      ? Math.max(5000, Math.min(300000, Math.round(Number(browserTimeoutRaw))))
+      : current.browserAutomation.defaultTimeoutMs
+  };
 
   return next;
 }

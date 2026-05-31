@@ -27,7 +27,6 @@ import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared
 import { FeishuStreamingSession } from "$lib/server/channels/feishu/streamingSession.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
-import { executeHostBashApproval, hasVisibleHostBashOutput } from "$lib/server/agent/hostBashExec.js";
 
 export interface FeishuConfig {
     appId: string;
@@ -109,18 +108,6 @@ export class FeishuManager extends BaseChannelRuntime {
                 const filename = title || filePath.split("/").pop() || "runlog.txt";
                 const bytes = readFileSync(filePath);
                 await sendFeishuFile(this.client, chatId, bytes, filename);
-            },
-            executeApprovedHostBash: async (input, approved, request) => {
-                if (!request.pendingAction) return;
-                const executed = await executeHostBashApproval({
-                    record: request,
-                    approvedTool: approved,
-                    cwd: this.store.getScratchDir(input.scopeId)
-                });
-                if (hasVisibleHostBashOutput(executed.rendered)) {
-                    await this.sendText(input.chatId, executed.rendered);
-                }
-                return "Approved and executed immediately.";
             },
             onSessionMutation: (scopeId) => {
                 void this.writePromptPreview([scopeId]);
@@ -441,11 +428,19 @@ export class FeishuManager extends BaseChannelRuntime {
         );
 
         const runner = this.runners.get(chatId, activeSessionId);
+        const settings = this.getSettings();
+        const feishuInstance = settings.channels?.feishu?.instances?.find((item) => item.id === this.instanceId);
+        const displayConfig = {
+            toolProgress: feishuInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
+            showReasoning: feishuInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
+            gatewayNotifyInterval: feishuInstance?.display?.gatewayNotifyInterval ?? settings.display?.gatewayNotifyInterval ?? 0
+        };
         const streaming = new FeishuStreamingSession({
             client: this.client,
             chatId,
             runId,
-            title: "Molibot"
+            title: "Molibot",
+            displayConfig
         });
         let threadEventCount = 0;
         let result: RunResult | null = null;
@@ -460,6 +455,12 @@ export class FeishuManager extends BaseChannelRuntime {
             },
             replaceMessage: async (text) => {
                 await streaming.replaceAnswer(text);
+            },
+            commitMainAnswer: async (text) => {
+                await streaming.commitMainAnswer(text);
+            },
+            sendSupplement: async (text) => {
+                await streaming.sendSupplement(text);
             },
             beginContinuationResponse: async (partialText, notice) => {
                 await streaming.beginContinuationResponse(partialText, notice);

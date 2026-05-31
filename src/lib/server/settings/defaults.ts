@@ -359,5 +359,13 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     maxToolCalls: Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_CALLS ?? 24) || 24),
     maxToolFailures: Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_FAILURES ?? 6) || 6),
     maxModelAttempts: Math.max(1, Number(process.env.MOLIBOT_MAX_MODEL_ATTEMPTS ?? 6) || 6)
+  },
+  browserAutomation: {
+    defaultTimeoutMs: Math.max(5000, Number(process.env.AGENT_BROWSER_DEFAULT_TIMEOUT ?? 60000) || 60000)
+  },
+  display: {
+    toolProgress: "all",
+    showReasoning: "off",
+    gatewayNotifyInterval: 0
   }
 };

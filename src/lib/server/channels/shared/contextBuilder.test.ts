@@ -90,3 +90,50 @@ test("buildTextChannelContext falls back on replace when edit is unavailable", a
 
   assert.deepEqual(sent, ["draft"]);
 });
+
+test("buildTextChannelContext sends later replacements as supplements after commit", async () => {
+  const sent: string[] = [];
+  const supplements: string[] = [];
+  const buffer: string[] = [];
+
+  const ctx = buildTextChannelContext({
+    channel: "weixin",
+    event: createEvent(),
+    workspaceDir: "/tmp/workspace",
+    chatDir: "/tmp/workspace/chat-1",
+    store: { logMessage: () => true } as never,
+    sessions: {
+      getOrCreateConversation: () => ({ id: "conv-1" }),
+      appendMessage: () => undefined
+    } as never,
+    instanceId: "bot-1",
+    activeSessionId: "default",
+    conversationKey: "bot:bot-1:chat:chat-1:default",
+    response: {
+      sendText: async (text) => {
+        sent.push(text);
+        return null;
+      },
+      respondInThread: async (text) => {
+        supplements.push(text);
+      }
+    },
+    createBotMessageId: () => 42,
+    replaceWithoutEdit: async (text, state) => {
+      if (state.accumulatedText) {
+        const idx = buffer.indexOf(state.accumulatedText);
+        if (idx !== -1) buffer.splice(idx, 1);
+      }
+      buffer.push(text);
+      state.accumulatedText = text;
+    }
+  });
+
+  await ctx.replaceMessage("draft");
+  await ctx.commitMainAnswer?.("complete answer");
+  await ctx.replaceMessage("short postscript");
+
+  assert.deepEqual(sent, []);
+  assert.deepEqual(buffer, ["complete answer"]);
+  assert.deepEqual(supplements, ["short postscript"]);
+});

@@ -75,37 +75,12 @@ function isRunnerErrorNotice(text: string): boolean {
   );
 }
 
-function createToolProgressBatcher<TSent>(
-  send: (text: string) => Promise<TSent | null>,
-  batchSize = 5
-): {
-  handle(text: string): Promise<TSent | null>;
-  flush(): Promise<void>;
-} {
-  let seen = 0;
-  let pending: string[] = [];
-
-  return {
-    async handle(text: string): Promise<TSent | null> {
-      seen += 1;
-      if (seen === 1) {
-        return send(text);
-      }
-      pending.push(text);
-      if (pending.length >= batchSize) {
-        const batch = pending.join("\n");
-        pending = [];
-        return send(batch);
-      }
-      return null;
-    },
-    async flush(): Promise<void> {
-      if (!pending.length) return;
-      const batch = pending.join("\n");
-      pending = [];
-      await send(batch);
-    }
-  };
+function formatQqToolProgressText(text: string): string {
+  const lines = normalizeText(text).split("\n").map((line) => line.trim()).filter(Boolean);
+  const labels = lines.map((line) => line.replace(/^_→\s*/, "").replace(/_$/, "").trim()).filter(Boolean);
+  if (labels.length === 0) return normalizeText(text);
+  if (labels.length === 1) return `工具调用：${labels[0]}`;
+  return ["工具调用：", ...labels.map((label) => `- ${label}`)].join("\n");
 }
 
 export class QQManager extends BaseChannelRuntime {
@@ -407,11 +382,52 @@ export class QQManager extends BaseChannelRuntime {
     let hasVisibleNonErrorReply = false;
     let lastBufferedError = "";
 
+    const settings = this.getSettings();
+    const qqInstance = settings.channels?.qq?.instances?.find((item) => item.id === this.instanceId);
+    const displayConfig = {
+      toolProgress: qqInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
+      showReasoning: qqInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
+      gatewayNotifyInterval: qqInstance?.display?.gatewayNotifyInterval ?? settings.display?.gatewayNotifyInterval ?? 0
+    };
+
+    const messagesBuffer: string[] = [];
+
     const sendRawText = async (text: string): Promise<{ messageId: string | number } | null> => {
       const result = await this.sendText(target, text, target.replyToId);
       return result.messageId ? { messageId: result.messageId } : null;
     };
-    const toolProgress = createToolProgressBatcher(sendRawText);
+
+    const flushBuffer = async (): Promise<{ messageId: string | number } | null> => {
+      if (messagesBuffer.length === 0) return null;
+      const combinedText = messagesBuffer.join("\n\n").trim();
+      messagesBuffer.length = 0;
+      if (combinedText) {
+        return sendRawText(combinedText);
+      }
+      return null;
+    };
+
+    const sendVisibleText = async (
+      text: string,
+      options?: { allowFinalError?: boolean }
+    ): Promise<{ messageId: string | number } | null> => {
+      if (!options?.allowFinalError && isTransientRunnerProgress(text)) {
+        if (displayConfig.toolProgress === "off") {
+          return null;
+        }
+        const formatted = formatQqToolProgressText(text);
+        messagesBuffer.push(formatted);
+        return null;
+      }
+      if (!options?.allowFinalError && bufferIfQqRunnerError(text)) {
+        return null;
+      }
+      if (!isRunnerErrorNotice(text)) {
+        hasVisibleNonErrorReply = true;
+      }
+      messagesBuffer.push(text);
+      return null;
+    };
 
     const bufferIfQqRunnerError = (text: string): boolean => {
       if (isTransientRunnerProgress(text)) {
@@ -422,23 +438,6 @@ export class QQManager extends BaseChannelRuntime {
         return true;
       }
       return false;
-    };
-
-    const sendVisibleText = async (
-      text: string,
-      options?: { allowFinalError?: boolean }
-    ): Promise<{ messageId: string | number } | null> => {
-      if (!options?.allowFinalError && isTransientRunnerProgress(text)) {
-        return toolProgress.handle(text);
-      }
-      if (!options?.allowFinalError && bufferIfQqRunnerError(text)) {
-        return null;
-      }
-      await toolProgress.flush();
-      if (!isRunnerErrorNotice(text)) {
-        hasVisibleNonErrorReply = true;
-      }
-      return sendRawText(text);
     };
 
     await this.runSharedTextTask(chatId, event, {
@@ -453,7 +452,7 @@ export class QQManager extends BaseChannelRuntime {
           if (!this.sdkAccount) {
             throw new Error("SDK account not initialized");
           }
-          await toolProgress.flush();
+          await flushBuffer();
           const result = await sendMedia({
             to: this.buildTargetAddress(target),
             mediaUrl: filePath,
@@ -477,7 +476,8 @@ export class QQManager extends BaseChannelRuntime {
       },
       onRunnerEvent: async (runnerEvent) => {
         if (runnerEvent.type !== "tool_execution_end" || !runnerEvent.hostBashApproval) return;
-        await sendVisibleText(buildNonInteractiveHostBashApprovalText(runnerEvent.hostBashApproval));
+        await flushBuffer();
+        await sendRawText(buildNonInteractiveHostBashApprovalText(runnerEvent.hostBashApproval));
       },
       onRunComplete: async (result, meta) => {
         if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId) {
@@ -496,23 +496,23 @@ export class QQManager extends BaseChannelRuntime {
           state.accumulatedText = text;
           return;
         }
-        if (!state.hasResponded) {
-          await sendVisibleText(text);
-          state.hasResponded = true;
-          state.accumulatedText = text;
-          return;
-        }
         if (text === state.accumulatedText.trim()) return;
-        await sendVisibleText(text);
+        if (state.accumulatedText) {
+          const idx = messagesBuffer.indexOf(state.accumulatedText);
+          if (idx !== -1) {
+            messagesBuffer.splice(idx, 1);
+          }
+        }
+        messagesBuffer.push(text);
         state.hasResponded = true;
         state.accumulatedText = text;
       }
     });
 
-    await toolProgress.flush();
     if (!hasVisibleNonErrorReply && lastBufferedError) {
-      await sendVisibleText(lastBufferedError, { allowFinalError: true });
+      messagesBuffer.push(lastBufferedError);
     }
+    await flushBuffer();
   }
 
   async triggerTask(event: unknown, _filename: string): Promise<void> {

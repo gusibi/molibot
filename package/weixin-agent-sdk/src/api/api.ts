@@ -41,14 +41,37 @@ interface PackageJson {
   ilink_appid?: string;
 }
 
-function readPackageJson(): PackageJson {
+function isOwnPackageJson(parsed: PackageJson): boolean {
+  if (parsed.ilink_appid !== undefined) return true;
+  return typeof parsed.name === "string" && parsed.name.includes("weixin-agent-sdk");
+}
+
+export function readPackageJsonFromDir(startDir: string): PackageJson {
   try {
-    const dir = path.dirname(fileURLToPath(import.meta.url));
-    const pkgPath = path.resolve(dir, "..", "..", "package.json");
-    return JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as PackageJson;
+    let dir = startDir;
+    const { root } = path.parse(dir);
+    while (dir && dir !== root) {
+      const candidate = path.join(dir, "package.json");
+      if (fs.existsSync(candidate)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(candidate, "utf-8")) as PackageJson;
+          if (isOwnPackageJson(parsed)) {
+            return parsed;
+          }
+        } catch {
+          // Malformed package.json — keep walking up.
+        }
+      }
+      dir = path.dirname(dir);
+    }
   } catch {
-    return {};
+    // Fall through to empty default.
   }
+  return {};
+}
+
+function readPackageJson(): PackageJson {
+  return readPackageJsonFromDir(path.dirname(fileURLToPath(import.meta.url)));
 }
 
 const pkg = readPackageJson();
@@ -170,11 +193,10 @@ function buildCommonHeaders(): Record<string, string> {
   return headers;
 }
 
-function buildHeaders(opts: { token?: string; body: string }): Record<string, string> {
+function buildHeaders(opts: { token?: string }): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     AuthorizationType: "ilink_bot_token",
-    "Content-Length": String(Buffer.byteLength(opts.body, "utf-8")),
     "X-WECHAT-UIN": randomWechatUin(),
     ...buildCommonHeaders(),
   };
@@ -202,7 +224,7 @@ async function apiFetch(params: {
 }): Promise<string> {
   const base = ensureTrailingSlash(params.baseUrl);
   const url = new URL(params.endpoint, base);
-  const hdrs = buildHeaders({ token: params.token, body: params.body });
+  const hdrs = buildHeaders({ token: params.token });
   logger.debug(`POST ${redactUrl(url.toString())} body=${redactBody(params.body)}`);
 
   const controller = new AbortController();
@@ -275,6 +297,29 @@ export async function apiGetFetch(params: {
   }
 }
 
+function combineAbortSignals(params: {
+  internal?: AbortController;
+  external?: AbortSignal;
+}): { signal?: AbortSignal; cleanup: () => void } {
+  const { internal, external } = params;
+  if (!external) {
+    return { signal: internal?.signal, cleanup: () => {} };
+  }
+  if (!internal) {
+    return { signal: external, cleanup: () => {} };
+  }
+  if (external.aborted) {
+    internal.abort();
+    return { signal: internal.signal, cleanup: () => {} };
+  }
+  const onExternalAbort = () => internal.abort();
+  external.addEventListener("abort", onExternalAbort, { once: true });
+  return {
+    signal: internal.signal,
+    cleanup: () => external.removeEventListener("abort", onExternalAbort),
+  };
+}
+
 /**
  * POST JSON wrapper used by login and lifecycle APIs.
  * When `timeoutMs` is omitted, no client-side timeout is applied.
@@ -286,10 +331,11 @@ export async function apiPostFetch(params: {
   token?: string;
   timeoutMs?: number;
   label: string;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
   const base = ensureTrailingSlash(params.baseUrl);
   const url = new URL(params.endpoint, base);
-  const headers = buildHeaders({ token: params.token, body: params.body });
+  const headers = buildHeaders({ token: params.token });
   logger.debug(`POST ${redactUrl(url.toString())} body=${redactBody(params.body)}`);
 
   const controller = params.timeoutMs !== undefined ? new AbortController() : undefined;
@@ -297,13 +343,17 @@ export async function apiPostFetch(params: {
     controller && params.timeoutMs !== undefined
       ? setTimeout(() => controller.abort(), params.timeoutMs)
       : undefined;
+  const { signal, cleanup } = combineAbortSignals({
+    internal: controller,
+    external: params.abortSignal,
+  });
 
   try {
     const response = await fetch(url.toString(), {
       method: "POST",
       headers,
       body: params.body,
-      ...(controller ? { signal: controller.signal } : {}),
+      ...(signal ? { signal } : {}),
     });
     if (timer !== undefined) clearTimeout(timer);
     const rawText = await response.text();
@@ -315,6 +365,8 @@ export async function apiPostFetch(params: {
   } catch (err) {
     if (timer !== undefined) clearTimeout(timer);
     throw err;
+  } finally {
+    cleanup();
   }
 }
 
@@ -335,7 +387,7 @@ export async function getUpdates(
 ): Promise<GetUpdatesResp> {
   const timeout = params.timeoutMs ?? DEFAULT_LONG_POLL_TIMEOUT_MS;
   try {
-    const rawText = await apiFetch({
+    const rawText = await apiPostFetch({
       baseUrl: params.baseUrl,
       endpoint: "ilink/bot/getupdates",
       body: JSON.stringify({

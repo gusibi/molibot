@@ -213,7 +213,7 @@ export class TurnOrchestrator {
 
   cleanupStaleRunningTurns(
     store: TurnCleanupStore,
-    options: { now?: Date; timeoutMs?: number } = {}
+    options: { now?: Date; timeoutMs?: number; forceAll?: boolean } = {}
   ): number {
     const now = options.now ?? new Date();
     const timeoutMs = options.timeoutMs ?? DEFAULT_TURN_LOCK_TIMEOUT_MS;
@@ -222,12 +222,18 @@ export class TurnOrchestrator {
 
     for (const turn of store.listRunningTurns()) {
       if (turn.status !== "running") continue;
-      const startedAt = Date.parse(turn.startedAt);
-      if (!Number.isFinite(startedAt) || startedAt > cutoff) continue;
+      if (!options.forceAll) {
+        const startedAt = Date.parse(turn.startedAt);
+        if (!Number.isFinite(startedAt) || startedAt > cutoff) continue;
+      }
+
+      const reason = options.forceAll
+        ? "Turn was marked failed because the application process restarted."
+        : `Turn exceeded lock timeout (${timeoutMs}ms) and was marked failed during startup cleanup.`;
 
       store.markTurnFailed(
         turn.id,
-        `Turn exceeded lock timeout (${timeoutMs}ms) and was marked failed during startup cleanup.`,
+        reason,
         now.toISOString()
       );
       cleaned += 1;

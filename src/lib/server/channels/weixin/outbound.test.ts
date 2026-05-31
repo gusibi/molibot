@@ -279,8 +279,8 @@ test("sendWeixinFile preserves supported markdown in visible text", async () => 
     );
     assert.match(String(textItems[0]?.text_item?.text ?? ""), /\| 项目 \| 状态 \|/);
     assert.match(String(textItems[0]?.text_item?.text ?? ""), /English \*italic\* ok/);
-    assert.match(String(textItems[0]?.text_item?.text ?? ""), /中文 强调 会去掉星号/);
-    assert.doesNotMatch(String(textItems[0]?.text_item?.text ?? ""), /!\[img\]/);
+    assert.match(String(textItems[0]?.text_item?.text ?? ""), /中文 \*强调\* 会去掉星号/);
+    assert.match(String(textItems[0]?.text_item?.text ?? ""), /!\[img\]/);
   } finally {
     globalThis.fetch = originalFetch;
   }

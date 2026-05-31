@@ -170,7 +170,7 @@ async function handleWebHostToolsCommand(
   const sessionId = conversationId || store.getActiveSession(scopeId);
 
   if (subcommand === "list") {
-    const pending = hostBashStore.listPending(scopeId);
+    const pending = hostBashStore.listPending(scopeId, sessionId);
     const approved = hostBashStore.listWhitelist().filter((item) => item.enabled);
     return {
       ok: true,
@@ -185,7 +185,7 @@ async function handleWebHostToolsCommand(
   }
 
   if (subcommand === "reject") {
-    const rejected = hostBashStore.reject(scopeId, approvalId || undefined);
+    const rejected = hostBashStore.reject(scopeId, approvalId || undefined, sessionId);
     return {
       ok: true,
       response: rejected
@@ -208,7 +208,8 @@ async function handleWebHostToolsCommand(
   }
 
   const approved = hostBashStore.approve(scopeId, approvalId || undefined, {
-    persistWhitelist: subcommand !== "approve-session"
+    persistWhitelist: subcommand !== "approve-session",
+    sessionId
   });
   if (!approved) {
     return { ok: true, response: "No matching pending Host Bash approval found." };

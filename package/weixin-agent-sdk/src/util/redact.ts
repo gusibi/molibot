@@ -21,14 +21,22 @@ export function redactToken(token: string | undefined, prefixLen = DEFAULT_TOKEN
   return `${token.slice(0, prefixLen)}…(len=${token.length})`;
 }
 
+/** Field names whose values should be masked in logged JSON bodies. */
+const SENSITIVE_FIELDS = /\b(context_token|bot_token|token|authorization|Authorization)\b/;
+
 /**
  * Truncate a JSON body string to `maxLen` chars for safe logging.
- * Appends original length so the reader knows how much was dropped.
+ * Redacts known sensitive fields before truncating.
  */
 export function redactBody(body: string | undefined, maxLen = DEFAULT_BODY_MAX_LEN): string {
   if (!body) return "(empty)";
-  if (body.length <= maxLen) return body;
-  return `${body.slice(0, maxLen)}…(truncated, totalLen=${body.length})`;
+  // Mask values of known sensitive JSON keys: "key":"value" → "key":"<redacted>"
+  const redacted = body.replace(
+    /"(context_token|bot_token|token|authorization|Authorization)"\s*:\s*"[^"]*"/g,
+    '"$1":"<redacted>"',
+  );
+  if (redacted.length <= maxLen) return redacted;
+  return `${redacted.slice(0, maxLen)}…(truncated, totalLen=${redacted.length})`;
 }
 
 /**
