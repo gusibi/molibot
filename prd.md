@@ -49,6 +49,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - 主 Agent 和 subagent 对普通 scratch 产物目录必须一致；subagent 不得把日报 HTML/JSON/截图等普通生成物落到 scratch 根目录或技能目录，默认应继承当前消息的 `scratch_artifact_dir`。
 - Subagent 的 Host Bash 权限判断必须与主 Agent 使用同一个 channel/chat/session/store 上下文；主 Agent 已批准的长期白名单和当前 session 放行必须对子 Agent 生效，子 Agent 触发的新审批也必须冒泡到父 runner 的现有 channel 审批入口。
 - 第一版 OS 级 sandbox 只覆盖 Agent shell 执行通道：主 Agent `bash` 与内置 subagent `bash`。浏览器、Computer Use、ACP、MCP 与 Channel 收发消息不进入该 sandbox；需要打开本机 App 或复用本机浏览器状态的场景必须走对应 host-access 工具。workspace env 文件由 Molibot 宿主解析后按 allowlist 注入子进程，sandboxed bash 不应直接读取 env 文件本身。
+- 当有效 sandbox 状态为 OFF 时，语义是当前作用域选择 Host Bash full access：普通 `bash` 和模型附带的 `hostApproval` 参数都应直接在宿主执行，不再创建 Host Bash 审批；Host Bash 审批只用于 sandbox 开启时的显式 host 请求或 sandbox 权限失败回退。
 - Approved host tool 是“已批准的 host shell 执行入口”，不是结构化 argv 的替代 shell；命中 approved host tool 后应执行原始命令字符串并保留普通 shell 语义（变量展开、引号、换行等），未命中时才按 sandbox 设置决定是否进入 sandbox。
 - Host tool approval 需要支持第三种“仅当前 session 放行”决策：它不会把 executable 写入全局 approved host tools，只会在当前聊天/session 内暂时允许被 sandbox 拦住的 bash 命令自动回退到 host bash；换 bot 或 `/new` 后必须失效。
 - Host Bash 审批与白名单数据不能继续堆在 `settings.json` / `settings_dynamic` 中；需要迁移到独立 SQLite 表，保留完整审批历史、长期白名单当前态，并提供设置页查看 pending / history / whitelist 以及启用、禁用、删除等运维操作，但不在设置页里手动批准/拒绝 pending。

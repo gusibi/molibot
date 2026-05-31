@@ -4,7 +4,8 @@ import { promises as fs } from "node:fs";
 import { dirname as pathDirname, basename } from "node:path";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import { createAttachTool } from "$lib/server/agent/tools/attach.js";
-import { getBashToolDefinition, tryParseHostBashCommand, findApprovedHostBash } from "$lib/server/agent/tools/bash.js";
+import { getBashToolDefinition } from "$lib/server/agent/tools/bash.js";
+import { decideBashToolPolicy } from "$lib/server/agent/tools/bashPolicy.js";
 import { getEditToolDefinition } from "$lib/server/agent/tools/edit.js";
 import { createEventTool } from "$lib/server/agent/tools/event.js";
 import { createLoadMcpTool } from "$lib/server/agent/tools/loadMcp.js";
@@ -30,7 +31,6 @@ import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/too
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { wrapCommandWithVenv, execCommand } from "$lib/server/agent/tools/helpers.js";
 import { prepareToolSandboxExecution, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
-import { getHostBashStore } from "$lib/server/hostBash/index.js";
 import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
 
 function wrapSerializedTool<T extends AgentTool<any>>(tool: T): T {
@@ -171,30 +171,12 @@ export function createMomTools(options: {
   const registry = new ToolRegistry();
   const decidePolicy: ToolPolicyDecider = (tool, input, ctx) => {
     if (tool.id === "bash") {
-      const params = input as { command?: string; hostApproval?: any };
-
-      if (params?.hostApproval) {
-        return {
-          type: "approval_required",
-          request: createDefaultApprovalRequest(tool, input, ctx)
-        };
-      }
-
-      const hostBashStore = getHostBashStore();
-      const parsed = tryParseHostBashCommand(params?.command ?? "");
-      const approved = findApprovedHostBash(hostBashStore, parsed);
-      if (approved) {
-        return { type: "allow" };
-      }
-
-      if (sandboxSettings.enabled) {
-        return { type: "allow" };
-      }
-
-      return {
-        type: "approval_required",
-        request: createDefaultApprovalRequest(tool, input, ctx)
-      };
+      return decideBashToolPolicy({
+        tool,
+        input,
+        ctx,
+        sandboxEnabled: sandboxSettings.enabled
+      });
     }
 
     if (tool.risk === "high" || tool.risk === "critical") {

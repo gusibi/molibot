@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createBashTool } from "$lib/server/agent/tools/bash.js";
+import { createBashTool, getBashToolDefinition } from "$lib/server/agent/tools/bash.js";
 import { normalizeCommandOutput } from "$lib/server/agent/tools/helpers.js";
 import { truncateMiddle } from "$lib/server/agent/tools/truncate.js";
 import { defaultToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { getHostBashStore, createHostBashApprovalRecord, type ApprovedHostBashEntry, type HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
+import type { ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 
 function hostApprovalStore(sessionMode: "default" | "session" = "default"): any {
   return {
@@ -183,6 +184,44 @@ test("bash can request host tool approval without a separate approval tool", asy
   }
 });
 
+test("bash ignores hostApproval and runs directly when tool sandbox is disabled", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  const pendingApprovals: HostBashApprovalRecord[] = [];
+  try {
+    const tool = createBashTool(cwd, {
+      sandbox: {
+        settings: { ...defaultToolSandboxSettings, enabled: false },
+        workspaceDir: cwd
+      },
+      hostApproval: {
+        channel: "telegram",
+        chatId: "chat-1",
+        scopeId: "chat-1",
+        sessionId: "session-1",
+        store: hostApprovalStore(),
+        hostBashStore: capturingHostBashStore(pendingApprovals)
+      } as any
+    });
+    const result = await tool.execute("tool-1", {
+      label: "bash",
+      command: "printf '%s' host-full-access",
+      hostApproval: {
+        reason: "Host full access is already enabled.",
+        permissions: {
+          filesystem: "workspace-write",
+          network: "internet"
+        }
+      }
+    });
+
+    assert.equal(firstText(result), "host-full-access");
+    assert.equal(pendingApprovals.length, 0);
+    assert.equal(Boolean(result.details && "hostBashApproval" in result.details), false);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("bash can request one-time host approval for compound shell commands", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
   let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
@@ -216,6 +255,80 @@ test("bash can request one-time host approval for compound shell commands", asyn
     assert.equal(pending[0]?.pendingAction?.kind, "run_one_time_host_script");
     assert.equal(settings.hostTools.approvedTools.length, 0);
     assert.match(firstText(result), /Host (Bash|tool) approval requested/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("bash executes approved Host Bash without calling sandbox shell", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  const approvedHostBash: ApprovedHostBashEntry = {
+    id: "hbw-printf",
+    toolId: "printf",
+    displayName: "printf",
+    command: "printf",
+    reason: "approved for host execution",
+    permissions: {
+      envAllowlist: ["PATH"],
+      filesystem: "scratch-only",
+      network: "none"
+    },
+    approvedAt: "2026-05-13T00:00:00.000Z",
+    approvedFromRecordId: "hba-printf",
+    channel: "telegram",
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    enabled: true
+  };
+  let shellCalled = false;
+  try {
+    const def = getBashToolDefinition({
+      cwd,
+      sandbox: {
+        settings: { ...defaultToolSandboxSettings, enabled: true },
+        workspaceDir: cwd
+      },
+      hostApproval: {
+        channel: "telegram",
+        chatId: "chat-1",
+        scopeId: "chat-1",
+        sessionId: "session-1",
+        store: hostApprovalStore(),
+        hostBashStore: {
+          getApprovedEntry: (toolId: string) => toolId === "printf" ? approvedHostBash : undefined
+        } as any
+      }
+    });
+    const result = await def.handler({
+      label: "bash",
+      command: "printf '%s' approved-host"
+    }, {
+      runId: "tool-1",
+      sessionId: "session-1",
+      workspaceId: "personal",
+      actorId: "chat-1",
+      cwd,
+      fs: {
+        readText: async () => "",
+        writeText: async () => {}
+      },
+      shell: {
+        run: async () => {
+          shellCalled = true;
+          return { exitCode: 1, stdout: "", stderr: "sandbox should not run" };
+        }
+      },
+      network: {
+        fetch: async () => ({})
+      },
+      emit: () => {}
+    } satisfies ToolExecutionContext);
+
+    assert.equal(result.ok, true);
+    const item = Array.isArray(result.content) ? result.content[0] : undefined;
+    assert.equal(item?.type === "text" ? item.text : "", "approved-host");
+    assert.equal(shellCalled, false);
+    assert.equal((result.details as { hostBash?: boolean } | undefined)?.hostBash, true);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

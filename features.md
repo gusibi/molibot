@@ -2,6 +2,12 @@
 
 ## 2026-05-31
 
+### Sandbox 关闭时 Host Bash 免审批 (Host Bash Full Access When Sandbox Is Off)
+- **权限语义修正**: 有效 `/sandbox off` 现在表示当前作用域进入 Host Bash full access。普通 `bash` 以及模型附带的 `hostApproval` 参数都会直接在宿主执行，不再额外创建 Host Bash 审批。
+- **Sandbox-on 审批保持不变**: 当 sandbox 有效开启时，普通 `bash` 仍优先进入 OS sandbox；显式 Host Bash 请求和 sandbox 权限失败仍会走原有审批与自动恢复流程。
+- **重复审批防护**: 命中已批准 Host Bash 白名单的命令会直接走 `executeApprovedHostBash`，不会重新进入 sandbox shell，也不会触发二次审批。
+- **回归测试补充**: 新增策略层测试覆盖 sandbox on/off 与 `hostApproval` 参数组合；补充 bash 输出测试覆盖 sandbox disabled 免审批直跑和 approved Host Bash 不调用 sandbox shell。
+
 ### 独立思考消息与最新进度模式 (Separate Reasoning Messages & Latest Progress Mode)
 - **`/showreasoning new` 模式**: `showReasoning` 配置扩展为 `off/on/stream/new`，聊天命令、Settings → System 下拉选项、settings schema/sanitize/store 均接受并保留 `new`。
 - **思考与答案分离**: `DisplayFormatter` 新增独立的答案与 reasoning 渲染方法。Telegram 与 Feishu 不再把 reasoning 拼进最终答案消息，避免打开思考后需要先翻过大段 reasoning 才能看到正文。
@@ -315,6 +321,7 @@
 | ENG-354 | Host Bash approval friction and context hygiene | Done | Session-only approvals can execute pending actions without a durable whitelist entry, QQ/Weixin/Web share the approval execution path, duplicate same-run approval events are suppressed, long subagent outputs are compressed before returning to the parent model context, and host approval env inheritance was restored in the 2026-05-25 hotfix |
 | ENG-355 | Host Bash execution-path display labels | Done | Runner start/end events, diagnostics, and run detail now show `Host Bash` for approved Host Bash direct execution and session-approved host fallback, while reserving `Sandbox` for actual OS sandbox execution and `Sandbox disabled` for sandbox initialization soft-disable |
 | ENG-356 | Agent session failure-turn persistence parity | Done | Agent session persistence now follows Pi/Pae-style message-boundary semantics: user prompts are saved at run start, assistant error/partial messages and tool results are appended as they happen, transient runtime notices stay out of normal history, and model retry/fallback can isolate error assistant messages without deleting audit history |
+| ENG-357 | Sandbox-off Host Bash full access | Done | Effective `/sandbox off` now means Host Bash full access for the current scope: ordinary `bash` and model-supplied `hostApproval` parameters run directly on the host without creating Host Bash approval requests, while sandbox-on approval behavior remains unchanged |
 | ENG-341 | Settings shell and first-screen hierarchy unification | Done | Reworked the shared `/settings` shell around one warmer editorial frame aligned to `DESIGN.md`, tightening left-nav hierarchy, top chrome, page-hero treatment, content width, card surfaces, and primary action styling so settings pages enter with one consistent first-screen structure without rewriting each page's business logic |
 | ENG-342 | Settings header compactness and softer dark-card borders | Done | Tuned the shared settings shell so ordinary page headers stay compact instead of expanding into oversized hero blocks, and reduced card-border contrast across settings pages, especially in dark mode where the old bright outline felt crude |
 | ENG-343 | Card primitive border softening | Done | Replaced the shared shadcn `Card` primitive's `ring-foreground/10 ring-1` outline with a softer semantic border and lighter shadow so cards stop reading as black-edged/light-edged boxes across settings and other reused surfaces |
@@ -1272,3 +1279,4 @@
 - 2026-05-23: Fixed `/settings/host-bash` action buttons so whitelist `Disable` / `Delete` and history `Delete` now use the current shadcn Button event binding style and actually trigger their POST actions.
 - 2026-05-26: Corrected user-facing bash execution labels. Approved Host Bash direct execution and session-approved host fallback now display as `Host Bash` in runner progress, diagnostics, and run detail, while `Sandbox` remains reserved for actual OS sandbox execution and `Sandbox disabled` for sandbox initialization soft-disable.
 - 2026-05-26: Aligned Agent session persistence with Pi/Pae message-boundary semantics. Failed or partial runs now preserve the user prompt plus assistant error/partial output and completed tool results, while runtime control notices remain excluded from normal model history.
+- 2026-05-31: Changed effective `/sandbox off` semantics to Host Bash full access. Ordinary `bash` and model-supplied `hostApproval` now execute directly on the host without creating Host Bash approval requests, while sandbox-on explicit host requests and sandbox permission failures still use the existing approval flow.

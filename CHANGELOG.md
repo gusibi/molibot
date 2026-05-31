@@ -4,6 +4,12 @@
 
 ## 2026-05-31
 
+### Host Bash Full Access When Sandbox Is Off
+- Changed the `bash` policy so an effective `/sandbox off` state means Host Bash full access: ordinary bash commands and model-supplied `hostApproval` parameters now run directly on the host without creating a Host Bash approval request.
+- Kept the existing sandbox-on approval model: explicit Host Bash requests and sandbox permission failures still produce approval prompts while sandboxing is enabled.
+- Added regression coverage for the sandbox on/off policy split, sandbox-disabled host execution, and approved Host Bash paths bypassing sandbox shell execution.
+- Updated the session-control guide and README to make the sandbox/approval boundary explicit.
+
 ### Separate Reasoning Messages & Latest Progress Mode
 - Added `/showreasoning new` across settings, sanitization, commands, and the System settings UI.
 - Split reasoning display from final answer rendering for Telegram and Feishu, so visible thinking no longer prefixes or buries the actual answer.

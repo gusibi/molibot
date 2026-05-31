@@ -376,7 +376,8 @@ export function getBashToolDefinition(
         };
       }
 
-      if (params.hostApproval) {
+      const hostFullAccess = options.sandbox?.settings.enabled === false;
+      if (params.hostApproval && !hostFullAccess) {
         if (!options.hostApproval) {
           return { ok: false, error: "Host Bash approval is not configured for this bash tool instance." };
         }

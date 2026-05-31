@@ -69,10 +69,10 @@
 | 指令级及参数 | 生效范围 | 具体执行效果与适用场景 |
 | :--- | :--- | :--- |
 | **无参数** (`/sandbox`) | 查看状态 | 输出当前实际生效的 Sandbox 状态（ENABLED/DISABLED），并详尽列出四个层级当前的设置值与来源。 |
-| **`/sandbox off`** | 当前会话 | **临时关闭沙盒（运行于宿主）**：在当前会话中完全关闭沙盒，使接下来的终端命令均直接在宿主机环境（Host Bash）下执行，避开沙盒的文件路径及网络限制。<br>• 适用场景：在当前对话中临时安装系统依赖、在工作区外写入配置文件等调试任务。<br>• 重置条件：发送 `/new` 清除会话、或切换 Bot 时，该临时覆盖将自动还原（Inherit）。 |
+| **`/sandbox off`** | 当前会话 | **临时关闭沙盒并免除 Host Bash 审批（Host full access）**：在当前会话中完全关闭沙盒，使接下来的终端命令均直接在宿主机环境（Host Bash）下执行，不再为普通 `bash` 或模型附带的 `hostApproval` 参数弹出 Host Bash 审批。<br>• 适用场景：在当前对话中临时安装系统依赖、在工作区外写入配置文件等调试任务。<br>• 重置条件：发送 `/new` 清除会话、或切换 Bot 时，该临时覆盖将自动还原（Inherit）。 |
 | **`/sandbox on`** | 当前会话 | **临时开启沙盒**：在当前会话中强行开启沙盒进行安全隔离。 |
 | **`/sandbox reset`** | 当前会话 | **重置当前会话**：清空会话级覆盖，重新开始继承 Bot/Agent 或全局配置。 |
-| **`/sandbox bot off`** | 当前机器人 | **Bot 实例级永久关闭**：将当前 Bot 实例的沙盒开关永久持久化为 OFF，重启后依旧生效。例如可以在 Telegram 里开启沙盒而在飞书里关闭，互不干扰。 |
+| **`/sandbox bot off`** | 当前机器人 | **Bot 实例级永久关闭并免除 Host Bash 审批**：将当前 Bot 实例的沙盒开关永久持久化为 OFF，重启后依旧生效；该 Bot 后续普通 `bash` 会直接以 Host Bash 执行，不再弹 Host Bash 审批。例如可以在 Telegram 里开启沙盒而在飞书里关闭，互不干扰。 |
 | **`/sandbox bot on`** | 当前机器人 | **Bot 实例级永久开启**：将当前 Bot 实例的沙盒开关永久持久化为 ON，重启后依旧生效。 |
 | **`/sandbox bot reset`** | 当前机器人 | **Bot 实例级重置**：清除当前 Bot 的沙盒覆盖，让其继承 Agent 或全局配置。 |
 | **`/sandbox agent off`** | 关联智能体 | **智能体级永久关闭**：将当前 Bot 关联的智能体（Agent Profile）的沙盒属性持久化为 OFF，重启后生效。 |
@@ -89,3 +89,6 @@
 2. **静默错误处理**：
    * 当工具发生异常且 `toolProgress` 设为 `off` 时，系统为了防止泄露底层长堆栈，不会将原始 Error 信息推送到用户窗口。但整轮执行失败时，仍会缓存并发送最后一条友好的错误摘要（例如 `Error: Execution timed out`）。
    * 完整的详细错误信息将被安全地记录在系统后台 RunLog 中，可通过 `/runlog latest` 查询。
+3. **Sandbox 与 Host Bash 审批边界**：
+   * Sandbox 开启时，普通 `bash` 优先在 OS sandbox 内运行；只有命令显式请求 Host Bash 或 sandbox 权限失败后，才进入 Host Bash 审批流程。
+   * Sandbox 关闭时，表示当前作用域已选择 Host full access，普通 `bash` 直接在宿主执行，不再进行 Host Bash 二次审批。
