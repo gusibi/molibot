@@ -20,6 +20,12 @@ test("getRuntimeToolClassification: edit => medium risk, builtin source", () => 
   assert.equal(result.source, "builtin");
 });
 
+test("getRuntimeToolClassification: webSearch => medium risk, builtin source", () => {
+  const result = getRuntimeToolClassification("webSearch");
+  assert.equal(result.risk, "medium");
+  assert.equal(result.source, "builtin");
+});
+
 test("getRuntimeToolClassification: mcp__ tool => medium risk, mcp source", () => {
   const result = getRuntimeToolClassification("mcp__some_server__some_tool");
   assert.equal(result.risk, "medium", "MCP tools should have medium risk");

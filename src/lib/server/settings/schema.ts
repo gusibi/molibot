@@ -203,6 +203,33 @@ export interface SkillDraftSettings {
   template: SkillDraftTemplateSettings;
 }
 
+export type WebSearchEngineId =
+  | "duckduckgo"
+  | "brave"
+  | "tavily"
+  | "exa"
+  | "serper"
+  | "baidu"
+  | "bocha";
+
+export type WebSearchRoute = "auto" | "domestic_news" | "international_news" | "chinese_general" | "global_general";
+
+export interface WebSearchEngineSettings {
+  enabled: boolean;
+  apiKey: string;
+  baseUrl?: string;
+}
+
+export interface WebSearchSettings {
+  enabled: boolean;
+  defaultRoute: WebSearchRoute;
+  defaultEngine: WebSearchEngineId | "auto";
+  maxResults: number;
+  timeoutMs: number;
+  retryTimeoutMs: number;
+  engines: Record<WebSearchEngineId, WebSearchEngineSettings>;
+}
+
 export type ToolSandboxInitFailureMode = "warn-disable" | "block";
 export type ToolSandboxEnvInheritMode = "minimal" | "allowlist" | "full";
 
@@ -293,6 +320,12 @@ export interface BrowserAutomationSettings {
   defaultTimeoutMs: number;
 }
 
+export interface EventExecutionSettings {
+  executionTimeoutMs: number;
+  maxAttempts: number;
+  retryDelayMs: number;
+}
+
 export interface RunBudgetLimits {
   maxToolCalls: number;
   maxToolFailures: number;
@@ -316,6 +349,7 @@ export interface RuntimeSettings {
   mcpServers: McpServerConfig[];
   skillSearch: SkillSearchSettings;
   skillDrafts: SkillDraftSettings;
+  webSearch: WebSearchSettings;
   toolSandbox: ToolSandboxSettings;
   hostTools: HostToolSettings;
   disabledSkillPaths: string[];
@@ -326,6 +360,7 @@ export interface RuntimeSettings {
   telegramBotToken: string;
   telegramAllowedChatIds: string[];
   budget: RunBudgetLimits;
+  events: EventExecutionSettings;
   browserAutomation: BrowserAutomationSettings;
   display?: GlobalDisplaySettings;
 }

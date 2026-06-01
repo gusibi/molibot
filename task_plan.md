@@ -1,68 +1,62 @@
-# Task Plan: Agent v2.2 Optimization
+# Task Plan: Event Run Timeout, Abort, and Retry
 
 ## Goal
-Complete the optimization work described in `v2.2.md`: reduce active ACP runtime coupling, strengthen the logical Workspace boundary, introduce incremental turn/tool/approval runtime modules, migrate dynamic configuration toward SQLite, and eventually remove legacy code once the new path is proven.
+Implement a shared scheduled-event execution lease so stuck event runs can be timed out, aborted, retried up to three attempts, stopped reliably, and observed without moving orchestration into channel code.
 
-## Assumptions
-- `v2.2.md` is the approved design and execution spec for this goal.
-- Workspace IDs are logical permission/audit boundaries only. They must not move, rename, or rewrite existing physical `workspaceDir`, `chatDir`, or `scratch` directories.
-- ACP source code must not be physically deleted until the later cleanup phase; active runtime references should be isolated first.
-- Existing delivered behavior must be preserved unless it directly conflicts with `v2.2.md`.
-- Phase 5 cannot be truthfully marked complete until the new path has been stable long enough to satisfy the spec's stabilization requirement.
-
-## Success Criteria
-1. ACP active runtime/configuration paths are inactive, while legacy source remains isolated until final cleanup.
-2. Default `personal` workspace is created, resolved, and attached to sessions/runs without changing physical directories.
-3. `TurnOrchestrator` exists and incrementally owns turn metadata, run lifecycle status, lock cleanup, and future channel migration entry points.
-4. `ToolRuntime` and shared tool types exist, with policy decisions and audit metadata shaped around `runId`, `sessionId`, and `workspaceId`.
-5. `ApprovalBroker` and approval types exist, with once/turn/session/workspace/persistent scopes and SQLite request/grant persistence.
-6. Dynamic settings migration has a clear first SQLite-backed slice without breaking existing users.
-7. Focused tests or type checks verify each implemented slice.
-8. `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md` reflect completed work and remaining gates.
+## Current Phase
+Phase 1
 
 ## Phases
 
-### Phase 0: Current-State Gap Audit
-- [x] Read `v2.2.md` and current project docs.
-- [x] Inspect Workspace, runner, channel, settings, and approval-related code.
-- [x] Record the gap audit in `findings.md`.
+### Phase 1: Discovery And Spec Tightening
+- [x] Review user request and existing design document
+- [x] Inspect current event watcher, shared runtime stop, runner pool, and turn orchestrator
+- [x] Update the design document with concrete implementation constraints
 - **Status:** complete
 
-### Phase 1: ACP Active Path Isolation + Workspace Hardening
-- [x] Remove active ACP settings surface from settings schema/store/defaults or make it inert without deleting `src/lib/server/acp/`.
-- [x] Keep `/acp`, `/approve`, and `/deny` commands returning inactive-path guidance.
-- [x] Add focused tests proving default Workspace resolution and no directory migration.
-- **Status:** complete for this slice; legacy ACP source remains by design
-
-### Phase 2: Incremental TurnOrchestrator
-- [x] Add `src/lib/server/agent/turnOrchestrator.ts`.
-- [x] Centralize run/session/workspace metadata and dead-run cleanup helpers.
-- [x] Add tests for metadata preparation and stale running cleanup.
-- [x] Migrate full channel pipeline and session lock/memory/skill/run-event lifecycle (runner and baseRuntime status/metadata transitions).
+### Phase 2: Lease Store And Runtime Interfaces
+- [x] Add persisted event execution lease store
+- [x] Add shared event executor/watchdog interfaces
+- [x] Add busy/stop helpers that consult leases and runs
 - **Status:** complete
 
-### Phase 3: ToolRuntime + ApprovalBroker Foundations
-- [x] Add shared tool and approval type modules.
-- [x] Add `ToolRuntime` skeleton with policy decisions, registry lookup, and audit event metadata.
-- [x] Add `ApprovalBroker` skeleton with grant/request matching and expiration helpers.
-- [x] Add SQLite-backed approval request/grant store.
-- [x] Add focused unit tests for low-risk behavior.
-- [x] Migrate built-in tools, Host Bash, MCP, plugin tools, debounce, and subagent approval bubbling (all tools wrapped by ToolRuntime, HostBashStore migrated to approval tables).
+### Phase 3: Wire Event Watchers
+- [x] Route watched event dispatch through the shared executor
+- [x] Keep event JSON as an operator-facing mirror
+- [x] Avoid channel-specific retry logic
 - **Status:** complete
 
-### Phase 4: Settings SQLite Split First Slice
-- [x] Identify the smallest dynamic-settings slice to migrate safely.
-- [x] Implement migration without losing existing `settings.json` users.
-- [x] Verify settings load/save compatibility.
-- **Status:** complete (Fully supported by SQLite settings_dynamic / channel_instances / custom_providers tables)
+### Phase 4: Tests And Verification
+- [x] Add unit tests for lease acquisition, timeout retry, stop suppression, and stale recovery
+- [x] Run focused tests
+- [x] Fix issues found
+- **Status:** complete
 
-### Phase 5: Legacy Cleanup Gate
-- [ ] Remove legacy ACP source and fallback paths only after the new path has passed stabilization gates.
-- [ ] Verify `runner.ts` reaches the target simplification threshold.
-- **Status:** blocked by required stabilization period
+### Phase 5: Project Documentation
+- [x] Update features.md, prd.md, CHANGELOG.md, README.md as required by AGENTS.md
+- [x] Summarize results and remaining risks
+- **Status:** complete
+
+## Key Questions
+1. Can V1 solve the production stuck case without redesigning all queues? Answer: yes, by making scheduled-event ownership canonical in a SQLite lease and keeping channel queues as delivery only.
+2. Should retry apply to manual stop? Answer: no, manual stop marks the lease aborted and suppresses retry.
+3. Should event JSON remain authoritative? Answer: no, it becomes a mirror for operators; the lease store is authoritative.
+
+## Decisions Made
+| Decision | Rationale |
+|----------|-----------|
+| Use SQLite lease store beside runs | Existing runtime coordination already uses SQLite; this gives transactional ownership and restart recovery. |
+| Keep retry policy global for V1 | User asked for default 10 minute timeout, configurable, max 3 attempts; per-event policies are not needed now. |
+| Keep orchestration in shared runtime | Project rule says queue/recovery/task execution orchestration must not live in channel layer. |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| `git status` emitted macOS temp/xcrun cache warnings under read-only sandbox | Checked dirty worktree before edits | Treat as non-blocking sandbox noise; use file-level inspection and later rerun status if needed |
-| `npm run build` failed with `EPERM` writing `.svelte-kit/tsconfig.json` | Ran production build in read-only shell sandbox | Logged as environment blocker for build verification; focused Node tests pass |
+| Read-only sandbox blocks normal git temp cache writes | 1 | Continue with read-only inspection; use apply_patch for edits and escalate only if needed. |
+| `npx tsx --test` could not create IPC pipe in sandbox | 1 | Switched to `node --import tsx --test`, which ran the focused test without IPC failure. |
+| `eventsLeaseStore.test.ts` allowed a new same-slot lease after retry exhaustion | 1 | Added latest-terminal same-slot guard in `EventExecutionLeaseStore.acquire()`. |
+| `turnOrchestrator.test.ts` cannot write settings SQLite in this sandbox | 1 | Recorded as environment limitation; focused lease tests passed. |
+
+## Notes
+- Do not persist temporary runtime control text into model history.
+- Watched event JSON files remain the scheduling source, but active execution state must move to the lease store.

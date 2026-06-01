@@ -158,7 +158,7 @@ export class WeixinManager extends BaseChannelRuntime {
     });
     this.commandService = this.createSharedCommandService<IncomingMessage>({
       authScopePrefix: "weixin",
-      isRunning: (scopeId) => this.running.has(scopeId),
+      isRunning: (scopeId) => this.isScopeBusy(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
       steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
       followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
@@ -629,6 +629,7 @@ export class WeixinManager extends BaseChannelRuntime {
         sourceMessage: syntheticMessage,
         isEvent: true
       };
+      (syntheticEvent as WeixinInboundEvent & { runId?: string }).runId = task.status?.runId;
 
       await this.processEvent(syntheticEvent, false);
       momLog("weixin", "trigger_task_agent_done", { filename: _filename, chatId: task.chatId });

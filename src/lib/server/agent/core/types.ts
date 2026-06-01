@@ -35,6 +35,7 @@ export interface ChannelInboundMessage {
   sessionId?: string;
   initialStatusText?: string;
   initialStatusMessageId?: number;
+  runId?: string;
 }
 
 export interface LoggedMessage {

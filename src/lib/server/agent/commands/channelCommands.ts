@@ -1019,15 +1019,15 @@ export class SharedRuntimeCommandService<TTarget> {
   }
 
   private isApprovalText(text: string): boolean {
-    return /^(安装|批准|同意|确认|允许|approve|approved|yes|y)$/i.test(text.trim());
+    return /^(安装|批准|同意|确认|允许|通过|审批通过|批准通过|同意审批|审批同意|approve|approved|yes|y)$/i.test(text.trim());
   }
 
   private isSessionApprovalText(text: string): boolean {
-    return /^(本session允许|本轮session允许|本轮允许|允许本轮|允许会话|本会话允许|允许本会话|session允许|session批准|approve session|session approve)$/i.test(text.trim());
+    return /^(本session允许|本轮session允许|本轮允许|允许本轮|允许会话|本会话允许|允许本会话|本会话通过|本轮通过|本次通过|本次审批通过|session允许|session批准|session通过|approve session|session approve)$/i.test(text.trim());
   }
 
   private isRejectText(text: string): boolean {
-    return /^(拒绝|取消|不批准|deny|reject|no|n)$/i.test(text.trim());
+    return /^(拒绝|取消|不批准|审批拒绝|拒绝审批|deny|reject|no|n)$/i.test(text.trim());
   }
 
   private async tryHandleHostToolApproval(input: SharedRuntimeCommandContext<TTarget>, text: string): Promise<boolean> {
@@ -1109,8 +1109,8 @@ export class SharedRuntimeCommandService<TTarget> {
         "/hosttools approve <approvalId>",
         "/hosttools approve-session <approvalId>",
         "/hosttools reject <approvalId>",
-        "Or reply `批准`, `安装`, or `approve` when exactly one approval is pending in this chat.",
-        "Reply `本session允许` or `approve session` to allow only the current session."
+        "Or reply `批准`, `审批通过`, `安装`, or `approve` when exactly one approval is pending in this chat.",
+        "Reply `本session允许`, `本次审批通过`, or `approve session` to allow only the current session."
       ].join("\n")
     );
   }

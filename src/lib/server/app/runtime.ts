@@ -139,7 +139,7 @@ export function getRuntime(): RuntimeState {
       currentSettings.value = state.settings;
       state.settingsStore.save(state.settings);
       applyChannelPlugins(state, applySettingsPatch);
-      state.taskScheduler.restart(state.channelManagers);
+      state.taskScheduler.restart(state.channelManagers, state.settings);
       return state.settings;
     };
 
@@ -188,7 +188,7 @@ export function getRuntime(): RuntimeState {
         });
     }, 60_000);
     applyChannelPlugins(state, applySettingsPatch);
-    state.taskScheduler.start(state.channelManagers);
+    state.taskScheduler.start(state.channelManagers, state.settings);
 
     globalThis.__molibotRuntime = state;
   }

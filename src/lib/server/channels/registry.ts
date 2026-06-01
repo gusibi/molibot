@@ -11,6 +11,8 @@ import { weixinChannelPlugin } from "$lib/server/channels/weixin/index.js";
 export interface ChannelManager {
   apply(config: unknown): void;
   stop(): void;
+  stopTask?(scopeId: string): { aborted: boolean; clearedStale?: boolean };
+  abortTaskRun?(scopeId: string, reason?: string): { aborted: boolean; clearedStale?: boolean };
   triggerTask?(event: unknown, filename: string): Promise<void>;
 }
 

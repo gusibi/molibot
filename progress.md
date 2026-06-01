@@ -1,36 +1,86 @@
-# Progress Log: Agent v2.2 Optimization
+# Progress Log
 
-## Session: 2026-05-28
+## Session: 2026-05-31
 
-### Current-State Gap Audit
+### Phase 1: Discovery And Spec Tightening
 - **Status:** complete
-- Read `v2.2.md`, `prd.md`, and current source layout.
-- Confirmed existing Workspace store/default `personal` workspace and runner `workspaceId` propagation.
-- Confirmed `/acp`, `/approve`, and `/deny` shared commands already return an inactive-path message.
-- Found remaining active ACP settings/UI references and missing `TurnOrchestrator`, `ToolRuntime`, and `ApprovalBroker` modules.
+- **Started:** 2026-05-31
+- Actions taken:
+  - Reviewed the draft timeout/retry design document.
+  - Inspected `EventsWatcher`, `BaseChannelRuntime`, `TurnOrchestrator`, and `RunnerPool`.
+  - Identified that current 10-15 minute stale locks only release logical state and do not reliably abort active runner/tool execution.
+  - Updated the design document with atomic lease, trigger slot, mirror, timeout abort, and direct text event constraints.
+- Files created/modified:
+  - `task_plan.md` created.
+  - `findings.md` created.
+  - `progress.md` created.
+  - `docs/agent-execution/event-run-timeout-retry-design.md` updated.
 
-### Persistent Planning
+### Phase 2: Lease Store And Runtime Wiring
 - **Status:** complete
-- Replaced stale research-oriented `task_plan.md`, `findings.md`, and `progress.md` with v2.2 implementation tracking files.
+- Actions taken:
+  - Added `EventExecutionLeaseStore`.
+  - Added `RuntimeSettings.events` defaults and sanitization.
+  - Added timeout/retry execution flow inside shared `EventsWatcher`.
+  - Added shared `abortTaskRun()`, `stopTask()`, and lease-aware busy detection in base runtime.
+  - Passed lease run ids through Telegram, Feishu, QQ, and Weixin event-trigger paths.
+- Files created/modified:
+  - `src/lib/server/agent/eventsLeaseStore.ts`
+  - `src/lib/server/agent/eventsLeaseStore.test.ts`
+  - `src/lib/server/agent/events.ts`
+  - `src/lib/server/agent/taskScheduler.ts`
+  - `src/lib/server/app/runtime.ts`
+  - `src/lib/server/channels/shared/baseRuntime.ts`
+  - `src/lib/server/channels/registry.ts`
+  - channel runtime files for Telegram, Feishu, QQ, and Weixin
+  - settings schema/default/store/sanitize files
 
-### Phase 1/2/3 Foundation Implementation
+### Phase 4: Tests And Verification
 - **Status:** complete
-- Added `src/lib/server/agent/turnOrchestrator.ts` and connected `runner.ts` to it for run/session/workspace metadata preparation.
-- Modified `runner.ts` to call `getTurnOrchestrator().updateRunStatus` on all return paths to transition runs out of `'running'`.
-- Hooked up `getTurnOrchestrator().cleanupStaleRunningTurns(new SqliteTurnCleanupStore())` inside `src/lib/server/app/runtime.ts` during initialization (`getRuntime()`) to clear deadlocks on startup.
-- Modified `baseRuntime.ts` to call `TurnOrchestrator.prepareTurn()` directly to prepare turn metadata.
-- Registered all built-in tools to `ToolRegistry` and wrapped their executions through `ToolRuntime.executeToolCall()` dynamically in `createMomTools()` via `wrapWithToolRuntime`.
-- Added `src/lib/server/agent/tools/toolTypes.ts` and `toolRuntime.ts` for unified tool definitions, execution context, policy decisions, audit events, and high-risk approval blocking.
-- Added `src/lib/server/approval/approvalTypes.ts` and `approvalBroker.ts` for request/grant scope matching, request resolution, and timeout expiry.
-- Added `src/lib/server/approval/approvalStore.ts` for SQLite-backed `approval_requests` and `approval_grants` persistence.
-- Made ACP defaults inert and replaced `/settings/acp` with an inactive read-only page while retaining legacy source files for the final cleanup gate.
-- Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`.
+- Actions taken:
+  - Ran `node --import tsx --test src/lib/server/agent/eventsLeaseStore.test.ts`.
+  - Fixed same-slot retry exhaustion behavior after the first test run showed a terminal failed slot could be reacquired.
+  - Added startup recovery for stale running leases and covered it with a unit test.
+  - Ran `npx tsc --noEmit --pretty false` and filtered for touched files; no new touched-file type errors remained. The full command still reports existing unrelated repository errors.
+  - Attempted `node --import tsx --test src/lib/server/agent/core/turnOrchestrator.test.ts`; it failed because the sandbox opened the configured settings SQLite database read-only.
+- Files created/modified:
+  - `src/lib/server/agent/eventsLeaseStore.ts`
+  - `src/lib/server/agent/eventsLeaseStore.test.ts`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
 
-## Verification Log
-| Check | Result |
-|-------|--------|
-| Current v2.2 design file read | Complete |
-| Existing planning files refreshed | Complete |
-| Code changes implemented | First foundation slice complete |
-| Focused Node tests | `node --import tsx --test src/lib/server/approval/approvalStore.test.ts src/lib/server/approval/approvalBroker.test.ts src/lib/server/agent/tools/toolRuntime.test.ts src/lib/server/agent/turnOrchestrator.test.ts src/lib/server/workspaces/store.test.ts src/lib/server/settings/hostTools.test.ts` passed 13/13 |
-| Production build | Blocked by read-only sandbox: `EPERM` writing `.svelte-kit/tsconfig.json` |
+### Phase 5: Project Documentation
+- **Status:** complete
+- Actions taken:
+  - Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md` with scheduled event lease/timeout/retry behavior.
+  - Re-ran focused lease tests and touched-file type filter.
+- Files created/modified:
+  - `features.md`
+  - `prd.md`
+  - `CHANGELOG.md`
+  - `README.md`
+
+## Test Results
+| Test | Input | Expected | Actual | Status |
+|------|-------|----------|--------|--------|
+| Event lease store | `node --import tsx --test src/lib/server/agent/eventsLeaseStore.test.ts` | 5 passing tests | 5 passing tests | pass |
+| Touched-file type filter | `npx tsc --noEmit --pretty false 2>&1 \| rg "...touched files..."` | No touched-file errors | Only pre-existing Telegram transformer error appeared in filtered output | pass |
+| Turn orchestrator regression | `node --import tsx --test src/lib/server/agent/core/turnOrchestrator.test.ts` | Existing tests run | Failed with readonly settings SQLite in sandbox | blocked |
+
+## Error Log
+| Timestamp | Error | Attempt | Resolution |
+|-----------|-------|---------|------------|
+| 2026-05-31 | `git status` sandbox temp-cache warnings | 1 | Command still returned useful status; continued. |
+| 2026-05-31 | `npx tsx --test` failed with `listen EPERM` on tsx IPC pipe | 1 | Used `node --import tsx --test` instead. |
+| 2026-05-31 | Same-slot retry exhaustion test failed | 1 | Added terminal-slot guard to prevent reacquiring an exhausted trigger slot. |
+| 2026-05-31 | `turnOrchestrator.test.ts` failed with readonly SQLite writes | 1 | Treated as sandbox limitation; not a logic failure in changed code. |
+
+## 5-Question Reboot Check
+| Question | Answer |
+|----------|--------|
+| Where am I? | Phase 5: final documentation and self-review. |
+| Where am I going? | Diff review, final verification summary, and handoff. |
+| What's the goal? | Shared scheduled-event lease with timeout abort, capped retry, reliable stop, and observability. |
+| What have I learned? | Current event JSON/runs locks are logical; the new lease store provides atomic active slot ownership and retry accounting. |
+| What have I done? | Updated the design, implemented lease/timeout/retry wiring, added tests, and updated project docs. |

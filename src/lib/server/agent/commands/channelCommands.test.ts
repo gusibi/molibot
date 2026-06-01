@@ -188,7 +188,7 @@ test("plain approval text approves the only pending host tool request in the cha
   const handled = await service.handle({
     chatId: "chat-1",
     scopeId: "chat-1",
-    text: "安装",
+    text: "审批通过",
     target: "target-1"
   });
 

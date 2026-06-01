@@ -1,5 +1,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { join } from "node:path";
+import {
+  getEventExecutionLeaseStore,
+  type EventExecutionLease,
+  type EventExecutionLeaseStore
+} from "$lib/server/agent/eventsLeaseStore.js";
 
 export interface EventStatus {
   state: "pending" | "running" | "completed" | "skipped" | "error";
@@ -127,6 +132,10 @@ function cronMatches(parsed: ParsedCron, date: Date): boolean {
   );
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
 interface PeriodicSchedule {
   parsed: ParsedCron;
   event: MomEvent;
@@ -134,8 +143,32 @@ interface PeriodicSchedule {
   lastTick: string;
 }
 
+export interface EventExecutionSettings {
+  executionTimeoutMs: number;
+  maxAttempts: number;
+  retryDelayMs: number;
+}
+
+export interface EventDispatchTimeoutContext {
+  event: MomEvent;
+  filename: string;
+  runId: string;
+  lease: EventExecutionLease;
+}
+
+export interface EventsWatcherOptions {
+  channel?: string;
+  leaseScope?: string;
+  getExecutionSettings?: () => EventExecutionSettings;
+  onTimeout?: (context: EventDispatchTimeoutContext) => Promise<void> | void;
+  leaseStore?: EventExecutionLeaseStore;
+}
+
 export class EventsWatcher {
   private static readonly DEFAULT_RUNNING_TTL_MS = 15 * 60 * 1000;
+  private static readonly DEFAULT_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
+  private static readonly DEFAULT_MAX_ATTEMPTS = 3;
+  private static readonly DEFAULT_RETRY_DELAY_MS = 5000;
   private readonly oneShotTimers = new Map<string, NodeJS.Timeout>();
   private readonly periodic = new Map<string, PeriodicSchedule>();
   private watcher: FSWatcher | null = null;
@@ -146,7 +179,8 @@ export class EventsWatcher {
 
   constructor(
     private readonly eventsDir: string,
-    private readonly onEvent: (event: MomEvent, filename: string) => Promise<void> | void
+    private readonly onEvent: (event: MomEvent, filename: string) => Promise<void> | void,
+    private readonly options: EventsWatcherOptions = {}
   ) {
     const rawRunningTtlMs = Number.parseInt(
       process.env.MOLIBOT_EVENT_RUNNING_TTL_MS ?? process.env.EVENT_RUNNING_TTL_MS ?? "",
@@ -175,6 +209,30 @@ export class EventsWatcher {
     return `${year}-${month}-${day}T${hour}:${minute}`;
   }
 
+  private getExecutionSettings(): EventExecutionSettings {
+    const settings = this.options.getExecutionSettings?.();
+    return {
+      executionTimeoutMs: Math.max(
+        1000,
+        Math.round(settings?.executionTimeoutMs ?? EventsWatcher.DEFAULT_EXECUTION_TIMEOUT_MS)
+      ),
+      maxAttempts: Math.max(1, Math.round(settings?.maxAttempts ?? EventsWatcher.DEFAULT_MAX_ATTEMPTS)),
+      retryDelayMs: Math.max(0, Math.round(settings?.retryDelayMs ?? EventsWatcher.DEFAULT_RETRY_DELAY_MS))
+    };
+  }
+
+  private getLeaseStore(): EventExecutionLeaseStore {
+    return this.options.leaseStore ?? getEventExecutionLeaseStore();
+  }
+
+  private getLeaseScope(): string {
+    return this.options.leaseScope ?? this.options.channel ?? "default";
+  }
+
+  private createRunId(filename: string): string {
+    return `${filename}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  }
+
   private isRunningLeaseStale(status: EventStatus | undefined, nowMs: number): boolean {
     if (status?.state !== "running") return false;
     const startedMs = Date.parse(String(status.startedAt ?? ""));
@@ -192,6 +250,8 @@ export class EventsWatcher {
     if (!existsSync(this.eventsDir)) {
       mkdirSync(this.eventsDir, { recursive: true });
     }
+
+    this.getLeaseStore().recoverStaleRunning();
 
     const files = readdirSync(this.eventsDir).filter((name) => name.endsWith(".json"));
     for (const file of files) {
@@ -269,6 +329,11 @@ export class EventsWatcher {
         return;
       }
 
+      if (this.resumeRecoveredLease(filename, normalized)) {
+        this.knownFiles.add(filename);
+        return;
+      }
+
       if (normalized.type === "immediate") {
         this.dispatchEvent(normalized, filename);
       } else if (normalized.type === "one-shot") {
@@ -329,25 +394,140 @@ export class EventsWatcher {
       const lock = this.tryAcquirePeriodicRunLock(filename, slotKey ?? this.buildMinuteSlotKey(new Date()));
       if (!lock) return;
 
-      Promise.resolve(this.onEvent(lock.event, filename))
-        .then(() => {
-          this.markDone(filename, lock.event, "executed", lock.slotKey, lock.runId);
-        })
-        .catch((error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          this.markError(filename, message, lock.slotKey, lock.runId);
-        });
+      void this.runLeasedEvent(lock.event, filename, lock.slotKey, lock.runId);
       return;
     }
 
-    Promise.resolve(this.onEvent(event, filename))
-      .then(() => {
-        this.markDone(filename, event, "executed", slotKey);
-      })
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        this.markError(filename, message, slotKey);
+    const runId = event.status?.runId ?? this.createRunId(filename);
+    void this.runLeasedEvent(event, filename, slotKey ?? this.buildTriggerSlot(event, filename), runId);
+  }
+
+  private async runLeasedEvent(event: MomEvent, filename: string, triggerSlot: string, runId: string): Promise<void> {
+    const settings = this.getExecutionSettings();
+    const store = this.getLeaseStore();
+    let currentRunId = runId;
+
+    while (true) {
+      const lease = store.acquire({
+        leaseScope: this.getLeaseScope(),
+        eventFile: filename,
+        eventType: event.type,
+        triggerSlot,
+        chatId: event.chatId,
+        sessionId: event.chatId,
+        channel: this.options.channel,
+        runId: currentRunId,
+        maxAttempts: settings.maxAttempts,
+        timeoutMs: settings.executionTimeoutMs,
+        eventPayloadJson: JSON.stringify(event)
       });
+      if (!lease) return;
+
+      const eventForAttempt = this.withRunStatus(event, currentRunId, triggerSlot);
+      this.markRunning(filename, eventForAttempt, triggerSlot, currentRunId);
+      const outcome = await this.runAttemptWithTimeout(eventForAttempt, filename, lease);
+      if (outcome.status === "success") {
+        if (store.markCompleted(lease.id, lease.runId)) {
+          this.markDone(filename, eventForAttempt, "executed", triggerSlot, currentRunId);
+        }
+        return;
+      }
+
+      if (outcome.status === "error") {
+        const message = outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
+        if (store.markFailed(lease.id, lease.runId, message)) {
+          this.markError(filename, message, triggerSlot, currentRunId);
+        }
+        return;
+      }
+
+      const timedOut = store.markTimedOut(lease.id, lease.runId, settings.retryDelayMs);
+      this.markTimeout(filename, eventForAttempt, timedOut, triggerSlot, currentRunId);
+      if (!timedOut || timedOut.status !== "retry_wait") return;
+      await sleep(settings.retryDelayMs);
+      currentRunId = this.createRunId(filename);
+    }
+  }
+
+  private async runAttemptWithTimeout(
+    event: MomEvent,
+    filename: string,
+    lease: EventExecutionLease
+  ): Promise<{ status: "success" } | { status: "timeout" } | { status: "error"; error: unknown }> {
+    let timeout: NodeJS.Timeout | null = null;
+    let settled = false;
+    const runPromise = Promise.resolve()
+      .then(() => this.onEvent(event, filename))
+      .then(() => ({ status: "success" as const }))
+      .catch((error) => ({ status: "error" as const, error }));
+
+    const timeoutPromise = new Promise<{ status: "timeout" }>((resolve) => {
+      timeout = setTimeout(() => {
+        if (settled) return;
+        void Promise.resolve(this.options.onTimeout?.({ event, filename, runId: lease.runId, lease }))
+          .catch(() => undefined)
+          .finally(() => {
+            resolve({ status: "timeout" });
+          });
+      }, lease.timeoutMs);
+    });
+
+    const result = await Promise.race([runPromise, timeoutPromise]);
+    settled = true;
+    if (timeout) clearTimeout(timeout);
+
+    if (result.status === "timeout") {
+      await runPromise;
+    }
+    return result;
+  }
+
+  private resumeRecoveredLease(filename: string, event: MomEvent): boolean {
+    if (event.status?.state !== "running") return false;
+    const triggerSlot = event.status.runningSlotKey ?? this.buildTriggerSlot(event, filename);
+    const lease = this.getLeaseStore().getLatest(this.getLeaseScope(), filename, event.chatId, triggerSlot);
+    if (!lease) return false;
+
+    if (lease.status === "retry_wait") {
+      void this.runLeasedEvent(event, filename, triggerSlot, this.createRunId(filename));
+      return true;
+    }
+
+    if (lease.status === "failed") {
+      this.markTimeout(filename, event, lease, triggerSlot, lease.runId);
+      return true;
+    }
+
+    if (lease.status === "aborted") {
+      this.markError(filename, lease.lastError ?? "Event attempt was stopped.", triggerSlot, lease.runId);
+      return true;
+    }
+
+    if (lease.status === "completed") {
+      this.markDone(filename, event, "executed", triggerSlot, lease.runId);
+      return true;
+    }
+
+    return false;
+  }
+
+  private buildTriggerSlot(event: MomEvent, filename: string): string {
+    if (event.type === "periodic") return event.status?.runningSlotKey ?? this.buildMinuteSlotKey(new Date());
+    if (event.type === "one-shot") return `one-shot:${event.at}`;
+    return `immediate:${filename}`;
+  }
+
+  private withRunStatus(event: MomEvent, runId: string, triggerSlot: string): MomEvent {
+    return {
+      ...event,
+      status: {
+        ...(event.status ?? {}),
+        state: "running",
+        startedAt: new Date().toISOString(),
+        runId,
+        runningSlotKey: triggerSlot
+      }
+    };
   }
 
   private tryAcquirePeriodicRunLock(
@@ -356,7 +536,7 @@ export class EventsWatcher {
   ): { event: MomEvent; slotKey: string; runId: string } | null {
     const nowIso = new Date().toISOString();
     const nowMs = Date.now();
-    const runId = `${filename}:${nowMs}:${Math.random().toString(36).slice(2, 8)}`;
+    const runId = this.createRunId(filename);
     let acquired = false;
     let lockedEvent: MomEvent | null = null;
 
@@ -475,6 +655,26 @@ export class EventsWatcher {
     this.knownFiles.add(filename);
   }
 
+  private markRunning(filename: string, event: MomEvent, slotKey: string, runId: string): void {
+    const next = this.updateEventFile(filename, (current) => ({
+      ...current,
+      delivery: this.resolveDeliveryMode(current),
+      status: {
+        ...this.normalizeStatus(current.status),
+        state: "running",
+        completedAt: undefined,
+        reason: "running",
+        lastError: undefined,
+        startedAt: event.status?.startedAt ?? new Date().toISOString(),
+        runId,
+        runningSlotKey: slotKey
+      }
+    }));
+    if (next && next.type === "periodic") {
+      this.refreshPeriodicEntry(filename, next);
+    }
+  }
+
   private markSkipped(filename: string, event: MomEvent, reason: string): void {
     this.updateEventFile(filename, (current) => ({
       ...current,
@@ -509,6 +709,40 @@ export class EventsWatcher {
           runningSlotKey: undefined,
           startedAt: undefined,
           runId: undefined
+        }
+      };
+    });
+    if (next && next.type === "periodic") {
+      this.refreshPeriodicEntry(filename, next);
+    }
+  }
+
+  private markTimeout(
+    filename: string,
+    event: MomEvent,
+    lease: EventExecutionLease | null,
+    slotKey?: string,
+    runId?: string
+  ): void {
+    const state = lease?.status === "retry_wait" ? "running" : "error";
+    const message = lease?.lastError ?? "Event attempt timed out.";
+    const next = this.updateEventFile(filename, (current) => {
+      const status = this.normalizeStatus(current.status);
+      if (runId && status.runId && status.runId !== runId) return null;
+      return {
+        ...current,
+        delivery: this.resolveDeliveryMode(current),
+        status: {
+          ...status,
+          state,
+          completedAt: state === "error" ? new Date().toISOString() : status.completedAt,
+          runCount: status.runCount ?? event.status?.runCount ?? 0,
+          reason: lease?.status === "retry_wait" ? "timeout_retry_wait" : "timeout",
+          lastError: message,
+          lastSlotKey: state === "error" ? (slotKey ?? status.runningSlotKey ?? status.lastSlotKey) : status.lastSlotKey,
+          runningSlotKey: state === "error" ? undefined : (slotKey ?? status.runningSlotKey),
+          startedAt: state === "error" ? undefined : status.startedAt,
+          runId: state === "error" ? undefined : runId
         }
       };
     });

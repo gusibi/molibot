@@ -2,7 +2,42 @@
 
 ## Version 1.0
 
+## 2026-06-01
+
+### Host Bash Auto-Resume Lock Recovery
+- Hardened shared Host Bash approval auto-resume so a transient `Another run is currently active in this session.` conflict no longer crashes Telegram or other shared-text runtimes.
+- Added short retry/release polling before the background resume turn is abandoned, plus a user-visible busy fallback message when the session lock does not clear in time.
+- Added focused regression coverage for retry-on-lock-conflict and fail-fast behavior on non-lock resume errors.
+
+### Built-In Web Search Tool
+- Added a shared Agent-layer `webSearch` tool so current-information lookups no longer depend on loading a reusable skill.
+- Added configurable provider settings for DuckDuckGo, Brave, Tavily, Exa, Serper, Baidu Qianfan, and Bocha, with route-based fallback for Chinese/general/global/news searches.
+- Added `/settings/search` with shadcn-svelte controls for tool enablement, default routing, engine credentials, timeouts, max results, and live test queries.
+- Exposed each provider's effective default base URL in `/settings/search` when the custom base URL field is left empty, using the same shared constants as the runtime providers.
+- Added focused tests for search routing, result normalization, and runtime tool risk classification.
+- Refined the `webSearch` tool prompt so model answers include a mandatory `Sources:` section, use current-year queries for recent information, and prefer automatic routing unless a specific source or region is needed.
+
+### Feishu Local Approval Buttons
+- Added `card.action.trigger` handling to the Feishu WebSocket runtime so Host Bash approval buttons work for local-only Molibot instances without exposing `/api/feishu/card` publicly.
+- Kept the existing HTTP card callback route for public deployments while reusing the same shared Host Bash approval command path, with a generic Approval Broker fallback for tool approval cards that are not backed by Host Bash records.
+- Accepted common Chinese approval replies such as `审批通过` and `通过` as direct approval commands instead of queuing them as normal chat messages.
+- Logged Feishu card button delivery with `card_action_received` so callback delivery/configuration issues are easier to distinguish from approval resolver failures.
+- Added fallback behavior that edits the original approval card to the result state, or sends a text result when card editing fails.
+- Added focused test coverage for Feishu card action payload normalization.
+
+### Local Runtime Persistence
+- Added a LaunchAgent plist template for running Molibot under macOS `launchd` with `RunAtLoad` and `KeepAlive`, avoiding foreground terminal session shutdowns.
+
 ## 2026-05-31
+
+### Scheduled Event Timeout, Abort, and Retry
+- Added a SQLite-backed event execution lease store so scheduled tasks have shared ownership state across watcher, runner, and persisted run records.
+- Added configurable event execution controls: 10 minute default timeout, 3 max attempts, and 5 second retry delay.
+- Wrapped watched event execution with a timeout watchdog that aborts the current runner/turn before scheduling a retry.
+- Added stale running lease recovery on watcher startup so a process restart does not permanently block a scheduled event slot.
+- Scoped event leases by channel/bot, reconciled recovered leases back to event JSON state, and made timeout retry wait for the previous runner attempt to release before starting the next attempt.
+- Updated `/stop` shared runtime handling to clear active event leases, reducing false `Nothing running.` responses for stuck scheduled runs.
+- Passed lease run ids through Telegram, Feishu, QQ, and Weixin event-trigger paths for consistent run/lease correlation.
 
 ### Host Bash Full Access When Sandbox Is Off
 - Changed the `bash` policy so an effective `/sandbox off` state means Host Bash full access: ordinary bash commands and model-supplied `hostApproval` parameters now run directly on the host without creating a Host Bash approval request.

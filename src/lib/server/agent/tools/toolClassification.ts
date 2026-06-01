@@ -12,6 +12,9 @@ export function getRuntimeToolClassification(toolName: string): {
   if (["write", "edit"].includes(toolName)) {
     return { risk: "medium", source: "builtin" };
   }
+  if (toolName === "webSearch") {
+    return { risk: "medium", source: "builtin" };
+  }
   if (toolName.startsWith("mcp__")) {
     return { risk: "medium", source: "mcp" };
   }

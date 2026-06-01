@@ -5,11 +5,12 @@ import { EventsWatcher } from "$lib/server/agent/events.js";
 import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
 import type { ChannelManager } from "$lib/server/channels/registry.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 export class TaskScheduler {
   private watchers: EventsWatcher[] = [];
 
-  start(channelManagers: Map<string, Map<string, ChannelManager>>): void {
+  start(channelManagers: Map<string, Map<string, ChannelManager>>, settings?: RuntimeSettings): void {
     this.stop();
 
     const dataRoot = resolve(config.dataDir);
@@ -47,17 +48,38 @@ export class TaskScheduler {
           continue;
         }
 
-        const watcher = new EventsWatcher(eventsDir, (event, filename) => {
-          momLog("taskScheduler", "event_dispatched", {
+        const watcher = new EventsWatcher(
+          eventsDir,
+          (event, filename) => {
+            momLog("taskScheduler", "event_dispatched", {
+              channel,
+              botId,
+              filename,
+              eventType: event.type,
+              chatId: event.chatId,
+              delivery: event.delivery
+            });
+            return manager.triggerTask!(event, filename);
+          },
+          {
             channel,
-            botId,
-            filename,
-            eventType: event.type,
-            chatId: event.chatId,
-            delivery: event.delivery
-          });
-          return manager.triggerTask!(event, filename);
-        });
+            leaseScope: `${channel}:${botId}`,
+            getExecutionSettings: () => settings?.events ?? {
+              executionTimeoutMs: 600_000,
+              maxAttempts: 3,
+              retryDelayMs: 5000
+            },
+            onTimeout: ({ event, runId }) => {
+              momWarn("taskScheduler", "event_timeout_abort_requested", {
+                channel,
+                botId,
+                runId,
+                chatId: event.chatId
+              });
+              manager.abortTaskRun?.(event.chatId, "Scheduled event attempt timed out.");
+            }
+          }
+        );
         watcher.start();
         this.watchers.push(watcher);
         started.push(`${channel}/${botId}`);
@@ -75,9 +97,9 @@ export class TaskScheduler {
     this.watchers = [];
   }
 
-  restart(channelManagers: Map<string, Map<string, ChannelManager>>): void {
+  restart(channelManagers: Map<string, Map<string, ChannelManager>>, settings?: RuntimeSettings): void {
     momLog("taskScheduler", "restart", {});
     this.stop();
-    this.start(channelManagers);
+    this.start(channelManagers, settings);
   }
 }

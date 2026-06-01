@@ -14,6 +14,7 @@ import type { ApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 
 export const DEFAULT_TURN_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
+export const ACTIVE_TURN_CONFLICT_ERROR_MESSAGE = "Another run is currently active in this session.";
 
 export interface TurnMetadata {
   runId: string;
@@ -127,7 +128,7 @@ export class TurnOrchestrator {
         const activeStartedAt = Date.parse(active.started_at);
         const cutoff = startedAt - DEFAULT_TURN_LOCK_TIMEOUT_MS;
         if (Number.isFinite(activeStartedAt) && activeStartedAt > cutoff) {
-          throw new Error("Another run is currently active in this session.");
+          throw new Error(ACTIVE_TURN_CONFLICT_ERROR_MESSAGE);
         } else {
           // Expire and auto-release old lock
           db.prepare("UPDATE runs SET status = 'failed', error = ?, finished_at = ? WHERE id = ?").run(
@@ -373,6 +374,11 @@ export class TurnOrchestrator {
     this.updateRunStatus(runSummary.runId, runStatus, runSummary.errorMessage);
     this.approvalBroker?.revokeTurnGrants(runSummary.runId);
   }
+}
+
+export function isActiveTurnConflictError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes(ACTIVE_TURN_CONFLICT_ERROR_MESSAGE);
 }
 
 let turnOrchestrator: TurnOrchestrator | null = null;

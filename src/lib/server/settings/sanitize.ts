@@ -18,6 +18,8 @@ import {
   type ProviderMode,
   type McpServerConfig,
   type RuntimeSettings,
+  type WebSearchEngineId,
+  type WebSearchRoute,
   type ChannelInstanceSettings,
   sanitizeHostToolSettings,
   sanitizeToolSandboxSettings
@@ -26,6 +28,8 @@ import {
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
+const WEB_SEARCH_ENGINES: WebSearchEngineId[] = ["duckduckgo", "brave", "tavily", "exa", "serper", "baidu", "bocha"];
+const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "domestic_news", "international_news", "chinese_general", "global_general"];
 
 function clampNumber(value: unknown, fallback: number, min: number, max?: number): number {
   const parsed = Number(value);
@@ -94,6 +98,40 @@ export function sanitizeSkillDraftSettings(
     template: {
       skillPath: String(template.skillPath ?? fallback.template.skillPath).trim()
     }
+  };
+}
+
+export function sanitizeWebSearchSettings(
+  input: unknown,
+  fallback: RuntimeSettings["webSearch"]
+): RuntimeSettings["webSearch"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const enginesSource = source.engines && typeof source.engines === "object"
+    ? source.engines as Record<string, unknown>
+    : {};
+  const engines = Object.fromEntries(WEB_SEARCH_ENGINES.map((engine) => {
+    const fallbackEngine = fallback.engines[engine];
+    const raw = enginesSource[engine] && typeof enginesSource[engine] === "object"
+      ? enginesSource[engine] as Record<string, unknown>
+      : {};
+    return [engine, {
+      enabled: raw.enabled === undefined ? fallbackEngine.enabled : Boolean(raw.enabled),
+      apiKey: String(raw.apiKey ?? fallbackEngine.apiKey ?? "").trim(),
+      baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined
+    }];
+  })) as RuntimeSettings["webSearch"]["engines"];
+  const route = String(source.defaultRoute ?? fallback.defaultRoute).trim() as WebSearchRoute;
+  const engine = String(source.defaultEngine ?? fallback.defaultEngine).trim() as WebSearchEngineId | "auto";
+  return {
+    enabled: source.enabled === undefined ? fallback.enabled : Boolean(source.enabled),
+    defaultRoute: WEB_SEARCH_ROUTES.includes(route) ? route : fallback.defaultRoute,
+    defaultEngine: engine === "auto" || WEB_SEARCH_ENGINES.includes(engine) ? engine : fallback.defaultEngine,
+    maxResults: clampNumber(source.maxResults, fallback.maxResults, 1, 20),
+    timeoutMs: clampNumber(source.timeoutMs, fallback.timeoutMs, 1000, 120000),
+    retryTimeoutMs: clampNumber(source.retryTimeoutMs, fallback.retryTimeoutMs, 1000, 180000),
+    engines
   };
 }
 
@@ -461,6 +499,20 @@ export function sanitizeBudgetSettings(
   };
 }
 
+export function sanitizeEventExecutionSettings(
+  input: unknown,
+  fallback: RuntimeSettings["events"]
+): RuntimeSettings["events"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  return {
+    executionTimeoutMs: clampNumber(source.executionTimeoutMs, fallback.executionTimeoutMs, 1000, 24 * 60 * 60 * 1000),
+    maxAttempts: clampNumber(source.maxAttempts, fallback.maxAttempts, 1, 20),
+    retryDelayMs: clampNumber(source.retryDelayMs, fallback.retryDelayMs, 0, 60 * 60 * 1000)
+  };
+}
+
 export function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSettings): RuntimeSettings {
   const next: RuntimeSettings = {
     ...current,
@@ -633,6 +685,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.mcpServers = sanitizeMcpServers(next.mcpServers ?? current.mcpServers);
   next.skillSearch = sanitizeSkillSearchSettings(next.skillSearch ?? current.skillSearch, current.skillSearch);
   next.skillDrafts = sanitizeSkillDraftSettings(next.skillDrafts ?? current.skillDrafts, current.skillDrafts);
+  next.webSearch = sanitizeWebSearchSettings(next.webSearch ?? current.webSearch, current.webSearch);
   next.toolSandbox = sanitizeToolSandboxSettings(next.toolSandbox ?? current.toolSandbox, current.toolSandbox);
   next.hostTools = sanitizeHostToolSettings(next.hostTools ?? current.hostTools);
   next.disabledSkillPaths = Array.isArray(next.disabledSkillPaths)
@@ -666,6 +719,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   };
 
   next.budget = sanitizeBudgetSettings(next.budget ?? current.budget, current.budget);
+  next.events = sanitizeEventExecutionSettings(next.events ?? current.events, current.events);
 
   const browserInput = next.browserAutomation ?? current.browserAutomation;
   const browserTimeoutRaw = browserInput?.defaultTimeoutMs;

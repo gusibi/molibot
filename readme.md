@@ -50,7 +50,10 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Multi-Channel in One Runtime**: `Web + Telegram + Feishu + Weixin + CLI`
 - **Message Return & Display Layout Optimization**: Centralizes message formatting across Telegram, Feishu, QQ, and Weixin. Implements a unified `DisplayFormatter` to render model thinking/reasoning blocks and tool progress cleanly. Supports fine-grained channel instance configurations (`toolProgress` and `showReasoning`) toggleable directly in chat using `/toolprogress` and `/showreasoning` bot-scoped commands, including `/showreasoning new` for live latest-reasoning progress on editable channels.
 - **Committed Main Answer Protection**: Runner and channel contexts now distinguish draft answers from committed main answers. If the model returns multiple terminal assistant messages in one turn, Molibot shows them as separate replies instead of overwriting the earlier complete answer.
-- **Sandbox Multi-Level Control & Approval Auto-Resume**: Supports sandbox overrides with a resolution priority order of `Session Override > Bot Instance Override > Agent Override > Global Default`. Direct chat control is enabled via the `/sandbox` command; when the effective sandbox is OFF, `bash` runs as Host Bash with full access and does not require Host Bash approval. Approved bash commands auto-rewrite execution context history and dynamically resume runners in the background. Built-in tools automatically target isolated venv, GOPATH, and GOCACHE environments in `MOLIBOT_TOOLING_DIR` (defaulting to `~/.molibot/tooling`).
+- **Scheduled Event Runtime Guardrails**: watched event tasks now use channel/bot-scoped SQLite execution leases with a 10-minute default timeout, capped retries, timeout-triggered abort, startup recovery, and `/stop` visibility across stale runner states.
+- **Sandbox Multi-Level Control & Approval Auto-Resume**: Supports sandbox overrides with a resolution priority order of `Session Override > Bot Instance Override > Agent Override > Global Default`. Direct chat control is enabled via the `/sandbox` command; when the effective sandbox is OFF, `bash` runs as Host Bash with full access and does not require Host Bash approval. Approved bash commands auto-rewrite execution context history and dynamically resume runners in the background; if the previous turn is still releasing its session lock, the shared runtime now retries briefly instead of crashing, then falls back to a visible "session still busy" notice. Common approval replies such as `审批通过` are recognized directly. Built-in tools automatically target isolated venv, GOPATH, and GOCACHE environments in `MOLIBOT_TOOLING_DIR` (defaulting to `~/.molibot/tooling`).
+- **Local LaunchAgent Runtime**: Local macOS runs can be managed by `launchd` using the LaunchAgent plist template in `launchd/`, so Molibot is not tied to a foreground terminal session and can be restarted automatically.
+- **Built-In Web Search**: `webSearch` is now a shared Agent-layer tool with route-based fallback across DuckDuckGo, Brave, Tavily, Exa, Serper, Baidu Qianfan, and Bocha. `/settings/search` manages engine credentials, routing, timeouts, max results, live test queries, and the effective default base URL for each provider when no custom URL is set.
 - **ACP Externalized Dependency**: Legacy ACP has been physically cleaned up from the main codebase and relocated to `package/acp/` as an external dependency mapping to `#acp/*`.
 - **Minimum Workspace Boundary**: runtime startup creates a default `personal` workspace registry entry, and new run archives carry `workspaceId` for future workspace-scoped tools, approvals, and memory policy
 - **Agent v2.2 Runtime Integration & Review Optimization**: TurnOrchestrator now manages the complete turn lifecycle—including session concurrency locking, 10-minute timeout releases, memory synchronizations, context compactions, and status archiving. `runner.ts` has been refactored and slimmed by delegating these concerns to the orchestrator. All built-in and MCP tools are registered to ToolRegistry and wrapped with ToolRuntime to enforce policy/approval checking, supporting subagent approval bubbling, depth tracking (`requestedByDepth` propagation), and documented actor auth boundaries.
@@ -123,6 +126,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Web Chat**: Full-featured with general file upload, image upload, realtime voice recording, current-session file workspace, thinking controls, profile-only identity, theme/i18n support
 - **Web Live Run Diagnostics**: streaming chat now surfaces tool/subagent runner events in the live diagnostics panel, including delegated task lifecycle notices
 - **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, model switching, task delivery, and group replies via direct `@bot` mentions or replies to bot messages
+- **Scheduled Tasks**: watched event JSON remains the scheduling source, while active event execution is coordinated through `event_execution_leases` in SQLite for timeout, retry, restart/stop visibility, and run correlation
 - **Telegram Typing Resilience**: `sendChatAction(typing)` timeout exhaustion is treated as non-blocking, so typing-indicator failures do not abort the active run
 - **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings
 - **QQ Bot**: SDK-based integration, group policy metadata, quoted-message context, rich media delivery, typing/streaming helpers, channel-local progress/error compaction, and Molibot-owned queue control
@@ -244,7 +248,7 @@ Open: `http://localhost:3000`
 3. `/settings/web`: Create Web Profile and bind to agent
 4. (Optional) Configure message channels:
    - `/settings/telegram` - multi-bot support
-   - `/settings/feishu` - complete media support
+   - `/settings/feishu` - complete media support; local WebSocket card approvals work without exposing a public callback port, including Host Bash and generic tool approval cards
    - `/settings/weixin` - SDK-based integration
 5. (Optional) Configure advanced features:
    - `/settings/mcp` - MCP servers
@@ -318,6 +322,7 @@ Open: `http://localhost:3000`
 - `/settings/system` - Language, runtime timezone, and read-only GitHub/deployment version information; migrated to the shadcn-svelte Settings style
 - `/settings/sandbox` - Opt-in OS-level sandbox policy for agent and subagent bash, including env allow/deny keys, network domains, filesystem read/write rules, redacted diagnostics, and Named Sandbox Profiles presets (Observe, Build, Strict). Disabling the effective sandbox means Host Bash full access and skips Host Bash approval for ordinary bash execution.
 - `/settings/ai` - AI providers, models, routing, including the dedicated subagent fallback route, subagent model-level mappings, usage tracking, cache-hit trend visibility, auto-refreshing time windows, runtime timezone dropdown, and shadcn-svelte provider/model forms
+- `/settings/search` - Built-in web search configuration for route defaults, engine credentials, timeouts, max results, and test queries
 - `/settings/agents` - Agent library with Markdown prompt files plus a separate read-only Subagents view for built-in delegation roles, abstract model levels, and their effective model source
 - `/settings/skill-drafts` - Review generated reusable workflow drafts with long draft content shown as a 10-line preview and full editing handled in a focused modal form
 - `/settings/web` - Web profiles and identity binding; migrated to the shadcn-svelte Settings style
@@ -521,6 +526,12 @@ docker compose up -d --build
 - `MOLIBOT_MAX_TOOL_CALLS` - Max tool calls per session (default: 24)
 - `MOLIBOT_MAX_TOOL_FAILURES` - Max allowed tool failures (default: 6)
 - `MOLIBOT_MAX_MODEL_ATTEMPTS` - Max model attempts / reasoning loops (default: 6)
+
+### Web Search
+- `MOLIBOT_WEB_SEARCH_ENABLED` - Enable the built-in `webSearch` tool (default: true)
+- `MOLIBOT_WEB_SEARCH_MAX_RESULTS` - Default result count for `webSearch` (default: 5)
+- `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`, `BAIDU_SEARCH_API_KEY`, `BOCHA_API_KEY` - Optional engine credentials; DuckDuckGo needs no key
+- `/settings/search` shows the built-in default base URL for each paid/account-backed provider when `Custom base URL` is left blank
 
 ### Security & Safety
 - `BASH_TOOL_ENABLED` - Enable bash tool (default: true)

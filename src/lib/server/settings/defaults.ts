@@ -10,6 +10,8 @@ import {
   type ProviderMode,
   type SkillDraftSettings,
   type SkillSearchSettings,
+  type WebSearchEngineId,
+  type WebSearchSettings,
   type RuntimeSettings,
   type RunBudgetLimits,
   type TelegramBotConfig
@@ -254,6 +256,36 @@ const defaultSkillDraftSettings: SkillDraftSettings = {
   }
 };
 
+function webSearchEngineFromEnv(id: WebSearchEngineId, envKey: string, enabledFallback = false): WebSearchSettings["engines"][WebSearchEngineId] {
+  const apiKey = String(process.env[envKey] ?? "").trim();
+  const enabledRaw = String(process.env[`MOLIBOT_WEB_SEARCH_${id.toUpperCase()}_ENABLED`] ?? "").trim().toLowerCase();
+  return {
+    enabled: enabledRaw ? enabledRaw !== "false" : enabledFallback || Boolean(apiKey),
+    apiKey
+  };
+}
+
+const defaultWebSearchSettings: WebSearchSettings = {
+  enabled: String(process.env.MOLIBOT_WEB_SEARCH_ENABLED ?? "true").toLowerCase() !== "false",
+  defaultRoute: "auto",
+  defaultEngine: "auto",
+  maxResults: Math.max(1, Math.min(20, Number(process.env.MOLIBOT_WEB_SEARCH_MAX_RESULTS ?? 5) || 5)),
+  timeoutMs: Math.max(1000, Math.min(120000, Number(process.env.MOLIBOT_WEB_SEARCH_TIMEOUT_MS ?? 60000) || 60000)),
+  retryTimeoutMs: Math.max(1000, Math.min(180000, Number(process.env.MOLIBOT_WEB_SEARCH_RETRY_TIMEOUT_MS ?? 120000) || 120000)),
+  engines: {
+    duckduckgo: {
+      enabled: String(process.env.MOLIBOT_WEB_SEARCH_DUCKDUCKGO_ENABLED ?? "true").toLowerCase() !== "false",
+      apiKey: ""
+    },
+    brave: webSearchEngineFromEnv("brave", "BRAVE_API_KEY"),
+    tavily: webSearchEngineFromEnv("tavily", "TAVILY_API_KEY"),
+    exa: webSearchEngineFromEnv("exa", "EXA_API_KEY"),
+    serper: webSearchEngineFromEnv("serper", "SERPER_API_KEY"),
+    baidu: webSearchEngineFromEnv("baidu", "BAIDU_SEARCH_API_KEY"),
+    bocha: webSearchEngineFromEnv("bocha", "BOCHA_API_KEY")
+  }
+};
+
 const defaultCloudflareHtmlPluginSettings: RuntimeSettings["plugins"]["cloudflareHtml"] = {
   enabled: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ENABLED ?? "false").toLowerCase() === "true",
   accessMode: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ACCESS_MODE ?? "worker").trim() === "direct"
@@ -338,6 +370,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   mcpServers: defaultMcpServers,
   skillSearch: defaultSkillSearchSettings,
   skillDrafts: defaultSkillDraftSettings,
+  webSearch: defaultWebSearchSettings,
   toolSandbox: defaultToolSandboxSettings,
   hostTools: defaultHostToolSettings,
   disabledSkillPaths: [],
@@ -359,6 +392,11 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     maxToolCalls: Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_CALLS ?? 24) || 24),
     maxToolFailures: Math.max(1, Number(process.env.MOLIBOT_MAX_TOOL_FAILURES ?? 6) || 6),
     maxModelAttempts: Math.max(1, Number(process.env.MOLIBOT_MAX_MODEL_ATTEMPTS ?? 6) || 6)
+  },
+  events: {
+    executionTimeoutMs: Math.max(1000, Number(process.env.MOLIBOT_EVENT_EXECUTION_TIMEOUT_MS ?? 600_000) || 600_000),
+    maxAttempts: Math.max(1, Number(process.env.MOLIBOT_EVENT_MAX_ATTEMPTS ?? 3) || 3),
+    retryDelayMs: Math.max(0, Number(process.env.MOLIBOT_EVENT_RETRY_DELAY_MS ?? 5000) || 5000)
   },
   browserAutomation: {
     defaultTimeoutMs: Math.max(5000, Number(process.env.AGENT_BROWSER_DEFAULT_TIMEOUT ?? 60000) || 60000)

@@ -147,7 +147,7 @@ export class QQManager extends BaseChannelRuntime {
     });
     this.commandService = this.createSharedCommandService<SendTarget>({
       authScopePrefix: "qq",
-      isRunning: (scopeId) => this.running.has(scopeId),
+      isRunning: (scopeId) => this.isScopeBusy(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
       steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
       followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
@@ -545,6 +545,7 @@ export class QQManager extends BaseChannelRuntime {
       imageContents: [],
       isEvent: true
     };
+    (synthetic as ChannelInboundMessage & { runId?: string }).runId = task.status?.runId;
 
     await this.processEvent(synthetic, target);
   }

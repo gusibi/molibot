@@ -14,7 +14,9 @@ import {
   type QQBotConfig,
   isKnownProvider,
   type ProviderMode,
-  type RuntimeSettings
+  type RuntimeSettings,
+  type WebSearchEngineId,
+  type WebSearchRoute
 } from "$lib/server/settings/index.js";
 import { sanitizeHostToolSettings } from "$lib/server/settings/hostTools.js";
 import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
@@ -95,6 +97,7 @@ interface RawSettings {
   mcpServers?: unknown;
   skillSearch?: unknown;
   skillDrafts?: unknown;
+  webSearch?: unknown;
   toolSandbox?: unknown;
   hostTools?: unknown;
   disabledSkillPaths?: unknown;
@@ -102,6 +105,11 @@ interface RawSettings {
     maxToolCalls?: number | string;
     maxToolFailures?: number | string;
     maxModelAttempts?: number | string;
+  };
+  events?: {
+    executionTimeoutMs?: number | string;
+    maxAttempts?: number | string;
+    retryDelayMs?: number | string;
   };
   display?: unknown;
   browserAutomation?: {
@@ -115,6 +123,8 @@ const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "t
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const CAPABILITY_VERIFICATION_SET: ReadonlySet<string> = new Set(["untested", "passed", "failed"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
+const WEB_SEARCH_ENGINES: WebSearchEngineId[] = ["duckduckgo", "brave", "tavily", "exa", "serper", "baidu", "bocha"];
+const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "domestic_news", "international_news", "chinese_general", "global_general"];
 
 function clampNumber(value: unknown, fallback: number, min: number, max?: number): number {
   const parsed = Number(value);
@@ -212,6 +222,37 @@ function sanitizeSkillDraftSettings(input: unknown): RuntimeSettings["skillDraft
   };
 }
 
+function sanitizeWebSearchSettings(input: unknown): RuntimeSettings["webSearch"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const enginesSource = source.engines && typeof source.engines === "object"
+    ? source.engines as Record<string, unknown>
+    : {};
+  const engines = Object.fromEntries(WEB_SEARCH_ENGINES.map((engine) => {
+    const fallbackEngine = defaultRuntimeSettings.webSearch.engines[engine];
+    const raw = enginesSource[engine] && typeof enginesSource[engine] === "object"
+      ? enginesSource[engine] as Record<string, unknown>
+      : {};
+    return [engine, {
+      enabled: raw.enabled === undefined ? fallbackEngine.enabled : Boolean(raw.enabled),
+      apiKey: String(raw.apiKey ?? fallbackEngine.apiKey ?? "").trim(),
+      baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined
+    }];
+  })) as RuntimeSettings["webSearch"]["engines"];
+  const route = String(source.defaultRoute ?? defaultRuntimeSettings.webSearch.defaultRoute).trim() as WebSearchRoute;
+  const engine = String(source.defaultEngine ?? defaultRuntimeSettings.webSearch.defaultEngine).trim() as WebSearchEngineId | "auto";
+  return {
+    enabled: source.enabled === undefined ? defaultRuntimeSettings.webSearch.enabled : Boolean(source.enabled),
+    defaultRoute: WEB_SEARCH_ROUTES.includes(route) ? route : defaultRuntimeSettings.webSearch.defaultRoute,
+    defaultEngine: engine === "auto" || WEB_SEARCH_ENGINES.includes(engine) ? engine : defaultRuntimeSettings.webSearch.defaultEngine,
+    maxResults: clampNumber(source.maxResults, defaultRuntimeSettings.webSearch.maxResults, 1, 20),
+    timeoutMs: clampNumber(source.timeoutMs, defaultRuntimeSettings.webSearch.timeoutMs, 1000, 120000),
+    retryTimeoutMs: clampNumber(source.retryTimeoutMs, defaultRuntimeSettings.webSearch.retryTimeoutMs, 1000, 180000),
+    engines
+  };
+}
+
 function sanitizeBudgetSettings(input: unknown): RuntimeSettings["budget"] {
   const source = input && typeof input === "object"
     ? input as Record<string, unknown>
@@ -246,6 +287,26 @@ function sanitizeBrowserAutomationSettings(input: unknown): RuntimeSettings["bro
     ? Math.max(5000, Math.min(300000, Math.round(defaultTimeoutMsRaw)))
     : defaultRuntimeSettings.browserAutomation.defaultTimeoutMs;
   return { defaultTimeoutMs };
+}
+
+function sanitizeEventExecutionSettings(input: unknown): RuntimeSettings["events"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const executionTimeoutMsRaw = Number(source.executionTimeoutMs ?? defaultRuntimeSettings.events.executionTimeoutMs);
+  const maxAttemptsRaw = Number(source.maxAttempts ?? defaultRuntimeSettings.events.maxAttempts);
+  const retryDelayMsRaw = Number(source.retryDelayMs ?? defaultRuntimeSettings.events.retryDelayMs);
+  return {
+    executionTimeoutMs: Number.isFinite(executionTimeoutMsRaw)
+      ? Math.max(1000, Math.min(24 * 60 * 60 * 1000, Math.round(executionTimeoutMsRaw)))
+      : defaultRuntimeSettings.events.executionTimeoutMs,
+    maxAttempts: Number.isFinite(maxAttemptsRaw)
+      ? Math.max(1, Math.min(20, Math.round(maxAttemptsRaw)))
+      : defaultRuntimeSettings.events.maxAttempts,
+    retryDelayMs: Number.isFinite(retryDelayMsRaw)
+      ? Math.max(0, Math.min(60 * 60 * 1000, Math.round(retryDelayMsRaw)))
+      : defaultRuntimeSettings.events.retryDelayMs
+  };
 }
 
 function sanitizeCloudflareHtmlPluginSettings(input: unknown): RuntimeSettings["plugins"]["cloudflareHtml"] {
@@ -854,10 +915,12 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const mcpServers = sanitizeMcpServers(raw.mcpServers ?? defaultRuntimeSettings.mcpServers);
   const skillSearch = sanitizeSkillSearchSettings(raw.skillSearch ?? defaultRuntimeSettings.skillSearch);
   const skillDrafts = sanitizeSkillDraftSettings(raw.skillDrafts ?? defaultRuntimeSettings.skillDrafts);
+  const webSearch = sanitizeWebSearchSettings(raw.webSearch ?? defaultRuntimeSettings.webSearch);
   const toolSandbox = sanitizeToolSandboxSettings(raw.toolSandbox ?? defaultRuntimeSettings.toolSandbox);
   const hostTools = sanitizeHostToolSettings(raw.hostTools ?? defaultRuntimeSettings.hostTools);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
   const budget = sanitizeBudgetSettings(raw.budget);
+  const events = sanitizeEventExecutionSettings(raw.events);
   const browserAutomation = sanitizeBrowserAutomationSettings(raw.browserAutomation);
   const displayInput = raw.display ?? defaultRuntimeSettings.display;
   const display = {
@@ -929,6 +992,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     mcpServers,
     skillSearch,
     skillDrafts,
+    webSearch,
     toolSandbox,
     hostTools,
     disabledSkillPaths,
@@ -949,6 +1013,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     telegramAllowedChatIds: primaryBot?.allowedChatIds ?? [],
     feishuBots: effectiveFeishuBots,
     budget,
+    events,
     browserAutomation,
     display
   };
@@ -1374,6 +1439,7 @@ export class SettingsStore {
       mcpServers: settings.mcpServers,
       skillSearch: settings.skillSearch,
       skillDrafts: settings.skillDrafts,
+      webSearch: settings.webSearch,
       toolSandbox: settings.toolSandbox,
       disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,
@@ -1382,6 +1448,11 @@ export class SettingsStore {
         maxToolCalls: settings.budget.maxToolCalls,
         maxToolFailures: settings.budget.maxToolFailures,
         maxModelAttempts: settings.budget.maxModelAttempts
+      },
+      events: {
+        executionTimeoutMs: settings.events.executionTimeoutMs,
+        maxAttempts: settings.events.maxAttempts,
+        retryDelayMs: settings.events.retryDelayMs
       },
       display: settings.display ? {
         toolProgress: settings.display.toolProgress,

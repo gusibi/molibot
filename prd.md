@@ -16,11 +16,15 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - `periodic` 事件的正确语义是长期保留并按 cron 重复触发，不能在首次执行后写成 `status.state="completed"` 并从 watcher 调度表移除。
 - `periodic` 事件除了长期保留外，还必须像 one-shot 一样持续写回执行元数据，至少包含最近一次触发时间、累计执行次数，以及最近一次错误状态，方便在设置页和事件文件里直接核对运行情况。
 - `periodic` 事件在进入执行前必须先持久化 `status.state="running"`（包含开始时间与执行标识），同一 cron 时间槽位仅允许一次有效执行；执行完成后再回写 `pending/error`，并在运行超时后可释放陈旧锁，避免长任务导致同槽位重复触发。
+- [Done] `periodic` / watched event 执行必须通过共享 `event_execution_leases` 协调 active attempt、runId、timeout、attempt budget 与 stop 状态；事件 JSON 只作为调度输入和运维镜像，不再作为唯一执行锁。
+- [Done] 定时任务默认 10 分钟超时、最多 3 次尝试、短延迟重试；超时重试前必须先走共享 abort 路径中止当前 runner / stale running turn，手动 `/stop` 不触发自动重试。
+- [Done] event execution lease 的唯一性必须包含 channel/bot 作用域；timeout retry 必须等旧 runner 释放后才进入下一次 attempt；启动恢复必须把 lease 状态重新同步到事件 JSON 镜像或重新接管 retry。
 - Bot 维度配置文件 `BOT.md` 必须参与系统提示词最终合并，不仅要出现在 source 列表；合并顺序至少应覆盖 `AGENTS.md -> BOT.md -> SOUL/IDENTITY/...`，确保 bot 级规则真实生效。
 - 设置页任务清单不能只停留在只读展示；运维侧至少要支持单条删除、批量选择删除，并且删除动作必须通过受限后端接口校验目标路径属于 watched events 目录，不能直接把任意文件路径暴露给前端删。
 - `/settings/skill-drafts` 的草稿内容审核区默认不得把长草稿全部展开；超过 10 行的草稿应默认只展示 10 行预览，并通过单独编辑表单查看、编辑、保存完整内容，避免多个草稿同时出现时页面难以扫读。
 - Skill Draft 的 frontmatter metadata 必须真实遵守配置的 workflow / skill-creator 规范：`name` 是稳定、简短、可复用的功能标识，不得直接使用用户原话、抱怨句或“重试一下”这类本轮操作文本；用户原话只应出现在触发描述、示例或正文上下文中。
 - 事件发送层需要对瞬时网络故障具备有限自愈能力；至少应支持一次立即重试和短退避重试，并在设置页提供人工“立即触发/重试”入口，方便验证任务发送链路而不必等待下一个计划时间。
+- [Done] Host Bash 审批后的自动恢复路径在遇到“上一轮 turn 正在释放 session 锁”的短暂窗口时，必须做共享层短重试并保持服务存活；不能因为 `Another run is currently active in this session.` 直接产生未处理异常并退出 Telegram runtime。
 - Telegram agent 的调度落地必须唯一走 watched event JSON 文件；不得退化为 memory 记录，也不得绕过 runtime 事件系统直接写入 OS 级调度器（如 `crontab` / `at` / `launchctl` / `schtasks`）。
 - `package/mory` 作为独立 SDK 应当自带可用数据库 driver 与安装依赖；不能只提供 `SqliteDriver` / `PgDriver` 接口再把真实驱动实现完全留给外部宿主。
 - `package/mory/README.md` 必须按“独立 SDK 用户文档”编写，清晰覆盖安装要求、SQLite quick start、pgvector 接入、核心 API 用法（`ingest/commit/retrieve/readByPath`）以及宿主仍需提供的能力边界。
@@ -60,6 +64,11 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Host Bash 审批卡、sandbox 原始长错误、subagent 工具日志和运行进度都不得作为普通对话内容写入模型上下文；需要排障时写入 runtime event / run detail，给父 Agent 的 subagent 结果应是压缩后的可决策摘要。
 - Subagent 触发 Host Bash 审批时必须保留 `waiting_for_approval` 语义到父 runner 和客户端响应；chain 模式不得在上一步等待审批、错误或被中止后继续执行下一步，也不得把临时等待提示保存为普通 assistant 历史。
 - Host Bash 审批触发 runner 内部 abort 时，最终客户端状态必须继续保持 `waiting_for_approval`，不得退化成用户主动停止语义；审批后自动执行成功但无输出时也不得向用户额外发送 `(no output)` 噪音。
+- [Done] Feishu Host Bash / 通用工具审批按钮必须同时支持公网 HTTP 卡片回调和本地 WebSocket `card.action.trigger` 事件；本地运行且端口不对外暴露时，不得因为缺少 `/api/feishu/card` 公网地址而导致按钮审批不可用，也不得因为审批记录来自通用 Approval Broker 而按钮点击无效。
+- [Done] 审批回复必须支持自然中文结论，例如 `审批通过`、`通过`、`批准通过`、`审批拒绝`，不能只识别 `批准` / `安装` 这类内部口令。
+- [Done] 本机长期运行不能依赖一次性前台 PTY 会话；需要提供 LaunchAgent 配置，让 Molibot 由 macOS `launchd` 持续管理并在退出后自动拉起。
+- [Done] 网页搜索属于基础 Agent 能力，应作为共享内置 `webSearch` 工具提供，而不是依赖每轮按需加载 skill。配置必须在 Settings 页面管理，支持 DuckDuckGo 开箱即用和 Brave/Tavily/Exa/Serper/Baidu/Bocha 等可选引擎，并按中文/全球/新闻路由自动降级。
+- [Done] `/settings/search` 中各搜索引擎的 `Custom base URL` 为空时，页面必须直接展示实际生效的默认地址，不能只写 `Optional` 让操作者猜当前回退目标。
 - Telegram Host Bash 审批按钮必须先确认 callback 并给出可见“执行中”状态，再执行审批后的 host action；长命令不得因为 Telegram callback 超时而让用户误判点击无效。
 - Telegram 群聊触发必须同时支持“回复 bot 消息”和“直接 @ bot”。直接 @ 的判定应优先使用 Telegram `message.entities` / `caption_entities` 中的 mention 信息，并保留纯文本 `@username` 兜底，避免群聊消息已入站但被误判为未提及 bot。
 - 主答案展示必须有明确生命周期：draft 阶段允许流式编辑或 buffer 替换；一旦 runner 提交主答案，后续 assistant 文本不得覆盖已提交内容。若同一轮模型返回多条独立 terminal assistant 消息，必须按消息边界逐条展示（一条就一条，两条就两条），不得用文本语义猜测去丢弃或覆盖。该规则必须在 shared runtime / context 语义中表达，Channel 层只负责按平台能力渲染。

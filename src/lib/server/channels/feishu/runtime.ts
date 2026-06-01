@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import * as lark from "@larksuiteoapi/node-sdk";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { buildHostBashApprovalPrompt, getHostBashStore, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import { type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
@@ -16,6 +17,7 @@ import {
     buildFeishuHostToolApprovalCard,
     buildFeishuHostToolApprovalResultCard,
     deleteFeishuMessage,
+    editFeishuCard,
     editFeishuText,
     sendFeishuCard,
     sendFeishuFile,
@@ -24,6 +26,7 @@ import {
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "$lib/server/channels/feishu/message-intake.js";
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
+import { normalizeFeishuWsCardActionEvent } from "$lib/server/channels/feishu/cardAction.js";
 import { FeishuStreamingSession } from "$lib/server/channels/feishu/streamingSession.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
@@ -34,6 +37,17 @@ export interface FeishuConfig {
     verificationToken?: string;
     encryptKey?: string;
     allowedChatIds: string[];
+}
+
+interface FeishuCardActionOutcome {
+    chatId: string;
+    message: string;
+    card: lark.InteractiveCard;
+}
+
+interface FeishuApprovalActionResult {
+    ok: boolean;
+    message: string;
 }
 
 // Orchestrates Feishu-specific inbound handling, command flow, and runner lifecycle.
@@ -94,7 +108,7 @@ export class FeishuManager extends BaseChannelRuntime {
         });
         this.commandService = this.createSharedCommandService<string>({
             authScopePrefix: "feishu",
-            isRunning: (scopeId) => this.running.has(scopeId),
+            isRunning: (scopeId) => this.isScopeBusy(scopeId),
             stopRun: (scopeId) => this.stopChatWork(scopeId),
             steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
             followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
@@ -178,6 +192,9 @@ export class FeishuManager extends BaseChannelRuntime {
         const handler = new lark.EventDispatcher({}).register({
             "im.message.receive_v1": async (data: any) => {
                 await this.handleIncomingMessage(data.message, data.sender, allowed);
+            },
+            "card.action.trigger": async (data: any) => {
+                await this.handleWsCardAction(data, allowed);
             }
         });
 
@@ -268,6 +285,98 @@ export class FeishuManager extends BaseChannelRuntime {
     }
 
     private async handleCardActionEvent(event: lark.InteractiveCardActionEvent): Promise<lark.InteractiveCard | undefined> {
+        const outcome = await this.resolveCardAction(event);
+        return outcome?.card;
+    }
+
+    private async handleWsCardAction(raw: unknown, allowed: Set<string>): Promise<void> {
+        momLog("feishu", "card_action_received");
+        const normalized = normalizeFeishuWsCardActionEvent(raw);
+        if (!normalized) {
+            momWarn("feishu", "card_action_ignored_invalid_payload");
+            return;
+        }
+        if (allowed.size > 0 && !allowed.has(normalized.chatId)) {
+            momWarn("feishu", "card_action_blocked_chat", { chatId: normalized.chatId, messageId: normalized.messageId });
+            return;
+        }
+
+        const outcome = await this.resolveCardAction(normalized.event);
+        if (!outcome) return;
+
+        const edited = await editFeishuCard(this.client, normalized.messageId, outcome.card);
+        if (!edited) {
+            await this.sendText(outcome.chatId, outcome.message || "Card action processed.");
+        }
+    }
+
+    private resolveGenericApprovalAction(requestId: string, action: string): FeishuApprovalActionResult {
+        const broker = getApprovalBroker();
+        if (action === "approve" || action === "approve_session") {
+            const selectedScope = action === "approve_session" ? "session" : "once";
+            const result = broker.resolveRequest({
+                requestId,
+                status: "approved",
+                selectedScope
+            });
+            if (!result.request) {
+                return { ok: false, message: "No matching pending approval found." };
+            }
+            const toolName = result.request.action.toolName || result.request.action.command || result.request.capability;
+            return {
+                ok: true,
+                message: [
+                    action === "approve_session" ? "Approved for current session." : "Approved one-time tool request.",
+                    `Request ID: ${result.request.id}`,
+                    `Tool: ${toolName}`,
+                    `Scope: ${selectedScope}`
+                ].join("\n")
+            };
+        }
+
+        if (action === "reject") {
+            const result = broker.resolveRequest({
+                requestId,
+                status: "rejected"
+            });
+            if (!result.request) {
+                return { ok: false, message: "No matching pending approval found." };
+            }
+            const toolName = result.request.action.toolName || result.request.action.command || result.request.capability;
+            return {
+                ok: true,
+                message: [
+                    "Rejected tool approval.",
+                    `Request ID: ${result.request.id}`,
+                    `Tool: ${toolName}`
+                ].join("\n")
+            };
+        }
+
+        return { ok: false, message: `Unsupported action: ${action}` };
+    }
+
+    private async resolveApprovalAction(
+        input: { chatId: string; scopeId: string; text: string; target: string },
+        requestId: string,
+        action: string
+    ): Promise<FeishuApprovalActionResult> {
+        if (action === "approve") {
+            const hostResult = await this.commandService.approveHostTool(input, requestId);
+            return hostResult.ok ? hostResult : this.resolveGenericApprovalAction(requestId, action);
+        }
+        if (action === "approve_session") {
+            const hostResult = await this.commandService.approveHostToolForSession(input, requestId);
+            return hostResult.ok ? hostResult : this.resolveGenericApprovalAction(requestId, action);
+        }
+        if (action === "reject") {
+            const hostResult = await this.commandService.rejectHostTool(input, requestId);
+            return hostResult.ok ? hostResult : this.resolveGenericApprovalAction(requestId, action);
+        }
+        return { ok: false, message: `Unsupported action: ${action}` };
+    }
+
+    private async resolveCardAction(event: lark.InteractiveCardActionEvent): Promise<FeishuCardActionOutcome | undefined> {
         const rawValue = event.action?.value;
         const value = rawValue && typeof rawValue === "object" ? rawValue as Record<string, unknown> : {};
         if (String(value.kind ?? "").trim() === "host_bash_approval") {
@@ -296,26 +405,22 @@ export class FeishuManager extends BaseChannelRuntime {
                 }
             };
             try {
-                if (action === "approve") {
-                    const result = await this.commandService.approveHostTool(input, requestId);
-                    return buildFeishuHostToolApprovalResultCard(prompt, result.message, result.ok ? "green" : "red");
-                }
-                if (action === "approve_session") {
-                    const result = await this.commandService.approveHostToolForSession(input, requestId);
-                    return buildFeishuHostToolApprovalResultCard(prompt, result.message, result.ok ? "green" : "red");
-                }
+                const result = await this.resolveApprovalAction(input, requestId, action);
                 if (action === "reject") {
-                    const result = await this.commandService.rejectHostTool(input, requestId);
                     await this.sendText(chatId, result.message);
-                    return buildFeishuHostToolApprovalResultCard(prompt, result.message, result.ok ? "red" : "red");
                 }
-                return buildFeishuHostToolApprovalResultCard(prompt, `Unsupported action: ${action}`, "red");
+                return {
+                    chatId,
+                    message: result.message,
+                    card: buildFeishuHostToolApprovalResultCard(prompt, result.message, result.ok ? "green" : "red")
+                };
             } catch (error) {
-                return buildFeishuHostToolApprovalResultCard(
-                    prompt,
-                    error instanceof Error ? error.message : String(error),
-                    "red"
-                );
+                const message = error instanceof Error ? error.message : String(error);
+                return {
+                    chatId,
+                    message,
+                    card: buildFeishuHostToolApprovalResultCard(prompt, message, "red")
+                };
             }
         }
         return undefined;
@@ -665,6 +770,7 @@ export class FeishuManager extends BaseChannelRuntime {
                 imageContents: [],
                 isEvent: true
             };
+            (synthetic as ChannelInboundMessage & { runId?: string }).runId = task.status?.runId;
             await this.processEvent(synthetic);
             momLog("feishu", "trigger_task_agent_done", { filename: _filename, chatId: task.chatId });
         } catch (error) {

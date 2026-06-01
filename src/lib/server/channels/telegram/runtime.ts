@@ -161,7 +161,7 @@ export class TelegramManager extends BaseChannelRuntime {
     this.commandService = this.createSharedCommandService<TelegramCommandTarget>({
       authScopePrefix: "telegram",
       getAuthScopeKey: (input) => `telegram:${input.chatId}`,
-      isRunning: (scopeId) => this.running.has(scopeId),
+      isRunning: (scopeId) => this.isScopeBusy(scopeId),
       stopRun: (scopeId) => this.stopChatWork(scopeId),
       steerRun: (scopeId, text) => this.steerChatWork(scopeId, text),
       followUpRun: (scopeId, text) => this.followUpChatWork(scopeId, text),
@@ -875,9 +875,26 @@ export class TelegramManager extends BaseChannelRuntime {
   }
 
   private addEventsWatcher(eventsDir: string, source: "workspace" | "chat-scratch", chatId: string | null): void {
-    const watcher = new EventsWatcher(eventsDir, (event, filename) => {
-      return this.handleSyntheticEvent(event, filename);
-    });
+    const watcher = new EventsWatcher(
+      eventsDir,
+      (event, filename) => {
+        return this.handleSyntheticEvent(event, filename);
+      },
+      {
+        channel: "telegram",
+        leaseScope: this.getEventLeaseScope(),
+        getExecutionSettings: () => this.getSettings().events,
+        onTimeout: ({ event, runId }) => {
+          momWarn("telegram", "event_timeout_abort_requested", {
+            runId,
+            chatId: event.chatId,
+            eventsDir,
+            source
+          });
+          this.abortTaskRun(event.chatId, "Scheduled event attempt timed out.");
+        }
+      }
+    );
     watcher.start();
     this.events.push(watcher);
     momLog("telegram", "events_watcher_started", { eventsDir, source, chatId });
@@ -922,7 +939,7 @@ export class TelegramManager extends BaseChannelRuntime {
     }
 
     const syntheticMessageId = Date.now();
-    const runId = createRunId(event.chatId, syntheticMessageId);
+    const runId = event.status?.runId ?? createRunId(event.chatId, syntheticMessageId);
     const delivery = this.resolveEventDeliveryMode(event);
 
     momLog("telegram", "event_enqueued", {

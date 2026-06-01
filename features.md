@@ -1,6 +1,48 @@
 # Molibot Features
 
+## 2026-06-01
+
+### Host Bash 审批自动恢复避免 session 锁 panic (Host Bash Auto-Resume Session-Lock Recovery)
+- **共享恢复重试**: `baseRuntime.ts` 的批准后自动恢复流程现在会在旧 turn 尚未完全释放 session 锁时做短暂重试，而不是让 `prepareTurn()` 的并发锁异常直接变成未处理 rejection。
+- **服务稳定性修复**: Telegram 点按 `approve-session` / `approve` 后，即便撞到 `Another run is currently active in this session.` 的释放窗口，也不会再触发进程异常退出。
+- **可见降级提示**: 若短重试后会话仍持续忙碌，runtime 会给用户发送“命令已执行，但会话仍忙碌”的继续提示，避免自动恢复静默卡住。
+- **回归测试补充**: 新增 `approvalAutoResume.test.ts`，覆盖 turn 锁冲突重试与非锁错误直接终止两条路径。
+
+### 内置网页搜索工具 (Built-In Web Search Tool)
+- **共享 Agent 层工具**: 新增内置 `webSearch` 工具，搜索能力从 skill 文档/脚本提升为 runtime 原生能力，Web、Telegram、Feishu、QQ、Weixin 等渠道共享同一套工具注册、结果结构和诊断信息。
+- **多引擎配置**: `RuntimeSettings.webSearch` 支持 DuckDuckGo、Brave、Tavily、Exa、Serper、Baidu Qianfan、Bocha。DuckDuckGo 默认开箱即用；其他引擎按 API Key 配置后参与路由。
+- **路由与降级**: 搜索路由按国内新闻、国际新闻、中文通用、全球通用分流，并在当前引擎失败、无结果或缺少 Key 时按配置顺序降级到下一个可用引擎。
+- **设置页管理**: 新增 `/settings/search`，可配置工具总开关、默认 route/engine、最大结果数、超时/重试超时、各引擎启用状态、API Key、自定义 Base URL，并支持使用当前表单值发起测试查询。
+- **默认地址可见**: 搜索设置页现在直接展示 Brave、Tavily、Exa、Serper、Baidu、Bocha 在 `baseUrl` 留空时的真实默认地址，并与运行时 provider 共享同一份常量，避免 UI 文案和实际回退目标漂移。
+- **工具提示词优化**: `webSearch` 工具描述现在明确要求最终答案附带 `Sources:` 区块，近期/最新查询使用当前年份，并优先交给自动 route/engine 分流，除非用户指定来源或区域。
+- **回归测试补充**: 新增搜索路由和 `webSearch` 工具结果归一化测试，并将 `webSearch` 分类为会访问外部网络的中风险内置工具。
+
+### Feishu 本地审批按钮长连接回调 (Feishu Local Approval Buttons via WebSocket)
+- **卡片按钮不再依赖公网 HTTP 回调**: Feishu runtime 现在通过现有 `WSClient` 的 `card.action.trigger` 事件接收审批卡片点击，本地机器启动且端口未暴露时也能处理 Host Bash 审批按钮。
+- **审批逻辑复用**: 长连接卡片事件复用原有 Host Bash approve / approve-session / reject 共享命令路径；若按钮对应的是通用工具审批记录，会用同一个 `requestId` 回落到通用审批 Broker 继续处理。HTTP `/api/feishu/card` 回调入口保留，公网部署仍可继续使用。
+- **自然中文审批口令**: 共享命令层现在支持 `审批通过`、`通过`、`批准通过`、`审批拒绝` 等常见中文回复，避免用户回复审批结论时被当作普通消息排队。
+- **结果卡片更新与降级提示**: WebSocket 卡片事件处理完成后会主动编辑原审批卡片为结果态；如果原消息编辑失败，则发送一条普通文本结果提示。
+- **按钮回调可观测性**: 收到飞书按钮点击时记录 `card_action_received`，便于区分飞书控制台未投递回调和运行时解析失败。
+- **回归测试补充**: 新增 Feishu card action payload 解析测试，覆盖 `card.action.trigger` 的 chat/message/operator/action 字段归一化。
+
+### Molibot 本机持续后台运行 (Local LaunchAgent Runtime)
+- **LaunchAgent 配置**: 新增 `launchd/com.gusi.molibot.dev.plist`，可安装到用户 `LaunchAgents` 后由 macOS 管理本地 Molibot dev 服务。
+- **自动拉起**: 配置 `RunAtLoad` 与 `KeepAlive`，避免普通前台 `molibot` 进程因终端/PTY 会话结束而停止。
+- **独立日志**: 标准输出和错误分别写入本机 `molibot-launchd` 日志文件，方便排查启动与运行状态。
+
 ## 2026-05-31
+
+### 定时任务执行 Lease、超时中止与重试 (Scheduled Event Lease, Timeout Abort, and Retry)
+- **共享执行 Lease**: 新增 SQLite-backed `event_execution_leases` 运行态表，将 watched event 的“当前是否正在执行、属于哪个 run、尝试次数、超时与重试状态”从事件 JSON 文件锁提升为共享 runtime 协调状态。
+- **10 分钟默认超时与 3 次上限**: `RuntimeSettings.events` 新增 `executionTimeoutMs`、`maxAttempts`、`retryDelayMs`，默认分别为 10 分钟、3 次、5 秒，并支持通过 settings/env 配置。
+- **超时先中止再重试**: `EventsWatcher` 现在为事件执行包裹 watchdog；超时后调用共享 channel runtime 的 abort 路径，中止 runner / stale running turn，再按 lease retry budget 触发下一次尝试。
+- **启动恢复**: watcher 启动时会扫描并恢复超时的 `running` lease，将其转换到 retry/final failed 路径，避免进程重启后旧 lease 永久阻塞同一事件槽位。
+- **恢复镜像对齐**: watcher 启动恢复后会重新接管 `retry_wait` lease，并把 failed/aborted/completed lease 同步回事件 JSON 镜像，避免文件仍停在 `running` 状态导致跳过或误判。
+- **`/stop` 识别事件 Lease**: 共享 `BaseChannelRuntime` 的停止逻辑现在会同步查询并终止当前 chat 的 active event lease，避免只有 runner 内存状态丢失时误报 `Nothing running.`。
+- **跨 Bot Lease 隔离**: lease 唯一键新增 channel/bot 作用域，避免不同渠道或不同 bot 中同名事件文件、同 chatId、同 slot 相互阻塞。
+- **重试并发防护**: timeout 分支会等待旧 runner 释放后才进入下一次 attempt；若 `/stop` 已经终止 lease，后续 runner 返回不会再把事件覆盖成完成态。
+- **跨渠道 runId 对齐**: Telegram、Feishu、QQ、Weixin 的事件触发路径现在使用 lease 分配的 `runId`，使 runs 表、lease 表和事件 JSON 镜像能对齐同一轮事件执行。
+- **回归测试补充**: 新增 `eventsLeaseStore.test.ts` 覆盖同槽位单 active lease、timeout 进入 retry、重试次数耗尽、手动 stop 抑制 retry、启动恢复 stale running lease。
 
 ### Sandbox 关闭时 Host Bash 免审批 (Host Bash Full Access When Sandbox Is Off)
 - **权限语义修正**: 有效 `/sandbox off` 现在表示当前作用域进入 Host Bash full access。普通 `bash` 以及模型附带的 `hostApproval` 参数都会直接在宿主执行，不再额外创建 Host Bash 审批。

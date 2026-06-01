@@ -7,6 +7,7 @@ import { buildSystemPromptPreview, getSystemPromptSources } from "$lib/server/ag
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
+import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
@@ -17,9 +18,13 @@ import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { SharedRuntimeCommandService, type SharedRuntimeCommandOptions } from "$lib/server/agent/commands/channelCommands.js";
 import { buildTextChannelContext, type ChannelResponseHandle, type ContextSentMessageRef } from "$lib/server/channels/shared/contextBuilder.js";
 import type { ChannelInboundMessage, RunnerUiEvent } from "$lib/server/agent/core/types.js";
+import { retryApprovalAutoResume } from "$lib/server/channels/shared/approvalAutoResume.js";
 import { ChannelQueue } from "$lib/server/channels/shared/queue.js";
 import type { PromptChannel } from "$lib/server/agent/prompts/prompt-channel.js";
 import type { Channel } from "$lib/shared/types/message.js";
+
+const APPROVAL_AUTO_RESUME_RETRY_DELAY_MS = 250;
+const APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS = 20;
 
 interface BaseChannelRuntimeInit {
   channel: PromptChannel;
@@ -111,21 +116,57 @@ export abstract class BaseChannelRuntime {
     return queue;
   }
 
-  protected stopChatWork(scopeId: string): { aborted: boolean; clearedStale?: boolean } {
+  public stopTask(scopeId: string): { aborted: boolean; clearedStale?: boolean } {
+    return this.stopChatWork(scopeId);
+  }
+
+  protected getEventLeaseScope(): string {
+    return `${this.channelName}:${this.instanceId}`;
+  }
+
+  public abortTaskRun(scopeId: string, reason = "Aborted by runtime."): { aborted: boolean; clearedStale?: boolean } {
     const activeSessionId = this.store.getActiveSession(scopeId);
     const aborted = this.runners.abort(scopeId, activeSessionId);
     if (aborted) {
-      momLog(this.channelName, "stop_requested", { chatId: scopeId, sessionId: activeSessionId });
+      momLog(this.channelName, "abort_requested", { chatId: scopeId, sessionId: activeSessionId, reason });
       return { aborted: true };
     }
 
     const cleared = getTurnOrchestrator().abortRunningTurnsForSession(
       activeSessionId,
-      "Stopped stale running turn after active runner was unavailable."
+      reason
     );
     if (cleared > 0) {
       this.runners.reset(scopeId, activeSessionId);
-      momWarn(this.channelName, "stale_turn_lock_cleared", { chatId: scopeId, sessionId: activeSessionId, cleared });
+      momWarn(this.channelName, "stale_turn_lock_cleared", { chatId: scopeId, sessionId: activeSessionId, cleared, reason });
+      return { aborted: false, clearedStale: true };
+    }
+
+    return { aborted: false };
+  }
+
+  protected stopChatWork(scopeId: string): { aborted: boolean; clearedStale?: boolean } {
+    const activeSessionId = this.store.getActiveSession(scopeId);
+    const stopped = this.abortTaskRun(scopeId, "Stopped stale running turn after active runner was unavailable.");
+    const abortedLeases = getEventExecutionLeaseStore().markAbortedForChat(
+      scopeId,
+      "Stopped by user.",
+      new Date(),
+      this.getEventLeaseScope()
+    );
+    if (stopped.aborted) {
+      momLog(this.channelName, "stop_requested", { chatId: scopeId, sessionId: activeSessionId, eventLeases: abortedLeases });
+      return stopped;
+    }
+
+    if (stopped.clearedStale) {
+      momWarn(this.channelName, "stale_turn_lock_cleared", { chatId: scopeId, sessionId: activeSessionId, eventLeases: abortedLeases });
+      return stopped;
+    }
+
+    if (abortedLeases > 0) {
+      this.runners.reset(scopeId, activeSessionId);
+      momWarn(this.channelName, "event_lease_stopped", { chatId: scopeId, sessionId: activeSessionId, eventLeases: abortedLeases });
       return { aborted: false, clearedStale: true };
     }
 
@@ -158,8 +199,46 @@ export abstract class BaseChannelRuntime {
     return { queued };
   }
 
+  protected getApprovalAutoResumeRetryConfig(): { delayMs: number; maxAttempts: number } {
+    return {
+      delayMs: APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
+      maxAttempts: APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS
+    };
+  }
+
+  protected resumeApprovedHostBashTask<TSent extends ContextSentMessageRef>(
+    scopeId: string,
+    event: ChannelInboundMessage,
+    options: {
+      createBotMessageId: () => number;
+      response: ChannelResponseHandle<TSent>;
+      notifyRetryExhausted?: () => Promise<void>;
+    }
+  ): void {
+    const retry = this.getApprovalAutoResumeRetryConfig();
+    void retryApprovalAutoResume({
+      run: () => this.runSharedTextTask(scopeId, event, {
+        createBotMessageId: options.createBotMessageId,
+        response: options.response
+      }),
+      maxAttempts: retry.maxAttempts,
+      delayMs: retry.delayMs,
+      onWarn: (warningCode, meta) => {
+        momWarn(this.channelName, warningCode, {
+          chatId: scopeId,
+          ...meta
+        });
+      },
+      onRetryExhausted: options.notifyRetryExhausted
+    });
+  }
+
   protected buildQueuedBusyNotice(queueId: number): string {
     return `Queued as #${queueId}. Send /steer ${queueId} to inject it into the current task.`;
+  }
+
+  protected isScopeBusy(scopeId: string): boolean {
+    return this.running.has(scopeId) || getEventExecutionLeaseStore().hasActiveForChat(scopeId, this.getEventLeaseScope());
   }
 
   protected async writePromptPreview(allowedChatIds: string[]): Promise<void> {
@@ -284,7 +363,7 @@ export abstract class BaseChannelRuntime {
               imageContents: [],
               isEvent: true
             };
-            void this.runSharedTextTask(input.scopeId, event, {
+            this.resumeApprovedHostBashTask(input.scopeId, event, {
               createBotMessageId: () => Math.floor(Math.random() * 1000000),
               response: {
                 sendText: async (text) => {
@@ -294,6 +373,14 @@ export abstract class BaseChannelRuntime {
                 respondInThread: async (text) => {
                   await options.sendText(input.target, text);
                 }
+              },
+              notifyRetryExhausted: async () => {
+                await options.sendText(
+                  input.target,
+                  isEnglishChannel
+                    ? "Command executed, but the session is still busy. Send any message to continue the task."
+                    : "命令已执行，但当前会话仍处于忙碌状态。发送任意消息可继续刚才的任务。"
+                );
               }
             });
           }

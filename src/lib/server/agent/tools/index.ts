@@ -18,6 +18,7 @@ import { createSubagentTool } from "$lib/server/agent/tools/subagent.js";
 import { createSwitchModelTool } from "$lib/server/agent/tools/switchModel.js";
 import { createToolSearchTool, type DeferredToolEntry } from "$lib/server/agent/tools/toolSearch.js";
 import { getWriteToolDefinition } from "$lib/server/agent/tools/write.js";
+import { createWebSearchTool } from "$lib/server/agent/search/webSearchTool.js";
 import { createFeaturePluginTools } from "$lib/server/plugins/feature-registry.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { momLog } from "$lib/server/agent/common/log.js";
@@ -473,6 +474,9 @@ export function createMomTools(options: {
     createSkillSearchTool({
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,
+      getSettings: options.getSettings
+    }),
+    createWebSearchTool({
       getSettings: options.getSettings
     }),
     createToolSearchTool({

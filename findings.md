@@ -1,29 +1,47 @@
-# Findings & Decisions: Agent v2.2 Optimization
+# Findings & Decisions
 
-## Current v2.2 Baseline
-- `src/lib/server/workspaces/store.ts` already creates a `workspaces` table and default `personal` workspace.
-- `src/lib/server/agent/runner.ts` already resolves `ctx.message.workspaceId`, writes it into run detail entries, and includes it in run summary metadata.
-- `src/lib/server/channels/shared/baseRuntime.ts` stores a default `workspaceId`, but still constructs physical `workspaceDir` from the channel default workspace name. This matches the v2.2 rule that logical Workspace must not migrate physical directories.
-- `src/lib/server/agent/channelCommands.ts` already intercepts `/acp`, `/approve`, and `/deny` with an inactive runtime message.
-- Host Bash approvals already have SQLite-backed storage and support pending/history/whitelist concepts, but they are still in the Host Bash-specific model rather than the generalized `ApprovalBroker` model.
+## Requirements
+- Update `docs/agent-execution/event-run-timeout-retry-design.md` so the design is implementation-ready.
+- Implement scheduled task automatic retry with default timeout 10 minutes, configurable, capped at 3 attempts.
+- Timeout must abort the current run before retrying.
+- `/stop` must stop scheduled runs even when in-memory channel runner state is stale.
+- Keep queue/retry/recovery/orchestration in shared runtime, not channel-specific code.
+- Update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md` after functional changes.
 
-## Resolved In This Slice
-- `src/lib/server/settings/defaults.ts` no longer imports ACP provider presets and now defaults ACP to disabled with no targets.
-- `src/lib/server/settings/store.ts` no longer imports ACP adapter inference from the legacy ACP provider module.
-- `src/routes/settings/acp/+page.svelte` is now a read-only inactive notice instead of an editable ACP target/project manager.
-- `src/lib/server/agent/turnOrchestrator.ts` exists and `runner.ts` delegates run/session/workspace metadata preparation to it.
-- `src/lib/server/agent/tools/toolTypes.ts` and `toolRuntime.ts` define the first unified tool execution boundary.
-- `src/lib/server/approval/approvalTypes.ts` and `approvalBroker.ts` define the first shared approval scope boundary.
+## Research Findings
+- `EventsWatcher` currently writes `status.state = running` into event JSON and uses a TTL, but that only gates periodic dispatch and does not abort the underlying runner/tool.
+- `BaseChannelRuntime.stopChatWork()` aborts active runner if found, otherwise marks running turns aborted. It does not consult event execution ownership.
+- `TurnOrchestrator.prepareTurn()` auto-releases running turns older than 10 minutes, but this only changes the `runs` table and does not stop the actual agent.
+- `RunnerPool.abort()` can abort only if the current runner instance is found and running.
+- Existing direct event delivery and agent event delivery enter through channel-specific event handlers; V1 should add shared execution ownership without duplicating retry logic per channel.
+- `TaskScheduler` owns workspace/bot event watchers; Telegram also starts chat-scratch watchers. Both now need to pass shared event execution settings and timeout abort hooks into `EventsWatcher`.
+- Channel `triggerTask()` methods need to honor the run id assigned by the lease, otherwise timeout/retry cannot correlate the lease with the `runs` row.
 
-## Remaining Gaps Against v2.2
-- `src/lib/server/settings/schema.ts` still includes `AcpSettings` in `RuntimeSettings` for compatibility; final removal belongs to the later legacy cleanup phase.
-- `src/lib/server/app/runtime.ts` still contains ACP sanitization helpers for old config compatibility.
-- `TurnOrchestrator` has not yet migrated the full channel pipeline, session lock, memory, skill loading, or run event archival responsibilities.
-- `ToolRuntime` has not yet migrated the existing built-in tools, Host Bash path, MCP tools, or plugin tools.
-- `ApprovalBroker` is not yet backed by SQLite `approval_requests` / `approval_grants`, and debounce/subagent bubbling are still pending.
-- `messageRouter.ts` still exists under shared channels, even though v2.2 marks it as a later deletion target.
+## Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Add an `event_execution_leases` table | Event JSON alone cannot provide atomic ownership, bounded retries, or reliable stop semantics. |
+| Use lease status transitions as canonical state | Prevents drift between watcher JSON status, runner memory, and `runs`. |
+| Use event JSON as mirror | Operators can inspect status without letting JSON become the source of truth for active execution. |
+| Treat attempts as belonging to one trigger cycle | Periodic retries must reset on the next cron slot. |
+| Add `RuntimeSettings.events` | Makes timeout, max attempts, and retry delay configurable without per-channel divergence. |
+| Add `abortTaskRun()` separately from `stopTask()` | Timeout abort must not mark the lease as manually stopped, because manual stop suppresses retry. |
 
-## Implementation Decisions
-- Do not physically delete `src/lib/server/acp/` in early phases.
-- Prefer additive modules and focused tests first, because `runner.ts` is large and existing behavior is broad.
-- Treat Phase 5 as a real gate, not a paper-complete item; it needs stabilization evidence before ACP source deletion.
+## Issues Encountered
+| Issue | Resolution |
+|-------|------------|
+| `git status` emitted sandbox temp-cache warnings | It still reported the worktree status; no retry needed. |
+| `npx tsx --test` could not create a local IPC pipe under sandbox | Used `node --import tsx --test` for focused tests. |
+| Same trigger slot could be reacquired after final failure | `EventExecutionLeaseStore.acquire()` now refuses any existing terminal same-slot lease; next periodic cron slot uses a different `triggerSlot`. |
+| Existing `TurnOrchestrator` tests cannot write the configured SQLite DB in this read-only sandbox | Recorded as verification limitation; new lease store tests use in-memory SQLite and passed. |
+
+## Resources
+- `/Users/gusi/Github/molipibot/docs/agent-execution/event-run-timeout-retry-design.md`
+- `/Users/gusi/Github/molipibot/src/lib/server/agent/events.ts`
+- `/Users/gusi/Github/molipibot/src/lib/server/channels/shared/baseRuntime.ts`
+- `/Users/gusi/Github/molipibot/src/lib/server/agent/core/turnOrchestrator.ts`
+- `/Users/gusi/Github/molipibot/src/lib/server/agent/core/runnerPool.ts`
+- `/Users/gusi/Github/molipibot/src/lib/server/agent/eventsLeaseStore.ts`
+
+## Visual/Browser Findings
+- None.
