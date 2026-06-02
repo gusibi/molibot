@@ -44,3 +44,10 @@ test("prompt source requires host tool approval instead of sandbox bypass", () =
   assert.match(promptSource, /must never claim to approve host tools itself/);
   assert.match(promptSource, /Approved host tools are controlled capabilities, not a general host shell/);
 });
+
+test("prompt source prioritizes webSearch for current web information", () => {
+  assert.match(promptSource, /"webSearch"/);
+  assert.match(promptSource, /Search web\/current information \| `webSearch` \| bash curl, browser search, or skill scripts/);
+  assert.match(promptSource, /`webSearch\(query, maxResults\?, engine\?, route\?, includeDomains\?, excludeDomains\?\)`/);
+  assert.match(promptSource, /date-aware guidance, fallback diagnostics, citations, and source metadata/);
+});

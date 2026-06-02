@@ -22,6 +22,47 @@
     args?: string[];
   }
 
+  interface HostBashCapability {
+    executable: string;
+    toolId: string;
+    argv: string[];
+    originalSegment: string;
+  }
+
+  interface HostBashSafeHelper {
+    executable: string;
+    argv: string[];
+    originalSegment: string;
+    reason: string;
+  }
+
+  interface HostBashSafeGlue {
+    token: "|" | "&&" | ";" | "2>&1" | "1>&2";
+    reason: string;
+  }
+
+  type HostBashClassification =
+    | {
+        kind: "persistent-capability";
+        capability: HostBashCapability;
+        capabilities: HostBashCapability[];
+        originalCommand: string;
+        safeHelpers: HostBashSafeHelper[];
+        safeGlue: HostBashSafeGlue[];
+      }
+    | {
+        kind: "compound-capabilities";
+        capabilities: HostBashCapability[];
+        originalCommand: string;
+        safeHelpers: HostBashSafeHelper[];
+        safeGlue: HostBashSafeGlue[];
+      }
+    | {
+        kind: "one-time-script";
+        originalCommand: string;
+        reason: string;
+      };
+
   interface PendingRecord {
     id: string;
     toolId: string;
@@ -36,6 +77,7 @@
     status: string;
     permissions: HostBashPermissions;
     pendingAction?: HostBashPendingAction;
+    classification?: HostBashClassification;
     requestedAt: string;
     resolvedAt?: string;
     executedAt?: string;
@@ -86,6 +128,20 @@
 
   function formatPermissions(permissions: HostBashPermissions): string {
     return `fs=${permissions.filesystem} / net=${permissions.network} / env=${permissions.envAllowlist.join(", ") || "(none)"}`;
+  }
+
+  function formatClassification(item: PendingRecord): string {
+    const classification = item.classification;
+    if (!classification) return "—";
+    if (classification.kind === "one-time-script") return `one-time: ${classification.reason}`;
+    const capabilityIds = [...new Set(classification.capabilities.map((entry) => entry.toolId))].join(", ");
+    const helpers = classification.safeHelpers.map((entry) => entry.originalSegment).join(" | ");
+    const glue = classification.safeGlue.map((entry) => entry.token).join(" ");
+    return [
+      `capability=${capabilityIds || item.toolId}`,
+      helpers ? `helpers=${helpers}` : "",
+      glue ? `glue=${glue}` : ""
+    ].filter(Boolean).join(" / ");
   }
 
   async function loadData(): Promise<void> {
@@ -226,13 +282,14 @@
             <TableHead>Tool</TableHead>
             <TableHead>Mode</TableHead>
             <TableHead>Command</TableHead>
+            <TableHead>Classification</TableHead>
             <TableHead>Scope</TableHead>
             <TableHead>Permissions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {#if !loading && (data?.pending.length ?? 0) === 0}
-            <TableRow><TableCell colspan="6" class="text-muted-foreground">No pending Host Bash approvals.</TableCell></TableRow>
+            <TableRow><TableCell colspan="7" class="text-muted-foreground">No pending Host Bash approvals.</TableCell></TableRow>
           {:else}
             {#each data?.pending ?? [] as item}
               <TableRow>
@@ -243,6 +300,7 @@
                 </TableCell>
                 <TableCell>{item.approvalMode}</TableCell>
                 <TableCell class="max-w-[26rem] break-all text-xs">{item.pendingAction?.originalCommand || item.command}</TableCell>
+                <TableCell class="max-w-[24rem] break-all text-xs">{formatClassification(item)}</TableCell>
                 <TableCell class="text-xs">{item.channel} / {item.chatId}</TableCell>
                 <TableCell class="max-w-[22rem] text-xs">{formatPermissions(item.permissions)}</TableCell>
               </TableRow>
@@ -316,13 +374,14 @@
             <TableHead>Mode</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Command</TableHead>
+            <TableHead>Classification</TableHead>
             <TableHead>Reason</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {#if !loading && (data?.history.length ?? 0) === 0}
-            <TableRow><TableCell colspan="7" class="text-muted-foreground">No matching history records.</TableCell></TableRow>
+            <TableRow><TableCell colspan="8" class="text-muted-foreground">No matching history records.</TableCell></TableRow>
           {:else}
             {#each data?.history ?? [] as item}
               <TableRow>
@@ -334,6 +393,7 @@
                 <TableCell>{item.approvalMode}</TableCell>
                 <TableCell><Badge variant="outline">{item.status}</Badge></TableCell>
                 <TableCell class="max-w-[22rem] break-all text-xs">{item.pendingAction?.originalCommand || item.command}</TableCell>
+                <TableCell class="max-w-[22rem] break-all text-xs">{formatClassification(item)}</TableCell>
                 <TableCell class="max-w-[22rem] text-xs">
                   <div>{item.reason}</div>
                   {#if item.errorText}

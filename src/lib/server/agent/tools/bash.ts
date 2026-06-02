@@ -7,14 +7,14 @@ import { config } from "$lib/server/app/env.js";
 import type { ToolSandboxSettings } from "$lib/server/settings/index.js";
 import type {
   ApprovedHostBashEntry,
+  HostBashCommandClassification,
   HostBashApprovalPrompt,
   HostBashStore
 } from "$lib/server/hostBash/index.js";
 import {
   buildHostBashApprovalPrompt,
+  classifyHostBashCommand,
   getHostBashStore,
-  parseHostBashApprovalCommand,
-  parseHostBashShellCommand,
   sanitizeHostBashId
 } from "$lib/server/hostBash/index.js";
 import { executeApprovedHostBash } from "$lib/server/agent/hostBashExec.js";
@@ -59,9 +59,11 @@ interface BashToolDetails {
 }
 
 interface ParsedHostBashCommand {
+  toolId: string;
   command: string;
   args: string[];
   originalCommand: string;
+  classification: HostBashCommandClassification;
 }
 
 export interface BashToolSandboxOptions {
@@ -219,6 +221,79 @@ function captureSayTranscript(command: string, fallbackCwd: string): void {
   writeFileSync(`${outputPath}.transcript.txt`, `${transcript.trim()}\n`, "utf8");
 }
 
+function classifyApprovalRequest(
+  store: HostBashStore,
+  classification: HostBashCommandClassification
+): {
+  approvalMode: "persistent" | "ephemeral";
+  toolId: string;
+  command: string;
+  args: string[];
+  originalCommand: string;
+  classification: HostBashCommandClassification;
+} {
+  if (classification.kind === "one-time-script") {
+    const firstToken = classification.originalCommand.split(/\s+/)[0] ?? "";
+    const sanitizedFirst = sanitizeHostBashId(firstToken);
+    return {
+      approvalMode: "ephemeral",
+      toolId: sanitizeHostBashId(sanitizedFirst ? `one-time-${sanitizedFirst}` : "one-time-host-script"),
+      command: classification.originalCommand.slice(0, 240),
+      args: [],
+      originalCommand: classification.originalCommand,
+      classification
+    };
+  }
+
+  const distinctCapabilities = [...new Map(
+    (classification.kind === "persistent-capability"
+      ? [classification.capability]
+      : classification.capabilities
+    ).map((item) => [item.toolId, item])
+  ).values()];
+
+  if (distinctCapabilities.length === 1) {
+    const primary = distinctCapabilities[0];
+    return {
+      approvalMode: "persistent",
+      toolId: primary.toolId,
+      command: primary.executable,
+      args: primary.argv,
+      originalCommand: classification.originalCommand,
+      classification
+    };
+  }
+
+  const unapproved = distinctCapabilities.filter((item) => !store.getApprovedEntry(item.toolId)?.enabled);
+  if (unapproved.length === 1) {
+    const primary = unapproved[0];
+    return {
+      approvalMode: "persistent",
+      toolId: primary.toolId,
+      command: primary.executable,
+      args: primary.argv,
+      originalCommand: classification.originalCommand,
+      classification
+    };
+  }
+
+  const firstToken = classification.originalCommand.split(/\s+/)[0] ?? "";
+  const sanitizedFirst = sanitizeHostBashId(firstToken);
+  return {
+    approvalMode: "ephemeral",
+    toolId: sanitizeHostBashId(sanitizedFirst ? `one-time-${sanitizedFirst}` : "one-time-host-script"),
+    command: classification.originalCommand.slice(0, 240),
+    args: [],
+    originalCommand: classification.originalCommand,
+    classification: {
+      kind: "one-time-script",
+      originalCommand: classification.originalCommand,
+      reason: "Command spans multiple host capabilities and cannot be reduced to one reusable approval.",
+      detectedTokens: distinctCapabilities.map((item) => item.toolId)
+    }
+  };
+}
+
 function requestApprovalFromBash(
   options: BashToolHostApprovalOptions,
   command: string,
@@ -234,11 +309,13 @@ function requestApprovalFromBash(
   }
 ): { text: string; prompt?: HostBashApprovalPrompt } {
   const store = options.hostBashStore ?? getHostBashStore();
-  const parsed = parseHostBashApprovalCommand(command);
+  const classification = classifyHostBashCommand(command);
+  const parsed = classifyApprovalRequest(store, classification);
   const requested = store.requestApproval({
     toolId: parsed.toolId,
     command: parsed.command,
     approvalMode: parsed.approvalMode,
+    classification: parsed.classification,
     displayName: approval.displayName,
     reason: approval.reason,
     permissions: approval.permissions,
@@ -301,21 +378,58 @@ function requestApprovalFromBash(
 }
 
 export function tryParseHostBashCommand(command: string): ParsedHostBashCommand | null {
-  try {
-    return parseHostBashShellCommand(command);
-  } catch {
-    return null;
+  const classification = classifyHostBashCommand(command);
+  if (classification.kind === "one-time-script") return null;
+
+  const primary = classification.kind === "persistent-capability"
+    ? classification.capability
+    : classification.capabilities[0];
+  if (!primary) return null;
+
+  return {
+    toolId: primary.toolId,
+    command: primary.executable,
+    args: primary.argv,
+    originalCommand: classification.originalCommand,
+    classification
   }
 }
 
 export function findApprovedHostBash(
   store: HostBashStore,
   parsed: ParsedHostBashCommand | null
-): ApprovedHostBashEntry | undefined {
+) : ApprovedHostBashEntry | undefined {
   if (!parsed) return undefined;
-  const toolId = sanitizeHostBashId(parsed.command);
-  const approved = store.getApprovedEntry(toolId);
-  return approved?.enabled ? approved : undefined;
+  const toolIds = parsed.classification.kind === "persistent-capability"
+    ? [parsed.classification.capability.toolId]
+    : [...new Set(parsed.classification.capabilities.map((item) => item.toolId))];
+  if (toolIds.length === 0) return undefined;
+  const approvedEntries = toolIds
+    .map((toolId) => store.getApprovedEntry(sanitizeHostBashId(toolId)))
+    .filter((item): item is ApprovedHostBashEntry => Boolean(item?.enabled));
+  if (approvedEntries.length !== toolIds.length) return undefined;
+
+  if (approvedEntries.length === 1) return approvedEntries[0];
+  return {
+    ...approvedEntries[0],
+    toolId: toolIds.join("+"),
+    displayName: toolIds.join(", "),
+    permissions: {
+      envAllowlist: [...new Set(approvedEntries.flatMap((item) => item.permissions.envAllowlist))],
+      filesystem: approvedEntries.some((item) => item.permissions.filesystem === "workspace-write")
+        ? "workspace-write"
+        : approvedEntries.some((item) => item.permissions.filesystem === "workspace-read")
+          ? "workspace-read"
+          : approvedEntries.some((item) => item.permissions.filesystem === "scratch-only")
+            ? "scratch-only"
+            : "none",
+      network: approvedEntries.some((item) => item.permissions.network === "internet")
+        ? "internet"
+        : approvedEntries.some((item) => item.permissions.network === "loopback")
+          ? "loopback"
+          : "none"
+    }
+  };
 }
 
 function isSandboxPermissionFailure(output: string): boolean {
@@ -332,7 +446,10 @@ function isSandboxPermissionFailure(output: string): boolean {
 }
 
 function buildAutomaticHostApprovalReason(parsed: ParsedHostBashCommand): string {
-  return `Sandbox denied host-level access for \`${parsed.originalCommand}\`. Approve this executable as a controlled host capability if you want future runs to bypass sandbox for this command.`;
+  const capabilitySummary = parsed.classification.kind === "persistent-capability"
+    ? parsed.classification.capability.toolId
+    : [...new Set(parsed.classification.capabilities.map((item) => item.toolId))].join(", ");
+  return `Sandbox denied host-level access for \`${parsed.originalCommand}\`. Approve ${capabilitySummary || "this capability"} as controlled Host Bash access if you want future runs to bypass sandbox for similarly classified commands.`;
 }
 
 export function getBashToolDefinition(
@@ -354,6 +471,9 @@ export function getBashToolDefinition(
     source: "host",
     handler: async (params: any, ctx) => {
       const hostBashStore = options.hostApproval?.hostBashStore ?? getHostBashStore();
+      const hostBashClassification = options.hostApproval
+        ? classifyHostBashCommand(params.command)
+        : null;
       const parsedHostBashCommand = options.hostApproval
         ? tryParseHostBashCommand(params.command)
         : null;
@@ -483,7 +603,10 @@ export function getBashToolDefinition(
               }
             };
           }
-          errorBody += "\n\n[SANDBOX] This command appears to need host-level access, but automatic approval only supports a single executable command with structured argv. Split it into one command and retry.";
+          const reason = hostBashClassification?.kind === "one-time-script"
+            ? hostBashClassification.reason
+            : "Automatic approval could not reduce this command to a reusable Host Bash capability.";
+          errorBody += `\n\n[SANDBOX] This command appears to need host-level access, but automatic approval kept it as one-time only: ${reason}`;
         } else if (result.sandboxApplied) {
           errorBody += "\n\n[SANDBOX] This command ran inside the OS sandbox. If it failed due to filesystem or network restrictions (e.g. \"Operation not permitted\", \"Permission denied\", socket/IPC errors), request host access through `bash` with `hostApproval.reason`. Once approved, runtime will execute the stored host action automatically. Do not retry the same command through plain bash.";
         }

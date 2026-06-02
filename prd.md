@@ -58,6 +58,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Host tool approval 需要支持第三种“仅当前 session 放行”决策：它不会把 executable 写入全局 approved host tools，只会在当前聊天/session 内暂时允许被 sandbox 拦住的 bash 命令自动回退到 host bash；换 bot 或 `/new` 后必须失效。
 - Host Bash 审批与白名单数据不能继续堆在 `settings.json` / `settings_dynamic` 中；需要迁移到独立 SQLite 表，保留完整审批历史、长期白名单当前态，并提供设置页查看 pending / history / whitelist 以及启用、禁用、删除等运维操作，但不在设置页里手动批准/拒绝 pending。
 - Host Bash 审批频率优化不能降低人工审批边界：主 Agent 与 subagent 触发的同一 pending approval 应在父 runner 内去重展示；`approve-session` 必须能执行当前 pending action 但不得创建长期白名单；当前热修复阶段 approved Host Bash / legacy host tool 继续继承宿主 `process.env`，后续如要收紧敏感 env，必须先提供可审计、可回滚且不会破坏现有 API key 使用的审批/配置方案。
+- [Done] Host Bash 复合命令审批降噪必须只放宽“安全 glue/helper”这一层，而不是放宽能力边界：像 `longbridge ... | head -30`、`agent-browser ... && sleep 3 && agent-browser ...` 这类命令应归约到真实 capability 做长期审批；存在动态 shell 语义、文件写重定向、unsafe helper 或多能力无法唯一归约时，仍必须退化为 one-time。
 - Host Bash pending action 必须保存 Host Bash 自己的 action kind，并在批准后使用原始 bash 执行目录语义继续运行；不得因为迁移自 legacy host tool 命名而丢失 pending payload，也不得把相对路径从 scratch 偏移到 chat 根目录。
 - `bash` 工具的用户可见进度、run detail 和诊断标签必须反映真实执行路径：命中已批准 Host Bash 白名单或当前 session host fallback 时显示 `Host Bash`，真正进入 OS sandbox 时才显示 `Sandbox`，sandbox 初始化软降级时才显示 `Sandbox disabled`。
 - Agent session 持久化必须对齐 Pi/Pae 的消息边界语义：用户消息在本轮开始时进入 Agent session，assistant 失败/partial 输出和已完成 toolResult 也应保留；自动 compaction 不能截断当前用户消息；自动重试或 fallback 可以从下一次模型输入中隔离最后一条错误 assistant，尤其是无内容 error assistant，但不得从 session 审计历史删除该失败轮次。
@@ -67,8 +68,16 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - [Done] Feishu Host Bash / 通用工具审批按钮必须同时支持公网 HTTP 卡片回调和本地 WebSocket `card.action.trigger` 事件；本地运行且端口不对外暴露时，不得因为缺少 `/api/feishu/card` 公网地址而导致按钮审批不可用，也不得因为审批记录来自通用 Approval Broker 而按钮点击无效。
 - [Done] 审批回复必须支持自然中文结论，例如 `审批通过`、`通过`、`批准通过`、`审批拒绝`，不能只识别 `批准` / `安装` 这类内部口令。
 - [Done] 本机长期运行不能依赖一次性前台 PTY 会话；需要提供 LaunchAgent 配置，让 Molibot 由 macOS `launchd` 持续管理并在退出后自动拉起。
-- [Done] 网页搜索属于基础 Agent 能力，应作为共享内置 `webSearch` 工具提供，而不是依赖每轮按需加载 skill。配置必须在 Settings 页面管理，支持 DuckDuckGo 开箱即用和 Brave/Tavily/Exa/Serper/Baidu/Bocha 等可选引擎，并按中文/全球/新闻路由自动降级。
+- [Done] 网页搜索属于基础 Agent 能力，应作为共享内置 `webSearch` 工具提供，而不是依赖每轮按需加载 skill。配置必须在 Settings 页面管理，支持 DuckDuckGo 开箱即用以及 Brave/Tavily/Exa/Serper/Baidu/Baidu Fast/Baidu Web/Ark/Grok/Bocha 等可选引擎，并按 `china` / `global` / `official_docs` / `research` 这类目标导向 route 自动降级，避免把中文近期查询误判成国内新闻。
+- [Done] 当搜索引擎保持 `auto` 时，Settings 必须支持 priority / random / round-robin 三种自动引擎选择策略；random 和 round-robin 只在已启用且具备必要 API Key 的候选引擎中选择，避免固定消耗单个服务额度。
+- [Done] `/settings/search` 的测试结果必须能展示脱敏请求诊断，让操作者看到实际调用的 provider URL、method、headers 和 body，便于排查“显示某引擎但结果形态不符合预期”的问题。
 - [Done] `/settings/search` 中各搜索引擎的 `Custom base URL` 为空时，页面必须直接展示实际生效的默认地址，不能只写 `Optional` 让操作者猜当前回退目标。
+- [Done] 内置 `webSearch` 的工具结果必须提供 source-level citations 和 metadata；每条标准化 result 都应能映射到稳定 citation id，provider request id / usage / 站点名 / favicon / 发布时间等字段应在可用时保留，最终回答引用不应只依赖临时 URL 拼接。
+- [Done] `/settings/search` 的 Test Query 必须支持显式选择本次使用的搜索引擎，并直接展示 `webSearch` 工具真实返回的 `WebSearchResponse`，不能再额外拼装一套只供页面查看的简化结果。
+- [Done] runtime web search 必须保持日期感知但不机械污染关键词：工具说明提供当前年月和“必要时使用正确年份”的 guidance，但 provider 请求默认使用用户简洁 query；只有用户明确指定日期或日期能明显改善检索时才加入日期。`WebSearchResponse.query` 继续保留用户原始 query。
+- [Done] `webSearch` 需要容忍弱模型把 `route` / `engine` 写成带换行和嵌套引号的字符串，并在运行时归一化，避免连续 schema 校验失败耗尽工具轮次。
+- [Done] 中文/本地搜索路线应优先返回网页引用结果，再降级到 provider AI 摘要型搜索，避免无引用摘要直接成为最终答案依据。
+- [Done] 系统提示词的工具优先级必须把当前网页信息查询路由到专用 `webSearch` 工具，不能继续鼓励用 `bash curl`、浏览器搜索或旧 web-search skill 脚本替代。
 - Telegram Host Bash 审批按钮必须先确认 callback 并给出可见“执行中”状态，再执行审批后的 host action；长命令不得因为 Telegram callback 超时而让用户误判点击无效。
 - Telegram 群聊触发必须同时支持“回复 bot 消息”和“直接 @ bot”。直接 @ 的判定应优先使用 Telegram `message.entities` / `caption_entities` 中的 mention 信息，并保留纯文本 `@username` 兜底，避免群聊消息已入站但被误判为未提及 bot。
 - 主答案展示必须有明确生命周期：draft 阶段允许流式编辑或 buffer 替换；一旦 runner 提交主答案，后续 assistant 文本不得覆盖已提交内容。若同一轮模型返回多条独立 terminal assistant 消息，必须按消息边界逐条展示（一条就一条，两条就两条），不得用文本语义猜测去丢弃或覆盖。该规则必须在 shared runtime / context 语义中表达，Channel 层只负责按平台能力渲染。

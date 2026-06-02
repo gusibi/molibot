@@ -2,6 +2,22 @@
 
 ## Version 1.0
 
+## 2026-06-03
+
+### Web Search Query Robustness
+- Stopped prepending full current date/time text to every provider query; live lookups now keep concise user keywords unless a date is explicitly useful.
+- Added tolerance for weak model tool arguments such as `route: "\n\"auto\"\n"` and `engine: "\n\"auto\"\n"` to prevent repeated webSearch validation failures.
+- Changed China-local search fallback to prefer webpage references before provider-generated summaries, reducing the risk of uncited summaries driving final answers.
+- Updated prompt wording and regression tests around date-aware search guidance, concise queries, and route ordering.
+
+## 2026-06-02
+
+### Host Bash Compound Command Classification
+- Added a conservative Host Bash command classifier that distinguishes reusable capabilities from safe shell glue/helpers and one-time-only scripts.
+- Reduced unnecessary one-time approvals for compound commands such as `longbridge ... 2>&1 | head -30` and same-tool chains like `agent-browser ... && sleep 3 && agent-browser ...`.
+- Persisted classification metadata into Host Bash approval audit records and surfaced it on `/settings/host-bash` so operators can see the capability, ignored safe helpers/glue, or one-time degradation reason.
+- Added focused regression coverage for classifier behavior and approved compound Host Bash execution paths.
+
 ## 2026-06-01
 
 ### Host Bash Auto-Resume Lock Recovery
@@ -11,11 +27,21 @@
 
 ### Built-In Web Search Tool
 - Added a shared Agent-layer `webSearch` tool so current-information lookups no longer depend on loading a reusable skill.
-- Added configurable provider settings for DuckDuckGo, Brave, Tavily, Exa, Serper, Baidu Qianfan, and Bocha, with route-based fallback for Chinese/general/global/news searches.
+- Added configurable provider settings for DuckDuckGo, Brave, Tavily, Exa, Serper, Baidu Qianfan, and Bocha, with route-based fallback now centered on China-local, global, official-docs, and research search intents.
+- Extended the built-in provider list to match the local `web-search` skill scripts by adding `baidu_fast`, `baidu_web`, `ark`, and `grok` to shared settings, routing, and runtime provider execution.
 - Added `/settings/search` with shadcn-svelte controls for tool enablement, default routing, engine credentials, timeouts, max results, and live test queries.
+- Added automatic engine selection strategies for `engine=auto`: priority order, random, and in-process round-robin across configured engines.
+- Added redacted request diagnostics to `/settings/search` test results so operators can inspect the actual provider URL, method, headers, and body used by a search attempt.
 - Exposed each provider's effective default base URL in `/settings/search` when the custom base URL field is left empty, using the same shared constants as the runtime providers.
 - Added focused tests for search routing, result normalization, and runtime tool risk classification.
 - Refined the `webSearch` tool prompt so model answers include a mandatory `Sources:` section, use current-year queries for recent information, and prefer automatic routing unless a specific source or region is needed.
+- Upgraded normalized search responses with source-level citations, per-result citation ids, provider metadata, and summary source tracking while preserving the existing `summary` text contract.
+- Preserved richer provider fields such as request ids, usage credits, site names, favicons, publication dates, and Baidu/Bocha provider reference ids when available.
+- Fixed Baidu Fast search normalization so provider answers are retained even when source references are also returned.
+- Updated `/settings/search` Test Query to let operators force a specific engine and inspect the exact `WebSearchResponse` payload returned by `runWebSearch()`.
+- Removed Ark from the visible search settings UI while keeping the shared runtime/provider support unchanged underneath.
+- Added automatic current date/time context to every runtime web search provider request while preserving the user's original query in `WebSearchResponse.query`, improving relative-time searches such as tomorrow weather, latest prices, and today's news.
+- Updated the system prompt Tools Priority Table and tool parameter guidance so current web lookups use the dedicated `webSearch` tool instead of bash curl, browser search, or legacy skill scripts.
 
 ### Feishu Local Approval Buttons
 - Added `card.action.trigger` handling to the Feishu WebSocket runtime so Host Bash approval buttons work for local-only Molibot instances without exposing `/api/feishu/card` publicly.

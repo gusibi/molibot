@@ -1,12 +1,14 @@
 import type {
   HostBashApprovalMode,
   HostBashApprovalPrompt,
+  HostBashCommandClassification,
   HostBashApprovalRecord,
   HostBashFilesystemAccess,
   HostBashNetworkAccess,
   HostBashPendingAction,
   HostBashPermissions
 } from "$lib/server/hostBash/types.js";
+import { classifyHostBashCommand } from "$lib/server/hostBash/commandClassifier.js";
 
 export const defaultHostBashPermissions: HostBashPermissions = {
   envAllowlist: [],
@@ -190,6 +192,7 @@ interface PersistentHostBashCommand {
   command: string;
   args: string[];
   originalCommand: string;
+  classification?: HostBashCommandClassification;
 }
 
 interface EphemeralHostBashCommand {
@@ -197,6 +200,7 @@ interface EphemeralHostBashCommand {
   toolId: string;
   command: string;
   originalCommand: string;
+  classification?: HostBashCommandClassification;
 }
 
 export type ParsedHostBashApprovalCommand = PersistentHostBashCommand | EphemeralHostBashCommand;
@@ -205,44 +209,44 @@ export function parseHostBashApprovalCommand(input: string): ParsedHostBashAppro
   const raw = sanitizeString(input);
   if (!raw) throw new Error("command is required for host bash approval requests.");
 
-  const hasCompoundShellSyntax =
-    /[\r\n]/.test(raw) ||
-    Array.from(FORBIDDEN_SHELL_TOKENS).some((token) => raw.includes(token)) ||
-    raw.includes("$(") ||
-    raw.includes("`");
-
-  if (hasCompoundShellSyntax) {
-    const firstToken = raw.split(/\s+/)[0] ?? "";
-    const sanitizedFirst = sanitizeHostBashCommand(firstToken);
-    const toolId = sanitizeHostBashId(sanitizedFirst ? `one-time-${sanitizedFirst}` : "one-time-host-script");
-    return {
-      approvalMode: "ephemeral",
-      toolId,
-      command: raw.slice(0, 240),
-      originalCommand: raw.slice(0, 4000)
-    };
-  }
-
-  try {
-    const parsed = parseHostBashShellCommand(raw);
+  const classification = classifyHostBashCommand(raw);
+  if (classification.kind === "persistent-capability") {
+    const capability = classification.capability;
     return {
       approvalMode: "persistent",
-      toolId: sanitizeHostBashId(parsed.command),
-      command: parsed.command,
-      args: parsed.args,
-      originalCommand: parsed.originalCommand
-    };
-  } catch {
-    const firstToken = raw.split(/\s+/)[0] ?? "";
-    const sanitizedFirst = sanitizeHostBashCommand(firstToken);
-    const toolId = sanitizeHostBashId(sanitizedFirst ? `one-time-${sanitizedFirst}` : "one-time-host-script");
-    return {
-      approvalMode: "ephemeral",
-      toolId,
-      command: raw.slice(0, 240),
-      originalCommand: raw.slice(0, 4000)
+      toolId: sanitizeHostBashId(capability.toolId),
+      command: sanitizeHostBashCommand(capability.executable),
+      args: capability.argv.map((item) => item.slice(0, 4096)).slice(0, 80),
+      originalCommand: classification.originalCommand,
+      classification
     };
   }
+
+  if (classification.kind === "compound-capabilities") {
+    const distinctToolIds = [...new Set(classification.capabilities.map((item) => item.toolId))];
+    if (distinctToolIds.length === 1) {
+      const primary = classification.capabilities.find((item) => item.toolId === distinctToolIds[0]) ?? classification.capabilities[0];
+      return {
+        approvalMode: "persistent",
+        toolId: sanitizeHostBashId(primary.toolId),
+        command: sanitizeHostBashCommand(primary.executable),
+        args: primary.argv.map((item) => item.slice(0, 4096)).slice(0, 80),
+        originalCommand: classification.originalCommand,
+        classification
+      };
+    }
+  }
+
+  const firstToken = raw.split(/\s+/)[0] ?? "";
+  const sanitizedFirst = sanitizeHostBashCommand(firstToken);
+  const toolId = sanitizeHostBashId(sanitizedFirst ? `one-time-${sanitizedFirst}` : "one-time-host-script");
+  return {
+    approvalMode: "ephemeral",
+    toolId,
+    command: raw.slice(0, 240),
+    originalCommand: raw.slice(0, 4000),
+    classification
+  };
 }
 
 export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): HostBashApprovalPrompt {
@@ -250,6 +254,21 @@ export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): Ho
   const isSession = request.approvalMode === "session";
   const approvalLabel = isOneTime ? "One-time Host Bash approval" : "Host Bash approval";
   const modeLabel = isSession ? "session" : isOneTime ? "one-time" : "persistent";
+  const classification = request.classification;
+  const capabilitySummary = classification?.kind === "persistent-capability"
+    ? classification.capability.toolId
+    : classification?.kind === "compound-capabilities"
+      ? [...new Set(classification.capabilities.map((item) => item.toolId))].join(", ")
+      : undefined;
+  const safeHelperSummary = classification && classification.kind !== "one-time-script"
+    ? classification.safeHelpers.map((item) => item.originalSegment).join(" | ")
+    : "";
+  const safeGlueSummary = classification && classification.kind !== "one-time-script"
+    ? classification.safeGlue.map((item) => item.token).join(" ")
+    : "";
+  const effectLine = isOneTime
+    ? "Effect: approving will run only this exact command once."
+    : "Effect: approving will allow future commands that classify to the same Host Bash capability.";
   return {
     type: "host_bash_approval",
     requestId: request.id,
@@ -257,10 +276,18 @@ export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): Ho
     body: [
       `Mode: ${modeLabel}`,
       `Tool ID: ${request.toolId}`,
+      capabilitySummary ? `Capability: ${capabilitySummary}` : "",
       `Command: ${request.command}`,
+      request.pendingAction?.originalCommand && request.pendingAction.originalCommand !== request.command
+        ? `Original command: ${request.pendingAction.originalCommand}`
+        : "",
       request.pendingAction?.args?.length ? `Args: ${request.pendingAction.args.join(" ")}` : "",
+      safeHelperSummary ? `Ignored safe helpers: ${safeHelperSummary}` : "",
+      safeGlueSummary ? `Ignored safe glue: ${safeGlueSummary}` : "",
+      classification?.kind === "one-time-script" ? `One-time reason: ${classification.reason}` : "",
       `Reason: ${request.reason}`,
-      `Permissions: filesystem=${request.permissions.filesystem}, network=${request.permissions.network}, env=${request.permissions.envAllowlist.join(", ") || "(none)"}`
+      `Permissions: filesystem=${request.permissions.filesystem}, network=${request.permissions.network}, env=${request.permissions.envAllowlist.join(", ") || "(none)"}`,
+      effectLine
     ].filter(Boolean).join("\n"),
     options: [
       { id: "approve", label: "Approve", style: "primary" },
@@ -275,7 +302,8 @@ export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): Ho
       approvalMode: request.approvalMode,
       reason: request.reason,
       permissions: request.permissions,
-      requestedAt: request.requestedAt
+      requestedAt: request.requestedAt,
+      classification: request.classification
     }
   };
 }
@@ -314,6 +342,7 @@ export function createHostBashApprovalRecord(input: {
   approvalMode?: unknown;
   permissions?: unknown;
   pendingAction?: unknown;
+  classification?: HostBashCommandClassification;
   channel: unknown;
   chatId: unknown;
   scopeId: unknown;
@@ -358,6 +387,7 @@ export function createHostBashApprovalRecord(input: {
     requestedAt: new Date().toISOString(),
     approvalMode,
     status: "pending",
-    pendingAction
+    pendingAction,
+    classification: input.classification
   };
 }

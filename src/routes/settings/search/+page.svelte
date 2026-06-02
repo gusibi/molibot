@@ -10,8 +10,20 @@
   import { WEB_SEARCH_DEFAULT_BASE_URLS, type WebSearchBaseUrlEngine } from "$lib/shared/webSearchDefaults";
   import { Switch } from "$lib/components/ui/switch";
 
-  type EngineId = "duckduckgo" | "brave" | "tavily" | "exa" | "serper" | "baidu" | "bocha";
-  type RouteId = "auto" | "domestic_news" | "international_news" | "chinese_general" | "global_general";
+  type EngineId =
+    | "duckduckgo"
+    | "brave"
+    | "tavily"
+    | "exa"
+    | "serper"
+    | "baidu"
+    | "baidu_fast"
+    | "baidu_web"
+    | "ark"
+    | "grok"
+    | "bocha";
+  type RouteId = "auto" | "china" | "global" | "official_docs" | "research";
+  type EngineSelectionStrategy = "priority" | "random" | "round_robin";
 
   interface EngineSettings {
     enabled: boolean;
@@ -23,6 +35,7 @@
     enabled: boolean;
     defaultRoute: RouteId;
     defaultEngine: EngineId | "auto";
+    engineSelectionStrategy: EngineSelectionStrategy;
     maxResults: number;
     timeoutMs: number;
     retryTimeoutMs: number;
@@ -31,16 +44,35 @@
 
   const engines: Array<{ id: EngineId; name: string; hint: string; keyLabel: string }> = [
     { id: "duckduckgo", name: "DuckDuckGo", hint: "No API key. Lightweight fallback for simple lookups.", keyLabel: "No key required" },
-    { id: "brave", name: "Brave Search", hint: "Best first choice for global web and international news.", keyLabel: "BRAVE_API_KEY" },
+    { id: "brave", name: "Brave Search", hint: "Best first choice for global web and current sources.", keyLabel: "BRAVE_API_KEY" },
     { id: "tavily", name: "Tavily", hint: "Good for research-style queries and summarized web snippets.", keyLabel: "TAVILY_API_KEY" },
     { id: "exa", name: "Exa", hint: "Useful for technical documents, blogs, and developer material.", keyLabel: "EXA_API_KEY" },
     { id: "serper", name: "Serper", hint: "Google SERP compatible fallback.", keyLabel: "SERPER_API_KEY" },
-    { id: "baidu", name: "Baidu Qianfan", hint: "Chinese search and domestic news route.", keyLabel: "BAIDU_SEARCH_API_KEY" },
+    { id: "baidu", name: "Baidu Qianfan", hint: "Chinese AI search route.", keyLabel: "BAIDU_SEARCH_API_KEY" },
+    { id: "baidu_fast", name: "Baidu Fast", hint: "Chinese fast web-summary search.", keyLabel: "BAIDU_SEARCH_API_KEY" },
+    { id: "baidu_web", name: "Baidu Web", hint: "Chinese web search with source-oriented results.", keyLabel: "BAIDU_SEARCH_API_KEY" },
+    { id: "ark", name: "Ark Bot", hint: "China-local assistant-backed search fallback.", keyLabel: "ARK_API_KEY" },
+    { id: "grok", name: "Grok", hint: "Global web-search assistant fallback.", keyLabel: "GROK_API_KEY" },
     { id: "bocha", name: "Bocha", hint: "Chinese web search fallback.", keyLabel: "BOCHA_API_KEY" }
   ];
+  const visibleEngines = engines.filter((engine) => engine.id !== "ark");
 
   function defaultBaseUrl(id: EngineId): string {
     return id === "duckduckgo" ? "" : WEB_SEARCH_DEFAULT_BASE_URLS[id as WebSearchBaseUrlEngine];
+  }
+
+  function normalizeForUi(settings: WebSearchSettings): WebSearchSettings {
+    return {
+      ...settings,
+      defaultEngine: settings.defaultEngine === "ark" ? "auto" : settings.defaultEngine,
+      engines: {
+        ...settings.engines,
+        ark: {
+          ...settings.engines.ark,
+          enabled: false
+        }
+      }
+    };
   }
 
   let loading = true;
@@ -49,12 +81,16 @@
   let message = "";
   let error = "";
   let testQuery = "latest AI news";
+  let testEngine: EngineId | "auto" = "auto";
   let testResult: any = null;
+
+  let showApiKey: Record<string, boolean> = {};
 
   let webSearch: WebSearchSettings = {
     enabled: true,
     defaultRoute: "auto",
     defaultEngine: "auto",
+    engineSelectionStrategy: "priority",
     maxResults: 5,
     timeoutMs: 60000,
     retryTimeoutMs: 120000,
@@ -65,6 +101,10 @@
       exa: { enabled: false, apiKey: "" },
       serper: { enabled: false, apiKey: "" },
       baidu: { enabled: false, apiKey: "" },
+      baidu_fast: { enabled: false, apiKey: "" },
+      baidu_web: { enabled: false, apiKey: "" },
+      ark: { enabled: false, apiKey: "" },
+      grok: { enabled: false, apiKey: "" },
       bocha: { enabled: false, apiKey: "" }
     }
   };
@@ -97,7 +137,7 @@
       const res = await fetch("/api/settings");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
-      webSearch = { ...webSearch, ...(data.settings?.webSearch ?? {}) };
+      webSearch = normalizeForUi({ ...webSearch, ...(data.settings?.webSearch ?? {}) });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -117,7 +157,7 @@
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to save search settings");
-      webSearch = data.settings.webSearch;
+      webSearch = normalizeForUi(data.settings.webSearch);
       message = "Search settings saved.";
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -135,7 +175,7 @@
       const res = await fetch("/api/settings/web-search/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: testQuery, webSearch })
+        body: JSON.stringify({ query: testQuery, engine: testEngine, webSearch })
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Search test failed");
@@ -191,20 +231,29 @@
               <Label for="default-route">Default route</Label>
               <NativeSelect id="default-route" bind:value={webSearch.defaultRoute}>
                 <NativeSelectOption value="auto">Auto</NativeSelectOption>
-                <NativeSelectOption value="domestic_news">Domestic news</NativeSelectOption>
-                <NativeSelectOption value="international_news">International news</NativeSelectOption>
-                <NativeSelectOption value="chinese_general">Chinese general</NativeSelectOption>
-                <NativeSelectOption value="global_general">Global general</NativeSelectOption>
+                <NativeSelectOption value="china">China-local sources</NativeSelectOption>
+                <NativeSelectOption value="global">Global web</NativeSelectOption>
+                <NativeSelectOption value="official_docs">Official docs</NativeSelectOption>
+                <NativeSelectOption value="research">Research</NativeSelectOption>
               </NativeSelect>
             </div>
             <div class="grid gap-1.5">
               <Label for="default-engine">Default engine</Label>
               <NativeSelect id="default-engine" bind:value={webSearch.defaultEngine}>
                 <NativeSelectOption value="auto">Auto route order</NativeSelectOption>
-                {#each engines as engine}
+                {#each visibleEngines as engine}
                   <NativeSelectOption value={engine.id}>{engine.name}</NativeSelectOption>
                 {/each}
               </NativeSelect>
+            </div>
+            <div class="grid gap-1.5">
+              <Label for="engine-selection-strategy">Auto engine strategy</Label>
+              <NativeSelect id="engine-selection-strategy" bind:value={webSearch.engineSelectionStrategy}>
+                <NativeSelectOption value="priority">Priority order</NativeSelectOption>
+                <NativeSelectOption value="random">Random among configured</NativeSelectOption>
+                <NativeSelectOption value="round_robin">Round-robin among configured</NativeSelectOption>
+              </NativeSelect>
+              <p class="text-xs leading-5 text-muted-foreground">Used only when Default engine is Auto. Engines without required API keys are skipped.</p>
             </div>
             <div class="grid gap-1.5">
               <Label for="max-results">Max results</Label>
@@ -227,7 +276,7 @@
           <CardDescription>DuckDuckGo works without credentials. Paid or account-backed engines are skipped until their API key is configured.</CardDescription>
         </CardHeader>
         <CardContent class="space-y-3">
-          {#each engines as engine}
+          {#each visibleEngines as engine}
             <div class="grid gap-3 rounded-lg border bg-muted/30 p-4">
               <div class="flex items-start justify-between gap-4">
                 <div>
@@ -243,7 +292,26 @@
                 <div class="grid gap-3 sm:grid-cols-2">
                   <div class="grid gap-1.5">
                     <Label>{engine.keyLabel}</Label>
-                    <Input type="password" autocomplete="off" value={webSearch.engines[engine.id].apiKey} oninput={(event) => setEngineValue(engine.id, "apiKey", (event.target as HTMLInputElement).value)} />
+                    <div class="flex items-center gap-1.5">
+                      <Input
+                        type={showApiKey[engine.id] ? "text" : "password"}
+                        autocomplete="off"
+                        value={webSearch.engines[engine.id].apiKey}
+                        oninput={(event) => setEngineValue(engine.id, "apiKey", (event.target as HTMLInputElement).value)}
+                      />
+                      <button
+                        type="button"
+                        class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                        onclick={() => (showApiKey[engine.id] = !showApiKey[engine.id])}
+                        aria-label={showApiKey[engine.id] ? "Hide API key" : "Show API key"}
+                      >
+                        {#if showApiKey[engine.id]}
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>
+                        {:else}
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
+                        {/if}
+                      </button>
+                    </div>
                   </div>
                   <div class="grid gap-1.5">
                     <Label>Custom base URL</Label>
@@ -266,28 +334,23 @@
       <Card>
         <CardHeader>
           <CardTitle class="text-sm">Test Query</CardTitle>
-          <CardDescription>Runs with the current form values, including unsaved API keys.</CardDescription>
+          <CardDescription>Runs with the current form values, including unsaved API keys, and shows the exact `WebSearchResponse` payload returned by the tool runtime.</CardDescription>
         </CardHeader>
         <CardContent class="space-y-4">
-          <div class="flex flex-col gap-2 sm:flex-row">
+          <div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_220px_auto]">
             <Input bind:value={testQuery} placeholder="Search query" />
+            <NativeSelect bind:value={testEngine}>
+              <NativeSelectOption value="auto">Auto engine</NativeSelectOption>
+              {#each visibleEngines as engine}
+                <NativeSelectOption value={engine.id}>{engine.name}</NativeSelectOption>
+              {/each}
+            </NativeSelect>
             <Button type="button" variant="secondary" onclick={runTest} disabled={testing}>{testing ? "Testing..." : "Test"}</Button>
           </div>
           {#if testResult}
             <div class="rounded-lg border bg-muted/30 p-4 text-sm">
-              <div class="flex flex-wrap gap-2">
-                <Badge variant="secondary">route: {testResult.route}</Badge>
-                <Badge variant="secondary">engine: {testResult.engine ?? "none"}</Badge>
-                <Badge variant="secondary">results: {testResult.results?.length ?? 0}</Badge>
-              </div>
-              <div class="mt-3 space-y-3">
-                {#each testResult.results ?? [] as result}
-                  <div class="break-words">
-                    <a class="font-medium text-foreground underline underline-offset-4" href={result.url} target="_blank" rel="noreferrer">{result.title}</a>
-                    <p class="mt-1 text-xs text-muted-foreground">{result.snippet}</p>
-                  </div>
-                {/each}
-              </div>
+              <p class="text-xs font-semibold text-foreground">WebSearchResponse</p>
+              <pre class="mt-3 max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background/70 p-3 text-[11px] leading-5 text-muted-foreground">{JSON.stringify(testResult, null, 2)}</pre>
             </div>
           {/if}
         </CardContent>

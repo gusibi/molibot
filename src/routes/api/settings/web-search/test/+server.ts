@@ -5,7 +5,7 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { sanitizeWebSearchSettings } from "$lib/server/settings/sanitize.js";
 
 export const POST: RequestHandler = async ({ request }) => {
-  let body: { query?: string; webSearch?: unknown };
+  let body: { query?: string; engine?: string; webSearch?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -16,7 +16,11 @@ export const POST: RequestHandler = async ({ request }) => {
   const baseSettings = runtime.getSettings().webSearch;
   const webSearch = sanitizeWebSearchSettings(body.webSearch ?? baseSettings, baseSettings);
   try {
-    const result = await runWebSearch({ query: body.query, maxResults: webSearch.maxResults }, webSearch);
+    const result = await runWebSearch({
+      query: body.query,
+      engine: body.engine === "auto" || !body.engine ? "auto" : body.engine,
+      maxResults: webSearch.maxResults
+    }, webSearch, undefined, runtime.getSettings().timezone);
     return json({ ok: true, result });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 400 });

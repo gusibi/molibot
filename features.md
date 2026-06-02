@@ -1,5 +1,23 @@
 # Molibot Features
 
+## 2026-06-03
+
+### Web Search 查询稳健性修复 (Web Search Query Robustness)
+- **搜索关键词不再被时间前缀污染**: `runWebSearch()` 现在把用户的简洁 query 直接交给 provider，不再统一拼接 `Current date/time ... User query ...`，避免“最新黄金价格”这类实时查询因为当天日期关键词过窄而搜不到可用结果。
+- **弱模型工具参数容错**: `webSearch` 会清理 `route` / `engine` 参数中常见的换行和嵌套引号形态，例如 `\n"auto"\n`，避免连续工具校验失败卡住搜索轮次。
+- **中文路线优先网页引用**: `china` 路由优先尝试 `baidu_web`，再降级到 `baidu_fast` / `baidu` 等摘要型搜索，降低 provider AI 摘要无引用或幻觉时被直接放大的风险。
+- **提示词边界收紧**: `webSearch` 工具说明保留当前年份提醒，但明确不要机械添加当天完整日期；系统工具表述从 `time-aware queries` 调整为 `date-aware guidance`。
+- **回归测试补充**: 更新 `webSearchTool.test.ts` 和 `router.test.ts`，覆盖简洁 provider query、弱参数容错和中文路由顺序。
+
+## 2026-06-02
+
+### Host Bash 复合命令能力分类 (Host Bash Compound Command Classification)
+- **复合命令分类器**: 新增 `src/lib/server/hostBash/commandClassifier.ts`，对受限 shell 语法做保守解析，把命令分成 `persistent-capability`、`compound-capabilities` 和 `one-time-script`，并显式记录 safe glue（如 `|`、`2>&1`、`&&`）与 safe helper（如 `head -30`、`sleep 3`）。
+- **审批降噪**: `longbridge news FIG.US 2>&1 | head -30`、`agent-browser ... && sleep 3 && agent-browser ...` 这类“同一真实能力 + 安全修饰”的命令，不再一律退化成一次性审批；未批准时会优先请求对应 capability 的长期 Host Bash 审批。
+- **运行时命中增强**: 已批准的 Host Bash capability 现在可以命中带 safe helper / safe glue 的复合命令，并直接走 Host Bash 执行，不再因为简单管道或 sleep 链而重新进 sandbox 或重新发审批。
+- **审计可解释性**: 新审批记录会在 `action_json` 中持久化 classification 元数据；`/settings/host-bash` 的 Pending / History 表格会展示 capability、safe helper / glue 或 one-time reason，方便运维判断为何是长期审批还是一次性审批。
+- **回归测试补充**: 新增 `commandClassifier.test.ts`，并扩展 `bash-output.test.ts` 覆盖 approved pipeline、same-tool chain、safe helper 命中与 compound one-time 退化路径。
+
 ## 2026-06-01
 
 ### Host Bash 审批自动恢复避免 session 锁 panic (Host Bash Auto-Resume Session-Lock Recovery)
@@ -11,11 +29,21 @@
 ### 内置网页搜索工具 (Built-In Web Search Tool)
 - **共享 Agent 层工具**: 新增内置 `webSearch` 工具，搜索能力从 skill 文档/脚本提升为 runtime 原生能力，Web、Telegram、Feishu、QQ、Weixin 等渠道共享同一套工具注册、结果结构和诊断信息。
 - **多引擎配置**: `RuntimeSettings.webSearch` 支持 DuckDuckGo、Brave、Tavily、Exa、Serper、Baidu Qianfan、Bocha。DuckDuckGo 默认开箱即用；其他引擎按 API Key 配置后参与路由。
-- **路由与降级**: 搜索路由按国内新闻、国际新闻、中文通用、全球通用分流，并在当前引擎失败、无结果或缺少 Key 时按配置顺序降级到下一个可用引擎。
+- **与本地 web-search skill 对齐**: 额外补齐 `baidu_fast`、`baidu_web`、`ark`、`grok` 四个原本只存在于 `~/.molibot/skills/web-search/scripts` 的引擎入口，统一纳入 runtime 设置、默认 base URL、路由顺序与 provider 执行链路。
+- **路由与降级**: 搜索路由收敛为 `china`、`global`、`official_docs`、`research` 四类目标导向 fallback，不再把“中文 + 最新/新闻”粗暴等同于国内新闻；当前引擎失败、无结果或缺少 Key 时按配置顺序降级到下一个可用引擎。
+- **自动引擎选择策略**: `Default engine = auto` 时支持 `priority`、`random`、`round_robin` 三种策略；随机与轮询只会在已启用且已配置 API Key 的付费/账号引擎之间选择（DuckDuckGo 作为无需 Key 的例外），便于分摊额度或绕开单个 Key 余额不足。
+- **测试请求诊断**: `/settings/search` 的 Test Query 结果现在展示每次 provider attempt 的脱敏请求诊断，包含 method、实际 URL、脱敏 headers 和请求 body，方便核对 Tavily/Brave/DuckDuckGo 等实际调用路径。
 - **设置页管理**: 新增 `/settings/search`，可配置工具总开关、默认 route/engine、最大结果数、超时/重试超时、各引擎启用状态、API Key、自定义 Base URL，并支持使用当前表单值发起测试查询。
 - **默认地址可见**: 搜索设置页现在直接展示 Brave、Tavily、Exa、Serper、Baidu、Bocha 在 `baseUrl` 留空时的真实默认地址，并与运行时 provider 共享同一份常量，避免 UI 文案和实际回退目标漂移。
 - **工具提示词优化**: `webSearch` 工具描述现在明确要求最终答案附带 `Sources:` 区块，近期/最新查询使用当前年份，并优先交给自动 route/engine 分流，除非用户指定来源或区域。
 - **回归测试补充**: 新增搜索路由和 `webSearch` 工具结果归一化测试，并将 `webSearch` 分类为会访问外部网络的中风险内置工具。
+- **来源证据包**: `webSearch` 结果现在包含 `citations`、`metadata` 与每条 result 的 `citationId`，Agent 可以稳定把最终回答引用到真实 URL，而不是只依赖临时拼接的结果列表。
+- **Provider 元数据归一化**: Brave、Tavily、Baidu Fast/Baidu Web、Bocha 等 provider 会尽量保留 request id、站点名、favicon、发布时间、provider 原始引用 id 和 usage/credits，排障信息继续保持密钥脱敏。
+- **百度 Fast answer 保留**: 当百度 `web_summary` 同时返回综合 answer 与 references 时，工具会保留 provider answer 作为摘要，并将 references 标准化为可引用来源。
+- **测试面板结果对齐真实响应**: `/settings/search` 的 Test Query 现在支持显式选择搜索引擎，并直接展示 `runWebSearch()` 返回的完整 `WebSearchResponse` JSON，避免页面再拼一层简化结果导致调试视图与模型实际看到的 payload 不一致。
+- **Ark 从搜索设置页隐藏**: `ark` provider 仍保留在共享 runtime 类型和 provider 链路中，但设置页不再展示或允许作为默认引擎选择，避免在当前产品面上继续暴露这个实验性入口。
+- **搜索请求自动注入当前时间**: `runWebSearch()` 现在会为每次 provider 请求生成带 `Current date/time` 与用户原始问题的内部查询文本，提升“明天天气”“最新价格”“今天新闻”等相对时间查询的时效性；返回的 `WebSearchResponse.query` 仍保留用户原始输入，方便会话展示与诊断对齐。
+- **Prompt 工具优先级对齐**: 系统提示词的 Tools Priority Table 现在明确要求当前网页信息查询使用 `webSearch`，而不是通过 `bash curl`、浏览器搜索或旧 skill 脚本绕行；Tool Parameters 中也补充了 `webSearch` 参数签名。
 
 ### Feishu 本地审批按钮长连接回调 (Feishu Local Approval Buttons via WebSocket)
 - **卡片按钮不再依赖公网 HTTP 回调**: Feishu runtime 现在通过现有 `WSClient` 的 `card.action.trigger` 事件接收审批卡片点击，本地机器启动且端口未暴露时也能处理 Host Bash 审批按钮。

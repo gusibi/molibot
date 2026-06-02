@@ -362,7 +362,8 @@ function buildAvailableDeferredToolsSection(): string {
     "createEvent",
     "switchModel",
     "skillManage",
-    "profileFiles"
+    "profileFiles",
+    "webSearch"
   ].join("\n"));
 }
 
@@ -459,6 +460,7 @@ function buildToolsSection(): string {
     "| Schedule/remind | `toolSearch` then `createEvent` | bash sleep/crontab/at |",
     "| Memory operations | `memory` | direct read/write MEMORY.md |",
     "| Search installed skills | `skillSearch` | guessing from memory or prompt alone |",
+    "| Search web/current information | `webSearch` | bash curl, browser search, or skill scripts |",
     "| Search deferred tools | `toolSearch` | assuming every tool is already loaded |",
     "| Request host external-tool approval | `bash` with `hostApproval` | trying to bypass sandbox with bash |",
     "| Draft/save reusable skills | `toolSearch` then `skillManage` | ad-hoc notes in random files |",
@@ -470,6 +472,7 @@ function buildToolsSection(): string {
     "### Tool Parameters",
     "- `memory(operation, key?, value?, query?)` — operations: add, search, list, update, delete, flush, sync",
     "- `skillSearch(intent, maxResults?)` — find matching installed skills before generic tools",
+    "- `webSearch(query, maxResults?, engine?, route?, includeDomains?, excludeDomains?)` — search current web information with configured providers, date-aware guidance, fallback diagnostics, citations, and source metadata",
     "- `toolSearch(query, maxResults?)` — find and load deferred tools before calling them",
     "- `subagent(agent?, task?, tasks?, chain?)` — delegate codebase-heavy work to isolated roles: `scout`, `planner`, `worker`, `reviewer`",
     "- `attach(file_path)` — send local file through active channel",

@@ -483,9 +483,9 @@
                 </CardHeader>
                 <CardContent class="flex flex-col gap-4">
                     <strong class="text-3xl font-semibold tracking-tight">{formatNumber(totals.requests)}</strong>
-                    <svg class="h-16 w-full fill-primary/10 stroke-primary" viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
+                    <svg class="h-16 w-full fill-blue-500/10 stroke-blue-500" viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
                         <polygon points={areaPoints(trend.map((point) => point.totals.requests))}></polygon>
-                        <polyline points={linePoints(trend.map((point) => point.totals.requests))} fill="none" stroke-width="2"></polyline>
+                        <polyline points={linePoints(trend.map((point) => point.totals.requests))} fill="none" stroke-width="1.5"></polyline>
                     </svg>
                 </CardContent>
             </Card>
@@ -502,14 +502,14 @@
                 </CardHeader>
                 <CardContent class="flex flex-col gap-4">
                     <strong class="text-3xl font-semibold tracking-tight">{formatCompact(totals.totalTokens)}</strong>
-                    <svg class="h-16 w-full fill-primary/10 stroke-primary" viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
+                    <svg class="h-16 w-full fill-emerald-500/10 stroke-emerald-500" viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
                         <polygon points={areaPoints(trend.map((point) => point.totals.totalTokens))}></polygon>
-                        <polyline points={linePoints(trend.map((point) => point.totals.totalTokens))} fill="none" stroke-width="2"></polyline>
+                        <polyline points={linePoints(trend.map((point) => point.totals.totalTokens))} fill="none" stroke-width="1.5"></polyline>
                     </svg>
                 </CardContent>
             </Card>
 
-            <Card>
+            <Card class="border-l-4 border-l-blue-500">
                 <CardHeader>
                     <CardDescription>输入 Tokens</CardDescription>
                     <CardTitle>{formatCompact(totals.inputTokens)}</CardTitle>
@@ -518,7 +518,7 @@
                     {pct(totals.inputTokens, totals.totalTokens).toFixed(1)}% of total
                 </CardContent>
             </Card>
-            <Card>
+            <Card class="border-l-4 border-l-emerald-500">
                 <CardHeader>
                     <CardDescription>输出 Tokens</CardDescription>
                     <CardTitle>{formatCompact(totals.outputTokens)}</CardTitle>
@@ -527,7 +527,7 @@
                     {pct(totals.outputTokens, totals.totalTokens).toFixed(1)}% of total
                 </CardContent>
             </Card>
-            <Card>
+            <Card class="border-l-4 border-l-amber-500">
                 <CardHeader>
                     <CardDescription>缓存 Tokens</CardDescription>
                     <CardTitle>{formatCompact(cacheTokens)}</CardTitle>
@@ -536,7 +536,7 @@
                     Read {formatCompact(totals.cacheReadTokens)} · Write {formatCompact(totals.cacheWriteTokens)}
                 </CardContent>
             </Card>
-            <Card>
+            <Card class="border-l-4 border-l-violet-500">
                 <CardHeader>
                     <CardDescription>缓存命中比例</CardDescription>
                     <CardTitle>{formatPercent(cacheHitRatio)}</CardTitle>
@@ -558,14 +558,14 @@
                     <CardDescription>{selectedRange === "today" || selectedRange === "yesterday" ? "按小时聚合" : "按天聚合"}</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-3">
-                    <svg class="h-44 w-full fill-primary/10 stroke-primary" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="请求趋势折线图">
+                    <svg class="h-44 w-full fill-blue-500/10 stroke-blue-500" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="请求趋势折线图">
                         <g class="stroke-border">
                             <line x1="0" y1="8" x2="100" y2="8"></line>
                             <line x1="0" y1="20" x2="100" y2="20"></line>
                             <line x1="0" y1="32" x2="100" y2="32"></line>
                         </g>
                         <polygon points={areaPoints(trend.map((point) => point.totals.requests), 100, 40)}></polygon>
-                        <polyline points={linePoints(trend.map((point) => point.totals.requests), 100, 40)} fill="none" stroke-width="2"></polyline>
+                        <polyline points={linePoints(trend.map((point) => point.totals.requests), 100, 40)} fill="none" stroke-width="1.5"></polyline>
                     </svg>
                     <div class="flex justify-between text-xs text-muted-foreground">
                         <span>{trend[0]?.label ?? "--"}</span>
@@ -581,14 +581,14 @@
                     <CardDescription>总 Token 数随时间变化</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-3">
-                    <svg class="h-44 w-full fill-primary/10 stroke-primary" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Token 趋势折线图">
+                    <svg class="h-44 w-full fill-emerald-500/10 stroke-emerald-500" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Token 趋势折线图">
                         <g class="stroke-border">
                             <line x1="0" y1="8" x2="100" y2="8"></line>
                             <line x1="0" y1="20" x2="100" y2="20"></line>
                             <line x1="0" y1="32" x2="100" y2="32"></line>
                         </g>
                         <polygon points={areaPoints(trend.map((point) => point.totals.totalTokens), 100, 40)}></polygon>
-                        <polyline points={linePoints(trend.map((point) => point.totals.totalTokens), 100, 40)} fill="none" stroke-width="2"></polyline>
+                        <polyline points={linePoints(trend.map((point) => point.totals.totalTokens), 100, 40)} fill="none" stroke-width="1.5"></polyline>
                     </svg>
                     <div class="flex justify-between text-xs text-muted-foreground">
                         <span>{trend[0]?.label ?? "--"}</span>
@@ -604,14 +604,14 @@
                     <CardDescription>不含 output / cache write</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-3">
-                    <svg class="h-44 w-full fill-primary/10 stroke-primary" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="缓存命中比例趋势折线图">
+                    <svg class="h-44 w-full fill-amber-500/10 stroke-amber-500" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="缓存命中比例趋势折线图">
                         <g class="stroke-border">
                             <line x1="0" y1="8" x2="100" y2="8"></line>
                             <line x1="0" y1="20" x2="100" y2="20"></line>
                             <line x1="0" y1="32" x2="100" y2="32"></line>
                         </g>
                         <polygon points={areaPoints(cacheHitTrend, 100, 40, 100)}></polygon>
-                        <polyline points={linePoints(cacheHitTrend, 100, 40, 100)} fill="none" stroke-width="2"></polyline>
+                        <polyline points={linePoints(cacheHitTrend, 100, 40, 100)} fill="none" stroke-width="1.5"></polyline>
                     </svg>
                     <div class="flex justify-between text-xs text-muted-foreground">
                         <span>{trend[0]?.label ?? "--"}</span>
@@ -630,9 +630,9 @@
                         <CardDescription>仅展示已记录的 input / output / cache read / cache write 字段</CardDescription>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                        <Badge variant="outline">输入</Badge>
-                        <Badge variant="outline">输出</Badge>
-                        <Badge variant="outline">缓存</Badge>
+                        <Badge variant="outline" class="border-blue-500/40 text-blue-600 dark:text-blue-400">输入</Badge>
+                        <Badge variant="outline" class="border-emerald-500/40 text-emerald-600 dark:text-emerald-400">输出</Badge>
+                        <Badge variant="outline" class="border-amber-500/40 text-amber-600 dark:text-amber-400">缓存</Badge>
                     </div>
                 </div>
             </CardHeader>
@@ -641,9 +641,9 @@
                     {#each trend as point}
                         {@const pointCache = point.totals.cacheReadTokens + point.totals.cacheWriteTokens}
                         <div class="flex h-full min-w-1 flex-1 items-end gap-px" title={`${point.label}: ${formatNumber(point.totals.totalTokens)} tokens`}>
-                            <span class="w-full rounded-t-sm bg-primary/45" style={`height:${Math.max(1, pct(point.totals.inputTokens, maxTokens))}%`}></span>
-                            <span class="w-full rounded-t-sm bg-primary/75" style={`height:${Math.max(1, pct(point.totals.outputTokens, maxTokens))}%`}></span>
-                            <span class="w-full rounded-t-sm bg-muted-foreground/45" style={`height:${Math.max(1, pct(pointCache, maxTokens))}%`}></span>
+                            <span class="w-full rounded-t-sm bg-blue-500/70" style={`height:${Math.max(1, pct(point.totals.inputTokens, maxTokens))}%`}></span>
+                            <span class="w-full rounded-t-sm bg-emerald-500/80" style={`height:${Math.max(1, pct(point.totals.outputTokens, maxTokens))}%`}></span>
+                            <span class="w-full rounded-t-sm bg-amber-500/60" style={`height:${Math.max(1, pct(pointCache, maxTokens))}%`}></span>
                         </div>
                     {/each}
                 </div>

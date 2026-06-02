@@ -1,15 +1,25 @@
 import { Type } from "@sinclair/typebox";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { WEB_SEARCH_PROVIDERS } from "$lib/server/agent/search/providers.js";
 import { inferWebSearchRoute, resolveWebSearchEngines } from "$lib/server/agent/search/router.js";
-import type { WebSearchAttempt, WebSearchEngine, WebSearchInput, WebSearchResponse } from "$lib/server/agent/search/types.js";
+import type {
+  WebSearchAttempt,
+  WebSearchCitation,
+  WebSearchEngine,
+  WebSearchInput,
+  WebSearchMetadata,
+  WebSearchProviderResult,
+  WebSearchRequestLog,
+  WebSearchResponse,
+  WebSearchResult
+} from "$lib/server/agent/search/types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 const webSearchSchema = Type.Object({
   query: Type.String({
     description: [
       "Search query. Keep it concise.",
-      "For recent/current/latest information, include the current year or a concrete date when it improves freshness."
+      "For recent/current/latest information, include the current year or a concrete date only when it improves retrieval."
     ].join(" ")
   }),
   maxResults: Type.Optional(Type.Number({ description: "Maximum results to return. Defaults to the configured webSearch.maxResults." })),
@@ -21,14 +31,18 @@ const webSearchSchema = Type.Object({
     Type.Literal("exa"),
     Type.Literal("serper"),
     Type.Literal("baidu"),
+    Type.Literal("baidu_fast"),
+    Type.Literal("baidu_web"),
+    Type.Literal("ark"),
+    Type.Literal("grok"),
     Type.Literal("bocha")
   ])),
   route: Type.Optional(Type.Union([
     Type.Literal("auto"),
-    Type.Literal("domestic_news"),
-    Type.Literal("international_news"),
-    Type.Literal("chinese_general"),
-    Type.Literal("global_general")
+    Type.Literal("china"),
+    Type.Literal("global"),
+    Type.Literal("official_docs"),
+    Type.Literal("research")
   ])),
   includeDomains: Type.Optional(Type.Array(Type.String({ description: "Domains to prefer/include, e.g. example.com. Use only when the user asks for specific sources or authoritative sites." }))),
   excludeDomains: Type.Optional(Type.Array(Type.String({ description: "Domains to exclude, e.g. spam.example. Use sparingly." })))
@@ -66,11 +80,13 @@ function buildWebSearchDescription(settings: RuntimeSettings): string {
     "Usage notes:",
     "- Use this tool when the user asks to search, look up, verify, or needs current/latest/recent information.",
     "- Domain filtering is supported with includeDomains and excludeDomains.",
-    "- Prefer route=\"auto\" and engine=\"auto\" unless the user asks for a specific region/source or you have a clear reason to override routing.",
-    "- Chinese/domestic queries can route to Chinese engines; global or international queries can route to global engines.",
+    "- Prefer route=\"auto\" and engine=\"auto\" unless the user asks for a specific region, source type, or engine.",
+    "- Override route only when the intent is explicit: route=\"china\" for China-local sources, route=\"global\" for global web sources, route=\"official_docs\" for official docs/API/release notes, and route=\"research\" for broad research-style queries.",
+    "- When engine=\"auto\", Molibot applies the configured engine selection strategy before fallback: priority, random, or round-robin among configured engines.",
     "",
     "IMPORTANT - Use the correct year in search queries:",
     `- The current month is ${monthYear}. Use this year for recent information, documentation, releases, prices, schedules, and current events.`,
+    "- Do not mechanically add today's full date to every query. For live prices, rankings, weather, or latest data, prefer concise queries such as \"最新黄金价格\" unless the user explicitly asks for a date-specific result.",
     "- Example: If the user asks for latest framework docs, search for the framework documentation with the current year when needed, not an old year."
   ].join("\n");
 }
@@ -81,12 +97,20 @@ function normalizeStringArray(input: unknown): string[] {
     : [];
 }
 
+function normalizeOptionalLiteral(input: unknown): string | undefined {
+  if (input === undefined || input === null) return undefined;
+  const trimmed = String(input).trim();
+  if (!trimmed) return undefined;
+  const unquoted = trimmed.replace(/^["']+|["']+$/g, "").trim();
+  return unquoted || undefined;
+}
+
 function normalizeInput(input: any, settings: RuntimeSettings["webSearch"]): WebSearchInput {
   return {
     query: String(input?.query ?? "").trim(),
     maxResults: Math.max(1, Math.min(20, Number(input?.maxResults ?? settings.maxResults) || settings.maxResults)),
-    engine: input?.engine,
-    route: input?.route,
+    engine: normalizeOptionalLiteral(input?.engine) as WebSearchInput["engine"],
+    route: normalizeOptionalLiteral(input?.route) as WebSearchInput["route"],
     includeDomains: normalizeStringArray(input?.includeDomains),
     excludeDomains: normalizeStringArray(input?.excludeDomains)
   };
@@ -114,16 +138,83 @@ function summarize(results: WebSearchResponse["results"]): string {
   return results.map((result, index) => `${index + 1}. ${result.title}\n${result.url}\n${result.snippet}`).join("\n\n");
 }
 
+function createSearchId(): string {
+  return `search_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function buildCitations(results: WebSearchResult[]): WebSearchCitation[] {
+  return results.map((result, index) => ({
+    id: `c${index + 1}`,
+    index: index + 1,
+    title: result.title,
+    url: result.url,
+    ...(result.snippet ? { snippet: result.snippet } : {}),
+    ...(result.siteName ? { siteName: result.siteName } : {}),
+    ...(result.publishedAt ? { publishedAt: result.publishedAt } : {}),
+    ...(result.source ? { source: result.source } : {}),
+    ...(result.providerRefId !== undefined ? { providerRefId: result.providerRefId } : {})
+  }));
+}
+
+function attachCitationIds(results: WebSearchResult[], citations: WebSearchCitation[]): WebSearchResult[] {
+  return results.map((result, index) => ({
+    ...result,
+    citationId: citations[index]?.id
+  }));
+}
+
+function metadataFor(
+  providerResult: WebSearchProviderResult | undefined,
+  results: WebSearchResult[],
+  summarySource: WebSearchMetadata["summarySource"]
+): WebSearchMetadata {
+  return {
+    searchedAt: new Date().toISOString(),
+    resultCount: results.length,
+    summarySource,
+    ...(providerResult?.requestId ? { providerRequestId: providerResult.requestId } : {}),
+    ...(providerResult?.usage ? { usage: providerResult.usage } : {})
+  };
+}
+
+function buildSearchResponse(input: {
+  engine: WebSearchEngine | null;
+  route: WebSearchResponse["route"];
+  query: string;
+  providerResult?: WebSearchProviderResult;
+  summary: string;
+  summarySource: WebSearchMetadata["summarySource"];
+  attempts: WebSearchAttempt[];
+  fallbackOrder: WebSearchEngine[];
+}): WebSearchResponse {
+  const rawResults = input.providerResult?.results ?? [];
+  const citations = buildCitations(rawResults);
+  const results = attachCitationIds(rawResults, citations);
+  return {
+    id: createSearchId(),
+    engine: input.engine,
+    route: input.route,
+    query: input.query,
+    results,
+    citations,
+    summary: input.summary,
+    metadata: metadataFor(input.providerResult, results, input.summarySource),
+    diagnostics: { attempts: input.attempts, fallbackOrder: input.fallbackOrder }
+  };
+}
+
 export async function runWebSearch(
   rawInput: unknown,
   settings: RuntimeSettings["webSearch"],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  _timezone?: string
 ): Promise<WebSearchResponse> {
   const input = normalizeInput(rawInput, settings);
   if (!settings.enabled) throw new Error("Built-in web search is disabled in settings.");
   if (!input.query) throw new Error("Search query is required.");
+  const providerInput: WebSearchInput = { ...input };
 
-  const route = inferWebSearchRoute(input.query, input.route, settings);
+  const route = inferWebSearchRoute(input, settings);
   const engines = resolveWebSearchEngines(input, settings, route);
   const attempts: WebSearchAttempt[] = [];
 
@@ -139,45 +230,56 @@ export async function runWebSearch(
       continue;
     }
 
+    let requestLog: WebSearchRequestLog | undefined;
     const runAttempt = async (timeoutMs: number) => {
+      const requests: WebSearchRequestLog[] = [];
       return withTimeout(timeoutMs, signal, (attemptSignal) =>
-        provider.search({ ...input, query: input.query }, {
+        provider.search({ ...providerInput, query: providerInput.query }, {
           settings,
           fetch: globalThis.fetch,
-          signal: attemptSignal
+          signal: attemptSignal,
+          requests
         })
-      );
+      ).finally(() => {
+        requestLog = requests[requests.length - 1];
+      });
     };
 
     try {
-      const results = await runAttempt(settings.timeoutMs);
-      attempts.push({ engine, route, ok: true, resultCount: results.length, timeoutMs: settings.timeoutMs });
+      const providerResult = await runAttempt(settings.timeoutMs);
+      const { results, answer } = providerResult;
+      attempts.push({ engine, route, ok: true, resultCount: results.length, timeoutMs: settings.timeoutMs, request: requestLog });
       if (results.length > 0) {
-        return {
+        return buildSearchResponse({
           engine,
           route,
           query: input.query,
-          results,
-          summary: summarize(results),
-          diagnostics: { attempts, fallbackOrder: engines }
-        };
+          providerResult,
+          summary: answer || summarize(results),
+          summarySource: answer ? "provider" : "fallback",
+          attempts,
+          fallbackOrder: engines
+        });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      attempts.push({ engine, route, ok: false, error: message, timeoutMs: settings.timeoutMs });
+      attempts.push({ engine, route, ok: false, error: message, timeoutMs: settings.timeoutMs, request: requestLog });
       if (isAbortError(error) && settings.retryTimeoutMs > settings.timeoutMs) {
         try {
-          const results = await runAttempt(settings.retryTimeoutMs);
-          attempts.push({ engine, route, ok: true, resultCount: results.length, timeoutMs: settings.retryTimeoutMs });
+          const providerResult = await runAttempt(settings.retryTimeoutMs);
+          const { results, answer } = providerResult;
+          attempts.push({ engine, route, ok: true, resultCount: results.length, timeoutMs: settings.retryTimeoutMs, request: requestLog });
           if (results.length > 0) {
-            return {
+            return buildSearchResponse({
               engine,
               route,
               query: input.query,
-              results,
-              summary: summarize(results),
-              diagnostics: { attempts, fallbackOrder: engines }
-            };
+              providerResult,
+              summary: answer || summarize(results),
+              summarySource: answer ? "provider" : "fallback",
+              attempts,
+              fallbackOrder: engines
+            });
           }
         } catch (retryError) {
           attempts.push({
@@ -185,21 +287,24 @@ export async function runWebSearch(
             route,
             ok: false,
             error: retryError instanceof Error ? retryError.message : String(retryError),
-            timeoutMs: settings.retryTimeoutMs
+            timeoutMs: settings.retryTimeoutMs,
+            request: requestLog
           });
         }
       }
     }
   }
 
-  return {
+  return buildSearchResponse({
     engine: null,
     route,
     query: input.query,
-    results: [],
+    providerResult: { results: [] },
     summary: "No configured search engine returned results.",
-    diagnostics: { attempts, fallbackOrder: engines }
-  };
+    summarySource: "none",
+    attempts,
+    fallbackOrder: engines
+  });
 }
 
 export function createWebSearchTool(options: {
@@ -212,24 +317,13 @@ export function createWebSearchTool(options: {
     description: buildWebSearchDescription(settings),
     parameters: webSearchSchema,
     executionMode: "sequential",
-    execute: async (_toolCallId, params, signal) => {
-      try {
-        const result = await runWebSearch(params, options.getSettings().webSearch, signal);
-        return {
-          content: [{ type: "text", text: result.summary }],
-          details: result,
-          metadata: {
-            engine: result.engine,
-            route: result.route,
-            resultCount: result.results.length
-          }
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          error: error instanceof Error ? error.message : String(error)
-        };
-      }
+    execute: async (_toolCallId, params, signal): Promise<AgentToolResult<WebSearchResponse>> => {
+      const currentSettings = options.getSettings();
+      const result = await runWebSearch(params, currentSettings.webSearch, signal, currentSettings.timezone);
+      return {
+        content: [{ type: "text", text: result.summary }],
+        details: result
+      };
     }
   };
 }

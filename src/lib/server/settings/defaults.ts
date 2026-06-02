@@ -269,6 +269,7 @@ const defaultWebSearchSettings: WebSearchSettings = {
   enabled: String(process.env.MOLIBOT_WEB_SEARCH_ENABLED ?? "true").toLowerCase() !== "false",
   defaultRoute: "auto",
   defaultEngine: "auto",
+  engineSelectionStrategy: "priority",
   maxResults: Math.max(1, Math.min(20, Number(process.env.MOLIBOT_WEB_SEARCH_MAX_RESULTS ?? 5) || 5)),
   timeoutMs: Math.max(1000, Math.min(120000, Number(process.env.MOLIBOT_WEB_SEARCH_TIMEOUT_MS ?? 60000) || 60000)),
   retryTimeoutMs: Math.max(1000, Math.min(180000, Number(process.env.MOLIBOT_WEB_SEARCH_RETRY_TIMEOUT_MS ?? 120000) || 120000)),
@@ -282,6 +283,10 @@ const defaultWebSearchSettings: WebSearchSettings = {
     exa: webSearchEngineFromEnv("exa", "EXA_API_KEY"),
     serper: webSearchEngineFromEnv("serper", "SERPER_API_KEY"),
     baidu: webSearchEngineFromEnv("baidu", "BAIDU_SEARCH_API_KEY"),
+    baidu_fast: webSearchEngineFromEnv("baidu_fast", "BAIDU_SEARCH_API_KEY"),
+    baidu_web: webSearchEngineFromEnv("baidu_web", "BAIDU_SEARCH_API_KEY"),
+    ark: webSearchEngineFromEnv("ark", "ARK_API_KEY"),
+    grok: webSearchEngineFromEnv("grok", "GROK_API_KEY"),
     bocha: webSearchEngineFromEnv("bocha", "BOCHA_API_KEY")
   }
 };

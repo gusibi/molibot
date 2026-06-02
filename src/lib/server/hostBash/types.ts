@@ -5,6 +5,50 @@ export type HostBashApprovalStatus =
   | "executed"
   | "failed";
 
+export interface HostBashCapability {
+  executable: string;
+  toolId: string;
+  argv: string[];
+  originalSegment: string;
+}
+
+export interface HostBashSafeHelper {
+  executable: string;
+  argv: string[];
+  originalSegment: string;
+  reason: string;
+}
+
+export interface HostBashSafeGlue {
+  token: "|" | "&&" | ";" | "2>&1" | "1>&2";
+  reason: string;
+}
+
+export type HostBashCommandClassification =
+  | {
+      kind: "persistent-capability";
+      capability: HostBashCapability;
+      capabilities: HostBashCapability[];
+      originalCommand: string;
+      safeHelpers: HostBashSafeHelper[];
+      safeGlue: HostBashSafeGlue[];
+      warnings: string[];
+    }
+  | {
+      kind: "compound-capabilities";
+      capabilities: HostBashCapability[];
+      originalCommand: string;
+      safeHelpers: HostBashSafeHelper[];
+      safeGlue: HostBashSafeGlue[];
+      warnings: string[];
+    }
+  | {
+      kind: "one-time-script";
+      originalCommand: string;
+      reason: string;
+      detectedTokens: string[];
+    };
+
 export type HostBashApprovalMode = "persistent" | "ephemeral" | "session";
 export type HostBashNetworkAccess = "none" | "loopback" | "internet";
 export type HostBashFilesystemAccess = "none" | "scratch-only" | "workspace-read" | "workspace-write";
@@ -37,6 +81,7 @@ export interface HostBashApprovalRecord {
   status: HostBashApprovalStatus;
   permissions: HostBashPermissions;
   pendingAction?: HostBashPendingAction;
+  classification?: HostBashCommandClassification;
   requestedAt: string;
   resolvedAt?: string;
   executedAt?: string;
@@ -78,6 +123,7 @@ export interface HostBashApprovalPrompt {
     reason: string;
     permissions: HostBashPermissions;
     requestedAt: string;
+    classification?: HostBashCommandClassification;
   };
 }
 

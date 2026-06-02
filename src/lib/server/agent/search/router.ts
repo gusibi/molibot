@@ -1,28 +1,28 @@
 import type { WebSearchEngine, WebSearchInput, WebSearchRouteMode } from "$lib/server/agent/search/types.js";
 import type { WebSearchSettings } from "$lib/server/settings/index.js";
 
-const CHINESE_RE = /[\u3400-\u9fff]/;
-const RECENT_RE = /\b(today|latest|recent|breaking|news|now|this week)\b/i;
-const CHINESE_NEWS_RE = /(新闻|热点|今日|今天|最新|近期|最近|时事|快讯|发生)/;
-const INTERNATIONAL_RE = /(国际|海外|国外|美国|欧洲|日本|韩国|俄乌|中东|global|international|overseas|foreign|us|europe|japan|korea)/i;
+const OFFICIAL_DOCS_RE = /\b(api|changelog|docs?|documentation|github|npm|pypi|release notes?|sdk)\b|官方文档|开发文档|接口文档|版本说明|发布日志/i;
+const CHINA_LOCAL_RE = /(^|[^\w])(?:china|chinese|cn)([^\w]|$)|中国|国内|本地|大陆|A股|港股|微信|微博|抖音|小红书|知乎|百度|政策|监管|人民币|沪深|上证|深证|北京|上海|广州|深圳|杭州|成都|重庆|武汉|西安|南京|苏州|天津|长沙|郑州|青岛|宁波|厦门|福州/i;
+const GLOBAL_RE = /\b(global|international|overseas|foreign|worldwide|openai|github|sec|fda|eu|europe|japan|korea|us|usa|united states)\b|国际|海外|国外|美国|欧洲|日本|韩国|俄乌|中东/i;
+const roundRobinCursors = new Map<WebSearchRouteMode, number>();
 
 export const WEB_SEARCH_ROUTE_ORDERS: Record<WebSearchRouteMode, WebSearchEngine[]> = {
-  auto: ["duckduckgo"],
-  domestic_news: ["baidu", "bocha", "duckduckgo"],
-  international_news: ["brave", "tavily", "exa", "serper", "duckduckgo"],
-  chinese_general: ["baidu", "bocha", "duckduckgo"],
-  global_general: ["brave", "tavily", "exa", "serper", "duckduckgo"]
+  auto: ["baidu_fast", "brave", "serper", "tavily", "exa", "duckduckgo"],
+  china: ["baidu_web", "baidu_fast", "baidu", "bocha", "ark", "duckduckgo"],
+  global: ["tavily", "brave", "serper", "exa", "grok", "duckduckgo"],
+  official_docs: ["brave", "exa", "serper", "duckduckgo"],
+  research: ["tavily", "exa", "brave", "serper", "grok", "duckduckgo"]
 };
 
-export function inferWebSearchRoute(query: string, requestedRoute: WebSearchInput["route"], settings: WebSearchSettings): WebSearchRouteMode {
-  if (requestedRoute && requestedRoute !== "auto") return requestedRoute;
+export function inferWebSearchRoute(input: WebSearchInput, settings: WebSearchSettings): WebSearchRouteMode {
+  if (input.route && input.route !== "auto") return input.route;
   if (settings.defaultRoute !== "auto") return settings.defaultRoute;
-  const isChinese = CHINESE_RE.test(query);
-  const isNewsLike = CHINESE_NEWS_RE.test(query) || RECENT_RE.test(query);
-  if (isChinese && isNewsLike && !INTERNATIONAL_RE.test(query)) return "domestic_news";
-  if (isNewsLike && INTERNATIONAL_RE.test(query)) return "international_news";
-  if (isChinese) return "chinese_general";
-  return "global_general";
+
+  const query = input.query.trim();
+  if ((input.includeDomains?.length ?? 0) > 0 || OFFICIAL_DOCS_RE.test(query)) return "official_docs";
+  if (GLOBAL_RE.test(query)) return "global";
+  if (CHINA_LOCAL_RE.test(query)) return "china";
+  return "global";
 }
 
 export function resolveWebSearchEngines(
@@ -32,6 +32,23 @@ export function resolveWebSearchEngines(
 ): WebSearchEngine[] {
   const requestedEngine = input.engine ?? settings.defaultEngine;
   if (requestedEngine && requestedEngine !== "auto") return [requestedEngine];
-  const routeOrder = WEB_SEARCH_ROUTE_ORDERS[route] ?? WEB_SEARCH_ROUTE_ORDERS.global_general;
-  return routeOrder.filter((engine) => settings.engines[engine]?.enabled);
+  const routeOrder = WEB_SEARCH_ROUTE_ORDERS[route] ?? WEB_SEARCH_ROUTE_ORDERS.global;
+  const engines = routeOrder.filter((engine) => {
+    const engineSettings = settings.engines[engine];
+    return Boolean(engineSettings?.enabled && (engine === "duckduckgo" || engineSettings.apiKey.trim()));
+  });
+  if (engines.length <= 1 || settings.engineSelectionStrategy === "priority") return engines;
+  if (settings.engineSelectionStrategy === "random") return rotateEngines(engines, Math.floor(Math.random() * engines.length));
+
+  const cursor = roundRobinCursors.get(route) ?? 0;
+  roundRobinCursors.set(route, cursor + 1);
+  return rotateEngines(engines, cursor % engines.length);
+}
+
+function rotateEngines(engines: WebSearchEngine[], startIndex: number): WebSearchEngine[] {
+  return engines.slice(startIndex).concat(engines.slice(0, startIndex));
+}
+
+export function resetWebSearchEngineSelectionStateForTest(): void {
+  roundRobinCursors.clear();
 }

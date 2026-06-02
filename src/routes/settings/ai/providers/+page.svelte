@@ -4,11 +4,9 @@
     import { Badge } from "$lib/components/ui/badge";
     import { Button } from "$lib/components/ui/button";
     import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-    import { Checkbox } from "$lib/components/ui/checkbox";
     import { Input } from "$lib/components/ui/input";
     import { Label } from "$lib/components/ui/label";
     import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
-    import { Switch } from "$lib/components/ui/switch";
     import { Textarea } from "$lib/components/ui/textarea";
 
     type ProviderMode = "pi" | "custom";
@@ -672,7 +670,14 @@
     }
 
     function providersForTab(tab: ProviderTab): CustomProviderForm[] {
-        return form.customProviders.filter((p) => providerTabOf(p) === tab);
+        return form.customProviders
+            .filter((p) => providerTabOf(p) === tab)
+            .sort((a, b) => {
+                const aAvail = hasUsableProviderConfig(a) ? 0 : 1;
+                const bAvail = hasUsableProviderConfig(b) ? 0 : 1;
+                if (aAvail !== bAvail) return aAvail - bAvail;
+                return a.name.localeCompare(b.name);
+            });
     }
 
     function isBuiltinProvider(provider: CustomProviderForm): boolean {
@@ -1255,11 +1260,9 @@
     <header class="space-y-3">
         <div class="flex flex-col justify-between gap-3 md:flex-row md:items-end">
             <div>
-                <p class="mb-1 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                Unified model pool
-                </p>
-                <h1 class="text-[clamp(1.6rem,3vw,2.35rem)] font-normal tracking-[-0.04em] text-foreground [font-family:Copernicus,Tiempos_Headline,serif]">
-                    Providers & Models
+                <Badge variant="secondary" class="mb-2 w-fit">Unified model pool</Badge>
+                <h1 class="text-3xl font-semibold tracking-tight text-foreground">
+                    Providers &amp; Models
                 </h1>
             </div>
             <Button
@@ -1305,7 +1308,7 @@
                     <div class="grid grid-cols-2 gap-2">
                         <Button
                             type="button"
-                            variant={activeProviderTab === "builtin" ? "secondary" : "outline"}
+                            variant={activeProviderTab === "builtin" ? "default" : "outline"}
                             size="sm"
                             class="h-auto py-2 text-xs font-semibold uppercase tracking-wider"
                             onclick={() => switchProviderTab("builtin")}
@@ -1314,7 +1317,7 @@
                         </Button>
                         <Button
                             type="button"
-                            variant={activeProviderTab === "custom" ? "secondary" : "outline"}
+                            variant={activeProviderTab === "custom" ? "default" : "outline"}
                             size="sm"
                             class="h-auto py-2 text-xs font-semibold uppercase tracking-wider"
                             onclick={() => switchProviderTab("custom")}
@@ -1374,43 +1377,28 @@
                                     ID: {provider.id}
                                 </div>
                                 <div class="mt-1 flex items-center gap-2">
-                                    <span
-                                        class="rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
-                                    >
-                                        {provider.models.length} model{provider
-                                            .models.length === 1
-                                            ? ""
-                                            : "s"}
-                                    </span>
+                                    <Badge variant="secondary" class="text-[10px]">
+                                        {provider.models.length} model{provider.models.length === 1 ? "" : "s"}
+                                    </Badge>
                                     {#if form.defaultCustomProviderId === provider.id}
-                                        <span
-                                            class="rounded bg-[color-mix(in_oklab,var(--accent)_60%,transparent)] px-2 py-0.5 text-[10px] uppercase font-bold text-foreground"
-                                        >
-                                            Default
-                                        </span>
+                                        <Badge variant="secondary" class="text-[10px] uppercase font-bold">Default</Badge>
                                     {/if}
-                                    <span
-                                        class={`rounded px-2 py-0.5 text-[10px] uppercase font-bold ${
-                                            provider.enabled
-                                                ? "bg-[color-mix(in_oklab,var(--accent)_55%,transparent)] text-foreground"
-                                                : "bg-muted text-muted-foreground"
-                                        }`}
+                                    <Badge
+                                        variant={provider.enabled ? "default" : "outline"}
+                                        class="text-[10px] uppercase font-bold"
                                     >
-                                        {provider.enabled
-                                            ? "Enabled"
-                                            : "Disabled"}
-                                    </span>
-                                    <span
-                                        class={`rounded px-2 py-0.5 text-[10px] uppercase font-bold ${
+                                        {provider.enabled ? "Enabled" : "Disabled"}
+                                    </Badge>
+                                    <Badge
+                                        variant="outline"
+                                        class={`text-[10px] uppercase font-bold ${
                                             hasUsableProviderConfig(provider)
-                                                ? "bg-[color-mix(in_oklab,var(--secondary)_75%,transparent)] text-secondary-foreground"
-                                                : "bg-[color-mix(in_oklab,var(--destructive)_14%,transparent)] text-[var(--destructive)]"
+                                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                                : "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400"
                                         }`}
                                     >
-                                        {hasUsableProviderConfig(provider)
-                                            ? "Available"
-                                            : "Unavailable"}
-                                    </span>
+                                        {hasUsableProviderConfig(provider) ? "Available" : "Unavailable"}
+                                    </Badge>
                                 </div>
                             </Button>
                         {/each}
@@ -1434,13 +1422,14 @@
                             </h2>
 
                             <div class="flex flex-wrap gap-2">
-                                <label class="inline-flex cursor-pointer items-center gap-2 text-xs font-semibold uppercase tracking-normal text-foreground">
-                                    <Checkbox
-                                        checked={cp.enabled}
-                                        onclick={() => setProviderEnabled(cp.id, !cp.enabled)}
-                                    />
-                                    Enabled
-                                </label>
+                                <Button
+                                    type="button"
+                                    variant={cp.enabled ? "default" : "outline"}
+                                    size="sm"
+                                    onclick={() => setProviderEnabled(cp.id, !cp.enabled)}
+                                >
+                                    {cp.enabled ? "Enabled" : "Disabled"}
+                                </Button>
                                 <Button
                                     type="button"
                                     variant="outline"

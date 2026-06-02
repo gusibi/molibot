@@ -19,6 +19,7 @@ import {
   type McpServerConfig,
   type RuntimeSettings,
   type WebSearchEngineId,
+  type WebSearchEngineSelectionStrategy,
   type WebSearchRoute,
   type ChannelInstanceSettings,
   sanitizeHostToolSettings,
@@ -28,8 +29,27 @@ import {
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
-const WEB_SEARCH_ENGINES: WebSearchEngineId[] = ["duckduckgo", "brave", "tavily", "exa", "serper", "baidu", "bocha"];
-const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "domestic_news", "international_news", "chinese_general", "global_general"];
+const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
+  "duckduckgo",
+  "brave",
+  "tavily",
+  "exa",
+  "serper",
+  "baidu",
+  "baidu_fast",
+  "baidu_web",
+  "ark",
+  "grok",
+  "bocha"
+];
+const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "china", "global", "official_docs", "research"];
+const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[] = ["priority", "random", "round_robin"];
+const LEGACY_WEB_SEARCH_ROUTE_MAP: Record<string, WebSearchRoute> = {
+  domestic_news: "china",
+  chinese_general: "china",
+  international_news: "global",
+  global_general: "global"
+};
 
 function clampNumber(value: unknown, fallback: number, min: number, max?: number): number {
   const parsed = Number(value);
@@ -122,12 +142,19 @@ export function sanitizeWebSearchSettings(
       baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined
     }];
   })) as RuntimeSettings["webSearch"]["engines"];
-  const route = String(source.defaultRoute ?? fallback.defaultRoute).trim() as WebSearchRoute;
+  const rawRoute = String(source.defaultRoute ?? fallback.defaultRoute).trim();
+  const route = (LEGACY_WEB_SEARCH_ROUTE_MAP[rawRoute] ?? rawRoute) as WebSearchRoute;
   const engine = String(source.defaultEngine ?? fallback.defaultEngine).trim() as WebSearchEngineId | "auto";
+  const engineSelectionStrategy = String(
+    source.engineSelectionStrategy ?? fallback.engineSelectionStrategy
+  ).trim() as WebSearchEngineSelectionStrategy;
   return {
     enabled: source.enabled === undefined ? fallback.enabled : Boolean(source.enabled),
     defaultRoute: WEB_SEARCH_ROUTES.includes(route) ? route : fallback.defaultRoute,
     defaultEngine: engine === "auto" || WEB_SEARCH_ENGINES.includes(engine) ? engine : fallback.defaultEngine,
+    engineSelectionStrategy: WEB_SEARCH_ENGINE_SELECTION_STRATEGIES.includes(engineSelectionStrategy)
+      ? engineSelectionStrategy
+      : fallback.engineSelectionStrategy,
     maxResults: clampNumber(source.maxResults, fallback.maxResults, 1, 20),
     timeoutMs: clampNumber(source.timeoutMs, fallback.timeoutMs, 1000, 120000),
     retryTimeoutMs: clampNumber(source.retryTimeoutMs, fallback.retryTimeoutMs, 1000, 180000),

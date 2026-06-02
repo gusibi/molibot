@@ -110,6 +110,7 @@ function rowToApprovalRecord(row: Record<string, any>): HostBashApprovalRecord {
     status: normalizeStatus(row.status),
     permissions: action.permissions || defaultHostBashPermissions,
     pendingAction: action.pendingAction,
+    classification: action.classification || undefined,
     requestedAt: row.created_at,
     resolvedAt: row.resolved_at || undefined,
     executedAt: action.executedAt || undefined,
@@ -308,6 +309,7 @@ export class HostBashStore {
     approvalMode?: unknown;
     permissions?: unknown;
     pendingAction?: unknown;
+    classification?: unknown;
     channel: unknown;
     chatId: unknown;
     scopeId: unknown;
@@ -344,6 +346,7 @@ export class HostBashStore {
       channel: record.channel,
       chatId: record.chatId,
       pendingAction: record.pendingAction,
+      classification: record.classification,
       permissions: record.permissions,
       approvalMode: record.approvalMode
     };

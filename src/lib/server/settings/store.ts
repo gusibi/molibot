@@ -16,6 +16,7 @@ import {
   type ProviderMode,
   type RuntimeSettings,
   type WebSearchEngineId,
+  type WebSearchEngineSelectionStrategy,
   type WebSearchRoute
 } from "$lib/server/settings/index.js";
 import { sanitizeHostToolSettings } from "$lib/server/settings/hostTools.js";
@@ -123,8 +124,27 @@ const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "t
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
 const CAPABILITY_VERIFICATION_SET: ReadonlySet<string> = new Set(["untested", "passed", "failed"]);
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
-const WEB_SEARCH_ENGINES: WebSearchEngineId[] = ["duckduckgo", "brave", "tavily", "exa", "serper", "baidu", "bocha"];
-const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "domestic_news", "international_news", "chinese_general", "global_general"];
+const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
+  "duckduckgo",
+  "brave",
+  "tavily",
+  "exa",
+  "serper",
+  "baidu",
+  "baidu_fast",
+  "baidu_web",
+  "ark",
+  "grok",
+  "bocha"
+];
+const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "china", "global", "official_docs", "research"];
+const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[] = ["priority", "random", "round_robin"];
+const LEGACY_WEB_SEARCH_ROUTE_MAP: Record<string, WebSearchRoute> = {
+  domestic_news: "china",
+  chinese_general: "china",
+  international_news: "global",
+  global_general: "global"
+};
 
 function clampNumber(value: unknown, fallback: number, min: number, max?: number): number {
   const parsed = Number(value);
@@ -240,12 +260,19 @@ function sanitizeWebSearchSettings(input: unknown): RuntimeSettings["webSearch"]
       baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined
     }];
   })) as RuntimeSettings["webSearch"]["engines"];
-  const route = String(source.defaultRoute ?? defaultRuntimeSettings.webSearch.defaultRoute).trim() as WebSearchRoute;
+  const rawRoute = String(source.defaultRoute ?? defaultRuntimeSettings.webSearch.defaultRoute).trim();
+  const route = (LEGACY_WEB_SEARCH_ROUTE_MAP[rawRoute] ?? rawRoute) as WebSearchRoute;
   const engine = String(source.defaultEngine ?? defaultRuntimeSettings.webSearch.defaultEngine).trim() as WebSearchEngineId | "auto";
+  const engineSelectionStrategy = String(
+    source.engineSelectionStrategy ?? defaultRuntimeSettings.webSearch.engineSelectionStrategy
+  ).trim() as WebSearchEngineSelectionStrategy;
   return {
     enabled: source.enabled === undefined ? defaultRuntimeSettings.webSearch.enabled : Boolean(source.enabled),
     defaultRoute: WEB_SEARCH_ROUTES.includes(route) ? route : defaultRuntimeSettings.webSearch.defaultRoute,
     defaultEngine: engine === "auto" || WEB_SEARCH_ENGINES.includes(engine) ? engine : defaultRuntimeSettings.webSearch.defaultEngine,
+    engineSelectionStrategy: WEB_SEARCH_ENGINE_SELECTION_STRATEGIES.includes(engineSelectionStrategy)
+      ? engineSelectionStrategy
+      : defaultRuntimeSettings.webSearch.engineSelectionStrategy,
     maxResults: clampNumber(source.maxResults, defaultRuntimeSettings.webSearch.maxResults, 1, 20),
     timeoutMs: clampNumber(source.timeoutMs, defaultRuntimeSettings.webSearch.timeoutMs, 1000, 120000),
     retryTimeoutMs: clampNumber(source.retryTimeoutMs, defaultRuntimeSettings.webSearch.retryTimeoutMs, 1000, 180000),

@@ -210,9 +210,14 @@ export type WebSearchEngineId =
   | "exa"
   | "serper"
   | "baidu"
+  | "baidu_fast"
+  | "baidu_web"
+  | "ark"
+  | "grok"
   | "bocha";
 
-export type WebSearchRoute = "auto" | "domestic_news" | "international_news" | "chinese_general" | "global_general";
+export type WebSearchRoute = "auto" | "china" | "global" | "official_docs" | "research";
+export type WebSearchEngineSelectionStrategy = "priority" | "random" | "round_robin";
 
 export interface WebSearchEngineSettings {
   enabled: boolean;
@@ -224,6 +229,7 @@ export interface WebSearchSettings {
   enabled: boolean;
   defaultRoute: WebSearchRoute;
   defaultEngine: WebSearchEngineId | "auto";
+  engineSelectionStrategy: WebSearchEngineSelectionStrategy;
   maxResults: number;
   timeoutMs: number;
   retryTimeoutMs: number;
