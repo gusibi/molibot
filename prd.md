@@ -91,7 +91,12 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - P1 建议新增命名 sandbox profile（Observe / Build / Strict / Host-Assisted / Custom），把用户能理解的工作模式映射到底层 env/network/filesystem/approval 策略。
 - P1 建议新增 parent/subagent run ledger，持久化 run tree、模型路由、有效 sandbox profile、审批记录、诊断事件、产物清单和终止原因。
 - P2 建议引入 checkpoint/recovery：至少提供 run 前后 changed-file 摘要、artifact manifest、失败原因和可恢复边界；完整 workspace rollback 或 Docker/remote sandbox provider 应放在恢复模型稳定之后。
-## 2.4 Agent v2.2 Refactoring Progress (2026-05-30)
+## 2.4 Agent v2.2 Refactoring Progress (2026-06-04)
+- **System Prompt Boundary Refactor (P0 & Sandbox Cleanup) (2026-06-04)**:
+  - Compressed event management, scheduler, and tool-search details in the system prompt (`prompt.ts`), routing cron and confirm rules to the deferred tool schemas.
+  - Refactored sandbox descriptions from low-level OS implementation details (like `sandbox-exec` and `bubblewrap` paths) to concise model decision boundaries.
+  - Aligned `bash` tool description and parameter schema metadata to reflect runtime-managed sandbox boundaries and hostApproval reason instructions.
+  - Added regression tests in `prompt.test.ts` and `bash-output.test.ts` to enforce the refactored system prompt rules and prevent sandbox implementation detail leaks.
 - **微信通道底层 SDK 升级与上下文 Token 持久化 (Weixin SDK Upstream Upgrade & Context Token Persistence) (2026-05-30)**:
   - 同步了 `package/weixin-agent-sdk` 至最新的 `openclaw-weixin` upstream 版本（版本号为 `0.3.1`），移除了所有 OpenClaw 专属插件 Hook 依赖。
   - 在 `package/weixin-agent-sdk/src/messaging/inbound.ts` 中实现了 `persistContextTokens`/`restoreContextTokens`/`clearContextTokensForAccount` 磁盘持久化机制，并在清除账号时删除关联的磁盘文件。

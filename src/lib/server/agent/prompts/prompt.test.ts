@@ -45,10 +45,28 @@ test("prompt source requires host tool approval instead of sandbox bypass", () =
   assert.match(promptSource, /Approved host tools are controlled capabilities, not a general host shell/);
 });
 
+test("prompt source trims deferred tool and event duplication", () => {
+  assert.match(promptSource, /Deferred tools appear by name in <available-deferred-tools> but are not callable until loaded\./);
+  assert.match(promptSource, /For reminders, timers, scheduled messages, recurring summaries, or event management, call `toolSearch` first, then call `createEvent` after it is loaded\./);
+  assert.doesNotMatch(promptSource, /Result format: each matched tool appears as one <function>/);
+  assert.doesNotMatch(promptSource, /When `createEvent` succeeds, the tool will return the exact confirmation text/);
+  assert.doesNotMatch(promptSource, /Use `one-shot` for a single future datetime, `periodic` for cron-like recurring tasks/);
+});
+
+test("prompt source replaces tool priority table and sandbox implementation details with concise rules", () => {
+  assert.match(promptSource, /### Tool Selection/);
+  assert.match(promptSource, /Prefer dedicated tools over bash equivalents/);
+  assert.match(promptSource, /Bash runs in a runtime-managed sandbox by default/);
+  assert.doesNotMatch(promptSource, /### Tool Priority Table/);
+  assert.doesNotMatch(promptSource, /macOS `sandbox-exec`/);
+  assert.doesNotMatch(promptSource, /Linux `bubblewrap`/);
+});
+
 test("prompt source prioritizes webSearch for current web information", () => {
   assert.match(promptSource, /"webSearch"/);
   assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"webSearch"[\s\S]*\}/);
-  assert.match(promptSource, /Search web\/current information \| `webSearch` \| bash curl, browser search, or skill scripts/);
+  assert.match(promptSource, /For current web information, prefer `webSearch` over bash curl, browser search, or legacy skill scripts/);
+  assert.doesNotMatch(promptSource, /Search web\/current information \| `webSearch` \| bash curl, browser search, or skill scripts/);
   assert.match(promptSource, /`webSearch\(query, maxResults\?, engine\?, route\?, includeDomains\?, excludeDomains\?\)`/);
   assert.match(promptSource, /date-aware guidance, fallback diagnostics, citations, and source metadata/);
 });

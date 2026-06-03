@@ -27,10 +27,14 @@ import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
 
 const bashSchema = Type.Object({
   label: Type.String(),
-  command: Type.String(),
+  command: Type.String({
+    description: "Shell command to execute in the scratch workspace."
+  }),
   timeout: Type.Optional(Type.Number()),
   hostApproval: Type.Optional(Type.Object({
-    reason: Type.String(),
+    reason: Type.String({
+      description: "Why this command needs controlled host access instead of sandboxed execution. Use only for host-only capabilities such as native app control, browser process access, IPC, OAuth callbacks, or external tool integration."
+    }),
     displayName: Type.Optional(Type.String()),
     permissions: Type.Optional(Type.Object({
       envAllowlist: Type.Optional(Type.Array(Type.String())),
@@ -465,7 +469,7 @@ export function getBashToolDefinition(
     id: "bash",
     name: "bash",
     description:
-      `Execute a bash command in scratch workspace. When creating ordinary generated files, prefer $MOLIBOT_SCRATCH_ARTIFACT_DIR. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
+      `Execute shell commands in the scratch workspace under a runtime-managed sandbox. Use for shell-native work such as scripts, builds, tests, package installs, file operations, and data processing. Use hostApproval only for host-only capabilities; do not attempt to bypass sandbox limits with command workarounds. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
     inputSchema: bashSchema,
     risk: "high",
     source: "host",

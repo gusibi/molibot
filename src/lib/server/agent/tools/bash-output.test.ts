@@ -68,6 +68,13 @@ test("truncateMiddle preserves both opening and closing context", () => {
   assert.match(truncated.content, /^line-1\nline-2\n\[\.\.\. 7 lines omitted \.\.\.\]\nline-10\nline-11\nline-12$/);
 });
 
+test("bash tool definition keeps sandbox guidance concise", () => {
+  const def = getBashToolDefinition({ cwd: "/tmp" });
+  assert.match(def.description, /runtime-managed sandbox/);
+  assert.match(def.description, /Use hostApproval only for host-only capabilities/);
+  assert.doesNotMatch(def.description, /sandbox-exec|bubblewrap/);
+});
+
 test("bash exposes dated artifact directory to shell commands", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
   try {

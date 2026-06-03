@@ -2,6 +2,14 @@
 
 ## Version 1.0
 
+## 2026-06-04
+
+### System Prompt Boundary Refactor (P0 & Sandbox Cleanup)
+- Compressed event management, scheduler, and tool-search details in the system prompt (`prompt.ts`), routing cron and confirm rules to the deferred tool schemas.
+- Refactored sandbox descriptions from low-level OS implementation details (like `sandbox-exec` and `bubblewrap` paths) to concise model decision boundaries.
+- Aligned `bash` tool description and parameter schema metadata to reflect runtime-managed sandbox boundaries and hostApproval reason instructions.
+- Added regression tests in `prompt.test.ts` and `bash-output.test.ts` to enforce the refactored system prompt rules and prevent sandbox implementation detail leaks.
+
 ## 2026-06-03
 
 ### Deferred Web Search Deduplication

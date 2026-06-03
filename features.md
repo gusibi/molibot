@@ -1,5 +1,13 @@
 # Molibot Features
 
+## 2026-06-04
+
+### System Prompt Boundary Refactor (P0 + Sandbox Slice)
+- **P0 去重落地**: `src/lib/server/agent/prompts/prompt.ts` 已压缩 `Events`、`ToolSearch` 和 `Tools` 三个区块，移除重复的 `createEvent` 细节、`<functions>` 返回格式教学，以及冗长的 Tool Priority Table，保留最小但足够的路由规则。
+- **Sandbox 边界收口**: 系统提示词中的 sandbox 文本已从实现细节改为决策边界，只保留“普通 shell 工作可走 bash”“不要绕过 sandbox”“需要 host-only 能力时走 `bash.hostApproval`”这类模型决策规则，不再在全局提示词里展开实现名、文件系统/网络细节或共享 venv 路径。
+- **`bash` 工具描述对齐**: `src/lib/server/agent/tools/bash.ts` 的工具描述与 `hostApproval.reason` 参数说明同步收短，明确其职责是受控 host-only 访问说明，而不是让系统提示词承担具体 runtime 教学。
+- **回归断言补充**: `prompt.test.ts` 与 `bash-output.test.ts` 新增断言，固定这轮去重结果，防止后续把 `<functions>` 细节、Tool Priority Table 或 `sandbox-exec` / `bubblewrap` 这类实现描述重新塞回系统提示词。
+
 ## 2026-06-03
 
 ### Deferred Web Search 去重 (Deferred Web Search Deduplication)
