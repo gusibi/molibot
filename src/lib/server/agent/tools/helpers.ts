@@ -12,20 +12,36 @@ export function resolvePath(p: string): string {
 }
 
 export function getSandboxVenvDir(): string {
-  const custom = process.env.MOLIBOT_TOOLING_DIR || process.env.MOLIBOT_VENV_DIR;
-  if (custom) {
-    return resolvePath(custom);
+  const customVenv = process.env.MOLIBOT_VENV_DIR;
+  if (customVenv) {
+    return resolvePath(customVenv);
   }
-  return join(config.dataDir, "tooling", "sandbox-venv");
+  return join(getPythonToolingDir(), "venv");
+}
+
+export function getPythonToolingDir(): string {
+  const customPythonTooling = process.env.MOLIBOT_PYTHON_TOOLING_DIR;
+  if (customPythonTooling) {
+    return resolvePath(customPythonTooling);
+  }
+  const customTooling = process.env.MOLIBOT_TOOLING_DIR;
+  if (customTooling) {
+    return join(resolvePath(customTooling), "python");
+  }
+  return join(config.dataDir, "tooling", "python");
 }
 
 // Deprecated: use getSandboxVenvDir() instead, kept for interface compatibility
-export const SANDBOX_VENV_DIR = join(config.dataDir, "tooling", "sandbox-venv");
+export const SANDBOX_VENV_DIR = join(config.dataDir, "tooling", "python", "venv");
 
 export function wrapCommandWithVenv(command: string): string {
+  const pythonToolingDir = getPythonToolingDir();
   const venvDir = getSandboxVenvDir();
   const venvBin = process.platform === "win32" ? join(venvDir, "Scripts") : join(venvDir, "bin");
   const venvPython = process.platform === "win32" ? join(venvBin, "python.exe") : join(venvBin, "python");
+  const pipCacheDir = join(pythonToolingDir, "pip-cache");
+  const uvCacheDir = join(pythonToolingDir, "uv-cache");
+  const tmpDir = join(pythonToolingDir, "tmp");
   
   const customToolingDir = process.env.MOLIBOT_TOOLING_DIR;
   const goEnvLines = customToolingDir
@@ -36,9 +52,16 @@ export function wrapCommandWithVenv(command: string): string {
     : [];
 
   return [
+    `mkdir -p ${shellEscape(venvDir)} ${shellEscape(pipCacheDir)} ${shellEscape(uvCacheDir)} ${shellEscape(tmpDir)}`,
     `if [ ! -f ${shellEscape(venvPython)} ]; then python3 -m venv ${shellEscape(venvDir)} 2>/dev/null || true; fi`,
     `export PATH=${shellEscape(venvBin)}:$PATH`,
     `export VIRTUAL_ENV=${shellEscape(venvDir)}`,
+    `export PIP_CACHE_DIR=${shellEscape(pipCacheDir)}`,
+    `export UV_CACHE_DIR=${shellEscape(uvCacheDir)}`,
+    `export TMPDIR=${shellEscape(tmpDir)}`,
+    `export TEMP=${shellEscape(tmpDir)}`,
+    `export TMP=${shellEscape(tmpDir)}`,
+    "export PYTHONNOUSERSITE=1",
     ...goEnvLines,
     command
   ].join("\n");

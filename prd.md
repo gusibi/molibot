@@ -61,6 +61,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - [Done] Host Bash 复合命令审批降噪必须只放宽“安全 glue/helper”这一层，而不是放宽能力边界：像 `longbridge ... | head -30`、`agent-browser ... && sleep 3 && agent-browser ...` 这类命令应归约到真实 capability 做长期审批；存在动态 shell 语义、文件写重定向、unsafe helper 或多能力无法唯一归约时，仍必须退化为 one-time。
 - Host Bash pending action 必须保存 Host Bash 自己的 action kind，并在批准后使用原始 bash 执行目录语义继续运行；不得因为迁移自 legacy host tool 命名而丢失 pending payload，也不得把相对路径从 scratch 偏移到 chat 根目录。
 - `bash` 工具的用户可见进度、run detail 和诊断标签必须反映真实执行路径：命中已批准 Host Bash 白名单或当前 session host fallback 时显示 `Host Bash`，真正进入 OS sandbox 时才显示 `Sandbox`，sandbox 初始化软降级时才显示 `Sandbox disabled`。
+- [Done] Agent Python tooling 必须收敛到共享目录：默认虚拟环境使用 `~/.molibot/tooling/python/venv`，pip/uv cache 与临时目录使用同一 Python tooling 根目录下的 `pip-cache`、`uv-cache`、`tmp`；普通 skill 脚本不得默认在自身目录创建 `.venv`，应优先复用 runtime 注入的 `VIRTUAL_ENV`。
 - Agent session 持久化必须对齐 Pi/Pae 的消息边界语义：用户消息在本轮开始时进入 Agent session，assistant 失败/partial 输出和已完成 toolResult 也应保留；自动 compaction 不能截断当前用户消息；自动重试或 fallback 可以从下一次模型输入中隔离最后一条错误 assistant，尤其是无内容 error assistant，但不得从 session 审计历史删除该失败轮次。
 - Host Bash 审批卡、sandbox 原始长错误、subagent 工具日志和运行进度都不得作为普通对话内容写入模型上下文；需要排障时写入 runtime event / run detail，给父 Agent 的 subagent 结果应是压缩后的可决策摘要。
 - Subagent 触发 Host Bash 审批时必须保留 `waiting_for_approval` 语义到父 runner 和客户端响应；chain 模式不得在上一步等待审批、错误或被中止后继续执行下一步，也不得把临时等待提示保存为普通 assistant 历史。
@@ -78,6 +79,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - [Done] `webSearch` 需要容忍弱模型把 `route` / `engine` 写成带换行和嵌套引号的字符串，并在运行时归一化，避免连续 schema 校验失败耗尽工具轮次。
 - [Done] 中文/本地搜索路线应优先返回网页引用结果，再降级到 provider AI 摘要型搜索，避免无引用摘要直接成为最终答案依据。
 - [Done] 系统提示词的工具优先级必须把当前网页信息查询路由到专用 `webSearch` 工具，不能继续鼓励用 `bash curl`、浏览器搜索或旧 web-search skill 脚本替代。
+- [Done] `webSearch` 既然出现在 `<available-deferred-tools>`，runtime 的 `deferredEntries` 也必须显式注册同名条目，避免 prompt/runtime 对同一 deferred tool 清单不一致。
 - Telegram Host Bash 审批按钮必须先确认 callback 并给出可见“执行中”状态，再执行审批后的 host action；长命令不得因为 Telegram callback 超时而让用户误判点击无效。
 - Telegram 群聊触发必须同时支持“回复 bot 消息”和“直接 @ bot”。直接 @ 的判定应优先使用 Telegram `message.entities` / `caption_entities` 中的 mention 信息，并保留纯文本 `@username` 兜底，避免群聊消息已入站但被误判为未提及 bot。
 - 主答案展示必须有明确生命周期：draft 阶段允许流式编辑或 buffer 替换；一旦 runner 提交主答案，后续 assistant 文本不得覆盖已提交内容。若同一轮模型返回多条独立 terminal assistant 消息，必须按消息边界逐条展示（一条就一条，两条就两条），不得用文本语义猜测去丢弃或覆盖。该规则必须在 shared runtime / context 语义中表达，Channel 层只负责按平台能力渲染。

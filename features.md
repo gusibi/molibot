@@ -2,6 +2,17 @@
 
 ## 2026-06-03
 
+### Deferred Tool Registry 对齐 (Deferred Tool Registry Alignment)
+- **deferredEntries 补齐 webSearch**: `src/lib/server/agent/tools/index.ts` 现在把 `webSearch` 加入 deferred tool registry，与 prompt 里的 `<available-deferred-tools>` 保持一致，避免提示词宣称可延迟加载但 runtime 注册表缺项。
+- **提示词回归断言**: `prompt.test.ts` 补充断言，确保 `<available-deferred-tools>` 区块继续显式包含 `webSearch`。
+
+### 共享 Python 工具环境收敛 (Shared Python Tooling Runtime)
+- **统一 Python 工具目录**: Agent `bash` 运行时默认使用 `~/.molibot/tooling/python/venv` 作为共享虚拟环境，替代旧的 `~/.molibot/tooling/sandbox-venv`，避免 skill 目录各自生成 `.venv` 后残留机器绝对路径。
+- **缓存和临时文件归位**: `wrapCommandWithVenv()` 现在统一导出 `PIP_CACHE_DIR`、`UV_CACHE_DIR`、`TMPDIR`、`TEMP`、`TMP` 到 `~/.molibot/tooling/python/{pip-cache,uv-cache,tmp}`，并设置 `PYTHONNOUSERSITE=1`，让 pip/uv/临时构建文件留在 Molibot tooling 目录。
+- **沙箱写入范围对齐**: OS sandbox 的写入 allowlist 同步包含 Python tooling 根目录，避免 pip/uv 在 cache/tmp 目录写入时触发 `Operation not permitted`。
+- **onlinestool 使用共享环境**: `~/.molibot/skills/onlinestool/scripts/run_update.sh` 现在自定位到 skill 根目录，并优先使用 runtime 注入的 `VIRTUAL_ENV` 或 `~/.molibot/tooling/python/venv`，不再创建 skill 私有 `.venv`。
+- **回归测试补充**: 新增 `helpers.test.ts` 覆盖默认 Python tooling 路径、`MOLIBOT_TOOLING_DIR` / `MOLIBOT_VENV_DIR` 覆盖语义，以及 pip/uv/tmp 环境变量注入。
+
 ### Web Search 查询稳健性修复 (Web Search Query Robustness)
 - **搜索关键词不再被时间前缀污染**: `runWebSearch()` 现在把用户的简洁 query 直接交给 provider，不再统一拼接 `Current date/time ... User query ...`，避免“最新黄金价格”这类实时查询因为当天日期关键词过窄而搜不到可用结果。
 - **弱模型工具参数容错**: `webSearch` 会清理 `route` / `engine` 参数中常见的换行和嵌套引号形态，例如 `\n"auto"\n`，避免连续工具校验失败卡住搜索轮次。

@@ -161,6 +161,9 @@ export function createMomTools(options: {
     workspaceDir: options.workspaceDir,
     getSettings: options.getSettings
   }));
+  const webSearchRuntimeTool = wrapSerializedTool(createWebSearchTool({
+    getSettings: options.getSettings
+  }));
 
   const featureTools = createFeaturePluginTools({
     getSettings: options.getSettings
@@ -465,6 +468,13 @@ export function createMomTools(options: {
       keywords: ["profile", "profiles", "bot", "soul", "identity", "tools", "user", "file", "files", "markdown"],
       tool: profileFilesRuntimeTool,
       loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "webSearch",
+      description: "Search current web information with configured providers, citations, and fallback diagnostics.",
+      keywords: ["web", "search", "current", "latest", "news", "docs", "source", "citations", "internet"],
+      tool: webSearchRuntimeTool,
+      loadDeferredTools
     })
   ];
   deferredTools = deferredEntries.map((item) => item.entry);
@@ -474,9 +484,6 @@ export function createMomTools(options: {
     createSkillSearchTool({
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,
-      getSettings: options.getSettings
-    }),
-    createWebSearchTool({
       getSettings: options.getSettings
     }),
     createToolSearchTool({

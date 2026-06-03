@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 import { SandboxManager, type SandboxRuntimeConfig as AnthropicSandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import { config } from "$lib/server/app/env.js";
 import type { ToolSandboxSettings, RuntimeSettings } from "$lib/server/settings/index.js";
-import { getSandboxVenvDir } from "$lib/server/agent/tools/helpers.js";
+import { getPythonToolingDir, getSandboxVenvDir } from "$lib/server/agent/tools/helpers.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 
 // Decoupled Configuration Types
@@ -313,6 +313,7 @@ function isAllowAll(domains: string[]): boolean {
 function buildEffectiveSandboxConfig(settings: ToolSandboxSettings, cwd: string, workspaceDir: string): SandboxRuntimeConfig {
   const envFilePath = resolveEnvFilePath(settings);
   const effectiveVenvDir = getSandboxVenvDir();
+  const effectivePythonToolingDir = getPythonToolingDir();
   return {
     network: {
       allowedDomains: isAllowAll(settings.network.allowedDomains)
@@ -322,7 +323,7 @@ function buildEffectiveSandboxConfig(settings: ToolSandboxSettings, cwd: string,
     },
     filesystem: {
       denyRead: unique([...settings.filesystem.denyRead, envFilePath]),
-      allowWrite: unique([...settings.filesystem.allowWrite, ".", cwd, "/tmp", effectiveVenvDir]),
+      allowWrite: unique([...settings.filesystem.allowWrite, ".", cwd, "/tmp", effectivePythonToolingDir, effectiveVenvDir]),
       denyWrite: unique([...settings.filesystem.denyWrite, envFilePath])
     }
   };

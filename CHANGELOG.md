@@ -4,6 +4,15 @@
 
 ## 2026-06-03
 
+### Deferred Tool Registry Alignment
+- Added `webSearch` to the runtime deferred tool registry so `deferredEntries` now matches the prompt's `<available-deferred-tools>` list.
+- Added a prompt-source regression assertion to keep `webSearch` listed in the deferred-tools block.
+
+### Shared Python Tooling Runtime
+- Moved the Agent bash shared Python environment to `~/.molibot/tooling/python/venv`, with pip, uv, and temp directories contained under `~/.molibot/tooling/python`.
+- Updated sandbox write allowances and runtime prompt guidance so Python tasks reuse the shared environment instead of creating per-skill `.venv` directories.
+- Updated the onlinestool runner script to self-anchor to its skill directory and use the shared Python environment.
+
 ### Web Search Query Robustness
 - Stopped prepending full current date/time text to every provider query; live lookups now keep concise user keywords unless a date is explicitly useful.
 - Added tolerance for weak model tool arguments such as `route: "\n\"auto\"\n"` and `engine: "\n\"auto\"\n"` to prevent repeated webSearch validation failures.

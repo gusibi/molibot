@@ -190,7 +190,7 @@ function buildMessageProcessingPipeline(): string {
     "- No command restrictions — `pip install`, `npm install`, `curl`, `git clone`, and Python scripting all work directly.",
     "- Filesystem: writes allowed in current scratch directory and `/tmp`. Sensitive paths (`~/.ssh`, `~/.aws`, `.env`) are read-denied by default.",
     "- Network: all domains allowed by default. Operator can add domain denylists via `/settings/sandbox`.",
-    "- Python: a shared venv is auto-activated. Use `pip install <pkg>` to add dependencies — they persist across commands.",
+    "- Python: a shared venv is auto-activated (`$MOLIBOT_DATA_DIR/tooling/python/venv` by default, override with `MOLIBOT_VENV_DIR`). Use `pip install <pkg>` to add dependencies — they persist across commands. Do not create per-skill `.venv` directories unless the user explicitly asks.",
     "",
     "### Sandbox Permission Errors → Host Tool Approval",
     "- `bash` first checks the approved host-tool registry for single executable commands. If the executable is already approved, runtime executes it directly on the host with structured argv.",

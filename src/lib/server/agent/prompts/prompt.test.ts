@@ -47,6 +47,7 @@ test("prompt source requires host tool approval instead of sandbox bypass", () =
 
 test("prompt source prioritizes webSearch for current web information", () => {
   assert.match(promptSource, /"webSearch"/);
+  assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"webSearch"[\s\S]*\}/);
   assert.match(promptSource, /Search web\/current information \| `webSearch` \| bash curl, browser search, or skill scripts/);
   assert.match(promptSource, /`webSearch\(query, maxResults\?, engine\?, route\?, includeDomains\?, excludeDomains\?\)`/);
   assert.match(promptSource, /date-aware guidance, fallback diagnostics, citations, and source metadata/);
