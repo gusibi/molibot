@@ -1,6 +1,12 @@
 # Cloudflare HTML Publish Plugin
 
-This plugin lets Molibot publish complete HTML documents to Cloudflare R2 and return a shareable link.
+This plugin lets Molibot publish local HTML files to Cloudflare R2 and return a shareable link.
+
+## Upload input
+
+- The runtime tool takes a `filePath`, not a raw HTML string.
+- The tool reads the file content at execution time, validates that it is a complete HTML document, then uploads it to R2.
+- Relative paths are resolved from the agent's current working directory and still respect the normal workspace path guard.
 
 ## Two public-link modes
 

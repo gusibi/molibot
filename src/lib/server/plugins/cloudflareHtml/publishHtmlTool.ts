@@ -1,10 +1,13 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
+import type { FeaturePluginContext } from "$lib/server/plugins/types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 const publishHtmlSchema = Type.Object({
-  html: Type.String(),
+  filePath: Type.String(),
   title: Type.Optional(Type.String())
 });
 
@@ -140,20 +143,25 @@ function ensureConfigured(settings: RuntimeSettings["plugins"]["cloudflareHtml"]
 }
 
 export function createCloudflareHtmlPublishTool(
-  getSettings: () => RuntimeSettings
+  context: FeaturePluginContext
 ): AgentTool<typeof publishHtmlSchema> {
+  const ensureAllowedPath = createPathGuard(context.cwd, context.workspaceDir);
+
   return {
     name: "publishHtml",
     label: "publishHtml",
     description:
-      "Upload a complete HTML document to the configured Cloudflare R2 bucket and return the public URL.",
+      "Upload a local HTML file to the configured Cloudflare R2 bucket and return the public URL.",
     parameters: publishHtmlSchema,
     execute: async (_toolCallId, params) => {
-      const settings = getSettings().plugins.cloudflareHtml;
+      const settings = context.getSettings().plugins.cloudflareHtml;
       const configError = ensureConfigured(settings);
       if (configError) throw new Error(configError);
-      if (!isCompleteHtmlDocument(params.html)) {
-        throw new Error("publishHtml requires a complete HTML document with <html>, <head>, and <body>.");
+      const resolvedPath = resolveToolPath(context.cwd, params.filePath);
+      ensureAllowedPath(resolvedPath);
+      const html = await readFile(resolvedPath, "utf8");
+      if (!isCompleteHtmlDocument(html)) {
+        throw new Error("publishHtml requires a local HTML file containing a complete document with <html>, <head>, and <body>.");
       }
 
       const fileName = `${randomUUID().replace(/-/g, "").slice(0, 20)}.html`;
@@ -165,14 +173,14 @@ export function createCloudflareHtmlPublishTool(
         accountId: settings.accountId,
         bucketName: settings.bucketName,
         objectKey,
-        payload: params.html,
+        payload: html,
         contentType,
         now: new Date()
       });
       const response = await fetch(signed.url, {
         method: "PUT",
         headers: signed.headers,
-        body: params.html
+        body: html
       });
       if (!response.ok) {
         throw new Error(`Cloudflare R2 upload failed (${response.status}): ${await response.text()}`);
@@ -185,6 +193,7 @@ export function createCloudflareHtmlPublishTool(
           fileName,
           objectKey,
           url: publicUrl,
+          filePath: params.filePath,
           title: String(params.title ?? "").trim()
         }
       };

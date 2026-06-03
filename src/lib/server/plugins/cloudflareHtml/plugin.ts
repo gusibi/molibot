@@ -118,8 +118,8 @@ export const cloudflareHtmlFeaturePlugin: BuiltInFeaturePlugin = {
     }
     return [
       "## Installed Feature Plugin: Cloudflare HTML Publish",
-      "- When you finish a complete HTML page and the user expects a shareable link, call `publishHtml` before your final answer.",
-      "- Only upload complete documents that include `<html>`, `<head>`, and `<body>`.",
+      "- When you finish a complete local HTML file and the user expects a shareable link, call `publishHtml` before your final answer.",
+      "- Only upload local HTML files whose contents are complete documents with `<html>`, `<head>`, and `<body>`.",
       `- Public link mode: ${plugin.accessMode === "direct" ? "Direct R2" : "Worker"}`,
       `- Successful uploads become public at: ${publicPattern}`,
       `- Upload destination prefix inside R2: ${objectPrefix}`,
@@ -128,6 +128,6 @@ export const cloudflareHtmlFeaturePlugin: BuiltInFeaturePlugin = {
   },
   createTools: (context) => {
     if (!isCloudflareHtmlConfigured(context.getSettings())) return [];
-    return [createCloudflareHtmlPublishTool(context.getSettings)];
+    return [createCloudflareHtmlPublishTool(context)];
   }
 };

@@ -1,8 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { decideBashToolPolicy } from "$lib/server/agent/tools/bashPolicy.js";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const indexSource = readFileSync(join(here, "index.ts"), "utf8");
 
 const bashTool: ToolDefinition = {
   id: "bash",
@@ -95,4 +101,9 @@ test("decideBashToolPolicy requires approval for explicit hostApproval when sand
   });
 
   assert.equal(decision.type, "approval_required");
+});
+
+test("webSearch stays deferred-only without a top-level stub", () => {
+  assert.match(indexSource, /name: "webSearch"[\s\S]*exposeStub: false/);
+  assert.match(indexSource, /\.\.\.deferredEntries\.flatMap\(\(item\) => item\.stub \? \[item\.stub\] : \[\]\)/);
 });

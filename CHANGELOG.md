@@ -4,6 +4,15 @@
 
 ## 2026-06-03
 
+### Deferred Web Search Deduplication
+- Kept `webSearch` in the deferred registry but stopped exposing its lightweight top-level stub, so loading it through `toolSearch` no longer produces duplicate `webSearch` tool names in provider requests.
+- Added a focused regression assertion for the deferred-only `webSearch` exposure path.
+
+### Cloudflare HTML File-Path Uploads
+- Changed the built-in `publishHtml` plugin tool to accept a local file path instead of raw HTML content.
+- Runtime now reads and validates the HTML file internally before uploading to Cloudflare R2, reducing token/context pressure for large pages.
+- Kept normal workspace path-guard enforcement and added focused regression coverage for file-based uploads.
+
 ### Deferred Tool Registry Alignment
 - Added `webSearch` to the runtime deferred tool registry so `deferredEntries` now matches the prompt's `<available-deferred-tools>` list.
 - Added a prompt-source regression assertion to keep `webSearch` listed in the deferred-tools block.

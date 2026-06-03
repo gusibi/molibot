@@ -31,6 +31,8 @@ export interface FeaturePlugin {
 
 export interface FeaturePluginContext {
   getSettings: () => RuntimeSettings;
+  cwd: string;
+  workspaceDir: string;
 }
 
 export type PluginSettingFieldType = "boolean" | "text" | "password" | "select";

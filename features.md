@@ -2,6 +2,11 @@
 
 ## 2026-06-03
 
+### Deferred Web Search 去重 (Deferred Web Search Deduplication)
+- **`webSearch` 改成 deferred-only 暴露**: `src/lib/server/agent/tools/index.ts` 里保留 `webSearch` 的 deferred registry 条目，但显式设置 `exposeStub: false`，不再把它作为顶层 lightweight stub 放进模型工具列表。
+- **修复 provider 400 重名错误**: `toolSearch` 加载 `webSearch` 后，不会再和顶层同名 stub 同时出现在 `tools` 请求参数里，避免 `tools contains duplicate names: webSearch`。
+- **回归断言补充**: `index.test.ts` 新增断言，固定 `webSearch` 的 deferred-only 暴露方式。
+
 ### Deferred Tool Registry 对齐 (Deferred Tool Registry Alignment)
 - **deferredEntries 补齐 webSearch**: `src/lib/server/agent/tools/index.ts` 现在把 `webSearch` 加入 deferred tool registry，与 prompt 里的 `<available-deferred-tools>` 保持一致，避免提示词宣称可延迟加载但 runtime 注册表缺项。
 - **提示词回归断言**: `prompt.test.ts` 补充断言，确保 `<available-deferred-tools>` 区块继续显式包含 `webSearch`。
@@ -706,6 +711,7 @@
 | ENG-241 | Cloudflare HTML Worker custom filename support | Done | Relaxed the Worker-side filename guard so public routes can serve normal safe `.html` names like `gold_daily_20260420_v5.html`, instead of only accepting one hard-coded random-name pattern |
 | ENG-242 | Cloudflare HTML dual public-link modes | Done | Cloudflare HTML publish can now return either Worker-based links or direct public R2 links, with plugin settings and docs updated so operators can choose between the two without removing the optional Worker path |
 | ENG-243 | Cloudflare plugin partial-update validation fix | Done | Fixed plugin settings validation so partial `plugins.cloudflareHtml` updates are merged with current saved values before required-field checks run, preventing false failures and `.trim()` crashes during incremental updates |
+| ENG-266 | Cloudflare HTML file-path upload input | Done | Changed `publishHtml` to accept a local `filePath` instead of inline HTML content, so the tool reads and validates the file inside runtime, keeps workspace path-guard enforcement, and avoids pushing large HTML payloads into model context |
 | ENG-235 | Weixin OGG voice auto-transcode | Done | Weixin outbound voice now detects Telegram-style `ogg/opus` files, converts them to `mp3` before upload, and then retries native Weixin voice delivery instead of treating them as unsupported binary blobs |
 | ENG-236 | Weixin SDK import cleanup and install repair | Done | Removed all app-side `../../../../node_modules/...` Weixin SDK imports, switched Weixin channel code to normal SDK subpath imports, and added a postinstall repair script so the broken published package exports are fixed automatically after dependency install |
 | ENG-205 | Skill protocol slimming + multiline frontmatter compatibility | Done | Prompt now prefers global `skill-creator` when `~/.molibot/skills/skill-creator/SKILL.md` exists, hides `Skill Diagnostics`, skill inventory no longer prints `base_dir`, and skill frontmatter parser now supports YAML block-style multiline `description` (`>` / `|`) across runtime and settings inventory |
@@ -1258,6 +1264,7 @@
 - 2026-04-21: Fixed an over-strict Cloudflare HTML Worker guard that was causing false 404s for manually named HTML files. The Worker now accepts normal safe `.html` file names such as `gold_daily_20260420_v5.html` instead of only matching one random-string naming pattern.
 - 2026-04-22: Upgraded the Cloudflare HTML plugin to support two public-link modes. Operators can now choose between `Worker` mode (final URL uses `workerBaseHost + routePrefix + fileName`) and `Direct R2` mode (final URL uses `publicBaseHost + objectKey`). Added plugin README notes for both modes, kept the Worker path optional instead of removing it, and updated the root README/doc guide links accordingly.
 - 2026-04-22: Fixed Cloudflare plugin settings validation for partial updates in `src/routes/api/settings/+server.ts`. Validation now merges incoming `plugins.cloudflareHtml` patches with the current saved config before checking required fields, so toggling one plugin field no longer throws or fails just because unrelated fields were omitted from the request body.
+- 2026-06-03: Changed the Cloudflare HTML publish tool to accept a local `filePath` instead of raw HTML content. Runtime now resolves the path under the normal workspace guard, reads and validates the file internally before upload, and avoids forcing large HTML documents into model tool arguments.
 - 2026-04-22: Moved inbound queue ownership, queue commands, and resume flow out of individual channel runtimes into shared runtime helpers. Feishu, QQ, Weixin, and Telegram now all use the same shared inbound-task coordinator, and Feishu/QQ/Weixin also reuse one shared text-task execution skeleton instead of each channel owning its own queue-to-runner plumbing.
 - 2026-04-22: Added a dedicated model error log path. Failed model calls are now appended to `data/logs/model-errors.jsonl`, exposed through `/api/settings/model-errors`, and visible in a new Settings page so fallback failures and real provider/model error reasons can be inspected without scanning console output.
 - 2026-04-22: Fixed Telegram/model-retry context corruption in `src/lib/server/agent/runner.ts`. Retryable 429 attempts now reset the in-memory prompt state before retrying, so the same user message no longer gets appended into session context multiple times; each failed 429 attempt is recorded separately in model error logs; and a later successful reply is no longer overwritten by the stale final `Sorry, something went wrong.` fallback. Added focused regression coverage in `src/lib/server/agent/runnerRetryState.test.ts`.

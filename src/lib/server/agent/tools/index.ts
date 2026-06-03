@@ -92,7 +92,8 @@ function createDeferredToolEntry(options: {
   keywords: string[];
   tool: AgentTool<any>;
   loadDeferredTools: (toolNames: string[]) => string[];
-}): { entry: DeferredToolEntry; stub: AgentTool<typeof deferredToolStubSchema> } {
+  exposeStub?: boolean;
+}): { entry: DeferredToolEntry; stub?: AgentTool<typeof deferredToolStubSchema> } {
   return {
     entry: {
       name: options.name,
@@ -101,12 +102,14 @@ function createDeferredToolEntry(options: {
       keywords: options.keywords,
       tool: options.tool
     },
-    stub: createDeferredToolStub({
-      name: options.name,
-      description: `Deferred lightweight entry for ${options.name}. Prefer toolSearch first for full schema; if called with valid parameters, this delegates to the real ${options.name} tool.`,
-      delegateTool: options.tool,
-      loadDeferredTools: options.loadDeferredTools
-    })
+    stub: options.exposeStub === false
+      ? undefined
+      : createDeferredToolStub({
+        name: options.name,
+        description: `Deferred lightweight entry for ${options.name}. Prefer toolSearch first for full schema; if called with valid parameters, this delegates to the real ${options.name} tool.`,
+        delegateTool: options.tool,
+        loadDeferredTools: options.loadDeferredTools
+      })
   };
 }
 
@@ -166,7 +169,9 @@ export function createMomTools(options: {
   }));
 
   const featureTools = createFeaturePluginTools({
-    getSettings: options.getSettings
+    getSettings: options.getSettings,
+    cwd: options.cwd,
+    workspaceDir: options.workspaceDir
   }).map((tool) => wrapSerializedTool(tool));
 
   let tools: AgentTool<any>[] = [];
@@ -474,7 +479,8 @@ export function createMomTools(options: {
       description: "Search current web information with configured providers, citations, and fallback diagnostics.",
       keywords: ["web", "search", "current", "latest", "news", "docs", "source", "citations", "internet"],
       tool: webSearchRuntimeTool,
-      loadDeferredTools
+      loadDeferredTools,
+      exposeStub: false
     })
   ];
   deferredTools = deferredEntries.map((item) => item.entry);
@@ -491,7 +497,7 @@ export function createMomTools(options: {
       getDeferredTools: () => deferredTools,
       loadDeferredTools
     }),
-    ...deferredEntries.map((item) => item.stub),
+    ...deferredEntries.flatMap((item) => item.stub ? [item.stub] : []),
     toAgentTool(readToolDef),
     toAgentTool(bashToolDef),
     toAgentTool(editToolDef),
