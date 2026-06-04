@@ -479,8 +479,7 @@ export function createMomTools(options: {
       description: "Search current web information with configured providers, citations, and fallback diagnostics.",
       keywords: ["web", "search", "current", "latest", "news", "docs", "source", "citations", "internet"],
       tool: webSearchRuntimeTool,
-      loadDeferredTools,
-      exposeStub: false
+      loadDeferredTools
     })
   ];
   deferredTools = deferredEntries.map((item) => item.entry);

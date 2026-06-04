@@ -2,8 +2,20 @@
 
 ## 2026-06-04
 
+### Host Bash 分类器 URL/Helper 修复 (Host Bash URL and Helper Classification Fix)
+- **Quoted URL 不再误判 glob**: Host Bash 分类器现在只把未引用、未转义的 `*` / `?` / `[` 视为 glob 风险，`agent-browser open "https://example.com/search?q=..."` 这类带 query string 的已引用 URL 会正确归约到 `agent-browser` capability。
+- **受限 wrapper 归约**: `cd /tmp && agent-browser ... && echo DONE` 这类静态工作目录切换和输出标记会作为 safe helper 处理，避免已批准 `agent-browser` 因安全 shell 包装再次触发 one-time 审批；动态 `cd "$HOME"` 仍退化为 one-time。
+- **回归断言补充**: `commandClassifier.test.ts` 增加 quoted URL、未引用 glob、受限 `cd` / `echo` wrapper、动态 `cd` 降级测试，固定审批降噪边界。
+
+### Telegram 超长编辑统一分片能力 (Telegram Unified Overlong Edit Chunking)
+- **统一发送/编辑分片 helper**: `src/lib/server/channels/telegram/formatting.ts` 现在把 Telegram 文本分片、Markdown/HTML 格式化、plain text fallback 收口到共享 helper，避免 `sendMessage` 和 `editMessageText` 分别维护近似但漂移的逻辑。
+- **超长编辑自动续发**: 当 Telegram 对 `editMessageText` 返回 `400: Bad Request: MESSAGE_TOO_LONG` 时，runtime 不再直接失败中断；现在会保留原消息作为第一段并自动补发后续分片消息。
+- **Thread 上下文透传**: Telegram runtime 在状态消息、主答案、思考消息和运行详情消息的编辑路径中，都会把既有的 `message_thread_id` / 发送选项透传给超长续发逻辑，避免 forum topic 场景把后续分片发回主聊天。
+- **回归断言补充**: `formatting.test.ts` 新增针对 plain text 和 Markdown/HTML 路径的超长编辑拆分断言，固定“首条编辑 + 后续补发”的行为。
+
 ### System Prompt Boundary Refactor (P0 + Sandbox Slice)
 - **P0 去重落地**: `src/lib/server/agent/prompts/prompt.ts` 已压缩 `Events`、`ToolSearch` 和 `Tools` 三个区块，移除重复的 `createEvent` 细节、`<functions>` 返回格式教学，以及冗长的 Tool Priority Table，保留最小但足够的路由规则。
+- **P1.2 Core Directives 合并**: 原本分散在 `Execution Discipline`、`Freshness`、`External Content Safety`、`Action Confirmation`、`Runtime Safety & Truthfulness`、`Failure Recovery` 的全局防御性规则，现已合并为单一 `Core Directives` section，并把 `Processed Inputs` 一并收口到同一区块。
 - **Sandbox 边界收口**: 系统提示词中的 sandbox 文本已从实现细节改为决策边界，只保留“普通 shell 工作可走 bash”“不要绕过 sandbox”“需要 host-only 能力时走 `bash.hostApproval`”这类模型决策规则，不再在全局提示词里展开实现名、文件系统/网络细节或共享 venv 路径。
 - **`bash` 工具描述对齐**: `src/lib/server/agent/tools/bash.ts` 的工具描述与 `hostApproval.reason` 参数说明同步收短，明确其职责是受控 host-only 访问说明，而不是让系统提示词承担具体 runtime 教学。
 - **回归断言补充**: `prompt.test.ts` 与 `bash-output.test.ts` 新增断言，固定这轮去重结果，防止后续把 `<functions>` 细节、Tool Priority Table 或 `sandbox-exec` / `bubblewrap` 这类实现描述重新塞回系统提示词。
@@ -88,6 +100,7 @@
 - **共享执行 Lease**: 新增 SQLite-backed `event_execution_leases` 运行态表，将 watched event 的“当前是否正在执行、属于哪个 run、尝试次数、超时与重试状态”从事件 JSON 文件锁提升为共享 runtime 协调状态。
 - **10 分钟默认超时与 3 次上限**: `RuntimeSettings.events` 新增 `executionTimeoutMs`、`maxAttempts`、`retryDelayMs`，默认分别为 10 分钟、3 次、5 秒，并支持通过 settings/env 配置。
 - **超时先中止再重试**: `EventsWatcher` 现在为事件执行包裹 watchdog；超时后调用共享 channel runtime 的 abort 路径，中止 runner / stale running turn，再按 lease retry budget 触发下一次尝试。
+- **超时后成功收尾不再补发重复 attempt**: 如果首个 attempt 虽然超过 nominal timeout，但最终自己成功完成，`EventsWatcher` 现在直接按成功收口，不会再把同一 cron 槽位补发成第二次重复执行。
 - **启动恢复**: watcher 启动时会扫描并恢复超时的 `running` lease，将其转换到 retry/final failed 路径，避免进程重启后旧 lease 永久阻塞同一事件槽位。
 - **恢复镜像对齐**: watcher 启动恢复后会重新接管 `retry_wait` lease，并把 failed/aborted/completed lease 同步回事件 JSON 镜像，避免文件仍停在 `running` 状态导致跳过或误判。
 - **`/stop` 识别事件 Lease**: 共享 `BaseChannelRuntime` 的停止逻辑现在会同步查询并终止当前 chat 的 active event lease，避免只有 runner 内存状态丢失时误报 `Nothing running.`。
@@ -913,6 +926,7 @@
 - 2026-02-28: Added hard scheduling guardrails for Telegram mom runtime: prompt now explicitly requires all delayed/recurring tasks to use watched event JSON files, `bash` now blocks external schedulers (`crontab`/`at`/`launchctl`/`schtasks`), and `memory add` now rejects reminder/schedule-like content so timers cannot silently degrade into memory records.
 - 2026-02-27: Fixed Telegram periodic events lifecycle: `periodic` jobs are no longer marked `completed` and removed after first execution; watcher now keeps them scheduled across runs and records `lastTriggeredAt` while preserving `runCount`.
 - 2026-02-27: 排查定时任务能力边界，确认 Telegram runtime 已实现事件调度（immediate/one-shot/periodic），但 Web chat 入口尚未接入该能力；同时确认 `bin/molibot-service.sh` 仅反映其管理的后台实例状态，不能代表系统内不存在其他手动或开发模式运行中的 Molibot 进程。
+- 2026-06-04: 修复 `EventsWatcher` 超时后的晚到成功收尾路径；当同一 `periodic` 槽位首个 attempt 已完成真实产出时，不再因为 nominal timeout 进入重复的第二次 attempt；新增 `events.test.ts` 回归覆盖。
 - 2026-02-27: Completed all remaining `package/mory/README.md` TODO items. Implemented new modules `moryEngine.ts`, `moryValidation.ts`, `moryAdapter.ts`, `moryRetrieval.ts`, `moryForgetting.ts`, `moryMetrics.ts`; upgraded `morySql.ts` to versioned persistence schema + param builders; expanded package exports and added `moryEngine.e2e.test.ts`. Verified with `npm --prefix package/mory run test` (20/20 pass).
 - 2026-02-27: 更新 `package/mory/README.md` 为功能状态清单，按 `完成` / `TODO` 标注 mory 当前能力与未实现项（编排层、异步 commit、read_memory API、持久化适配器、版本化落库、检索执行器、遗忘引擎、校验器、指标、E2E）。
 - 2026-02-27: Expanded `package/mory` with cognitive-control modules: `moryScoring.ts`, `moryConflict.ts`, `moryPlanner.ts`, `moryConsolidation.ts`, `moryWorkspace.ts`; exported all new APIs via `src/index.ts`; added corresponding tests (`moryScoring/moryConflict/moryPlanner/moryConsolidation`) and validated with `npm --prefix package/mory run test` (19/19 pass).

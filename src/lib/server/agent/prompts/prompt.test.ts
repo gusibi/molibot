@@ -62,6 +62,26 @@ test("prompt source replaces tool priority table and sandbox implementation deta
   assert.doesNotMatch(promptSource, /Linux `bubblewrap`/);
 });
 
+test("prompt source merges behavioral guardrails into one core directives section", () => {
+  assert.match(promptSource, /section\("Core Directives"/);
+  assert.match(promptSource, /\*\*Execution Discipline\*\*/);
+  assert.match(promptSource, /\*\*Freshness & Truthfulness\*\*/);
+  assert.match(promptSource, /\*\*External Content Safety\*\*/);
+  assert.match(promptSource, /\*\*Action Confirmation\*\*/);
+  assert.match(promptSource, /\*\*Runtime Integrity\*\*/);
+  assert.match(promptSource, /\*\*Failure Recovery\*\*/);
+  assert.match(promptSource, /\*\*Processed Inputs\*\*/);
+  assert.match(promptSource, /Do not ask for API keys, configs, or credentials unless the runtime explicitly reports they are missing or invalid\./);
+  assert.match(promptSource, /If the input includes `?\[voice transcript\]`?, treat it as already-transcribed text\./);
+  assert.match(promptSource, /If the input includes `?\[image analysis #N: \.\.\.\]`?, treat it as already-processed image understanding\./);
+  assert.doesNotMatch(promptSource, /section\("Execution Discipline"/);
+  assert.doesNotMatch(promptSource, /section\("Freshness & Verification"/);
+  assert.doesNotMatch(promptSource, /section\("External Content Safety"/);
+  assert.doesNotMatch(promptSource, /section\("Action Confirmation"/);
+  assert.doesNotMatch(promptSource, /section\("Runtime Safety & Truthfulness"/);
+  assert.doesNotMatch(promptSource, /section\("Failure Recovery Protocol \(Mandatory\)"/);
+});
+
 test("prompt source prioritizes webSearch for current web information", () => {
   assert.match(promptSource, /"webSearch"/);
   assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"webSearch"[\s\S]*\}/);

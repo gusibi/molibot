@@ -21,6 +21,37 @@ test("classifies repeated agent-browser chain as compound capabilities for one t
   assert.equal(result.capabilities.length, 3);
 });
 
+test("classifies quoted URL query as agent-browser capability without glob downgrade", () => {
+  const result = classifyHostBashCommand('agent-browser open "https://www.google.com/search?q=2026+FIFA+World+Cup+stand+date"');
+
+  assert.equal(result.kind, "persistent-capability");
+  assert.equal(result.capability.toolId, "agent-browser");
+  assert.deepEqual(result.capability.argv, ["open", "https://www.google.com/search?q=2026+FIFA+World+Cup+stand+date"]);
+});
+
+test("keeps unquoted glob tokens as one-time script", () => {
+  const result = classifyHostBashCommand("echo *.ts");
+
+  assert.equal(result.kind, "one-time-script");
+  assert.match(result.reason, /glob/i);
+});
+
+test("classifies cd and echo wrappers around agent-browser as safe helpers", () => {
+  const result = classifyHostBashCommand('cd /tmp && agent-browser open "https://x.test/a?b=1" && echo DONE');
+
+  assert.equal(result.kind, "persistent-capability");
+  assert.equal(result.capability.toolId, "agent-browser");
+  assert.deepEqual(result.safeHelpers.map((item) => item.originalSegment), ["cd /tmp", "echo DONE"]);
+  assert.deepEqual(result.safeGlue.map((item) => item.token), ["&&", "&&"]);
+});
+
+test("does not treat dynamic cd path as safe helper", () => {
+  const result = classifyHostBashCommand('cd "$HOME" && agent-browser close');
+
+  assert.equal(result.kind, "one-time-script");
+  assert.match(result.reason, /cd/i);
+});
+
 test("classifies script with stderr merge as persistent capability", () => {
   const result = classifyHostBashCommand("skills/web-search/scripts/baidu_fast_search.sh '{\"query\":\"robotics\",\"max_results\":5}' 2>&1");
 

@@ -4,8 +4,19 @@
 
 ## 2026-06-04
 
+### Host Bash URL and Helper Classification Fix
+- Fixed Host Bash classification so quoted URL query strings such as `agent-browser open "https://example.com/search?q=..."` no longer trigger the glob-expansion one-time approval path.
+- Treated static `cd <path>` wrappers and simple `echo DONE` markers as safe helpers around approved capabilities, while dynamic paths such as `cd "$HOME"` remain one-time scripts.
+- Added focused regression tests for quoted URL queries, unquoted glob tokens, safe `cd` / `echo` wrappers, and dynamic `cd` degradation.
+
+### Telegram Overlong Edit Chunking
+- Unified Telegram text chunking and formatting fallback logic in the shared formatting layer instead of keeping separate send/edit implementations.
+- When `editMessageText` now fails with `MESSAGE_TOO_LONG`, Molibot edits the first chunk in place and sends the remaining chunks as follow-up messages instead of terminating the run.
+- Thread-aware Telegram send options are forwarded into the follow-up path so forum-topic replies stay in the same thread.
+
 ### System Prompt Boundary Refactor (P0 & Sandbox Cleanup)
 - Compressed event management, scheduler, and tool-search details in the system prompt (`prompt.ts`), routing cron and confirm rules to the deferred tool schemas.
+- Merged the previously scattered global behavioral guardrails into one `Core Directives` section, including processed-input handling for pre-transcribed voice and pre-analyzed images.
 - Refactored sandbox descriptions from low-level OS implementation details (like `sandbox-exec` and `bubblewrap` paths) to concise model decision boundaries.
 - Aligned `bash` tool description and parameter schema metadata to reflect runtime-managed sandbox boundaries and hostApproval reason instructions.
 - Added regression tests in `prompt.test.ts` and `bash-output.test.ts` to enforce the refactored system prompt rules and prevent sandbox implementation detail leaks.
@@ -79,6 +90,12 @@
 
 ### Local Runtime Persistence
 - Added a LaunchAgent plist template for running Molibot under macOS `launchd` with `RunAtLoad` and `KeepAlive`, avoiding foreground terminal session shutdowns.
+
+## 2026-06-04
+
+### Scheduled Event Late-Success Retry Suppression
+- Stopped `EventsWatcher` from emitting a duplicate retry for the same periodic slot when the first attempt exceeds the nominal timeout but still finishes successfully before the watcher fully unwinds.
+- Added a regression test covering the timeout callback plus late-success completion path so long-running scheduled jobs do not produce a second synthetic event after already delivering output.
 
 ## 2026-05-31
 

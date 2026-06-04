@@ -8,6 +8,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Users who prefer simple interaction over complex automation.
 
 ## 2.1 Scope Clarification (2026-02-27)
+- [Done] Telegram 可编辑消息在命中平台 `MESSAGE_TOO_LONG` 限制时，必须由共享 Telegram 文本发送层自动降级为“首条编辑 + 后续分片补发”，不能因为单次 `editMessageText` 失败而中断整轮运行。
 - 当前“定时任务 / 提醒 / 周期任务”能力仅接入 Telegram mom runtime 事件系统。
 - Web chat 与普通 `/api/chat` 对话入口暂不具备自然语言落地 one-shot/periodic 事件的执行链路。
 - Telegram 对“X 分钟/小时后提醒我 ……”这类明确相对提醒请求，必须由服务端直接兜底创建 one-shot event，不能完全依赖模型自行调用工具。
@@ -19,6 +20,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - [Done] `periodic` / watched event 执行必须通过共享 `event_execution_leases` 协调 active attempt、runId、timeout、attempt budget 与 stop 状态；事件 JSON 只作为调度输入和运维镜像，不再作为唯一执行锁。
 - [Done] 定时任务默认 10 分钟超时、最多 3 次尝试、短延迟重试；超时重试前必须先走共享 abort 路径中止当前 runner / stale running turn，手动 `/stop` 不触发自动重试。
 - [Done] event execution lease 的唯一性必须包含 channel/bot 作用域；timeout retry 必须等旧 runner 释放后才进入下一次 attempt；启动恢复必须把 lease 状态重新同步到事件 JSON 镜像或重新接管 retry。
+- [Done] 如果首个 scheduled attempt 超过 nominal timeout 但最终成功完成，shared event watcher 必须直接按成功收口，不能再对同一 `trigger_slot` 补发重复 attempt。
 - Bot 维度配置文件 `BOT.md` 必须参与系统提示词最终合并，不仅要出现在 source 列表；合并顺序至少应覆盖 `AGENTS.md -> BOT.md -> SOUL/IDENTITY/...`，确保 bot 级规则真实生效。
 - 设置页任务清单不能只停留在只读展示；运维侧至少要支持单条删除、批量选择删除，并且删除动作必须通过受限后端接口校验目标路径属于 watched events 目录，不能直接把任意文件路径暴露给前端删。
 - `/settings/skill-drafts` 的草稿内容审核区默认不得把长草稿全部展开；超过 10 行的草稿应默认只展示 10 行预览，并通过单独编辑表单查看、编辑、保存完整内容，避免多个草稿同时出现时页面难以扫读。
@@ -59,6 +61,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Host Bash 审批与白名单数据不能继续堆在 `settings.json` / `settings_dynamic` 中；需要迁移到独立 SQLite 表，保留完整审批历史、长期白名单当前态，并提供设置页查看 pending / history / whitelist 以及启用、禁用、删除等运维操作，但不在设置页里手动批准/拒绝 pending。
 - Host Bash 审批频率优化不能降低人工审批边界：主 Agent 与 subagent 触发的同一 pending approval 应在父 runner 内去重展示；`approve-session` 必须能执行当前 pending action 但不得创建长期白名单；当前热修复阶段 approved Host Bash / legacy host tool 继续继承宿主 `process.env`，后续如要收紧敏感 env，必须先提供可审计、可回滚且不会破坏现有 API key 使用的审批/配置方案。
 - [Done] Host Bash 复合命令审批降噪必须只放宽“安全 glue/helper”这一层，而不是放宽能力边界：像 `longbridge ... | head -30`、`agent-browser ... && sleep 3 && agent-browser ...` 这类命令应归约到真实 capability 做长期审批；存在动态 shell 语义、文件写重定向、unsafe helper 或多能力无法唯一归约时，仍必须退化为 one-time。
+- [Done] Host Bash 分类器必须按 shell 语义识别 glob：只有未引用、未转义的 glob token 才能触发 one-time 降级，已引用 URL query（如 `agent-browser open "https://example.com/search?q=..."`）不得误判为 glob；静态 `cd <path>` 和简单 `echo DONE` 可作为 safe helper 归约，动态 `cd "$HOME"` 等仍必须退化为 one-time。
 - Host Bash pending action 必须保存 Host Bash 自己的 action kind，并在批准后使用原始 bash 执行目录语义继续运行；不得因为迁移自 legacy host tool 命名而丢失 pending payload，也不得把相对路径从 scratch 偏移到 chat 根目录。
 - `bash` 工具的用户可见进度、run detail 和诊断标签必须反映真实执行路径：命中已批准 Host Bash 白名单或当前 session host fallback 时显示 `Host Bash`，真正进入 OS sandbox 时才显示 `Sandbox`，sandbox 初始化软降级时才显示 `Sandbox disabled`。
 - [Done] Agent Python tooling 必须收敛到共享目录：默认虚拟环境使用 `~/.molibot/tooling/python/venv`，pip/uv cache 与临时目录使用同一 Python tooling 根目录下的 `pip-cache`、`uv-cache`、`tmp`；普通 skill 脚本不得默认在自身目录创建 `.venv`，应优先复用 runtime 注入的 `VIRTUAL_ENV`。
@@ -94,6 +97,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 ## 2.4 Agent v2.2 Refactoring Progress (2026-06-04)
 - **System Prompt Boundary Refactor (P0 & Sandbox Cleanup) (2026-06-04)**:
   - Compressed event management, scheduler, and tool-search details in the system prompt (`prompt.ts`), routing cron and confirm rules to the deferred tool schemas.
+  - Merged the previously scattered behavioral guardrails into one `Core Directives` section, covering execution discipline, freshness/truthfulness, external-content safety, action confirmation, runtime integrity, failure recovery, and processed multimodal inputs.
   - Refactored sandbox descriptions from low-level OS implementation details (like `sandbox-exec` and `bubblewrap` paths) to concise model decision boundaries.
   - Aligned `bash` tool description and parameter schema metadata to reflect runtime-managed sandbox boundaries and hostApproval reason instructions.
   - Added regression tests in `prompt.test.ts` and `bash-output.test.ts` to enforce the refactored system prompt rules and prevent sandbox implementation detail leaks.

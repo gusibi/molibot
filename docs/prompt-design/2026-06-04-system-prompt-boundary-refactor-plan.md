@@ -220,7 +220,7 @@ npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
 - Prompt 仍包含显式 skill invocation 规则。
 - Prompt 仍包含 `available-skills`。
 
-### P1.2 合并 Core Behavioral Directives
+### P1.2 合并 Core Behavioral Directives [Done]
 
 **文件**：`src/lib/server/agent/prompts/prompt.ts`
 
@@ -258,6 +258,7 @@ npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
 预期结果：
 - Prompt 仍包含五类行为规则。
 - Prompt 不再有六个分散的防御性 section。
+- 已落地为单一 `## Core Directives` section，并额外保留 `Runtime Integrity` 与 `Processed Inputs` 两类紧邻约束，避免旧版真实性与多模态输入规则散落在其他 section。
 
 ---
 

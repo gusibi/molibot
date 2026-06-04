@@ -1141,7 +1141,7 @@ export class TelegramManager extends BaseChannelRuntime {
           await editTelegramText(bot, chatId, status.statusMessageId, display, {
             maxRetryAfterMs: TelegramManager.STREAM_EDIT_RETRY_AFTER_CAP_MS,
             requestTimeoutMs: TelegramManager.STREAM_EDIT_REQUEST_TIMEOUT_MS
-          });
+          }, sendOptions);
           lastRenderAt = Date.now();
           momLog("telegram", "status_edited", {
             runId,
@@ -1266,7 +1266,7 @@ export class TelegramManager extends BaseChannelRuntime {
           await editTelegramText(bot, chatId, status.answerMessageId, display, {
             maxRetryAfterMs: TelegramManager.STREAM_EDIT_RETRY_AFTER_CAP_MS,
             requestTimeoutMs: TelegramManager.STREAM_EDIT_REQUEST_TIMEOUT_MS
-          });
+          }, answerSendOptions);
           lastAnswerRenderAt = Date.now();
           return;
         } catch (error) {
@@ -1363,7 +1363,7 @@ export class TelegramManager extends BaseChannelRuntime {
           await editTelegramText(bot, chatId, status.reasoningMessageId, normalized, {
             maxRetryAfterMs: TelegramManager.STREAM_EDIT_RETRY_AFTER_CAP_MS,
             requestTimeoutMs: TelegramManager.STREAM_EDIT_REQUEST_TIMEOUT_MS
-          });
+          }, answerSendOptions);
           lastReasoningRenderAt = Date.now();
           return;
         } catch (error) {
@@ -1537,7 +1537,7 @@ export class TelegramManager extends BaseChannelRuntime {
         answerRenderPending = false;
         answerForceNextRender = false;
         const sent = status.answerMessageId
-          ? (await editTelegramText(bot, chatId, status.answerMessageId, display), { message_id: status.answerMessageId })
+          ? (await editTelegramText(bot, chatId, status.answerMessageId, display, undefined, answerSendOptions), { message_id: status.answerMessageId })
           : await sendTelegramText(bot, chatId, display, answerSendOptions);
         status.answerMessageId = sent.message_id;
         lastAnswerRenderAt = Date.now();
@@ -1593,7 +1593,7 @@ export class TelegramManager extends BaseChannelRuntime {
         const detailsTitle = "运行详情";
         const display = `${detailsTitle}\n\n${this.truncateTelegramBlock(status.detailsText)}`;
         if (status.detailsMessageId) {
-          await editTelegramText(bot, chatId, status.detailsMessageId, display);
+          await editTelegramText(bot, chatId, status.detailsMessageId, display, undefined, sendOptions);
         } else {
           const replyTo = status.statusMessageId ?? status.answerMessageId ?? null;
           const sent = replyTo
@@ -1892,7 +1892,7 @@ export class TelegramManager extends BaseChannelRuntime {
       } else if (result.stopReason === "stop" && detailEventCount > 0 && result.runId) {
         const archiveNotice = formatRunArchiveNotice(result.runId);
         if (status.detailsMessageId) {
-          await editTelegramText(bot, chatId, status.detailsMessageId, archiveNotice);
+          await editTelegramText(bot, chatId, status.detailsMessageId, archiveNotice, undefined, sendOptions);
         } else {
           await sendTelegramTextSafely(bot, chatId, archiveNotice, answerSendOptions, {
             runId,

@@ -7,7 +7,7 @@ import type {
 } from "$lib/server/hostBash/types.js";
 
 type ShellPlanNode =
-  | { type: "command"; words: string[]; original: string }
+  | { type: "command"; words: string[]; original: string; hasUnquotedGlob: boolean }
   | { type: "glue"; token: HostBashSafeGlue["token"]; original: string }
   | { type: "unsupported"; token: string; reason: string };
 
@@ -17,6 +17,7 @@ interface LexWordToken {
   original: string;
   start: number;
   end: number;
+  hasUnquotedGlob: boolean;
 }
 
 interface LexOperatorToken {
@@ -28,7 +29,7 @@ interface LexOperatorToken {
 type LexToken = LexWordToken | LexOperatorToken;
 
 const FORBIDDEN_COMMANDS = new Set(["bash", "sh", "zsh", "fish", "node", "python", "python3", "ruby", "perl"]);
-const STRICT_HELPER_NAMES = new Set(["head", "tail", "wc", "sort", "uniq", "cut", "tr", "jq", "grep", "rg", "sed", "sleep", "true", "false"]);
+const STRICT_HELPER_NAMES = new Set(["cd", "echo", "head", "tail", "wc", "sort", "uniq", "cut", "tr", "jq", "grep", "rg", "sed", "sleep", "true", "false"]);
 const UNSAFE_HELPER_COMMANDS = new Set(["tee", "xargs"]);
 const SAFE_GLUE_REASONS: Record<HostBashSafeGlue["token"], string> = {
   "|": "pipeline",
@@ -55,14 +56,23 @@ function isEnvAssignment(value: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(value);
 }
 
-function hasGlobToken(value: string): boolean {
-  return /[*?[]/.test(value);
-}
-
 function safeHelperReason(command: string): string {
+  if (command === "cd") return "working-directory helper";
+  if (command === "echo") return "output marker helper";
   if (command === "sleep" || command === "true" || command === "false") return "timing or no-op helper";
   if (command === "wc" || command === "sort" || command === "uniq") return "read-only output helper";
   return "output filtering helper";
+}
+
+function validateCdArgs(argv: string[]): boolean {
+  if (argv.length !== 1) return false;
+  const path = argv[0] ?? "";
+  if (!path || path.startsWith("-") || path.includes("$")) return false;
+  return /^[./~A-Za-z0-9_:@%+=,-]+$/.test(path);
+}
+
+function validateEchoArgs(argv: string[]): boolean {
+  return argv.length <= 4 && argv.every((arg) => /^[A-Za-z0-9_.:@%+=,-]+$/.test(arg));
 }
 
 function validateHeadTailArgs(argv: string[]): boolean {
@@ -115,6 +125,8 @@ function validateSleepArgs(argv: string[]): boolean {
 
 function validateSafeHelper(executable: string, argv: string[]): string | null {
   const name = baseCommandName(executable);
+  if (name === "cd") return validateCdArgs(argv) ? safeHelperReason(name) : null;
+  if (name === "echo") return validateEchoArgs(argv) ? safeHelperReason(name) : null;
   if (name === "head" || name === "tail") return validateHeadTailArgs(argv) ? safeHelperReason(name) : null;
   if (name === "wc") return validateWcArgs(argv) ? safeHelperReason(name) : null;
   if (name === "sort") return argv.length === 0 ? safeHelperReason(name) : null;
@@ -192,6 +204,7 @@ function lexShell(input: string): { ok: true; tokens: LexToken[] } | { ok: false
     let original = "";
     let quote: "'" | "\"" | null = null;
     let escaping = false;
+    let hasUnquotedGlob = false;
     while (index < input.length) {
       const current = input[index] ?? "";
       const next = input[index + 1] ?? "";
@@ -225,12 +238,15 @@ function lexShell(input: string): { ok: true; tokens: LexToken[] } | { ok: false
         original = original.slice(0, -1);
         continue;
       }
+      if (current === "*" || current === "?" || current === "[") {
+        hasUnquotedGlob = true;
+      }
       value += current;
     }
     if (escaping || quote) {
       return { ok: false, reason: "Unmatched quotes or escapes.", token: input.slice(start, index) };
     }
-    tokens.push({ type: "word", value, original: input.slice(start, index), start, end: index });
+    tokens.push({ type: "word", value, original: input.slice(start, index), start, end: index, hasUnquotedGlob });
   }
 
   return { ok: true, tokens };
@@ -250,6 +266,7 @@ function toPlanNodes(input: string): { ok: true; nodes: ShellPlanNode[] } | { ok
     nodes.push({
       type: "command",
       words: currentWords.map((item) => item.value),
+      hasUnquotedGlob: currentWords.some((item) => item.hasUnquotedGlob),
       original: input.slice(start, end).trim()
     });
     currentWords = [];
@@ -280,7 +297,7 @@ function classifyCommandNode(node: Extract<ShellPlanNode, { type: "command" }>):
   if (baseCommandName(executable) === "env") {
     return { type: "unsupported", reason: "env-based command prefixes are not allowed.", token: executable };
   }
-  if (hasGlobToken(executable) || argv.some(hasGlobToken)) {
+  if (node.hasUnquotedGlob) {
     return { type: "unsupported", reason: "Glob expansion tokens are not allowed.", token: executable };
   }
 

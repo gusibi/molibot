@@ -477,7 +477,13 @@ export class EventsWatcher {
     if (timeout) clearTimeout(timeout);
 
     if (result.status === "timeout") {
-      await runPromise;
+      // The timeout fired first, but the run may still complete. Await it so
+      // we can suppress duplicate retries when the run actually succeeded, or
+      // surface a more specific error when it failed after the timeout.
+      const finalResult = await runPromise;
+      if (finalResult.status === "success" || finalResult.status === "error") {
+        return finalResult;
+      }
     }
     return result;
   }

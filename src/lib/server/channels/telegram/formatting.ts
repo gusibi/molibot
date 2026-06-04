@@ -11,6 +11,11 @@ interface TelegramRetryPolicy {
   requestTimeoutMs?: number | null;
 }
 
+interface TelegramTextChunk {
+  rawText: string;
+  payload: { text: string; parseMode?: "HTML" };
+}
+
 function chunkTelegramText(text: string, chunkSize = TELEGRAM_TEXT_SOFT_LIMIT): string[] {
   const normalized = String(text ?? "").replace(/\r\n?/g, "\n").trim();
   if (!normalized) return [];
@@ -24,6 +29,23 @@ function chunkTelegramText(text: string, chunkSize = TELEGRAM_TEXT_SOFT_LIMIT): 
   }
   if (remaining) chunks.push(remaining);
   return chunks;
+}
+
+function buildTelegramTextChunks(text: string): TelegramTextChunk[] {
+  const rawChunks = chunkTelegramText(text);
+  const chunks = rawChunks.length > 0 ? rawChunks : [String(text ?? "").trim()];
+  return chunks.map((rawText) => ({
+    rawText,
+    payload: formatTelegramText(rawText)
+  }));
+}
+
+function buildTelegramTextChunk(text: string): TelegramTextChunk {
+  const rawText = String(text ?? "").trim();
+  return {
+    rawText,
+    payload: formatTelegramText(rawText)
+  };
 }
 
 export function summarizeTelegramToolProgressText(text: string, max = 20): string {
@@ -99,37 +121,109 @@ export function formatTelegramText(text: string): { text: string; parseMode?: "H
   return { text: markdownToTelegramHtml(normalized), parseMode: "HTML" };
 }
 
+function isTelegramMessageTooLongError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const fields = error && typeof error === "object" ? error as Record<string, unknown> : undefined;
+  const description = String(fields?.description ?? "");
+  return message.includes("MESSAGE_TOO_LONG") || description.includes("MESSAGE_TOO_LONG");
+}
+
+async function sendTelegramChunk(
+  bot: Bot,
+  chatId: string,
+  chunk: TelegramTextChunk,
+  options?: Record<string, unknown>
+): Promise<{ message_id: number }> {
+  const sendOptions = chunk.payload.parseMode
+    ? { ...(options ?? {}), parse_mode: chunk.payload.parseMode }
+    : { ...(options ?? {}) };
+
+  try {
+    return await sendTelegramWithRetry(bot, chatId, chunk.payload.text, sendOptions, chunk.payload.parseMode ? "formatted" : "plain");
+  } catch (error) {
+    if (!chunk.payload.parseMode) throw error;
+    momWarn("telegram", "send_message_parse_fallback_plain", {
+      chatId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return await sendTelegramWithRetry(bot, chatId, chunk.rawText, { ...(options ?? {}) }, "plain");
+  }
+}
+
+async function editTelegramChunk(
+  bot: Bot,
+  chatId: string,
+  messageId: number,
+  chunk: TelegramTextChunk,
+  options?: Record<string, unknown>,
+  retryPolicy?: TelegramRetryPolicy
+): Promise<void> {
+  const editOptions = chunk.payload.parseMode
+    ? { ...(options ?? {}), parse_mode: chunk.payload.parseMode }
+    : { ...(options ?? {}) };
+
+  try {
+    await retryTelegramApiCall(
+      "edit_message_retry_scheduled",
+      { chatId, messageId, mode: chunk.payload.parseMode ? "formatted" : "plain" },
+      async () => {
+        await bot.api.editMessageText(chatId, messageId, chunk.payload.text, editOptions as never);
+      },
+      retryPolicy
+    );
+  } catch (error) {
+    if (isTelegramRateLimitError(error) && (retryPolicy?.failOnRateLimit || Number.isFinite(retryPolicy?.maxRetryAfterMs))) {
+      throw error;
+    }
+    if (!chunk.payload.parseMode) throw error;
+    momWarn("telegram", "edit_message_parse_fallback_plain", {
+      chatId,
+      messageId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    await retryTelegramApiCall(
+      "edit_message_retry_scheduled",
+      { chatId, messageId, mode: "plain_fallback" },
+      async () => {
+        await bot.api.editMessageText(chatId, messageId, chunk.rawText, options as never);
+      },
+      retryPolicy
+    );
+  }
+}
+
+async function continueTelegramEditAsChunkedMessages(
+  bot: Bot,
+  chatId: string,
+  messageId: number,
+  text: string,
+  options?: Record<string, unknown>,
+  retryPolicy?: TelegramRetryPolicy
+): Promise<void> {
+  const chunks = buildTelegramTextChunks(text);
+  if (chunks.length <= 1) {
+    throw new Error("Chunked Telegram edit fallback requires more than one chunk");
+  }
+
+  await editTelegramChunk(bot, chatId, messageId, chunks[0], options, retryPolicy);
+  for (const chunk of chunks.slice(1)) {
+    await sendTelegramChunk(bot, chatId, chunk, options);
+  }
+}
+
 export async function sendTelegramText(
   bot: Bot,
   chatId: string,
   text: string,
   options?: Record<string, unknown>
 ): Promise<{ message_id: number }> {
-  const rawChunks = chunkTelegramText(text);
-  const chunks = rawChunks.length > 0 ? rawChunks : [String(text ?? "").trim()];
+  const chunks = buildTelegramTextChunks(text);
   let lastMessageId = 0;
 
-  for (let i = 0; i < chunks.length; i += 1) {
-    const chunk = chunks[i];
-    const payload = formatTelegramText(chunk);
-    const chunkOptions =
-      i === 0 ? { ...(options ?? {}) } : {};
-    const sendOptions = payload.parseMode
-      ? { ...chunkOptions, parse_mode: payload.parseMode }
-      : chunkOptions;
-
-    try {
-      const sent = await sendTelegramWithRetry(bot, chatId, payload.text, sendOptions, "formatted");
-      lastMessageId = sent.message_id;
-    } catch (error) {
-      if (!payload.parseMode) throw error;
-      momWarn("telegram", "send_message_parse_fallback_plain", {
-        chatId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      const sent = await sendTelegramWithRetry(bot, chatId, chunk, chunkOptions, "plain");
-      lastMessageId = sent.message_id;
-    }
+  for (const [index, chunk] of chunks.entries()) {
+    const chunkOptions = index === 0 ? { ...(options ?? {}) } : {};
+    const sent = await sendTelegramChunk(bot, chatId, chunk, chunkOptions);
+    lastMessageId = sent.message_id;
   }
 
   return { message_id: lastMessageId };
@@ -356,49 +450,23 @@ export async function editTelegramText(
   chatId: string,
   messageId: number,
   text: string,
-  retryPolicy?: TelegramRetryPolicy
+  retryPolicy?: TelegramRetryPolicy,
+  followupOptions?: Record<string, unknown>
 ): Promise<void> {
-  const payload = formatTelegramText(text);
+  const fullChunk = buildTelegramTextChunk(text);
   try {
-    if (payload.parseMode) {
-      await retryTelegramApiCall(
-        "edit_message_retry_scheduled",
-        { chatId, messageId, mode: "formatted" },
-        async () => {
-          await bot.api.editMessageText(chatId, messageId, payload.text, { parse_mode: payload.parseMode } as never);
-        },
-        retryPolicy
-      );
-      return;
-    }
-    await retryTelegramApiCall(
-      "edit_message_retry_scheduled",
-      { chatId, messageId, mode: "plain" },
-      async () => {
-        await bot.api.editMessageText(chatId, messageId, payload.text);
-      },
-      retryPolicy
-    );
+    await editTelegramChunk(bot, chatId, messageId, fullChunk, undefined, retryPolicy);
   } catch (error) {
-    if (isTelegramRateLimitError(error) && (retryPolicy?.failOnRateLimit || Number.isFinite(retryPolicy?.maxRetryAfterMs))) {
-      throw error;
-    }
-    if (payload.parseMode) {
-      momWarn("telegram", "edit_message_parse_fallback_plain", {
-        chatId,
-        messageId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      await retryTelegramApiCall(
-        "edit_message_retry_scheduled",
-        { chatId, messageId, mode: "plain_fallback" },
-        async () => {
-          await bot.api.editMessageText(chatId, messageId, text);
-        }
-      );
-      return;
-    }
-    throw error;
+    if (!isTelegramMessageTooLongError(error)) throw error;
+    const chunks = buildTelegramTextChunks(text);
+    if (chunks.length <= 1) throw error;
+    momWarn("telegram", "edit_message_too_long_split_followup", {
+      chatId,
+      messageId,
+      chunkCount: chunks.length,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    await continueTelegramEditAsChunkedMessages(bot, chatId, messageId, text, followupOptions, retryPolicy);
   }
 }
 
@@ -409,36 +477,21 @@ export async function editTelegramMessage(
   text: string,
   options?: Record<string, unknown>
 ): Promise<void> {
-  const payload = formatTelegramText(text);
-  const editOptions = payload.parseMode
-    ? { ...(options ?? {}), parse_mode: payload.parseMode }
-    : { ...(options ?? {}) };
+  const fullChunk = buildTelegramTextChunk(text);
 
   try {
-    await retryTelegramApiCall(
-      "edit_message_retry_scheduled",
-      { chatId, messageId, mode: payload.parseMode ? "formatted" : "plain" },
-      async () => {
-        await bot.api.editMessageText(chatId, messageId, payload.text, editOptions as never);
-      }
-    );
+    await editTelegramChunk(bot, chatId, messageId, fullChunk, options);
   } catch (error) {
-    if (payload.parseMode) {
-      momWarn("telegram", "edit_message_parse_fallback_plain", {
-        chatId,
-        messageId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      await retryTelegramApiCall(
-        "edit_message_retry_scheduled",
-        { chatId, messageId, mode: "plain_fallback" },
-        async () => {
-          await bot.api.editMessageText(chatId, messageId, text, options as never);
-        }
-      );
-      return;
-    }
-    throw error;
+    if (!isTelegramMessageTooLongError(error)) throw error;
+    const chunks = buildTelegramTextChunks(text);
+    if (chunks.length <= 1) throw error;
+    momWarn("telegram", "edit_message_too_long_split_followup", {
+      chatId,
+      messageId,
+      chunkCount: chunks.length,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    await continueTelegramEditAsChunkedMessages(bot, chatId, messageId, text, options);
   }
 }
 
