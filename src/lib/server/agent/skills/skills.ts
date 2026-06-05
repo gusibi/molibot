@@ -338,14 +338,15 @@ export function formatSkillsForPrompt(
 export function formatSkillsSummaryText(
   skills: LoadedSkill[],
   diagnostics: string[],
-  options?: { emptyText?: string; footerLines?: string[] }
+  options?: { emptyText?: string; footerLines?: string[]; locale?: "zh-CN" | "en-US" }
 ): string {
-  const lines = [`当前技能列表（共${skills.length}个）：`, ""];
+  const zh = options?.locale === "zh-CN";
+  const lines = [zh ? `当前技能列表（共${skills.length}个）：` : `Loaded skills (${skills.length} total):`, ""];
 
   if (skills.length === 0) {
     lines.push(options?.emptyText ?? "No skills loaded.");
   } else {
-    lines.push("| 编号 | 名称 | 路径 |");
+    lines.push(zh ? "| 编号 | 名称 | 路径 |" : "| Number | Name | Path |");
     lines.push("|------|------|------|");
     skills.forEach((skill, index) => {
       lines.push(`| ${index + 1} | ${skill.name} | ${skill.filePath} |`);
@@ -366,17 +367,18 @@ export function formatSkillsSummaryText(
   return lines.join("\n");
 }
 
-export function formatSkillDetailText(skill: LoadedSkill): string {
+export function formatSkillDetailText(skill: LoadedSkill, locale: "zh-CN" | "en-US" = "en-US"): string {
+  const zh = locale === "zh-CN";
   const lines = [
-    `Skill: ${skill.name}`,
-    `Scope: ${skill.scope}`,
-    `File: ${skill.filePath}`,
-    `Base dir: ${skill.baseDir}`,
-    `Description: ${skill.description}`
+    zh ? `技能：${skill.name}` : `Skill: ${skill.name}`,
+    zh ? `作用域：${skill.scope}` : `Scope: ${skill.scope}`,
+    zh ? `文件：${skill.filePath}` : `File: ${skill.filePath}`,
+    zh ? `基础目录：${skill.baseDir}` : `Base dir: ${skill.baseDir}`,
+    zh ? `描述：${skill.description}` : `Description: ${skill.description}`
   ];
 
   if (skill.aliases.length > 0) {
-    lines.push(`Aliases: ${skill.aliases.join(", ")}`);
+    lines.push(zh ? `别名：${skill.aliases.join(", ")}` : `Aliases: ${skill.aliases.join(", ")}`);
   }
   if (skill.mcpServers.length > 0) {
     lines.push(`MCP servers: ${skill.mcpServers.join(", ")}`);
@@ -388,9 +390,10 @@ export function formatSkillDetailText(skill: LoadedSkill): string {
 export function formatSkillsDetailText(
   skills: LoadedSkill[],
   diagnostics: string[],
-  options?: { emptyText?: string; footerLines?: string[] }
+  options?: { emptyText?: string; footerLines?: string[]; locale?: "zh-CN" | "en-US" }
 ): string {
-  const lines = [`Loaded skills: ${skills.length}`, ""];
+  const zh = options?.locale === "zh-CN";
+  const lines = [zh ? `已加载技能：${skills.length}` : `Loaded skills: ${skills.length}`, ""];
 
   if (skills.length === 0) {
     lines.push(options?.emptyText ?? "No skills loaded.");

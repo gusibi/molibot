@@ -8,6 +8,8 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Users who prefer simple interaction over complex automation.
 
 ## 2.1 Scope Clarification (2026-02-27)
+- [Done] Settings 语言必须持久化为全局运行时配置，并控制 Web Chat、Telegram、飞书、QQ、微信共享命令的固定响应语言；Channel 层不得各自维护命令翻译。
+- [Done] `/help` 命令目录不展示 `/login` 与 `/logout` OAuth 管理入口，但继续保留命令本身供明确调用。
 - [Done] Telegram 可编辑消息在命中平台 `MESSAGE_TOO_LONG` 限制时，必须由共享 Telegram 文本发送层自动降级为“首条编辑 + 后续分片补发”，不能因为单次 `editMessageText` 失败而中断整轮运行。
 - 当前“定时任务 / 提醒 / 周期任务”能力仅接入 Telegram mom runtime 事件系统。
 - Web chat 与普通 `/api/chat` 对话入口暂不具备自然语言落地 one-shot/periodic 事件的执行链路。
@@ -71,6 +73,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Host Bash 审批触发 runner 内部 abort 时，最终客户端状态必须继续保持 `waiting_for_approval`，不得退化成用户主动停止语义；审批后自动执行成功但无输出时也不得向用户额外发送 `(no output)` 噪音。
 - [Done] Feishu Host Bash / 通用工具审批按钮必须同时支持公网 HTTP 卡片回调和本地 WebSocket `card.action.trigger` 事件；本地运行且端口不对外暴露时，不得因为缺少 `/api/feishu/card` 公网地址而导致按钮审批不可用，也不得因为审批记录来自通用 Approval Broker 而按钮点击无效。
 - [Done] 审批回复必须支持自然中文结论，例如 `审批通过`、`通过`、`批准通过`、`审批拒绝`，不能只识别 `批准` / `安装` 这类内部口令。
+- [Done] Host Bash 用户审批文案必须只展示做决定所需的操作、完整命令和批准/本轮允许/拒绝选项；request ID、分类器、权限明细和内部原因保留在审计记录与设置页，不应污染聊天审批提示。
 - [Done] 本机长期运行不能依赖一次性前台 PTY 会话；需要提供 LaunchAgent 配置，让 Molibot 由 macOS `launchd` 持续管理并在退出后自动拉起。
 - [Done] 网页搜索属于基础 Agent 能力，应作为共享内置 `webSearch` 工具提供，而不是依赖每轮按需加载 skill。配置必须在 Settings 页面管理，支持 DuckDuckGo 开箱即用以及 Brave/Tavily/Exa/Serper/Baidu/Baidu Fast/Baidu Web/Ark/Grok/Bocha 等可选引擎，并按 `china` / `global` / `official_docs` / `research` 这类目标导向 route 自动降级，避免把中文近期查询误判成国内新闻。
 - [Done] 当搜索引擎保持 `auto` 时，Settings 必须支持 priority / random / round-robin 三种自动引擎选择策略；random 和 round-robin 只在已启用且具备必要 API Key 的候选引擎中选择，避免固定消耗单个服务额度。
@@ -95,6 +98,16 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - P1 建议新增 parent/subagent run ledger，持久化 run tree、模型路由、有效 sandbox profile、审批记录、诊断事件、产物清单和终止原因。
 - P2 建议引入 checkpoint/recovery：至少提供 run 前后 changed-file 摘要、artifact manifest、失败原因和可恢复边界；完整 workspace rollback 或 Docker/remote sandbox provider 应放在恢复模型稳定之后。
 ## 2.4 Agent v2.2 Refactoring Progress (2026-06-04)
+- **内置图片生成工具 (Built-In Image Generation Tool) (2026-06-04)**:
+  - Added types and settings interfaces for `imageGenerate` in `schema.ts`.
+  - Added defaults reading from environment variables (`AGNES_API_KEY`, `MODELSCOPE_API_KEY`, `GOOGLE_API_KEY`, `VOLCENGINE_API_KEY`) and sanitization logic in `defaults.ts` and `sanitize.ts`.
+  - Implemented the `imageGenerate` tool in `imageGenerateTool.ts` and registered it as a deferred agent tool in `tools/index.ts`.
+  - Added provider integrations for Agnes (OpenAI-compatible), Google Imagen (predict API), Volcengine (Seedream), and ModelScope (async task polling) in `providers.ts`.
+  - Configured prompt guidance in `prompt.ts` instructing the agent to prefer `imageGenerate` for creating images.
+  - Added legacy settings backfill, default-engine-first auto routing, and data-dir storage for settings-page test outputs.
+  - Treated a configured default image engine with an API key as enabled for compatibility with older `enabled: false` settings, and clarified the per-engine enabled switch in `/settings/image`.
+  - Fixed semantic routing so image generation/editing intent in any language loads `imageGenerate` through `toolSearch select:imageGenerate` before skill search or bash fallbacks.
+  - Implemented automated mock-based unit tests in `imageGenerateTool.test.ts`.
 - **System Prompt Boundary Refactor (P0 & Sandbox Cleanup) (2026-06-04)**:
   - Compressed event management, scheduler, and tool-search details in the system prompt (`prompt.ts`), routing cron and confirm rules to the deferred tool schemas.
   - Merged the previously scattered behavioral guardrails into one `Core Directives` section, covering execution discipline, freshness/truthfulness, external-content safety, action confirmation, runtime integrity, failure recovery, and processed multimodal inputs.

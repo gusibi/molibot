@@ -36,6 +36,7 @@ import type { ConversationAttachment } from "$lib/shared/types/message";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { executeHostBashApproval, hasVisibleHostBashOutput, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec";
 import { getHostBashStore } from "$lib/server/hostBash";
+import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n";
 
 interface ChatBody {
   userId?: string;
@@ -57,6 +58,10 @@ interface ParsedWebChatRequest {
 interface WebCommandResult {
   ok: true;
   response: string;
+}
+
+function webCommandText(english: string, chinese: string): string {
+  return commandText(commandLocaleFromSettings(getRuntime().getSettings()), english, chinese);
 }
 
 function inferMediaType(file: File): FileAttachment["mediaType"] {
@@ -82,18 +87,19 @@ function buildModelsText(profileId: string, route: ModelRoute): string {
   const settings = runtime.getSettings();
   const options = buildModelOptions(settings, route);
   const activeKey = currentModelKey(settings, route);
+  const zh = isChineseLocale(settings.locale);
   const lines = [
-    `Route: ${route}`,
-    `Provider mode: ${settings.providerMode}`,
-    `Configured model options: ${options.length}`,
+    zh ? `路由：${route}` : `Route: ${route}`,
+    zh ? `提供方模式：${settings.providerMode}` : `Provider mode: ${settings.providerMode}`,
+    zh ? `已配置模型选项：${options.length}` : `Configured model options: ${options.length}`,
     ""
   ];
 
   if (options.length === 0) {
-    lines.push("No available model options.");
+    lines.push(zh ? "没有可用的模型选项。" : "No available model options.");
   } else {
     options.forEach((option, index) => {
-      lines.push(`${index + 1}. ${option.label}${option.key === activeKey ? " (active)" : ""}`);
+      lines.push(`${index + 1}. ${option.label}${option.key === activeKey ? (zh ? "（当前）" : " (active)") : ""}`);
       lines.push(`   key: ${option.key}`);
     });
   }
@@ -117,6 +123,7 @@ function buildModelsText(profileId: string, route: ModelRoute): string {
 }
 
 function buildSkillsText(profileId: string, rawArg = "", detailMode = false): string {
+  const locale = commandLocaleFromSettings(getRuntime().getSettings());
   const { store } = getWebRuntimeContext(profileId);
   const { skills, diagnostics } = loadSkillsFromWorkspace(store.getWorkspaceDir(), "web");
   const selector = rawArg.trim();
@@ -135,18 +142,19 @@ function buildSkillsText(profileId: string, rawArg = "", detailMode = false): st
         })
       ].join("\n");
     }
-    return formatSkillDetailText(skill);
+      return formatSkillDetailText(skill, locale);
   }
 
   if (detailMode) {
-    return formatSkillsDetailText(skills, diagnostics);
+    return formatSkillsDetailText(skills, diagnostics, { locale });
   }
 
   return formatSkillsSummaryText(skills, diagnostics, {
     footerLines: [
-      "Use /skills <id> for details.",
-      "Use /skills-detail for the full list."
-    ]
+      webCommandText("Use /skills <id> for details.", "使用 /skills <id> 查看详情。"),
+      webCommandText("Use /skills-detail for the full list.", "使用 /skills-detail 查看完整列表。")
+    ],
+    locale
   });
 }
 
@@ -340,26 +348,24 @@ async function tryHandleWebCommand(
   const runtime = getRuntime();
 
   if (cmd === "/help" || cmd === "/start") {
+    const d = (english: string, chinese: string) => webCommandText(english, chinese);
     return {
       ok: true,
       response: [
-        "Available commands:",
-        "/models - list text model options and current active model",
-        "/models <index|key> - switch text model",
-        "/models <text|vision|stt|tts|subagent> - list a specific route",
-        "/models <text|vision|stt|tts|subagent> <index|key> - switch that route",
-        "/skills - list loaded skill names and file paths",
-        "/skills <id> - show details for one loaded skill",
-        "/skills-detail - show full details for all loaded skills",
-        "/compact [instructions] - summarize older context in current conversation",
-        "/login <provider> - start OAuth login and receive the auth URL",
-        "/login <provider> <code-or-redirect-url> - finish OAuth login",
-        "/logout <provider> - remove stored auth from auth.json",
-        "/hosttools - list pending Host Bash approvals",
-        "/hosttools approve <approvalId> - approve and execute a pending Host Bash request",
-        "/hosttools approve-session <approvalId> - approve only for the current session",
-        "/hosttools reject <approvalId> - reject a pending Host Bash request",
-        "/help - show this help"
+        d("Available commands:", "可用命令："),
+        `/models - ${d("list text model options and current active model", "查看文本模型选项和当前模型")}`,
+        `/models <index|key> - ${d("switch text model", "切换文本模型")}`,
+        `/models <text|vision|stt|tts|subagent> - ${d("list a specific route", "查看指定模型路由")}`,
+        `/models <text|vision|stt|tts|subagent> <index|key> - ${d("switch that route", "切换指定模型路由")}`,
+        `/skills - ${d("list loaded skill names and file paths", "查看已加载技能名称和文件路径")}`,
+        `/skills <id> - ${d("show details for one loaded skill", "查看单个技能详情")}`,
+        `/skills-detail - ${d("show full details for all loaded skills", "查看所有技能完整详情")}`,
+        `/compact [instructions] - ${d("summarize older context in current conversation", "压缩当前会话的较早上下文")}`,
+        `/hosttools - ${d("list pending Host Bash approvals", "查看待处理的 Host Bash 审批")}`,
+        `/hosttools approve <approvalId> - ${d("approve and execute a pending Host Bash request", "批准并执行待处理的 Host Bash 请求")}`,
+        `/hosttools approve-session <approvalId> - ${d("approve only for the current session", "仅为当前会话批准")}`,
+        `/hosttools reject <approvalId> - ${d("reject a pending Host Bash request", "拒绝待处理的 Host Bash 请求")}`,
+        `/help - ${d("show this help", "显示此帮助")}`
       ].join("\n")
     };
   }
@@ -409,16 +415,16 @@ async function tryHandleWebCommand(
     if (!result) {
       return {
         ok: true,
-        response: `Invalid model selector: ${selector}\n\n${buildModelsText(profileId, route)}`
+        response: `${webCommandText("Invalid model selector:", "无效的模型选择器：")} ${selector}\n\n${buildModelsText(profileId, route)}`
       };
     }
 
     return {
       ok: true,
       response: [
-        `Switched ${route} model to: ${result.selected.label}`,
-        `Mode: ${result.settings.providerMode}`,
-        `Use /models ${route} to inspect current options.`
+        webCommandText(`Switched ${route} model to: ${result.selected.label}`, `已将 ${route} 模型切换为：${result.selected.label}`),
+        webCommandText(`Mode: ${result.settings.providerMode}`, `模式：${result.settings.providerMode}`),
+        webCommandText(`Use /models ${route} to inspect current options.`, `使用 /models ${route} 查看当前选项。`)
       ].join("\n")
     };
   }
@@ -427,7 +433,7 @@ async function tryHandleWebCommand(
     if (!conversationId || !externalUserId) {
       return {
         ok: true,
-        response: "No active conversation to compact. Start a chat first, then run /compact."
+        response: webCommandText("No active conversation to compact. Start a chat first, then run /compact.", "没有可压缩的当前会话。请先开始聊天，再运行 /compact。")
       };
     }
     const { pool } = getWebRuntimeContext(profileId);
@@ -439,13 +445,13 @@ async function tryHandleWebCommand(
       ok: true,
       response: result.changed
         ? [
-          "Conversation context compacted.",
+          webCommandText("Conversation context compacted.", "会话上下文已压缩。"),
           `before≈${result.beforeTokens} tokens`,
           `after≈${result.afterTokens} tokens`,
           `summarized_messages=${result.summarizedMessages}`,
           `kept_messages=${result.keptMessages}`
         ].join("\n")
-        : "Nothing to compact yet."
+        : webCommandText("Nothing to compact yet.", "当前没有需要压缩的内容。")
     };
   }
 

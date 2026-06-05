@@ -2,7 +2,32 @@
 
 ## Version 1.0
 
+## 2026-06-05
+
+### Concise Approval Confirmation Copy
+- Reduced Host Bash approval prompts to the action, complete command, and three clear decisions: approve, allow for this session, or reject.
+- Removed internal request IDs, classifier details, permission dumps, and implementation explanations from chat approval prompts while retaining them in the approval records.
+- Reused the same concise prompt across interactive approval cards and non-interactive text channels.
+
+### Global Command Response i18n
+- Persisted the Settings language selection as a global runtime locale.
+- Localized shared channel commands and Web Chat command responses for `zh-CN` and `en-US`.
+- Added locale-aware help, status, model, skill, session, queue, runtime-control, sandbox, and display-control responses.
+- Removed OAuth login/logout entries from shared-channel and Web Chat help catalogs without removing the commands.
+
 ## 2026-06-04
+
+### Built-In Image Generation Tool
+- Added native `imageGenerate` tool in `imageGenerateTool.ts` and registered it as a deferred agent tool.
+- Supported multi-engine API integrations: Agnes-Image-2.0-Flash, Google Imagen, Volcengine (Seedream), and ModelScope.
+- Standardized settings configurations mapping `AGNES_API_KEY`, `GOOGLE_API_KEY`, `VOLCENGINE_API_KEY`, and `MODELSCOPE_API_KEY` environment variables.
+- Configured automated download, sandbox path validation, and channel upload integrations, making generated images instantly viewable in chat interfaces.
+- Added `/settings/image` dedicated settings UI and a live test generation panel mapping to `/api/settings/image-generate/test` backend endpoint.
+- Added comprehensive unit tests in `imageGenerateTool.test.ts` covering provider execution, base64 decoding, task polling, and file saving.
+- Fixed legacy settings startup compatibility, honored the configured default image engine, and routed settings-page test outputs to Molibot data storage instead of the project directory.
+- Fixed Agent routing so image generation/editing requests in any language are recognized by intent and load `imageGenerate` through `toolSearch select:imageGenerate` before skill search, bash scripts, or ad-hoc skill creation.
+- Fixed image settings normalization so a configured default image engine with an API key is treated as enabled even when older settings carried `enabled: false`; clarified the per-engine enabled switch in `/settings/image`.
+
 
 ### Host Bash URL and Helper Classification Fix
 - Fixed Host Bash classification so quoted URL query strings such as `agent-browser open "https://example.com/search?q=..."` no longer trigger the glob-expansion one-time approval path.

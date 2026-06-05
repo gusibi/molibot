@@ -236,6 +236,21 @@ export interface WebSearchSettings {
   engines: Record<WebSearchEngineId, WebSearchEngineSettings>;
 }
 
+export type ImageGenerateEngineId = "agnes" | "modelscope" | "google" | "volcengine";
+
+export interface ImageGenerateEngineSettings {
+  enabled: boolean;
+  apiKey: string;
+  baseUrl?: string;
+}
+
+export interface ImageGenerateSettings {
+  enabled: boolean;
+  defaultEngine: ImageGenerateEngineId | "auto";
+  engines: Record<ImageGenerateEngineId, ImageGenerateEngineSettings>;
+}
+
+
 export type ToolSandboxInitFailureMode = "warn-disable" | "block";
 export type ToolSandboxEnvInheritMode = "minimal" | "allowlist" | "full";
 
@@ -338,6 +353,8 @@ export interface RunBudgetLimits {
   maxModelAttempts: number;
 }
 
+export type RuntimeLocale = "zh-CN" | "en-US";
+
 export interface RuntimeSettings {
   providerMode: ProviderMode;
   piModelProvider: KnownProvider;
@@ -349,6 +366,7 @@ export interface RuntimeSettings {
   modelFallback: ModelFallbackSettings;
   compaction: CompactionSettings;
   systemPrompt: string;
+  locale: RuntimeLocale;
   timezone: string;
   agents: AgentSettings[];
   channels: ChannelSettingsMap;
@@ -356,6 +374,7 @@ export interface RuntimeSettings {
   skillSearch: SkillSearchSettings;
   skillDrafts: SkillDraftSettings;
   webSearch: WebSearchSettings;
+  imageGenerate: ImageGenerateSettings;
   toolSandbox: ToolSandboxSettings;
   hostTools: HostToolSettings;
   disabledSkillPaths: string[];

@@ -19,6 +19,7 @@ import { createSwitchModelTool } from "$lib/server/agent/tools/switchModel.js";
 import { createToolSearchTool, type DeferredToolEntry } from "$lib/server/agent/tools/toolSearch.js";
 import { getWriteToolDefinition } from "$lib/server/agent/tools/write.js";
 import { createWebSearchTool } from "$lib/server/agent/search/webSearchTool.js";
+import { createImageGenerateTool } from "$lib/server/agent/imageGenerate/imageGenerateTool.js";
 import { createFeaturePluginTools } from "$lib/server/plugins/feature-registry.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { momLog } from "$lib/server/agent/common/log.js";
@@ -166,6 +167,13 @@ export function createMomTools(options: {
   }));
   const webSearchRuntimeTool = wrapSerializedTool(createWebSearchTool({
     getSettings: options.getSettings
+  }));
+  const imageGenerateRuntimeTool = wrapSerializedTool(createImageGenerateTool({
+    getSettings: options.getSettings,
+    cwd: options.cwd,
+    workspaceDir: options.workspaceDir,
+    artifactDir,
+    uploadFile: options.uploadFile
   }));
 
   const featureTools = createFeaturePluginTools({
@@ -479,6 +487,25 @@ export function createMomTools(options: {
       description: "Search current web information with configured providers, citations, and fallback diagnostics.",
       keywords: ["web", "search", "current", "latest", "news", "docs", "source", "citations", "internet"],
       tool: webSearchRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "imageGenerate",
+      description: "Generate high-quality images based on text descriptions, save locally, and automatically send to chat.",
+      keywords: [
+        "image",
+        "generate",
+        "draw",
+        "picture",
+        "create",
+        "paint",
+        "illustration",
+        "poster",
+        "cover",
+        "logo",
+        "img2img"
+      ],
+      tool: imageGenerateRuntimeTool,
       loadDeferredTools
     })
   ];

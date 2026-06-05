@@ -555,10 +555,48 @@ test("help command renders markdown table on weixin but stays plain text on tele
   assert.match(telegramSent[0] ?? "", /\/skills-detail - show full details for all loaded skills/);
 });
 
+test("shared commands use the configured runtime locale", async () => {
+  const sent: string[] = [];
+  const settings: RuntimeSettings = { ...defaultRuntimeSettings, locale: "zh-CN" };
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => settings,
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/help",
+    target: "target-1"
+  });
+  await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/stop",
+    target: "target-1"
+  });
+
+  assert.match(sent[0] ?? "", /可用命令：/);
+  assert.match(sent[0] ?? "", /\/status - 查看当前机器人、会话和运行时状态/);
+  assert.doesNotMatch(sent[0] ?? "", /\/login|\/logout/);
+  assert.equal(sent[1], "当前没有运行中的任务。");
+});
+
 test("skills commands split summary and detail output", async () => {
   const sent: string[] = [];
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-skills-"));
   const skillDir = join(workspaceDir, "skills", "web-search");
+  const settings: RuntimeSettings = { ...defaultRuntimeSettings, locale: "zh-CN" };
   mkdirSync(skillDir, { recursive: true });
   writeFileSync(join(skillDir, "SKILL.md"), [
     "---",
@@ -578,7 +616,7 @@ test("skills commands split summary and detail output", async () => {
     authScopePrefix: "telegram",
     store: minimalStore() as any,
     runners: {} as any,
-    getSettings: () => defaultRuntimeSettings,
+    getSettings: () => settings,
     isRunning: () => false,
     stopRun: () => ({ aborted: false }),
     sendText: async (_target, text) => {
@@ -608,11 +646,11 @@ test("skills commands split summary and detail output", async () => {
   assert.match(sent[0] ?? "", /当前技能列表（共1个）/);
   assert.match(sent[0] ?? "", /\| 编号 \| 名称 \| 路径 \|/);
   assert.match(sent[0] ?? "", /\| 1 \| web-search \| .*\/skills\/web-search\/SKILL\.md \|/);
-  assert.match(sent[0] ?? "", /Use \/skills <id> for details\./);
+  assert.match(sent[0] ?? "", /使用 \/skills <id> 查看详情。/);
   assert.doesNotMatch(sent[0] ?? "", /description:/);
 
-  assert.match(sent[1] ?? "", /Skill: web-search/);
-  assert.match(sent[1] ?? "", /Description: Search the web for current information\./);
+  assert.match(sent[1] ?? "", /技能：web-search/);
+  assert.match(sent[1] ?? "", /描述：Search the web for current information\./);
   assert.match(sent[1] ?? "", /MCP servers: tavily/);
 
   assert.match(sent[2] ?? "", /1\. web-search/);
@@ -624,6 +662,7 @@ test("models command renders numbered markdown table with provider and model col
   const sent: string[] = [];
   const settings: RuntimeSettings = {
     ...defaultRuntimeSettings,
+    locale: "zh-CN",
     providerMode: "custom" as const,
     defaultCustomProviderId: "grok2api",
     customProviders: [

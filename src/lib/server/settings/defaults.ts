@@ -12,6 +12,8 @@ import {
   type SkillSearchSettings,
   type WebSearchEngineId,
   type WebSearchSettings,
+  type ImageGenerateEngineId,
+  type ImageGenerateSettings,
   type RuntimeSettings,
   type RunBudgetLimits,
   type TelegramBotConfig
@@ -291,6 +293,27 @@ const defaultWebSearchSettings: WebSearchSettings = {
   }
 };
 
+function imageGenerateEngineFromEnv(id: ImageGenerateEngineId, envKey: string, enabledFallback = false): ImageGenerateSettings["engines"][ImageGenerateEngineId] {
+  const apiKey = String(process.env[envKey] ?? "").trim();
+  const enabledRaw = String(process.env[`MOLIBOT_IMAGE_GENERATE_${id.toUpperCase()}_ENABLED`] ?? "").trim().toLowerCase();
+  return {
+    enabled: enabledRaw ? enabledRaw !== "false" : enabledFallback || Boolean(apiKey),
+    apiKey
+  };
+}
+
+const defaultImageGenerateSettings: ImageGenerateSettings = {
+  enabled: String(process.env.MOLIBOT_IMAGE_GENERATE_ENABLED ?? "true").toLowerCase() !== "false",
+  defaultEngine: (process.env.MOLIBOT_IMAGE_GENERATE_DEFAULT_ENGINE ?? "auto") as ImageGenerateEngineId | "auto",
+  engines: {
+    agnes: imageGenerateEngineFromEnv("agnes", "AGNES_API_KEY"),
+    modelscope: imageGenerateEngineFromEnv("modelscope", "MODELSCOPE_API_KEY"),
+    google: imageGenerateEngineFromEnv("google", "GOOGLE_API_KEY"),
+    volcengine: imageGenerateEngineFromEnv("volcengine", "VOLCENGINE_API_KEY")
+  }
+};
+
+
 const defaultCloudflareHtmlPluginSettings: RuntimeSettings["plugins"]["cloudflareHtml"] = {
   enabled: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ENABLED ?? "false").toLowerCase() === "true",
   accessMode: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ACCESS_MODE ?? "worker").trim() === "direct"
@@ -342,6 +365,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   systemPrompt:
     process.env.MOLIBOT_SYSTEM_PROMPT ??
     "You are Molibot, a concise and helpful assistant.",
+  locale: process.env.MOLIBOT_LOCALE === "zh-CN" ? "zh-CN" : "en-US",
   timezone: normalizeTimeZone(
     String(process.env.MOLIBOT_TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone)
   ),
@@ -376,6 +400,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   skillSearch: defaultSkillSearchSettings,
   skillDrafts: defaultSkillDraftSettings,
   webSearch: defaultWebSearchSettings,
+  imageGenerate: defaultImageGenerateSettings,
   toolSandbox: defaultToolSandboxSettings,
   hostTools: defaultHostToolSettings,
   disabledSkillPaths: [],

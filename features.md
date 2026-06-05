@@ -1,6 +1,31 @@
 # Molibot Features
 
+## 2026-06-05
+
+### 精简审批确认文案 (Concise Approval Confirmation Copy)
+- **只展示决策所需信息**: Host Bash 审批提示统一收敛为“需要确认、操作、完整命令、批准/本轮允许/拒绝”结构，不再向聊天用户展示 request ID、Tool ID、分类器、权限明细和内部原因。
+- **完整命令优先**: 审批提示优先展示真正待执行的原始完整命令，避免只显示 executable 后还要用户自行拼接参数。
+- **跨渠道共享**: Telegram / 飞书审批卡片与 QQ / 微信纯文本审批复用同一个共享审批 prompt；纯文本渠道使用简短中文回复指引，审批动作与权限边界保持不变。
+- **回归测试补充**: 新增 `hostBash/approval.test.ts`，固定长期审批、单次审批和非交互文本的最小信息结构。
+
+### 全局命令响应多语言 (Global Command Response i18n)
+- **运行时语言配置**: Settings 语言选择现在会写入全局 `RuntimeSettings.locale`，不再只保存在当前浏览器。
+- **共享命令双语响应**: Telegram、飞书、QQ、微信复用的 Agent 命令层会按全局语言返回 `/help`、`/status`、模型、技能、会话、队列、运行控制、沙盒与显示控制等固定响应。
+- **Web Chat 对齐**: Web Chat 本地命令读取同一运行时语言配置，避免网页命令与其他渠道语言不一致。
+- **Help 命令精简**: `/help` 不再展示 `/login` 与 `/logout` OAuth 管理命令；命令本身继续可用。
+
 ## 2026-06-04
+
+### 内置图片生成工具 (Built-In Image Generation Tool)
+- **原生 Agent 层工具**: 新增内置 `imageGenerate` 工具，图片生成能力从 shell 脚本技能提升为 runtime 原生能力。
+- **多渠道 API 支持**: 支持 Agnes-Image-2.0-Flash、Google Imagen、火山引擎 (Seedream) 和 ModelScope。
+- **沙箱与存储规范**: 工具生成的图片会自动存放到对应会话的 dated 归档目录 (`artifactDir`)，并应用严格的安全沙箱路径校验，禁止向受限目录写入。
+- **直发通道**: 工具会自动将生成的图片通过 active channel 发送回聊天对话，无需 Agent 额外运行 `attach` 工具。
+- **设置管理界面**: 新增 `/settings/image` 专属页面与 `/api/settings/image-generate/test` 接口，支持配置全局开关、默认引擎，按引擎启用状态、API 密钥与自定义基准 URL 存储，并支持在页面直接运行测试 Prompt 生成并渲染。
+- **启动与设置兼容**: 旧版 settings 缺少 `imageGenerate` 字段时会自动回填默认配置；默认引擎会优先参与 auto 路由；设置页测试产物写入 Molibot 数据目录，避免污染项目源码目录。
+- **默认引擎兼容**: 当默认图片引擎已经配置 API key 时，即使旧配置残留该引擎 `enabled: false` 也会自动视为可用；`/settings/image` 页面明确展示每个引擎的启用开关。
+- **语义路由优先级**: Agent 会对任意语言的图片生成/编辑意图做语义判断，并优先通过 `toolSearch select:imageGenerate` 加载内置工具；只有内置工具不可用或失败时才回退到 skill/bash。
+- **回归测试补充**: 新增 `imageGenerateTool.test.ts`，利用 fetch mock 覆盖 Agnes 尺寸与 seed 参数校验、Google base64 解码、火山引擎下载和 ModelScope 异步轮询任务执行。
 
 ### Host Bash 分类器 URL/Helper 修复 (Host Bash URL and Helper Classification Fix)
 - **Quoted URL 不再误判 glob**: Host Bash 分类器现在只把未引用、未转义的 `*` / `?` / `[` 视为 glob 风险，`agent-browser open "https://example.com/search?q=..."` 这类带 query string 的已引用 URL 会正确归约到 `agent-browser` capability。

@@ -21,6 +21,8 @@ import {
   type WebSearchEngineId,
   type WebSearchEngineSelectionStrategy,
   type WebSearchRoute,
+  type ImageGenerateEngineId,
+  type ImageGenerateSettings,
   type ChannelInstanceSettings,
   sanitizeHostToolSettings,
   sanitizeToolSandboxSettings
@@ -44,6 +46,7 @@ const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
 ];
 const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "china", "global", "official_docs", "research"];
 const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[] = ["priority", "random", "round_robin"];
+const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["agnes", "modelscope", "google", "volcengine"];
 const LEGACY_WEB_SEARCH_ROUTE_MAP: Record<string, WebSearchRoute> = {
   domestic_news: "china",
   chinese_general: "china",
@@ -161,6 +164,41 @@ export function sanitizeWebSearchSettings(
     engines
   };
 }
+
+export function sanitizeImageGenerateSettings(
+  input: unknown,
+  fallback: RuntimeSettings["imageGenerate"]
+): RuntimeSettings["imageGenerate"] {
+  const fallbackSettings = fallback ?? defaultRuntimeSettings.imageGenerate;
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const enginesSource = source.engines && typeof source.engines === "object"
+    ? source.engines as Record<string, unknown>
+    : {};
+  const requestedDefaultEngine = String(source.defaultEngine ?? fallbackSettings.defaultEngine).trim() as ImageGenerateEngineId | "auto";
+  const engines = Object.fromEntries(IMAGE_GENERATE_ENGINES.map((engine) => {
+    const fallbackEngine = fallbackSettings.engines[engine];
+    const raw = enginesSource[engine] && typeof enginesSource[engine] === "object"
+      ? enginesSource[engine] as Record<string, unknown>
+      : {};
+    const apiKey = String(raw.apiKey ?? fallbackEngine.apiKey ?? "").trim();
+    const enabled = raw.enabled === undefined
+      ? fallbackEngine.enabled
+      : Boolean(raw.enabled) || (requestedDefaultEngine === engine && Boolean(apiKey));
+    return [engine, {
+      enabled,
+      apiKey,
+      baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined
+    }];
+  })) as RuntimeSettings["imageGenerate"]["engines"];
+  return {
+    enabled: source.enabled === undefined ? fallbackSettings.enabled : Boolean(source.enabled),
+    defaultEngine: requestedDefaultEngine === "auto" || IMAGE_GENERATE_ENGINES.includes(requestedDefaultEngine) ? requestedDefaultEngine : fallbackSettings.defaultEngine,
+    engines
+  };
+}
+
 
 export function sanitizeCloudflareHtmlPluginSettings(
   input: unknown,
@@ -688,6 +726,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   };
 
   next.systemPrompt = String(next.systemPrompt ?? "").trim() || defaultRuntimeSettings.systemPrompt;
+  next.locale = next.locale === "zh-CN" ? "zh-CN" : "en-US";
   next.agents = sanitizeAgents(next.agents ?? current.agents);
   const sanitizedTelegramBots = sanitizeTelegramBots(next.telegramBots);
   const sanitizedFeishuBots = sanitizeFeishuBots(next.feishuBots);
@@ -713,6 +752,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.skillSearch = sanitizeSkillSearchSettings(next.skillSearch ?? current.skillSearch, current.skillSearch);
   next.skillDrafts = sanitizeSkillDraftSettings(next.skillDrafts ?? current.skillDrafts, current.skillDrafts);
   next.webSearch = sanitizeWebSearchSettings(next.webSearch ?? current.webSearch, current.webSearch);
+  next.imageGenerate = sanitizeImageGenerateSettings(next.imageGenerate ?? current.imageGenerate, current.imageGenerate);
   next.toolSandbox = sanitizeToolSandboxSettings(next.toolSandbox ?? current.toolSandbox, current.toolSandbox);
   next.hostTools = sanitizeHostToolSettings(next.hostTools ?? current.hostTools);
   next.disabledSkillPaths = Array.isArray(next.disabledSkillPaths)

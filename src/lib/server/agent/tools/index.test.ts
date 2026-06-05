@@ -103,7 +103,16 @@ test("decideBashToolPolicy requires approval for explicit hostApproval when sand
   assert.equal(decision.type, "approval_required");
 });
 
-test("webSearch stays deferred-only without a top-level stub", () => {
-  assert.match(indexSource, /name: "webSearch"[\s\S]*exposeStub: false/);
+test("deferred entries expose lightweight stubs through the common deferred-entry path", () => {
   assert.match(indexSource, /\.\.\.deferredEntries\.flatMap\(\(item\) => item\.stub \? \[item\.stub\] : \[\]\)/);
+});
+
+test("tools index registers imageGenerate as a deferred tool with concise English discovery keywords", () => {
+  assert.match(indexSource, /createImageGenerateTool/);
+  assert.match(indexSource, /name: "imageGenerate"/);
+  assert.match(indexSource, /tool: imageGenerateRuntimeTool/);
+  assert.match(indexSource, /"image"/);
+  assert.match(indexSource, /"generate"/);
+  assert.match(indexSource, /"poster"/);
+  assert.doesNotMatch(indexSource, /"图像生成"/);
 });

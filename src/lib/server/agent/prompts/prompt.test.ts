@@ -85,8 +85,19 @@ test("prompt source merges behavioral guardrails into one core directives sectio
 test("prompt source prioritizes webSearch for current web information", () => {
   assert.match(promptSource, /"webSearch"/);
   assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"webSearch"[\s\S]*\}/);
+  assert.match(promptSource, /Current web information requests → call `toolSearch` with `select:webSearch`, then call `webSearch`/);
   assert.match(promptSource, /For current web information, prefer `webSearch` over bash curl, browser search, or legacy skill scripts/);
   assert.doesNotMatch(promptSource, /Search web\/current information \| `webSearch` \| bash curl, browser search, or skill scripts/);
   assert.match(promptSource, /`webSearch\(query, maxResults\?, engine\?, route\?, includeDomains\?, excludeDomains\?\)`/);
   assert.match(promptSource, /date-aware guidance, fallback diagnostics, citations, and source metadata/);
+});
+
+test("prompt source prioritizes imageGenerate before skillSearch and bash image scripts", () => {
+  assert.match(promptSource, /"imageGenerate"/);
+  assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"imageGenerate"[\s\S]*\}/);
+  assert.match(promptSource, /Image generation\/editing requests in any language/);
+  assert.match(promptSource, /infer the intent semantically, call `toolSearch` with `select:imageGenerate`, then call `imageGenerate`/);
+  assert.match(promptSource, /Do not search by translated keywords first/);
+  assert.match(promptSource, /Do not use `skillSearch`, bash, Python image scripts, or create a skill unless `imageGenerate` is unavailable or fails/);
+  assert.match(promptSource, /For drawing\/generating images, prefer `imageGenerate` over running python script skills or writing complex code/);
 });

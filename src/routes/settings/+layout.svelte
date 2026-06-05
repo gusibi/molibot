@@ -19,6 +19,7 @@
       modelErrors: "模型报错记录",
       mcpServers: "MCP 服务",
       searchTools: "搜索工具",
+      imageTools: "图片工具",
       channels: "渠道",
       webProfiles: "Web 配置",
       telegramBot: "Telegram 机器人",
@@ -56,6 +57,7 @@
       modelErrors: "Model Error Logs",
       mcpServers: "MCP Servers",
       searchTools: "Search Tools",
+      imageTools: "Image Tools",
       channels: "Channels",
       webProfiles: "Web Profiles",
       telegramBot: "Telegram Bot",
@@ -235,6 +237,7 @@
         { href: "/settings/ai/errors", label: t("modelErrors"), exact: true },
         { href: "/settings/mcp", label: t("mcpServers"), exact: true },
         { href: "/settings/search", label: t("searchTools"), exact: true },
+        { href: "/settings/image", label: t("imageTools"), exact: true },
       ],
     },
     {

@@ -172,17 +172,21 @@ function buildMessageProcessingPipeline(): string {
     "",
     "**[PRE-CHECK: The \"No-Reinvention\" & \"No-Guessing\" Rules]**",
     "- FORBIDDEN to use internal knowledge for real-time requests (e.g., today's prices, news, weather).",
-    "- Prefer installed skills over manual `bash` workarounds when a skill already solves the task.",
-    "- Skills are \"Specialized Experts\". Tools (like bash) are \"Low-level hands\". Prefer the Expert when available.",
+    "- Prefer dedicated runtime tools and installed skills over manual `bash` workarounds when they already solve the task.",
+    "- Runtime tools and skills are specialized capabilities. Bash is a low-level hand. Prefer the specialized capability when available.",
 
-    "Step 0 — Skill Routing (mandatory, always execute first)",
+    "Step 0 — Dedicated Runtime Tool Short-Circuit (mandatory, always check first)",
+    "  a) Image generation/editing requests in any language (for example: generate image) → infer the intent semantically, call `toolSearch` with `select:imageGenerate`, then call `imageGenerate`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python image scripts, or create a skill unless `imageGenerate` is unavailable or fails.",
+    "  b) Current web information requests → call `toolSearch` with `select:webSearch`, then call `webSearch`. Do not use bash curl, browser search, or search skills unless `webSearch` is unavailable or fails.",
+
+    "Step 1 — Skill Routing",
     "  a) Explicit Invocation: (`/skill-name`, `$skill-name`, `skill:skill-name`) → unconditionally execute that skill.",
-    "  b) For any non-trivial action request (tool use, bash, network lookup, media generation, scripting, workflow execution), call `skillSearch` before generic tools.",
+    "  b) For any other non-trivial action request (tool use, bash, scripting, workflow execution), call `skillSearch` before generic tools.",
     "  c) If `skillSearch` returns a matching skill, read that skill's `SKILL.md` and follow it before considering manual alternatives.",
     "  d) If `skillSearch` returns no match, continue to generic tools or a direct answer as appropriate.",
 
-    "Step 1 — Tool Match (Fallback for local workspace tasks)",
-    "Only proceed here if NO SKILL matched. Use the dedicated tool for the job. Bash runs in a runtime-managed sandbox by default and is appropriate for ordinary shell work such as scripting, builds, tests, package installs, file operations, and data processing.",
+    "Step 2 — Tool Match (Fallback for local workspace tasks)",
+    "Only proceed here if no dedicated runtime tool or skill matched. Use the dedicated tool for the job. Bash runs in a runtime-managed sandbox by default and is appropriate for ordinary shell work such as scripting, builds, tests, package installs, file operations, and data processing.",
     "",
     "### Bash Sandbox",
     "- Do not try to bypass sandbox limits with bash workarounds.",
@@ -194,10 +198,10 @@ function buildMessageProcessingPipeline(): string {
     "- If a sandboxed command fails with a permission, IPC, browser, or native-app limitation, request controlled host access instead of continuing to brute-force retries.",
     "",
 
-    "Step 2 — Freshness & Verification",
-    "If you are processing time-sensitive info, and you bypassed Step 0 because you thought you knew the answer, STOP. Go back to Step 0 and run `skillSearch` for a search/real-time skill. Never present stale knowledge as current fact.",
+    "Step 3 — Freshness & Verification",
+    "If you are processing time-sensitive info, and you bypassed Step 0 because you thought you knew the answer, STOP. Go back to Step 0 and load `webSearch` through `toolSearch`. Never present stale knowledge as current fact.",
 
-    "Step 3 — Direct Answer",
+    "Step 4 — Direct Answer",
     "Only if the request is a simple conversational reply, formatting task, or static knowledge query that requires NO external data and NO media generation.",
   ], "message-processing-pipeline");
 }
@@ -298,7 +302,8 @@ function buildAvailableDeferredToolsSection(): string {
     "switchModel",
     "skillManage",
     "profileFiles",
-    "webSearch"
+    "webSearch",
+    "imageGenerate"
   ].join("\n"));
 }
 
@@ -372,6 +377,7 @@ function buildToolsSection(): string {
     "- Prefer dedicated tools over bash equivalents: read/write/edit for files, memory for memory, attach for sending files, skillSearch for skills, and toolSearch for deferred tools.",
     "- Use bash for shell-native work: scripts, builds, tests, package installs, data processing, and commands with no dedicated tool.",
     "- For current web information, prefer `webSearch` over bash curl, browser search, or legacy skill scripts.",
+    "- For drawing/generating images, prefer `imageGenerate` over running python script skills or writing complex code.",
     "- Do not bypass managed tools by manually editing memory files, event JSON files, bot profile files, or deferred-tool state.",
     "- Use subagent for codebase-heavy investigation, implementation, or review that would otherwise consume many parent-run tool calls.",
     "",
@@ -379,6 +385,7 @@ function buildToolsSection(): string {
     "- `memory(operation, key?, value?, query?)` — operations: add, search, list, update, delete, flush, sync",
     "- `skillSearch(intent, maxResults?)` — find matching installed skills before generic tools",
     "- `webSearch(query, maxResults?, engine?, route?, includeDomains?, excludeDomains?)` — search current web information with configured providers, date-aware guidance, fallback diagnostics, citations, and source metadata",
+    "- `imageGenerate(prompt, engine?, model?, size?, seed?, images?, outputName?)` — generate high-quality images based on text descriptions, save locally, and automatically send to chat",
     "- `toolSearch(query, maxResults?)` — find and load deferred tools before calling them",
     "- `subagent(agent?, task?, tasks?, chain?)` — delegate codebase-heavy work to isolated roles: `scout`, `planner`, `worker`, `reviewer`",
     "- `attach(file_path)` — send local file through active channel",

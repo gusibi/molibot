@@ -1,0 +1,218 @@
+import { Type } from "@sinclair/typebox";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
+import { promises as fs } from "node:fs";
+import { dirname, basename } from "node:path";
+import { IMAGE_GENERATE_PROVIDERS } from "./providers.js";
+import type { ImageGenerateEngine, ImageGenerateInput } from "./types.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
+
+const imageGenerateSchema = Type.Object({
+  prompt: Type.String({
+    description: [
+      "Detailed description of the image to generate.",
+      "For best results, include style, composition, lighting, and quality parameters.",
+      "Example: 'A cybernetic cat on a clean white background, studio lighting, sharp details, commercial photography style.'"
+    ].join(" ")
+  }),
+  engine: Type.Optional(Type.Union([
+    Type.Literal("auto"),
+    Type.Literal("agnes"),
+    Type.Literal("modelscope"),
+    Type.Literal("google"),
+    Type.Literal("volcengine")
+  ], {
+    description: "The image generation engine. Defaults to 'auto' (automatically selects an enabled engine)."
+  })),
+  model: Type.Optional(Type.String({
+    description: "Optional model ID override. Use only if a specific model variant is required."
+  })),
+  size: Type.Optional(Type.String({
+    description: "Output image dimensions, e.g. 1024x1024, 1024x768, 768x1024. Defaults to engine-specific defaults."
+  })),
+  seed: Type.Optional(Type.Number({
+    description: "Random seed to guarantee reproducible outputs."
+  })),
+  images: Type.Optional(Type.Array(Type.String(), {
+    description: "Optional URLs of input/reference images for image-to-image or multi-image composition."
+  })),
+  outputName: Type.Optional(Type.String({
+    description: "Suggested filename to save the image under (e.g. cat.png). If not provided, a unique filename is generated."
+  }))
+});
+
+function buildImageGenerateDescription(settings: RuntimeSettings): string {
+  return [
+    "- Generates high-quality images using configured Cloud APIs (Agnes, Google Imagen, Volcengine, ModelScope).",
+    "- Auto-saves the generated image locally to your dated scratch directory or a custom path.",
+    "- Automatically uploads and displays the image to the chat interface so the user sees it immediately. Do not call `attach` manually after using this tool.",
+    "",
+    "Usage guidelines:",
+    "- Use when the user asks to draw a picture, generate an image, create a graphic, or visualize something.",
+    "- For best quality, use descriptive English prompts containing: [Subject] + [Scene/background] + [Style/Art type] + [Lighting] + [Composition] + [Quality details].",
+    "- If you have reference images, pass their URLs in the `images` array."
+  ].join("\n");
+}
+
+function resolveEngine(settings: RuntimeSettings["imageGenerate"], requested?: string): ImageGenerateEngine {
+  if (requested && requested !== "auto") {
+    const engineId = requested as ImageGenerateEngine;
+    const config = settings.engines[engineId];
+    if (config?.enabled && config.apiKey.trim()) {
+      return engineId;
+    }
+    throw new Error(`Requested image generation engine '${engineId}' is not enabled or lacks an API key.`);
+  }
+
+  const defaultEngine = settings.defaultEngine;
+  const priorityList: ImageGenerateEngine[] = defaultEngine && defaultEngine !== "auto"
+    ? [defaultEngine, "agnes", "google", "volcengine", "modelscope"]
+    : ["agnes", "google", "volcengine", "modelscope"];
+  const seen = new Set<ImageGenerateEngine>();
+  for (const engineId of priorityList) {
+    if (seen.has(engineId)) continue;
+    seen.add(engineId);
+    const config = settings.engines[engineId];
+    if (config?.enabled && config.apiKey.trim()) {
+      return engineId;
+    }
+  }
+
+  throw new Error(
+    "No image generation engine is enabled. Please configure at least one API key: " +
+    "AGNES_API_KEY, GOOGLE_API_KEY, VOLCENGINE_API_KEY, or MODELSCOPE_API_KEY."
+  );
+}
+
+function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { requestedPath: string; path: string; routed: boolean } {
+  const requestedPath = inputPath.trim();
+  const normalizedArtifactDir = artifactDir?.trim();
+  if (!normalizedArtifactDir || !requestedPath || /^\/|^[A-Za-z]:/.test(requestedPath)) {
+    return { requestedPath, path: requestedPath, routed: false };
+  }
+
+  const normalizedPath = requestedPath.replaceAll("\\", "/").replace(/^\.\//, "");
+  const isPlainFileName =
+    normalizedPath &&
+    !normalizedPath.includes("/") &&
+    !normalizedPath.startsWith(".") &&
+    normalizedPath !== "..";
+  if (!isPlainFileName) {
+    return { requestedPath, path: requestedPath, routed: false };
+  }
+
+  return {
+    requestedPath,
+    path: `${normalizedArtifactDir}/${normalizedPath}`,
+    routed: true
+  };
+}
+
+export function createImageGenerateTool(options: {
+  getSettings: () => RuntimeSettings;
+  cwd: string;
+  workspaceDir: string;
+  artifactDir?: string;
+  uploadFile?: (filePath: string, title?: string, text?: string) => Promise<void>;
+}): AgentTool<typeof imageGenerateSchema> {
+  const settings = options.getSettings();
+  const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
+
+  return {
+    name: "imageGenerate",
+    label: "imageGenerate",
+    description: buildImageGenerateDescription(settings),
+    parameters: imageGenerateSchema,
+    executionMode: "sequential",
+    execute: async (_toolCallId, params, signal): Promise<any> => {
+      const currentSettings = options.getSettings();
+      if (!currentSettings.imageGenerate.enabled) {
+        throw new Error("Image generation tool is disabled in settings.");
+      }
+
+      const inputPrompt = String(params.prompt || "").trim();
+      if (!inputPrompt) {
+        throw new Error("Prompt is required.");
+      }
+
+      // 1. Resolve engine
+      const engine = resolveEngine(currentSettings.imageGenerate, params.engine);
+
+      // 2. Resolve output path
+      const outName = String(params.outputName || "").trim() || `image_${Date.now()}.png`;
+      const target = routeDefaultArtifactPath(outName, options.artifactDir);
+      const filePath = resolveToolPath(options.cwd, target.path);
+      ensureAllowedPath(filePath);
+
+      // 3. Execute provider
+      const provider = IMAGE_GENERATE_PROVIDERS[engine];
+      if (!provider) {
+        throw new Error(`Provider not implemented for engine '${engine}'`);
+      }
+
+      const providerInput: ImageGenerateInput = {
+        prompt: inputPrompt,
+        engine,
+        model: params.model,
+        size: params.size,
+        seed: params.seed,
+        images: params.images,
+        outputName: outName
+      };
+
+      const providerContext = {
+        settings: currentSettings.imageGenerate,
+        fetch: globalThis.fetch,
+        signal
+      };
+
+      const result = await provider.generate(providerInput, providerContext);
+
+      // 4. Resolve Image Buffer
+      let imageBuffer: Buffer;
+      if (result.imageBuffer) {
+        imageBuffer = result.imageBuffer;
+      } else if (result.imageBase64) {
+        imageBuffer = Buffer.from(result.imageBase64, "base64");
+      } else if (result.imageUrl) {
+        const downloadResponse = await globalThis.fetch(result.imageUrl, { signal });
+        if (!downloadResponse.ok) {
+          throw new Error(`Failed to download generated image from url: ${downloadResponse.statusText}`);
+        }
+        const ab = await downloadResponse.arrayBuffer();
+        imageBuffer = Buffer.from(ab);
+      } else {
+        throw new Error("Provider returned no image source (URL, Base64, or Buffer).");
+      }
+
+      // 5. Write to File
+      const dir = dirname(filePath);
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(filePath, imageBuffer);
+
+      // 6. Automatically upload / attach if capability is available
+      let uploadedMessage = "";
+      if (options.uploadFile) {
+        const title = basename(filePath);
+        const text = `Generated image: ${inputPrompt}`;
+        await options.uploadFile(filePath, title, text);
+        uploadedMessage = " (Automatically uploaded and sent to chat channel)";
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: `Successfully generated image using '${engine}' engine.${uploadedMessage}\nSaved file to: ${target.path}`
+        }],
+        details: {
+          engine,
+          model: providerInput.model || "default",
+          prompt: inputPrompt,
+          path: target.path,
+          filePath,
+          uploaded: !!options.uploadFile
+        }
+      };
+    }
+  };
+}

@@ -17,7 +17,9 @@ import {
   type RuntimeSettings,
   type WebSearchEngineId,
   type WebSearchEngineSelectionStrategy,
-  type WebSearchRoute
+  type WebSearchRoute,
+  type ImageGenerateEngineId,
+  type ImageGenerateSettings
 } from "$lib/server/settings/index.js";
 import { sanitizeHostToolSettings } from "$lib/server/settings/hostTools.js";
 import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
@@ -63,6 +65,7 @@ interface RawSettings {
     defaultContextWindow?: number | string;
   };
   systemPrompt?: string;
+  locale?: string;
   plugins?: {
     memory?: {
       enabled?: boolean | string;
@@ -99,6 +102,7 @@ interface RawSettings {
   skillSearch?: unknown;
   skillDrafts?: unknown;
   webSearch?: unknown;
+  imageGenerate?: unknown;
   toolSandbox?: unknown;
   hostTools?: unknown;
   disabledSkillPaths?: unknown;
@@ -139,6 +143,7 @@ const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
 ];
 const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "china", "global", "official_docs", "research"];
 const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[] = ["priority", "random", "round_robin"];
+const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["agnes", "modelscope", "google", "volcengine"];
 const LEGACY_WEB_SEARCH_ROUTE_MAP: Record<string, WebSearchRoute> = {
   domestic_news: "china",
   chinese_general: "china",
@@ -279,6 +284,37 @@ function sanitizeWebSearchSettings(input: unknown): RuntimeSettings["webSearch"]
     engines
   };
 }
+
+function sanitizeImageGenerateSettings(input: unknown): RuntimeSettings["imageGenerate"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const enginesSource = source.engines && typeof source.engines === "object"
+    ? source.engines as Record<string, unknown>
+    : {};
+  const requestedDefaultEngine = String(source.defaultEngine ?? defaultRuntimeSettings.imageGenerate.defaultEngine).trim() as ImageGenerateEngineId | "auto";
+  const engines = Object.fromEntries(IMAGE_GENERATE_ENGINES.map((engine) => {
+    const fallbackEngine = defaultRuntimeSettings.imageGenerate.engines[engine];
+    const raw = enginesSource[engine] && typeof enginesSource[engine] === "object"
+      ? enginesSource[engine] as Record<string, unknown>
+      : {};
+    const apiKey = String(raw.apiKey ?? fallbackEngine.apiKey ?? "").trim();
+    const enabled = raw.enabled === undefined
+      ? fallbackEngine.enabled
+      : Boolean(raw.enabled) || (requestedDefaultEngine === engine && Boolean(apiKey));
+    return [engine, {
+      enabled,
+      apiKey,
+      baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined
+    }];
+  })) as RuntimeSettings["imageGenerate"]["engines"];
+  return {
+    enabled: source.enabled === undefined ? defaultRuntimeSettings.imageGenerate.enabled : Boolean(source.enabled),
+    defaultEngine: requestedDefaultEngine === "auto" || IMAGE_GENERATE_ENGINES.includes(requestedDefaultEngine) ? requestedDefaultEngine : defaultRuntimeSettings.imageGenerate.defaultEngine,
+    engines
+  };
+}
+
 
 function sanitizeBudgetSettings(input: unknown): RuntimeSettings["budget"] {
   const source = input && typeof input === "object"
@@ -943,6 +979,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const skillSearch = sanitizeSkillSearchSettings(raw.skillSearch ?? defaultRuntimeSettings.skillSearch);
   const skillDrafts = sanitizeSkillDraftSettings(raw.skillDrafts ?? defaultRuntimeSettings.skillDrafts);
   const webSearch = sanitizeWebSearchSettings(raw.webSearch ?? defaultRuntimeSettings.webSearch);
+  const imageGenerate = sanitizeImageGenerateSettings(raw.imageGenerate ?? defaultRuntimeSettings.imageGenerate);
   const toolSandbox = sanitizeToolSandboxSettings(raw.toolSandbox ?? defaultRuntimeSettings.toolSandbox);
   const hostTools = sanitizeHostToolSettings(raw.hostTools ?? defaultRuntimeSettings.hostTools);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
@@ -1014,12 +1051,14 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     systemPrompt:
       String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
       defaultRuntimeSettings.systemPrompt,
+    locale: raw.locale === "en-US" ? "en-US" : "zh-CN",
     agents,
     channels,
     mcpServers,
     skillSearch,
     skillDrafts,
     webSearch,
+    imageGenerate,
     toolSandbox,
     hostTools,
     disabledSkillPaths,
@@ -1444,6 +1483,7 @@ export class SettingsStore {
         defaultContextWindow: settings.compaction.defaultContextWindow
       },
       systemPrompt: settings.systemPrompt,
+      locale: settings.locale,
       plugins: {
         memory: {
           enabled: settings.plugins.memory.enabled,
@@ -1467,6 +1507,7 @@ export class SettingsStore {
       skillSearch: settings.skillSearch,
       skillDrafts: settings.skillDrafts,
       webSearch: settings.webSearch,
+      imageGenerate: settings.imageGenerate,
       toolSandbox: settings.toolSandbox,
       disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,

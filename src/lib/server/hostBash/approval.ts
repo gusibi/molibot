@@ -252,47 +252,22 @@ export function parseHostBashApprovalCommand(input: string): ParsedHostBashAppro
 export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): HostBashApprovalPrompt {
   const isOneTime = request.approvalMode === "ephemeral";
   const isSession = request.approvalMode === "session";
-  const approvalLabel = isOneTime ? "One-time Host Bash approval" : "Host Bash approval";
-  const modeLabel = isSession ? "session" : isOneTime ? "one-time" : "persistent";
-  const classification = request.classification;
-  const capabilitySummary = classification?.kind === "persistent-capability"
-    ? classification.capability.toolId
-    : classification?.kind === "compound-capabilities"
-      ? [...new Set(classification.capabilities.map((item) => item.toolId))].join(", ")
-      : undefined;
-  const safeHelperSummary = classification && classification.kind !== "one-time-script"
-    ? classification.safeHelpers.map((item) => item.originalSegment).join(" | ")
-    : "";
-  const safeGlueSummary = classification && classification.kind !== "one-time-script"
-    ? classification.safeGlue.map((item) => item.token).join(" ")
-    : "";
-  const effectLine = isOneTime
-    ? "Effect: approving will run only this exact command once."
-    : "Effect: approving will allow future commands that classify to the same Host Bash capability.";
+  const command = request.pendingAction?.originalCommand
+    || [request.command, ...(request.pendingAction?.args ?? [])].filter(Boolean).join(" ");
+  const operation = isOneTime
+    ? "执行 Bash（仅此命令一次）"
+    : isSession
+      ? "执行 Bash（仅当前会话允许 Host Bash）"
+      : `执行 Bash（并长期允许 ${request.displayName}）`;
   return {
     type: "host_bash_approval",
     requestId: request.id,
-    title: `${approvalLabel}: ${request.displayName}`,
-    body: [
-      `Mode: ${modeLabel}`,
-      `Tool ID: ${request.toolId}`,
-      capabilitySummary ? `Capability: ${capabilitySummary}` : "",
-      `Command: ${request.command}`,
-      request.pendingAction?.originalCommand && request.pendingAction.originalCommand !== request.command
-        ? `Original command: ${request.pendingAction.originalCommand}`
-        : "",
-      request.pendingAction?.args?.length ? `Args: ${request.pendingAction.args.join(" ")}` : "",
-      safeHelperSummary ? `Ignored safe helpers: ${safeHelperSummary}` : "",
-      safeGlueSummary ? `Ignored safe glue: ${safeGlueSummary}` : "",
-      classification?.kind === "one-time-script" ? `One-time reason: ${classification.reason}` : "",
-      `Reason: ${request.reason}`,
-      `Permissions: filesystem=${request.permissions.filesystem}, network=${request.permissions.network}, env=${request.permissions.envAllowlist.join(", ") || "(none)"}`,
-      effectLine
-    ].filter(Boolean).join("\n"),
+    title: "⚠️ 需要你的确认",
+    body: `【操作】${operation}\n【命令】${command}`,
     options: [
-      { id: "approve", label: "Approve", style: "primary" },
-      { id: "approve_session", label: "Approve This Session", style: "primary" },
-      { id: "reject", label: "Reject", style: "danger" }
+      { id: "approve", label: "批准", style: "primary" },
+      { id: "approve_session", label: "本轮允许", style: "primary" },
+      { id: "reject", label: "拒绝", style: "danger" }
     ],
     request: {
       toolId: request.toolId,
@@ -310,21 +285,19 @@ export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): Ho
 
 export function buildNonInteractiveHostBashApprovalText(prompt: HostBashApprovalPrompt): string {
   const isOneTime = prompt.request.approvalMode === "ephemeral";
+  const approveEffect = isOneTime
+    ? "仅执行这条命令一次"
+    : "执行并长期允许此工具";
   return [
     prompt.title,
+    "我即将执行以下操作：",
+    "",
     prompt.body,
     "",
-    "This channel does not support approval buttons.",
-    isOneTime
-      ? "Approving this request will allow only this exact host command/script to run once."
-      : "Approving this request will register the command as a reusable Host Bash whitelist entry.",
-    "Reply `本session允许` or `approve session` to allow this request and auto-approve sandbox fallback for the current session only.",
-    "Reply `批准`, `安装`, or `approve` to approve when exactly one Host Bash approval is pending in this chat.",
-    "Reply `拒绝` or `reject` to reject when exactly one Host Bash approval is pending in this chat.",
-    "If multiple approvals are pending, use:",
-    `- /hosttools approve ${prompt.requestId}`,
-    `- /hosttools approve-session ${prompt.requestId}`,
-    `- /hosttools reject ${prompt.requestId}`
+    "请回复：",
+    `✅ 回复「批准」${approveEffect}`,
+    "🟡 回复「本轮允许」执行并仅在当前会话允许 Host Bash",
+    "❌ 回复「拒绝」取消执行"
   ].join("\n");
 }
 

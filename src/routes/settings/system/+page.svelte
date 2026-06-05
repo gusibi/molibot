@@ -38,6 +38,7 @@
   }
 
   interface RuntimeSettings {
+    locale: LocaleKey;
     timezone: string;
     budget: RunBudgetLimits;
     browserAutomation: BrowserAutomationSettings;
@@ -264,6 +265,8 @@
         throw new Error(settingsPayload?.error || copy.failedLoad);
       }
       const settings = settingsPayload.settings as RuntimeSettings;
+      selectedLocale = settings.locale || selectedLocale;
+      setLocale(selectedLocale);
       timezone = settings.timezone || timezone;
       timezoneOptions = buildTimeZoneOptions(timezone);
       if (settings.budget) {

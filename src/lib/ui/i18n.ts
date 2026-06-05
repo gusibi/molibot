@@ -29,6 +29,11 @@ export function setLocale(nextLocale: LocaleKey): void {
   if (!browser) return;
   localStorage.setItem(LS_LOCALE, normalized);
   applyDocumentLocale(normalized);
+  void fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ locale: normalized })
+  }).catch(() => {});
 }
 
 const ZH_SETTINGS_TEXT: Record<string, string> = {

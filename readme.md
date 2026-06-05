@@ -55,6 +55,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Sandbox Multi-Level Control & Approval Auto-Resume**: Supports sandbox overrides with a resolution priority order of `Session Override > Bot Instance Override > Agent Override > Global Default`. Direct chat control is enabled via the `/sandbox` command; when the effective sandbox is OFF, `bash` runs as Host Bash with full access and does not require Host Bash approval. Approved bash commands auto-rewrite execution context history and dynamically resume runners in the background; if the previous turn is still releasing its session lock, the shared runtime now retries briefly instead of crashing, then falls back to a visible "session still busy" notice. Common approval replies such as `审批通过` are recognized directly. Built-in tools automatically target isolated venv, GOPATH, and GOCACHE environments in `MOLIBOT_TOOLING_DIR` (defaulting to `~/.molibot/tooling`).
 - **Local LaunchAgent Runtime**: Local macOS runs can be managed by `launchd` using the LaunchAgent plist template in `launchd/`, so Molibot is not tied to a foreground terminal session and can be restarted automatically.
 - **Built-In Web Search**: `webSearch` is now a shared Agent-layer tool with route-based fallback across DuckDuckGo, Brave, Tavily, Exa, Serper, Baidu Qianfan, Baidu Fast, Baidu Web, Ark, Grok, and Bocha. Routing is intent-based (`china`, `global`, `official_docs`, `research`) instead of fragile Chinese/news keyword buckets, and automatic engine selection can use priority, random, or in-process round-robin among configured engines. Search stays date-aware through tool guidance without mechanically prepending full current dates to provider keywords, so live lookups keep concise queries unless a specific date is actually useful. The system prompt prioritizes this dedicated tool for current web lookups instead of bash curl, browser search, or legacy skill scripts. `/settings/search` manages engine credentials, routing, timeouts, max results, live test queries, effective default base URLs, and redacted request diagnostics for each test attempt; the test panel can also force a specific engine and shows the exact `WebSearchResponse` payload returned by the runtime. Search results include source-level citations, citation-linked results, and provider metadata so final answers can cite real URLs consistently.
+- **Built-In Image Generation**: `imageGenerate` is a shared Agent-layer deferred tool supporting Agnes-Image-2.0-Flash, Google Imagen, Volcengine (Seedream), and ModelScope. It standardizes configurations mapping `AGNES_API_KEY`, `GOOGLE_API_KEY`, `VOLCENGINE_API_KEY`, and `MODELSCOPE_API_KEY` env variables. The Agent semantically routes image generation/editing intent in any language through `toolSearch select:imageGenerate` before skill or bash fallbacks. The tool automatically resolves auto engine selection with the configured default engine first, treats a configured default engine with an API key as enabled for older settings compatibility, performs sandbox path guard validation on output files, saves output PNGs to the session's dated scratch directory, and automatically uploads the generated images directly back to the active chat channel. Settings are fully manageable via the `/settings/image` UI page, which supports credentials setup, custom base URL endpoints, per-engine enable switches, default engine selection, and live image generation tests stored under Molibot data storage.
 - **Deferred Tool List Consistency**: Prompt-exposed deferred tools and the runtime `deferredEntries` registry stay aligned; `webSearch` is now registered in both places so `toolSearch` can discover the same deferred names the prompt advertises.
 - **Deferred-Only Web Search Exposure**: `webSearch` is discoverable through the deferred tool registry, but its lightweight stub is intentionally not exposed as a top-level callable tool. `toolSearch` stays the only load path, which avoids duplicate `webSearch` names in provider `tools` requests.
 - **System Prompt Boundary Refactor**: Simplifies and modularizes the static system prompt by removing duplicated event scheduler details, tool schemas, and low-level sandbox OS implementation details (such as `sandbox-exec` and `bubblewrap`). The scattered global guardrails are now merged into one `Core Directives` section, keeping prompt policy boundaries easier to inspect and regress-test while aligning the `bash` tool definition schema.
@@ -84,6 +85,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Chat Host Tool Approval**: host-only external tools are approved from chat through a pending request flow rooted at the `bash` entry; structured approval payloads can render channel-native buttons/cards, approval immediately continues the stored host action through the original shell command so variables and quoting behave like normal bash, and a pending approval now pauses the current turn in an explicit waiting state instead of ending it as if the run were manually stopped
 - **Session-Scoped Sandbox Bypass**: host approval now includes a current-session-only option that approves the blocked request without registering a reusable host tool, then auto-falls back from sandbox denial to plain host bash for the rest of that active session only; `/new` or switching bots clears that temporary bypass automatically
 - **Lower-Noise Host Approval Flow**: approved Host Bash execution inherits the runtime environment so existing API keys keep working, session-only approvals can execute the current pending action from the same scratch working directory without creating a durable whitelist entry, Telegram approval buttons acknowledge clicks before long host execution starts, QQ/Weixin/Web share the approval execution path, and waiting-for-approval details stay out of the model context
+- **Concise Approval Confirmation Copy**: Host Bash approval cards and text fallbacks show only the action, complete command, and clear approve/session/reject choices; internal IDs, classifier details, permissions, and reasons stay in audit records instead of chat prompts
 - **Subagent Approval Pause Semantics**: delegated runs preserve `waiting_for_approval` through chain/parallel summaries, stop chained follow-up tasks when a child is waiting or failed, and keep Web waiting prompts out of normal session history
 - **SQLite-Backed Host Bash Audit Trail**: Host Bash pending approvals, durable whitelist entries, and approval history now live in dedicated SQLite tables instead of `settings.json`, and operators can review/manage them from `/settings/host-bash`
 - **Text Fallback for Non-Interactive Channels**: when a channel such as Weixin or QQ cannot render host-approval buttons, Molibot now sends explicit reply-based approve/reject instructions plus per-request `/hosttools approve|reject <approvalId>` guidance instead of telling operators to click missing UI
@@ -205,7 +207,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Python Sandbox**: Isolated virtualenv for bash tool execution
 - **OS Tool Sandbox**: Optional `@anthropic-ai/sandbox-runtime` boundary for agent shell execution only; Browser, Computer Use, MCP, and channel transports remain explicit host-access surfaces
 - **Theme System**: Solar Dusk palette with light/dark mode
-- **i18n**: zh-CN/en-US language switching
+- **i18n**: Global zh-CN/en-US language switching for the Web UI, Web Chat commands, and shared Telegram/Feishu/QQ/Weixin command responses
 - **TypeScript**: Full type coverage across codebase
 
 ## Product Surfaces
@@ -314,8 +316,8 @@ Open: `http://localhost:3000`
 
 ### Utility
 - `/help` - Show help
-- `/login` - Login to AI provider
-- `/logout` - Logout from AI provider
+- `/login` - Login to AI provider (available by direct invocation; hidden from `/help`)
+- `/logout` - Logout from AI provider (available by direct invocation; hidden from `/help`)
 - `/compact [instructions]` - Manually compact conversation context using the latest persisted session state, forcing an older-context summary even below the automatic keep window
 - `/hosttools` - List pending and approved host tool capabilities
 - `/hosttools approve <approvalId>` - Approve a specific pending host tool request; when exactly one request is pending in the chat, replying `安装`, `批准`, or `approve` also approves it
@@ -538,6 +540,11 @@ docker compose up -d --build
 - `MOLIBOT_WEB_SEARCH_MAX_RESULTS` - Default result count for `webSearch` (default: 5)
 - `BRAVE_API_KEY`, `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`, `BAIDU_SEARCH_API_KEY`, `ARK_API_KEY`, `GROK_API_KEY`, `BOCHA_API_KEY` - Optional engine credentials; DuckDuckGo needs no key
 - `/settings/search` shows the built-in default base URL for each paid/account-backed provider when `Custom base URL` is left blank
+
+### Image Generation
+- `MOLIBOT_IMAGE_GENERATE_ENABLED` - Enable the built-in `imageGenerate` tool (default: true)
+- `AGNES_API_KEY`, `GOOGLE_API_KEY`, `VOLCENGINE_API_KEY`, `MODELSCOPE_API_KEY` - Engine credentials for Agnes, Google Imagen, Volcengine, and ModelScope
+
 
 ### Security & Safety
 - `BASH_TOOL_ENABLED` - Enable bash tool (default: true)
