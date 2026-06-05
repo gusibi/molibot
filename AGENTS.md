@@ -52,6 +52,7 @@ ______
 
 
 ### Rules
+- 如果是写 setting 页等前端页面，需要保证自适应、多语言（中英）、明暗主题适配
 - I don't just want it to work - I want it to be something I'm proud to show people
 - This is real. Not a mockup. Not a prototype. A working product.
 - Keep me in control and in the loop at all times

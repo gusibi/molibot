@@ -32,6 +32,18 @@ test("final attempt keeps a terminal request error when retries are exhausted", 
   });
 });
 
+test("aborted prompt is terminal and never becomes an empty-response retry", () => {
+  const result = resolvePromptAttemptDecision({
+    stopReason: "aborted",
+    errorMessage: "Command aborted",
+    finalText: "",
+    attemptCount: 0,
+    maxEmptyRetries: 2
+  });
+
+  assert.deepEqual(result, { kind: "aborted" });
+});
+
 test("successful final text suppresses stale runner error replacement", () => {
   assert.equal(shouldEmitFinalRunnerError("Chat upstream returned 429", "模型最终回复"), false);
   assert.equal(shouldEmitFinalRunnerError("Chat upstream returned 429", ""), true);

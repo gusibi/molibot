@@ -18,6 +18,7 @@ export function isRetryableModelError(message: string): boolean {
 
 export type PromptAttemptDecision =
   | { kind: "success" }
+  | { kind: "aborted" }
   | { kind: "retryable_error"; message: string }
   | { kind: "terminal_error"; message: string }
   | { kind: "retry_empty" }
@@ -30,6 +31,10 @@ export function resolvePromptAttemptDecision(input: {
   attemptCount: number;
   maxEmptyRetries: number;
 }): PromptAttemptDecision {
+  if (input.stopReason === "aborted") {
+    return { kind: "aborted" };
+  }
+
   if (input.finalText.trim()) {
     return { kind: "success" };
   }

@@ -2,6 +2,32 @@
 
 ## 2026-06-05
 
+### 内置视频生成工具 (Built-In Video Generation Tool)
+- **原生 Agent 层工具**: 新增内置 `videoGenerate` 工具，视频生成能力从 bash/Python 脚本技能提升为 runtime 原生能力。
+- **多渠道 API 支持**: 支持 Agnes-Video-V2.0 和 火山引擎 (Doubao-Seedance-2.0)。
+- **模型自定义支持**: 支持在设置里为每个供应商独立配置特定的模型 ID（如 `agnes-video-v2.0`、`doubao-seedance-2.0`），而不再硬编码，充分保证了模型的灵活选型。
+- **沙箱与存储规范**: 工具生成的视频会自动存放到对应会话的 dated 归档目录 (`artifactDir`)，并应用严格的安全沙箱路径校验，禁止向受限目录写入。
+- **直发通道**: 工具会自动将生成的视频通过 active channel 发送回聊天对话，无需 Agent 额外运行 `attach` 工具。
+- **设置管理界面**: 新增 `/settings/video` 专属页面与 `/api/settings/video-generate/test` 接口，支持配置全局开关、默认引擎，按引擎启用状态、API 密钥、自定义模型 ID 与自定义基准 URL 存储，并支持在页面直接运行测试 Prompt 生成并渲染。
+- **启动与设置兼容**: 旧版 settings 缺少 `videoGenerate` 字段时会自动回填默认配置；默认引擎会优先参与 auto 路由；设置页测试产物写入 Molibot 数据目录，避免污染项目源码目录。
+- **语义路由优先级**: Agent 会对任意语言的视频生成意图做语义判断，并优先通过 `toolSearch select:videoGenerate` 加载内置工具；只有内置工具不可用或失败时才回退到 skill/bash。
+- **回归测试补充**: 新增 `videoGenerateTool.test.ts`，利用 fetch mock 覆盖 Agnes 尺寸与 seed 参数校验、Volcengine 的有声/水印参数和异步轮询任务执行。
+
+### 飞书审批卡片终态稳定 (Feishu Approval Card Terminal State)
+- **原卡片编辑为终态**: 审批完成后原地把带按钮卡片更新成“审批已处理”结果卡片，不再依赖有时间限制的消息撤回；编辑失败时才发送文本结果。
+- **审批动作幂等**: HTTP 与 WebSocket 同时收到同一审批点击、或用户重复点击时，按 `requestId` 只执行一次审批，并复用同一张无按钮终态卡片。
+- **明确终态展示**: 结果卡片标题改为“审批已处理”，并移除全部 action 按钮，不再继续显示“需要你的确认”。
+- **三秒内快速回调**: 点击后立即返回无按钮的“审批处理中”卡片，后台完成审批执行后再原地编辑为“审批已处理”，避免飞书长连接回调超时重推旧卡片。
+- **会话忙时持续恢复**: 共享审批自动恢复最长等待从约 5 秒延长到 1 小时；当前会话仍在运行时继续后台等待，不再很快提示用户发送任意消息继续。
+- **工具结果由 Agent 汇总**: 审批后的 Bash stdout/stderr 只回填到原工具调用上下文，不再直接发送到聊天；“命令执行成功，正在恢复”也不再作为独立消息打扰用户。
+- **回归测试补充**: `runtime.test.ts` 覆盖并发重复回调只执行一次及后续重复动作复用首次结果；`messaging.test.ts` 固定终态卡片标题与无按钮结构。
+
+### Bash Stop 可靠收尾 (Reliable Bash Stop Finalization)
+- **取消即终止本轮**: `/stop` 触发 bash/Agent abort 后，Runner 将 `aborted` 作为不可重试的终止结果，不再误判为空响应并自动重试或切换备用模型。
+- **状态及时释放**: abort 后跳过可能阻塞的 UI 更新队列等待并清除待发送进度，确保 bash 已被 kill 后会话状态能从“运行中”回到空闲。
+- **部分输出保留**: 停止前已经产生的 assistant 文本仍可保留展示，但不会被改写成普通运行错误。
+- **回归测试补充**: `runnerRetryState.test.ts` 固定 aborted 不得进入 empty-response retry 的行为。
+
 ### 精简审批确认文案 (Concise Approval Confirmation Copy)
 - **只展示决策所需信息**: Host Bash 审批提示统一收敛为“需要确认、操作、完整命令、批准/本轮允许/拒绝”结构，不再向聊天用户展示 request ID、Tool ID、分类器、权限明细和内部原因。
 - **完整命令优先**: 审批提示优先展示真正待执行的原始完整命令，避免只显示 executable 后还要用户自行拼接参数。

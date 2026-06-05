@@ -34,7 +34,7 @@ import { sanitizeRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/se
 import type { RunnerUiEvent } from "$lib/server/agent/core/types";
 import type { ConversationAttachment } from "$lib/shared/types/message";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
-import { executeHostBashApproval, hasVisibleHostBashOutput, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec";
+import { executeHostBashApproval, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec";
 import { getHostBashStore } from "$lib/server/hostBash";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n";
 
@@ -258,9 +258,6 @@ async function handleWebHostToolsCommand(
         cwd: store.getScratchDir(scopeId)
       });
       hostBashStore.markExecution(approved.record.id, "executed");
-      if (hasVisibleHostBashOutput(executed.rendered)) {
-        lines.push("", executed.rendered);
-      }
       lines.push("", "Approved and executed immediately.");
 
       try {

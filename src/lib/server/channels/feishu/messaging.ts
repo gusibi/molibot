@@ -295,9 +295,19 @@ export function buildFeishuHostToolApprovalResultCard(
   tone: CardTone = "green"
 ): lark.InteractiveCard {
   return buildFeishuStatusCard({
-    title: prompt.title,
+    title: "审批已处理",
     body: `${prompt.body}\n\n${outcome}`.trim(),
     tone
+  });
+}
+
+export function buildFeishuHostToolApprovalProcessingCard(
+  prompt: HostBashApprovalPrompt
+): lark.InteractiveCard {
+  return buildFeishuStatusCard({
+    title: "审批处理中",
+    body: `${prompt.body}\n\n已收到审批操作，正在执行并等待当前任务结束。`.trim(),
+    tone: "blue"
   });
 }
 

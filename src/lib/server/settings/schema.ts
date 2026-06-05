@@ -250,6 +250,21 @@ export interface ImageGenerateSettings {
   engines: Record<ImageGenerateEngineId, ImageGenerateEngineSettings>;
 }
 
+export type VideoGenerateEngineId = "agnes" | "volcengine";
+
+export interface VideoGenerateEngineSettings {
+  enabled: boolean;
+  apiKey: string;
+  baseUrl?: string;
+  model?: string;
+}
+
+export interface VideoGenerateSettings {
+  enabled: boolean;
+  defaultEngine: VideoGenerateEngineId | "auto";
+  engines: Record<VideoGenerateEngineId, VideoGenerateEngineSettings>;
+}
+
 
 export type ToolSandboxInitFailureMode = "warn-disable" | "block";
 export type ToolSandboxEnvInheritMode = "minimal" | "allowlist" | "full";
@@ -375,6 +390,7 @@ export interface RuntimeSettings {
   skillDrafts: SkillDraftSettings;
   webSearch: WebSearchSettings;
   imageGenerate: ImageGenerateSettings;
+  videoGenerate: VideoGenerateSettings;
   toolSandbox: ToolSandboxSettings;
   hostTools: HostToolSettings;
   disabledSkillPaths: string[];

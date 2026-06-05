@@ -25,6 +25,23 @@ test("retryApprovalAutoResume retries session lock conflicts and then completes"
   assert.deepEqual(warnings, ["approval_auto_resume_retrying:1"]);
 });
 
+test("retryApprovalAutoResume can wait through a long-running active session", async () => {
+  let attempts = 0;
+
+  await retryApprovalAutoResume({
+    maxAttempts: 30,
+    delayMs: 0,
+    run: async () => {
+      attempts += 1;
+      if (attempts < 25) {
+        throw new Error(ACTIVE_TURN_CONFLICT_ERROR_MESSAGE);
+      }
+    }
+  });
+
+  assert.equal(attempts, 25);
+});
+
 test("retryApprovalAutoResume stops retrying on non-lock failures and triggers exhaustion handler", async () => {
   const warnings: string[] = [];
   let exhausted = false;

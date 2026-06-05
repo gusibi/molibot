@@ -101,3 +101,13 @@ test("prompt source prioritizes imageGenerate before skillSearch and bash image 
   assert.match(promptSource, /Do not use `skillSearch`, bash, Python image scripts, or create a skill unless `imageGenerate` is unavailable or fails/);
   assert.match(promptSource, /For drawing\/generating images, prefer `imageGenerate` over running python script skills or writing complex code/);
 });
+
+test("prompt source prioritizes videoGenerate before skillSearch and bash video scripts", () => {
+  assert.match(promptSource, /"videoGenerate"/);
+  assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"videoGenerate"[\s\S]*\}/);
+  assert.match(promptSource, /Video generation requests in any language/);
+  assert.match(promptSource, /infer the intent semantically, call `toolSearch` with `select:videoGenerate`, then call `videoGenerate`/);
+  assert.match(promptSource, /Do not search by translated keywords first/);
+  assert.match(promptSource, /Do not use `skillSearch`, bash, Python video scripts, or create a skill unless `videoGenerate` is unavailable or fails/);
+  assert.match(promptSource, /For generating videos, prefer `videoGenerate` over writing custom code or searching for skills/);
+});

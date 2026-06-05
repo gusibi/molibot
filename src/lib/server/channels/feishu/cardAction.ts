@@ -6,6 +6,44 @@ export interface FeishuWsCardAction {
   event: lark.InteractiveCardActionEvent;
 }
 
+export type FeishuCardActionState<T> =
+  | { status: "in_flight"; promise: Promise<T> }
+  | { status: "completed"; value: T };
+
+export class FeishuCardActionCoordinator<T> {
+  private readonly inFlight = new Map<string, Promise<T>>();
+  private readonly completed = new Map<string, { value: T; expiresAt: number }>();
+
+  constructor(private readonly ttlMs = 10 * 60 * 1000) {}
+
+  start(key: string, action: () => Promise<T>): FeishuCardActionState<T> {
+    const now = Date.now();
+    for (const [completedKey, completed] of this.completed) {
+      if (completed.expiresAt <= now) this.completed.delete(completedKey);
+    }
+
+    const completed = this.completed.get(key);
+    if (completed) return { status: "completed", value: completed.value };
+
+    const inFlight = this.inFlight.get(key);
+    if (inFlight) return { status: "in_flight", promise: inFlight };
+
+    const pending = action().then((value) => {
+      this.completed.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+      return value;
+    }).finally(() => {
+      this.inFlight.delete(key);
+    });
+    this.inFlight.set(key, pending);
+    return { status: "in_flight", promise: pending };
+  }
+
+  run(key: string, action: () => Promise<T>): Promise<T> {
+    const state = this.start(key, action);
+    return state.status === "completed" ? Promise.resolve(state.value) : state.promise;
+  }
+}
+
 function normalizeActionValue(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object") return value as Record<string, unknown>;
   if (typeof value !== "string" || !value.trim()) return {};

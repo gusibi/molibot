@@ -7,7 +7,13 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Solo builders and small teams who want one AI assistant across channels.
 - Users who prefer simple interaction over complex automation.
 
+## 2.5 Scope Clarification (2026-06-05)
+- [Done] 视频生成支持作为内置 Agent 层工具 `videoGenerate` 运行，支持 Agnes-Video 和 火山引擎 (Doubao-Seedance) 双供应商；每个供应商支持在配置中自定义特定的模型 ID；生成的视频支持下载保存至本地会话归档目录，并通过 active channel 直发；设置页提供 `/settings/video` 与 `/api/settings/video-generate/test` 连接测试接口，适配多语言中英切换。
+
 ## 2.1 Scope Clarification (2026-02-27)
+- [Done] 飞书审批按钮点击后必须在三秒回调期限内先显示无按钮的处理中卡片，再原地编辑为无按钮终态卡片，不能依赖有时间限制的消息撤回；编辑失败时降级为文本提示。HTTP/WebSocket 双回调和重复点击必须按审批请求幂等收口，会话忙时共享运行层应持续等待恢复而不是很快要求用户再发消息。
+- [Done] 审批后执行的 Bash 仍属于 Agent 工具调用：stdout/stderr 必须回填工具上下文并由 Agent 最终汇总，不能由共享运行层或 Channel 直接发送；正常恢复进度也不应形成独立聊天消息。
+- [Done] `/stop` 必须把用户主动取消视为终止结果：当前 bash 子进程被 kill 后不得把 `aborted` 当成空响应继续重试、切换备用模型或长期保持会话“运行中”；尚未发送的 UI 进度队列应停止等待并清理。
 - [Done] Settings 语言必须持久化为全局运行时配置，并控制 Web Chat、Telegram、飞书、QQ、微信共享命令的固定响应语言；Channel 层不得各自维护命令翻译。
 - [Done] `/help` 命令目录不展示 `/login` 与 `/logout` OAuth 管理入口，但继续保留命令本身供明确调用。
 - [Done] Telegram 可编辑消息在命中平台 `MESSAGE_TOO_LONG` 限制时，必须由共享 Telegram 文本发送层自动降级为“首条编辑 + 后续分片补发”，不能因为单次 `editMessageText` 失败而中断整轮运行。

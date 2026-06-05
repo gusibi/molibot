@@ -4,6 +4,27 @@
 
 ## 2026-06-05
 
+### Built-In Video Generation Tool
+- Introduced native Agent-layer tool `videoGenerate` supporting Agnes Video and Volcengine (Doubao Seedance) engines.
+- Implemented a dedicated configuration UI at `/settings/video` supporting custom model configurations per provider, enable toggles, API keys, custom base URLs, and en-US/zh-CN localization.
+- Added live testing console to `/settings/video` coupled with the `/api/settings/video-generate/test` backend endpoint to validate credentials and render generated videos in the web interface.
+- Integrated the video settings entry under the "AI Engine" group of the settings workspace layout.
+- Added async polling handlers for task-based video generation with aspect-ratio mappings, duration limits, download automation, sandbox path-guard controls, and automatic channel media upload routing.
+- Added comprehensive unit tests in `videoGenerateTool.test.ts` covering task creation, status polling, file downloads, and parameter verification.
+
+### Feishu Approval Card Terminal State
+- Changed completed Feishu approvals to edit the original button card into a terminal result card, avoiding Feishu withdrawal time limits for approvals handled minutes or hours later; text is sent only when editing fails.
+- Deduplicated concurrent HTTP/WebSocket callbacks and later repeated clicks by request ID so one approval action executes once and all callbacks reuse the same button-free result card.
+- Replaced the pending-confirmation title with a clear processed-approval title on terminal cards.
+- Returned a button-free processing card within Feishu's three-second long-connection callback window, then edited the original card to the final result after background execution.
+- Extended shared approval auto-resume waiting from about five seconds to one hour so approvals wait for an active session to finish instead of immediately asking for another user message.
+- Stopped sending approved Bash stdout/stderr and resume progress as standalone chat messages; command results now return through the Agent tool context and appear only in the Agent's final response.
+
+### Reliable Bash Stop Finalization
+- Fixed `/stop` so an aborted bash/Agent prompt terminates the current run instead of being retried as an empty model response or continued through model fallback.
+- Skipped blocked UI queue flushing after abort and cleared pending progress updates so sessions return to idle after the command process is killed.
+- Preserved partial assistant text produced before cancellation without converting the cancelled run into a generic error.
+
 ### Concise Approval Confirmation Copy
 - Reduced Host Bash approval prompts to the action, complete command, and three clear decisions: approve, allow for this session, or reject.
 - Removed internal request IDs, classifier details, permission dumps, and implementation explanations from chat approval prompts while retaining them in the approval records.

@@ -14,6 +14,8 @@ import {
   type WebSearchSettings,
   type ImageGenerateEngineId,
   type ImageGenerateSettings,
+  type VideoGenerateEngineId,
+  type VideoGenerateSettings,
   type RuntimeSettings,
   type RunBudgetLimits,
   type TelegramBotConfig
@@ -313,6 +315,26 @@ const defaultImageGenerateSettings: ImageGenerateSettings = {
   }
 };
 
+function videoGenerateEngineFromEnv(id: VideoGenerateEngineId, envKey: string, defaultModel: string, enabledFallback = false): VideoGenerateSettings["engines"][VideoGenerateEngineId] {
+  const apiKey = String(process.env[envKey] ?? "").trim();
+  const enabledRaw = String(process.env[`MOLIBOT_VIDEO_GENERATE_${id.toUpperCase()}_ENABLED`] ?? "").trim().toLowerCase();
+  const model = String(process.env[`MOLIBOT_VIDEO_GENERATE_${id.toUpperCase()}_MODEL`] ?? "").trim() || defaultModel;
+  return {
+    enabled: enabledRaw ? enabledRaw !== "false" : enabledFallback || Boolean(apiKey),
+    apiKey,
+    model
+  };
+}
+
+const defaultVideoGenerateSettings: VideoGenerateSettings = {
+  enabled: String(process.env.MOLIBOT_VIDEO_GENERATE_ENABLED ?? "true").toLowerCase() !== "false",
+  defaultEngine: (process.env.MOLIBOT_VIDEO_GENERATE_DEFAULT_ENGINE ?? "auto") as VideoGenerateEngineId | "auto",
+  engines: {
+    agnes: videoGenerateEngineFromEnv("agnes", "AGNES_API_KEY", "agnes-video-v2.0"),
+    volcengine: videoGenerateEngineFromEnv("volcengine", "VOLCENGINE_API_KEY", "doubao-seedance-2.0")
+  }
+};
+
 
 const defaultCloudflareHtmlPluginSettings: RuntimeSettings["plugins"]["cloudflareHtml"] = {
   enabled: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ENABLED ?? "false").toLowerCase() === "true",
@@ -401,6 +423,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   skillDrafts: defaultSkillDraftSettings,
   webSearch: defaultWebSearchSettings,
   imageGenerate: defaultImageGenerateSettings,
+  videoGenerate: defaultVideoGenerateSettings,
   toolSandbox: defaultToolSandboxSettings,
   hostTools: defaultHostToolSettings,
   disabledSkillPaths: [],

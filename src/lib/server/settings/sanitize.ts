@@ -23,6 +23,8 @@ import {
   type WebSearchRoute,
   type ImageGenerateEngineId,
   type ImageGenerateSettings,
+  type VideoGenerateEngineId,
+  type VideoGenerateSettings,
   type ChannelInstanceSettings,
   sanitizeHostToolSettings,
   sanitizeToolSandboxSettings
@@ -47,6 +49,7 @@ const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
 const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "china", "global", "official_docs", "research"];
 const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[] = ["priority", "random", "round_robin"];
 const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["agnes", "modelscope", "google", "volcengine"];
+const VIDEO_GENERATE_ENGINES: VideoGenerateEngineId[] = ["agnes", "volcengine"];
 const LEGACY_WEB_SEARCH_ROUTE_MAP: Record<string, WebSearchRoute> = {
   domestic_news: "china",
   chinese_general: "china",
@@ -195,6 +198,42 @@ export function sanitizeImageGenerateSettings(
   return {
     enabled: source.enabled === undefined ? fallbackSettings.enabled : Boolean(source.enabled),
     defaultEngine: requestedDefaultEngine === "auto" || IMAGE_GENERATE_ENGINES.includes(requestedDefaultEngine) ? requestedDefaultEngine : fallbackSettings.defaultEngine,
+    engines
+  };
+}
+
+export function sanitizeVideoGenerateSettings(
+  input: unknown,
+  fallback: RuntimeSettings["videoGenerate"]
+): RuntimeSettings["videoGenerate"] {
+  const fallbackSettings = fallback ?? defaultRuntimeSettings.videoGenerate;
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const enginesSource = source.engines && typeof source.engines === "object"
+    ? source.engines as Record<string, unknown>
+    : {};
+  const requestedDefaultEngine = String(source.defaultEngine ?? fallbackSettings.defaultEngine).trim() as VideoGenerateEngineId | "auto";
+  const engines = Object.fromEntries(VIDEO_GENERATE_ENGINES.map((engine) => {
+    const fallbackEngine = fallbackSettings.engines[engine];
+    const raw = enginesSource[engine] && typeof enginesSource[engine] === "object"
+      ? enginesSource[engine] as Record<string, unknown>
+      : {};
+    const apiKey = String(raw.apiKey ?? fallbackEngine.apiKey ?? "").trim();
+    const enabled = raw.enabled === undefined
+      ? fallbackEngine.enabled
+      : Boolean(raw.enabled) || (requestedDefaultEngine === engine && Boolean(apiKey));
+    const model = String(raw.model ?? fallbackEngine.model ?? "").trim();
+    return [engine, {
+      enabled,
+      apiKey,
+      model,
+      baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined
+    }];
+  })) as RuntimeSettings["videoGenerate"]["engines"];
+  return {
+    enabled: source.enabled === undefined ? fallbackSettings.enabled : Boolean(source.enabled),
+    defaultEngine: requestedDefaultEngine === "auto" || VIDEO_GENERATE_ENGINES.includes(requestedDefaultEngine) ? requestedDefaultEngine : fallbackSettings.defaultEngine,
     engines
   };
 }
@@ -753,6 +792,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.skillDrafts = sanitizeSkillDraftSettings(next.skillDrafts ?? current.skillDrafts, current.skillDrafts);
   next.webSearch = sanitizeWebSearchSettings(next.webSearch ?? current.webSearch, current.webSearch);
   next.imageGenerate = sanitizeImageGenerateSettings(next.imageGenerate ?? current.imageGenerate, current.imageGenerate);
+  next.videoGenerate = sanitizeVideoGenerateSettings(next.videoGenerate ?? current.videoGenerate, current.videoGenerate);
   next.toolSandbox = sanitizeToolSandboxSettings(next.toolSandbox ?? current.toolSandbox, current.toolSandbox);
   next.hostTools = sanitizeHostToolSettings(next.hostTools ?? current.hostTools);
   next.disabledSkillPaths = Array.isArray(next.disabledSkillPaths)

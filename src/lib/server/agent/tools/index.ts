@@ -20,6 +20,7 @@ import { createToolSearchTool, type DeferredToolEntry } from "$lib/server/agent/
 import { getWriteToolDefinition } from "$lib/server/agent/tools/write.js";
 import { createWebSearchTool } from "$lib/server/agent/search/webSearchTool.js";
 import { createImageGenerateTool } from "$lib/server/agent/imageGenerate/imageGenerateTool.js";
+import { createVideoGenerateTool } from "$lib/server/agent/videoGenerate/videoGenerateTool.js";
 import { createFeaturePluginTools } from "$lib/server/plugins/feature-registry.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { momLog } from "$lib/server/agent/common/log.js";
@@ -169,6 +170,13 @@ export function createMomTools(options: {
     getSettings: options.getSettings
   }));
   const imageGenerateRuntimeTool = wrapSerializedTool(createImageGenerateTool({
+    getSettings: options.getSettings,
+    cwd: options.cwd,
+    workspaceDir: options.workspaceDir,
+    artifactDir,
+    uploadFile: options.uploadFile
+  }));
+  const videoGenerateRuntimeTool = wrapSerializedTool(createVideoGenerateTool({
     getSettings: options.getSettings,
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
@@ -506,6 +514,20 @@ export function createMomTools(options: {
         "img2img"
       ],
       tool: imageGenerateRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "videoGenerate",
+      description: "Generate high-quality videos based on text descriptions and reference images, save locally, and automatically send to chat.",
+      keywords: [
+        "video",
+        "generate",
+        "animate",
+        "render",
+        "keyframes",
+        "ti2vid"
+      ],
+      tool: videoGenerateRuntimeTool,
       loadDeferredTools
     })
   ];

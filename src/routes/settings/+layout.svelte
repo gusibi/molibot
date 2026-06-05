@@ -20,6 +20,7 @@
       mcpServers: "MCP 服务",
       searchTools: "搜索工具",
       imageTools: "图片工具",
+      videoTools: "视频工具",
       channels: "渠道",
       webProfiles: "Web 配置",
       telegramBot: "Telegram 机器人",
@@ -58,6 +59,7 @@
       mcpServers: "MCP Servers",
       searchTools: "Search Tools",
       imageTools: "Image Tools",
+      videoTools: "Video Tools",
       channels: "Channels",
       webProfiles: "Web Profiles",
       telegramBot: "Telegram Bot",
@@ -238,6 +240,7 @@
         { href: "/settings/mcp", label: t("mcpServers"), exact: true },
         { href: "/settings/search", label: t("searchTools"), exact: true },
         { href: "/settings/image", label: t("imageTools"), exact: true },
+        { href: "/settings/video", label: t("videoTools"), exact: true },
       ],
     },
     {

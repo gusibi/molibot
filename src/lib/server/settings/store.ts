@@ -19,7 +19,9 @@ import {
   type WebSearchEngineSelectionStrategy,
   type WebSearchRoute,
   type ImageGenerateEngineId,
-  type ImageGenerateSettings
+  type ImageGenerateSettings,
+  type VideoGenerateEngineId,
+  type VideoGenerateSettings
 } from "$lib/server/settings/index.js";
 import { sanitizeHostToolSettings } from "$lib/server/settings/hostTools.js";
 import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
@@ -103,6 +105,7 @@ interface RawSettings {
   skillDrafts?: unknown;
   webSearch?: unknown;
   imageGenerate?: unknown;
+  videoGenerate?: unknown;
   toolSandbox?: unknown;
   hostTools?: unknown;
   disabledSkillPaths?: unknown;
@@ -144,6 +147,7 @@ const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
 const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "china", "global", "official_docs", "research"];
 const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[] = ["priority", "random", "round_robin"];
 const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["agnes", "modelscope", "google", "volcengine"];
+const VIDEO_GENERATE_ENGINES: VideoGenerateEngineId[] = ["agnes", "volcengine"];
 const LEGACY_WEB_SEARCH_ROUTE_MAP: Record<string, WebSearchRoute> = {
   domestic_news: "china",
   chinese_general: "china",
@@ -311,6 +315,38 @@ function sanitizeImageGenerateSettings(input: unknown): RuntimeSettings["imageGe
   return {
     enabled: source.enabled === undefined ? defaultRuntimeSettings.imageGenerate.enabled : Boolean(source.enabled),
     defaultEngine: requestedDefaultEngine === "auto" || IMAGE_GENERATE_ENGINES.includes(requestedDefaultEngine) ? requestedDefaultEngine : defaultRuntimeSettings.imageGenerate.defaultEngine,
+    engines
+  };
+}
+
+function sanitizeVideoGenerateSettings(input: unknown): RuntimeSettings["videoGenerate"] {
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const enginesSource = source.engines && typeof source.engines === "object"
+    ? source.engines as Record<string, unknown>
+    : {};
+  const requestedDefaultEngine = String(source.defaultEngine ?? defaultRuntimeSettings.videoGenerate.defaultEngine).trim() as VideoGenerateEngineId | "auto";
+  const engines = Object.fromEntries(VIDEO_GENERATE_ENGINES.map((engine) => {
+    const fallbackEngine = defaultRuntimeSettings.videoGenerate.engines[engine];
+    const raw = enginesSource[engine] && typeof enginesSource[engine] === "object"
+      ? enginesSource[engine] as Record<string, unknown>
+      : {};
+    const apiKey = String(raw.apiKey ?? fallbackEngine.apiKey ?? "").trim();
+    const enabled = raw.enabled === undefined
+      ? fallbackEngine.enabled
+      : Boolean(raw.enabled) || (requestedDefaultEngine === engine && Boolean(apiKey));
+    const model = String(raw.model ?? fallbackEngine.model ?? "").trim();
+    return [engine, {
+      enabled,
+      apiKey,
+      model,
+      baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined
+    }];
+  })) as RuntimeSettings["videoGenerate"]["engines"];
+  return {
+    enabled: source.enabled === undefined ? defaultRuntimeSettings.videoGenerate.enabled : Boolean(source.enabled),
+    defaultEngine: requestedDefaultEngine === "auto" || VIDEO_GENERATE_ENGINES.includes(requestedDefaultEngine) ? requestedDefaultEngine : defaultRuntimeSettings.videoGenerate.defaultEngine,
     engines
   };
 }
@@ -980,6 +1016,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const skillDrafts = sanitizeSkillDraftSettings(raw.skillDrafts ?? defaultRuntimeSettings.skillDrafts);
   const webSearch = sanitizeWebSearchSettings(raw.webSearch ?? defaultRuntimeSettings.webSearch);
   const imageGenerate = sanitizeImageGenerateSettings(raw.imageGenerate ?? defaultRuntimeSettings.imageGenerate);
+  const videoGenerate = sanitizeVideoGenerateSettings(raw.videoGenerate ?? defaultRuntimeSettings.videoGenerate);
   const toolSandbox = sanitizeToolSandboxSettings(raw.toolSandbox ?? defaultRuntimeSettings.toolSandbox);
   const hostTools = sanitizeHostToolSettings(raw.hostTools ?? defaultRuntimeSettings.hostTools);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
@@ -1059,6 +1096,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     skillDrafts,
     webSearch,
     imageGenerate,
+    videoGenerate,
     toolSandbox,
     hostTools,
     disabledSkillPaths,
@@ -1508,6 +1546,7 @@ export class SettingsStore {
       skillDrafts: settings.skillDrafts,
       webSearch: settings.webSearch,
       imageGenerate: settings.imageGenerate,
+      videoGenerate: settings.videoGenerate,
       toolSandbox: settings.toolSandbox,
       disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,

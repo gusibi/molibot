@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { config } from "$lib/server/app/env.js";
 import { buildPromptChannelSections } from "$lib/server/agent/prompts/prompt-channel.js";
-import { executeHostBashApproval, hasVisibleHostBashOutput, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec.js";
+import { executeHostBashApproval, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "$lib/server/agent/prompts/prompt.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
@@ -23,8 +23,8 @@ import { ChannelQueue } from "$lib/server/channels/shared/queue.js";
 import type { PromptChannel } from "$lib/server/agent/prompts/prompt-channel.js";
 import type { Channel } from "$lib/shared/types/message.js";
 
-const APPROVAL_AUTO_RESUME_RETRY_DELAY_MS = 250;
-const APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS = 20;
+const APPROVAL_AUTO_RESUME_RETRY_DELAY_MS = 1000;
+const APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS = 60 * 60;
 
 interface BaseChannelRuntimeInit {
   channel: PromptChannel;
@@ -224,6 +224,9 @@ export abstract class BaseChannelRuntime {
       maxAttempts: retry.maxAttempts,
       delayMs: retry.delayMs,
       onWarn: (warningCode, meta) => {
+        if (warningCode === "approval_auto_resume_retrying" && meta.attempt !== 1 && meta.attempt % 60 !== 0) {
+          return;
+        }
         momWarn(this.channelName, warningCode, {
           chatId: scopeId,
           ...meta
@@ -331,9 +334,6 @@ export abstract class BaseChannelRuntime {
           approvedTool: approved,
           cwd: this.store.getScratchDir(input.scopeId)
         });
-        if (hasVisibleHostBashOutput(executed.rendered)) {
-          await options.sendText(input.target, executed.rendered);
-        }
 
         try {
           const sessionId = this.store.getActiveSession(input.scopeId);
@@ -345,13 +345,6 @@ export abstract class BaseChannelRuntime {
             this.runners.reset(input.scopeId, sessionId);
 
             const isEnglishChannel = this.channelName === "telegram" || this.channelName === "feishu";
-            await options.sendText(
-              input.target,
-              isEnglishChannel
-                ? "✅ Command executed successfully. Resuming agent execution to continue the task..."
-                : "✅ 命令执行成功。正在重新拉起智能体会话以继续刚才的任务..."
-            );
-
             const event: ChannelInboundMessage = {
               chatId: input.chatId,
               chatType: "private",

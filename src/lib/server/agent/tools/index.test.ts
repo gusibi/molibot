@@ -116,3 +116,12 @@ test("tools index registers imageGenerate as a deferred tool with concise Englis
   assert.match(indexSource, /"poster"/);
   assert.doesNotMatch(indexSource, /"图像生成"/);
 });
+
+test("tools index registers videoGenerate as a deferred tool with concise English discovery keywords", () => {
+  assert.match(indexSource, /createVideoGenerateTool/);
+  assert.match(indexSource, /name: "videoGenerate"/);
+  assert.match(indexSource, /tool: videoGenerateRuntimeTool/);
+  assert.match(indexSource, /"video"/);
+  assert.match(indexSource, /"generate"/);
+  assert.match(indexSource, /"animate"/);
+});

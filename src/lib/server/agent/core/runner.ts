@@ -97,6 +97,7 @@ const SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS = 12;
 export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
   private running = false;
+  private abortRequested = false;
   private selectedMcpServerIds = new Set<string>();
   private promptRefreshKey = "";
   private systemPromptReady = false;
@@ -258,6 +259,7 @@ export class MomRunner implements RunnerLike {
   }
 
   abort(): void {
+    this.abortRequested = true;
     this.agent.clearAllQueues();
     momLog("runner", "abort_requested", {
       chatId: this.chatId,
@@ -398,6 +400,7 @@ export class MomRunner implements RunnerLike {
     let subagentDelegationNoticeSent = false;
     const botId = basename(this.store.getWorkspaceDir()) || "unknown";
     this.running = true;
+    this.abortRequested = false;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
     this.activePayloadContext = undefined;
     momLog("runner", "run_start", {
@@ -941,6 +944,7 @@ export class MomRunner implements RunnerLike {
       let finalSupplements: string[] = [];
       let finalAttemptCount = 0;
       let successfulCandidateIndex = -1;
+      let runAborted = false;
       const pendingModelErrorEvents: Array<{
         selection: ResolvedModelSelection;
         failure: ModelAttemptFailure;
@@ -1151,6 +1155,9 @@ export class MomRunner implements RunnerLike {
                 ? ctx.message.imageContents
                 : undefined,
             );
+            if (this.abortRequested) {
+              stopReason = "aborted";
+            }
             momLog("runner", "prompt_end", {
               runId,
               chatId: this.chatId,
@@ -1160,8 +1167,11 @@ export class MomRunner implements RunnerLike {
               model: selectedModel.id
             });
 
-            while (queueRunning || queue.length > 0) {
+            while (!this.abortRequested && (queueRunning || queue.length > 0)) {
               await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            if (this.abortRequested) {
+              queue.length = 0;
             }
             momLog("runner", "queue_flushed", {
               runId,
@@ -1196,7 +1206,7 @@ export class MomRunner implements RunnerLike {
               candidateFinalText = lastAssistant ? getMessageText(lastAssistant).trim() : "";
             }
             const lastAssistantContentCount = Array.isArray((lastAssistant as { content?: unknown } | undefined)?.content)
-              ? ((lastAssistant as { content?: unknown[] }).content).length
+              ? ((lastAssistant as { content?: unknown[] }).content?.length ?? 0)
               : 0;
             momLog("runner", "final_text_evaluated", {
               runId,
@@ -1312,6 +1322,11 @@ export class MomRunner implements RunnerLike {
               attemptCount,
               maxEmptyRetries: MAX_EMPTY_RETRIES
             });
+            if (decision.kind === "aborted") {
+              runAborted = true;
+              this.agent.state.messages = beforeAttempt;
+              break;
+            }
             if (decision.kind === "retryable_error" || decision.kind === "terminal_error") {
               candidateHadAttemptError = true;
               const failure = toModelAttemptFailure(selection, decision.message, "request_error");
@@ -1434,6 +1449,9 @@ export class MomRunner implements RunnerLike {
         }
 
         finalAttemptCount = attemptCount;
+        if (runAborted) {
+          break;
+        }
         if (candidateFinalText) {
           finalText = candidateFinalText;
           successfulCandidateIndex = candidateIndex;
@@ -1500,14 +1518,16 @@ export class MomRunner implements RunnerLike {
 
       if (!finalText && streamedAssistantText.trim()) {
         finalText = streamedAssistantText.trim();
-        stopReason = "error";
-        errorMessage = errorMessage ?? budget.getExceededReason();
-        momWarn("runner", "partial_stream_preserved_after_error", {
-          runId,
-          chatId: this.chatId,
-          finalTextLength: finalText.length,
-          errorMessage
-        });
+        if (stopReason !== "aborted") {
+          stopReason = "error";
+          errorMessage = errorMessage ?? budget.getExceededReason();
+          momWarn("runner", "partial_stream_preserved_after_error", {
+            runId,
+            chatId: this.chatId,
+            finalTextLength: finalText.length,
+            errorMessage
+          });
+        }
       }
 
       if (finalText.startsWith("[SILENT]")) {
@@ -1542,6 +1562,8 @@ export class MomRunner implements RunnerLike {
             await sendSupplement(supplement);
           }
         }
+      } else if (stopReason === "aborted") {
+        momLog("runner", "run_aborted", { runId, chatId: this.chatId });
       } else {
         const modelInfo = [
           `provider: ${activeSelection.model.provider}`,
@@ -1747,6 +1769,7 @@ export class MomRunner implements RunnerLike {
       this.activeRunBudget = undefined;
       this.activeRunnerEventSink = undefined;
       this.activePayloadContext = undefined;
+      this.abortRequested = false;
       this.running = false;
     }
   }

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildFeishuHostToolApprovalProcessingCard,
+  buildFeishuHostToolApprovalResultCard,
   buildFeishuPostContent,
   sendFeishuCard,
   sendFeishuText,
@@ -90,4 +92,54 @@ test("sendFeishuCard keeps explicit cards as interactive messages", async () => 
       content: JSON.stringify(card)
     }
   });
+});
+
+test("buildFeishuHostToolApprovalResultCard creates a button-free terminal card", () => {
+  const card = buildFeishuHostToolApprovalResultCard({
+    type: "host_bash_approval",
+    requestId: "hta_1",
+    title: "需要你的确认",
+    body: "【操作】执行 Bash\n【命令】printf ok",
+    options: [
+      { id: "approve", label: "批准", style: "primary" }
+    ],
+    request: {
+      toolId: "printf",
+      displayName: "printf",
+      command: "printf ok",
+      args: [],
+      approvalMode: "persistent",
+      reason: "test",
+      permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
+      requestedAt: "2026-06-05T00:00:00.000Z"
+    }
+  }, "已批准");
+
+  assert.equal(card.header?.title.content, "审批已处理");
+  assert.equal(card.elements?.some((element) => element.tag === "action"), false);
+});
+
+test("buildFeishuHostToolApprovalProcessingCard creates a button-free processing card", () => {
+  const card = buildFeishuHostToolApprovalProcessingCard({
+    type: "host_bash_approval",
+    requestId: "hta_1",
+    title: "需要你的确认",
+    body: "【操作】执行 Bash\n【命令】printf ok",
+    options: [
+      { id: "approve", label: "批准", style: "primary" }
+    ],
+    request: {
+      toolId: "printf",
+      displayName: "printf",
+      command: "printf ok",
+      args: [],
+      approvalMode: "persistent",
+      reason: "test",
+      permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
+      requestedAt: "2026-06-05T00:00:00.000Z"
+    }
+  });
+
+  assert.equal(card.header?.title.content, "审批处理中");
+  assert.equal(card.elements?.some((element) => element.tag === "action"), false);
 });

@@ -15,6 +15,7 @@ import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import {
     buildFeishuHostToolApprovalCard,
+    buildFeishuHostToolApprovalProcessingCard,
     buildFeishuHostToolApprovalResultCard,
     deleteFeishuMessage,
     editFeishuCard,
@@ -26,7 +27,7 @@ import {
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "$lib/server/channels/feishu/message-intake.js";
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
-import { normalizeFeishuWsCardActionEvent } from "$lib/server/channels/feishu/cardAction.js";
+import { FeishuCardActionCoordinator, normalizeFeishuWsCardActionEvent } from "$lib/server/channels/feishu/cardAction.js";
 import { FeishuStreamingSession } from "$lib/server/channels/feishu/streamingSession.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
@@ -50,12 +51,19 @@ interface FeishuApprovalActionResult {
     message: string;
 }
 
+const FEISHU_CARD_ACTION_BACKGROUND_DELAY_MS = 1000;
+
+function waitForFeishuCardCallbackResponse(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, FEISHU_CARD_ACTION_BACKGROUND_DELAY_MS));
+}
+
 // Orchestrates Feishu-specific inbound handling, command flow, and runner lifecycle.
 // Leaf concerns like queueing, message send/edit, and intake parsing live in sibling files.
 export class FeishuManager extends BaseChannelRuntime {
     private readonly commandService: SharedRuntimeCommandService<string>;
     private readonly outbox: SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>;
     private readonly inboundTasks: InboundTaskCoordinator<ChannelInboundMessage, string>;
+    private readonly cardActions = new FeishuCardActionCoordinator<FeishuCardActionOutcome | undefined>();
 
     private client: lark.Client | undefined;
     private wsClient: lark.WSClient | undefined;
@@ -194,7 +202,7 @@ export class FeishuManager extends BaseChannelRuntime {
                 await this.handleIncomingMessage(data.message, data.sender, allowed);
             },
             "card.action.trigger": async (data: any) => {
-                await this.handleWsCardAction(data, allowed);
+                return this.handleWsCardAction(data, allowed);
             }
         });
 
@@ -289,25 +297,20 @@ export class FeishuManager extends BaseChannelRuntime {
         return outcome?.card;
     }
 
-    private async handleWsCardAction(raw: unknown, allowed: Set<string>): Promise<void> {
+    private async handleWsCardAction(raw: unknown, allowed: Set<string>): Promise<lark.InteractiveCard | undefined> {
         momLog("feishu", "card_action_received");
         const normalized = normalizeFeishuWsCardActionEvent(raw);
         if (!normalized) {
             momWarn("feishu", "card_action_ignored_invalid_payload");
-            return;
+            return undefined;
         }
         if (allowed.size > 0 && !allowed.has(normalized.chatId)) {
             momWarn("feishu", "card_action_blocked_chat", { chatId: normalized.chatId, messageId: normalized.messageId });
-            return;
+            return undefined;
         }
 
         const outcome = await this.resolveCardAction(normalized.event);
-        if (!outcome) return;
-
-        const edited = await editFeishuCard(this.client, normalized.messageId, outcome.card);
-        if (!edited) {
-            await this.sendText(outcome.chatId, outcome.message || "Card action processed.");
-        }
+        return outcome?.card;
     }
 
     private resolveGenericApprovalAction(requestId: string, action: string): FeishuApprovalActionResult {
@@ -386,7 +389,7 @@ export class FeishuManager extends BaseChannelRuntime {
             const action = String(value.action ?? "").trim();
             if (!chatId || !requestId || !action) return undefined;
             const input = { chatId, scopeId: chatId, text: "", target: chatId };
-            const request = getHostBashStore().getPendingApproval(chatId, requestId);
+            const request = getHostBashStore().getApprovalRecord(requestId);
             const prompt: HostBashApprovalPrompt = request ? buildHostBashApprovalPrompt(request) : {
                 type: "host_bash_approval" as const,
                 requestId,
@@ -404,24 +407,49 @@ export class FeishuManager extends BaseChannelRuntime {
                     requestedAt: new Date().toISOString()
                 }
             };
-            try {
-                const result = await this.resolveApprovalAction(input, requestId, action);
-                if (action === "reject") {
-                    await this.sendText(chatId, result.message);
+            const state = this.cardActions.start(requestId, async () => {
+                await waitForFeishuCardCallbackResponse();
+                let outcome: FeishuCardActionOutcome;
+                try {
+                    const result = await this.resolveApprovalAction(input, requestId, action);
+                    const card = buildFeishuHostToolApprovalResultCard(prompt, result.message, result.ok ? "green" : "red");
+                    outcome = {
+                        chatId,
+                        message: result.message,
+                        card
+                    };
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    const card = buildFeishuHostToolApprovalResultCard(prompt, message, "red");
+                    outcome = {
+                        chatId,
+                        message,
+                        card
+                    };
                 }
-                return {
+                if (event.open_message_id) {
+                    const edited = await editFeishuCard(this.client, event.open_message_id, outcome.card);
+                    if (edited) {
+                        momLog("feishu", "approval_card_updated", { chatId, messageId: edited, requestId });
+                    } else {
+                        await this.sendText(chatId, outcome.message);
+                    }
+                }
+                return outcome;
+            });
+            if (state.status === "completed") return state.value;
+            void state.promise.catch((error) => {
+                momWarn("feishu", "approval_card_action_failed", {
                     chatId,
-                    message: result.message,
-                    card: buildFeishuHostToolApprovalResultCard(prompt, result.message, result.ok ? "green" : "red")
-                };
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                return {
-                    chatId,
-                    message,
-                    card: buildFeishuHostToolApprovalResultCard(prompt, message, "red")
-                };
-            }
+                    requestId,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            });
+            return {
+                chatId,
+                message: "Approval is being processed.",
+                card: buildFeishuHostToolApprovalProcessingCard(prompt)
+            };
         }
         return undefined;
     }
