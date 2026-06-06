@@ -630,6 +630,7 @@ export class MomRunner implements RunnerLike {
       workspaceId
     });
     const explicitlyInvokedSkills = findExplicitlyInvokedSkills(skills, enrichedText);
+    this.emitSkillSelection(explicitlyInvokedSkills);
     const skillExplicitlyInvoked = explicitlyInvokedSkills.length > 0;
     const mcpExplicitlyInvoked = hasExplicitMcpInvocation(enrichedText);
     const skillRequiresMcp = explicitlyInvokedSkills.some((skill) => skill.mcpServers.length > 0);
@@ -637,6 +638,16 @@ export class MomRunner implements RunnerLike {
       injectExplicitSkillInvocationContext(enrichedText, explicitlyInvokedSkills),
       explicitlyInvokedSkills
     );
+    if (this.activeHookContext) {
+      for (const skill of explicitlyInvokedSkills) {
+        this.hookManager.emit("skill.loaded", this.activeHookContext, {
+          name: skill.name,
+          scope: skill.scope,
+          filePath: skill.filePath,
+          reason: "explicit_invocation"
+        });
+      }
+    }
     const resolveScopedMcpServers = (): RuntimeSettings["mcpServers"] => {
       const settingsNow = this.getSettings();
       const selectedIds = this.selectedMcpServerIds;
@@ -1100,11 +1111,28 @@ export class MomRunner implements RunnerLike {
           break;
         }
         const selection = modelCandidates[candidateIndex];
+        if (this.activeHookContext) {
+          this.hookManager.emit("model.select.before", this.activeHookContext, {
+            candidateIndex,
+            candidateCount: modelCandidates.length,
+            route: modelUseCase
+          });
+        }
         activeSelection = selection;
         stopReason = "stop";
         errorMessage = undefined;
 
         const selectedModel = selection.model;
+        if (this.activeHookContext) {
+          this.hookManager.emit("model.select.after", this.activeHookContext, {
+            candidateIndex,
+            candidateCount: modelCandidates.length,
+            route: modelUseCase,
+            provider: selectedModel.provider,
+            model: selectedModel.id,
+            api: selectedModel.api
+          });
+        }
         const selectedCustom = settings.customProviders.find((p) => p.id === selectedModel.provider);
         const resolvedKey = await resolveApiKeyForModel(selectedModel, settings);
         if (!resolvedKey) {
@@ -1937,5 +1965,21 @@ export class MomRunner implements RunnerLike {
       this.abortRequested = false;
       this.running = false;
     }
+  }
+
+  private emitSkillSelection(skills: Array<{ name: string; scope: string; filePath: string; aliases?: string[] }>): void {
+    if (!this.activeHookContext) return;
+    for (const skill of skills) {
+      this.hookManager.emit("skill.selected", this.activeHookContext, {
+        name: skill.name,
+        scope: skill.scope,
+        filePath: skill.filePath,
+        aliases: skill.aliases ?? []
+      });
+    }
+  }
+
+  emitSkillSelectionForTest(skills: Array<{ name: string; scope: string; filePath: string; aliases?: string[] }>): void {
+    this.emitSkillSelection(skills);
   }
 }

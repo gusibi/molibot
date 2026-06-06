@@ -779,3 +779,47 @@ test("runner hook bridge emits model call pairing fields", async () => {
   assert.equal(before?.payload.modelAttemptId, "run-model-hook:0:0");
   assert.equal(after?.payload.modelCallSeq, 1);
 });
+
+test("runner emits skill.selected without treating workspace scan as skill.loaded", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = {
+    register: () => {},
+    unregister: () => false,
+    list: () => [],
+    registerPlugin: async () => {},
+    unregisterPlugin: async () => false,
+    emit: (stage: string, _context: unknown, payload: any) => {
+      events.push({ stage, payload });
+    },
+    flush: async () => {},
+    transform: async (_stage: unknown, _context: unknown, payload: unknown) => payload,
+    gate: async () => ({ type: "allow" })
+  } as any;
+
+  const runner = new MomRunner(
+    "telegram",
+    "chat-skill-hook",
+    `session-skill-hook-${Date.now()}`,
+    new (await import("$lib/server/agent/session/store.js")).MomRuntimeStore(process.cwd()),
+    createRunnerTestSettings,
+    (patch: Partial<RuntimeSettings>) => ({ ...createRunnerTestSettings(), ...patch }),
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    createRunnerTestMemory() as any,
+    hookManager
+  );
+
+  (runner as any).activeHookContext = {
+    runId: "run-skill-hook",
+    channel: "telegram",
+    chatId: "chat-skill-hook",
+    sessionId: "session-skill-hook"
+  };
+
+  (runner as any).emitSkillSelectionForTest([
+    { name: "example-skill", scope: "bot", filePath: "/tmp/SKILL.md", aliases: [] }
+  ]);
+
+  assert.equal(events.some((event) => event.stage === "skill.selected"), true);
+  assert.equal(events.some((event) => event.stage === "skill.loaded"), false);
+});
