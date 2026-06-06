@@ -19,9 +19,16 @@ export class SqliteTraceStore {
 
   constructor(dbFile = storagePaths.settingsDbFile) {
     this.db = new DatabaseSync(dbFile);
+    // Drop existing table in case it was created without seq in previous runs or tests
+    try {
+      this.db.exec(`ALTER TABLE agent_trace_events ADD COLUMN seq INTEGER;`);
+    } catch {
+      // ignore if already has it or doesn't exist
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS agent_trace_events (
-        id TEXT PRIMARY KEY,
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
         run_id TEXT NOT NULL,
         stage TEXT NOT NULL,
         channel TEXT NOT NULL,
@@ -61,7 +68,7 @@ export class SqliteTraceStore {
       SELECT id, run_id, stage, channel, chat_id, session_id, workspace_id, created_at, payload_json
       FROM agent_trace_events
       WHERE run_id = ?
-      ORDER BY created_at ASC, id ASC
+      ORDER BY seq ASC
     `).all(runId) as Array<{
       id: string;
       run_id: string;
