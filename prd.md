@@ -8,8 +8,22 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Users who prefer simple interaction over complex automation.
 
 ## 2.6 Scope Clarification (2026-06-06)
-- [Done] 修复视频生成工具本地图片路径报错问题：当检测到参考图路径为本地路径（如临时目录 `/tmp/...`）时，工具前置读取图片数据并将其转换为 Base64 Data URL 提交至云端，实现对渠道下载图片的天然兼容。
-- [Done] 拦截不存在的参考图路径：在向远端提交之前，前置检测本地路径是否存在，如果不存在则直接返回错误，避免提交给第三方服务抛出 500。
+- [Done] 修复 Telegram 视频附件标题覆盖扩展名的问题：当 `attach` 发送 `.mp4` 等二进制媒体且 `title` 不含扩展名时，上传文件名必须自动保留源文件扩展名，并通过 `sendVideo` 设置 `supports_streaming`，避免视频生成结果在 Telegram 中被异常展示为非视频消息。
+- [Done] 图像生成记录 SQLite 持久化与历史管理：在 SQLite 中新增 `image_tasks` 表，存储图像生成 Task ID、引擎、会话 ID、状态、提示词、本地保存路径、远程图片 URL、请求参数和错误消息。
+- [Done] 图像生成工具同步入库：`imageGenerate` 执行时先将任务记录创建为 `processing` 状态，并在生成完成后更新为 `completed`（含本地路径和远程 URL）或 `failed`（含错误说明），测试环境支持自定义 taskStore 以隔离测试记录。
+- [Done] 图像生成历史记录展示与详情弹窗：在 `/settings/image` 页面新增“最近生成记录”表格，降序排列生成记录，支持“查看结果”弹窗（渲染生成的图片和元数据并提供下载）、“查看参数”弹窗（拷贝原始 JSON）及删除操作。
+- [Done] 图像设置表单适配固定粘性底栏：重构 `/settings/image` 提交表单以符合 `DESIGN.md` 第 4 条设计原则，将保存按钮和状态消息承载于固定粘性底栏（`.settings-footbar`）中。
+- [Done] 图像 Serving 端点与任务接口：新增 `/api/settings/image-generate/tasks`（获取及删除任务）与 `/api/settings/image-generate/image`（流式渲染本地图片文件或重定向到远程公网图片 URL）接口。
+- [Done] 视频远程 URL 存储与 302 重定向播放：取消后台轮询器与 Agent 工具内自动下载远程二进制 `.mp4` 文件到本地的操作，防止在网络环境不佳时因下载出错导致成功任务状态更新为 `failed`。并在 SQLite `video_tasks` 中引入 `video_url` 存储远程链接，优化流媒体接口 `/api/settings/video-generate/video` 对缺失本地文件但有远程 URL 的请求进行 302 重定向，保证内置播放器与下载按钮免修改完美工作。
+- [Done] 视频状态查询以 SQLite 作为缓存源：当 Agent 通过 `videoGenerate(taskId, engine)` 查询任务时，必须先读取 DB。若任务已完成，直接返回 DB 中的远程 URL；若任务处理中且 `updated_at` 未超过 30 秒，直接返回缓存进度；超过 30 秒才查询一次供应商状态并写回 DB，完成时只保存和返回远程 URL，不主动下载远程 `.mp4` 到本地。
+- [Done] 视频请求参数日志入库与列表/详情展示：在 SQLite `video_tasks` 表中增加 `request_params` 字段。在 Agent 创建任务时，自动捕获并存入提交给云端 API 的所有原始请求参数（如 prompt、model、images 等）。在 `/settings/video` 页面的任务列表操作列中直接提供“查看参数”按钮（即使在任务处理中也能随时点击），并可在详情弹窗中以格式化 JSON 样式及 `select-all` 代码块展示，以便于随时核对和排查生成参数问题。
+- [Done] 图像远程 URL 与绝对路径输出：更新 `imageGenerate` 工具返回的成功文本内容。当供应商返回公网图片 URL 时，必须将 `Remote URL` 返回给 Agent，同时保留本地保存路径和绝对路径，确保“用上一次生成的图片生成视频”时可以优先把公网 URL 传给视频工具。
+- [Done] 图片生成成功与渠道上传失败必须分离：`imageGenerate` 在图片已生成并保存后，即使 Telegram/其他渠道自动上传失败，也必须返回成功工具结果，并携带远程 URL、本地路径和上传错误说明，不能把渠道发送失败误报为图片生成失败。
+
+- [Done] `videoGenerate` 的 `images` 参数容错与标准化：修改 `videoGenerateSchema` 允许 `images` 为数组或单个字符串类型，在执行时自动解析 JSON 字符串化数组（如 `'["/path"]'`) 或普通单路径字符串并标准化为真正的数组，避免 AI 混淆输入格式导致工具逐字符迭代寻找路径（如寻找名为 `[` 的文件）报错的问题。
+- [Done] 视频参考图输入只接受公网 URL：`videoGenerate` 不再把本地图片路径转换为 Base64 Data URL。对于本地路径或 `data:` URL，工具必须在提交供应商前直接拒绝并提示使用 `imageGenerate` 返回的 `Remote URL`，避免 Agnes Video 等接口因图片不可公网访问或 Base64 无效而返回 400。
+- [Done] 修复视频生成工具本地图片路径误提交问题：当检测到参考图路径为本地路径（如临时目录 `/tmp/...`）时，工具前置拒绝并给出明确提示，不再把本地路径或 Base64 Data URL 提交给要求公网 URL 的视频供应商。
+- [Done] 拦截非公网参考图 URL：在向远端提交之前，前置检查参考图必须是 `http://` 或 `https://` URL；本地路径和 `data:` URL 直接返回错误，避免提交给第三方服务抛出 400/500。
 - [Done] 优化后台轮询管理器对接口异常与 500 报错的容错：由于供应商 Agnes AI 错误码为结构化对象，将其规范序列化为字符串存储，避免 SQLite 绑定入库崩溃；并在遭遇 4xx 终端 HTTP 状态或连续失败 3 次时，在 SQLite 数据库中将任务标记为 `failed` 失败终态，防止产生死循环无效轮询。
 - [Done] Telegram 流式答案拆分为多条消息后，后续刷新必须复用并编辑已有分片消息 ID；只能在分片数量增加时补发新消息，内容缩短时需要删除多余分片，不能持续重复创建第二条消息。
 - [Done] `toolProgress = "new"` 的单行工具进度需要去掉重复的 `正在运行:` 前缀，展示压缩为 `⏳ <toolName>...`，优先把有限宽度留给真正的工具名与后续信息。

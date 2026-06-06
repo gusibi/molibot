@@ -134,6 +134,7 @@ export class TelegramManager extends BaseChannelRuntime {
     options?: {
       workspaceDir?: string;
       instanceId?: string;
+      queueDbFile?: string;
       memory: MemoryGateway;
       usageTracker: AiUsageTracker;
       modelErrorTracker: ModelErrorTracker;
@@ -150,6 +151,7 @@ export class TelegramManager extends BaseChannelRuntime {
     this.inboundTasks = new InboundTaskCoordinator<ChannelInboundMessage, TelegramCommandTarget>({
       channel: "telegram",
       instanceId: this.instanceId,
+      dbFile: options?.queueDbFile,
       process: async (payload) => {
         if (!this.bot) {
           throw new Error("Telegram bot is not running.");
@@ -244,7 +246,8 @@ export class TelegramManager extends BaseChannelRuntime {
     text?: string
   ): Promise<void> {
     if (!this.bot) return;
-    await this.bot.api.sendDocument(target.chatId, new InputFile(filePath, title || filePath.split("/").pop() || "runlog.txt"), {
+    const name = this.resolveAttachmentUploadName(filePath, title);
+    await this.bot.api.sendDocument(target.chatId, new InputFile(filePath, name), {
       ...(this.buildTelegramSendOptions(target.messageThreadId) ?? {}),
       caption: text || title || "runlog.txt"
     });
@@ -1710,7 +1713,7 @@ export class TelegramManager extends BaseChannelRuntime {
           }
         }
 
-        const name = isText ? this.normalizeTextAttachmentName(rawName) : rawName;
+        const name = isText ? this.normalizeTextAttachmentName(rawName) : this.resolveAttachmentUploadName(filePath, title);
         const imageMime = this.detectImageMime(name, bytes);
         const videoMime = this.detectVideoMime(name, bytes);
         const audioMime = this.detectAudioMime(name, bytes);
@@ -1748,7 +1751,8 @@ export class TelegramManager extends BaseChannelRuntime {
           try {
             await bot.api.sendVideo(chatId, new InputFile(bytes, name), {
               ...(sendOptions ?? {}),
-              caption: name
+              caption: name,
+              supports_streaming: true
             });
             return;
           } catch (error) {
@@ -2002,6 +2006,16 @@ export class TelegramManager extends BaseChannelRuntime {
 
     const safeBase = basename(name, ext).replace(/[^\w.-]/g, "_") || "attachment";
     return `${safeBase}.txt`;
+  }
+
+  private resolveAttachmentUploadName(filePath: string, title?: string): string {
+    const fallbackName = filePath.split("/").pop() || "file";
+    const sourceExt = extname(fallbackName);
+    const requestedName = title?.trim() || fallbackName;
+    if (extname(requestedName) || !sourceExt) {
+      return requestedName;
+    }
+    return `${requestedName}${sourceExt}`;
   }
 
   private canSendAsTelegramText(text: string): boolean {

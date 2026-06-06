@@ -5,6 +5,7 @@
     import { Label } from "$lib/components/ui/label";
     import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
     import { Textarea } from "$lib/components/ui/textarea";
+  import SettingsSection from "$lib/components/ui/settings/SettingsSection.svelte";
 
     type ProviderMode = "pi" | "custom";
     type CustomProviderProtocol = "openai-compatible" | "anthropic";
@@ -1299,6 +1300,11 @@
     onMount(loadAll);
 </script>
 
+<SettingsSection
+  title="Providers & Models"
+  description="Configure AI inference providers, manage model registries, and set up routing for text, vision, STT, and TTS capabilities."
+  badge="AI Engine"
+>
 <div class="providers-page">
     {#if loading}
         <p class="providers-loading">Loading providers...</p>
@@ -1431,7 +1437,6 @@
                                 {:else}
                                     <label class="providers-detail-form-label md:col-span-2">
                                         <span class="providers-detail-form-label-text">API Key Override (Optional)</span>
-                                        >
                                         <div class="providers-key-row">
                                             <Input
                                                 class="providers-key-input"
@@ -1566,19 +1571,19 @@
                                     </NativeSelect>
                                 </label>
 
-                                <div class="grid gap-3 text-sm md:col-span-2">
+                                <div class="providers-thinking-section">
                                     {#if thinkingNotices(cp).length > 0}
                                         <div
-                                            class={`rounded-xl border px-4 py-3 text-xs leading-5 md:col-span-2 ${
+                                            class={`providers-thinking-notice ${
                                                 cp.thinkingSupportMode === "enabled"
-                                                    ? "border-[color-mix(in_oklab,hsl(38_84%_54%)_28%,var(--border))] bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] text-[color-mix(in_oklab,hsl(38_84%_44%)_72%,var(--foreground))]"
-                                                    : "border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] text-muted-foreground"
+                                                    ? "providers-thinking-notice--enabled"
+                                                    : "providers-thinking-notice--default"
                                             }`}
                                         >
-                                            <div class="font-semibold text-foreground">
+                                            <div class="providers-thinking-notice-title">
                                                 Thinking behavior
                                             </div>
-                                            <ul class="mt-2 space-y-1">
+                                            <ul class="providers-thinking-notice-list">
                                                 {#each thinkingNotices(cp) as notice}
                                                     <li>{notice}</li>
                                                 {/each}
@@ -1587,10 +1592,7 @@
                                     {/if}
 
                                     {#if thinkingFormatUsesEffortMap(cp.thinkingFormat)}
-                                        <div class="grid gap-2">
-                                            <label
-                                                class="grid gap-2 text-sm md:max-w-xs"
-                                            >
+                                        <div class="providers-effort-mapping-label">
                                                 <span class="providers-detail-form-label-text"
                                                     >Reasoning Effort Mapping</span
                                                 >
@@ -1613,8 +1615,7 @@
                                                         Custom override
                                                     </NativeSelectOption>
                                                 </NativeSelect>
-                                            </label>
-                                            <p class="text-xs leading-5 text-muted-foreground">
+                                            <p class="providers-effort-mapping-desc">
                                                 Auto maps low / medium / high for
                                                 {thinkingFormatLabel(
                                                     cp.thinkingFormat,
@@ -1631,13 +1632,13 @@
                                         </div>
 
                                         {#if reasoningEffortMappingMode(cp) === "custom"}
-                                            <div class="grid gap-3 md:grid-cols-3">
+                                            <div class="providers-effort-levels">
                                                 {#each thinkingEffortLevels as level}
                                                     <label
                                                         class="providers-detail-form-label"
                                                     >
                                                         <span
-                                                            class="font-medium capitalize text-muted-foreground"
+                                                            class="providers-effort-level-label"
                                                             >{level}</span
                                                         >
                                                         <NativeSelect
@@ -1672,7 +1673,7 @@
                                             </div>
                                         {/if}
                                     {:else}
-                                        <div class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-3 text-xs leading-5 text-muted-foreground">
+                                        <div class="providers-thinking-notice providers-thinking-notice--default">
                                             {thinkingFormatLabel(cp.thinkingFormat)}
                                             only toggles thinking on/off, so low
                                             / medium / high mapping is not sent
@@ -1680,25 +1681,11 @@
                                         </div>
                                     {/if}
                                 </div>
-
-                                <label class="providers-detail-form-label md:col-span-2">
-                                    <span class="providers-detail-form-label-text"
-                                        >API Signature / Key</span
-                                    >
-                                    <Input
-                                        class="providers-key-input"
-                                        bind:value={cp.apiKey}
-                                        type="password"
-                                        placeholder="sk-..."
-                                    />
-                                </label>
                             {/if}
                         </div>
 
                         <!-- Models Header -->
-                        <div
-                            class="mt-8 flex flex-col justify-between gap-3 border-b border-border pb-3 sm:flex-row sm:items-center"
-                        >
+                        <div class="providers-models-header">
                             <h3 class="providers-section-title">
                                 Model Registry
                             </h3>
@@ -1797,7 +1784,7 @@
                         {/if}
 
                         {#if isBuiltinProvider(cp) && cp.models.length > collapsedBuiltinModelLimit}
-                            <div class="mt-3 flex justify-center">
+                            <div class="providers-models-expand">
                                 <button
                                     type="button"
                                     class="providers-btn-outline"
@@ -1914,6 +1901,7 @@
         </div>
     {/if}
 </div>
+</SettingsSection>
 
 <style>
   /* ── Page Shell ── */
@@ -2123,6 +2111,33 @@
   input:checked + .slider { background-color: var(--primary); }
   input:checked + .slider:before { transform: translateX(16px); }
 
+  /* ── Thinking Section ── */
+  .providers-thinking-section { display: grid; gap: 0.75rem; font-size: 0.875rem; }
+  .providers-thinking-notice {
+    border-radius: 0.75rem; border: 1px solid; padding: 0.75rem 1rem;
+    font-size: 0.75rem; line-height: 1.25;
+  }
+  .providers-thinking-notice--enabled {
+    border-color: color-mix(in oklab, hsl(38 84% 54%) 28%, var(--border));
+    background: color-mix(in oklab, hsl(38 84% 54%) 10%, var(--card));
+    color: color-mix(in oklab, hsl(38 84% 44%) 72%, var(--foreground));
+  }
+  .providers-thinking-notice--default {
+    border-color: color-mix(in oklab, var(--border) 78%, transparent);
+    background: color-mix(in oklab, var(--muted) 42%, var(--card));
+    color: var(--muted-foreground);
+  }
+  .providers-thinking-notice-title { font-weight: 600; color: var(--foreground); }
+  .providers-thinking-notice-list { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; }
+  .providers-effort-mapping-label { display: grid; gap: 0.5rem; font-size: 0.875rem; }
+  .providers-effort-mapping-desc { font-size: 0.75rem; line-height: 1.25; color: var(--muted-foreground); }
+  .providers-effort-levels { display: grid; gap: 0.75rem; }
+  .providers-effort-level-label { font-weight: 500; text-transform: capitalize; color: var(--muted-foreground); }
+
+  /* ── Model Registry Header ── */
+  .providers-models-header { display: flex; flex-direction: column; justify-content: space-between; gap: 0.75rem; margin-top: 2rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+  .providers-models-expand { display: flex; justify-content: center; margin-top: 0.75rem; }
+
   /* ── Utility ── */
   .text-center { text-align: center; }
   .text-right { text-align: right; }
@@ -2131,5 +2146,11 @@
   @media (max-width: 767px) {
     .providers-detail-form-grid { grid-template-columns: 1fr; }
     .providers-form-grid { grid-template-columns: 1fr; }
+  }
+  @media (min-width: 768px) {
+    .providers-thinking-section { grid-column: span 2; }
+    .providers-effort-mapping-label { max-width: 20rem; }
+    .providers-effort-levels { grid-template-columns: repeat(3, 1fr); }
+    .providers-models-header { flex-direction: row; align-items: center; }
   }
 </style>

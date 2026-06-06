@@ -107,7 +107,10 @@ test("prompt source prioritizes videoGenerate before skillSearch and bash video 
   assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"videoGenerate"[\s\S]*\}/);
   assert.match(promptSource, /Video generation requests in any language/);
   assert.match(promptSource, /infer the intent semantically, call `toolSearch` with `select:videoGenerate`, then call `videoGenerate`/);
+  assert.match(promptSource, /images` must contain only public HTTP\(S\) Remote URL values/);
+  assert.match(promptSource, /never pass Base64, data URLs, local file paths, or `Absolute path` values/);
   assert.match(promptSource, /Do not search by translated keywords first/);
   assert.match(promptSource, /Do not use `skillSearch`, bash, Python video scripts, or create a skill unless `videoGenerate` is unavailable or fails/);
   assert.match(promptSource, /For generating videos, prefer `videoGenerate` over writing custom code or searching for skills/);
+  assert.match(promptSource, /images` must be public HTTP\(S\) Remote URLs only/);
 });

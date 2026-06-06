@@ -7,6 +7,7 @@
   import { Checkbox } from "$lib/components/ui/checkbox";
   import { Label } from "$lib/components/ui/label";
   import { Textarea } from "$lib/components/ui/textarea";
+  import SettingsSection from "$lib/components/ui/settings/SettingsSection.svelte";
 
   type McpServerDraft = {
     id: string;
@@ -164,69 +165,103 @@
   onMount(loadSettings);
 </script>
 
-<div class="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-  <header class="flex flex-col gap-3">
-    <Badge variant="secondary" class="w-fit">Tooling Surface</Badge>
-    <div class="flex max-w-3xl flex-col gap-2">
-      <h1 class="text-3xl font-semibold tracking-tight text-foreground">MCP Servers</h1>
-      <p class="text-sm leading-6 text-muted-foreground">
-        Paste one JSON block. Supports <code class="font-mono text-xs">{`{ "mcpServers": { ... } }`}</code> or direct object map.
-      </p>
-    </div>
-    <div class="flex items-center gap-2">
-      <Button variant="outline" onclick={loadSettings} disabled={loading || saving}>Refresh</Button>
-      <Button variant="outline" onclick={parseRawJson} disabled={loading || saving}>Parse</Button>
-      <Button variant="default" onclick={save} disabled={loading || saving}>
-        {saving ? "Saving..." : "Save"}
-      </Button>
-    </div>
-  </header>
-
-  {#if message}
-    <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
-  {/if}
-  {#if error}
-    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
-  {/if}
-
-  <div class="grid gap-1.5">
-    <Label for="mcp-json" class="text-sm font-medium">MCP JSON</Label>
-    <Textarea
-      id="mcp-json"
-      class="min-h-[280px] font-mono text-xs"
-      bind:value={rawJson}
-      placeholder={placeholderJson}
-    />
+<div class="wb-page">
+  <SettingsSection
+    title="MCP Servers"
+    description="Paste one JSON block. Supports {`{ \"mcpServers\": { ... } }`} or direct object map."
+    badge="Tooling Surface"
+  >
+  <div class="flex gap-2">
+    <Button variant="outline" onclick={loadSettings} disabled={loading || saving} class="h-10 px-6 font-bold">Refresh</Button>
+    <Button variant="outline" onclick={parseRawJson} disabled={loading || saving} class="h-10 px-6 font-bold">Parse</Button>
   </div>
 
-  <section class="space-y-3">
-    <h2 class="text-sm font-semibold text-foreground">Parsed Servers</h2>
+  {#if message}
+    <div class="wb-status-line rounded-lg" data-tone="success">
+      <span class="flex items-center gap-2 text-sm font-medium">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        {message}
+      </span>
+    </div>
+  {/if}
+  {#if error}
+    <div class="wb-panel-danger">
+      <span class="text-sm font-medium">{error}</span>
+    </div>
+  {/if}
+
+  <div class="wb-panel">
+    <div class="wb-field">
+      <span class="font-serif text-lg">MCP JSON</span>
+      <Textarea
+        id="mcp-json"
+        class="min-h-[320px] wb-mono text-[13px] leading-relaxed"
+        bind:value={rawJson}
+        placeholder={placeholderJson}
+      />
+    </div>
+  </div>
+
+  <section class="space-y-4">
+    <h2 class="font-serif text-lg px-2">Parsed Servers <span class="wb-muted font-normal text-sm tabular-nums">({servers.length})</span></h2>
     {#if servers.length === 0}
-      <div class="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">No parsed MCP servers.</div>
+      <div class="wb-empty-state">No parsed MCP servers.</div>
     {:else}
-      {#each servers as item}
-        <Card>
-          <CardContent class="flex items-center justify-between p-4">
-            <div class="min-w-0">
-              <p class="truncate font-semibold text-foreground">{item.id}</p>
-              <p class="truncate text-xs text-muted-foreground">
-                {item.type === "http" ? `http: ${item.url || "(missing url)"}` : `stdio: ${item.command || "(missing command)"}`}
-              </p>
+      <div class="wb-grid-2">
+        {#each servers as item}
+          <div class="wb-panel flex items-center justify-between gap-4">
+            <div class="min-w-0 flex-1">
+              <p class="truncate font-bold text-foreground">{item.id}</p>
+              <div class="mt-1 flex items-center gap-2">
+                <span class="wb-pill" data-tone="default">{item.type}</span>
+                <p class="truncate wb-muted text-xs tabular-nums">
+                  {item.type === "http" ? (item.url || "(missing url)") : (item.command || "(missing command)")}
+                </p>
+              </div>
             </div>
-            <label class="inline-flex items-center gap-2 text-xs">
-              <Checkbox
-                checked={item.enabled}
-                onchange={(e) => {
-                  item.enabled = (e.currentTarget as HTMLInputElement).checked;
+            <label class="flex items-center gap-3 cursor-pointer select-none">
+              <span class="settings-item-label uppercase tracking-wider" data-tone={item.enabled ? 'success' : 'default'}>
+                {item.enabled ? "Enabled" : "Disabled"}
+              </span>
+              <div class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background {item.enabled ? 'bg-primary' : 'bg-input'}"
+                onclick={(e) => {
+                  e.preventDefault();
+                  item.enabled = !item.enabled;
                   servers = [...servers];
                   syncToggleToRawJson();
-                }}
-              />
-              <span class="text-foreground">{item.enabled ? "Enabled" : "Disabled"}</span>
+                }}>
+                <span class="pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform {item.enabled ? 'translate-x-4' : 'translate-x-1'}"></span>
+              </div>
             </label>
-          </CardContent>
-        </Card>
-      {/each}
+          </div>
+        {/each}
+      </div>
     {/if}
   </section>
+  </SettingsSection>
 </div>
+
+<footer class="settings-footbar">
+  <div class="settings-footbar-status">
+    {#if saving}
+      <span class="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <span class="h-2 w-2 animate-pulse rounded-full bg-[#A36A5E]"></span>
+        Saving changes...
+      </span>
+    {:else if message}
+      <span class="flex items-center gap-2 text-xs font-medium text-primary">
+        <span class="h-2 w-2 rounded-full bg-primary"></span>
+        Settings saved
+      </span>
+    {/if}
+  </div>
+  <div class="flex items-center gap-3">
+    <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving} class="h-9 px-4 text-xs font-bold">
+      Reset
+    </Button>
+    <Button variant="default" size="sm" onclick={save} disabled={loading || saving} class="h-9 px-6 text-xs font-bold">
+      {saving ? "Saving..." : "Save MCP Settings"}
+    </Button>
+  </div>
+</footer>
+

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { TELEGRAM_SHARED_COMMANDS } from "$lib/server/channels/telegram/commands.js";
 import { TelegramManager } from "$lib/server/channels/telegram/runtime.js";
 
@@ -7,23 +10,30 @@ import { TelegramManager } from "$lib/server/channels/telegram/runtime.js";
 const mockGetSettings = () => ({}) as any;
 const mockUpdateSettings = (patch: any) => ({}) as any;
 const mockSessions = {} as any;
-const mockDeps = {
-  instanceId: "test-bot",
-  workspaceDir: "/tmp/test-bot",
-  memory: {} as any,
-  usageTracker: {} as any,
-  modelErrorTracker: {} as any
-};
+function createMockDeps() {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-telegram-runtime-test-"));
+  return {
+    instanceId: "test-bot",
+    workspaceDir,
+    queueDbFile: join(workspaceDir, "inbound-queue.sqlite"),
+    memory: {} as any,
+    usageTracker: {} as any,
+    modelErrorTracker: {} as any
+  };
+}
 
 class TestTelegramManager extends TelegramManager {
   constructor() {
-    super(mockGetSettings, mockUpdateSettings, mockSessions, mockDeps);
+    super(mockGetSettings, mockUpdateSettings, mockSessions, createMockDeps());
   }
   public testDetectAudioMime(filename: string, data: Buffer) {
     return (this as any).detectAudioMime(filename, data);
   }
   public testDetectVideoMime(filename: string, data: Buffer) {
     return (this as any).detectVideoMime(filename, data);
+  }
+  public testResolveAttachmentUploadName(filePath: string, title?: string) {
+    return (this as any).resolveAttachmentUploadName(filePath, title);
   }
 }
 
@@ -64,3 +74,15 @@ test("telegram MIME detection for audio and video files", () => {
   assert.equal(manager.testDetectVideoMime("voice.ogg", oggHeader), undefined);
 });
 
+test("telegram media upload name preserves source extension when title omits it", () => {
+  const manager = new TestTelegramManager();
+
+  assert.equal(
+    manager.testResolveAttachmentUploadName("/workspace/scratch/2026/06/06/aerobics_practice.mp4", "女健美操运动员练习视频"),
+    "女健美操运动员练习视频.mp4"
+  );
+  assert.equal(
+    manager.testResolveAttachmentUploadName("/workspace/scratch/2026/06/06/aerobics_practice.mp4", "custom-name.mp4"),
+    "custom-name.mp4"
+  );
+});

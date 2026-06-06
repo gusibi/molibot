@@ -72,28 +72,11 @@ export const GET: RequestHandler = async () => {
           console.log(`[Video Task Poller] Unified status result for ${task.id}:`, res);
 
           if (res.status === "completed" && res.videoUrl) {
-            console.log(`[Video Task Poller] Task ${task.id} completed. Downloading video...`);
-            const downloadResponse = await globalThis.fetch(res.videoUrl);
-            if (!downloadResponse.ok) {
-              throw new Error(`Failed to download completed video: ${downloadResponse.statusText}`);
-            }
-            const ab = await downloadResponse.arrayBuffer();
-            const videoBuffer = Buffer.from(ab);
-
-            const outName = task.pollParams?.outputName || task.prompt.slice(0, 15).replace(/[^a-zA-Z0-9]/g, "_") + `_${Date.now()}.mp4`;
-            const target = routeDefaultArtifactPath(outName, artifactDir);
-            const filePath = resolveToolPath(cwd, target.path);
-            ensureAllowedPath(filePath);
-
-            const dir = dirname(filePath);
-            await fs.mkdir(dir, { recursive: true });
-            await fs.writeFile(filePath, videoBuffer);
-            console.log(`[Video Task Poller] Video downloaded and saved to: ${filePath}`);
-
-            taskStore.updateTaskProgress(task.id, "completed", 100, filePath);
+            console.log(`[Video Task Poller] Task ${task.id} completed. Storing remote URL: ${res.videoUrl}`);
+            taskStore.updateTaskProgress(task.id, "completed", 100, undefined, undefined, res.videoUrl);
             task.status = "completed";
             task.progress = 100;
-            task.videoPath = filePath;
+            task.videoUrl = res.videoUrl;
             taskFailures.delete(task.id);
           } else if (res.status === "failed") {
             const err = res.error || "Unknown provider generation failure";

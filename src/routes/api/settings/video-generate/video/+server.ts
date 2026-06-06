@@ -17,11 +17,20 @@ export const GET: RequestHandler = async ({ url }) => {
       return json({ ok: false, error: "Task not found" }, { status: 404 });
     }
 
-    if (task.status !== "completed" || !task.videoPath) {
+    if (task.status !== "completed") {
       return json({ ok: false, error: "Video not ready or generation failed" }, { status: 400 });
     }
 
-    if (!existsSync(task.videoPath)) {
+    if ((!task.videoPath || !existsSync(task.videoPath)) && task.videoUrl) {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          "Location": task.videoUrl
+        }
+      });
+    }
+
+    if (!task.videoPath || !existsSync(task.videoPath)) {
       return json({ ok: false, error: "Video file not found on disk" }, { status: 404 });
     }
 

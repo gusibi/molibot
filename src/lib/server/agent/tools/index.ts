@@ -174,7 +174,8 @@ export function createMomTools(options: {
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
     artifactDir,
-    uploadFile: options.uploadFile
+    uploadFile: options.uploadFile,
+    sessionId: options.sessionId
   }));
   const videoGenerateRuntimeTool = wrapSerializedTool(createVideoGenerateTool({
     getSettings: options.getSettings,
@@ -519,7 +520,7 @@ export function createMomTools(options: {
     }),
     createDeferredToolEntry({
       name: "videoGenerate",
-      description: "Generate high-quality videos based on text descriptions and reference images, save locally, and automatically send to chat.",
+      description: "Generate high-quality videos. For image-to-video, reference images must be public HTTP(S) Remote URLs only; never pass Base64/data URLs or local paths.",
       keywords: [
         "video",
         "generate",

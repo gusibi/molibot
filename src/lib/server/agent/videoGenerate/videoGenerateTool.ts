@@ -1,12 +1,9 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { promises as fs, existsSync } from "node:fs";
-import { dirname, basename, extname, relative, resolve, isAbsolute } from "node:path";
-import { tmpdir } from "node:os";
+import { basename } from "node:path";
 import { VIDEO_GENERATE_PROVIDERS, submitVideoTask, queryVideoTaskStatus } from "./providers.js";
 import type { VideoGenerateEngine, VideoGenerateInput } from "./types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
-import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { SqliteVideoTaskStore } from "./videoTaskStore.js";
 
 const videoGenerateSchema = Type.Object({
@@ -43,8 +40,11 @@ const videoGenerateSchema = Type.Object({
   seed: Type.Optional(Type.Number({
     description: "Random seed to guarantee reproducible outputs."
   })),
-  images: Type.Optional(Type.Array(Type.String(), {
-    description: "Optional URLs of input/reference images for image-to-video or transitions."
+  images: Type.Optional(Type.Union([
+    Type.Array(Type.String()),
+    Type.String()
+  ], {
+    description: "Optional public HTTP(S) Remote URL image references for image-to-video or transitions. Accepts an array, a single string, or a JSON-stringified array. Use the Remote URL returned by imageGenerate. Never pass Base64, data URLs, local file paths, or Absolute path values."
   })),
   generateAudio: Type.Optional(Type.Boolean({
     description: "Optional flag to generate audio for the video (supported by Volcengine). Defaults to true."
@@ -72,6 +72,7 @@ function buildVideoGenerateDescription(settings: RuntimeSettings): string {
     "",
     "Usage guidelines:",
     "- Use when the user asks to generate a video, animate reference pictures, create a movie clip, or query the status of a running video task.",
+    "- If you have reference images, pass public HTTP(S) Remote URLs in the `images` array. If the image came from `imageGenerate`, use its `Remote URL`, not its local path. Never pass Base64, data URLs, local file paths, or `Absolute path` values.",
     "- When submitting a task, you will receive a taskId. You must immediately inform the user of this taskId and end your turn.",
     "- Do not loop or call this tool repeatedly in the same turn. Wait for the user to ask for progress before querying again."
   ].join("\n");
@@ -107,86 +108,63 @@ function resolveEngine(settings: RuntimeSettings["videoGenerate"], requested?: s
   );
 }
 
-function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { requestedPath: string; path: string; routed: boolean } {
-  const requestedPath = inputPath.trim();
-  const normalizedArtifactDir = artifactDir?.trim();
-  if (!normalizedArtifactDir || !requestedPath || /^\/|^[A-Za-z]:/.test(requestedPath)) {
-    return { requestedPath, path: requestedPath, routed: false };
+function normalizeImageInputs(input: unknown): string[] {
+  if (input === undefined || input === null) {
+    return [];
   }
-
-  const normalizedPath = requestedPath.replaceAll("\\", "/").replace(/^\.\//, "");
-  const isPlainFileName =
-    normalizedPath &&
-    !normalizedPath.includes("/") &&
-    !normalizedPath.startsWith(".") &&
-    normalizedPath !== "..";
-  if (!isPlainFileName) {
-    return { requestedPath, path: requestedPath, routed: false };
+  if (Array.isArray(input)) {
+    return input.map(value => String(value).trim()).filter(Boolean);
   }
-
-  return {
-    requestedPath,
-    path: `${normalizedArtifactDir}/${normalizedPath}`,
-    routed: true
-  };
-}
-
-const IMAGE_MIME_TYPES: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-  ".bmp": "image/bmp",
-  ".tiff": "image/tiff",
-  ".heic": "image/heic",
-  ".heif": "image/heif"
-};
-
-function isRemoteOrDataUrl(url: string): boolean {
-  return /^(https?:\/\/|data:)/i.test(url.trim());
-}
-
-async function processLocalImage(
-  imgPath: string,
-  cwd: string,
-  ensureAllowedPath: (path: string) => void
-): Promise<string> {
-  const trimmed = imgPath.trim();
-  if (isRemoteOrDataUrl(trimmed)) {
-    return trimmed;
+  const text = String(input).trim();
+  if (!text) {
+    return [];
   }
-
-  // Resolve to absolute path
-  const absPath = resolveToolPath(cwd, trimmed);
-
-  // Check if file exists
-  if (!existsSync(absPath)) {
-    throw new Error(`Local reference image file not found: ${trimmed}`);
-  }
-
-  // Verify path safety: must be allowed by path guard OR inside system temporary directories
-  const resolved = resolve(absPath);
-  const tempDir = resolve(tmpdir());
-  const relTemp = relative(tempDir, resolved);
-  const isInsideTemp = relTemp === "" || (!relTemp.startsWith("..") && !isAbsolute(relTemp));
-  
-  const relTmp = relative("/tmp", resolved);
-  const isInsideTmp = relTmp === "" || (!relTmp.startsWith("..") && !isAbsolute(relTmp));
-
-  if (!isInsideTemp && !isInsideTmp) {
-    ensureAllowedPath(resolved);
-  }
-
-  // Read file and convert to Base64 Data URL
   try {
-    const bytes = await fs.readFile(resolved);
-    const ext = extname(resolved).toLowerCase();
-    const mimeType = IMAGE_MIME_TYPES[ext] || "image/png";
-    return `data:${mimeType};base64,${bytes.toString("base64")}`;
-  } catch (err: any) {
-    throw new Error(`Failed to read local image file at '${trimmed}': ${err.message}`);
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      return parsed.map(value => String(value).trim()).filter(Boolean);
+    }
+  } catch {
+    // Treat non-JSON strings as a single image path/URL.
   }
+  return [text];
+}
+
+function assertPublicImageUrls(images: string[]): string[] {
+  return images.map((image) => {
+    const trimmed = image.trim();
+    if (/^https?:\/\//i.test(trimmed)) {
+      return trimmed;
+    }
+    if (/^data:/i.test(trimmed)) {
+      throw new Error("Video reference images must be public HTTP(S) URLs. Agnes Video does not accept Base64/data URL images; use the Remote URL returned by imageGenerate.");
+    }
+    throw new Error(`Video reference image must be a public HTTP(S) URL, not a local path: ${trimmed}. Use the Remote URL returned by imageGenerate.`);
+  });
+}
+
+function parseTaskUpdatedAt(updatedAt: string): number {
+  const parsed = Date.parse(updatedAt);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isFreshTaskRecord(updatedAt: string, maxAgeMs = 30_000): boolean {
+  const parsed = parseTaskUpdatedAt(updatedAt);
+  return parsed > 0 && Date.now() - parsed <= maxAgeMs;
+}
+
+function formatCompletedTaskText(taskId: string, videoUrl?: string, videoPath?: string, uploadedMessage = ""): string {
+  const lines = [`Video generation task '${taskId}' is completed.${uploadedMessage}`];
+  if (videoUrl) {
+    lines.push(`Remote URL: ${videoUrl}`);
+  }
+  if (videoPath) {
+    lines.push(`Local path: ${videoPath}`);
+  }
+  if (!videoUrl && !videoPath) {
+    lines.push("Video URL: unknown");
+  }
+  return lines.join("\n");
 }
 
 export function createVideoGenerateTool(options: {
@@ -199,7 +177,6 @@ export function createVideoGenerateTool(options: {
   taskStore?: SqliteVideoTaskStore;
 }): AgentTool<typeof videoGenerateSchema> {
   const settings = options.getSettings();
-  const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
   const taskStore = options.taskStore || new SqliteVideoTaskStore();
   const sessionId = options.sessionId || "default";
 
@@ -264,13 +241,14 @@ export function createVideoGenerateTool(options: {
           return {
             content: [{
               type: "text",
-              text: `Video generation task '${taskId}' is completed.${uploadedMessage}\nSaved file to: ${filePath || "unknown"}`
+              text: formatCompletedTaskText(taskId, taskRecord.videoUrl, filePath, uploadedMessage)
             }],
             details: {
               status: "completed",
               progress: 100,
               taskId,
               engine,
+              videoUrl: taskRecord.videoUrl,
               videoPath: filePath
             }
           };
@@ -292,6 +270,22 @@ export function createVideoGenerateTool(options: {
           };
         }
 
+        if (isFreshTaskRecord(taskRecord.updatedAt)) {
+          return {
+            content: [{
+              type: "text",
+              text: `Video generation task '${taskId}' is still processing. Current progress: ${taskRecord.progress}%.`
+            }],
+            details: {
+              status: "processing",
+              taskId,
+              engine,
+              progress: taskRecord.progress,
+              cached: true
+            }
+          };
+        }
+
         const providerContext = {
           settings: currentSettings.videoGenerate,
           fetch: loggingFetch,
@@ -308,48 +302,18 @@ export function createVideoGenerateTool(options: {
         }
 
         if (res.status === "completed") {
-          // Download video
-          const downloadResponse = await globalThis.fetch(res.videoUrl!, { signal });
-          if (!downloadResponse.ok) {
-            throw new Error(`Failed to download generated video from url: ${downloadResponse.statusText}`);
-          }
-          const ab = await downloadResponse.arrayBuffer();
-          const videoBuffer = Buffer.from(ab);
-
-          // Resolve target path (retrieve original requested outputName from pollParams if possible)
-          const outName = taskRecord.pollParams?.outputName || taskRecord.prompt.slice(0, 15).replace(/[^a-zA-Z0-9]/g, "_") + `_${Date.now()}.mp4`;
-          const target = routeDefaultArtifactPath(outName, options.artifactDir);
-          const filePath = resolveToolPath(options.cwd, target.path);
-          ensureAllowedPath(filePath);
-
-          // Write to File
-          const dir = dirname(filePath);
-          await fs.mkdir(dir, { recursive: true });
-          await fs.writeFile(filePath, videoBuffer);
-
-          // Automatically upload
-          let uploadedMessage = "";
-          if (options.uploadFile) {
-            const title = basename(filePath);
-            const text = `Completed video: ${taskRecord.prompt}`;
-            await options.uploadFile(filePath, title, text);
-            uploadedMessage = " (Automatically uploaded and sent to chat channel)";
-          }
-
-          taskStore.updateTaskProgress(taskId, "completed", 100, filePath);
+          taskStore.updateTaskProgress(taskId, "completed", 100, undefined, undefined, res.videoUrl);
 
           return {
             content: [{
               type: "text",
-              text: `Successfully completed video generation task '${taskId}'.${uploadedMessage}\nSaved file to: ${target.path}`
+              text: formatCompletedTaskText(taskId, res.videoUrl)
             }],
             details: {
               status: "completed",
               taskId,
               engine,
-              path: target.path,
-              filePath,
-              uploaded: !!options.uploadFile
+              videoUrl: res.videoUrl
             }
           };
         } else if (res.status === "failed") {
@@ -404,14 +368,11 @@ export function createVideoGenerateTool(options: {
         signal
       };
 
-      // Resolve reference images (convert local paths to Base64 data URLs)
+      // Video providers require public image URLs; do not submit local paths or Base64 data URLs.
       let resolvedImages: string[] | undefined = undefined;
-      if (params.images && params.images.length > 0) {
-        resolvedImages = [];
-        for (const img of params.images) {
-          const base64Url = await processLocalImage(img, options.cwd, ensureAllowedPath);
-          resolvedImages.push(base64Url);
-        }
+      const imageInputs = normalizeImageInputs(params.images);
+      if (imageInputs.length > 0) {
+        resolvedImages = assertPublicImageUrls(imageInputs);
       }
 
       const providerInput: VideoGenerateInput = {

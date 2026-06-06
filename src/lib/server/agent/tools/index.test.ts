@@ -120,6 +120,8 @@ test("tools index registers imageGenerate as a deferred tool with concise Englis
 test("tools index registers videoGenerate as a deferred tool with concise English discovery keywords", () => {
   assert.match(indexSource, /createVideoGenerateTool/);
   assert.match(indexSource, /name: "videoGenerate"/);
+  assert.match(indexSource, /Remote URLs only/);
+  assert.match(indexSource, /never pass Base64\/data URLs or local paths/);
   assert.match(indexSource, /tool: videoGenerateRuntimeTool/);
   assert.match(indexSource, /"video"/);
   assert.match(indexSource, /"generate"/);

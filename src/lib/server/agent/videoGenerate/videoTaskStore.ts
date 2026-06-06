@@ -10,6 +10,8 @@ export interface VideoTaskRecord {
   prompt: string;
   pollParams: any;
   videoPath?: string;
+  videoUrl?: string;
+  requestParams?: any;
   errorMessage?: string;
   createdAt: string;
   updatedAt: string;
@@ -41,17 +43,28 @@ export class SqliteVideoTaskStore {
       CREATE INDEX IF NOT EXISTS idx_video_tasks_session ON video_tasks(session_id);
       CREATE INDEX IF NOT EXISTS idx_video_tasks_created ON video_tasks(created_at);
     `);
+    try {
+      this.db.exec(`ALTER TABLE video_tasks ADD COLUMN video_url TEXT;`);
+    } catch {
+      // Ignore if column already exists
+    }
+    try {
+      this.db.exec(`ALTER TABLE video_tasks ADD COLUMN request_params TEXT;`);
+    } catch {
+      // Ignore if column already exists
+    }
   }
 
-  public createTask(id: string, engine: string, sessionId: string, prompt: string, pollParams: any): VideoTaskRecord {
+  public createTask(id: string, engine: string, sessionId: string, prompt: string, pollParams: any, requestParams?: any): VideoTaskRecord {
     const now = new Date().toISOString();
     const pollParamsJson = JSON.stringify(pollParams ?? {});
+    const requestParamsJson = requestParams ? JSON.stringify(requestParams) : null;
     
     const stmt = this.db.prepare(`
-      INSERT INTO video_tasks (id, engine, session_id, status, progress, prompt, poll_params_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO video_tasks (id, engine, session_id, status, progress, prompt, poll_params_json, request_params, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, engine, sessionId, "processing", 0, prompt, pollParamsJson, now, now);
+    stmt.run(id, engine, sessionId, "processing", 0, prompt, pollParamsJson, requestParamsJson, now, now);
 
     return {
       id,
@@ -61,6 +74,7 @@ export class SqliteVideoTaskStore {
       progress: 0,
       prompt,
       pollParams,
+      requestParams,
       createdAt: now,
       updatedAt: now
     };
@@ -71,21 +85,27 @@ export class SqliteVideoTaskStore {
     status: "processing" | "completed" | "failed",
     progress: number,
     videoPath?: string,
-    errorMessage?: string
+    errorMessage?: string,
+    videoUrl?: string
   ): void {
     const now = new Date().toISOString();
     
     const stmt = this.db.prepare(`
       UPDATE video_tasks
-      SET status = ?, progress = ?, video_path = ?, error_message = ?, updated_at = ?
+      SET status = ?, 
+          progress = ?, 
+          video_path = COALESCE(?, video_path), 
+          error_message = COALESCE(?, error_message), 
+          video_url = COALESCE(?, video_url), 
+          updated_at = ?
       WHERE id = ?
     `);
-    stmt.run(status, progress, videoPath ?? null, errorMessage ?? null, now, id);
+    stmt.run(status, progress, videoPath ?? null, errorMessage ?? null, videoUrl ?? null, now, id);
   }
 
   public getTask(id: string): VideoTaskRecord | null {
     const stmt = this.db.prepare(`
-      SELECT id, engine, session_id, status, progress, prompt, poll_params_json, video_path, error_message, created_at, updated_at
+      SELECT id, engine, session_id, status, progress, prompt, poll_params_json, video_path, error_message, video_url, request_params, created_at, updated_at
       FROM video_tasks
       WHERE id = ?
     `);
@@ -101,6 +121,8 @@ export class SqliteVideoTaskStore {
       prompt: row.prompt,
       pollParams: JSON.parse(row.poll_params_json || "{}"),
       videoPath: row.video_path ?? undefined,
+      videoUrl: row.video_url ?? undefined,
+      requestParams: row.request_params ? JSON.parse(row.request_params) : undefined,
       errorMessage: row.error_message ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at
@@ -109,7 +131,7 @@ export class SqliteVideoTaskStore {
 
   public getRecentTasks(limit = 50): VideoTaskRecord[] {
     const stmt = this.db.prepare(`
-      SELECT id, engine, session_id, status, progress, prompt, poll_params_json, video_path, error_message, created_at, updated_at
+      SELECT id, engine, session_id, status, progress, prompt, poll_params_json, video_path, error_message, video_url, request_params, created_at, updated_at
       FROM video_tasks
       ORDER BY created_at DESC
       LIMIT ?
@@ -124,6 +146,8 @@ export class SqliteVideoTaskStore {
       prompt: row.prompt,
       pollParams: JSON.parse(row.poll_params_json || "{}"),
       videoPath: row.video_path ?? undefined,
+      videoUrl: row.video_url ?? undefined,
+      requestParams: row.request_params ? JSON.parse(row.request_params) : undefined,
       errorMessage: row.error_message ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at

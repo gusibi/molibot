@@ -34,6 +34,8 @@
     progress: number;
     prompt: string;
     videoPath?: string;
+    videoUrl?: string;
+    requestParams?: any;
     errorMessage?: string;
     createdAt: string;
     updatedAt: string;
@@ -82,9 +84,11 @@
       taskDetailsTitle: "任务详情",
       taskIdLabel: "任务 ID",
       videoPathLabel: "保存路径",
+      requestParamsLabel: "请求参数",
       downloadVideo: "下载视频",
       close: "关闭",
-      viewResult: "查看结果"
+      viewResult: "查看结果",
+      viewParams: "查看参数"
     },
     "en-US": {
       title: "Video Generation",
@@ -128,9 +132,11 @@
       taskDetailsTitle: "Task Details",
       taskIdLabel: "Task ID",
       videoPathLabel: "Video Path",
+      requestParamsLabel: "Request Parameters",
       downloadVideo: "Download Video",
       close: "Close",
-      viewResult: "View Result"
+      viewResult: "View Result",
+      viewParams: "View Params"
     }
   };
 
@@ -466,7 +472,7 @@
                   <TableHead>{t("prompt")}</TableHead>
                   <TableHead class="w-[120px]">{t("status")}</TableHead>
                   <TableHead class="w-[90px]">{t("progress")}</TableHead>
-                  <TableHead class="w-[80px] text-right">{t("action")}</TableHead>
+                  <TableHead class="w-[220px] text-right">{t("action")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -512,6 +518,15 @@
                             {t("viewResult")}
                           </Button>
                         {/if}
+                        {#if task.requestParams}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onclick={() => activeTaskDetails = task}
+                          >
+                            {t("viewParams")}
+                          </Button>
+                        {/if}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -543,7 +558,7 @@
         </header>
 
         <div class="space-y-4">
-          {#if activeTaskDetails.status === "completed" && activeTaskDetails.videoPath}
+          {#if activeTaskDetails.status === "completed" && (activeTaskDetails.videoPath || activeTaskDetails.videoUrl)}
             <div class="overflow-hidden rounded-lg border bg-black aspect-video flex items-center justify-center">
               <video controls src="/api/settings/video-generate/video?taskId={activeTaskDetails.id}" class="w-full h-full max-h-[300px]">
                 Your browser does not support the video tag.
@@ -576,10 +591,21 @@
               <span class="text-muted-foreground">{t("prompt")}:</span>
               <span class="text-foreground leading-5">{activeTaskDetails.prompt}</span>
             </div>
+            {#if activeTaskDetails.requestParams}
+              <div class="grid grid-cols-[100px_1fr] gap-2">
+                <span class="text-muted-foreground">{t("requestParamsLabel")}:</span>
+                <pre class="font-mono text-xs bg-muted p-2 rounded max-h-[150px] overflow-auto select-all text-foreground leading-normal break-all whitespace-pre-wrap">{JSON.stringify(activeTaskDetails.requestParams, null, 2)}</pre>
+              </div>
+            {/if}
             {#if activeTaskDetails.videoPath}
               <div class="grid grid-cols-[100px_1fr] gap-2">
                 <span class="text-muted-foreground">{t("videoPathLabel")}:</span>
                 <span class="font-mono text-xs select-all break-all text-muted-foreground">{activeTaskDetails.videoPath}</span>
+              </div>
+            {:else if activeTaskDetails.videoUrl}
+              <div class="grid grid-cols-[100px_1fr] gap-2">
+                <span class="text-muted-foreground">Video URL:</span>
+                <span class="font-mono text-xs select-all break-all text-muted-foreground">{activeTaskDetails.videoUrl}</span>
               </div>
             {/if}
             {#if activeTaskDetails.errorMessage}

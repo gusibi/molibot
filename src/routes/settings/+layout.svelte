@@ -294,9 +294,10 @@
           {t("navigateSettings")}
         </summary>
         <div class="settings-mobile-body">
-          <a href="/" class="settings-mobile-back">
-            ← {t("backToChat")}
-          </a>
+          <button type="button" class="settings-mobile-theme-toggle" onclick={toggleTheme} title={t("theme")} aria-label={t("theme")}>
+            <span class="settings-mobile-theme-icon">{themeMode === "dark" ? "☼" : "☾"}</span>
+            <span>{t("theme")}: {themeMode === "light" ? "Light" : themeMode === "dark" ? "Dark" : "System"}</span>
+          </button>
           {#each navGroups as group}
             <div class="settings-mobile-group">
               <p class="settings-mobile-group-label">{group.title}</p>
@@ -630,15 +631,30 @@
     padding: 0 0.25rem 0.25rem;
   }
 
-  .settings-mobile-back {
-    display: block;
+  .settings-mobile-theme-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     border-radius: 0.5rem;
     border: 1px solid var(--border);
     padding: 0.5rem 0.75rem;
     font-size: 0.75rem;
     font-weight: 500;
     color: var(--foreground);
-    text-decoration: none;
+    background: transparent;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    transition: background 160ms ease;
+  }
+
+  .settings-mobile-theme-toggle:hover {
+    background: var(--background);
+  }
+
+  .settings-mobile-theme-icon {
+    font-size: 1rem;
+    line-height: 1;
   }
 
   .settings-mobile-group {

@@ -2,11 +2,40 @@
 
 ## 2026-06-06
 
-### 视频生成参考图片 Base64 转换与轮询容错优化 (Video Generate Base64 Conversion & Poller Fault Tolerance)
-- **本地图片自动转 Base64**: 修复了远端视频生成服务（Agnes AI 和火山引擎）无法读取本机绝对路径（如渠道下载到 `/tmp/...` 的图片文件）而导致 500 报错的问题。当检测到 `images` 参数传入本地路径时，自动读取本地图片文件并转换为 `data:image/MIME;base64,...` 的 Base64 Data URL 格式提交给云端 API。
-- **本地文件存在性前置拦截**: 如果传入的本地图片路径在磁盘上不存在，工具会立刻拦截并抛出“未找到本地参考图片文件”的明确错误，避免向远端接口发送无效路径。
+### Telegram 视频附件扩展名保留 (Telegram Video Attachment Filename Preservation)
+- **保留媒体扩展名**: Telegram `attach` 上传二进制媒体时，如果工具传入的 `title` 没有扩展名，会自动补回源文件路径的扩展名。例如本地文件 `aerobics_practice.mp4` 搭配标题“女健美操运动员练习视频”时，实际上传文件名会变成“女健美操运动员练习视频.mp4”，避免平台因上传文件名缺少 `.mp4` 而出现视频展示异常。
+- **视频流式播放提示**: `sendVideo` 现在附带 `supports_streaming: true`，让 Telegram 更明确地按原生视频消息处理可在线播放的 MP4。
+- **回归测试补充**: `runtime.test.ts` 新增覆盖“标题无扩展名但源文件是 `.mp4`”的上传文件名解析断言。
+
+### 图像生成记录入库与历史记录管理 (Image Generation SQLite Logging & History Management)
+- **SQLite 增加图像记录表**: 在 SQLite 数据库中新增 `image_tasks` 表，用于存储图像生成任务记录（包含 `id`、`engine`、`session_id`、`status`、`prompt`、`image_path`、`image_url`、`request_params`、`error_message`、`created_at`、`updated_at`）。
+- **工具执行同步入库**: 在 `imageGenerate` 工具执行时，生成唯一 Task ID，先向 SQLite 写入一条 `processing` 记录；并在生成完成后，将状态更新为 `completed`（保存本地绝对路径与远程 URL）或 `failed`（保存错误信息）。
+- **后台 API 路由配置**: 新增 `/api/settings/image-generate/tasks` 接口，支持读取最近 50 条图像生成记录及根据任务 ID 删除记录；新增 `/api/settings/image-generate/image` 接口，支持根据任务 ID 读取并串流本地图像文件或重定向到远程公网 URL。
+- **设置页面历史查询与重构**: 在 `/settings/image` 设置页面下方新增“最近生成记录”表格，展示生成记录的创建时间、任务 ID、引擎、提示词、状态，并支持“查看结果”（弹出浮窗展示生成的图片与详细元数据）、“查看参数”（查看/复制原始请求参数）和“删除”操作。
+- **粘性保存底栏适配**: 将图像生成设置页面的提交表单重构为符合 `DESIGN.md` 规范的固定粘性底栏（`.settings-footbar`），以提供更加一致、流畅的保存交互体验。
+- **单元测试覆盖**: 在 `imageGenerateTool.test.ts` 单元测试中，新增针对 SQLite 任务入库和记录详情的完整断言。
+
+### 视频远程 URL 存储与 302 重定向播放 (Remote Video URL Storage & Redirect Streaming)
+- **取消大型文件本地下载**: 从后台任务轮询器（`/api/settings/video-generate/tasks`）和 `videoGenerate` 工具的查询逻辑中，移除了拉取下载远程 `.mp4` 文件到本地并落盘的步骤。这彻底解决了在网络较差或目标存储服务连接不稳定时（如遇到 Google GCS 的 `ECONNRESET` TLS 连接重置错误）而导致已成功生成完成的任务在本地库被误判/更新为 `failed` 失败状态的问题。
+- **SQLite 增加远程 URL 字段**: 更新 [`videoTaskStore.ts`](file:///Users/gusi/Github/molipibot/src/lib/server/agent/videoGenerate/videoTaskStore.ts)，在任务记录表 `video_tasks` 中安全增加 `video_url` 列。在服务启动初始化时，会自动执行表结构变更，从而安全保留已有的任务数据。
+- **Agent 查询优先使用 SQLite 缓存**: 当 `videoGenerate` 通过 `taskId` 查询任务时，优先读取 `video_tasks`。已完成任务直接返回 DB 中的 `Remote URL`；处理中任务若 `updated_at` 距今不超过 30 秒，则直接返回缓存进度；超过 30 秒才向供应商查询一次状态并把最新进度或 `video_url` 写回 DB。
+- **302 重定向透明流式预览**: 优化了 `/api/settings/video-generate/video` 后端流媒体响应接口。在检测到任务无本地保存文件但有远程 `videoUrl` 时，自动返回 302 重定向至远程地址，使得控制台内置的播放器和下载链接可以免修改、无感地在线播放或下载远程生成的视频。
+- **工具返回远程地址给 AI**: `videoGenerate` 工具查询完成后直接将 `Remote URL: https://...` 返回给 AI Agent 的上下文。若 DB 中同时存在本地路径才附带 `Local path`，不再因本地路径为空输出 `unknown` 或触发本地文件查找。
+- **请求参数入库与详情/列表展示**: 在 SQLite 的 `video_tasks` 表中安全增加了 `request_params` 字段。在 AI Agent 创建视频任务时，自动捕获并存入提交给云端 API 的所有原始请求参数（例如：prompt、model、images 等）。在 `/settings/video` 页面任务列表的“操作”列中，直接新增了“查看参数”按钮（当存在请求参数时即可点击，支持生成中状态），并在详情弹窗中增加了“请求参数”格式化 JSON 复制区块，便于核对和排查提示词及参考图引用关系。
+
+
+### 图像绝对路径输出与 images 参数容错标准化 (Image Path Visibility & Robust Parameter Normalization)
+- **图像远程 URL 与绝对路径输出**: 更新了 `imageGenerate` 工具返回的成功文本内容。当供应商返回公网图片地址时，工具会输出 `Remote URL: https://...`，同时继续输出本地保存路径 `Saved file to` 与绝对路径 `Absolute path`。这确保了当图片成功生成时，AI Agent 能够优先把公网 URL 传给后续视频生成工具，同时保留本地归档文件用于查看和调试。
+- **渠道上传失败不吞掉生成结果**: `imageGenerate` 将图片生成/保存成功与聊天渠道上传成功分离。若 Telegram 等渠道 `sendPhoto`/`sendDocument` 网络失败，工具仍返回成功结果、远程 URL、本地路径和上传错误说明，避免 Agent 误判为图片生成失败。
+- **images 参数容错与标准化**: 将 `videoGenerateSchema` 中的 `images` 字段类型修改为支持数组或单个字符串（使用 `Type.Union`）。在工具执行时，对传入的 `params.images` 进行了运行时标准化处理：支持自动解析 JSON 字符串化数组（例如 `'["/path/to/img"]'`) 并映射为常规的字符串数组，而对于普通的单个字符串路径/URL，则自动用数组包裹，规避了由于 AI 混淆输入格式、把 string 传给 array 遍历而导致逐字符迭代寻找路径（如寻找名为 `[` 的文件）报错的问题。
+- **视频参考图只接受公网 URL**: `videoGenerate` 不再把本地图片路径读取成 Base64 Data URL 提交给 Agnes 或火山视频接口。工具会在提交前拒绝本地路径和 `data:` URL，并提示使用 `imageGenerate` 返回的 `Remote URL`，避免供应商因无效 Base64 或不可访问本地路径返回 400。
+- **回归测试补充**: 在 `videoGenerateTool.test.ts` 中新增了分别使用 JSON 字符串数组和普通单路径字符串作为 `images` 参数的两个测试用例，校验其运行时的标准化和路径解析能力。
+
+### 视频生成参考图公网 URL 校验与轮询容错优化 (Video Generate Public URL Validation & Poller Fault Tolerance)
+- **参考图公网 URL 前置校验**: 修复了远端视频生成服务（Agnes AI 和火山引擎）无法读取本机路径或 Base64 Data URL 而导致 400/500 报错的问题。当检测到 `images` 参数传入本地路径或 `data:` URL 时，工具会立刻拒绝并提示使用 `imageGenerate` 返回的 `Remote URL`，避免向云端 API 发送不可用图片引用。
+- **本地路径提交拦截**: 如果传入的参考图不是 `http://` 或 `https://` 公网地址，工具会在提交供应商前直接返回明确错误，不再读取本地文件或构造 Base64。
 - **后台轮询限制与错误规避**: 修复了由于 Agnes 返回的 `error` 报错以结构化对象形式存在而导致 SQLite 绑定入库崩溃的问题。优化后台轮询管理器和工具查询逻辑，在遭遇 4xx 终端 HTTP 错误或连续拉取失败 3 次时，自动在数据库中将任务标记为 `failed` 失败状态，防止无限重复循环拉取。
-- **单元测试补充**: 新增针对本地图片自动 Base64 转化和不存在的本地路径拦截机制的两个独立单元测试，运行且测试完全通过。
+- **单元测试补充**: 新增针对远程图片 URL 透传、本地路径拒绝和 Base64/data URL 拒绝机制的独立单元测试，运行且测试完全通过。
 
 ### Telegram 流式长消息分片复用 (Telegram Streaming Long-Message Chunk Reuse)
 - **复用已有分片消息**: Telegram answer lane 现在保存完整的分片消息 ID 列表；连续流式刷新会按分片位置编辑已有消息，只在分片数量增加时创建新消息，避免第二段在每次刷新时被重复发送。

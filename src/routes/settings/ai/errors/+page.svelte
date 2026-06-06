@@ -5,6 +5,7 @@
   import { Button } from "$lib/components/ui/button";
   import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
+  import SettingsSection from "$lib/components/ui/settings/SettingsSection.svelte";
 
   type ModelErrorKind = "request_error" | "empty_response" | "missing_api_key";
 
@@ -113,212 +114,229 @@
   $: topProvider = summary.byProvider[0];
 </script>
 
-<div class="mx-auto flex max-w-[1500px] flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-  <header class="flex flex-col gap-3">
-    <Badge variant="secondary" class="w-fit">Failure Radar</Badge>
-    <div class="flex max-w-3xl flex-col gap-2">
-      <h1 class="text-3xl font-semibold tracking-tight text-foreground">模型报错记录</h1>
-      <p class="text-sm leading-6 text-muted-foreground">
-        这里只记录失败模型调用，用来定位缺少密钥、空响应、上游请求失败，以及 fallback 是否兜住了这次运行。
-      </p>
-    </div>
-    <div class="flex items-center gap-2">
-      <Button variant="outline" onclick={loadModelErrors} disabled={loading}>
-        {loading ? "刷新中" : "刷新"}
-      </Button>
-      {#if message}
-        <span class="text-xs text-muted-foreground">{message}</span>
+<div class="wb-page">
+  <SettingsSection
+    title="模型报错记录"
+    description="这里只记录失败模型调用，用来定位缺少密钥、空响应、上游请求失败，以及 fallback 是否兜住了这次运行。"
+    badge="Failure Radar"
+  >
+  <div class="flex justify-end">
+    <Button variant="outline" onclick={loadModelErrors} disabled={loading} class="h-10 px-6 font-bold">
+      {#if loading}
+        <span class="mr-2 h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent"></span>
+        刷新中
+      {:else}
+        刷新
       {/if}
-    </div>
-  </header>
+    </Button>
+  </div>
 
   {#if error}
-    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
+    <Alert variant="destructive" class="wb-panel-danger"><AlertDescription>{error}</AlertDescription></Alert>
   {/if}
 
   {#if loading && items.length === 0}
-    <p class="py-8 text-sm text-muted-foreground">正在加载模型报错记录...</p>
+    <div class="wb-empty-state">
+      <span class="animate-pulse">正在加载模型报错记录...</span>
+    </div>
   {:else}
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <Card>
-        <CardHeader class="pb-2">
-          <CardTitle class="text-sm text-muted-foreground">总失败数</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <strong class="text-3xl font-semibold tracking-tight text-destructive">{summary.total}</strong>
-          <p class="mt-1 text-xs text-muted-foreground">最近 200 条失败日志内的记录数</p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader class="pb-2">
-          <CardTitle class="text-sm text-muted-foreground">后来恢复</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <strong class="text-3xl font-semibold tracking-tight text-emerald-600 dark:text-emerald-400">{summary.recovered}</strong>
-          <p class="mt-1 text-xs text-muted-foreground">{pct(summary.recovered, summary.total)}% 被备用模型或重试兜住</p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader class="pb-2">
-          <CardTitle class="text-sm text-muted-foreground">直接失败</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <strong class="text-3xl font-semibold tracking-tight text-amber-600 dark:text-amber-400">{summary.unrecovered}</strong>
-          <p class="mt-1 text-xs text-muted-foreground">{pct(summary.unrecovered, summary.total)}% 最终没有恢复</p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader class="pb-2">
-          <CardTitle class="text-sm text-muted-foreground">最高频 Provider</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <strong class="text-3xl font-semibold tracking-tight">{topProvider?.provider ?? "--"}</strong>
-          <p class="mt-1 text-xs text-muted-foreground">{topProvider ? `${topProvider.count} 条失败` : "暂无失败来源"}</p>
-        </CardContent>
-      </Card>
+    <div class="wb-kpi-grid">
+      <div class="wb-kpi-card" data-span="3" data-tone="danger">
+        <span class="wb-eyebrow">总失败数</span>
+        <strong class="tabular-nums">{summary.total}</strong>
+        <p class="settings-item-desc mt-auto">最近 200 条失败日志内的记录数</p>
+      </div>
+      <div class="wb-kpi-card" data-span="3">
+        <span class="wb-eyebrow">后来恢复</span>
+        <strong class="tabular-nums text-[#8B9A6D]">{summary.recovered}</strong>
+        <p class="settings-item-desc mt-auto">{pct(summary.recovered, summary.total)}% 被备用模型或重试兜住</p>
+      </div>
+      <div class="wb-kpi-card" data-span="3">
+        <span class="wb-eyebrow">直接失败</span>
+        <strong class="tabular-nums text-[#A36A5E]">{summary.unrecovered}</strong>
+        <p class="settings-item-desc mt-auto">{pct(summary.unrecovered, summary.total)}% 最终没有恢复</p>
+      </div>
+      <div class="wb-kpi-card" data-span="3">
+        <span class="wb-eyebrow">最高频 Provider</span>
+        <strong class="text-xl sm:text-2xl">{topProvider?.provider ?? "--"}</strong>
+        <p class="settings-item-desc mt-auto">{topProvider ? `${topProvider.count} 条失败` : "暂无失败来源"}</p>
+      </div>
     </div>
 
-    <div class="flex flex-wrap items-center gap-3">
-      <div class="grid gap-1.5">
-        <span class="text-xs text-muted-foreground">Channel</span>
-        <NativeSelect bind:value={selectedChannel}>
+    <div class="wb-filter-bar">
+      <div class="wb-field">
+        <span>Channel</span>
+        <NativeSelect bind:value={selectedChannel} class="h-9">
           <NativeSelectOption value="all">全部渠道</NativeSelectOption>
           {#each channels as ch}
             <NativeSelectOption value={ch}>{ch}</NativeSelectOption>
           {/each}
         </NativeSelect>
       </div>
-      <div class="grid gap-1.5">
-        <span class="text-xs text-muted-foreground">Provider</span>
-        <NativeSelect bind:value={selectedProvider}>
+      <div class="wb-field">
+        <span>Provider</span>
+        <NativeSelect bind:value={selectedProvider} class="h-9">
           <NativeSelectOption value="all">全部 Provider</NativeSelectOption>
           {#each providers as p}
             <NativeSelectOption value={p}>{p}</NativeSelectOption>
           {/each}
         </NativeSelect>
       </div>
-      <div class="grid gap-1.5">
-        <span class="text-xs text-muted-foreground">State</span>
-        <NativeSelect bind:value={selectedState}>
+      <div class="wb-field">
+        <span>State</span>
+        <NativeSelect bind:value={selectedState} class="h-9">
           <NativeSelectOption value="all">全部状态</NativeSelectOption>
           <NativeSelectOption value="recovered">已恢复</NativeSelectOption>
           <NativeSelectOption value="failed">未恢复</NativeSelectOption>
         </NativeSelect>
       </div>
-      <div class="grid gap-1.5">
-        <span class="text-xs text-muted-foreground">Kind</span>
-        <NativeSelect bind:value={selectedKind}>
+      <div class="wb-field">
+        <span>Kind</span>
+        <NativeSelect bind:value={selectedKind} class="h-9">
           <NativeSelectOption value="all">全部类型</NativeSelectOption>
           <NativeSelectOption value="request_error">请求失败</NativeSelectOption>
           <NativeSelectOption value="empty_response">空响应</NativeSelectOption>
           <NativeSelectOption value="missing_api_key">缺少密钥</NativeSelectOption>
         </NativeSelect>
       </div>
-      <Button variant="outline" size="sm" class="mt-auto" onclick={resetFilters}>清空筛选</Button>
+      <Button variant="outline" size="sm" class="h-9 px-4 font-semibold" onclick={resetFilters}>清空筛选</Button>
     </div>
 
-    <div class="grid gap-6 lg:grid-cols-[260px_1fr]">
-      <aside class="space-y-4">
-        <Card>
-          <CardHeader class="pb-2">
-            <CardTitle class="text-sm">错误类型</CardTitle>
-          </CardHeader>
-          <CardContent class="space-y-1">
+    <div class="wb-split-layout">
+      <aside class="wb-sticky-side space-y-4">
+        <div class="wb-panel-soft">
+          <div class="wb-panel-heading">
+            <h3 class="font-serif">错误类型</h3>
+          </div>
+          <div class="wb-rank-list">
             {#each ["request_error", "empty_response", "missing_api_key"] as kind}
               {@const count = countByKind(kind as ModelErrorKind)}
               <button
                 type="button"
-                class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition hover:bg-muted/60 {selectedKind === kind ? 'bg-muted' : ''}"
+                class="wb-config-item {selectedKind === kind ? 'active' : ''}"
                 onclick={() => (selectedKind = selectedKind === kind ? "all" : kind)}
               >
-                <span class="text-foreground">{kindLabel(kind as ModelErrorKind)}</span>
-                <Badge variant="secondary">{count}</Badge>
+                <span class="wb-config-item-title">{kindLabel(kind as ModelErrorKind)}</span>
+                <span class="wb-pill tabular-nums" data-tone={count > 0 ? "warning" : "default"}>{count}</span>
               </button>
             {/each}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader class="pb-2">
-            <CardTitle class="text-sm">Provider 排名</CardTitle>
-          </CardHeader>
-          <CardContent class="space-y-1">
+        <div class="wb-panel-soft">
+          <div class="wb-panel-heading">
+            <h3 class="font-serif">Provider 排名</h3>
+          </div>
+          <div class="wb-rank-list">
             {#if summary.byProvider.length === 0}
-              <p class="text-xs text-muted-foreground">暂无 provider 失败记录。</p>
+              <p class="wb-muted text-xs p-3">暂无 provider 失败记录。</p>
             {:else}
               {#each summary.byProvider.slice(0, 10) as row}
                 <button
                   type="button"
-                  class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition hover:bg-muted/60 {selectedProvider === row.provider ? 'bg-muted' : ''}"
+                  class="wb-config-item {selectedProvider === row.provider ? 'active' : ''}"
                   onclick={() => (selectedProvider = selectedProvider === row.provider ? "all" : row.provider)}
                 >
-                  <span class="text-foreground">{row.provider}</span>
-                  <Badge variant="secondary">{row.count}</Badge>
+                  <span class="wb-config-item-title">{row.provider}</span>
+                  <span class="wb-pill tabular-nums" data-tone="danger">{row.count}</span>
                 </button>
               {/each}
             {/if}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </aside>
 
-      <section class="space-y-3">
-        <h2 class="text-sm font-semibold text-foreground">失败事件 <span class="font-normal text-muted-foreground">({filteredItems.length} 条匹配记录)</span></h2>
+      <section class="space-y-4">
+        <div class="flex items-center justify-between px-2">
+          <h2 class="font-serif text-lg">失败事件 <span class="wb-muted font-normal text-sm tabular-nums">({filteredItems.length} 条匹配记录)</span></h2>
+        </div>
 
         {#if filteredItems.length === 0}
-          <div class="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">当前筛选条件下没有模型报错记录。</div>
+          <div class="wb-empty-state">当前筛选条件下没有模型报错记录。</div>
         {:else}
-          <div class="space-y-3">
+          <div class="space-y-4">
             {#each filteredItems as item}
-              <Card class={item.recovered ? "" : "border-destructive/30"}>
-                <CardHeader class="pb-2">
-                  <div class="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div class="flex flex-wrap items-center gap-2">
-                        <CardTitle class="text-sm">{item.provider} / {item.model}</CardTitle>
-                        <Badge variant={item.recovered ? "default" : "destructive"}>
-                          {item.recovered ? "已恢复" : "未恢复"}
-                        </Badge>
-                        <Badge variant="outline">{kindLabel(item.kind)}</Badge>
-                      </div>
-                      <p class="mt-1 text-xs text-muted-foreground">{formatDate(item.ts)} · {item.channel} / {item.botId} / {item.chatId}</p>
+              <div class="wb-panel {item.recovered ? '' : 'border-destructive/30'}" style={item.recovered ? '' : 'border-left: 4px solid var(--destructive)'}>
+                <div class="wb-panel-heading">
+                  <div class="flex flex-col gap-1">
+                    <div class="flex items-center gap-3">
+                      <h3 class="font-semibold">{item.provider} / {item.model}</h3>
+                      <span class="wb-pill tabular-nums" data-tone={item.recovered ? 'success' : 'danger'}>
+                        {item.recovered ? "已恢复" : "未恢复"}
+                      </span>
+                      <span class="wb-pill" data-tone="default">{kindLabel(item.kind)}</span>
                     </div>
-                    <div class="flex gap-2 text-xs text-muted-foreground">
-                      <Badge variant="outline" class="text-[10px]">{item.source}</Badge>
-                      <Badge variant="outline" class="text-[10px]">{item.route}</Badge>
-                      {#if Number.isFinite(item.candidateIndex)}
-                        <Badge variant="outline" class="text-[10px]">candidate {(item.candidateIndex ?? 0) + 1}</Badge>
-                      {/if}
+                    <p class="wb-muted text-xs tabular-nums">{formatDate(item.ts)} · {item.channel} / {item.botId} / {item.chatId}</p>
+                  </div>
+                  <div class="flex gap-2">
+                    <span class="wb-pill" data-tone="default">{item.source}</span>
+                    <span class="wb-pill" data-tone="default">{item.route}</span>
+                  </div>
+                </div>
+
+                <div class="wb-grid-2 mt-4">
+                  <div class="wb-note">
+                    <span class="wb-eyebrow text-[10px]">Error Reason</span>
+                    <p class="mt-1 text-sm text-foreground">{item.message}</p>
+                  </div>
+                  <div class="wb-note">
+                    <span class="wb-eyebrow text-[10px]">Context</span>
+                    <div class="mt-1 space-y-1 text-xs tabular-nums">
+                      <p>API: <span class="wb-text-strong">{item.api || "-"}</span></p>
+                      <p>Base URL: <span class="wb-text-strong">{item.baseUrl || "-"}</span></p>
+                      <p>Endpoint: <span class="wb-text-strong">{item.endpointUrl || "-"}</span></p>
+                      <p>Session: <span class="wb-text-strong font-mono">{item.sessionId || "-"}</span></p>
                     </div>
                   </div>
-                </CardHeader>
-                <CardContent class="space-y-3">
-                  <div class="grid gap-3 sm:grid-cols-2">
-                    <div class="rounded-lg border bg-muted/40 p-3">
-                      <span class="text-xs font-semibold text-muted-foreground">Error Reason</span>
-                      <p class="mt-1 text-sm text-foreground">{item.message}</p>
-                    </div>
-                    <div class="rounded-lg border bg-muted/40 p-3">
-                      <span class="text-xs font-semibold text-muted-foreground">Context</span>
-                      <p class="mt-1 text-xs text-foreground">API: {item.api || "-"}</p>
-                      <p class="text-xs text-foreground">Base URL: {item.baseUrl || "-"}</p>
-                      <p class="text-xs text-foreground">Endpoint: {item.endpointUrl || "-"}</p>
-                      <p class="text-xs text-foreground">Session: {item.sessionId || "-"}</p>
-                      <p class="text-xs text-foreground">Run ID: {item.runId || "-"}</p>
-                    </div>
-                  </div>
-                  <div class="rounded-lg border bg-muted/40 px-3 py-2 text-xs {item.recovered ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}">
-                    {#if item.recovered}
-                      备用路径已接管：{item.finalProvider || "-"} / {item.finalModel || "-"}
-                    {:else}
+                </div>
+
+                <div class="mt-4 wb-status-line rounded-lg" data-tone={item.recovered ? 'success' : 'default'}>
+                  {#if item.recovered}
+                    <span class="flex items-center gap-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                      备用路径已接管：<strong class="font-bold">{item.finalProvider || "-"} / {item.finalModel || "-"}</strong>
+                    </span>
+                  {:else}
+                    <span class="flex items-center gap-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                       这次失败没有被备用模型恢复。
-                    {/if}
-                  </div>
-                </CardContent>
-              </Card>
+                    </span>
+                  {/if}
+                </div>
+              </div>
             {/each}
           </div>
         {/if}
       </section>
     </div>
   {/if}
+  </SettingsSection>
 </div>
+
+<footer class="settings-footbar">
+  <div class="settings-footbar-status">
+    {#if loading}
+      <span class="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <span class="h-2 w-2 animate-pulse rounded-full bg-[#A36A5E]"></span>
+        探测中...
+      </span>
+    {:else if items.length > 0}
+      <span class="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <span class="h-2 w-2 rounded-full bg-[#8B9A6D]"></span>
+        记录已更新至 {formatDate(items[0].ts)}
+      </span>
+    {/if}
+  </div>
+  <div class="flex items-center gap-3">
+    <Button variant="outline" size="sm" onclick={loadModelErrors} disabled={loading} class="h-9 px-4 text-xs font-bold">
+      刷新记录
+    </Button>
+  </div>
+</footer>
+
+<style>
+  :global(.tabular-nums) {
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+

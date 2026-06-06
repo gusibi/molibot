@@ -2,10 +2,12 @@ import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { promises as fs } from "node:fs";
 import { dirname, basename } from "node:path";
+import crypto from "node:crypto";
 import { IMAGE_GENERATE_PROVIDERS } from "./providers.js";
 import type { ImageGenerateEngine, ImageGenerateInput } from "./types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
+import { SqliteImageTaskStore } from "./imageTaskStore.js";
 
 const imageGenerateSchema = Type.Object({
   prompt: Type.String({
@@ -114,9 +116,13 @@ export function createImageGenerateTool(options: {
   workspaceDir: string;
   artifactDir?: string;
   uploadFile?: (filePath: string, title?: string, text?: string) => Promise<void>;
+  sessionId?: string;
+  taskStore?: SqliteImageTaskStore;
 }): AgentTool<typeof imageGenerateSchema> {
   const settings = options.getSettings();
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
+  const taskStore = options.taskStore || new SqliteImageTaskStore();
+  const sessionId = options.sessionId || "default";
 
   return {
     name: "imageGenerate",
@@ -144,15 +150,7 @@ export function createImageGenerateTool(options: {
       const filePath = resolveToolPath(options.cwd, target.path);
       ensureAllowedPath(filePath);
 
-      // 3. Execute provider
-      const provider = IMAGE_GENERATE_PROVIDERS[engine];
-      if (!provider) {
-        throw new Error(`Provider not implemented for engine '${engine}'`);
-      }
-
-      const providerInput: ImageGenerateInput = {
-        prompt: inputPrompt,
-        engine,
+      const requestParams = {
         model: params.model || currentSettings.imageGenerate.engines[engine]?.model,
         size: params.size,
         seed: params.seed,
@@ -160,59 +158,102 @@ export function createImageGenerateTool(options: {
         outputName: outName
       };
 
-      const providerContext = {
-        settings: currentSettings.imageGenerate,
-        fetch: globalThis.fetch,
-        signal
-      };
+      const taskId = crypto.randomUUID();
+      taskStore.createTask(taskId, engine, sessionId, inputPrompt, requestParams);
 
-      const result = await provider.generate(providerInput, providerContext);
-
-      // 4. Resolve Image Buffer
-      let imageBuffer: Buffer;
-      if (result.imageBuffer) {
-        imageBuffer = result.imageBuffer;
-      } else if (result.imageBase64) {
-        imageBuffer = Buffer.from(result.imageBase64, "base64");
-      } else if (result.imageUrl) {
-        const downloadResponse = await globalThis.fetch(result.imageUrl, { signal });
-        if (!downloadResponse.ok) {
-          throw new Error(`Failed to download generated image from url: ${downloadResponse.statusText}`);
+      try {
+        // 3. Execute provider
+        const provider = IMAGE_GENERATE_PROVIDERS[engine];
+        if (!provider) {
+          throw new Error(`Provider not implemented for engine '${engine}'`);
         }
-        const ab = await downloadResponse.arrayBuffer();
-        imageBuffer = Buffer.from(ab);
-      } else {
-        throw new Error("Provider returned no image source (URL, Base64, or Buffer).");
-      }
 
-      // 5. Write to File
-      const dir = dirname(filePath);
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(filePath, imageBuffer);
-
-      // 6. Automatically upload / attach if capability is available
-      let uploadedMessage = "";
-      if (options.uploadFile) {
-        const title = basename(filePath);
-        const text = `Generated image: ${inputPrompt}`;
-        await options.uploadFile(filePath, title, text);
-        uploadedMessage = " (Automatically uploaded and sent to chat channel)";
-      }
-
-      return {
-        content: [{
-          type: "text",
-          text: `Successfully generated image using '${engine}' engine.${uploadedMessage}\nSaved file to: ${target.path}`
-        }],
-        details: {
-          engine,
-          model: providerInput.model || "default",
+        const providerInput: ImageGenerateInput = {
           prompt: inputPrompt,
-          path: target.path,
-          filePath,
-          uploaded: !!options.uploadFile
+          engine,
+          model: params.model || currentSettings.imageGenerate.engines[engine]?.model,
+          size: params.size,
+          seed: params.seed,
+          images: params.images,
+          outputName: outName
+        };
+
+        const providerContext = {
+          settings: currentSettings.imageGenerate,
+          fetch: globalThis.fetch,
+          signal
+        };
+
+        const result = await provider.generate(providerInput, providerContext);
+
+        // 4. Resolve Image Buffer
+        let imageBuffer: Buffer;
+        if (result.imageBuffer) {
+          imageBuffer = result.imageBuffer;
+        } else if (result.imageBase64) {
+          imageBuffer = Buffer.from(result.imageBase64, "base64");
+        } else if (result.imageUrl) {
+          const downloadResponse = await globalThis.fetch(result.imageUrl, { signal });
+          if (!downloadResponse.ok) {
+            throw new Error(`Failed to download generated image from url: ${downloadResponse.statusText}`);
+          }
+          const ab = await downloadResponse.arrayBuffer();
+          imageBuffer = Buffer.from(ab);
+        } else {
+          throw new Error("Provider returned no image source (URL, Base64, or Buffer).");
         }
-      };
+
+        // 5. Write to File
+        const dir = dirname(filePath);
+        await fs.mkdir(dir, { recursive: true });
+        await fs.writeFile(filePath, imageBuffer);
+
+        // 6. Automatically upload / attach if capability is available
+        let uploadedMessage = "";
+        let uploadError: string | undefined;
+        if (options.uploadFile) {
+          const title = basename(filePath);
+          const text = `Generated image: ${inputPrompt}`;
+          try {
+            await options.uploadFile(filePath, title, text);
+            uploadedMessage = " (Automatically uploaded and sent to chat channel)";
+          } catch (err) {
+            uploadError = err instanceof Error ? err.message : String(err);
+            uploadedMessage = " (Generated successfully, but automatic chat upload failed)";
+          }
+        }
+
+        // Record completed task state to SQLite
+        taskStore.updateTaskProgress(taskId, "completed", filePath, undefined, result.imageUrl);
+
+        return {
+          content: [{
+            type: "text",
+            text: [
+              `Successfully generated image using '${engine}' engine.${uploadedMessage}`,
+              result.imageUrl ? `Remote URL: ${result.imageUrl}` : undefined,
+              `Saved file to: ${target.path}`,
+              `Absolute path: ${filePath}`,
+              uploadError ? `Upload error: ${uploadError}` : undefined
+            ].filter(Boolean).join("\n")
+          }],
+          details: {
+            taskId,
+            engine,
+            model: providerInput.model || "default",
+            prompt: inputPrompt,
+            imageUrl: result.imageUrl,
+            path: target.path,
+            filePath,
+            uploaded: !!options.uploadFile && !uploadError,
+            uploadError
+          }
+        };
+      } catch (err: any) {
+        const errMsg = err.message || String(err);
+        taskStore.updateTaskProgress(taskId, "failed", undefined, errMsg);
+        throw err;
+      }
     }
   };
 }

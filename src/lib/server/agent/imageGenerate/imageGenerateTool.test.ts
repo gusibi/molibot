@@ -3,11 +3,13 @@ import test from "node:test";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { createImageGenerateTool } from "./imageGenerateTool.js";
+import { SqliteImageTaskStore } from "./imageTaskStore.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 const mockCwd = join(process.cwd(), ".test-tmp/imageGenerateTest");
 const mockWorkspace = mockCwd;
 const mockArtifactDir = "2026/06/04";
+const testDbFile = join(mockCwd, "test_settings.sqlite");
 
 const defaultTestSettings: RuntimeSettings = {
   imageGenerate: {
@@ -22,7 +24,7 @@ const defaultTestSettings: RuntimeSettings = {
   }
 } as unknown as RuntimeSettings;
 
-function getTestContext(settingsPatch?: Partial<RuntimeSettings["imageGenerate"]>, uploadFile?: any) {
+function getTestContext(settingsPatch?: Partial<RuntimeSettings["imageGenerate"]>, uploadFile?: any, taskStore?: any) {
   const currentSettings = {
     ...defaultTestSettings,
     imageGenerate: {
@@ -40,7 +42,8 @@ function getTestContext(settingsPatch?: Partial<RuntimeSettings["imageGenerate"]
     cwd: mockCwd,
     workspaceDir: mockWorkspace,
     artifactDir: mockArtifactDir,
-    uploadFile
+    uploadFile,
+    taskStore: taskStore || new SqliteImageTaskStore(testDbFile)
   };
 }
 
@@ -93,6 +96,8 @@ test("imageGenerate tool successfully calls Agnes API and downloads image", asyn
     });
 
     assert.ok(result.content[0].text.includes("Successfully generated image using 'agnes' engine."));
+    assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/generated-agnes\.png/);
+    assert.equal(result.details.imageUrl, "https://example.com/generated-agnes.png");
     assert.equal(requestPayload.prompt, "A beautiful mountain");
     assert.equal(requestPayload.size, "1024x768");
     assert.equal(requestPayload.seed, 42);
@@ -104,6 +109,65 @@ test("imageGenerate tool successfully calls Agnes API and downloads image", asyn
     assert.equal(fileBytes, "agnes-fake-png-bytes");
     assert.equal(uploadedFile, savedFilePath);
     assert.equal(uploadedTitle, "agnes_mountain.png");
+
+    // Assert SQLite task database insertion and details
+    const taskId = result.details.taskId;
+    assert.ok(taskId);
+    const taskRecord = ctx.taskStore.getTask(taskId);
+    assert.ok(taskRecord);
+    assert.equal(taskRecord.status, "completed");
+    assert.equal(taskRecord.prompt, "A beautiful mountain");
+    assert.equal(taskRecord.engine, "agnes");
+    assert.equal(taskRecord.imagePath, savedFilePath);
+    assert.equal(taskRecord.imageUrl, "https://example.com/generated-agnes.png");
+  } finally {
+    globalThis.fetch = originalFetch;
+    try {
+      await fs.rm(mockCwd, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
+test("imageGenerate tool still returns generated image details when chat upload fails", async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (url: string) => {
+    const cleanUrl = String(url);
+    if (cleanUrl.includes("/v1/images/generations")) {
+      return new Response(JSON.stringify({
+        data: [{ url: "https://example.com/upload-failed-image.png" }]
+      }), { status: 200 });
+    }
+    if (cleanUrl.includes("upload-failed-image.png")) {
+      return new Response(Buffer.from("image-bytes"));
+    }
+    return new Response("Not found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    await fs.mkdir(mockCwd, { recursive: true });
+
+    const uploadFile = async () => {
+      throw new Error("Network request for 'sendDocument' failed!");
+    };
+    const ctx = getTestContext(undefined, uploadFile);
+    const tool = createImageGenerateTool(ctx);
+
+    const result = await tool.execute("call-upload-failed", {
+      prompt: "A dancer in a studio",
+      engine: "agnes",
+      outputName: "upload_failed.png"
+    });
+
+    assert.ok(result.content[0].text.includes("Generated successfully, but automatic chat upload failed"));
+    assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/upload-failed-image\.png/);
+    assert.match(result.content[0].text, /Upload error: Network request for 'sendDocument' failed!/);
+    assert.equal(result.details.uploaded, false);
+    assert.equal(result.details.uploadError, "Network request for 'sendDocument' failed!");
+
+    const savedFilePath = join(mockCwd, mockArtifactDir, "upload_failed.png");
+    const fileBytes = await fs.readFile(savedFilePath, "utf8");
+    assert.equal(fileBytes, "image-bytes");
   } finally {
     globalThis.fetch = originalFetch;
     try {
@@ -312,6 +376,8 @@ test("imageGenerate tool handles ModelScope async task submission and polling co
     });
 
     assert.ok(result.content[0].text.includes("Successfully generated image using 'modelscope' engine."));
+    assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/modelscope-final\.png/);
+    assert.equal(result.details.imageUrl, "https://example.com/modelscope-final.png");
     assert.equal(pollAttempts, 2); // Poll twice: PENDING, then SUCCEED
     
     const savedFilePath = join(mockCwd, mockArtifactDir, "ms_puppy.png");

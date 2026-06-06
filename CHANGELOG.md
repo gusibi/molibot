@@ -4,13 +4,46 @@
 
 ## 2026-06-06
 
-### Video Generate Base64 Conversion & Poller Fault Tolerance
-- Fixed a bug where remote video generation services (Agnes AI and Volcengine/Doubao) failed to generate videos from local reference images (like attachments downloaded by the channel adapter to `/tmp/`) because they couldn't read the local filesystem paths on the user's host machine.
-- Automatically resolves any local image paths to Base64 Data URLs (`data:image/MIME;base64,...`) prior to submitting the task payload to the remote API.
-- Added strict existence checks for local paths, throwing an immediate "Local reference image file not found" error if the file doesn't exist on disk, preventing invalid requests from being sent to the cloud.
+### Telegram Video Attachment Filename Preservation
+- Preserved source file extensions for Telegram media uploads when `attach` supplies a title without an extension, so generated MP4 videos upload as names like `title.mp4` instead of extensionless titles.
+- Added `supports_streaming: true` to native Telegram `sendVideo` uploads.
+- Added regression coverage for extension preservation in `runtime.test.ts`.
+
+### Image Generation SQLite Logging, Settings History & Sticky Footbar
+- Added a new `image_tasks` SQLite table storing image generation records (Task ID, engine, session ID, status, prompt, local path, remote URL, request parameters, error message, and timestamps).
+- Modified the `imageGenerate` tool to generate a unique UUID and record task creation as `processing` before executing, updating the record to `completed` or `failed` at completion.
+- Added `/api/settings/image-generate/tasks` API endpoint to retrieve recent tasks and delete records by Task ID.
+- Added `/api/settings/image-generate/image` serving endpoint to stream local image files or redirect playback/download to the provider's remote `imageUrl` if local files are missing.
+- Added a "Recent Generations" table to `/settings/image` showing creation time, Task ID, engine, prompt, and status.
+- Added "View Result" (pop-up displaying metadata and image with download functionality), "View Params" (displaying request parameters), and "Delete" actions to the task list.
+- Refactored the image settings submission form to use a sticky bottom bar (`.settings-footbar`) to house the save button and status message in accordance with `DESIGN.md` design principles.
+- Updated unit tests in `imageGenerateTool.test.ts` to mock database initialization, verify tool execution writes task records to SQLite, and assert properties of the task record.
+
+### Remote Video URL Storage, Redirect Streaming & Request Parameters Logging
+- Removed automatic client-side video file downloading from both the SvelteKit background task poller and the `videoGenerate` tool query execution to prevent connection reset failures (like `ECONNRESET` on Google Cloud Storage) from marking successful tasks as failed.
+- Dynamically migrated the SQLite settings database to add `video_url` and `request_params` columns to the `video_tasks` table.
+- Made `videoGenerate(taskId, engine)` treat SQLite as the first status source: completed records return the cached remote URL immediately, fresh processing records return cached progress for 30 seconds, and stale processing records perform one provider status query before writing the result back to the database.
+- Logged the exact request parameters (prompt, model, images) sent by the Agent/tester upon task creation.
+- Added a `302 Found` HTTP redirect in the SvelteKit video streaming endpoint `/api/settings/video-generate/video` to transparently route playback/download requests to the remote `videoUrl` if the local file is missing.
+- Updated `/settings/video` page UI tasks table list and details modal to render inline previews, handle direct downloads using the redirect endpoint and `videoUrl`, provide a "View Params" (查看参数) action button directly in the table actions list, and display request parameters inside a scrollable copyable JSON block.
+- Updated unit tests in `videoGenerateTool.test.ts` to assert that completion updates the database with `videoUrl`, returns `Remote URL` instead of `unknown` local paths, skips remote video downloads, and normalizes string/JSON-string `images` inputs.
+
+
+### Image Path Visibility & Robust Parameter Normalization
+- Added `Remote URL: https://...` to the successful return text and details of `imageGenerate` whenever the provider returns a public image URL, while keeping local saved paths for archive/debug use.
+- Made automatic chat upload failures non-fatal for `imageGenerate`: generated images now still return their Remote URL/local path plus an upload error note when Telegram or another channel fails to send the file.
+- Upgraded `videoGenerateSchema` to support both `Type.Array(Type.String())` and `Type.String()` for the `images` parameter.
+- Normalizes `params.images` at runtime: JSON-stringified arrays (e.g. `'["/path/to/img"]'`) are parsed, and single strings are wrapped in arrays, preventing iteration errors on characters of a string.
+- Changed `videoGenerate` image references to require public HTTP(S) URLs and reject local paths or Base64/data URLs before submitting to providers. This matches Agnes Video's public-image-URL requirement and lets the Agent use the `Remote URL` from `imageGenerate` for image-to-video.
+- Added comprehensive unit tests in `imageGenerateTool.test.ts` and `videoGenerateTool.test.ts` to assert Remote URL output, stringified URL arrays, single URL strings, and pre-submit rejection of local/data URL image references.
+
+### Video Generate Public URL Validation & Poller Fault Tolerance
+- Fixed a bug where remote video generation services (Agnes AI and Volcengine/Doubao) failed to generate videos from local reference images or Base64/data URLs because video providers require publicly reachable image URLs.
+- `videoGenerate` now rejects local paths and Base64/data URLs before submitting the task payload, and tells the Agent to use the `Remote URL` returned by `imageGenerate`.
+- Added strict public URL checks for reference images, preventing invalid requests from being sent to the cloud.
 - Formatted structured error objects returned by Agnes AI (containing both code and message) into serialized strings, avoiding SQLite parameter binding crashes when updating failed task records.
 - Implemented poller fault tolerance in the background tasks SvelteKit poller, marking the task as `failed` in the SQLite database after 3 consecutive failures (or when hitting a terminal HTTP 4xx response) to prevent infinite loops of failing requests.
-- Added test coverage in `videoGenerateTool.test.ts` to verify local image file encoding and missing image path exception handling.
+- Added test coverage in `videoGenerateTool.test.ts` to verify remote image URL passthrough plus local path and Base64/data URL rejection before provider submission.
 
 ### Telegram Streaming Long-Message Chunk Reuse
 - Fixed Telegram streaming answers repeatedly creating a new second message after the answer crossed the text limit.
