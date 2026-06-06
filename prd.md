@@ -8,7 +8,15 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Users who prefer simple interaction over complex automation.
 
 ## 2.6 Scope Clarification (2026-06-06)
+- [Done] AI 设置页面顶部 Hero 栏尺寸收缩与统一：为包括 8 个核心 AI 设置页及 16 个使用 Tailwind 的常规设置页在内的所有页面应用了全局统一的 Hero 头部紧凑型样式；将页面标题字号从 `2rem` 缩减至 `1.375rem`，描述字体缩减至 `0.8125rem`（13px），内部 gap 缩减至 `0.375rem`，并去除了 Layout 叠加造成的默认 padding-top 导致的大面积上方空白。
+- [Done] AI 设置页面底部固定栏全宽适配与样式抽离：将路由（`/settings/ai/routing`）、提供商（`/settings/ai/providers`）、报错记录（`/settings/ai/errors`）、MCP（`/settings/mcp`）、搜索（`/settings/search`）和视频（`/settings/video`）等设置页面的底栏从 `div` 元素改为 HTML5 语义化的 `footer` 元素，以解决 `workbench.css` 对 div 的 max-width 限制，实现底栏全屏幕宽度拉伸；同时将所有 8 个 AI 设置页面的 `<style>` 标签内的样式完全抽离并整合到独立的全局样式表 `src/styles/settings-custom.css` 中，防止 Svelte 编译器动态在 `<head>` 中生成 scoped 的 Header code 样式。
+- [Done] AI 设置相关子页面统一样式与居中对齐排版：重构了所有 AI 设置相关页面（包括路由、提供商、用量统计、报错记录、MCP、搜索、图片和视频设置页面），为每个页面的主容器添加了 `margin: 0 auto;` 居中对齐，使得中间的内容区域在大屏下左右留白完全对称；同时将所有页面的固定保存/操作底栏（`.settings-footbar`）移出 max-width 容器，确保其在右侧主显示区横跨全屏。
+- [Done] 视频设置页面固定粘性底栏适配：重构了视频生成设置页面（`/settings/video`）的表单结构，将其输入和引擎列表包裹在 `<form id="video-form" ...>` 中。将原本位于页面卡片底部的普通保存按钮，移至悬浮在全屏最底部的粘性固定底栏（`.settings-footbar`），与表单 action 完美绑定，实现了 AI Settings 下所有页面交互和视觉风格的完全一致。
 - [Done] 修复 Telegram 视频附件标题覆盖扩展名的问题：当 `attach` 发送 `.mp4` 等二进制媒体且 `title` 不含扩展名时，上传文件名必须自动保留源文件扩展名，并通过 `sendVideo` 设置 `supports_streaming`，避免视频生成结果在 Telegram 中被异常展示为非视频消息。
+- [Done] 模型报错记录、MCP 服务与搜索设置页面样式重构：重构了 `/settings/ai/errors`、`/settings/mcp` 和 `/settings/search` 的布局与 CSS 样式，迁移至 Warm Shadcn（衬线标题排版、`var(--card)` 背景、`var(--border)` 边框等）设计系统。
+- [Done] 适配固定粘性保存底栏：按照 `DESIGN.md` 第 4 条设计原则，将 `/settings/mcp` 和 `/settings/search` 页面的“保存设置”及“重置”按钮承载于固定底栏（`.settings-footbar`）中。对于 `/settings/ai/errors`，其“刷新记录”操作也被集成到了固定底栏中。
+- [Done] 统一 Switch 开关组件：在这三个设置页面中，统一使用 Svelte 源码 `<Switch>` 组件替代手写开关，利用 Svelte 5 的 `bind:checked` 自动绑定。
+- [Done] 移除 SettingsSection 布局依赖：取消这三个页面对 `SettingsSection` 包装组件的依赖，替换为自定义的 Hero 头部区域，并清理了无用组件导入。
 - [Done] 图像生成记录 SQLite 持久化与历史管理：在 SQLite 中新增 `image_tasks` 表，存储图像生成 Task ID、引擎、会话 ID、状态、提示词、本地保存路径、远程图片 URL、请求参数和错误消息。
 - [Done] 图像生成工具同步入库：`imageGenerate` 执行时先将任务记录创建为 `processing` 状态，并在生成完成后更新为 `completed`（含本地路径和远程 URL）或 `failed`（含错误说明），测试环境支持自定义 taskStore 以隔离测试记录。
 - [Done] 图像生成历史记录展示与详情弹窗：在 `/settings/image` 页面新增“最近生成记录”表格，降序排列生成记录，支持“查看结果”弹窗（渲染生成的图片和元数据并提供下载）、“查看参数”弹窗（拷贝原始 JSON）及删除操作。

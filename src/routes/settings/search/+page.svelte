@@ -1,15 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
-  import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
-  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { WEB_SEARCH_DEFAULT_BASE_URLS, type WebSearchBaseUrlEngine } from "$lib/shared/webSearchDefaults";
   import { Switch } from "$lib/components/ui/switch";
-  import SettingsSection from "$lib/components/ui/settings/SettingsSection.svelte";
 
   type EngineId =
     | "duckduckgo"
@@ -191,18 +188,20 @@
   onMount(loadSettings);
 </script>
 
-<div class="wb-page">
-  <SettingsSection
-    title="Web Search"
-    description="Configure the built-in Agent search tool. Search runs in the shared Agent layer and is available across Web, Telegram, Feishu, QQ, and Weixin."
-    badge="Built-in Tool"
-  >
+<div class="search-page">
+  <header class="search-hero">
+    <span class="search-badge">Built-in Tool</span>
+    <h1 class="search-hero-title">Web Search</h1>
+    <p class="search-hero-desc">
+      Configure the built-in agent search tool. Search runs in the shared agent layer and is available across Web, Telegram, Feishu, QQ, and Weixin channels.
+    </p>
+  </header>
 
   {#if error}
-    <div class="wb-panel-danger"><span class="text-sm font-medium">{error}</span></div>
+    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
   {/if}
   {#if message}
-    <div class="wb-status-line rounded-lg" data-tone="success">
+    <div class="search-test-result mt-2 mb-4" data-tone="success">
       <span class="flex items-center gap-2 text-sm font-medium">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
         {message}
@@ -211,26 +210,28 @@
   {/if}
 
   {#if loading}
-    <div class="wb-empty-state"><span class="animate-pulse">Loading search settings...</span></div>
+    <div class="errors-empty-state"><span class="animate-pulse">Loading search settings...</span></div>
   {:else}
-    <form id="search-form" class="space-y-6" onsubmit={(event) => { event.preventDefault(); save(); }}>
-      <div class="wb-panel">
-        <div class="wb-panel-heading">
-          <h2 class="font-serif">Default Behavior</h2>
-          <p class="wb-muted">Keep this broad. Per-call engine and route overrides are still supported by the tool schema.</p>
+    <form id="search-form" class="flex flex-col gap-6" onsubmit={(event) => { event.preventDefault(); save(); }}>
+      <section class="search-card">
+        <div class="search-card-header">
+          <div>
+            <h2 class="search-card-title">Default Behavior</h2>
+            <p class="search-card-desc">Set the fallback search logic. Model overrides at runtime are still supported.</p>
+          </div>
         </div>
 
-        <div class="wb-status-line rounded-xl mb-6">
-          <div class="flex-1">
+        <div class="search-switch-row">
+          <div>
             <Label for="search-enabled" class="font-bold">Enable built-in webSearch tool</Label>
-            <p class="mt-0.5 text-xs wb-muted">When disabled, the tool returns a settings error instead of searching.</p>
+            <p class="search-form-hint">When disabled, the tool returns a settings error instead of searching.</p>
           </div>
           <Switch id="search-enabled" bind:checked={webSearch.enabled} />
         </div>
 
-        <div class="wb-form-grid">
-          <div class="wb-field">
-            <span>Default route</span>
+        <div class="search-form-grid">
+          <div class="search-form-group">
+            <Label for="default-route">Default route</Label>
             <NativeSelect id="default-route" bind:value={webSearch.defaultRoute} class="h-10">
               <NativeSelectOption value="auto">Auto</NativeSelectOption>
               <NativeSelectOption value="china">China-local sources</NativeSelectOption>
@@ -239,8 +240,9 @@
               <NativeSelectOption value="research">Research</NativeSelectOption>
             </NativeSelect>
           </div>
-          <div class="wb-field">
-            <span>Default engine</span>
+
+          <div class="search-form-group">
+            <Label for="default-engine">Default engine</Label>
             <NativeSelect id="default-engine" bind:value={webSearch.defaultEngine} class="h-10">
               <NativeSelectOption value="auto">Auto route order</NativeSelectOption>
               {#each visibleEngines as engine}
@@ -248,67 +250,69 @@
               {/each}
             </NativeSelect>
           </div>
-          <div class="wb-field">
-            <span>Auto engine strategy</span>
+
+          <div class="search-form-group">
+            <Label for="engine-selection-strategy">Auto engine strategy</Label>
             <NativeSelect id="engine-selection-strategy" bind:value={webSearch.engineSelectionStrategy} class="h-10">
               <NativeSelectOption value="priority">Priority order</NativeSelectOption>
               <NativeSelectOption value="random">Random among configured</NativeSelectOption>
               <NativeSelectOption value="round_robin">Round-robin among configured</NativeSelectOption>
             </NativeSelect>
-            <small class="wb-muted">Used only when Default engine is Auto. Engines without required API keys are skipped.</small>
+            <p class="search-form-hint">Used only when Default engine is Auto. Engines without required API keys are skipped.</p>
           </div>
-          <div class="wb-field">
-            <span>Max results</span>
+
+          <div class="search-form-group">
+            <Label for="max-results">Max results</Label>
             <Input id="max-results" type="number" min="1" max="20" bind:value={webSearch.maxResults} class="h-10 tabular-nums" />
           </div>
-          <div class="wb-field md:col-span-2">
-            <span>Timeout / retry timeout (ms)</span>
+
+          <div class="search-form-group search-form-group--full">
+            <Label for="timeout-ms">Timeout / Retry Timeout (ms)</Label>
             <div class="grid grid-cols-2 gap-3">
-              <Input id="timeout-ms" type="number" min="1000" max="120000" bind:value={webSearch.timeoutMs} class="h-10 tabular-nums" />
-              <Input type="number" min="1000" max="180000" bind:value={webSearch.retryTimeoutMs} class="h-10 tabular-nums" />
+              <Input id="timeout-ms" type="number" min="1000" max="120000" bind:value={webSearch.timeoutMs} class="h-10 tabular-nums" placeholder="Timeout" />
+              <Input type="number" min="1000" max="180000" bind:value={webSearch.retryTimeoutMs} class="h-10 tabular-nums" placeholder="Retry Timeout" />
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="wb-panel">
-        <div class="wb-panel-heading">
-          <h2 class="font-serif">Search Engines</h2>
-          <p class="wb-muted">DuckDuckGo works without credentials. Paid or account-backed engines are skipped until their API key is configured.</p>
+      <section class="search-card">
+        <div class="search-card-header">
+          <div>
+            <h2 class="search-card-title">Search Engines</h2>
+            <p class="search-card-desc">DuckDuckGo works without credentials. Other engines are skipped until API keys are set.</p>
+          </div>
         </div>
 
-        <div class="space-y-4">
+        <div class="search-engine-list">
           {#each visibleEngines as engine}
-            <div class="wb-note space-y-4">
-              <div class="flex items-start justify-between gap-4">
+            <div class="search-engine-card">
+              <div class="search-engine-header">
                 <div class="flex-1">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <h3 class="font-bold">{engine.name}</h3>
-                    <span class="wb-pill" data-tone="default">{engine.id}</span>
+                  <div class="search-engine-title-group">
+                    <h3 class="search-engine-title">{engine.name}</h3>
+                    <span class="search-pill">{engine.id}</span>
                   </div>
-                  <p class="mt-1 settings-item-desc">{engine.hint}</p>
+                  <p class="search-engine-hint">{engine.hint}</p>
                 </div>
-                <div class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background {webSearch.engines[engine.id].enabled ? 'bg-primary' : 'bg-input'}"
-                  onclick={() => setEngineEnabled(engine.id, !webSearch.engines[engine.id].enabled)}>
-                  <span class="pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform {webSearch.engines[engine.id].enabled ? 'translate-x-4' : 'translate-x-1'}"></span>
-                </div>
+                <Switch bind:checked={webSearch.engines[engine.id].enabled} />
               </div>
-              
+
               {#if engine.id !== "duckduckgo"}
-                <div class="wb-form-grid border-t border-border/40 pt-4">
-                  <div class="wb-field">
-                    <span>{engine.keyLabel}</span>
-                    <div class="flex items-center gap-1.5">
+                <div class="search-engine-inputs">
+                  <div class="search-form-group">
+                    <Label>{engine.keyLabel}</Label>
+                    <div class="search-key-input-container">
                       <Input
                         type={showApiKey[engine.id] ? "text" : "password"}
                         autocomplete="off"
                         value={webSearch.engines[engine.id].apiKey}
                         oninput={(event) => setEngineValue(engine.id, "apiKey", (event.target as HTMLInputElement).value)}
-                        class="h-9 font-mono text-xs"
+                        class="h-9 font-mono text-xs flex-1"
                       />
                       <button
                         type="button"
-                        class="settings-icon-btn"
+                        class="search-icon-btn"
                         onclick={() => (showApiKey[engine.id] = !showApiKey[engine.id])}
                         aria-label={showApiKey[engine.id] ? "Hide API key" : "Show API key"}
                       >
@@ -320,50 +324,56 @@
                       </button>
                     </div>
                   </div>
-                  <div class="wb-field">
-                    <span>Custom base URL</span>
+
+                  <div class="search-form-group">
+                    <Label>Custom base URL</Label>
                     <Input placeholder={defaultBaseUrl(engine.id)} value={webSearch.engines[engine.id].baseUrl ?? ""} oninput={(event) => setEngineValue(engine.id, "baseUrl", (event.target as HTMLInputElement).value)} class="h-9 text-xs" />
-                    <small class="wb-muted truncate">
-                      Default: <code class="wb-code">{defaultBaseUrl(engine.id)}</code>
-                    </small>
+                    <p class="search-form-hint truncate">
+                      Default: <code>{defaultBaseUrl(engine.id)}</code>
+                    </p>
                   </div>
                 </div>
               {/if}
             </div>
           {/each}
         </div>
-      </div>
+      </section>
 
-      <div class="wb-panel">
-        <div class="wb-panel-heading">
-          <h2 class="font-serif text-lg">Test Query</h2>
-          <p class="wb-muted">Runs with the current form values, including unsaved API keys.</p>
+      <section class="search-card">
+        <div class="search-card-header">
+          <div>
+            <h2 class="search-card-title">Test Query</h2>
+            <p class="search-card-desc">Test the engine config directly using unsaved settings.</p>
+          </div>
         </div>
-        <div class="space-y-4">
-          <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px_auto]">
+
+        <div class="flex flex-col gap-4">
+          <div class="search-test-grid">
             <Input bind:value={testQuery} placeholder="Search query" class="h-10" />
             <NativeSelect bind:value={testEngine} class="h-10">
               <NativeSelectOption value="auto">Auto engine</NativeSelectOption>
               {#each visibleEngines as engine}
                 <NativeSelectOption value={engine.id}>{engine.name}</NativeSelectOption>
+              {/each}
               {#each engines.filter(e => e.id === "ark") as ark}
                 <NativeSelectOption value={ark.id}>{ark.name}</NativeSelectOption>
               {/each}
-              {/each}
             </NativeSelect>
-            <Button type="button" variant="outline" onclick={runTest} disabled={testing} class="h-10 px-6 font-bold">{testing ? "Testing..." : "Test"}</Button>
+            <Button type="button" variant="outline" onclick={runTest} disabled={testing} class="h-10 px-6 font-bold">
+              {testing ? "Testing..." : "Test"}
+            </Button>
           </div>
+
           {#if testResult}
-            <div class="wb-note">
-              <span class="wb-eyebrow text-[10px]">WebSearchResponse</span>
-              <pre class="mt-3 max-h-[32rem] overflow-auto wb-mono text-[11px] leading-5 wb-muted p-2 rounded bg-background/50">{JSON.stringify(testResult, null, 2)}</pre>
+            <div class="search-test-result">
+              <span class="search-note-title">WebSearchResponse</span>
+              <pre class="search-test-pre">{JSON.stringify(testResult, null, 2)}</pre>
             </div>
           {/if}
         </div>
-      </div>
+      </section>
     </form>
   {/if}
-  </SettingsSection>
 </div>
 
 <footer class="settings-footbar">
@@ -374,25 +384,20 @@
         Saving changes...
       </span>
     {:else if message}
-      <span class="flex items-center gap-2 text-xs font-medium text-primary">
-        <span class="h-2 w-2 rounded-full bg-primary"></span>
-        Settings saved
-      </span>
+      <span class="settings-footbar-ok">{message}</span>
+    {/if}
+    {#if error}
+      <span class="settings-footbar-error">{error}</span>
     {/if}
   </div>
   <div class="flex items-center gap-3">
     <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving} class="h-9 px-4 text-xs font-bold">
       Reset
     </Button>
-    <Button type="submit" form="search-form" variant="default" size="sm" disabled={loading || saving} class="h-9 px-6 text-xs font-bold">
+    <button type="submit" form="search-form" class="settings-footbar-btn" disabled={loading || saving}>
       {saving ? "Saving..." : "Save Search Settings"}
-    </Button>
+    </button>
   </div>
 </footer>
 
-<style>
-  :global(.tabular-nums) {
-    font-variant-numeric: tabular-nums;
-  }
-</style>
 

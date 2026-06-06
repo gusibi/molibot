@@ -9,7 +9,6 @@
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { Switch } from "$lib/components/ui/switch";
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
-  import SettingsSection from "$lib/components/ui/settings/SettingsSection.svelte";
   import { locale } from "$lib/ui/i18n";
 
   type EngineId = "agnes" | "modelscope" | "google" | "volcengine";
@@ -328,11 +327,13 @@
   });
 </script>
 
-<SettingsSection
-  title={t("title")}
-  description={t("desc")}
-  badge="Built-in Tool"
->
+<div class="image-page">
+  <!-- Hero Header -->
+  <header class="image-hero">
+    <span class="image-badge">Built-in Tool</span>
+    <h1 class="image-hero-title">{t("title")}</h1>
+    <p class="image-hero-desc">{t("desc")}</p>
+  </header>
 
   {#if loading}
     <p class="py-8 text-sm text-muted-foreground">Loading settings...</p>
@@ -546,7 +547,7 @@
       </CardContent>
     </Card>
   {/if}
-</SettingsSection>
+</div>
 
 {#if activeTaskDetails}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onclick={() => activeTaskDetails = null}>
@@ -650,3 +651,5 @@
     </Button>
   </div>
 </footer>
+
+

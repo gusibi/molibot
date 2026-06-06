@@ -1,11 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
-  import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
-  import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
-  import SettingsSection from "$lib/components/ui/settings/SettingsSection.svelte";
 
   type ModelErrorKind = "request_error" | "empty_response" | "missing_api_key";
 
@@ -114,57 +111,52 @@
   $: topProvider = summary.byProvider[0];
 </script>
 
-<div class="wb-page">
-  <SettingsSection
-    title="模型报错记录"
-    description="这里只记录失败模型调用，用来定位缺少密钥、空响应、上游请求失败，以及 fallback 是否兜住了这次运行。"
-    badge="Failure Radar"
-  >
-  <div class="flex justify-end">
-    <Button variant="outline" onclick={loadModelErrors} disabled={loading} class="h-10 px-6 font-bold">
-      {#if loading}
-        <span class="mr-2 h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent"></span>
-        刷新中
-      {:else}
-        刷新
-      {/if}
-    </Button>
-  </div>
+<div class="errors-page">
+  <!-- Hero Header -->
+  <header class="errors-hero">
+    <span class="errors-badge">Failure Radar</span>
+    <h1 class="errors-hero-title">模型报错记录</h1>
+    <p class="errors-hero-desc">
+      这里只记录失败模型调用，用来定位缺少密钥、空响应、上游请求失败，以及 fallback 是否兜住了这次运行。
+    </p>
+  </header>
 
   {#if error}
-    <Alert variant="destructive" class="wb-panel-danger"><AlertDescription>{error}</AlertDescription></Alert>
+    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
   {/if}
 
   {#if loading && items.length === 0}
-    <div class="wb-empty-state">
+    <div class="errors-empty-state">
       <span class="animate-pulse">正在加载模型报错记录...</span>
     </div>
   {:else}
-    <div class="wb-kpi-grid">
-      <div class="wb-kpi-card" data-span="3" data-tone="danger">
-        <span class="wb-eyebrow">总失败数</span>
-        <strong class="tabular-nums">{summary.total}</strong>
-        <p class="settings-item-desc mt-auto">最近 200 条失败日志内的记录数</p>
+    <!-- KPIs -->
+    <div class="errors-kpi-grid">
+      <div class="errors-kpi-card">
+        <span class="errors-kpi-label">总失败数</span>
+        <strong class="errors-kpi-value">{summary.total}</strong>
+        <p class="errors-kpi-desc">最近 200 条内的记录数</p>
       </div>
-      <div class="wb-kpi-card" data-span="3">
-        <span class="wb-eyebrow">后来恢复</span>
-        <strong class="tabular-nums text-[#8B9A6D]">{summary.recovered}</strong>
-        <p class="settings-item-desc mt-auto">{pct(summary.recovered, summary.total)}% 被备用模型或重试兜住</p>
+      <div class="errors-kpi-card">
+        <span class="errors-kpi-label">后来恢复</span>
+        <strong class="errors-kpi-value text-[#8B9A6D]">{summary.recovered}</strong>
+        <p class="errors-kpi-desc">{pct(summary.recovered, summary.total)}% 被备用模型或重试兜住</p>
       </div>
-      <div class="wb-kpi-card" data-span="3">
-        <span class="wb-eyebrow">直接失败</span>
-        <strong class="tabular-nums text-[#A36A5E]">{summary.unrecovered}</strong>
-        <p class="settings-item-desc mt-auto">{pct(summary.unrecovered, summary.total)}% 最终没有恢复</p>
+      <div class="errors-kpi-card">
+        <span class="errors-kpi-label">直接失败</span>
+        <strong class="errors-kpi-value text-[#A36A5E]">{summary.unrecovered}</strong>
+        <p class="errors-kpi-desc">{pct(summary.unrecovered, summary.total)}% 最终没有恢复</p>
       </div>
-      <div class="wb-kpi-card" data-span="3">
-        <span class="wb-eyebrow">最高频 Provider</span>
-        <strong class="text-xl sm:text-2xl">{topProvider?.provider ?? "--"}</strong>
-        <p class="settings-item-desc mt-auto">{topProvider ? `${topProvider.count} 条失败` : "暂无失败来源"}</p>
+      <div class="errors-kpi-card">
+        <span class="errors-kpi-label">最高频 Provider</span>
+        <strong class="errors-kpi-value text-xl font-serif">{topProvider?.provider ?? "--"}</strong>
+        <p class="errors-kpi-desc">{topProvider ? `${topProvider.count} 条失败` : "暂无失败来源"}</p>
       </div>
     </div>
 
-    <div class="wb-filter-bar">
-      <div class="wb-field">
+    <!-- Filter Bar -->
+    <div class="errors-filter-bar">
+      <div class="errors-field">
         <span>Channel</span>
         <NativeSelect bind:value={selectedChannel} class="h-9">
           <NativeSelectOption value="all">全部渠道</NativeSelectOption>
@@ -173,7 +165,7 @@
           {/each}
         </NativeSelect>
       </div>
-      <div class="wb-field">
+      <div class="errors-field">
         <span>Provider</span>
         <NativeSelect bind:value={selectedProvider} class="h-9">
           <NativeSelectOption value="all">全部 Provider</NativeSelectOption>
@@ -182,7 +174,7 @@
           {/each}
         </NativeSelect>
       </div>
-      <div class="wb-field">
+      <div class="errors-field">
         <span>State</span>
         <NativeSelect bind:value={selectedState} class="h-9">
           <NativeSelectOption value="all">全部状态</NativeSelectOption>
@@ -190,7 +182,7 @@
           <NativeSelectOption value="failed">未恢复</NativeSelectOption>
         </NativeSelect>
       </div>
-      <div class="wb-field">
+      <div class="errors-field">
         <span>Kind</span>
         <NativeSelect bind:value={selectedKind} class="h-9">
           <NativeSelectOption value="all">全部类型</NativeSelectOption>
@@ -202,43 +194,45 @@
       <Button variant="outline" size="sm" class="h-9 px-4 font-semibold" onclick={resetFilters}>清空筛选</Button>
     </div>
 
-    <div class="wb-split-layout">
-      <aside class="wb-sticky-side space-y-4">
-        <div class="wb-panel-soft">
-          <div class="wb-panel-heading">
-            <h3 class="font-serif">错误类型</h3>
+    <!-- Split Layout -->
+    <div class="errors-split-layout">
+      <!-- Sidebar panels -->
+      <aside class="errors-sidebar">
+        <div class="errors-panel-soft">
+          <div class="errors-panel-heading">
+            <h3 class="errors-panel-title">错误类型</h3>
           </div>
-          <div class="wb-rank-list">
+          <div class="errors-rank-list">
             {#each ["request_error", "empty_response", "missing_api_key"] as kind}
               {@const count = countByKind(kind as ModelErrorKind)}
               <button
                 type="button"
-                class="wb-config-item {selectedKind === kind ? 'active' : ''}"
+                class="errors-config-item {selectedKind === kind ? 'active' : ''}"
                 onclick={() => (selectedKind = selectedKind === kind ? "all" : kind)}
               >
-                <span class="wb-config-item-title">{kindLabel(kind as ModelErrorKind)}</span>
-                <span class="wb-pill tabular-nums" data-tone={count > 0 ? "warning" : "default"}>{count}</span>
+                <span class="errors-config-item-title">{kindLabel(kind as ModelErrorKind)}</span>
+                <span class="errors-pill tabular-nums" data-tone={count > 0 ? "warning" : "default"}>{count}</span>
               </button>
             {/each}
           </div>
         </div>
 
-        <div class="wb-panel-soft">
-          <div class="wb-panel-heading">
-            <h3 class="font-serif">Provider 排名</h3>
+        <div class="errors-panel-soft">
+          <div class="errors-panel-heading">
+            <h3 class="errors-panel-title">Provider 排名</h3>
           </div>
-          <div class="wb-rank-list">
+          <div class="errors-rank-list">
             {#if summary.byProvider.length === 0}
-              <p class="wb-muted text-xs p-3">暂无 provider 失败记录。</p>
+              <p class="text-xs text-muted-foreground p-2">暂无 provider 失败记录。</p>
             {:else}
               {#each summary.byProvider.slice(0, 10) as row}
                 <button
                   type="button"
-                  class="wb-config-item {selectedProvider === row.provider ? 'active' : ''}"
+                  class="errors-config-item {selectedProvider === row.provider ? 'active' : ''}"
                   onclick={() => (selectedProvider = selectedProvider === row.provider ? "all" : row.provider)}
                 >
-                  <span class="wb-config-item-title">{row.provider}</span>
-                  <span class="wb-pill tabular-nums" data-tone="danger">{row.count}</span>
+                  <span class="errors-config-item-title">{row.provider}</span>
+                  <span class="errors-pill tabular-nums" data-tone="danger">{row.count}</span>
                 </button>
               {/each}
             {/if}
@@ -246,55 +240,58 @@
         </div>
       </aside>
 
-      <section class="space-y-4">
-        <div class="flex items-center justify-between px-2">
-          <h2 class="font-serif text-lg">失败事件 <span class="wb-muted font-normal text-sm tabular-nums">({filteredItems.length} 条匹配记录)</span></h2>
+      <!-- Main event logs list -->
+      <section class="errors-content">
+        <div class="errors-content-header">
+          <h2 class="errors-content-title">
+            失败事件 <span>({filteredItems.length} 条匹配记录)</span>
+          </h2>
         </div>
 
         {#if filteredItems.length === 0}
-          <div class="wb-empty-state">当前筛选条件下没有模型报错记录。</div>
+          <div class="errors-empty-state">当前筛选条件下没有模型报错记录。</div>
         {:else}
-          <div class="space-y-4">
+          <div class="flex flex-col gap-4">
             {#each filteredItems as item}
-              <div class="wb-panel {item.recovered ? '' : 'border-destructive/30'}" style={item.recovered ? '' : 'border-left: 4px solid var(--destructive)'}>
-                <div class="wb-panel-heading">
-                  <div class="flex flex-col gap-1">
-                    <div class="flex items-center gap-3">
-                      <h3 class="font-semibold">{item.provider} / {item.model}</h3>
-                      <span class="wb-pill tabular-nums" data-tone={item.recovered ? 'success' : 'danger'}>
+              <div class="errors-event-card" style={item.recovered ? '' : 'border-left: 4px solid oklch(50% 0.18 25)'}>
+                <div class="errors-event-header">
+                  <div class="errors-event-title-row">
+                    <div class="errors-event-title-group">
+                      <h3 class="errors-event-title">{item.provider} / {item.model}</h3>
+                      <span class="errors-pill tabular-nums" data-tone={item.recovered ? 'success' : 'danger'}>
                         {item.recovered ? "已恢复" : "未恢复"}
                       </span>
-                      <span class="wb-pill" data-tone="default">{kindLabel(item.kind)}</span>
+                      <span class="errors-pill" data-tone="default">{kindLabel(item.kind)}</span>
                     </div>
-                    <p class="wb-muted text-xs tabular-nums">{formatDate(item.ts)} · {item.channel} / {item.botId} / {item.chatId}</p>
+                    <p class="errors-event-meta">{formatDate(item.ts)} · {item.channel} / {item.botId} / {item.chatId}</p>
                   </div>
-                  <div class="flex gap-2">
-                    <span class="wb-pill" data-tone="default">{item.source}</span>
-                    <span class="wb-pill" data-tone="default">{item.route}</span>
+                  <div class="errors-event-tags">
+                    <span class="errors-pill" data-tone="default">{item.source}</span>
+                    <span class="errors-pill" data-tone="default">{item.route}</span>
                   </div>
                 </div>
 
-                <div class="wb-grid-2 mt-4">
-                  <div class="wb-note">
-                    <span class="wb-eyebrow text-[10px]">Error Reason</span>
-                    <p class="mt-1 text-sm text-foreground">{item.message}</p>
+                <div class="errors-event-grid">
+                  <div class="errors-note">
+                    <span class="errors-note-title">Error Reason</span>
+                    <p class="errors-note-content">{item.message}</p>
                   </div>
-                  <div class="wb-note">
-                    <span class="wb-eyebrow text-[10px]">Context</span>
-                    <div class="mt-1 space-y-1 text-xs tabular-nums">
-                      <p>API: <span class="wb-text-strong">{item.api || "-"}</span></p>
-                      <p>Base URL: <span class="wb-text-strong">{item.baseUrl || "-"}</span></p>
-                      <p>Endpoint: <span class="wb-text-strong">{item.endpointUrl || "-"}</span></p>
-                      <p>Session: <span class="wb-text-strong font-mono">{item.sessionId || "-"}</span></p>
-                    </div>
+                  <div class="errors-note">
+                    <span class="errors-note-title">Context</span>
+                    <ul class="errors-note-context-list">
+                      <li>API: <span>{item.api || "-"}</span></li>
+                      <li>Base URL: <span>{item.baseUrl || "-"}</span></li>
+                      <li>Endpoint: <span>{item.endpointUrl || "-"}</span></li>
+                      <li>Session: <span>{item.sessionId || "-"}</span></li>
+                    </ul>
                   </div>
                 </div>
 
-                <div class="mt-4 wb-status-line rounded-lg" data-tone={item.recovered ? 'success' : 'default'}>
+                <div class="errors-status-line" data-tone={item.recovered ? 'success' : 'default'}>
                   {#if item.recovered}
                     <span class="flex items-center gap-2">
                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-                      备用路径已接管：<strong class="font-bold">{item.finalProvider || "-"} / {item.finalModel || "-"}</strong>
+                      备用路径已接管：<strong>{item.finalProvider || "-"} / {item.finalModel || "-"}</strong>
                     </span>
                   {:else}
                     <span class="flex items-center gap-2">
@@ -310,9 +307,9 @@
       </section>
     </div>
   {/if}
-  </SettingsSection>
 </div>
 
+<!-- Fixed Footer Bar -->
 <footer class="settings-footbar">
   <div class="settings-footbar-status">
     {#if loading}
@@ -334,9 +331,5 @@
   </div>
 </footer>
 
-<style>
-  :global(.tabular-nums) {
-    font-variant-numeric: tabular-nums;
-  }
-</style>
+
 

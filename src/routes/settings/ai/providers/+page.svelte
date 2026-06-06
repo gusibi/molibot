@@ -5,7 +5,7 @@
     import { Label } from "$lib/components/ui/label";
     import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
     import { Textarea } from "$lib/components/ui/textarea";
-  import SettingsSection from "$lib/components/ui/settings/SettingsSection.svelte";
+
 
     type ProviderMode = "pi" | "custom";
     type CustomProviderProtocol = "openai-compatible" | "anthropic";
@@ -1300,12 +1300,17 @@
     onMount(loadAll);
 </script>
 
-<SettingsSection
-  title="Providers & Models"
-  description="Configure AI inference providers, manage model registries, and set up routing for text, vision, STT, and TTS capabilities."
-  badge="AI Engine"
->
+
 <div class="providers-page">
+  <!-- Hero Header -->
+  <header class="providers-hero">
+    <span class="providers-badge">AI Engine</span>
+    <h1 class="providers-hero-title">Providers & Models</h1>
+    <p class="providers-hero-desc">
+      Configure AI inference providers, manage model registries, and set up routing for text, vision, STT, and TTS capabilities.
+    </p>
+    <a class="providers-hero-link" href="/settings/ai/routing">← Back to routing</a>
+  </header>
     {#if loading}
         <p class="providers-loading">Loading providers...</p>
     {:else}
@@ -1813,20 +1818,6 @@
                 </div>
             </section>
         </form>
-
-        <div class="settings-footbar">
-            <div class="settings-footbar-status">
-                {#if message}
-                    <span class="settings-footbar-ok">{message}</span>
-                {/if}
-                {#if error}
-                    <span class="settings-footbar-error">{error}</span>
-                {/if}
-            </div>
-            <button type="submit" form="providers-form" class="settings-footbar-btn" disabled={saving}>
-                {saving ? "Saving..." : "Save Providers"}
-            </button>
-        </div>
     {/if}
 
     <!-- ── Add Model Modal ── -->
@@ -1901,256 +1892,21 @@
         </div>
     {/if}
 </div>
-</SettingsSection>
 
-<style>
-  /* ── Page Shell ── */
-  .providers-page { max-width: 56rem; display: flex; flex-direction: column; gap: 1.5rem; }
-  .providers-loading { padding: 2.5rem 0; font-size: 0.875rem; color: var(--muted-foreground); }
-  .providers-form-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 1.5rem; }
-  .providers-detail-section { flex: 1; min-width: 0; }
-  .providers-detail-card {
-    background: var(--card); border: 1px solid var(--border); border-radius: 0.625rem;
-    padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.04);
-    display: flex; flex-direction: column; gap: 1rem;
-  }
+{#if !loading}
+    <footer class="settings-footbar">
+        <div class="settings-footbar-status">
+            {#if message}
+                <span class="settings-footbar-ok">{message}</span>
+            {/if}
+            {#if error}
+                <span class="settings-footbar-error">{error}</span>
+            {/if}
+        </div>
+        <button type="submit" form="providers-form" class="settings-footbar-btn" disabled={saving}>
+            {saving ? "Saving..." : "Save Providers"}
+        </button>
+    </footer>
+{/if}
 
-  /* ── Sidebar ── */
-  .providers-sidebar { width: 100%; flex-shrink: 0; }
-  .providers-sidebar-card {
-    position: sticky; top: 1.5rem;
-    display: flex; flex-direction: column; gap: 1rem;
-    padding: 1.25rem;
-    background: var(--card); border: 1px solid var(--border); border-radius: 0.625rem;
-    max-height: calc(100dvh - 9rem); overflow-y: auto;
-  }
-  .providers-sidebar-title { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); margin: 0; }
-  .providers-sidebar-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-  .providers-sidebar-tab {
-    padding: 0.5rem; border-radius: 0.375rem;
-    border: 1px solid var(--border); background: transparent;
-    font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
-    color: var(--muted-foreground); cursor: pointer; transition: all 150ms ease;
-  }
-  .providers-sidebar-tab--active { background: var(--primary); color: var(--primary-foreground, oklch(99% 0 0)); border-color: var(--primary); }
-  .providers-sidebar-info { border-radius: 0.5rem; border: 1px solid var(--border); background: var(--background); padding: 0.5rem 0.75rem; font-size: 0.75rem; color: var(--muted-foreground); line-height: 1.5; }
-  .providers-sidebar-search {
-    width: 100%; padding: 0.5rem 0.75rem;
-    border: 1px solid var(--border); border-radius: 0.375rem;
-    background: var(--card); color: var(--foreground); font-size: 0.8125rem;
-  }
-  .providers-sidebar-search:focus { outline: none; border-color: var(--primary); }
-  .providers-sidebar-list { display: flex; flex-direction: column; gap: 0.375rem; }
-  .providers-sidebar-empty { padding: 0.5rem; text-align: center; font-size: 0.75rem; color: var(--muted-foreground); }
-  .providers-sidebar-item {
-    display: flex; flex-direction: column; gap: 0.25rem;
-    padding: 0.75rem 1rem; border-radius: 0.375rem;
-    border: none; background: transparent; cursor: pointer;
-    text-align: left; width: 100%; transition: background 150ms ease;
-  }
-  .providers-sidebar-item:hover { background: var(--background); }
-  .providers-sidebar-item--selected { background: var(--background); box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.05); }
-  .providers-sidebar-item-name { font-size: 0.875rem; font-weight: 500; color: var(--foreground); }
-  .providers-sidebar-item-id { font-size: 0.6875rem; color: var(--muted-foreground); }
-  .providers-sidebar-item-badges { display: flex; align-items: center; gap: 0.375rem; margin-top: 0.25rem; flex-wrap: wrap; }
 
-  /* ── Sidebar Badges ── */
-  .providers-sbadge {
-    display: inline-flex; padding: 0.0625rem 0.375rem;
-    border-radius: 0.25rem; font-size: 0.625rem; font-weight: 600;
-    background: var(--background); color: var(--muted-foreground);
-    border: 1px solid var(--border);
-  }
-  .providers-sbadge--accent { background: color-mix(in oklab, var(--primary) 12%, var(--card)); color: var(--primary); border-color: transparent; }
-  .providers-sbadge--on { background: color-mix(in oklab, var(--primary) 8%, var(--card)); color: var(--primary); }
-  .providers-sbadge--ok { color: oklch(50% 0.14 155); border-color: oklch(50% 0.14 155 / 0.3); background: oklch(50% 0.14 155 / 0.08); }
-  .providers-sbadge--err { color: oklch(55% 0.2 25); border-color: oklch(55% 0.2 25 / 0.3); background: oklch(55% 0.2 25 / 0.08); }
-
-  /* ── Detail Header ── */
-  .providers-detail-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
-  .providers-detail-name { font-family: var(--font-serif); font-size: 1.375rem; font-weight: 700; letter-spacing: -0.01em; color: var(--foreground); margin: 0; }
-  .providers-detail-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-  .providers-toggle-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; font-weight: 500; color: var(--foreground); cursor: pointer; user-select: none; }
-
-  /* ── Detail Form ── */
-  .providers-detail-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 1.5rem; }
-  .providers-detail-form-label { display: flex; flex-direction: column; gap: 0.375rem; }
-  .providers-detail-form-label-text { font-size: 0.8125rem; font-weight: 500; color: var(--foreground); }
-
-  /* ── Built-in Auth ── */
-  .providers-detail-notice {
-    border-radius: 0.5rem; padding: 0.75rem 1rem;
-    border: 1px solid color-mix(in oklab, var(--primary) 24%, var(--border));
-    background: color-mix(in oklab, var(--primary) 8%, var(--card));
-    font-size: 0.75rem; line-height: 1.5;
-    color: color-mix(in oklab, var(--primary) 70%, var(--foreground));
-  }
-  .providers-detail-auth {
-    border-radius: 0.5rem; padding: 0.875rem 1rem;
-    border: 1px solid var(--border);
-    background: color-mix(in oklab, var(--card) 70%, var(--background));
-    font-size: 0.75rem; line-height: 1.6; color: var(--foreground);
-  }
-  .providers-detail-auth-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
-  .providers-detail-auth-label { font-weight: 600; }
-  .providers-detail-auth-badge {
-    display: inline-flex; padding: 0.125rem 0.5rem;
-    border-radius: 0.25rem; border: 1px solid var(--border);
-    background: var(--background);
-    font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
-  }
-  .providers-detail-auth-summary { margin: 0 0 0.5rem; }
-  .providers-detail-auth-text { margin: 0.5rem 0 0; }
-  .providers-detail-auth-hint { margin: 0.5rem 0 0; color: var(--muted-foreground); }
-  .providers-detail-auth-code { font-family: var(--font-mono); font-size: 0.75rem; padding: 0.0625rem 0.25rem; border-radius: 0.125rem; background: var(--background); }
-  .providers-detail-auth-steps { margin: 0.5rem 0 0; padding-left: 1.25rem; list-style: decimal; display: flex; flex-direction: column; gap: 0.25rem; }
-  .providers-detail-auth-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
-  .providers-detail-auth-link { display: inline-flex; align-items: center; padding: 0.25rem 0.5rem; border-radius: 0.25rem; border: 1px solid color-mix(in oklab, var(--primary) 30%, var(--border)); background: color-mix(in oklab, var(--primary) 10%, var(--card)); font-size: 0.6875rem; color: color-mix(in oklab, var(--primary) 70%, var(--foreground)); text-decoration: none; transition: background 150ms ease; }
-  .providers-detail-auth-link:hover { background: color-mix(in oklab, var(--primary) 16%, var(--card)); }
-  .providers-detail-oauth-notice { border-radius: 0.5rem; padding: 0.75rem 1rem; border: 1px solid oklch(65% 0.15 60 / 0.25); background: oklch(65% 0.15 60 / 0.08); font-size: 0.75rem; line-height: 1.5; color: oklch(50% 0.12 60); }
-  .providers-key-input { font-family: var(--font-mono); letter-spacing: 0.05em; }
-
-  /* ── Section Header ── */
-  .providers-section-title { font-family: var(--font-serif); font-size: 1.125rem; font-weight: 700; letter-spacing: -0.01em; color: var(--foreground); margin: 0; line-height: 1.25; }
-
-  /* ── API Key Eye ── */
-  .providers-key-row { display: flex; align-items: center; gap: 0.375rem; }
-  .providers-key-row :global(input) { flex: 1; }
-  .providers-key-eye {
-    display: flex; align-items: center; justify-content: center;
-    width: 2.25rem; height: 2.25rem; border-radius: 0.375rem;
-    border: 1px solid var(--border); background: transparent;
-    cursor: pointer; font-size: 0.875rem; flex-shrink: 0; transition: background 150ms ease;
-  }
-  .providers-key-eye:hover { background: var(--background); }
-
-  /* ── Model Table ── */
-  .providers-table-wrap { margin-top: 1rem; border: 1px solid var(--border); border-radius: 0.5rem; overflow: hidden; }
-  .providers-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
-  .providers-table thead { background: color-mix(in oklab, var(--card) 70%, var(--background)); }
-  .providers-table th { padding: 0.625rem 0.875rem; text-align: left; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); border-bottom: 1px solid var(--border); }
-  .providers-table td { padding: 0.5rem 0.875rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
-  .providers-table tr:last-child td { border-bottom: none; }
-  .providers-table-input { width: 100%; padding: 0.375rem 0.5rem; border: 1px solid var(--border); border-radius: 0.25rem; background: var(--card); color: var(--foreground); font-family: var(--font-mono); font-size: 0.8125rem; transition: border-color 150ms ease; }
-  .providers-table-input:focus { outline: none; border-color: var(--primary); }
-  .providers-table-input--narrow { width: 5.5rem; text-align: right; }
-  .providers-table-caps { display: flex; gap: 0.25rem; flex-wrap: wrap; }
-
-  /* ── Capability Badges ── */
-  .providers-cap-badge { display: inline-flex; align-items: center; padding: 0.125rem 0.375rem; border-radius: 0.25rem; border: 1px solid var(--border); background: transparent; color: var(--muted-foreground); font-size: 0.625rem; font-weight: 600; cursor: pointer; transition: all 150ms ease; }
-  .providers-cap-badge:hover { border-color: var(--primary); }
-  .providers-cap-badge--on { background: color-mix(in oklab, var(--primary) 12%, var(--card)); color: var(--primary); border-color: color-mix(in oklab, var(--primary) 30%, var(--border)); }
-
-  /* ── Capability Checkboxes ── */
-  .providers-caps-grid { display: flex; flex-wrap: wrap; gap: 0.5rem 0.875rem; }
-  .providers-cap-check { display: flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; font-weight: 500; color: var(--foreground); cursor: pointer; }
-
-  /* ── Remove Button ── */
-  .providers-remove-btn { display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem; border-radius: 0.25rem; border: 1px solid var(--border); background: transparent; color: var(--muted-foreground); font-size: 1rem; cursor: pointer; transition: all 150ms ease; }
-  .providers-remove-btn:hover { border-color: oklch(55% 0.2 25); color: oklch(55% 0.2 25); background: oklch(55% 0.2 25 / 0.08); }
-
-  /* ── Empty States ── */
-  .providers-empty-models { margin-top: 1rem; border: 1px solid var(--border); border-radius: 0.5rem; padding: 2rem; text-align: center; font-size: 0.8125rem; color: var(--muted-foreground); }
-  .providers-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 1rem; text-align: center; }
-  .providers-empty-state-icon { font-size: 2.5rem; opacity: 0.15; margin-bottom: 1rem; }
-  .providers-empty-state h3 { font-size: 1.125rem; font-weight: 500; color: var(--foreground); margin: 0 0 0.5rem; }
-  .providers-empty-state p { font-size: 0.8125rem; color: var(--muted-foreground); max-width: 16rem; margin: 0; }
-
-  /* ── Buttons ── */
-  .providers-btn-primary-sm { display: inline-flex; align-items: center; padding: 0.375rem 0.875rem; border-radius: 0.375rem; border: none; background: var(--primary); color: var(--primary-foreground, oklch(99% 0 0)); font-size: 0.8125rem; font-weight: 600; cursor: pointer; transition: opacity 160ms ease; }
-  .providers-btn-primary-sm:hover:not(:disabled) { opacity: 0.88; }
-  .providers-btn-primary-sm:disabled { opacity: 0.5; cursor: not-allowed; }
-  .providers-btn-outline { display: inline-flex; align-items: center; padding: 0.375rem 0.875rem; border-radius: 0.375rem; border: 1px solid var(--border); background: transparent; color: var(--foreground); font-size: 0.8125rem; font-weight: 500; cursor: pointer; transition: all 150ms ease; }
-  .providers-btn-outline:hover:not(:disabled) { background: var(--background); border-color: var(--muted-foreground); }
-  .providers-btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
-  .providers-btn-outline-sm { display: inline-flex; align-items: center; padding: 0.375rem 0.75rem; border-radius: 0.375rem; border: 1px solid var(--border); background: transparent; color: var(--foreground); font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all 150ms ease; }
-  .providers-btn-outline-sm:hover:not(:disabled) { background: var(--background); }
-  .providers-btn-outline-sm:disabled { opacity: 0.5; cursor: not-allowed; }
-  .providers-btn-danger-sm { display: inline-flex; align-items: center; padding: 0.375rem 0.75rem; border-radius: 0.375rem; border: 1px solid oklch(55% 0.2 25 / 0.3); background: oklch(55% 0.2 25 / 0.06); color: oklch(55% 0.2 25); font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all 150ms ease; }
-  .providers-btn-danger-sm:hover { background: oklch(55% 0.2 25 / 0.12); }
-
-  /* ── Modals ── */
-  .providers-modal-backdrop {
-    position: fixed; inset: 0; z-index: 50;
-    display: flex; align-items: center; justify-content: center;
-    background: oklch(20% 0 0 / 0.6); backdrop-filter: blur(4px);
-    padding: 1rem;
-  }
-  .providers-modal-card {
-    width: 100%; max-width: 28rem;
-    background: var(--card); border: 1px solid var(--border); border-radius: 0.75rem;
-    padding: 1.5rem;
-    display: flex; flex-direction: column; gap: 1rem;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.12);
-    max-height: 85dvh; overflow-y: auto;
-  }
-  .providers-modal-card--wide { max-width: 40rem; }
-  .providers-modal-title { font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; color: var(--foreground); margin: 0; }
-  .providers-modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
-  .providers-modal-caps { display: flex; flex-direction: column; gap: 0.375rem; }
-  .providers-modal-loading { font-size: 0.8125rem; color: var(--muted-foreground); padding: 1rem 0; }
-
-  /* ── Pull Models List ── */
-  .providers-pull-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 50dvh; overflow-y: auto; }
-  .providers-pull-item { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; }
-  .providers-pull-item-name { font-family: var(--font-mono); font-size: 0.8125rem; color: var(--foreground); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .providers-pull-item-caps { display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; }
-
-  /* ── Toggle Switch (iOS/macOS style) ── */
-  .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
-  .switch input { opacity: 0; width: 0; height: 0; }
-  .slider {
-    position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-    background-color: var(--border); transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 20px;
-  }
-  .slider:before {
-    position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px;
-    background-color: white; transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 50%;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  }
-  input:checked + .slider { background-color: var(--primary); }
-  input:checked + .slider:before { transform: translateX(16px); }
-
-  /* ── Thinking Section ── */
-  .providers-thinking-section { display: grid; gap: 0.75rem; font-size: 0.875rem; }
-  .providers-thinking-notice {
-    border-radius: 0.75rem; border: 1px solid; padding: 0.75rem 1rem;
-    font-size: 0.75rem; line-height: 1.25;
-  }
-  .providers-thinking-notice--enabled {
-    border-color: color-mix(in oklab, hsl(38 84% 54%) 28%, var(--border));
-    background: color-mix(in oklab, hsl(38 84% 54%) 10%, var(--card));
-    color: color-mix(in oklab, hsl(38 84% 44%) 72%, var(--foreground));
-  }
-  .providers-thinking-notice--default {
-    border-color: color-mix(in oklab, var(--border) 78%, transparent);
-    background: color-mix(in oklab, var(--muted) 42%, var(--card));
-    color: var(--muted-foreground);
-  }
-  .providers-thinking-notice-title { font-weight: 600; color: var(--foreground); }
-  .providers-thinking-notice-list { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; }
-  .providers-effort-mapping-label { display: grid; gap: 0.5rem; font-size: 0.875rem; }
-  .providers-effort-mapping-desc { font-size: 0.75rem; line-height: 1.25; color: var(--muted-foreground); }
-  .providers-effort-levels { display: grid; gap: 0.75rem; }
-  .providers-effort-level-label { font-weight: 500; text-transform: capitalize; color: var(--muted-foreground); }
-
-  /* ── Model Registry Header ── */
-  .providers-models-header { display: flex; flex-direction: column; justify-content: space-between; gap: 0.75rem; margin-top: 2rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
-  .providers-models-expand { display: flex; justify-content: center; margin-top: 0.75rem; }
-
-  /* ── Utility ── */
-  .text-center { text-align: center; }
-  .text-right { text-align: right; }
-
-  /* ── Responsive ── */
-  @media (max-width: 767px) {
-    .providers-detail-form-grid { grid-template-columns: 1fr; }
-    .providers-form-grid { grid-template-columns: 1fr; }
-  }
-  @media (min-width: 768px) {
-    .providers-thinking-section { grid-column: span 2; }
-    .providers-effort-mapping-label { max-width: 20rem; }
-    .providers-effort-levels { grid-template-columns: repeat(3, 1fr); }
-    .providers-models-header { flex-direction: row; align-items: center; }
-  }
-</style>

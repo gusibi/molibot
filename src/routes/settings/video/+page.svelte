@@ -308,13 +308,12 @@
   });
 </script>
 
-<div class="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-  <header class="flex flex-col gap-3">
-    <Badge variant="secondary" class="w-fit">Built-in Tool</Badge>
-    <div class="max-w-3xl space-y-2">
-      <h1 class="text-3xl font-semibold tracking-tight text-foreground">{t("title")}</h1>
-      <p class="text-sm leading-6 text-muted-foreground">{t("desc")}</p>
-    </div>
+<div class="video-page">
+  <!-- Hero Header -->
+  <header class="video-hero">
+    <span class="video-badge">Built-in Tool</span>
+    <h1 class="video-hero-title">{t("title")}</h1>
+    <p class="video-hero-desc">{t("desc")}</p>
   </header>
 
   {#if error}
@@ -327,7 +326,7 @@
   {#if loading}
     <p class="py-8 text-sm text-muted-foreground">Loading settings...</p>
   {:else}
-    <form class="space-y-5" onsubmit={(event) => { event.preventDefault(); save(); }}>
+    <form id="video-form" class="space-y-5" onsubmit={(event) => { event.preventDefault(); save(); }}>
       <Card>
         <CardHeader>
           <CardTitle class="text-sm">Default Behavior</CardTitle>
@@ -446,9 +445,6 @@
         </CardContent>
       </Card>
 
-      <div class="flex justify-end">
-        <Button type="submit" disabled={saving}>{saving ? t("savingButton") : t("saveButton")}</Button>
-      </div>
     </form>
 
     <Card class="mt-6">
@@ -546,86 +542,114 @@
       </CardContent>
     </Card>
   {/if}
-
-  {#if activeTaskDetails}
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onclick={() => activeTaskDetails = null}>
-      <div class="relative w-full max-w-xl rounded-xl border border-border bg-background p-6 shadow-2xl" onclick={(e) => e.stopPropagation()}>
-        <header class="mb-4 flex items-center justify-between">
-          <h3 class="text-lg font-semibold text-foreground">{t("taskDetailsTitle")}</h3>
-          <button class="rounded-lg p-1 text-muted-foreground hover:bg-muted" onclick={() => activeTaskDetails = null}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-          </button>
-        </header>
-
-        <div class="space-y-4">
-          {#if activeTaskDetails.status === "completed" && (activeTaskDetails.videoPath || activeTaskDetails.videoUrl)}
-            <div class="overflow-hidden rounded-lg border bg-black aspect-video flex items-center justify-center">
-              <video controls src="/api/settings/video-generate/video?taskId={activeTaskDetails.id}" class="w-full h-full max-h-[300px]">
-                Your browser does not support the video tag.
-              </video>
-            </div>
-          {/if}
-
-          <div class="grid gap-3 text-sm">
-            <div class="grid grid-cols-[100px_1fr] gap-2">
-              <span class="text-muted-foreground">{t("taskIdLabel")}:</span>
-              <span class="font-mono text-xs select-all text-foreground">{activeTaskDetails.id}</span>
-            </div>
-            <div class="grid grid-cols-[100px_1fr] gap-2">
-              <span class="text-muted-foreground">{t("engine")}:</span>
-              <span><Badge variant="outline" class="uppercase text-xs tracking-wider">{activeTaskDetails.engine}</Badge></span>
-            </div>
-            <div class="grid grid-cols-[100px_1fr] gap-2">
-              <span class="text-muted-foreground">{t("status")}:</span>
-              <span>
-                {#if activeTaskDetails.status === 'processing'}
-                  <Badge variant="outline" class="border-blue-500/30 bg-blue-500/10 text-blue-500">{t("statusProcessing")}</Badge>
-                {:else if activeTaskDetails.status === 'completed'}
-                  <Badge variant="default" class="bg-emerald-600 hover:bg-emerald-600/95">{t("statusCompleted")}</Badge>
-                {:else}
-                  <Badge variant="destructive">{t("statusFailed")}</Badge>
-                {/if}
-              </span>
-            </div>
-            <div class="grid grid-cols-[100px_1fr] gap-2">
-              <span class="text-muted-foreground">{t("prompt")}:</span>
-              <span class="text-foreground leading-5">{activeTaskDetails.prompt}</span>
-            </div>
-            {#if activeTaskDetails.requestParams}
-              <div class="grid grid-cols-[100px_1fr] gap-2">
-                <span class="text-muted-foreground">{t("requestParamsLabel")}:</span>
-                <pre class="font-mono text-xs bg-muted p-2 rounded max-h-[150px] overflow-auto select-all text-foreground leading-normal break-all whitespace-pre-wrap">{JSON.stringify(activeTaskDetails.requestParams, null, 2)}</pre>
-              </div>
-            {/if}
-            {#if activeTaskDetails.videoPath}
-              <div class="grid grid-cols-[100px_1fr] gap-2">
-                <span class="text-muted-foreground">{t("videoPathLabel")}:</span>
-                <span class="font-mono text-xs select-all break-all text-muted-foreground">{activeTaskDetails.videoPath}</span>
-              </div>
-            {:else if activeTaskDetails.videoUrl}
-              <div class="grid grid-cols-[100px_1fr] gap-2">
-                <span class="text-muted-foreground">Video URL:</span>
-                <span class="font-mono text-xs select-all break-all text-muted-foreground">{activeTaskDetails.videoUrl}</span>
-              </div>
-            {/if}
-            {#if activeTaskDetails.errorMessage}
-              <div class="grid grid-cols-[100px_1fr] gap-2">
-                <span class="text-muted-foreground">{t("error")}:</span>
-                <span class="text-destructive font-mono text-xs leading-5">{activeTaskDetails.errorMessage}</span>
-              </div>
-            {/if}
-          </div>
-        </div>
-
-        <footer class="mt-6 flex justify-end gap-3">
-          {#if activeTaskDetails.status === "completed"}
-            <Button href="/api/settings/video-generate/video?taskId={activeTaskDetails.id}" target="_blank" download="video.mp4">
-              {t("downloadVideo")}
-            </Button>
-          {/if}
-          <Button variant="outline" onclick={() => activeTaskDetails = null}>{t("close")}</Button>
-        </footer>
-      </div>
-    </div>
-  {/if}
 </div>
+
+{#if activeTaskDetails}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onclick={() => activeTaskDetails = null}>
+    <div class="relative w-full max-w-xl rounded-xl border border-border bg-background p-6 shadow-2xl" onclick={(e) => e.stopPropagation()}>
+      <header class="mb-4 flex items-center justify-between">
+        <h3 class="text-lg font-semibold text-foreground">{t("taskDetailsTitle")}</h3>
+        <button class="rounded-lg p-1 text-muted-foreground hover:bg-muted" onclick={() => activeTaskDetails = null}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </header>
+
+      <div class="space-y-4">
+        {#if activeTaskDetails.status === "completed" && (activeTaskDetails.videoPath || activeTaskDetails.videoUrl)}
+          <div class="overflow-hidden rounded-lg border bg-black aspect-video flex items-center justify-center">
+            <video controls src="/api/settings/video-generate/video?taskId={activeTaskDetails.id}" class="w-full h-full max-h-[300px]">
+              Your browser does not support the video tag.
+            </video>
+          </div>
+        {/if}
+
+        <div class="grid gap-3 text-sm">
+          <div class="grid grid-cols-[100px_1fr] gap-2">
+            <span class="text-muted-foreground">{t("taskIdLabel")}:</span>
+            <span class="font-mono text-xs select-all text-foreground">{activeTaskDetails.id}</span>
+          </div>
+          <div class="grid grid-cols-[100px_1fr] gap-2">
+            <span class="text-muted-foreground">{t("engine")}:</span>
+            <span><Badge variant="outline" class="uppercase text-xs tracking-wider">{activeTaskDetails.engine}</Badge></span>
+          </div>
+          <div class="grid grid-cols-[100px_1fr] gap-2">
+            <span class="text-muted-foreground">{t("status")}:</span>
+            <span>
+              {#if activeTaskDetails.status === 'processing'}
+                <Badge variant="outline" class="border-blue-500/30 bg-blue-500/10 text-blue-500">{t("statusProcessing")}</Badge>
+              {:else if activeTaskDetails.status === 'completed'}
+                <Badge variant="default" class="bg-emerald-600 hover:bg-emerald-600/95">{t("statusCompleted")}</Badge>
+              {:else}
+                <Badge variant="destructive">{t("statusFailed")}</Badge>
+              {/if}
+            </span>
+          </div>
+          <div class="grid grid-cols-[100px_1fr] gap-2">
+            <span class="text-muted-foreground">{t("prompt")}:</span>
+            <span class="text-foreground leading-5">{activeTaskDetails.prompt}</span>
+          </div>
+          {#if activeTaskDetails.requestParams}
+            <div class="grid grid-cols-[100px_1fr] gap-2">
+              <span class="text-muted-foreground">{t("requestParamsLabel")}:</span>
+              <pre class="font-mono text-xs bg-muted p-2 rounded max-h-[150px] overflow-auto select-all text-foreground leading-normal break-all whitespace-pre-wrap">{JSON.stringify(activeTaskDetails.requestParams, null, 2)}</pre>
+            </div>
+          {/if}
+          {#if activeTaskDetails.videoPath}
+            <div class="grid grid-cols-[100px_1fr] gap-2">
+              <span class="text-muted-foreground">{t("videoPathLabel")}:</span>
+              <span class="font-mono text-xs select-all break-all text-muted-foreground">{activeTaskDetails.videoPath}</span>
+            </div>
+          {:else if activeTaskDetails.videoUrl}
+            <div class="grid grid-cols-[100px_1fr] gap-2">
+              <span class="text-muted-foreground">Video URL:</span>
+              <span class="font-mono text-xs select-all break-all text-muted-foreground">{activeTaskDetails.videoUrl}</span>
+            </div>
+          {/if}
+          {#if activeTaskDetails.errorMessage}
+            <div class="grid grid-cols-[100px_1fr] gap-2">
+              <span class="text-muted-foreground">{t("error")}:</span>
+              <span class="text-destructive font-mono text-xs leading-5">{activeTaskDetails.errorMessage}</span>
+            </div>
+          {/if}
+        </div>
+      </div>
+
+      <footer class="mt-6 flex justify-end gap-3">
+        {#if activeTaskDetails.status === "completed"}
+          <Button href="/api/settings/video-generate/video?taskId={activeTaskDetails.id}" target="_blank" download="video.mp4">
+            {t("downloadVideo")}
+          </Button>
+        {/if}
+        <Button variant="outline" onclick={() => activeTaskDetails = null}>{t("close")}</Button>
+      </footer>
+    </div>
+  </div>
+{/if}
+
+{#if !loading}
+  <!-- Fixed Footer Bar -->
+  <footer class="settings-footbar">
+    <div class="settings-footbar-status">
+      {#if saving}
+        <span class="flex items-center gap-2 text-xs font-medium text-muted-foreground animate-pulse">
+          Saving changes...
+        </span>
+      {:else if message}
+        <span class="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-500">
+          {message}
+        </span>
+      {:else if error}
+        <span class="flex items-center gap-2 text-xs font-medium text-destructive">
+          {error}
+        </span>
+      {/if}
+    </div>
+    <div class="flex items-center gap-3">
+      <Button type="submit" form="video-form" variant="default" size="sm" disabled={loading || saving} class="h-9 px-6 text-xs font-bold">
+        {saving ? t("savingButton") : t("saveButton")}
+      </Button>
+    </div>
+  </footer>
+{/if}
+
+

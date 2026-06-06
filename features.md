@@ -2,10 +2,32 @@
 
 ## 2026-06-06
 
+### AI 设置页面顶部 Hero 栏尺寸收缩与统一 (AI Settings Pages Hero Header Compact Unification)
+- **全局顶部栏缩减**: 为包括 Routing、Providers、Errors、MCP、Search、Image、Video、Usage 以及其他 16 个使用 Tailwind inline classes 布局的普通设置页面在内的所有设置页面，应用了全局统一的 Hero 头部样式规范。
+- **排版与间距优化**: 将所有标题的字号从 `1.875rem` / `2rem` 缩小至 `1.375rem`，描述文字字号统一至 `0.8125rem`（13px）并且行高设为更紧凑的 `1.45`。头部内的间距 gap 从 `0.75rem`/`1rem` 缩减至 `0.375rem`，下边距设为 `0.5rem`。
+- **多余垂直留白消除**: 将各设置页面最外层容器在 Svelte 结构中渲染的默认 `padding-top` 从 Tailwind 默认的 `py-8` / `sm:py-10` 重载并缩减为统一的 `0.5rem !important`，从而消除由于 Layout 叠加导致的上方过大空白。
+
+### AI 设置页面底部固定栏全宽适配与样式抽离 (AI Settings Pages Footer Full-Width & Style Extraction)
+- **底栏全宽适配**: 将路由（`/settings/ai/routing`）、提供商（`/settings/ai/providers`）、报错记录（`/settings/ai/errors`）、MCP（`/settings/mcp`）、搜索（`/settings/search`）和视频（`/settings/video`）等设置页面的底栏从 `div` 元素改为 HTML5 语义化的 `footer` 元素。这成功绕过了 `workbench.css` 中限制 `.settings-viewport > div` 最大宽度的样式污染，使底栏可以像用量统计页面一样，完整打通横跨右侧的整个右半屏幕宽度。
+- **自定义样式完全抽离**: 将上述所有 AI 设置子页面（包括路由、提供商、用量统计、报错、MCP、搜索、图片、视频等 8 个页面）中的 Svelte 内部 `<style>` 样式块完全删除，全部转换为普通类名，并将所有对应样式规则整合到全局独立的 `src/styles/settings-custom.css` 中，防止 Svelte 编译器在运行时动态在 `<head>` 中生成大量 scoped 内部样式（即 Header code 样式）。
+- **去内联样式与规范化**: 移除了搜索设置页面中测试结果成功提示的内联 style，在 `settings-custom.css` 中新增 `.search-test-result[data-tone="success"]` 类选择器，并通过 `data-tone` 进行样式绑定。
+
+### AI 设置子页面统一重构与布局居中对齐 (AI Settings Pages Styling Unification & Center Alignment)
+- **统一居中展示**: 重构了所有 AI 设置相关页面（包括路由、提供商、用量统计、报错记录、MCP、搜索、图片和视频设置页面），为它们的主页面容器（`.routing-page`、`.providers-page`、`.usage-page`、`.errors-page`、`.mcp-page`、`.search-page`、`.image-page` 和 `.video-page`）添加了统一的居中对齐规则（`margin: 0 auto;`），使得中间的内容区域左右留白完全对称，彻底解决了在大屏下左偏的问题。
+- **打通全屏的底栏**: 将所有页面的粘性保存/操作底栏（`.settings-footbar`）从页面的 max-width 容器中移到最外层，从而配合全局 `left: calc(72px + 260px); right: 0;` 属性，能够真正打通全屏，横跨整个右侧主显示区。
+- **提供商与图像设置页 Hero 头部适配**: 移除了提供商设置（`/settings/ai/providers`）和图像生成设置（`/settings/image`）对 Svelte `SettingsSection` 布局组件的依赖，替换为与路由页面一致的精美 `.providers-hero` / `.image-hero` 衬线标题头部，并进行了 scoped CSS 的精细化编写。
+- **视频设置页固定底栏与表单联动**: 重构了视频生成设置页面（`/settings/video`）的表单结构，将其输入控制及引擎列表包裹在 `<form id="video-form" ...>` 中。将原先位于卡片底部的普通保存按钮，移至悬浮在下方的固定粘性底栏（`.settings-footbar`），始终横跨全屏底部，与表单 action 完美绑定，从而实现 AI Settings 下所有页面交互和视觉风格的绝对统一。
+
 ### Telegram 视频附件扩展名保留 (Telegram Video Attachment Filename Preservation)
 - **保留媒体扩展名**: Telegram `attach` 上传二进制媒体时，如果工具传入的 `title` 没有扩展名，会自动补回源文件路径的扩展名。例如本地文件 `aerobics_practice.mp4` 搭配标题“女健美操运动员练习视频”时，实际上传文件名会变成“女健美操运动员练习视频.mp4”，避免平台因上传文件名缺少 `.mp4` 而出现视频展示异常。
 - **视频流式播放提示**: `sendVideo` 现在附带 `supports_streaming: true`，让 Telegram 更明确地按原生视频消息处理可在线播放的 MP4。
 - **回归测试补充**: `runtime.test.ts` 新增覆盖“标题无扩展名但源文件是 `.mp4`”的上传文件名解析断言。
+
+### 设置页面样式重构 (Settings Pages Styling Refactor)
+- **errors/mcp/search 页面 Warm Shadcn 重构**: 重构了模型报错记录（`/settings/ai/errors`）、MCP 服务（`/settings/mcp`）和搜索工具（`/settings/search`）这三个设置页面的样式与布局，彻底弃用旧的 `.wb-` Workbench 样式，转为与 AI 路由页面一致的 Warm Shadcn 高级衬线排版风格。
+- **iOS 粘性保存底栏适配**: 将 MCP 服务与搜索工具设置页面的保存按钮重构为符合 `DESIGN.md` 规范的固定粘性底栏（`.settings-footbar`），始终悬浮在内容区最下方，并联动 `<form>` 提交动作。模型报错记录页面的“刷新记录”操作也被集成到了固定底栏中。
+- **iOS-style 状态开关组件**: 将 MCP 服务列表和搜索引擎列表里的原生 HTML 开关/逻辑，重构为统一的 Svelte `<Switch>` 源码组件，配合明暗模式实现平滑过渡。
+- **移除 SettingsSection 布局依赖**: 取消这三个页面对 `SettingsSection` 包装组件的依赖，替换为自定义的 Hero 头部区域，并清理了文件中未使用的 Svelte UI 组件导入。
 
 ### 图像生成记录入库与历史记录管理 (Image Generation SQLite Logging & History Management)
 - **SQLite 增加图像记录表**: 在 SQLite 数据库中新增 `image_tasks` 表，用于存储图像生成任务记录（包含 `id`、`engine`、`session_id`、`status`、`prompt`、`image_path`、`image_url`、`request_params`、`error_message`、`created_at`、`updated_at`）。

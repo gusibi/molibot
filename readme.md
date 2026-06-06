@@ -340,7 +340,7 @@ Open: `http://localhost:3000`
 - `/settings/skill-drafts` - Review generated reusable workflow drafts with long draft content shown as a 10-line preview and full editing handled in a focused modal form
 - `/settings/web` - Web profiles and identity binding; migrated to the shadcn-svelte Settings style
 
-Settings pages are moving progressively toward shadcn-svelte components and semantic design tokens. `/settings/system`, `/settings/web`, `/settings/ai/providers`, `/settings/tasks`, and `/settings/sandbox` now cover the main form, provider, policy, and table-control patterns; older Settings pages may still use the prior workbench layer until they are migrated.
+All core settings pages and AI-related sub-pages (Routing, Providers, Usage, Errors, MCP, Search, Image, Video) have been migrated to the Warm Shadcn design system with custom serif typography, centered layouts, full-width fixed footbars, and unified styles located in `settings-custom.css`.
 
 ### Channel Configuration
 - `/settings/telegram` - Multi-bot instances and credentials

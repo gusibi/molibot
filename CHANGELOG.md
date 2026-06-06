@@ -4,10 +4,31 @@
 
 ## 2026-06-06
 
+### Settings Pages Hero Header Compact Unification
+- **Header Size Reduction**: Reduced title size from `2rem`/`1.875rem` to `1.375rem`, description text to `0.8125rem` (13px), and inner gap from `0.75rem` to `0.375rem` across all settings pages (including the 8 core AI pages and 16 Tailwind inline pages) to yield a much cleaner and space-efficient viewport layout.
+- **Top Spacing Fix**: Adjusted Svelte container wrappers inside `.settings-viewport` to override default padding-top values (from `5rem` or `2.5rem` down to a unified `0.5rem`), eliminating redundant top empty areas.
+
+### Settings Pages Footer Full-Width Fix & Style Extraction
+- **Full-Width Footer**: Converted footer divs (`<div class="settings-footbar">`) to HTML5 semantic footers (`<footer class="settings-footbar">`) on all AI-related settings pages (Routing, Providers, Errors, MCP, Search, Video), resolving the narrow width issue caused by `.settings-viewport > div` overrides.
+- **CSS Style Extraction**: Removed all Svelte `<style>` scoped blocks from settings page `.svelte` files and consolidated them into the global stylesheet `src/styles/settings-custom.css`, which is imported globally in `src/app.css` to prevent inline head generation.
+- **Inline Style Cleanup**: Replaced inline styles on the Search settings page test alert with a `.search-test-result[data-tone="success"]` utility class.
+
+### AI Settings Pages Styling Unification & Center Alignment
+- **Centered Layout**: Refactored the page content containers for all AI-related settings pages (`routing`, `providers`, `usage`, `errors`, `mcp`, `search`, `image`, `video`) to align centered (`margin: 0 auto;`) in the viewport.
+- **Full-Width Fixed Footer**: Relocated the sticky bottom save/reset fixed footer (`.settings-footbar`) outside the centered page container wrappers, allowing it to stretch across the full width of the viewport.
+- **Hero Headers Unification**: Removed `SettingsSection` layout wrappers from the Providers (`/settings/ai/providers`) and Image (`/settings/image`) settings pages, replacing them with custom serif hero headers (`.providers-hero`, `.image-hero`) matching the AI Routing page's look and feel.
+- **Video Settings Page Refactor**: Restructured `/settings/video` to wrap parameters in a `<form id="video-form" ...>` and relocated the save button from the card bottom to the sticky bottom fixed footer (`.settings-footbar`) aligned with other settings pages.
+
 ### Telegram Video Attachment Filename Preservation
 - Preserved source file extensions for Telegram media uploads when `attach` supplies a title without an extension, so generated MP4 videos upload as names like `title.mp4` instead of extensionless titles.
 - Added `supports_streaming: true` to native Telegram `sendVideo` uploads.
 - Added regression coverage for extension preservation in `runtime.test.ts`.
+
+### Settings Pages Styling Refactor (errors/mcp/search)
+- Refactored `/settings/ai/errors`, `/settings/mcp`, and `/settings/search` to match the custom Warm Shadcn design system, removing the legacy `.wb-` styling classes in favor of serif headings, `var(--card)` backgrounds, and `var(--border)` borders.
+- Replaced the `SettingsSection` layout wrappers on these pages with custom scoped Hero header structures.
+- Implemented sticky bottom save/reset bars (`.settings-footbar`) for MCP and Search routes linked to `<form>` submit events, and moved the refresh action in the Errors page to the bottom footer.
+- Switched manual toggle switches in the MCP servers list and search engines list to the native `<Switch>` component with Svelte 5 bindability.
 
 ### Image Generation SQLite Logging, Settings History & Sticky Footbar
 - Added a new `image_tasks` SQLite table storing image generation records (Task ID, engine, session ID, status, prompt, local path, remote URL, request parameters, error message, and timestamps).
