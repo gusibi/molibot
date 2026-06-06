@@ -671,3 +671,111 @@ test("runner persists user and assistant error when a run throws before output",
     ["user"]
   );
 });
+
+test("runner hook bridge emits tool blocked when gate denies tool execution", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = {
+    register: () => {},
+    unregister: () => false,
+    list: () => [],
+    registerPlugin: async () => {},
+    unregisterPlugin: async () => false,
+    emit: (stage: string, _context: unknown, payload: any) => {
+      events.push({ stage, payload });
+    },
+    flush: async () => {},
+    transform: async (_stage: unknown, _context: unknown, payload: unknown) => payload,
+    gate: async () => ({ type: "deny", reason: "blocked by test hook" })
+  } as any;
+
+  const runner = new MomRunner(
+    "telegram",
+    "chat-hook-gate",
+    `session-hook-gate-${Date.now()}`,
+    new (await import("$lib/server/agent/session/store.js")).MomRuntimeStore(process.cwd()),
+    createRunnerTestSettings,
+    (patch: Partial<RuntimeSettings>) => ({ ...createRunnerTestSettings(), ...patch }),
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    createRunnerTestMemory() as any,
+    hookManager
+  );
+
+  (runner as any).activeHookContext = {
+    runId: "run-tool-blocked-hook",
+    channel: "telegram",
+    chatId: "chat-hook-gate",
+    sessionId: "session-hook-gate"
+  };
+
+  const agent = (runner as any).agent;
+  const result = await agent.beforeToolCall({
+    toolCall: { id: "tool-1", name: "bash", input: {} },
+    args: { command: "date" },
+    assistantMessage: { role: "assistant", content: [], timestamp: Date.now() },
+    context: { systemPrompt: "", messages: [], tools: [] }
+  });
+
+  assert.deepEqual(result, { block: true, reason: "blocked by test hook" });
+  assert.equal(events.some((event) => event.stage === "tool.call.blocked"), true);
+  assert.equal(events.find((event) => event.stage === "tool.call.blocked")?.payload.blockedBy, "hook_gate");
+});
+
+test("runner hook bridge emits model call pairing fields", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = {
+    register: () => {},
+    unregister: () => false,
+    list: () => [],
+    registerPlugin: async () => {},
+    unregisterPlugin: async () => false,
+    emit: (stage: string, _context: unknown, payload: any) => {
+      events.push({ stage, payload });
+    },
+    flush: async () => {},
+    transform: async (_stage: unknown, _context: unknown, payload: unknown) => payload,
+    gate: async () => ({ type: "allow" })
+  } as any;
+
+  const runner = new MomRunner(
+    "telegram",
+    "chat-model-hook",
+    `session-model-hook-${Date.now()}`,
+    new (await import("$lib/server/agent/session/store.js")).MomRuntimeStore(process.cwd()),
+    createRunnerTestSettings,
+    (patch: Partial<RuntimeSettings>) => ({ ...createRunnerTestSettings(), ...patch }),
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    createRunnerTestMemory() as any,
+    hookManager
+  );
+
+  (runner as any).activeHookContext = {
+    runId: "run-model-hook",
+    channel: "telegram",
+    chatId: "chat-model-hook",
+    sessionId: "session-model-hook"
+  };
+  (runner as any).activePayloadContext = {
+    provider: "provider-1",
+    model: "model-1",
+    api: "openai-compatible",
+    requestedThinkingLevel: "off",
+    effectiveThinkingLevel: "off"
+  };
+  (runner as any).activeModelCallContext = {
+    modelAttemptId: "run-model-hook:0:0",
+    candidateIndex: 0,
+    attemptIndex: 0,
+    modelCallSeq: 1
+  };
+
+  const agent = (runner as any).agent;
+  await agent.onPayload?.({});
+  await agent.onResponse?.({ usage: { input: 1, output: 2, totalTokens: 3 }, stopReason: "stop" } as any);
+
+  const before = events.find((event) => event.stage === "model.call.before");
+  const after = events.find((event) => event.stage === "model.call.after");
+  assert.equal(before?.payload.modelAttemptId, "run-model-hook:0:0");
+  assert.equal(after?.payload.modelCallSeq, 1);
+});

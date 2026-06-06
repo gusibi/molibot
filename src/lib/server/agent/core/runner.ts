@@ -4,6 +4,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { streamSimple, type Model } from "@mariozechner/pi-ai";
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
+import type { HookContext, HookManager } from "$lib/server/agent/hooks/index.js";
 import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
 import { momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { buildSystemPrompt } from "$lib/server/agent/prompts/prompt.js";
@@ -125,6 +126,19 @@ export class MomRunner implements RunnerLike {
     }).enabled;
   }
 
+  private activeHookContext: HookContext | undefined;
+  private activeModelCallContext:
+    | {
+        modelAttemptId: string;
+        candidateIndex: number;
+        attemptIndex: number;
+        modelCallSeq: number;
+      }
+    | undefined;
+  private modelCallSeq = 0;
+
+  private readonly hookManager: HookManager;
+
   constructor(
     private readonly channel: string,
     private readonly chatId: string,
@@ -135,7 +149,19 @@ export class MomRunner implements RunnerLike {
     private readonly usageTracker: AiUsageTracker,
     private readonly modelErrorTracker: ModelErrorTracker,
     private readonly memory: MemoryGateway,
+    hookManager?: HookManager,
   ) {
+    this.hookManager = hookManager ?? {
+      register: () => {},
+      unregister: () => false,
+      list: () => [],
+      registerPlugin: async () => {},
+      unregisterPlugin: async () => false,
+      emit: () => {},
+      flush: async () => {},
+      transform: async (_stage: any, _context: any, payload: any) => payload,
+      gate: async () => ({ type: "allow" })
+    };
     const settings = this.getSettings();
     const model = resolveModel(settings, "text");
     const initialPrompt = buildSystemPrompt(
@@ -173,26 +199,99 @@ export class MomRunner implements RunnerLike {
             summary: formatPayloadReasoningSummary(payload)
           });
         }
+        if (this.activeHookContext && this.activePayloadContext && this.activeModelCallContext) {
+          this.hookManager.emit("model.call.before", this.activeHookContext, {
+            ...this.activeModelCallContext,
+            provider: this.activePayloadContext.provider,
+            model: this.activePayloadContext.model,
+            api: this.activePayloadContext.api,
+            requestedThinkingLevel: this.activePayloadContext.requestedThinkingLevel,
+            effectiveThinkingLevel: this.activePayloadContext.effectiveThinkingLevel
+          });
+        }
         return undefined;
       },
-      beforeToolCall: async (context) => {
+      onResponse: async (response) => {
+        if (this.activeHookContext && this.activePayloadContext && this.activeModelCallContext) {
+          this.hookManager.emit("model.call.after", this.activeHookContext, {
+            ...this.activeModelCallContext,
+            provider: this.activePayloadContext.provider,
+            model: this.activePayloadContext.model,
+            api: this.activePayloadContext.api,
+            usage: (response as any)?.usage,
+            stopReason: (response as any)?.stopReason
+          });
+        }
+        return undefined;
+      },
+      beforeToolCall: async (context, _signal) => {
+        const hookContext = this.activeHookContext;
+        if (hookContext) {
+          const decision = await this.hookManager.gate("tool.call.before", hookContext, {
+            toolName: context.toolCall.name,
+            toolCallId: context.toolCall.id,
+            argsPreview: JSON.stringify(context.args ?? {}).slice(0, 500)
+          });
+          if (decision.type === "deny") {
+            this.hookManager.emit("tool.call.blocked", hookContext, {
+              toolName: context.toolCall.name,
+              toolCallId: context.toolCall.id,
+              blockedBy: "hook_gate",
+              reason: decision.reason
+            });
+            return { block: true, reason: decision.reason };
+          }
+        }
+
         const blockedReason = validateToolCallPreflight(context, {
           cwd: this.store.getScratchDir(this.chatId),
           workspaceDir: this.store.getWorkspaceDir()
         });
         const budgetResult = this.activeRunBudget?.tryStartTool() ?? { ok: true };
         const finalBlockedReason = blockedReason ?? budgetResult.reason;
-        if (!finalBlockedReason) return undefined;
-        if (!budgetResult.ok) {
-          this.agent.state.tools = [];
+        if (finalBlockedReason) {
+          if (!budgetResult.ok) {
+            this.agent.state.tools = [];
+          }
+          if (hookContext) {
+            this.hookManager.emit("tool.call.blocked", hookContext, {
+              toolName: context.toolCall.name,
+              toolCallId: context.toolCall.id,
+              blockedBy: blockedReason ? "preflight" : "budget",
+              reason: finalBlockedReason
+            });
+          }
+          momWarn("runner", "tool_call_blocked", {
+            chatId: this.chatId,
+            sessionId: this.sessionId,
+            tool: context.toolCall.name,
+            reason: finalBlockedReason
+          });
+          return { block: true, reason: finalBlockedReason };
         }
-        momWarn("runner", "tool_call_blocked", {
-          chatId: this.chatId,
-          sessionId: this.sessionId,
-          tool: context.toolCall.name,
-          reason: finalBlockedReason
-        });
-        return { block: true, reason: finalBlockedReason };
+        if (hookContext) {
+          this.hookManager.emit("tool.call.before", hookContext, {
+            toolName: context.toolCall.name,
+            toolCallId: context.toolCall.id,
+            argsPreview: JSON.stringify(context.args ?? {}).slice(0, 500)
+          });
+        }
+        return undefined;
+      },
+      afterToolCall: async (context) => {
+        if (this.activeHookContext) {
+          this.hookManager.emit(
+            context.isError ? "tool.call.error" : "tool.call.after",
+            this.activeHookContext,
+            {
+              toolName: context.toolCall.name,
+              toolCallId: context.toolCall.id,
+              isError: context.isError,
+              resultPreview: extractTextFromResult(context.result).slice(0, 1000)
+            }
+          );
+        }
+        return undefined;
       },
       streamFn: (selectedModel, context, opts) => {
         const settingsNow = this.getSettings();
@@ -361,6 +460,25 @@ export class MomRunner implements RunnerLike {
       workspaceId = turn.workspaceId;
       runStartedAt = turn.startedAt;
     }
+
+    this.modelCallSeq = 0;
+    this.activeHookContext = {
+      runId,
+      channel: ctx.channel,
+      chatId: this.chatId,
+      sessionId: this.sessionId,
+      workspaceId,
+      actorId: ctx.message.userId,
+      signal: undefined
+    };
+    this.hookManager.emit("run.beforeStart", this.activeHookContext, {
+      messageId: ctx.message.messageId,
+      textLength: ctx.message.text.length,
+      attachmentCount: ctx.message.attachments.length,
+      imageCount: ctx.message.imageContents.length,
+      isEvent: Boolean(ctx.message.isEvent)
+    });
+
     const logRunDetail = (entry: Omit<RunDetailEntry, "timestamp" | "workspaceId">): void => {
       this.store.appendRunDetail(this.chatId, runId, {
         timestamp: new Date().toISOString(),
@@ -657,6 +775,29 @@ export class MomRunner implements RunnerLike {
     let streamedAssistantText = "";
     let firstAssistantTokenLogged = false;
     let promptStartedAt = 0;
+     const unsubscribeHooks = this.agent.subscribe(async (event: AgentEvent) => {
+      const hookContext = this.activeHookContext;
+      if (!hookContext) return;
+      if (event.type === "agent_start") {
+        this.hookManager.emit("run.started", hookContext, {
+          messageId: ctx.message.messageId,
+          textLength: ctx.message.text.length,
+          attachmentCount: ctx.message.attachments.length,
+          imageCount: ctx.message.imageContents.length,
+          isEvent: Boolean(ctx.message.isEvent)
+        });
+        return;
+      }
+      if (event.type === "agent_end") {
+        this.hookManager.emit("run.finished", hookContext, {
+          status: stopReason === "stop" ? "success" : stopReason,
+          stopReason,
+          durationMs: Date.now() - runStartedAt,
+          errorMessage
+        });
+        await this.hookManager.flush({ timeoutMs: 500 });
+      }
+    });
 
     const unsubscribe = this.agent.subscribe((event: AgentEvent) => {
       if (
@@ -1149,6 +1290,15 @@ export class MomRunner implements RunnerLike {
             firstAssistantTokenLogged = false;
             stopReason = "stop";
             errorMessage = undefined;
+
+            this.modelCallSeq += 1;
+            this.activeModelCallContext = {
+              modelAttemptId: `${runId}:${candidateIndex}:${attemptCount}`,
+              candidateIndex,
+              attemptIndex: attemptCount,
+              modelCallSeq: this.modelCallSeq
+            };
+
             await this.agent.prompt(
               userMessage,
               visionDecision.sendImagesNatively && ctx.message.imageContents.length > 0
@@ -1275,6 +1425,15 @@ export class MomRunner implements RunnerLike {
                 firstAssistantTokenLogged = false;
                 stopReason = "stop";
                 errorMessage = undefined;
+
+                this.modelCallSeq += 1;
+                this.activeModelCallContext = {
+                  modelAttemptId: `${runId}:${candidateIndex}:${attemptCount}:tool-budget-continuation`,
+                  candidateIndex,
+                  attemptIndex: attemptCount,
+                  modelCallSeq: this.modelCallSeq
+                };
+
                 try {
                   await this.agent.prompt(TOOL_BUDGET_RUNTIME_NOTICE);
                 } finally {
@@ -1760,6 +1919,12 @@ export class MomRunner implements RunnerLike {
       return { runId, workspaceId, stopReason: "error", errorMessage: message };
     } finally {
       unsubscribe();
+      unsubscribeHooks();
+      if (this.activeHookContext) {
+        await this.hookManager.flush({ timeoutMs: 500 });
+      }
+      this.activeHookContext = undefined;
+      this.activeModelCallContext = undefined;
       try {
         const saved = this.store.loadContext(this.chatId, this.sessionId);
         this.agent.state.messages = prepareMessagesForModelContext(saved);
