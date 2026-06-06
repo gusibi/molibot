@@ -2,6 +2,12 @@
 
 ## 2026-06-06
 
+### HookManager 运行时扩展设计方案细化与评审 (HookManager Runtime Spec Refinement & Review)
+- **挂载式多播设计**: 明确 HookManager 并非替代 pi-agent-core 循环，而是作为其上的多播层挂载在已有回调点（`beforeToolCall`, `afterToolCall`, `subscribe` 等）上。
+- **生命周期语义澄清**: 重命名阶段为 `run.started` / `run.finished` 以与 pi-agent-core 内部 LLM turn-level 状态区分；重新规划 `beforeToolCall` 桥接点，使 gate 拦截在 preflight/budget 前置触发。
+- **运行性能与内存防护**: 确立 observe hook 默认以异步非阻塞队列运行以不增加 LLM 响应延迟；要求全局 `TraceRecorder` 实例内部的状态（如 span stack）必须以 `runId` 隔离并在结束后清理，避免跨会话污染与内存泄漏。
+- **可插拔插件接口**: 新增 `HookPlugin` 接口定义，为未来的 S3 结果导出和 Webhook 通信留好扩展插槽。
+
 ### AI 设置页面顶部 Hero 栏尺寸收缩与统一 (AI Settings Pages Hero Header Compact Unification)
 - **全局顶部栏缩减**: 为包括 Routing、Providers、Errors、MCP、Search、Image、Video、Usage 以及其他 16 个使用 Tailwind inline classes 布局的普通设置页面在内的所有设置页面，应用了全局统一的 Hero 头部样式规范。
 - **排版与间距优化**: 将所有标题的字号从 `1.875rem` / `2rem` 缩小至 `1.375rem`，描述文字字号统一至 `0.8125rem`（13px）并且行高设为更紧凑的 `1.45`。头部内的间距 gap 从 `0.75rem`/`1rem` 缩减至 `0.375rem`，下边距设为 `0.5rem`。

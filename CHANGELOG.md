@@ -4,6 +4,12 @@
 
 ## 2026-06-06
 
+### HookManager Runtime Spec Refinement & Review
+- **Mounted Multiplexer Architecture**: Refined design doc to treat HookManager as a thin multiplexer over `pi-agent-core` callbacks rather than a separate runner loop.
+- **Clarified Lifecycle & Renaming**: Renamed stages to `run.started` / `run.finished` to differentiate from turn-level events, and adjusted `beforeToolCall` wiring to execute gate hooks before budget checks.
+- **Performance & Safety**: Established that observe hooks run asynchronously (non-blocking) and that the global `TraceRecorder` instance isolates tracing state by `runId` to avoid memory leaks or cross-chat pollution.
+- **Pluggable Extension Slot**: Introduced `HookPlugin` interface definition for future integrations like S3 export or Webhooks.
+
 ### Settings Pages Hero Header Compact Unification
 - **Header Size Reduction**: Reduced title size from `2rem`/`1.875rem` to `1.375rem`, description text to `0.8125rem` (13px), and inner gap from `0.75rem` to `0.375rem` across all settings pages (including the 8 core AI pages and 16 Tailwind inline pages) to yield a much cleaner and space-efficient viewport layout.
 - **Top Spacing Fix**: Adjusted Svelte container wrappers inside `.settings-viewport` to override default padding-top values (from `5rem` or `2.5rem` down to a unified `0.5rem`), eliminating redundant top empty areas.
