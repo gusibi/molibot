@@ -15,7 +15,7 @@ import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
-import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText, sendTelegramTextSafely, summarizeTelegramToolProgressText } from "$lib/server/channels/telegram/formatting.js";
+import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText, sendTelegramTextSafely, summarizeTelegramToolProgressText, syncTelegramTextMessages } from "$lib/server/channels/telegram/formatting.js";
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
@@ -1081,6 +1081,7 @@ export class TelegramManager extends BaseChannelRuntime {
     const status: StatusSession = {
       statusMessageId: displayConfig.toolProgress === "off" ? null : (event.initialStatusMessageId ?? null),
       answerMessageId: null,
+      answerMessageIds: [],
       reasoningMessageId: null,
       detailsMessageId: null,
       threadMessageIds: [],
@@ -1261,37 +1262,52 @@ export class TelegramManager extends BaseChannelRuntime {
       const normalized = text.trim();
       if (!normalized) return;
       const display = status.isWorking ? `${normalized} ...` : normalized;
-      if (status.answerMessageId) {
-        try {
-          await editTelegramText(bot, chatId, status.answerMessageId, display, {
+      try {
+        const synced = await syncTelegramTextMessages(
+          bot,
+          chatId,
+          status.answerMessageIds ?? (status.answerMessageId ? [status.answerMessageId] : []),
+          display,
+          {
             maxRetryAfterMs: TelegramManager.STREAM_EDIT_RETRY_AFTER_CAP_MS,
             requestTimeoutMs: TelegramManager.STREAM_EDIT_REQUEST_TIMEOUT_MS
-          }, answerSendOptions);
-          lastAnswerRenderAt = Date.now();
+          },
+          answerSendOptions
+        );
+        status.answerMessageIds = synced.message_ids;
+        status.answerMessageId = synced.message_ids[0] ?? null;
+        lastAnswerRenderAt = Date.now();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (isTelegramRateLimitError(error) || message.includes("message is not modified")) {
           return;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (isTelegramRateLimitError(error) || message.includes("message is not modified")) {
-            return;
-          }
-          momWarn("telegram", "answer_edit_failed", {
-            runId,
+        }
+        momWarn("telegram", "answer_edit_failed", {
+          runId,
+          chatId,
+          answerMessageId: status.answerMessageId,
+          error: message,
+          errorDetails: describeTelegramError(error)
+        });
+        if (isTelegramMissingEditTargetError(error)) {
+          status.answerMessageId = null;
+          status.answerMessageIds = [];
+          const resent = await syncTelegramTextMessages(
+            bot,
             chatId,
-            answerMessageId: status.answerMessageId,
-            error: message,
-            errorDetails: describeTelegramError(error)
-          });
-          if (isTelegramMissingEditTargetError(error)) {
-            status.answerMessageId = null;
-          } else {
-            return;
-          }
+            status.answerMessageIds,
+            display,
+            {
+              maxRetryAfterMs: TelegramManager.STREAM_EDIT_RETRY_AFTER_CAP_MS,
+              requestTimeoutMs: TelegramManager.STREAM_EDIT_REQUEST_TIMEOUT_MS
+            },
+            answerSendOptions
+          );
+          status.answerMessageIds = resent.message_ids;
+          status.answerMessageId = resent.message_ids[0] ?? null;
+          lastAnswerRenderAt = Date.now();
         }
       }
-
-      const sent = await sendTelegramText(bot, chatId, display, answerSendOptions);
-      status.answerMessageId = sent.message_id;
-      lastAnswerRenderAt = Date.now();
     };
 
     const clearAnswerRenderTimer = () => {
@@ -1536,10 +1552,16 @@ export class TelegramManager extends BaseChannelRuntime {
         clearAnswerRenderTimer();
         answerRenderPending = false;
         answerForceNextRender = false;
-        const sent = status.answerMessageId
-          ? (await editTelegramText(bot, chatId, status.answerMessageId, display, undefined, answerSendOptions), { message_id: status.answerMessageId })
-          : await sendTelegramText(bot, chatId, display, answerSendOptions);
-        status.answerMessageId = sent.message_id;
+        const sent = await syncTelegramTextMessages(
+          bot,
+          chatId,
+          status.answerMessageIds ?? (status.answerMessageId ? [status.answerMessageId] : []),
+          display,
+          undefined,
+          answerSendOptions
+        );
+        status.answerMessageIds = sent.message_ids;
+        status.answerMessageId = sent.message_ids[0] ?? null;
         lastAnswerRenderAt = Date.now();
         this.store.logBotResponse(scopeId, display, status.answerMessageId);
       },
@@ -1690,6 +1712,7 @@ export class TelegramManager extends BaseChannelRuntime {
 
         const name = isText ? this.normalizeTextAttachmentName(rawName) : rawName;
         const imageMime = this.detectImageMime(name, bytes);
+        const videoMime = this.detectVideoMime(name, bytes);
         const audioMime = this.detectAudioMime(name, bytes);
         momLog("telegram", "ctx_upload_file", {
           runId,
@@ -1699,6 +1722,7 @@ export class TelegramManager extends BaseChannelRuntime {
           finalName: name,
           isText,
           imageMime: imageMime ?? null,
+          videoMime: videoMime ?? null,
           audioMime: audioMime ?? null
         });
         if (imageMime) {
@@ -1715,6 +1739,25 @@ export class TelegramManager extends BaseChannelRuntime {
               filePath,
               name,
               imageMime,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
+
+        if (videoMime) {
+          try {
+            await bot.api.sendVideo(chatId, new InputFile(bytes, name), {
+              ...(sendOptions ?? {}),
+              caption: name
+            });
+            return;
+          } catch (error) {
+            momWarn("telegram", "ctx_upload_video_failed_fallback_document", {
+              runId,
+              chatId,
+              filePath,
+              name,
+              videoMime,
               error: error instanceof Error ? error.message : String(error)
             });
           }
@@ -1987,6 +2030,9 @@ export class TelegramManager extends BaseChannelRuntime {
     if (lower.endsWith(".png")) return "image/png";
     if (lower.endsWith(".gif")) return "image/gif";
     if (lower.endsWith(".webp")) return "image/webp";
+    if (lower.endsWith(".mp4")) return "video/mp4";
+    if (lower.endsWith(".webm")) return "video/webm";
+    if (lower.endsWith(".mov")) return "video/quicktime";
     return undefined;
   }
 
@@ -2095,7 +2141,34 @@ export class TelegramManager extends BaseChannelRuntime {
       data[6] === 0x79 &&
       data[7] === 0x70
     ) {
+      const lower = filename.toLowerCase();
+      if (lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.endsWith(".mov")) {
+        return undefined;
+      }
       return "audio/mp4";
+    }
+
+    return undefined;
+  }
+
+  private detectVideoMime(filename: string, data: Buffer): string | undefined {
+    const fromExt = this.mimeFromFilename(filename);
+    if (fromExt?.startsWith("video/")) {
+      return fromExt;
+    }
+
+    if (
+      data.length >= 12 &&
+      data[4] === 0x66 &&
+      data[5] === 0x74 &&
+      data[6] === 0x79 &&
+      data[7] === 0x70
+    ) {
+      const lower = filename.toLowerCase();
+      if (lower.endsWith(".m4a") || lower.endsWith(".aac")) {
+        return undefined;
+      }
+      return "video/mp4";
     }
 
     return undefined;

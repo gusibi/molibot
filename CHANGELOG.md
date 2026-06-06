@@ -2,7 +2,72 @@
 
 ## Version 1.0
 
+## 2026-06-06
+
+### Video Generate Base64 Conversion & Poller Fault Tolerance
+- Fixed a bug where remote video generation services (Agnes AI and Volcengine/Doubao) failed to generate videos from local reference images (like attachments downloaded by the channel adapter to `/tmp/`) because they couldn't read the local filesystem paths on the user's host machine.
+- Automatically resolves any local image paths to Base64 Data URLs (`data:image/MIME;base64,...`) prior to submitting the task payload to the remote API.
+- Added strict existence checks for local paths, throwing an immediate "Local reference image file not found" error if the file doesn't exist on disk, preventing invalid requests from being sent to the cloud.
+- Formatted structured error objects returned by Agnes AI (containing both code and message) into serialized strings, avoiding SQLite parameter binding crashes when updating failed task records.
+- Implemented poller fault tolerance in the background tasks SvelteKit poller, marking the task as `failed` in the SQLite database after 3 consecutive failures (or when hitting a terminal HTTP 4xx response) to prevent infinite loops of failing requests.
+- Added test coverage in `videoGenerateTool.test.ts` to verify local image file encoding and missing image path exception handling.
+
+### Telegram Streaming Long-Message Chunk Reuse
+- Fixed Telegram streaming answers repeatedly creating a new second message after the answer crossed the text limit.
+- The answer lane now retains all chunk message IDs, edits existing chunks on later stream refreshes, creates only newly required chunks, and removes obsolete trailing chunks when the answer becomes shorter.
+- Added regression coverage for consecutive chunk refreshes and chunk-count reduction.
+
+### Video Query Bypass Optimization
+- Optimized the `videoGenerate` tool execution path when querying status: the tool now performs a pre-check query on the local SQLite task database.
+- If the task record is already in a finalized state (`completed` or `failed`), the tool immediately returns the cached state and locally saved video file path (performing a channel file upload if `uploadFile` is available) instead of making a redundant query to the third-party provider API. This prevents errors like `fetch failed` from interrupting the session when completed tasks expire on third-party servers.
+- Added comprehensive unit test coverage in `videoGenerateTool.test.ts` to assert that completed tasks return the cached status immediately without invoking the remote HTTP client.
+
+### Telegram Native Video Message Support & MIME Optimization
+- Fixed a bug where MP4 videos containing audio tracks were mistakenly classified as `audio/mp4` during binary header sniffing (which looks for the `ftyp` signature). This caused videos to be sent via the `sendAudio` pathway, rendering them as audio-only messages in Telegram.
+- Introduced `detectVideoMime` in `TelegramManager` to extract video MIME types for `.mp4`, `.webm`, and `.mov` extensions, and updated `detectAudioMime` to exclude files ending in these extensions.
+- Configured `uploadFile` to send identified video MIME files using Telegram's native `bot.api.sendVideo` API, ensuring inline video playback and native downloads in the chat, falling back to `sendDocument` upon failure.
+- Added test coverage in `src/lib/server/channels/telegram/runtime.test.ts` to verify accurate detection of both audio and video files.
+
+### Video Settings Task ID Display
+- Added a new "Task ID" column to the "Recent Generation Tasks" table on the `/settings/video` page.
+- Rendered task IDs using a compact, copy-friendly `font-mono` format and the `select-all` helper class, so operators can quickly select and copy the identifier to query task progress manually inside chat threads.
+
+### Video Results Inspection & Test Isolation
+- Isolated the unit test SQLite database for `videoGenerateTool.test.ts` by adding a `taskStore` option to `createVideoGenerateTool`. This directs mock task creations to a temporary SQLite file inside the test's scratch directory, preventing the real user `settings.sqlite` database from being polluted with test entries during dev/build cycles.
+- Created `/api/settings/video-generate/video` endpoint to stream saved local video files safely by task ID.
+- Added a "View Result" button for completed and failed tasks on the `/settings/video` page, triggering a dialog summarizing task ID, prompt, engine, local file path, or error logs, and featuring a built-in HTML5 video player to play generated videos inline.
+
+### Compact Tool Progress Copy
+- Shortened `toolProgress = "new"` running-state text from `⏳ 正在运行: <tool>...` to `⏳ <tool>...`, leaving more horizontal space for the actual tool name.
+- Added a focused `displayFormatter.test.ts` regression test to lock the compact output format.
+
+### Image Generation Settings Optimization
+- Added support for custom Model ID configurations per provider (Agnes, Google Imagen, Volcengine, ModelScope) in the `/settings/image` UI and the backend `imageGenerate` tool context.
+- Removed individual engine `enabled` flags from the schema and UI. Engines are now dynamically resolved as enabled simply by detecting a configured, non-empty API key, aligning backend routing with simplified user experience.
+- Implemented full `zh-CN` / `en-US` translation support, responsiveness, and dark-mode adaptation for the entire `/settings/image` interface.
+- Updated unit tests in `imageGenerateTool.test.ts` to assert that settings routing correctly ignores explicit engine-level enablement checks and routes traffic based purely on API key configuration presence.
+
 ## 2026-06-05
+
+### Settings Overview Redesign
+- Redesigned the `/settings` overview page from a flat 14-card grid to a grouped 4-card dashboard (AI Intelligence, Messaging, Knowledge, System) matching the Warm Shadcn design sample.
+- Added Lucide icons (Cpu, MessageSquare, BookOpen, Settings) and Shadcn Badge section counts to each feature card.
+- Used serif typography for the page title and feature card headings per DESIGN.md editorial style.
+- Added compact subsection links inside each card with hover-reveal arrow navigation.
+- Full zh-CN/en-US localization and dark mode support for the new layout.
+
+### Settings Layout Header Redesign
+- Replaced the sidebar header from "Configuration Workspace + Settings" large text to a centered brand dot + serif "Settings" title + compact "Back to Chat" pill button, matching the Warm Shadcn design sample's primary sidebar style.
+- Changed the top bar from "workspace title + page name" to a breadcrumb pattern "Settings › [Current Page]" with theme/language selectors and "Open Chat" on the right.
+- Added semantic CSS classes (`.settings-sidebar-header`, `.settings-topbar-breadcrumb`, etc.) following DESIGN.md naming conventions.
+- Preserved mobile collapsible navigation dropdown with updated styling.
+- Removed unused `workspaceTitle` i18n key.
+
+### Settings Navigation Menu Restyle
+- Changed nav link style from `rounded-xl border text-xs` card-like to `rounded-sm text-sm` borderless list matching the design sample's `nav-item` pattern.
+- Updated active state to use `accent-soft` background + `accent` text color + inset border shadow, matching the design sample's active icon style.
+- Replaced group title `uppercase tracking` with normal-case 12px labels and a ▾ chevron that rotates on collapse.
+- Moved all nav styles to semantic CSS classes (`.settings-nav-link`, `.settings-nav-group-title`, etc.) in the `<style>` block, removing Tailwind inline strings from `navLinkClass()`.
 
 ### Built-In Video Generation Tool
 - Introduced native Agent-layer tool `videoGenerate` supporting Agnes Video and Volcengine (Doubao Seedance) engines.
@@ -11,6 +76,9 @@
 - Integrated the video settings entry under the "AI Engine" group of the settings workspace layout.
 - Added async polling handlers for task-based video generation with aspect-ratio mappings, duration limits, download automation, sandbox path-guard controls, and automatic channel media upload routing.
 - Added comprehensive unit tests in `videoGenerateTool.test.ts` covering task creation, status polling, file downloads, and parameter verification.
+- Implemented non-blocking asynchronous task execution: immediately registers tasks in SQLite database upon submission, returns the taskId to the Agent, and releases the turn without holding the connection.
+- Added background polling API that performs periodic queries, downloads finished videos, updates task records, and outputs detailed HTTP request and response logs (including URL, request body, and response body) to the server console.
+- Configured frontend settings UI to trigger background polling at a 30-second interval instead of 4 seconds to optimize traffic while keeping status indicators updated.
 
 ### Feishu Approval Card Terminal State
 - Changed completed Feishu approvals to edit the original button card into a terminal result card, avoiding Feishu withdrawal time limits for approvals handled minutes or hours later; text is sent only when editing fails.

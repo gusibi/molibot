@@ -1,6 +1,74 @@
 # Molibot Features
 
+## 2026-06-06
+
+### 视频生成参考图片 Base64 转换与轮询容错优化 (Video Generate Base64 Conversion & Poller Fault Tolerance)
+- **本地图片自动转 Base64**: 修复了远端视频生成服务（Agnes AI 和火山引擎）无法读取本机绝对路径（如渠道下载到 `/tmp/...` 的图片文件）而导致 500 报错的问题。当检测到 `images` 参数传入本地路径时，自动读取本地图片文件并转换为 `data:image/MIME;base64,...` 的 Base64 Data URL 格式提交给云端 API。
+- **本地文件存在性前置拦截**: 如果传入的本地图片路径在磁盘上不存在，工具会立刻拦截并抛出“未找到本地参考图片文件”的明确错误，避免向远端接口发送无效路径。
+- **后台轮询限制与错误规避**: 修复了由于 Agnes 返回的 `error` 报错以结构化对象形式存在而导致 SQLite 绑定入库崩溃的问题。优化后台轮询管理器和工具查询逻辑，在遭遇 4xx 终端 HTTP 错误或连续拉取失败 3 次时，自动在数据库中将任务标记为 `failed` 失败状态，防止无限重复循环拉取。
+- **单元测试补充**: 新增针对本地图片自动 Base64 转化和不存在的本地路径拦截机制的两个独立单元测试，运行且测试完全通过。
+
+### Telegram 流式长消息分片复用 (Telegram Streaming Long-Message Chunk Reuse)
+- **复用已有分片消息**: Telegram answer lane 现在保存完整的分片消息 ID 列表；连续流式刷新会按分片位置编辑已有消息，只在分片数量增加时创建新消息，避免第二段在每次刷新时被重复发送。
+- **清理多余分片**: 当后续答案内容缩短、所需分片数量减少时，runtime 会删除已经不再需要的尾部分片消息。
+- **回归断言补充**: `formatting.test.ts` 覆盖连续分片刷新与分片数量减少，固定“编辑已有分片、不重复创建第二条”的行为。
+
+### 异步视频查询 SQLite 预检优化 (Video Query Bypass Optimization)
+- **避免重复调用三方 API**: 当 Agent 使用 `taskId` 重新查询视频生成状态时，`videoGenerate` 工具会优先检查本地 SQLite 数据库中的 `status` 记录。如果任务已由后台轮询服务更新为 `completed` 或 `failed`，工具将直接读取本地视频路径或错误信息并返回，避免因三方任务过期或连接波动产生 `fetch failed` 报错。
+- **自动触发消息发送**: 即使任务是在后台被静默轮询下载完成的，一旦 Agent 在会话中触发查询，工具也会自动检测 `options.uploadFile` 存在并将本地已完成的视频文件发送给当前聊天通道，保证用户顺畅拿到生成结果。
+
+### 工具运行进度文案压缩 (Compact Tool Progress Copy)
+- **去掉重复状态前缀**: `toolProgress = "new"` 的单行运行态文案不再显示 `正在运行:`，从 `⏳ 正在运行: videoGenerate...` 压缩为 `⏳ videoGenerate...`，为真正有用的工具名留出更多可见空间。
+- **回归校验补充**: 新增 `displayFormatter.test.ts`，固定 `new` 模式下的最小运行态输出格式，避免后续又把冗余前缀带回来。
+
+### Telegram 视频消息原生支持与 MIME 识别优化 (Telegram Native Video Message Support & MIME Optimization)
+- **修正视频文件被误判为音频的问题**: 修复了 MP4 容器在字节头检测时（包含 `ftyp` 签名）被错误归类为 `audio/mp4` 并通过 `sendAudio` 路径发送，从而在 Telegram 中显示为音频且无法正常播放的问题。
+- **添加 detectVideoMime 探测器**: 在 `TelegramManager` 中实现 `detectVideoMime` 辅助方法，专门提取 `.mp4`、`.webm`、`.mov` 视频格式文件的 MIME 类型，并在 `detectAudioMime` 中排除这些后缀的视频文件。
+- **原生 sendVideo 接口调用**: 完善 `uploadFile` 逻辑，在检测到视频 MIME 类型时，优先通过 `bot.api.sendVideo` 将视频原生发送给用户，如果失败则优雅降级为发送文档 (`sendDocument`)。
+- **完善单元测试覆盖**: 在 `src/lib/server/channels/telegram/runtime.test.ts` 中新增针对音频与视频 MIME 类型（包括 MP4/M4A、WebM、MOV、OGG）的精准识别断言。
+
+### 视频生成设置页新增 Task ID 展示 (Task ID Display on Video Settings Page)
+- **展示任务唯一定义标识**: 在 `/settings/video` 设置页面的“最近生成任务”列表中，新增“任务 ID (Task ID)”展示列。
+- **便携复制与完整可见**: 将 Task ID 以等宽字体（`font-mono`）展示，并配置 `select-all` 类名与 hover title，让管理员可以直接在界面完整查阅并快速选中/拷贝 Task ID，方便在聊天窗口手动查验生成进度或核实结果。
+
+### 视频生成结果查看与测试隔离优化 (Video Generation Results Viewing & Test Isolation)
+- **单元测试数据库隔离**: 重构了 `createVideoGenerateTool` 使其支持在 options 中接收自定义的 `taskStore`。在 `videoGenerateTool.test.ts` 单元测试中，为所有 `SqliteVideoTaskStore` 配置隔离的临时测试 SQLite 数据库文件（在 `mockCwd` 目录中），在测试结束后会自动删除，彻底避免测试执行向宿主正式的 settings 数据库文件添加 mock 测试任务数据。
+- **新增视频流服务接口**: 新增后端 API 端点 `/api/settings/video-generate/video`，支持通过 `taskId` 从数据库读取对应任务的本地 `videoPath`，并在文件存在时以 `video/mp4` MIME 格式通过流式响应安全输出。
+- **结果详情弹窗与内置播放器**: 在 `/settings/video` 的“最近生成任务”表格操作列中，为已完成（`completed`）和失败（`failed`）的任务新增了“查看结果 (View Result)”操作按钮。点击可弹出一个精美的模态框：
+  - 对已完成的任务，弹窗内嵌 HTML5 `<video>` 原生播放器，支持直接在配置页面播放和查验生成的视频文件；
+  - 汇总展示任务 ID、生成引擎、完整提示词、本地物理保存路径以及详细错误信息；
+  - 弹窗底部提供一键下载生成的 `.mp4` 文件及关闭弹窗的按钮。
+
+### 图像生成设置页优化 (Image Generation Settings Optimization)
+- **多引擎 Model ID 自定义**: 优化内置 `imageGenerate` 工具及其控制台 `/settings/image`，为 Agnes, Google Imagen, Volcengine (Seedream) 和 ModelScope 图像引擎独立支持自定义 Model ID 输入，增强不同画风和模型版本的灵活扩展性。
+- **极简启用逻辑 (基于 API Key)**: 移除了各个引擎配置中冗余的 `enabled` 显式复选框/开关。遵循“只要配置了非空 API Key 即视为启用”的清晰规则，简化配置负担并避免状态不同步问题。
+- **完整中英本地化支持**: 重构了前端配置表单以完整支持双语 `zh-CN` / `en-US` 本地化显示及切换，适配明暗模式和响应式自适应布局。
+- **全面单元测试对齐**: 更新了 `imageGenerateTool.test.ts` 以移除对各引擎显式启用参数的依赖，利用 Mock 校验模型自定义和多引擎按优先级自动路由（根据配置 key 的有无自动路由）。
+
 ## 2026-06-05
+
+### 设置总览页重新设计 (Settings Overview Redesign)
+- **控制中心仪表盘**: 将 `/settings` 总览页从 14 个扁平卡片重构为 4 个分组功能卡片（AI 智能、消息渠道、知识与数据、系统），匹配设计稿的 Dashboard 布局。
+- **Lucide 图标集成**: 每个分组卡片使用语义化 Lucide 图标（Cpu、MessageSquare、BookOpen、Settings），引入 `@lucide/svelte` 在设置页面的首次直接使用。
+- **衬线标题排版**: 页面标题采用 `var(--font-serif)` 衬线字体，营造设计稿中的编辑感排版风格。
+- **子页面快捷导航**: 每张卡片底部列出所有子页面链接，hover 时显示 → 箭头动画，直接导航到对应设置页。
+- **分组计数 Badge**: 每张卡片顶部显示 Shadcn Badge 标注模块/渠道/页面数量。
+- **双语支持**: 所有文本完整支持 zh-CN 和 en-US，使用 `$locale` 响应式切换。
+- **暗色模式适配**: 卡片背景通过 `color-mix()` 在暗色模式下自动调整透明度。
+
+### 设置布局头部重新设计 (Settings Layout Header Redesign)
+- **侧边栏品牌头部**: 将侧边栏顶部从"配置工作台 + 设置"大标题重构为品牌圆点 logo + 衬线字体"设置"标题 + 紧凑的"返回聊天"胶囊按钮，匹配设计稿的主侧边栏头部风格。
+- **面包屑顶部栏**: 将顶部栏从"工作台标题 + 页面名"改为"设置 › [当前页面]"面包屑导航，右侧保留主题/语言选择器和"打开聊天"链接。
+- **语义化 CSS 类**: 所有新增 UI 元素使用语义化 CSS 类名（`.settings-sidebar-header`、`.settings-topbar-breadcrumb` 等），遵循 DESIGN.md 的 CSS 类名规范。
+- **移动端导航保留**: 移动端折叠导航（`<details>`）保持不变，样式统一更新。
+- **清理未使用 i18n**: 移除 `workspaceTitle` 翻译键，不再使用。
+
+### 设置导航菜单样式重做 (Settings Navigation Menu Restyle)
+- **匹配设计稿 nav-item 样式**: 将导航链接从 `rounded-xl border text-xs` 卡片风格改为设计稿的 `rounded-[6px] text-sm` 无边框列表风格，padding 从 `px-3 py-2` 调整为 `px-3.5 py-2.5`。
+- **活跃状态对齐**: 活跃链接改为 `accent-soft` 背景 + `accent` 文字色 + 内边框阴影（`inset box-shadow`），匹配设计稿的 `nav-icon.active` 样式。
+- **分组标题更新**: 去掉 `uppercase tracking-[0.16em]`，改为正常的 12px 小写标题，带折叠箭头（▾ 替代 ▸），闭合时旋转 -90°。
+- **语义化 CSS 类**: 导航样式全部迁移到 `<style>` 块中的语义化类名（`.settings-nav-link`、`.settings-nav-group-title` 等），移除 `navLinkClass()` 中的 Tailwind 内联。
+- **移动端同步**: 移动端折叠导航复用同一 `navLinkClass` 函数，样式自动继承。
 
 ### 内置视频生成工具 (Built-In Video Generation Tool)
 - **原生 Agent 层工具**: 新增内置 `videoGenerate` 工具，视频生成能力从 bash/Python 脚本技能提升为 runtime 原生能力。
@@ -11,7 +79,10 @@
 - **设置管理界面**: 新增 `/settings/video` 专属页面与 `/api/settings/video-generate/test` 接口，支持配置全局开关、默认引擎，按引擎启用状态、API 密钥、自定义模型 ID 与自定义基准 URL 存储，并支持在页面直接运行测试 Prompt 生成并渲染。
 - **启动与设置兼容**: 旧版 settings 缺少 `videoGenerate` 字段时会自动回填默认配置；默认引擎会优先参与 auto 路由；设置页测试产物写入 Molibot 数据目录，避免污染项目源码目录。
 - **语义路由优先级**: Agent 会对任意语言的视频生成意图做语义判断，并优先通过 `toolSearch select:videoGenerate` 加载内置工具；只有内置工具不可用或失败时才回退到 skill/bash。
-- **回归测试补充**: 新增 `videoGenerateTool.test.ts`，利用 fetch mock 覆盖 Agnes 尺寸与 seed 参数校验、Volcengine 的有声/水印参数和异步轮询任务执行。
+- **非阻塞异步任务执行**: `videoGenerate` 视频生成支持完全非阻塞的异步任务执行。Agent 提交任务后即刻将任务记录持久化写入 SQLite，并向 Agent 返回 taskId，直接释放当前对话回合。
+- **后台轮询与状态同步**: 前端设置页面 `/settings/video` 以 30 秒间隔运行后台轮询，查询处于 processing 状态的任务，自动更新 SQLite 数据库中的任务状态，完成时自动下载并保存视频文件。
+- **详细的请求与响应日志**: 在服务端查询第三方视频生成接口的状态时，会打印带有 `[Video Task Poller]` 标识的详细 HTTP 请求与响应日志，包含请求 URL、请求 Payload 以及完整的响应 Body（限前 500 字节），方便管理员随时核对调用细节与排障。
+- **回归测试与编译校验**: `videoGenerateTool.test.ts` 完整覆盖了异步任务的提交、SQLite 读写、状态轮询与下载处理。项目在 TypeScript + SvelteKit 生产构建下完美编译通过。
 
 ### 飞书审批卡片终态稳定 (Feishu Approval Card Terminal State)
 - **原卡片编辑为终态**: 审批完成后原地把带按钮卡片更新成“审批已处理”结果卡片，不再依赖有时间限制的消息撤回；编辑失败时才发送文本结果。

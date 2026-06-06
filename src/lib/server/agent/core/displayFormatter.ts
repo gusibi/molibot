@@ -179,7 +179,7 @@ export class DisplayFormatter {
       if (running) {
         const icon = this.getToolIcon(running.toolName, false, true);
         const name = running.displayName || running.toolName || running.label;
-        return `${icon} 正在运行: ${name}...`;
+        return `${icon} ${name}...`;
       }
       return "";
     }

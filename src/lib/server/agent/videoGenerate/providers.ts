@@ -34,6 +34,17 @@ async function readJson(response: Response): Promise<any> {
   return text ? JSON.parse(text) : {};
 }
 
+function formatProviderError(err: any): string {
+  if (!err) return "Unknown error";
+  if (typeof err === "string") return err;
+  if (typeof err === "object") {
+    const code = err.code ?? "";
+    const msg = err.message ?? JSON.stringify(err);
+    return code ? `[${code}] ${msg}` : msg;
+  }
+  return String(err);
+}
+
 export function getEffectiveVideoBaseUrl(engine: string, inputUrl: string): { submitUrl: string; pollUrlBase: string } {
   const defaultBaseUrls = {
     agnes: "https://apihub.agnes-ai.com",
@@ -105,9 +116,12 @@ export function getEffectiveVideoBaseUrl(engine: string, inputUrl: string): { su
   }
 }
 
-const agnesProvider: VideoGenerateProvider = {
-  id: "agnes",
-  generate: async (input: VideoGenerateInput, context: VideoGenerateProviderContext): Promise<VideoGenerateProviderResult> => {
+export async function submitVideoTask(
+  input: VideoGenerateInput,
+  context: VideoGenerateProviderContext
+): Promise<{ taskId: string; pollParams: any }> {
+  const engine = input.engine;
+  if (engine === "agnes") {
     const apiKey = requireApiKey(context, "agnes");
     const baseUrl = context.settings.engines.agnes.baseUrl?.trim() || "https://apihub.agnes-ai.com";
     const resolved = getEffectiveVideoBaseUrl("agnes", baseUrl);
@@ -121,7 +135,6 @@ const agnesProvider: VideoGenerateProvider = {
 
     if (input.seed !== undefined) payload.seed = input.seed;
 
-    // Map duration for Agnes
     if (input.duration !== undefined) {
       const targetFrames = input.duration * 24;
       const framesList = [81, 121, 161, 241, 441];
@@ -132,7 +145,6 @@ const agnesProvider: VideoGenerateProvider = {
       payload.frame_rate = 24;
     }
 
-    // Map ratio for Agnes
     let width = 1152;
     let height = 768;
     if (input.ratio) {
@@ -156,7 +168,6 @@ const agnesProvider: VideoGenerateProvider = {
     payload.width = width;
     payload.height = height;
 
-    // Handle reference images for Agnes
     if (input.images && input.images.length > 0) {
       if (input.images.length === 1) {
         payload.image = input.images[0];
@@ -170,7 +181,6 @@ const agnesProvider: VideoGenerateProvider = {
       }
     }
 
-    // Submit Task
     const response = await context.fetch(submitUrl, {
       method: "POST",
       headers: {
@@ -187,43 +197,11 @@ const agnesProvider: VideoGenerateProvider = {
       throw new Error(`Agnes failed to submit video task. Response: ${JSON.stringify(submitData)}`);
     }
 
-    // Poll for results
-    const pollUrl = `${resolved.pollUrlBase}/${taskId}`;
-    for (let i = 0; i < 60; i++) {
-      if (context.signal?.aborted) {
-        throw new Error("Aborted");
-      }
-
-      const pollResponse = await context.fetch(pollUrl, {
-        headers: {
-          "Authorization": `Bearer ${apiKey}`
-        },
-        signal: context.signal
-      });
-
-      const pollData = await readJson(pollResponse);
-      const status = pollData?.status;
-
-      if (status === "completed") {
-        const videoUrl = pollData?.video_url || pollData?.remixed_from_video_id;
-        if (!videoUrl) {
-          throw new Error(`Agnes task completed but returned no video URL. Response: ${JSON.stringify(pollData)}`);
-        }
-        return { videoUrl };
-      } else if (status === "failed") {
-        throw new Error(`Agnes video generation failed: ${pollData?.error || "Unknown error"}`);
-      }
-
-      await delay(5000, context.signal);
-    }
-
-    throw new Error("Agnes video generation task timed out");
+    const videoId = submitData?.video_id;
+    return { taskId, pollParams: { model, videoId } };
   }
-};
 
-const volcengineProvider: VideoGenerateProvider = {
-  id: "volcengine",
-  generate: async (input: VideoGenerateInput, context: VideoGenerateProviderContext): Promise<VideoGenerateProviderResult> => {
+  if (engine === "volcengine") {
     const apiKey = requireApiKey(context, "volcengine");
     const baseUrl = context.settings.engines.volcengine.baseUrl?.trim() || "https://ark.cn-beijing.volces.com";
     const resolved = getEffectiveVideoBaseUrl("volcengine", baseUrl);
@@ -269,31 +247,150 @@ const volcengineProvider: VideoGenerateProvider = {
       throw new Error(`Volcengine failed to submit video task. Response: ${JSON.stringify(submitData)}`);
     }
 
-    // Poll for results
+    return { taskId, pollParams: { model } };
+  }
+
+  throw new Error(`Unsupported video engine for submission: ${engine}`);
+}
+
+export async function queryVideoTaskStatus(
+  taskId: string,
+  engine: VideoGenerateEngine,
+  context: VideoGenerateProviderContext,
+  videoId?: string
+): Promise<{ status: "processing" | "completed" | "failed"; progress?: number; videoUrl?: string; error?: string }> {
+  if (engine === "agnes") {
+    const apiKey = requireApiKey(context, "agnes");
+    const baseUrl = context.settings.engines.agnes.baseUrl?.trim() || "https://apihub.agnes-ai.com";
+    
+    let pollUrl = "";
+    if (videoId) {
+      let baseOrigin = baseUrl.replace(/\/+$/, "");
+      try {
+        let parseUrl = baseOrigin;
+        if (!/^https?:\/\//i.test(parseUrl)) {
+          parseUrl = "https://" + parseUrl;
+        }
+        const urlObj = new URL(parseUrl);
+        if (urlObj.pathname.endsWith("/v1") || urlObj.pathname.endsWith("/v1/")) {
+          baseOrigin = urlObj.origin;
+        } else {
+          baseOrigin = urlObj.origin + urlObj.pathname.replace(/\/+$/, "");
+        }
+      } catch {
+        // fallback
+      }
+      pollUrl = `${baseOrigin}/agnesapi?video_id=${videoId}`;
+    } else {
+      const resolved = getEffectiveVideoBaseUrl("agnes", baseUrl);
+      pollUrl = `${resolved.pollUrlBase}/${taskId}`;
+    }
+
+    const pollResponse = await context.fetch(pollUrl, {
+      headers: {
+        "Authorization": `Bearer ${apiKey}`
+      },
+      signal: context.signal
+    });
+
+    const pollData = await readJson(pollResponse);
+    const status = pollData?.status;
+
+    if (status === "completed") {
+      const videoUrl = pollData?.video_url || pollData?.remixed_from_video_id;
+      if (!videoUrl) {
+        throw new Error(`Agnes task completed but returned no video URL. Response: ${JSON.stringify(pollData)}`);
+      }
+      return { status: "completed", progress: 100, videoUrl };
+    } else if (status === "failed") {
+      return { status: "failed", error: formatProviderError(pollData?.error) };
+    } else {
+      let progressVal = 0;
+      if (pollData?.progress !== undefined) {
+        const p = Number(pollData.progress);
+        progressVal = p <= 1 ? Math.round(p * 100) : Math.round(p);
+      }
+      return { status: "processing", progress: progressVal };
+    }
+  }
+
+  if (engine === "volcengine") {
+    const apiKey = requireApiKey(context, "volcengine");
+    const baseUrl = context.settings.engines.volcengine.baseUrl?.trim() || "https://ark.cn-beijing.volces.com";
+    const resolved = getEffectiveVideoBaseUrl("volcengine", baseUrl);
     const pollUrl = `${resolved.pollUrlBase}/${taskId}`;
+
+    const pollResponse = await context.fetch(pollUrl, {
+      headers: {
+        "Authorization": `Bearer ${apiKey}`
+      },
+      signal: context.signal
+    });
+
+    const pollData = await readJson(pollResponse);
+    const status = pollData?.status;
+
+    if (status === "succeeded") {
+      const videoUrl = pollData?.content?.video_url;
+      if (!videoUrl) {
+        throw new Error(`Volcengine task succeeded but returned no video URL. Response: ${JSON.stringify(pollData)}`);
+      }
+      return { status: "completed", progress: 100, videoUrl };
+    } else if (status === "failed") {
+      return { status: "failed", error: formatProviderError(pollData?.error) };
+    } else {
+      let progressVal = 0;
+      if (pollData?.progress !== undefined) {
+        progressVal = Math.round(Number(pollData.progress));
+      }
+      return { status: "processing", progress: progressVal };
+    }
+  }
+
+  throw new Error(`Unsupported video engine for status query: ${engine}`);
+}
+
+const agnesProvider: VideoGenerateProvider = {
+  id: "agnes",
+  generate: async (input: VideoGenerateInput, context: VideoGenerateProviderContext): Promise<VideoGenerateProviderResult> => {
+    const { taskId, pollParams } = await submitVideoTask(input, context);
+
+    // Poll for results
     for (let i = 0; i < 60; i++) {
       if (context.signal?.aborted) {
         throw new Error("Aborted");
       }
 
-      const pollResponse = await context.fetch(pollUrl, {
-        headers: {
-          "Authorization": `Bearer ${apiKey}`
-        },
-        signal: context.signal
-      });
+      const res = await queryVideoTaskStatus(taskId, "agnes", context, pollParams?.videoId);
+      if (res.status === "completed") {
+        return { videoUrl: res.videoUrl };
+      } else if (res.status === "failed") {
+        throw new Error(`Agnes video generation failed: ${res.error}`);
+      }
 
-      const pollData = await readJson(pollResponse);
-      const status = pollData?.status;
+      await delay(5000, context.signal);
+    }
 
-      if (status === "succeeded") {
-        const videoUrl = pollData?.content?.video_url;
-        if (!videoUrl) {
-          throw new Error(`Volcengine task succeeded but returned no video URL. Response: ${JSON.stringify(pollData)}`);
-        }
-        return { videoUrl };
-      } else if (status === "failed") {
-        throw new Error(`Volcengine video generation failed: ${pollData?.error || "Unknown error"}`);
+    throw new Error("Agnes video generation task timed out");
+  }
+};
+
+const volcengineProvider: VideoGenerateProvider = {
+  id: "volcengine",
+  generate: async (input: VideoGenerateInput, context: VideoGenerateProviderContext): Promise<VideoGenerateProviderResult> => {
+    const { taskId } = await submitVideoTask(input, context);
+
+    // Poll for results
+    for (let i = 0; i < 60; i++) {
+      if (context.signal?.aborted) {
+        throw new Error("Aborted");
+      }
+
+      const res = await queryVideoTaskStatus(taskId, "volcengine", context);
+      if (res.status === "completed") {
+        return { videoUrl: res.videoUrl };
+      } else if (res.status === "failed") {
+        throw new Error(`Volcengine video generation failed: ${res.error}`);
       }
 
       await delay(5000, context.signal);

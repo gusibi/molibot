@@ -3,6 +3,7 @@ import type { ModelOption as SharedModelOption, ModelRoute as SharedModelRoute }
 export interface StatusSession {
   statusMessageId: number | null;
   answerMessageId?: number | null;
+  answerMessageIds?: number[];
   reasoningMessageId?: number | null;
   detailsMessageId?: number | null;
   threadMessageIds: number[];

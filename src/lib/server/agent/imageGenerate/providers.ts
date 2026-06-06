@@ -280,11 +280,17 @@ const volcengineProvider: ImageGenerateProvider = {
     const url = resolved.submitUrl;
 
     const model = input.model || "cv_vit_huge_p14_laion2b_s32b_b64_seedream";
+    
+    // Newer Seedream models (like 5.0-lite) require at least 3,686,400 pixels (1920x1920).
+    // We default to 2048x2048 (2K) for those.
+    const isNewSeedream = model.toLowerCase().includes("seedream") && !model.toLowerCase().includes("cv_vit_huge");
+    const defaultSize = isNewSeedream ? "2048x2048" : "1024x1024";
+
     const payload = {
       model,
       prompt: input.prompt,
       n: 1,
-      size: input.size || "1024x1024"
+      size: input.size || defaultSize
     };
 
     const response = await context.fetch(url, {

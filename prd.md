@@ -7,8 +7,22 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Solo builders and small teams who want one AI assistant across channels.
 - Users who prefer simple interaction over complex automation.
 
+## 2.6 Scope Clarification (2026-06-06)
+- [Done] 修复视频生成工具本地图片路径报错问题：当检测到参考图路径为本地路径（如临时目录 `/tmp/...`）时，工具前置读取图片数据并将其转换为 Base64 Data URL 提交至云端，实现对渠道下载图片的天然兼容。
+- [Done] 拦截不存在的参考图路径：在向远端提交之前，前置检测本地路径是否存在，如果不存在则直接返回错误，避免提交给第三方服务抛出 500。
+- [Done] 优化后台轮询管理器对接口异常与 500 报错的容错：由于供应商 Agnes AI 错误码为结构化对象，将其规范序列化为字符串存储，避免 SQLite 绑定入库崩溃；并在遭遇 4xx 终端 HTTP 状态或连续失败 3 次时，在 SQLite 数据库中将任务标记为 `failed` 失败终态，防止产生死循环无效轮询。
+- [Done] Telegram 流式答案拆分为多条消息后，后续刷新必须复用并编辑已有分片消息 ID；只能在分片数量增加时补发新消息，内容缩短时需要删除多余分片，不能持续重复创建第二条消息。
+- [Done] `toolProgress = "new"` 的单行工具进度需要去掉重复的 `正在运行:` 前缀，展示压缩为 `⏳ <toolName>...`，优先把有限宽度留给真正的工具名与后续信息。
+- [Done] 优化图像生成配置页面 `/settings/image`：支持各引擎自定义模型 ID（如 `agnes-image-2.0-flash` 等）；移除各引擎的 `enabled` 显式启用字段，简化为只要配置了对应的 API Key 即视为启用该引擎；支持中英文双语本地化切换。
+- [Done] 优化视频生成状态查询逻辑：当 Agent 以 `taskId` 重新查询视频状态时，若本地 SQLite 数据库中该任务已为 `completed` 或 `failed` 终态，直接读取并返回本地缓存结果，避免二次向已过期的三方服务端发送请求造成 `fetch failed` 错误；并在此时自动完成 channel 消息视频发送。
+- [Done] 优化 Telegram 渠道的视频发送机制：在文件发送逻辑中独立识别 `.mp4`/`.webm`/`.mov` 格式，防止因包含 `ftyp` 标识而误判为音频，并在 MIME 探测为视频类型时，直接使用 Telegram `sendVideo` 原生接口发送视频消息，保证视频可以在 Telegram 中内嵌播放与直接下载。
+- [Done] 在 `/settings/video` 设置页面的“最近生成任务”列表中新增“任务 ID (Task ID)”列，以方便管理员和用户随时查看并便捷拷贝 `taskId`，用于聊天中手动进度查询。
+- [Done] 隔离视频单元测试数据库写入：重构 `createVideoGenerateTool` 并为 `videoGenerateTool.test.ts` 传入独立的临时 SQLite 路径并随测试销毁，彻底避免测试执行在宿主正式 settings.sqlite 中产生垃圾 mock 记录。
+- [Done] 在 `/settings/video` 设置页面的任务列表操作列中为已完成和失败任务增加“查看结果”按钮，点击弹窗展示任务详情（包含 Task ID、提示词、引擎、本地路径与错误消息），并在已生成视频时提供 HTML5 原生 `<video>` 播放器与下载按钮，使本地生成的视频在配置控制台中即可直接点击查看。
+
 ## 2.5 Scope Clarification (2026-06-05)
 - [Done] 视频生成支持作为内置 Agent 层工具 `videoGenerate` 运行，支持 Agnes-Video 和 火山引擎 (Doubao-Seedance) 双供应商；每个供应商支持在配置中自定义特定的模型 ID；生成的视频支持下载保存至本地会话归档目录，并通过 active channel 直发；设置页提供 `/settings/video` 与 `/api/settings/video-generate/test` 连接测试接口，适配多语言中英切换。
+- [Done] 视频生成任务采用非阻塞式异步执行：任务提交后立即写入 SQLite，返回 taskId 释放 Agent 回合；网页设置页通过 30 秒间隔的后台 API 进行轮询更新，并在服务端控制台打印详细的 HTTP 请求（URL、Body）与响应（Response Body）日志。
 
 ## 2.1 Scope Clarification (2026-02-27)
 - [Done] 飞书审批按钮点击后必须在三秒回调期限内先显示无按钮的处理中卡片，再原地编辑为无按钮终态卡片，不能依赖有时间限制的消息撤回；编辑失败时降级为文本提示。HTTP/WebSocket 双回调和重复点击必须按审批请求幂等收口，会话忙时共享运行层应持续等待恢复而不是很快要求用户再发消息。

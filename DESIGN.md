@@ -41,6 +41,7 @@ layout:
   sidebar-primary-w: "72px"
   sidebar-secondary-w: "260px"
   header-h: "64px"
+  footbar-h: "56px"
   max-width: "1200px"
 
 ---
@@ -61,6 +62,15 @@ For entities like **AI Providers**, **Channels**, and **Agents**, we use a maste
 ### 3. Collapsible Hierarchy
 To handle the repetitive nature of Markdown files (BOT.md, SOUL.md, etc.), we use **Accordions**. This allows multiple files to exist on one page without overwhelming the user vertically.
 
+### 4. Fixed Footer Bar (Sticky Save)
+Any settings page with a save action must place the save button in a **fixed footer bar** (`.settings-footbar`) pinned to the bottom of the content area. The footer mirrors the topbar style — translucent background, `backdrop-filter: blur`, thin top border — and is always visible without scrolling. Status messages (success/error) display to the left; the save button sits to the right. This eliminates the need to scroll to the bottom of a long form to save.
+
+**How it works:**
+- The layout defines `.settings-footbar` as a `position: fixed` bar at the bottom of the content stage (left offset = sidebar-primary-w + sidebar-secondary-w).
+- Each page renders its own `<div class="settings-footbar">` with status text and a submit button using `form="page-form-id"` to bind to the form.
+- The viewport reserves `4.5rem` of bottom padding so page content doesn't hide behind the footer.
+- On mobile (< 1024px), the footer spans full width (`left: 0`) since sidebars are hidden.
+
 ## Components
 
 ### Cards
@@ -71,6 +81,7 @@ To handle the repetitive nature of Markdown files (BOT.md, SOUL.md, etc.), we us
 - **Inputs**: Hairline borders, subtle ring-focus states.
 - **Buttons**: `radius-sm` (6px), primary button in Terracotta.
 - **Tabs**: Pilled toggle switch for view switching within a card.
+- **iOS Switch**: A smooth, pilled toggle for binary states (Enable/Disable). Uses `--accent` for the 'On' state and a smooth cubic-bezier transition.
 
 ### Editors
 - **Markdown Textarea**: Monospace font, high-contrast, contained within collapsible accordion items.
@@ -119,6 +130,7 @@ The frontend is built on **Shadcn UI** (Radix + Tailwind). Shadcn's own componen
 - Use **Tabular Numerics** (`font-variant-numeric: tabular-nums`) for all stats.
 - Keep border weights at **1px**.
 - Use the **Double-Sidebar** for any view with more than 5 pages.
+- Use the **Fixed Footer Bar** for any settings page with a save/submit action — the button must always be visible without scrolling.
 
 ### Don't
 - Don't use saturated blues or purples for UI elements.

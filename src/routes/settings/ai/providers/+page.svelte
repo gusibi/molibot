@@ -1,9 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { Alert, AlertDescription } from "$lib/components/ui/alert";
-    import { Badge } from "$lib/components/ui/badge";
-    import { Button } from "$lib/components/ui/button";
-    import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
+    import { Checkbox } from "$lib/components/ui/checkbox";
     import { Input } from "$lib/components/ui/input";
     import { Label } from "$lib/components/ui/label";
     import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
@@ -112,12 +109,26 @@
 
     let loading = true;
     let saving = false;
+    let showApiKey = false;
     let testingModelKey = "";
     let selectedProviderId = "";
     let activeProviderTab: ProviderTab = "builtin";
     let providerSearch = "";
     let error = "";
     let message = "";
+
+    /* ── Add Model Modal ── */
+    let showAddModelModal = false;
+    let addModelTargetProviderId = "";
+    let addModelId = "";
+    let addModelTags: ModelCapabilityTag[] = ["text"];
+    let addModelContextWindow: number | undefined = undefined;
+
+    /* ── Pull Models Modal ── */
+    let showPullModal = false;
+    let pullTargetProviderId = "";
+    let pullAddingModelId = "";
+    let pullAddingTags: ModelCapabilityTag[] = ["text"];
     let modelTestResults: Record<string, ModelTestStatus> = {};
     let discoveredProviderModels: Record<string, string[]> = {};
     let discoveredSelectedModel: Record<string, string> = {};
@@ -559,6 +570,59 @@
                 ...provider.models,
             ],
         }));
+    }
+
+    function openAddModelModal(providerId: string): void {
+        addModelTargetProviderId = providerId;
+        addModelId = "";
+        addModelTags = ["text"];
+        addModelContextWindow = undefined;
+        showAddModelModal = true;
+    }
+
+    function confirmAddModel(): void {
+        if (!addModelId.trim()) return;
+        updateProviderById(addModelTargetProviderId, (provider) => ({
+            ...provider,
+            models: [
+                ...provider.models,
+                {
+                    id: addModelId.trim(),
+                    tags: addModelTags.length > 0 ? [...addModelTags] : ["text"],
+                    supportedRoles: ["system", "user", "assistant", "tool"],
+                    contextWindow: addModelContextWindow,
+                },
+            ],
+        }));
+        showAddModelModal = false;
+    }
+
+    function toggleAddModelTag(tag: ModelCapabilityTag): void {
+        const set = new Set(addModelTags);
+        if (set.has(tag)) set.delete(tag); else set.add(tag);
+        addModelTags = Array.from(set) as ModelCapabilityTag[];
+        if (addModelTags.length === 0) addModelTags = ["text"];
+    }
+
+    function openPullModal(provider: CustomProviderForm): void {
+        pullTargetProviderId = provider.id;
+        pullAddingModelId = "";
+        pullAddingTags = ["text"];
+        showPullModal = true;
+        fetchProviderModels(provider);
+    }
+
+    function confirmPullAdd(modelId: string): void {
+        addDiscoveredModel(pullTargetProviderId, modelId);
+        /* set tags on the newly added model */
+        updateProviderById(pullTargetProviderId, (provider) => {
+            const models = provider.models.map((m) =>
+                m.id === modelId ? { ...m, tags: [...pullAddingTags] } : m,
+            );
+            return { ...provider, models };
+        });
+        pullAddingModelId = "";
+        pullAddingTags = ["text"];
     }
 
     function removeModel(providerId: string, index: number): void {
@@ -1233,385 +1297,163 @@
     }
 
     onMount(loadAll);
-
-    function verificationBadgeClass(
-        status: ModelCapabilityVerification | undefined,
-    ): string {
-        if (status === "passed") {
-            return "border-[color-mix(in_oklab,hsl(146_55%_42%)_30%,var(--border))] bg-[color-mix(in_oklab,hsl(146_55%_42%)_10%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_84%,var(--foreground))]";
-        }
-        if (status === "failed") {
-            return "border-[color-mix(in_oklab,var(--destructive)_30%,var(--border))] bg-[color-mix(in_oklab,var(--destructive)_10%,var(--card))] text-[var(--destructive)]";
-        }
-        return "border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] text-muted-foreground";
-    }
-
-    function verificationLabel(
-        model: ProviderModelForm,
-        tag: ModelCapabilityTag,
-    ): string {
-        return model.verification?.[tag] ?? "untested";
-    }
-
-    const autoTestedCapabilities: ModelCapabilityTag[] = ["text", "vision"];
 </script>
 
-<div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-    <header class="space-y-3">
-        <div class="flex flex-col justify-between gap-3 md:flex-row md:items-end">
-            <div>
-                <Badge variant="secondary" class="mb-2 w-fit">Unified model pool</Badge>
-                <h1 class="text-3xl font-semibold tracking-tight text-foreground">
-                    Providers &amp; Models
-                </h1>
-            </div>
-            <Button
-                variant="outline"
-                size="sm"
-                href="/settings/ai/routing"
-            >
-                Open routing
-            </Button>
-        </div>
-        <p class="max-w-3xl text-sm leading-[1.58] text-muted-foreground">
-            Built-in transports plus custom OpenAI-compatible or Anthropic
-            endpoints feed the same routing pool. Enable providers here,
-            declare model capabilities, then choose any enabled model from
-            AI Routing.
-        </p>
-    </header>
-
+<div class="providers-page">
     {#if loading}
-        <div
-            class="rounded-2xl border border-border bg-card px-6 py-5 text-sm text-muted-foreground"
-        >
-            Loading providers...
-        </div>
+        <p class="providers-loading">Loading providers...</p>
     {:else}
         <form
-            class="grid gap-6 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]"
+            id="providers-form"
+            class="providers-form-grid"
             onsubmit={(e) => { e.preventDefault(); save(); }}
         >
             <!-- Providers List Pane -->
-            <aside class="w-full shrink-0 md:w-[300px] xl:w-[320px]">
-                <Card
-                    class="sticky top-6 flex flex-col space-y-4 overflow-y-auto p-5 md:max-h-[calc(100vh-9rem)]"
-                >
-                    <div class="flex items-center justify-between">
-                        <h2
-                            class="text-sm font-semibold uppercase tracking-normal text-muted-foreground"
-                        >
-                            Provider Source
-                        </h2>
-                    </div>
+            <aside class="providers-sidebar">
+                <div class="providers-sidebar-card">
+                    <h2 class="providers-sidebar-title">Provider Source</h2>
 
-                    <div class="grid grid-cols-2 gap-2">
-                        <Button
-                            type="button"
-                            variant={activeProviderTab === "builtin" ? "default" : "outline"}
-                            size="sm"
-                            class="h-auto py-2 text-xs font-semibold uppercase tracking-wider"
-                            onclick={() => switchProviderTab("builtin")}
-                        >
-                            Built-in
-                        </Button>
-                        <Button
-                            type="button"
-                            variant={activeProviderTab === "custom" ? "default" : "outline"}
-                            size="sm"
-                            class="h-auto py-2 text-xs font-semibold uppercase tracking-wider"
-                            onclick={() => switchProviderTab("custom")}
-                        >
-                            Custom
-                        </Button>
+                    <div class="providers-sidebar-tabs">
+                        <button type="button" class="providers-sidebar-tab" class:providers-sidebar-tab--active={activeProviderTab === "builtin"} onclick={() => switchProviderTab("builtin")}>Built-in</button>
+                        <button type="button" class="providers-sidebar-tab" class:providers-sidebar-tab--active={activeProviderTab === "custom"} onclick={() => switchProviderTab("custom")}>Custom</button>
                     </div>
 
                     {#if activeProviderTab === "builtin"}
-                        <div
-                            class="rounded-xl border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
-                        >
-                            Built-in providers are always listed below. Use the
-                            `Enabled` switch to put native transports into the
-                            shared routing pool.
-                        </div>
+                        <div class="providers-sidebar-info">Built-in providers are listed below. Enable them to add native transports to the routing pool.</div>
                     {:else}
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onclick={addCustomProvider}
-                        >
-                            + Create Custom Provider
-                        </Button>
+                        <button type="button" class="providers-btn-outline" onclick={addCustomProvider}>+ Create Custom Provider</button>
                     {/if}
 
-                    <Input bind:value={providerSearch} placeholder="Search provider..." />
+                    <input class="providers-sidebar-search" bind:value={providerSearch} placeholder="Search provider..." />
 
-                    <div class="flex flex-col space-y-2">
+                    <div class="providers-sidebar-list">
                         {#if filteredCustomProviders().length === 0}
-                            <div
-                                class="py-2 text-center text-xs text-muted-foreground"
-                            >
-                                No items matched
-                            </div>
+                            <div class="providers-sidebar-empty">No items matched</div>
                         {/if}
 
                         {#each filteredCustomProviders() as provider (provider.id)}
-                            <Button
+                            <button
                                 type="button"
-                                variant="ghost"
-                                class={`h-auto w-full flex-col items-start gap-1 px-4 py-3 text-left transition-all ${
-                                    selectedProviderId === provider.id
-                                        ? "bg-muted text-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
-                                        : "text-foreground hover:bg-muted"
-                                }`}
-                                onclick={() =>
-                                    (selectedProviderId = provider.id)}
+                                class="providers-sidebar-item"
+                                class:providers-sidebar-item--selected={selectedProviderId === provider.id}
+                                onclick={() => (selectedProviderId = provider.id)}
                             >
-                                <div
-                                    class={`font-medium ${selectedProviderId === provider.id ? "text-foreground" : "text-foreground"}`}
-                                >
-                                    {provider.name}
-                                </div>
-                                <div class="text-xs text-muted-foreground">
-                                    ID: {provider.id}
-                                </div>
-                                <div class="mt-1 flex items-center gap-2">
-                                    <Badge variant="secondary" class="text-[10px]">
-                                        {provider.models.length} model{provider.models.length === 1 ? "" : "s"}
-                                    </Badge>
+                                <div class="providers-sidebar-item-name">{provider.name}</div>
+                                <div class="providers-sidebar-item-id">ID: {provider.id}</div>
+                                <div class="providers-sidebar-item-badges">
+                                    <span class="providers-sbadge">{provider.models.length} model{provider.models.length === 1 ? "" : "s"}</span>
                                     {#if form.defaultCustomProviderId === provider.id}
-                                        <Badge variant="secondary" class="text-[10px] uppercase font-bold">Default</Badge>
+                                        <span class="providers-sbadge providers-sbadge--accent">Default</span>
                                     {/if}
-                                    <Badge
-                                        variant={provider.enabled ? "default" : "outline"}
-                                        class="text-[10px] uppercase font-bold"
-                                    >
-                                        {provider.enabled ? "Enabled" : "Disabled"}
-                                    </Badge>
-                                    <Badge
-                                        variant="outline"
-                                        class={`text-[10px] uppercase font-bold ${
-                                            hasUsableProviderConfig(provider)
-                                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                                : "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400"
-                                        }`}
-                                    >
-                                        {hasUsableProviderConfig(provider) ? "Available" : "Unavailable"}
-                                    </Badge>
+                                    <span class="providers-sbadge" class:providers-sbadge--on={provider.enabled}>{provider.enabled ? "Enabled" : "Disabled"}</span>
+                                    <span class="providers-sbadge" class:providers-sbadge--ok={hasUsableProviderConfig(provider)} class:providers-sbadge--err={!hasUsableProviderConfig(provider)}>{hasUsableProviderConfig(provider) ? "Available" : "Unavailable"}</span>
                                 </div>
-                            </Button>
+                            </button>
                         {/each}
                     </div>
-                </Card>
+                </div>
             </aside>
 
             <!-- Provider Edit Pane -->
-            <section class="flex-1 min-w-0">
-                <Card class="p-6">
+            <section class="providers-detail-section">
+                <div class="providers-detail-card">
                     {#if getSelectedProviderInActiveTab()}
                         {@const cp = getSelectedProviderInActiveTab()!}
 
-                        <div
-                            class="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-5"
-                        >
-                            <h2
-                                class="text-xl font-bold tracking-tight text-foreground"
-                            >
-                                {cp.name || "Unnamed Provider"}
-                            </h2>
-
-                            <div class="flex flex-wrap gap-2">
-                                <Button
-                                    type="button"
-                                    variant={cp.enabled ? "default" : "outline"}
-                                    size="sm"
-                                    onclick={() => setProviderEnabled(cp.id, !cp.enabled)}
-                                >
-                                    {cp.enabled ? "Enabled" : "Disabled"}
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onclick={() => setAsDefaultProvider(cp.id)}
-                                    disabled={isBuiltinProvider(cp) || form.defaultCustomProviderId === cp.id || !cp.enabled}
-                                >
-                                    {form.defaultCustomProviderId === cp.id
-                                        ? "Targeted as Default"
-                                        : "Set as Default"}
-                                </Button>
+                        <div class="providers-detail-header">
+                            <h2 class="providers-detail-name">{cp.name || "Unnamed Provider"}</h2>
+                            <div class="providers-detail-actions">
+                                <label class="providers-toggle-label">
+                                    <label class="switch">
+                                        <input type="checkbox" checked={cp.enabled} onchange={() => setProviderEnabled(cp.id, !cp.enabled)} />
+                                        <span class="slider"></span>
+                                    </label>
+                                    <span>{cp.enabled ? "Enabled" : "Disabled"}</span>
+                                </label>
+                                <button type="button" class="providers-btn-outline-sm" onclick={() => setAsDefaultProvider(cp.id)} disabled={isBuiltinProvider(cp) || form.defaultCustomProviderId === cp.id || !cp.enabled}>{form.defaultCustomProviderId === cp.id ? "Default" : "Set as Default"}</button>
                                 {#if !isBuiltinProvider(cp)}
-                                    <Button
-                                        type="button"
-                                        variant="destructive"
-                                        size="sm"
-                                        onclick={() => removeCustomProvider(cp.id)}
-                                    >
-                                        Delete
-                                    </Button>
+                                    <button type="button" class="providers-btn-danger-sm" onclick={() => removeCustomProvider(cp.id)}>Delete</button>
                                 {/if}
                             </div>
                         </div>
 
-                        <Card
-                            class="mt-5 flex flex-col gap-3 bg-muted/40 p-4 lg:flex-row lg:items-center lg:justify-between"
-                        >
-                            <label class="flex flex-col gap-2 text-sm sm:flex-row sm:items-center">
-                                <span class="font-semibold text-foreground"
-                                    >Default model in this provider</span
-                                >
-                                <NativeSelect
-                                    class="min-w-[220px]"
-                                    bind:value={cp.defaultModel}
-                                    disabled={!cp.enabled}
-                                >
-                                    <NativeSelectOption value="">(None)</NativeSelectOption>
-                                    {#each modelIds(cp) as modelId}
-                                        <NativeSelectOption value={modelId}>{modelId}</NativeSelectOption>
-                                    {/each}
-                                </NativeSelect>
-                            </label>
-
-                            <div class="flex flex-wrap items-center gap-3">
-                                {#if message}
-                                    <Alert class="min-w-0 flex-1 px-3 py-2">
-                                        <AlertDescription class="whitespace-pre-wrap break-words text-xs font-semibold text-foreground">
-                                            {message}
-                                        </AlertDescription>
-                                    </Alert>
-                                {/if}
-                                {#if error}
-                                    <Alert variant="destructive" class="min-w-0 flex-1 px-3 py-2" title={error}>
-                                        <AlertDescription class="whitespace-pre-wrap break-words text-xs font-semibold">
-                                            {error}
-                                        </AlertDescription>
-                                    </Alert>
-                                {/if}
-
-                                <Button
-                                    type="submit"
-                                    variant="default"
-                                    class="shrink-0"
-                                    disabled={saving}
-                                >
-                                    {saving
-                                        ? "Saving..."
-                                        : "Save Provider Settings"}
-                                </Button>
-                            </div>
-                        </Card>
-
-                        <div class="mt-6 grid gap-5 md:grid-cols-2">
-                            <label class="grid gap-2 text-sm">
-                                <span class="font-medium text-foreground"
-                                    >Provider ID</span
-                                >
+                        <div class="providers-detail-form-grid">
+                            <label class="providers-detail-form-label">
+                                <span class="providers-detail-form-label-text">Provider ID</span>
                                 <Input bind:value={cp.id} disabled={isBuiltinProvider(cp)} />
                             </label>
 
-                            <label class="grid gap-2 text-sm">
-                                <span class="font-medium text-foreground"
-                                    >Display Name</span
-                                >
+                            <label class="providers-detail-form-label">
+                                <span class="providers-detail-form-label-text">Display Name</span>
                                 <Input bind:value={cp.name} />
                             </label>
                             {#if isBuiltinProvider(cp)}
                                 {@const authGuide = builtinAuthGuide(cp.id)}
-                                <div
-                                    class="rounded-xl border border-[color-mix(in_oklab,var(--primary)_24%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] px-4 py-3 text-xs leading-5 text-[color-mix(in_oklab,var(--primary)_70%,var(--foreground))] md:col-span-2"
-                                >
-                                    Built-in provider detected. Request protocol
-                                    is managed by pi-ai natively, so `baseUrl`
-                                    and `path` are ignored here.
+                                <div class="providers-detail-notice md:col-span-2">
+                                    Built-in provider detected. Protocol is managed by pi-ai natively; `baseUrl` and `path` are ignored.
                                 </div>
-                                <div
-                                    class="rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-3 text-xs leading-5 text-foreground md:col-span-2"
-                                >
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <span class="font-semibold text-foreground"
-                                            >认证方式：</span
-                                        >
-                                        <span
-                                            class="rounded border border-border bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-foreground"
-                                        >
-                                            {authGuide.modeLabel}
-                                        </span>
+                                <div class="providers-detail-auth md:col-span-2">
+                                    <div class="providers-detail-auth-row">
+                                        <span class="providers-detail-auth-label">Auth method:</span>
+                                        <span class="providers-detail-auth-badge">{authGuide.modeLabel}</span>
                                     </div>
-                                    <p class="mt-2 text-foreground">
-                                        {authGuide.summary}
-                                    </p>
+                                    <p class="providers-detail-auth-summary">{authGuide.summary}</p>
                                     {#if authGuide.command}
-                                        <p class="mt-2 text-foreground">
-                                            登录命令：
-                                            <code>{authGuide.command}</code>
+                                        <p class="providers-detail-auth-text">
+                                            Login command: <code class="providers-detail-auth-code">{authGuide.command}</code>
                                         </p>
                                     {/if}
                                     {#if authGuide.tokenHint}
-                                        <p class="mt-2 text-muted-foreground">
-                                            {authGuide.tokenHint}
-                                        </p>
+                                        <p class="providers-detail-auth-hint">{authGuide.tokenHint}</p>
                                     {/if}
                                     {#if authGuide.envVar}
-                                        <p class="mt-2 text-foreground">
-                                            环境变量：
-                                            <code>{authGuide.envVar}</code>
+                                        <p class="providers-detail-auth-text">
+                                            Env variable: <code class="providers-detail-auth-code">{authGuide.envVar}</code>
                                         </p>
                                     {/if}
-                                    <ol class="mt-2 list-decimal space-y-1 pl-5 text-foreground">
+                                    <ol class="providers-detail-auth-steps">
                                         {#each authGuide.steps as step}
                                             <li>{step}</li>
                                         {/each}
                                     </ol>
                                     {#if authGuide.links && authGuide.links.length > 0}
-                                        <div class="mt-2 flex flex-wrap gap-2">
+                                        <div class="providers-detail-auth-links">
                                             {#each authGuide.links as link}
-                                                <a
-                                                    class="inline-flex items-center rounded border border-[color-mix(in_oklab,var(--primary)_30%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] px-2 py-1 text-[11px] text-[color-mix(in_oklab,var(--primary)_70%,var(--foreground))] hover:bg-[color-mix(in_oklab,var(--primary)_16%,var(--card))]"
-                                                    href={link.url}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                >
-                                                    {link.label}
-                                                </a>
+                                                <a class="providers-detail-auth-link" href={link.url} target="_blank" rel="noreferrer">{link.label}</a>
                                             {/each}
                                         </div>
                                     {/if}
                                 </div>
                                 {#if isOauthBuiltinProvider(cp)}
-                                    <div
-                                        class="rounded-xl border border-[color-mix(in_oklab,hsl(38_84%_54%)_24%,var(--border))] bg-[color-mix(in_oklab,hsl(38_84%_54%)_10%,var(--card))] px-4 py-3 text-xs leading-5 text-[color-mix(in_oklab,hsl(38_84%_44%)_72%,var(--foreground))] md:col-span-2"
-                                    >
-                                        OAuth provider: static API key input is
-                                        hidden by design. Use the command above,
-                                        then keep <code>auth.json</code> under
-                                        <code>${"{DATA_DIR}"}</code> (or set
-                                        <code>PI_AI_AUTH_FILE</code>).
+                                    <div class="providers-detail-oauth-notice md:col-span-2">
+                                        OAuth provider: static API key input is hidden by design. Use the command above, then keep <code>auth.json</code> under <code>DATA_DIR</code> (or set <code>PI_AI_AUTH_FILE</code>).
                                     </div>
                                 {:else}
-                                    <label
-                                        class="grid gap-2 text-sm md:col-span-2"
-                                    >
-                                        <span class="font-medium text-foreground"
-                                            >API Key Override (Optional)</span
+                                    <label class="providers-detail-form-label md:col-span-2">
+                                        <span class="providers-detail-form-label-text">API Key Override (Optional)</span>
                                         >
-                                        <Input
-                                            class="font-mono tracking-widest"
-                                            bind:value={cp.apiKey}
-                                            type="password"
-                                            placeholder="Leave empty to use env/OAuth source"
-                                        />
+                                        <div class="providers-key-row">
+                                            <Input
+                                                class="providers-key-input"
+                                                bind:value={cp.apiKey}
+                                                type={showApiKey ? "text" : "password"}
+                                                placeholder="Leave empty to use env/OAuth source"
+                                            />
+                                            <button type="button" class="providers-key-eye" onclick={() => showApiKey = !showApiKey} title={showApiKey ? "Hide" : "Show"}>
+                                                {showApiKey ? "🙈" : "👁"}
+                                            </button>
+                                        </div>
                                     </label>
                                 {/if}
                             {:else}
                                 <label
-                                    class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
+                                    class="providers-detail-form-label md:col-span-2 xl:col-span-1"
                                 >
-                                    <span class="font-medium text-foreground"
+                                    <span class="providers-detail-form-label-text"
                                         >Protocol</span
                                     >
                                     <NativeSelect
-                                        class="w-full"
+                                        
                                         value={cp.protocol}
                                         onchange={(event) =>
                                             setProviderProtocol(
@@ -1631,18 +1473,37 @@
                                 </label>
 
                                 <label
-                                    class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
+                                    class="providers-detail-form-label md:col-span-2 xl:col-span-1"
                                 >
-                                    <span class="font-medium text-foreground"
+                                    <span class="providers-detail-form-label-text"
+                                        >API Key</span
+                                    >
+                                    <div class="providers-key-row">
+                                        <Input
+                                            class="providers-key-input"
+                                            bind:value={cp.apiKey}
+                                            type={showApiKey ? "text" : "password"}
+                                            placeholder="sk-..."
+                                        />
+                                        <button type="button" class="providers-key-eye" onclick={() => showApiKey = !showApiKey} title={showApiKey ? "Hide" : "Show"}>
+                                            {showApiKey ? "🙈" : "👁"}
+                                        </button>
+                                    </div>
+                                </label>
+
+                                <label
+                                    class="providers-detail-form-label md:col-span-2 xl:col-span-1"
+                                >
+                                    <span class="providers-detail-form-label-text"
                                         >API Base URL</span
                                     >
                                     <Input bind:value={cp.baseUrl} placeholder="https://api.openai.com" />
                                 </label>
 
                                 <label
-                                    class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
+                                    class="providers-detail-form-label md:col-span-2 xl:col-span-1"
                                 >
-                                    <span class="font-medium text-foreground"
+                                    <span class="providers-detail-form-label-text"
                                         >Path Endpoint</span
                                     >
                                     <Input
@@ -1652,12 +1513,12 @@
                                 </label>
 
                                 <label
-                                    class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
+                                    class="providers-detail-form-label md:col-span-2 xl:col-span-1"
                                 >
-                                    <span class="font-medium text-foreground"
+                                    <span class="providers-detail-form-label-text"
                                         >Thinking Support</span
                                     >
-                                    <NativeSelect class="w-full" bind:value={cp.thinkingSupportMode}>
+                                    <NativeSelect  bind:value={cp.thinkingSupportMode}>
                                         <NativeSelectOption value="auto">
                                             Not enabled / unknown
                                         </NativeSelectOption>
@@ -1671,12 +1532,12 @@
                                 </label>
 
                                 <label
-                                    class="grid gap-2 text-sm md:col-span-2 xl:col-span-1"
+                                    class="providers-detail-form-label md:col-span-2 xl:col-span-1"
                                 >
-                                    <span class="font-medium text-foreground"
+                                    <span class="providers-detail-form-label-text"
                                         >Thinking Format</span
                                     >
-                                    <NativeSelect class="w-full" bind:value={cp.thinkingFormat}>
+                                    <NativeSelect  bind:value={cp.thinkingFormat}>
                                         <NativeSelectOption value="auto">
                                             Auto / OpenAI fallback
                                         </NativeSelectOption>
@@ -1730,11 +1591,11 @@
                                             <label
                                                 class="grid gap-2 text-sm md:max-w-xs"
                                             >
-                                                <span class="font-medium text-foreground"
+                                                <span class="providers-detail-form-label-text"
                                                     >Reasoning Effort Mapping</span
                                                 >
                                                 <NativeSelect
-                                                    class="w-full"
+                                                    
                                                     value={reasoningEffortMappingMode(
                                                         cp,
                                                     )}
@@ -1773,14 +1634,14 @@
                                             <div class="grid gap-3 md:grid-cols-3">
                                                 {#each thinkingEffortLevels as level}
                                                     <label
-                                                        class="grid gap-2 text-sm"
+                                                        class="providers-detail-form-label"
                                                     >
                                                         <span
                                                             class="font-medium capitalize text-muted-foreground"
                                                             >{level}</span
                                                         >
                                                         <NativeSelect
-                                                            class="w-full"
+                                                            
                                                             value={cp
                                                                 .reasoningEffortMap[
                                                                 level
@@ -1820,12 +1681,12 @@
                                     {/if}
                                 </div>
 
-                                <label class="grid gap-2 text-sm md:col-span-2">
-                                    <span class="font-medium text-foreground"
+                                <label class="providers-detail-form-label md:col-span-2">
+                                    <span class="providers-detail-form-label-text"
                                         >API Signature / Key</span
                                     >
                                     <Input
-                                        class="font-mono tracking-widest"
+                                        class="providers-key-input"
                                         bind:value={cp.apiKey}
                                         type="password"
                                         placeholder="sk-..."
@@ -1838,349 +1699,437 @@
                         <div
                             class="mt-8 flex flex-col justify-between gap-3 border-b border-border pb-3 sm:flex-row sm:items-center"
                         >
-                            <h3
-                                class="text-sm font-bold uppercase tracking-normal text-foreground"
-                            >
-                                Attached Models
+                            <h3 class="providers-section-title">
+                                Model Registry
                             </h3>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onclick={() => addModel(cp.id)}
-                                disabled={!cp.enabled}
-                            >
-                                + Add Model
-                            </Button>
-                        </div>
-
-                        {#if !isBuiltinProvider(cp)}
-                            <div class="mt-4 rounded-xl border border-border bg-muted p-4">
-                                <div class="flex flex-wrap items-center justify-between gap-3">
-                                    <div class="text-sm font-semibold text-foreground">
-                                        Batch pull provider models
-                                    </div>
-                                    <Button
+                            <div class="flex gap-2">
+                                {#if !isBuiltinProvider(cp)}
+                                    <button
                                         type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        onclick={() => fetchProviderModels(cp)}
-                                        disabled={loadingProviderModelsFor === cp.id || !cp.enabled}
+                                        class="providers-btn-outline"
+                                        onclick={() => openPullModal(cp)}
+                                        disabled={!cp.enabled}
                                     >
-                                        {loadingProviderModelsFor === cp.id ? "拉取中..." : "拉取"}
-                                    </Button>
-                                </div>
-                                <p class="mt-2 text-xs text-muted-foreground">
-                                    拉取 provider `/models` 后，直接用下拉框选择并添加。
-                                </p>
-                                {#if providerModelsPulled[cp.id]}
-                                    <div class="mt-3 flex flex-wrap items-center gap-2">
-                                        {#if discoveredModels(cp.id).length > 0}
-                                            <NativeSelect
-                                                class="min-w-[280px]"
-                                                bind:value={discoveredSelectedModel[
-                                                    cp.id
-                                                ]}
-                                            >
-                                                {#each discoveredModels(cp.id) as remoteModelId}
-                                                    <NativeSelectOption value={remoteModelId}>
-                                                        {remoteModelId}
-                                                    </NativeSelectOption>
-                                                {/each}
-                                            </NativeSelect>
-                                        {:else}
-                                            <div class="rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-                                                已拉取，但该 provider 返回 0 个模型。
-                                            </div>
-                                        {/if}
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            onclick={() =>
-                                                addDiscoveredModel(
-                                                    cp.id,
-                                                    selectedDiscoveredModel(cp.id),
-                                                )}
-                                            disabled={!selectedDiscoveredModel(cp.id) ||
-                                                providerHasModel(
-                                                    cp,
-                                                    selectedDiscoveredModel(cp.id),
-                                                )}
-                                        >
-                                            {providerHasModel(
-                                                cp,
-                                                selectedDiscoveredModel(cp.id),
-                                            )
-                                                ? "已添加"
-                                                : "添加选中模型"}
-                                        </Button>
-                                    </div>
+                                        Pull Models
+                                    </button>
                                 {/if}
+                                <button
+                                    type="button"
+                                    class="providers-btn-primary-sm"
+                                    onclick={() => openAddModelModal(cp.id)}
+                                    disabled={!cp.enabled}
+                                >
+                                    + Add Model
+                                </button>
                             </div>
-                        {/if}
+                        </div>
 
                         {#if cp.models.length === 0}
-                            <div
-                                class="mt-4 rounded-xl border border-border bg-muted p-8 text-center text-sm text-muted-foreground"
-                            >
-                                This provider currently has no defined models.
-                                Add a model identifier down below.
+                            <div class="providers-empty-models">
+                                No models defined. Click "+ Add Model" to begin.
+                            </div>
+                        {:else}
+                            <div class="providers-table-wrap">
+                                <table class="providers-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Identifier</th>
+                                            <th>Capabilities</th>
+                                            <th>Context</th>
+                                            <th class="text-center">Enabled</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {#each visibleModelRows(cp) as row (row.index)}
+                                            {@const model = row.model}
+                                            {@const index = row.index}
+                                            <tr>
+                                                <td>
+                                                    <input
+                                                        class="providers-table-input"
+                                                        bind:value={model.id}
+                                                        placeholder="e.g. gpt-4o"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <div class="providers-table-caps">
+                                                        {#each capabilityTags as tag}
+                                                            <button
+                                                                type="button"
+                                                                class="providers-cap-badge"
+                                                                class:providers-cap-badge--on={model.tags.includes(tag)}
+                                                                onclick={() => toggleTag(cp.id, index, tag)}
+                                                            >
+                                                                {tag.slice(0, 3).toUpperCase()}
+                                                            </button>
+                                                        {/each}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        class="providers-table-input providers-table-input--narrow"
+                                                        type="number"
+                                                        min="0"
+                                                        step="1000"
+                                                        placeholder="200k"
+                                                        value={model.contextWindow ?? ""}
+                                                        oninput={(e) => {
+                                                            const v = Number((e.currentTarget as HTMLInputElement).value);
+                                                            model.contextWindow = v > 0 ? v : undefined;
+                                                        }}
+                                                    />
+                                                </td>
+                                                <td class="text-center">
+                                                    <label class="switch">
+                                                        <input type="checkbox" checked={model.enabled !== false} onchange={() => { model.enabled = model.enabled === false ? true : false; }} />
+                                                        <span class="slider"></span>
+                                                    </label>
+                                                </td>
+                                                <td class="text-right">
+                                                    <button type="button" class="providers-remove-btn" onclick={() => removeModel(cp.id, index)}>×</button>
+                                                </td>
+                                            </tr>
+                                        {/each}
+                                    </tbody>
+                                </table>
                             </div>
                         {/if}
 
-                        <div class="mt-4 space-y-4">
-                            {#each visibleModelRows(cp) as row (row.index)}
-                                {@const model = row.model}
-                                {@const index = row.index}
-                                {@const testResult = getModelTestResult(
-                                    cp.id,
-                                    model.id,
-                                )}
-                                <div
-                                    class="relative overflow-hidden rounded-xl border border-[color-mix(in_oklab,var(--border)_78%,transparent)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)]"
-                                >
-                                    <div
-                                        class="grid gap-y-3 p-4 sm:grid-cols-[1fr_auto_auto] sm:gap-x-3"
-                                    >
-                                        <label class="col-span-1 block">
-                                            <span class="hidden sr-only"
-                                                >Model ID</span
-                                            >
-                                            <Input bind:value={model.id} placeholder="e.g. gpt-4o" />
-                                        </label>
-
-                                        {#if !isBuiltinProvider(cp)}
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                class="col-span-1 sm:col-span-1"
-                                                onclick={() =>
-                                                    testProviderModel(
-                                                        cp.id,
-                                                        model.id,
-                                                    )}
-                                                disabled={!cp.enabled ||
-                                                    !model.id.trim() ||
-                                                    testingModelKey ===
-                                                        `${cp.id}|${model.id.trim()}`}
-                                            >
-                                                {testingModelKey ===
-                                                `${cp.id}|${model.id.trim()}`
-                                                    ? "Pinging..."
-                                                    : "Test Connection"}
-                                            </Button>
-                                        {:else}
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                class="col-span-1 sm:col-span-1"
-                                                disabled={true}
-                                                title="Built-in providers use native APIs; OpenAI compatibility test is not applicable."
-                                            >
-                                                Native Provider
-                                            </Button>
-                                        {/if}
-
-                                        <Button
-                                            type="button"
-                                            variant="destructive"
-                                            size="sm"
-                                            class="col-span-1 sm:col-span-1"
-                                            onclick={() =>
-                                                removeModel(cp.id, index)}
-                                        >
-                                            Remove
-                                        </Button>
-                                    </div>
-
-                                    <div class="grid gap-y-2 border-t px-4 py-3 sm:grid-cols-[1fr_1fr] sm:gap-x-3">
-                                        <label class="grid gap-1">
-                                            <span class="text-xs text-muted-foreground">Context window (tokens)</span>
-                                            <Input
-                                                type="number"
-                                                min="0"
-                                                step="1000"
-                                                placeholder="e.g. 200000"
-                                                value={model.contextWindow ?? ""}
-                                                oninput={(e) => {
-                                                    const v = Number((e.currentTarget as HTMLInputElement).value);
-                                                    model.contextWindow = v > 0 ? v : undefined;
-                                                }}
-                                            />
-                                        </label>
-                                    </div>
-
-                                    {#if testResult}
-                                        <div
-                                            class={`mx-4 mb-3 rounded-lg border px-4 py-3 text-xs leading-5 ${
-                                                testResult.ok
-                                                    ? "border-[color-mix(in_oklab,hsl(146_55%_42%)_34%,var(--border))] bg-[color-mix(in_oklab,hsl(146_55%_42%)_12%,var(--card))] text-[color-mix(in_oklab,hsl(146_55%_42%)_88%,var(--foreground))]"
-                                                    : "border-[color-mix(in_oklab,hsl(0_72%_56%)_34%,var(--border))] bg-[color-mix(in_oklab,hsl(0_72%_56%)_10%,var(--card))] text-[color-mix(in_oklab,hsl(0_72%_56%)_86%,var(--foreground))]"
-                                            }`}
-                                        >
-                                            <div class="font-semibold">
-                                                Model test
-                                                {testResult.ok
-                                                    ? "passed"
-                                                    : "failed"}
-                                                {testResult.status
-                                                    ? ` · HTTP ${testResult.status}`
-                                                    : ""}
-                                            </div>
-                                            <pre
-                                                class="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-inherit"
-                                                >{testResult.message}</pre
-                                            >
-                                        </div>
-                                    {/if}
-
-                                    <div class="bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))] px-4 py-3">
-                                        <div
-                                            class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground"
-                                        >
-                                            Declared Capabilities
-                                        </div>
-                                        <div class="flex flex-wrap gap-2">
-                                            {#each capabilityTags as tag}
-                                                <Button
-                                                    type="button"
-                                                    variant={model.tags.includes(tag) ? "secondary" : "outline"}
-                                                    size="xs"
-                                                    class={`h-auto px-2.5 py-1 text-xs ${
-                                                        model.tags.includes(tag)
-                                                            ? "text-foreground"
-                                                            : "text-muted-foreground"
-                                                    }`}
-                                                    onclick={() => toggleTag(cp.id, index, tag)}
-                                                >
-                                                    <span class="font-medium"
-                                                        >{tag}</span
-                                                    >
-                                                </Button>
-                                            {/each}
-                                        </div>
-
-                                        {#if model.tags.length > 0}
-                                            <div class="mt-4">
-                                                <div
-                                                    class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground"
-                                                >
-                                                    Verification Status
-                                                </div>
-                                                <div
-                                                    class="flex flex-wrap gap-2"
-                                                >
-                                                    {#each model.tags as tag}
-                                                        <span
-                                                            class={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs ${verificationBadgeClass(
-                                                                verificationLabel(
-                                                                    model,
-                                                                    tag,
-                                                                ),
-                                                            )}`}
-                                                        >
-                                                            <span
-                                                                class="font-medium"
-                                                                >{tag}</span
-                                                            >
-                                                            <span
-                                                                class="uppercase"
-                                                                >{verificationLabel(
-                                                                    model,
-                                                                    tag,
-                                                                )}</span
-                                                            >
-                                                        </span>
-                                                    {/each}
-                                                </div>
-                                                <p
-                                                    class="mt-3 text-[11px] leading-5 text-muted-foreground"
-                                                >
-                                                    Automatic verification
-                                                    currently covers
-                                                    {autoTestedCapabilities.join(
-                                                        " / ",
-                                                    )}. Declared capabilities
-                                                    outside that set stay
-                                                    `untested` until we add
-                                                    deeper probes.
-                                                    `audio_input` is config-only
-                                                    for now; runtime audio
-                                                    handling still falls back to
-                                                    STT because native audio
-                                                    prompt transport is not
-                                                    wired yet.
-                                                </p>
-                                            </div>
-                                        {/if}
-                                    </div>
-                                </div>
-                            {/each}
-                        </div>
-
                         {#if isBuiltinProvider(cp) && cp.models.length > collapsedBuiltinModelLimit}
-                            <div class="mt-4 flex justify-center">
-                                <Button
+                            <div class="mt-3 flex justify-center">
+                                <button
                                     type="button"
-                                    variant="outline"
-                                    size="sm"
+                                    class="providers-btn-outline"
                                     onclick={() => toggleModelList(cp.id)}
                                 >
                                     {expandedProviderModelIds.has(cp.id)
-                                        ? "Collapse built-in models"
-                                        : `Show ${hiddenModelCount(cp)} more built-in models`}
-                                </Button>
+                                        ? "Collapse models"
+                                        : `Show ${hiddenModelCount(cp)} more models`}
+                                </button>
                             </div>
                         {/if}
 
                     {:else}
-                        <div
-                            class="flex flex-col items-center justify-center py-20 text-center"
-                        >
-                            <div
-                                class="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--muted)_42%,var(--card))]"
-                            >
-                                <svg
-                                    width="24"
-                                    height="24"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    class="text-muted-foreground"
-                                >
-                                    <path
-                                        d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
-                                    ></path>
-                                    <polyline points="3.29 7 12 12 20.71 7"
-                                    ></polyline>
-                                    <line x1="12" y1="22" x2="12" y2="12"
-                                    ></line>
-                                </svg>
-                            </div>
-                            <h3 class="text-lg font-medium text-foreground">
-                                No Provider Selected
-                            </h3>
-                            <p
-                                class="mt-2 max-w-[250px] text-sm text-muted-foreground"
-                            >
+                        <div class="providers-empty-state">
+                            <div class="providers-empty-state-icon">◈</div>
+                            <h3>No Provider Selected</h3>
+                            <p>
                                 {#if activeProviderTab === "builtin"}
-                                    Choose a built-in provider from the sidebar
-                                    or add one above.
+                                    Choose a built-in provider from the sidebar or add one above.
                                 {:else}
-                                    Choose a custom provider from the sidebar
-                                    or create a new one to begin configuration.
+                                    Choose a custom provider from the sidebar or create a new one.
                                 {/if}
                             </p>
                         </div>
                     {/if}
-                </Card>
+                </div>
             </section>
         </form>
+
+        <div class="settings-footbar">
+            <div class="settings-footbar-status">
+                {#if message}
+                    <span class="settings-footbar-ok">{message}</span>
+                {/if}
+                {#if error}
+                    <span class="settings-footbar-error">{error}</span>
+                {/if}
+            </div>
+            <button type="submit" form="providers-form" class="settings-footbar-btn" disabled={saving}>
+                {saving ? "Saving..." : "Save Providers"}
+            </button>
+        </div>
+    {/if}
+
+    <!-- ── Add Model Modal ── -->
+    {#if showAddModelModal}
+        <div class="providers-modal-backdrop" onclick={() => (showAddModelModal = false)} onkeydown={(e) => { if (e.key === 'Escape') showAddModelModal = false; }} role="dialog" aria-label="Add Model" tabindex="-1">
+            <div class="providers-modal-card" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+                <h3 class="providers-modal-title">Add Model</h3>
+                <label class="providers-detail-form-label">
+                    <span class="providers-detail-form-label-text">Model ID</span>
+                    <input class="providers-table-input" bind:value={addModelId} placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
+                </label>
+                <label class="providers-detail-form-label">
+                    <span class="providers-detail-form-label-text">Context Window (tokens)</span>
+                    <input class="providers-table-input" type="number" min="0" step="1000" placeholder="200000" value={addModelContextWindow ?? ""} oninput={(e) => { const v = Number((e.currentTarget as HTMLInputElement).value); addModelContextWindow = v > 0 ? v : undefined; }} />
+                </label>
+                <div class="providers-modal-caps">
+                    <span class="providers-detail-form-label-text">Capabilities</span>
+                    <div class="providers-caps-grid">
+                        {#each capabilityTags as tag}
+                            <label class="providers-cap-check">
+                                <Checkbox checked={addModelTags.includes(tag)} onCheckedChange={() => toggleAddModelTag(tag)} />
+                                <span>{tag}</span>
+                            </label>
+                        {/each}
+                    </div>
+                </div>
+                <div class="providers-modal-actions">
+                    <button type="button" class="providers-btn-outline" onclick={() => (showAddModelModal = false)}>Cancel</button>
+                    <button type="button" class="providers-btn-primary-sm" onclick={confirmAddModel} disabled={!addModelId.trim()}>Add Model</button>
+                </div>
+            </div>
+        </div>
+    {/if}
+
+    <!-- ── Pull Models Modal ── -->
+    {#if showPullModal}
+        <div class="providers-modal-backdrop" onclick={() => (showPullModal = false)} onkeydown={(e) => { if (e.key === 'Escape') showPullModal = false; }} role="dialog" aria-label="Pull Models" tabindex="-1">
+            <div class="providers-modal-card providers-modal-card--wide" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+                <h3 class="providers-modal-title">Pull Models from Provider</h3>
+                {#if loadingProviderModelsFor === pullTargetProviderId}
+                    <p class="providers-modal-loading">Fetching models...</p>
+                {:else if discoveredModels(pullTargetProviderId).length === 0}
+                    <p class="providers-modal-loading">No models returned by this provider.</p>
+                {:else}
+                    <div class="providers-pull-list">
+                        {#each discoveredModels(pullTargetProviderId) as remoteModelId}
+                            {@const alreadyAdded = form.customProviders.find(p => p.id === pullTargetProviderId)?.models.some(m => m.id === remoteModelId) ?? false}
+                            <div class="providers-pull-item">
+                                <span class="providers-pull-item-name">{remoteModelId}</span>
+                                {#if pullAddingModelId === remoteModelId}
+                                    <div class="providers-pull-item-caps">
+                                        {#each capabilityTags as tag}
+                                            <label class="providers-cap-check">
+                                                <Checkbox checked={pullAddingTags.includes(tag)} onCheckedChange={() => { const set = new Set(pullAddingTags); if (set.has(tag)) set.delete(tag); else set.add(tag); pullAddingTags = Array.from(set) as ModelCapabilityTag[]; if (pullAddingTags.length === 0) pullAddingTags = ["text"]; }} />
+                                                <span>{tag}</span>
+                                            </label>
+                                        {/each}
+                                        <button type="button" class="providers-btn-primary-sm" onclick={() => confirmPullAdd(remoteModelId)}>Confirm</button>
+                                        <button type="button" class="providers-btn-outline" onclick={() => { pullAddingModelId = ""; }}>Cancel</button>
+                                    </div>
+                                {:else}
+                                    <button type="button" class="providers-btn-outline" onclick={() => { pullAddingModelId = remoteModelId; pullAddingTags = ["text"]; }} disabled={alreadyAdded}>{alreadyAdded ? "Added" : "Add"}</button>
+                                {/if}
+                            </div>
+                        {/each}
+                    </div>
+                {/if}
+                <div class="providers-modal-actions">
+                    <button type="button" class="providers-btn-outline" onclick={() => (showPullModal = false)}>Close</button>
+                </div>
+            </div>
+        </div>
     {/if}
 </div>
+
+<style>
+  /* ── Page Shell ── */
+  .providers-page { max-width: 56rem; display: flex; flex-direction: column; gap: 1.5rem; }
+  .providers-loading { padding: 2.5rem 0; font-size: 0.875rem; color: var(--muted-foreground); }
+  .providers-form-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 1.5rem; }
+  .providers-detail-section { flex: 1; min-width: 0; }
+  .providers-detail-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 0.625rem;
+    padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.04);
+    display: flex; flex-direction: column; gap: 1rem;
+  }
+
+  /* ── Sidebar ── */
+  .providers-sidebar { width: 100%; flex-shrink: 0; }
+  .providers-sidebar-card {
+    position: sticky; top: 1.5rem;
+    display: flex; flex-direction: column; gap: 1rem;
+    padding: 1.25rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: 0.625rem;
+    max-height: calc(100dvh - 9rem); overflow-y: auto;
+  }
+  .providers-sidebar-title { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); margin: 0; }
+  .providers-sidebar-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .providers-sidebar-tab {
+    padding: 0.5rem; border-radius: 0.375rem;
+    border: 1px solid var(--border); background: transparent;
+    font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--muted-foreground); cursor: pointer; transition: all 150ms ease;
+  }
+  .providers-sidebar-tab--active { background: var(--primary); color: var(--primary-foreground, oklch(99% 0 0)); border-color: var(--primary); }
+  .providers-sidebar-info { border-radius: 0.5rem; border: 1px solid var(--border); background: var(--background); padding: 0.5rem 0.75rem; font-size: 0.75rem; color: var(--muted-foreground); line-height: 1.5; }
+  .providers-sidebar-search {
+    width: 100%; padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border); border-radius: 0.375rem;
+    background: var(--card); color: var(--foreground); font-size: 0.8125rem;
+  }
+  .providers-sidebar-search:focus { outline: none; border-color: var(--primary); }
+  .providers-sidebar-list { display: flex; flex-direction: column; gap: 0.375rem; }
+  .providers-sidebar-empty { padding: 0.5rem; text-align: center; font-size: 0.75rem; color: var(--muted-foreground); }
+  .providers-sidebar-item {
+    display: flex; flex-direction: column; gap: 0.25rem;
+    padding: 0.75rem 1rem; border-radius: 0.375rem;
+    border: none; background: transparent; cursor: pointer;
+    text-align: left; width: 100%; transition: background 150ms ease;
+  }
+  .providers-sidebar-item:hover { background: var(--background); }
+  .providers-sidebar-item--selected { background: var(--background); box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.05); }
+  .providers-sidebar-item-name { font-size: 0.875rem; font-weight: 500; color: var(--foreground); }
+  .providers-sidebar-item-id { font-size: 0.6875rem; color: var(--muted-foreground); }
+  .providers-sidebar-item-badges { display: flex; align-items: center; gap: 0.375rem; margin-top: 0.25rem; flex-wrap: wrap; }
+
+  /* ── Sidebar Badges ── */
+  .providers-sbadge {
+    display: inline-flex; padding: 0.0625rem 0.375rem;
+    border-radius: 0.25rem; font-size: 0.625rem; font-weight: 600;
+    background: var(--background); color: var(--muted-foreground);
+    border: 1px solid var(--border);
+  }
+  .providers-sbadge--accent { background: color-mix(in oklab, var(--primary) 12%, var(--card)); color: var(--primary); border-color: transparent; }
+  .providers-sbadge--on { background: color-mix(in oklab, var(--primary) 8%, var(--card)); color: var(--primary); }
+  .providers-sbadge--ok { color: oklch(50% 0.14 155); border-color: oklch(50% 0.14 155 / 0.3); background: oklch(50% 0.14 155 / 0.08); }
+  .providers-sbadge--err { color: oklch(55% 0.2 25); border-color: oklch(55% 0.2 25 / 0.3); background: oklch(55% 0.2 25 / 0.08); }
+
+  /* ── Detail Header ── */
+  .providers-detail-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+  .providers-detail-name { font-family: var(--font-serif); font-size: 1.375rem; font-weight: 700; letter-spacing: -0.01em; color: var(--foreground); margin: 0; }
+  .providers-detail-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  .providers-toggle-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; font-weight: 500; color: var(--foreground); cursor: pointer; user-select: none; }
+
+  /* ── Detail Form ── */
+  .providers-detail-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 1.5rem; }
+  .providers-detail-form-label { display: flex; flex-direction: column; gap: 0.375rem; }
+  .providers-detail-form-label-text { font-size: 0.8125rem; font-weight: 500; color: var(--foreground); }
+
+  /* ── Built-in Auth ── */
+  .providers-detail-notice {
+    border-radius: 0.5rem; padding: 0.75rem 1rem;
+    border: 1px solid color-mix(in oklab, var(--primary) 24%, var(--border));
+    background: color-mix(in oklab, var(--primary) 8%, var(--card));
+    font-size: 0.75rem; line-height: 1.5;
+    color: color-mix(in oklab, var(--primary) 70%, var(--foreground));
+  }
+  .providers-detail-auth {
+    border-radius: 0.5rem; padding: 0.875rem 1rem;
+    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--card) 70%, var(--background));
+    font-size: 0.75rem; line-height: 1.6; color: var(--foreground);
+  }
+  .providers-detail-auth-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .providers-detail-auth-label { font-weight: 600; }
+  .providers-detail-auth-badge {
+    display: inline-flex; padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem; border: 1px solid var(--border);
+    background: var(--background);
+    font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .providers-detail-auth-summary { margin: 0 0 0.5rem; }
+  .providers-detail-auth-text { margin: 0.5rem 0 0; }
+  .providers-detail-auth-hint { margin: 0.5rem 0 0; color: var(--muted-foreground); }
+  .providers-detail-auth-code { font-family: var(--font-mono); font-size: 0.75rem; padding: 0.0625rem 0.25rem; border-radius: 0.125rem; background: var(--background); }
+  .providers-detail-auth-steps { margin: 0.5rem 0 0; padding-left: 1.25rem; list-style: decimal; display: flex; flex-direction: column; gap: 0.25rem; }
+  .providers-detail-auth-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+  .providers-detail-auth-link { display: inline-flex; align-items: center; padding: 0.25rem 0.5rem; border-radius: 0.25rem; border: 1px solid color-mix(in oklab, var(--primary) 30%, var(--border)); background: color-mix(in oklab, var(--primary) 10%, var(--card)); font-size: 0.6875rem; color: color-mix(in oklab, var(--primary) 70%, var(--foreground)); text-decoration: none; transition: background 150ms ease; }
+  .providers-detail-auth-link:hover { background: color-mix(in oklab, var(--primary) 16%, var(--card)); }
+  .providers-detail-oauth-notice { border-radius: 0.5rem; padding: 0.75rem 1rem; border: 1px solid oklch(65% 0.15 60 / 0.25); background: oklch(65% 0.15 60 / 0.08); font-size: 0.75rem; line-height: 1.5; color: oklch(50% 0.12 60); }
+  .providers-key-input { font-family: var(--font-mono); letter-spacing: 0.05em; }
+
+  /* ── Section Header ── */
+  .providers-section-title { font-family: var(--font-serif); font-size: 1.125rem; font-weight: 700; letter-spacing: -0.01em; color: var(--foreground); margin: 0; line-height: 1.25; }
+
+  /* ── API Key Eye ── */
+  .providers-key-row { display: flex; align-items: center; gap: 0.375rem; }
+  .providers-key-row :global(input) { flex: 1; }
+  .providers-key-eye {
+    display: flex; align-items: center; justify-content: center;
+    width: 2.25rem; height: 2.25rem; border-radius: 0.375rem;
+    border: 1px solid var(--border); background: transparent;
+    cursor: pointer; font-size: 0.875rem; flex-shrink: 0; transition: background 150ms ease;
+  }
+  .providers-key-eye:hover { background: var(--background); }
+
+  /* ── Model Table ── */
+  .providers-table-wrap { margin-top: 1rem; border: 1px solid var(--border); border-radius: 0.5rem; overflow: hidden; }
+  .providers-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+  .providers-table thead { background: color-mix(in oklab, var(--card) 70%, var(--background)); }
+  .providers-table th { padding: 0.625rem 0.875rem; text-align: left; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); border-bottom: 1px solid var(--border); }
+  .providers-table td { padding: 0.5rem 0.875rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .providers-table tr:last-child td { border-bottom: none; }
+  .providers-table-input { width: 100%; padding: 0.375rem 0.5rem; border: 1px solid var(--border); border-radius: 0.25rem; background: var(--card); color: var(--foreground); font-family: var(--font-mono); font-size: 0.8125rem; transition: border-color 150ms ease; }
+  .providers-table-input:focus { outline: none; border-color: var(--primary); }
+  .providers-table-input--narrow { width: 5.5rem; text-align: right; }
+  .providers-table-caps { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+
+  /* ── Capability Badges ── */
+  .providers-cap-badge { display: inline-flex; align-items: center; padding: 0.125rem 0.375rem; border-radius: 0.25rem; border: 1px solid var(--border); background: transparent; color: var(--muted-foreground); font-size: 0.625rem; font-weight: 600; cursor: pointer; transition: all 150ms ease; }
+  .providers-cap-badge:hover { border-color: var(--primary); }
+  .providers-cap-badge--on { background: color-mix(in oklab, var(--primary) 12%, var(--card)); color: var(--primary); border-color: color-mix(in oklab, var(--primary) 30%, var(--border)); }
+
+  /* ── Capability Checkboxes ── */
+  .providers-caps-grid { display: flex; flex-wrap: wrap; gap: 0.5rem 0.875rem; }
+  .providers-cap-check { display: flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; font-weight: 500; color: var(--foreground); cursor: pointer; }
+
+  /* ── Remove Button ── */
+  .providers-remove-btn { display: inline-flex; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem; border-radius: 0.25rem; border: 1px solid var(--border); background: transparent; color: var(--muted-foreground); font-size: 1rem; cursor: pointer; transition: all 150ms ease; }
+  .providers-remove-btn:hover { border-color: oklch(55% 0.2 25); color: oklch(55% 0.2 25); background: oklch(55% 0.2 25 / 0.08); }
+
+  /* ── Empty States ── */
+  .providers-empty-models { margin-top: 1rem; border: 1px solid var(--border); border-radius: 0.5rem; padding: 2rem; text-align: center; font-size: 0.8125rem; color: var(--muted-foreground); }
+  .providers-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 1rem; text-align: center; }
+  .providers-empty-state-icon { font-size: 2.5rem; opacity: 0.15; margin-bottom: 1rem; }
+  .providers-empty-state h3 { font-size: 1.125rem; font-weight: 500; color: var(--foreground); margin: 0 0 0.5rem; }
+  .providers-empty-state p { font-size: 0.8125rem; color: var(--muted-foreground); max-width: 16rem; margin: 0; }
+
+  /* ── Buttons ── */
+  .providers-btn-primary-sm { display: inline-flex; align-items: center; padding: 0.375rem 0.875rem; border-radius: 0.375rem; border: none; background: var(--primary); color: var(--primary-foreground, oklch(99% 0 0)); font-size: 0.8125rem; font-weight: 600; cursor: pointer; transition: opacity 160ms ease; }
+  .providers-btn-primary-sm:hover:not(:disabled) { opacity: 0.88; }
+  .providers-btn-primary-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+  .providers-btn-outline { display: inline-flex; align-items: center; padding: 0.375rem 0.875rem; border-radius: 0.375rem; border: 1px solid var(--border); background: transparent; color: var(--foreground); font-size: 0.8125rem; font-weight: 500; cursor: pointer; transition: all 150ms ease; }
+  .providers-btn-outline:hover:not(:disabled) { background: var(--background); border-color: var(--muted-foreground); }
+  .providers-btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
+  .providers-btn-outline-sm { display: inline-flex; align-items: center; padding: 0.375rem 0.75rem; border-radius: 0.375rem; border: 1px solid var(--border); background: transparent; color: var(--foreground); font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all 150ms ease; }
+  .providers-btn-outline-sm:hover:not(:disabled) { background: var(--background); }
+  .providers-btn-outline-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+  .providers-btn-danger-sm { display: inline-flex; align-items: center; padding: 0.375rem 0.75rem; border-radius: 0.375rem; border: 1px solid oklch(55% 0.2 25 / 0.3); background: oklch(55% 0.2 25 / 0.06); color: oklch(55% 0.2 25); font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all 150ms ease; }
+  .providers-btn-danger-sm:hover { background: oklch(55% 0.2 25 / 0.12); }
+
+  /* ── Modals ── */
+  .providers-modal-backdrop {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    background: oklch(20% 0 0 / 0.6); backdrop-filter: blur(4px);
+    padding: 1rem;
+  }
+  .providers-modal-card {
+    width: 100%; max-width: 28rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: 0.75rem;
+    padding: 1.5rem;
+    display: flex; flex-direction: column; gap: 1rem;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+    max-height: 85dvh; overflow-y: auto;
+  }
+  .providers-modal-card--wide { max-width: 40rem; }
+  .providers-modal-title { font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; color: var(--foreground); margin: 0; }
+  .providers-modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+  .providers-modal-caps { display: flex; flex-direction: column; gap: 0.375rem; }
+  .providers-modal-loading { font-size: 0.8125rem; color: var(--muted-foreground); padding: 1rem 0; }
+
+  /* ── Pull Models List ── */
+  .providers-pull-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 50dvh; overflow-y: auto; }
+  .providers-pull-item { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; }
+  .providers-pull-item-name { font-family: var(--font-mono); font-size: 0.8125rem; color: var(--foreground); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .providers-pull-item-caps { display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; }
+
+  /* ── Toggle Switch (iOS/macOS style) ── */
+  .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+    background-color: var(--border); transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 20px;
+  }
+  .slider:before {
+    position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px;
+    background-color: white; transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+  input:checked + .slider { background-color: var(--primary); }
+  input:checked + .slider:before { transform: translateX(16px); }
+
+  /* ── Utility ── */
+  .text-center { text-align: center; }
+  .text-right { text-align: right; }
+
+  /* ── Responsive ── */
+  @media (max-width: 767px) {
+    .providers-detail-form-grid { grid-template-columns: 1fr; }
+    .providers-form-grid { grid-template-columns: 1fr; }
+  }
+</style>

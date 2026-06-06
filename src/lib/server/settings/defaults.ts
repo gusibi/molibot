@@ -295,12 +295,12 @@ const defaultWebSearchSettings: WebSearchSettings = {
   }
 };
 
-function imageGenerateEngineFromEnv(id: ImageGenerateEngineId, envKey: string, enabledFallback = false): ImageGenerateSettings["engines"][ImageGenerateEngineId] {
+function imageGenerateEngineFromEnv(id: ImageGenerateEngineId, envKey: string, defaultModel: string): ImageGenerateSettings["engines"][ImageGenerateEngineId] {
   const apiKey = String(process.env[envKey] ?? "").trim();
-  const enabledRaw = String(process.env[`MOLIBOT_IMAGE_GENERATE_${id.toUpperCase()}_ENABLED`] ?? "").trim().toLowerCase();
+  const model = String(process.env[`MOLIBOT_IMAGE_GENERATE_${id.toUpperCase()}_MODEL`] ?? "").trim() || defaultModel;
   return {
-    enabled: enabledRaw ? enabledRaw !== "false" : enabledFallback || Boolean(apiKey),
-    apiKey
+    apiKey,
+    model
   };
 }
 
@@ -308,10 +308,10 @@ const defaultImageGenerateSettings: ImageGenerateSettings = {
   enabled: String(process.env.MOLIBOT_IMAGE_GENERATE_ENABLED ?? "true").toLowerCase() !== "false",
   defaultEngine: (process.env.MOLIBOT_IMAGE_GENERATE_DEFAULT_ENGINE ?? "auto") as ImageGenerateEngineId | "auto",
   engines: {
-    agnes: imageGenerateEngineFromEnv("agnes", "AGNES_API_KEY"),
-    modelscope: imageGenerateEngineFromEnv("modelscope", "MODELSCOPE_API_KEY"),
-    google: imageGenerateEngineFromEnv("google", "GOOGLE_API_KEY"),
-    volcengine: imageGenerateEngineFromEnv("volcengine", "VOLCENGINE_API_KEY")
+    agnes: imageGenerateEngineFromEnv("agnes", "AGNES_API_KEY", "agnes-image-2.0-flash"),
+    modelscope: imageGenerateEngineFromEnv("modelscope", "MODELSCOPE_API_KEY", "Tongyi-MAI/Z-Image-Turbo"),
+    google: imageGenerateEngineFromEnv("google", "GOOGLE_API_KEY", "imagen-3.0-generate-001"),
+    volcengine: imageGenerateEngineFromEnv("volcengine", "VOLCENGINE_API_KEY", "cv_vit_huge_p14_laion2b_s32b_b64_seedream")
   }
 };
 

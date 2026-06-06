@@ -58,10 +58,10 @@ function resolveEngine(settings: RuntimeSettings["imageGenerate"], requested?: s
   if (requested && requested !== "auto") {
     const engineId = requested as ImageGenerateEngine;
     const config = settings.engines[engineId];
-    if (config?.enabled && config.apiKey.trim()) {
+    if (config && config.apiKey.trim()) {
       return engineId;
     }
-    throw new Error(`Requested image generation engine '${engineId}' is not enabled or lacks an API key.`);
+    throw new Error(`Requested image generation engine '${engineId}' lacks an API key.`);
   }
 
   const defaultEngine = settings.defaultEngine;
@@ -73,7 +73,7 @@ function resolveEngine(settings: RuntimeSettings["imageGenerate"], requested?: s
     if (seen.has(engineId)) continue;
     seen.add(engineId);
     const config = settings.engines[engineId];
-    if (config?.enabled && config.apiKey.trim()) {
+    if (config && config.apiKey.trim()) {
       return engineId;
     }
   }
@@ -153,7 +153,7 @@ export function createImageGenerateTool(options: {
       const providerInput: ImageGenerateInput = {
         prompt: inputPrompt,
         engine,
-        model: params.model,
+        model: params.model || currentSettings.imageGenerate.engines[engine]?.model,
         size: params.size,
         seed: params.seed,
         images: params.images,

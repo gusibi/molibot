@@ -181,7 +181,8 @@ export function createMomTools(options: {
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
     artifactDir,
-    uploadFile: options.uploadFile
+    uploadFile: options.uploadFile,
+    sessionId: options.sessionId
   }));
 
   const featureTools = createFeaturePluginTools({

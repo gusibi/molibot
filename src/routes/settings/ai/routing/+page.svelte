@@ -118,8 +118,8 @@
     return out;
   }
 
-  function fallbackRoutingOptions(requiredTag: ModelCapabilityTag): ModelRouteOption[] {
-    return allModelOptions().filter((m) => m.tags.includes(requiredTag) || requiredTag === "text").map((m) => ({ key: m.key, label: m.label }));
+  function fallbackRoutingOptions(requiredTag: string): ModelRouteOption[] {
+    return allModelOptions().filter((m) => m.tags.includes(requiredTag as ModelCapabilityTag) || requiredTag === "text").map((m) => ({ key: m.key, label: m.label }));
   }
 
   const routeCards: Array<{ route: ModelRoute; title: string; description: string; emptyText: string }> = [
@@ -314,284 +314,640 @@
   onMount(loadAll);
 </script>
 
-<div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-  <header class="flex flex-col gap-3">
-    <Badge variant="secondary" class="w-fit">Unified model pool</Badge>
-    <div class="flex max-w-3xl flex-col gap-2">
-      <h1 class="text-3xl font-semibold tracking-tight text-foreground">AI Routing & Prompt</h1>
-      <p class="text-sm leading-6 text-muted-foreground">
-        Built-in and custom models are mixed in one pool. Pick the best model per capability; Molibot chooses the native transport from the selected route key.
-      </p>
-    </div>
-    <a class="text-sm font-medium text-primary hover:underline" href="/settings/ai/providers">Manage providers</a>
+<div class="routing-page">
+  <!-- Hero Header -->
+  <header class="routing-hero">
+    <span class="routing-badge">Unified model pool</span>
+    <h1 class="routing-hero-title">AI Routing & Prompt</h1>
+    <p class="routing-hero-desc">
+      Built-in and custom models are mixed in one pool. Pick the best model per capability; Molibot chooses the native transport from the selected route key.
+    </p>
+    <a class="routing-hero-link" href="/settings/ai/providers">Manage providers →</a>
   </header>
 
   {#if loading}
-    <p class="py-8 text-sm text-muted-foreground">Loading routing settings...</p>
+    <p class="routing-loading">Loading routing settings...</p>
   {:else}
     {@const pool = enabledProviderCounts()}
-    <form class="space-y-6" onsubmit={(e) => { e.preventDefault(); save(); }}>
-      <Card>
-        <CardHeader>
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <CardTitle>Active pool</CardTitle>
-              <CardDescription>One routing surface</CardDescription>
-            </div>
-            <Badge variant="default">{pool.models} enabled models</Badge>
-          </div>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          <div class="grid gap-3 sm:grid-cols-3">
-            <div class="rounded-lg border bg-muted/40 p-3 text-center">
-              <div class="text-xs text-muted-foreground">Built-in providers</div>
-              <div class="text-2xl font-bold text-foreground">{pool.builtin}</div>
-            </div>
-            <div class="rounded-lg border bg-muted/40 p-3 text-center">
-              <div class="text-xs text-muted-foreground">Custom providers</div>
-              <div class="text-2xl font-bold text-foreground">{pool.custom}</div>
-            </div>
-            <div class="rounded-lg border bg-muted/40 p-3 text-center">
-              <div class="text-xs text-muted-foreground">Fallback policy</div>
-              <div class="text-sm font-semibold text-foreground">{fallbackPolicyText(form.modelFallback.mode)}</div>
-            </div>
-          </div>
-          <div class="rounded-lg border bg-muted/40 px-3 py-3 text-xs text-muted-foreground">
-            <strong class="text-foreground">How it works:</strong> `pi|provider|model` routes use built-in pi-ai transports. `custom|provider|model` routes use OpenAI-compatible provider settings. They can be mixed freely below.
-          </div>
-        </CardContent>
-      </Card>
+    <form class="routing-form" id="routing-form" onsubmit={(e) => { e.preventDefault(); save(); }}>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Capability routing</CardTitle>
-          <CardDescription>Choose concrete models</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div class="grid gap-4 md:grid-cols-2">
-            {#each routeCards as card}
-              {@const options = routingOptions(card.route)}
-              <div class="rounded-lg border bg-muted/40 p-4">
-                <div class="flex items-center justify-between gap-3 mb-3">
-                  <div>
-                    <h3 class="text-sm font-semibold text-foreground">{card.title}</h3>
-                    <p class="text-xs text-muted-foreground">{card.description}</p>
-                  </div>
-                  <Badge variant="outline" class="text-[10px]">{transportLabel(modelRoutingValue(card.route))}</Badge>
+      <!-- Active Pool -->
+      <section class="routing-card">
+        <div class="routing-card-header">
+          <div>
+            <h2 class="routing-card-title">Active pool</h2>
+            <p class="routing-card-desc">One routing surface</p>
+          </div>
+          <span class="routing-badge-accent">{pool.models} enabled models</span>
+        </div>
+        <div class="routing-metrics">
+          <div class="routing-metric">
+            <div class="routing-metric-label">Built-in providers</div>
+            <div class="routing-metric-value">{pool.builtin}</div>
+          </div>
+          <div class="routing-metric">
+            <div class="routing-metric-label">Custom providers</div>
+            <div class="routing-metric-value">{pool.custom}</div>
+          </div>
+          <div class="routing-metric">
+            <div class="routing-metric-label">Fallback policy</div>
+            <div class="routing-metric-policy">{fallbackPolicyText(form.modelFallback.mode)}</div>
+          </div>
+        </div>
+        <div class="routing-callout">
+          <strong>How it works:</strong> `pi|provider|model` routes use built-in pi-ai transports. `custom|provider|model` routes use OpenAI-compatible provider settings. They can be mixed freely below.
+        </div>
+      </section>
+
+      <!-- Capability Routing -->
+      <section class="routing-card">
+        <div class="routing-card-header">
+          <div>
+            <h2 class="routing-card-title">Capability routing</h2>
+            <p class="routing-card-desc">Choose concrete models</p>
+          </div>
+        </div>
+        <div class="routing-grid">
+          {#each routeCards as card}
+            {@const options = routingOptions(card.route)}
+            <div class="routing-field-card">
+              <div class="routing-field-header">
+                <div>
+                  <h3 class="routing-field-title">{card.title}</h3>
+                  <p class="routing-field-desc">{card.description}</p>
                 </div>
-                <NativeSelect
-                  value={modelRoutingValue(card.route)}
-                  disabled={options.length === 0}
-                  onchange={(e) => setModelRoutingValue(card.route, (e.currentTarget as HTMLSelectElement).value)}
-                >
-                  {#if options.length === 0}
-                    <NativeSelectOption value="">{card.emptyText}</NativeSelectOption>
-                  {:else}
-                    {#if card.route === "subagent"}
-                      <NativeSelectOption value="">Use text route fallback</NativeSelectOption>
-                    {/if}
-                    {#each options as row}
-                      <NativeSelectOption value={row.key}>{row.label}</NativeSelectOption>
-                    {/each}
-                  {/if}
-                </NativeSelect>
-                <p class="mt-2 text-xs text-muted-foreground">{routeSummary(card.route)}</p>
+                <span class="routing-badge-outline">{transportLabel(modelRoutingValue(card.route))}</span>
               </div>
-            {/each}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Subagent model levels</CardTitle>
-          <CardDescription>Map delegation tiers</CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          <div class="rounded-lg border bg-muted/40 px-3 py-3 text-xs text-muted-foreground">
-            <strong class="text-foreground">How subagents choose models:</strong> Built-in roles reference levels such as `haiku` and `sonnet`, not Claude-specific model IDs. Map each level to any text-capable model in your pool. Empty levels fall back to the Subagent fallback route, then the text route.
-          </div>
-          <div class="grid gap-4 md:grid-cols-2">
-            {#each subagentLevelCards as card}
-              {@const options = routingOptions("subagent")}
-              <div class="rounded-lg border bg-muted/40 p-4">
-                <div class="flex items-center justify-between gap-3 mb-3">
-                  <div>
-                    <h3 class="text-sm font-semibold text-foreground">{card.title}</h3>
-                    <p class="text-xs text-muted-foreground">{card.description}</p>
-                  </div>
-                  <Badge variant="outline" class="text-[10px]">{transportLabel(subagentLevelValue(card.level))}</Badge>
-                </div>
-                <NativeSelect
-                  value={subagentLevelValue(card.level)}
-                  disabled={options.length === 0}
-                  onchange={(e) => setSubagentLevelValue(card.level, (e.currentTarget as HTMLSelectElement).value)}
-                >
-                  <NativeSelectOption value="">Use subagent fallback</NativeSelectOption>
+              <NativeSelect
+                value={modelRoutingValue(card.route)}
+                disabled={options.length === 0}
+                onchange={(e) => setModelRoutingValue(card.route, (e.currentTarget as HTMLSelectElement).value)}
+              >
+                {#if options.length === 0}
+                  <NativeSelectOption value="">{card.emptyText}</NativeSelectOption>
+                {:else}
+                  {#if card.route === "subagent"}
+                    <NativeSelectOption value="">Use text route fallback</NativeSelectOption>
+                  {/if}
                   {#each options as row}
                     <NativeSelectOption value={row.key}>{row.label}</NativeSelectOption>
                   {/each}
-                </NativeSelect>
-              </div>
-            {/each}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Runtime defaults</CardTitle>
-          <CardDescription>Fallback, thinking, and context</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div class="grid gap-4 md:grid-cols-2">
-            <div class="grid gap-1.5">
-              <Label for="rt-fallback">Model fallback policy</Label>
-              <NativeSelect id="rt-fallback" bind:value={form.modelFallback.mode}>
-                <NativeSelectOption value="off">Off - fail on the selected model</NativeSelectOption>
-                <NativeSelectOption value="same-provider">Same provider only</NativeSelectOption>
-                <NativeSelectOption value="any-enabled">Any enabled provider</NativeSelectOption>
-              </NativeSelect>
-              <p class="text-xs text-muted-foreground">Same-provider is the default: retries stay inside the selected provider.</p>
-            </div>
-
-            <div class="grid gap-1.5">
-              <Label for="rt-thinking">Default thinking</Label>
-              <NativeSelect id="rt-thinking" bind:value={form.defaultThinkingLevel}>
-                <NativeSelectOption value="off">Off</NativeSelectOption>
-                <NativeSelectOption value="low">Low</NativeSelectOption>
-                <NativeSelectOption value="medium">Medium</NativeSelectOption>
-                <NativeSelectOption value="high">High</NativeSelectOption>
-              </NativeSelect>
-              <p class="text-xs text-muted-foreground">Applies only when the selected model or custom provider explicitly supports thinking.</p>
-            </div>
-
-            <div class="grid gap-1.5">
-              <Label>Automatic compaction</Label>
-              <div class="flex items-center gap-3 rounded-lg border px-3 py-2">
-                <Checkbox id="rt-compact" bind:checked={form.compaction.enabled} />
-                <Label for="rt-compact" class="text-sm">Summarize older turns when context gets tight.</Label>
-              </div>
-            </div>
-
-            <div class="grid gap-1.5">
-              <Label for="rt-default-cw">Default context window</Label>
-              <Input id="rt-default-cw" type="number" min="1024" step="1000" bind:value={form.compaction.defaultContextWindow} />
-              <p class="text-xs text-muted-foreground">Fallback context window when the model doesn't report one. Default 200000 (200K).</p>
-            </div>
-
-            <div class="grid gap-1.5">
-              <Label for="rt-threshold">Compaction threshold (%)</Label>
-              <Input id="rt-threshold" type="number" min="10" max="95" step="5" bind:value={form.compaction.thresholdPercent} />
-              <p class="text-xs text-muted-foreground">Trigger compaction when context exceeds this % of the model's context window. Default 75%.</p>
-            </div>
-
-            <div class="grid gap-1.5">
-              <Label for="rt-reserve">Reserve tokens</Label>
-              <Input id="rt-reserve" type="number" min="1024" step="256" bind:value={form.compaction.reserveTokens} />
-              <p class="text-xs text-muted-foreground">Safety margin for model output. Also caps the trigger line at (window − reserve). Default 8192.</p>
-            </div>
-
-            <div class="grid gap-1.5">
-              <Label for="rt-keep">Keep recent tokens</Label>
-              <Input id="rt-keep" type="number" min="2048" step="512" bind:value={form.compaction.keepRecentTokens} />
-              <p class="text-xs text-muted-foreground">Recent turns preserved verbatim during compaction. Default 20000.</p>
-            </div>
-
-            {#if true}
-              {@const preview = compactionTriggerPreview()}
-              <div class="rounded-lg border bg-muted/40 px-3 py-3 text-xs text-muted-foreground md:col-span-2">
-                <strong class="text-foreground">Trigger preview</strong> — current text model context window: <strong class="text-foreground">{(preview.window / 1000)}K</strong>, compaction fires when estimated tokens &gt; <strong class="text-foreground">{(preview.trigger / 1000).toFixed(preview.trigger % 1000 !== 0 ? 1 : 0)}K</strong> ({preview.reason})
-
-                {#if preview.fromModel}
-                  <span class="ml-1">(window from model metadata)</span>
-                {:else}
-                  <span class="ml-1">(using default context window)</span>
                 {/if}
-              </div>
-            {/if}
+              </NativeSelect>
+              <p class="routing-field-status">{routeSummary(card.route)}</p>
+            </div>
+          {/each}
+        </div>
+      </section>
+
+      <!-- Subagent Model Levels -->
+      <section class="routing-card">
+        <div class="routing-card-header">
+          <div>
+            <h2 class="routing-card-title">Subagent model levels</h2>
+            <p class="routing-card-desc">Map delegation tiers</p>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Compatibility fallback</CardTitle>
-          <CardDescription>Legacy default anchor</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div class="grid gap-4 md:grid-cols-2">
-            <div class="grid gap-1.5">
-              <Label for="rt-mode">Legacy default source</Label>
-              <NativeSelect id="rt-mode" bind:value={form.providerMode}>
-                <NativeSelectOption value="pi">Built-in transport fallback</NativeSelectOption>
-                <NativeSelectOption value="custom">Custom provider fallback</NativeSelectOption>
-              </NativeSelect>
-              <p class="text-xs text-muted-foreground">Used only when a text route is empty or no longer matches a configured model.</p>
-            </div>
-
-            <div class="grid gap-1.5">
-              <Label for="rt-pi-provider">Built-in fallback provider</Label>
-              <NativeSelect id="rt-pi-provider" bind:value={form.piModelProvider} onchange={onPiProviderChanged}>
-                {#each visiblePiProviders() as provider}
-                  <NativeSelectOption value={provider.id}>{provider.name}</NativeSelectOption>
+        </div>
+        <div class="routing-callout">
+          <strong>How subagents choose models:</strong> Built-in roles reference levels such as `haiku` and `sonnet`, not Claude-specific model IDs. Map each level to any text-capable model in your pool. Empty levels fall back to the Subagent fallback route, then the text route.
+        </div>
+        <div class="routing-grid">
+          {#each subagentLevelCards as card}
+            {@const options = routingOptions("subagent")}
+            <div class="routing-field-card">
+              <div class="routing-field-header">
+                <div>
+                  <h3 class="routing-field-title">{card.title}</h3>
+                  <p class="routing-field-desc">{card.description}</p>
+                </div>
+                <span class="routing-badge-outline">{transportLabel(subagentLevelValue(card.level))}</span>
+              </div>
+              <NativeSelect
+                value={subagentLevelValue(card.level)}
+                disabled={options.length === 0}
+                onchange={(e) => setSubagentLevelValue(card.level, (e.currentTarget as HTMLSelectElement).value)}
+              >
+                <NativeSelectOption value="">Use subagent fallback</NativeSelectOption>
+                {#each options as row}
+                  <NativeSelectOption value={row.key}>{row.label}</NativeSelectOption>
                 {/each}
               </NativeSelect>
             </div>
+          {/each}
+        </div>
+      </section>
 
-            <div class="grid gap-1.5 md:col-span-2">
-              <Label for="rt-pi-model">Built-in fallback model</Label>
-              <NativeSelect id="rt-pi-model" bind:value={form.piModelName}>
-                {#each providerModels[form.piModelProvider] ?? [] as model}
-                  <NativeSelectOption value={model}>{model}</NativeSelectOption>
-                {/each}
-              </NativeSelect>
-              {#if visiblePiProviders().length === 0}
-                <p class="text-xs text-destructive">No enabled built-in provider. Enable one in Providers if you want this anchor to work.</p>
+      <!-- Runtime Defaults -->
+      <section class="routing-card">
+        <div class="routing-card-header">
+          <div>
+            <h2 class="routing-card-title">Runtime defaults</h2>
+            <p class="routing-card-desc">Fallback, thinking, and context</p>
+          </div>
+        </div>
+        <div class="routing-form-grid">
+          <div class="routing-form-group">
+            <Label for="rt-fallback">Model fallback policy</Label>
+            <NativeSelect id="rt-fallback" bind:value={form.modelFallback.mode}>
+              <NativeSelectOption value="off">Off — fail on the selected model</NativeSelectOption>
+              <NativeSelectOption value="same-provider">Same provider only</NativeSelectOption>
+              <NativeSelectOption value="any-enabled">Any enabled provider</NativeSelectOption>
+            </NativeSelect>
+            <p class="routing-form-hint">Same-provider is the default: retries stay inside the selected provider.</p>
+          </div>
+
+          <div class="routing-form-group">
+            <Label for="rt-thinking">Default thinking</Label>
+            <NativeSelect id="rt-thinking" bind:value={form.defaultThinkingLevel}>
+              <NativeSelectOption value="off">Off</NativeSelectOption>
+              <NativeSelectOption value="low">Low</NativeSelectOption>
+              <NativeSelectOption value="medium">Medium</NativeSelectOption>
+              <NativeSelectOption value="high">High</NativeSelectOption>
+            </NativeSelect>
+            <p class="routing-form-hint">Applies only when the selected model or custom provider explicitly supports thinking.</p>
+          </div>
+
+          <div class="routing-form-group">
+            <Label>Automatic compaction</Label>
+            <div class="routing-checkbox-row">
+              <Checkbox id="rt-compact" bind:checked={form.compaction.enabled} />
+              <Label for="rt-compact" class="routing-checkbox-label">Summarize older turns when context gets tight.</Label>
+            </div>
+          </div>
+
+          <div class="routing-form-group">
+            <Label for="rt-default-cw">Default context window</Label>
+            <Input id="rt-default-cw" type="number" min="1024" step="1000" bind:value={form.compaction.defaultContextWindow} />
+            <p class="routing-form-hint">Fallback context window when the model doesn't report one. Default 200000 (200K).</p>
+          </div>
+
+          <div class="routing-form-group">
+            <Label for="rt-threshold">Compaction threshold (%)</Label>
+            <Input id="rt-threshold" type="number" min="10" max="95" step="5" bind:value={form.compaction.thresholdPercent} />
+            <p class="routing-form-hint">Trigger compaction when context exceeds this % of the model's context window. Default 75%.</p>
+          </div>
+
+          <div class="routing-form-group">
+            <Label for="rt-reserve">Reserve tokens</Label>
+            <Input id="rt-reserve" type="number" min="1024" step="256" bind:value={form.compaction.reserveTokens} />
+            <p class="routing-form-hint">Safety margin for model output. Also caps the trigger line at (window − reserve). Default 8192.</p>
+          </div>
+
+          <div class="routing-form-group">
+            <Label for="rt-keep">Keep recent tokens</Label>
+            <Input id="rt-keep" type="number" min="2048" step="512" bind:value={form.compaction.keepRecentTokens} />
+            <p class="routing-form-hint">Recent turns preserved verbatim during compaction. Default 20000.</p>
+          </div>
+
+          {#if true}
+            {@const preview = compactionTriggerPreview()}
+            <div class="routing-preview-callout">
+              <strong>Trigger preview</strong> — current text model context window:
+              <strong>{(preview.window / 1000)}K</strong>,
+              compaction fires when estimated tokens &gt;
+              <strong>{(preview.trigger / 1000).toFixed(preview.trigger % 1000 !== 0 ? 1 : 0)}K</strong>
+              ({preview.reason})
+              {#if preview.fromModel}
+                <span class="routing-preview-note">(window from model metadata)</span>
+              {:else}
+                <span class="routing-preview-note">(using default context window)</span>
               {/if}
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Agent persona</CardTitle>
-          <CardDescription>Global system prompt</CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          <div class="grid gap-1.5">
-            <Label for="rt-tz">Runtime timezone</Label>
-            <NativeSelect id="rt-tz" bind:value={form.timezone}>
-              {#each timeZoneOptions as zone}
-                <NativeSelectOption value={zone}>{zone}</NativeSelectOption>
-              {/each}
-            </NativeSelect>
-            <p class="text-xs text-muted-foreground">
-              Used for per-message <code class="font-mono">&lt;env&gt;</code> time injection, task scheduling, and usage/date views.
-            </p>
-          </div>
-
-          <div class="grid gap-1.5">
-            <Label for="rt-prompt">System prompt</Label>
-            <Textarea id="rt-prompt" class="min-h-[200px] font-mono text-sm" bind:value={form.systemPrompt} placeholder="You are Molibot..." />
-          </div>
-        </CardContent>
-      </Card>
-
-      <div class="flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          {#if message}
-            <span class="text-sm text-emerald-600 dark:text-emerald-400">{message}</span>
-          {/if}
-          {#if error}
-            <span class="text-sm text-destructive">{error}</span>
           {/if}
         </div>
-        <Button type="submit" variant="default" size="lg" disabled={saving}>
-          {saving ? "Saving..." : "Save Routing"}
-        </Button>
-      </div>
+      </section>
+
+      <!-- Compatibility Fallback -->
+      <section class="routing-card">
+        <details class="routing-accordion" open>
+          <summary class="routing-accordion-header">
+            <div>
+              <h2 class="routing-card-title">Compatibility fallback</h2>
+              <p class="routing-card-desc">Legacy default anchor</p>
+            </div>
+            <span class="routing-accordion-chevron" aria-hidden="true">▾</span>
+          </summary>
+          <div class="routing-accordion-body">
+            <div class="routing-form-grid">
+              <div class="routing-form-group">
+                <Label for="rt-mode">Legacy default source</Label>
+                <NativeSelect id="rt-mode" bind:value={form.providerMode}>
+                  <NativeSelectOption value="pi">Built-in transport fallback</NativeSelectOption>
+                  <NativeSelectOption value="custom">Custom provider fallback</NativeSelectOption>
+                </NativeSelect>
+                <p class="routing-form-hint">Used only when a text route is empty or no longer matches a configured model.</p>
+              </div>
+
+              <div class="routing-form-group">
+                <Label for="rt-pi-provider">Built-in fallback provider</Label>
+                <NativeSelect id="rt-pi-provider" bind:value={form.piModelProvider} onchange={onPiProviderChanged}>
+                  {#each visiblePiProviders() as provider}
+                    <NativeSelectOption value={provider.id}>{provider.name}</NativeSelectOption>
+                  {/each}
+                </NativeSelect>
+              </div>
+
+              <div class="routing-form-group routing-form-group--full">
+                <Label for="rt-pi-model">Built-in fallback model</Label>
+                <NativeSelect id="rt-pi-model" bind:value={form.piModelName}>
+                  {#each providerModels[form.piModelProvider] ?? [] as model}
+                    <NativeSelectOption value={model}>{model}</NativeSelectOption>
+                  {/each}
+                </NativeSelect>
+                {#if visiblePiProviders().length === 0}
+                  <p class="routing-form-error">No enabled built-in provider. Enable one in Providers if you want this anchor to work.</p>
+                {/if}
+              </div>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <!-- Agent Persona -->
+      <section class="routing-card">
+        <div class="routing-card-header">
+          <div>
+            <h2 class="routing-card-title">Agent persona</h2>
+            <p class="routing-card-desc">Global system prompt</p>
+          </div>
+        </div>
+        <div class="routing-form-group">
+          <Label for="rt-tz">Runtime timezone</Label>
+          <NativeSelect id="rt-tz" bind:value={form.timezone}>
+            {#each timeZoneOptions as zone}
+              <NativeSelectOption value={zone}>{zone}</NativeSelectOption>
+            {/each}
+          </NativeSelect>
+          <p class="routing-form-hint">
+            Used for per-message <code>&lt;env&gt;</code> time injection, task scheduling, and usage/date views.
+          </p>
+        </div>
+        <div class="routing-form-group">
+          <Label for="rt-prompt">System prompt</Label>
+          <Textarea id="rt-prompt" class="routing-prompt-editor" bind:value={form.systemPrompt} placeholder="You are Molibot..." />
+        </div>
+      </section>
+
     </form>
+
+    <!-- Fixed Footer Bar -->
+    <div class="settings-footbar">
+      <div class="settings-footbar-status">
+        {#if message}
+          <span class="settings-footbar-ok">{message}</span>
+        {/if}
+        {#if error}
+          <span class="settings-footbar-error">{error}</span>
+        {/if}
+      </div>
+      <button type="submit" form="routing-form" class="settings-footbar-btn" disabled={saving}>
+        {saving ? "Saving..." : "Save Routing"}
+      </button>
+    </div>
   {/if}
 </div>
+
+<style>
+  /* ── Page Shell ── */
+  .routing-page {
+    max-width: 56rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  /* ── Hero Header ── */
+  .routing-hero {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .routing-badge {
+    display: inline-flex;
+    align-self: flex-start;
+    padding: 0.125rem 0.625rem;
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--primary) 12%, var(--card));
+    color: var(--primary);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .routing-hero-title {
+    font-family: var(--font-serif);
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--foreground);
+    margin: 0;
+    line-height: 1.15;
+  }
+
+  .routing-hero-desc {
+    font-size: 0.9375rem;
+    line-height: 1.65;
+    color: var(--muted-foreground);
+    max-width: 42rem;
+    margin: 0;
+  }
+
+  .routing-hero-link {
+    display: inline-flex;
+    align-self: flex-start;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--primary);
+    text-decoration: none;
+    transition: opacity 160ms ease;
+  }
+
+  .routing-hero-link:hover { opacity: 0.75; }
+
+  .routing-loading {
+    padding: 2.5rem 0;
+    font-size: 0.875rem;
+    color: var(--muted-foreground);
+  }
+
+  /* ── Form ── */
+  .routing-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  /* ── Card Sections ── */
+  .routing-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.04);
+  }
+
+  .routing-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .routing-card-title {
+    font-family: var(--font-serif);
+    font-size: 1.125rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--foreground);
+    margin: 0 0 0.25rem;
+    line-height: 1.25;
+  }
+
+  .routing-card-desc {
+    font-size: 0.8125rem;
+    color: var(--muted-foreground);
+    margin: 0;
+  }
+
+  /* ── Badges ── */
+  .routing-badge-accent {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.25rem;
+    background: color-mix(in oklab, var(--primary) 12%, var(--card));
+    color: var(--primary);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .routing-badge-outline {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    border: 1px solid var(--border);
+    background: var(--background);
+    color: var(--muted-foreground);
+    font-size: 0.625rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* ── Metric Grid (Active Pool) ── */
+  .routing-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .routing-metric {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: color-mix(in oklab, var(--card) 70%, var(--background));
+    padding: 0.75rem;
+    text-align: center;
+  }
+
+  .routing-metric-label {
+    font-size: 0.6875rem;
+    color: var(--muted-foreground);
+    margin-bottom: 0.25rem;
+  }
+
+  .routing-metric-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--foreground);
+    line-height: 1.2;
+  }
+
+  .routing-metric-policy {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--foreground);
+    line-height: 1.4;
+  }
+
+  /* ── Callout ── */
+  .routing-callout {
+    border-radius: 0.5rem;
+    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--card) 70%, var(--background));
+    padding: 0.75rem 0.875rem;
+    font-size: 0.75rem;
+    line-height: 1.6;
+    color: var(--muted-foreground);
+  }
+
+  .routing-callout strong {
+    color: var(--foreground);
+  }
+
+  /* ── Field Grid (routes / subagent levels) ── */
+  .routing-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+
+  .routing-field-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: color-mix(in oklab, var(--card) 70%, var(--background));
+    padding: 1rem;
+  }
+
+  .routing-field-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .routing-field-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--foreground);
+    margin: 0 0 0.125rem;
+  }
+
+  .routing-field-desc {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    margin: 0;
+  }
+
+  .routing-field-status {
+    margin-top: 0.5rem;
+    font-size: 0.6875rem;
+    color: var(--muted-foreground);
+    font-family: var(--font-mono);
+  }
+
+  /* ── Form Fields ── */
+  .routing-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
+  }
+
+  .routing-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .routing-form-group--full {
+    grid-column: 1 / -1;
+  }
+
+  .routing-form-hint {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  .routing-form-error {
+    font-size: 0.75rem;
+    color: hsl(0 84% 60%);
+    margin: 0;
+  }
+
+  .routing-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  :global(.routing-checkbox-label) {
+    font-size: 0.8125rem;
+    font-weight: 400;
+    color: var(--foreground);
+  }
+
+  /* ── Compaction Preview ── */
+  .routing-preview-callout {
+    grid-column: 1 / -1;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--card) 70%, var(--background));
+    padding: 0.75rem 0.875rem;
+    font-size: 0.75rem;
+    line-height: 1.6;
+    color: var(--muted-foreground);
+  }
+
+  .routing-preview-callout strong {
+    color: var(--foreground);
+  }
+
+  .routing-preview-note {
+    margin-left: 0.25rem;
+    opacity: 0.7;
+  }
+
+  /* ── Accordion (Compatibility fallback) ── */
+  .routing-accordion {
+    margin: -1.5rem;
+  }
+
+  .routing-accordion-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 1.5rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 150ms ease;
+  }
+
+  .routing-accordion-header:hover {
+    background: color-mix(in oklab, var(--foreground) 3%, transparent);
+  }
+
+  .routing-accordion-chevron {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    transition: transform 200ms ease;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+  }
+
+  .routing-accordion:not([open]) .routing-accordion-chevron {
+    transform: rotate(-90deg);
+  }
+
+  .routing-accordion-body {
+    padding: 0 1.5rem 1.5rem;
+  }
+
+  /* ── System Prompt Editor ── */
+  :global(.routing-prompt-editor) {
+    min-height: 200px;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    background: var(--background);
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .routing-metrics { grid-template-columns: 1fr; }
+    .routing-grid { grid-template-columns: 1fr; }
+    .routing-form-grid { grid-template-columns: 1fr; }
+  }
+</style>

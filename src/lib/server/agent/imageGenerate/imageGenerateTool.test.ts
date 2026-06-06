@@ -14,10 +14,10 @@ const defaultTestSettings: RuntimeSettings = {
     enabled: true,
     defaultEngine: "auto",
     engines: {
-      agnes: { enabled: true, apiKey: "agnes-key" },
-      modelscope: { enabled: false, apiKey: "" },
-      google: { enabled: false, apiKey: "" },
-      volcengine: { enabled: false, apiKey: "" }
+      agnes: { apiKey: "agnes-key" },
+      modelscope: { apiKey: "" },
+      google: { apiKey: "" },
+      volcengine: { apiKey: "" }
     }
   }
 } as unknown as RuntimeSettings;
@@ -79,7 +79,7 @@ test("imageGenerate tool successfully calls Agnes API and downloads image", asyn
     const ctx = getTestContext({
       engines: {
         ...defaultTestSettings.imageGenerate.engines,
-        agnes: { enabled: true, apiKey: "agnes-test-api-key", baseUrl: "https://custom.agnes.ai" }
+        agnes: { apiKey: "agnes-test-api-key", baseUrl: "https://custom.agnes.ai" }
       }
     }, uploadFile);
 
@@ -132,7 +132,7 @@ test("imageGenerate tool successfully calls Google Imagen and saves base64 respo
     const ctx = getTestContext({
       engines: {
         ...defaultTestSettings.imageGenerate.engines,
-        google: { enabled: true, apiKey: "google-test-key" }
+        google: { apiKey: "google-test-key" }
       }
     });
 
@@ -182,10 +182,10 @@ test("imageGenerate tool resolves auto engine correctly based on priority", asyn
     // Enable only volcengine (which has higher priority than modelscope but lower than agnes and google)
     const ctx = getTestContext({
       engines: {
-        agnes: { enabled: false, apiKey: "" },
-        modelscope: { enabled: true, apiKey: "modelscope-key" },
-        google: { enabled: false, apiKey: "" },
-        volcengine: { enabled: true, apiKey: "volc-key" }
+        agnes: { apiKey: "" },
+        modelscope: { apiKey: "modelscope-key" },
+        google: { apiKey: "" },
+        volcengine: { apiKey: "volc-key" }
       }
     });
 
@@ -235,8 +235,8 @@ test("imageGenerate tool prefers configured default engine before auto priority 
       defaultEngine: "google",
       engines: {
         ...defaultTestSettings.imageGenerate.engines,
-        agnes: { enabled: true, apiKey: "agnes-key" },
-        google: { enabled: true, apiKey: "google-key" }
+        agnes: { apiKey: "agnes-key" },
+        google: { apiKey: "google-key" }
       }
     });
 
@@ -300,7 +300,7 @@ test("imageGenerate tool handles ModelScope async task submission and polling co
     const ctx = getTestContext({
       engines: {
         ...defaultTestSettings.imageGenerate.engines,
-        modelscope: { enabled: true, apiKey: "ms-key" }
+        modelscope: { apiKey: "ms-key" }
       }
     });
 

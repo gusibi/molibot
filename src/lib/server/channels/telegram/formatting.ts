@@ -16,6 +16,11 @@ interface TelegramTextChunk {
   payload: { text: string; parseMode?: "HTML" };
 }
 
+export interface TelegramTextMessages {
+  message_id: number;
+  message_ids: number[];
+}
+
 function chunkTelegramText(text: string, chunkSize = TELEGRAM_TEXT_SOFT_LIMIT): string[] {
   const normalized = String(text ?? "").replace(/\r\n?/g, "\n").trim();
   if (!normalized) return [];
@@ -216,17 +221,61 @@ export async function sendTelegramText(
   chatId: string,
   text: string,
   options?: Record<string, unknown>
-): Promise<{ message_id: number }> {
+): Promise<TelegramTextMessages> {
   const chunks = buildTelegramTextChunks(text);
+  const messageIds: number[] = [];
   let lastMessageId = 0;
 
   for (const [index, chunk] of chunks.entries()) {
     const chunkOptions = index === 0 ? { ...(options ?? {}) } : {};
     const sent = await sendTelegramChunk(bot, chatId, chunk, chunkOptions);
     lastMessageId = sent.message_id;
+    messageIds.push(sent.message_id);
   }
 
-  return { message_id: lastMessageId };
+  return { message_id: lastMessageId, message_ids: messageIds };
+}
+
+export async function syncTelegramTextMessages(
+  bot: Bot,
+  chatId: string,
+  messageIds: number[],
+  text: string,
+  retryPolicy?: TelegramRetryPolicy,
+  sendOptions?: Record<string, unknown>
+): Promise<TelegramTextMessages> {
+  const chunks = buildTelegramTextChunks(text);
+  const nextMessageIds: number[] = [];
+
+  for (const [index, chunk] of chunks.entries()) {
+    const existingMessageId = messageIds[index];
+    if (existingMessageId) {
+      await editTelegramChunk(bot, chatId, existingMessageId, chunk, undefined, retryPolicy);
+      nextMessageIds.push(existingMessageId);
+      continue;
+    }
+
+    const sent = await sendTelegramChunk(bot, chatId, chunk, sendOptions);
+    messageIds[index] = sent.message_id;
+    nextMessageIds.push(sent.message_id);
+  }
+
+  for (const obsoleteMessageId of messageIds.slice(chunks.length)) {
+    try {
+      await bot.api.deleteMessage(chatId, obsoleteMessageId);
+    } catch (error) {
+      momWarn("telegram", "delete_obsolete_chunk_failed", {
+        chatId,
+        messageId: obsoleteMessageId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  return {
+    message_id: nextMessageIds.at(-1) ?? 0,
+    message_ids: nextMessageIds
+  };
 }
 
 export async function sendTelegramTextSafely(

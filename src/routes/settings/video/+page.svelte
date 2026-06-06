@@ -8,6 +8,7 @@
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { Switch } from "$lib/components/ui/switch";
+  import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
   import { locale } from "$lib/ui/i18n";
 
   type EngineId = "agnes" | "volcengine";
@@ -23,6 +24,19 @@
     enabled: boolean;
     defaultEngine: EngineId | "auto";
     engines: Record<EngineId, EngineSettings>;
+  }
+
+  interface VideoTask {
+    id: string;
+    engine: string;
+    sessionId: string;
+    status: "processing" | "completed" | "failed";
+    progress: number;
+    prompt: string;
+    videoPath?: string;
+    errorMessage?: string;
+    createdAt: string;
+    updatedAt: string;
   }
 
   const COPY = {
@@ -50,7 +64,27 @@
       loadError: "加载设置失败",
       saveError: "保存设置失败",
       testError: "视频生成测试失败",
-      engineEnabled: "启用引擎"
+      engineEnabled: "启用引擎",
+      tasksTitle: "最近生成任务",
+      tasksDesc: "查看和管理异步视频生成任务的状态与进度。",
+      createdAt: "创建时间",
+      taskId: "任务 ID",
+      engine: "引擎",
+      prompt: "提示词",
+      status: "状态",
+      progress: "进度",
+      action: "操作",
+      delete: "删除",
+      statusProcessing: "生成中",
+      statusCompleted: "已完成",
+      statusFailed: "失败",
+      noTasks: "暂无最近生成任务。",
+      taskDetailsTitle: "任务详情",
+      taskIdLabel: "任务 ID",
+      videoPathLabel: "保存路径",
+      downloadVideo: "下载视频",
+      close: "关闭",
+      viewResult: "查看结果"
     },
     "en-US": {
       title: "Video Generation",
@@ -76,7 +110,27 @@
       loadError: "Failed to load settings",
       saveError: "Failed to save video settings",
       testError: "Video generation test failed",
-      engineEnabled: "Engine enabled"
+      engineEnabled: "Engine enabled",
+      tasksTitle: "Recent Generation Tasks",
+      tasksDesc: "View and manage the status and progress of asynchronous video generation tasks.",
+      createdAt: "Created At",
+      taskId: "Task ID",
+      engine: "Engine",
+      prompt: "Prompt",
+      status: "Status",
+      progress: "Progress",
+      action: "Action",
+      delete: "Delete",
+      statusProcessing: "Processing",
+      statusCompleted: "Completed",
+      statusFailed: "Failed",
+      noTasks: "No recent tasks found.",
+      taskDetailsTitle: "Task Details",
+      taskIdLabel: "Task ID",
+      videoPathLabel: "Video Path",
+      downloadVideo: "Download Video",
+      close: "Close",
+      viewResult: "View Result"
     }
   };
 
@@ -99,6 +153,9 @@
   let testResult: any = null;
 
   let showApiKey: Record<string, boolean> = {};
+  let tasks: VideoTask[] = [];
+  let pollInterval: any = null;
+  let activeTaskDetails: VideoTask | null = null;
 
   let videoGenerate: VideoGenerateSettings = {
     enabled: true,
@@ -122,6 +179,30 @@
       error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadTasks(): Promise<void> {
+    try {
+      const res = await fetch("/api/settings/video-generate/tasks");
+      const data = await res.json();
+      if (data.ok) {
+        tasks = data.tasks || [];
+      }
+    } catch (e) {
+      console.error("Failed to load tasks", e);
+    }
+  }
+
+  async function deleteTask(taskId: string): Promise<void> {
+    try {
+      const res = await fetch(`/api/settings/video-generate/tasks?taskId=${taskId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.ok) {
+        tasks = tasks.filter(t => t.id !== taskId);
+      }
+    } catch (e) {
+      console.error("Failed to delete task", e);
     }
   }
 
@@ -160,6 +241,7 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || t("testError"));
       testResult = data.result;
+      await loadTasks();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -210,7 +292,14 @@
     }
   }
 
-  onMount(loadSettings);
+  onMount(() => {
+    loadSettings();
+    loadTasks();
+    pollInterval = setInterval(loadTasks, 30000);
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  });
 </script>
 
 <div class="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
@@ -355,5 +444,162 @@
         <Button type="submit" disabled={saving}>{saving ? t("savingButton") : t("saveButton")}</Button>
       </div>
     </form>
+
+    <Card class="mt-6">
+      <CardHeader>
+        <CardTitle class="text-sm">{t("tasksTitle")}</CardTitle>
+        <CardDescription>{t("tasksDesc")}</CardDescription>
+      </CardHeader>
+      <CardContent class="grid gap-5">
+        {#if tasks.length === 0}
+          <div class="rounded-xl border bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
+            {t("noTasks")}
+          </div>
+        {:else}
+          <div class="overflow-x-auto rounded-xl border bg-background">
+            <Table class="w-full">
+              <TableHeader>
+                <TableRow>
+                  <TableHead class="w-[180px]">{t("createdAt")}</TableHead>
+                  <TableHead class="w-[150px]">{t("taskId")}</TableHead>
+                  <TableHead class="w-[110px]">{t("engine")}</TableHead>
+                  <TableHead>{t("prompt")}</TableHead>
+                  <TableHead class="w-[120px]">{t("status")}</TableHead>
+                  <TableHead class="w-[90px]">{t("progress")}</TableHead>
+                  <TableHead class="w-[80px] text-right">{t("action")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {#each tasks as task}
+                  <TableRow>
+                    <TableCell class="font-mono text-xs text-muted-foreground">
+                      {new Date(task.createdAt).toLocaleString(undefined, { hour12: false })}
+                    </TableCell>
+                    <TableCell class="font-mono text-xs text-muted-foreground select-all" title={task.id}>
+                      {task.id}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" class="text-xs uppercase tracking-wider">{task.engine}</Badge>
+                    </TableCell>
+                    <TableCell class="max-w-[280px] truncate" title={task.prompt}>
+                      {task.prompt}
+                    </TableCell>
+                    <TableCell>
+                      {#if task.status === 'processing'}
+                        <Badge variant="outline" class="border-blue-500/30 bg-blue-500/10 text-blue-500">{t("statusProcessing")}</Badge>
+                      {:else if task.status === 'completed'}
+                        <Badge variant="default" class="bg-emerald-600 hover:bg-emerald-600/95">{t("statusCompleted")}</Badge>
+                      {:else}
+                        <Badge variant="destructive">{t("statusFailed")}</Badge>
+                      {/if}
+                      {#if task.errorMessage}
+                        <p class="mt-1 max-w-[200px] truncate text-xs text-destructive" title={task.errorMessage}>
+                          {task.errorMessage}
+                        </p>
+                      {/if}
+                    </TableCell>
+                    <TableCell class="font-medium">
+                      {task.progress}%
+                    </TableCell>
+                    <TableCell class="text-right">
+                      <div class="flex justify-end gap-2">
+                        {#if task.status === 'completed' || task.status === 'failed'}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onclick={() => activeTaskDetails = task}
+                          >
+                            {t("viewResult")}
+                          </Button>
+                        {/if}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onclick={() => deleteTask(task.id)}
+                        >
+                          {t("delete")}
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                {/each}
+              </TableBody>
+            </Table>
+          </div>
+        {/if}
+      </CardContent>
+    </Card>
+  {/if}
+
+  {#if activeTaskDetails}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onclick={() => activeTaskDetails = null}>
+      <div class="relative w-full max-w-xl rounded-xl border border-border bg-background p-6 shadow-2xl" onclick={(e) => e.stopPropagation()}>
+        <header class="mb-4 flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-foreground">{t("taskDetailsTitle")}</h3>
+          <button class="rounded-lg p-1 text-muted-foreground hover:bg-muted" onclick={() => activeTaskDetails = null}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </header>
+
+        <div class="space-y-4">
+          {#if activeTaskDetails.status === "completed" && activeTaskDetails.videoPath}
+            <div class="overflow-hidden rounded-lg border bg-black aspect-video flex items-center justify-center">
+              <video controls src="/api/settings/video-generate/video?taskId={activeTaskDetails.id}" class="w-full h-full max-h-[300px]">
+                Your browser does not support the video tag.
+              </video>
+            </div>
+          {/if}
+
+          <div class="grid gap-3 text-sm">
+            <div class="grid grid-cols-[100px_1fr] gap-2">
+              <span class="text-muted-foreground">{t("taskIdLabel")}:</span>
+              <span class="font-mono text-xs select-all text-foreground">{activeTaskDetails.id}</span>
+            </div>
+            <div class="grid grid-cols-[100px_1fr] gap-2">
+              <span class="text-muted-foreground">{t("engine")}:</span>
+              <span><Badge variant="outline" class="uppercase text-xs tracking-wider">{activeTaskDetails.engine}</Badge></span>
+            </div>
+            <div class="grid grid-cols-[100px_1fr] gap-2">
+              <span class="text-muted-foreground">{t("status")}:</span>
+              <span>
+                {#if activeTaskDetails.status === 'processing'}
+                  <Badge variant="outline" class="border-blue-500/30 bg-blue-500/10 text-blue-500">{t("statusProcessing")}</Badge>
+                {:else if activeTaskDetails.status === 'completed'}
+                  <Badge variant="default" class="bg-emerald-600 hover:bg-emerald-600/95">{t("statusCompleted")}</Badge>
+                {:else}
+                  <Badge variant="destructive">{t("statusFailed")}</Badge>
+                {/if}
+              </span>
+            </div>
+            <div class="grid grid-cols-[100px_1fr] gap-2">
+              <span class="text-muted-foreground">{t("prompt")}:</span>
+              <span class="text-foreground leading-5">{activeTaskDetails.prompt}</span>
+            </div>
+            {#if activeTaskDetails.videoPath}
+              <div class="grid grid-cols-[100px_1fr] gap-2">
+                <span class="text-muted-foreground">{t("videoPathLabel")}:</span>
+                <span class="font-mono text-xs select-all break-all text-muted-foreground">{activeTaskDetails.videoPath}</span>
+              </div>
+            {/if}
+            {#if activeTaskDetails.errorMessage}
+              <div class="grid grid-cols-[100px_1fr] gap-2">
+                <span class="text-muted-foreground">{t("error")}:</span>
+                <span class="text-destructive font-mono text-xs leading-5">{activeTaskDetails.errorMessage}</span>
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        <footer class="mt-6 flex justify-end gap-3">
+          {#if activeTaskDetails.status === "completed"}
+            <Button href="/api/settings/video-generate/video?taskId={activeTaskDetails.id}" target="_blank" download="video.mp4">
+              {t("downloadVideo")}
+            </Button>
+          {/if}
+          <Button variant="outline" onclick={() => activeTaskDetails = null}>{t("close")}</Button>
+        </footer>
+      </div>
+    </div>
   {/if}
 </div>

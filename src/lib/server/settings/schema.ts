@@ -239,9 +239,9 @@ export interface WebSearchSettings {
 export type ImageGenerateEngineId = "agnes" | "modelscope" | "google" | "volcengine";
 
 export interface ImageGenerateEngineSettings {
-  enabled: boolean;
   apiKey: string;
   baseUrl?: string;
+  model?: string;
 }
 
 export interface ImageGenerateSettings {

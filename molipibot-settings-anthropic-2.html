@@ -283,6 +283,35 @@
     .tab-btn.active { background: var(--surface); color: var(--fg); box-shadow: var(--shadow); }
 
     .flex-center { display: flex; align-items: center; gap: 12px; }
+
+    /* iOS/macOS Style Switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--border);
+      transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 20px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px; width: 16px;
+      left: 2px; bottom: 2px;
+      background-color: white;
+      transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    input:checked + .slider { background-color: var(--accent); }
+    input:checked + .slider:before { transform: translateX(16px); }
   </style>
 </head>
 <body>
@@ -290,6 +319,13 @@
 
   <script type="text/babel">
     const { useState } = React;
+
+    const Switch = ({ checked, onChange }) => (
+      <label className="switch">
+        <input type="checkbox" checked={checked} onChange={onChange} />
+        <span className="slider"></span>
+      </label>
+    );
 
     const GROUPS = [
       { id: 'overview', icon: '✦', label: 'General', pages: ['Dashboard'] },

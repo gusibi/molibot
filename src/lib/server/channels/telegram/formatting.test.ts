@@ -5,7 +5,8 @@ import {
   editTelegramText,
   sendTelegramChatAction,
   sendTelegramTextSafely,
-  summarizeTelegramToolProgressText
+  summarizeTelegramToolProgressText,
+  syncTelegramTextMessages
 } from "$lib/server/channels/telegram/formatting.js";
 
 test("sendTelegramChatAction retries transient network failures until a later attempt succeeds", async () => {
@@ -98,7 +99,7 @@ test("editTelegramText splits MESSAGE_TOO_LONG edits into first edit plus follow
     }
   };
 
-  const text = `${"a".repeat(3600)}\n${"b".repeat(180)}`;
+  const text = `${"a".repeat(4200)}\n${"b".repeat(180)}`;
   await editTelegramText(bot as never, "chat-1", 42, text, undefined, { message_thread_id: 7 });
 
   assert.equal(edits.length, 2);
@@ -137,4 +138,59 @@ test("editTelegramMessage keeps shared formatting fallback when overlong edit is
   assert.equal(sends.some((entry) => entry.options?.parse_mode === "HTML"), true);
   assert.equal(sends[0].options?.message_thread_id, 9);
   assert.equal(sends[0].options?.disable_notification, true);
+});
+
+test("syncTelegramTextMessages edits existing chunks instead of resending the second chunk", async () => {
+  const edits: Array<{ messageId: number; text: string }> = [];
+  const sends: Array<{ text: string }> = [];
+  const deletes: number[] = [];
+  let nextMessageId = 700;
+  const bot = {
+    api: {
+      async editMessageText(_chatId: string, messageId: number, text: string): Promise<void> {
+        edits.push({ messageId, text });
+      },
+      async sendMessage(_chatId: string, text: string): Promise<{ message_id: number }> {
+        sends.push({ text });
+        return { message_id: nextMessageId += 1 };
+      },
+      async deleteMessage(_chatId: string, messageId: number): Promise<void> {
+        deletes.push(messageId);
+      }
+    }
+  };
+
+  const first = await syncTelegramTextMessages(bot as never, "chat-3", [], `${"a".repeat(3500)}\nfirst`);
+  const second = await syncTelegramTextMessages(bot as never, "chat-3", first.message_ids, `${"a".repeat(3500)}\nsecond`);
+  const third = await syncTelegramTextMessages(bot as never, "chat-3", second.message_ids, "short");
+
+  assert.deepEqual(first.message_ids, [701, 702]);
+  assert.deepEqual(second.message_ids, [701, 702]);
+  assert.deepEqual(third.message_ids, [701]);
+  assert.equal(sends.length, 2);
+  assert.deepEqual(edits.map((entry) => entry.messageId), [701, 702, 701]);
+  assert.deepEqual(deletes, [702]);
+});
+
+test("syncTelegramTextMessages retains newly created chunk ids after a partial send failure", async () => {
+  const messageIds: number[] = [];
+  let sends = 0;
+  const bot = {
+    api: {
+      async editMessageText(): Promise<void> {},
+      async sendMessage(): Promise<{ message_id: number }> {
+        sends += 1;
+        if (sends === 3) throw new Error("send failed");
+        return { message_id: 800 + sends };
+      },
+      async deleteMessage(): Promise<void> {}
+    }
+  };
+
+  await assert.rejects(
+    syncTelegramTextMessages(bot as never, "chat-4", messageIds, "a".repeat(7100)),
+    /send failed/
+  );
+
+  assert.deepEqual(messageIds, [801, 802]);
 });

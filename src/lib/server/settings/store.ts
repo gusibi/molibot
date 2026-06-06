@@ -303,12 +303,9 @@ function sanitizeImageGenerateSettings(input: unknown): RuntimeSettings["imageGe
       ? enginesSource[engine] as Record<string, unknown>
       : {};
     const apiKey = String(raw.apiKey ?? fallbackEngine.apiKey ?? "").trim();
-    const enabled = raw.enabled === undefined
-      ? fallbackEngine.enabled
-      : Boolean(raw.enabled) || (requestedDefaultEngine === engine && Boolean(apiKey));
     return [engine, {
-      enabled,
       apiKey,
+      model: String(raw.model ?? fallbackEngine.model ?? "").trim() || undefined,
       baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined
     }];
   })) as RuntimeSettings["imageGenerate"]["engines"];

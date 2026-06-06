@@ -385,11 +385,11 @@
     <header class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div class="flex max-w-3xl flex-col gap-3">
             <div class="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary">AI Usage Observatory</Badge>
-                <Badge variant="outline">{windowTitle(selectedRange)}</Badge>
+                <Badge variant="secondary" class="font-medium">AI Usage Observatory</Badge>
+                <Badge variant="outline" class="font-medium">{windowTitle(selectedRange)}</Badge>
             </div>
             <div class="flex flex-col gap-2">
-                <h1 class="text-3xl font-semibold tracking-tight text-foreground">使用统计</h1>
+                <h1 class="font-serif text-3xl font-bold tracking-tight text-foreground sm:text-4xl">使用统计</h1>
                 <p class="text-sm leading-6 text-muted-foreground">
                     基于现有 token usage 记录展示请求量、Token 消耗、模型/API 分布和最近事件；没有记录的成本、延迟、成功率不在本页伪造。
                 </p>
@@ -403,14 +403,12 @@
                         variant={selectedRange === range ? "default" : "outline"}
                         size="sm"
                         onclick={() => selectRange(range as TimeRange)}
+                        class={selectedRange === range ? "bg-[#A36A5E] hover:bg-[#A36A5E]/90" : ""}
                     >
                         {windowTitle(range as TimeRange)}
                     </Button>
                 {/each}
             </div>
-            <Button variant="outline" type="button" onclick={loadUsage} disabled={usageLoading}>
-                {usageLoading ? "同步中" : "刷新"}
-            </Button>
         </div>
     </header>
 
@@ -419,7 +417,7 @@
             <AlertDescription>Error: {usageError}</AlertDescription>
         </Alert>
     {:else if usageLoading && !usageStats}
-        <Card>
+        <Card class="border-border/50 shadow-sm">
             <CardHeader>
                 <Skeleton class="h-5 w-40" />
                 <Skeleton class="h-4 w-80 max-w-full" />
@@ -431,10 +429,10 @@
             </CardContent>
         </Card>
     {:else if usageStats}
-        <Card>
+        <Card class="border-border/50 shadow-sm">
             <CardContent class="grid gap-4 pt-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto_1.4fr]">
                 <div class="flex flex-col gap-2">
-                    <Label for="usage-model">模型</Label>
+                    <Label for="usage-model" class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">模型</Label>
                     <NativeSelect id="usage-model" class="w-full" bind:value={selectedModelId}>
                         <NativeSelectOption value="all">全部模型</NativeSelectOption>
                         {#each availableModels as model}
@@ -443,7 +441,7 @@
                     </NativeSelect>
                 </div>
                 <div class="flex flex-col gap-2">
-                    <Label for="usage-bot">Bot</Label>
+                    <Label for="usage-bot" class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Bot</Label>
                     <NativeSelect id="usage-bot" class="w-full" bind:value={selectedBotId}>
                         <NativeSelectOption value="all">全部 Bot</NativeSelectOption>
                         {#each availableBots as bot}
@@ -452,7 +450,7 @@
                     </NativeSelect>
                 </div>
                 <div class="flex flex-col gap-2">
-                    <Label for="usage-channel">渠道</Label>
+                    <Label for="usage-channel" class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">渠道</Label>
                     <NativeSelect id="usage-channel" class="w-full" bind:value={selectedChannel}>
                         <NativeSelectOption value="all">全部渠道</NativeSelectOption>
                         {#each availableChannels as channel}
@@ -461,9 +459,9 @@
                     </NativeSelect>
                 </div>
                 <div class="flex items-end">
-                    <Button variant="outline" type="button" onclick={resetFilters}>清空筛选</Button>
+                    <Button variant="outline" type="button" onclick={resetFilters} class="text-xs">清空筛选</Button>
                 </div>
-                <div class="flex flex-col justify-end gap-1 text-sm text-muted-foreground">
+                <div class="flex flex-col justify-end gap-1 text-sm text-muted-foreground tabular-nums">
                     {#if selectedWindow}
                         <span>{selectedWindow.startDate} → {selectedWindow.endDate}</span>
                     {/if}
@@ -473,75 +471,75 @@
         </Card>
 
         <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-            <Card class="xl:col-span-2">
+            <Card class="xl:col-span-2 border-border/50 shadow-sm">
                 <CardHeader>
                     <div class="flex items-center justify-between gap-3">
-                        <CardTitle>总请求数</CardTitle>
-                        <Badge variant="secondary">Requests</Badge>
+                        <CardTitle class="font-serif text-lg">总请求数</CardTitle>
+                        <Badge variant="secondary" class="bg-[#A36A5E]/10 text-[#A36A5E] border-transparent font-semibold">Requests</Badge>
                     </div>
                     <CardDescription>当前筛选范围内的 AI 调用记录数</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-4">
-                    <strong class="text-3xl font-semibold tracking-tight">{formatNumber(totals.requests)}</strong>
-                    <svg class="h-16 w-full fill-blue-500/10 stroke-blue-500" viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
+                    <strong class="text-3xl font-bold tracking-tight tabular-nums">{formatNumber(totals.requests)}</strong>
+                    <svg class="h-16 w-full fill-[#A36A5E]/5 stroke-[#A36A5E]" viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
                         <polygon points={areaPoints(trend.map((point) => point.totals.requests))}></polygon>
                         <polyline points={linePoints(trend.map((point) => point.totals.requests))} fill="none" stroke-width="1.5"></polyline>
                     </svg>
                 </CardContent>
             </Card>
 
-            <Card class="xl:col-span-2">
+            <Card class="xl:col-span-2 border-border/50 shadow-sm">
                 <CardHeader>
                     <div class="flex items-center justify-between gap-3">
-                        <CardTitle>总 Token 数</CardTitle>
-                        <Badge variant="secondary">Tokens</Badge>
+                        <CardTitle class="font-serif text-lg">总 Token 数</CardTitle>
+                        <Badge variant="secondary" class="bg-[#8B9A6D]/10 text-[#8B9A6D] border-transparent font-semibold">Tokens</Badge>
                     </div>
-                    <CardDescription>
+                    <CardDescription class="tabular-nums">
                         输入 {formatCompact(totals.inputTokens)} · 输出 {formatCompact(totals.outputTokens)} · 缓存 {formatCompact(cacheTokens)}
                     </CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-4">
-                    <strong class="text-3xl font-semibold tracking-tight">{formatCompact(totals.totalTokens)}</strong>
-                    <svg class="h-16 w-full fill-emerald-500/10 stroke-emerald-500" viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
+                    <strong class="text-3xl font-bold tracking-tight tabular-nums">{formatCompact(totals.totalTokens)}</strong>
+                    <svg class="h-16 w-full fill-[#8B9A6D]/5 stroke-[#8B9A6D]" viewBox="0 0 100 34" preserveAspectRatio="none" aria-hidden="true">
                         <polygon points={areaPoints(trend.map((point) => point.totals.totalTokens))}></polygon>
                         <polyline points={linePoints(trend.map((point) => point.totals.totalTokens))} fill="none" stroke-width="1.5"></polyline>
                     </svg>
                 </CardContent>
             </Card>
 
-            <Card class="border-l-4 border-l-blue-500">
+            <Card class="border-l-4 border-l-[#A36A5E] border-border/50 shadow-sm">
                 <CardHeader>
-                    <CardDescription>输入 Tokens</CardDescription>
-                    <CardTitle>{formatCompact(totals.inputTokens)}</CardTitle>
+                    <CardDescription class="text-xs font-semibold uppercase tracking-wider">输入 Tokens</CardDescription>
+                    <CardTitle class="tabular-nums">{formatCompact(totals.inputTokens)}</CardTitle>
                 </CardHeader>
-                <CardContent class="text-sm text-muted-foreground">
+                <CardContent class="text-sm text-muted-foreground tabular-nums">
                     {pct(totals.inputTokens, totals.totalTokens).toFixed(1)}% of total
                 </CardContent>
             </Card>
-            <Card class="border-l-4 border-l-emerald-500">
+            <Card class="border-l-4 border-l-[#8B9A6D] border-border/50 shadow-sm">
                 <CardHeader>
-                    <CardDescription>输出 Tokens</CardDescription>
-                    <CardTitle>{formatCompact(totals.outputTokens)}</CardTitle>
+                    <CardDescription class="text-xs font-semibold uppercase tracking-wider">输出 Tokens</CardDescription>
+                    <CardTitle class="tabular-nums">{formatCompact(totals.outputTokens)}</CardTitle>
                 </CardHeader>
-                <CardContent class="text-sm text-muted-foreground">
+                <CardContent class="text-sm text-muted-foreground tabular-nums">
                     {pct(totals.outputTokens, totals.totalTokens).toFixed(1)}% of total
                 </CardContent>
             </Card>
-            <Card class="border-l-4 border-l-amber-500">
+            <Card class="border-l-4 border-l-[#C2A182] border-border/50 shadow-sm">
                 <CardHeader>
-                    <CardDescription>缓存 Tokens</CardDescription>
-                    <CardTitle>{formatCompact(cacheTokens)}</CardTitle>
+                    <CardDescription class="text-xs font-semibold uppercase tracking-wider">缓存 Tokens</CardDescription>
+                    <CardTitle class="tabular-nums">{formatCompact(cacheTokens)}</CardTitle>
                 </CardHeader>
-                <CardContent class="text-sm text-muted-foreground">
+                <CardContent class="text-sm text-muted-foreground tabular-nums">
                     Read {formatCompact(totals.cacheReadTokens)} · Write {formatCompact(totals.cacheWriteTokens)}
                 </CardContent>
             </Card>
-            <Card class="border-l-4 border-l-violet-500">
+            <Card class="border-l-4 border-l-[#7A8A99] border-border/50 shadow-sm">
                 <CardHeader>
-                    <CardDescription>缓存命中比例</CardDescription>
-                    <CardTitle>{formatPercent(cacheHitRatio)}</CardTitle>
+                    <CardDescription class="text-xs font-semibold uppercase tracking-wider">缓存命中比例</CardDescription>
+                    <CardTitle class="tabular-nums">{formatPercent(cacheHitRatio)}</CardTitle>
                 </CardHeader>
-                <CardContent class="text-sm text-muted-foreground">
+                <CardContent class="text-sm text-muted-foreground tabular-nums">
                     {#if cachePromptBase > 0}
                         cache read / (input + cache read)
                     {:else}
@@ -552,14 +550,14 @@
         </div>
 
         <div class="grid gap-4 xl:grid-cols-3">
-            <Card>
+            <Card class="border-border/50 shadow-sm">
                 <CardHeader>
-                    <CardTitle>请求趋势</CardTitle>
+                    <CardTitle class="font-serif">请求趋势</CardTitle>
                     <CardDescription>{selectedRange === "today" || selectedRange === "yesterday" ? "按小时聚合" : "按天聚合"}</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-3">
-                    <svg class="h-44 w-full fill-blue-500/10 stroke-blue-500" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="请求趋势折线图">
-                        <g class="stroke-border">
+                    <svg class="h-44 w-full fill-[#A36A5E]/5 stroke-[#A36A5E]" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="请求趋势折线图">
+                        <g class="stroke-border/30">
                             <line x1="0" y1="8" x2="100" y2="8"></line>
                             <line x1="0" y1="20" x2="100" y2="20"></line>
                             <line x1="0" y1="32" x2="100" y2="32"></line>
@@ -567,7 +565,7 @@
                         <polygon points={areaPoints(trend.map((point) => point.totals.requests), 100, 40)}></polygon>
                         <polyline points={linePoints(trend.map((point) => point.totals.requests), 100, 40)} fill="none" stroke-width="1.5"></polyline>
                     </svg>
-                    <div class="flex justify-between text-xs text-muted-foreground">
+                    <div class="flex justify-between text-xs text-muted-foreground tabular-nums">
                         <span>{trend[0]?.label ?? "--"}</span>
                         <span>{trend[Math.floor(trend.length / 2)]?.label ?? "--"}</span>
                         <span>{trend[trend.length - 1]?.label ?? "--"}</span>
@@ -575,14 +573,14 @@
                 </CardContent>
             </Card>
 
-            <Card>
+            <Card class="border-border/50 shadow-sm">
                 <CardHeader>
-                    <CardTitle>Token 使用趋势</CardTitle>
+                    <CardTitle class="font-serif">Token 使用趋势</CardTitle>
                     <CardDescription>总 Token 数随时间变化</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-3">
-                    <svg class="h-44 w-full fill-emerald-500/10 stroke-emerald-500" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Token 趋势折线图">
-                        <g class="stroke-border">
+                    <svg class="h-44 w-full fill-[#8B9A6D]/5 stroke-[#8B9A6D]" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Token 趋势折线图">
+                        <g class="stroke-border/30">
                             <line x1="0" y1="8" x2="100" y2="8"></line>
                             <line x1="0" y1="20" x2="100" y2="20"></line>
                             <line x1="0" y1="32" x2="100" y2="32"></line>
@@ -590,7 +588,7 @@
                         <polygon points={areaPoints(trend.map((point) => point.totals.totalTokens), 100, 40)}></polygon>
                         <polyline points={linePoints(trend.map((point) => point.totals.totalTokens), 100, 40)} fill="none" stroke-width="1.5"></polyline>
                     </svg>
-                    <div class="flex justify-between text-xs text-muted-foreground">
+                    <div class="flex justify-between text-xs text-muted-foreground tabular-nums">
                         <span>{trend[0]?.label ?? "--"}</span>
                         <span>峰值 {formatCompact(maxTokens)}</span>
                         <span>{trend[trend.length - 1]?.label ?? "--"}</span>
@@ -598,14 +596,14 @@
                 </CardContent>
             </Card>
 
-            <Card>
+            <Card class="border-border/50 shadow-sm">
                 <CardHeader>
-                    <CardTitle>缓存命中比例趋势</CardTitle>
+                    <CardTitle class="font-serif">缓存命中比例趋势</CardTitle>
                     <CardDescription>不含 output / cache write</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-3">
-                    <svg class="h-44 w-full fill-amber-500/10 stroke-amber-500" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="缓存命中比例趋势折线图">
-                        <g class="stroke-border">
+                    <svg class="h-44 w-full fill-[#C2A182]/5 stroke-[#C2A182]" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="缓存命中比例趋势折线图">
+                        <g class="stroke-border/30">
                             <line x1="0" y1="8" x2="100" y2="8"></line>
                             <line x1="0" y1="20" x2="100" y2="20"></line>
                             <line x1="0" y1="32" x2="100" y2="32"></line>
@@ -613,7 +611,7 @@
                         <polygon points={areaPoints(cacheHitTrend, 100, 40, 100)}></polygon>
                         <polyline points={linePoints(cacheHitTrend, 100, 40, 100)} fill="none" stroke-width="1.5"></polyline>
                     </svg>
-                    <div class="flex justify-between text-xs text-muted-foreground">
+                    <div class="flex justify-between text-xs text-muted-foreground tabular-nums">
                         <span>{trend[0]?.label ?? "--"}</span>
                         <span>峰值 {formatPercent(maxCacheHitRatio)}</span>
                         <span>{trend[trend.length - 1]?.label ?? "--"}</span>
@@ -622,32 +620,32 @@
             </Card>
         </div>
 
-        <Card>
+        <Card class="border-border/50 shadow-sm">
             <CardHeader>
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                        <CardTitle>Token 类型分布</CardTitle>
+                        <CardTitle class="font-serif">Token 类型分布</CardTitle>
                         <CardDescription>仅展示已记录的 input / output / cache read / cache write 字段</CardDescription>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                        <Badge variant="outline" class="border-blue-500/40 text-blue-600 dark:text-blue-400">输入</Badge>
-                        <Badge variant="outline" class="border-emerald-500/40 text-emerald-600 dark:text-emerald-400">输出</Badge>
-                        <Badge variant="outline" class="border-amber-500/40 text-amber-600 dark:text-amber-400">缓存</Badge>
+                        <Badge variant="outline" class="border-[#A36A5E]/40 text-[#A36A5E] bg-[#A36A5E]/5 font-semibold">输入</Badge>
+                        <Badge variant="outline" class="border-[#8B9A6D]/40 text-[#8B9A6D] bg-[#8B9A6D]/5 font-semibold">输出</Badge>
+                        <Badge variant="outline" class="border-[#C2A182]/40 text-[#C2A182] bg-[#C2A182]/5 font-semibold">缓存</Badge>
                     </div>
                 </div>
             </CardHeader>
             <CardContent class="flex flex-col gap-3">
-                <div class="flex h-44 items-end gap-1 rounded-lg border bg-muted/20 p-3">
+                <div class="flex h-44 items-end gap-1 rounded-lg border border-border/50 bg-muted/10 p-3">
                     {#each trend as point}
                         {@const pointCache = point.totals.cacheReadTokens + point.totals.cacheWriteTokens}
                         <div class="flex h-full min-w-1 flex-1 items-end gap-px" title={`${point.label}: ${formatNumber(point.totals.totalTokens)} tokens`}>
-                            <span class="w-full rounded-t-sm bg-blue-500/70" style={`height:${Math.max(1, pct(point.totals.inputTokens, maxTokens))}%`}></span>
-                            <span class="w-full rounded-t-sm bg-emerald-500/80" style={`height:${Math.max(1, pct(point.totals.outputTokens, maxTokens))}%`}></span>
-                            <span class="w-full rounded-t-sm bg-amber-500/60" style={`height:${Math.max(1, pct(pointCache, maxTokens))}%`}></span>
+                            <span class="w-full rounded-t-sm bg-[#A36A5E]/70" style={`height:${Math.max(1, pct(point.totals.inputTokens, maxTokens))}%`}></span>
+                            <span class="w-full rounded-t-sm bg-[#8B9A6D]/80" style={`height:${Math.max(1, pct(point.totals.outputTokens, maxTokens))}%`}></span>
+                            <span class="w-full rounded-t-sm bg-[#C2A182]/60" style={`height:${Math.max(1, pct(pointCache, maxTokens))}%`}></span>
                         </div>
                     {/each}
                 </div>
-                <div class="flex justify-between text-xs text-muted-foreground">
+                <div class="flex justify-between text-xs text-muted-foreground tabular-nums">
                     <span>{trend[0]?.label ?? "--"}</span>
                     <span>{windowTitle(selectedRange)}</span>
                     <span>{trend[trend.length - 1]?.label ?? "--"}</span>
@@ -656,9 +654,9 @@
         </Card>
 
         <div class="grid gap-4 xl:grid-cols-2">
-            <Card>
+            <Card class="border-border/50 shadow-sm">
                 <CardHeader>
-                    <CardTitle>API 详细统计</CardTitle>
+                    <CardTitle class="font-serif">API 详细统计</CardTitle>
                     <CardDescription>按 usage 记录中的 api 字段聚合</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-2">
@@ -666,30 +664,30 @@
                         <p class="text-sm text-muted-foreground">当前范围没有 API 记录。</p>
                     {:else}
                         {#each apiRows.slice(0, 8) as row}
-                            <div class="flex items-center justify-between gap-4 rounded-lg border p-3">
+                            <div class="flex items-center justify-between gap-4 rounded-lg border border-border/50 p-3 hover:bg-muted/5 transition-colors">
                                 <div class="min-w-0">
-                                    <p class="truncate text-sm font-medium">{row.label}</p>
-                                    <p class="text-xs text-muted-foreground">{formatNumber(row.requests)} 请求</p>
+                                    <p class="truncate text-sm font-semibold">{row.label}</p>
+                                    <p class="text-xs text-muted-foreground tabular-nums">{formatNumber(row.requests)} 请求</p>
                                 </div>
-                                <Badge variant="secondary">{formatCompact(row.totalTokens)}</Badge>
+                                <Badge variant="secondary" class="font-mono tabular-nums bg-muted/20">{formatCompact(row.totalTokens)}</Badge>
                             </div>
                         {/each}
                     {/if}
                 </CardContent>
             </Card>
 
-            <Card>
+            <Card class="border-border/50 shadow-sm">
                 <CardHeader>
-                    <CardTitle>模型统计</CardTitle>
+                    <CardTitle class="font-serif">模型统计</CardTitle>
                     <CardDescription>按 provider / model 聚合</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
-                            <TableRow>
-                                <TableHead>模型名称</TableHead>
-                                <TableHead>请求次数</TableHead>
-                                <TableHead>Token 数量</TableHead>
+                            <TableRow class="hover:bg-transparent">
+                                <TableHead class="text-xs font-semibold uppercase tracking-wider">模型名称</TableHead>
+                                <TableHead class="text-xs font-semibold uppercase tracking-wider">请求次数</TableHead>
+                                <TableHead class="text-xs font-semibold uppercase tracking-wider">Token 数量</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -697,15 +695,15 @@
                                 <TableRow><TableCell colspan="3" class="text-muted-foreground">当前范围没有模型记录。</TableCell></TableRow>
                             {:else}
                                 {#each modelRows.slice(0, 8) as row}
-                                    <TableRow>
+                                    <TableRow class="hover:bg-muted/5 transition-colors">
                                         <TableCell>
                                             <div class="flex flex-col">
-                                                <span class="font-medium">{row.label}</span>
+                                                <span class="font-semibold">{row.label}</span>
                                                 <span class="text-xs text-muted-foreground">{row.sublabel}</span>
                                             </div>
                                         </TableCell>
-                                        <TableCell>{formatNumber(row.requests)}</TableCell>
-                                        <TableCell>{formatCompact(row.totalTokens)}</TableCell>
+                                        <TableCell class="tabular-nums">{formatNumber(row.requests)}</TableCell>
+                                        <TableCell class="tabular-nums font-medium">{formatCompact(row.totalTokens)}</TableCell>
                                     </TableRow>
                                 {/each}
                             {/if}
@@ -717,37 +715,37 @@
 
         {#if botRows.length > 0 || channelRows.length > 0}
             <div class="grid gap-4 xl:grid-cols-2">
-                <Card>
+                <Card class="border-border/50 shadow-sm">
                     <CardHeader>
-                        <CardTitle>Bot 分布</CardTitle>
+                        <CardTitle class="font-serif">Bot 分布</CardTitle>
                         <CardDescription>基于现有 botId 字段</CardDescription>
                     </CardHeader>
                     <CardContent class="flex flex-col gap-2">
                         {#each botRows.slice(0, 8) as row}
-                            <div class="flex items-center justify-between gap-4 rounded-lg border p-3">
+                            <div class="flex items-center justify-between gap-4 rounded-lg border border-border/50 p-3 hover:bg-muted/5 transition-colors">
                                 <div class="min-w-0">
-                                    <p class="truncate text-sm font-medium">{row.label}</p>
-                                    <p class="text-xs text-muted-foreground">{formatNumber(row.requests)} 请求</p>
+                                    <p class="truncate text-sm font-semibold">{row.label}</p>
+                                    <p class="text-xs text-muted-foreground tabular-nums">{formatNumber(row.requests)} 请求</p>
                                 </div>
-                                <Badge variant="secondary">{formatCompact(row.totalTokens)}</Badge>
+                                <Badge variant="secondary" class="font-mono tabular-nums bg-muted/20">{formatCompact(row.totalTokens)}</Badge>
                             </div>
                         {/each}
                     </CardContent>
                 </Card>
 
-                <Card>
+                <Card class="border-border/50 shadow-sm">
                     <CardHeader>
-                        <CardTitle>渠道分布</CardTitle>
+                        <CardTitle class="font-serif">渠道分布</CardTitle>
                         <CardDescription>基于现有 channel 字段</CardDescription>
                     </CardHeader>
                     <CardContent class="flex flex-col gap-2">
                         {#each channelRows.slice(0, 8) as row}
-                            <div class="flex items-center justify-between gap-4 rounded-lg border p-3">
+                            <div class="flex items-center justify-between gap-4 rounded-lg border border-border/50 p-3 hover:bg-muted/5 transition-colors">
                                 <div class="min-w-0">
-                                    <p class="truncate text-sm font-medium">{row.label}</p>
-                                    <p class="text-xs text-muted-foreground">{formatNumber(row.requests)} 请求</p>
+                                    <p class="truncate text-sm font-semibold">{row.label}</p>
+                                    <p class="text-xs text-muted-foreground tabular-nums">{formatNumber(row.requests)} 请求</p>
                                 </div>
-                                <Badge variant="secondary">{formatCompact(row.totalTokens)}</Badge>
+                                <Badge variant="secondary" class="font-mono tabular-nums bg-muted/20">{formatCompact(row.totalTokens)}</Badge>
                             </div>
                         {/each}
                     </CardContent>
@@ -755,24 +753,24 @@
             </div>
         {/if}
 
-        <Card>
+        <Card class="border-border/50 shadow-sm">
             <CardHeader>
-                <CardTitle>请求事件明细</CardTitle>
+                <CardTitle class="font-serif">请求事件明细</CardTitle>
                 <CardDescription>最近 {recentRecords.length} 条匹配记录；本系统暂未记录结果、延迟、认证索引和费用。</CardDescription>
             </CardHeader>
             <CardContent>
                 <Table>
                     <TableHeader>
-                        <TableRow>
-                            <TableHead>时间</TableHead>
-                            <TableHead>模型名称</TableHead>
-                            <TableHead>渠道</TableHead>
-                            <TableHead>Bot</TableHead>
-                            <TableHead>API</TableHead>
-                            <TableHead>输入</TableHead>
-                            <TableHead>输出</TableHead>
-                            <TableHead>缓存</TableHead>
-                            <TableHead>总 Token</TableHead>
+                        <TableRow class="hover:bg-transparent">
+                            <TableHead class="text-xs font-semibold uppercase tracking-wider">时间</TableHead>
+                            <TableHead class="text-xs font-semibold uppercase tracking-wider">模型名称</TableHead>
+                            <TableHead class="text-xs font-semibold uppercase tracking-wider">渠道</TableHead>
+                            <TableHead class="text-xs font-semibold uppercase tracking-wider">Bot</TableHead>
+                            <TableHead class="text-xs font-semibold uppercase tracking-wider">API</TableHead>
+                            <TableHead class="text-xs font-semibold uppercase tracking-wider">输入</TableHead>
+                            <TableHead class="text-xs font-semibold uppercase tracking-wider">输出</TableHead>
+                            <TableHead class="text-xs font-semibold uppercase tracking-wider">缓存</TableHead>
+                            <TableHead class="text-xs font-semibold uppercase tracking-wider">总 Token</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -780,21 +778,21 @@
                             <TableRow><TableCell colspan="9" class="text-muted-foreground">当前筛选范围没有 usage 记录。</TableCell></TableRow>
                         {:else}
                             {#each recentRecords as record}
-                                <TableRow>
-                                    <TableCell>{formatDateTime(record.ts)}</TableCell>
+                                <TableRow class="hover:bg-muted/5 transition-colors">
+                                    <TableCell class="tabular-nums text-xs">{formatDateTime(record.ts)}</TableCell>
                                     <TableCell>
                                         <div class="flex flex-col">
-                                            <span class="font-medium">{record.model}</span>
+                                            <span class="font-semibold">{record.model}</span>
                                             <span class="text-xs text-muted-foreground">{record.provider}</span>
                                         </div>
                                     </TableCell>
-                                    <TableCell>{record.channel}</TableCell>
-                                    <TableCell>{record.botId}</TableCell>
-                                    <TableCell>{record.api}</TableCell>
-                                    <TableCell>{formatNumber(record.inputTokens)}</TableCell>
-                                    <TableCell>{formatNumber(record.outputTokens)}</TableCell>
-                                    <TableCell>{formatNumber(record.cacheReadTokens + record.cacheWriteTokens)}</TableCell>
-                                    <TableCell>{formatNumber(record.totalTokens)}</TableCell>
+                                    <TableCell class="text-xs font-medium">{record.channel}</TableCell>
+                                    <TableCell class="text-xs font-medium">{record.botId}</TableCell>
+                                    <TableCell class="text-xs font-mono">{record.api}</TableCell>
+                                    <TableCell class="tabular-nums">{formatNumber(record.inputTokens)}</TableCell>
+                                    <TableCell class="tabular-nums">{formatNumber(record.outputTokens)}</TableCell>
+                                    <TableCell class="tabular-nums">{formatNumber(record.cacheReadTokens + record.cacheWriteTokens)}</TableCell>
+                                    <TableCell class="tabular-nums font-semibold">{formatNumber(record.totalTokens)}</TableCell>
                                 </TableRow>
                             {/each}
                         {/if}
@@ -804,3 +802,35 @@
         </Card>
     {/if}
 </div>
+
+<footer class="settings-footbar">
+    <div class="settings-footbar-status">
+        {#if usageLoading}
+            <span class="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <span class="h-2 w-2 animate-pulse rounded-full bg-[#A36A5E]"></span>
+                数据同步中...
+            </span>
+        {:else if usageStats}
+            <span class="settings-footbar-ok flex items-center gap-2 text-xs font-medium">
+                <span class="h-2 w-2 rounded-full bg-[#8B9A6D]"></span>
+                数据已就绪
+            </span>
+        {/if}
+    </div>
+    <div class="flex items-center gap-3">
+        <Button variant="outline" size="sm" onclick={loadUsage} disabled={usageLoading} class="h-9 px-4 text-xs font-bold">
+            {#if usageLoading}
+                同步中
+            {:else}
+                立即刷新
+            {/if}
+        </Button>
+    </div>
+</footer>
+
+<style>
+    :global(.tabular-nums) {
+        font-variant-numeric: tabular-nums;
+    }
+</style>
+
