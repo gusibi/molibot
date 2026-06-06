@@ -4,11 +4,23 @@
 
 ## 2026-06-06
 
-### HookManager Runtime Spec Refinement & Review
-- **Mounted Multiplexer Architecture**: Refined design doc to treat HookManager as a thin multiplexer over `pi-agent-core` callbacks rather than a separate runner loop.
-- **Clarified Lifecycle & Renaming**: Renamed stages to `run.started` / `run.finished` to differentiate from turn-level events, and adjusted `beforeToolCall` wiring to execute gate hooks before budget checks.
-- **Performance & Safety**: Established that observe hooks run asynchronously (non-blocking) and that the global `TraceRecorder` instance isolates tracing state by `runId` to avoid memory leaks or cross-chat pollution.
-- **Pluggable Extension Slot**: Introduced `HookPlugin` interface definition for future integrations like S3 export or Webhooks.
+### Channel Settings Pages Restyling & Fixed Footer
+- **Semantic CSS Classes**: Replaced all inline Tailwind utility classes in channel settings pages (web, telegram, weixin, feishu, qq) with `.channel-*` semantic CSS classes defined in `settings-custom.css`, following DESIGN.md CSS class naming conventions.
+- **Fixed Footer Bar**: Added `.settings-footbar` fixed footer to all channel pages with save/reset buttons pinned to viewport bottom, matching the MCP page pattern.
+- **Switch Conversion**: Converted Checkbox toggles to Switch components for enable and streaming output controls across all channel pages.
+- **MCP Footer Cleanup**: Removed remaining Tailwind utility classes from MCP settings page footer, adding `.settings-footbar-saving`, `.settings-footbar-pulse`, and `.settings-footbar-actions` semantic classes.
+
+### AI Providers Page Switches & Model Enable Save Fix
+- **Shadcn iOS Switch Toggles**: Replaced the custom HTML checkbox elements for provider enabled status and individual model enabled status on the AI Providers page (`/settings/ai/providers`) with unified iOS-style `Switch` components from the shadcn-svelte UI library.
+- **Model Enable Save Bug Fix**: Resolved an issue where toggling individual models off in the list would not persist. Extended `ProviderModelConfig` in `schema.ts`, added proper mappings inside the page Svelte `save()` function, and updated sanitization and store logic in the server settings modules (`sanitize.ts`, `store.ts`) to carry and persist the `enabled` field.
+- **Model Selection & Routing Filter**: Implemented `enabled !== false` filters in `modelRouting.ts` and `modelSwitch.ts` to ensure that custom models toggled off are excluded from routing alternatives, default selections, and settings routing dropdown options.
+- **Svelte 5 a11y & Compiler Warnings Fixed**: Resolved Svelte compiler accessibility (a11y) warnings/errors on `providers/+page.svelte`, `image/+page.svelte`, and `video/+page.svelte` by adding appropriate ARIA roles (`role="none"`, `role="dialog"`), handling keyboard events (`onkeydown` for Escape key and stopPropagation), labeling controls with `aria-label`, and adding a `<track kind="captions" />` captions track to the video player container.
+
+### Agent HookManager Runtime Extension & Trace System
+- **Pluggable HookManager**: Implemented a multiplexed `HookManager` layer on top of `pi-agent-core` callbacks to dispatch hook events asynchronously (non-blocking) to observe, gate, and transform hooks.
+- **Built-in Telemetry Plugins**: Added `DebugLogHook` for console diagnostic logging and `TraceRecorderHook` backing event traces into a local SQLite store (`agent_trace_events` table with sequential `seq` auto-increment ordering) isolating states by `runId`.
+- **Preflight Gate Interceptions**: Supported gate net interceptions in `MomRunner` before tool preflight and execution budget checks, emitting `tool.call.blocked` with `blockedBy: "hook_gate"`.
+- **Clean Registry Integration**: Injected `hookManager` dependency throughout all channels (Telegram, Feishu, QQ, WeChat, Web) and wired up runner pools/runtimes without introducing API regressions.
 
 ### Settings Pages Hero Header Compact Unification
 - **Header Size Reduction**: Reduced title size from `2rem`/`1.875rem` to `1.375rem`, description text to `0.8125rem` (13px), and inner gap from `0.75rem` to `0.375rem` across all settings pages (including the 8 core AI pages and 16 Tailwind inline pages) to yield a much cleaner and space-efficient viewport layout.

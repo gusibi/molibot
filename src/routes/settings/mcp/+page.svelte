@@ -181,7 +181,7 @@
       <span class="animate-pulse">Loading MCP settings...</span>
     </div>
   {:else}
-    <form id="mcp-form" class="flex flex-col gap-6" onsubmit={(e) => { e.preventDefault(); save(); }}>
+    <form id="mcp-form" class="mcp-form" onsubmit={(e) => { e.preventDefault(); save(); }}>
       <!-- Editor Card -->
       <section class="mcp-card">
         <div class="mcp-card-header">
@@ -189,9 +189,9 @@
             <h2 class="mcp-card-title">MCP Configuration</h2>
             <p class="mcp-card-desc">Define standard stdio or http MCP servers in JSON format</p>
           </div>
-          <div class="flex gap-2">
-            <Button type="button" variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving} class="h-8 font-semibold">Reset</Button>
-            <Button type="button" variant="outline" size="sm" onclick={parseRawJson} disabled={loading || saving} class="h-8 font-semibold">Format & Parse</Button>
+          <div class="mcp-card-header-actions">
+            <Button type="button" variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>Reset</Button>
+            <Button type="button" variant="outline" size="sm" onclick={parseRawJson} disabled={loading || saving}>Format & Parse</Button>
           </div>
         </div>
 
@@ -253,8 +253,8 @@
 <footer class="settings-footbar">
   <div class="settings-footbar-status">
     {#if saving}
-      <span class="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <span class="h-2 w-2 animate-pulse rounded-full bg-[#A36A5E]"></span>
+      <span class="settings-footbar-saving">
+        <span class="settings-footbar-pulse"></span>
         Saving changes...
       </span>
     {:else if message}
@@ -264,8 +264,8 @@
       <span class="settings-footbar-error">{error}</span>
     {/if}
   </div>
-  <div class="flex items-center gap-3">
-    <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving} class="h-9 px-4 text-xs font-bold">
+  <div class="settings-footbar-actions">
+    <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>
       Reset
     </Button>
     <button type="submit" form="mcp-form" class="settings-footbar-btn" disabled={loading || saving}>

@@ -17,6 +17,7 @@ export interface ProviderModelConfig {
   tags: ModelCapabilityTag[];
   supportedRoles: ModelRole[];
   contextWindow?: number;
+  enabled?: boolean;
   verification?: Partial<Record<ModelCapabilityTag, ModelCapabilityVerification>>;
 }
 

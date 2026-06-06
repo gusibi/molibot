@@ -589,6 +589,7 @@ function sanitizeModels(
       tags: sanitizeModelTags(obj.tags),
       supportedRoles: sanitizeRoles(obj.supportedRoles ?? providerRoles),
       contextWindow: typeof obj.contextWindow === "number" && obj.contextWindow > 0 ? obj.contextWindow : undefined,
+      enabled: obj.enabled !== false,
       verification: sanitizeVerification(obj.verification)
     });
   }
@@ -1170,6 +1171,7 @@ export class SettingsStore {
         supported_roles_json TEXT NOT NULL,
         context_window INTEGER,
         verification_json TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
         order_index INTEGER NOT NULL,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (provider_id, model_id)
@@ -1213,6 +1215,11 @@ export class SettingsStore {
     }
     try {
       db.exec("ALTER TABLE settings_custom_provider_models ADD COLUMN context_window INTEGER");
+    } catch {
+      // column already exists
+    }
+    try {
+      db.exec("ALTER TABLE settings_custom_provider_models ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
     } catch {
       // column already exists
     }
@@ -1325,7 +1332,7 @@ export class SettingsStore {
         reasoning_effort_map_json: string;
       }>;
       const modelRows = db.prepare(`
-        SELECT provider_id, model_id, tags_json, supported_roles_json, context_window, verification_json
+        SELECT provider_id, model_id, tags_json, supported_roles_json, context_window, verification_json, enabled
         FROM settings_custom_provider_models
         ORDER BY provider_id ASC, order_index ASC, model_id ASC
       `).all() as Array<{
@@ -1335,6 +1342,7 @@ export class SettingsStore {
         supported_roles_json: string;
         context_window: number | null;
         verification_json: string;
+        enabled: number;
       }>;
       const modelsByProvider = new Map<string, ProviderModelConfig[]>();
       for (const row of modelRows) {
@@ -1344,6 +1352,7 @@ export class SettingsStore {
           tags: this.parseDynamicValue(row.tags_json, []),
           supportedRoles: this.parseDynamicValue(row.supported_roles_json, []),
           contextWindow: row.context_window && row.context_window > 0 ? row.context_window : undefined,
+          enabled: row.enabled !== 0,
           verification: this.parseDynamicValue(row.verification_json, undefined)
         });
         modelsByProvider.set(row.provider_id, list);
@@ -1436,8 +1445,8 @@ export class SettingsStore {
         `);
         const insertModel = db.prepare(`
           INSERT INTO settings_custom_provider_models
-            (provider_id, model_id, tags_json, supported_roles_json, context_window, verification_json, order_index, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (provider_id, model_id, tags_json, supported_roles_json, context_window, verification_json, enabled, order_index, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const provider of settings.customProviders) {
           insertProvider.run(
@@ -1468,6 +1477,7 @@ export class SettingsStore {
               JSON.stringify(model.supportedRoles ?? []),
               model.contextWindow && model.contextWindow > 0 ? model.contextWindow : null,
               JSON.stringify(model.verification ?? null),
+              model.enabled === false ? 0 : 1,
               orderIndex,
               now
             );

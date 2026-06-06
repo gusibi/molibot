@@ -3,18 +3,10 @@
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
-  import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle
-  } from "$lib/components/ui/card";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
-  import { Skeleton } from "$lib/components/ui/skeleton";
-  import { Switch } from "$lib/components/ui/switch";
+  import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { Textarea } from "$lib/components/ui/textarea";
 
   interface AgentItem {
@@ -296,104 +288,71 @@
   onMount(loadSettings);
 </script>
 
-<div class="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-  <header class="flex flex-col gap-3">
-    <div class="flex flex-wrap items-center gap-2">
-      <Badge variant="secondary">Web Runtime</Badge>
-      <Badge variant="outline">{profiles.length} profiles</Badge>
-    </div>
-    <div class="flex max-w-3xl flex-col gap-2">
-      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Web Profiles</h1>
-      <p class="text-sm leading-6 text-muted-foreground">
-        Configure web runtime profiles, link agents, and edit profile-level Markdown overrides.
-      </p>
-    </div>
+<div class="channel-page">
+  <header class="channel-hero">
+    <span class="channel-badge">Web Runtime</span>
+    <span class="channel-badge">{profiles.length} profiles</span>
+    <h1 class="channel-hero-title">Web Profiles</h1>
+    <p class="channel-hero-desc">
+      Configure web runtime profiles, link agents, and edit profile-level Markdown overrides.
+    </p>
   </header>
 
   {#if loading}
-    <div class="grid gap-4 lg:grid-cols-[18rem_1fr]">
-      <Card>
-        <CardHeader>
-          <Skeleton class="h-5 w-24" />
-          <Skeleton class="h-4 w-40" />
-        </CardHeader>
-        <CardContent class="flex flex-col gap-2">
-          <Skeleton class="h-14 w-full" />
-          <Skeleton class="h-14 w-full" />
-          <Skeleton class="h-14 w-full" />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <Skeleton class="h-5 w-44" />
-          <Skeleton class="h-4 w-72 max-w-full" />
-        </CardHeader>
-        <CardContent class="flex flex-col gap-4">
-          <Skeleton class="h-8 w-full" />
-          <Skeleton class="h-8 w-full" />
-          <Skeleton class="h-40 w-full" />
-        </CardContent>
-      </Card>
-    </div>
+    <div class="channel-loading">Loading Web settings...</div>
   {:else}
-    <div class="grid gap-4 lg:grid-cols-[18rem_1fr]">
-      <Card class="h-fit">
-        <CardHeader>
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <CardTitle>Profiles</CardTitle>
-              <CardDescription>{profiles.length} configured</CardDescription>
-            </div>
-            <Button variant="outline" size="sm" type="button" onclick={addProfile}>
-              Add
-            </Button>
+    <div class="channel-master-detail">
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">Profiles</h2>
+            <p class="channel-card-desc">{profiles.length} configured</p>
           </div>
-        </CardHeader>
-        <CardContent class="flex flex-col gap-2">
+          <Button variant="outline" size="sm" type="button" onclick={addProfile}>
+            Add
+          </Button>
+        </div>
+        <div class="channel-card-body">
           {#each profiles as profile (profile.id)}
             <button
-              class={`flex w-full items-start justify-between gap-3 rounded-lg border px-3 py-3 text-left transition hover:bg-muted/60 ${
-                selectedProfile?.id === profile.id ? "border-primary bg-muted" : "border-border bg-background"
-              }`}
+              class="channel-sidebar-btn {selectedProfile?.id === profile.id ? 'channel-sidebar-btn--active' : ''}"
               type="button"
               onclick={() => selectProfile(profile.id)}
             >
-              <span class="min-w-0">
-                <span class="block truncate text-sm font-medium text-foreground">{profile.name || profile.id}</span>
-                <span class="block truncate text-xs text-muted-foreground">{profile.id}</span>
+              <span>
+                <span class="channel-sidebar-btn-name">{profile.name || profile.id}</span>
+                <span class="channel-sidebar-btn-id">{profile.id}</span>
               </span>
-              <Badge variant={profile.enabled ? "secondary" : "outline"}>
+              <span class="channel-sidebar-badge {profile.enabled ? 'channel-sidebar-badge--on' : ''}">
                 {profile.enabled ? "On" : "Off"}
-              </Badge>
+              </span>
             </button>
           {/each}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {#if selectedProfile}
-        <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void save(); }}>
-          <Card>
-            <CardHeader>
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <CardTitle>Profile Configuration</CardTitle>
-                  <CardDescription>
-                    Profile ID, display name, enabled state, and linked agent.
-                  </CardDescription>
-                </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  type="button"
-                  onclick={() => removeProfile(selectedProfile.id)}
-                >
-                  Remove
-                </Button>
+        <form id="channel-form" class="channel-form" onsubmit={(event) => { event.preventDefault(); void save(); }}>
+          <div class="channel-card">
+            <div class="channel-card-header">
+              <div>
+                <h2 class="channel-card-title">Profile Configuration</h2>
+                <p class="channel-card-desc">
+                  Profile ID, display name, enabled state, and linked agent.
+                </p>
               </div>
-            </CardHeader>
-            <CardContent class="flex flex-col gap-5">
-              <div class="grid gap-4 md:grid-cols-2">
-                <div class="flex flex-col gap-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                type="button"
+                onclick={() => removeProfile(selectedProfile.id)}
+              >
+                Remove
+              </Button>
+            </div>
+            <div class="channel-card-body">
+              <div class="channel-field-row">
+                <div class="channel-field">
                   <Label for="web-profile-id">Profile ID</Label>
                   <Input
                     id="web-profile-id"
@@ -402,8 +361,7 @@
                     disabled={!selectedProfile.isNew}
                   />
                 </div>
-
-                <div class="flex flex-col gap-2">
+                <div class="channel-field">
                   <Label for="web-profile-name">Profile Name</Label>
                   <Input
                     id="web-profile-name"
@@ -414,31 +372,31 @@
               </div>
 
               {#if !selectedProfile.isNew}
-                <p class="text-xs leading-5 text-muted-foreground">
+                <p class="channel-hint">
                   Profile ID is locked after creation to keep workspace paths and references stable.
                 </p>
               {/if}
 
-              <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                <div class="flex flex-col gap-1">
+              <div class="channel-toggle-row">
+                <div class="channel-toggle-label">
                   <Label for="web-profile-enabled">Enable this profile instance</Label>
-                  <p class="text-xs text-muted-foreground">Disabled profiles stay saved but are not selectable at runtime.</p>
+                  <p>Disabled profiles stay saved but are not selectable at runtime.</p>
                 </div>
-                <Switch id="web-profile-enabled" bind:checked={selectedProfile.enabled} />
+                <IosSwitch id="web-profile-enabled" bind:checked={selectedProfile.enabled} />
               </div>
 
-              <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                <div class="flex flex-col gap-1">
+              <div class="channel-toggle-row">
+                <div class="channel-toggle-label">
                   <Label for="web-profile-sandbox">Sandbox override</Label>
-                  <p class="text-xs text-muted-foreground">Override the global sandbox setting for this profile. Leave unchecked to inherit.</p>
+                  <p>Override the global sandbox setting for this profile. Leave unchecked to inherit.</p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="channel-toggle-controls">
                   {#if selectedProfile.sandboxEnabled !== undefined}
                     <Badge variant={selectedProfile.sandboxEnabled ? "secondary" : "destructive"}>
                       {selectedProfile.sandboxEnabled ? "Force ON" : "Force OFF"}
                     </Badge>
                   {/if}
-                  <Switch
+                  <IosSwitch
                     id="web-profile-sandbox"
                     checked={selectedProfile.sandboxEnabled === true}
                     onCheckedChange={(checked) => {
@@ -459,73 +417,81 @@
                 </div>
               </div>
 
-              <div class="flex flex-col gap-2">
+              <div class="channel-field">
                 <Label for="web-profile-agent">Linked Agent</Label>
-                <NativeSelect id="web-profile-agent" class="w-full" bind:value={selectedProfile.agentId}>
+                <NativeSelect id="web-profile-agent" bind:value={selectedProfile.agentId}>
                   <NativeSelectOption value="">No agent (global fallback only)</NativeSelectOption>
                   {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
                     <NativeSelectOption value={agent.id}>{agent.name || agent.id}</NativeSelectOption>
                   {/each}
                 </NativeSelect>
               </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile Markdown Overrides</CardTitle>
-              <CardDescription>
-                Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.
-              </CardDescription>
-            </CardHeader>
-            <CardContent class="flex flex-col gap-4">
-              {#each profileFileNames as fileName}
-                <div class="flex flex-col gap-2">
-                  <Label for={`web-profile-${fileName}`}>{fileName}</Label>
-                  <Textarea
-                    id={`web-profile-${fileName}`}
-                    class="min-h-40 font-mono text-sm"
-                    bind:value={selectedProfile.profileFiles[fileName]}
-                    placeholder={`Edit ${fileName} here`}
-                  />
-                </div>
-              {/each}
-            </CardContent>
-          </Card>
-
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <Button type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save This Profile"}
-            </Button>
-            {#if selectedProfileDirty}
-              <Badge variant="outline">Unsaved changes</Badge>
-            {/if}
+            </div>
           </div>
 
-          {#if message}
-            <Alert>
-              <AlertDescription>{message}</AlertDescription>
-            </Alert>
-          {/if}
-          {#if error}
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          {/if}
+          <div class="channel-card">
+            <div class="channel-card-header">
+              <div>
+                <h2 class="channel-card-title">Profile Markdown Overrides</h2>
+                <p class="channel-card-desc">
+                  Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.
+                </p>
+              </div>
+            </div>
+            <div class="channel-accordion">
+              {#each profileFileNames as fileName}
+                <details class="channel-accordion-item">
+                  <summary>{fileName}</summary>
+                  <div class="channel-accordion-body">
+                    <Textarea
+                      id={`web-profile-${fileName}`}
+                      class="channel-textarea"
+                      bind:value={selectedProfile.profileFiles[fileName]}
+                      placeholder={`Edit ${fileName} here`}
+                    />
+                  </div>
+                </details>
+              {/each}
+            </div>
+          </div>
         </form>
       {:else}
-        <Card>
-          <CardHeader>
-            <CardTitle>No profile selected</CardTitle>
-            <CardDescription>Create a profile to configure the Web runtime.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" type="button" onclick={addProfile}>
-              Add Profile
-            </Button>
-          </CardContent>
-        </Card>
+        <div class="channel-card">
+          <div class="channel-card-header">
+            <div>
+              <h2 class="channel-card-title">No profile selected</h2>
+              <p class="channel-card-desc">Create a profile to configure the Web runtime.</p>
+            </div>
+          </div>
+          <Button variant="outline" type="button" onclick={addProfile}>
+            Add Profile
+          </Button>
+        </div>
       {/if}
     </div>
   {/if}
 </div>
+
+<footer class="settings-footbar">
+  <div class="settings-footbar-status">
+    {#if saving}
+      <span class="settings-footbar-saving">
+        <span class="settings-footbar-pulse"></span>
+        Saving changes...
+      </span>
+    {:else if message}
+      <span class="settings-footbar-ok">{message}</span>
+    {/if}
+    {#if error}
+      <span class="settings-footbar-error">{error}</span>
+    {/if}
+  </div>
+  <div class="settings-footbar-actions">
+    <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>
+      Reset
+    </Button>
+    <button type="submit" form="channel-form" class="settings-footbar-btn" disabled={loading || saving}>
+      {saving ? "Saving..." : "Save Web Settings"}
+    </button>
+  </div>
+</footer>

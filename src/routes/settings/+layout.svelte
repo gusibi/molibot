@@ -604,6 +604,29 @@
   :global(.settings-footbar-btn:hover:not(:disabled)) { opacity: 0.88; }
   :global(.settings-footbar-btn:disabled) { opacity: 0.5; cursor: not-allowed; }
 
+  :global(.settings-footbar-saving) {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--muted-foreground);
+  }
+
+  :global(.settings-footbar-pulse) {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: oklch(60% 0.15 35);
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  :global(.settings-footbar-actions) {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
   /* ── Mobile Nav ── */
   .settings-mobile-nav {
     display: none;

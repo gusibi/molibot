@@ -138,14 +138,14 @@ export function buildModelOptions(settings: RuntimeSettings, route: ModelRoute):
   }
 
   for (const provider of settings.customProviders.filter((p) => p.enabled !== false && isKnownProvider(p.id))) {
-    const models = provider.models.filter((m) => m.id?.trim() && supportsRoute(Array.isArray(m.tags) ? m.tags : ["text"]));
+    const models = provider.models.filter((m) => m.enabled !== false && m.id?.trim() && supportsRoute(Array.isArray(m.tags) ? m.tags : ["text"]));
     for (const model of models) {
       pushBuiltInOption(provider.id, model.id.trim());
     }
   }
 
   for (const provider of settings.customProviders.filter((p) => p.enabled !== false && !isKnownProvider(p.id))) {
-    const models = provider.models.filter((m) => m.id?.trim() && supportsRoute(Array.isArray(m.tags) ? m.tags : ["text"]));
+    const models = provider.models.filter((m) => m.enabled !== false && m.id?.trim() && supportsRoute(Array.isArray(m.tags) ? m.tags : ["text"]));
     for (const model of models) {
       const modelId = model.id.trim();
       const updatedProviders = settings.customProviders.map((row) =>

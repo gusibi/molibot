@@ -3,14 +3,11 @@
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
-  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-  import { Checkbox } from "$lib/components/ui/checkbox";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
+  import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { Textarea } from "$lib/components/ui/textarea";
-
-  import { Switch } from "$lib/components/ui/switch";
 
   interface AgentItem {
     id: string;
@@ -306,81 +303,84 @@
   onMount(loadSettings);
 </script>
 
-<div class="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-  <header class="flex flex-col gap-3">
-    <Badge variant="secondary" class="w-fit">Channel Runtime</Badge>
-    <div class="flex max-w-3xl flex-col gap-2">
-      <h1 class="text-3xl font-semibold tracking-tight text-foreground">QQ Settings</h1>
-      <p class="text-sm leading-6 text-muted-foreground">
-        Configure QQ bots, link them to agents, and edit bot-level Markdown overrides.
-      </p>
-    </div>
+<div class="channel-page">
+  <header class="channel-hero">
+    <span class="channel-badge">Channel Runtime</span>
+    <h1 class="channel-hero-title">QQ Settings</h1>
+    <p class="channel-hero-desc">
+      Configure QQ bots, link them to agents, and edit bot-level Markdown overrides.
+    </p>
   </header>
 
   {#if loading}
-    <p class="py-8 text-sm text-muted-foreground">Loading QQ settings...</p>
+    <div class="channel-loading">Loading QQ settings...</div>
   {:else}
-    <div class="grid gap-6 lg:grid-cols-[280px_1fr]">
-      <Card>
-        <CardHeader class="pb-3">
-          <div class="flex items-center justify-between">
-            <CardTitle class="text-sm">Bots</CardTitle>
-            <Button variant="outline" size="sm" type="button" onclick={addBot}>Add Bot</Button>
+    <div class="channel-master-detail">
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">Bots</h2>
+            <p class="channel-card-desc">{bots.length} configured</p>
           </div>
-        </CardHeader>
-        <CardContent class="space-y-1">
+          <Button variant="outline" size="sm" type="button" onclick={addBot}>Add Bot</Button>
+        </div>
+        <div class="channel-card-body">
           {#each bots as bot (bot.id)}
             <button
-              class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-muted/60 {selectedBot?.id === bot.id ? 'bg-muted' : ''}"
+              class="channel-sidebar-btn {selectedBot?.id === bot.id ? 'channel-sidebar-btn--active' : ''}"
               type="button"
               onclick={() => selectBot(bot.id)}
             >
-              <span class="min-w-0">
-                <span class="block truncate font-medium text-foreground">{bot.name || bot.id}</span>
-                <span class="block truncate text-xs text-muted-foreground">{bot.id}</span>
+              <span>
+                <span class="channel-sidebar-btn-name">{bot.name || bot.id}</span>
+                <span class="channel-sidebar-btn-id">{bot.id}</span>
               </span>
-              <Badge variant={bot.enabled ? "default" : "outline"} class="shrink-0 text-[10px]">
+              <span class="channel-sidebar-badge {bot.enabled ? 'channel-sidebar-badge--on' : ''}">
                 {bot.enabled ? "ON" : "OFF"}
-              </Badge>
+              </span>
             </button>
           {/each}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {#if selectedBot}
-        <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); save(); }}>
-          <Card>
-            <CardHeader>
-              <div class="flex items-center justify-between">
-                <CardTitle class="text-sm">Bot Configuration</CardTitle>
-                <Button variant="destructive" size="sm" type="button" onclick={() => removeBot(selectedBot.id)}>
-                  Remove Bot
-                </Button>
+        <form id="channel-form" class="channel-form" onsubmit={(e) => { e.preventDefault(); save(); }}>
+          <div class="channel-card">
+            <div class="channel-card-header">
+              <div>
+                <h2 class="channel-card-title">Bot Configuration</h2>
+                <p class="channel-card-desc">Basic connectivity and routing for this channel.</p>
               </div>
-            </CardHeader>
-            <CardContent class="space-y-4">
-              <div class="grid gap-3 md:grid-cols-2">
-                <div class="grid gap-1.5">
+              <Button variant="destructive" size="sm" type="button" onclick={() => removeBot(selectedBot.id)}>
+                Remove Bot
+              </Button>
+            </div>
+            <div class="channel-card-body">
+              <div class="channel-field-row">
+                <div class="channel-field">
                   <Label for="qq-bot-id">Bot ID</Label>
                   <Input id="qq-bot-id" bind:value={selectedBot.id} placeholder="qq-bot" disabled={!selectedBot.isNew} />
                 </div>
-                <div class="grid gap-1.5">
+                <div class="channel-field">
                   <Label for="qq-bot-name">Bot Name</Label>
                   <Input id="qq-bot-name" bind:value={selectedBot.name} placeholder="QQ Bot" />
                 </div>
               </div>
               {#if !selectedBot.isNew}
-                <p class="text-xs text-muted-foreground">
+                <p class="channel-hint">
                   Bot ID is locked after creation to keep workspace paths and references stable.
                 </p>
               {/if}
 
-              <div class="flex items-center gap-3">
-                <Checkbox id="qq-enabled" bind:checked={selectedBot.enabled} />
-                <Label for="qq-enabled" class="text-sm">Enable this plugin instance</Label>
+              <div class="channel-toggle-row">
+                <div class="channel-toggle-label">
+                  <Label for="qq-enabled">Enable this plugin instance</Label>
+                  <p>Disabled bots stay saved but are not selectable at runtime.</p>
+                </div>
+                <IosSwitch id="qq-enabled" bind:checked={selectedBot.enabled} />
               </div>
 
-              <div class="grid gap-1.5">
+              <div class="channel-field">
                 <Label for="qq-agent">Linked Agent</Label>
                 <NativeSelect id="qq-agent" bind:value={selectedBot.agentId}>
                   <NativeSelectOption value="">No agent (global fallback only)</NativeSelectOption>
@@ -390,18 +390,18 @@
                 </NativeSelect>
               </div>
 
-              <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4 mt-2">
-                <div class="flex flex-col gap-1">
+              <div class="channel-toggle-row">
+                <div class="channel-toggle-label">
                   <Label for="qq-sandbox">Sandbox override</Label>
-                  <p class="text-xs text-muted-foreground">Override the global sandbox setting for this bot. Leave unchecked to inherit.</p>
+                  <p>Override the global sandbox setting for this bot. Leave unchecked to inherit.</p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="channel-toggle-controls">
                   {#if selectedBot.sandboxEnabled !== undefined}
                     <Badge variant={selectedBot.sandboxEnabled ? "secondary" : "destructive"}>
                       {selectedBot.sandboxEnabled ? "Force ON" : "Force OFF"}
                     </Badge>
                   {/if}
-                  <Switch
+                  <IosSwitch
                     id="qq-sandbox"
                     checked={selectedBot.sandboxEnabled === true}
                     onCheckedChange={(checked) => {
@@ -422,14 +422,14 @@
                 </div>
               </div>
 
-              <div class="grid gap-3 md:grid-cols-2">
-                <div class="grid gap-1.5">
+              <div class="channel-field-row">
+                <div class="channel-field">
                   <Label for="qq-app-id">App ID</Label>
                   <Input id="qq-app-id" bind:value={selectedBot.appId} placeholder="1024xxxx" />
                 </div>
-                <div class="grid gap-1.5">
+                <div class="channel-field">
                   <Label for="qq-secret">App Secret</Label>
-                  <div class="flex items-center gap-2">
+                  <div class="channel-password-row">
                     <Input
                       id="qq-secret"
                       bind:value={selectedBot.clientSecret}
@@ -443,7 +443,7 @@
                 </div>
               </div>
 
-              <div class="grid gap-1.5">
+              <div class="channel-field">
                 <Label for="qq-chat-ids">Allowed chat IDs (comma-separated)</Label>
                 <Input
                   id="qq-chat-ids"
@@ -451,48 +451,60 @@
                   placeholder="QQ_OPENID,GROUP_OPENID,CHANNEL_ID"
                 />
               </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle class="text-sm">Bot Markdown Overrides</CardTitle>
-              <CardDescription>
-                Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.
-              </CardDescription>
-            </CardHeader>
-            <CardContent class="space-y-3">
-              {#each botFileNames as fileName}
-                <div class="grid gap-1.5">
-                  <Label for="qq-{fileName}">{fileName}</Label>
-                  <Textarea
-                    id="qq-{fileName}"
-                    class="min-h-[160px] font-mono text-sm"
-                    bind:value={selectedBot.profileFiles[fileName]}
-                    placeholder={`Edit ${fileName} here`}
-                  />
-                </div>
-              {/each}
-            </CardContent>
-          </Card>
-
-          <div class="flex items-center gap-3">
-            <Button variant="default" type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save This Bot"}
-            </Button>
-            {#if selectedBotDirty}
-              <span class="text-xs text-muted-foreground">Current bot has unsaved changes.</span>
-            {/if}
+            </div>
           </div>
 
-          {#if message}
-            <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
-          {/if}
-          {#if error}
-            <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
-          {/if}
+          <div class="channel-card">
+            <div class="channel-card-header">
+              <div>
+                <h2 class="channel-card-title">Bot Markdown Overrides</h2>
+                <p class="channel-card-desc">
+                  Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.
+                </p>
+              </div>
+            </div>
+            <div class="channel-accordion">
+              {#each botFileNames as fileName}
+                <details class="channel-accordion-item">
+                  <summary>{fileName}</summary>
+                  <div class="channel-accordion-body">
+                    <Textarea
+                      id="qq-{fileName}"
+                      class="channel-textarea"
+                      bind:value={selectedBot.profileFiles[fileName]}
+                      placeholder={`Edit ${fileName} here`}
+                    />
+                  </div>
+                </details>
+              {/each}
+            </div>
+          </div>
         </form>
       {/if}
     </div>
   {/if}
 </div>
+
+<footer class="settings-footbar">
+  <div class="settings-footbar-status">
+    {#if saving}
+      <span class="settings-footbar-saving">
+        <span class="settings-footbar-pulse"></span>
+        Saving changes...
+      </span>
+    {:else if message}
+      <span class="settings-footbar-ok">{message}</span>
+    {/if}
+    {#if error}
+      <span class="settings-footbar-error">{error}</span>
+    {/if}
+  </div>
+  <div class="settings-footbar-actions">
+    <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>
+      Reset
+    </Button>
+    <button type="submit" form="channel-form" class="settings-footbar-btn" disabled={loading || saving}>
+      {saving ? "Saving..." : "Save QQ Settings"}
+    </button>
+  </div>
+</footer>

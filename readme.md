@@ -596,6 +596,8 @@ See `.env.example` for full list and detailed descriptions.
 - `docs/agent-v2.1-development-plan.md` - Executable TODO plan for the v2.1 Agent simplification work: ACP removal, Workspace, TurnOrchestrator, ToolRuntime, approval scope, and settings split
 - `docs/acp-codex-mvp.md` - ACP (Agent Control Plane) documentation
 - `docs/subagent-sandbox-research.md` - Research and product boundary for the next Agent/Subagent sandbox iteration
+- `docs/superpowers/specs/2026-06-06-hookmanager-design.md` - Agent HookManager design specification and telemetry trace store design
+- `docs/superpowers/plans/2026-06-06-hookmanager-runtime-extension.md` - Agent HookManager implementation plan and runtime callback bridging
 - `docs/molibot-architecture.svg` - Architecture diagram source
 
 ### Project Governance

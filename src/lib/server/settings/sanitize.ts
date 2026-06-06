@@ -661,6 +661,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
         supportedRoles?: unknown;
         verification?: unknown;
         contextWindow?: unknown;
+        enabled?: unknown;
       };
       const id = String(modelObj.id ?? modelObj.model ?? "").trim();
       if (!id) continue;
@@ -680,6 +681,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
         tags: sanitizeModelTags(modelObj.tags),
         supportedRoles: sanitizeRoles(modelObj.supportedRoles ?? (row as { supportedRoles?: unknown }).supportedRoles),
         contextWindow: typeof modelObj.contextWindow === "number" && modelObj.contextWindow > 0 ? modelObj.contextWindow : undefined,
+        enabled: modelObj.enabled !== false,
         verification: Object.keys(verification ?? {}).length > 0 ? verification : undefined
       });
     }

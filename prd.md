@@ -8,7 +8,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Users who prefer simple interaction over complex automation.
 
 ## 2.6 Scope Clarification (2026-06-06)
-- [Spec] HookManager 运行时扩展设计方案评审与细化：完成了 HookManager 与 SQLite 追踪系统的设计评审，收敛方案为挂载在 `pi-agent-core` 已有回调之上的薄多播层。根据专家评审意见，明确了 `run.started/finished` 与 pi-agent-core turn 级别生命周期的语义差异；修正了 `beforeToolCall` 执行拦截顺序；确立了 observe hook 异步队列非阻塞主流程机制与 TraceRecorder 的单次运行状态隔离；引入了 `HookPlugin` 插件注册接口以支持未来 S3/Webhook 等扩展。
+- [Done] Agent HookManager 运行时观测扩展与 Trace 记录系统：实现了运行时可插拔的 `HookManager` 事件总线与插件系统，支持 observe 调试与 sqlite trace Telemetry 插件；在 tool call 前置增加拦截 gate 支持；并在 `BaseChannelRuntime`、Web context、`RunnerPool` 和 `MomRunner` 中完整桥接注入并测试通过。
 - [Done] AI 设置页面顶部 Hero 栏尺寸收缩与统一：为包括 8 个核心 AI 设置页及 16 个使用 Tailwind 的常规设置页在内的所有页面应用了全局统一的 Hero 头部紧凑型样式；将页面标题字号从 `2rem` 缩减至 `1.375rem`，描述字体缩减至 `0.8125rem`（13px），内部 gap 缩减至 `0.375rem`，并去除了 Layout 叠加造成的默认 padding-top 导致的大面积上方空白。
 - [Done] AI 设置页面底部固定栏全宽适配与样式抽离：将路由（`/settings/ai/routing`）、提供商（`/settings/ai/providers`）、报错记录（`/settings/ai/errors`）、MCP（`/settings/mcp`）、搜索（`/settings/search`）和视频（`/settings/video`）等设置页面的底栏从 `div` 元素改为 HTML5 语义化的 `footer` 元素，以解决 `workbench.css` 对 div 的 max-width 限制，实现底栏全屏幕宽度拉伸；同时将所有 8 个 AI 设置页面的 `<style>` 标签内的样式完全抽离并整合到独立的全局样式表 `src/styles/settings-custom.css` 中，防止 Svelte 编译器动态在 `<head>` 中生成 scoped 的 Header code 样式。
 - [Done] AI 设置相关子页面统一样式与居中对齐排版：重构了所有 AI 设置相关页面（包括路由、提供商、用量统计、报错记录、MCP、搜索、图片和视频设置页面），为每个页面的主容器添加了 `margin: 0 auto;` 居中对齐，使得中间的内容区域在大屏下左右留白完全对称；同时将所有页面的固定保存/操作底栏（`.settings-footbar`）移出 max-width 容器，确保其在右侧主显示区横跨全屏。

@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
     import { Checkbox } from "$lib/components/ui/checkbox";
     import { Input } from "$lib/components/ui/input";
+    import { IosSwitch } from "$lib/components/ui/ios-switch";
     import { Label } from "$lib/components/ui/label";
     import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
     import { Textarea } from "$lib/components/ui/textarea";
@@ -36,6 +37,7 @@
         tags: ModelCapabilityTag[];
         supportedRoles: ModelRole[];
         contextWindow?: number;
+        enabled: boolean;
         verification?: Partial<
             Record<ModelCapabilityTag, ModelCapabilityVerification>
         >;
@@ -1189,6 +1191,7 @@
                                                   "tool",
                                               ],
                                   contextWindow: typeof m.contextWindow === "number" && m.contextWindow > 0 ? m.contextWindow : undefined,
+                                  enabled: m.enabled !== false,
                                   verification:
                                       m.verification &&
                                       typeof m.verification === "object"
@@ -1272,6 +1275,7 @@
                         tags: [...model.tags],
                         supportedRoles: [...model.supportedRoles],
                         contextWindow: model.contextWindow && model.contextWindow > 0 ? model.contextWindow : undefined,
+                        enabled: model.enabled !== false,
                         verification:
                             model.verification &&
                             Object.keys(model.verification).length > 0
@@ -1375,10 +1379,7 @@
                             <h2 class="providers-detail-name">{cp.name || "Unnamed Provider"}</h2>
                             <div class="providers-detail-actions">
                                 <label class="providers-toggle-label">
-                                    <label class="switch">
-                                        <input type="checkbox" checked={cp.enabled} onchange={() => setProviderEnabled(cp.id, !cp.enabled)} />
-                                        <span class="slider"></span>
-                                    </label>
+                                    <IosSwitch checked={cp.enabled} onCheckedChange={(val) => setProviderEnabled(cp.id, val)} />
                                     <span>{cp.enabled ? "Enabled" : "Disabled"}</span>
                                 </label>
                                 <button type="button" class="providers-btn-outline-sm" onclick={() => setAsDefaultProvider(cp.id)} disabled={isBuiltinProvider(cp) || form.defaultCustomProviderId === cp.id || !cp.enabled}>{form.defaultCustomProviderId === cp.id ? "Default" : "Set as Default"}</button>
@@ -1773,10 +1774,10 @@
                                                     />
                                                 </td>
                                                 <td class="text-center">
-                                                    <label class="switch">
-                                                        <input type="checkbox" checked={model.enabled !== false} onchange={() => { model.enabled = model.enabled === false ? true : false; }} />
-                                                        <span class="slider"></span>
-                                                    </label>
+                                                    <IosSwitch
+                                                        checked={model.enabled !== false}
+                                                        onCheckedChange={(val) => { model.enabled = val; }}
+                                                    />
                                                 </td>
                                                 <td class="text-right">
                                                     <button type="button" class="providers-remove-btn" onclick={() => removeModel(cp.id, index)}>×</button>
