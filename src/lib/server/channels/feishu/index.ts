@@ -32,6 +32,7 @@ export const feishuChannelPlugin: ChannelPlugin<FeishuConfig> = {
       workspaceDir: instance.workspaceDir,
       memory: deps.memory,
       usageTracker: deps.usageTracker,
-      modelErrorTracker: deps.modelErrorTracker
+      modelErrorTracker: deps.modelErrorTracker,
+      hookManager: deps.hookManager
     })
 };

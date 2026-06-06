@@ -3,6 +3,7 @@ import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
+import type { HookManager } from "$lib/server/agent/hooks/index.js";
 import { feishuChannelPlugin } from "$lib/server/channels/feishu/index.js";
 import { qqChannelPlugin } from "$lib/server/channels/qq/index.js";
 import { telegramChannelPlugin } from "$lib/server/channels/telegram/index.js";
@@ -23,6 +24,7 @@ export interface ChannelRuntimeDeps {
   memory: MemoryGateway;
   usageTracker: AiUsageTracker;
   modelErrorTracker: ModelErrorTracker;
+  hookManager: HookManager;
 }
 
 export interface ChannelPluginInstance<TConfig> {

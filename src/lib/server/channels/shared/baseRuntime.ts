@@ -23,6 +23,8 @@ import { ChannelQueue } from "$lib/server/channels/shared/queue.js";
 import type { PromptChannel } from "$lib/server/agent/prompts/prompt-channel.js";
 import type { Channel } from "$lib/shared/types/message.js";
 
+import type { HookManager } from "$lib/server/agent/hooks/index.js";
+
 const APPROVAL_AUTO_RESUME_RETRY_DELAY_MS = 1000;
 const APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS = 60 * 60;
 
@@ -38,6 +40,7 @@ interface BaseChannelRuntimeInit {
     memory: MemoryGateway;
     usageTracker: AiUsageTracker;
     modelErrorTracker: ModelErrorTracker;
+    hookManager: HookManager;
   };
 }
 
@@ -51,6 +54,7 @@ export abstract class BaseChannelRuntime {
   protected readonly sessions: SessionStore;
   protected readonly runners: RunnerPool;
   protected readonly memory: MemoryGateway;
+  protected readonly hookManager: HookManager;
   protected readonly instanceId: string;
   protected readonly getSettings: () => RuntimeSettings;
   protected readonly updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
@@ -73,7 +77,11 @@ export abstract class BaseChannelRuntime {
     if (!runtimeOptions?.memory) {
       throw new Error(`${this.channelName} runtime requires MemoryGateway for unified memory operations.`);
     }
+    if (!runtimeOptions?.hookManager) {
+      throw new Error(`${this.channelName} runtime requires HookManager for runtime hook dispatch.`);
+    }
     this.memory = runtimeOptions.memory;
+    this.hookManager = runtimeOptions.hookManager;
     this.runners = new RunnerPool(
       this.channelName,
       this.store,
@@ -81,7 +89,8 @@ export abstract class BaseChannelRuntime {
       this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
       runtimeOptions.usageTracker,
       runtimeOptions.modelErrorTracker,
-      runtimeOptions.memory
+      runtimeOptions.memory,
+      runtimeOptions.hookManager
     );
   }
 

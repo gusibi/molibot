@@ -145,6 +145,7 @@ export const qqChannelPlugin: ChannelPlugin<QQConfig> = {
         memory: deps.memory,
         usageTracker: deps.usageTracker,
         modelErrorTracker: deps.modelErrorTracker,
+        hookManager: deps.hookManager,
         // 使用 SDK 账户配置
         sdkAccount
       }

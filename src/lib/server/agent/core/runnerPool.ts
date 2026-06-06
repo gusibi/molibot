@@ -4,6 +4,7 @@ import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import type { HookManager } from "$lib/server/agent/hooks/index.js";
 
 export class RunnerPool {
   private readonly map = new Map<string, MomRunner>();
@@ -16,6 +17,7 @@ export class RunnerPool {
     private readonly usageTracker: AiUsageTracker,
     private readonly modelErrorTracker: ModelErrorTracker,
     private readonly memory: MemoryGateway,
+    private readonly hookManager: HookManager,
   ) { }
 
   private key(chatId: string, sessionId: string): string {
@@ -36,6 +38,7 @@ export class RunnerPool {
       this.usageTracker,
       this.modelErrorTracker,
       this.memory,
+      this.hookManager,
     );
     this.map.set(key, runner);
     return runner;

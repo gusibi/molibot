@@ -61,7 +61,8 @@ export function applyChannelPlugins(state: any, applySettingsPatch: (patch: Part
     sessions: state.sessions,
     memory: state.memory,
     usageTracker: state.usageTracker,
-    modelErrorTracker: state.modelErrorTracker
+    modelErrorTracker: state.modelErrorTracker,
+    hookManager: state.hookManager
   };
 
   const loaded = discoverPlugins(state.settings);

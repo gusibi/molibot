@@ -18,7 +18,18 @@ function createMockDeps() {
     queueDbFile: join(workspaceDir, "inbound-queue.sqlite"),
     memory: {} as any,
     usageTracker: {} as any,
-    modelErrorTracker: {} as any
+    modelErrorTracker: {} as any,
+    hookManager: {
+      register: () => {},
+      unregister: () => false,
+      list: () => [],
+      registerPlugin: async () => {},
+      unregisterPlugin: async () => false,
+      emit: () => {},
+      flush: async () => {},
+      transform: async (_stage: unknown, _context: unknown, payload: unknown) => payload,
+      gate: async () => ({ type: "allow" })
+    } as any
   };
 }
 

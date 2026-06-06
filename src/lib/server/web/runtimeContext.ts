@@ -31,7 +31,8 @@ export function getWebRuntimeContext(profileId: string): WebRuntimeContext {
     runtime.updateSettings,
     runtime.usageTracker,
     runtime.modelErrorTracker,
-    runtime.memory
+    runtime.memory,
+    runtime.hookManager
   );
   const created = { store, pool };
   webRuntimes.set(key, created);

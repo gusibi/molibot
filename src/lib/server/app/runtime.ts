@@ -17,6 +17,7 @@ import { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import { getHostBashStore, type HostBashStore } from "$lib/server/hostBash/index.js";
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 import { getTurnOrchestrator, SqliteTurnCleanupStore } from "$lib/server/agent/core/turnOrchestrator.js";
+import { createDefaultHookManager, type HookManager } from "$lib/server/agent/hooks/index.js";
 
 interface RuntimeState {
   sessions: SessionStore;
@@ -32,6 +33,7 @@ interface RuntimeState {
   usageTracker: AiUsageTracker;
   modelErrorTracker: ModelErrorTracker;
   taskScheduler: TaskScheduler;
+  hookManager: HookManager;
   getSettings: () => RuntimeSettings;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
 }
@@ -109,6 +111,7 @@ export function getRuntime(): RuntimeState {
 
     const settingsStore = new SettingsStore();
     const settings = settingsStore.load();
+    const hookManager = createDefaultHookManager({ settings });
     const hostBashStore = getHostBashStore();
     hostBashStore.migrateLegacySettings(settings.hostTools);
     if (
@@ -157,6 +160,7 @@ export function getRuntime(): RuntimeState {
       usageTracker,
       modelErrorTracker,
       taskScheduler: new TaskScheduler(),
+      hookManager,
       getSettings: () => state.settings,
       updateSettings: applySettingsPatch
     };
