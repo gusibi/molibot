@@ -10,6 +10,7 @@ import type {
   HookStage,
   RuntimeHook
 } from "$lib/server/agent/hooks/types.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 interface RegisteredHook {
   hook: RuntimeHook;
@@ -20,6 +21,7 @@ interface RegisteredHook {
 interface DefaultHookManagerOptions {
   transformEnabled?: boolean;
   defaultTimeoutMs?: Partial<Record<HookKind, number>>;
+  settings?: RuntimeSettings;
 }
 
 type ErrorListener = (error: HookError) => void;
@@ -52,9 +54,11 @@ export class DefaultHookManager implements HookManager {
   private readonly errorListeners = new Set<ErrorListener>();
   private readonly transformEnabled: boolean;
   private readonly defaultTimeoutMs: Record<HookKind, number>;
+  private readonly settings?: RuntimeSettings;
 
   constructor(options: DefaultHookManagerOptions = {}) {
     this.transformEnabled = options.transformEnabled === true;
+    this.settings = options.settings;
     this.defaultTimeoutMs = {
       ...DEFAULT_TIMEOUT_MS,
       ...(options.defaultTimeoutMs ?? {})
@@ -82,7 +86,7 @@ export class DefaultHookManager implements HookManager {
     if (this.plugins.has(plugin.id)) {
       throw new Error(`Hook plugin already registered: ${plugin.id}`);
     }
-    await plugin.init?.({} as any);
+    await plugin.init?.(this.settings ?? ({} as RuntimeSettings));
     const hookIds: string[] = [];
     try {
       for (const hook of plugin.getHooks()) {
@@ -108,11 +112,16 @@ export class DefaultHookManager implements HookManager {
   emit<TPayload>(stage: HookStage, context: HookContext, payload: TPayload): void {
     const hooks = this.hooksFor(stage, "observe");
     if (hooks.length === 0) return;
-    this.observeTail = this.observeTail.then(async () => {
-      for (const row of hooks) {
-        await this.runHook(row.hook, stage, "observe", context, payload);
-      }
-    });
+    this.observeTail = this.observeTail
+      .catch(() => {
+        // Critical observe hooks are reported by runHook, but the background
+        // queue must recover so later emits are not starved.
+      })
+      .then(async () => {
+        for (const row of hooks) {
+          await this.runHook(row.hook, stage, "observe", context, payload);
+        }
+      });
     this.observeTail.catch(() => {});
   }
 

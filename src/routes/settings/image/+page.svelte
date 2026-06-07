@@ -185,10 +185,10 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings");
+      const res = await fetch("/api/settings/dynamic/image-generate");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || t("loadError"));
-      imageGenerate = { ...imageGenerate, ...(data.settings?.imageGenerate ?? {}) };
+      imageGenerate = { ...imageGenerate, ...(data.value ?? {}) };
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -225,14 +225,14 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings", {
+      const res = await fetch("/api/settings/dynamic/image-generate", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageGenerate })
+        body: JSON.stringify({ value: imageGenerate })
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || t("saveError"));
-      imageGenerate = data.settings.imageGenerate;
+      imageGenerate = data.value;
       message = t("savedMsg");
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -550,11 +550,11 @@
 </div>
 
 {#if activeTaskDetails}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onclick={() => activeTaskDetails = null}>
-    <div class="relative w-full max-w-xl rounded-xl border border-border bg-background p-6 shadow-2xl" onclick={(e) => e.stopPropagation()}>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" role="dialog" aria-label={t("taskDetailsTitle")} tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) activeTaskDetails = null; }} onkeydown={(e) => { if (e.key === "Escape") activeTaskDetails = null; }}>
+    <div class="relative w-full max-w-xl rounded-xl border border-border bg-background p-6 shadow-2xl">
       <header class="mb-4 flex items-center justify-between">
         <h3 class="text-lg font-semibold text-foreground">{t("taskDetailsTitle")}</h3>
-        <button class="rounded-lg p-1 text-muted-foreground hover:bg-muted" onclick={() => activeTaskDetails = null}>
+        <button type="button" aria-label={t("close")} class="rounded-lg p-1 text-muted-foreground hover:bg-muted" onclick={() => activeTaskDetails = null}>
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
       </header>
@@ -651,5 +651,4 @@
     </Button>
   </div>
 </footer>
-
 

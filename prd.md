@@ -7,14 +7,21 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Solo builders and small teams who want one AI assistant across channels.
 - Users who prefer simple interaction over complex automation.
 
+## 2.7 Scope Clarification (2026-06-07)
+- [Done] Trace Facts 模型用量补写与 Usage 关联：修复 `/settings/ai/trace` 最近 Trace Facts 中模型调用缺失 input/output/cache/total token 的问题。`/settings/ai/usage` 继续读取独立 usage JSONL 用量账本，`/settings/ai/trace` 继续读取 SQLite `agent_trace_facts`，但 Runner 会在 assistant message end 拿到 usage 时补发同一 `modelAttemptId` 的 `model.call.after`，使 trace facts 能通过 run/session/model attempt 与 usage 口径对齐；当 provider 未返回显式 total token 时，TraceRecorder 使用 input/output/cache read/cache write 自动补算总数。
+- [Done] 工具调用后的模型续写请求必须作为独立模型调用 fact 记录：同一个 Agent prompt 内部可能发生多次真实 AI API 请求（首轮模型请求、工具调用、工具结果后的续写请求等），Trace 的 `modelAttemptId` 粒度必须按真实 API request 递增，不能用外层 `agent.prompt()` attempt 覆盖前一次模型调用。
+
 ## 2.6 Scope Clarification (2026-06-06)
-- [Done] Agent HookManager 运行时观测扩展与 Trace 记录系统：实现了运行时可插拔的 `HookManager` 事件总线与插件系统，支持 observe 调试与 sqlite trace Telemetry 插件；在 tool call 前置增加拦截 gate 支持；并在 `BaseChannelRuntime`、Web context、`RunnerPool` 和 `MomRunner` 中完整桥接注入并测试通过。
+- [Done] SQLite 动态设置迁移与细粒度 API 改造：为了减小大 JSON 对内存及持久化的压力，将搜索、图片生成、视频生成和沙箱设置迁移到 SQLite 动态表 `settings_dynamic` 存储，并在启动时对旧 `settings.json` 字段及旧版独立表做自动提取、合并与清理。新增统一 API 端点 `/api/settings/dynamic/[key]` 完整支持对这些动态配置的 `GET` (读取)、`PUT`/`POST`/`PATCH` (写入与更新)操作，并重构前端 settings 页面仅在加载与保存时定向读写各自的动态配置 Key，彻底消除了大 JSON 请求，同时完全替代了原本大 `PUT /api/settings` 保存机制。进一步将 AI 提供商设置页面（Providers）也从此大设置接口解耦，扩展了 `/api/settings/custom-providers` 的 `GET` 与 `PUT` 支持，彻底实现了各个功能页面的精细化增量更新。
+- [Done] Agent HookManager 运行时观测扩展与 Trace 记录系统：实现了运行时可插拔的 `HookManager` 事件总线与插件系统，支持 observe 调试与 sqlite trace Telemetry 插件；在 tool call 前置增加拦截 gate 支持；并在 `BaseChannelRuntime`、Web context、`RunnerPool` 和 `MomRunner` 中完整桥接注入。后续修复了 Runner 早退路径缺失 `run.finished`、插件初始化未获得真实 settings、critical observe hook 失败导致 observe 队列停摆的问题；并新增统一 `agent_trace_facts` 分析表，用 `fact_type` 区分工具调用与模型调用，支持按 session/run 统计工具次数、关联工具和模型请求。
+- [Done] Agent Trace 设置页分析入口：新增 `/settings/ai/trace`，基于 `agent_trace_facts` 提供今天/昨天/最近 7 天/最近 30 天时间窗、Bot、channel、chat ID、session ID、run ID、fact 类型筛选和汇总表，覆盖工具调用次数、实际执行次数、失败/阻止次数、模型请求数、input/output/cache/total token、Bot 与 session/run 关联工具数等排障指标。
 - [Done] AI 设置页面顶部 Hero 栏尺寸收缩与统一：为包括 8 个核心 AI 设置页及 16 个使用 Tailwind 的常规设置页在内的所有页面应用了全局统一的 Hero 头部紧凑型样式；将页面标题字号从 `2rem` 缩减至 `1.375rem`，描述字体缩减至 `0.8125rem`（13px），内部 gap 缩减至 `0.375rem`，并去除了 Layout 叠加造成的默认 padding-top 导致的大面积上方空白。
 - [Done] AI 设置页面底部固定栏全宽适配与样式抽离：将路由（`/settings/ai/routing`）、提供商（`/settings/ai/providers`）、报错记录（`/settings/ai/errors`）、MCP（`/settings/mcp`）、搜索（`/settings/search`）和视频（`/settings/video`）等设置页面的底栏从 `div` 元素改为 HTML5 语义化的 `footer` 元素，以解决 `workbench.css` 对 div 的 max-width 限制，实现底栏全屏幕宽度拉伸；同时将所有 8 个 AI 设置页面的 `<style>` 标签内的样式完全抽离并整合到独立的全局样式表 `src/styles/settings-custom.css` 中，防止 Svelte 编译器动态在 `<head>` 中生成 scoped 的 Header code 样式。
 - [Done] AI 设置相关子页面统一样式与居中对齐排版：重构了所有 AI 设置相关页面（包括路由、提供商、用量统计、报错记录、MCP、搜索、图片和视频设置页面），为每个页面的主容器添加了 `margin: 0 auto;` 居中对齐，使得中间的内容区域在大屏下左右留白完全对称；同时将所有页面的固定保存/操作底栏（`.settings-footbar`）移出 max-width 容器，确保其在右侧主显示区横跨全屏。
 - [Done] 视频设置页面固定粘性底栏适配：重构了视频生成设置页面（`/settings/video`）的表单结构，将其输入和引擎列表包裹在 `<form id="video-form" ...>` 中。将原本位于页面卡片底部的普通保存按钮，移至悬浮在全屏最底部的粘性固定底栏（`.settings-footbar`），与表单 action 完美绑定，实现了 AI Settings 下所有页面交互和视觉风格的完全一致。
 - [Done] 修复 Telegram 视频附件标题覆盖扩展名的问题：当 `attach` 发送 `.mp4` 等二进制媒体且 `title` 不含扩展名时，上传文件名必须自动保留源文件扩展名，并通过 `sendVideo` 设置 `supports_streaming`，避免视频生成结果在 Telegram 中被异常展示为非视频消息。
 - [Done] 模型报错记录、MCP 服务与搜索设置页面样式重构：重构了 `/settings/ai/errors`、`/settings/mcp` 和 `/settings/search` 的布局与 CSS 样式，迁移至 Warm Shadcn（衬线标题排版、`var(--card)` 背景、`var(--border)` 边框等）设计系统。
+- [Done] Svelte a11y 构建告警清理：修复 Providers、Image、Video 设置页 modal/backdrop 与视频预览的可访问性问题，确保 `npm run build` 不再输出 Svelte a11y warnings。
 - [Done] 适配固定粘性保存底栏：按照 `DESIGN.md` 第 4 条设计原则，将 `/settings/mcp` 和 `/settings/search` 页面的“保存设置”及“重置”按钮承载于固定底栏（`.settings-footbar`）中。对于 `/settings/ai/errors`，其“刷新记录”操作也被集成到了固定底栏中。
 - [Done] 统一 Switch 开关组件：在这三个设置页面中，统一使用 Svelte 源码 `<Switch>` 组件替代手写开关，利用 Svelte 5 的 `bind:checked` 自动绑定。
 - [Done] 移除 SettingsSection 布局依赖：取消这三个页面对 `SettingsSection` 包装组件的依赖，替换为自定义的 Hero 头部区域，并清理了无用组件导入。
@@ -3299,3 +3306,14 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 在 `channelCommands.ts` 中完成独立指令 `/toolprogress` 和 `/showreasoning` 的开发，并打通 SQLite `settings_channel_instances` 表的 `display_json` 字段及 `settings.json` 的全局序列化存储，以确保在系统重启后独立展示配置能够被持久保留。
   - 在共享格式化层 `DisplayFormatter` 中统一处理思考块的捕获（`thinking_start/delta/end`）、工具运行状态整合、答案渲染和独立 reasoning 渲染。
   - 在 Telegram 运行时、Feishu 运行时和 StreamingSession 中引入 `DisplayFormatter` 与配置适配；在 QQ/Weixin 中接入 `toolProgress === 'off'` 判断，跳过中间进度信息的批量发送，防止刷屏。同时，在 QQ 和微信中引入消息流缓冲区（`messagesBuffer`），将工具执行进度、模型思考、错误及最终答复进行合并缓冲，在运行结束、触发敏感审批或上传文件前一次性拼接并以单个消息气泡发送，极大限度地消除了在不支持消息编辑的平台上的刷屏问题。
+
+## 205. 自定义模型启用状态保存修复 (Custom Model Enable State Serialization Fix) (2026-06-06)
+- Priority: P0
+- Stage: Delivered (2026-06-06)
+- Problem:
+  - 在修改自定义模型配置并保存时，模型列表的单模型启用状态无法被持久化（即使在 UI 中将其关闭，保存并传给后台 API 依然是启用状态）。
+- Requirement:
+  - 修正前端保存逻辑，打通 model `enabled` 状态的完整序列化，确保用户可以在提供商设置中彻底关闭某些模型，不让其参与系统路由。
+- Enforcement:
+  - 修正 `+page.svelte` 中的 `ensureProviderDefaults` 映射逻辑，确保在保存映射前，模型对象的 `enabled` 字段被正确透传，防止其被误置为 undefined 并最终默认解析为 true。
+  - 在 `addModel`、`confirmAddModel` 和 `addDiscoveredModel` 中为新模型初始化提供默认值 `enabled: true`。

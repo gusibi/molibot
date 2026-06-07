@@ -763,21 +763,28 @@ test("runner hook bridge emits model call pairing fields", async () => {
     requestedThinkingLevel: "off",
     effectiveThinkingLevel: "off"
   };
-  (runner as any).activeModelCallContext = {
-    modelAttemptId: "run-model-hook:0:0",
+  (runner as any).activeModelPromptContext = {
     candidateIndex: 0,
-    attemptIndex: 0,
-    modelCallSeq: 1
+    attemptIndex: 0
   };
 
   const agent = (runner as any).agent;
   await agent.onPayload?.({});
-  await agent.onResponse?.({ usage: { input: 1, output: 2, totalTokens: 3 }, stopReason: "stop" } as any);
+  await agent.onResponse?.({ usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 }, stopReason: "stop" } as any);
+  await agent.onPayload?.({});
+  await agent.onResponse?.({ usage: { input: 5, output: 6, cacheRead: 7, cacheWrite: 8, totalTokens: 26 }, stopReason: "tool_use" } as any);
 
-  const before = events.find((event) => event.stage === "model.call.before");
-  const after = events.find((event) => event.stage === "model.call.after");
-  assert.equal(before?.payload.modelAttemptId, "run-model-hook:0:0");
-  assert.equal(after?.payload.modelCallSeq, 1);
+  const before = events.filter((event) => event.stage === "model.call.before");
+  const after = events.filter((event) => event.stage === "model.call.after");
+  assert.equal(before.length, 2);
+  assert.equal(after.length, 2);
+  assert.equal(before[0]?.payload.modelAttemptId, "run-model-hook:0:0:1");
+  assert.equal(before[1]?.payload.modelAttemptId, "run-model-hook:0:0:2");
+  assert.equal(after[0]?.payload.modelCallSeq, 1);
+  assert.equal(after[1]?.payload.modelCallSeq, 2);
+  assert.notEqual(after[0]?.payload.modelAttemptId, after[1]?.payload.modelAttemptId);
+  assert.deepEqual(after[0]?.payload.usage, { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 });
+  assert.deepEqual(after[1]?.payload.usage, { input: 5, output: 6, cacheRead: 7, cacheWrite: 8, totalTokens: 26 });
 });
 
 test("runner emits skill.selected without treating workspace scan as skill.loaded", async () => {

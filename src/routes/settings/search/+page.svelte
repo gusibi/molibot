@@ -132,10 +132,10 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings");
+      const res = await fetch("/api/settings/dynamic/web-search");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
-      webSearch = normalizeForUi({ ...webSearch, ...(data.settings?.webSearch ?? {}) });
+      webSearch = normalizeForUi({ ...webSearch, ...(data.value ?? {}) });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -148,14 +148,14 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings", {
+      const res = await fetch("/api/settings/dynamic/web-search", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ webSearch })
+        body: JSON.stringify({ value: webSearch })
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to save search settings");
-      webSearch = normalizeForUi(data.settings.webSearch);
+      webSearch = normalizeForUi(data.value);
       message = "Search settings saved.";
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);

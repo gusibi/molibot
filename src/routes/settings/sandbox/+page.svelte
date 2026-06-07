@@ -370,13 +370,13 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings");
+      const res = await fetch("/api/settings/dynamic/sandbox");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
-      sandbox = { ...structuredClone(defaultSandbox), ...(data.settings?.toolSandbox ?? {}) };
-      sandbox.env = { ...defaultSandbox.env, ...(data.settings?.toolSandbox?.env ?? {}) };
-      sandbox.network = { ...defaultSandbox.network, ...(data.settings?.toolSandbox?.network ?? {}) };
-      sandbox.filesystem = { ...defaultSandbox.filesystem, ...(data.settings?.toolSandbox?.filesystem ?? {}) };
+      sandbox = { ...structuredClone(defaultSandbox), ...(data.value ?? {}) };
+      sandbox.env = { ...defaultSandbox.env, ...(data.value?.env ?? {}) };
+      sandbox.network = { ...defaultSandbox.network, ...(data.value?.network ?? {}) };
+      sandbox.filesystem = { ...defaultSandbox.filesystem, ...(data.value?.filesystem ?? {}) };
       syncTextFromSandbox();
       await runDiagnostics();
     } catch (e) {
@@ -392,14 +392,14 @@
     error = "";
     try {
       const next = buildPatch();
-      const res = await fetch("/api/settings", {
+      const res = await fetch("/api/settings/dynamic/sandbox", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ toolSandbox: next })
+        body: JSON.stringify({ value: next })
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to save sandbox settings");
-      sandbox = data.settings.toolSandbox;
+      sandbox = data.value;
       syncTextFromSandbox();
       message = "Sandbox settings saved. New runs will use the updated policy.";
       await runDiagnostics();

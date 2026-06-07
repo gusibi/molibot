@@ -10,7 +10,7 @@ export function createDefaultHookManager(_options: {
   settings: RuntimeSettings;
   store?: MomRuntimeStore;
 }): HookManager {
-  const manager = new DefaultHookManager();
+  const manager = new DefaultHookManager({ settings: _options.settings });
   manager.register(new TraceRecorderHook(new SqliteTraceStore()));
   manager.register(new DebugLogHook());
   return manager;

@@ -206,6 +206,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Host Tool Approval**: chat-first approval registry and controlled runner for external tools that require host IPC or other host-only capabilities while sandbox is enabled; `bash` first checks approved host capabilities, auto-requests approval after sandbox permission failures for eligible single commands, pauses the current run while that approval is pending, keeps that waiting state distinct from a manual stop, persists approved executables for direct reuse, routes compound shell installs through one-time exact approvals instead of promoting them into the reusable whitelist, and sends an explicit chat acknowledgement when an approval is rejected. When the effective sandbox is OFF, Host Bash executes directly without a second approval layer.
 - **Session Approval Override**: non-global `This Session` approval and `/hosttools approve-session <approvalId>` let operators keep sandbox on by default while auto-bypassing repeated sandbox denials only inside the current chat session
 - **Usage Tracking**: Per-request token accounting with dashboards
+- **Agent Trace Analytics**: `/settings/ai/trace` exposes trace facts for tool/model calls with time-window, Bot, channel, chat ID, session ID, run ID, and fact-type filters, including tool counts, model requests, input/output/cache/total tokens, Bot summaries, channel/chat summaries, session/run summaries, and recent fact rows. Usage tracking remains the token ledger, while trace facts now receive runner message-end usage backfills and split one Agent prompt into per-request model attempts, so tool-result continuation calls can be correlated by run/session/model attempt instead of overwriting the initial model call.
 - **Settings**: Relational tables with single-entity save flow
 
 ### Developer Experience
@@ -334,13 +335,13 @@ Open: `http://localhost:3000`
 - `/settings` - Overview and workbench entry hub
 - `/settings/system` - Language, runtime timezone, and read-only GitHub/deployment version information; migrated to the shadcn-svelte Settings style
 - `/settings/sandbox` - Opt-in OS-level sandbox policy for agent and subagent bash, including env allow/deny keys, network domains, filesystem read/write rules, redacted diagnostics, and Named Sandbox Profiles presets (Observe, Build, Strict). Disabling the effective sandbox means Host Bash full access and skips Host Bash approval for ordinary bash execution.
-- `/settings/ai` - AI providers, models, routing, including the dedicated subagent fallback route, subagent model-level mappings, usage tracking, cache-hit trend visibility, auto-refreshing time windows, runtime timezone dropdown, and shadcn-svelte provider/model forms
+- `/settings/ai` - AI providers, models, routing, including the dedicated subagent fallback route, subagent model-level mappings, usage tracking, Trace analytics, cache-hit trend visibility, auto-refreshing time windows, runtime timezone dropdown, and shadcn-svelte provider/model forms
 - `/settings/search` - Built-in web search configuration for route defaults, engine credentials, timeouts, max results, and test queries
 - `/settings/agents` - Agent library with Markdown prompt files plus a separate read-only Subagents view for built-in delegation roles, abstract model levels, and their effective model source
 - `/settings/skill-drafts` - Review generated reusable workflow drafts with long draft content shown as a 10-line preview and full editing handled in a focused modal form
 - `/settings/web` - Web profiles and identity binding; migrated to the shadcn-svelte Settings style
 
-All core settings pages and AI-related sub-pages (Routing, Providers, Usage, Errors, MCP, Search, Image, Video) have been migrated to the Warm Shadcn design system with custom serif typography, centered layouts, full-width fixed footbars, and unified styles located in `settings-custom.css`.
+All core settings pages and AI-related sub-pages (Routing, Providers, Usage, Trace, Errors, MCP, Search, Image, Video) have been migrated to the Warm Shadcn design system with custom serif typography, centered layouts, full-width fixed footbars, and unified styles located in `settings-custom.css`.
 
 ### Channel Configuration
 - `/settings/telegram` - Multi-bot instances and credentials
@@ -404,6 +405,8 @@ molibot manage          # Interactive install/update/service manager
 molibot start           # Production run (requires build first)
 molibot cli             # CLI mode for terminal conversation
 ```
+
+The source build is expected to complete without Svelte accessibility warnings; remaining production-build notices may include Vite chunking notes or Node's experimental SQLite warning.
 
 ### Service Management
 ```bash
@@ -596,8 +599,8 @@ See `.env.example` for full list and detailed descriptions.
 - `docs/agent-v2.1-development-plan.md` - Executable TODO plan for the v2.1 Agent simplification work: ACP removal, Workspace, TurnOrchestrator, ToolRuntime, approval scope, and settings split
 - `docs/acp-codex-mvp.md` - ACP (Agent Control Plane) documentation
 - `docs/subagent-sandbox-research.md` - Research and product boundary for the next Agent/Subagent sandbox iteration
-- `docs/superpowers/specs/2026-06-06-hookmanager-design.md` - Agent HookManager design specification and telemetry trace store design
-- `docs/superpowers/plans/2026-06-06-hookmanager-runtime-extension.md` - Agent HookManager implementation plan and runtime callback bridging
+- `docs/superpowers/specs/2026-06-06-hookmanager-design.md` - Agent HookManager design specification, telemetry trace store, and unified facts table design
+- `docs/superpowers/plans/2026-06-06-hookmanager-runtime-extension.md` - Agent HookManager implementation plan, runtime callback bridging, and lifecycle hardening notes
 - `docs/molibot-architecture.svg` - Architecture diagram source
 
 ### Project Governance
@@ -683,6 +686,6 @@ See `.env.example` for full list and detailed descriptions.
 
 ---
 
-*Last updated: May 28, 2026*
-*Version: 1.0.0*
+*Last updated: June 6, 2026*
+*Version: 2.0.7*
 *Status: Production Ready*

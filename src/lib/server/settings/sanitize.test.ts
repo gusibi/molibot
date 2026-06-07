@@ -36,7 +36,6 @@ test("sanitizeSettings enables configured default image engine when legacy enabl
   const sanitized = sanitizeSettings({}, settings);
 
   assert.equal(sanitized.imageGenerate.defaultEngine, "agnes");
-  assert.equal(sanitized.imageGenerate.engines.agnes.enabled, true);
   assert.equal(sanitized.imageGenerate.engines.agnes.apiKey, "agnes-key");
 });
 

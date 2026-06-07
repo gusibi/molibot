@@ -1,0 +1,71 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
+import { SettingsStore } from "$lib/server/settings/store.js";
+
+test("SettingsStore legacy table migration works and drops old tables", () => {
+  const db = new DatabaseSync(":memory:");
+
+  // Create legacy tables
+  db.exec(`
+    CREATE TABLE settings_web_search (
+      id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL,
+      default_route TEXT NOT NULL,
+      default_engine TEXT NOT NULL,
+      engine_selection_strategy TEXT NOT NULL,
+      max_results INTEGER NOT NULL,
+      timeout_ms INTEGER NOT NULL,
+      retry_timeout_ms INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE settings_web_search_engines (
+      engine_id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL,
+      api_key TEXT NOT NULL,
+      base_url TEXT,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE settings_dynamic (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  // Insert legacy search data
+  db.prepare(`
+    INSERT INTO settings_web_search (id, enabled, default_route, default_engine, engine_selection_strategy, max_results, timeout_ms, retry_timeout_ms, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run("global", 1, "china", "baidu", "priority", 5, 5000, 10000, "2026-06-06T12:00:00Z");
+
+  db.prepare(`
+    INSERT INTO settings_web_search_engines (engine_id, enabled, api_key, base_url, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run("baidu", 1, "baidu-key-123", "https://api.baidu.com", "2026-06-06T12:00:00Z");
+
+  // Instantiate SettingsStore (mock storage path is not triggered since we call helper directly)
+  const store = new SettingsStore();
+
+  // Run the migration
+  store["migrateLegacyTables"](db);
+
+  // Check if legacy tables were dropped
+  const checkWebSearch = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='settings_web_search'").get();
+  const checkWebSearchEngines = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='settings_web_search_engines'").get();
+  assert.equal(checkWebSearch, undefined, "settings_web_search table should be dropped");
+  assert.equal(checkWebSearchEngines, undefined, "settings_web_search_engines table should be dropped");
+
+  // Check if data is now in settings_dynamic
+  const dynamicRow = db.prepare("SELECT value_json FROM settings_dynamic WHERE key = ?").get("settings_web_search") as { value_json: string } | undefined;
+  assert.ok(dynamicRow, "settings_web_search key should exist in settings_dynamic");
+
+  const webSearch = JSON.parse(dynamicRow.value_json);
+  assert.equal(webSearch.enabled, true);
+  assert.equal(webSearch.defaultRoute, "china");
+  assert.equal(webSearch.defaultEngine, "baidu");
+  assert.equal(webSearch.maxResults, 5);
+  assert.equal(webSearch.engines.baidu.enabled, true);
+  assert.equal(webSearch.engines.baidu.apiKey, "baidu-key-123");
+  assert.equal(webSearch.engines.baidu.baseUrl, "https://api.baidu.com");
+});

@@ -37,6 +37,7 @@ export type HookStage =
 export interface HookContext {
   runId: string;
   channel: string;
+  botId?: string;
   chatId: string;
   sessionId: string;
   workspaceId?: string;

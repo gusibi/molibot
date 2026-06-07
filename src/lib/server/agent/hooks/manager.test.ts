@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DefaultHookManager } from "$lib/server/agent/hooks/manager.js";
 import type { HookContext, RuntimeHook } from "$lib/server/agent/hooks/types.js";
+import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 const context: HookContext = {
   runId: "run-1",
@@ -153,6 +154,25 @@ test("plugin registration initializes hooks and unregister destroys plugin hooks
   assert.equal(manager.list().some((hook) => hook.id === "plugin-1:observer"), false);
 });
 
+test("plugin registration passes configured runtime settings to init", async () => {
+  const settings = { locale: "zh-CN" } as RuntimeSettings;
+  const manager = new DefaultHookManager({ settings });
+  let received: RuntimeSettings | undefined;
+
+  await manager.registerPlugin({
+    id: "settings-plugin",
+    name: "Settings Plugin",
+    init(input) {
+      received = input;
+    },
+    getHooks() {
+      return [];
+    }
+  });
+
+  assert.equal(received, settings);
+});
+
 test("flush returns after timeout even when observe hook is slow", async () => {
   const manager = new DefaultHookManager();
 
@@ -169,4 +189,39 @@ test("flush returns after timeout even when observe hook is slow", async () => {
   const startedAt = Date.now();
   await manager.flush({ timeoutMs: 20 });
   assert.ok(Date.now() - startedAt < 150);
+});
+
+test("critical observe hook failures do not poison later emits", async () => {
+  const manager = new DefaultHookManager();
+  const calls: string[] = [];
+  const errors: string[] = [];
+
+  manager.onError((error) => {
+    errors.push(`${error.hookId}:${error.critical ? "critical" : "non-critical"}`);
+  });
+  manager.register({
+    id: "critical-observer",
+    kind: "observe",
+    stages: ["run.started"],
+    critical: true,
+    handle() {
+      throw new Error("boom");
+    }
+  });
+  manager.register({
+    id: "later-observer",
+    kind: "observe",
+    stages: ["run.finished"],
+    handle() {
+      calls.push("later");
+    }
+  });
+
+  manager.emit("run.started", context, {});
+  await manager.flush({ timeoutMs: 1000 });
+  manager.emit("run.finished", context, {});
+  await manager.flush({ timeoutMs: 1000 });
+
+  assert.deepEqual(errors, ["critical-observer:critical"]);
+  assert.deepEqual(calls, ["later"]);
 });

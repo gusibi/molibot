@@ -127,6 +127,12 @@ export class MomRunner implements RunnerLike {
   }
 
   private activeHookContext: HookContext | undefined;
+  private activeModelPromptContext:
+    | {
+        candidateIndex: number;
+        attemptIndex: number;
+      }
+    | undefined;
   private activeModelCallContext:
     | {
         modelAttemptId: string;
@@ -199,9 +205,10 @@ export class MomRunner implements RunnerLike {
             summary: formatPayloadReasoningSummary(payload)
           });
         }
-        if (this.activeHookContext && this.activePayloadContext && this.activeModelCallContext) {
+        const modelCallContext = this.startActiveModelCallTrace();
+        if (this.activeHookContext && this.activePayloadContext && modelCallContext) {
           this.hookManager.emit("model.call.before", this.activeHookContext, {
-            ...this.activeModelCallContext,
+            ...modelCallContext,
             provider: this.activePayloadContext.provider,
             model: this.activePayloadContext.model,
             api: this.activePayloadContext.api,
@@ -212,16 +219,7 @@ export class MomRunner implements RunnerLike {
         return undefined;
       },
       onResponse: async (response) => {
-        if (this.activeHookContext && this.activePayloadContext && this.activeModelCallContext) {
-          this.hookManager.emit("model.call.after", this.activeHookContext, {
-            ...this.activeModelCallContext,
-            provider: this.activePayloadContext.provider,
-            model: this.activePayloadContext.model,
-            api: this.activePayloadContext.api,
-            usage: (response as any)?.usage,
-            stopReason: (response as any)?.stopReason
-          });
-        }
+        this.emitActiveModelCallAfter((response as any)?.usage, (response as any)?.stopReason);
         return undefined;
       },
       beforeToolCall: async (context, _signal) => {
@@ -461,10 +459,12 @@ export class MomRunner implements RunnerLike {
       runStartedAt = turn.startedAt;
     }
 
+    const botId = basename(this.store.getWorkspaceDir()) || "unknown";
     this.modelCallSeq = 0;
     this.activeHookContext = {
       runId,
       channel: ctx.channel,
+      botId,
       chatId: this.chatId,
       sessionId: this.sessionId,
       workspaceId,
@@ -478,6 +478,23 @@ export class MomRunner implements RunnerLike {
       imageCount: ctx.message.imageContents.length,
       isEvent: Boolean(ctx.message.isEvent)
     });
+    let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
+    let errorMessage: string | undefined;
+    let hookRunFinished = false;
+    const finishHookRun = async (): Promise<void> => {
+      const hookContext = this.activeHookContext;
+      if (!hookContext) return;
+      if (!hookRunFinished) {
+        hookRunFinished = true;
+        this.hookManager.emit("run.finished", hookContext, {
+          status: stopReason === "stop" ? "success" : stopReason,
+          stopReason,
+          durationMs: Date.now() - runStartedAt,
+          errorMessage
+        });
+      }
+      await this.hookManager.flush({ timeoutMs: 500 });
+    };
 
     const logRunDetail = (entry: Omit<RunDetailEntry, "timestamp" | "workspaceId">): void => {
       this.store.appendRunDetail(this.chatId, runId, {
@@ -516,7 +533,6 @@ export class MomRunner implements RunnerLike {
     const usedToolNames: string[] = [];
     const failedToolNames: string[] = [];
     let subagentDelegationNoticeSent = false;
-    const botId = basename(this.store.getWorkspaceDir()) || "unknown";
     this.running = true;
     this.abortRequested = false;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
@@ -563,6 +579,8 @@ export class MomRunner implements RunnerLike {
     const settings = this.getSettings();
     const settingsError = validateRuntimeSettings(settings);
     if (settingsError) {
+      stopReason = "error";
+      errorMessage = settingsError;
       momWarn("runner", "settings_error", {
         runId,
         chatId: this.chatId,
@@ -573,6 +591,7 @@ export class MomRunner implements RunnerLike {
       await ctx.replaceMessage(settingsError);
       logRunDetail({ type: "final", summary: settingsError, isError: true });
       getTurnOrchestrator().updateRunStatus(runId, "failed", settingsError);
+      await finishHookRun();
       return { runId, stopReason: "error", errorMessage: settingsError };
     }
 
@@ -688,8 +707,6 @@ export class MomRunner implements RunnerLike {
 
     const exposeLoadMcpTool =
       mcpExplicitlyInvoked || skillRequiresMcp || this.selectedMcpServerIds.size > 0;
-    let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
-    let errorMessage: string | undefined;
     let currentModelPromptMessage = "";
     let currentPersistedPromptMessage = "";
     let promptUserPersisted = false;
@@ -800,13 +817,7 @@ export class MomRunner implements RunnerLike {
         return;
       }
       if (event.type === "agent_end") {
-        this.hookManager.emit("run.finished", hookContext, {
-          status: stopReason === "stop" ? "success" : stopReason,
-          stopReason,
-          durationMs: Date.now() - runStartedAt,
-          errorMessage
-        });
-        await this.hookManager.flush({ timeoutMs: 500 });
+        await finishHookRun();
       }
     });
 
@@ -1040,6 +1051,7 @@ export class MomRunner implements RunnerLike {
             cacheWriteTokens: msg.usage.cacheWrite,
             totalTokens: msg.usage.totalTokens
           });
+          this.emitActiveModelCallAfter(msg.usage, msg.stopReason);
         }
 
         const text = (msg.content || [])
@@ -1186,6 +1198,8 @@ export class MomRunner implements RunnerLike {
             assistantMessagePersisted = true;
             logRunDetail({ type: "final", summary: keyError, isError: true });
             getTurnOrchestrator().updateRunStatus(runId, "failed", keyError);
+            stopReason = "error";
+            errorMessage = keyError;
             return { runId, stopReason: "error", errorMessage: keyError };
           }
           continue;
@@ -1319,13 +1333,11 @@ export class MomRunner implements RunnerLike {
             stopReason = "stop";
             errorMessage = undefined;
 
-            this.modelCallSeq += 1;
-            this.activeModelCallContext = {
-              modelAttemptId: `${runId}:${candidateIndex}:${attemptCount}`,
+            this.activeModelPromptContext = {
               candidateIndex,
-              attemptIndex: attemptCount,
-              modelCallSeq: this.modelCallSeq
+              attemptIndex: attemptCount
             };
+            this.activeModelCallContext = undefined;
 
             await this.agent.prompt(
               userMessage,
@@ -1454,13 +1466,11 @@ export class MomRunner implements RunnerLike {
                 stopReason = "stop";
                 errorMessage = undefined;
 
-                this.modelCallSeq += 1;
-                this.activeModelCallContext = {
-                  modelAttemptId: `${runId}:${candidateIndex}:${attemptCount}:tool-budget-continuation`,
+                this.activeModelPromptContext = {
                   candidateIndex,
-                  attemptIndex: attemptCount,
-                  modelCallSeq: this.modelCallSeq
+                  attemptIndex: attemptCount
                 };
+                this.activeModelCallContext = undefined;
 
                 try {
                   await this.agent.prompt(TOOL_BUDGET_RUNTIME_NOTICE);
@@ -1948,10 +1958,9 @@ export class MomRunner implements RunnerLike {
     } finally {
       unsubscribe();
       unsubscribeHooks();
-      if (this.activeHookContext) {
-        await this.hookManager.flush({ timeoutMs: 500 });
-      }
+      await finishHookRun();
       this.activeHookContext = undefined;
+      this.activeModelPromptContext = undefined;
       this.activeModelCallContext = undefined;
       try {
         const saved = this.store.loadContext(this.chatId, this.sessionId);
@@ -1981,5 +1990,47 @@ export class MomRunner implements RunnerLike {
 
   emitSkillSelectionForTest(skills: Array<{ name: string; scope: string; filePath: string; aliases?: string[] }>): void {
     this.emitSkillSelection(skills);
+  }
+
+  private emitActiveModelCallAfter(
+    usage?: {
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      totalTokens?: number;
+    },
+    stopReason?: string
+  ): void {
+    if (!this.activeHookContext || !this.activePayloadContext) return;
+    const modelCallContext = this.activeModelCallContext ?? this.startActiveModelCallTrace();
+    if (!modelCallContext) return;
+    this.hookManager.emit("model.call.after", this.activeHookContext, {
+      ...modelCallContext,
+      provider: this.activePayloadContext.provider,
+      model: this.activePayloadContext.model,
+      api: this.activePayloadContext.api,
+      usage,
+      stopReason
+    });
+  }
+
+  private startActiveModelCallTrace():
+    | {
+        modelAttemptId: string;
+        candidateIndex: number;
+        attemptIndex: number;
+        modelCallSeq: number;
+      }
+    | undefined {
+    if (!this.activeHookContext || !this.activeModelPromptContext) return undefined;
+    this.modelCallSeq += 1;
+    this.activeModelCallContext = {
+      modelAttemptId: `${this.activeHookContext.runId}:${this.activeModelPromptContext.candidateIndex}:${this.activeModelPromptContext.attemptIndex}:${this.modelCallSeq}`,
+      candidateIndex: this.activeModelPromptContext.candidateIndex,
+      attemptIndex: this.activeModelPromptContext.attemptIndex,
+      modelCallSeq: this.modelCallSeq
+    };
+    return this.activeModelCallContext;
   }
 }
