@@ -2,6 +2,14 @@
 
 ## Version 1.0
 
+## 2026-06-07
+
+### Trace Facts Model Usage Alignment
+- Added a runner-level fallback that emits `model.call.after` with assistant `usage` at message completion, so `/settings/ai/trace` model facts now retain input/output/cache/total token details even when provider response hooks did not carry usage.
+- Split trace model attempt IDs per real model API request inside one Agent prompt, so tool-result continuation calls are stored as separate `model_call` facts instead of overwriting the first request.
+- Kept `/settings/ai/usage` and `/settings/ai/trace` as separate data stores while aligning them through run/session/model-attempt trace facts.
+- Added total-token fallback calculation in TraceRecorder when providers omit explicit totals.
+
 ## 2026-06-06
 
 ### Channel Settings Pages Restyling & Fixed Footer
@@ -10,17 +18,27 @@
 - **Switch Conversion**: Converted Checkbox toggles to Switch components for enable and streaming output controls across all channel pages.
 - **MCP Footer Cleanup**: Removed remaining Tailwind utility classes from MCP settings page footer, adding `.settings-footbar-saving`, `.settings-footbar-pulse`, and `.settings-footbar-actions` semantic classes.
 
+### SQLite Settings Migration & Fine-grained APIs
+- **Database Migration**: Moved `webSearch` (search configurations), `imageGenerate` (image settings), `videoGenerate` (video settings), and `toolSandbox` (sandbox directories allowlist/denylist) from `settings.json` to the key-value SQLite table `settings_dynamic`.
+- **Merged Key-Value Store**: Abandoned the creation of 7 separate tables in favor of serializing settings as JSON strings stored under keys: `settings_web_search`, `settings_image_generate`, `settings_video_generate`, and `settings_sandbox`.
+- **One-off Configuration & Table Migration**: Implemented automatic migration in `SettingsStore` during startup. Legacy configs in `settings.json` as well as any existing legacy SQLite tables (e.g., `settings_web_search`, `settings_sandbox`, etc.) are read, converted to key-value rows in `settings_dynamic`, and cleaned up.
+- **Unified Dynamic API Route**: Added a unified, parameter-driven dynamic settings endpoint at `/api/settings/dynamic/[key]` supporting `GET` (read), `PUT`/`POST`/`PATCH` (write/update). Frontend settings pages (search, image, video, sandbox) are refactored to fetch and save their individual configurations via this targeted route, completely bypassing the obsolete monolithic query and individual PUT routers.
+
 ### AI Providers Page Switches & Model Enable Save Fix
+- **Independent custom-providers Endpoint**: Extended `/api/settings/custom-providers` with `GET` and `PUT` methods. Refactored the AI Providers settings page (`/settings/ai/providers`) to fetch and save its configurations using this dedicated endpoint, completely removing monolithic settings API queries and updates from the page.
 - **Shadcn iOS Switch Toggles**: Replaced the custom HTML checkbox elements for provider enabled status and individual model enabled status on the AI Providers page (`/settings/ai/providers`) with unified iOS-style `Switch` components from the shadcn-svelte UI library.
-- **Model Enable Save Bug Fix**: Resolved an issue where toggling individual models off in the list would not persist. Extended `ProviderModelConfig` in `schema.ts`, added proper mappings inside the page Svelte `save()` function, and updated sanitization and store logic in the server settings modules (`sanitize.ts`, `store.ts`) to carry and persist the `enabled` field.
+- **Model Enable Save Bug Fix**: Resolved an issue where toggling individual models off in the list would not persist. Extended `ProviderModelConfig` in `schema.ts`, added proper mappings inside the page Svelte `save()` function, and updated sanitization and store logic in the server settings modules (`sanitize.ts`, `store.ts`) to carry and persist the `enabled` field. Also corrected `ensureProviderDefaults` to prevent dropping the `enabled` field during mapping normalization, and updated `addModel`, `confirmAddModel`, and `addDiscoveredModel` to default-initialize `enabled: true`.
 - **Model Selection & Routing Filter**: Implemented `enabled !== false` filters in `modelRouting.ts` and `modelSwitch.ts` to ensure that custom models toggled off are excluded from routing alternatives, default selections, and settings routing dropdown options.
-- **Svelte 5 a11y & Compiler Warnings Fixed**: Resolved Svelte compiler accessibility (a11y) warnings/errors on `providers/+page.svelte`, `image/+page.svelte`, and `video/+page.svelte` by adding appropriate ARIA roles (`role="none"`, `role="dialog"`), handling keyboard events (`onkeydown` for Escape key and stopPropagation), labeling controls with `aria-label`, and adding a `<track kind="captions" />` captions track to the video player container.
+- **Svelte 5 a11y & Compiler Warnings Fixed**: Resolved Svelte compiler accessibility (a11y) warnings on `providers/+page.svelte`, `image/+page.svelte`, and `video/+page.svelte` by making modal backdrops self-targeted dialogs, removing click handlers from static modal cards, labeling icon-only close buttons, and adding a valid captions track to the video preview.
 
 ### Agent HookManager Runtime Extension & Trace System
 - **Pluggable HookManager**: Implemented a multiplexed `HookManager` layer on top of `pi-agent-core` callbacks to dispatch hook events asynchronously (non-blocking) to observe, gate, and transform hooks.
 - **Built-in Telemetry Plugins**: Added `DebugLogHook` for console diagnostic logging and `TraceRecorderHook` backing event traces into a local SQLite store (`agent_trace_events` table with sequential `seq` auto-increment ordering) isolating states by `runId`.
+- **Unified Trace Facts**: Added `agent_trace_facts` as a single analysis table for both `tool_call` and `model_call` facts, with queryable columns for session/run counts, tool names, statuses, model identity, durations, and token usage.
+- **Trace Analytics Settings Page**: Added `/settings/ai/trace` and `/api/settings/trace` to inspect trace facts with time-window, Bot, channel, chat ID, session ID, run ID, fact type, and source-limit filters, plus tool/model token/Bot/channel-chat/session/run summaries and recent fact rows.
 - **Preflight Gate Interceptions**: Supported gate net interceptions in `MomRunner` before tool preflight and execution budget checks, emitting `tool.call.blocked` with `blockedBy: "hook_gate"`.
 - **Clean Registry Integration**: Injected `hookManager` dependency throughout all channels (Telegram, Feishu, QQ, WeChat, Web) and wired up runner pools/runtimes without introducing API regressions.
+- **Lifecycle Hardening**: Ensured `run.finished` is emitted once for early Runner exits, passed real runtime settings into plugin initialization, and kept the observe queue alive after critical observer failures.
 
 ### Settings Pages Hero Header Compact Unification
 - **Header Size Reduction**: Reduced title size from `2rem`/`1.875rem` to `1.375rem`, description text to `0.8125rem` (13px), and inner gap from `0.75rem` to `0.375rem` across all settings pages (including the 8 core AI pages and 16 Tailwind inline pages) to yield a much cleaner and space-efficient viewport layout.

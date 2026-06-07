@@ -450,6 +450,7 @@
                               "tool",
                           ],
                           contextWindow: undefined,
+                          enabled: true,
                       }
                     : {
                           id: String(m.id ?? ""),
@@ -463,6 +464,7 @@
                               typeof m.verification === "object"
                                   ? m.verification
                                   : {},
+                          enabled: (m as any).enabled !== false,
                       };
             ensureModelDefaults(normalized);
             return normalized;
@@ -517,30 +519,44 @@
         ensureDefaultCustomProvider();
     }
 
-    function removeCustomProvider(id: string): void {
+    async function removeCustomProvider(id: string): Promise<void> {
         const target = form.customProviders.find((p) => p.id === id);
         if (target && isBuiltinProvider(target)) return;
-        form.customProviders = form.customProviders.filter((p) => p.id !== id);
-        if (form.defaultCustomProviderId === id) {
-            form.defaultCustomProviderId = form.customProviders[0]?.id ?? "";
-        }
-        if (selectedProviderId === id) {
-            selectedProviderId = form.customProviders[0]?.id ?? "";
-        }
-        ensureDefaultCustomProvider();
-        const selected = getSelectedProvider();
-        if (selected) {
-            activeProviderTab = providerTabOf(selected);
-            return;
-        }
-        if (providersForTab(activeProviderTab).length > 0) {
-            selectedProviderId = providersForTab(activeProviderTab)[0].id;
-            return;
-        }
-        const fallbackTab = activeProviderTab === "builtin" ? "custom" : "builtin";
-        if (providersForTab(fallbackTab).length > 0) {
-            activeProviderTab = fallbackTab;
-            selectedProviderId = providersForTab(fallbackTab)[0].id;
+
+        if (!confirm("Are you sure you want to delete this custom provider?")) return;
+
+        try {
+            const res = await fetch(`/api/settings/custom-providers?id=${id}`, {
+                method: "DELETE"
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || "Failed to delete custom provider");
+
+            form.customProviders = form.customProviders.filter((p) => p.id !== id);
+            if (form.defaultCustomProviderId === id) {
+                form.defaultCustomProviderId = form.customProviders[0]?.id ?? "";
+            }
+            if (selectedProviderId === id) {
+                selectedProviderId = form.customProviders[0]?.id ?? "";
+            }
+            ensureDefaultCustomProvider();
+            const selected = getSelectedProvider();
+            if (selected) {
+                activeProviderTab = providerTabOf(selected);
+                return;
+            }
+            if (providersForTab(activeProviderTab).length > 0) {
+                selectedProviderId = providersForTab(activeProviderTab)[0].id;
+                return;
+            }
+            const fallbackTab = activeProviderTab === "builtin" ? "custom" : "builtin";
+            if (providersForTab(fallbackTab).length > 0) {
+                activeProviderTab = fallbackTab;
+                selectedProviderId = providersForTab(fallbackTab)[0].id;
+            }
+            message = "Provider deleted.";
+        } catch (e) {
+            error = e instanceof Error ? e.message : String(e);
         }
     }
 
@@ -569,6 +585,7 @@
                     tags: ["text"] as ModelCapabilityTag[],
                     supportedRoles: ["system", "user", "assistant", "tool"],
                     contextWindow: undefined,
+                    enabled: true,
                 },
                 ...provider.models,
             ],
@@ -594,6 +611,7 @@
                     tags: addModelTags.length > 0 ? [...addModelTags] : ["text"],
                     supportedRoles: ["system", "user", "assistant", "tool"],
                     contextWindow: addModelContextWindow,
+                    enabled: true,
                 },
             ],
         }));
@@ -1018,6 +1036,7 @@
                         id: normalized,
                         tags: ["text"] as ModelCapabilityTag[],
                         supportedRoles: ["system", "user", "assistant", "tool"],
+                        enabled: true,
                     },
                     ...provider.models,
                 ],
@@ -1102,7 +1121,7 @@
 
         try {
             const [settingsRes, metaRes] = await Promise.all([
-                fetch("/api/settings"),
+                fetch("/api/settings/custom-providers"),
                 fetch("/api/settings/ai-meta"),
             ]);
 
@@ -1126,7 +1145,7 @@
             builtinProviderModels =
                 metaData.providerModels ?? builtinProviderModels;
 
-            const s = settingsData.settings;
+            const s = settingsData;
             const loadedProviders = (s.customProviders ?? []) as Array<
                 CustomProviderForm & { supportedRoles?: ModelRole[] }
             >;
@@ -1251,26 +1270,28 @@
 
         try {
             ensureDefaultCustomProvider();
-            const payload: AIForm = {
-                ...form,
-                customProviders: form.customProviders.map((provider) => ({
-                    ...provider,
-                    protocol: normalizeProviderProtocol(provider.protocol),
+
+            // 1. If a custom provider is selected and edited, save it individually via fine-grained API
+            const selected = getSelectedProvider();
+            if (selected && !isBuiltinProvider(selected)) {
+                const normalizedProvider = {
+                    ...selected,
+                    protocol: normalizeProviderProtocol(selected.protocol),
                     supportsThinking:
-                        provider.thinkingSupportMode === "auto"
+                        selected.thinkingSupportMode === "auto"
                             ? undefined
-                            : provider.thinkingSupportMode === "enabled",
+                            : selected.thinkingSupportMode === "enabled",
                     thinkingFormat:
-                        provider.thinkingFormat === "auto"
+                        selected.thinkingFormat === "auto"
                             ? undefined
-                            : provider.thinkingFormat,
+                            : selected.thinkingFormat,
                     reasoningEffortMap: Object.fromEntries(
-                        Object.entries(provider.reasoningEffortMap ?? {}).filter(
+                        Object.entries(selected.reasoningEffortMap ?? {}).filter(
                             ([, value]) =>
                                 String(value ?? "").trim().length > 0,
                         ),
                     ),
-                    models: provider.models.map((model) => ({
+                    models: selected.models.map((model) => ({
                         id: model.id.trim(),
                         tags: [...model.tags],
                         supportedRoles: [...model.supportedRoles],
@@ -1282,17 +1303,33 @@
                                 ? { ...model.verification }
                                 : {},
                     })),
-                })),
+                };
+                const res = await fetch("/api/settings/custom-providers", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ provider: normalizedProvider }),
+                });
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error || "Failed to save custom provider");
+            }
+
+            // 2. Save global settings (providerMode, piModelProvider, piModelName, defaultCustomProviderId) using PUT /api/settings/custom-providers
+            const globalPayload = {
+                providerMode: form.providerMode,
+                piModelProvider: form.piModelProvider,
+                piModelName: form.piModelName,
+                defaultCustomProviderId: form.defaultCustomProviderId,
             };
-            const res = await fetch("/api/settings", {
+
+            const res = await fetch("/api/settings/custom-providers", {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
+                body: JSON.stringify(globalPayload),
             });
             const data = await res.json();
             if (!data.ok)
                 throw new Error(data.error || "Failed to save AI settings");
-            message = "Custom Providers settings saved.";
+            message = "AI Settings saved.";
             await loadAll();
         } catch (e) {
             error = e instanceof Error ? e.message : String(e);
@@ -1823,8 +1860,8 @@
 
     <!-- ── Add Model Modal ── -->
     {#if showAddModelModal}
-        <div class="providers-modal-backdrop" onclick={() => (showAddModelModal = false)} onkeydown={(e) => { if (e.key === 'Escape') showAddModelModal = false; }} role="dialog" aria-label="Add Model" tabindex="-1">
-            <div class="providers-modal-card" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+        <div class="providers-modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showAddModelModal = false; }} onkeydown={(e) => { if (e.key === 'Escape') showAddModelModal = false; }} role="dialog" aria-label="Add Model" tabindex="-1">
+            <div class="providers-modal-card">
                 <h3 class="providers-modal-title">Add Model</h3>
                 <label class="providers-detail-form-label">
                     <span class="providers-detail-form-label-text">Model ID</span>
@@ -1855,8 +1892,8 @@
 
     <!-- ── Pull Models Modal ── -->
     {#if showPullModal}
-        <div class="providers-modal-backdrop" onclick={() => (showPullModal = false)} onkeydown={(e) => { if (e.key === 'Escape') showPullModal = false; }} role="dialog" aria-label="Pull Models" tabindex="-1">
-            <div class="providers-modal-card providers-modal-card--wide" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+        <div class="providers-modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showPullModal = false; }} onkeydown={(e) => { if (e.key === 'Escape') showPullModal = false; }} role="dialog" aria-label="Pull Models" tabindex="-1">
+            <div class="providers-modal-card providers-modal-card--wide">
                 <h3 class="providers-modal-title">Pull Models from Provider</h3>
                 {#if loadingProviderModelsFor === pullTargetProviderId}
                     <p class="providers-modal-loading">Fetching models...</p>
@@ -1909,5 +1946,4 @@
         </button>
     </footer>
 {/if}
-
 

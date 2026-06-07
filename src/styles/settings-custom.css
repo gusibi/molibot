@@ -1346,6 +1346,44 @@
   align-items: flex-end;
 }
 
+.trace-filters {
+  align-items: end;
+}
+
+.trace-filter-actions {
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.trace-filter-meta {
+  min-width: 12rem;
+}
+
+.trace-id-cell {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.trace-fact-name {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.trace-fact-subtitle {
+  max-width: 24rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
 .usage-label-uppercase {
   font-size: 0.75rem;
   font-weight: 600;
@@ -3216,4 +3254,3 @@
   padding-top: 0.5rem !important;
   padding-bottom: 2rem !important;
 }
-

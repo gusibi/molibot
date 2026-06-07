@@ -1,17 +1,37 @@
 # Molibot Features
 
+## 2026-06-07
+
+### Trace Facts 模型用量补写与 Usage 关联 (Trace Facts Model Usage Backfill & Usage Alignment)
+- **模型调用 token 补写**: Runner 在 assistant 消息结束并拿到 `usage` 后，会额外向 HookManager 发出同一 `modelAttemptId` 的 `model.call.after` 事件，使 `agent_trace_facts` 的 `model_call` 记录也能拿到 input/output/cache/total token。
+- **工具后续写模型请求拆分记录**: 同一个 Agent prompt 内如果发生“模型请求 -> 工具调用 -> 工具结果后再次请求模型”的循环，每次真实 AI API 请求都会生成独立的 `modelAttemptId`，避免工具后的模型请求覆盖第一次模型调用 fact。
+- **Trace 与 Usage 口径对齐**: `/settings/ai/usage` 继续作为独立用量账本读取 `usage/ai-usage.jsonl`；`/settings/ai/trace` 继续读取 SQLite trace facts，但现在通过同一 run/session/model attempt 维度记录模型用量，便于把用量统计和运行 trace 对上。
+- **total token 兜底计算**: 当模型返回 usage 里没有显式 `totalTokens` 时，TraceRecorder 会用 input/output/cache read/cache write 相加补出总数，避免 Recent Trace Facts 里只有分项没有总数。
+- **回归验证**: 更新 `traceRecorderHook.test.ts` 和 `runner.test.ts`，覆盖 cache token 透传、total 兜底和 runner 模型调用 hook payload。
+
 ## 2026-06-06
 
 ### Agent HookManager 运行时扩展 (Agent HookManager Runtime Extension)
 - **运行时可插拔 HookManager**: 新增了基于事件总线的 `HookManager` 模块，为 Molibot Agent 的各项关键生命周期事件（包括运行启动/结束、模型调用前/后、工具调用前/后、工具拦截/报错、技能选择/加载）提供可插拔的插件系统。
 - **内置调试与 trace telemetry 插件**: 实现了两个内置 observe 插件——`DebugLogHook`（向控制台输出诊断日志）和 `TraceRecorderHook`（将 sanitized 后的结构化运行 trace 日志通过 `SqliteTraceStore` 存储在本地 SQLite 数据库中，并以 `runId` 隔离/在结束后清理状态以防泄漏）。
+- **统一 trace facts 分析表**: 在保留原始 `agent_trace_events` 事件流的同时，新增统一 `agent_trace_facts` 表，用 `fact_type` 区分 `tool_call` 与 `model_call`，将工具名、调用状态、耗时、模型 provider/model、token usage 等常用分析字段独立成列，便于按 session/run 统计调用次数和关联工具。
+- **Trace 分析设置页**: 新增 `/settings/ai/trace` 与 `/api/settings/trace`，复用用量统计页的时间段筛选体验，按 Usage 页同一 `botId` 口径记录和筛选 Bot，并支持 channel、chat ID、session ID、run ID、fact 类型和读取上限筛选；页面展示工具调用、模型请求 token、Bot、channel/chat、session、run、最近 facts 等汇总与明细，方便核对某个工具是否实际调用及调用次数是否符合预期。
 - **拦截控制网关与拦截事件日志**: 实现了 gate net 网关能力，允许注册拦截型 hook 依据自定义的安全或预算策略直接在 tool preflight/budget 前提拦截 tool 执行，并通过 `tool.call.blocked` 上报 `blockedBy: "hook_gate"`。
 - **全链路依赖注入与 Runner 桥接**: 在 runtime 引擎（`baseRuntime`、Web context）以及 `RunnerPool` 和 `MomRunner` 中完整注入了 `hookManager` 单例，并将 `pi-agent-core` 的回调和 Molibot 本身的模型选择、技能加载完整桥接至事件通知网关。
+- **终态 trace 与插件生命周期修复**: 修复 Runner 早退路径未写入 `run.finished` 的问题，确保设置错误、缺失 API Key 等未进入 `agent_end` 的运行也有终态 trace；同时让 `HookPlugin.init()` 接收真实 `RuntimeSettings`，并修复 critical observe hook 失败后 observe 队列不再处理后续事件的问题。
+
+### SQLite 动态设置迁移与细粒度 API 改造 (SQLite Settings Migration & Fine-grained APIs)
+- **设置配置存储数据库迁移**: 将原本存放在 `settings.json` 里的 `webSearch` (搜索配置)、`imageGenerate` (图片生成配置)、`videoGenerate` (视频生成配置) 和 `toolSandbox` (运行沙箱配置) 统一迁移到 SQLite `settings_dynamic` 数据库表中，通过键值对和 JSON 序列化形式结构化存放，减小大 JSON 文本对内存和持久化的压力。
+- **动态键值存储与表合并**: 废弃了原方案创建 7 张具体配置子表的做法，改用现有的 `settings_dynamic` 动态表，使用对应的 `settings_web_search`、`settings_image_generate`、`settings_video_generate` 和 `settings_sandbox` 作为键进行存储。
+- **启动时配置与旧表自动搬迁**: 在系统加载 `SettingsStore` 时，会自动检测 `settings.json` 中的旧字段以及 SQLite 中若已存在的旧版独立表，将其搬迁、转换并导入 `settings_dynamic` 键值行中，并在落盘时自动把 `settings.json` 中的旧字段以及 SQLite 中的旧表进行清理与删除。
+- **推出统一动态更新 API**: 新增了统一配置更新与读取接口 `/api/settings/dynamic/[key]`，支持对具体 Key 配置进行 `GET` (读取)、`PUT`/`POST`/`PATCH` (写与更新)。Web 搜索、图片生成、视频生成和沙箱设置页面在初始化时均通过该 API 独立按需加载，保存时仅对该 Key 进行增量修改并回写，从而完全免去了旧的 `/api/settings` 大查询与原本的独立更新接口，有效规避冲突。
 
 ### AI 提供商页面样式切换与模型开关保存修复 (AI Providers Page Switches & Model Enable Save Fix)
+- **提供商页面独立 API 解耦**: 扩展了 `/api/settings/custom-providers` 接口，支持 `GET` (读取提供商相关配置) 和 `PUT` (保存提供商模式、默认服务商设置)，重构了 `/settings/ai/providers` 设置页面使其初始化和保存时仅定向请求此接口，彻底取消了对大 `/api/settings` 接口的依赖。
 - **Shadcn iOS 开关替换**: 将 AI 提供商设置页面（`/settings/ai/providers`）的提供商启用状态与单模型启用状态两处自定义 HTML checkbox 开关，替换为 `src/lib/components/ui/switch` 统一的 iOS 样式开关组件。
-- **自定义模型启用保存修复**: 修复了模型列表单模型启用状态无法被保存的 Bug。更新了 `ProviderModelConfig` 类型定义与 `+page.svelte` 保存函数映射机制，打通了 `enabled` 状态的序列化与存储。
+- **自定义模型启用保存修复**: 修复了模型列表单模型启用状态无法被保存的 Bug。更新了 `ProviderModelConfig` 类型定义与 `+page.svelte` 保存函数映射机制，打通了 `enabled` 状态的序列化与存储。并修正了 `ensureProviderDefaults`、`addModel`、`confirmAddModel` 和 `addDiscoveredModel` 中对 `enabled` 字段的正常传递与默认初始化，防止在保存映射和新增模型时丢失 `enabled` 属性值。
 - **后台过滤与路由对齐**: 在模型选择与路由层（`modelRouting.ts` 的 `pickCustomModelId`、`getProviderModel` 以及 `modelSwitch.ts` 的 `buildModelOptions` 等）增加了 `enabled !== false` 过滤机制，避免已被禁用的自定义模型参与服务路由或展示在可选列表中。
+- **Svelte a11y 构建告警清理**: 修复 Providers、Image、Video 设置页的 modal/backdrop 可访问性告警，移除静态 modal card 上的 click/keydown handler，改用 backdrop 自身目标判断关闭弹窗；为图标关闭按钮添加 `aria-label`，并为视频预览补充有效 captions track，使 `npm run build` 不再输出 Svelte a11y warnings。
 
 ### HookManager 运行时扩展设计方案细化与评审 (HookManager Runtime Spec Refinement & Review)
 - **挂载式多播设计**: 明确 HookManager 并非替代 pi-agent-core 循环，而是作为其上的多播层挂载在已有回调点（`beforeToolCall`, `afterToolCall`, `subscribe` 等）上。

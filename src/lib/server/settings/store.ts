@@ -35,8 +35,23 @@ import {
 import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
 import { normalizeTimeZone } from "$lib/server/time.js";
 
-type DynamicSettingKey = "customProviders" | "channels" | "agents";
-const DYNAMIC_SETTING_KEYS: DynamicSettingKey[] = ["customProviders", "channels", "agents"];
+type DynamicSettingKey =
+  | "customProviders"
+  | "channels"
+  | "agents"
+  | "webSearch"
+  | "imageGenerate"
+  | "videoGenerate"
+  | "toolSandbox";
+const DYNAMIC_SETTING_KEYS: DynamicSettingKey[] = [
+  "customProviders",
+  "channels",
+  "agents",
+  "webSearch",
+  "imageGenerate",
+  "videoGenerate",
+  "toolSandbox"
+];
 
 interface RawSettings {
   providerMode?: string;
@@ -577,7 +592,7 @@ function sanitizeModels(
   for (const row of rawModels) {
     if (typeof row === "string") {
       const id = row.trim();
-      if (id) models.push({ id, tags: [...DEFAULT_MODEL_TAGS], supportedRoles: [...providerRoles] });
+      if (id) models.push({ id, tags: [...DEFAULT_MODEL_TAGS], supportedRoles: [...providerRoles], enabled: true });
       continue;
     }
     if (!row || typeof row !== "object") continue;
@@ -595,7 +610,7 @@ function sanitizeModels(
   }
 
   if (models.length === 0 && legacySingle) {
-    models.push({ id: legacySingle, tags: [...DEFAULT_MODEL_TAGS], supportedRoles: [...providerRoles] });
+    models.push({ id: legacySingle, tags: [...DEFAULT_MODEL_TAGS], supportedRoles: [...providerRoles], enabled: true });
   }
 
   const defaultModelRaw = String(item.defaultModel ?? "").trim();
@@ -1238,7 +1253,177 @@ export class SettingsStore {
     } catch {
       // column already exists
     }
+
+    this.migrateLegacyTables(db);
+
     return db;
+  }
+
+  private migrateLegacyTables(db: DatabaseSync): void {
+    const now = new Date().toISOString();
+
+    let hasWebSearchTable = false;
+    try {
+      const row = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings_web_search'").get();
+      hasWebSearchTable = !!row;
+    } catch {}
+
+    if (hasWebSearchTable) {
+      try {
+        const row = db.prepare("SELECT enabled, default_route, default_engine, engine_selection_strategy, max_results, timeout_ms, retry_timeout_ms FROM settings_web_search WHERE id = ?").get("global") as any;
+        if (row) {
+          const engineRows = db.prepare("SELECT engine_id, enabled, api_key, base_url FROM settings_web_search_engines").all() as any[];
+          const engines: Record<string, any> = {};
+          for (const e of engineRows) {
+            engines[e.engine_id] = {
+              enabled: Boolean(e.enabled),
+              apiKey: e.api_key,
+              baseUrl: e.base_url || undefined
+            };
+          }
+          const webSearch = {
+            enabled: Boolean(row.enabled),
+            defaultRoute: row.default_route,
+            defaultEngine: row.default_engine,
+            engineSelectionStrategy: row.engine_selection_strategy,
+            maxResults: row.max_results,
+            timeoutMs: row.timeout_ms,
+            retryTimeoutMs: row.retry_timeout_ms,
+            engines
+          };
+          db.prepare(`
+            INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at)
+            VALUES ('settings_web_search', ?, ?)
+          `).run(JSON.stringify(webSearch), now);
+        }
+      } catch (e) {
+        console.error("Migration of legacy settings_web_search failed:", e);
+      }
+    }
+
+    let hasImageGenerateTable = false;
+    try {
+      const row = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings_image_generate'").get();
+      hasImageGenerateTable = !!row;
+    } catch {}
+
+    if (hasImageGenerateTable) {
+      try {
+        const row = db.prepare("SELECT enabled, default_engine FROM settings_image_generate WHERE id = ?").get("global") as any;
+        if (row) {
+          const engineRows = db.prepare("SELECT engine_id, api_key, base_url, model FROM settings_image_generate_engines").all() as any[];
+          const engines: Record<string, any> = {};
+          for (const e of engineRows) {
+            engines[e.engine_id] = {
+              apiKey: e.api_key,
+              baseUrl: e.base_url || undefined,
+              model: e.model || undefined
+            };
+          }
+          const imageGenerate = {
+            enabled: Boolean(row.enabled),
+            defaultEngine: row.default_engine,
+            engines
+          };
+          db.prepare(`
+            INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at)
+            VALUES ('settings_image_generate', ?, ?)
+          `).run(JSON.stringify(imageGenerate), now);
+        }
+      } catch (e) {
+        console.error("Migration of legacy settings_image_generate failed:", e);
+      }
+    }
+
+    let hasVideoGenerateTable = false;
+    try {
+      const row = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings_video_generate'").get();
+      hasVideoGenerateTable = !!row;
+    } catch {}
+
+    if (hasVideoGenerateTable) {
+      try {
+        const row = db.prepare("SELECT enabled, default_engine FROM settings_video_generate WHERE id = ?").get("global") as any;
+        if (row) {
+          const engineRows = db.prepare("SELECT engine_id, enabled, api_key, base_url, model FROM settings_video_generate_engines").all() as any[];
+          const engines: Record<string, any> = {};
+          for (const e of engineRows) {
+            engines[e.engine_id] = {
+              enabled: Boolean(e.enabled),
+              apiKey: e.api_key,
+              baseUrl: e.base_url || undefined,
+              model: e.model || undefined
+            };
+          }
+          const videoGenerate = {
+            enabled: Boolean(row.enabled),
+            defaultEngine: row.default_engine,
+            engines
+          };
+          db.prepare(`
+            INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at)
+            VALUES ('settings_video_generate', ?, ?)
+          `).run(JSON.stringify(videoGenerate), now);
+        }
+      } catch (e) {
+        console.error("Migration of legacy settings_video_generate failed:", e);
+      }
+    }
+
+    let hasSandboxTable = false;
+    try {
+      const row = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings_sandbox'").get();
+      hasSandboxTable = !!row;
+    } catch {}
+
+    if (hasSandboxTable) {
+      try {
+        const row = db.prepare(`
+          SELECT enabled, init_failure_mode, env_file_path, env_inherit_mode,
+                 env_allow_json, env_deny_json, network_allowed_domains_json, network_denied_domains_json,
+                 fs_deny_read_json, fs_allow_write_json, fs_deny_write_json
+          FROM settings_sandbox
+          WHERE id = ?
+        `).get("global") as any;
+        if (row) {
+          const toolSandbox = {
+            enabled: Boolean(row.enabled),
+            initFailureMode: row.init_failure_mode,
+            envFilePath: row.env_file_path,
+            env: {
+              inheritMode: row.env_inherit_mode,
+              allow: this.parseDynamicValue(row.env_allow_json, []),
+              deny: this.parseDynamicValue(row.env_deny_json, [])
+            },
+            network: {
+              allowedDomains: this.parseDynamicValue(row.network_allowed_domains_json, []),
+              deniedDomains: this.parseDynamicValue(row.network_denied_domains_json, [])
+            },
+            filesystem: {
+              denyRead: this.parseDynamicValue(row.fs_deny_read_json, []),
+              allowWrite: this.parseDynamicValue(row.fs_allow_write_json, []),
+              denyWrite: this.parseDynamicValue(row.fs_deny_write_json, [])
+            }
+          };
+          db.prepare(`
+            INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at)
+            VALUES ('settings_sandbox', ?, ?)
+          `).run(JSON.stringify(toolSandbox), now);
+        }
+      } catch (e) {
+        console.error("Migration of legacy settings_sandbox failed:", e);
+      }
+    }
+
+    db.exec(`
+      DROP TABLE IF EXISTS settings_web_search;
+      DROP TABLE IF EXISTS settings_web_search_engines;
+      DROP TABLE IF EXISTS settings_image_generate;
+      DROP TABLE IF EXISTS settings_image_generate_engines;
+      DROP TABLE IF EXISTS settings_video_generate;
+      DROP TABLE IF EXISTS settings_video_generate_engines;
+      DROP TABLE IF EXISTS settings_sandbox;
+    `);
   }
 
   private parseDynamicValue<T>(value: string, fallback: T): T {
@@ -1376,14 +1561,87 @@ export class SettingsStore {
         reasoningEffortMap: sanitizeReasoningEffortMap(this.parseDynamicValue(row.reasoning_effort_map_json, {}))
       }));
 
+      const webSearch = this.loadWebSearchSettings(db);
+      const imageGenerate = this.loadImageGenerateSettings(db);
+      const videoGenerate = this.loadVideoGenerateSettings(db);
+      const toolSandbox = this.loadSandboxSettings(db);
+
       return {
         agents: agents.length > 0 ? agents : legacy.agents,
         channels: Object.keys(channels).length > 0 ? channels : legacy.channels,
-        customProviders: customProviders.length > 0 ? customProviders : legacy.customProviders
+        customProviders: customProviders.length > 0 ? customProviders : legacy.customProviders,
+        webSearch,
+        imageGenerate,
+        videoGenerate,
+        toolSandbox
       };
     } finally {
       db.close();
     }
+  }
+
+  private saveWebSearchSettings(db: DatabaseSync, webSearch: RuntimeSettings["webSearch"]): void {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at)
+      VALUES ('settings_web_search', ?, ?)
+    `).run(JSON.stringify(webSearch), now);
+  }
+
+  private loadWebSearchSettings(db: DatabaseSync): RuntimeSettings["webSearch"] | undefined {
+    const row = db.prepare("SELECT value_json FROM settings_dynamic WHERE key = ?").get("settings_web_search") as {
+      value_json: string;
+    } | undefined;
+    if (!row) return undefined;
+    return this.parseDynamicValue<RuntimeSettings["webSearch"]>(row.value_json, undefined as any);
+  }
+
+  private saveImageGenerateSettings(db: DatabaseSync, imageGenerate: RuntimeSettings["imageGenerate"]): void {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at)
+      VALUES ('settings_image_generate', ?, ?)
+    `).run(JSON.stringify(imageGenerate), now);
+  }
+
+  private loadImageGenerateSettings(db: DatabaseSync): RuntimeSettings["imageGenerate"] | undefined {
+    const row = db.prepare("SELECT value_json FROM settings_dynamic WHERE key = ?").get("settings_image_generate") as {
+      value_json: string;
+    } | undefined;
+    if (!row) return undefined;
+    return this.parseDynamicValue<RuntimeSettings["imageGenerate"]>(row.value_json, undefined as any);
+  }
+
+  private saveVideoGenerateSettings(db: DatabaseSync, videoGenerate: RuntimeSettings["videoGenerate"]): void {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at)
+      VALUES ('settings_video_generate', ?, ?)
+    `).run(JSON.stringify(videoGenerate), now);
+  }
+
+  private loadVideoGenerateSettings(db: DatabaseSync): RuntimeSettings["videoGenerate"] | undefined {
+    const row = db.prepare("SELECT value_json FROM settings_dynamic WHERE key = ?").get("settings_video_generate") as {
+      value_json: string;
+    } | undefined;
+    if (!row) return undefined;
+    return this.parseDynamicValue<RuntimeSettings["videoGenerate"]>(row.value_json, undefined as any);
+  }
+
+  private saveSandboxSettings(db: DatabaseSync, toolSandbox: RuntimeSettings["toolSandbox"]): void {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at)
+      VALUES ('settings_sandbox', ?, ?)
+    `).run(JSON.stringify(toolSandbox), now);
+  }
+
+  private loadSandboxSettings(db: DatabaseSync): RuntimeSettings["toolSandbox"] | undefined {
+    const row = db.prepare("SELECT value_json FROM settings_dynamic WHERE key = ?").get("settings_sandbox") as {
+      value_json: string;
+    } | undefined;
+    if (!row) return undefined;
+    return this.parseDynamicValue<RuntimeSettings["toolSandbox"]>(row.value_json, undefined as any);
   }
 
   private saveDynamicSettings(settings: RuntimeSettings, keys: DynamicSettingKey[] = DYNAMIC_SETTING_KEYS): void {
@@ -1486,6 +1744,22 @@ export class SettingsStore {
         }
       }
 
+      if (keys.includes("webSearch")) {
+        this.saveWebSearchSettings(db, settings.webSearch);
+      }
+
+      if (keys.includes("imageGenerate")) {
+        this.saveImageGenerateSettings(db, settings.imageGenerate);
+      }
+
+      if (keys.includes("videoGenerate")) {
+        this.saveVideoGenerateSettings(db, settings.videoGenerate);
+      }
+
+      if (keys.includes("toolSandbox")) {
+        this.saveSandboxSettings(db, settings.toolSandbox);
+      }
+
       db.exec("COMMIT");
     } catch (error) {
       try {
@@ -1551,10 +1825,6 @@ export class SettingsStore {
       mcpServers: settings.mcpServers,
       skillSearch: settings.skillSearch,
       skillDrafts: settings.skillDrafts,
-      webSearch: settings.webSearch,
-      imageGenerate: settings.imageGenerate,
-      videoGenerate: settings.videoGenerate,
-      toolSandbox: settings.toolSandbox,
       disabledSkillPaths: settings.disabledSkillPaths,
       telegramBotToken: settings.telegramBotToken,
       telegramAllowedChatIds: settings.telegramAllowedChatIds,
@@ -1582,14 +1852,58 @@ export class SettingsStore {
   load(): RuntimeSettings {
     const rawStatic = readJsonFile<RawSettings>(storagePaths.settingsFile, {});
     const rawDynamic = this.loadDynamicSettings();
+
+    const db = this.openDynamicDb();
+    try {
+      db.exec("BEGIN");
+      let migrated = false;
+
+      if (!rawDynamic.webSearch && rawStatic.webSearch) {
+        this.saveWebSearchSettings(db, sanitizeWebSearchSettings(rawStatic.webSearch));
+        migrated = true;
+      }
+      if (!rawDynamic.imageGenerate && rawStatic.imageGenerate) {
+        this.saveImageGenerateSettings(db, sanitizeImageGenerateSettings(rawStatic.imageGenerate));
+        migrated = true;
+      }
+      if (!rawDynamic.videoGenerate && rawStatic.videoGenerate) {
+        this.saveVideoGenerateSettings(db, sanitizeVideoGenerateSettings(rawStatic.videoGenerate));
+        migrated = true;
+      }
+      if (!rawDynamic.toolSandbox && rawStatic.toolSandbox) {
+        this.saveSandboxSettings(db, sanitizeToolSandboxSettings(rawStatic.toolSandbox));
+        migrated = true;
+      }
+
+      if (migrated) {
+        db.exec("COMMIT");
+      } else {
+        db.exec("ROLLBACK");
+      }
+    } catch (e) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {}
+      console.error("Settings migration to SQLite failed:", e);
+    } finally {
+      db.close();
+    }
+
+    const rawDynamicAfterMigration = this.loadDynamicSettings();
     const merged: RawSettings = {
       ...rawStatic,
-      customProviders: rawDynamic.customProviders ?? rawStatic.customProviders,
-      channels: rawDynamic.channels ?? rawStatic.channels,
-      agents: rawDynamic.agents ?? rawStatic.agents
+      customProviders: rawDynamicAfterMigration.customProviders ?? rawStatic.customProviders,
+      channels: rawDynamicAfterMigration.channels ?? rawStatic.channels,
+      agents: rawDynamicAfterMigration.agents ?? rawStatic.agents,
+      webSearch: rawDynamicAfterMigration.webSearch ?? rawStatic.webSearch,
+      imageGenerate: rawDynamicAfterMigration.imageGenerate ?? rawStatic.imageGenerate,
+      videoGenerate: rawDynamicAfterMigration.videoGenerate ?? rawStatic.videoGenerate,
+      toolSandbox: rawDynamicAfterMigration.toolSandbox ?? rawStatic.toolSandbox
     };
     const settings = sanitize(merged);
     this.saveDynamicSettings(settings);
+    // Overwrite settings.json to clean up migrated keys
+    writeJsonFile(storagePaths.settingsFile, this.toStaticSettings(settings));
     return settings;
   }
 

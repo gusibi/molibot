@@ -648,7 +648,8 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
           models.push({
             id,
             tags: [...DEFAULT_MODEL_TAGS],
-            supportedRoles: sanitizeRoles((row as { supportedRoles?: unknown }).supportedRoles)
+            supportedRoles: sanitizeRoles((row as { supportedRoles?: unknown }).supportedRoles),
+            enabled: true
           });
         }
         continue;
@@ -690,7 +691,8 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
         id: legacyModel,
         tags: [...DEFAULT_MODEL_TAGS],
         supportedRoles: sanitizeRoles((row as { supportedRoles?: unknown }).supportedRoles),
-        contextWindow: undefined
+        contextWindow: undefined,
+        enabled: true
       });
     }
     const modelIds = models.map((m) => m.id);
