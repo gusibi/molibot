@@ -4,6 +4,21 @@
 
 ## 2026-06-07
 
+### System Prompt Skill Routing Cleanup
+- Merged the duplicated `Skill Routing (Mandatory)` prompt section into the existing message pipeline and skills protocol while preserving explicit skill invocation, authoritative skill file paths, output-medium handling, and fallback rules.
+- Replaced the stale static `SYSTEM_PROMPT.preview.md` sample with a placeholder pointing auditors to the live generated prompt preview, preventing old manual event-JSON scheduling guidance from being reused.
+- Added rendered prompt length regression coverage, corrected the refactor plan's verification commands to the actual Node test runner, and isolated ToolRuntime workspace whitelist tests from the real settings database.
+
+### Runtime Log Hook Consolidation
+- Replaced the built-in `DebugLogHook` with `RuntimeLogHook`, a HookManager observer dedicated to centralized runtime log output.
+- Moved duplicate runner lifecycle/tool logs (`run_start`, `run_end`, `tool_start`, `tool_end`, `tool_call_blocked`) behind hook events while preserving run detail archives and UI runner events.
+- Enriched tool hook payloads with display labels so terminal logs keep the same readable tool names after hook-based logging.
+
+### Expanded Trace Fact Coverage
+- Extended trace facts beyond `tool_call` and `model_call` to include `run`, `skill_usage`, `subagent_task`, `runtime_notice`, `approval`, and `input_enrichment`.
+- Added runner hook emissions for input enrichment, subagent task progress, Host Bash approval requests, and key runtime notices so those facts have real runtime sources.
+- Updated `/settings/ai/trace` filtering and summaries so new fact types appear in recent facts without being counted as model requests.
+
 ### Trace Facts Model Usage Alignment
 - Added a runner-level fallback that emits `model.call.after` with assistant `usage` at message completion, so `/settings/ai/trace` model facts now retain input/output/cache/total token details even when provider response hooks did not carry usage.
 - Split trace model attempt IDs per real model API request inside one Agent prompt, so tool-result continuation calls are stored as separate `model_call` facts instead of overwriting the first request.

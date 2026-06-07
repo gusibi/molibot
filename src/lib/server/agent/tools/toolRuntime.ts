@@ -7,7 +7,7 @@ import type {
   ToolExecutionContext,
   ToolResult
 } from "$lib/server/agent/tools/toolTypes.js";
-import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
+import { getWorkspaceStore, type WorkspaceStore } from "$lib/server/workspaces/store.js";
 import { buildHostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 
 export type ToolPolicyDecider = (tool: ToolDefinition, input: unknown, ctx: ToolExecutionContext) => PolicyDecision;
@@ -47,13 +47,14 @@ export class ToolRuntime {
     private readonly options: {
       approvalBroker?: ApprovalBroker;
       decidePolicy?: ToolPolicyDecider;
+      workspaceStore?: WorkspaceStore;
     } = {}
   ) {}
 
   async executeToolCall(call: ToolCallInput): Promise<ToolResult> {
     const workspaceId = call.context.workspaceId;
     if (workspaceId) {
-      const workspace = getWorkspaceStore().getWorkspace(workspaceId);
+      const workspace = (this.options.workspaceStore ?? getWorkspaceStore()).getWorkspace(workspaceId);
       if (workspace) {
         const whitelisted = workspace.enabledToolIds;
         if (whitelisted.length > 0 && !whitelisted.includes("*") && !whitelisted.includes(call.toolId)) {

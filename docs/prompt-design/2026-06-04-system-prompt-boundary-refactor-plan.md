@@ -100,7 +100,7 @@ function buildEventsSection(vars: PromptRenderVars): string {
 **验证**：
 
 ```bash
-npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/prompts/prompt.test.ts
 ```
 
 预期结果：
@@ -136,7 +136,7 @@ function buildToolSearchProtocolSection(): string {
 **验证**：
 
 ```bash
-npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/prompts/prompt.test.ts
 ```
 
 预期结果：
@@ -169,7 +169,7 @@ npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
 **验证**：
 
 ```bash
-npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/prompts/prompt.test.ts
 ```
 
 预期结果：
@@ -212,7 +212,7 @@ npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
 **验证**：
 
 ```bash
-npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/prompts/prompt.test.ts
 ```
 
 预期结果：
@@ -252,7 +252,7 @@ npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
 **验证**：
 
 ```bash
-npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/prompts/prompt.test.ts
 ```
 
 预期结果：
@@ -301,8 +301,8 @@ Bash runs in a runtime-managed sandbox by default. Use it for ordinary shell wor
 **验证**：
 
 ```bash
-npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
-npm test -- --run src/lib/server/agent/tools/bashPolicy.test.ts src/lib/server/agent/tools/sandbox.test.ts src/lib/server/agent/hostBashExec.test.ts
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/prompts/prompt.test.ts
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/tools/index.test.ts src/lib/server/agent/tools/sandbox.test.ts src/lib/server/agent/hostBashExec.test.ts
 ```
 
 预期结果：
@@ -336,7 +336,7 @@ Why this command needs controlled host access instead of sandboxed execution. Us
 **验证**：
 
 ```bash
-npm test -- --run src/lib/server/agent/tools/index.test.ts src/lib/server/agent/tools/toolClassification.test.ts src/lib/server/agent/tools/bashPolicy.test.ts
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/tools/index.test.ts src/lib/server/agent/tools/toolSearch.test.ts src/lib/server/agent/tools/toolRuntime.test.ts
 ```
 
 预期结果：
@@ -370,14 +370,14 @@ npm test -- --run src/lib/server/agent/tools/index.test.ts src/lib/server/agent/
 **验证**：
 
 ```bash
-npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/prompts/prompt.test.ts
 ```
 
 预期结果：
 - 输出顺序是有意设计的，并被测试覆盖。
 - 没有误删 bot/profile/project context 注入。
 
-### P2.2 增加 Prompt 长度回归检查
+### P2.2 增加 Prompt 长度回归检查 [Done]
 
 **文件**：
 - `src/lib/server/agent/prompts/prompt.test.ts`
@@ -398,12 +398,13 @@ expect(prompt).toContain("skillSearch");
 **验证**：
 
 ```bash
-npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/prompts/prompt.test.ts
 ```
 
 预期结果：
 - Prompt 变长能被测试发现。
 - 关键路由规则仍有断言保护。
+- 已落地为真实 `buildSystemPromptPreview()` render 测试，使用临时 workspace 校验 broad prompt size budget，并同时断言 `available-deferred-tools`、`createEvent`、`skillSearch` 与 `skills-protocol` 等关键路由锚点。
 
 ### P2.3 可选工具 Schema 微调
 
@@ -422,7 +423,7 @@ npm test -- --run src/lib/server/agent/prompts/prompt.test.ts
 **验证**：
 
 ```bash
-npm test -- --run src/lib/server/agent/tools/index.test.ts src/lib/server/agent/tools/toolRuntime.test.ts
+node --import ./scripts/register-loader.js --import tsx --test src/lib/server/agent/tools/index.test.ts src/lib/server/agent/tools/toolRuntime.test.ts
 ```
 
 预期结果：

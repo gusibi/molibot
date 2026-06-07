@@ -8,6 +8,8 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Users who prefer simple interaction over complex automation.
 
 ## 2.7 Scope Clarification (2026-06-07)
+- [Done] System Prompt Skill Routing 合并与 Preview 防误导：系统提示词中的 skill routing 规则不得同时散落在 `Message Processing Pipeline`、`Skills Protocol` 和独立 `Skill Routing (Mandatory)` 三处。已将路由判断保留在 pipeline，将已选 skill 后的执行协议保留在 Skills Protocol，并移除独立重复 section；同时把静态 `SYSTEM_PROMPT.preview.md` 改成占位说明，真实 prompt 检查必须走 `buildSystemPromptPreview()`、Web prompt preview endpoint 或 runtime 生成文件，避免旧 preview 继续教模型手写 event JSON。
+- [Done] System Prompt P1 收尾：Prompt 回归测试必须覆盖真实 render 后的长度预算和关键路由锚点，防止后续又把长篇 event/tool/skill 说明塞回系统提示词；提示词重构方案文档中的验证命令必须使用仓库真实 Node test runner；ToolRuntime workspace whitelist 测试不得写真实 settings DB，必须使用隔离测试库。
 - [Done] Trace Facts 模型用量补写与 Usage 关联：修复 `/settings/ai/trace` 最近 Trace Facts 中模型调用缺失 input/output/cache/total token 的问题。`/settings/ai/usage` 继续读取独立 usage JSONL 用量账本，`/settings/ai/trace` 继续读取 SQLite `agent_trace_facts`，但 Runner 会在 assistant message end 拿到 usage 时补发同一 `modelAttemptId` 的 `model.call.after`，使 trace facts 能通过 run/session/model attempt 与 usage 口径对齐；当 provider 未返回显式 total token 时，TraceRecorder 使用 input/output/cache read/cache write 自动补算总数。
 - [Done] 工具调用后的模型续写请求必须作为独立模型调用 fact 记录：同一个 Agent prompt 内部可能发生多次真实 AI API 请求（首轮模型请求、工具调用、工具结果后的续写请求等），Trace 的 `modelAttemptId` 粒度必须按真实 API request 递增，不能用外层 `agent.prompt()` attempt 覆盖前一次模型调用。
 
@@ -3317,3 +3319,35 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - 修正 `+page.svelte` 中的 `ensureProviderDefaults` 映射逻辑，确保在保存映射前，模型对象的 `enabled` 字段被正确透传，防止其被误置为 undefined 并最终默认解析为 true。
   - 在 `addModel`、`confirmAddModel` 和 `addDiscoveredModel` 中为新模型初始化提供默认值 `enabled: true`。
+
+## 206. Runtime 日志 Hook 化收敛 (2026-06-07)
+- Priority: P1
+- Stage: Delivered (2026-06-07)
+- Problem:
+  - Agent runner 中的生命周期和工具调用日志与 HookManager/Trace 事件重复，导致同一运行事实同时散落在本地 `momLog` 调用和 hook 事件里。
+  - 直接把日志写入 Trace 会混淆职责；日志输出应作为独立 hook consumer 统一管理，和 TraceRecorder 并列消费同一套运行事件。
+- Requirement:
+  - 新增 `RuntimeLogHook`，注册到默认 HookManager 中，负责 hook 能覆盖的 runtime 日志输出。
+  - 先迁移 runner 中已经有 hook event 覆盖的 `run_start` / `run_end` / `tool_start` / `tool_end` / `tool_call_blocked`，不强改 Channel 层和 Web 即时诊断。
+  - 保留 `/runlog` 归档、`onRunnerEvent` 前端/渠道即时状态，以及非 run 上下文的 adapter/SDK 运维日志。
+  - 后续再单独评估 Trace fact 类型扩展，例如 `run`、`skill_usage`、`subagent_task`、`runtime_notice`、`approval`、`input_enrichment`。
+- Enforcement:
+  - 默认 hook 注册使用 `RuntimeLogHook` + `TraceRecorderHook`，日志输出和 Trace 入库保持并列关系。
+  - runner 只补齐 hook payload 中日志需要的展示字段，不把 channel 发送、run detail archive、UI runner event 合并进日志 hook。
+  - 单测必须覆盖 `RuntimeLogHook` 对 run/tool hook event 的日志映射，并回归 TraceRecorder 现有 tool/model fact 行为。
+
+## 207. Trace Fact 类型扩展 (2026-06-07)
+- Priority: P1
+- Stage: Delivered (2026-06-07)
+- Problem:
+  - Trace facts 之前只聚合 `tool_call` 与 `model_call`，导致 run 生命周期、skill 使用、Sub Agent 任务、runtime notice、审批请求、输入增强等关键运行事实只能从 raw events 或散点日志中还原。
+  - 如果直接把这些事件都按 model/tool 统计，会污染 `/settings/ai/trace` 的模型请求和 token 汇总。
+- Requirement:
+  - 扩展统一 `agent_trace_facts` 的 `fact_type`，支持 `run`、`skill_usage`、`subagent_task`、`runtime_notice`、`approval`、`input_enrichment`。
+  - 保持现有 SQLite 表结构兼容，不新增专用表；新增 fact 的特定字段放入现有通用列与 `payload_json`。
+  - runner 必须为输入增强、Sub Agent task、Host Bash approval request、预算/委派 runtime notice 发出对应 hook event。
+  - `/settings/ai/trace` 必须能筛选新增 fact 类型，且统计汇总只把 `model_call` 算入模型请求，只把 `tool_call` 算入工具调用。
+- Enforcement:
+  - `TraceRecorderHook` 必须继续保留 raw trace events，同时把新增阶段 upsert 到 `agent_trace_facts`。
+  - 新增状态值允许表达 `waiting`、`aborted`、`info`、`warning`，用于审批等待和 runtime notice。
+  - 测试必须覆盖新增 fact 类型的入库，以及既有 `tool_call` / `model_call` 行为不回退。

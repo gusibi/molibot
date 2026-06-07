@@ -99,7 +99,17 @@ interface ChatSummary {
 }
 
 const timeRanges = new Set<TimeRange>(["today", "yesterday", "last7Days", "last30Days"]);
-const factTypes = new Set<FactTypeFilter>(["all", "tool_call", "model_call"]);
+const factTypes = new Set<FactTypeFilter>([
+  "all",
+  "run",
+  "tool_call",
+  "model_call",
+  "skill_usage",
+  "subagent_task",
+  "runtime_notice",
+  "approval",
+  "input_enrichment"
+]);
 
 function localDateKey(value: string | Date, timeZone: string): string {
   const date = typeof value === "string" ? new Date(value) : value;
@@ -258,7 +268,7 @@ function buildStats(facts: TraceFactRecord[]) {
     if (fact.factType === "tool_call") {
       bot.toolCalls += 1;
       bot.tools.add(safeString(fact.name, "unknown"));
-    } else {
+    } else if (fact.factType === "model_call") {
       bot.modelCalls += 1;
       bot.inputTokens += fact.inputTokens ?? 0;
       bot.outputTokens += fact.outputTokens ?? 0;
@@ -290,7 +300,7 @@ function buildStats(facts: TraceFactRecord[]) {
     if (fact.factType === "tool_call") {
       chat.toolCalls += 1;
       chat.tools.add(safeString(fact.name, "unknown"));
-    } else {
+    } else if (fact.factType === "model_call") {
       chat.modelCalls += 1;
       chat.totalTokens += fact.totalTokens ?? 0;
     }
@@ -312,7 +322,7 @@ function buildStats(facts: TraceFactRecord[]) {
     if (fact.factType === "tool_call") {
       session.toolCalls += 1;
       session.tools.add(safeString(fact.name, "unknown"));
-    } else {
+    } else if (fact.factType === "model_call") {
       session.modelCalls += 1;
       session.totalTokens += fact.totalTokens ?? 0;
     }
@@ -332,7 +342,7 @@ function buildStats(facts: TraceFactRecord[]) {
     if (fact.factType === "tool_call") {
       run.toolCalls += 1;
       run.tools.add(safeString(fact.name, "unknown"));
-    } else {
+    } else if (fact.factType === "model_call") {
       run.modelCalls += 1;
       run.totalTokens += fact.totalTokens ?? 0;
     }

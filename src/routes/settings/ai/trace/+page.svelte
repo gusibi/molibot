@@ -24,7 +24,16 @@
     } from "$lib/components/ui/table";
 
     type TimeRange = "today" | "yesterday" | "last7Days" | "last30Days";
-    type FactType = "all" | "tool_call" | "model_call";
+    type FactType =
+        | "all"
+        | "run"
+        | "tool_call"
+        | "model_call"
+        | "skill_usage"
+        | "subagent_task"
+        | "runtime_notice"
+        | "approval"
+        | "input_enrichment";
 
     interface TraceTotals {
         facts: number;
@@ -120,7 +129,7 @@
 
     interface TraceFact {
         id: string;
-        factType: "tool_call" | "model_call";
+        factType: Exclude<FactType, "all">;
         runId: string;
         factId: string;
         channel: string;
@@ -131,7 +140,7 @@
         provider?: string;
         model?: string;
         api?: string;
-        status: "started" | "success" | "error" | "blocked";
+        status: "started" | "success" | "error" | "blocked" | "waiting" | "aborted" | "info" | "warning";
         durationMs?: number;
         inputTokens?: number;
         outputTokens?: number;
@@ -140,6 +149,7 @@
         totalTokens?: number;
         blockedBy?: string;
         errorPreview?: string;
+        resultPreview?: string;
         createdAt: string;
         updatedAt: string;
     }
@@ -187,8 +197,14 @@
     }
 
     function factTypeLabel(type: FactType | TraceFact["factType"]): string {
+        if (type === "run") return "运行";
         if (type === "tool_call") return "工具调用";
         if (type === "model_call") return "模型请求";
+        if (type === "skill_usage") return "技能使用";
+        if (type === "subagent_task") return "Sub Agent";
+        if (type === "runtime_notice") return "运行提示";
+        if (type === "approval") return "审批";
+        if (type === "input_enrichment") return "输入增强";
         return "全部类型";
     }
 
@@ -198,6 +214,10 @@
             success: "成功",
             error: "失败",
             blocked: "已阻止",
+            waiting: "等待中",
+            aborted: "已中止",
+            info: "信息",
+            warning: "警告",
         };
         return labels[status];
     }
@@ -205,7 +225,7 @@
     function statusVariant(status: TraceFact["status"]): "default" | "secondary" | "destructive" | "outline" {
         if (status === "success") return "secondary";
         if (status === "error") return "destructive";
-        if (status === "blocked") return "outline";
+        if (status === "blocked" || status === "warning" || status === "aborted") return "outline";
         return "default";
     }
 
@@ -237,12 +257,14 @@
 
     function displayFactName(fact: TraceFact): string {
         if (fact.factType === "tool_call") return fact.name || "unknown";
-        return fact.model || fact.provider || "unknown";
+        if (fact.factType === "model_call") return fact.model || fact.provider || "unknown";
+        return fact.name || fact.factId || "unknown";
     }
 
     function factSubtitle(fact: TraceFact): string {
         if (fact.factType === "tool_call") return fact.blockedBy || fact.errorPreview || fact.factId;
-        return [fact.provider, fact.api].filter(Boolean).join(" / ") || fact.factId;
+        if (fact.factType === "model_call") return [fact.provider, fact.api].filter(Boolean).join(" / ") || fact.factId;
+        return fact.resultPreview || fact.errorPreview || fact.factId;
     }
 
     function shortId(value: string): string {
@@ -356,8 +378,14 @@
                     <Label for="trace-fact-type" class="usage-filter-label">调用类型</Label>
                     <NativeSelect id="trace-fact-type" class="w-full" bind:value={selectedFactType}>
                         <NativeSelectOption value="all">全部类型</NativeSelectOption>
+                        <NativeSelectOption value="run">运行</NativeSelectOption>
                         <NativeSelectOption value="tool_call">工具调用</NativeSelectOption>
                         <NativeSelectOption value="model_call">模型请求</NativeSelectOption>
+                        <NativeSelectOption value="skill_usage">技能使用</NativeSelectOption>
+                        <NativeSelectOption value="subagent_task">Sub Agent</NativeSelectOption>
+                        <NativeSelectOption value="runtime_notice">运行提示</NativeSelectOption>
+                        <NativeSelectOption value="approval">审批</NativeSelectOption>
+                        <NativeSelectOption value="input_enrichment">输入增强</NativeSelectOption>
                     </NativeSelect>
                 </div>
                 <div class="usage-filter-group">

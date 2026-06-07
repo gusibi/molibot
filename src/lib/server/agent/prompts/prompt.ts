@@ -182,9 +182,11 @@ function buildMessageProcessingPipeline(): string {
 
     "Step 1 — Skill Routing",
     "  a) Explicit Invocation: (`/skill-name`, `$skill-name`, `skill:skill-name`) → unconditionally execute that skill.",
-    "  b) For any other non-trivial action request (tool use, bash, scripting, workflow execution), call `skillSearch` before generic tools.",
-    "  c) If `skillSearch` returns a matching skill, read that skill's `SKILL.md` and follow it before considering manual alternatives.",
-    "  d) If `skillSearch` returns no match, continue to generic tools or a direct answer as appropriate.",
+    "  b) Route by the user's desired outcome and output format, not only remembered examples or exact keywords.",
+    "  c) For any other non-trivial action request (tool use, bash, scripting, workflow execution), call `skillSearch` before generic tools.",
+    "  d) If `skillSearch` returns a matching skill, read that skill's `SKILL.md` and follow it before considering manual alternatives.",
+    "  e) If a matching skill supports the requested output medium or artifact, deliver that medium unless the skill actually failed.",
+    "  f) If `skillSearch` returns no match, continue to generic tools or a direct answer as appropriate.",
 
     "Step 2 — Tool Match (Fallback for local workspace tasks)",
     "Only proceed here if no dedicated runtime tool or skill matched. Use the dedicated tool for the job. Bash runs in a runtime-managed sandbox by default and is appropriate for ordinary shell work such as scripting, builds, tests, package installs, file operations, and data processing.",
@@ -247,22 +249,6 @@ function buildWorkspaceLayoutSection(vars: PromptRenderVars): string {
   ]);
 }
 
-function buildSkillRoutingSection(): string {
-  return section("Skill Routing (Mandatory)", [
-    "- Treat installed skills as first-class capabilities, not optional examples.",
-    "- Route by the user's desired outcome and output format, not only remembered examples or exact keywords.",
-    "- Before using generic tools or a manual workaround, run `skillSearch` when the request may require a reusable skill or non-text action.",
-    "- If the user wants a specific output medium or artifact and a skill supports it, deliver in that medium/artifact. Do not silently downgrade unless the skill actually failed.",
-    "- Explicit skill invocation is the strongest signal, but lack of explicit invocation is NOT a reason to ignore a clearly matching skill.",
-    "- If the user invokes a skill via slash form, treat that as an authoritative skill-selection command, not as a normal chat command.",
-    "- When `[explicit skill invocation]` is present, use the listed `skill_file` path exactly as provided. Do not guess a different path from memory, old examples, or folder naming habits.",
-    "- When `[explicit skill file]` is present, treat that file content as already-loaded runtime context for this turn and follow it before inventing manual alternatives.",
-    "- If an explicitly-invoked skill cannot be found at the provided path, say that exact path is missing instead of inventing a replacement path.",
-    "- If `skillSearch` returns multiple skills, choose the one that matches the requested end result most directly, not the one that is merely related or easier.",
-    "- If a skill attempt fails, say that the attempt failed, briefly state why, and then choose the best fallback. Never skip straight to the fallback without trying the skill.",
-  ], "skill-routing");
-}
-
 function buildSkillsProtocolSection(vars: PromptRenderVars): string {
   const creatorLine = vars.skillCreatorAvailable === "true"
     ? `When a task requires creating/updating a skill, use \`${vars.skillCreatorSkillFile}\` first.\n`
@@ -275,13 +261,18 @@ function buildSkillsProtocolSection(vars: PromptRenderVars): string {
     `Use \`${vars.chatSkillsDir}/<name>/\` only for chat-specific temporary skills.`,
     "",
     "### Skill Execution Protocol",
+    "- Treat installed skills as first-class capabilities, not optional examples.",
     "- Explicit invocation (`$skill-name`, `/skill-name`, `skill:skill-name`, `技能:skill-name`) → MUST use that skill for this turn.",
     "- Slash form is case-insensitive; spaces, `_`, and `-` are equivalent.",
+    "- If the user invokes a skill via slash form, treat that as an authoritative skill-selection command, not as a normal chat command.",
     "- `[explicit skill invocation]` in input → treat listed `skill_file` path as authoritative. Do not guess a different path.",
+    "- `[explicit skill file]` in input → treat that file content as already-loaded runtime context for this turn and follow it before inventing manual alternatives.",
+    "- If an explicitly-invoked skill cannot be found at the provided path, say that exact path is missing instead of inventing a replacement path.",
     "- Before using any skill, read its `SKILL.md` in full. Never execute `SKILL.md` directly with `sh`/`bash`.",
     "- Follow instructions in `SKILL.md` exactly. Resolve relative paths against the skill directory.",
-    "- If a skill fails, report the actual failure and why, then fall back. Do not skip the skill silently.",
     "- If two skills overlap, pick the one whose description most directly matches the requested end result.",
+    "- If a skill supports the user's requested output medium or artifact, do not silently downgrade unless the skill actually failed.",
+    "- If a skill fails, report the actual failure and why, then fall back. Do not skip the skill silently.",
     "- After a difficult task succeeds and no suitable skill existed yet, use `toolSearch` to load `skillManage`, then prepare a reusable draft instead of silently losing the workflow.",
     "- Default to saving a draft first. Do not create or overwrite a live skill unless the workflow is already validated or the user clearly asked for it.",
   ].join("\n"));
@@ -484,8 +475,6 @@ function buildBaseSystemPromptWithOptions(
     "",
     // --- Skills registry + protocol right after pipeline ---
     buildSkillsProtocolSection(vars),
-    "",
-    buildSkillRoutingSection(),
     "",
     buildSkillsRuntimeStateSection(vars),
     ...(options?.settings ? ["", buildFeaturePluginsSection(options.settings)] : []),

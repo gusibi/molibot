@@ -102,8 +102,11 @@ export class TraceRecorderHook implements RuntimeHook {
   readonly kind = "observe" as const;
   readonly priority = 10;
   readonly stages: HookStage[] = [
+    "run.beforeStart",
     "run.started",
     "run.finished",
+    "input.enrich.before",
+    "input.enrich.after",
     "model.call.before",
     "model.call.after",
     "tool.call.before",
@@ -112,6 +115,10 @@ export class TraceRecorderHook implements RuntimeHook {
     "tool.call.blocked",
     "skill.selected",
     "skill.loaded",
+    "approval.requested",
+    "approval.resolved",
+    "subagent.task.before",
+    "subagent.task.after",
     "runtime.notice"
   ];
 
@@ -159,6 +166,22 @@ export class TraceRecorderHook implements RuntimeHook {
   private recordFact(event: HookEvent): void {
     if (!event.payload || typeof event.payload !== "object" || Array.isArray(event.payload)) return;
     const payload = event.payload as Record<string, unknown>;
+    if (event.stage === "run.beforeStart" || event.stage === "run.started") {
+      this.recordRunFact(event, payload, "started");
+      return;
+    }
+    if (event.stage === "run.finished") {
+      this.recordRunFact(event, payload, this.runStatus(payload));
+      return;
+    }
+    if (event.stage === "input.enrich.before") {
+      this.recordGenericFact(event, payload, "input_enrichment", "input", "input", "started");
+      return;
+    }
+    if (event.stage === "input.enrich.after") {
+      this.recordGenericFact(event, payload, "input_enrichment", "input", "input", "success");
+      return;
+    }
     if (event.stage === "tool.call.before") {
       this.recordToolFact(event, payload, "started");
       return;
@@ -181,7 +204,147 @@ export class TraceRecorderHook implements RuntimeHook {
     }
     if (event.stage === "model.call.after") {
       this.recordModelFact(event, payload, "success");
+      return;
     }
+    if (event.stage === "skill.selected") {
+      this.recordSkillFact(event, payload, "started");
+      return;
+    }
+    if (event.stage === "skill.loaded") {
+      this.recordSkillFact(event, payload, "success");
+      return;
+    }
+    if (event.stage === "approval.requested") {
+      const requestId = stringField(payload, "requestId") ?? stringField(payload, "approvalId") ?? event.timestamp;
+      this.recordGenericFact(event, payload, "approval", requestId, stringField(payload, "displayName") ?? stringField(payload, "toolId") ?? "approval", "waiting");
+      return;
+    }
+    if (event.stage === "approval.resolved") {
+      const requestId = stringField(payload, "requestId") ?? stringField(payload, "approvalId") ?? event.timestamp;
+      const decision = stringField(payload, "decision") ?? stringField(payload, "status");
+      this.recordGenericFact(
+        event,
+        payload,
+        "approval",
+        requestId,
+        stringField(payload, "displayName") ?? stringField(payload, "toolId") ?? "approval",
+        decision === "approved" || decision === "success" ? "success" : decision === "rejected" || decision === "blocked" ? "blocked" : "error"
+      );
+      return;
+    }
+    if (event.stage === "subagent.task.before") {
+      this.recordSubagentTaskFact(event, payload, "started");
+      return;
+    }
+    if (event.stage === "subagent.task.after") {
+      this.recordSubagentTaskFact(event, payload, this.subagentStatus(payload));
+      return;
+    }
+    if (event.stage === "runtime.notice") {
+      const code = stringField(payload, "code") ?? event.timestamp;
+      const severity = stringField(payload, "severity") ?? "info";
+      this.recordGenericFact(
+        event,
+        payload,
+        "runtime_notice",
+        code,
+        code,
+        severity === "error" ? "error" : severity === "warn" || severity === "warning" ? "warning" : "info"
+      );
+    }
+  }
+
+  private runStatus(payload: Record<string, unknown>): TraceFactRecord["status"] {
+    const status = stringField(payload, "status") ?? stringField(payload, "stopReason");
+    if (status === "success" || status === "stop") return "success";
+    if (status === "aborted") return "aborted";
+    if (status === "waiting_for_approval" || status === "waiting") return "waiting";
+    return "error";
+  }
+
+  private subagentStatus(payload: Record<string, unknown>): TraceFactRecord["status"] {
+    const stopReason = stringField(payload, "stopReason");
+    if (!stopReason || stopReason === "stop") return "success";
+    if (stopReason === "aborted") return "aborted";
+    if (stopReason === "waiting_for_approval") return "waiting";
+    return "error";
+  }
+
+  private recordRunFact(
+    event: HookEvent,
+    payload: Record<string, unknown>,
+    status: TraceFactRecord["status"]
+  ): void {
+    this.recordGenericFact(event, payload, "run", event.context.runId, event.context.sessionId, status, {
+      startedAt: status === "started" ? event.timestamp : this.runStates.get(event.context.runId)?.startedAt,
+      finishedAt: status === "started" ? undefined : event.timestamp,
+      durationMs: numberField(payload, "durationMs")
+    });
+  }
+
+  private recordSkillFact(
+    event: HookEvent,
+    payload: Record<string, unknown>,
+    status: TraceFactRecord["status"]
+  ): void {
+    const name = stringField(payload, "name") ?? "unknown";
+    const scope = stringField(payload, "scope") ?? "unknown";
+    const filePath = stringField(payload, "filePath");
+    this.recordGenericFact(event, payload, "skill_usage", filePath ?? `${scope}:${name}`, name, status);
+  }
+
+  private recordSubagentTaskFact(
+    event: HookEvent,
+    payload: Record<string, unknown>,
+    status: TraceFactRecord["status"]
+  ): void {
+    const agent = stringField(payload, "agent") ?? "unknown";
+    const taskIndex = numberField(payload, "taskIndex") ?? 0;
+    const factId = `${agent}:${taskIndex}`;
+    this.recordGenericFact(event, payload, "subagent_task", factId, agent, status);
+  }
+
+  private recordGenericFact(
+    event: HookEvent,
+    payload: Record<string, unknown>,
+    factType: TraceFactType,
+    factId: string,
+    name: string,
+    status: TraceFactRecord["status"],
+    timing: { startedAt?: string; finishedAt?: string; durationMs?: number } = {}
+  ): void {
+    const key = factKey(factType, event.context.runId, factId);
+    const existing = this.factStarts.get(key);
+    const startedAt = timing.startedAt ?? existing?.startedAt ?? (status === "started" ? event.timestamp : undefined);
+    const finishedAt = timing.finishedAt ?? (status === "started" ? undefined : event.timestamp);
+    const id = existing?.id ?? randomUUID();
+    if (status === "started" || status === "waiting") {
+      this.factStarts.set(key, { id, startedAt: startedAt ?? event.timestamp });
+    } else {
+      this.factStarts.delete(key);
+    }
+
+    this.store.upsertFact({
+      id,
+      factType,
+      runId: event.context.runId,
+      factId,
+      channel: event.context.channel,
+      botId: event.context.botId,
+      chatId: event.context.chatId,
+      sessionId: event.context.sessionId,
+      workspaceId: event.context.workspaceId,
+      name,
+      status,
+      startedAt,
+      finishedAt,
+      durationMs: timing.durationMs ?? durationMs(startedAt, finishedAt),
+      errorPreview: status === "error" ? stringField(payload, "errorMessage") ?? stringField(payload, "message") : undefined,
+      resultPreview: stringField(payload, "resultPreview") ?? stringField(payload, "message"),
+      payload: sanitizePayload(payload),
+      createdAt: startedAt ?? event.timestamp,
+      updatedAt: event.timestamp
+    });
   }
 
   private recordToolFact(

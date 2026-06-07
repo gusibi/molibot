@@ -2,6 +2,13 @@
 
 ## 2026-06-07
 
+### System Prompt Skill Routing 合并与 Preview 防误导 (System Prompt Skill Routing Merge & Preview Guardrail)
+- **Skill routing 去重**: 将独立的 `Skill Routing (Mandatory)` section 合并回 `Message Processing Pipeline` 与 `Skills Protocol`，保留显式 skill 调用、`[explicit skill invocation]` 权威路径、读取 `SKILL.md`、输出媒介不静默降级和失败 fallback 等规则，同时减少系统提示词重复段落。
+- **静态 preview 防误导**: 将 `src/lib/server/agent/prompts/templates/SYSTEM_PROMPT.preview.md` 从过期的完整旧样例改成静态占位说明，明确真实预览来自 `buildSystemPromptPreview()` / Web prompt preview endpoint / runtime 生成文件，避免继续传播手写 event JSON 的旧调度做法。
+- **Prompt 长度回归检查**: `prompt.test.ts` 新增真实 `buildSystemPromptPreview()` render 测试，使用临时 workspace 校验 broad size budget，并固定 `available-deferred-tools`、`createEvent`、`skillSearch`、`skills-protocol` 等关键路由锚点。
+- **验证命令更新**: 系统提示词重构方案文档中的验证命令已从不可用的 `npm test -- --run ...` 更新为当前仓库可执行的 `node --import ./scripts/register-loader.js --import tsx --test ...`。
+- **ToolRuntime 测试库隔离**: `ToolRuntime` 支持注入测试专用 `WorkspaceStore`，`toolRuntime.test.ts` 的 workspace whitelist 用例改用临时 SQLite 文件，避免写真实 settings DB 并修复 `attempt to write a readonly database` 失败。
+
 ### Trace Facts 模型用量补写与 Usage 关联 (Trace Facts Model Usage Backfill & Usage Alignment)
 - **模型调用 token 补写**: Runner 在 assistant 消息结束并拿到 `usage` 后，会额外向 HookManager 发出同一 `modelAttemptId` 的 `model.call.after` 事件，使 `agent_trace_facts` 的 `model_call` 记录也能拿到 input/output/cache/total token。
 - **工具后续写模型请求拆分记录**: 同一个 Agent prompt 内如果发生“模型请求 -> 工具调用 -> 工具结果后再次请求模型”的循环，每次真实 AI API 请求都会生成独立的 `modelAttemptId`，避免工具后的模型请求覆盖第一次模型调用 fact。
@@ -1604,3 +1611,7 @@
 - 2026-06-06: Added fixed footer bar (`.settings-footbar`) to all channel settings pages, matching the MCP page pattern. Save buttons are now pinned to the bottom of the viewport with a glassmorphic backdrop blur effect, and the form uses `id="channel-form"` with `type="submit" form="channel-form"` on the footer button.
 - 2026-06-06: Converted Checkbox toggles to Switch components across channel settings pages for visual consistency with the reference HTML design system. Enable and streaming output toggles now use iOS-style switches.
 - 2026-06-06: Fixed MCP settings page footer to remove remaining Tailwind utility classes, replacing them with `.settings-footbar-saving`, `.settings-footbar-pulse`, and `.settings-footbar-actions` semantic classes.
+- 2026-06-07: Centralized hook-covered runtime logs behind `RuntimeLogHook`. The default HookManager now registers `RuntimeLogHook` alongside `TraceRecorderHook`, runner lifecycle/tool logs are emitted from hook events instead of duplicated local `momLog` calls, and tool hook payloads now carry `displayName` / `label` so terminal output remains readable while Trace facts continue using the same events.
+- 2026-06-07: Expanded `agent_trace_facts` coverage to record `run`, `skill_usage`, `subagent_task`, `runtime_notice`, `approval`, and `input_enrichment` facts in addition to existing `tool_call` / `model_call` facts. Runner now emits hook events for input enrichment, subagent task progress, Host Bash approval requests, and budget/delegation runtime notices; `/settings/ai/trace` can filter the new fact types without inflating model-call summaries.
+- 2026-06-07: Merged the duplicated system-prompt skill routing section into the message pipeline and skills protocol, then replaced the stale static prompt preview sample with a placeholder that points audits to the live generated prompt preview.
+- 2026-06-07: Finished prompt P1 follow-up hardening by adding rendered prompt length regression coverage, correcting prompt-plan verification commands to the real Node test runner, and isolating `toolRuntime.test.ts` workspace whitelist writes in a temporary SQLite database.

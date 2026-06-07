@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { ApprovalBroker, MemoryApprovalBrokerStore } from "$lib/server/approval/approvalBroker.js";
 import { ToolRegistry, ToolRuntime } from "$lib/server/agent/tools/toolRuntime.js";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
-import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
+import { WorkspaceStore } from "$lib/server/workspaces/store.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 
 function context(events: RunDetailEntry[] = [], signal?: AbortSignal): ToolExecutionContext {
@@ -209,36 +212,40 @@ test("ToolRuntime uses existing approval grant to execute high-risk tool", async
 });
 
 test("ToolRuntime blocks tool execution if not in workspace whitelist", async () => {
-  const store = getWorkspaceStore();
-  store.upsertWorkspace({
-    id: "test-whitelist",
-    name: "Test Whitelist",
-    enabledToolIds: ["echo"]
-  });
+  const tempDir = mkdtempSync(join(tmpdir(), "molibot-tool-runtime-"));
+  try {
+    const store = new WorkspaceStore(join(tempDir, "settings.sqlite"));
+    store.upsertWorkspace({
+      id: "test-whitelist",
+      name: "Test Whitelist",
+      enabledToolIds: ["echo"]
+    });
 
-  const registry = new ToolRegistry();
-  registry.register(tool({ id: "echo" }));
-  registry.register(tool({ id: "run_command" }));
+    const registry = new ToolRegistry();
+    registry.register(tool({ id: "echo" }));
+    registry.register(tool({ id: "run_command" }));
 
-  const okResult = await new ToolRuntime(registry).executeToolCall({
-    toolId: "echo",
-    input: "hello",
-    context: {
-      ...context(),
-      workspaceId: "test-whitelist"
-    }
-  });
-  assert.equal(okResult.ok, true);
+    const okResult = await new ToolRuntime(registry, { workspaceStore: store }).executeToolCall({
+      toolId: "echo",
+      input: "hello",
+      context: {
+        ...context(),
+        workspaceId: "test-whitelist"
+      }
+    });
+    assert.equal(okResult.ok, true);
 
-  const blockedResult = await new ToolRuntime(registry).executeToolCall({
-    toolId: "run_command",
-    input: "ls",
-    context: {
-      ...context(),
-      workspaceId: "test-whitelist"
-    }
-  });
-  assert.equal(blockedResult.ok, false);
-  assert.match(blockedResult.error ?? "", /workspace security policy/);
+    const blockedResult = await new ToolRuntime(registry, { workspaceStore: store }).executeToolCall({
+      toolId: "run_command",
+      input: "ls",
+      context: {
+        ...context(),
+        workspaceId: "test-whitelist"
+      }
+    });
+    assert.equal(blockedResult.ok, false);
+    assert.match(blockedResult.error ?? "", /workspace security policy/);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });
-

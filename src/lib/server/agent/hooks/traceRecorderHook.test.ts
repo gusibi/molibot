@@ -167,3 +167,70 @@ test("TraceRecorderHook writes blocked tool facts without a before event", async
   assert.equal(facts[0]?.blockedBy, "hook_gate");
   store.close();
 });
+
+test("TraceRecorderHook writes run, skill, notice, approval, subagent, and enrichment facts", async () => {
+  const store = new SqliteTraceStore(":memory:");
+  const manager = new DefaultHookManager();
+  manager.register(new TraceRecorderHook(store));
+  const runContext = context("run-expanded-facts");
+
+  manager.emit("run.beforeStart", runContext, { messageId: 1, textLength: 10 });
+  manager.emit("input.enrich.before", runContext, { textLength: 10, imageCount: 1 });
+  manager.emit("input.enrich.after", runContext, { textLength: 30, visionRoutingMode: "fallback" });
+  manager.emit("skill.selected", runContext, {
+    name: "agent-runtime-debug-review",
+    scope: "user",
+    filePath: "skills/agent-runtime-debug-review/SKILL.md"
+  });
+  manager.emit("skill.loaded", runContext, {
+    name: "agent-runtime-debug-review",
+    scope: "user",
+    filePath: "skills/agent-runtime-debug-review/SKILL.md"
+  });
+  manager.emit("subagent.task.before", runContext, {
+    mode: "single",
+    agent: "scout",
+    taskIndex: 1,
+    taskCount: 1
+  });
+  manager.emit("subagent.task.after", runContext, {
+    mode: "single",
+    agent: "scout",
+    taskIndex: 1,
+    taskCount: 1,
+    stopReason: "stop"
+  });
+  manager.emit("approval.requested", runContext, {
+    requestId: "approval-1",
+    toolId: "bash",
+    displayName: "Host Bash",
+    reason: "needs host access"
+  });
+  manager.emit("runtime.notice", runContext, {
+    code: "TOOL_BUDGET_CONTINUATION",
+    severity: "warn",
+    message: "Tool budget reached"
+  });
+  manager.emit("run.finished", runContext, {
+    status: "success",
+    stopReason: "stop",
+    durationMs: 50
+  });
+  await manager.flush({ timeoutMs: 1000 });
+
+  const facts = store.listFactsByRunId("run-expanded-facts");
+  const byType = new Map(facts.map((fact) => [fact.factType, fact]));
+
+  assert.equal(byType.get("run")?.status, "success");
+  assert.equal(byType.get("run")?.durationMs, 50);
+  assert.equal(byType.get("input_enrichment")?.status, "success");
+  assert.equal(byType.get("skill_usage")?.status, "success");
+  assert.equal(byType.get("skill_usage")?.name, "agent-runtime-debug-review");
+  assert.equal(byType.get("subagent_task")?.status, "success");
+  assert.equal(byType.get("subagent_task")?.name, "scout");
+  assert.equal(byType.get("approval")?.status, "waiting");
+  assert.equal(byType.get("approval")?.name, "Host Bash");
+  assert.equal(byType.get("runtime_notice")?.status, "warning");
+  assert.equal(byType.get("runtime_notice")?.name, "TOOL_BUDGET_CONTINUATION");
+  store.close();
+});

@@ -224,16 +224,34 @@ export class MomRunner implements RunnerLike {
       },
       beforeToolCall: async (context, _signal) => {
         const hookContext = this.activeHookContext;
+        const args = context.args as { command?: unknown; label?: string };
+        const displayName = context.toolCall.name === "bash"
+          ? resolvePlannedBashDisplayName({
+              command: args.command,
+              hostBashStore: getHostBashStore(),
+              sandboxAttempted: this.getEffectiveSandboxEnabled()
+            })
+          : resolveToolDisplayName(context.toolCall.name);
+        const rawLabel = args.label || context.toolCall.name;
+        const label = displayName !== context.toolCall.name
+          ? rawLabel && rawLabel !== context.toolCall.name
+            ? `${displayName}: ${rawLabel}`
+            : displayName
+          : rawLabel;
         if (hookContext) {
           const decision = await this.hookManager.gate("tool.call.before", hookContext, {
             toolName: context.toolCall.name,
             toolCallId: context.toolCall.id,
+            displayName,
+            label,
             argsPreview: JSON.stringify(context.args ?? {}).slice(0, 500)
           });
           if (decision.type === "deny") {
             this.hookManager.emit("tool.call.blocked", hookContext, {
               toolName: context.toolCall.name,
               toolCallId: context.toolCall.id,
+              displayName,
+              label,
               blockedBy: "hook_gate",
               reason: decision.reason
             });
@@ -255,28 +273,30 @@ export class MomRunner implements RunnerLike {
             this.hookManager.emit("tool.call.blocked", hookContext, {
               toolName: context.toolCall.name,
               toolCallId: context.toolCall.id,
+              displayName,
+              label,
               blockedBy: blockedReason ? "preflight" : "budget",
               reason: finalBlockedReason
             });
           }
-          momWarn("runner", "tool_call_blocked", {
-            chatId: this.chatId,
-            sessionId: this.sessionId,
-            tool: context.toolCall.name,
-            reason: finalBlockedReason
-          });
           return { block: true, reason: finalBlockedReason };
         }
         if (hookContext) {
           this.hookManager.emit("tool.call.before", hookContext, {
             toolName: context.toolCall.name,
             toolCallId: context.toolCall.id,
+            displayName,
+            label,
             argsPreview: JSON.stringify(context.args ?? {}).slice(0, 500)
           });
         }
         return undefined;
       },
       afterToolCall: async (context) => {
+        const displayName = resolveToolDisplayName(context.toolCall.name, {
+          result: context.result,
+          sandboxAttempted: this.getEffectiveSandboxEnabled()
+        });
         if (this.activeHookContext) {
           this.hookManager.emit(
             context.isError ? "tool.call.error" : "tool.call.after",
@@ -284,6 +304,7 @@ export class MomRunner implements RunnerLike {
             {
               toolName: context.toolCall.name,
               toolCallId: context.toolCall.id,
+              displayName,
               isError: context.isError,
               resultPreview: extractTextFromResult(context.result).slice(0, 1000)
             }
@@ -537,17 +558,6 @@ export class MomRunner implements RunnerLike {
     this.abortRequested = false;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
     this.activePayloadContext = undefined;
-    momLog("runner", "run_start", {
-      runId,
-      workspaceId,
-      chatId: this.chatId,
-      sessionId: this.sessionId,
-      messageId: ctx.message.messageId,
-      textLength: ctx.message.text.length,
-      attachments: ctx.message.attachments.length,
-      images: ctx.message.imageContents.length,
-      isEvent: Boolean(ctx.message.isEvent),
-    });
     logRunDetail({
       type: "run_start",
       summary: `Run started for session ${this.sessionId}.`
@@ -595,6 +605,14 @@ export class MomRunner implements RunnerLike {
       return { runId, stopReason: "error", errorMessage: settingsError };
     }
 
+    if (this.activeHookContext) {
+      this.hookManager.emit("input.enrich.before", this.activeHookContext, {
+        textLength: ctx.message.text.length,
+        attachmentCount: ctx.message.attachments.length,
+        imageCount: ctx.message.imageContents.length,
+        hasInlineAudioTranscript: Boolean(ctx.message.hasInlineAudioTranscript)
+      });
+    }
     let { enrichedText, activeSelection, modelCandidates, modelUseCase, audioDecision, visionDecision } = await prepareEnrichedInput({
       ctx,
       settings,
@@ -603,6 +621,17 @@ export class MomRunner implements RunnerLike {
       chatId: this.chatId,
       sessionId: this.sessionId
     });
+    if (this.activeHookContext) {
+      this.hookManager.emit("input.enrich.after", this.activeHookContext, {
+        textLength: enrichedText.length,
+        modelUseCase,
+        audioRoutingMode: audioDecision.mode,
+        audioRoutingReason: audioDecision.reason,
+        visionRoutingMode: visionDecision.mode,
+        visionRoutingReason: visionDecision.reason,
+        modelCandidateCount: modelCandidates.length
+      });
+    }
 
     const memorySnapshot = await getTurnOrchestrator().prepareTurnMemory(
       this.channel,
@@ -748,6 +777,37 @@ export class MomRunner implements RunnerLike {
       emitRunnerEvent: async (event) => {
         if (event.type === "tool_execution_end" && event.hostBashApproval) {
           if (!shouldForwardHostBashApproval(event.hostBashApproval)) return;
+          if (this.activeHookContext) {
+            this.hookManager.emit("approval.requested", this.activeHookContext, {
+              requestId: event.hostBashApproval.requestId,
+              displayName: event.hostBashApproval.request.displayName,
+              toolId: event.hostBashApproval.request.toolId,
+              command: event.hostBashApproval.request.command,
+              reason: event.hostBashApproval.request.reason,
+              approvalMode: event.hostBashApproval.request.approvalMode
+            });
+          }
+        }
+        if (event.type === "subagent_execution" && this.activeHookContext) {
+          if (event.phase === "task_start") {
+            this.hookManager.emit("subagent.task.before", this.activeHookContext, {
+              mode: event.mode,
+              agent: event.agent,
+              task: event.task,
+              taskIndex: event.taskIndex,
+              taskCount: event.taskCount
+            });
+          } else if (event.phase === "task_end") {
+            this.hookManager.emit("subagent.task.after", this.activeHookContext, {
+              mode: event.mode,
+              agent: event.agent,
+              task: event.task,
+              taskIndex: event.taskIndex,
+              taskCount: event.taskCount,
+              stopReason: event.stopReason,
+              errorMessage: event.errorMessage
+            });
+          }
         }
         const sink = this.activeRunnerEventSink;
         if (sink) {
@@ -877,13 +937,6 @@ export class MomRunner implements RunnerLike {
             : displayName
           : rawLabel;
         usedToolNames.push(event.toolName);
-        momLog("runner", "tool_start", {
-          runId,
-          chatId: this.chatId,
-          tool: event.toolName,
-          displayName,
-          label,
-        });
         logRunDetail({
           type: "tool_start",
           toolName: event.toolName,
@@ -912,14 +965,6 @@ export class MomRunner implements RunnerLike {
         if (event.isError) {
           failedToolNames.push(event.toolName);
         }
-        momLog("runner", "tool_end", {
-          runId,
-          chatId: this.chatId,
-          tool: event.toolName,
-          displayName,
-          isError: event.isError,
-          resultPreview: body.slice(0, 160),
-        });
         const hostBashApproval = extractHostBashApprovalPrompt(event.result);
         const forwardHostBashApproval = shouldForwardHostBashApproval(hostBashApproval);
         if (ctx.onRunnerEvent) {
@@ -961,6 +1006,15 @@ export class MomRunner implements RunnerLike {
               content: [{ type: "text", text: SUBAGENT_DELEGATION_RUNTIME_NOTICE }],
               timestamp: Date.now()
             });
+            if (this.activeHookContext) {
+              this.hookManager.emit("runtime.notice", this.activeHookContext, {
+                code: "SUBAGENT_DELEGATION_RECOMMENDED",
+                severity: "warn",
+                message: "Parent run has used many tools without delegating to subagent.",
+                toolCalls: currentBudget.toolCalls,
+                maxToolCalls: budget.limitsSnapshot().maxToolCalls
+              });
+            }
             momWarn("runner", "subagent_delegation_notice", {
               runId,
               chatId: this.chatId,
@@ -1452,6 +1506,18 @@ export class MomRunner implements RunnerLike {
                 await respondInThread(
                   "工具调用已达到本轮上限，正在自动发起一次无工具续写，尽量保留已有结果并给出当前最佳答案。"
                 );
+                if (this.activeHookContext) {
+                  this.hookManager.emit("runtime.notice", this.activeHookContext, {
+                    code: "TOOL_BUDGET_CONTINUATION",
+                    severity: "warn",
+                    message: "Tool call budget reached; starting one no-tool continuation.",
+                    provider: selectedModel.provider,
+                    model: selectedModel.id,
+                    candidateIndex,
+                    attempt: attemptCount,
+                    reason: budget.getExceededReason()
+                  });
+                }
                 momWarn("runner", "tool_budget_continuation_prompt", {
                   runId,
                   chatId: this.chatId,
@@ -1805,13 +1871,6 @@ export class MomRunner implements RunnerLike {
         );
         assistantMessagePersisted = true;
       }
-
-      momLog("runner", "run_end", {
-        runId,
-        chatId: this.chatId,
-        stopReason,
-        hasError: Boolean(errorMessage),
-      });
 
       if (
         shouldSuggestSkillDraft({

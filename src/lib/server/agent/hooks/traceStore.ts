@@ -2,7 +2,15 @@ import { DatabaseSync } from "node:sqlite";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 import type { HookStage } from "$lib/server/agent/hooks/types.js";
 
-export type TraceFactType = "tool_call" | "model_call";
+export type TraceFactType =
+  | "run"
+  | "model_call"
+  | "tool_call"
+  | "skill_usage"
+  | "subagent_task"
+  | "runtime_notice"
+  | "approval"
+  | "input_enrichment";
 
 export interface TraceEventRecord {
   id: string;
@@ -31,7 +39,7 @@ export interface TraceFactRecord {
   provider?: string;
   model?: string;
   api?: string;
-  status: "started" | "success" | "error" | "blocked";
+  status: "started" | "success" | "error" | "blocked" | "waiting" | "aborted" | "info" | "warning";
   startedAt?: string;
   finishedAt?: string;
   durationMs?: number;

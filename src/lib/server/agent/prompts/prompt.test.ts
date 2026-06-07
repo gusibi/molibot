@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
+import { buildSystemPromptPreview } from "$lib/server/agent/prompts/prompt.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const promptSource = readFileSync(join(here, "prompt.ts"), "utf8");
@@ -80,6 +82,37 @@ test("prompt source merges behavioral guardrails into one core directives sectio
   assert.doesNotMatch(promptSource, /section\("Action Confirmation"/);
   assert.doesNotMatch(promptSource, /section\("Runtime Safety & Truthfulness"/);
   assert.doesNotMatch(promptSource, /section\("Failure Recovery Protocol \(Mandatory\)"/);
+});
+
+test("prompt source merges skill routing into pipeline and skills protocol", () => {
+  assert.doesNotMatch(promptSource, /function buildSkillRoutingSection/);
+  assert.doesNotMatch(promptSource, /buildSkillRoutingSection\(\)/);
+  assert.doesNotMatch(promptSource, /Skill Routing \(Mandatory\)/);
+  assert.match(promptSource, /Route by the user's desired outcome and output format/);
+  assert.match(promptSource, /Explicit invocation \(`\$skill-name`, `\/skill-name`, `skill:skill-name`, `技能:skill-name`\) → MUST use that skill for this turn\./);
+  assert.match(promptSource, /\[explicit skill invocation\]` in input → treat listed `skill_file` path as authoritative/);
+  assert.match(promptSource, /\[explicit skill file\]` in input → treat that file content as already-loaded runtime context/);
+  assert.match(promptSource, /If an explicitly-invoked skill cannot be found at the provided path, say that exact path is missing/);
+  assert.match(promptSource, /If a skill supports the user's requested output medium or artifact, do not silently downgrade unless the skill actually failed\./);
+});
+
+test("rendered prompt stays under a broad size budget while preserving routing anchors", () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-prompt-"));
+  try {
+    const prompt = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
+      timezone: "UTC"
+    });
+
+    assert.ok(prompt.length < 24_000, `rendered prompt length ${prompt.length} exceeded budget`);
+    assert.match(prompt, /<available-deferred-tools>/);
+    assert.match(prompt, /createEvent/);
+    assert.match(prompt, /skillSearch/);
+    assert.match(prompt, /<skills-protocol>/);
+    assert.doesNotMatch(prompt, /Skill Routing \(Mandatory\)/);
+    assert.doesNotMatch(prompt, /When `createEvent` succeeds, the tool will return the exact confirmation text/);
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
 });
 
 test("prompt source prioritizes webSearch for current web information", () => {
