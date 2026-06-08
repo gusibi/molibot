@@ -24,6 +24,9 @@ export interface FeishuStreamingSessionOptions {
   runId: string;
   title?: string;
   displayConfig?: DisplayConfig;
+  replyToMessageId?: string | null;
+  replyInThread?: boolean;
+  onMessageSent?: (messageId: string) => void;
 }
 
 export class FeishuStreamingSession {
@@ -33,6 +36,9 @@ export class FeishuStreamingSession {
   private readonly runId: string;
   private readonly title: string;
   private readonly displayConfig: DisplayConfig;
+  private readonly replyToMessageId: string | null;
+  private readonly replyInThread: boolean;
+  private readonly onMessageSent?: (messageId: string) => void;
   private readonly formatter = new DisplayFormatter();
   private detailsText = "";
   private cardId: string | null = null;
@@ -59,6 +65,9 @@ export class FeishuStreamingSession {
     this.chatId = options.chatId;
     this.runId = options.runId;
     this.title = options.title ?? "Molibot";
+    this.replyToMessageId = options.replyToMessageId ?? null;
+    this.replyInThread = options.replyInThread === true;
+    this.onMessageSent = options.onMessageSent;
     this.displayConfig = options.displayConfig ?? {
       toolProgress: "all",
       showReasoning: "off",
@@ -72,6 +81,12 @@ export class FeishuStreamingSession {
 
   get sentMessageId(): string | null {
     return this.messageId ?? this.fallbackMessageId;
+  }
+
+  private markMessageSent(messageId: string | null | undefined): void {
+    const normalized = String(messageId ?? "").trim();
+    if (!normalized) return;
+    this.onMessageSent?.(normalized);
   }
 
   async respond(text: string, shouldLog = true): Promise<void> {
@@ -237,8 +252,12 @@ export class FeishuStreamingSession {
       if (this.reasoningMessageId) {
         await editFeishuText(this.client, this.reasoningMessageId, reasoningText);
       } else {
-        const sent = await sendFeishuText(this.client, this.chatId, reasoningText);
+        const sent = await sendFeishuText(this.client, this.chatId, reasoningText, {
+          replyToMessageId: this.replyToMessageId,
+          replyInThread: this.replyInThread
+        });
         this.reasoningMessageId = sent?.message_id ?? null;
+        this.markMessageSent(this.reasoningMessageId);
       }
       this.lastReasoningText = reasoningText;
     })().finally(() => {
@@ -304,8 +323,12 @@ export class FeishuStreamingSession {
         });
         this.cardId = await createFeishuCardEntity(this.client, initialCard);
         this.sequence = 1;
-        const sent = await sendFeishuCardById(this.client, this.chatId, this.cardId);
+        const sent = await sendFeishuCardById(this.client, this.chatId, this.cardId, {
+          replyToMessageId: this.replyToMessageId,
+          replyInThread: this.replyInThread
+        });
         this.messageId = sent.message_id;
+        this.markMessageSent(this.messageId);
       } catch (error) {
         momWarn("feishu", "streaming_cardkit_create_failed_fallback_post", { runId: this.runId, error: String(error) });
         this.usePostFallback = true;
@@ -369,7 +392,11 @@ export class FeishuStreamingSession {
       await editFeishuText(this.client, this.fallbackMessageId, text);
       return;
     }
-    const sent = await sendFeishuText(this.client, this.chatId, text);
+    const sent = await sendFeishuText(this.client, this.chatId, text, {
+      replyToMessageId: this.replyToMessageId,
+      replyInThread: this.replyInThread
+    });
     this.fallbackMessageId = sent?.message_id ?? null;
+    this.markMessageSent(this.fallbackMessageId);
   }
 }

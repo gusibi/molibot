@@ -2,6 +2,13 @@
 
 ## Version 1.0
 
+## 2026-06-08
+
+### Feishu Bot Health Check & Thread Continuation
+- Added `POST /api/settings/feishu/test` and a `/settings/feishu` connection test panel that validates current Bot credentials against Feishu Bot info without sending test messages or requiring a permission matrix.
+- Added conservative Feishu group thread continuation: main group messages still require `@bot`, while threads the Bot has participated in can continue without mentions and keep their own session/queue/log scope.
+- Routed Feishu thread replies through `im.message.reply` with `reply_in_thread` for text, cards, CardKit streaming, and outbound file fallback paths.
+
 ## 2026-06-07
 
 ### System Prompt Skill Routing Cleanup

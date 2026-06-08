@@ -15,6 +15,7 @@ interface FeishuHostToolApprovalActionValue {
   kind: "host_bash_approval";
   botId: string;
   chatId: string;
+  scopeId: string;
   requestId: string;
 }
 
@@ -28,6 +29,12 @@ interface StatusCardOptions {
 interface PermissionCardOptions {
   botId: string;
   chatId: string;
+  scopeId?: string;
+}
+
+export interface FeishuReplyOptions {
+  replyToMessageId?: string | null;
+  replyInThread?: boolean;
 }
 
 function normalizeText(text: string): string {
@@ -258,6 +265,7 @@ export function buildFeishuHostToolApprovalCard(
       action: option.id,
       botId: options.botId,
       chatId: options.chatId,
+      scopeId: options.scopeId || options.chatId,
       requestId: prompt.requestId
     } satisfies FeishuHostToolApprovalActionValue
   }));
@@ -318,10 +326,22 @@ export function formatFeishuText(text: string): string {
 export async function sendFeishuCard(
   client: lark.Client | undefined,
   chatId: string,
-  card: lark.InteractiveCard
+  card: lark.InteractiveCard,
+  options: FeishuReplyOptions = {}
 ): Promise<{ message_id: string } | null> {
   if (!client || !chatId.trim()) return null;
   try {
+    if (options.replyToMessageId) {
+      const res = await client.im.message.reply({
+        path: { message_id: options.replyToMessageId },
+        data: {
+          msg_type: "interactive",
+          content: JSON.stringify(card),
+          reply_in_thread: options.replyInThread
+        }
+      });
+      return { message_id: res.data?.message_id || "" };
+    }
     const res = await client.im.message.create({
       params: { receive_id_type: "chat_id" },
       data: {
@@ -340,8 +360,20 @@ export async function sendFeishuCard(
 async function sendFeishuPost(
   client: lark.Client,
   chatId: string,
-  text: string
+  text: string,
+  options: FeishuReplyOptions = {}
 ): Promise<{ message_id: string } | null> {
+  if (options.replyToMessageId) {
+    const res = await client.im.message.reply({
+      path: { message_id: options.replyToMessageId },
+      data: {
+        msg_type: "post",
+        content: buildFeishuPostContent(text),
+        reply_in_thread: options.replyInThread
+      }
+    });
+    return { message_id: res.data?.message_id || "" };
+  }
   const res = await client.im.message.create({
     params: { receive_id_type: "chat_id" },
     data: {
@@ -376,9 +408,10 @@ export async function editFeishuCard(
 export async function sendFeishuStatusCard(
   client: lark.Client | undefined,
   chatId: string,
-  options: StatusCardOptions
+  options: StatusCardOptions,
+  replyOptions: FeishuReplyOptions = {}
 ): Promise<{ message_id: string } | null> {
-  return sendFeishuCard(client, chatId, buildFeishuStatusCard(options));
+  return sendFeishuCard(client, chatId, buildFeishuStatusCard(options), replyOptions);
 }
 
 export async function editFeishuStatusCard(
@@ -392,14 +425,18 @@ export async function editFeishuStatusCard(
 export async function sendFeishuText(
   client: lark.Client | undefined,
   chatId: string,
-  text: string
+  text: string,
+  options: FeishuReplyOptions = {}
 ): Promise<{ message_id: string } | null> {
   if (!client || !text.trim()) return null;
   try {
     let firstMessage: { message_id: string } | null = null;
 
     for (const chunk of chunkMarkdown(text, FEISHU_POST_MARKDOWN_LIMIT)) {
-      const sent = await sendFeishuPost(client, chatId, chunk);
+      const chunkOptions = firstMessage?.message_id && options.replyToMessageId
+        ? { replyToMessageId: firstMessage.message_id, replyInThread: options.replyInThread }
+        : options;
+      const sent = await sendFeishuPost(client, chatId, chunk, chunkOptions);
       if (!firstMessage) firstMessage = sent;
     }
 
@@ -527,8 +564,20 @@ async function sendFeishuMessageByType(
   client: lark.Client,
   chatId: string,
   msgType: string,
-  content: Record<string, unknown>
+  content: Record<string, unknown>,
+  options: FeishuReplyOptions = {}
 ): Promise<{ message_id: string } | null> {
+  if (options.replyToMessageId) {
+    const res = await client.im.message.reply({
+      path: { message_id: options.replyToMessageId },
+      data: {
+        msg_type: msgType,
+        content: JSON.stringify(content),
+        reply_in_thread: options.replyInThread
+      }
+    });
+    return { message_id: res.data?.message_id || "" };
+  }
   const res = await client.im.message.create({
     params: { receive_id_type: "chat_id" },
     data: {
@@ -544,14 +593,15 @@ export async function sendFeishuFile(
   client: lark.Client | undefined,
   chatId: string,
   bytes: Buffer,
-  filename: string
+  filename: string,
+  options: FeishuReplyOptions = {}
 ): Promise<{ message_id: string } | null> {
   if (!client || !filename.trim() || bytes.length === 0) return null;
 
   if (isLikelyTextBuffer(bytes)) {
     const text = bytes.toString("utf8");
     if (canSendAsFeishuText(text)) {
-      return sendFeishuText(client, chatId, text);
+      return sendFeishuText(client, chatId, text, options);
     }
   }
 
@@ -565,7 +615,7 @@ export async function sendFeishuFile(
         }
       });
       if (uploaded?.image_key) {
-        return await sendFeishuMessageByType(client, chatId, "image", { image_key: uploaded.image_key });
+        return await sendFeishuMessageByType(client, chatId, "image", { image_key: uploaded.image_key }, options);
       }
     } catch (error) {
       momWarn("feishu", "send_image_failed_fallback_file", {
@@ -590,7 +640,7 @@ export async function sendFeishuFile(
 
     if (fileType === "opus") {
       try {
-        return await sendFeishuMessageByType(client, chatId, "audio", { file_key: fileKey });
+        return await sendFeishuMessageByType(client, chatId, "audio", { file_key: fileKey }, options);
       } catch (error) {
         momWarn("feishu", "send_audio_failed_fallback_file", {
           filename,
@@ -601,7 +651,7 @@ export async function sendFeishuFile(
 
     if (fileType === "mp4") {
       try {
-        return await sendFeishuMessageByType(client, chatId, "media", { file_key: fileKey });
+        return await sendFeishuMessageByType(client, chatId, "media", { file_key: fileKey }, options);
       } catch (error) {
         momWarn("feishu", "send_media_failed_fallback_file", {
           filename,
@@ -610,7 +660,7 @@ export async function sendFeishuFile(
       }
     }
 
-    return await sendFeishuMessageByType(client, chatId, "file", { file_key: fileKey });
+    return await sendFeishuMessageByType(client, chatId, "file", { file_key: fileKey }, options);
   } catch (error) {
     momWarn("feishu", "send_file_failed", { filename, error: String(error) });
     return null;

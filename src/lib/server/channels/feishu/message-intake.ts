@@ -13,6 +13,11 @@ interface ParsedFeishuContent {
 
 export type FeishuInboundEvent = ChannelInboundMessage;
 
+export interface FeishuGroupTriggerOptions {
+  botOpenId?: string;
+  isKnownBotThread?: (input: { chatId: string; threadId?: string; parentMessageId?: string }) => boolean;
+}
+
 function parseJsonContent(raw: unknown): Record<string, any> | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
   try {
@@ -236,10 +241,32 @@ async function downloadFeishuMessageResource(
   return null;
 }
 
-export function isFeishuGroupMessageTriggered(message: Record<string, any>): boolean {
-  if (message.chat_type === "p2p") return true;
+export function getFeishuThreadId(message: Record<string, any>): string {
+  return String(message.thread_id || message.root_id || "").trim();
+}
+
+export function buildFeishuThreadScopeId(chatId: string, threadId?: string | null): string {
+  const normalizedThreadId = String(threadId ?? "").trim();
+  return normalizedThreadId ? `${chatId}__thread_${encodeURIComponent(normalizedThreadId)}` : chatId;
+}
+
+function isFeishuBotMention(message: Record<string, any>, botOpenId?: string): boolean {
   const mentions = Array.isArray(message.mentions) ? message.mentions : [];
-  return mentions.length > 0;
+  const normalizedBotOpenId = String(botOpenId ?? "").trim();
+  if (!normalizedBotOpenId) return mentions.length > 0;
+  return mentions.some((mention) => String(mention?.id?.open_id ?? "").trim() === normalizedBotOpenId);
+}
+
+export function isFeishuGroupMessageTriggered(message: Record<string, any>, options: FeishuGroupTriggerOptions = {}): boolean {
+  if (message.chat_type === "p2p") return true;
+  if (isFeishuBotMention(message, options.botOpenId)) return true;
+
+  const chatId = String(message.chat_id || "").trim();
+  const threadId = getFeishuThreadId(message);
+  const parentMessageId = String(message.parent_id || "").trim();
+  if (!threadId && !parentMessageId) return false;
+
+  return Boolean(options.isKnownBotThread?.({ chatId, threadId, parentMessageId }));
 }
 
 export async function toFeishuInboundEvent(input: {
@@ -251,6 +278,10 @@ export async function toFeishuInboundEvent(input: {
   const { client, store, message, sender } = input;
   const chatId = String(message.chat_id || "");
   const messageId = String(message.message_id || "");
+  const threadId = getFeishuThreadId(message);
+  const parentMessageId = String(message.parent_id || "").trim();
+  const rootMessageId = String(message.root_id || "").trim();
+  const scopeId = buildFeishuThreadScopeId(chatId, threadId);
   const chatType = message.chat_type === "p2p" ? "private" : "group";
   const parsed = parseFeishuContent(message);
 
@@ -291,7 +322,7 @@ export async function toFeishuInboundEvent(input: {
         : mimeType?.startsWith("audio/") || message.message_type === "audio"
           ? "audio"
           : "file";
-      const saved = store.saveAttachment(chatId, guessedName, ts, resource.data, {
+      const saved = store.saveAttachment(scopeId, guessedName, ts, resource.data, {
         mediaType,
         mimeType
       });
@@ -317,8 +348,13 @@ export async function toFeishuInboundEvent(input: {
 
   return {
     chatId,
+    scopeId,
     chatType,
     messageId: Number(messageId.replace(/[^0-9]/g, "").slice(0, 10)) || Date.now(),
+    platformMessageId: messageId,
+    platformThreadId: threadId || undefined,
+    platformParentMessageId: parentMessageId || undefined,
+    platformRootMessageId: rootMessageId || undefined,
     userId: String(sender.sender_id?.open_id || "unknown"),
     userName: sender.sender_id?.union_id || "User",
     text: cleaned,

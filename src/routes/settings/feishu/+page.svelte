@@ -31,6 +31,16 @@
     isNew: boolean;
   }
 
+  interface FeishuTestResult {
+    ok: boolean;
+    appId?: string;
+    botName?: string;
+    botOpenId?: string;
+    code?: number;
+    msg?: string;
+    error?: string;
+  }
+
   const botFileNames = ["BOT.md", "SOUL.md", "IDENTITY.md", "SONG.md"];
 
   let loading = true;
@@ -43,6 +53,8 @@
   let selectedBotId = "";
   let savedSnapshots: Record<string, string> = {};
   let showAppSecret = false;
+  let testingConnection = false;
+  let testResult: FeishuTestResult | null = null;
 
   function createBotId(): string {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -310,6 +322,38 @@
     }
   }
 
+  async function testConnection(): Promise<void> {
+    const selected = bots.find((bot) => bot.id === selectedBotId) ?? bots[0];
+    if (!selected) return;
+    testingConnection = true;
+    testResult = null;
+    error = "";
+    message = "";
+    try {
+      const res = await fetch("/api/settings/feishu/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appId: selected.appId,
+          appSecret: selected.appSecret
+        })
+      });
+      const data = await res.json() as FeishuTestResult;
+      testResult = data;
+      if (!res.ok || !data.ok) {
+        error = data.error || data.msg || "Feishu connection test failed";
+        return;
+      }
+      message = `Feishu bot verified: ${data.botName || data.botOpenId || data.appId}`;
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      testResult = { ok: false, error: reason };
+      error = reason;
+    } finally {
+      testingConnection = false;
+    }
+  }
+
   $: selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0];
   $: selectedBotDirty = selectedBot
     ? botSnapshot(selectedBot) !== (savedSnapshots[selectedBot.id] ?? "")
@@ -479,6 +523,32 @@
 
               <div class="channel-info-box">
                 Card callback path: <code>/api/feishu/card</code>
+              </div>
+
+              <div class="channel-info-box">
+                <div class="channel-card-header">
+                  <div>
+                    <h3 class="channel-card-title">Connection Health</h3>
+                    <p class="channel-card-desc">Validate the current App ID and App Secret without saving or sending messages.</p>
+                  </div>
+                  <Button variant="secondary" size="sm" type="button" onclick={testConnection} disabled={testingConnection || !selectedBot.appId || !selectedBot.appSecret}>
+                    {testingConnection ? "Testing..." : "Test Connection"}
+                  </Button>
+                </div>
+                {#if testResult}
+                  <Alert variant={testResult.ok ? "default" : "destructive"}>
+                    <AlertDescription>
+                      {#if testResult.ok}
+                        Bot verified. Name: {testResult.botName || "-"} · open_id: {testResult.botOpenId || "-"} · app_id: {testResult.appId || "-"}
+                      {:else}
+                        Test failed. {testResult.error || testResult.msg || "Unknown error"}
+                        {#if testResult.code !== undefined}
+                          · code: {testResult.code}
+                        {/if}
+                      {/if}
+                    </AlertDescription>
+                  </Alert>
+                {/if}
               </div>
 
               <div class="channel-field">

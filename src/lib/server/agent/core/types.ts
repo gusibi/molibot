@@ -24,6 +24,10 @@ export interface ChannelInboundMessage {
   chatType: ChannelChatType;
   messageId: number;
   messageThreadId?: number;
+  platformMessageId?: string;
+  platformThreadId?: string;
+  platformParentMessageId?: string;
+  platformRootMessageId?: string;
   userId: string;
   userName?: string;
   text: string;

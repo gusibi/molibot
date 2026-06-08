@@ -181,13 +181,30 @@ export async function createFeishuCardEntity(client: lark.Client, card: Record<s
   return cardId;
 }
 
-export async function sendFeishuCardById(client: lark.Client, chatId: string, cardId: string): Promise<{ message_id: string }> {
+export async function sendFeishuCardById(
+  client: lark.Client,
+  chatId: string,
+  cardId: string,
+  options: { replyToMessageId?: string | null; replyInThread?: boolean } = {}
+): Promise<{ message_id: string }> {
+  const content = JSON.stringify({ type: "card", data: { card_id: cardId } });
+  if (options.replyToMessageId) {
+    const response = await client.im.message.reply({
+      path: { message_id: options.replyToMessageId },
+      data: {
+        msg_type: "interactive",
+        content,
+        reply_in_thread: options.replyInThread
+      }
+    });
+    return { message_id: response.data?.message_id || "" };
+  }
   const response = await client.im.message.create({
     params: { receive_id_type: "chat_id" },
     data: {
       receive_id: chatId,
       msg_type: "interactive",
-      content: JSON.stringify({ type: "card", data: { card_id: cardId } })
+      content
     }
   });
   return { message_id: response.data?.message_id || "" };

@@ -143,7 +143,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, model switching, task delivery, and group replies via direct `@bot` mentions or replies to bot messages
 - **Scheduled Tasks**: watched event JSON remains the scheduling source, while active event execution is coordinated through `event_execution_leases` in SQLite for timeout, retry, restart/stop visibility, and run correlation
 - **Telegram Typing Resilience**: `sendChatAction(typing)` timeout exhaustion is treated as non-blocking, so typing-indicator failures do not abort the active run
-- **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings
+- **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings with credential health check, and bot-participated group thread continuation
 - **QQ Bot**: SDK-based integration, group policy metadata, quoted-message context, rich media delivery, typing/streaming helpers, channel-local progress/error compaction, and Molibot-owned queue control
 - **Weixin Bot**: SDK-based integration, QR pairing-code login, lifecycle notifications, OGG voice transcoding, native image-message replies, Weixin-safe progress/error compaction, and CDN media delivery
 - **CLI**: Local terminal conversation entrypoint
@@ -224,7 +224,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 |---------|----------|------------------|
 | **Web Chat** | ⭐⭐⭐ Production-Ready | Image upload + realtime voice recording + thinking controls + profile-only identity + theme/i18n |
 | **Telegram** | ⭐⭐⭐ Production-Ready | Multi-bot, runtime commands, model switching, task delivery, media handling |
-| **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, media/file ingress and outbound handling |
+| **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, credential health check, media/file ingress and outbound handling, bot-participated thread continuation |
 | **QQ** | ⭐⭐⭐ Production-Ready | SDK-based gateway, group/private chat, rich media, quoted context, channel-local progress/error compaction, Molibot-owned queue control |
 | **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, native image replies, Weixin-safe progress/error compaction, CDN media delivery |
 | **CLI** | ⭐⭐ Ready | Local terminal conversation entrypoint |
@@ -264,7 +264,7 @@ Open: `http://localhost:3000`
 3. `/settings/web`: Create Web Profile and bind to agent
 4. (Optional) Configure message channels:
    - `/settings/telegram` - multi-bot support
-   - `/settings/feishu` - complete media support; local WebSocket card approvals work without exposing a public callback port, including Host Bash and generic tool approval cards
+   - `/settings/feishu` - complete media support, Bot credential health check, and local WebSocket card approvals without exposing a public callback port
    - `/settings/weixin` - SDK-based integration
 5. (Optional) Configure advanced features:
    - `/settings/mcp` - MCP servers
@@ -635,7 +635,7 @@ See `.env.example` for full list and detailed descriptions.
 |---------|----------|------------------|
 | **Web Chat** | ⭐⭐⭐ Production-Ready | Image upload + realtime voice recording + thinking controls + profile-only identity + theme/i18n |
 | **Telegram** | ⭐⭐⭐ Production-Ready | Multi-bot, runtime commands, model switching, task delivery, media handling |
-| **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, media/file ingress and outbound handling |
+| **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, credential health check, media/file ingress and outbound handling, bot-participated thread continuation |
 | **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, CDN media delivery |
 | **CLI** | ⭐⭐ Ready | Local terminal conversation entrypoint |
 | **ACP** | 📦 Externalized | Relocated to `package/acp/` as a relocatable external package |

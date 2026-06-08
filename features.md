@@ -1,5 +1,15 @@
 # Molibot Features
 
+## 2026-06-08
+
+### Feishu Bot 健康检查与 Thread 续聊 (Feishu Bot Health Check & Thread Continuation)
+- **Bot 连接测试**: 新增 `/api/settings/feishu/test`，允许 `/settings/feishu` 使用当前表单中的 `appId` / `appSecret` 直接测试飞书 Bot 凭据，成功时返回 Bot 名称和 `open_id`，失败时返回飞书 SDK `code` / `msg` 或本地校验错误。
+- **设置页健康面板**: 在 Feishu Bot Configuration 区块加入 `Test Connection` 操作和结果面板，保留现有多 Bot 单实体保存流程与 `.settings-footbar` 固定保存底栏。
+- **Thread 免 @ 续聊**: Feishu 入站消息保留原始 `message_id`、`thread_id`、`parent_id`、`root_id`，并为 thread 生成独立 `scopeId`，让同一群里的不同 thread 拥有独立 session、队列、附件和运行日志。
+- **保守触发策略**: 群主消息流仍需 @ Bot；只有 Bot 已在某个 Feishu thread 中回复过，或用户回复命中已知 Bot 消息时，该 thread 后续无 @ 消息才会触发同一对话。旧 registry 数据缺失时，用户只需在老 thread 中重新 @ 一次。
+- **Thread 内回复渲染**: Feishu 文本、卡片、CardKit streaming、文件/图片 fallback 均支持 `im.message.reply({ reply_in_thread: true })`，关闭 CardKit streaming 后也不会退回群主消息流。
+- **回归验证**: 新增 Feishu intake、thread registry、messaging reply 和 settings test endpoint 覆盖；验证普通群无 @ 不触发、带 @ 触发、已登记 thread 无 @ 触发、未知 thread 无 @ 不触发，以及 thread 回复走 `im.message.reply`。
+
 ## 2026-06-07
 
 ### System Prompt Skill Routing 合并与 Preview 防误导 (System Prompt Skill Routing Merge & Preview Guardrail)

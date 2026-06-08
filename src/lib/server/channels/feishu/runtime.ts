@@ -25,6 +25,7 @@ import {
     sendFeishuText
 } from "$lib/server/channels/feishu/messaging.js";
 import { isFeishuGroupMessageTriggered, toFeishuInboundEvent } from "$lib/server/channels/feishu/message-intake.js";
+import { FeishuThreadRegistry } from "$lib/server/channels/feishu/threadRegistry.js";
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
 import { FeishuCardActionCoordinator, normalizeFeishuWsCardActionEvent } from "$lib/server/channels/feishu/cardAction.js";
@@ -64,6 +65,7 @@ export class FeishuManager extends BaseChannelRuntime {
     private readonly outbox: SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>;
     private readonly inboundTasks: InboundTaskCoordinator<ChannelInboundMessage, string>;
     private readonly cardActions = new FeishuCardActionCoordinator<FeishuCardActionOutcome | undefined>();
+    private readonly threadRegistry: FeishuThreadRegistry;
 
     private client: lark.Client | undefined;
     private wsClient: lark.WSClient | undefined;
@@ -74,6 +76,7 @@ export class FeishuManager extends BaseChannelRuntime {
     private currentVerificationToken = "";
     private currentEncryptKey = "";
     private currentAllowedChatIdsKey = "";
+    private currentBotOpenId = "";
 
     constructor(
         getSettings: () => RuntimeSettings,
@@ -95,6 +98,7 @@ export class FeishuManager extends BaseChannelRuntime {
             sessionStore,
             options
         });
+        this.threadRegistry = new FeishuThreadRegistry(this.workspaceDir);
         this.inboundTasks = new InboundTaskCoordinator<ChannelInboundMessage, string>({
             channel: "feishu",
             instanceId: this.instanceId,
@@ -104,11 +108,11 @@ export class FeishuManager extends BaseChannelRuntime {
                     await this.processEvent(event);
                 } catch (error) {
                     momError("feishu", "queue_job_uncaught", {
-                        chatId: payload.chatId,
-                        queueId: payload.messageId,
-                        error: error instanceof Error ? error.message : String(error)
-                    });
-                    await this.sendText(payload.chatId, "Internal error.");
+                    chatId: payload.chatId,
+                    queueId: payload.messageId,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+                    await sendFeishuText(this.client, payload.chatId, "Internal error.", this.replyOptionsForEvent(payload));
                     throw error;
                 }
             },
@@ -196,6 +200,8 @@ export class FeishuManager extends BaseChannelRuntime {
             appSecret,
             appType: lark.AppType.SelfBuild,
         });
+        this.currentBotOpenId = "";
+        void this.resolveBotOpenId(appId);
 
         const handler = new lark.EventDispatcher({}).register({
             "im.message.receive_v1": async (data: any) => {
@@ -267,13 +273,49 @@ export class FeishuManager extends BaseChannelRuntime {
         this.currentVerificationToken = "";
         this.currentEncryptKey = "";
         this.currentAllowedChatIdsKey = "";
+        this.currentBotOpenId = "";
     }
 
-    private async sendHostToolApprovalCard(chatId: string, prompt: HostBashApprovalPrompt): Promise<void> {
-        await sendFeishuCard(this.client, chatId, buildFeishuHostToolApprovalCard(prompt, {
+    private async resolveBotOpenId(appId: string): Promise<void> {
+        if (!this.client) return;
+        try {
+            const response = await (this.client as unknown as { request: (input: unknown) => Promise<any> }).request({
+                method: "GET",
+                url: "/open-apis/bot/v3/info"
+            });
+            if (response?.code !== 0) {
+                momWarn("feishu", "bot_identity_probe_failed", {
+                    appId,
+                    code: response?.code,
+                    msg: response?.msg
+                });
+                return;
+            }
+            const botOpenId = String(response?.data?.open_id ?? response?.data?.bot?.open_id ?? "").trim();
+            this.currentBotOpenId = botOpenId;
+            momLog("feishu", "bot_identity_probe_ok", {
+                appId,
+                botOpenId,
+                botName: response?.data?.name ?? response?.data?.bot?.name
+            });
+        } catch (error) {
+            momWarn("feishu", "bot_identity_probe_failed", {
+                appId,
+                error: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+
+    private async sendHostToolApprovalCard(
+        event: ChannelInboundMessage,
+        prompt: HostBashApprovalPrompt
+    ): Promise<void> {
+        const sent = await sendFeishuCard(this.client, event.chatId, buildFeishuHostToolApprovalCard(prompt, {
             botId: this.instanceId,
-            chatId
-        }));
+            chatId: event.chatId,
+            scopeId: event.scopeId || event.chatId
+        }), this.replyOptionsForEvent(event));
+        this.recordFeishuBotMessage(event, sent?.message_id);
     }
 
     private async sendText(chatId: string, text: string): Promise<{ message_id: string } | null> {
@@ -281,6 +323,14 @@ export class FeishuManager extends BaseChannelRuntime {
         if (!normalized) return null;
         const result = await this.outbox.enqueue(chatId, { chatId, text: normalized });
         return result.messageId ? { message_id: result.messageId } : null;
+    }
+
+    private recordFeishuBotMessage(event: ChannelInboundMessage, messageId: string | null | undefined): void {
+        this.threadRegistry.recordBotMessage({
+            messageId,
+            chatId: event.chatId,
+            threadId: event.platformThreadId
+        });
     }
 
     public async handleCardCallbackRequest(payload: unknown): Promise<lark.InteractiveCard | undefined> {
@@ -385,10 +435,11 @@ export class FeishuManager extends BaseChannelRuntime {
         if (String(value.kind ?? "").trim() === "host_bash_approval") {
             if (String(value.botId ?? "").trim() !== this.instanceId) return undefined;
             const chatId = String(value.chatId ?? "").trim();
+            const scopeId = String(value.scopeId ?? chatId).trim() || chatId;
             const requestId = String(value.requestId ?? "").trim();
             const action = String(value.action ?? "").trim();
             if (!chatId || !requestId || !action) return undefined;
-            const input = { chatId, scopeId: chatId, text: "", target: chatId };
+            const input = { chatId, scopeId, text: "", target: chatId };
             const request = getHostBashStore().getApprovalRecord(requestId);
             const prompt: HostBashApprovalPrompt = request ? buildHostBashApprovalPrompt(request) : {
                 type: "host_bash_approval" as const,
@@ -476,7 +527,10 @@ export class FeishuManager extends BaseChannelRuntime {
             return;
         }
 
-        if (!isFeishuGroupMessageTriggered(message)) {
+        if (!isFeishuGroupMessageTriggered(message, {
+            botOpenId: this.currentBotOpenId,
+            isKnownBotThread: (input) => this.threadRegistry.match(input).allowed
+        })) {
             momLog("feishu", "group_message_ignored_no_mention", { chatId, messageId });
             return;
         }
@@ -492,18 +546,19 @@ export class FeishuManager extends BaseChannelRuntime {
             return;
         }
 
+        const scopeId = event.scopeId || chatId;
         const lowered = event.text.trim().toLowerCase();
 
         const commandText = lowered === "stop" ? "/stop" : event.text;
-        const isCommand = await this.handleCommand(chatId, commandText);
+        const isCommand = await this.handleCommand(scopeId, chatId, commandText);
         if (isCommand) {
             return;
         }
 
-        const runId = createRunId(chatId, event.messageId);
+        const runId = createRunId(scopeId, event.messageId);
         (event as ChannelInboundMessage & { runId?: string }).runId = runId;
 
-        const logged = this.store.logMessage(chatId, {
+        const logged = this.store.logMessage(scopeId, {
             date: new Date().toISOString(),
             ts: event.ts,
             messageId: event.messageId,
@@ -515,22 +570,30 @@ export class FeishuManager extends BaseChannelRuntime {
         });
 
         if (!logged) {
-            momWarn("feishu", "message_dedup_skipped", { runId, chatId, messageId: event.messageId });
+            momWarn("feishu", "message_dedup_skipped", { runId, chatId, scopeId, messageId: event.messageId });
             return;
         }
 
         const queuedEvent: ChannelInboundMessage = {
             ...event,
-            sessionId: this.store.getActiveSession(chatId),
+            sessionId: this.store.getActiveSession(scopeId),
             imageContents: []
         };
 
-        const queueId = this.inboundTasks.enqueue(chatId, queuedEvent, { preview: queuedEvent.text });
-        const queueState = this.inboundTasks.peek(chatId, queueId);
+        const queueId = this.inboundTasks.enqueue(scopeId, queuedEvent, { preview: queuedEvent.text });
+        const queueState = this.inboundTasks.peek(scopeId, queueId);
         if (queueState.status === "pending") {
-            momLog("feishu", "message_queued_while_busy", { runId, chatId, queueId });
-            await this.sendText(chatId, this.buildQueuedBusyNotice(queueId));
+            momLog("feishu", "message_queued_while_busy", { runId, chatId, scopeId, queueId });
+            await sendFeishuText(this.client, chatId, this.buildQueuedBusyNotice(queueId), this.replyOptionsForEvent(event));
         }
+    }
+
+    private replyOptionsForEvent(event: ChannelInboundMessage): { replyToMessageId?: string; replyInThread?: boolean } {
+        if (!event.platformThreadId || !event.platformMessageId) return {};
+        return {
+            replyToMessageId: event.platformMessageId,
+            replyInThread: true
+        };
     }
 
     private async processEvent(event: ChannelInboundMessage): Promise<void> {
@@ -541,26 +604,27 @@ export class FeishuManager extends BaseChannelRuntime {
         }
 
         const chatId = event.chatId;
+        const scopeId = event.scopeId || chatId;
         event.workspaceId = event.workspaceId || this.workspaceId;
-        const activeSessionId = event.sessionId || this.store.getActiveSession(chatId);
+        const activeSessionId = event.sessionId || this.store.getActiveSession(scopeId);
         const turn = getTurnOrchestrator().prepareTurn({
-            chatId,
+            chatId: scopeId,
             sessionId: activeSessionId,
             message: event
         });
         const runId = turn.runId;
 
-        this.running.add(chatId);
+        this.running.add(scopeId);
         this.appendConversationMessage(
             this.channelName,
-            `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`,
+            `bot:${this.instanceId}:chat:${scopeId}:${activeSessionId}`,
             event.isEvent ? "system" : "user",
             event.text,
             "session_user_append_failed",
-            { chatId, scopeId: chatId }
+            { chatId: scopeId, scopeId }
         );
 
-        const runner = this.runners.get(chatId, activeSessionId);
+        const runner = this.runners.get(scopeId, activeSessionId);
         const settings = this.getSettings();
         const feishuInstance = settings.channels?.feishu?.instances?.find((item) => item.id === this.instanceId);
         const displayConfig = {
@@ -573,7 +637,9 @@ export class FeishuManager extends BaseChannelRuntime {
             chatId,
             runId,
             title: "Molibot",
-            displayConfig
+            displayConfig,
+            ...this.replyOptionsForEvent(event),
+            onMessageSent: (messageId) => this.recordFeishuBotMessage(event, messageId)
         });
         let threadEventCount = 0;
         let result: RunResult | null = null;
@@ -582,7 +648,7 @@ export class FeishuManager extends BaseChannelRuntime {
             channel: "feishu",
             message: event,
             workspaceDir: this.workspaceDir,
-            chatDir: this.store.getChatDir(chatId),
+            chatDir: this.store.getChatDir(scopeId),
             respond: async (text, shouldLog = true) => {
                 await streaming.respond(text, shouldLog);
             },
@@ -608,11 +674,12 @@ export class FeishuManager extends BaseChannelRuntime {
             uploadFile: async (filePath, title) => {
                 const filename = title || filePath.split("/").pop() || "file";
                 const bytes = readFileSync(filePath);
-                await sendFeishuFile(this.client, chatId, bytes, filename);
+                const sent = await sendFeishuFile(this.client, chatId, bytes, filename, this.replyOptionsForEvent(event));
+                this.recordFeishuBotMessage(event, sent?.message_id);
             },
             onRunnerEvent: async (runnerEvent) => {
                 if (runnerEvent.type === "tool_execution_end" && runnerEvent.hostBashApproval) {
-                    await this.sendHostToolApprovalCard(chatId, runnerEvent.hostBashApproval);
+                    await this.sendHostToolApprovalCard(event, runnerEvent.hostBashApproval);
                 }
                 await streaming.handleRunnerEvent(runnerEvent);
             }
@@ -627,21 +694,21 @@ export class FeishuManager extends BaseChannelRuntime {
             );
             throw error;
         } finally {
-            this.running.delete(chatId);
+            this.running.delete(scopeId);
             await streaming.finalize(result ?? { runId, stopReason: "error", errorMessage: "Run did not complete." });
         }
 
         const finalText = streaming.finalText;
         if (finalText) {
             const numericMessageId = Number(streaming.sentMessageId || Date.now());
-            this.store.logBotResponse(chatId, finalText, Number.isFinite(numericMessageId) ? numericMessageId : Date.now());
+            this.store.logBotResponse(scopeId, finalText, Number.isFinite(numericMessageId) ? numericMessageId : Date.now());
             this.appendConversationMessage(
                 this.channelName,
-                `bot:${this.instanceId}:chat:${chatId}:${activeSessionId}`,
+                `bot:${this.instanceId}:chat:${scopeId}:${activeSessionId}`,
                 "assistant",
                 finalText,
                 "session_assistant_append_failed",
-                { chatId, scopeId: chatId }
+                { chatId: scopeId, scopeId }
             );
         }
 
@@ -653,14 +720,21 @@ export class FeishuManager extends BaseChannelRuntime {
     private async runSharedFeishuTextTask(event: ChannelInboundMessage): Promise<void> {
         if (!this.client) return;
         const chatId = event.chatId;
-        await this.runSharedTextTask(chatId, event, {
+        const scopeId = event.scopeId || chatId;
+        const replyOptions = this.replyOptionsForEvent(event);
+        const scopedEvent: ChannelInboundMessage = { ...event, chatId: scopeId, scopeId };
+        await this.runSharedTextTask(scopeId, scopedEvent, {
             response: {
                 sendText: async (text) => {
-                    const resp = await this.sendText(chatId, text);
+                    const resp = Object.keys(replyOptions).length > 0
+                        ? await sendFeishuText(this.client, chatId, text, replyOptions)
+                        : await this.sendText(chatId, text);
+                    this.recordFeishuBotMessage(event, resp?.message_id);
                     return resp?.message_id ? { messageId: resp.message_id } : null;
                 },
                 respondInThread: async (text) => {
-                    await this.sendText(chatId, text);
+                    const resp = await sendFeishuText(this.client, chatId, text, replyOptions);
+                    this.recordFeishuBotMessage(event, resp?.message_id);
                 },
                 editText: async (message, text) => {
                     await editFeishuText(this.client, String(message.messageId), text);
@@ -673,23 +747,24 @@ export class FeishuManager extends BaseChannelRuntime {
                 uploadFile: async (filePath, title) => {
                     const filename = title || filePath.split("/").pop() || "file";
                     const bytes = readFileSync(filePath);
-                    await sendFeishuFile(this.client, chatId, bytes, filename);
+                    const sent = await sendFeishuFile(this.client, chatId, bytes, filename, replyOptions);
+                    this.recordFeishuBotMessage(event, sent?.message_id);
                 }
             },
             onRunnerEvent: async (runnerEvent) => {
                 if (runnerEvent.type === "tool_execution_end" && runnerEvent.hostBashApproval) {
-                    await this.sendHostToolApprovalCard(chatId, runnerEvent.hostBashApproval);
+                    await this.sendHostToolApprovalCard(event, runnerEvent.hostBashApproval);
                 }
             },
             onRunComplete: async (result, meta) => {
                 if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId) {
-                    await this.sendText(chatId, formatRunArchiveNotice(result.runId));
+                    await sendFeishuText(this.client, chatId, formatRunArchiveNotice(result.runId), replyOptions);
                 }
             },
             createBotMessageId: () => Date.now(),
             onSessionAppendWarning: (error) => {
                 momWarn("feishu", "session_assistant_append_failed", {
-                    chatId,
+                    chatId: scopeId,
                     error: error instanceof Error ? error.message : String(error)
                 });
             },
@@ -704,7 +779,7 @@ export class FeishuManager extends BaseChannelRuntime {
         return !(raw === "false" || raw === "0" || raw === "off" || raw === "no");
     }
 
-    private async handleCommand(chatId: string, text: string): Promise<boolean> {
+    private async handleCommand(scopeId: string, chatId: string, text: string): Promise<boolean> {
         const parts = text.split(/\s+/);
         const cmd = parts[0]?.toLowerCase() || "";
 
@@ -714,7 +789,7 @@ export class FeishuManager extends BaseChannelRuntime {
         }
         return this.commandService.handle({
             chatId,
-            scopeId: chatId,
+            scopeId,
             text,
             target: chatId
         });
