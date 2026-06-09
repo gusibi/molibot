@@ -14,7 +14,11 @@ const KEY_MAP: Record<string, string> = {
   "video-generate": "videoGenerate",
   "videoGenerate": "videoGenerate",
   "settings_video_generate": "videoGenerate",
-  
+
+  "tts-generate": "ttsGenerate",
+  "ttsGenerate": "ttsGenerate",
+  "settings_tts_generate": "ttsGenerate",
+
   "sandbox": "toolSandbox",
   "toolSandbox": "toolSandbox",
   "settings_sandbox": "toolSandbox"
