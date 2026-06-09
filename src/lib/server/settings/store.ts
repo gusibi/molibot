@@ -21,11 +21,15 @@ import {
   type ImageGenerateEngineId,
   type ImageGenerateSettings,
   type VideoGenerateEngineId,
-  type VideoGenerateSettings
+  type VideoGenerateSettings,
+  type TtsGenerateSettings
 } from "$lib/server/settings/index.js";
 import { sanitizeHostToolSettings } from "$lib/server/settings/hostTools.js";
 import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
-import { sanitizeChannelInstanceDisplaySettings } from "$lib/server/settings/sanitize.js";
+import {
+  sanitizeChannelInstanceDisplaySettings,
+  sanitizeTtsGenerateSettings
+} from "$lib/server/settings/sanitize.js";
 import {
   resolveCustomProviderThinkingFormat,
   sanitizeOptionalThinkingSupport,
@@ -42,6 +46,7 @@ type DynamicSettingKey =
   | "webSearch"
   | "imageGenerate"
   | "videoGenerate"
+  | "ttsGenerate"
   | "toolSandbox";
 const DYNAMIC_SETTING_KEYS: DynamicSettingKey[] = [
   "customProviders",
@@ -50,6 +55,7 @@ const DYNAMIC_SETTING_KEYS: DynamicSettingKey[] = [
   "webSearch",
   "imageGenerate",
   "videoGenerate",
+  "ttsGenerate",
   "toolSandbox"
 ];
 
@@ -121,6 +127,7 @@ interface RawSettings {
   webSearch?: unknown;
   imageGenerate?: unknown;
   videoGenerate?: unknown;
+  ttsGenerate?: unknown;
   toolSandbox?: unknown;
   hostTools?: unknown;
   disabledSkillPaths?: unknown;
@@ -1030,6 +1037,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const webSearch = sanitizeWebSearchSettings(raw.webSearch ?? defaultRuntimeSettings.webSearch);
   const imageGenerate = sanitizeImageGenerateSettings(raw.imageGenerate ?? defaultRuntimeSettings.imageGenerate);
   const videoGenerate = sanitizeVideoGenerateSettings(raw.videoGenerate ?? defaultRuntimeSettings.videoGenerate);
+  const ttsGenerate = sanitizeTtsGenerateSettings(raw.ttsGenerate ?? defaultRuntimeSettings.ttsGenerate);
   const toolSandbox = sanitizeToolSandboxSettings(raw.toolSandbox ?? defaultRuntimeSettings.toolSandbox);
   const hostTools = sanitizeHostToolSettings(raw.hostTools ?? defaultRuntimeSettings.hostTools);
   const disabledSkillPaths = sanitizeList(raw.disabledSkillPaths);
@@ -1110,6 +1118,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     webSearch,
     imageGenerate,
     videoGenerate,
+    ttsGenerate,
     toolSandbox,
     hostTools,
     disabledSkillPaths,
@@ -1564,6 +1573,7 @@ export class SettingsStore {
       const webSearch = this.loadWebSearchSettings(db);
       const imageGenerate = this.loadImageGenerateSettings(db);
       const videoGenerate = this.loadVideoGenerateSettings(db);
+      const ttsGenerate = this.loadTtsGenerateSettings(db);
       const toolSandbox = this.loadSandboxSettings(db);
 
       return {
@@ -1573,6 +1583,7 @@ export class SettingsStore {
         webSearch,
         imageGenerate,
         videoGenerate,
+        ttsGenerate,
         toolSandbox
       };
     } finally {
@@ -1626,6 +1637,22 @@ export class SettingsStore {
     } | undefined;
     if (!row) return undefined;
     return this.parseDynamicValue<RuntimeSettings["videoGenerate"]>(row.value_json, undefined as any);
+  }
+
+  private saveTtsGenerateSettings(db: DatabaseSync, ttsGenerate: RuntimeSettings["ttsGenerate"]): void {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT OR REPLACE INTO settings_dynamic (key, value_json, updated_at)
+      VALUES ('settings_tts_generate', ?, ?)
+    `).run(JSON.stringify(ttsGenerate), now);
+  }
+
+  private loadTtsGenerateSettings(db: DatabaseSync): RuntimeSettings["ttsGenerate"] | undefined {
+    const row = db.prepare("SELECT value_json FROM settings_dynamic WHERE key = ?").get("settings_tts_generate") as {
+      value_json: string;
+    } | undefined;
+    if (!row) return undefined;
+    return this.parseDynamicValue<RuntimeSettings["ttsGenerate"]>(row.value_json, undefined as any);
   }
 
   private saveSandboxSettings(db: DatabaseSync, toolSandbox: RuntimeSettings["toolSandbox"]): void {
@@ -1756,6 +1783,10 @@ export class SettingsStore {
         this.saveVideoGenerateSettings(db, settings.videoGenerate);
       }
 
+      if (keys.includes("ttsGenerate")) {
+        this.saveTtsGenerateSettings(db, settings.ttsGenerate);
+      }
+
       if (keys.includes("toolSandbox")) {
         this.saveSandboxSettings(db, settings.toolSandbox);
       }
@@ -1870,6 +1901,10 @@ export class SettingsStore {
         this.saveVideoGenerateSettings(db, sanitizeVideoGenerateSettings(rawStatic.videoGenerate));
         migrated = true;
       }
+      if (!rawDynamic.ttsGenerate && rawStatic.ttsGenerate) {
+        this.saveTtsGenerateSettings(db, sanitizeTtsGenerateSettings(rawStatic.ttsGenerate));
+        migrated = true;
+      }
       if (!rawDynamic.toolSandbox && rawStatic.toolSandbox) {
         this.saveSandboxSettings(db, sanitizeToolSandboxSettings(rawStatic.toolSandbox));
         migrated = true;
@@ -1898,6 +1933,7 @@ export class SettingsStore {
       webSearch: rawDynamicAfterMigration.webSearch ?? rawStatic.webSearch,
       imageGenerate: rawDynamicAfterMigration.imageGenerate ?? rawStatic.imageGenerate,
       videoGenerate: rawDynamicAfterMigration.videoGenerate ?? rawStatic.videoGenerate,
+      ttsGenerate: rawDynamicAfterMigration.ttsGenerate ?? rawStatic.ttsGenerate,
       toolSandbox: rawDynamicAfterMigration.toolSandbox ?? rawStatic.toolSandbox
     };
     const settings = sanitize(merged);

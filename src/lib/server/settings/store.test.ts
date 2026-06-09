@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import { SettingsStore } from "$lib/server/settings/store.js";
 
 test("SettingsStore legacy table migration works and drops old tables", () => {
@@ -68,4 +69,46 @@ test("SettingsStore legacy table migration works and drops old tables", () => {
   assert.equal(webSearch.engines.baidu.enabled, true);
   assert.equal(webSearch.engines.baidu.apiKey, "baidu-key-123");
   assert.equal(webSearch.engines.baidu.baseUrl, "https://api.baidu.com");
+});
+
+test("settings store persists ttsGenerate dynamic settings", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`
+    CREATE TABLE settings_dynamic (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  const store = new SettingsStore();
+  const initial = defaultRuntimeSettings;
+  const updated = {
+    ...initial,
+    ttsGenerate: {
+      ...initial.ttsGenerate,
+      enabled: true,
+      defaultProvider: "xiaomi" as const,
+      providers: {
+        ...initial.ttsGenerate.providers,
+        xiaomi: {
+          enabled: true,
+          apiKey: "persisted-key",
+          baseUrl: "https://api.xiaomimimo.com/v1",
+          model: "mimo-v2-tts",
+          voice: "default_en",
+          format: "wav" as const
+        }
+      }
+    }
+  };
+
+  store["saveTtsGenerateSettings"](db, updated.ttsGenerate);
+  const reloaded = store["loadTtsGenerateSettings"](db);
+
+  assert.equal(updated.ttsGenerate.defaultProvider, "xiaomi");
+  assert.equal(updated.ttsGenerate.providers.xiaomi.apiKey, "persisted-key");
+  assert.ok(reloaded);
+  assert.equal(reloaded.defaultProvider, "xiaomi");
+  assert.equal(reloaded.providers.xiaomi.apiKey, "persisted-key");
+  assert.equal(reloaded.providers.xiaomi.voice, "default_en");
 });
