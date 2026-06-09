@@ -266,6 +266,36 @@ export interface VideoGenerateSettings {
   engines: Record<VideoGenerateEngineId, VideoGenerateEngineSettings>;
 }
 
+export type TtsGenerateProviderId = "macos" | "xiaomi";
+
+export type TtsGenerateAudioFormat = "wav" | "aiff" | "m4a" | "caf";
+
+export interface TtsGenerateMacosProviderSettings {
+  enabled: boolean;
+  voice: string;
+  format: TtsGenerateAudioFormat;
+}
+
+export interface TtsGenerateXiaomiProviderSettings {
+  enabled: boolean;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  voice: string;
+  format: TtsGenerateAudioFormat;
+}
+
+export interface TtsGenerateProviderSettingsMap {
+  macos: TtsGenerateMacosProviderSettings;
+  xiaomi: TtsGenerateXiaomiProviderSettings;
+}
+
+export interface TtsGenerateSettings {
+  enabled: boolean;
+  defaultProvider: TtsGenerateProviderId;
+  providers: TtsGenerateProviderSettingsMap;
+}
+
 
 export type ToolSandboxInitFailureMode = "warn-disable" | "block";
 export type ToolSandboxEnvInheritMode = "minimal" | "allowlist" | "full";
@@ -392,6 +422,7 @@ export interface RuntimeSettings {
   webSearch: WebSearchSettings;
   imageGenerate: ImageGenerateSettings;
   videoGenerate: VideoGenerateSettings;
+  ttsGenerate: TtsGenerateSettings;
   toolSandbox: ToolSandboxSettings;
   hostTools: HostToolSettings;
   disabledSkillPaths: string[];

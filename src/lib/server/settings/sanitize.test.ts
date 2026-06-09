@@ -39,6 +39,53 @@ test("sanitizeSettings enables configured default image engine when legacy enabl
   assert.equal(sanitized.imageGenerate.engines.agnes.apiKey, "agnes-key");
 });
 
+test("sanitizeSettings backfills ttsGenerate for legacy settings", () => {
+  const legacySettings = { ...defaultRuntimeSettings } as Partial<RuntimeSettings>;
+  delete legacySettings.ttsGenerate;
+
+  const sanitized = sanitizeSettings({}, legacySettings as RuntimeSettings);
+
+  assert.equal(sanitized.ttsGenerate.enabled, defaultRuntimeSettings.ttsGenerate.enabled);
+  assert.equal(sanitized.ttsGenerate.defaultProvider, "macos");
+  assert.deepEqual(Object.keys(sanitized.ttsGenerate.providers).sort(), ["macos", "xiaomi"]);
+  assert.equal(sanitized.ttsGenerate.providers.xiaomi.model, "mimo-v2-tts");
+  assert.equal(sanitized.ttsGenerate.providers.xiaomi.voice, "mimo_default");
+});
+
+test("sanitizeSettings normalizes ttsGenerate provider fields", () => {
+  const sanitized = sanitizeSettings({
+    ttsGenerate: {
+      enabled: true,
+      defaultProvider: "invalid-provider",
+      providers: {
+        macos: {
+          enabled: "",
+          voice: "  Tingting  "
+        },
+        xiaomi: {
+          enabled: true,
+          apiKey: "  secret-key  ",
+          baseUrl: "  https://api.xiaomimimo.com/v1/  ",
+          model: "  mimo-v2-tts  ",
+          voice: "  default_zh  ",
+          format: "  wav  "
+        }
+      }
+    }
+  }, defaultRuntimeSettings);
+
+  assert.equal(sanitized.ttsGenerate.enabled, true);
+  assert.equal(sanitized.ttsGenerate.defaultProvider, defaultRuntimeSettings.ttsGenerate.defaultProvider);
+  assert.equal(sanitized.ttsGenerate.providers.macos.enabled, false);
+  assert.equal(sanitized.ttsGenerate.providers.macos.voice, "Tingting");
+  assert.equal(sanitized.ttsGenerate.providers.xiaomi.enabled, true);
+  assert.equal(sanitized.ttsGenerate.providers.xiaomi.apiKey, "secret-key");
+  assert.equal(sanitized.ttsGenerate.providers.xiaomi.baseUrl, "https://api.xiaomimimo.com/v1");
+  assert.equal(sanitized.ttsGenerate.providers.xiaomi.model, "mimo-v2-tts");
+  assert.equal(sanitized.ttsGenerate.providers.xiaomi.voice, "default_zh");
+  assert.equal(sanitized.ttsGenerate.providers.xiaomi.format, "wav");
+});
+
 test("sanitizeSettings only accepts supported runtime locales", () => {
   assert.equal(sanitizeSettings({ locale: "zh-CN" }, defaultRuntimeSettings).locale, "zh-CN");
   assert.equal(

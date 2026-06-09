@@ -16,6 +16,8 @@ import {
   type ImageGenerateSettings,
   type VideoGenerateEngineId,
   type VideoGenerateSettings,
+  type TtsGenerateProviderId,
+  type TtsGenerateSettings,
   type RuntimeSettings,
   type RunBudgetLimits,
   type TelegramBotConfig
@@ -335,6 +337,34 @@ const defaultVideoGenerateSettings: VideoGenerateSettings = {
   }
 };
 
+function normalizeBaseUrl(value: string, fallback: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return trimmed.replace(/\/+$/, "");
+}
+
+const defaultTtsGenerateSettings: TtsGenerateSettings = {
+  enabled: String(process.env.MOLIBOT_TTS_GENERATE_ENABLED ?? "true").toLowerCase() !== "false",
+  defaultProvider: (process.env.MOLIBOT_TTS_GENERATE_DEFAULT_PROVIDER ?? "macos") as TtsGenerateProviderId,
+  providers: {
+    macos: {
+      enabled: String(process.env.MOLIBOT_TTS_MACOS_ENABLED ?? "true").toLowerCase() !== "false",
+      voice: String(process.env.MOLIBOT_TTS_MACOS_VOICE ?? "").trim(),
+      format: "aiff"
+    },
+    xiaomi: {
+      enabled: String(process.env.MOLIBOT_TTS_XIAOMI_ENABLED ?? "").trim()
+        ? String(process.env.MOLIBOT_TTS_XIAOMI_ENABLED).toLowerCase() !== "false"
+        : Boolean(String(process.env.MOLIBOT_TTS_XIAOMI_API_KEY ?? "").trim()),
+      apiKey: String(process.env.MOLIBOT_TTS_XIAOMI_API_KEY ?? "").trim(),
+      baseUrl: normalizeBaseUrl(String(process.env.MOLIBOT_TTS_XIAOMI_BASE_URL ?? ""), "https://api.xiaomimimo.com/v1"),
+      model: String(process.env.MOLIBOT_TTS_XIAOMI_MODEL ?? "mimo-v2-tts").trim() || "mimo-v2-tts",
+      voice: String(process.env.MOLIBOT_TTS_XIAOMI_VOICE ?? "mimo_default").trim() || "mimo_default",
+      format: "wav"
+    }
+  }
+};
+
 
 const defaultCloudflareHtmlPluginSettings: RuntimeSettings["plugins"]["cloudflareHtml"] = {
   enabled: String(process.env.MOLIBOT_PLUGIN_CLOUDFLARE_HTML_ENABLED ?? "false").toLowerCase() === "true",
@@ -424,6 +454,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   webSearch: defaultWebSearchSettings,
   imageGenerate: defaultImageGenerateSettings,
   videoGenerate: defaultVideoGenerateSettings,
+  ttsGenerate: defaultTtsGenerateSettings,
   toolSandbox: defaultToolSandboxSettings,
   hostTools: defaultHostToolSettings,
   disabledSkillPaths: [],

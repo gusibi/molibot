@@ -25,6 +25,9 @@ import {
   type ImageGenerateSettings,
   type VideoGenerateEngineId,
   type VideoGenerateSettings,
+  type TtsGenerateAudioFormat,
+  type TtsGenerateProviderId,
+  type TtsGenerateSettings,
   type ChannelInstanceSettings,
   sanitizeHostToolSettings,
   sanitizeToolSandboxSettings
@@ -50,6 +53,8 @@ const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "china", "global", "officia
 const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[] = ["priority", "random", "round_robin"];
 const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["agnes", "modelscope", "google", "volcengine"];
 const VIDEO_GENERATE_ENGINES: VideoGenerateEngineId[] = ["agnes", "volcengine"];
+const TTS_GENERATE_PROVIDERS: TtsGenerateProviderId[] = ["macos", "xiaomi"];
+const TTS_GENERATE_FORMATS: TtsGenerateAudioFormat[] = ["wav", "aiff", "m4a", "caf"];
 const LEGACY_WEB_SEARCH_ROUTE_MAP: Record<string, WebSearchRoute> = {
   domestic_news: "china",
   chinese_general: "china",
@@ -232,6 +237,62 @@ export function sanitizeVideoGenerateSettings(
     enabled: source.enabled === undefined ? fallbackSettings.enabled : Boolean(source.enabled),
     defaultEngine: requestedDefaultEngine === "auto" || VIDEO_GENERATE_ENGINES.includes(requestedDefaultEngine) ? requestedDefaultEngine : fallbackSettings.defaultEngine,
     engines
+  };
+}
+
+function sanitizeTtsFormat(value: unknown, fallback: TtsGenerateAudioFormat): TtsGenerateAudioFormat {
+  const format = String(value ?? fallback).trim().toLowerCase() as TtsGenerateAudioFormat;
+  return TTS_GENERATE_FORMATS.includes(format) ? format : fallback;
+}
+
+function sanitizeTtsBaseUrl(value: unknown, fallback: string): string {
+  const raw = String(value ?? fallback).trim();
+  const cleaned = raw.replace(/\/+$/, "");
+  return cleaned || fallback;
+}
+
+export function sanitizeTtsGenerateSettings(
+  input: unknown,
+  fallback: TtsGenerateSettings = defaultRuntimeSettings.ttsGenerate
+): TtsGenerateSettings {
+  const fallbackSettings = fallback ?? defaultRuntimeSettings.ttsGenerate;
+  const source = input && typeof input === "object"
+    ? input as Record<string, unknown>
+    : {};
+  const providersSource = source.providers && typeof source.providers === "object"
+    ? source.providers as Record<string, unknown>
+    : {};
+  const requestedDefaultProvider = String(
+    source.defaultProvider ?? fallbackSettings.defaultProvider
+  ).trim() as TtsGenerateProviderId;
+
+  const macosRaw = providersSource.macos && typeof providersSource.macos === "object"
+    ? providersSource.macos as Record<string, unknown>
+    : {};
+  const xiaomiRaw = providersSource.xiaomi && typeof providersSource.xiaomi === "object"
+    ? providersSource.xiaomi as Record<string, unknown>
+    : {};
+
+  return {
+    enabled: source.enabled === undefined ? fallbackSettings.enabled : Boolean(source.enabled),
+    defaultProvider: TTS_GENERATE_PROVIDERS.includes(requestedDefaultProvider)
+      ? requestedDefaultProvider
+      : fallbackSettings.defaultProvider,
+    providers: {
+      macos: {
+        enabled: macosRaw.enabled === undefined ? fallbackSettings.providers.macos.enabled : Boolean(macosRaw.enabled),
+        voice: String(macosRaw.voice ?? fallbackSettings.providers.macos.voice ?? "").trim(),
+        format: sanitizeTtsFormat(macosRaw.format, fallbackSettings.providers.macos.format)
+      },
+      xiaomi: {
+        enabled: xiaomiRaw.enabled === undefined ? fallbackSettings.providers.xiaomi.enabled : Boolean(xiaomiRaw.enabled),
+        apiKey: String(xiaomiRaw.apiKey ?? fallbackSettings.providers.xiaomi.apiKey ?? "").trim(),
+        baseUrl: sanitizeTtsBaseUrl(xiaomiRaw.baseUrl, fallbackSettings.providers.xiaomi.baseUrl),
+        model: String(xiaomiRaw.model ?? fallbackSettings.providers.xiaomi.model ?? "mimo-v2-tts").trim() || "mimo-v2-tts",
+        voice: String(xiaomiRaw.voice ?? fallbackSettings.providers.xiaomi.voice ?? "mimo_default").trim() || "mimo_default",
+        format: sanitizeTtsFormat(xiaomiRaw.format, fallbackSettings.providers.xiaomi.format)
+      }
+    }
   };
 }
 
@@ -794,6 +855,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.webSearch = sanitizeWebSearchSettings(next.webSearch ?? current.webSearch, current.webSearch);
   next.imageGenerate = sanitizeImageGenerateSettings(next.imageGenerate ?? current.imageGenerate, current.imageGenerate);
   next.videoGenerate = sanitizeVideoGenerateSettings(next.videoGenerate ?? current.videoGenerate, current.videoGenerate);
+  next.ttsGenerate = sanitizeTtsGenerateSettings(next.ttsGenerate ?? current.ttsGenerate, current.ttsGenerate);
   next.toolSandbox = sanitizeToolSandboxSettings(next.toolSandbox ?? current.toolSandbox, current.toolSandbox);
   next.hostTools = sanitizeHostToolSettings(next.hostTools ?? current.hostTools);
   next.disabledSkillPaths = Array.isArray(next.disabledSkillPaths)
