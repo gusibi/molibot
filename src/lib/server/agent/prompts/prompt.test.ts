@@ -103,7 +103,7 @@ test("rendered prompt stays under a broad size budget while preserving routing a
       timezone: "UTC"
     });
 
-    assert.ok(prompt.length < 24_000, `rendered prompt length ${prompt.length} exceeded budget`);
+    assert.ok(prompt.length < 25_000, `rendered prompt length ${prompt.length} exceeded budget`);
     assert.match(prompt, /<available-deferred-tools>/);
     assert.match(prompt, /createEvent/);
     assert.match(prompt, /skillSearch/);
@@ -146,4 +146,13 @@ test("prompt source prioritizes videoGenerate before skillSearch and bash video 
   assert.match(promptSource, /Do not use `skillSearch`, bash, Python video scripts, or create a skill unless `videoGenerate` is unavailable or fails/);
   assert.match(promptSource, /For generating videos, prefer `videoGenerate` over writing custom code or searching for skills/);
   assert.match(promptSource, /images` must be public HTTP\(S\) Remote URLs only/);
+});
+
+test("prompt source prioritizes ttsGenerate before skillSearch and bash audio scripts", () => {
+  assert.match(promptSource, /"ttsGenerate"/);
+  assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"ttsGenerate"[\s\S]*\}/);
+  assert.match(promptSource, /Text-to-speech requests in any language/);
+  assert.match(promptSource, /infer the intent semantically, call `toolSearch` with `select:ttsGenerate`, then call `ttsGenerate`/);
+  assert.match(promptSource, /Do not use `skillSearch`, bash, Python audio scripts, macOS `say`, or create a skill unless `ttsGenerate` is unavailable or fails/);
+  assert.match(promptSource, /For text-to-speech, narration, voiceover, or spoken-audio generation, prefer `ttsGenerate`/);
 });

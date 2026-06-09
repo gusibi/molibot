@@ -23,6 +23,22 @@ function createDeferredEntry(): DeferredToolEntry {
   };
 }
 
+function createTtsDeferredEntry(): DeferredToolEntry {
+  return {
+    name: "ttsGenerate",
+    label: "ttsGenerate",
+    description: "Convert text into speech audio, save locally, and automatically send to chat.",
+    keywords: ["tts", "speech", "voiceover"],
+    tool: {
+      name: "ttsGenerate",
+      label: "ttsGenerate",
+      description: "Convert text into speech audio.",
+      parameters: Type.Object({ text: Type.String() }),
+      execute: async () => ({ content: [{ type: "text", text: "ok" }] })
+    }
+  };
+}
+
 test("toolSearch loads imageGenerate by direct deferred-tool selection", async () => {
   const loadedNames: string[] = [];
   const tool = createToolSearchTool({
@@ -42,4 +58,23 @@ test("toolSearch loads imageGenerate by direct deferred-tool selection", async (
   assert.deepEqual(loadedNames, ["imageGenerate"]);
   assert.match(text, /Loaded deferred tools: imageGenerate/);
   assert.match(text, /"name":"imageGenerate"/);
+});
+
+test("toolSearch loads ttsGenerate by direct deferred-tool selection", async () => {
+  const loadedNames: string[] = [];
+  const tool = createToolSearchTool({
+    chatId: "chat-1",
+    getDeferredTools: () => [createTtsDeferredEntry()],
+    loadDeferredTools: (toolNames) => {
+      loadedNames.push(...toolNames);
+      return toolNames;
+    }
+  });
+
+  const result = await tool.execute("call-1", { query: "select:ttsGenerate" });
+  const text = result.content.map((item: any) => String(item.text ?? "")).join("\n");
+
+  assert.deepEqual(loadedNames, ["ttsGenerate"]);
+  assert.match(text, /Loaded deferred tools: ttsGenerate/);
+  assert.match(text, /"name":"ttsGenerate"/);
 });

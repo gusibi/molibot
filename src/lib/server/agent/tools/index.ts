@@ -21,6 +21,7 @@ import { getWriteToolDefinition } from "$lib/server/agent/tools/write.js";
 import { createWebSearchTool } from "$lib/server/agent/search/webSearchTool.js";
 import { createImageGenerateTool } from "$lib/server/agent/imageGenerate/imageGenerateTool.js";
 import { createVideoGenerateTool } from "$lib/server/agent/videoGenerate/videoGenerateTool.js";
+import { createTtsGenerateTool } from "$lib/server/agent/ttsGenerate/ttsGenerateTool.js";
 import { createFeaturePluginTools } from "$lib/server/plugins/feature-registry.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { momLog } from "$lib/server/agent/common/log.js";
@@ -184,6 +185,13 @@ export function createMomTools(options: {
     artifactDir,
     uploadFile: options.uploadFile,
     sessionId: options.sessionId
+  }));
+  const ttsGenerateRuntimeTool = wrapSerializedTool(createTtsGenerateTool({
+    getSettings: options.getSettings,
+    cwd: options.cwd,
+    workspaceDir: options.workspaceDir,
+    artifactDir,
+    uploadFile: options.uploadFile
   }));
 
   const featureTools = createFeaturePluginTools({
@@ -530,6 +538,21 @@ export function createMomTools(options: {
         "ti2vid"
       ],
       tool: videoGenerateRuntimeTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "ttsGenerate",
+      description: "Convert text into speech audio with configured TTS providers, save locally, and automatically send to chat.",
+      keywords: [
+        "tts",
+        "speech",
+        "voice",
+        "voiceover",
+        "narration",
+        "audio",
+        "speak"
+      ],
+      tool: ttsGenerateRuntimeTool,
       loadDeferredTools
     })
   ];

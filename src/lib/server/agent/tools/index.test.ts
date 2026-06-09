@@ -127,3 +127,13 @@ test("tools index registers videoGenerate as a deferred tool with concise Englis
   assert.match(indexSource, /"generate"/);
   assert.match(indexSource, /"animate"/);
 });
+
+test("tools index registers ttsGenerate as a deferred tool with concise English discovery keywords", () => {
+  assert.match(indexSource, /createTtsGenerateTool/);
+  assert.match(indexSource, /name: "ttsGenerate"/);
+  assert.match(indexSource, /tool: ttsGenerateRuntimeTool/);
+  assert.match(indexSource, /"tts"/);
+  assert.match(indexSource, /"speech"/);
+  assert.match(indexSource, /"voiceover"/);
+  assert.doesNotMatch(indexSource, /"文字转语音"/);
+});

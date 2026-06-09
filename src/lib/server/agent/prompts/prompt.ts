@@ -178,7 +178,8 @@ function buildMessageProcessingPipeline(): string {
     "Step 0 — Dedicated Runtime Tool Short-Circuit (mandatory, always check first)",
     "  a) Image generation/editing requests in any language (for example: generate image) → infer the intent semantically, call `toolSearch` with `select:imageGenerate`, then call `imageGenerate`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python image scripts, or create a skill unless `imageGenerate` is unavailable or fails.",
     "  b) Video generation requests in any language (for example: generate video, 文生视频, 图生视频, check video progress) → infer the intent semantically, call `toolSearch` with `select:videoGenerate`, then call `videoGenerate`. For image-to-video, `images` must contain only public HTTP(S) Remote URL values, preferably the `Remote URL` returned by `imageGenerate`; never pass Base64, data URLs, local file paths, or `Absolute path` values. When submitting a new video task, it will immediately return a taskId. You must immediately inform the user of this taskId and end your turn. **Do not call `videoGenerate` again in the same turn.** When checking progress later (e.g. if the user asks 'is the video done?'), locate the taskId and engine in the history and call `videoGenerate(taskId: '...', engine: '...')`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python video scripts, or create a skill unless `videoGenerate` is unavailable or fails.",
-    "  c) Current web information requests → call `toolSearch` with `select:webSearch`, then call `webSearch`. Do not use bash curl, browser search, or search skills unless `webSearch` is unavailable or fails.",
+    "  c) Text-to-speech requests in any language (for example: convert text to speech, generate narration, create voiceover audio, 合成语音, 文字转语音, 朗读成音频) → infer the intent semantically, call `toolSearch` with `select:ttsGenerate`, then call `ttsGenerate`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python audio scripts, macOS `say`, or create a skill unless `ttsGenerate` is unavailable or fails.",
+    "  d) Current web information requests → call `toolSearch` with `select:webSearch`, then call `webSearch`. Do not use bash curl, browser search, or search skills unless `webSearch` is unavailable or fails.",
 
     "Step 1 — Skill Routing",
     "  a) Explicit Invocation: (`/skill-name`, `$skill-name`, `skill:skill-name`) → unconditionally execute that skill.",
@@ -296,7 +297,8 @@ function buildAvailableDeferredToolsSection(): string {
     "profileFiles",
     "webSearch",
     "imageGenerate",
-    "videoGenerate"
+    "videoGenerate",
+    "ttsGenerate"
   ].join("\n"));
 }
 
@@ -372,6 +374,7 @@ function buildToolsSection(): string {
     "- For current web information, prefer `webSearch` over bash curl, browser search, or legacy skill scripts.",
     "- For drawing/generating images, prefer `imageGenerate` over running python script skills or writing complex code.",
     "- For generating videos, prefer `videoGenerate` over writing custom code or searching for skills. For image-to-video, pass only public HTTP(S) Remote URL image values; never pass Base64/data URLs or local paths.",
+    "- For text-to-speech, narration, voiceover, or spoken-audio generation, prefer `ttsGenerate` over writing custom code, invoking macOS `say` directly, or searching for skills.",
     "- Do not bypass managed tools by manually editing memory files, event JSON files, bot profile files, or deferred-tool state.",
     "- Use subagent for codebase-heavy investigation, implementation, or review that would otherwise consume many parent-run tool calls.",
     "",
@@ -381,6 +384,7 @@ function buildToolsSection(): string {
     "- `webSearch(query, maxResults?, engine?, route?, includeDomains?, excludeDomains?)` — search current web information with configured providers, date-aware guidance, fallback diagnostics, citations, and source metadata",
     "- `imageGenerate(prompt, engine?, model?, size?, seed?, images?, outputName?)` — generate high-quality images based on text descriptions, save locally, and automatically send to chat",
     "- `videoGenerate(prompt?, engine?, model?, duration?, ratio?, seed?, images?, generateAudio?, watermark?, outputName?, taskId?)` — generate high-quality videos (returns taskId immediately), or query task status by passing taskId and engine. `images` must be public HTTP(S) Remote URLs only; use `imageGenerate`'s `Remote URL`, not Base64/data URLs or local paths.",
+    "- `ttsGenerate(text, provider?, voice?, model?, style?, format?, fileName?, autoUpload?)` — convert text into speech audio, save locally, and automatically send to chat",
     "- `toolSearch(query, maxResults?)` — find and load deferred tools before calling them",
     "- `subagent(agent?, task?, tasks?, chain?)` — delegate codebase-heavy work to isolated roles: `scout`, `planner`, `worker`, `reviewer`",
     "- `attach(file_path)` — send local file through active channel",
