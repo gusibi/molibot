@@ -54,7 +54,7 @@ const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[]
 const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["agnes", "modelscope", "google", "volcengine"];
 const VIDEO_GENERATE_ENGINES: VideoGenerateEngineId[] = ["agnes", "volcengine"];
 const TTS_GENERATE_PROVIDERS: TtsGenerateProviderId[] = ["macos", "xiaomi"];
-const TTS_GENERATE_FORMATS: TtsGenerateAudioFormat[] = ["wav", "aiff", "m4a", "caf"];
+const TTS_GENERATE_FORMATS: TtsGenerateAudioFormat[] = ["wav", "mp3", "aiff", "m4a", "caf"];
 const LEGACY_WEB_SEARCH_ROUTE_MAP: Record<string, WebSearchRoute> = {
   domestic_news: "china",
   chinese_general: "china",

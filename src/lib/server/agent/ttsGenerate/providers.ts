@@ -1,6 +1,6 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import type { TtsGenerateFormat } from "./types.js";
+import { XIAOMI_TTS_SUPPORTED_FORMATS, MACOS_TTS_SUPPORTED_FORMATS, type TtsGenerateFormat } from "./types.js";
 import {
   mimeTypeForAudioFormat,
   type TtsGenerateInput,
@@ -93,7 +93,9 @@ export function createXiaomiTtsProvider(): TtsGenerateProviderAdapter {
       }
       const model = String(input.model ?? config.model ?? "mimo-v2-tts").trim() || "mimo-v2-tts";
       const voice = String(input.voice ?? config.voice ?? "mimo_default").trim() || "mimo_default";
-      const format = (input.format ?? config.format ?? "wav") as TtsGenerateFormat;
+      const requestedFormat = (input.format ?? config.format ?? "wav") as TtsGenerateFormat;
+      // Xiaomi API only supports wav and mp3; fall back to wav for unsupported formats
+      const format = XIAOMI_TTS_SUPPORTED_FORMATS.includes(requestedFormat) ? requestedFormat : "wav" as TtsGenerateFormat;
       const url = `${trimSlash(config.baseUrl || "https://api.xiaomimimo.com/v1")}/chat/completions`;
       const body = {
         model,
@@ -153,9 +155,8 @@ export function createMacosTtsProvider(): TtsGenerateProviderAdapter {
       }
       const voice = String(input.voice ?? config.voice ?? "").trim();
       const requestedFormat = (input.format ?? config.format ?? "aiff") as TtsGenerateFormat;
-      // macOS say does not support wav; fall back to aiff and update the output path extension
-      const MACOS_UNSUPPORTED_FORMATS: TtsGenerateFormat[] = ["wav"];
-      const format = MACOS_UNSUPPORTED_FORMATS.includes(requestedFormat) ? "aiff" as TtsGenerateFormat : requestedFormat;
+      // macOS say does not support wav/mp3; fall back to aiff and update the output path extension
+      const format = MACOS_TTS_SUPPORTED_FORMATS.includes(requestedFormat) ? requestedFormat : "aiff" as TtsGenerateFormat;
       const effectiveOutputPath = requestedFormat !== format
         ? input.outputPath.replace(/\.[^.]+$/, `.${format}`)
         : input.outputPath;

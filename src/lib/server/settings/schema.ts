@@ -268,7 +268,7 @@ export interface VideoGenerateSettings {
 
 export type TtsGenerateProviderId = "macos" | "xiaomi";
 
-export type TtsGenerateAudioFormat = "wav" | "aiff" | "m4a" | "caf";
+export type TtsGenerateAudioFormat = "wav" | "mp3" | "aiff" | "m4a" | "caf";
 
 export interface TtsGenerateMacosProviderSettings {
   enabled: boolean;

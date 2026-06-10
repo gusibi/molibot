@@ -7,11 +7,11 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
-  import { Switch } from "$lib/components/ui/switch";
+  import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { locale } from "$lib/ui/i18n";
 
   type ProviderId = "macos" | "xiaomi";
-  type AudioFormat = "wav" | "aiff" | "m4a" | "caf";
+  type AudioFormat = "wav" | "mp3" | "aiff" | "m4a" | "caf";
 
   interface TtsGenerateSettings {
     enabled: boolean;
@@ -24,7 +24,9 @@
 
   interface VoiceOption {
     id: string;
+    label?: string;
     locale?: string;
+    gender?: string;
     sample?: string;
   }
 
@@ -106,9 +108,15 @@
   }
 
   const xiaomiVoices: VoiceOption[] = [
-    { id: "mimo_default", sample: "MiMo default voice" },
-    { id: "default_zh", locale: "zh_CN", sample: "Chinese female voice" },
-    { id: "default_en", locale: "en_US", sample: "English female voice" }
+    { id: "mimo_default", label: "MiMo-默认", locale: "因部署集群而异" },
+    { id: "冰糖", label: "冰糖", locale: "中文", gender: "女性" },
+    { id: "茉莉", label: "茉莉", locale: "中文", gender: "女性" },
+    { id: "苏打", label: "苏打", locale: "中文", gender: "男性" },
+    { id: "白桦", label: "白桦", locale: "中文", gender: "男性" },
+    { id: "Mia", label: "Mia", locale: "英文", gender: "女性" },
+    { id: "Chloe", label: "Chloe", locale: "英文", gender: "女性" },
+    { id: "Milo", label: "Milo", locale: "英文", gender: "男性" },
+    { id: "Dean", label: "Dean", locale: "英文", gender: "男性" }
   ];
 
   let loading = true;
@@ -254,7 +262,7 @@
               <Label for="tts-enabled">{t("enableTool")}</Label>
               <p class="mt-1 text-xs text-muted-foreground">{t("enableToolDesc")}</p>
             </div>
-            <Switch id="tts-enabled" bind:checked={ttsGenerate.enabled} />
+            <IosSwitch id="tts-enabled" bind:checked={ttsGenerate.enabled} />
           </div>
 
           <div class="grid gap-4 sm:grid-cols-2">
@@ -282,7 +290,7 @@
           <CardContent class="grid gap-4">
             <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 px-4 py-3">
               <Label for="macos-enabled">{t("enabled")}</Label>
-              <Switch id="macos-enabled" bind:checked={ttsGenerate.providers.macos.enabled} />
+              <IosSwitch id="macos-enabled" bind:checked={ttsGenerate.providers.macos.enabled} />
             </div>
 
             <div class="grid gap-1.5">
@@ -291,7 +299,7 @@
                 <NativeSelect id="macos-voice" bind:value={ttsGenerate.providers.macos.voice}>
                   <NativeSelectOption value="">System Default</NativeSelectOption>
                   {#each macosVoices as voice}
-                    <NativeSelectOption value={voice.id}>{voice.id}{voice.locale ? ` · ${voice.locale}` : ""}</NativeSelectOption>
+                    <NativeSelectOption value={voice.id}>{voice.label ?? voice.id}{voice.locale ? ` · ${voice.locale}` : ""}{voice.gender ? ` · ${voice.gender}` : ""}</NativeSelectOption>
                   {/each}
                 </NativeSelect>
               {:else}
@@ -321,7 +329,7 @@
           <CardContent class="grid gap-4">
             <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 px-4 py-3">
               <Label for="xiaomi-enabled">{t("enabled")}</Label>
-              <Switch id="xiaomi-enabled" bind:checked={ttsGenerate.providers.xiaomi.enabled} />
+              <IosSwitch id="xiaomi-enabled" bind:checked={ttsGenerate.providers.xiaomi.enabled} />
             </div>
 
             <div class="grid gap-1.5">
@@ -363,7 +371,7 @@
               <Label for="xiaomi-voice">{t("voice")}</Label>
               <NativeSelect id="xiaomi-voice" bind:value={ttsGenerate.providers.xiaomi.voice}>
                 {#each xiaomiVoices as voice}
-                  <NativeSelectOption value={voice.id}>{voice.id}{voice.locale ? ` · ${voice.locale}` : ""}</NativeSelectOption>
+                  <NativeSelectOption value={voice.id}>{voice.label ?? voice.id}{voice.locale ? ` · ${voice.locale}` : ""}{voice.gender ? ` · ${voice.gender}` : ""}</NativeSelectOption>
                 {/each}
               </NativeSelect>
             </div>
@@ -372,6 +380,7 @@
               <Label for="xiaomi-format">{t("format")}</Label>
               <NativeSelect id="xiaomi-format" bind:value={ttsGenerate.providers.xiaomi.format}>
                 <NativeSelectOption value="wav">WAV</NativeSelectOption>
+                <NativeSelectOption value="mp3">MP3</NativeSelectOption>
               </NativeSelect>
             </div>
           </CardContent>

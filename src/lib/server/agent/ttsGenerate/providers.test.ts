@@ -162,3 +162,78 @@ test("macos provider falls back from wav to aiff format", async () => {
   assert.equal(result.mimeType, "audio/aiff");
   assert.equal(result.outputPath, "/tmp/speech.aiff");
 });
+
+test("xiaomi provider falls back from aiff to wav format", async () => {
+  let capturedBody: any;
+  const provider = createXiaomiTtsProvider();
+
+  const result = await provider.generate({
+    text: "hello",
+    provider: "xiaomi",
+    voice: "mimo_default",
+    format: "aiff"
+  }, context({
+    fetch: async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        choices: [{ message: { audio: { data: Buffer.from("audio").toString("base64") } } }]
+      }), { status: 200 });
+    }
+  }));
+
+  // aiff is not supported by Xiaomi; should fall back to wav
+  assert.equal(capturedBody.audio.format, "wav");
+  assert.equal(result.format, "wav");
+  assert.equal(result.extension, "wav");
+  assert.equal(result.mimeType, "audio/wav");
+});
+
+test("xiaomi provider accepts mp3 format", async () => {
+  let capturedBody: any;
+  const provider = createXiaomiTtsProvider();
+
+  const result = await provider.generate({
+    text: "hello",
+    provider: "xiaomi",
+    voice: "mimo_default",
+    format: "mp3"
+  }, context({
+    fetch: async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        choices: [{ message: { audio: { data: Buffer.from("audio").toString("base64") } } }]
+      }), { status: 200 });
+    }
+  }));
+
+  assert.equal(capturedBody.audio.format, "mp3");
+  assert.equal(result.format, "mp3");
+  assert.equal(result.mimeType, "audio/mpeg");
+});
+
+test("macos provider falls back from mp3 to aiff format", async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const provider = createMacosTtsProvider();
+
+  const result = await provider.generate({
+    text: "hello",
+    provider: "macos",
+    voice: "Tingting",
+    format: "mp3",
+    outputPath: "/tmp/speech.mp3"
+  }, context({
+    spawn: ((command: string, args: string[]) => {
+      calls.push({ command, args });
+      const child = new EventEmitter() as any;
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => true;
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    }) as any
+  }));
+
+  assert.deepEqual(calls[0].args, ["-v", "Tingting", "-o", "/tmp/speech.aiff", "--", "hello"]);
+  assert.equal(result.format, "aiff");
+  assert.equal(result.outputPath, "/tmp/speech.aiff");
+});

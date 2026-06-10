@@ -51,10 +51,16 @@ export const XIAOMI_TTS_VOICES: TtsVoiceOption[] = [
 
 export const XIAOMI_TTS_MODELS = ["mimo-v2-tts"] as const;
 
+export const XIAOMI_TTS_SUPPORTED_FORMATS: TtsGenerateFormat[] = ["wav", "mp3"];
+
+export const MACOS_TTS_SUPPORTED_FORMATS: TtsGenerateFormat[] = ["aiff", "m4a", "caf"];
+
 export function mimeTypeForAudioFormat(format: TtsGenerateFormat): string {
   switch (format) {
     case "wav":
       return "audio/wav";
+    case "mp3":
+      return "audio/mpeg";
     case "m4a":
       return "audio/mp4";
     case "caf":
