@@ -7,7 +7,7 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
-  import { Switch } from "$lib/components/ui/switch";
+  import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
   import { locale } from "$lib/ui/i18n";
 
@@ -338,7 +338,7 @@
               <Label for="video-enabled">{t("enableTool")}</Label>
               <p class="mt-1 text-xs text-muted-foreground">{t("enableToolDesc")}</p>
             </div>
-            <Switch id="video-enabled" bind:checked={videoGenerate.enabled} />
+            <IosSwitch id="video-enabled" bind:checked={videoGenerate.enabled} />
           </div>
 
           <div class="grid gap-4 sm:grid-cols-2">
@@ -374,7 +374,7 @@
                 </div>
                 <div class="flex flex-col items-end gap-1">
                   <Label class="text-xs text-muted-foreground">{t("engineEnabled")}</Label>
-                  <Switch bind:checked={videoGenerate.engines[engine.id].enabled} aria-label={`Enable ${engine.name}`} />
+                  <IosSwitch bind:checked={videoGenerate.engines[engine.id].enabled} aria-label={`Enable ${engine.name}`} />
                 </div>
               </div>
               

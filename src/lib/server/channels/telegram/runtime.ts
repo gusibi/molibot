@@ -18,6 +18,7 @@ import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
 import { describeTelegramError, editTelegramMessage, editTelegramText, sendTelegramChatAction, sendTelegramText, sendTelegramTextSafely, summarizeTelegramToolProgressText, syncTelegramTextMessages } from "$lib/server/channels/telegram/formatting.js";
 import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
+import { sendVoiceWithFallback } from "$lib/server/channels/shared/audio.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import type { ParsedRelativeReminder, StatusSession } from "$lib/server/channels/telegram/types.js";
 import { TELEGRAM_SHARED_COMMANDS } from "$lib/server/channels/telegram/commands.js";
@@ -1769,18 +1770,30 @@ export class TelegramManager extends BaseChannelRuntime {
 
         if (audioMime) {
           try {
-            if (audioMime === "audio/ogg") {
-              await bot.api.sendVoice(chatId, new InputFile(bytes, name), {
-                ...(sendOptions ?? {}),
-                caption: name
-              });
-            } else {
-              await bot.api.sendAudio(chatId, new InputFile(bytes, name), {
-                ...(sendOptions ?? {}),
-                caption: name,
-                title: name
-              });
-            }
+            await sendVoiceWithFallback({
+              filePath,
+              name,
+              mimeType: audioMime,
+              isVoiceReady: (mime) => mime === "audio/ogg" || mime === "audio/mpeg" || mime === "audio/mp4",
+              transcodeArgs: ["-c:a", "libopus", "-b:a", "32k", "-ar", "48000", "-ac", "1"],
+              outputExt: ".ogg",
+              outputMime: "audio/ogg",
+              sendVoice: async (path, sendName) => {
+                const fileBytes = readFileSync(path);
+                await bot.api.sendVoice(chatId, new InputFile(fileBytes, sendName), {
+                  ...(sendOptions ?? {}),
+                  caption: sendName
+                });
+              },
+              sendFile: async (path, sendName) => {
+                const fileBytes = readFileSync(path);
+                await bot.api.sendAudio(chatId, new InputFile(fileBytes, sendName), {
+                  ...(sendOptions ?? {}),
+                  caption: sendName,
+                  title: sendName
+                });
+              }
+            });
             return;
           } catch (error) {
             momWarn("telegram", "ctx_upload_audio_failed_fallback_document", {

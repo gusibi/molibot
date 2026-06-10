@@ -6,7 +6,7 @@
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { WEB_SEARCH_DEFAULT_BASE_URLS, type WebSearchBaseUrlEngine } from "$lib/shared/webSearchDefaults";
-  import { Switch } from "$lib/components/ui/switch";
+  import { IosSwitch } from "$lib/components/ui/ios-switch";
 
   type EngineId =
     | "duckduckgo"
@@ -226,7 +226,7 @@
             <Label for="search-enabled" class="font-bold">Enable built-in webSearch tool</Label>
             <p class="search-form-hint">When disabled, the tool returns a settings error instead of searching.</p>
           </div>
-          <Switch id="search-enabled" bind:checked={webSearch.enabled} />
+          <IosSwitch id="search-enabled" bind:checked={webSearch.enabled} />
         </div>
 
         <div class="search-form-grid">
@@ -295,7 +295,7 @@
                   </div>
                   <p class="search-engine-hint">{engine.hint}</p>
                 </div>
-                <Switch bind:checked={webSearch.engines[engine.id].enabled} />
+                <IosSwitch bind:checked={webSearch.engines[engine.id].enabled} />
               </div>
 
               {#if engine.id !== "duckduckgo"}

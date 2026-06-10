@@ -1,5 +1,12 @@
 # Molibot Features
 
+## 2026-06-10
+
+### Global Profile File 防误写保护 (Global Profile File Write Guard)
+- **移除路径自动重路由**: 从 `resolveToolPath` 中移除 `resolveGlobalProfilePath`，不再将被判定为 profile 文件名的路径无条件重路由到 `dataRoot/`。此前 `SOUL.md` 等文件名无论路径层级都被解析到全局文件，导致 bot 维度的 write/edit 误改全局配置。
+- **门禁阻断全局 profile 直接写入**: `createPathGuard` 对全局 profile 文件 (AGENTS.md, SOUL.md, TOOLS.md, BOOTSTRAP.md, IDENTITY.md, USER.md, SONG.md) 由**显式放行**改为**显式拒绝**，统一提示使用 `profileFiles` 工具管理。读取能力不受影响——`profileFiles` 工具内部直接调用 `profiles.ts` 的读写函数，不经过路径守卫。
+- **修复文件**: `src/lib/server/agent/tools/path.ts`
+
 ## 2026-06-08
 
 ### Feishu Bot 健康检查与 Thread 续聊 (Feishu Bot Health Check & Thread Continuation)

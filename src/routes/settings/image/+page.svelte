@@ -7,7 +7,7 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
-  import { Switch } from "$lib/components/ui/switch";
+  import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
   import { locale } from "$lib/ui/i18n";
 
@@ -350,7 +350,7 @@
               <Label for="image-enabled">{t("enableTool")}</Label>
               <p class="mt-1 text-xs text-muted-foreground">{t("enableToolDesc")}</p>
             </div>
-            <Switch id="image-enabled" bind:checked={imageGenerate.enabled} />
+            <IosSwitch id="image-enabled" bind:checked={imageGenerate.enabled} />
           </div>
 
           <div class="grid gap-4 sm:grid-cols-2">

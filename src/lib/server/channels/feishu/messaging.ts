@@ -1,7 +1,11 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, extname } from "node:path";
 import { momWarn } from "$lib/server/agent/common/log.js";
 import { markdownToFeishuMarkdown, parseFeishuRichTextSegments, type FeishuRichTextSegment } from "$lib/server/channels/feishu/formatting.js";
+import { transcodeAudio } from "$lib/server/channels/shared/audio.js";
 
 const FEISHU_CARD_MARKDOWN_LIMIT = 3500;
 const FEISHU_POST_MARKDOWN_LIMIT = 4000;
@@ -626,13 +630,39 @@ export async function sendFeishuFile(
     }
   }
 
+  let uploadBytes = bytes;
+  let uploadFilename = filename;
+  let tempDir: string | null = null;
+
   try {
-    const fileType = resolveFeishuFileType(filename, bytes);
+    // If the file is audio but not OPUS, transcode to OPUS before uploading
+    // so Feishu can send it as a native voice message (file_type: "opus" → msg_type: "audio").
+    const audioMime = detectAudioMime(filename, bytes);
+    if (audioMime && audioMime !== "audio/ogg") {
+      tempDir = mkdtempSync(`${tmpdir()}/molibot-feishu-voice-`);
+      const inputName = basename(filename);
+      const baseName = basename(filename, extname(filename));
+      const inputPath = `${tempDir}/${inputName}`;
+      const outputPath = `${tempDir}/${baseName}.opus`;
+
+      writeFileSync(inputPath, bytes);
+      try {
+        await transcodeAudio(inputPath, outputPath, [
+          "-c:a", "libopus", "-ar", "16000", "-ac", "1"
+        ]);
+        uploadBytes = readFileSync(outputPath);
+        uploadFilename = `${baseName}.opus`;
+      } catch {
+        // Transcode failed — upload the original file (will be sent as a regular file).
+      }
+    }
+
+    const fileType = resolveFeishuFileType(uploadFilename, uploadBytes);
     const uploaded = await client.im.file.create({
       data: {
         file_type: fileType,
-        file_name: filename,
-        file: bytes
+        file_name: uploadFilename,
+        file: uploadBytes
       }
     });
     const fileKey = uploaded?.file_key;
@@ -643,7 +673,7 @@ export async function sendFeishuFile(
         return await sendFeishuMessageByType(client, chatId, "audio", { file_key: fileKey }, options);
       } catch (error) {
         momWarn("feishu", "send_audio_failed_fallback_file", {
-          filename,
+          filename: uploadFilename,
           error: String(error)
         });
       }
@@ -654,7 +684,7 @@ export async function sendFeishuFile(
         return await sendFeishuMessageByType(client, chatId, "media", { file_key: fileKey }, options);
       } catch (error) {
         momWarn("feishu", "send_media_failed_fallback_file", {
-          filename,
+          filename: uploadFilename,
           error: String(error)
         });
       }
@@ -662,8 +692,10 @@ export async function sendFeishuFile(
 
     return await sendFeishuMessageByType(client, chatId, "file", { file_key: fileKey }, options);
   } catch (error) {
-    momWarn("feishu", "send_file_failed", { filename, error: String(error) });
+    momWarn("feishu", "send_file_failed", { filename: uploadFilename, error: String(error) });
     return null;
+  } finally {
+    if (tempDir) rmSync(tempDir, { recursive: true, force: true });
   }
 }
 

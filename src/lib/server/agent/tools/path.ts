@@ -1,10 +1,18 @@
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import {
   resolveDataRootFromWorkspacePath,
   resolveMemoryRootFromWorkspacePath
 } from "$lib/server/agent/session/workspace.js";
 
-const GLOBAL_PROFILE_FILES = ["SOUL.md", "TOOLS.md", "BOOTSTRAP.md", "IDENTITY.md", "USER.md"] as const;
+const GLOBAL_PROFILE_FILES = [
+  "AGENTS.md",
+  "SOUL.md",
+  "TOOLS.md",
+  "BOOTSTRAP.md",
+  "IDENTITY.md",
+  "USER.md",
+  "SONG.md"
+] as const;
 
 function pathCompareKey(pathLike: string): string {
   const resolved = resolve(pathLike);
@@ -14,20 +22,8 @@ function pathCompareKey(pathLike: string): string {
   return resolved;
 }
 
-function resolveGlobalProfilePath(baseDir: string, input: string): string | null {
-  const normalizedInput = input.replace(/\\/g, "/").replace(/^\.\//, "");
-  const fileName = basename(normalizedInput);
-  const matched = GLOBAL_PROFILE_FILES.find((name) => fileName.toLowerCase() === name.toLowerCase());
-  if (!matched) return null;
-  const dataRoot = resolveDataRootFromWorkspacePath(baseDir);
-  return resolve(dataRoot, matched);
-}
-
 export function resolveToolPath(baseDir: string, input: string): string {
-  const globalProfile = resolveGlobalProfilePath(baseDir, input);
-  if (globalProfile) return globalProfile;
-
-  if (isAbsolute(input)) return input;
+  if (input === "") throw new Error("Path is required");
 
   const normalizedBase = resolve(baseDir).replace(/\\/g, "/");
 
@@ -86,14 +82,16 @@ export function createPathGuard(cwd: string, workspaceDir: string): (filePath: s
   const memoryRoot = resolveMemoryRootFromWorkspacePath(workspaceResolved);
   const globalSkillsRoot = resolve(dataRoot, "skills");
   const allowedRoots = [resolve(cwd), workspaceResolved, globalSkillsRoot];
-  const allowedGlobalProfilePaths = GLOBAL_PROFILE_FILES.map((file) =>
-    resolve(dataRoot, file),
+
+  // Pre-compute the exact global profile file paths under dataRoot.
+  const globalProfilePathKeys = new Set(
+    GLOBAL_PROFILE_FILES.map((file) => pathCompareKey(resolve(dataRoot, file))),
   );
-  const allowedGlobalProfilePathKeys = new Set(
-    allowedGlobalProfilePaths.map((path) => pathCompareKey(path)),
-  );
+
   return (filePath: string): void => {
     const resolved = resolve(filePath);
+
+    // Memory files must go through the memory gateway tool.
     const memoryRel = relative(memoryRoot, resolved);
     const isMemoryPath = memoryRel === "" || (!memoryRel.startsWith("..") && !isAbsolute(memoryRel));
     if (isMemoryPath) {
@@ -101,18 +99,18 @@ export function createPathGuard(cwd: string, workspaceDir: string): (filePath: s
         `Memory files must be managed via the memory gateway tool/API, not direct file tools. Blocked path: ${resolved}`
       );
     }
-    if (allowedGlobalProfilePathKeys.has(pathCompareKey(resolved))) {
-      return;
-    }
-    const resolvedBase = basename(resolved).toLowerCase();
-    const isGlobalProfileTarget = GLOBAL_PROFILE_FILES.some(
-      (file) => file.toLowerCase() === resolvedBase,
-    );
-    if (isGlobalProfileTarget) {
+
+    // Global profile files must go through the profileFiles tool.
+    // Only the profileFiles tool may read/write profile files at any scope
+    // (bot, agent, global). Generic read/write/edit tools are forbidden from
+    // touching global profile paths so that bot-scoped edits cannot
+    // accidentally land on the global file.
+    if (globalProfilePathKeys.has(pathCompareKey(resolved))) {
       throw new Error(
-        `Global profile files must be written only under data root. Use ${allowedGlobalProfilePaths.join(", ")}. Blocked path: ${resolved}`
+        `Global profile files must be managed via the profileFiles tool, not direct file tools. Blocked path: ${resolved}`
       );
     }
+
     const ok = allowedRoots.some((root) => {
       const rel = relative(root, resolved);
       return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));

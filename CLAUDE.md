@@ -29,5 +29,6 @@ This is **Molipibot** — a multi-channel bot framework with a settings UI. See 
 
 - Layer separation: Channel layer is **messaging only**; shared upper logic (queues, recovery, task orchestration) must not leak into channels.
 - Frontend: use Shadcn components from `src/lib/components/ui`. Custom app-level styles must use semantic class names (see DESIGN.md).
+- **All toggle/switch controls must use `IosSwitch`** (from `$lib/components/ui/ios-switch`). Do NOT use the generic `Switch` component — its styling does not clearly convey an on/off state. `IosSwitch` provides the expected iOS-style toggle appearance.
 - Never hard-code absolute paths (`/Users/...`) into code, docs, or prompts.
 - After any feature change, update `features.md` and `CHANGELOG.md`.

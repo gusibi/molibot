@@ -2,6 +2,12 @@
 
 ## Version 1.0
 
+## 2026-06-10
+
+### Global Profile File Write Guard
+- Removed `resolveGlobalProfilePath` auto-rerouting from `resolveToolPath` so profile file names (e.g., `SOUL.md`) are resolved relative to the caller's base directory rather than unconditionally routed to `dataRoot/`.
+- Hardened `createPathGuard` to **block** direct read/write/edit tool access to global profile paths (`dataRoot/{AGENTS,SOUL,TOOLS,BOOTSTRAP,IDENTITY,USER,SONG}.md`), requiring the dedicated `profileFiles` tool for any profile file management. This prevents bot-scoped edits from accidentally landing on global profile files.
+
 ## 2026-06-08
 
 ### Feishu Bot Health Check & Thread Continuation
