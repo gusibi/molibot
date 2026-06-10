@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { promises as fs } from "node:fs";
 import { spawn as nodeSpawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { basename, dirname, extname } from "node:path";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
@@ -16,8 +17,8 @@ const ttsGenerateSchema = Type.Object({
   voice: Type.Optional(Type.String({ description: "Provider-specific voice ID. Xiaomi examples: mimo_default, default_zh, default_en. macOS examples depend on installed system voices." })),
   model: Type.Optional(Type.String({ description: "Provider-specific model ID. Xiaomi defaults to mimo-v2-tts. macOS has no model concept." })),
   style: Type.Optional(Type.String({ description: "Optional Xiaomi style instruction, inserted as a <style>...</style> prefix. macOS does not support style." })),
-  format: Type.Optional(Type.String({ description: "Audio format. Xiaomi defaults to wav; macOS defaults to aiff." })),
-  fileName: Type.Optional(Type.String({ description: "Safe output file name such as narration.wav. Must not contain directories or path traversal." })),
+  format: Type.Optional(Type.String({ description: "Provider audio format hint. Output is always converted to OGG/Opus when ffmpeg is available." })),
+  fileName: Type.Optional(Type.String({ description: "Safe output file name such as narration.ogg. Must not contain directories or path traversal." })),
   autoUpload: Type.Optional(Type.Boolean({ description: "Whether to automatically send the generated audio to the active chat. Defaults to true." }))
 });
 
@@ -25,6 +26,7 @@ function buildTtsGenerateDescription(): string {
   return [
     "- Converts text into speech audio using configured TTS providers.",
     "- Supports macOS system voices on macOS and Xiaomi MiMo TTS.",
+    "- Output is always converted to OGG/Opus (48kHz, mono, 32kbps) when ffmpeg is available; otherwise falls back to the provider's native format.",
     "- Saves the generated audio to the scratch artifact directory and automatically uploads it to the current chat when possible.",
     "",
     "Usage guidelines:",
@@ -70,6 +72,56 @@ function defaultOutputName(provider: TtsGenerateProvider, format: TtsGenerateFor
   return `tts-${now()}-${provider}.${format}`;
 }
 
+/**
+ * Check whether ffmpeg is available on the system.
+ */
+function isFfmpegAvailable(spawnFn: typeof nodeSpawn = nodeSpawn): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawnFn("ffmpeg", ["-version"], { stdio: "ignore" });
+    child.on("error", () => resolve(false));
+    child.on("close", (code) => resolve(code === 0));
+  });
+}
+
+/**
+ * Convert any audio file to OGG/Opus (48kHz, mono, 32kbps).
+ */
+function convertToOgg(
+  inputPath: string,
+  outputPath: string,
+  spawnFn: typeof nodeSpawn = nodeSpawn,
+  signal?: AbortSignal
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const args = [
+      "-i", inputPath,
+      "-c:a", "libopus",
+      "-b:a", "32k",
+      "-ar", "48000",
+      "-ac", "1",
+      "-y",
+      outputPath
+    ];
+    const child: ChildProcess = spawnFn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    const onAbort = () => {
+      child.kill();
+      reject(new Error("OGG conversion aborted."));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    child.stderr?.on("data", (chunk) => { stderr += String(chunk); });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      signal?.removeEventListener("abort", onAbort);
+      if (code !== 0) {
+        reject(new Error(`ffmpeg OGG conversion failed: ${stderr.trim().slice(-300) || `exit ${code}`}`));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 export function createTtsGenerateTool(options: {
   getSettings: () => RuntimeSettings;
   cwd: string;
@@ -82,6 +134,7 @@ export function createTtsGenerateTool(options: {
   now?: () => number;
 }): AgentTool<typeof ttsGenerateSchema> {
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
+  const spawnFn = options.spawn ?? nodeSpawn;
 
   return {
     name: "ttsGenerate",
@@ -103,6 +156,8 @@ export function createTtsGenerateTool(options: {
       const provider = resolveProvider(currentSettings.ttsGenerate, params.provider);
       const providerConfig = currentSettings.ttsGenerate.providers[provider];
       const format = String(params.format ?? defaultFormatForProvider(currentSettings.ttsGenerate, provider)).trim() as TtsGenerateFormat;
+
+      // Generate provider-format intermediate file name
       const rawFileName = String(params.fileName ?? "").trim() || defaultOutputName(provider, format, options.now ?? Date.now);
       if (!isSafeFileName(rawFileName)) {
         throw new Error("fileName must be a safe file name without directories or path traversal.");
@@ -125,28 +180,57 @@ export function createTtsGenerateTool(options: {
         settings: currentSettings.ttsGenerate,
         fetch: options.fetch ?? globalThis.fetch,
         platform: options.platform ?? process.platform,
-        spawn: options.spawn ?? nodeSpawn,
+        spawn: spawnFn,
         signal
       });
 
+      // Write provider output to disk
+      let intermediateFilePath = result.outputPath ?? filePath;
       if (result.audioBuffer) {
-        const actualFilePath = result.outputPath ?? filePath;
-        await fs.mkdir(dirname(actualFilePath), { recursive: true });
-        await fs.writeFile(actualFilePath, result.audioBuffer);
-      } else if (result.outputPath && result.outputPath !== filePath) {
-        // Provider wrote to a different path (e.g. macOS say changed .wav → .aiff)
-      } else if (!result.audioBuffer && result.outputPath === filePath) {
-        // Provider wrote directly to filePath, nothing more to do
+        intermediateFilePath = result.outputPath ?? filePath;
+        await fs.mkdir(dirname(intermediateFilePath), { recursive: true });
+        await fs.writeFile(intermediateFilePath, result.audioBuffer);
+      }
+      // If provider wrote directly (e.g. macOS say), intermediateFilePath is already set
+
+      // Try to convert to OGG/Opus for unified output
+      let finalFilePath = intermediateFilePath;
+      let finalFileName = basename(intermediateFilePath);
+      let finalFormat = result.format;
+      let finalMimeType = result.mimeType;
+      let oggConversionNote: string | undefined;
+
+      const ffmpegOk = await isFfmpegAvailable(spawnFn).catch(() => false);
+      if (ffmpegOk) {
+        const oggName = basename(intermediateFilePath, extname(intermediateFilePath)) + ".ogg";
+        const oggTarget = routeArtifactPath(oggName, options.artifactDir);
+        const oggFilePath = resolveToolPath(options.cwd, oggTarget.path);
+        ensureAllowedPath(oggFilePath);
+
+        try {
+          await fs.mkdir(dirname(oggFilePath), { recursive: true });
+          await convertToOgg(intermediateFilePath, oggFilePath, spawnFn, signal);
+          // Clean up intermediate provider-format file
+          try { await fs.unlink(intermediateFilePath); } catch {}
+          finalFilePath = oggFilePath;
+          finalFileName = oggName;
+          finalFormat = "ogg" as TtsGenerateFormat;
+          finalMimeType = "audio/ogg";
+        } catch (conversionError) {
+          // Conversion failed — keep the provider-format file
+          oggConversionNote = `OGG conversion failed (${conversionError instanceof Error ? conversionError.message : String(conversionError)}), using provider native format.`;
+        }
+      } else {
+        oggConversionNote = "ffmpeg not available; output saved in provider native format. Install ffmpeg for OGG/Opus output.";
       }
 
-      const actualFilePath = result.outputPath ?? filePath;
-      const actualFileName = basename(actualFilePath);
+      const finalTargetPath = routeArtifactPath(finalFileName, options.artifactDir);
 
       let uploadError: string | undefined;
       const shouldUpload = params.autoUpload !== false;
       if (shouldUpload && options.uploadFile) {
         try {
-          await options.uploadFile(actualFilePath, actualFileName, `Generated speech audio: ${text.slice(0, 120)}`);
+          await options.uploadFile(finalFilePath, finalFileName, `Generated speech audio: ${text.slice(0, 120)}`);
         } catch (error) {
           uploadError = error instanceof Error ? error.message : String(error);
         }
@@ -158,8 +242,6 @@ export function createTtsGenerateTool(options: {
           ? " (Generated successfully, but automatic chat upload failed)"
           : "";
 
-      const actualTargetPath = target.routed ? `${options.artifactDir}/${actualFileName}` : actualFileName;
-
       return {
         content: [{
           type: "text",
@@ -167,8 +249,8 @@ export function createTtsGenerateTool(options: {
             `Successfully generated speech audio using '${provider}' provider.${uploadMessage}`,
             `Voice: ${result.voice}`,
             result.model ? `Model: ${result.model}` : undefined,
-            `Saved file to: ${actualTargetPath}`,
-            result.format !== format ? `Note: format adjusted from ${format} to ${result.format} (provider compatibility)` : undefined,
+            `Saved file to: ${finalTargetPath.path}`,
+            oggConversionNote ? `Note: ${oggConversionNote}` : undefined,
             uploadError ? `Upload error: ${uploadError}` : undefined
           ].filter(Boolean).join("\n")
         }],
@@ -176,10 +258,10 @@ export function createTtsGenerateTool(options: {
           provider,
           voice: result.voice,
           model: result.model,
-          format: result.format,
-          mimeType: result.mimeType,
-          path: actualTargetPath,
-          filePath: actualFilePath,
+          format: finalFormat,
+          mimeType: finalMimeType,
+          path: finalTargetPath.path,
+          filePath: finalFilePath,
           uploaded,
           uploadError
         }

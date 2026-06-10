@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import { createTtsGenerateTool } from "./ttsGenerateTool.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
@@ -28,7 +29,72 @@ function settings(overrides: Partial<RuntimeSettings["ttsGenerate"]> = {}): Runt
   return { ...defaultRuntimeSettings, ttsGenerate };
 }
 
-test("ttsGenerate writes Xiaomi audio and uploads by default", async () => {
+/**
+ * Mock spawn that responds to ffmpeg -version (availability check)
+ * and ffmpeg conversion commands. For all other commands, throws.
+ */
+function mockFfmpegSpawn(conversionBehavior: "success" | "fail" = "success"): typeof import("node:child_process").spawn {
+  return ((command: string, args: string[]) => {
+    const child = new EventEmitter() as any;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => true;
+
+    if (command === "ffmpeg" && args[0] === "-version") {
+      // ffmpeg availability check → available
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    }
+
+    if (command === "ffmpeg" && args.includes("-c:a") && args.includes("libopus")) {
+      // OGG conversion
+      if (conversionBehavior === "fail") {
+        queueMicrotask(() => {
+          child.stderr.emit("data", "Conversion failed");
+          child.emit("close", 1);
+        });
+      } else {
+        // Simulate successful conversion: create the output file
+        const outputIdx = args.indexOf("-y");
+        const outputPath = outputIdx >= 0 && args[outputIdx + 1] ? args[outputIdx + 1] : "";
+        if (outputPath) {
+          try {
+            mkdirSync(dirname(outputPath), { recursive: true });
+            writeFileSync(outputPath, "ogg-audio-data");
+          } catch {}
+        }
+        queueMicrotask(() => child.emit("close", 0));
+      }
+      return child;
+    }
+
+    // Unknown command
+    queueMicrotask(() => child.emit("error", new Error(`spawn not expected: ${command} ${args.join(" ")}`)));
+    return child;
+  }) as any;
+}
+
+/**
+ * Mock spawn that simulates ffmpeg NOT being available.
+ */
+function mockNoFfmpegSpawn(): typeof import("node:child_process").spawn {
+  return ((command: string, args: string[]) => {
+    const child = new EventEmitter() as any;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => true;
+
+    if (command === "ffmpeg") {
+      queueMicrotask(() => child.emit("error", new Error("ffmpeg not found")));
+      return child;
+    }
+
+    queueMicrotask(() => child.emit("error", new Error(`spawn not expected: ${command}`)));
+    return child;
+  }) as any;
+}
+
+test("ttsGenerate converts Xiaomi audio to OGG and uploads", async () => {
   const root = mkdtempSync(join(tmpdir(), "molibot-tts-tool-"));
   const uploaded: string[] = [];
   try {
@@ -42,7 +108,7 @@ test("ttsGenerate writes Xiaomi audio and uploads by default", async () => {
         choices: [{ message: { audio: { data: Buffer.from("speech").toString("base64") } } }]
       }), { status: 200 }),
       platform: "darwin",
-      spawn: (() => { throw new Error("spawn not expected"); }) as any,
+      spawn: mockFfmpegSpawn("success"),
       now: () => 1_717_280_000_000
     });
 
@@ -53,10 +119,82 @@ test("ttsGenerate writes Xiaomi audio and uploads by default", async () => {
     });
 
     assert.equal(uploaded.length, 1);
-    assert.equal(readFileSync(uploaded[0], "utf8"), "speech");
     assert.equal((result as any).details.provider, "xiaomi");
     assert.equal((result as any).details.uploaded, true);
+    assert.equal((result as any).details.format, "ogg");
+    assert.equal((result as any).details.mimeType, "audio/ogg");
+    assert.match((result as any).details.path, /artifacts\/hello\.ogg$/);
+    // Intermediate .wav should be cleaned up
+    assert.equal(existsSync(join(root, "artifacts", "hello.wav")), false);
+    // OGG file should exist
+    assert.equal(existsSync(uploaded[0]), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ttsGenerate falls back to native format when ffmpeg is unavailable", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-tts-tool-"));
+  const uploaded: string[] = [];
+  try {
+    const tool = createTtsGenerateTool({
+      getSettings: () => settings(),
+      cwd: root,
+      workspaceDir: root,
+      artifactDir: "artifacts",
+      uploadFile: async (filePath) => { uploaded.push(filePath); },
+      fetch: async () => new Response(JSON.stringify({
+        choices: [{ message: { audio: { data: Buffer.from("speech").toString("base64") } } }]
+      }), { status: 200 }),
+      platform: "darwin",
+      spawn: mockNoFfmpegSpawn(),
+      now: () => 1_717_280_000_000
+    });
+
+    const result = await tool.execute("call-1", {
+      text: "hello",
+      provider: "xiaomi",
+      fileName: "hello.wav"
+    });
+
+    assert.equal((result as any).details.format, "wav");
+    assert.equal((result as any).details.mimeType, "audio/wav");
     assert.match((result as any).details.path, /artifacts\/hello\.wav$/);
+    assert.match((result as any).content[0].text, /ffmpeg not available/);
+    // Original provider file should still exist
+    assert.equal(existsSync(uploaded[0]), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ttsGenerate falls back to native format when OGG conversion fails", async () => {
+  const root = mkdtempSync(join(tmpdir(), "molibot-tts-tool-"));
+  const uploaded: string[] = [];
+  try {
+    const tool = createTtsGenerateTool({
+      getSettings: () => settings(),
+      cwd: root,
+      workspaceDir: root,
+      artifactDir: "artifacts",
+      uploadFile: async (filePath) => { uploaded.push(filePath); },
+      fetch: async () => new Response(JSON.stringify({
+        choices: [{ message: { audio: { data: Buffer.from("speech").toString("base64") } } }]
+      }), { status: 200 }),
+      platform: "darwin",
+      spawn: mockFfmpegSpawn("fail"),
+      now: () => 1_717_280_000_000
+    });
+
+    const result = await tool.execute("call-1", {
+      text: "hello",
+      provider: "xiaomi",
+      fileName: "hello.wav"
+    });
+
+    assert.equal((result as any).details.format, "wav");
+    assert.match((result as any).details.path, /artifacts\/hello\.wav$/);
+    assert.match((result as any).content[0].text, /OGG conversion failed/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -75,7 +213,7 @@ test("ttsGenerate returns partial success when upload fails", async () => {
         choices: [{ message: { audio: { data: Buffer.from("speech").toString("base64") } } }]
       }), { status: 200 }),
       platform: "darwin",
-      spawn: (() => { throw new Error("spawn not expected"); }) as any,
+      spawn: mockFfmpegSpawn("success"),
       now: () => 1_717_280_000_000
     });
 
