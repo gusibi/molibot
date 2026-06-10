@@ -130,17 +130,23 @@ export function createTtsGenerateTool(options: {
       });
 
       if (result.audioBuffer) {
-        await fs.mkdir(dirname(filePath), { recursive: true });
-        await fs.writeFile(filePath, result.audioBuffer);
-      } else if (result.outputPath !== filePath) {
-        throw new Error("TTS provider did not return audio data or the expected output path.");
+        const actualFilePath = result.outputPath ?? filePath;
+        await fs.mkdir(dirname(actualFilePath), { recursive: true });
+        await fs.writeFile(actualFilePath, result.audioBuffer);
+      } else if (result.outputPath && result.outputPath !== filePath) {
+        // Provider wrote to a different path (e.g. macOS say changed .wav → .aiff)
+      } else if (!result.audioBuffer && result.outputPath === filePath) {
+        // Provider wrote directly to filePath, nothing more to do
       }
+
+      const actualFilePath = result.outputPath ?? filePath;
+      const actualFileName = basename(actualFilePath);
 
       let uploadError: string | undefined;
       const shouldUpload = params.autoUpload !== false;
       if (shouldUpload && options.uploadFile) {
         try {
-          await options.uploadFile(filePath, basename(filePath), `Generated speech audio: ${text.slice(0, 120)}`);
+          await options.uploadFile(actualFilePath, actualFileName, `Generated speech audio: ${text.slice(0, 120)}`);
         } catch (error) {
           uploadError = error instanceof Error ? error.message : String(error);
         }
@@ -152,6 +158,8 @@ export function createTtsGenerateTool(options: {
           ? " (Generated successfully, but automatic chat upload failed)"
           : "";
 
+      const actualTargetPath = target.routed ? `${options.artifactDir}/${actualFileName}` : actualFileName;
+
       return {
         content: [{
           type: "text",
@@ -159,7 +167,8 @@ export function createTtsGenerateTool(options: {
             `Successfully generated speech audio using '${provider}' provider.${uploadMessage}`,
             `Voice: ${result.voice}`,
             result.model ? `Model: ${result.model}` : undefined,
-            `Saved file to: ${target.path}`,
+            `Saved file to: ${actualTargetPath}`,
+            result.format !== format ? `Note: format adjusted from ${format} to ${result.format} (provider compatibility)` : undefined,
             uploadError ? `Upload error: ${uploadError}` : undefined
           ].filter(Boolean).join("\n")
         }],
@@ -169,8 +178,8 @@ export function createTtsGenerateTool(options: {
           model: result.model,
           format: result.format,
           mimeType: result.mimeType,
-          path: target.path,
-          filePath,
+          path: actualTargetPath,
+          filePath: actualFilePath,
           uploaded,
           uploadError
         }

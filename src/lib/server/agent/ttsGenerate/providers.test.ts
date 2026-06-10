@@ -132,3 +132,33 @@ test("macos provider uses safe spawn argument array", async () => {
   assert.equal(calls[0].command, "say");
   assert.deepEqual(calls[0].args, ["-v", "Tingting", "-o", "/tmp/speech.aiff", "--", "hello; rm -rf /"]);
 });
+
+test("macos provider falls back from wav to aiff format", async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const provider = createMacosTtsProvider();
+
+  const result = await provider.generate({
+    text: "hello",
+    provider: "macos",
+    voice: "Tingting",
+    format: "wav",
+    outputPath: "/tmp/speech.wav"
+  }, context({
+    spawn: ((command: string, args: string[]) => {
+      calls.push({ command, args });
+      const child = new EventEmitter() as any;
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => true;
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    }) as any
+  }));
+
+  // macOS say does not support wav; should output as aiff instead
+  assert.deepEqual(calls[0].args, ["-v", "Tingting", "-o", "/tmp/speech.aiff", "--", "hello"]);
+  assert.equal(result.format, "aiff");
+  assert.equal(result.extension, "aiff");
+  assert.equal(result.mimeType, "audio/aiff");
+  assert.equal(result.outputPath, "/tmp/speech.aiff");
+});

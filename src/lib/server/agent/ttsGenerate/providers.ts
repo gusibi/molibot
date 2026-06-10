@@ -152,10 +152,16 @@ export function createMacosTtsProvider(): TtsGenerateProviderAdapter {
         throw new Error("outputPath is required for macOS TTS generation.");
       }
       const voice = String(input.voice ?? config.voice ?? "").trim();
-      const format = (input.format ?? config.format ?? "aiff") as TtsGenerateFormat;
+      const requestedFormat = (input.format ?? config.format ?? "aiff") as TtsGenerateFormat;
+      // macOS say does not support wav; fall back to aiff and update the output path extension
+      const MACOS_UNSUPPORTED_FORMATS: TtsGenerateFormat[] = ["wav"];
+      const format = MACOS_UNSUPPORTED_FORMATS.includes(requestedFormat) ? "aiff" as TtsGenerateFormat : requestedFormat;
+      const effectiveOutputPath = requestedFormat !== format
+        ? input.outputPath.replace(/\.[^.]+$/, `.${format}`)
+        : input.outputPath;
       const args = voice
-        ? ["-v", voice, "-o", input.outputPath, "--", text]
-        : ["-o", input.outputPath, "--", text];
+        ? ["-v", voice, "-o", effectiveOutputPath, "--", text]
+        : ["-o", effectiveOutputPath, "--", text];
 
       await new Promise<void>((resolve, reject) => {
         const child: ChildProcess = context.spawn("say", args, { stdio: ["ignore", "ignore", "pipe"] });
@@ -178,7 +184,7 @@ export function createMacosTtsProvider(): TtsGenerateProviderAdapter {
       });
 
       return {
-        outputPath: input.outputPath,
+        outputPath: effectiveOutputPath,
         mimeType: mimeTypeForAudioFormat(format),
         extension: format,
         voice: voice || "system-default",
