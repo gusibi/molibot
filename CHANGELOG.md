@@ -9,6 +9,9 @@
 - Added conservative Feishu group thread continuation: main group messages still require `@bot`, while threads the Bot has participated in can continue without mentions and keep their own session/queue/log scope.
 - Routed Feishu thread replies through `im.message.reply` with `reply_in_thread` for text, cards, CardKit streaming, and outbound file fallback paths.
 
+### Built-in TTS Generation
+- Added a built-in deferred `ttsGenerate` tool with a dedicated TTS settings page (`/settings/tts`), macOS system voice support, Xiaomi MiMo TTS support, configurable voices/models, artifact saving, and automatic chat upload.
+
 ## 2026-06-07
 
 ### System Prompt Skill Routing Cleanup
