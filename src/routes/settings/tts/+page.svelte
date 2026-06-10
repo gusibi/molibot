@@ -404,7 +404,18 @@
           {#if testResult}
             <div class="rounded-lg border bg-muted/30 p-4 text-sm">
               <p class="text-xs font-semibold text-foreground">{t("testResultTitle")}</p>
-              <pre class="mt-3 max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background/70 p-3 text-[11px] leading-5 text-muted-foreground">{JSON.stringify(testResult.details ?? testResult, null, 2)}</pre>
+              {#if testResult.details?.filePath}
+                {@const audioRelPath = testResult.details.filePath.split('/test-audio/')[1] ?? testResult.details.path}
+                <div class="mt-3">
+                  <audio controls src="/api/settings/tts-generate/audio?file=test-audio/{audioRelPath}" class="w-full" style="height: 40px;">
+                    Your browser does not support the audio element.
+                  </audio>
+                </div>
+              {/if}
+              <details class="mt-3">
+                <summary class="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Raw JSON</summary>
+                <pre class="mt-2 max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background/70 p-3 text-[11px] leading-5 text-muted-foreground">{JSON.stringify(testResult.details ?? testResult, null, 2)}</pre>
+              </details>
             </div>
           {/if}
         </CardContent>
