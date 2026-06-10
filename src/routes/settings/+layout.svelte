@@ -21,6 +21,7 @@
       searchTools: "搜索工具",
       imageTools: "图片工具",
       videoTools: "视频工具",
+      ttsTools: "语音工具",
       channels: "渠道",
       webProfiles: "Web 配置",
       telegramBot: "Telegram 机器人",
@@ -60,6 +61,7 @@
       searchTools: "Search Tools",
       imageTools: "Image Tools",
       videoTools: "Video Tools",
+      ttsTools: "Speech Tools",
       channels: "Channels",
       webProfiles: "Web Profiles",
       telegramBot: "Telegram Bot",
@@ -97,7 +99,7 @@
   /* ── Derive active group from current URL ── */
   function findActiveGroup(pathname: string): string {
     const p = normalizePath(pathname);
-    if (p.startsWith("/settings/ai") || p === "/settings/mcp" || p === "/settings/search" || p === "/settings/image" || p === "/settings/video") return "ai";
+    if (p.startsWith("/settings/ai") || p === "/settings/mcp" || p === "/settings/search" || p === "/settings/image" || p === "/settings/video" || p === "/settings/tts") return "ai";
     if (p.startsWith("/settings/web") || p.startsWith("/settings/telegram") || p.startsWith("/settings/weixin") || p.startsWith("/settings/feishu") || p.startsWith("/settings/qq")) return "channels";
     if (p.startsWith("/settings/agents") || p.startsWith("/settings/memory") || p.startsWith("/settings/skills") || p.startsWith("/settings/skill-drafts") || p.startsWith("/settings/run-history") || p.startsWith("/settings/tasks") || p.startsWith("/settings/host-bash")) return "data";
     if (p.startsWith("/settings/system") || p.startsWith("/settings/sandbox") || p.startsWith("/settings/plugins")) return "system";
@@ -117,6 +119,7 @@
         { href: "/settings/search", label: t("searchTools"), exact: true },
         { href: "/settings/image", label: t("imageTools"), exact: true },
         { href: "/settings/video", label: t("videoTools"), exact: true },
+        { href: "/settings/tts", label: t("ttsTools"), exact: true },
       ] },
     { key: "channels", icon: "▣", title: t("channels"), links: [
         { href: "/settings/web", label: t("webProfiles"), exact: true },
