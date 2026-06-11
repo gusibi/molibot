@@ -9,6 +9,13 @@
 - Restricted the `profileFiles` tool's agent-scope fallback to files the agent scope actually carries (`AGENTS/SOUL/IDENTITY/SONG`); `USER.md` and `TOOLS.md` now fall back straight to global, matching prompt assembly.
 - Deduplicated profile file-name lists: the tool reuses `BOT_PROFILE_FILES`, prompt assembly reuses `GLOBAL_PROFILE_FILES`, and the editable-body normalizer is shared from `profiles.ts`.
 - Hardened bot-root resolution in `profileFiles` to truncate paths to `/bots/<botId>`, and documented the per-file fallback chain (incl. global-only `BOOTSTRAP.md`) in the tool description.
+### Agent Hook Framework Hardening & Pluggability
+- Gate hooks now fail closed: a gate hook that throws or times out denies the guarded action (`HOOK_GATE_FAILURE`) instead of silently allowing it; hooks can opt into `failMode: "open"`.
+- Observe event queues are now isolated per run, so a slow hook in one run no longer delays others; `flush()` accepts a `runId` and the runner drains its own queue with a longer timeout at run end. Emit payloads are snapshotted via `structuredClone`.
+- Enabled the transform pipeline by default and wired it into the runner: transform hooks can rewrite enriched input text (`input.enrich.after`) and the system prompt (`prompt.build.after`).
+- Fixed TraceRecorderHook state leaks with per-run nested maps plus a 1-hour TTL sweep for runs that never receive `run.finished`.
+- Added a hook plugin registry (`registerHookPluginFactory` + `settings.plugins.hooks`) so external observe/transform/gate plugins can be enabled per settings entry; plugin hook ids are namespaced and unregistering flushes in-flight events before destroy.
+- Added typed stage payloads (`StagePayloadMap`), a cached stage→hooks index, a shared `NOOP_HOOK_MANAGER`, and marked not-yet-emitted stages as reserved.
 
 ## 2026-06-11
 

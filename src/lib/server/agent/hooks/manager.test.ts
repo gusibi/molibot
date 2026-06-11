@@ -102,23 +102,148 @@ test("gate returns first deny decision in priority order", async () => {
     handle: () => ({ type: "deny", reason: "should not be reached" })
   });
 
-  const decision = await manager.gate("tool.call.before", context, { toolName: "bash" });
+  const decision = await manager.gate("tool.call.before", context, { toolName: "bash", toolCallId: "t1" });
   assert.deepEqual(decision, { type: "deny", reason: "blocked by test", code: "TEST_BLOCK" });
 });
 
-test("transform is pass-through while disabled", async () => {
+test("transform is pass-through when explicitly disabled", async () => {
   const manager = new DefaultHookManager({ transformEnabled: false });
 
   manager.register({
     id: "replace-transform",
     kind: "transform",
     stages: ["prompt.build.after"],
-    handle: () => ({ type: "replace", payload: { value: "changed" } })
+    handle: () => ({ type: "replace", payload: { systemPrompt: "changed" } })
   });
 
-  const original = { value: "original" };
+  const original = { systemPrompt: "original" };
   const transformed = await manager.transform("prompt.build.after", context, original);
   assert.equal(transformed, original);
+});
+
+test("transform chains replace results by default", async () => {
+  const manager = new DefaultHookManager();
+
+  manager.register({
+    id: "append-a",
+    kind: "transform",
+    stages: ["prompt.build.after"],
+    priority: 1,
+    handle: (event) => ({
+      type: "replace",
+      payload: { systemPrompt: `${(event.payload as { systemPrompt: string }).systemPrompt}+a` }
+    })
+  });
+  manager.register({
+    id: "append-b",
+    kind: "transform",
+    stages: ["prompt.build.after"],
+    priority: 2,
+    handle: (event) => ({
+      type: "replace",
+      payload: { systemPrompt: `${(event.payload as { systemPrompt: string }).systemPrompt}+b` }
+    })
+  });
+
+  const transformed = await manager.transform("prompt.build.after", context, { systemPrompt: "base" });
+  assert.equal(transformed.systemPrompt, "base+a+b");
+});
+
+test("failing gate hook denies by default (fail-closed)", async () => {
+  const manager = new DefaultHookManager();
+
+  manager.register({
+    id: "broken-gate",
+    kind: "gate",
+    stages: ["tool.call.before"],
+    handle: () => {
+      throw new Error("gate crashed");
+    }
+  });
+
+  const decision = await manager.gate("tool.call.before", context, { toolName: "bash", toolCallId: "t1" });
+  assert.equal(decision.type, "deny");
+  assert.match((decision as { reason: string }).reason, /gate crashed/);
+});
+
+test("failing gate hook with failMode open is skipped", async () => {
+  const manager = new DefaultHookManager();
+
+  manager.register({
+    id: "broken-open-gate",
+    kind: "gate",
+    stages: ["tool.call.before"],
+    failMode: "open",
+    handle: () => {
+      throw new Error("gate crashed");
+    }
+  });
+
+  const decision = await manager.gate("tool.call.before", context, { toolName: "bash", toolCallId: "t1" });
+  assert.deepEqual(decision, { type: "allow" });
+});
+
+test("observe queues are isolated per run and flush can target one run", async () => {
+  const manager = new DefaultHookManager();
+  const calls: string[] = [];
+
+  manager.register({
+    id: "per-run-observer",
+    kind: "observe",
+    stages: ["run.started"],
+    async handle(event) {
+      if (event.context.runId === "slow-run") {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      calls.push(event.context.runId);
+    }
+  });
+
+  manager.emit("run.started", { ...context, runId: "slow-run" }, {});
+  manager.emit("run.started", { ...context, runId: "fast-run" }, {});
+  await manager.flush({ timeoutMs: 1000, runId: "fast-run" });
+  assert.deepEqual(calls, ["fast-run"], "fast run must not wait behind the slow run's queue");
+  await manager.flush({ timeoutMs: 1000 });
+  assert.deepEqual(calls.sort(), ["fast-run", "slow-run"]);
+});
+
+test("emit snapshots payload so later mutation is not observed", async () => {
+  const manager = new DefaultHookManager();
+  let seen: unknown;
+
+  manager.register({
+    id: "snapshot-observer",
+    kind: "observe",
+    stages: ["run.started"],
+    handle(event) {
+      seen = (event.payload as { textLength?: number }).textLength;
+    }
+  });
+
+  const payload = { textLength: 1 };
+  manager.emit("run.started", context, payload);
+  payload.textLength = 999;
+  await manager.flush({ timeoutMs: 1000 });
+  assert.equal(seen, 1);
+});
+
+test("plugin hooks are namespaced by plugin id", async () => {
+  const manager = new DefaultHookManager();
+
+  await manager.registerPlugin({
+    id: "ns-plugin",
+    name: "NS Plugin",
+    getHooks() {
+      return [{
+        id: "observer",
+        kind: "observe" as const,
+        stages: ["run.started" as const],
+        handle: () => {}
+      }];
+    }
+  });
+
+  assert.equal(manager.unregister("ns-plugin/observer"), true);
 });
 
 test("plugin registration initializes hooks and unregister destroys plugin hooks", async () => {

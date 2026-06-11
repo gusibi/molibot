@@ -4,7 +4,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { streamSimple, type Model } from "@mariozechner/pi-ai";
 import { type RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
-import type { HookContext, HookManager } from "$lib/server/agent/hooks/index.js";
+import { NOOP_HOOK_MANAGER, type HookContext, type HookManager } from "$lib/server/agent/hooks/index.js";
 import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
 import { momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { buildSystemPrompt } from "$lib/server/agent/prompts/prompt.js";
@@ -157,17 +157,7 @@ export class MomRunner implements RunnerLike {
     private readonly memory: MemoryGateway,
     hookManager?: HookManager,
   ) {
-    this.hookManager = hookManager ?? {
-      register: () => {},
-      unregister: () => false,
-      list: () => [],
-      registerPlugin: async () => {},
-      unregisterPlugin: async () => false,
-      emit: () => {},
-      flush: async () => {},
-      transform: async (_stage: any, _context: any, payload: any) => payload,
-      gate: async () => ({ type: "allow" })
-    };
+    this.hookManager = hookManager ?? NOOP_HOOK_MANAGER;
     const settings = this.getSettings();
     const model = resolveModel(settings, "text");
     const initialPrompt = buildSystemPrompt(
@@ -514,7 +504,7 @@ export class MomRunner implements RunnerLike {
           errorMessage
         });
       }
-      await this.hookManager.flush({ timeoutMs: 500 });
+      await this.hookManager.flush({ timeoutMs: 2000, runId: hookContext.runId });
     };
 
     const logRunDetail = (entry: Omit<RunDetailEntry, "timestamp" | "workspaceId">): void => {
@@ -622,6 +612,19 @@ export class MomRunner implements RunnerLike {
       sessionId: this.sessionId
     });
     if (this.activeHookContext) {
+      const transformed = await this.hookManager.transform("input.enrich.after", this.activeHookContext, {
+        text: enrichedText,
+        textLength: enrichedText.length,
+        modelUseCase,
+        audioRoutingMode: audioDecision.mode,
+        audioRoutingReason: audioDecision.reason,
+        visionRoutingMode: visionDecision.mode,
+        visionRoutingReason: visionDecision.reason,
+        modelCandidateCount: modelCandidates.length
+      });
+      if (typeof transformed.text === "string" && transformed.text !== enrichedText) {
+        enrichedText = transformed.text;
+      }
       this.hookManager.emit("input.enrich.after", this.activeHookContext, {
         textLength: enrichedText.length,
         modelUseCase,
@@ -647,7 +650,7 @@ export class MomRunner implements RunnerLike {
     });
     if (!this.systemPromptReady || this.promptRefreshKey !== runPromptKey) {
       const memoryText = memorySnapshot.promptText || "(no working memory yet)";
-      this.agent.state.systemPrompt = buildSystemPrompt(
+      let systemPrompt = buildSystemPrompt(
         this.store.getWorkspaceDir(),
         this.chatId,
         this.sessionId,
@@ -658,6 +661,17 @@ export class MomRunner implements RunnerLike {
           settings
         },
       );
+      if (this.activeHookContext) {
+        // Transform hooks run only when the prompt is (re)built; the result is
+        // then cached under promptRefreshKey like the untransformed prompt.
+        const transformed = await this.hookManager.transform("prompt.build.after", this.activeHookContext, {
+          systemPrompt
+        });
+        if (typeof transformed.systemPrompt === "string" && transformed.systemPrompt.trim()) {
+          systemPrompt = transformed.systemPrompt;
+        }
+      }
+      this.agent.state.systemPrompt = systemPrompt;
       this.promptRefreshKey = runPromptKey;
       this.systemPromptReady = true;
       momLog("runner", "system_prompt_refreshed", {

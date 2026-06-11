@@ -297,6 +297,27 @@ export function sanitizeTtsGenerateSettings(
 }
 
 
+export function sanitizeHookPluginEntries(input: unknown): RuntimeSettings["plugins"]["hooks"] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const entries: RuntimeSettings["plugins"]["hooks"] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== "object") continue;
+    const source = raw as Record<string, unknown>;
+    const id = typeof source.id === "string" ? source.id.trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    entries.push({
+      id,
+      enabled: Boolean(source.enabled),
+      options: source.options && typeof source.options === "object" && !Array.isArray(source.options)
+        ? source.options as Record<string, unknown>
+        : undefined
+    });
+  }
+  return entries;
+}
+
 export function sanitizeCloudflareHtmlPluginSettings(
   input: unknown,
   fallback: RuntimeSettings["plugins"]["cloudflareHtml"]
@@ -885,7 +906,8 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
     cloudflareHtml: sanitizeCloudflareHtmlPluginSettings(
       next.plugins?.cloudflareHtml ?? current.plugins.cloudflareHtml,
       current.plugins.cloudflareHtml
-    )
+    ),
+    hooks: sanitizeHookPluginEntries(next.plugins?.hooks ?? current.plugins.hooks)
   };
 
   next.budget = sanitizeBudgetSettings(next.budget ?? current.budget, current.budget);

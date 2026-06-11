@@ -467,7 +467,8 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     },
     cloudflareHtml: {
       ...defaultCloudflareHtmlPluginSettings
-    }
+    },
+    hooks: []
   },
   telegramBotToken: defaultTelegramBotToken,
   telegramAllowedChatIds: defaultTelegramAllowedChatIds,

@@ -136,9 +136,16 @@ export interface CloudflareHtmlPluginSettings {
   objectPrefix: string;
 }
 
+export interface HookPluginEntry {
+  id: string;
+  enabled: boolean;
+  options?: Record<string, unknown>;
+}
+
 export interface PluginSettings {
   memory: MemoryBackendSettings;
   cloudflareHtml: CloudflareHtmlPluginSettings;
+  hooks: HookPluginEntry[];
 }
 
 

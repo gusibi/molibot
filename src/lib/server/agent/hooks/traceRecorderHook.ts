@@ -34,15 +34,22 @@ function sanitizePayload(input: unknown): Record<string, unknown> {
   return out;
 }
 
-interface RunTraceState {
-  startedAt: string;
-  eventCount: number;
-}
-
 interface FactStartState {
   id: string;
   startedAt: string;
 }
+
+interface RunTraceState {
+  startedAt: string;
+  eventCount: number;
+  lastEventAtMs: number;
+  facts: Map<string, FactStartState>;
+}
+
+// Runs that never receive run.finished (crash, lost abort) must not leak
+// state forever; anything idle beyond this window is swept.
+const RUN_STATE_TTL_MS = 60 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 function stringField(source: Record<string, unknown>, key: string): string | undefined {
   const value = source[key];
@@ -86,8 +93,8 @@ function usageTokens(input: unknown): {
   };
 }
 
-function factKey(factType: TraceFactType, runId: string, factId: string): string {
-  return `${factType}:${runId}:${factId}`;
+function factKey(factType: TraceFactType, factId: string): string {
+  return `${factType}:${factId}`;
 }
 
 function durationMs(startedAt: string | undefined, finishedAt: string | undefined): number | undefined {
@@ -123,17 +130,40 @@ export class TraceRecorderHook implements RuntimeHook {
   ];
 
   private readonly runStates = new Map<string, RunTraceState>();
-  private readonly factStarts = new Map<string, FactStartState>();
+  private lastSweepAtMs = 0;
 
   constructor(private readonly store = new SqliteTraceStore()) {}
 
+  private runState(runId: string, timestamp: string): RunTraceState {
+    let state = this.runStates.get(runId);
+    if (!state) {
+      state = {
+        startedAt: timestamp,
+        eventCount: 0,
+        lastEventAtMs: Date.now(),
+        facts: new Map()
+      };
+      this.runStates.set(runId, state);
+    }
+    return state;
+  }
+
+  private sweepStaleRuns(nowMs: number): void {
+    if (nowMs - this.lastSweepAtMs < SWEEP_INTERVAL_MS) return;
+    this.lastSweepAtMs = nowMs;
+    for (const [runId, state] of this.runStates) {
+      if (nowMs - state.lastEventAtMs > RUN_STATE_TTL_MS) {
+        this.runStates.delete(runId);
+      }
+    }
+  }
+
   handle(event: HookEvent): void {
-    const state = this.runStates.get(event.context.runId) ?? {
-      startedAt: event.timestamp,
-      eventCount: 0
-    };
+    const nowMs = Date.now();
+    this.sweepStaleRuns(nowMs);
+    const state = this.runState(event.context.runId, event.timestamp);
     state.eventCount += 1;
-    this.runStates.set(event.context.runId, state);
+    state.lastEventAtMs = nowMs;
 
     this.store.append({
       id: randomUUID(),
@@ -151,11 +181,6 @@ export class TraceRecorderHook implements RuntimeHook {
 
     if (event.stage === "run.finished") {
       this.runStates.delete(event.context.runId);
-      for (const key of Array.from(this.factStarts.keys())) {
-        if (key.includes(`:${event.context.runId}:`)) {
-          this.factStarts.delete(key);
-        }
-      }
     }
   }
 
@@ -313,15 +338,16 @@ export class TraceRecorderHook implements RuntimeHook {
     status: TraceFactRecord["status"],
     timing: { startedAt?: string; finishedAt?: string; durationMs?: number } = {}
   ): void {
-    const key = factKey(factType, event.context.runId, factId);
-    const existing = this.factStarts.get(key);
+    const facts = this.runState(event.context.runId, event.timestamp).facts;
+    const key = factKey(factType, factId);
+    const existing = facts.get(key);
     const startedAt = timing.startedAt ?? existing?.startedAt ?? (status === "started" ? event.timestamp : undefined);
     const finishedAt = timing.finishedAt ?? (status === "started" ? undefined : event.timestamp);
     const id = existing?.id ?? randomUUID();
     if (status === "started" || status === "waiting") {
-      this.factStarts.set(key, { id, startedAt: startedAt ?? event.timestamp });
+      facts.set(key, { id, startedAt: startedAt ?? event.timestamp });
     } else {
-      this.factStarts.delete(key);
+      facts.delete(key);
     }
 
     this.store.upsertFact({
@@ -354,15 +380,16 @@ export class TraceRecorderHook implements RuntimeHook {
   ): void {
     const toolName = stringField(payload, "toolName") ?? "unknown";
     const toolCallId = stringField(payload, "toolCallId") ?? `${toolName}:${event.timestamp}`;
-    const key = factKey("tool_call", event.context.runId, toolCallId);
-    const existing = this.factStarts.get(key);
+    const facts = this.runState(event.context.runId, event.timestamp).facts;
+    const key = factKey("tool_call", toolCallId);
+    const existing = facts.get(key);
     const startedAt = existing?.startedAt ?? (status === "started" ? event.timestamp : undefined);
     const finishedAt = status === "started" ? undefined : event.timestamp;
     const id = existing?.id ?? randomUUID();
     if (status === "started") {
-      this.factStarts.set(key, { id, startedAt: event.timestamp });
+      facts.set(key, { id, startedAt: event.timestamp });
     } else {
-      this.factStarts.delete(key);
+      facts.delete(key);
     }
 
     this.store.upsertFact({
@@ -397,15 +424,16 @@ export class TraceRecorderHook implements RuntimeHook {
   ): void {
     const modelAttemptId = stringField(payload, "modelAttemptId")
       ?? String(numberField(payload, "modelCallSeq") ?? event.timestamp);
-    const key = factKey("model_call", event.context.runId, modelAttemptId);
-    const existing = this.factStarts.get(key);
+    const facts = this.runState(event.context.runId, event.timestamp).facts;
+    const key = factKey("model_call", modelAttemptId);
+    const existing = facts.get(key);
     const startedAt = existing?.startedAt ?? (status === "started" ? event.timestamp : undefined);
     const finishedAt = status === "started" ? undefined : event.timestamp;
     const id = existing?.id ?? randomUUID();
     if (status === "started") {
-      this.factStarts.set(key, { id, startedAt: event.timestamp });
+      facts.set(key, { id, startedAt: event.timestamp });
     } else {
-      this.factStarts.delete(key);
+      facts.delete(key);
     }
     const tokens = usageTokens(payload.usage);
 
