@@ -1,5 +1,18 @@
 # Molibot Features
 
+## 2026-06-12
+
+### Agent Hook 框架加固与可插拔化 (Agent Hook Framework Hardening & Pluggability)
+- **Gate 失败默认拒绝 (fail-closed)**: gate 类 hook 抛错或超时时不再静默放行，默认返回 `deny`（`HOOK_GATE_FAILURE`）；hook 可声明 `failMode: "open"` 显式选择失败放行。
+- **Observe 队列按 run 隔离**: `DefaultHookManager` 的 observe 事件队列从全局单链改为按 `runId` 分队列，慢 hook 不再拖慢其他并发 run；`flush()` 支持 `runId` 参数做单 run 排空，runner 结束时改用 `flush({ runId, timeoutMs: 2000 })`。
+- **Emit payload 快照**: `emit()` 时对 payload 做 `structuredClone` 快照，调用方在 emit 后修改对象不会影响异步 hook 看到的数据。
+- **Transform 管线默认启用并接入 runner**: `input.enrich.after` 支持 transform hook 改写富集后的输入文本；`prompt.build.after` 支持 transform hook 改写系统提示词（在 prompt 重建时应用并随 promptRefreshKey 缓存）。
+- **TraceRecorderHook 状态防泄漏**: run 状态与 fact 起始状态改为按 runId 的二级 Map，run 结束整体释放；新增 1 小时 TTL + 5 分钟间隔清扫，覆盖 `run.finished` 永不到达的异常路径。
+- **插件加载入口**: 新增 `pluginRegistry.ts`（`registerHookPluginFactory` / `applyConfiguredHookPlugins`），由 `settings.plugins.hooks: [{ id, enabled, options }]` 控制启用；单个插件 init 失败不影响其它插件和运行时启动。插件 hook id 自动加 `pluginId/` 命名空间防冲突；`unregisterPlugin` 先 flush 在途事件再 destroy。
+- **类型化 Stage Payload**: 新增 `StagePayloadMap`，`emit/transform/gate` 按 stage 类型约束 payload 字段（保留开放索引签名）；未接入的 stage 在 `HookStage` 上标注 `(reserved)`。
+- **小优化**: stage→hooks 索引缓存（注册/注销时失效）替代每次 emit 全量排序过滤；runner 的内联空实现替换为共享 `NOOP_HOOK_MANAGER`。
+- **回归验证**: `manager.test.ts` 新增 fail-closed / fail-open、transform 链式 replace、per-run flush 隔离、payload 快照、插件命名空间用例；hooks 全部测试与 `runner.test.ts` 通过。
+
 ## 2026-06-11
 
 ### Adapter-node SQLite 构建告警清理 (Adapter-node SQLite Build Warning Cleanup)

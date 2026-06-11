@@ -8,17 +8,20 @@ import type {
   HookPlugin,
   HookResult,
   HookStage,
-  RuntimeHook
+  RuntimeHook,
+  StagePayload
 } from "$lib/server/agent/hooks/types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 
 interface RegisteredHook {
   hook: RuntimeHook;
+  effectiveId: string;
   order: number;
   pluginId?: string;
 }
 
 interface DefaultHookManagerOptions {
+  /** Transform pipeline runs by default; pass false to make transform a pass-through. */
   transformEnabled?: boolean;
   defaultTimeoutMs?: Partial<Record<HookKind, number>>;
   settings?: RuntimeSettings;
@@ -46,18 +49,29 @@ function timeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Prom
   });
 }
 
+function snapshotPayload<T>(payload: T): T {
+  // Observe hooks run asynchronously after emit returns; snapshot so callers
+  // mutating the payload object afterwards do not change what hooks see.
+  try {
+    return structuredClone(payload);
+  } catch {
+    return payload;
+  }
+}
+
 export class DefaultHookManager implements HookManager {
   private hooks = new Map<string, RegisteredHook>();
   private plugins = new Map<string, { plugin: HookPlugin; hookIds: string[] }>();
   private order = 0;
-  private observeTail: Promise<void> = Promise.resolve();
+  private observeTails = new Map<string, Promise<void>>();
+  private stageIndex = new Map<string, RegisteredHook[]>();
   private readonly errorListeners = new Set<ErrorListener>();
   private readonly transformEnabled: boolean;
   private readonly defaultTimeoutMs: Record<HookKind, number>;
   private readonly settings?: RuntimeSettings;
 
   constructor(options: DefaultHookManagerOptions = {}) {
-    this.transformEnabled = options.transformEnabled === true;
+    this.transformEnabled = options.transformEnabled !== false;
     this.settings = options.settings;
     this.defaultTimeoutMs = {
       ...DEFAULT_TIMEOUT_MS,
@@ -75,7 +89,9 @@ export class DefaultHookManager implements HookManager {
   }
 
   unregister(id: string): boolean {
-    return this.hooks.delete(id);
+    const removed = this.hooks.delete(id);
+    if (removed) this.stageIndex.clear();
+    return removed;
   }
 
   list(): RuntimeHook[] {
@@ -90,8 +106,8 @@ export class DefaultHookManager implements HookManager {
     const hookIds: string[] = [];
     try {
       for (const hook of plugin.getHooks()) {
-        this.registerInternal(hook, plugin.id);
-        hookIds.push(hook.id);
+        const effectiveId = this.registerInternal(hook, plugin.id);
+        hookIds.push(effectiveId);
       }
     } catch (error) {
       for (const id of hookIds) this.unregister(id);
@@ -104,46 +120,83 @@ export class DefaultHookManager implements HookManager {
     const row = this.plugins.get(id);
     if (!row) return false;
     for (const hookId of row.hookIds) this.unregister(hookId);
+    // Drain in-flight observe events so the plugin's hooks are not invoked
+    // (or mid-flight) after destroy() has torn down its resources.
+    await this.flush({ timeoutMs: 5000 });
     await row.plugin.destroy?.();
     this.plugins.delete(id);
     return true;
   }
 
-  emit<TPayload>(stage: HookStage, context: HookContext, payload: TPayload): void {
+  emit<S extends HookStage>(stage: S, context: HookContext, payload: StagePayload<S>): void {
     const hooks = this.hooksFor(stage, "observe");
     if (hooks.length === 0) return;
-    this.observeTail = this.observeTail
+    const snapshot = snapshotPayload(payload);
+    const runId = context.runId;
+    const tail = (this.observeTails.get(runId) ?? Promise.resolve())
       .catch(() => {
-        // Critical observe hooks are reported by runHook, but the background
-        // queue must recover so later emits are not starved.
+        // Critical observe hooks are reported by runHook, but the queue must
+        // recover so later emits for this run are not starved.
       })
       .then(async () => {
         for (const row of hooks) {
-          await this.runHook(row.hook, stage, "observe", context, payload);
+          await this.runHook(row.hook, stage, "observe", context, snapshot);
         }
       });
-    this.observeTail.catch(() => {});
+    this.observeTails.set(runId, tail);
+    tail
+      .catch(() => {})
+      .finally(() => {
+        if (this.observeTails.get(runId) === tail) {
+          this.observeTails.delete(runId);
+        }
+      });
   }
 
-  async flush(options: { timeoutMs?: number } = {}): Promise<void> {
-    await timeout(this.observeTail, options.timeoutMs ?? 5000, "hook flush").catch(() => {});
+  async flush(options: { timeoutMs?: number; runId?: string } = {}): Promise<void> {
+    const timeoutMs = options.timeoutMs ?? 5000;
+    const tails = options.runId
+      ? [this.observeTails.get(options.runId)].filter((tail): tail is Promise<void> => Boolean(tail))
+      : Array.from(this.observeTails.values());
+    if (tails.length === 0) return;
+    await timeout(Promise.all(tails).then(() => {}), timeoutMs, "hook flush").catch(() => {});
   }
 
-  async transform<TPayload>(stage: HookStage, context: HookContext, payload: TPayload): Promise<TPayload> {
+  async transform<S extends HookStage>(
+    stage: S,
+    context: HookContext,
+    payload: StagePayload<S>
+  ): Promise<StagePayload<S>> {
     if (!this.transformEnabled) return payload;
     let current = payload;
     for (const row of this.hooksFor(stage, "transform")) {
       const result = await this.runHook(row.hook, stage, "transform", context, current);
       if (result && typeof result === "object" && "type" in result && result.type === "replace") {
-        current = result.payload as TPayload;
+        current = result.payload as StagePayload<S>;
       }
     }
     return current;
   }
 
-  async gate<TPayload>(stage: HookStage, context: HookContext, payload: TPayload): Promise<GateDecision> {
+  async gate<S extends HookStage>(
+    stage: S,
+    context: HookContext,
+    payload: StagePayload<S>
+  ): Promise<GateDecision> {
     for (const row of this.hooksFor(stage, "gate")) {
-      const result = await this.runHook(row.hook, stage, "gate", context, payload);
+      let result: HookResult<StagePayload<S>>;
+      try {
+        result = await this.runHook(row.hook, stage, "gate", context, payload, { rethrow: true });
+      } catch (error) {
+        // Fail-closed by default: a broken or timed-out gate must not silently
+        // allow the action it was guarding.
+        if (row.hook.failMode === "open") continue;
+        return {
+          type: "deny",
+          reason: `gate hook ${row.effectiveId} failed: ${toError(error).message}`,
+          code: "HOOK_GATE_FAILURE"
+        };
+      }
       if (result && typeof result === "object" && "type" in result && result.type === "deny") {
         return result;
       }
@@ -151,15 +204,20 @@ export class DefaultHookManager implements HookManager {
     return { type: "allow" };
   }
 
-  private registerInternal(hook: RuntimeHook, pluginId?: string): void {
-    if (this.hooks.has(hook.id)) {
-      throw new Error(`Hook already registered: ${hook.id}`);
+  private registerInternal(hook: RuntimeHook, pluginId?: string): string {
+    // Namespace plugin hooks so two plugins can use the same local hook id.
+    const effectiveId = pluginId && !hook.id.startsWith(`${pluginId}/`) ? `${pluginId}/${hook.id}` : hook.id;
+    if (this.hooks.has(effectiveId)) {
+      throw new Error(`Hook already registered: ${effectiveId}`);
     }
-    this.hooks.set(hook.id, {
+    this.hooks.set(effectiveId, {
       hook,
+      effectiveId,
       order: this.order++,
       pluginId
     });
+    this.stageIndex.clear();
+    return effectiveId;
   }
 
   private sortedHooks(): RegisteredHook[] {
@@ -170,7 +228,13 @@ export class DefaultHookManager implements HookManager {
   }
 
   private hooksFor(stage: HookStage, kind: HookKind): RegisteredHook[] {
-    return this.sortedHooks().filter((row) => row.hook.kind === kind && row.hook.stages.includes(stage));
+    const key = `${stage} ${kind}`;
+    let rows = this.stageIndex.get(key);
+    if (!rows) {
+      rows = this.sortedHooks().filter((row) => row.hook.kind === kind && row.hook.stages.includes(stage));
+      this.stageIndex.set(key, rows);
+    }
+    return rows;
   }
 
   private async runHook<TPayload>(
@@ -178,7 +242,8 @@ export class DefaultHookManager implements HookManager {
     stage: HookStage,
     kind: HookKind,
     context: HookContext,
-    payload: TPayload
+    payload: TPayload,
+    options: { rethrow?: boolean } = {}
   ): Promise<HookResult<TPayload>> {
     const event: HookEvent<TPayload> = {
       stage,
@@ -202,7 +267,7 @@ export class DefaultHookManager implements HookManager {
         critical: hook.critical === true,
         timestamp: new Date().toISOString()
       });
-      if (hook.critical) throw normalized;
+      if (hook.critical || options.rethrow) throw normalized;
       return undefined;
     }
   }
