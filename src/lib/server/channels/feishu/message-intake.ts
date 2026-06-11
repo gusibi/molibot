@@ -253,8 +253,46 @@ export function buildFeishuThreadScopeId(chatId: string, threadId?: string | nul
 function isFeishuBotMention(message: Record<string, any>, botOpenId?: string): boolean {
   const mentions = Array.isArray(message.mentions) ? message.mentions : [];
   const normalizedBotOpenId = String(botOpenId ?? "").trim();
-  if (!normalizedBotOpenId) return mentions.length > 0;
-  return mentions.some((mention) => String(mention?.id?.open_id ?? "").trim() === normalizedBotOpenId);
+
+  if (!normalizedBotOpenId) {
+    momWarn("feishu", "isFeishuBotMention_missing_bot_identity_ignore_mentions", {
+      mentionCount: mentions.length
+    });
+    return false;
+  }
+
+  momLog("feishu", "isFeishuBotMention_checking_mentions", {
+    botOpenId: normalizedBotOpenId,
+    mentions: mentions.map((m: any) => ({
+      key: m?.key,
+      name: m?.name,
+      id: m?.id
+    }))
+  });
+
+  // Check against multiple possible ID fields in the mention, since Feishu
+  // might use open_id, bot_id, or union_id depending on the context.
+  const matched = mentions.some((mention) => {
+    const idObj = mention?.id && typeof mention.id === "object" ? mention.id : {};
+    const mentionOpenId = String(idObj.open_id ?? "").trim();
+    const mentionUnionId = String(idObj.union_id ?? "").trim();
+    const mentionUserId = String(idObj.user_id ?? "").trim();
+    const mentionBotId = String(idObj.bot_id ?? "").trim();
+
+    const matches = mentionOpenId === normalizedBotOpenId ||
+           mentionUnionId === normalizedBotOpenId ||
+           mentionUserId === normalizedBotOpenId ||
+           mentionBotId === normalizedBotOpenId;
+
+    if (matches) {
+      momLog("feishu", "isFeishuBotMention_match_found", { mention });
+    }
+
+    return matches;
+  });
+
+  momLog("feishu", "isFeishuBotMention_result", { matched });
+  return matched;
 }
 
 export function isFeishuGroupMessageTriggered(message: Record<string, any>, options: FeishuGroupTriggerOptions = {}): boolean {

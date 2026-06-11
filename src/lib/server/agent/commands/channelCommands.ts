@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import { getModels } from "@mariozechner/pi-ai";
 import type { RuntimeSettings, RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import { RUNTIME_THINKING_LEVELS } from "$lib/server/settings/index.js";
@@ -119,6 +119,7 @@ export class SharedRuntimeCommandService<TTarget> {
 
   private isRunActive(runId: string): boolean {
     try {
+      ensureSqliteParentDir(storagePaths.settingsDbFile);
       const db = new DatabaseSync(storagePaths.settingsDbFile);
       const row = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string } | undefined;
       db.close();

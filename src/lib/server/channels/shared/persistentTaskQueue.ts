@@ -43,7 +43,7 @@ export class PersistentTaskQueue<TPayload> {
   private readonly activeScopes = new Set<string>();
 
   constructor(options: PersistentTaskQueueOptions<TPayload>) {
-    const dbFile = options.dbFile ?? path.join(storagePaths.dataDir, "inbound-queue.sqlite");
+    const dbFile = options.dbFile ?? storagePaths.inboundQueueDbFile;
     fs.mkdirSync(path.dirname(dbFile), { recursive: true });
     this.db = new DatabaseSync(dbFile);
     this.db.exec("PRAGMA journal_mode = WAL;");
@@ -182,12 +182,9 @@ export class PersistentTaskQueue<TPayload> {
     if (String(row.status) !== "pending") return "not_found";
 
     this.db.prepare(`
-      UPDATE inbound_tasks
-      SET status = 'cancelled',
-          updated_at = ?,
-          finished_at = ?
+      DELETE FROM inbound_tasks
       WHERE id = ?
-    `).run(new Date().toISOString(), new Date().toISOString(), id);
+    `).run(id);
     return "deleted";
   }
 
@@ -219,17 +216,13 @@ export class PersistentTaskQueue<TPayload> {
   }
 
   cancelPending(scopeId: string): number {
-    const nowIso = new Date().toISOString();
     const result = this.db.prepare(`
-      UPDATE inbound_tasks
-      SET status = 'cancelled',
-          updated_at = ?,
-          finished_at = ?
+      DELETE FROM inbound_tasks
       WHERE channel = ?
         AND instance_id = ?
         AND scope_id = ?
         AND status = 'pending'
-    `).run(nowIso, nowIso, this.channel, this.instanceId, scopeId);
+    `).run(this.channel, this.instanceId, scopeId);
     return Number(result.changes ?? 0);
   }
 
@@ -261,15 +254,11 @@ export class PersistentTaskQueue<TPayload> {
 
   private resetRunningTasks(): void {
     this.db.prepare(`
-      UPDATE inbound_tasks
-      SET status = 'pending',
-          updated_at = ?,
-          started_at = NULL,
-          error_text = NULL
+      DELETE FROM inbound_tasks
       WHERE channel = ?
         AND instance_id = ?
         AND status = 'running'
-    `).run(new Date().toISOString(), this.channel, this.instanceId);
+    `).run(this.channel, this.instanceId);
   }
 
   private nextBackOrder(scopeId: string): number {
@@ -332,23 +321,16 @@ export class PersistentTaskQueue<TPayload> {
 
   private complete(id: number): void {
     this.db.prepare(`
-      UPDATE inbound_tasks
-      SET status = 'completed',
-          updated_at = ?,
-          finished_at = ?,
-          error_text = NULL
+      DELETE FROM inbound_tasks
       WHERE id = ?
-    `).run(new Date().toISOString(), new Date().toISOString(), id);
+    `).run(id);
   }
 
   private fail(id: number, errorText: string): void {
+    void errorText;
     this.db.prepare(`
-      UPDATE inbound_tasks
-      SET status = 'failed',
-          updated_at = ?,
-          finished_at = ?,
-          error_text = ?
+      DELETE FROM inbound_tasks
       WHERE id = ?
-    `).run(new Date().toISOString(), new Date().toISOString(), errorText, id);
+    `).run(id);
   }
 }

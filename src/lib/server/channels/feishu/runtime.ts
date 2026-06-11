@@ -77,6 +77,8 @@ export class FeishuManager extends BaseChannelRuntime {
     private currentEncryptKey = "";
     private currentAllowedChatIdsKey = "";
     private currentBotOpenId = "";
+    private botIdentityReady: Promise<void> = Promise.resolve();
+    private botIdentityResolved = false;
 
     constructor(
         getSettings: () => RuntimeSettings,
@@ -103,17 +105,41 @@ export class FeishuManager extends BaseChannelRuntime {
             channel: "feishu",
             instanceId: this.instanceId,
             process: async (payload) => {
+                momLog("feishu", "queue_job_starting", { payload });
                 try {
                     const event = this.rehydrateQueuedEvent(payload);
+                    momLog("feishu", "queue_job_event_rehydrated", { event });
                     await this.processEvent(event);
+                    momLog("feishu", "queue_job_completed");
                 } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+
+                    if (errorMessage.includes("Another run is currently active")) {
+                        momWarn("feishu", "queue_job_busy_not_duplicated", {
+                            chatId: payload.chatId,
+                            queueId: payload.messageId
+                        });
+                        throw error;
+                    }
+
                     momError("feishu", "queue_job_uncaught", {
-                    chatId: payload.chatId,
-                    queueId: payload.messageId,
-                    error: error instanceof Error ? error.message : String(error)
-                });
-                    await sendFeishuText(this.client, payload.chatId, "Internal error.", this.replyOptionsForEvent(payload));
-                    throw error;
+                        chatId: payload.chatId,
+                        queueId: payload.messageId,
+                        error: errorMessage,
+                        stack: error instanceof Error ? error.stack : undefined
+                    });
+                    try {
+                        momLog("feishu", "queue_job_sending_error_message");
+                        // Don't use replyOptions when sending error message, just send to chat
+                        await sendFeishuText(this.client, payload.chatId, "Internal error.");
+                        momLog("feishu", "queue_job_error_message_sent");
+                    } catch (_sendError) {
+                        momError("feishu", "queue_job_error_message_send_failed", {
+                            error: _sendError instanceof Error ? _sendError.message : String(_sendError)
+                        });
+                        // Ignore send failures during error recovery.
+                    }
+                    // Do not rethrow — the error is already logged and the user notified.
                 }
             },
             enqueueFrontFromCommand: async (input, text) => this.enqueueSyntheticTask(input.scopeId, text, true)
@@ -154,6 +180,8 @@ export class FeishuManager extends BaseChannelRuntime {
     }
 
     apply(cfg: FeishuConfig): void {
+        momLog("feishu", "apply_called", { cfg });
+
         const appId = cfg.appId.trim();
         const appSecret = cfg.appSecret.trim();
         const verificationToken = String(cfg.verificationToken ?? "").trim();
@@ -201,16 +229,23 @@ export class FeishuManager extends BaseChannelRuntime {
             appType: lark.AppType.SelfBuild,
         });
         this.currentBotOpenId = "";
-        void this.resolveBotOpenId(appId);
+        this.botIdentityResolved = false;
+        this.botIdentityReady = this.resolveBotOpenId(appId);
+
+        momLog("feishu", "setting_up_event_dispatcher");
 
         const handler = new lark.EventDispatcher({}).register({
             "im.message.receive_v1": async (data: any) => {
+                momLog("feishu_ws", "im.message.receive_v1_received", { data });
                 await this.handleIncomingMessage(data.message, data.sender, allowed);
             },
             "card.action.trigger": async (data: any) => {
+                momLog("feishu_ws", "card.action.trigger_received", { data });
                 return this.handleWsCardAction(data, allowed);
             }
         });
+
+        momLog("feishu", "setting_up_ws_client");
 
         this.wsClient = new lark.WSClient({
             appId,
@@ -224,9 +259,12 @@ export class FeishuManager extends BaseChannelRuntime {
             }
         });
 
-        this.wsClient.start({
-            eventDispatcher: handler
-        });
+        // Start WS immediately so no messages are missed.
+        // handleIncomingMessage awaits botIdentityReady before the mention check,
+        // so by the time it evaluates isFeishuBotMention, currentBotOpenId is set.
+        momLog("feishu", "starting_ws_client");
+        this.wsClient.start({ eventDispatcher: handler });
+        momLog("feishu", "ws_client_start_called");
 
         this.cardActionHandler = new lark.CardActionHandler(
             {
@@ -274,35 +312,100 @@ export class FeishuManager extends BaseChannelRuntime {
         this.currentEncryptKey = "";
         this.currentAllowedChatIdsKey = "";
         this.currentBotOpenId = "";
+        this.botIdentityResolved = false;
+        this.botIdentityReady = Promise.resolve();
     }
 
     private async resolveBotOpenId(appId: string): Promise<void> {
-        if (!this.client) return;
+        if (!this.client) {
+            momWarn("feishu", "bot_identity_probe_skipped_no_client", { appId });
+            this.botIdentityResolved = true;
+            return;
+        }
+        momLog("feishu", "bot_identity_probe_start", { appId });
         try {
-            const response = await (this.client as unknown as { request: (input: unknown) => Promise<any> }).request({
-                method: "GET",
-                url: "/open-apis/bot/v3/info"
+            const client = this.client as unknown as { request: (input: unknown) => Promise<any> };
+            const response = await client.request({
+                method: "POST",
+                url: "/open-apis/bot/v1/openclaw_bot/ping",
+                data: { needBotInfo: true }
+            });
+            momLog("feishu", "bot_identity_probe_response", {
+                appId,
+                endpoint: "bot/v1/openclaw_bot/ping",
+                code: response?.code,
+                hasData: !!response?.data,
+                botOpenId: response?.data?.pingBotInfo?.botID,
+                botName: response?.data?.pingBotInfo?.botName,
+                data: JSON.stringify(response?.data)
             });
             if (response?.code !== 0) {
                 momWarn("feishu", "bot_identity_probe_failed", {
                     appId,
+                    endpoint: "bot/v1/openclaw_bot/ping",
                     code: response?.code,
                     msg: response?.msg
                 });
+            }
+
+            function readString(value: unknown): string {
+                return String(value ?? "").trim();
+            }
+            const pingBotInfo = response?.data?.pingBotInfo && typeof response.data.pingBotInfo === "object"
+                ? response.data.pingBotInfo as Record<string, any>
+                : {};
+            let botOpenId = readString(pingBotInfo.botID);
+            let botName = readString(pingBotInfo.botName);
+
+            if (!botOpenId) {
+                const fallback = await client.request({
+                    method: "GET",
+                    url: "/open-apis/bot/v3/info"
+                });
+                momLog("feishu", "bot_identity_probe_response", {
+                    appId,
+                    endpoint: "bot/v3/info",
+                    code: fallback?.code,
+                    hasData: !!fallback?.data,
+                    rawOpenId: fallback?.data?.open_id,
+                    botOpenId: fallback?.data?.bot?.open_id,
+                    rawBotId: fallback?.data?.bot_id,
+                    botBotId: fallback?.data?.bot?.bot_id,
+                    data: JSON.stringify(fallback?.data)
+                });
+                if (fallback?.code !== 0) {
+                    momWarn("feishu", "bot_identity_probe_failed", {
+                        appId,
+                        endpoint: "bot/v3/info",
+                        code: fallback?.code,
+                        msg: fallback?.msg
+                    });
+                    return;
+                }
+                const data = fallback?.data;
+                const bot = data?.bot && typeof data.bot === "object" ? data.bot as Record<string, any> : {};
+                botOpenId = readString(data?.open_id || bot.open_id || data?.bot_id || bot.bot_id);
+                botName = readString(data?.name || bot.name || data?.bot_name || bot.bot_name);
+            }
+
+            if (!botOpenId) {
+                momWarn("feishu", "bot_identity_probe_empty_identity", { appId, botName });
                 return;
             }
-            const botOpenId = String(response?.data?.open_id ?? response?.data?.bot?.open_id ?? "").trim();
+
             this.currentBotOpenId = botOpenId;
             momLog("feishu", "bot_identity_probe_ok", {
                 appId,
                 botOpenId,
-                botName: response?.data?.name ?? response?.data?.bot?.name
+                botName
             });
         } catch (error) {
             momWarn("feishu", "bot_identity_probe_failed", {
                 appId,
                 error: error instanceof Error ? error.message : String(error)
             });
+        } finally {
+            this.botIdentityResolved = true;
         }
     }
 
@@ -506,11 +609,35 @@ export class FeishuManager extends BaseChannelRuntime {
     }
 
     private async handleIncomingMessage(message: Record<string, any>, sender: Record<string, any>, allowed: Set<string>): Promise<void> {
-        if (!this.client || !this.wsClient) return;
+        if (!this.client || !this.wsClient) {
+            momLog("feishu", "handleIncomingMessage_skip_no_client", { hasClient: !!this.client, hasWsClient: !!this.wsClient });
+            return;
+        }
 
         const chatId = String(message.chat_id || "");
         const userId = String(sender.sender_id?.open_id || "unknown");
         const messageId = String(message.message_id || "");
+        const chatType = String(message.chat_type || "");
+        const mentions = Array.isArray(message.mentions) ? message.mentions : [];
+
+        // Wait for bot identity to be resolved before checking mentions.
+        // This ensures currentBotOpenId is set so we can accurately match
+        // @mentions in multi-bot groups.
+        if (!this.botIdentityResolved) {
+            momLog("feishu", "handleIncomingMessage_waiting_for_identity", { chatId, messageId });
+            await this.botIdentityReady;
+        }
+
+        momLog("feishu", "handleIncomingMessage_enter", {
+            chatId, userId, messageId, chatType,
+            mentionCount: mentions.length,
+            mentions: mentions.map((m: any) => ({
+                key: m?.key,
+                name: m?.name,
+                id: m?.id
+            })),
+            botOpenId: this.currentBotOpenId || "(empty)"
+        });
 
         if (allowed.size > 0 && !allowed.has(chatId)) {
             momWarn("feishu", "message_blocked_chat", { chatId, userId, messageId });
@@ -527,10 +654,24 @@ export class FeishuManager extends BaseChannelRuntime {
             return;
         }
 
-        if (!isFeishuGroupMessageTriggered(message, {
+        const triggered = isFeishuGroupMessageTriggered(message, {
             botOpenId: this.currentBotOpenId,
             isKnownBotThread: (input) => this.threadRegistry.match(input).allowed
-        })) {
+        });
+
+        momLog("feishu", "handleIncomingMessage_trigger_result", {
+            chatId, messageId, chatType, triggered,
+            botOpenId: this.currentBotOpenId || "(empty)",
+            mentions: mentions.map((m: any) => ({
+                key: m?.key,
+                name: m?.name,
+                id: m?.id
+            })),
+            threadId: message.thread_id || "(none)",
+            parentId: message.parent_id || "(none)"
+        });
+
+        if (!triggered) {
             momLog("feishu", "group_message_ignored_no_mention", { chatId, messageId });
             return;
         }

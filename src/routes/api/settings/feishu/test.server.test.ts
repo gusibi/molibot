@@ -54,3 +54,71 @@ test("createFeishuTestResponse returns bot identity for successful probe", async
     botOpenId: "ou_bot"
   });
 });
+
+test("createFeishuTestResponse reads bot identity from openclaw ping response", async () => {
+  const calls: unknown[] = [];
+  const response = await _createFeishuTestResponse({
+    appId: "cli_a",
+    appSecret: "secret"
+  }, () => ({
+    request: async (input) => {
+      calls.push(input);
+      return {
+        code: 0,
+        data: { pingBotInfo: { botID: "ou_ping_bot", botName: "Ping Bot" } }
+      };
+    }
+  }));
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await readJson(response), {
+    ok: true,
+    appId: "cli_a",
+    botName: "Ping Bot",
+    botOpenId: "ou_ping_bot"
+  });
+  assert.deepEqual(calls, [{
+    method: "POST",
+    url: "/open-apis/bot/v1/openclaw_bot/ping",
+    data: { needBotInfo: true }
+  }]);
+});
+
+test("createFeishuTestResponse falls back to bot v3 info when ping omits identity", async () => {
+  const calls: unknown[] = [];
+  const response = await _createFeishuTestResponse({
+    appId: "cli_a",
+    appSecret: "secret"
+  }, () => ({
+    request: async (input) => {
+      calls.push(input);
+      if (calls.length === 1) {
+        return { code: 0, data: { pingBotInfo: {} } };
+      }
+      return {
+        code: 0,
+        msg: "ok",
+        data: { name: "Fallback Bot", open_id: "ou_fallback_bot" }
+      };
+    }
+  }));
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await readJson(response), {
+    ok: true,
+    appId: "cli_a",
+    botName: "Fallback Bot",
+    botOpenId: "ou_fallback_bot"
+  });
+  assert.deepEqual(calls, [
+    {
+      method: "POST",
+      url: "/open-apis/bot/v1/openclaw_bot/ping",
+      data: { needBotInfo: true }
+    },
+    {
+      method: "GET",
+      url: "/open-apis/bot/v3/info"
+    }
+  ]);
+});

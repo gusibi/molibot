@@ -43,7 +43,7 @@ export class SqliteOutbox<TPayload, TResult> {
   private closed = false;
 
   constructor(options: SqliteOutboxOptions<TPayload, TResult>) {
-    const dbFile = options.dbFile ?? path.join(storagePaths.dataDir, "outbox.sqlite");
+    const dbFile = options.dbFile ?? storagePaths.outboxDbFile;
     fs.mkdirSync(path.dirname(dbFile), { recursive: true });
     this.db = new DatabaseSync(dbFile);
     this.db.exec("PRAGMA journal_mode = WAL;");

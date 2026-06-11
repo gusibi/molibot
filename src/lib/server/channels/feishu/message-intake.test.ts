@@ -39,6 +39,24 @@ test("isFeishuGroupMessageTriggered accepts group messages that mention the bot"
   );
 });
 
+test("isFeishuGroupMessageTriggered ignores group messages that mention another bot", () => {
+  assert.equal(
+    isFeishuGroupMessageTriggered(message({
+      mentions: [{ key: "@_user_1", id: { open_id: "ou_other_bot" }, name: "Other Bot" }]
+    }), { botOpenId: "ou_bot" }),
+    false
+  );
+});
+
+test("isFeishuGroupMessageTriggered ignores group mentions when bot identity is unavailable", () => {
+  assert.equal(
+    isFeishuGroupMessageTriggered(message({
+      mentions: [{ key: "@_user_1", id: { open_id: "ou_other_bot" }, name: "Other Bot" }]
+    })),
+    false
+  );
+});
+
 test("isFeishuGroupMessageTriggered accepts known bot thread messages without mention", () => {
   const triggered = isFeishuGroupMessageTriggered(message({
     thread_id: "omt_thread",

@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 
 export const DEFAULT_WORKSPACE_ID = "personal";
 
@@ -74,6 +74,7 @@ export class WorkspaceStore {
   constructor(private readonly dbFile = storagePaths.settingsDbFile) {}
 
   private openDb(): DatabaseSync {
+    ensureSqliteParentDir(this.dbFile);
     const db = new DatabaseSync(this.dbFile);
     db.exec(`
       CREATE TABLE IF NOT EXISTS workspaces (

@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D22-3c873a">
+  <img alt="Node" src="https://img.shields.io/badge/node-%3E%3D22.5-3c873a">
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-SvelteKit-ff3e00">
   <img alt="Channels" src="https://img.shields.io/badge/channels-Web%20%7C%20Telegram%20%7C%20Feishu%20%7C%20Weixin%20%7C%20CLI-0ea5e9">
   <img alt="Storage" src="https://img.shields.io/badge/storage-JSON%20%2B%20SQLite%20%2B%20Mory-8b5cf6">
@@ -144,7 +144,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 - **Telegram Bot**: Runtime commands, multi-session, multi-bot instances, model switching, task delivery, and group replies via direct `@bot` mentions or replies to bot messages
 - **Scheduled Tasks**: watched event JSON remains the scheduling source, while active event execution is coordinated through `event_execution_leases` in SQLite for timeout, retry, restart/stop visibility, and run correlation
 - **Telegram Typing Resilience**: `sendChatAction(typing)` timeout exhaustion is treated as non-blocking, so typing-indicator failures do not abort the active run
-- **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings with credential health check, and bot-participated group thread continuation
+- **Feishu Bot**: Complete media/file ingestion and outbound delivery, bot settings with credential health check, bot-owned group mention filtering, safe queue recovery with terminal task cleanup, and bot-participated group thread continuation
 - **QQ Bot**: SDK-based integration, group policy metadata, quoted-message context, rich media delivery, typing/streaming helpers, channel-local progress/error compaction, and Molibot-owned queue control
 - **Weixin Bot**: SDK-based integration, QR pairing-code login, lifecycle notifications, OGG voice transcoding, native image-message replies, Weixin-safe progress/error compaction, and CDN media delivery
 - **CLI**: Local terminal conversation entrypoint
@@ -225,7 +225,7 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 |---------|----------|------------------|
 | **Web Chat** | ⭐⭐⭐ Production-Ready | Image upload + realtime voice recording + thinking controls + profile-only identity + theme/i18n |
 | **Telegram** | ⭐⭐⭐ Production-Ready | Multi-bot, runtime commands, model switching, task delivery, media handling |
-| **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, credential health check, media/file ingress and outbound handling, bot-participated thread continuation |
+| **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, credential health check, media/file ingress and outbound handling, bot-owned group mention filtering, safe queue recovery with terminal task cleanup, bot-participated thread continuation |
 | **QQ** | ⭐⭐⭐ Production-Ready | SDK-based gateway, group/private chat, rich media, quoted context, channel-local progress/error compaction, Molibot-owned queue control |
 | **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, native image replies, Weixin-safe progress/error compaction, CDN media delivery |
 | **CLI** | ⭐⭐ Ready | Local terminal conversation entrypoint |
@@ -365,9 +365,13 @@ Default data dir: `~/.molibot`
 ```text
 ~/.molibot/
   settings.json          # Stable bootstrap configuration
-  settings.sqlite        # Dynamic relational configuration
+  db/                    # SQLite databases and sidecar WAL/SHM files
+    settings.sqlite      # Dynamic relational configuration
+    inbound-queue.sqlite # Shared inbound task queue
+    outbox.sqlite        # Shared outbound retry queue
+    mory.sqlite          # Mory memory backend storage
   sessions/              # Session persistence (JSONL entry logs)
-  memory/                # Memory data (Mory backend)
+  memory/                # Memory indexes/cursors and non-SQLite memory files
   skills/                # Global reusable skills
   usage/                 # Token usage tracking (JSONL)
   tooling/               # Developer tools (Python venv)
@@ -388,7 +392,8 @@ Default data dir: `~/.molibot`
 ```
 
 - `settings.json`: Bootstrap configuration (env paths, feature flags, bootstrap providers)
-- `settings.sqlite`: Relational tables for agents, channels, providers, models, workspaces, MCP servers, and legacy-compatible settings
+- `db/`: Centralized SQLite storage for settings, queues, trace/run tables, approvals, and Mory memory storage. Legacy root-level DB files are moved here automatically when the default paths are used.
+- `db/settings.sqlite`: Relational tables for agents, channels, providers, models, workspaces, MCP servers, and legacy-compatible settings
 - `sessions/`: Per-session entry logs with context reconstruction
 - `memory/`: Mory SDK data with layered storage and hybrid retrieval
 - `skills/`: Hierarchical skill repository (global/bot/chat scopes)
@@ -409,7 +414,7 @@ molibot start           # Production run (requires build first)
 molibot cli             # CLI mode for terminal conversation
 ```
 
-The source build is expected to complete without Svelte accessibility warnings; remaining production-build notices may include Vite chunking notes or Node's experimental SQLite warning.
+The source build is expected to complete without Svelte accessibility warnings or adapter-node `node:sqlite` unresolved-import notices; Node's experimental SQLite runtime warning may still appear while Node keeps that API experimental.
 
 ### Service Management
 ```bash
@@ -503,11 +508,12 @@ docker compose up -d --build
 ### Core
 - `PORT` (default `3000`) - HTTP server port
 - `DATA_DIR` (default `~/.molibot`) - Data directory path
+- `DB_DIR` (default `${DATA_DIR}/db`) - Central SQLite database directory
 - `NODE_ENV` (`development`|`production`) - Runtime environment
 
 ### Settings Storage
 - `SETTINGS_FILE` (default `${DATA_DIR}/settings.json`) - Bootstrap config path
-- `SETTINGS_DB_FILE` (default `${DATA_DIR}/settings.sqlite`) - Relational DB path
+- `SETTINGS_DB_FILE` (default `${DB_DIR}/settings.sqlite`) - Relational DB path
 
 ### AI Provider
 - `AI_PROVIDER_MODE=pi|custom` - Primary provider mode
@@ -647,7 +653,7 @@ See `.env.example` for full list and detailed descriptions.
 |---------|----------|------------------|
 | **Web Chat** | ⭐⭐⭐ Production-Ready | Image upload + realtime voice recording + thinking controls + profile-only identity + theme/i18n |
 | **Telegram** | ⭐⭐⭐ Production-Ready | Multi-bot, runtime commands, model switching, task delivery, media handling |
-| **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, credential health check, media/file ingress and outbound handling, bot-participated thread continuation |
+| **Feishu** | ⭐⭐⭐ Production-Ready | Bot settings, credential health check, media/file ingress and outbound handling, bot-owned group mention filtering, safe queue recovery with terminal task cleanup, bot-participated thread continuation |
 | **Weixin** | ⭐⭐⭐ Production-Ready | SDK-based integration, OGG voice transcoding, CDN media delivery |
 | **CLI** | ⭐⭐ Ready | Local terminal conversation entrypoint |
 | **ACP** | 📦 Externalized | Relocated to `package/acp/` as a relocatable external package |

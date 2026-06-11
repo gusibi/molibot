@@ -36,7 +36,7 @@ import {
   sanitizeReasoningEffortMap,
   sanitizeRuntimeThinkingLevel
 } from "$lib/server/settings/thinking.js";
-import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
+import { ensureSqliteParentDir, readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
 import { normalizeTimeZone } from "$lib/server/time.js";
 
 type DynamicSettingKey =
@@ -1147,6 +1147,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
 
 export class SettingsStore {
   private openDynamicDb(): DatabaseSync {
+    ensureSqliteParentDir(storagePaths.settingsDbFile);
     const db = new DatabaseSync(storagePaths.settingsDbFile);
     db.exec(`
       CREATE TABLE IF NOT EXISTS settings_dynamic (

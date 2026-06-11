@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 
 export interface ImageTaskRecord {
   id: string;
@@ -19,6 +19,7 @@ export class SqliteImageTaskStore {
   private readonly db: DatabaseSync;
 
   constructor(dbPath = storagePaths.settingsDbFile) {
+    ensureSqliteParentDir(dbPath);
     this.db = new DatabaseSync(dbPath);
     this.init();
   }

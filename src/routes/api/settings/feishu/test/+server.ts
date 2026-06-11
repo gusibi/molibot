@@ -15,9 +15,10 @@ function readString(value: unknown): string {
 
 function extractBotInfo(data: Record<string, any> | undefined): { botName?: string; botOpenId?: string } {
   const bot = data?.bot && typeof data.bot === "object" ? data.bot as Record<string, any> : {};
+  const pingBotInfo = data?.pingBotInfo && typeof data.pingBotInfo === "object" ? data.pingBotInfo as Record<string, any> : {};
   return {
-    botName: readString(data?.name || bot.name || data?.bot_name || bot.bot_name) || undefined,
-    botOpenId: readString(data?.open_id || bot.open_id || data?.bot_id || bot.bot_id) || undefined
+    botName: readString(pingBotInfo.botName || data?.name || bot.name || data?.bot_name || bot.bot_name) || undefined,
+    botOpenId: readString(pingBotInfo.botID || data?.open_id || bot.open_id || data?.bot_id || bot.bot_id) || undefined
   };
 }
 
@@ -37,9 +38,10 @@ export async function _createFeishuTestResponse(
 
   try {
     const client = createClient({ appId, appSecret });
-    const response = await client.request({
-      method: "GET",
-      url: "/open-apis/bot/v3/info"
+    let response = await client.request({
+      method: "POST",
+      url: "/open-apis/bot/v1/openclaw_bot/ping",
+      data: { needBotInfo: true }
     });
     const code = Number(response?.code ?? 0);
     const msg = readString(response?.msg);
@@ -53,7 +55,25 @@ export async function _createFeishuTestResponse(
       });
     }
 
-    const { botName, botOpenId } = extractBotInfo(response?.data);
+    let { botName, botOpenId } = extractBotInfo(response?.data);
+    if (!botOpenId) {
+      response = await client.request({
+        method: "GET",
+        url: "/open-apis/bot/v3/info"
+      });
+      const fallbackCode = Number(response?.code ?? 0);
+      const fallbackMsg = readString(response?.msg);
+      if (fallbackCode !== 0) {
+        return json({
+          ok: false,
+          appId,
+          code: fallbackCode,
+          msg: fallbackMsg,
+          error: fallbackMsg || `Feishu API error: ${fallbackCode}`
+        });
+      }
+      ({ botName, botOpenId } = extractBotInfo(response?.data));
+    }
     return json({
       ok: true,
       appId,

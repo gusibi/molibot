@@ -2,6 +2,23 @@
 
 ## Version 1.0
 
+## 2026-06-11
+
+### Adapter-node SQLite Build Warning Cleanup
+- Added a project-local adapter-node variant that marks `node:sqlite` as external during the adapter's final Rollup pass, removing the unresolved-import notices at the end of `npm run build`.
+- Tightened the declared Node requirement to `>=22.5.0`, matching Molibot's use of built-in `node:sqlite`.
+
+### Centralized DB Directory
+- Added `${DATA_DIR}/db` as the default SQLite database directory and moved default settings, inbound queue, outbox, and Mory SQLite paths under it.
+- Added startup migration for legacy root-level SQLite files, including WAL/SHM sidecar files, while preserving explicit operator-provided database paths.
+
+### Feishu Multi-Bot Mention Ownership
+- Tightened Feishu group mention gating so a bot instance only responds when the message mentions that bot's resolved identity. Mentions of other bots are ignored, and missing bot identity no longer falls back to responding to any group mention.
+- Switched Feishu bot identity probing to `POST /open-apis/bot/v1/openclaw_bot/ping` first, matching the openclaw-lark SDK path. The old `bot/v3/info` endpoint remains a fallback because it can return `code: 0` with empty identity fields for these apps.
+- Stopped Feishu queue workers from duplicating inbound tasks when a stale/busy run blocks processing, preventing runaway inbound queue growth and reducing SQLite lock pressure on startup.
+- Restored shared inbound queue cleanup so completed, failed, cancelled, and startup-abandoned tasks are deleted from SQLite instead of retained as terminal rows.
+- Kept private chat and bot-participated thread continuation behavior unchanged, with focused intake regression coverage for current-bot mentions, other-bot mentions, missing identity, and known-thread continuation.
+
 ## 2026-06-10
 
 ### Global Profile File Write Guard

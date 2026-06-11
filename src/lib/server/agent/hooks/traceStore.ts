@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import type { HookStage } from "$lib/server/agent/hooks/types.js";
 
 export type TraceFactType =
@@ -93,6 +93,7 @@ export class SqliteTraceStore {
   private readonly db: DatabaseSync;
 
   constructor(dbFile = storagePaths.settingsDbFile) {
+    ensureSqliteParentDir(dbFile);
     this.db = new DatabaseSync(dbFile);
     // Drop existing table in case it was created without seq in previous runs or tests
     try {

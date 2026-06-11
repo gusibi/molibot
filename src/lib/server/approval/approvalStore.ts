@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import type { ApprovalBrokerStore } from "$lib/server/approval/approvalBroker.js";
 import type { ApprovalGrant, ApprovalRequest, ApprovalScope, ApprovalStatus } from "$lib/server/approval/approvalTypes.js";
 
@@ -97,6 +97,7 @@ export class SqliteApprovalStore implements ApprovalBrokerStore {
   private readonly db: DatabaseSync;
 
   constructor(dbPath = storagePaths.settingsDbFile) {
+    ensureSqliteParentDir(dbPath);
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS approval_requests (

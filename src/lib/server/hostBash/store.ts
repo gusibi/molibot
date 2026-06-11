@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import {
   coerceApprovalMode,
   createHostBashApprovalRecord,
@@ -146,6 +146,7 @@ export class HostBashStore {
   private readonly db: DatabaseSync;
 
   constructor(dbPath = storagePaths.settingsDbFile) {
+    ensureSqliteParentDir(dbPath);
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS approval_requests (

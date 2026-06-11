@@ -1,5 +1,25 @@
 # Molibot Features
 
+## 2026-06-11
+
+### Adapter-node SQLite 构建告警清理 (Adapter-node SQLite Build Warning Cleanup)
+- **显式 external 化 `node:sqlite`**: SvelteKit 生产构建改用项目内 adapter-node 变体，在 adapter 最终 Rollup 打包阶段把 `node:sqlite` 标记为 external，避免 build 末尾出现无法解析 `node:sqlite` 的 adapter 告警。
+- **Node 版本前提收紧**: 项目 `engines.node` 从 `>=22.0.0` 调整为 `>=22.5.0`，对齐内置 `node:sqlite` 的真实运行要求。
+
+### DB 目录集中管理 (Centralized DB Directory)
+- **统一 SQLite 默认目录**: 默认数据库目录新增为 `${DATA_DIR}/db`，`settings.sqlite`、`inbound-queue.sqlite`、`outbox.sqlite` 和 Mory 的 `mory.sqlite` 都集中到该目录下，不再散落在数据根目录或 `memory/` 子目录。
+- **旧路径自动迁移**: 启动初始化会在新路径不存在时把旧的 `${DATA_DIR}/settings.sqlite`、`inbound-queue.sqlite`、`outbox.sqlite`、`memory/mory.sqlite` 迁移到 `${DATA_DIR}/db/`，并同步迁移 SQLite 的 `-wal` / `-shm` sidecar 文件。
+- **显式路径仍可覆盖**: 新增 `DB_DIR` 环境变量控制统一 DB 目录；`SETTINGS_DB_FILE` 等显式测试或运维路径保持优先，避免破坏隔离测试和自定义部署。
+
+### Feishu 多机器人群聊 @ 归属过滤 (Feishu Multi-Bot Mention Ownership)
+- **严格匹配被 @ 机器人身份**: Feishu 群聊主消息流现在只有在消息 `mentions` 命中当前 Bot 的身份 ID 时才触发运行；@ 群内其他机器人不会再让本实例响应。
+- **移除任意 @ 兜底误触发**: 当当前 Bot 身份尚未解析或解析失败时，群聊 direct mention 不再退化为“只要有任意 @ 就响应”，避免多机器人群里同时回复。私聊和已登记 Bot thread 续聊逻辑保持不变。
+- **Bot 身份解析对齐 openclaw-lark**: 运行时和 `/api/settings/feishu/test` 现在优先使用 `POST /open-apis/bot/v1/openclaw_bot/ping` 读取 `pingBotInfo.botID/botName`，仅在 ping 未返回身份时回退到 `/open-apis/bot/v3/info`，避免旧接口返回 `code: 0` 但身份字段为空导致群聊 @ 全部被忽略。
+- **防止忙碌重试复制队列**: Feishu 入站 worker 遇到 “Another run is currently active” 时不再重新插入一条队首任务，避免启动恢复或锁竞争时把同一条消息复制成大量 completed/pending 记录并放大 SQLite 锁冲突。
+- **完成/废弃队列自动清理**: 共享 `PersistentTaskQueue` 改为在成功、失败、手动删除、批量取消以及启动时发现遗留 running 任务时直接删除 SQLite 记录，避免跨渠道入站队列长期保留 completed/failed/cancelled 记录导致数据库膨胀、WAL 变大和首个设置页请求被 runtime 初始化拖慢。
+- **SDK 适配判断**: 现有 Feishu runtime 已使用 `@larksuiteoapi/node-sdk` 的 Client / WSClient / EventDispatcher；本次问题属于入站触发过滤和身份探测 endpoint 选择，不需要引入额外 SDK 适配层。
+- **回归验证**: 扩展 `src/lib/server/channels/feishu/message-intake.test.ts` 和 `src/routes/api/settings/feishu/test.server.test.ts`，覆盖 @ 当前 Bot 放行、@ 其他 Bot 忽略、Bot 身份未知时忽略群聊 @、已知 Bot thread 继续免 @ 续聊、ping 身份解析和 v3 fallback。
+
 ## 2026-06-10
 
 ### Global Profile File 防误写保护 (Global Profile File Write Guard)

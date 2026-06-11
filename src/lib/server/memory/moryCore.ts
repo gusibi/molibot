@@ -165,7 +165,7 @@ export class MoryMemoryBackend implements MemoryBackend {
   private initPromise: Promise<void> | null = null;
 
   constructor(private readonly sessions: SessionStore) {
-    this.dbPath = path.join(storagePaths.dataDir, "memory", "mory.sqlite");
+    this.dbPath = storagePaths.moryDbFile;
     this.indexPath = path.join(storagePaths.dataDir, "memory", "mory-scopes.json");
     this.cursorPath = path.join(storagePaths.dataDir, "memory", "mory-cursors.json");
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });

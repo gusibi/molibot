@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { storagePaths } from "$lib/server/infra/db/storage.js";
+import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import type { ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store.js";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
@@ -38,6 +38,7 @@ export class SqliteTurnCleanupStore implements TurnCleanupStore {
   private readonly db: DatabaseSync;
 
   constructor(dbPath = storagePaths.settingsDbFile) {
+    ensureSqliteParentDir(dbPath);
     this.db = new DatabaseSync(dbPath);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS runs (
@@ -81,6 +82,11 @@ export class TurnOrchestrator {
     this.approvalBroker = approvalBroker;
   }
 
+  private openRuntimeDb(): DatabaseSync {
+    ensureSqliteParentDir(storagePaths.settingsDbFile);
+    return new DatabaseSync(storagePaths.settingsDbFile);
+  }
+
   prepareTurn(input: {
     chatId: string;
     sessionId: string;
@@ -94,7 +100,7 @@ export class TurnOrchestrator {
     input.message.runId = runId;
     const startedAt = input.now ?? Date.now();
 
-    const db = new DatabaseSync(storagePaths.settingsDbFile);
+    const db = this.openRuntimeDb();
     try {
       db.exec(`
         CREATE TABLE IF NOT EXISTS workspaces (
@@ -167,7 +173,7 @@ export class TurnOrchestrator {
   }
 
   updateRunStatus(runId: string, status: string, error?: string): void {
-    const db = new DatabaseSync(storagePaths.settingsDbFile);
+    const db = this.openRuntimeDb();
     try {
       db.prepare("UPDATE runs SET status = ?, error = ?, finished_at = ? WHERE id = ?").run(
         status,
@@ -181,7 +187,7 @@ export class TurnOrchestrator {
   }
 
   failRunIfRunning(runId: string, error: string): boolean {
-    const db = new DatabaseSync(storagePaths.settingsDbFile);
+    const db = this.openRuntimeDb();
     try {
       const result = db.prepare("UPDATE runs SET status = 'failed', error = ?, finished_at = ? WHERE id = ? AND status = 'running'").run(
         error,
@@ -195,7 +201,7 @@ export class TurnOrchestrator {
   }
 
   abortRunningTurnsForSession(sessionId: string, error = "Stopped by user."): number {
-    const db = new DatabaseSync(storagePaths.settingsDbFile);
+    const db = this.openRuntimeDb();
     try {
       const result = db.prepare("UPDATE runs SET status = 'aborted', error = ?, finished_at = ? WHERE session_id = ? AND status = 'running'").run(
         error,
