@@ -1,6 +1,13 @@
 # Molibot Features
 
-## 2026-06-11
+## 2026-06-12
+
+### Profile 三层作用域一致性修复 (Profile Scope Consistency)
+- **BOT.md 真覆盖 AGENTS.md**: 系统提示词拼装中，当 bot 目录存在 `BOT.md` 时不再同时注入 agent/global 的 `AGENTS.md`，与 `profileFiles` 工具 bootstrap 的"bot 覆盖 agent 覆盖 global"语义对齐，消除 bootstrap 后同一内容在提示词里出现两遍的问题。
+- **USER/TOOLS 回退链对齐**: `profileFiles` 工具的父级回退只在 agent 维度实际包含该文件（`AGENTS/SOUL/IDENTITY/SONG`）时才检查 agent 目录；`USER.md`、`TOOLS.md` 直接回退到 global，与提示词拼装一致，避免 agent 目录残留文件导致"读到的"与"实际生效的"不一致。
+- **常量去重**: 工具复用 `BOT_PROFILE_FILES`，提示词拼装的 global 默认文件列表复用 `GLOBAL_PROFILE_FILES`，frontmatter 剥离逻辑统一复用 `profiles.ts` 的 `normalizeEditableBody`，消除三处手抄副本的漂移风险。
+- **bot 根路径解析加固**: `profileFiles` 的 `resolveBotRoot` 现在把路径截断到 `/bots/<botId>`，传入更深层路径（如 chat 目录）也能解析出正确的 botId。
+- **回归验证**: `prompt.test.ts` 新增用例覆盖"无 BOT.md 时注入 global AGENTS.md / 有 BOT.md 时只注入 BOT.md"两种合并行为。
 
 ### Adapter-node SQLite 构建告警清理 (Adapter-node SQLite Build Warning Cleanup)
 - **显式 external 化 `node:sqlite`**: SvelteKit 生产构建改用项目内 adapter-node 变体，在 adapter 最终 Rollup 打包阶段把 `node:sqlite` 标记为 external，避免 build 末尾出现无法解析 `node:sqlite` 的 adapter 告警。

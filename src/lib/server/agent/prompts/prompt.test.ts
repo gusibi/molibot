@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -112,6 +112,29 @@ test("rendered prompt stays under a broad size budget while preserving routing a
     assert.doesNotMatch(prompt, /When `createEvent` succeeds, the tool will return the exact confirmation text/);
   } finally {
     rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
+test("bot BOT.md overrides agent/global AGENTS.md instead of injecting both", () => {
+  const dataRoot = mkdtempSync(join(tmpdir(), "molibot-profile-merge-"));
+  const workspaceDir = join(dataRoot, "moli-test", "bots", "bot-1");
+  try {
+    mkdirSync(workspaceDir, { recursive: true });
+    writeFileSync(join(dataRoot, "AGENTS.md"), "# AGENTS.md\n\nGLOBAL-AGENTS-MARKER", "utf8");
+
+    const withoutBotFile = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
+      timezone: "UTC"
+    });
+    assert.match(withoutBotFile, /GLOBAL-AGENTS-MARKER/);
+
+    writeFileSync(join(workspaceDir, "BOT.md"), "# BOT.md\n\nBOT-OVERRIDE-MARKER", "utf8");
+    const withBotFile = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
+      timezone: "UTC"
+    });
+    assert.match(withBotFile, /BOT-OVERRIDE-MARKER/);
+    assert.doesNotMatch(withBotFile, /GLOBAL-AGENTS-MARKER/);
+  } finally {
+    rmSync(dataRoot, { recursive: true, force: true });
   }
 });
 

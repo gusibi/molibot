@@ -4,6 +4,7 @@ import defaultAgentsTemplate from "./templates/AGENTS.template.md?raw";
 import {
   AGENT_PROFILE_FILES,
   BOT_PROFILE_FILES,
+  GLOBAL_PROFILE_FILES,
   getAgentDir
 } from "$lib/server/agent/prompts/profiles.js";
 import {
@@ -650,7 +651,7 @@ function buildPromptSectionsFromInstructionFiles(
   files?: readonly string[],
 ): Map<string, string> {
   const sections = new Map<string, string>();
-  const orderedFiles = files ?? ["AGENTS.md", ...IDENTITY_INSTRUCTION_FILES, ...OPTIONAL_INSTRUCTION_FILES];
+  const orderedFiles = files ?? GLOBAL_PROFILE_FILES;
   for (const fileName of orderedFiles) {
     const text = readInstructionFile(baseDir, fileName);
     if (!text) continue;
@@ -756,8 +757,13 @@ export function buildSystemPrompt(
     agentSections,
     globalSections
   );
+  // BOT.md is the bot-level override of AGENTS.md: when the bot defines BOT.md,
+  // drop agent/global AGENTS.md so the content is not injected twice.
+  const nonIdentityOrder = botSections.has("BOT.md")
+    ? ["BOT.md", ...OPTIONAL_INSTRUCTION_FILES]
+    : ["AGENTS.md", "BOT.md", ...OPTIONAL_INSTRUCTION_FILES];
   const nonIdentitySections = mergePromptSectionsByOrder(
-    ["AGENTS.md", "BOT.md", ...OPTIONAL_INSTRUCTION_FILES],
+    nonIdentityOrder,
     botSections,
     agentSections,
     globalSections
@@ -806,7 +812,7 @@ export function getSystemPromptSources(
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
   const collect = (baseDir: string, files?: readonly string[]): string[] => {
     const out: string[] = [];
-    const orderedFiles = files ?? ["AGENTS.md", ...IDENTITY_INSTRUCTION_FILES, ...OPTIONAL_INSTRUCTION_FILES];
+    const orderedFiles = files ?? GLOBAL_PROFILE_FILES;
     for (const fileName of orderedFiles) {
       const filePath = resolveInstructionFilePath(baseDir, fileName);
       if (filePath) out.push(filePath);

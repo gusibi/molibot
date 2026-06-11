@@ -2,6 +2,14 @@
 
 ## Version 1.0
 
+## 2026-06-12
+
+### Profile Scope Consistency (bot > agent > global)
+- Made `BOT.md` a true bot-level override of `AGENTS.md` in system prompt assembly: when a bot defines `BOT.md`, the agent/global `AGENTS.md` section is no longer injected alongside it, eliminating duplicated content after bootstrap.
+- Restricted the `profileFiles` tool's agent-scope fallback to files the agent scope actually carries (`AGENTS/SOUL/IDENTITY/SONG`); `USER.md` and `TOOLS.md` now fall back straight to global, matching prompt assembly.
+- Deduplicated profile file-name lists: the tool reuses `BOT_PROFILE_FILES`, prompt assembly reuses `GLOBAL_PROFILE_FILES`, and the editable-body normalizer is shared from `profiles.ts`.
+- Hardened bot-root resolution in `profileFiles` to truncate paths to `/bots/<botId>`, and documented the per-file fallback chain (incl. global-only `BOOTSTRAP.md`) in the tool description.
+
 ## 2026-06-11
 
 ### Adapter-node SQLite Build Warning Cleanup

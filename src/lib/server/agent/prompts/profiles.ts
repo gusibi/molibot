@@ -60,7 +60,7 @@ function writeTextFile(filePath: string, content: string, scope: ProfileScope): 
   fs.writeFileSync(filePath, `${buildProfileDocument(normalizedFileName, next, scope)}\n`, "utf8");
 }
 
-function normalizeEditableBody(content: string): string {
+export function normalizeEditableBody(content: string): string {
   return content
     .replace(/^---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "")
     .replace(/\n---\nlast_updated:[\s\S]*$/m, "")

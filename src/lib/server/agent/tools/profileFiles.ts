@@ -2,11 +2,18 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { getAgentDir, getAgentForBot, writeProfileFiles } from "$lib/server/agent/prompts/profiles.js";
+import {
+  AGENT_PROFILE_FILES,
+  BOT_PROFILE_FILES,
+  getAgentDir,
+  getAgentForBot,
+  normalizeEditableBody,
+  writeProfileFiles
+} from "$lib/server/agent/prompts/profiles.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { resolveDataRootFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
 
-const PROFILE_FILE_NAMES = ["BOT.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md", "SONG.md"] as const;
+const PROFILE_FILE_NAMES = BOT_PROFILE_FILES;
 type ProfileFileName = (typeof PROFILE_FILE_NAMES)[number];
 
 const profileFileSchema = Type.Object({
@@ -24,16 +31,9 @@ const profileFileSchema = Type.Object({
   autoBootstrap: Type.Optional(Type.Boolean())
 });
 
-function stripEditableBody(content: string): string {
-  return content
-    .replace(/^---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "")
-    .replace(/\n---\nlast_updated:[\s\S]*$/m, "")
-    .trim();
-}
-
 function readEditableBody(filePath: string): string {
   if (!existsSync(filePath)) return "";
-  return stripEditableBody(readFileSync(filePath, "utf8"));
+  return normalizeEditableBody(readFileSync(filePath, "utf8"));
 }
 
 function ensureKnownProfileFile(fileName: string): ProfileFileName {
@@ -51,12 +51,16 @@ function resolveParentProfileFileName(file: ProfileFileName): string {
 
 function resolveBotRoot(workspaceDir: string): string {
   const normalized = resolve(workspaceDir);
+  const posix = normalized.replace(/\\/g, "/");
   const marker = "/bots/";
-  const index = normalized.replace(/\\/g, "/").indexOf(marker);
+  const index = posix.indexOf(marker);
   if (index < 0) {
     throw new Error(`Workspace is not a bot runtime path: ${workspaceDir}`);
   }
-  return normalized;
+  // Truncate to /bots/<botId> so deeper paths (e.g. a chat dir) still resolve the bot root.
+  const afterMarker = index + marker.length;
+  const nextSlash = posix.indexOf("/", afterMarker);
+  return nextSlash < 0 ? normalized : normalized.slice(0, nextSlash);
 }
 
 function resolveScopePaths(params: {
@@ -79,7 +83,10 @@ function resolveScopePaths(params: {
   const agentId = getAgentForBot(settings, params.channel, botId);
   const dataRoot = resolveDataRootFromWorkspacePath(botRoot);
   const botFilePath = join(botRoot, file);
-  const agentFilePath = agentId ? join(getAgentDir(agentId), parentFile) : null;
+  // The agent scope only carries AGENT_PROFILE_FILES; other files (USER.md, TOOLS.md)
+  // fall back straight to global, matching the prompt assembly in prompt.ts.
+  const agentHasFile = (AGENT_PROFILE_FILES as readonly string[]).includes(parentFile);
+  const agentFilePath = agentId && agentHasFile ? join(getAgentDir(agentId), parentFile) : null;
   const globalFilePath = join(dataRoot, parentFile);
   return {
     botId,
@@ -141,7 +148,7 @@ export function createProfileFilesTool(options: {
     name: "profileFiles",
     label: "profileFiles",
     description:
-      "Manage bot profile markdown files (BOT/SOUL/USER/TOOLS/IDENTITY/SONG) with parent fallback (agent first, then global).",
+      "Manage bot profile markdown files (BOT/SOUL/USER/TOOLS/IDENTITY/SONG). Parent fallback: SOUL/IDENTITY/SONG fall back to agent then global; BOT.md falls back to AGENTS.md (agent then global); USER/TOOLS fall back to global only. BOOTSTRAP.md is global-only and not managed here.",
     parameters: profileFileSchema,
     execute: async (_toolCallId, params) => {
       const file = ensureKnownProfileFile(params.file);
