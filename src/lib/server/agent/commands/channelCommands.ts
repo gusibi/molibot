@@ -7,6 +7,7 @@ import type { RuntimeSettings, RuntimeThinkingLevel } from "$lib/server/settings
 import { RUNTIME_THINKING_LEVELS } from "$lib/server/settings/index.js";
 import type { ApprovedHostBashEntry, HostBashApprovalRecord, HostBashStore } from "$lib/server/hostBash/index.js";
 import { getHostBashStore } from "$lib/server/hostBash/index.js";
+import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import {
   buildModelOptions,
   currentModelKey,
@@ -117,33 +118,161 @@ export class SharedRuntimeCommandService<TTarget> {
     return isChineseLocale(this.options.getSettings().locale);
   }
 
-  private isRunActive(runId: string): boolean {
+  // Run ids are `${chatId}-${sessionId}-${messageId}`, so an active run must be
+  // looked up by session, not by scope id. Stale "running" rows past the turn
+  // lock timeout are treated as inactive, matching the orchestrator's lock TTL.
+  private isRunActive(sessionId: string): boolean {
     try {
       ensureSqliteParentDir(storagePaths.settingsDbFile);
       const db = new DatabaseSync(storagePaths.settingsDbFile);
-      const row = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string } | undefined;
+      const row = db.prepare(
+        "SELECT started_at FROM runs WHERE session_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1"
+      ).get(sessionId) as { started_at: string } | undefined;
       db.close();
-      return row?.status === "running";
+      if (!row) return false;
+      const startedAt = Date.parse(row.started_at);
+      return Number.isFinite(startedAt) && Date.now() - startedAt < 10 * 60 * 1000;
     } catch {
       return false;
     }
   }
 
-  async approveHostTool(input: SharedRuntimeCommandContext<TTarget>, approvalId?: string): Promise<{
+  // Runs the approved host command without blocking the approval reply, so
+  // channel UI (e.g. Feishu cards) can settle immediately even for long commands.
+  private executeApprovedHostBashInBackground(
+    input: SharedRuntimeCommandContext<TTarget>,
+    approved: ApprovedHostBashEntry | undefined,
+    record: HostBashApprovalRecord
+  ): void {
+    const execute = this.options.executeApprovedHostBash;
+    if (!execute) return;
+    void (async () => {
+      // Let the approval reply (card update / text) go out before execution output.
+      await new Promise((resolve) => setImmediate(resolve));
+      // A blocked in-run bash waiter may have claimed execution already.
+      if (typeof this.hostBashStore.claimExecution === "function" && !this.hostBashStore.claimExecution(record.id)) {
+        return;
+      }
+      try {
+        const runSummary = await execute(input, approved, record);
+        this.hostBashStore.markExecution(record.id, "executed");
+        if (runSummary) {
+          await this.options.sendText(input.target, runSummary);
+        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.hostBashStore.markExecution(record.id, "failed", reason);
+        await this.options.sendText(
+          input.target,
+          this.text(`Approved, but automatic execution failed: ${reason}`, `已批准，但自动执行失败：${reason}`)
+        ).catch(() => undefined);
+      }
+    })();
+  }
+
+  // Duplicate clicks on an approval card (or repeated text replies) arrive after
+  // the request is already resolved. Report what actually happened instead of
+  // the misleading "no matching pending approval found".
+  private describeResolvedApproval(approvalId?: string): string | null {
+    if (!approvalId || typeof this.hostBashStore.getApprovalRecord !== "function") return null;
+    const record = this.hostBashStore.getApprovalRecord(approvalId);
+    if (!record || record.status === "pending") return null;
+    switch (record.status) {
+      case "approved":
+      case "executing":
+        return this.text(
+          `This approval was already accepted; the command is executing (${record.displayName}).`,
+          `该审批已通过，命令正在执行（${record.displayName}）。`
+        );
+      case "executed":
+        return this.text(
+          `This approval was already processed: approved and executed (${record.displayName}).`,
+          `该审批已处理：已批准并执行（${record.displayName}）。`
+        );
+      case "failed":
+        return this.text(
+          `This approval was already processed, but execution failed: ${record.errorText || "unknown error"}`,
+          `该审批已处理，但执行失败：${record.errorText || "未知错误"}`
+        );
+      case "rejected":
+        return this.text(
+          `This approval was already rejected (${record.displayName}).`,
+          `该审批此前已被拒绝（${record.displayName}）。`
+        );
+      case "expired":
+        return this.text(
+          `This approval request has expired (${record.displayName}).`,
+          `该审批请求已过期失效（${record.displayName}）。`
+        );
+      default:
+        return null;
+    }
+  }
+
+  // When a run is active, the blocked in-run bash waiter normally claims and
+  // executes the approved command within its poll interval. If the waiter has
+  // already given up (its wait timed out) the record stays "approved" — this
+  // delayed check picks it up so the approval is never silently dropped.
+  private scheduleHostBashExecutionFallback(
+    input: SharedRuntimeCommandContext<TTarget>,
+    approved: ApprovedHostBashEntry | undefined,
+    record: HostBashApprovalRecord
+  ): void {
+    if (typeof this.hostBashStore.getApprovalRecord !== "function") return;
+    setTimeout(() => {
+      const current = this.hostBashStore.getApprovalRecord(record.id);
+      if (current?.status === "approved") {
+        this.executeApprovedHostBashInBackground(input, approved, current);
+      }
+    }, 3000).unref?.();
+  }
+
+  // The agent ToolRuntime gates high-risk tools through the ApprovalBroker and
+  // polls it while the run waits. Host Bash approvals live in a separate store,
+  // so without this bridge a user reply like "本会话允许" resolves the Host Bash
+  // record but leaves the broker request pending until it times out.
+  private resolvePendingBrokerRequests(
+    scopeId: string,
+    status: "approved" | "rejected",
+    selectedScope: "once" | "session" | "persistent"
+  ): void {
+    try {
+      const broker = getApprovalBroker();
+      for (const request of broker.listPendingRequests()) {
+        if (request.runId !== scopeId) continue;
+        broker.resolveRequest({ requestId: request.id, status, selectedScope });
+      }
+    } catch {
+      // Broker bridging is best-effort; Host Bash approval state is authoritative.
+    }
+  }
+
+  async approveHostTool(
+    input: SharedRuntimeCommandContext<TTarget>,
+    approvalId?: string,
+    scope?: "once" | "persistent"
+  ): Promise<{
     ok: boolean;
     message: string;
     request?: HostBashApprovalRecord;
   }> {
     const sessionId = this.options.store.getActiveSession(input.scopeId);
-    const approved = this.hostBashStore.approve(input.scopeId, approvalId || undefined, { sessionId });
+    const approved = this.hostBashStore.approve(input.scopeId, approvalId || undefined, { sessionId, scope });
     if (!approved) {
+      const resolved = this.describeResolvedApproval(approvalId);
+      if (resolved) return { ok: true, message: resolved };
       return { ok: false, message: this.text("No matching pending Host Bash approval found.", "未找到匹配的待处理 Host Bash 审批。") };
     }
+    this.resolvePendingBrokerRequests(input.scopeId, "approved", scope === "persistent" ? "persistent" : "once");
     const registered = approved.approved;
+    const registeredEntries = approved.approvedEntries ?? (registered ? [registered] : []);
     let message = registered
       ? [
           this.text(`Approved Host Bash: ${registered.displayName}`, `已批准 Host Bash：${registered.displayName}`),
-          this.text(`Tool ID: ${registered.toolId}`, `工具 ID：${registered.toolId}`),
+          this.text(
+            `Whitelisted tools: ${registeredEntries.map((item) => item.toolId).join(", ")}`,
+            `已加入白名单的工具：${registeredEntries.map((item) => item.toolId).join("、")}`
+          ),
           this.text(`Command: ${registered.command}`, `命令：${registered.command}`)
         ].join("\n")
       : [
@@ -152,24 +281,15 @@ export class SharedRuntimeCommandService<TTarget> {
           this.text(`Command: ${approved.record.command}`, `命令：${approved.record.command}`)
         ].join("\n");
     if (approved.record.pendingAction && this.options.executeApprovedHostBash) {
-      const runId = approved.record.scopeId;
-      if (this.isRunActive(runId)) {
-        message += `\n\n${this.text("Approved. The active agent run will execute the command automatically.", "已批准。当前 Agent 运行会自动执行该命令。")}`;
+      if (this.isRunActive(sessionId)) {
+        message += `\n\n${this.text("Approved. The waiting agent run is executing the command now.", "已批准。等待中的 Agent 运行正在执行该命令。")}`;
+        this.scheduleHostBashExecutionFallback(input, approved.approved, approved.record);
       } else {
-        try {
-          const runSummary = await this.options.executeApprovedHostBash(input, approved.approved, approved.record);
-          this.hostBashStore.markExecution(approved.record.id, "executed");
-          if (runSummary) {
-            message += `\n\n${runSummary}`;
-          }
-        } catch (error) {
-          this.hostBashStore.markExecution(
-            approved.record.id,
-            "failed",
-            error instanceof Error ? error.message : String(error)
-          );
-          message += `\n\nApproved, but automatic execution failed: ${error instanceof Error ? error.message : String(error)}`;
-        }
+        this.executeApprovedHostBashInBackground(input, approved.approved, approved.record);
+        message += `\n\n${this.text(
+          "Approved. The command is now executing; results will follow in chat.",
+          "已批准。命令正在执行，结果稍后会发到会话中。"
+        )}`;
       }
     } else if (registered) {
       message += `\n${this.text("This command is now registered as a reusable Host Bash whitelist entry.", "该命令已登记为可复用的 Host Bash 白名单项。")}`;
@@ -185,10 +305,13 @@ export class SharedRuntimeCommandService<TTarget> {
     request?: HostBashApprovalRecord;
   }> {
     const sessionId = this.options.store.getActiveSession(input.scopeId);
-    const approved = this.hostBashStore.approve(input.scopeId, approvalId || undefined, { persistWhitelist: false, sessionId });
+    const approved = this.hostBashStore.approve(input.scopeId, approvalId || undefined, { scope: "session", sessionId });
     if (!approved) {
+      const resolved = this.describeResolvedApproval(approvalId);
+      if (resolved) return { ok: true, message: resolved };
       return { ok: false, message: this.text("No matching pending Host Bash approval found.", "未找到匹配的待处理 Host Bash 审批。") };
     }
+    this.resolvePendingBrokerRequests(input.scopeId, "approved", "session");
     this.options.store.setSessionHostApprovalMode(input.scopeId, sessionId, "session");
     this.options.store.appendRuntimeEvent(input.scopeId, {
       code: "SESSION_HOST_APPROVAL_ENABLED",
@@ -209,24 +332,15 @@ export class SharedRuntimeCommandService<TTarget> {
       "Future sandbox permission denials in this session will fall back to Host Bash automatically."
     ].join("\n");
     if (approved.record.pendingAction && this.options.executeApprovedHostBash) {
-      const runId = approved.record.scopeId;
-      if (this.isRunActive(runId)) {
-        message += "\n\nApproved. The active agent run will execute the command automatically.";
+      if (this.isRunActive(sessionId)) {
+        message += "\n\nApproved. The waiting agent run is executing the command now.";
+        this.scheduleHostBashExecutionFallback(input, undefined, approved.record);
       } else {
-        try {
-          const runSummary = await this.options.executeApprovedHostBash(input, undefined, approved.record);
-          this.hostBashStore.markExecution(approved.record.id, "executed");
-          if (runSummary) {
-            message += `\n\n${runSummary}`;
-          }
-        } catch (error) {
-          this.hostBashStore.markExecution(
-            approved.record.id,
-            "failed",
-            error instanceof Error ? error.message : String(error)
-          );
-          message += `\n\nApproved for this session, but automatic execution failed: ${error instanceof Error ? error.message : String(error)}`;
-        }
+        this.executeApprovedHostBashInBackground(input, undefined, approved.record);
+        message += `\n\n${this.text(
+          "Approved. The command is now executing; results will follow in chat.",
+          "已批准。命令正在执行，结果稍后会发到会话中。"
+        )}`;
       }
     }
     return { ok: true, message, request: approved.record };
@@ -240,8 +354,11 @@ export class SharedRuntimeCommandService<TTarget> {
     const sessionId = this.options.store.getActiveSession(input.scopeId);
     const request = this.hostBashStore.reject(input.scopeId, approvalId, sessionId);
     if (!request) {
+      const resolved = this.describeResolvedApproval(approvalId);
+      if (resolved) return { ok: true, message: resolved };
       return { ok: false, message: this.text("No matching pending Host Bash approval found.", "未找到匹配的待处理 Host Bash 审批。") };
     }
+    this.resolvePendingBrokerRequests(input.scopeId, "rejected", "once");
     return {
       ok: true,
       message: this.text(`Rejected Host Bash approval ${request.id} (${request.displayName}).`, `已拒绝 Host Bash 审批 ${request.id}（${request.displayName}）。`),
@@ -1043,6 +1160,14 @@ export class SharedRuntimeCommandService<TTarget> {
     return /^(安装|批准|同意|确认|允许|通过|审批通过|批准通过|同意审批|审批同意|approve|approved|yes|y)$/i.test(text.trim());
   }
 
+  private isOnceApprovalText(text: string): boolean {
+    return /^(仅此一次|只此一次|仅本次|只本次|仅一次|just once|once|approve once)$/i.test(text.trim());
+  }
+
+  private isPersistentApprovalText(text: string): boolean {
+    return /^(永久允许|永久批准|长期允许|始终允许|总是允许|一直允许|always|always allow|approve always)$/i.test(text.trim());
+  }
+
   private isSessionApprovalText(text: string): boolean {
     return /^(本session允许|本轮session允许|本轮允许|允许本轮|允许会话|本会话允许|允许本会话|本会话通过|本轮通过|本次通过|本次审批通过|session允许|session批准|session通过|approve session|session approve)$/i.test(text.trim());
   }
@@ -1054,8 +1179,30 @@ export class SharedRuntimeCommandService<TTarget> {
   private async tryHandleHostToolApproval(input: SharedRuntimeCommandContext<TTarget>, text: string): Promise<boolean> {
     const sessionId = this.options.store.getActiveSession(input.scopeId);
     const pending = this.hostBashStore.listPending(input.scopeId, sessionId);
-    if (pending.length === 0) return false;
-    if (!this.isApprovalText(text) && !this.isRejectText(text) && !this.isSessionApprovalText(text)) return false;
+    const isApprovalReply = this.isApprovalText(text)
+      || this.isRejectText(text)
+      || this.isSessionApprovalText(text)
+      || this.isOnceApprovalText(text)
+      || this.isPersistentApprovalText(text);
+    if (!isApprovalReply) return false;
+    if (pending.length === 0) {
+      // No Host Bash record, but a high-risk tool may still be waiting on the
+      // ApprovalBroker poll; resolve those so the run does not time out.
+      const brokerPending = getApprovalBroker().listPendingRequests()
+        .filter((request) => request.runId === input.scopeId);
+      if (brokerPending.length === 0) return false;
+      if (this.isRejectText(text)) {
+        this.resolvePendingBrokerRequests(input.scopeId, "rejected", "once");
+        await this.options.sendText(input.target, this.text("Rejected pending tool approval.", "已拒绝待处理的工具审批。"));
+      } else {
+        const scope = this.isSessionApprovalText(text)
+          ? "session" as const
+          : this.isPersistentApprovalText(text) ? "persistent" as const : "once" as const;
+        this.resolvePendingBrokerRequests(input.scopeId, "approved", scope);
+        await this.options.sendText(input.target, this.text("Approved. The waiting tool call will continue automatically.", "已批准。等待中的工具调用会自动继续执行。"));
+      }
+      return true;
+    }
 
     if (pending.length > 1) {
       await this.options.sendText(
@@ -1084,7 +1231,15 @@ export class SharedRuntimeCommandService<TTarget> {
       return true;
     }
 
-    const approved = await this.approveHostTool(input, request.id);
+    if (this.isPersistentApprovalText(text)) {
+      const approved = await this.approveHostTool(input, request.id, "persistent");
+      await this.options.sendText(input.target, approved.message);
+      return true;
+    }
+
+    // Plain "批准"/"approve" and "仅此一次" both execute once without persisting,
+    // so the default reply is least-privilege; persistence requires "永久允许".
+    const approved = await this.approveHostTool(input, request.id, "once");
     await this.options.sendText(input.target, approved.message);
     return true;
   }
@@ -1108,7 +1263,12 @@ export class SharedRuntimeCommandService<TTarget> {
       return;
     }
     if (subcommand === "approve") {
-      const approved = await this.approveHostTool(input, approvalId || undefined);
+      const approved = await this.approveHostTool(input, approvalId || undefined, "persistent");
+      await this.options.sendText(input.target, approved.message);
+      return;
+    }
+    if (subcommand === "approve-once") {
+      const approved = await this.approveHostTool(input, approvalId || undefined, "once");
       await this.options.sendText(input.target, approved.message);
       return;
     }
@@ -1128,15 +1288,16 @@ export class SharedRuntimeCommandService<TTarget> {
         this.text("Host Bash usage:", "Host Bash 用法："),
         "/hosttools",
         "/hosttools approve <approvalId>",
+        "/hosttools approve-once <approvalId>",
         "/hosttools approve-session <approvalId>",
         "/hosttools reject <approvalId>",
         this.text(
-          "Or reply `批准`, `审批通过`, `安装`, or `approve` when exactly one approval is pending in this chat.",
-          "当当前会话只有一条待审批请求时，也可以回复 `批准`、`审批通过`、`安装` 或 `approve`。"
+          "Or reply `批准`/`仅此一次` (run once), `永久允许` (whitelist the tool), when exactly one approval is pending in this chat.",
+          "当当前会话只有一条待审批请求时，也可以回复 `批准`/`仅此一次`（仅执行一次）或 `永久允许`（加入白名单）。"
         ),
         this.text(
-          "Reply `本session允许`, `本次审批通过`, or `approve session` to allow only the current session.",
-          "回复 `本session允许`、`本次审批通过` 或 `approve session` 可仅允许当前会话。"
+          "Reply `本会话允许`, `本session允许`, or `approve session` to allow only the current session.",
+          "回复 `本会话允许`、`本session允许` 或 `approve session` 可仅允许当前会话。"
         )
       ].join("\n")
     );

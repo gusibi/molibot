@@ -468,8 +468,8 @@ export class FeishuManager extends BaseChannelRuntime {
 
     private resolveGenericApprovalAction(requestId: string, action: string): FeishuApprovalActionResult {
         const broker = getApprovalBroker();
-        if (action === "approve" || action === "approve_session") {
-            const selectedScope = action === "approve_session" ? "session" : "once";
+        if (action === "approve" || action === "approve_once" || action === "approve_session" || action === "approve_persistent") {
+            const selectedScope = action === "approve_session" ? "session" : action === "approve_persistent" ? "persistent" : "once";
             const result = broker.resolveRequest({
                 requestId,
                 status: "approved",
@@ -482,7 +482,11 @@ export class FeishuManager extends BaseChannelRuntime {
             return {
                 ok: true,
                 message: [
-                    action === "approve_session" ? "Approved for current session." : "Approved one-time tool request.",
+                    action === "approve_session"
+                        ? "Approved for current session."
+                        : action === "approve_persistent"
+                            ? "Approved persistently."
+                            : "Approved one-time tool request.",
                     `Request ID: ${result.request.id}`,
                     `Tool: ${toolName}`,
                     `Scope: ${selectedScope}`
@@ -517,8 +521,12 @@ export class FeishuManager extends BaseChannelRuntime {
         requestId: string,
         action: string
     ): Promise<FeishuApprovalActionResult> {
-        if (action === "approve") {
-            const hostResult = await this.commandService.approveHostTool(input, requestId);
+        if (action === "approve" || action === "approve_once") {
+            const hostResult = await this.commandService.approveHostTool(input, requestId, "once");
+            return hostResult.ok ? hostResult : this.resolveGenericApprovalAction(requestId, action);
+        }
+        if (action === "approve_persistent") {
+            const hostResult = await this.commandService.approveHostTool(input, requestId, "persistent");
             return hostResult.ok ? hostResult : this.resolveGenericApprovalAction(requestId, action);
         }
         if (action === "approve_session") {

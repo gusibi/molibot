@@ -22,7 +22,6 @@ function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { re
   const normalizedPath = requestedPath.replaceAll("\\", "/").replace(/^\.\//, "");
   const isPlainFileName =
     normalizedPath &&
-    normalizedPath === requestedPath.replaceAll("\\", "/").replace(/^\.\//, "") &&
     !normalizedPath.includes("/") &&
     !normalizedPath.startsWith(".") &&
     normalizedPath !== "..";
@@ -56,13 +55,14 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
       await fs.promises.mkdir(dir, { recursive: true });
       await ctx.fs.writeText(filePath, params.content);
 
+      const writtenBytes = Buffer.byteLength(params.content, "utf-8");
       return {
         ok: true,
         content: [{
           type: "text",
           text: target.routed
-            ? `Wrote ${params.content.length} bytes to ${target.path} (default artifact path for ${target.requestedPath})`
-            : `Wrote ${params.content.length} bytes to ${target.path}`
+            ? `Wrote ${writtenBytes} bytes to ${target.path} (default artifact path for ${target.requestedPath})`
+            : `Wrote ${writtenBytes} bytes to ${target.path}`
         }],
         details: undefined
       };

@@ -85,23 +85,6 @@ export function shellEscape(input: string): string {
   return `'${input.replace(/'/g, "'\\''")}'`;
 }
 
-export function truncateTail(text: string, maxBytes = 50 * 1024, maxLines = 200): string {
-  const lines = text.split("\n");
-  let selected = lines.slice(-maxLines).join("\n");
-  let bytes = Buffer.byteLength(selected, "utf8");
-
-  if (bytes <= maxBytes) {
-    return selected;
-  }
-
-  while (bytes > maxBytes && selected.length > 0) {
-    selected = selected.slice(Math.floor(selected.length / 2));
-    bytes = Buffer.byteLength(selected, "utf8");
-  }
-
-  return selected;
-}
-
 export function stripAnsi(text: string): string {
   // ANSI escape sequence matcher (color/control codes)
   return text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");

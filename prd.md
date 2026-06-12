@@ -3359,3 +3359,31 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - `TraceRecorderHook` 必须继续保留 raw trace events，同时把新增阶段 upsert 到 `agent_trace_facts`。
   - 新增状态值允许表达 `waiting`、`aborted`、`info`、`warning`，用于审批等待和 runtime notice。
   - 测试必须覆盖新增 fact 类型的入库，以及既有 `tool_call` / `model_call` 行为不回退。
+
+## 208. 飞书视频附件不得误发为语音 (2026-06-12)
+- Priority: P0
+- Stage: Delivered (2026-06-12)
+- Problem:
+  - 飞书发送 `.mp4` 视频文件时，出站 MIME 判断把 `.mp4` 识别为 `audio/mp4`，触发音频转码并以语音消息发送。
+  - 飞书入站附件解析也会把 `.mp4` / `.webm` 文件名推断成音频 MIME，导致视频附件元数据错误。
+- Requirement:
+  - `.mp4` 必须按飞书原生视频处理：上传 `file_type: mp4`，发送 `msg_type: media`。
+  - 非 MP4 视频容器不得走语音转码；当前以普通文件附件发送。
+  - 入站飞书 `media` / `video` 消息必须按媒体资源下载并保存为 `video` 附件。
+- Enforcement:
+  - 飞书音频识别不得把 `.mp4` / `.webm` 当作音频扩展名。
+  - 飞书资源下载候选顺序必须让 `media` / `video` 消息优先走 `type=media`，不能被 `file_` key 前缀覆盖。
+  - 单测必须覆盖 `.mp4` 出站发送为 `media`、`.webm` 出站发送为 `file` 而非 `audio`、`.mp4` 入站保存为 `video`。
+
+## 209. 视频生成 Provider 响应日志可排障 (2026-06-12)
+- Priority: P0
+- Stage: Delivered (2026-06-12)
+- Problem:
+  - `videoGenerate` 失败时，运行日志只看到 provider request 和 body，缺少 provider response 状态和响应体，无法判断是参数错误、图片 URL 过期还是服务端错误。
+  - 现有请求头日志会打印完整 `Authorization`，容易把 API Key 泄漏到终端日志或聊天排障粘贴内容中。
+- Requirement:
+  - 每次 provider HTTP 请求都应记录 response status 和 response body 摘要，包括非 2xx 失败响应。
+  - 请求头日志必须脱敏 `Authorization`、API key、token、secret 类字段。
+- Enforcement:
+  - `videoGenerate` 的 fetch wrapper 在返回给 provider 解析前，先从 cloned response 读取并打印响应体；读取失败时打印明确的 body read 错误。
+  - 单测必须覆盖失败 provider response body 被记录，且完整 API key 不出现在日志中。

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import test from "node:test";
 import {
   buildFeishuThreadScopeId,
@@ -108,4 +109,68 @@ test("toFeishuInboundEvent preserves Feishu platform ids and thread scope", asyn
   assert.equal(event?.platformParentMessageId, "om_parent");
   assert.equal(event?.platformRootMessageId, "om_root");
   assert.equal(event?.text, "continue");
+});
+
+test("toFeishuInboundEvent preserves mp4 messages as video attachments", async () => {
+  const data = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
+  const resourceCalls: unknown[] = [];
+  const savedAttachments: unknown[] = [];
+  const event = await toFeishuInboundEvent({
+    client: {
+      im: {
+        messageResource: {
+          get: async (payload: unknown) => {
+            resourceCalls.push(payload);
+            return {
+              headers: { "content-type": "video/mp4" },
+              getReadableStream: () => Readable.from([data])
+            };
+          }
+        }
+      }
+    } as never,
+    store: {
+      saveAttachment: (_scopeId: string, filename: string, _ts: string, content: Buffer, meta: any) => {
+        const saved = {
+          original: filename,
+          local: filename,
+          mediaType: meta.mediaType,
+          mimeType: meta.mimeType,
+          size: content.byteLength,
+          isImage: meta.mediaType === "image",
+          isAudio: meta.mediaType === "audio",
+          isVideo: meta.mediaType === "video"
+        };
+        savedAttachments.push(saved);
+        return saved;
+      }
+    } as never,
+    message: message({
+      message_type: "media",
+      content: JSON.stringify({ file_key: "file_video", file_name: "clip.mp4" })
+    }),
+    sender
+  });
+
+  assert.deepEqual(resourceCalls[0], {
+    path: {
+      message_id: "om_user",
+      file_key: "file_video"
+    },
+    params: {
+      type: "media"
+    }
+  });
+  assert.equal(event?.text, "clip.mp4");
+  assert.equal(event?.attachments.length, 1);
+  assert.deepEqual(savedAttachments[0], {
+    original: "clip.mp4",
+    local: "clip.mp4",
+    mediaType: "video",
+    mimeType: "video/mp4",
+    size: data.byteLength,
+    isImage: false,
+    isAudio: false,
+    isVideo: true
+  });
 });

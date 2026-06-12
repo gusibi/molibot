@@ -24,7 +24,7 @@ function createTestHostBashStore(
   history: HostBashApprovalRecord[] = [],
   whitelist: ApprovedHostBashEntry[] = []
 ) {
-  const approve = (scopeId: string, approvalId?: string, options?: { persistWhitelist?: boolean }) => {
+  const approve = (scopeId: string, approvalId?: string, options?: { persistWhitelist?: boolean; scope?: "once" | "session" | "persistent" }) => {
     const index = pending.findIndex((item) =>
       item.scopeId === scopeId && item.status === "pending" && (!approvalId || item.id === approvalId)
     );
@@ -34,7 +34,11 @@ function createTestHostBashStore(
     record.status = "approved";
     history.push(record);
     let approved: ApprovedHostBashEntry | undefined;
-    if (record.approvalMode === "persistent" && (options?.persistWhitelist ?? true)) {
+    const selectedScope = options?.scope
+      ?? (options?.persistWhitelist === false
+        ? "session"
+        : record.approvalMode === "persistent" ? "persistent" : "once");
+    if (selectedScope === "persistent") {
       approved = {
         id: `hbw-${record.toolId}`,
         toolId: record.toolId,
@@ -192,13 +196,82 @@ test("plain approval text approves the only pending host tool request in the cha
     target: "target-1"
   });
 
+  // Plain approval is least-privilege: it executes once without whitelisting.
   assert.equal(handled, true);
-  assert.equal(autoExecuted, true);
   assert.equal(pendingApprovals.length, 0);
+  assert.equal(approvedTools.length, 0);
+  assert.match(sent[0] ?? "", /Approved one-time host action: Agent Browser/);
+  // Execution now happens in the background, after the approval reply.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(autoExecuted, true);
   assert.equal(approvalHistory[0]?.status, "executed");
+  assert.ok(sent.some((text) => /Approved and executed immediately/.test(text)));
+});
+
+test("persistent approval text whitelists the pending host tool request", async () => {
+  const sent: string[] = [];
+  const pending: HostBashApprovalRecord = {
+    id: "hta-agent-browser-1",
+    toolId: "agent-browser",
+    displayName: "Agent Browser",
+    command: "agent-browser",
+    reason: "Requires browser IPC outside sandbox.",
+    permissions: {
+      envAllowlist: ["PATH", "HOME"],
+      filesystem: "scratch-only",
+      network: "internet"
+    },
+    channel: "telegram",
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    requestedAt: "2026-05-12T00:00:00.000Z",
+    approvalMode: "persistent",
+    status: "pending",
+    pendingAction: {
+      kind: "run_approved_host_bash",
+      originalCommand: "agent-browser --open",
+      args: ["--open"]
+    }
+  };
+  let autoExecuted = false;
+  const pendingApprovals = [pending];
+  const approvalHistory: HostBashApprovalRecord[] = [];
+  const approvedTools: ApprovedHostBashEntry[] = [];
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    hostBashStore: createTestHostBashStore(pendingApprovals, approvalHistory, approvedTools) as any,
+    executeApprovedHostBash: async () => {
+      autoExecuted = true;
+      return "Approved and executed immediately.";
+    },
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  const handled = await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "永久允许",
+    target: "target-1"
+  });
+
+  assert.equal(handled, true);
+  assert.equal(pendingApprovals.length, 0);
   assert.equal(approvedTools[0]?.toolId, "agent-browser");
   assert.match(sent[0] ?? "", /Approved Host Bash: Agent Browser/);
-  assert.match(sent[0] ?? "", /Approved and executed immediately/);
+  // Execution now happens in the background, after the approval reply.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(autoExecuted, true);
+  assert.equal(approvalHistory[0]?.status, "executed");
 });
 
 test("hosttools reject rejects a specific pending host tool request", async () => {
@@ -321,14 +394,16 @@ test("hosttools approve-session enables session fallback without persisting appr
   });
 
   assert.equal(handled, true);
-  assert.equal(autoExecuted, true);
   assert.equal(sessionMode, "session");
   assert.equal(pendingApprovals.length, 0);
   assert.equal(approvedTools.length, 0);
-  assert.equal(approvalHistory[0]?.status, "executed");
   assert.deepEqual(runtimeEvents, ["SESSION_HOST_APPROVAL_ENABLED"]);
   assert.match(sent[0] ?? "", /Approved for current session only/);
   assert.match(sent[0] ?? "", /Future sandbox permission denials in this session will fall back to Host Bash automatically/);
+  // Execution now happens in the background, after the approval reply.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(autoExecuted, true);
+  assert.equal(approvalHistory[0]?.status, "executed");
 });
 
 test("status command renders markdown table on qq", async () => {

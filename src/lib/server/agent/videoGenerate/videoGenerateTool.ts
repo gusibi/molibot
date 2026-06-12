@@ -153,6 +153,24 @@ function isFreshTaskRecord(updatedAt: string, maxAgeMs = 30_000): boolean {
   return parsed > 0 && Date.now() - parsed <= maxAgeMs;
 }
 
+function sanitizeRequestHeaders(headers: RequestInit["headers"]): Record<string, string> | string | undefined {
+  if (!headers) return undefined;
+  const maskValue = (key: string, value: unknown) => {
+    const text = String(value ?? "");
+    return /authorization|api[-_]?key|token|secret/i.test(key)
+      ? text.replace(/^(Bearer\s+)?(.{0,6}).*$/i, (_match, prefix = "", start = "") => `${prefix}${start}...redacted`)
+      : text;
+  };
+
+  if (headers instanceof Headers) {
+    return Object.fromEntries(Array.from(headers.entries()).map(([key, value]) => [key, maskValue(key, value)]));
+  }
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers.map(([key, value]) => [key, maskValue(key, value)]));
+  }
+  return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, maskValue(key, value)]));
+}
+
 function formatCompletedTaskText(taskId: string, videoUrl?: string, videoPath?: string, uploadedMessage = ""): string {
   const lines = [`Video generation task '${taskId}' is completed.${uploadedMessage}`];
   if (videoUrl) {
@@ -195,16 +213,21 @@ export function createVideoGenerateTool(options: {
       const loggingFetch = async (url: string, init?: RequestInit) => {
         console.log(`[Agent Video Tool] [HTTP REQUEST] URL: ${url}`);
         if (init?.headers) {
-          console.log(`[Agent Video Tool] [HTTP REQUEST HEADERS]:`, JSON.stringify(init.headers));
+          console.log(`[Agent Video Tool] [HTTP REQUEST HEADERS]:`, JSON.stringify(sanitizeRequestHeaders(init.headers)));
         }
         if (init?.body) {
           console.log(`[Agent Video Tool] [HTTP REQUEST BODY]: ${init.body}`);
         }
         try {
           const response = await globalThis.fetch(url, init);
-          const cloned = response.clone();
-          const text = await cloned.text();
-          console.log(`[Agent Video Tool] [HTTP RESPONSE] Status: ${response.status}, Body: ${text.slice(0, 500)}`);
+          let text = "";
+          try {
+            text = await response.clone().text();
+          } catch (bodyError) {
+            text = `[failed to read response body: ${bodyError instanceof Error ? bodyError.message : String(bodyError)}]`;
+          }
+          console.log(`[Agent Video Tool] [HTTP RESPONSE] Status: ${response.status} ${response.statusText || ""}`.trim());
+          console.log(`[Agent Video Tool] [HTTP RESPONSE BODY]: ${text.slice(0, 2000) || "(empty)"}`);
           return response;
         } catch (err) {
           console.error(`[Agent Video Tool] [HTTP FETCH ERROR]:`, err);

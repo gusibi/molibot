@@ -202,13 +202,14 @@ async function handleWebHostToolsCommand(
     };
   }
 
-  if (subcommand !== "approve" && subcommand !== "approve-session") {
+  if (subcommand !== "approve" && subcommand !== "approve-once" && subcommand !== "approve-session") {
     return {
       ok: true,
       response: [
         "Host Bash usage:",
         "/hosttools",
         "/hosttools approve <approvalId>",
+        "/hosttools approve-once <approvalId>",
         "/hosttools approve-session <approvalId>",
         "/hosttools reject <approvalId>"
       ].join("\n")
@@ -216,7 +217,7 @@ async function handleWebHostToolsCommand(
   }
 
   const approved = hostBashStore.approve(scopeId, approvalId || undefined, {
-    persistWhitelist: subcommand !== "approve-session",
+    scope: subcommand === "approve-session" ? "session" : subcommand === "approve-once" ? "once" : "persistent",
     sessionId
   });
   if (!approved) {
@@ -359,7 +360,8 @@ async function tryHandleWebCommand(
         `/skills-detail - ${d("show full details for all loaded skills", "查看所有技能完整详情")}`,
         `/compact [instructions] - ${d("summarize older context in current conversation", "压缩当前会话的较早上下文")}`,
         `/hosttools - ${d("list pending Host Bash approvals", "查看待处理的 Host Bash 审批")}`,
-        `/hosttools approve <approvalId> - ${d("approve and execute a pending Host Bash request", "批准并执行待处理的 Host Bash 请求")}`,
+        `/hosttools approve <approvalId> - ${d("approve, execute, and whitelist a pending Host Bash request", "批准、执行并将待处理的 Host Bash 请求加入白名单")}`,
+        `/hosttools approve-once <approvalId> - ${d("approve and execute once without whitelisting", "仅批准并执行一次，不加入白名单")}`,
         `/hosttools approve-session <approvalId> - ${d("approve only for the current session", "仅为当前会话批准")}`,
         `/hosttools reject <approvalId> - ${d("reject a pending Host Bash request", "拒绝待处理的 Host Bash 请求")}`,
         `/help - ${d("show this help", "显示此帮助")}`

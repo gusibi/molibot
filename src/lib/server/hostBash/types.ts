@@ -1,9 +1,13 @@
 export type HostBashApprovalStatus =
   | "pending"
   | "approved"
+  | "executing"
   | "rejected"
   | "executed"
-  | "failed";
+  | "failed"
+  | "expired";
+
+export type HostBashApprovalScope = "once" | "session" | "persistent";
 
 export interface HostBashCapability {
   executable: string;
@@ -110,7 +114,7 @@ export interface HostBashApprovalPrompt {
   title: string;
   body: string;
   options: Array<{
-    id: "approve" | "approve_session" | "reject";
+    id: "approve" | "approve_once" | "approve_session" | "approve_persistent" | "reject";
     label: string;
     style: "primary" | "danger";
   }>;

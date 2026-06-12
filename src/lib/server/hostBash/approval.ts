@@ -183,7 +183,7 @@ export function parseHostBashShellCommand(input: string): {
 }
 
 function buildApprovalId(toolId: string): string {
-  return `hba-${toolId}-${Date.now().toString(36)}`;
+  return `hba-${toolId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 interface PersistentHostBashCommand {
@@ -249,26 +249,41 @@ export function parseHostBashApprovalCommand(input: string): ParsedHostBashAppro
   };
 }
 
+export function canPersistHostBashApproval(request: Pick<HostBashApprovalRecord, "approvalMode" | "classification">): boolean {
+  if (request.classification) return request.classification.kind !== "one-time-script";
+  return request.approvalMode === "persistent";
+}
+
+const APPROVAL_PROMPT_COMMAND_DISPLAY_LIMIT = 100;
+
 export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): HostBashApprovalPrompt {
-  const isOneTime = request.approvalMode === "ephemeral";
-  const isSession = request.approvalMode === "session";
-  const command = request.pendingAction?.originalCommand
+  const fullCommand = request.pendingAction?.originalCommand
     || [request.command, ...(request.pendingAction?.args ?? [])].filter(Boolean).join(" ");
-  const operation = isOneTime
-    ? "执行 Bash（仅此命令一次）"
-    : isSession
-      ? "执行 Bash（仅当前会话允许 Host Bash）"
-      : `执行 Bash（并长期允许 ${request.displayName}）`;
+  const command = fullCommand.length > APPROVAL_PROMPT_COMMAND_DISPLAY_LIMIT
+    ? `${fullCommand.slice(0, APPROVAL_PROMPT_COMMAND_DISPLAY_LIMIT)}…`
+    : fullCommand;
+  const persistable = canPersistHostBashApproval(request);
+  const bodyLines = [
+    `【操作】执行 Bash`,
+    `【命令】${command}`
+  ];
+  if (persistable && request.displayName) {
+    bodyLines.push(`【工具】${request.displayName}`);
+  }
+  const options: HostBashApprovalPrompt["options"] = [
+    { id: "approve_once", label: "仅此一次", style: "primary" },
+    { id: "approve_session", label: "本会话允许", style: "primary" }
+  ];
+  if (persistable) {
+    options.push({ id: "approve_persistent", label: "永久允许此工具", style: "primary" });
+  }
+  options.push({ id: "reject", label: "拒绝", style: "danger" });
   return {
     type: "host_bash_approval",
     requestId: request.id,
     title: "⚠️ 需要你的确认",
-    body: `【操作】${operation}\n【命令】${command}`,
-    options: [
-      { id: "approve", label: "批准", style: "primary" },
-      { id: "approve_session", label: "本轮允许", style: "primary" },
-      { id: "reject", label: "拒绝", style: "danger" }
-    ],
+    body: bodyLines.join("\n"),
+    options,
     request: {
       toolId: request.toolId,
       displayName: request.displayName,
@@ -284,21 +299,22 @@ export function buildHostBashApprovalPrompt(request: HostBashApprovalRecord): Ho
 }
 
 export function buildNonInteractiveHostBashApprovalText(prompt: HostBashApprovalPrompt): string {
-  const isOneTime = prompt.request.approvalMode === "ephemeral";
-  const approveEffect = isOneTime
-    ? "仅执行这条命令一次"
-    : "执行并长期允许此工具";
-  return [
+  const persistable = canPersistHostBashApproval(prompt.request);
+  const lines = [
     prompt.title,
     "我即将执行以下操作：",
     "",
     prompt.body,
     "",
     "请回复：",
-    `✅ 回复「批准」${approveEffect}`,
-    "🟡 回复「本轮允许」执行并仅在当前会话允许 Host Bash",
-    "❌ 回复「拒绝」取消执行"
-  ].join("\n");
+    "✅ 回复「批准」或「仅此一次」仅执行这条命令一次",
+    "🟡 回复「本会话允许」执行并仅在当前会话允许 Host Bash"
+  ];
+  if (persistable) {
+    lines.push(`♾️ 回复「永久允许」执行并长期允许 ${prompt.request.displayName || "此工具"}`);
+  }
+  lines.push("❌ 回复「拒绝」取消执行");
+  return lines.join("\n");
 }
 
 export function coerceApprovalMode(input: unknown): HostBashApprovalMode {

@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import dotenv from "dotenv";
 import { SandboxManager, type SandboxRuntimeConfig as AnthropicSandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
@@ -310,6 +311,24 @@ function isAllowAll(domains: string[]): boolean {
   return domains.length === 1 && domains[0] === "*";
 }
 
+// Temp paths must be allowed under their real paths too: on macOS `/tmp` is a
+// symlink to `/private/tmp` (and os.tmpdir() to /private/var/folders/...), and
+// the sandbox profile matches resolved paths, so commands like
+// `mkdir /tmp/foo-logs` fail with "Operation not permitted" otherwise.
+function resolveWritableTempDirs(): string[] {
+  const dirs = new Set<string>();
+  for (const dir of ["/tmp", tmpdir()]) {
+    if (!dir) continue;
+    dirs.add(dir);
+    try {
+      dirs.add(realpathSync(dir));
+    } catch {
+      // Keep the unresolved path; the directory may not exist on this platform.
+    }
+  }
+  return [...dirs];
+}
+
 function buildEffectiveSandboxConfig(settings: ToolSandboxSettings, cwd: string, workspaceDir: string): SandboxRuntimeConfig {
   const envFilePath = resolveEnvFilePath(settings);
   const effectiveVenvDir = getSandboxVenvDir();
@@ -323,7 +342,19 @@ function buildEffectiveSandboxConfig(settings: ToolSandboxSettings, cwd: string,
     },
     filesystem: {
       denyRead: unique([...settings.filesystem.denyRead, envFilePath]),
-      allowWrite: unique([...settings.filesystem.allowWrite, ".", cwd, "/tmp", effectivePythonToolingDir, effectiveVenvDir]),
+      // Agent data should land under the molibot data dir (per-bot scratch is
+      // the cwd); the whole data dir and the workspace stay writable so
+      // schedules and services with fixed paths inside it do not get blocked.
+      allowWrite: unique([
+        ...settings.filesystem.allowWrite,
+        ".",
+        cwd,
+        workspaceDir,
+        config.dataDir,
+        ...resolveWritableTempDirs(),
+        effectivePythonToolingDir,
+        effectiveVenvDir
+      ]),
       denyWrite: unique([...settings.filesystem.denyWrite, envFilePath])
     }
   };

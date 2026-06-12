@@ -4,6 +4,43 @@
 
 ## 2026-06-12
 
+### Feishu Video Attachment Delivery
+- Feishu outbound `.mp4` files now upload as `file_type: mp4` and send as native `media` messages instead of being transcoded into OPUS voice messages.
+- Feishu inbound `media`/video resources now download through the media resource path and are saved as video attachments; `.mp4`, `.webm`, and `.mov` filenames no longer infer audio MIME types.
+
+### Video Generation Response Logging
+- `videoGenerate` now logs provider response status and response body for both successful and failed HTTP calls, so provider-side errors can be diagnosed from runtime logs.
+- Video provider request headers are now redacted before logging, preventing Bearer/API keys from being printed in terminal logs.
+
+### File Tool Hardening (read/write/edit/bash)
+- edit: fixed silent corruption when newText contains `$&`/`$'`/`` $` `` (JS replacement patterns are now inserted literally); added `replaceAll` parameter; ambiguous matches now report the match count; identical oldText/newText is rejected early; CRLF files are matched LF-normalized and written back with their original line endings.
+- read: rewritten to read via fs instead of spawning `wc`/`cat`/`tail`; fixed off-by-one total line count for files with trailing newlines; binary files are rejected with a clear error; images larger than 5MB are rejected instead of flooding the context.
+- write: reported byte count now uses actual UTF-8 bytes instead of character count; removed dead path-normalization condition.
+- bash policy: hard gate added — standalone shell file reads (`cat`/`head`/`tail`/`less`), shell file writes (`echo > f`, heredocs, `echo | tee`), and in-place editors (`sed -i`/`perl -i`/`awk -i inplace`) are denied with a redirect message to the read/write/edit tools; compound pipelines and concatenation remain allowed.
+- bash tool description now instructs the model to prefer the dedicated read/write/edit tools over shell equivalents (`cat`, heredocs, `sed -i`, etc.), reserving bash for operations those tools cannot express.
+- Removed dead duplicate `truncateTail` from tool helpers (the UTF-8-safe version in truncate.ts is the single implementation).
+
+### Sandbox Writable Roots & Idempotent Approval Replies
+- Sandbox now allows writes to the whole molibot data dir (`~/.molibot` by default) and the workspace dir, so scheduled tasks and services that write inside the data dir are no longer blocked; per-bot scratch remains the working directory.
+- Temp directories are now allowed via their resolved real paths too (`/tmp` → `/private/tmp`, `os.tmpdir()` → `/private/var/folders/...`), fixing "Operation not permitted" for tools with hard-coded temp paths (e.g. longbridge's `/tmp/longbridge-logs`).
+- Clicking an approval card again (or re-sending an approval reply) after the request is resolved now reports the actual outcome (approved/executing/executed/failed/rejected/expired) instead of "No matching pending Host Bash approval found."
+
+### Host Bash Approval Interaction Fixes (Blocking Approval Gate)
+- Approval cards/prompts now show at most the first 100 characters of the command instead of the full text (up to 4000 chars).
+- Host approval is now a true blocking gate inside the agent run: the bash tool call waits on the approval store (up to 10 minutes), and once approved it executes the host command inline and returns the real output as the tool result — the run keeps streaming instead of ending with "waiting for approval" and resuming later. Rejection/expiry resolve the tool call immediately; only a wait timeout falls back to the old approve→execute→resume flow.
+- Removed the double approval gate: bash `hostApproval` requests no longer also pass through the ApprovalBroker, so one approval click/reply is enough.
+- Approval replies/clicks settle immediately: the card flips state right away while the waiting run (or, with no active run, a claimed background executor) runs the command; results and failures are reported to the chat.
+- Added an atomic execution claim (`executing` status + `claimExecution`) so the in-run waiter and the channel approval handler can never both execute the same approved command.
+- Fixed `isRunActive` to look up running runs by session (run ids are `chatId-sessionId-messageId`, so the old scope-id lookup never matched), plus a delayed fallback executor so approvals landing after the wait timeout are not dropped.
+- Bridged Host Bash approvals to the agent ApprovalBroker for the remaining broker-gated tools; text approval replies (本会话允许 / 永久允许 / 拒绝 …) now work even when only a broker request is pending — fixing runs that ended in "User approval timeout" despite the user approving.
+
+### Sandbox Host Bash Approval UX Overhaul
+- Tightened sandbox-failure detection to OS-sandbox signatures only, eliminating spurious auto host-approval requests from ordinary command failures.
+- Unified approval prompts to explicit scopes: once / session / persistent / reject, identical semantics across Feishu cards, Telegram keyboards, text replies, and `/hosttools` (new `approve-once` subcommand). Plain "approve" is now least-privilege (run once, no whitelist).
+- Persistent approval of a compound command now whitelists every capability it contains in one click.
+- Pending approvals expire after 60 minutes, and a new request for the same capability retires the older pending card; identical commands still dedupe to the existing request.
+- Generic tool-approval path now shows the real command and uses collision-free request IDs.
+
 ### Profile Scope Consistency (bot > agent > global)
 - Made `BOT.md` a true bot-level override of `AGENTS.md` in system prompt assembly: when a bot defines `BOT.md`, the agent/global `AGENTS.md` section is no longer injected alongside it, eliminating duplicated content after bootstrap.
 - Restricted the `profileFiles` tool's agent-scope fallback to files the agent scope actually carries (`AGENTS/SOUL/IDENTITY/SONG`); `USER.md` and `TOOLS.md` now fall back straight to global, matching prompt assembly.

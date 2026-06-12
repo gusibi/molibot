@@ -302,6 +302,9 @@ test("bash can request one-time host approval for compound shell commands", asyn
         scopeId: "chat-1",
         sessionId: "session-1",
         store: hostApprovalStore(),
+        // The blocking approval wait would poll the real store for minutes;
+        // collapse it so this test exercises the pending-request fallback.
+        approvalWaitTimeoutMs: 1,
         getSettings: () => settings,
         updateSettings: (patch: any) => {
           settings = { ...settings, ...patch } as RuntimeSettings;
@@ -321,6 +324,48 @@ test("bash can request one-time host approval for compound shell commands", asyn
     assert.equal(pending[0]?.pendingAction?.kind, "run_one_time_host_script");
     assert.equal(settings.hostTools.approvedTools.length, 0);
     assert.match(firstText(result), /Host (Bash|tool) approval requested/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("bash blocks on host approval and executes inline once the request is approved", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
+  let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
+  const dbStore = getHostBashStore() as any;
+  dbStore.db.exec("DELETE FROM approval_requests");
+  dbStore.db.exec("DELETE FROM approval_grants");
+  try {
+    const tool = createBashTool(cwd, {
+      hostApproval: {
+        channel: "telegram",
+        chatId: "chat-1",
+        scopeId: "chat-1",
+        sessionId: "session-1",
+        store: hostApprovalStore(),
+        approvalWaitTimeoutMs: 10_000,
+        getSettings: () => settings,
+        updateSettings: (patch: any) => {
+          settings = { ...settings, ...patch } as RuntimeSettings;
+          return settings;
+        }
+      } as any
+    });
+    const pendingResult = tool.execute("tool-1", {
+      label: "bash",
+      command: "echo blocked-approve-test\ntrue",
+      hostApproval: { reason: "Needs one-time host echo." }
+    });
+
+    // Approve the request while the bash tool call is blocked on it.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const pending = getHostBashStore().listPending("chat-1");
+    assert.equal(pending.length, 1);
+    getHostBashStore().approve("chat-1", pending[0]!.id, { scope: "once" });
+
+    const result = await pendingResult;
+    assert.match(firstText(result), /blocked-approve-test/);
+    assert.equal(getHostBashStore().getApprovalRecord(pending[0]!.id)?.status, "executed");
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -616,6 +661,9 @@ test("bash auto-requests host approval after sandbox permission failure for sing
         scopeId: "chat-1",
         sessionId: "session-1",
         store: hostApprovalStore(),
+        // The blocking approval wait would poll the real store for minutes;
+        // collapse it so this test exercises the pending-request fallback.
+        approvalWaitTimeoutMs: 1,
         getSettings: () => settings,
         updateSettings: (patch: any) => {
           settings = { ...settings, ...patch } as RuntimeSettings;

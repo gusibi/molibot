@@ -57,7 +57,7 @@ export class TelegramManager extends BaseChannelRuntime {
   private readonly hostBashApprovalActions = new Map<string, {
     scopeId: string;
     requestId: string;
-    action: "approve" | "approve_session" | "reject";
+    action: "approve" | "approve_once" | "approve_session" | "approve_persistent" | "reject";
   }>();
   private readonly events: EventsWatcher[] = [];
   private readonly watchedChatEventDirs = new Set<string>();
@@ -278,7 +278,7 @@ export class TelegramManager extends BaseChannelRuntime {
   private registerHostBashApprovalAction(
     scopeId: string,
     requestId: string,
-    action: "approve" | "approve_session" | "reject"
+    action: "approve" | "approve_once" | "approve_session" | "approve_persistent" | "reject"
   ): string {
     const token = randomUUID().replace(/-/g, "").slice(0, 24);
     this.hostBashApprovalActions.set(token, { scopeId, requestId, action });
@@ -286,11 +286,14 @@ export class TelegramManager extends BaseChannelRuntime {
   }
 
   private buildHostBashApprovalKeyboard(scopeId: string, prompt: HostBashApprovalPrompt): InlineKeyboard {
-    return new InlineKeyboard()
-      .text("Approve", this.registerHostBashApprovalAction(scopeId, prompt.requestId, "approve"))
-      .text("This Session", this.registerHostBashApprovalAction(scopeId, prompt.requestId, "approve_session"))
-      .row()
-      .text("Reject", this.registerHostBashApprovalAction(scopeId, prompt.requestId, "reject"));
+    const keyboard = new InlineKeyboard();
+    const approveOptions = prompt.options.filter((option) => option.id !== "reject");
+    for (const option of approveOptions) {
+      keyboard.text(option.label, this.registerHostBashApprovalAction(scopeId, prompt.requestId, option.id));
+    }
+    keyboard.row();
+    keyboard.text("拒绝", this.registerHostBashApprovalAction(scopeId, prompt.requestId, "reject"));
+    return keyboard;
   }
 
   private async sendHostBashApprovalCard(
@@ -457,7 +460,9 @@ export class TelegramManager extends BaseChannelRuntime {
         ? "Rejecting host request..."
         : action.action === "approve_session"
           ? "Approved for this session. Executing..."
-          : "Approved. Executing...";
+          : action.action === "approve_persistent"
+            ? "Approved persistently. Executing..."
+            : "Approved (one-time). Executing...";
       this.hostBashApprovalActions.delete(token);
       await answerCallbackSafely(acceptedText);
       if (messageId) {
@@ -475,11 +480,13 @@ export class TelegramManager extends BaseChannelRuntime {
         text: "",
         target: this.buildTelegramCommandTarget({ chat: { id: chatId }, msg: { message_thread_id: messageThreadId } })
       };
-      const result = action.action === "approve"
-        ? await this.commandService.approveHostTool(input, action.requestId)
-        : action.action === "approve_session"
-          ? await this.commandService.approveHostToolForSession(input, action.requestId)
-          : await this.commandService.rejectHostTool(input, action.requestId);
+      const result = action.action === "approve" || action.action === "approve_once"
+        ? await this.commandService.approveHostTool(input, action.requestId, "once")
+        : action.action === "approve_persistent"
+          ? await this.commandService.approveHostTool(input, action.requestId, "persistent")
+          : action.action === "approve_session"
+            ? await this.commandService.approveHostToolForSession(input, action.requestId)
+            : await this.commandService.rejectHostTool(input, action.requestId);
       let finalResultSent = false;
       if (messageId) {
         const edited = await editApprovalMessageSafely(messageId, result.message);

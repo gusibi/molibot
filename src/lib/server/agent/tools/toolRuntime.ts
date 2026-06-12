@@ -158,7 +158,7 @@ export class ToolRuntime {
                 id: decision.request.id,
                 toolId: tool.id,
                 displayName: tool.name,
-                command: tool.name,
+                command: decision.request.action.command ?? decision.request.action.path ?? tool.name,
                 reason: decision.request.reason,
                 channel: "",
                 chatId: call.context.actorId,
@@ -213,7 +213,7 @@ export class ToolRuntime {
         id: request.id,
         toolId: request.action.toolName || "tool",
         displayName: request.action.toolName || "tool",
-        command: request.action.toolName || "tool",
+        command: request.action.command ?? request.action.path ?? request.action.toolName ?? "tool",
         reason: request.reason,
         channel: "",
         chatId: context.actorId,
@@ -224,7 +224,7 @@ export class ToolRuntime {
         permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
         pendingAction: {
           kind: "run_one_time_host_script",
-          originalCommand: request.action.toolName || "tool",
+          originalCommand: request.action.command ?? request.action.path ?? request.action.toolName ?? "tool",
           args: [],
           timeout: 300
         },
@@ -286,8 +286,13 @@ export function createDefaultApprovalRequest(
   ctx: ToolExecutionContext
 ): ApprovalRequest {
   const now = new Date().toISOString();
+  const params = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const command = typeof params.command === "string" ? params.command.slice(0, 4000) : undefined;
+  const path = typeof params.file_path === "string"
+    ? params.file_path
+    : typeof params.path === "string" ? params.path : undefined;
   return {
-    id: `${ctx.runId}-${tool.id}`,
+    id: `${ctx.runId}-${tool.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     runId: ctx.runId,
     sessionId: ctx.sessionId,
     workspaceId: ctx.workspaceId,
@@ -296,7 +301,9 @@ export function createDefaultApprovalRequest(
     riskLevel: tool.risk,
     action: {
       type: tool.source === "mcp" ? "mcp_tool" : tool.source === "host" ? "bash" : "file_write",
-      toolName: tool.id
+      toolName: tool.id,
+      command,
+      path
     },
     reason: `Tool ${tool.name} is marked ${tool.risk} risk.`,
     status: "pending",

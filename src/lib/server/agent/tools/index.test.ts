@@ -88,7 +88,7 @@ test("decideBashToolPolicy ignores hostApproval requests when sandbox is disable
   assert.equal(decision.type, "allow");
 });
 
-test("decideBashToolPolicy requires approval for explicit hostApproval when sandbox is enabled", () => {
+test("decideBashToolPolicy does not double-gate explicit hostApproval; the bash handler blocks on Host Bash approval itself", () => {
   const decision = decideBashToolPolicy({
     tool: bashTool,
     input: {
@@ -100,7 +100,7 @@ test("decideBashToolPolicy requires approval for explicit hostApproval when sand
     hostBashStore: emptyHostBashStore()
   });
 
-  assert.equal(decision.type, "approval_required");
+  assert.equal(decision.type, "allow");
 });
 
 test("deferred entries expose lightweight stubs through the common deferred-entry path", () => {

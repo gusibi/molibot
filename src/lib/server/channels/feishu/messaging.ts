@@ -15,7 +15,7 @@ type CardTone = "blue" | "green" | "yellow" | "orange" | "red" | "grey" | "wathe
 
 
 interface FeishuHostToolApprovalActionValue {
-  action: "approve" | "approve_session" | "reject";
+  action: "approve" | "approve_once" | "approve_session" | "approve_persistent" | "reject";
   kind: "host_bash_approval";
   botId: string;
   chatId: string;
@@ -510,7 +510,9 @@ function detectAudioMime(filename: string, bytes: Buffer): string | null {
   if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg";
   if (lower.endsWith(".mp3")) return "audio/mpeg";
   if (lower.endsWith(".wav")) return "audio/wav";
-  if (lower.endsWith(".m4a") || lower.endsWith(".mp4")) return "audio/mp4";
+  if (lower.endsWith(".m4a")) return "audio/mp4";
+  if (lower.endsWith(".aac")) return "audio/aac";
+  if (lower.endsWith(".flac")) return "audio/flac";
 
   if (bytes.length >= 4 && bytes.toString("ascii", 0, 4) === "OggS") return "audio/ogg";
   if (bytes.length >= 3 && bytes.toString("ascii", 0, 3) === "ID3") return "audio/mpeg";

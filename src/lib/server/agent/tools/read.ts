@@ -2,7 +2,7 @@ import { extname } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ImageContent, TextContent } from "@mariozechner/pi-ai";
-import { shellEscape, toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
+import { toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead, type TruncationResult } from "$lib/server/agent/tools/truncate.js";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
@@ -14,6 +14,8 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   ".gif": "image/gif",
   ".webp": "image/webp"
 };
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 const readSchema = Type.Object({
   label: Type.String(),
@@ -33,7 +35,7 @@ export function getReadToolDefinition(options: { cwd: string; workspaceDir: stri
     id: "read",
     name: "read",
     description:
-      `Read text/image files from workspace. Text output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
+      `Read text/image files from workspace. Supports offset/limit for partial reads of large files. Text output is truncated to ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
     inputSchema: readSchema,
     risk: "low",
     source: "builtin",
@@ -42,12 +44,19 @@ export function getReadToolDefinition(options: { cwd: string; workspaceDir: stri
       const filePath = resolveToolPath(ctx.cwd, path);
       ensureAllowedPath(filePath);
 
+      if (!ctx.fs.readBuffer) {
+        throw new Error("fs.readBuffer is not implemented in execution context.");
+      }
+
       const mimeType = IMAGE_MIME_TYPES[extname(filePath).toLowerCase()];
       if (mimeType) {
-        if (!ctx.fs.readBuffer) {
-          throw new Error("fs.readBuffer is not implemented in execution context.");
-        }
         const bytes = await ctx.fs.readBuffer(filePath);
+        if (bytes.length > MAX_IMAGE_BYTES) {
+          return {
+            ok: false,
+            error: `Image is too large to read (${formatSize(bytes.length)}, max ${formatSize(MAX_IMAGE_BYTES)}). Resize or compress it first (e.g. with sips or ffmpeg via bash).`
+          };
+        }
         return {
           ok: true,
           content: [
@@ -58,30 +67,36 @@ export function getReadToolDefinition(options: { cwd: string; workspaceDir: stri
         };
       }
 
-      const countResult = await ctx.shell.run(`wc -l < ${shellEscape(filePath)}`, { cwd: ctx.cwd });
-      if (countResult.exitCode !== 0) {
-        return { ok: false, error: countResult.stderr || `Failed to read ${path}` };
+      let buffer: Buffer;
+      try {
+        buffer = await ctx.fs.readBuffer(filePath);
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : `Failed to read ${path}` };
       }
-      const totalFileLines = Number.parseInt(countResult.stdout.trim(), 10) + 1;
+
+      if (buffer.subarray(0, 8192).includes(0)) {
+        return { ok: false, error: `${path} appears to be a binary file. Use bash with a format-appropriate tool instead.` };
+      }
+
+      const allLines = buffer.toString("utf-8").split("\n");
+      // A trailing newline produces a phantom empty final element; drop it from the count.
+      const totalFileLines = allLines[allLines.length - 1] === "" && allLines.length > 1
+        ? allLines.length - 1
+        : allLines.length;
+
       const startLine = offset && offset > 0 ? offset : 1;
       if (startLine > totalFileLines) {
         return { ok: false, error: `Offset ${startLine} is beyond end of file (${totalFileLines} lines total)` };
       }
 
-      const readCmd = startLine === 1 ? `cat ${shellEscape(filePath)}` : `tail -n +${startLine} ${shellEscape(filePath)}`;
-      const result = await ctx.shell.run(readCmd, { cwd: ctx.cwd });
-      if (result.exitCode !== 0) {
-        return { ok: false, error: result.stderr || `Failed to read ${path}` };
-      }
-
-      let selected = result.stdout;
+      // Slice over allLines (not totalFileLines) so a trailing newline is preserved.
+      let selectedLines = allLines.slice(startLine - 1);
       let userLimitedLines: number | undefined;
-      if (limit !== undefined) {
-        const lines = selected.split("\n");
-        const endLine = Math.min(limit, lines.length);
-        selected = lines.slice(0, endLine).join("\n");
-        userLimitedLines = endLine;
+      if (limit !== undefined && limit < selectedLines.length) {
+        selectedLines = selectedLines.slice(0, Math.max(limit, 0));
+        userLimitedLines = selectedLines.length;
       }
+      const selected = selectedLines.join("\n");
 
       const truncation = truncateHead(selected);
       let outputText = truncation.content;

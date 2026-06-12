@@ -95,6 +95,10 @@ export class ApprovalBroker {
     return this.store.getRequest(id);
   }
 
+  listPendingRequests(): ApprovalRequest[] {
+    return this.store.listPendingRequests();
+  }
+
   updateRequest(request: ApprovalRequest): void {
     this.store.updateRequest(request);
   }

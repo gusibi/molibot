@@ -59,10 +59,9 @@ function parseFeishuContent(message: Record<string, any>): ParsedFeishuContent {
           : typeof payload.media_key === "string"
             ? payload.media_key
             : null;
-    const resourceType: ParsedFeishuContent["resourceType"] =
-      typeof payload.media_key === "string" && !String(fileKey || "").toLowerCase().startsWith("file_")
-        ? "media"
-        : "file";
+    const resourceType: ParsedFeishuContent["resourceType"] = messageType === "media" || messageType === "video"
+      ? "media"
+      : "file";
     return {
       rawText: String(payload.text ?? payload.file_name ?? ""),
       fileKey,
@@ -99,10 +98,12 @@ function mimeFromFilename(filename: string): string | null {
   if (lower.endsWith(".ogg") || lower.endsWith(".oga") || lower.endsWith(".opus")) return "audio/ogg";
   if (lower.endsWith(".mp3")) return "audio/mpeg";
   if (lower.endsWith(".wav")) return "audio/wav";
-  if (lower.endsWith(".m4a") || lower.endsWith(".mp4")) return "audio/mp4";
+  if (lower.endsWith(".m4a")) return "audio/mp4";
   if (lower.endsWith(".aac")) return "audio/aac";
-  if (lower.endsWith(".webm")) return "audio/webm";
   if (lower.endsWith(".flac")) return "audio/flac";
+  if (lower.endsWith(".mp4") || lower.endsWith(".m4v")) return "video/mp4";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov")) return "video/quicktime";
   return null;
 }
 
@@ -117,6 +118,15 @@ function resolveAudioExt(mimeType?: string | null): string {
   if (value.includes("webm")) return ".webm";
   if (value.includes("flac")) return ".flac";
   return ".opus";
+}
+
+function resolveResourceExt(contentType?: string | null): string {
+  const value = String(contentType || "").toLowerCase();
+  if (value.startsWith("audio/")) return resolveAudioExt(value);
+  if (value.includes("mp4")) return ".mp4";
+  if (value.includes("webm")) return ".webm";
+  if (value.includes("quicktime")) return ".mov";
+  return ".bin";
 }
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -167,13 +177,13 @@ function guessResourceTypes(
     return ordered;
   }
 
-  if (msg === "audio" || msg === "file" || key.startsWith("file_")) {
-    push("file");
+  if (msg === "media" || msg === "video") {
+    push("media");
     return ordered;
   }
 
-  if (msg === "media" || msg === "video") {
-    push("media");
+  if (msg === "audio" || msg === "file" || key.startsWith("file_")) {
+    push("file");
     return ordered;
   }
 
@@ -350,16 +360,16 @@ export async function toFeishuInboundEvent(input: {
         resource.filename ||
         `${parsed.fileKey}${parsed.resourceType === "image"
           ? ".png"
-          : String(resource.contentType || "").startsWith("audio/")
-            ? resolveAudioExt(resource.contentType)
-            : ".bin"
+          : resolveResourceExt(resource.contentType)
         }`;
       const mimeType = resource.contentType || mimeFromFilename(guessedName) || undefined;
       const mediaType = parsed.resourceType === "image"
         ? "image"
         : mimeType?.startsWith("audio/") || message.message_type === "audio"
           ? "audio"
-          : "file";
+          : mimeType?.startsWith("video/") || message.message_type === "media" || message.message_type === "video"
+            ? "video"
+            : "file";
       const saved = store.saveAttachment(scopeId, guessedName, ts, resource.data, {
         mediaType,
         mimeType

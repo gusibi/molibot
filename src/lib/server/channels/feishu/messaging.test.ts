@@ -6,6 +6,7 @@ import {
   buildFeishuHostToolApprovalResultCard,
   buildFeishuPostContent,
   sendFeishuCard,
+  sendFeishuFile,
   sendFeishuText,
   editFeishuText
 } from "$lib/server/channels/feishu/messaging.js";
@@ -14,9 +15,23 @@ function createMockClient() {
   const createCalls: unknown[] = [];
   const replyCalls: unknown[] = [];
   const updateCalls: unknown[] = [];
+  const fileCreateCalls: unknown[] = [];
+  const imageCreateCalls: unknown[] = [];
 
   const client = {
     im: {
+      file: {
+        create: async (payload: unknown) => {
+          fileCreateCalls.push(payload);
+          return { file_key: `file_${fileCreateCalls.length}` };
+        }
+      },
+      image: {
+        create: async (payload: unknown) => {
+          imageCreateCalls.push(payload);
+          return { image_key: `img_${imageCreateCalls.length}` };
+        }
+      },
       message: {
         create: async (payload: unknown) => {
           createCalls.push(payload);
@@ -34,7 +49,7 @@ function createMockClient() {
     }
   };
 
-  return { client: client as never, createCalls, replyCalls, updateCalls };
+  return { client: client as never, createCalls, replyCalls, updateCalls, fileCreateCalls, imageCreateCalls };
 }
 
 test("buildFeishuPostContent wraps markdown in a Feishu post md segment", () => {
@@ -95,6 +110,57 @@ test("editFeishuText updates ordinary replies as post messages", async () => {
     data: {
       msg_type: "post",
       content: buildFeishuPostContent("Updated **post**")
+    }
+  });
+});
+
+test("sendFeishuFile sends mp4 files as native Feishu media instead of audio", async () => {
+  const { client, createCalls, fileCreateCalls, imageCreateCalls } = createMockClient();
+  const mp4Bytes = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32]);
+
+  const result = await sendFeishuFile(client, "oc_chat", mp4Bytes, "clip.mp4");
+
+  assert.deepEqual(result, { message_id: "om_1" });
+  assert.equal(imageCreateCalls.length, 0);
+  assert.equal(fileCreateCalls.length, 1);
+  assert.deepEqual(fileCreateCalls[0], {
+    data: {
+      file_type: "mp4",
+      file_name: "clip.mp4",
+      file: mp4Bytes
+    }
+  });
+  assert.deepEqual(createCalls[0], {
+    params: { receive_id_type: "chat_id" },
+    data: {
+      receive_id: "oc_chat",
+      msg_type: "media",
+      content: JSON.stringify({ file_key: "file_1" })
+    }
+  });
+});
+
+test("sendFeishuFile sends non-mp4 video containers as files, not voice messages", async () => {
+  const { client, createCalls, fileCreateCalls } = createMockClient();
+  const webmBytes = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x42, 0x86, 0x81]);
+
+  const result = await sendFeishuFile(client, "oc_chat", webmBytes, "clip.webm");
+
+  assert.deepEqual(result, { message_id: "om_1" });
+  assert.equal(fileCreateCalls.length, 1);
+  assert.deepEqual(fileCreateCalls[0], {
+    data: {
+      file_type: "stream",
+      file_name: "clip.webm",
+      file: webmBytes
+    }
+  });
+  assert.deepEqual(createCalls[0], {
+    params: { receive_id_type: "chat_id" },
+    data: {
+      receive_id: "oc_chat",
+      msg_type: "file",
+      content: JSON.stringify({ file_key: "file_1" })
     }
   });
 });

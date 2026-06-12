@@ -11,6 +11,7 @@ import {
 import type {
   ApprovedHostBashEntry,
   HostBashApprovalRecord,
+  HostBashApprovalScope,
   HostBashApprovalStatus,
   HostBashListFilters
 } from "$lib/server/hostBash/types.js";
@@ -76,9 +77,12 @@ function parseJson<T>(raw: string, fallback: T): T {
 
 function normalizeStatus(input: unknown): HostBashApprovalStatus {
   const value = String(input ?? "").trim();
-  if (value === "approved" || value === "rejected" || value === "executed" || value === "failed") return value;
+  if (value === "approved" || value === "executing" || value === "rejected" || value === "executed" || value === "failed" || value === "expired") return value;
   return "pending";
 }
+
+// Pending approvals older than this are auto-expired so stale cards stop accepting clicks.
+const PENDING_APPROVAL_TTL_MS = 60 * 60 * 1000;
 
 function capabilityToToolId(capability: string): string {
   if (capability.startsWith("bash:")) return capability.slice(5);
@@ -322,6 +326,7 @@ export class HostBashStore {
     approved?: ApprovedHostBashEntry;
   } {
     const record = createHostBashApprovalRecord(input);
+    this.expireStalePending();
 
     if (record.approvalMode === "persistent") {
       const existingApproved = this.getApprovedEntry(record.toolId);
@@ -339,6 +344,18 @@ export class HostBashStore {
     if (existingPending) {
       return { kind: "existing-pending", approval: existingPending };
     }
+
+    // Retire older pending prompts for the same capability in this scope so
+    // retried/adjusted commands don't pile up multiple live approval cards.
+    this.db.prepare(`
+      UPDATE approval_requests
+      SET status = 'expired', resolved_at = @resolved_at
+      WHERE status = 'pending' AND run_id = @run_id AND capability = @capability
+    `).run({
+      resolved_at: new Date().toISOString(),
+      run_id: record.scopeId,
+      capability: `bash:${record.toolId}`
+    });
 
     const action = {
       type: "bash",
@@ -393,30 +410,41 @@ export class HostBashStore {
     return pending.length === 1 ? pending[0] : null;
   }
 
-  approve(scopeId: string, approvalId?: string, options?: { persistWhitelist?: boolean; sessionId?: string }): {
+  approve(scopeId: string, approvalId?: string, options?: {
+    persistWhitelist?: boolean;
+    sessionId?: string;
+    scope?: HostBashApprovalScope;
+  }): {
     record: HostBashApprovalRecord;
     approved?: ApprovedHostBashEntry;
+    approvedEntries?: ApprovedHostBashEntry[];
   } | null {
     const record = this.getPendingApproval(scopeId, approvalId, options?.sessionId);
     if (!record) return null;
 
-    const persistWhitelist = options?.persistWhitelist ?? true;
+    const selectedScope: HostBashApprovalScope = options?.scope
+      ?? (options?.persistWhitelist === false
+        ? "session"
+        : record.approvalMode === "persistent"
+          ? "persistent"
+          : record.approvalMode === "session" ? "session" : "once");
     const now = new Date().toISOString();
-    let approved: ApprovedHostBashEntry | undefined;
+    const approvedEntries: ApprovedHostBashEntry[] = [];
 
-    if (record.approvalMode === "persistent" && persistWhitelist) {
-      const whitelistId = `hbw-${record.toolId}`;
-      const metadata = {
-        displayName: record.displayName,
-        command: record.command,
-        reason: record.reason,
-        channel: record.channel,
-        chatId: record.chatId,
-        scopeId: record.scopeId,
-        permissions: record.permissions
-      };
+    if (selectedScope === "persistent") {
+      // Grant every distinct capability in the command (compound commands get
+      // all their tools whitelisted in one approval). Fall back to the record's
+      // own toolId when no reusable capability classification is available.
+      const capabilities = record.classification && record.classification.kind !== "one-time-script"
+        ? [...new Map(record.classification.capabilities.map((item) => [
+            sanitizeHostBashId(item.toolId),
+            { toolId: sanitizeHostBashId(item.toolId), command: item.executable }
+          ])).values()]
+        : record.classification?.kind === "one-time-script"
+          ? []
+          : [{ toolId: record.toolId, command: record.command }];
 
-      this.db.prepare(`
+      const insertGrant = this.db.prepare(`
         INSERT INTO approval_grants (
           id, scope, capability, actor_id, workspace_id, session_id, run_id,
           action_fingerprint, expires_at, created_at, revoked_at
@@ -431,14 +459,29 @@ export class HostBashStore {
           action_fingerprint = excluded.action_fingerprint,
           created_at = excluded.created_at,
           revoked_at = NULL
-      `).run({
-        id: whitelistId,
-        capability: `bash:${record.toolId}`,
-        run_id: record.id,
-        action_fingerprint: JSON.stringify(metadata),
-        created_at: now
-      });
-      approved = this.getApprovedEntry(record.toolId) ?? undefined;
+      `);
+
+      for (const capability of capabilities) {
+        if (!capability.toolId) continue;
+        const metadata = {
+          displayName: capabilities.length === 1 ? record.displayName : capability.toolId,
+          command: capability.command,
+          reason: record.reason,
+          channel: record.channel,
+          chatId: record.chatId,
+          scopeId: record.scopeId,
+          permissions: record.permissions
+        };
+        insertGrant.run({
+          id: `hbw-${capability.toolId}`,
+          capability: `bash:${capability.toolId}`,
+          run_id: record.id,
+          action_fingerprint: JSON.stringify(metadata),
+          created_at: now
+        });
+        const entry = this.getApprovedEntry(capability.toolId);
+        if (entry) approvedEntries.push(entry);
+      }
     }
 
     const row = this.db.prepare("SELECT action_json FROM approval_requests WHERE id = ?").get(record.id) as { action_json: string } | undefined;
@@ -454,11 +497,15 @@ export class HostBashStore {
     `).run({
       id: record.id,
       resolved_at: now,
-      selected_scope: record.approvalMode === "persistent" ? "persistent" : record.approvalMode === "session" ? "session" : "once",
+      selected_scope: selectedScope === "once" ? "once" : selectedScope,
       action_json: JSON.stringify(action)
     });
 
-    return { record: this.getApprovalRecord(record.id) ?? { ...record, status: "approved", resolvedAt: now }, approved };
+    return {
+      record: this.getApprovalRecord(record.id) ?? { ...record, status: "approved", resolvedAt: now },
+      approved: approvedEntries[0],
+      approvedEntries: approvedEntries.length > 0 ? approvedEntries : undefined
+    };
   }
 
   reject(scopeId: string, approvalId?: string, sessionId?: string): HostBashApprovalRecord | null {
@@ -493,6 +540,18 @@ export class HostBashStore {
     });
   }
 
+  // Atomically claims the right to execute an approved record. Both the in-run
+  // blocking bash waiter and the channel approval handler may try to execute;
+  // only the caller that wins this compare-and-set runs the command.
+  claimExecution(recordId: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE approval_requests
+      SET status = 'executing'
+      WHERE id = ? AND status = 'approved'
+    `).run(recordId);
+    return Number(result.changes ?? 0) > 0;
+  }
+
   getApprovalRecord(recordId: string): HostBashApprovalRecord | null {
     const row = this.db.prepare(`
       SELECT * FROM approval_requests WHERE id = ? LIMIT 1
@@ -509,7 +568,17 @@ export class HostBashStore {
     return row ? rowToWhitelistEntry(row) : null;
   }
 
+  private expireStalePending(): void {
+    const cutoff = new Date(Date.now() - PENDING_APPROVAL_TTL_MS).toISOString();
+    this.db.prepare(`
+      UPDATE approval_requests
+      SET status = 'expired', resolved_at = @resolved_at
+      WHERE status = 'pending' AND capability LIKE 'bash:%' AND created_at < @cutoff
+    `).run({ resolved_at: new Date().toISOString(), cutoff });
+  }
+
   listPending(scopeId?: string, sessionId?: string): HostBashApprovalRecord[] {
+    this.expireStalePending();
     if (scopeId) {
       const stmt = sessionId
         ? this.db.prepare(`

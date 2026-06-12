@@ -17,13 +17,13 @@ import {
   getHostBashStore,
   sanitizeHostBashId
 } from "$lib/server/hostBash/index.js";
-import { executeApprovedHostBash } from "$lib/server/agent/hostBashExec.js";
+import { executeApprovedHostBash, executeHostBashApproval } from "$lib/server/agent/hostBashExec.js";
 import { momWarn } from "$lib/server/agent/common/log.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { execCommand, normalizeCommandOutput, shellEscape, stripAnsi, wrapCommandWithVenv, toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { prepareToolSandboxExecution } from "$lib/server/agent/tools/sandbox.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "$lib/server/agent/tools/truncate.js";
-import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
+import type { ToolDefinition, ToolExecutionContext, ToolResult } from "$lib/server/agent/tools/toolTypes.js";
 
 const bashSchema = Type.Object({
   label: Type.String(),
@@ -83,6 +83,7 @@ export interface BashToolHostApprovalOptions {
   store: MomRuntimeStore;
   hostBashStore?: HostBashStore;
   requestedByDepth?: number;
+  approvalWaitTimeoutMs?: number;
 }
 
 interface PreparedBashOutput {
@@ -381,6 +382,103 @@ function requestApprovalFromBash(
   };
 }
 
+const HOST_APPROVAL_WAIT_TIMEOUT_MS = 10 * 60 * 1000;
+const HOST_APPROVAL_POLL_INTERVAL_MS = 500;
+
+// Approval is a mandatory gate, so the bash tool call blocks inside the run:
+// the channel shows the approval card, the run keeps streaming "waiting", and
+// once the user approves, the host command executes inline and its real output
+// becomes the tool result. Only if the wait times out do we fall back to the
+// asynchronous approve -> execute -> resume flow.
+async function waitForHostBashApprovalAndExecute(input: {
+  store: HostBashStore;
+  prompt: HostBashApprovalPrompt;
+  requestText: string;
+  ctx: ToolExecutionContext;
+  fallbackDetails?: BashToolDetails;
+  waitTimeoutMs?: number;
+}): Promise<ToolResult> {
+  const { store, prompt, ctx } = input;
+  const buildFallbackResult = (): ToolResult => ({
+    ok: false,
+    error: input.requestText || "Tool execution is waiting for approval.",
+    metadata: {
+      status: "waiting_for_approval"
+    },
+    details: { ...input.fallbackDetails, hostBashApproval: prompt }
+  });
+  // Partial store doubles (tests) cannot be polled; keep the async approve flow.
+  if (typeof store.getApprovalRecord !== "function") {
+    return buildFallbackResult();
+  }
+  ctx.emit({
+    timestamp: new Date().toISOString(),
+    workspaceId: ctx.workspaceId,
+    type: "tool_end",
+    toolName: "bash",
+    displayName: "bash",
+    summary: `Waiting for user approval: ${prompt.request.reason || prompt.request.displayName || prompt.request.command}`,
+    hostBashApproval: prompt
+  } as any);
+
+  const start = Date.now();
+  const waitTimeoutMs = input.waitTimeoutMs ?? HOST_APPROVAL_WAIT_TIMEOUT_MS;
+  while (Date.now() - start < waitTimeoutMs) {
+    if (ctx.signal?.aborted) {
+      return { ok: false, error: "Tool execution aborted while waiting for user approval." };
+    }
+    const record = store.getApprovalRecord(prompt.requestId);
+    if (!record) break;
+    if (record.status === "rejected") {
+      return { ok: false, error: "Tool execution is rejected by user approval." };
+    }
+    if (record.status === "expired") {
+      return { ok: false, error: "Tool execution is rejected: the approval request expired." };
+    }
+    if (record.status === "executed" || record.status === "failed") {
+      // The approval handler raced us and already executed the command out-of-band.
+      return record.status === "executed"
+        ? { ok: true, content: [{ type: "text", text: "Command was approved and executed by the approval handler. Output was delivered to the chat." }] }
+        : { ok: false, error: record.errorText || "Approved command failed during execution." };
+    }
+    if (record.status === "approved") {
+      // Claim execution so the channel approval handler cannot also run the
+      // command; if the claim is lost, keep polling until the winner records
+      // the outcome (executed/failed).
+      const claimed = typeof store.claimExecution === "function" ? store.claimExecution(record.id) : true;
+      if (!claimed) {
+        await new Promise((resolve) => setTimeout(resolve, HOST_APPROVAL_POLL_INTERVAL_MS));
+        continue;
+      }
+      const approvedTool = findApprovedHostBash(
+        store,
+        tryParseHostBashCommand(record.pendingAction?.originalCommand ?? "")
+      );
+      try {
+        const executed = await executeHostBashApproval({
+          record,
+          approvedTool: approvedTool ?? undefined,
+          cwd: ctx.cwd,
+          signal: ctx.signal
+        });
+        store.markExecution(record.id, "executed");
+        return {
+          ok: true,
+          content: [{ type: "text", text: executed.rendered }],
+          details: executed.details
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        store.markExecution(record.id, "failed", message);
+        return { ok: false, error: message };
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, HOST_APPROVAL_POLL_INTERVAL_MS));
+  }
+
+  return buildFallbackResult();
+}
+
 export function tryParseHostBashCommand(command: string): ParsedHostBashCommand | null {
   const classification = classifyHostBashCommand(command);
   if (classification.kind === "one-time-script") return null;
@@ -437,16 +535,16 @@ export function findApprovedHostBash(
 }
 
 function isSandboxPermissionFailure(output: string): boolean {
+  // Only match signatures the OS sandbox itself produces. Generic words such as
+  // "sandbox", "socket", or "access denied" appear in ordinary command output
+  // and used to trigger spurious host-approval requests.
   const text = output.toLowerCase();
   return [
     "operation not permitted",
     "permission denied",
-    "not permitted",
-    "sandbox",
-    "access denied",
-    "socket",
-    "ipc"
-  ].some((pattern) => text.includes(pattern));
+    "sandbox-exec",
+    "seatbelt"
+  ].some((pattern) => text.includes(pattern)) || /\b(?:eperm|eacces)\b/i.test(output);
 }
 
 function buildAutomaticHostApprovalReason(parsed: ParsedHostBashCommand): string {
@@ -469,7 +567,7 @@ export function getBashToolDefinition(
     id: "bash",
     name: "bash",
     description:
-      `Execute shell commands in the scratch workspace under a runtime-managed sandbox. Use for shell-native work such as scripts, builds, tests, package installs, file operations, and data processing. Use hostApproval only for host-only capabilities; do not attempt to bypass sandbox limits with command workarounds. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
+      `Execute shell commands in the scratch workspace under a runtime-managed sandbox. Use for shell-native work such as scripts, builds, tests, package installs, and data processing. IMPORTANT: Do NOT use bash for reading, writing, or editing files — the dedicated read, write, and edit tools MUST be used instead. Avoid commands like \`cat\`, \`head\`, \`tail\`, \`less\` for reading files (use the read tool), \`cat > file\`, \`echo > file\`, heredocs, or \`tee\` for creating files (use the write tool), and \`sed -i\`, \`awk\`, or \`perl -i\` for modifying files (use the edit tool). Only fall back to shell file manipulation when those tools genuinely cannot express the operation (e.g. bulk renames, chmod, binary processing). Use hostApproval only for host-only capabilities; do not attempt to bypass sandbox limits with command workarounds. Long output is compressed to preserve both the beginning and the end within ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.`,
     inputSchema: bashSchema,
     risk: "high",
     source: "host",
@@ -511,14 +609,16 @@ export function getBashToolDefinition(
           params.timeout,
           params.hostApproval
         );
-        return {
-          ok: false,
-          error: requested.text || "Tool execution is waiting for approval.",
-          metadata: {
-            status: "waiting_for_approval"
-          },
-          details: requested.prompt ? { hostBashApproval: requested.prompt } : undefined
-        };
+        if (!requested.prompt) {
+          return { ok: false, error: requested.text || "Tool execution is waiting for approval." };
+        }
+        return waitForHostBashApprovalAndExecute({
+          store: hostBashStore,
+          prompt: requested.prompt,
+          requestText: requested.text,
+          ctx,
+          waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs
+        });
       }
 
       if (artifactDir) {
@@ -595,17 +695,17 @@ export function getBashToolDefinition(
                 reason: buildAutomaticHostApprovalReason(parsedHostBashCommand)
               }
             );
-            return {
-              ok: false,
-              error: "Sandbox blocked this command and host approval was requested automatically.",
-              metadata: {
-                status: "waiting_for_approval"
-              },
-              details: {
-                ...details,
-                hostBashApproval: requested.prompt
-              }
-            };
+            if (!requested.prompt) {
+              return { ok: false, error: requested.text || "Sandbox blocked this command and host approval was requested automatically." };
+            }
+            return waitForHostBashApprovalAndExecute({
+              store: hostBashStore,
+              prompt: requested.prompt,
+              requestText: "Sandbox blocked this command and host approval was requested automatically.",
+              ctx,
+              fallbackDetails: details,
+              waitTimeoutMs: options.hostApproval.approvalWaitTimeoutMs
+            });
           }
           const reason = hostBashClassification?.kind === "one-time-script"
             ? hostBashClassification.reason

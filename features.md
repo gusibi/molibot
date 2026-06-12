@@ -2,6 +2,38 @@
 
 ## 2026-06-12
 
+### 文件工具加固 (File Tool Hardening: read/write/edit/bash)
+- **edit `$` 替换模式 bug 修复**: `String.replace` 会把 newText 中的 `$&`/`$'`/`` $` `` 解释为特殊替换模式导致写入内容被悄悄破坏，现改用 replacer 函数按字面值插入。
+- **edit 功能增强（参考 Claude Code FileEditTool）**: 新增 `replaceAll` 参数；多匹配时报具体数量并提示扩大片段或用 replaceAll；oldText===newText 提前拒绝；CRLF 文件按 LF 归一匹配、写回时还原原始换行风格。
+- **read 重写**: 不再 spawn `wc`/`cat`/`tail`，改为 fs 直读 + JS 切片；修复带末尾换行文件总行数多报一行的 off-by-one；二进制文件（前 8KB 含 NUL）直接拒绝；图片超过 5MB 拒绝读取，避免 base64 撑爆上下文。
+- **write 修正**: 返回的字节数改用 `Buffer.byteLength`（此前中文内容按字符数误报）；删除恒真的死代码条件。
+- **bash 文件操作硬门禁**: `decideBashToolPolicy` 新增 `findFileToolRedirect` 规则——单独的 `cat`/`head`/`tail`/`less` 读文件、`echo/printf/cat > file`、heredoc、`echo | tee`、`sed -i`/`perl -i`/`awk -i inplace` 一律 deny 并提示改用 read/write/edit 工具；管道组合、多文件合并（`cat a b > c`）、`make | tee log` 等复合用法不受影响。bash 工具描述同步加了 prompt 级引导。
+- **清理**: 删除 helpers.ts 中无调用方的重复 `truncateTail`（统一使用 truncate.ts 的 UTF-8 安全版本）。
+- 测试: 新增 read.test.ts、bashPolicy.test.ts，扩充 edit.test.ts（`$` 字面值、replaceAll、多匹配、CRLF），tools 目录 80 个测试全部通过。
+
+### 沙箱可写目录扩展与审批幂等回复 (Sandbox Writable Roots & Idempotent Approval Replies)
+- **数据目录全量可写**: `buildEffectiveSandboxConfig` 的 allowWrite 现在包含 `config.dataDir`（默认 `~/.molibot`）与 workspaceDir，schedule/服务往数据目录内写入不再被沙箱拦截；bot 维度 scratch 目录仍是默认工作目录（cwd），数据优先落 scratch 的约定不变。denyWrite（`.env*`、`*.pem`、`*.key`、sandbox env 文件）依旧生效。
+- **临时目录按真实路径放行**: macOS 上 `/tmp` 是 `/private/tmp` 的符号链接（`os.tmpdir()` 同理指向 `/private/var/folders/...`），沙箱按解析后路径匹配导致 `mkdir /tmp/longbridge-logs` 报 "Operation not permitted"。现在 allowWrite 同时加入 `/tmp`、`os.tmpdir()` 及二者的 `realpathSync` 结果，固定写临时路径的第三方 CLI（如 longbridge 日志目录）可直接工作。
+- **重复审批操作幂等化**: 审批已处理后再次点卡片/再次回复，不再返回误导性的「未找到匹配的待处理 Host Bash 审批」，改为按记录实际状态回复（已通过正在执行 / 已批准并执行 / 执行失败原因 / 已拒绝 / 已过期），`describeResolvedApproval` 同时覆盖 approve / approve-session / reject 三条路径。
+
+### Host Bash 审批交互修复：阻塞式审批门 (Host Bash Approval Interaction Fixes)
+- **卡片命令截断**: `buildHostBashApprovalPrompt` 中展示的命令最多显示前 100 字符（超出加 `…`），不再把最长 4000 字符的完整命令塞进飞书卡片正文；审批结果卡/处理中卡复用同一 prompt body，一并生效。
+- **审批改为 run 内阻塞门**: bash 工具的 `hostApproval` 请求不再以 "waiting_for_approval" 结束本轮、批准后改写上下文再 resume。`waitForHostBashApprovalAndExecute` 在 run 内轮询审批存储（最长 10 分钟，500ms 间隔，尊重 abort signal）：批准 → 原地执行宿主命令并把真实输出作为 toolResult 返回，run 持续流式更新；拒绝/过期 → 立即返回失败；仅等待超时才回退到旧的「批准后补跑 + resume」流程（测试可经 `approvalWaitTimeoutMs` 注入短超时）。审批卡片在等待开始时即通过 runner 事件下发。
+- **去掉双重审批门**: `decideBashToolPolicy` 不再对带 `hostApproval` 的 bash 调用走 ApprovalBroker 门控（此前同一条命令要先批 broker 请求、再批 Host Bash 记录，各出一张卡）。
+- **执行权原子认领**: 新增 `executing` 状态与 `HostBashStore.claimExecution`（`approved → executing` 的 CAS）。run 内等待者与渠道审批处理器都先 claim 再执行，彻底消除双重执行竞态；输掉 claim 的一方继续轮询直至赢家写入 executed/failed。
+- **isRunActive 修复**: run id 实际是 `chatId-sessionId-messageId`，旧实现用 scopeId 查 `runs.id` 永远 false（"活跃 run 自动执行" 分支从未生效）。改为按 `session_id + status='running'` 查询并套用 10 分钟锁超时；run 活跃时审批只落库由阻塞中的 bash 执行，另挂 3 秒延迟兜底（`scheduleHostBashExecutionFallback`）防止等待已超时的批准被丢弃。
+- **双审批体系桥接**: 用户文字回复「本会话允许/永久允许/拒绝」及卡片点击现在也会 resolve 同 scope 下 pending 的 ApprovalBroker 请求（`resolvePendingBrokerRequests`），仅有 broker 请求（无 Host Bash 记录）时文字审批同样命中；`ApprovalBroker` 新增 `listPendingRequests()`。修复审批通过后 run 仍报 "User approval timeout" 的问题。
+- **回归验证**: 新增「阻塞等待→批准→原地执行」用例（bash-output.test.ts）与 `claimExecution` 竞态用例（store.test.ts）；更新 index.test / channelCommands.test 断言新语义；相关 9 个套件 77 个用例全部通过。
+
+### 沙箱 Host Bash 审批流程优化 (Sandbox Host Bash Approval UX Overhaul)
+- **沙箱失败检测收紧**: `isSandboxPermissionFailure` 不再对输出做 `sandbox`/`socket`/`ipc`/`access denied` 等宽泛子串匹配，只匹配 OS 沙箱真实产生的签名（`operation not permitted`、`permission denied`、`sandbox-exec`、`seatbelt`、`EPERM/EACCES`），大幅减少普通失败命令误触发自动 Host 审批。
+- **审批卡片改为明确三档授权**: 审批提示统一为「仅此一次 / 本会话允许 / 永久允许此工具 / 拒绝」，按钮语义不再随请求类型（persistent/ephemeral）变化；无法归约为可复用 capability 的一次性脚本不显示「永久允许」。飞书卡片、Telegram inline keyboard、QQ/微信文字回复与 Web `/hosttools` 全部对齐。
+- **普通「批准」改为最小授权**: 回复 `批准`/`approve` 或点击旧卡片的 Approve 仅执行一次、不落白名单；落白名单需显式回复 `永久允许` 或点「永久允许此工具」；`/hosttools approve` 保持白名单语义，新增 `/hosttools approve-once`。
+- **复合命令一次审批全量授权**: 永久批准时把命令分类出的所有 capability（如 `gh | osascript`）分别写入 `approval_grants` 白名单，后续任一工具单独使用均免审批。
+- **pending 审批 TTL + 同工具旧卡失效**: 待审批记录 60 分钟自动过期（新增 `expired` 状态）；同一 scope 下同一 capability 的新审批请求会使旧的 pending 卡片自动失效，重试命令不再堆积多张活动卡片；完全相同的命令仍复用现有 pending。
+- **toolRuntime 通用审批路径修复**: 审批请求 ID 加时间戳+随机后缀消除同 run 同工具的 ID 冲突；审批提示卡现在显示真实命令/路径（之前显示的是工具名）。
+- **回归验证**: 新增 `src/lib/server/hostBash/store.test.ts`（once 不落白名单、复合命令全量授权、旧卡失效、相同命令去重）；更新 `approval.test.ts`、`channelCommands.test.ts` 断言新语义，相关套件 77 个用例全部通过。
+
 ### Profile 三层作用域一致性修复 (Profile Scope Consistency)
 - **BOT.md 真覆盖 AGENTS.md**: 系统提示词拼装中，当 bot 目录存在 `BOT.md` 时不再同时注入 agent/global 的 `AGENTS.md`，与 `profileFiles` 工具 bootstrap 的"bot 覆盖 agent 覆盖 global"语义对齐，消除 bootstrap 后同一内容在提示词里出现两遍的问题。
 - **USER/TOOLS 回退链对齐**: `profileFiles` 工具的父级回退只在 agent 维度实际包含该文件（`AGENTS/SOUL/IDENTITY/SONG`）时才检查 agent 目录；`USER.md`、`TOOLS.md` 直接回退到 global，与提示词拼装一致，避免 agent 目录残留文件导致"读到的"与"实际生效的"不一致。
@@ -1673,3 +1705,5 @@
 - 2026-06-07: Finished prompt P1 follow-up hardening by adding rendered prompt length regression coverage, correcting prompt-plan verification commands to the real Node test runner, and isolating `toolRuntime.test.ts` workspace whitelist writes in a temporary SQLite database.
 
 - 2026-06-09: Added `ttsGenerate`, a shared Agent-layer deferred tool for text-to-speech generation. Supports macOS system voices through the built-in `say` command (macOS only) and Xiaomi MiMo TTS with model and voice selection. Added `/settings/tts` for enabling the tool, selecting the default provider, configuring provider credentials, selecting voices, and running test synthesis. Generated audio is saved to controlled runtime artifacts and automatically uploaded through the shared runtime upload capability when available. Channel implementations do not contain TTS generation logic.
+- 2026-06-12: Fixed Feishu video delivery so outbound `.mp4` files are uploaded with Feishu `file_type: mp4` and sent as native `media` messages instead of being transcoded into OPUS voice messages. Inbound Feishu `media`/video resources are now downloaded as media and saved as `video` attachments, while non-MP4 video containers such as `.webm` are delivered as regular files rather than voice.
+- 2026-06-12: Improved `videoGenerate` provider diagnostics. The tool now logs HTTP response status and response body for provider calls, including failed submissions, and redacts sensitive request headers such as `Authorization` before printing logs.

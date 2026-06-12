@@ -646,3 +646,63 @@ test("videoGenerate tool rejects Base64 data URL reference images before submitt
     } catch {}
   }
 });
+
+test("videoGenerate tool logs failed provider response body with redacted request headers", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const originalError = console.error;
+  const logs: string[] = [];
+
+  globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    assert.equal(init?.method, "POST");
+    return new Response(JSON.stringify({
+      error: {
+        code: "invalid_request",
+        message: "image URL is expired"
+      }
+    }), { status: 400, statusText: "Bad Request" });
+  }) as typeof fetch;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map((arg) => typeof arg === "string" ? arg : JSON.stringify(arg)).join(" "));
+  };
+  console.error = (...args: unknown[]) => {
+    logs.push(args.map((arg) => typeof arg === "string" ? arg : JSON.stringify(arg)).join(" "));
+  };
+
+  try {
+    await fs.mkdir(mockCwd, { recursive: true });
+
+    const store = new SqliteVideoTaskStore(testDbFile);
+    const ctx = getTestContext({
+      engines: {
+        agnes: { enabled: true, apiKey: "agnes-secret-key", model: "agnes-video-v2.0" },
+        volcengine: { enabled: false, apiKey: "", model: "doubao-seedance-2.0" }
+      }
+    }, undefined, store);
+
+    const tool = createVideoGenerateTool(ctx);
+    await assert.rejects(
+      async () => {
+        await tool.execute("call-provider-error", {
+          prompt: "Generate a city walking video",
+          engine: "agnes",
+          images: ["https://example.com/expired-reference.png"]
+        });
+      },
+      /HTTP 400/
+    );
+
+    const joined = logs.join("\n");
+    assert.match(joined, /\[Agent Video Tool\] \[HTTP RESPONSE\] Status: 400 Bad Request/);
+    assert.match(joined, /\[Agent Video Tool\] \[HTTP RESPONSE BODY\]: .*image URL is expired/);
+    assert.match(joined, /Bearer agnes-.*redacted/);
+    assert.doesNotMatch(joined, /agnes-secret-key/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.log = originalLog;
+    console.error = originalError;
+    try {
+      await fs.rm(mockCwd, { recursive: true, force: true });
+    } catch {}
+  }
+});
