@@ -8,7 +8,7 @@
 | Phase | Scope | Status |
 |-------|-------|--------|
 | Phase 1 | Track implicit skill loading when the model reads a skill `SKILL.md` | Complete |
-| Phase 2 | Track `skillSearch` candidates as triggered skill facts | Not started |
+| Phase 2 | Track `skillSearch` candidates as triggered skill facts | Complete |
 | Phase 3 | Attribute executed evidence from declared skill signals | Not started |
 
 ## Phase 1 Checklist
@@ -30,12 +30,12 @@
 
 ## Phase 2 Checklist
 
-- [ ] In runner `afterToolCall`, detect successful `skillSearch` results.
-- [ ] Read `context.result.details.matches` defensively.
-- [ ] Emit `skill.selected` with `reason: "search_match"` for each matched skill.
-- [ ] Verify matched-only facts keep `payload.level === "triggered"` and `status === "info"`.
-- [ ] Add tests for candidate tracking and no downgrade after loaded.
-- [ ] Update documentation and this checklist.
+- [x] In runner `afterToolCall`, detect successful `skillSearch` results.
+- [x] Read `context.result.details.matches` defensively.
+- [x] Emit `skill.selected` with `reason: "search_match"` for each matched skill.
+- [x] Verify matched-only facts keep `payload.level === "triggered"` and `status === "info"`.
+- [x] Add tests for candidate tracking and no downgrade after loaded.
+- [x] Update documentation and this checklist.
 
 ## Phase 3 Checklist
 
@@ -46,6 +46,10 @@
 - [ ] Emit or record `executed` evidence without presenting it as proof.
 - [ ] Add tests for conservative matching, overlap handling, and no false positives.
 - [ ] Update documentation and this checklist.
+
+## Follow-up Notes
+
+- Trace UI or analytics that wants to count actually used skills should filter `skill_usage.payload.level` to `loaded` / `executed`; `triggered` facts include `skillSearch` candidates and should be treated as discovery signals, not usage proof.
 
 ## Implementation Log
 
@@ -60,3 +64,12 @@
   - Blocked by existing loader issue: `runner.test.ts` cannot start under Node test/tsx because `AGENTS.template.md?raw` is not handled by that loader path.
   - Full `tsc` remains blocked by existing repository errors; filtered check for touched implementation files produced no output.
 - Phase 1 implementation complete; remaining work is Phase 2/3.
+- Started Phase 2 implementation.
+- Implemented successful `skillSearch` match tracking in runner `afterToolCall`.
+- `skillSearch` matches now emit `skill.selected` with `reason: "search_match"` after defensive `details.matches` parsing; malformed matches and failed tool calls are ignored.
+- Added runner coverage for `skillSearch` candidate emission and retained trace recorder coverage for triggered-only facts plus no-downgrade merging.
+- Verification:
+  - Passed: `node --import tsx --test src/lib/server/agent/hooks/traceRecorderHook.test.ts`
+  - Full `tsc` remains blocked by existing repository errors; filtered check for touched implementation files produced no output.
+  - `runner.test.ts` remains blocked by the existing Node test/tsx `?raw` loader issue documented in Phase 1.
+- Phase 2 implementation complete; remaining work is Phase 3.

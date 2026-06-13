@@ -9,6 +9,11 @@
 - `skill_usage` facts now merge monotonically with `payload.level` and `payload.evidenceCsv`, so later weaker signals cannot downgrade a loaded skill fact.
 - Added a persistent implementation checklist at `docs/trace/skill-usage-tracking-progress.md` for Phase 1/2/3 tracking.
 
+### Skill Usage Trace Phase 2
+- Successful `skillSearch` results now emit `skill.selected` with `reason: search_match` for structurally valid matches from `details.matches`.
+- Search-only skill candidates are recorded as informational triggered facts, while already loaded skill facts remain loaded and are not downgraded.
+- Updated the skill usage tracking checklist to mark Phase 2 complete and keep executed attribution scoped to Phase 3.
+
 ### Sidebar Emojis & Label Toggle
 - Upgraded the 5 abstract primary sidebar symbols to intuitive high-fidelity Emojis (`🏠`, `🤖`, `💬`, `💾`, `⚙️`).
 - Added a labels toggle button (`🏷️`) at the bottom of the sidebar to collapse/expand menu names alongside the icons.

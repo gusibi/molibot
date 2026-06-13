@@ -126,3 +126,34 @@
 | `./node_modules/.bin/tsx --test src/lib/server/agent/core/runner.test.ts` | Runner tests execute | Blocked by `ERR_UNKNOWN_FILE_EXTENSION` for `AGENTS.template.md?raw` after IPC escalation | blocked |
 | `npx tsc --noEmit --pretty false` | TypeScript check | Blocked by existing repository errors outside touched implementation files | blocked |
 | `npx tsc --noEmit --pretty false 2>&1 \| rg "src/lib/server/agent/(core/runner\\.ts\|hooks/traceRecorderHook\\.ts\|tools/path\\.ts\|hooks/traceRecorderHook\\.test\\.ts)"` | No touched implementation errors | No output | pass |
+
+### Skill Usage Tracking Phase 2
+- **Status:** complete
+- **Completed:** 2026-06-13
+- Actions taken:
+  - Implemented runner `skillSearch` candidate tracking in `afterToolCall`.
+  - Defensively parsed `context.result.details.matches`.
+  - Emitted `skill.selected` with `reason: "search_match"` for structurally valid matches.
+  - Added runner test coverage for successful `skillSearch` match emission.
+  - Updated `docs/trace/skill-usage-tracking-progress.md` to mark Phase 2 complete and Phase 3 not started.
+  - Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`.
+  - Ran focused trace recorder tests successfully.
+  - Ran full TypeScript check and a touched implementation-file filter; full check is blocked by existing repo errors, while the touched implementation-file filter produced no output.
+- Files created/modified:
+  - `docs/trace/skill-usage-tracking-progress.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `src/lib/server/agent/core/runner.ts`
+  - `src/lib/server/agent/core/runner.test.ts`
+  - `features.md`
+  - `prd.md`
+  - `CHANGELOG.md`
+  - `README.md`
+
+## Test Results: Skill Usage Tracking Phase 2
+| Test | Expected | Actual | Status |
+|------|----------|--------|--------|
+| `node --import tsx --test src/lib/server/agent/hooks/traceRecorderHook.test.ts` | Trace recorder tests pass | 8 passing tests | pass |
+| `npx tsc --noEmit --pretty false` | TypeScript check | Blocked by existing repository errors outside touched implementation files | blocked |
+| `npx tsc --noEmit --pretty false 2>&1 \| rg "src/lib/server/agent/(core/runner\\.ts\|hooks/traceRecorderHook\\.ts\|tools/path\\.ts\|hooks/traceRecorderHook\\.test\\.ts)"` | No touched implementation errors | No output | pass |

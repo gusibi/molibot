@@ -71,3 +71,33 @@
 | Match exact compare keys | Avoids fuzzy path false positives. |
 | Use in-memory skill usage state in the recorder | Keeps Phase 1 small and avoids DB reads per skill signal. |
 | Store evidence as CSV | Works with existing payload sanitizer. |
+
+---
+
+# Findings & Decisions: Skill Usage Tracking Phase 2
+
+## Requirements
+- Implement Phase 2 from `docs/trace/skill-usage-tracking-plan.md`.
+- Track successful `skillSearch` matches as triggered candidate skill facts.
+- Do not claim candidate matches are loaded or executed.
+- Do not change Channel-layer behavior.
+- Update progress and project documentation after the functional change.
+
+## Research Findings
+- Runner `afterToolCall` receives the `skillSearch` result payload, so candidate tracking can be added without changing the `skillSearch` tool implementation.
+- `TraceRecorderHook` already treats `skill.selected` with `reason: "search_match"` as `payload.level: "triggered"` and `status: "info"`.
+- Existing monotonic merging already prevents later `search_match` signals from downgrading an earlier loaded fact.
+
+## Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Read only `context.result.details.matches` | This keeps Phase 2 coupled to the existing structured tool detail output rather than parsing display text. |
+| Skip malformed matches | Trace enrichment must not alter or fail tool execution. |
+| Include optional numeric score | It is useful diagnostic metadata and harmless when absent. |
+| Leave `reasons` out of the emitted payload | Existing payload sanitization collapses arrays, and `reason: search_match` is the stable evidence token needed by facts. |
+
+## Issues Encountered
+| Issue | Resolution |
+|-------|------------|
+| Full `tsc` still reports existing unrelated repository errors | Re-ran the touched implementation-file filter; it produced no output. |
+| `runner.test.ts` remains blocked by the existing `?raw` loader issue | Added future runner coverage but relied on executable trace recorder tests plus implementation-file type filtering for current verification. |

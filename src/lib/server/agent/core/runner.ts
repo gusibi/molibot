@@ -99,6 +99,7 @@ const SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS = 12;
 type ToolCallTrackingContext = {
   toolCall: { id: string; name: string };
   args?: unknown;
+  result?: unknown;
   isError?: boolean;
 };
 
@@ -311,6 +312,7 @@ export class MomRunner implements RunnerLike {
           );
         }
         this.emitSkillLoadedForReadTool(context);
+        this.emitSkillSearchMatches(context);
         return undefined;
       },
       streamFn: (selectedModel, context, opts) => {
@@ -2124,6 +2126,34 @@ export class MomRunner implements RunnerLike {
       filePath: skill.filePath,
       reason: "read_skill_file"
     });
+  }
+
+  private emitSkillSearchMatches(context: ToolCallTrackingContext): void {
+    if (context.toolCall.name !== "skillSearch" || context.isError || !this.activeHookContext) return;
+    const result = context.result;
+    if (!result || typeof result !== "object") return;
+    const details = (result as { details?: unknown }).details;
+    if (!details || typeof details !== "object") return;
+    const matches = (details as { matches?: unknown }).matches;
+    if (!Array.isArray(matches)) return;
+
+    for (const match of matches) {
+      if (!match || typeof match !== "object") continue;
+      const { name, scope, filePath, score } = match as {
+        name?: unknown;
+        scope?: unknown;
+        filePath?: unknown;
+        score?: unknown;
+      };
+      if (typeof name !== "string" || typeof scope !== "string" || typeof filePath !== "string") continue;
+      this.hookManager.emit("skill.selected", this.activeHookContext, {
+        name,
+        scope,
+        filePath,
+        reason: "search_match",
+        ...(typeof score === "number" ? { score } : {})
+      });
+    }
   }
 
   private emitSkillSelection(skills: Array<{ name: string; scope: string; filePath: string; aliases?: string[] }>): void {

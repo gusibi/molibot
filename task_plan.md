@@ -120,3 +120,43 @@ Phase 1
 
 ## Remaining Risk
 - Runner-level tests were added but could not execute in the current Node test/tsx path because the existing runner test imports Vite `?raw` markdown templates. The implementation path is covered by code review and touched implementation-file type filtering; trace fact merge behavior is covered by executable tests.
+
+---
+
+# Task Plan: Skill Usage Tracking Phase 2
+
+## Goal
+Implement Phase 2 of `docs/trace/skill-usage-tracking-plan.md`: record successful `skillSearch` matches as triggered skill candidates without claiming the skill was loaded or executed.
+
+## Current Phase
+Phase 2 complete; Phase 3 not started.
+
+## Phases
+
+### Phase 1: Runner Candidate Emission
+- [x] Detect successful `skillSearch` calls in runner `afterToolCall`.
+- [x] Defensively read `context.result.details.matches`.
+- [x] Emit `skill.selected` with `reason: "search_match"` for structurally valid matches.
+- **Status:** complete
+
+### Phase 2: Trace Semantics
+- [x] Keep matched-only facts at `payload.level: "triggered"`.
+- [x] Keep matched-only facts at `status: "info"`.
+- [x] Preserve no-downgrade behavior when a search match follows a loaded fact.
+- **Status:** complete
+
+### Phase 3: Tests And Documentation
+- [x] Add runner coverage for `skillSearch` candidate emission.
+- [x] Reuse executable trace recorder tests for triggered-only and no-downgrade behavior.
+- [x] Update `docs/trace/skill-usage-tracking-progress.md` and project docs.
+- **Status:** complete
+
+## Decisions Made
+| Decision | Rationale |
+|----------|-----------|
+| Emit `skill.selected`, not `skill.loaded` | A search match is only a candidate signal. |
+| Validate match fields before emitting | Tool result details are diagnostic data and should not break runtime flow if malformed. |
+| Keep Phase 3 out of scope | Executed attribution needs a separate signal contract and false-positive review. |
+
+## Remaining Risk
+- Runner-level Phase 2 test coverage was added but still cannot execute in the current Node test/tsx path because of the existing `?raw` markdown loader issue in `runner.test.ts`.

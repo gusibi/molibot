@@ -881,6 +881,38 @@ test("runner emits skill.selected without treating workspace scan as skill.loade
   assert.equal(events.some((event) => event.stage === "skill.loaded"), false);
 });
 
+test("runner emits skill.selected for successful skillSearch matches", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = createRunnerHookManager(events);
+  const runner = await createRunnerForHookTest({ chatId: "chat-skill-search", hookManager });
+  activateHookContext(runner, "run-skill-search", "chat-skill-search");
+
+  const agent = (runner as any).agent;
+  await agent.afterToolCall({
+    toolCall: { id: "skill-search-1", name: "skillSearch", input: {} },
+    result: {
+      details: {
+        matches: [
+          {
+            name: "searched-skill",
+            scope: "global",
+            filePath: "skills/searched-skill/SKILL.md",
+            score: 0.87
+          },
+          { name: "bad-match", scope: "global" }
+        ]
+      }
+    },
+    isError: false
+  });
+
+  const selected = events.filter((event) => event.stage === "skill.selected");
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0]?.payload.name, "searched-skill");
+  assert.equal(selected[0]?.payload.reason, "search_match");
+  assert.equal(selected[0]?.payload.score, 0.87);
+});
+
 test("runner emits skill.loaded when read opens an active skill file", async () => {
   const events: Array<{ stage: string; payload: any }> = [];
   const hookManager = createRunnerHookManager(events);

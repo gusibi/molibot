@@ -8,6 +8,11 @@
 - **单调 skill fact 合并**: `TraceRecorderHook` 现在为 `skill_usage` 维护 run 内合并态，使用 `payload.level` (`triggered` / `loaded`) 与 `payload.evidenceCsv` 累积证据，保证后到的低置信度信号不会把已 loaded 的 fact 降级。triggered-only skill facts 使用 `status: "info"`，避免被误显示为进行中。
 - **实施进度文档**: 新增 `docs/trace/skill-usage-tracking-progress.md`，跟踪 Phase 1/2/3 checklist 与当前完成状态。
 
+### Skill 使用追踪 Phase 2 (SkillSearch Candidate Tracking)
+- **候选触发追踪**: 当 `skillSearch` 成功返回 `details.matches` 时，runner 会对每个结构完整的匹配项发出 `skill.selected`，并标记 `reason: "search_match"`，让 trace 能记录“被检索命中的候选 skill”，即使模型后续没有读取对应 `SKILL.md`。
+- **防御式结果解析**: Phase 2 只读取 `context.result.details.matches`，并逐项校验 `name`、`scope`、`filePath` 为字符串；失败的 `skillSearch`、缺失 details、非数组 matches 或畸形 match 都会被忽略，不影响工具原始执行结果。
+- **语义边界**: `search_match` 只会形成 `payload.level: "triggered"` / `status: "info"` 的 `skill_usage` fact；如果同一 skill 后续已由 Phase 1 标记为 loaded，合并逻辑保持 loaded 不降级。Phase 3 的 executed 归因仍未开始。
+
 ### 导航栏图标优化与菜单名称展示切换 (Sidebar Emojis & Label Toggle)
 - **语义化 Emoji 图标**: 优化了设置中心左侧一级导航的 5 个图标，使用更直观、高频表达的 Emojis (`🏠`, `🤖`, `💬`, `💾`, `⚙️`) 替换了原来的抽象几何符号。
 - **名称展示切换开关**: 在一级导航底部添加了一个 `🏷️` (显示名称) 按钮，控制左侧边栏是否展开并显示各菜单组的文本名称（如 “总览”、“AI 引擎”、“渠道”等）。侧边栏展开宽度与底部固定保存栏的左侧定位均完美适配并自带过渡动画。状态保存在 `localStorage` 中，刷新页面亦可自动还原 operator 的选择。
