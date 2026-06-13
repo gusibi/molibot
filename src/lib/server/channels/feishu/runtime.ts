@@ -3,7 +3,7 @@ import * as lark from "@larksuiteoapi/node-sdk";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { buildHostBashApprovalPrompt, getHostBashStore, type HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
-import { type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
+import { resolveEventSessionMode, type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
@@ -755,7 +755,7 @@ export class FeishuManager extends BaseChannelRuntime {
         const chatId = event.chatId;
         const scopeId = event.scopeId || chatId;
         event.workspaceId = event.workspaceId || this.workspaceId;
-        const activeSessionId = event.sessionId || this.store.getActiveSession(scopeId);
+        const activeSessionId = event.sessionId || this.resolveInboundSessionId(scopeId, event);
         const turn = getTurnOrchestrator().prepareTurn({
             chatId: scopeId,
             sessionId: activeSessionId,
@@ -1020,7 +1020,8 @@ export class FeishuManager extends BaseChannelRuntime {
                 ts: `${Math.floor(now / 1000)}.${String(now % 1000).padStart(3, "0")}`,
                 attachments: [],
                 imageContents: [],
-                isEvent: true
+                isEvent: true,
+                sessionMode: resolveEventSessionMode(task)
             };
             (synthetic as ChannelInboundMessage & { runId?: string }).runId = task.status?.runId;
             await this.processEvent(synthetic);

@@ -2,7 +2,18 @@
 
 ## Version 1.0
 
+## 2026-06-13
+
+### Scheduled Task Fresh Sessions & Auto Cleanup
+- Scheduled events now support `sessionMode: "fresh" | "chat"`; periodic tasks default to fresh, so each run starts in a new `task-` session without accumulated chat history (big input-token saving for daily reports), while replies in the chat still land in that session for follow-up tweaks.
+- Expired task sessions are pruned automatically on each fresh-session creation, controlled by `events.taskSessionRetentionDays` (default 7 days, 0 disables; env `MOLIBOT_EVENT_TASK_SESSION_RETENTION_DAYS`). Active and user-created sessions are never pruned.
+- `createEvent` tool accepts `sessionMode`; all four channels (telegram/feishu/weixin/qq) route event runs through a shared session resolver.
+
 ## 2026-06-12
+
+### Subagent Trigger Observability & Scenario Widening
+- Run summaries now persist subagent telemetry (delegation notice sent, invoked, per-task agent/mode/stopReason/duration/error), making subagent usage auditable from `run-summaries.jsonl` instead of console logs only.
+- Subagent trigger guidance widened from "codebase-heavy" to "file/shell-heavy" (log/data analysis, long documents, multi-file artifacts) in the system prompt and delegation runtime notice, with an explicit rule not to delegate steps needing parent-only tools (webSearch, imageGenerate, attach).
 
 ### Feishu Video Attachment Delivery
 - Feishu outbound `.mp4` files now upload as `file_type: mp4` and send as native `media` messages instead of being transcoded into OPUS voice messages.

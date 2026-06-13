@@ -1,6 +1,21 @@
 # Molibot Features
 
+## 2026-06-13
+
+### 定时任务 Fresh Session 与任务会话自动清理 (Scheduled Task Fresh Sessions & Auto Cleanup)
+- **事件级 `sessionMode`**: `MomEvent` 新增 `sessionMode: "fresh" | "chat"`。`fresh` 表示每次触发在全新 session 中运行（不携带聊天历史），`chat` 表示沿用聊天 active session（旧行为）。默认值：periodic → fresh，one-shot/immediate → chat（`resolveEventSessionMode`）。解决日报类周期任务的历史报告逐日累积、每次运行重复支付全部历史 input token 的问题。
+- **Fresh session 即 active session**: `MomRuntimeStore.beginTaskSession` 创建 `task-` 前缀的新 session 并切换为 active，任务报告发出后用户直接在聊天中回复即可微调——反馈自然落入该任务 session，生成上下文完整保留。下次任务触发时再开新 session，上一个自动归档。
+- **任务会话自动清理**: `pruneTaskSessions` 在每次创建 fresh session 时按保留期删除过期的 `task-*` session（按 entries 文件 mtime 判定最近活跃时间）；active session 与非 task 前缀的用户 session 永不删除。保留期由 `settings.events.taskSessionRetentionDays` 控制（默认 7 天，0 = 不清理，env `MOLIBOT_EVENT_TASK_SESSION_RETENTION_DAYS`）。
+- **四渠道统一接线**: telegram / feishu（流式与非流式）/ weixin / qq 的 triggerTask 在 synthetic 消息上标记 `sessionMode`，session 解析统一收敛到 `BaseChannelRuntime.resolveInboundSessionId`。
+- **createEvent 工具支持 sessionMode**: agent 创建定时任务时可显式指定 `sessionMode`，工具描述中说明了 fresh/chat 语义与默认值。
+- 测试: 新增 `taskSessions.test.ts`（5 个用例：创建、过期清理、保留期关闭、默认模式解析、天数换算），全部通过。
+
 ## 2026-06-12
+
+### Subagent 触发可观测性与触发场景扩展 (Subagent Trigger Observability & Scenario Widening)
+- **run-summaries 持久化 Subagent 遥测**: `RunSummary` 新增 `subagent` 字段（`delegationNoticeSent` / `invoked` / `taskCount` / 每个任务的 agent、mode、stopReason、耗时、错误、任务预览），runner 在 `subagent_execution` 事件流中采集并写入成功/失败两条 run summary 路径。此前 subagent 是否触发只能在终端 momLog 中看到，无法事后查证；现在可直接 `grep '"subagent"' run-summaries.jsonl` 审计。
+- **run closing note 展示 Subagent 使用情况**: 调用过 subagent 时显示任务数与角色；收到委派建议（12 次工具调用阈值）但未使用时显示 "delegation recommended but not used"，便于发现模型忽略建议的 run。
+- **触发场景从 codebase-heavy 扩展为 file/shell-heavy**: 系统提示词（tools 段 + subagents 段）与 `SUBAGENT_DELEGATION_RUNTIME_NOTICE` 统一改写——日志/数据文件分析、长文档处理、多文件 artifact 构建等 bash 密集任务现在也被明确引导委派；同时新增反向约束：subagent 仅有 read/bash(/edit/write)，需要 webSearch/imageGenerate/attach 等父级工具的步骤不得委派。旧版 notice 文案保留在 transient 剥离集合中，历史会话中的旧 notice 仍会被正确清理。
 
 ### 文件工具加固 (File Tool Hardening: read/write/edit/bash)
 - **edit `$` 替换模式 bug 修复**: `String.replace` 会把 newText 中的 `$&`/`$'`/`` $` `` 解释为特殊替换模式导致写入内容被悄悄破坏，现改用 replacer 函数按字面值插入。

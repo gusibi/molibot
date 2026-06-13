@@ -544,6 +544,18 @@ export class MomRunner implements RunnerLike {
     const usedToolNames: string[] = [];
     const failedToolNames: string[] = [];
     let subagentDelegationNoticeSent = false;
+    const subagentTaskRecords: NonNullable<RunSummary["subagent"]>["tasks"] = [];
+    const subagentTaskStartTimes = new Map<string, number>();
+    let subagentInvoked = false;
+    const buildSubagentSummary = (): RunSummary["subagent"] =>
+      subagentDelegationNoticeSent || subagentInvoked
+        ? {
+          delegationNoticeSent: subagentDelegationNoticeSent,
+          invoked: subagentInvoked,
+          taskCount: subagentTaskRecords.length,
+          tasks: subagentTaskRecords
+        }
+        : undefined;
     this.running = true;
     this.abortRequested = false;
     this.activeRunnerEventSink = ctx.onRunnerEvent;
@@ -799,6 +811,26 @@ export class MomRunner implements RunnerLike {
               command: event.hostBashApproval.request.command,
               reason: event.hostBashApproval.request.reason,
               approvalMode: event.hostBashApproval.request.approvalMode
+            });
+          }
+        }
+        if (event.type === "subagent_execution") {
+          subagentInvoked = true;
+          const taskKey = `${event.taskIndex ?? 0}:${event.agent ?? ""}`;
+          if (event.phase === "task_start") {
+            subagentTaskStartTimes.set(taskKey, Date.now());
+          } else if (event.phase === "task_end") {
+            const startedAt = subagentTaskStartTimes.get(taskKey);
+            subagentTaskStartTimes.delete(taskKey);
+            subagentTaskRecords.push({
+              mode: event.mode,
+              agent: event.agent,
+              taskIndex: event.taskIndex,
+              taskCount: event.taskCount,
+              taskPreview: String(event.task ?? "").replace(/\s+/g, " ").trim().slice(0, 160) || undefined,
+              stopReason: event.stopReason,
+              errorMessage: event.errorMessage,
+              durationMs: startedAt ? Date.now() - startedAt : undefined
             });
           }
         }
@@ -1946,6 +1978,7 @@ export class MomRunner implements RunnerLike {
           longTermCount: memorySnapshot.longTerm.length,
           dailyCount: memorySnapshot.daily.length
         },
+        subagent: buildSubagentSummary(),
         skillDraft: savedSkillDraft,
         reflection: buildRunReflection({
           stopReason,
@@ -2006,6 +2039,7 @@ export class MomRunner implements RunnerLike {
         budget: budget.snapshot(),
         budgetLimits: budget.limitsSnapshot(),
         usage: finalUsage,
+        subagent: buildSubagentSummary(),
         reflection: buildRunReflection({
           stopReason: "error",
           finalText: "",

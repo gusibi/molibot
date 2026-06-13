@@ -692,7 +692,8 @@ export function sanitizeEventExecutionSettings(
   return {
     executionTimeoutMs: clampNumber(source.executionTimeoutMs, fallback.executionTimeoutMs, 1000, 24 * 60 * 60 * 1000),
     maxAttempts: clampNumber(source.maxAttempts, fallback.maxAttempts, 1, 20),
-    retryDelayMs: clampNumber(source.retryDelayMs, fallback.retryDelayMs, 0, 60 * 60 * 1000)
+    retryDelayMs: clampNumber(source.retryDelayMs, fallback.retryDelayMs, 0, 60 * 60 * 1000),
+    taskSessionRetentionDays: clampNumber(source.taskSessionRetentionDays, fallback.taskSessionRetentionDays, 0, 365)
   };
 }
 

@@ -4,7 +4,12 @@ import { basename, extname, join } from "node:path";
 import { Bot, InlineKeyboard, InputFile } from "grammy";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
-import { EventsWatcher, type MomEvent, type EventDeliveryMode } from "$lib/server/agent/events.js";
+import {
+  EventsWatcher,
+  resolveEventSessionMode,
+  type MomEvent,
+  type EventDeliveryMode
+} from "$lib/server/agent/events.js";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { formatSubagentProgressLabel, formatSubagentProgressSummary } from "$lib/server/agent/subagentProgress.js";
 import { SharedRuntimeCommandService } from "$lib/server/agent/commands/channelCommands.js";
@@ -978,7 +983,8 @@ export class TelegramManager extends BaseChannelRuntime {
               ts: (Date.now() / 1000).toFixed(6),
               attachments: [],
               imageContents: [],
-              isEvent: true
+              isEvent: true,
+              sessionMode: resolveEventSessionMode(event)
             };
             (synthetic as ChannelInboundMessage & { runId?: string }).runId = runId;
             await this.processEvent(synthetic, this.bot!);
@@ -1059,7 +1065,7 @@ export class TelegramManager extends BaseChannelRuntime {
       })
       : sendOptions;
     this.ensureChatEventsWatcher(scopeId);
-    const sessionId = event.sessionId || this.store.getActiveSession(scopeId);
+    const sessionId = event.sessionId || this.resolveInboundSessionId(scopeId, event);
     const sessionThinkingLevelOverride = this.store.getSessionThinkingLevelOverride(scopeId, sessionId);
     const runner = this.runners.get(scopeId, sessionId);
     const runId = (event as ChannelInboundMessage & { runId?: string }).runId ?? createRunId(scopeId, event.messageId);

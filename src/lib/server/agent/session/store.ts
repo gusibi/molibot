@@ -5,6 +5,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
@@ -421,6 +422,53 @@ export class MomRuntimeStore {
     this.ensureSessionEntriesFile(chatId, id);
     this.setActiveSession(chatId, id);
     return id;
+  }
+
+  /**
+   * Creates a fresh session for a scheduled task run and makes it active so
+   * follow-up replies in the chat land in the task's context. Old task
+   * sessions past the retention window are pruned in the same call.
+   */
+  beginTaskSession(chatId: string, retentionMs?: number): string {
+    const id = `task-${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`;
+    this.ensureSessionContextFile(chatId, id);
+    this.ensureSessionEntriesFile(chatId, id);
+    this.setActiveSession(chatId, id);
+    if (retentionMs !== undefined && retentionMs > 0) {
+      this.pruneTaskSessions(chatId, retentionMs);
+    }
+    return id;
+  }
+
+  /**
+   * Deletes `task-` sessions whose latest activity (entries-file mtime) is
+   * older than retentionMs. The active session and non-task sessions are
+   * never touched.
+   */
+  pruneTaskSessions(chatId: string, retentionMs: number): string[] {
+    const cutoff = Date.now() - Math.max(0, retentionMs);
+    const active = this.getActiveSession(chatId);
+    const pruned: string[] = [];
+
+    for (const id of this.listSessions(chatId)) {
+      if (!id.startsWith("task-") || id === active) continue;
+      let lastActivityMs = 0;
+      for (const file of [this.getSessionEntriesFile(chatId, id), this.getSessionContextFile(chatId, id)]) {
+        try {
+          lastActivityMs = Math.max(lastActivityMs, statSync(file).mtimeMs);
+        } catch {
+          // missing variant file; rely on the other one
+        }
+      }
+      if (lastActivityMs === 0 || lastActivityMs >= cutoff) continue;
+      try {
+        this.deleteSession(chatId, id);
+        pruned.push(id);
+      } catch {
+        // e.g. last remaining session; leave it in place
+      }
+    }
+    return pruned;
   }
 
   clearSessionContext(chatId: string, sessionId: string): void {

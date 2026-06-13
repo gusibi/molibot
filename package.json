@@ -1,6 +1,6 @@
 {
   "name": "molibot",
-  "version": "2.1.3",
+  "version": "2.1.5",
   "private": true,
   "type": "module",
   "imports": {

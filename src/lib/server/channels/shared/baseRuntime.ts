@@ -8,6 +8,7 @@ import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore.js";
+import { taskSessionRetentionMs } from "$lib/server/agent/events.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
@@ -131,6 +132,22 @@ export abstract class BaseChannelRuntime {
 
   protected getEventLeaseScope(): string {
     return `${this.channelName}:${this.instanceId}`;
+  }
+
+  /**
+   * Scheduled-event runs marked sessionMode=fresh start a new task session
+   * (and prune expired ones); everything else uses the chat's active session.
+   */
+  protected resolveInboundSessionId(scopeId: string, event: ChannelInboundMessage): string {
+    if (event.isEvent && event.sessionMode === "fresh") {
+      const sessionId = this.store.beginTaskSession(
+        scopeId,
+        taskSessionRetentionMs(this.getSettings().events?.taskSessionRetentionDays)
+      );
+      momLog(this.channelName, "event_fresh_session_created", { chatId: scopeId, sessionId });
+      return sessionId;
+    }
+    return this.store.getActiveSession(scopeId);
   }
 
   public abortTaskRun(scopeId: string, reason = "Aborted by runtime."): { aborted: boolean; clearedStale?: boolean } {
@@ -423,8 +440,8 @@ export abstract class BaseChannelRuntime {
     }
   ): Promise<void> {
     event.workspaceId = event.workspaceId || this.workspaceId;
-    const activeSessionId = event.sessionId || this.store.getActiveSession(scopeId);
-    
+    const activeSessionId = event.sessionId || this.resolveInboundSessionId(scopeId, event);
+
     // Prepare turn metadata via TurnOrchestrator
     getTurnOrchestrator().prepareTurn({
       chatId: scopeId,

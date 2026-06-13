@@ -481,7 +481,11 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   events: {
     executionTimeoutMs: Math.max(1000, Number(process.env.MOLIBOT_EVENT_EXECUTION_TIMEOUT_MS ?? 600_000) || 600_000),
     maxAttempts: Math.max(1, Number(process.env.MOLIBOT_EVENT_MAX_ATTEMPTS ?? 3) || 3),
-    retryDelayMs: Math.max(0, Number(process.env.MOLIBOT_EVENT_RETRY_DELAY_MS ?? 5000) || 5000)
+    retryDelayMs: Math.max(0, Number(process.env.MOLIBOT_EVENT_RETRY_DELAY_MS ?? 5000) || 5000),
+    taskSessionRetentionDays: (() => {
+      const raw = Number(process.env.MOLIBOT_EVENT_TASK_SESSION_RETENTION_DAYS ?? 7);
+      return Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : 7;
+    })()
   },
   browserAutomation: {
     defaultTimeoutMs: Math.max(5000, Number(process.env.AGENT_BROWSER_DEFAULT_TIMEOUT ?? 60000) || 60000)

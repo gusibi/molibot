@@ -398,6 +398,8 @@ export interface EventExecutionSettings {
   executionTimeoutMs: number;
   maxAttempts: number;
   retryDelayMs: number;
+  /** Days to keep fresh task sessions before pruning; 0 disables cleanup. */
+  taskSessionRetentionDays: number;
 }
 
 export interface RunBudgetLimits {

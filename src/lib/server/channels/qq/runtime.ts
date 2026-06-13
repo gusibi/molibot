@@ -1,6 +1,6 @@
 import { extname } from "node:path";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
-import type { EventDeliveryMode, MomEvent } from "$lib/server/agent/events.js";
+import { resolveEventSessionMode, type EventDeliveryMode, type MomEvent } from "$lib/server/agent/events.js";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import { createRunId, momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { buildNonInteractiveHostBashApprovalText } from "$lib/server/hostBash/index.js";
@@ -543,7 +543,8 @@ export class QQManager extends BaseChannelRuntime {
       ts: normalizeTimestamp(new Date(now).toISOString()),
       attachments: [],
       imageContents: [],
-      isEvent: true
+      isEvent: true,
+      sessionMode: resolveEventSessionMode(task)
     };
     (synthetic as ChannelInboundMessage & { runId?: string }).runId = task.status?.runId;
 

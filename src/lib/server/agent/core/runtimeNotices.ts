@@ -11,6 +11,14 @@ export const TOOL_BUDGET_RUNTIME_NOTICE = [
 export const SUBAGENT_DELEGATION_RUNTIME_NOTICE = [
   "[runtime notice]",
   "This run has already used many parent-run tool calls.",
+  "If the remaining work is file/shell-heavy — codebase work, multi-file changes, log/data analysis, long document processing, implementation, or review — delegate now with the `subagent` tool instead of continuing direct read/bash/edit loops.",
+  "Use `scout` for further investigation, `planner` for planning, `worker` for implementation, and `reviewer` for review. If the task is already ready to answer, finish directly.",
+  "[/runtime notice]"
+].join("\n");
+
+const LEGACY_SUBAGENT_DELEGATION_RUNTIME_NOTICE = [
+  "[runtime notice]",
+  "This run has already used many parent-run tool calls.",
   "If the remaining work is codebase-heavy, multi-file, implementation, or review work, delegate now with the `subagent` tool instead of continuing direct read/bash/edit loops.",
   "Use `scout` for further investigation, `planner` for planning, `worker` for implementation, and `reviewer` for review. If the task is already ready to answer, finish directly.",
   "[/runtime notice]"
@@ -18,7 +26,8 @@ export const SUBAGENT_DELEGATION_RUNTIME_NOTICE = [
 
 const TRANSIENT_RUNTIME_NOTICES = new Set([
   TOOL_BUDGET_RUNTIME_NOTICE,
-  SUBAGENT_DELEGATION_RUNTIME_NOTICE
+  SUBAGENT_DELEGATION_RUNTIME_NOTICE,
+  LEGACY_SUBAGENT_DELEGATION_RUNTIME_NOTICE
 ]);
 
 function extractTextParts(message: AgentMessage): string[] {

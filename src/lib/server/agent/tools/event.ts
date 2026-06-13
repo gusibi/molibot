@@ -26,6 +26,11 @@ const eventSchema = Type.Object({
         Type.Union([Type.Literal("text"), Type.Literal("agent")], {
             description: "text: deliver message directly. agent: run through AI first. Defaults to 'text' for one-shot/immediate, 'agent' for periodic."
         })
+    ),
+    sessionMode: Type.Optional(
+        Type.Union([Type.Literal("fresh"), Type.Literal("chat")], {
+            description: "fresh: each trigger runs in a new session without chat history (default for periodic). chat: run in the chat's active session (default for one-shot/immediate)."
+        })
     )
 });
 
@@ -114,6 +119,10 @@ export function createEventTool(options: {
             "- agent: run AI with the text as the task instruction. Use for recurring summaries or actions.",
             "- Defaults: one-shot/immediate -> text; periodic -> agent.",
             "",
+            "Session:",
+            "- sessionMode=fresh: each trigger runs in a new session without chat history (default for periodic). Old task sessions are cleaned up automatically.",
+            "- sessionMode=chat: run inside the chat's active session (default for one-shot/immediate). Use when the task needs the ongoing conversation context.",
+            "",
             "Cron format:",
             "- schedule is 'minute hour day-of-month month day-of-week'.",
             "- 0 9 * * * = daily at 09:00.",
@@ -170,6 +179,7 @@ export function createEventTool(options: {
 
             const delivery: "text" | "agent" =
                 params.delivery ?? (params.type === "periodic" ? "agent" : "text");
+            const sessionMode = params.sessionMode;
 
             let event: MomEvent;
             let atIso: string | undefined;
@@ -183,6 +193,7 @@ export function createEventTool(options: {
                     chatId: options.chatId,
                     text: params.text,
                     delivery,
+                    sessionMode,
                     at: atIso
                 };
             } else if (params.type === "periodic") {
@@ -191,6 +202,7 @@ export function createEventTool(options: {
                     chatId: options.chatId,
                     text: params.text,
                     delivery,
+                    sessionMode,
                     schedule: params.schedule!,
                     timezone: params.timezone ?? tz
                 };
@@ -199,7 +211,8 @@ export function createEventTool(options: {
                     type: "immediate",
                     chatId: options.chatId,
                     text: params.text,
-                    delivery
+                    delivery,
+                    sessionMode
                 };
             }
 

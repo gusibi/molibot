@@ -21,11 +21,16 @@ export interface EventStatus {
 
 export type EventDeliveryMode = "text" | "agent";
 
+// fresh: run each trigger in a brand-new session (no accumulated chat history);
+// chat: append to the chat's active session (legacy behavior).
+export type EventSessionMode = "fresh" | "chat";
+
 interface EventBase {
   chatId: string;
   text: string;
   // text: send text directly; agent: run through AI agent first, then send result.
   delivery?: EventDeliveryMode;
+  sessionMode?: EventSessionMode;
   status?: EventStatus;
 }
 
@@ -45,6 +50,20 @@ export interface PeriodicEvent {
 }
 
 export type MomEvent = (ImmediateEvent | OneShotEvent | PeriodicEvent) & EventBase;
+
+export function taskSessionRetentionMs(days: number | undefined): number | undefined {
+  if (typeof days !== "number" || !Number.isFinite(days) || days <= 0) return undefined;
+  return Math.round(days) * 24 * 60 * 60 * 1000;
+}
+
+// Periodic agent tasks default to fresh sessions so daily report runs do not
+// keep paying for accumulated history; other event types stay in the chat session.
+export function resolveEventSessionMode(event: MomEvent): EventSessionMode {
+  const raw = String(event.sessionMode ?? "").trim().toLowerCase();
+  if (raw === "fresh") return "fresh";
+  if (raw === "chat") return "chat";
+  return event.type === "periodic" ? "fresh" : "chat";
+}
 
 interface CronFieldRule {
   values: Set<number> | null;

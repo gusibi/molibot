@@ -8,6 +8,24 @@ export interface RunReflection {
   nextAction: string;
 }
 
+export interface RunSummarySubagentTask {
+  mode: "single" | "parallel" | "chain";
+  agent?: string;
+  taskIndex?: number;
+  taskCount: number;
+  taskPreview?: string;
+  stopReason?: string;
+  errorMessage?: string;
+  durationMs?: number;
+}
+
+export interface RunSummarySubagent {
+  delegationNoticeSent: boolean;
+  invoked: boolean;
+  taskCount: number;
+  tasks: RunSummarySubagentTask[];
+}
+
 export interface RunSummary {
   runId: string;
   workspaceId?: string;
@@ -34,6 +52,7 @@ export interface RunSummary {
     longTermCount: number;
     dailyCount: number;
   };
+  subagent?: RunSummarySubagent;
   reflection?: RunReflection;
   skillDraft?: SavedSkillDraft;
   errorMessage?: string;
@@ -64,6 +83,13 @@ export function formatRunClosingNote(summary: RunSummary): string {
   const failedTools = unique(summary.failedToolNames);
   if (failedTools.length > 0) {
     lines.push(`- Tool failures: ${failedTools.join(", ")}`);
+  }
+
+  if (summary.subagent?.invoked) {
+    const agents = unique(summary.subagent.tasks.map((task) => task.agent ?? ""));
+    lines.push(`- Subagent tasks: ${summary.subagent.tasks.length}${agents.length > 0 ? ` (${agents.join(", ")})` : ""}`);
+  } else if (summary.subagent?.delegationNoticeSent) {
+    lines.push("- Subagent: delegation recommended but not used");
   }
 
   if (summary.explicitSkillNames.length > 0) {

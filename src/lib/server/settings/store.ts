@@ -140,6 +140,7 @@ interface RawSettings {
     executionTimeoutMs?: number | string;
     maxAttempts?: number | string;
     retryDelayMs?: number | string;
+    taskSessionRetentionDays?: number | string;
   };
   display?: unknown;
   browserAutomation?: {
@@ -414,6 +415,9 @@ function sanitizeEventExecutionSettings(input: unknown): RuntimeSettings["events
   const executionTimeoutMsRaw = Number(source.executionTimeoutMs ?? defaultRuntimeSettings.events.executionTimeoutMs);
   const maxAttemptsRaw = Number(source.maxAttempts ?? defaultRuntimeSettings.events.maxAttempts);
   const retryDelayMsRaw = Number(source.retryDelayMs ?? defaultRuntimeSettings.events.retryDelayMs);
+  const taskSessionRetentionDaysRaw = Number(
+    source.taskSessionRetentionDays ?? defaultRuntimeSettings.events.taskSessionRetentionDays
+  );
   return {
     executionTimeoutMs: Number.isFinite(executionTimeoutMsRaw)
       ? Math.max(1000, Math.min(24 * 60 * 60 * 1000, Math.round(executionTimeoutMsRaw)))
@@ -423,7 +427,10 @@ function sanitizeEventExecutionSettings(input: unknown): RuntimeSettings["events
       : defaultRuntimeSettings.events.maxAttempts,
     retryDelayMs: Number.isFinite(retryDelayMsRaw)
       ? Math.max(0, Math.min(60 * 60 * 1000, Math.round(retryDelayMsRaw)))
-      : defaultRuntimeSettings.events.retryDelayMs
+      : defaultRuntimeSettings.events.retryDelayMs,
+    taskSessionRetentionDays: Number.isFinite(taskSessionRetentionDaysRaw)
+      ? Math.max(0, Math.min(365, Math.round(taskSessionRetentionDaysRaw)))
+      : defaultRuntimeSettings.events.taskSessionRetentionDays
   };
 }
 
@@ -1868,7 +1875,8 @@ export class SettingsStore {
       events: {
         executionTimeoutMs: settings.events.executionTimeoutMs,
         maxAttempts: settings.events.maxAttempts,
-        retryDelayMs: settings.events.retryDelayMs
+        retryDelayMs: settings.events.retryDelayMs,
+        taskSessionRetentionDays: settings.events.taskSessionRetentionDays
       },
       display: settings.display ? {
         toolProgress: settings.display.toolProgress,
