@@ -14,7 +14,7 @@ const GLOBAL_PROFILE_FILES = [
   "SONG.md"
 ] as const;
 
-function pathCompareKey(pathLike: string): string {
+export function pathCompareKey(pathLike: string): string {
   const resolved = resolve(pathLike);
   if (process.platform === "darwin" || process.platform === "win32") {
     return resolved.toLowerCase();

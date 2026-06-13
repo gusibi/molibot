@@ -44,6 +44,15 @@ interface RunTraceState {
   eventCount: number;
   lastEventAtMs: number;
   facts: Map<string, FactStartState>;
+  skillUsage: Map<string, SkillUsageState>;
+}
+
+type SkillUsageLevel = "triggered" | "loaded" | "executed";
+
+interface SkillUsageState {
+  level: SkillUsageLevel;
+  evidenceSet: Set<string>;
+  startedAt: string;
 }
 
 // Runs that never receive run.finished (crash, lost abort) must not leak
@@ -103,6 +112,16 @@ function durationMs(startedAt: string | undefined, finishedAt: string | undefine
   return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
 }
 
+function skillLevelRank(level: SkillUsageLevel): number {
+  if (level === "executed") return 3;
+  if (level === "loaded") return 2;
+  return 1;
+}
+
+function maxSkillLevel(a: SkillUsageLevel, b: SkillUsageLevel): SkillUsageLevel {
+  return skillLevelRank(a) >= skillLevelRank(b) ? a : b;
+}
+
 export class TraceRecorderHook implements RuntimeHook {
   readonly id = "built-in:trace-recorder";
   readonly name = "Trace Recorder";
@@ -141,7 +160,8 @@ export class TraceRecorderHook implements RuntimeHook {
         startedAt: timestamp,
         eventCount: 0,
         lastEventAtMs: Date.now(),
-        facts: new Map()
+        facts: new Map(),
+        skillUsage: new Map()
       };
       this.runStates.set(runId, state);
     }
@@ -232,11 +252,11 @@ export class TraceRecorderHook implements RuntimeHook {
       return;
     }
     if (event.stage === "skill.selected") {
-      this.recordSkillFact(event, payload, "started");
+      this.recordSkillFact(event, payload);
       return;
     }
     if (event.stage === "skill.loaded") {
-      this.recordSkillFact(event, payload, "success");
+      this.recordSkillFact(event, payload);
       return;
     }
     if (event.stage === "approval.requested") {
@@ -309,13 +329,56 @@ export class TraceRecorderHook implements RuntimeHook {
 
   private recordSkillFact(
     event: HookEvent,
-    payload: Record<string, unknown>,
-    status: TraceFactRecord["status"]
+    payload: Record<string, unknown>
   ): void {
     const name = stringField(payload, "name") ?? "unknown";
     const scope = stringField(payload, "scope") ?? "unknown";
     const filePath = stringField(payload, "filePath");
-    this.recordGenericFact(event, payload, "skill_usage", filePath ?? `${scope}:${name}`, name, status);
+    const factId = filePath ?? `${scope}:${name}`;
+    const key = factKey("skill_usage", factId);
+    const runState = this.runState(event.context.runId, event.timestamp);
+    const existing = runState.skillUsage.get(key);
+    const incomingLevel = this.skillLevelForEvent(event.stage);
+    const nextLevel = existing ? maxSkillLevel(existing.level, incomingLevel) : incomingLevel;
+    const evidence = this.skillEvidenceForEvent(event.stage, payload);
+    const evidenceSet = new Set(existing?.evidenceSet);
+    evidenceSet.add(evidence);
+    const startedAt = existing?.startedAt ?? event.timestamp;
+    runState.skillUsage.set(key, {
+      level: nextLevel,
+      evidenceSet,
+      startedAt
+    });
+    const mergedPayload = {
+      ...payload,
+      level: nextLevel,
+      evidenceCsv: Array.from(evidenceSet).join(",")
+    };
+    this.recordGenericFact(
+      event,
+      mergedPayload,
+      "skill_usage",
+      factId,
+      name,
+      nextLevel === "triggered" ? "info" : "success",
+      {
+        startedAt,
+        finishedAt: event.timestamp,
+        durationMs: durationMs(startedAt, event.timestamp)
+      }
+    );
+  }
+
+  private skillLevelForEvent(stage: HookStage): SkillUsageLevel {
+    if (stage === "skill.loaded") return "loaded";
+    return "triggered";
+  }
+
+  private skillEvidenceForEvent(stage: HookStage, payload: Record<string, unknown>): string {
+    const reason = stringField(payload, "reason");
+    if (reason) return reason;
+    if (stage === "skill.selected" || stage === "skill.loaded") return "explicit_invocation";
+    return "unknown";
   }
 
   private recordSubagentTaskFact(

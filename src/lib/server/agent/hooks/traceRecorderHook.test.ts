@@ -226,11 +226,70 @@ test("TraceRecorderHook writes run, skill, notice, approval, subagent, and enric
   assert.equal(byType.get("input_enrichment")?.status, "success");
   assert.equal(byType.get("skill_usage")?.status, "success");
   assert.equal(byType.get("skill_usage")?.name, "agent-runtime-debug-review");
+  assert.equal(byType.get("skill_usage")?.payload.level, "loaded");
+  assert.equal(byType.get("skill_usage")?.payload.evidenceCsv, "explicit_invocation");
   assert.equal(byType.get("subagent_task")?.status, "success");
   assert.equal(byType.get("subagent_task")?.name, "scout");
   assert.equal(byType.get("approval")?.status, "waiting");
   assert.equal(byType.get("approval")?.name, "Host Bash");
   assert.equal(byType.get("runtime_notice")?.status, "warning");
   assert.equal(byType.get("runtime_notice")?.name, "TOOL_BUDGET_CONTINUATION");
+  store.close();
+});
+
+test("TraceRecorderHook keeps triggered-only skill facts informational", async () => {
+  const store = new SqliteTraceStore(":memory:");
+  const manager = new DefaultHookManager();
+  manager.register(new TraceRecorderHook(store));
+  const runContext = context("run-skill-triggered");
+
+  manager.emit("skill.selected", runContext, {
+    name: "search-only",
+    scope: "global",
+    filePath: "skills/search-only/SKILL.md",
+    reason: "search_match"
+  });
+  manager.emit("run.finished", runContext, { status: "success" });
+  await manager.flush({ timeoutMs: 1000 });
+
+  const fact = store.listFactsByRunId("run-skill-triggered").find((row) => row.factType === "skill_usage");
+  assert.equal(fact?.status, "info");
+  assert.equal(fact?.payload.level, "triggered");
+  assert.equal(fact?.payload.evidenceCsv, "search_match");
+  store.close();
+});
+
+test("TraceRecorderHook merges skill usage without downgrading level or evidence", async () => {
+  const store = new SqliteTraceStore(":memory:");
+  const manager = new DefaultHookManager();
+  manager.register(new TraceRecorderHook(store));
+  const runContext = context("run-skill-merge");
+  const filePath = "skills/merge/SKILL.md";
+
+  manager.emit("skill.selected", runContext, {
+    name: "merge-skill",
+    scope: "global",
+    filePath,
+    reason: "search_match"
+  });
+  manager.emit("skill.loaded", runContext, {
+    name: "merge-skill",
+    scope: "global",
+    filePath,
+    reason: "read_skill_file"
+  });
+  manager.emit("skill.selected", runContext, {
+    name: "merge-skill",
+    scope: "global",
+    filePath,
+    reason: "search_match"
+  });
+  await manager.flush({ timeoutMs: 1000 });
+
+  const fact = store.listFactsByRunId("run-skill-merge").find((row) => row.factType === "skill_usage");
+  assert.equal(fact?.status, "success");
+  assert.equal(fact?.payload.level, "loaded");
+  assert.equal(fact?.payload.reason, "search_match");
+  assert.equal(fact?.payload.evidenceCsv, "search_match,read_skill_file");
   store.close();
 });

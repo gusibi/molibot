@@ -4,6 +4,11 @@
 
 ## 2026-06-13
 
+### Skill Usage Trace Phase 1
+- Trace facts now record implicit skill loads when a successful `read` call opens a loaded skill's `SKILL.md`, using `reason: read_skill_file`.
+- `skill_usage` facts now merge monotonically with `payload.level` and `payload.evidenceCsv`, so later weaker signals cannot downgrade a loaded skill fact.
+- Added a persistent implementation checklist at `docs/trace/skill-usage-tracking-progress.md` for Phase 1/2/3 tracking.
+
 ### Sidebar Emojis & Label Toggle
 - Upgraded the 5 abstract primary sidebar symbols to intuitive high-fidelity Emojis (`🏠`, `🤖`, `💬`, `💾`, `⚙️`).
 - Added a labels toggle button (`🏷️`) at the bottom of the sidebar to collapse/expand menu names alongside the icons.

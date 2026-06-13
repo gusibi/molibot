@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { applyAssistantStreamEvent } from "$lib/server/agent/core/assistantStream.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
@@ -76,6 +79,77 @@ function createRunnerContext(text: string) {
     deleteMessage: async () => {},
     uploadFile: async () => {}
   } as any;
+}
+
+function createRunnerHookManager(
+  events: Array<{ stage: string; payload: any }>,
+  gate: () => any = () => ({ type: "allow" })
+) {
+  return {
+    register: () => {},
+    unregister: () => false,
+    list: () => [],
+    registerPlugin: async () => {},
+    unregisterPlugin: async () => false,
+    emit: (stage: string, _context: unknown, payload: any) => {
+      events.push({ stage, payload });
+    },
+    flush: async () => {},
+    transform: async (_stage: unknown, _context: unknown, payload: unknown) => payload,
+    gate: async () => gate()
+  } as any;
+}
+
+async function createRunnerForHookTest(options: {
+  chatId: string;
+  workspaceDir?: string;
+  hookManager: any;
+}) {
+  const { MomRuntimeStore } = await import("$lib/server/agent/session/store.js");
+  return new MomRunner(
+    "telegram",
+    options.chatId,
+    `session-${options.chatId}-${Date.now()}`,
+    new MomRuntimeStore(options.workspaceDir ?? process.cwd()),
+    createRunnerTestSettings,
+    (patch: Partial<RuntimeSettings>) => ({ ...createRunnerTestSettings(), ...patch }),
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    createRunnerTestMemory() as any,
+    options.hookManager
+  );
+}
+
+function activateHookContext(runner: MomRunner, runId: string, chatId: string): void {
+  (runner as any).activeHookContext = {
+    runId,
+    channel: "telegram",
+    chatId,
+    sessionId: `session-${chatId}`
+  };
+}
+
+function setActiveSkill(runner: MomRunner, filePath: string): void {
+  (runner as any).setActiveRunSkillManifestForTest([
+    {
+      name: "example-skill",
+      description: "Example skill",
+      scope: "bot",
+      filePath,
+      baseDir: filePath.replace(/\/SKILL\.md$/i, ""),
+      mcpServers: [],
+      aliases: []
+    }
+  ]);
+}
+
+function readToolCall(id: string, path: string) {
+  return {
+    toolCall: { id, name: "read", input: {} },
+    args: { path, label: "Read skill" },
+    assistantMessage: { role: "assistant", content: [], timestamp: Date.now() },
+    context: { systemPrompt: "", messages: [], tools: [] }
+  };
 }
 
 test("applyAssistantStreamEvent resets buffered assistant text on a new assistant message", () => {
@@ -789,32 +863,8 @@ test("runner hook bridge emits model call pairing fields", async () => {
 
 test("runner emits skill.selected without treating workspace scan as skill.loaded", async () => {
   const events: Array<{ stage: string; payload: any }> = [];
-  const hookManager = {
-    register: () => {},
-    unregister: () => false,
-    list: () => [],
-    registerPlugin: async () => {},
-    unregisterPlugin: async () => false,
-    emit: (stage: string, _context: unknown, payload: any) => {
-      events.push({ stage, payload });
-    },
-    flush: async () => {},
-    transform: async (_stage: unknown, _context: unknown, payload: unknown) => payload,
-    gate: async () => ({ type: "allow" })
-  } as any;
-
-  const runner = new MomRunner(
-    "telegram",
-    "chat-skill-hook",
-    `session-skill-hook-${Date.now()}`,
-    new (await import("$lib/server/agent/session/store.js")).MomRuntimeStore(process.cwd()),
-    createRunnerTestSettings,
-    (patch: Partial<RuntimeSettings>) => ({ ...createRunnerTestSettings(), ...patch }),
-    { record: () => {} } as any,
-    { record: () => {} } as any,
-    createRunnerTestMemory() as any,
-    hookManager
-  );
+  const hookManager = createRunnerHookManager(events);
+  const runner = await createRunnerForHookTest({ chatId: "chat-skill-hook", hookManager });
 
   (runner as any).activeHookContext = {
     runId: "run-skill-hook",
@@ -829,4 +879,115 @@ test("runner emits skill.selected without treating workspace scan as skill.loade
 
   assert.equal(events.some((event) => event.stage === "skill.selected"), true);
   assert.equal(events.some((event) => event.stage === "skill.loaded"), false);
+});
+
+test("runner emits skill.loaded when read opens an active skill file", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = createRunnerHookManager(events);
+  const runner = await createRunnerForHookTest({ chatId: "chat-read-skill", hookManager });
+  activateHookContext(runner, "run-read-skill", "chat-read-skill");
+  const skillPath = join(process.cwd(), "skills", "example", "SKILL.md");
+  setActiveSkill(runner, skillPath);
+
+  const agent = (runner as any).agent;
+  const beforeResult = await agent.beforeToolCall(readToolCall("read-skill-1", skillPath));
+  assert.equal(beforeResult, undefined);
+  assert.equal((runner as any).getPendingReadPathCountForTest(), 1);
+
+  await agent.afterToolCall({
+    toolCall: { id: "read-skill-1", name: "read", input: {} },
+    result: { content: [{ type: "text", text: "skill body" }] },
+    isError: false
+  });
+
+  assert.equal((runner as any).getPendingReadPathCountForTest(), 0);
+  const loaded = events.find((event) => event.stage === "skill.loaded");
+  assert.equal(loaded?.payload.name, "example-skill");
+  assert.equal(loaded?.payload.reason, "read_skill_file");
+});
+
+test("runner clears pending read paths on read error without emitting skill.loaded", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = createRunnerHookManager(events);
+  const runner = await createRunnerForHookTest({ chatId: "chat-read-error", hookManager });
+  activateHookContext(runner, "run-read-error", "chat-read-error");
+  const skillPath = join(process.cwd(), "skills", "example-error", "SKILL.md");
+  setActiveSkill(runner, skillPath);
+
+  const agent = (runner as any).agent;
+  await agent.beforeToolCall(readToolCall("read-skill-error", skillPath));
+  assert.equal((runner as any).getPendingReadPathCountForTest(), 1);
+
+  await agent.afterToolCall({
+    toolCall: { id: "read-skill-error", name: "read", input: {} },
+    result: { content: [{ type: "text", text: "missing" }] },
+    isError: true
+  });
+
+  assert.equal((runner as any).getPendingReadPathCountForTest(), 0);
+  assert.equal(events.some((event) => event.stage === "skill.loaded"), false);
+});
+
+test("runner does not emit skill.loaded for non-skill read paths", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = createRunnerHookManager(events);
+  const runner = await createRunnerForHookTest({ chatId: "chat-read-non-skill", hookManager });
+  activateHookContext(runner, "run-read-non-skill", "chat-read-non-skill");
+  const skillPath = join(process.cwd(), "skills", "expected", "SKILL.md");
+  setActiveSkill(runner, skillPath);
+
+  const agent = (runner as any).agent;
+  await agent.beforeToolCall(readToolCall("read-not-skill", join(process.cwd(), "notes", "SKILL.md")));
+  await agent.afterToolCall({
+    toolCall: { id: "read-not-skill", name: "read", input: {} },
+    result: { content: [{ type: "text", text: "not a tracked skill" }] },
+    isError: false
+  });
+
+  assert.equal((runner as any).getPendingReadPathCountForTest(), 0);
+  assert.equal(events.some((event) => event.stage === "skill.loaded"), false);
+});
+
+test("runner does not cache blocked read calls", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = createRunnerHookManager(events, () => ({ type: "deny", reason: "blocked by test hook" }));
+  const runner = await createRunnerForHookTest({ chatId: "chat-read-blocked", hookManager });
+  activateHookContext(runner, "run-read-blocked", "chat-read-blocked");
+  const skillPath = join(process.cwd(), "skills", "blocked", "SKILL.md");
+  setActiveSkill(runner, skillPath);
+
+  const agent = (runner as any).agent;
+  const result = await agent.beforeToolCall(readToolCall("read-skill-blocked", skillPath));
+
+  assert.deepEqual(result, { block: true, reason: "blocked by test hook" });
+  assert.equal((runner as any).getPendingReadPathCountForTest(), 0);
+  assert.equal(events.some((event) => event.stage === "tool.call.blocked"), true);
+  assert.equal(events.some((event) => event.stage === "skill.loaded"), false);
+});
+
+test("runner matches read skill paths after tool path correction", async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "molipibot-skill-track-"));
+  try {
+    const workspaceDir = join(tempRoot, "moli-t", "bots", "bot-a");
+    const chatId = "chat-corrected";
+    const skillPath = join(tempRoot, "skills", "corrected", "SKILL.md");
+    const events: Array<{ stage: string; payload: any }> = [];
+    const hookManager = createRunnerHookManager(events);
+    const runner = await createRunnerForHookTest({ chatId, workspaceDir, hookManager });
+    activateHookContext(runner, "run-corrected", chatId);
+    setActiveSkill(runner, skillPath);
+
+    const agent = (runner as any).agent;
+    await agent.beforeToolCall(readToolCall("read-corrected", "data/moli-t/skills/corrected/SKILL.md"));
+    await agent.afterToolCall({
+      toolCall: { id: "read-corrected", name: "read", input: {} },
+      result: { content: [{ type: "text", text: "skill body" }] },
+      isError: false
+    });
+
+    const loaded = events.find((event) => event.stage === "skill.loaded");
+    assert.equal(loaded?.payload.filePath, skillPath);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });

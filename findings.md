@@ -45,3 +45,29 @@
 
 ## Visual/Browser Findings
 - None.
+
+---
+
+# Findings & Decisions: Skill Usage Tracking Phase 1
+
+## Requirements
+- Implement Phase 1 from `docs/trace/skill-usage-tracking-plan.md`.
+- Track implicit skill loading when a successful `read` tool opens a loaded skill `SKILL.md`.
+- Do not change tool execution behavior or Channel layer orchestration.
+- Keep Phase 2 and Phase 3 out of this implementation, but track them in a nearby checklist document.
+- Update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md` after functional changes if required.
+
+## Research Findings
+- `afterToolCall` does not include tool args, so the resolved read path must be cached from `beforeToolCall`.
+- The cache must be set after hook gate, preflight, and budget checks so blocked reads do not leave pending paths.
+- `sanitizePayload` collapses arrays, so evidence must not be stored as a raw array.
+- `TraceRecorderHook` currently overwrites `skill_usage` payload/status without level/evidence merging.
+- `pathCompareKey` exists in `tools/path.ts` but is not exported yet.
+
+## Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Cache resolved read paths in runner | Avoids changing `read` tool result semantics. |
+| Match exact compare keys | Avoids fuzzy path false positives. |
+| Use in-memory skill usage state in the recorder | Keeps Phase 1 small and avoids DB reads per skill signal. |
+| Store evidence as CSV | Works with existing payload sanitizer. |

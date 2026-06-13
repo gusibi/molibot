@@ -2,6 +2,12 @@
 
 ## 2026-06-13
 
+### Skill 使用追踪 Phase 1 (Implicit Skill Load Tracking)
+- **隐式读取追踪**: 当模型通过 `read` 工具成功读取当前 run 已加载 skill manifest 中的 `SKILL.md` 时，runner 会记录 `skill.loaded`，并标记 `reason: "read_skill_file"`。这补齐了非显式 `/skill` / `$skill` 调用场景下，模型按 skill routing 自行读取技能文件但 trace 中没有 skill fact 的缺口。
+- **路径与阻塞安全**: read 路径归因复用工具层 `resolveToolPath` 与导出的 `pathCompareKey`，支持 `data/moli-*/skills/...` 等既有路径纠偏；缓存只在 hook gate、preflight、budget 全部放行后写入，read 成功、失败、blocked 与 run cleanup 都不会残留 pending path。
+- **单调 skill fact 合并**: `TraceRecorderHook` 现在为 `skill_usage` 维护 run 内合并态，使用 `payload.level` (`triggered` / `loaded`) 与 `payload.evidenceCsv` 累积证据，保证后到的低置信度信号不会把已 loaded 的 fact 降级。triggered-only skill facts 使用 `status: "info"`，避免被误显示为进行中。
+- **实施进度文档**: 新增 `docs/trace/skill-usage-tracking-progress.md`，跟踪 Phase 1/2/3 checklist 与当前完成状态。
+
 ### 导航栏图标优化与菜单名称展示切换 (Sidebar Emojis & Label Toggle)
 - **语义化 Emoji 图标**: 优化了设置中心左侧一级导航的 5 个图标，使用更直观、高频表达的 Emojis (`🏠`, `🤖`, `💬`, `💾`, `⚙️`) 替换了原来的抽象几何符号。
 - **名称展示切换开关**: 在一级导航底部添加了一个 `🏷️` (显示名称) 按钮，控制左侧边栏是否展开并显示各菜单组的文本名称（如 “总览”、“AI 引擎”、“渠道”等）。侧边栏展开宽度与底部固定保存栏的左侧定位均完美适配并自带过渡动画。状态保存在 `localStorage` 中，刷新页面亦可自动还原 operator 的选择。

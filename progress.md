@@ -84,3 +84,45 @@
 | What's the goal? | Shared scheduled-event lease with timeout abort, capped retry, reliable stop, and observability. |
 | What have I learned? | Current event JSON/runs locks are logical; the new lease store provides atomic active slot ownership and retry accounting. |
 | What have I done? | Updated the design, implemented lease/timeout/retry wiring, added tests, and updated project docs. |
+
+---
+
+## Session: 2026-06-13
+
+### Skill Usage Tracking Phase 1
+- **Status:** complete
+- **Completed:** 2026-06-13
+- Actions taken:
+  - Reviewed `docs/trace/skill-usage-tracking-plan.md`.
+  - Confirmed Phase 1 is approved for development.
+  - Created `docs/trace/skill-usage-tracking-progress.md` with Phase 1/2/3 checklists.
+  - Appended this task to root planning files without overwriting prior task history.
+  - Implemented runner read-path tracking and skill-loaded emission for successful skill file reads.
+  - Implemented monotonic `skill_usage` level/evidenceCsv merging in `TraceRecorderHook`.
+  - Added focused runner and trace recorder tests.
+  - Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`.
+  - Ran focused trace recorder tests successfully.
+  - Attempted runner tests; startup is blocked by existing `?raw` markdown loader handling in the Node test/tsx path.
+  - Ran full TypeScript check and a touched implementation-file filter; full check is blocked by existing repo errors, while the touched implementation-file filter produced no output.
+- Files created/modified:
+  - `docs/trace/skill-usage-tracking-progress.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `src/lib/server/agent/core/runner.ts`
+  - `src/lib/server/agent/core/runner.test.ts`
+  - `src/lib/server/agent/hooks/traceRecorderHook.ts`
+  - `src/lib/server/agent/hooks/traceRecorderHook.test.ts`
+  - `src/lib/server/agent/tools/path.ts`
+  - `features.md`
+  - `prd.md`
+  - `CHANGELOG.md`
+  - `README.md`
+
+## Test Results: Skill Usage Tracking Phase 1
+| Test | Expected | Actual | Status |
+|------|----------|--------|--------|
+| `node --import tsx --test src/lib/server/agent/hooks/traceRecorderHook.test.ts` | Trace recorder tests pass | 8 passing tests | pass |
+| `./node_modules/.bin/tsx --test src/lib/server/agent/core/runner.test.ts` | Runner tests execute | Blocked by `ERR_UNKNOWN_FILE_EXTENSION` for `AGENTS.template.md?raw` after IPC escalation | blocked |
+| `npx tsc --noEmit --pretty false` | TypeScript check | Blocked by existing repository errors outside touched implementation files | blocked |
+| `npx tsc --noEmit --pretty false 2>&1 \| rg "src/lib/server/agent/(core/runner\\.ts\|hooks/traceRecorderHook\\.ts\|tools/path\\.ts\|hooks/traceRecorderHook\\.test\\.ts)"` | No touched implementation errors | No output | pass |

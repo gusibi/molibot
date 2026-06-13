@@ -60,3 +60,63 @@ Phase 1
 ## Notes
 - Do not persist temporary runtime control text into model history.
 - Watched event JSON files remain the scheduling source, but active execution state must move to the lease store.
+
+---
+
+# Task Plan: Skill Usage Tracking Phase 1
+
+## Goal
+Implement Phase 1 of `docs/trace/skill-usage-tracking-plan.md`: record implicit skill loading when a successful `read` tool call opens a loaded skill's `SKILL.md`, while preserving monotonic `skill_usage` facts and avoiding runtime behavior changes.
+
+## Current Phase
+Phase 1
+
+## Phases
+
+### Phase 1: Documentation And Checklist
+- [x] Create `docs/trace/skill-usage-tracking-progress.md`
+- [x] Add Phase 1/2/3 checklist
+- **Status:** complete
+
+### Phase 2: Runner Tracking
+- [x] Export path comparison helper
+- [x] Store active run skill manifest on the runner
+- [x] Cache resolved read paths after all block checks
+- [x] Consume and clear read paths on after/error
+- [x] Emit `skill.loaded` for successful matching skill reads
+- **Status:** complete
+
+### Phase 3: Trace Fact Merge
+- [x] Add skill usage merge state
+- [x] Derive level/status/evidence from skill signals
+- [x] Store `evidenceCsv` in fact payload
+- [x] Keep skill merge state until run cleanup/TTL
+- **Status:** complete
+
+### Phase 4: Tests And Verification
+- [x] Add focused runner tests
+- [x] Add focused trace recorder tests
+- [x] Run focused tests
+- **Status:** complete
+
+### Phase 5: Project Documentation
+- [x] Update required project docs
+- [x] Update progress checklist
+- [x] Summarize remaining risk
+- **Status:** complete
+
+## Decisions Made
+| Decision | Rationale |
+|----------|-----------|
+| Implement only Phase 1 now | User explicitly asked to start Phase 1 first; Phase 2/3 remain checklist items. |
+| Keep matching logic in runner | Runner has the active hook context, cwd/workspaceDir, and loaded skill manifest. |
+| Use `evidenceCsv` | Existing sanitizer collapses arrays. |
+
+## Errors Encountered
+| Error | Attempt | Resolution |
+|-------|---------|------------|
+| `runner.test.ts` cannot load `AGENTS.template.md?raw` under Node test/tsx | 1 | Recorded as existing loader limitation; trace recorder tests pass and filtered implementation type check shows no touched implementation errors. |
+| Full `tsc` reports many unrelated repository errors | 1 | Filtered the output to touched implementation files; no output was produced. |
+
+## Remaining Risk
+- Runner-level tests were added but could not execute in the current Node test/tsx path because the existing runner test imports Vite `?raw` markdown templates. The implementation path is covered by code review and touched implementation-file type filtering; trace fact merge behavior is covered by executable tests.

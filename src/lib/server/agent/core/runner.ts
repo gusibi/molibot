@@ -19,7 +19,8 @@ import { buildPromptInputEnvelope } from "$lib/server/agent/prompts/promptInput.
 import { createMomTools } from "$lib/server/agent/tools/index.js";
 import { getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
 import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
-import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace } from "$lib/server/agent/skills/skills.js";
+import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
+import { pathCompareKey, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
 import { isRetryableModelError, resolvePromptAttemptDecision, shouldEmitFinalRunnerError } from "$lib/server/agent/core/runnerRetryState.js";
 import { formatSubagentProgressLabel } from "$lib/server/agent/subagentProgress.js";
@@ -95,6 +96,12 @@ import { prepareEnrichedInput } from "$lib/server/agent/core/runnerInputEnricher
 const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
 const SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS = 12;
 
+type ToolCallTrackingContext = {
+  toolCall: { id: string; name: string };
+  args?: unknown;
+  isError?: boolean;
+};
+
 export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
   private running = false;
@@ -142,6 +149,8 @@ export class MomRunner implements RunnerLike {
       }
     | undefined;
   private modelCallSeq = 0;
+  private activeRunSkillManifest = new Map<string, LoadedSkill>();
+  private readonly pendingReadPaths = new Map<string, string>();
 
   private readonly hookManager: HookManager;
 
@@ -271,6 +280,7 @@ export class MomRunner implements RunnerLike {
           }
           return { block: true, reason: finalBlockedReason };
         }
+        this.cacheResolvedReadPath(context);
         if (hookContext) {
           this.hookManager.emit("tool.call.before", hookContext, {
             toolName: context.toolCall.name,
@@ -300,6 +310,7 @@ export class MomRunner implements RunnerLike {
             }
           );
         }
+        this.emitSkillLoadedForReadTool(context);
         return undefined;
       },
       streamFn: (selectedModel, context, opts) => {
@@ -703,6 +714,9 @@ export class MomRunner implements RunnerLike {
       disabledSkillPaths: settings.disabledSkillPaths,
       workspaceId
     });
+    this.activeRunSkillManifest = new Map(
+      skills.map((skill) => [pathCompareKey(skill.filePath), skill])
+    );
     const explicitlyInvokedSkills = findExplicitlyInvokedSkills(skills, enrichedText);
     this.emitSkillSelection(explicitlyInvokedSkills);
     const skillExplicitlyInvoked = explicitlyInvokedSkills.length > 0;
@@ -2078,9 +2092,38 @@ export class MomRunner implements RunnerLike {
       this.activeRunBudget = undefined;
       this.activeRunnerEventSink = undefined;
       this.activePayloadContext = undefined;
+      this.activeRunSkillManifest.clear();
+      this.pendingReadPaths.clear();
       this.abortRequested = false;
       this.running = false;
     }
+  }
+
+  private cacheResolvedReadPath(context: ToolCallTrackingContext): void {
+    if (context.toolCall.name !== "read") return;
+    const rawPath = (context.args as { path?: unknown } | undefined)?.path;
+    if (typeof rawPath !== "string" || !rawPath.trim()) return;
+    try {
+      const resolvedPath = resolveToolPath(this.store.getScratchDir(this.chatId), rawPath);
+      this.pendingReadPaths.set(context.toolCall.id, resolvedPath);
+    } catch {
+      // Skill tracking must never change tool execution behavior.
+    }
+  }
+
+  private emitSkillLoadedForReadTool(context: ToolCallTrackingContext): void {
+    if (context.toolCall.name !== "read") return;
+    const resolvedPath = this.pendingReadPaths.get(context.toolCall.id);
+    this.pendingReadPaths.delete(context.toolCall.id);
+    if (!resolvedPath || context.isError || !this.activeHookContext) return;
+    const skill = this.activeRunSkillManifest.get(pathCompareKey(resolvedPath));
+    if (!skill) return;
+    this.hookManager.emit("skill.loaded", this.activeHookContext, {
+      name: skill.name,
+      scope: skill.scope,
+      filePath: skill.filePath,
+      reason: "read_skill_file"
+    });
   }
 
   private emitSkillSelection(skills: Array<{ name: string; scope: string; filePath: string; aliases?: string[] }>): void {
@@ -2097,6 +2140,16 @@ export class MomRunner implements RunnerLike {
 
   emitSkillSelectionForTest(skills: Array<{ name: string; scope: string; filePath: string; aliases?: string[] }>): void {
     this.emitSkillSelection(skills);
+  }
+
+  setActiveRunSkillManifestForTest(skills: LoadedSkill[]): void {
+    this.activeRunSkillManifest = new Map(
+      skills.map((skill) => [pathCompareKey(skill.filePath), skill])
+    );
+  }
+
+  getPendingReadPathCountForTest(): number {
+    return this.pendingReadPaths.size;
   }
 
   private emitActiveModelCallAfter(

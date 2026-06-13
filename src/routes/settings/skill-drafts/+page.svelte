@@ -246,7 +246,7 @@
   }
 
   function hasWorkflowSkillPath(): boolean {
-    return HTMLSelectElement && Boolean(String(skillDrafts.template.skillPath ?? "").trim());
+    return Boolean(String(skillDrafts.template.skillPath ?? "").trim());
   }
 
   async function loadDrafts(): Promise<void> {
