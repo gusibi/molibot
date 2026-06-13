@@ -124,15 +124,15 @@ function validateSkillDraftSettings(current: RuntimeSettings, patch: Partial<Run
   const skillPath = String(next?.template?.skillPath ?? "").trim();
   if (!enabled) return null;
   if (!skillPath) {
-    return "Skill draft auto-save requires a workflow SKILL.md path before it can be enabled.";
+    return "Skill draft auto-save requires a draft skeleton SKILL.md path before it can be enabled.";
   }
   try {
     const stat = statSync(skillPath);
     if (!stat.isFile()) {
-      return `Configured skill draft workflow must be a SKILL.md file: ${skillPath}`;
+      return `Configured skill draft skeleton must be a SKILL.md file: ${skillPath}`;
     }
   } catch {
-    return `Configured skill draft workflow not found: ${skillPath}`;
+    return `Configured skill draft skeleton not found: ${skillPath}`;
   }
   return null;
 }

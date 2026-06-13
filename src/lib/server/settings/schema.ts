@@ -203,6 +203,14 @@ export interface SkillDraftAutoSaveSettings {
 }
 
 export interface SkillDraftTemplateSettings {
+  /**
+   * Path to a draft *structure skeleton* SKILL.md. Only its section headings
+   * (When To Use / Goal / Suggested Steps / Verification / Pitfalls / Example
+   * Outcome) are reused to shape generated drafts — the file's body is never
+   * copied into drafts. Do NOT point this at a real skill (e.g. skill-creator);
+   * if no heading matches a standard section the template is ignored and a
+   * built-in default skeleton is used. Empty string disables auto draft generation.
+   */
   skillPath: string;
 }
 

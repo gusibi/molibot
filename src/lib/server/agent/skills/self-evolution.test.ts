@@ -191,29 +191,96 @@ test("skill draft markdown keeps goal and tool path hints", () => {
   assert.match(built.content, /这里是整理后的摘要/);
 });
 
-test("skill draft markdown can reuse a configured template skill structure", () => {
-  const built = buildSkillDraftMarkdown({
-    workspaceDir: "/tmp/workspace",
-    chatId: "chat-1",
-    userMessage: "帮我整理日报",
-    finalAnswer: "日报已整理",
-    toolNames: ["read", "write"],
-    failedToolNames: ["read"],
-    explicitSkillNames: [],
-    modelFailures: [],
-    settings: {
-      template: {
-        skillPath: WORKFLOW_SKILL_PATH
-      }
-    }
-  });
+function withSkeletonTemplate<T>(fn: (skillPath: string) => T): T {
+  const dir = mkdtempSync(join(process.cwd(), ".tmp-skeleton-"));
+  const skillPath = join(dir, "SKILL.md");
+  writeFileSync(
+    skillPath,
+    [
+      "---",
+      "name: workflow-skeleton",
+      "description: Draft skeleton template used only for section structure.",
+      "---",
+      "",
+      "# When To Use",
+      "- placeholder trigger that should be overwritten",
+      "",
+      "# Goal",
+      "- placeholder goal that should be overwritten",
+      "",
+      "# Suggested Steps",
+      "1. placeholder step that should be overwritten",
+      "",
+      "# Custom Domain Notes",
+      "- secret template prose that must NOT leak into drafts"
+    ].join("\n"),
+    "utf8"
+  );
+  try {
+    return fn(skillPath);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
-  assert.match(built.content, /template_skill_path:/);
-  assert.match(built.content, /# Find Skills/);
-  assert.match(built.content, /# What is the Skills CLI\?/);
-  assert.match(built.content, /# When To Use/);
-  assert.match(built.content, /帮我整理日报/);
-  assert.match(built.content, /read, write/);
+test("skill draft markdown fills standard sections from a skeleton template without leaking custom body", () => {
+  withSkeletonTemplate((skillPath) => {
+    const built = buildSkillDraftMarkdown({
+      workspaceDir: "/tmp/workspace",
+      chatId: "chat-1",
+      userMessage: "帮我整理日报",
+      finalAnswer: "日报已整理",
+      toolNames: ["read", "write"],
+      failedToolNames: ["read"],
+      explicitSkillNames: [],
+      modelFailures: [],
+      settings: {
+        template: {
+          skillPath
+        }
+      }
+    });
+
+    assert.match(built.content, /template_skill_path:/);
+    // standard sections are kept and filled with run-specific content
+    assert.match(built.content, /# When To Use/);
+    assert.match(built.content, /# Goal/);
+    assert.match(built.content, /帮我整理日报/);
+    assert.match(built.content, /read, write/);
+    // a custom section keeps only its heading as structure
+    assert.match(built.content, /# Custom Domain Notes/);
+    // the template's own prose must never be inlined into the draft
+    assert.doesNotMatch(built.content, /secret template prose/);
+    assert.doesNotMatch(built.content, /placeholder goal/);
+  });
+});
+
+test("a real skill mis-set as template falls back to the default body without leaking its content", () => {
+  withSkillCreatorTemplate((skillPath) => {
+    const built = buildSkillDraftMarkdown({
+      workspaceDir: "/tmp/workspace",
+      chatId: "chat-1",
+      userMessage: "帮我整理日报",
+      finalAnswer: "日报已整理",
+      toolNames: ["read", "write"],
+      failedToolNames: [],
+      explicitSkillNames: [],
+      modelFailures: [],
+      settings: {
+        template: {
+          skillPath
+        }
+      }
+    });
+
+    // none of the template's headings match standard workflow sections, so the
+    // template is ignored and the default draft body is used instead.
+    assert.match(built.content, /# When To Use/);
+    assert.match(built.content, /# Goal/);
+    assert.doesNotMatch(built.content, /# Write the SKILL\.md/);
+    assert.doesNotMatch(built.content, /Skill identifier/);
+    assert.match(built.content, /帮我整理日报/);
+  });
 });
 
 test("skill draft metadata follows skill-creator naming rules", () => {

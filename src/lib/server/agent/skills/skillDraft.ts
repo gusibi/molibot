@@ -239,6 +239,8 @@ function buildStandardSectionLines(context: SkillDraftContext): Record<string, s
   };
 }
 
+const TEMPLATE_PLACEHOLDER_LINE = "- (fill in after review)";
+
 function buildTemplateDrivenBody(templateContent: string, context: SkillDraftContext): string {
   const parsed = splitFrontmatter(templateContent);
   const sections = parseSections(parsed.body);
@@ -249,15 +251,24 @@ function buildTemplateDrivenBody(templateContent: string, context: SkillDraftCon
     .map((section) => {
       const key = normalizeSectionTitle(section.title);
       const mapped = standardLines[key];
-      if (mapped) matchedStandardSection = true;
-      const lines = mapped ?? section.lines.filter((line) => line.trim().length > 0);
-      return [`# ${section.title}`, ...lines, ""].join("\n");
+      if (mapped) {
+        matchedStandardSection = true;
+        return [`# ${section.title}`, ...mapped, ""].join("\n");
+      }
+      // A template only contributes section *structure*, never its own body.
+      // Inlining the template's prose previously leaked entire skills (e.g.
+      // skill-creator) into every draft, so non-standard sections keep just the
+      // heading plus a placeholder to fill in after review.
+      return [`# ${section.title}`, TEMPLATE_PLACEHOLDER_LINE, ""].join("\n");
     })
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  if (matchedStandardSection) return rendered;
-  return [rendered, buildDefaultDraftBody(context)].filter(Boolean).join("\n\n").trim();
+  // If nothing maps to a known workflow section, the configured file is not a
+  // usable draft skeleton (most likely a real skill mis-set as the template).
+  // Ignore it entirely and let the caller fall back to the default draft body.
+  if (!matchedStandardSection) return "";
+  return rendered;
 }
 
 function buildDefaultDraftBody(context: SkillDraftContext): string {
