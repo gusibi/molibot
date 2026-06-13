@@ -3,11 +3,10 @@
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
-  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
-  import { Switch } from "$lib/components/ui/switch";
+  import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { Textarea } from "$lib/components/ui/textarea";
   import { initLocale, locale } from "$lib/ui/i18n";
 
@@ -430,112 +429,107 @@
   });
 </script>
 
-<div class="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-  <header class="flex flex-col gap-3">
+<div class="channel-page">
+  <header class="channel-hero">
     <Badge variant="secondary" class="w-fit">Tool Security</Badge>
-    <div class="flex max-w-3xl flex-col gap-2">
-      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Sandbox Policy</h1>
-      <p class="text-sm leading-6 text-muted-foreground">
-        Restrict Agent shell commands without changing browser, MCP, or channel delivery behavior.
-      </p>
-    </div>
+    <h1 class="channel-hero-title">Sandbox Policy</h1>
+    <p class="channel-hero-desc">
+      Restrict Agent shell commands without changing browser, MCP, or channel delivery behavior.
+    </p>
   </header>
 
   {#if loading}
     <p class="py-8 text-sm text-muted-foreground">Loading sandbox settings...</p>
   {:else}
-    <form class="flex flex-col gap-4" onsubmit={(e) => { e.preventDefault(); save(); }}>
-      {#if message}
-        <Alert><AlertDescription>{message}</AlertDescription></Alert>
-      {/if}
-      {#if error}
-        <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
-      {/if}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{copy.presetTitle}</CardTitle>
-          <CardDescription>{copy.presetDesc}</CardDescription>
-        </CardHeader>
-        <CardContent class="flex flex-col gap-4">
-          <div class="grid gap-4 md:grid-cols-3">
+    <form id="sandbox-form" class="channel-form animate-in fade-in duration-200" onsubmit={(e) => { e.preventDefault(); save(); }}>
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">{copy.presetTitle}</h2>
+            <p class="channel-card-desc">{copy.presetDesc}</p>
+          </div>
+        </div>
+        <div class="channel-card-body">
+          <div class="presets-grid">
             <button
               type="button"
               onclick={() => applyProfile("observe")}
-              class="flex flex-col text-left rounded-xl border p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md cursor-pointer {activeProfile === 'observe' ? 'border-[color-mix(in_oklab,var(--primary)_50%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] ring-2 ring-primary/20' : 'bg-card border-border hover:border-muted-foreground/30'}"
+              class="preset-card {activeProfile === 'observe' ? 'preset-card--active' : ''}"
             >
-              <div class="flex items-center justify-between w-full">
-                <span class="font-semibold text-foreground text-sm">{copy.observeTitle}</span>
+              <div class="preset-card-header">
+                <span class="preset-card-title">{copy.observeTitle}</span>
                 {#if activeProfile === 'observe'}
-                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold tracking-wide uppercase">{copy.badgeActive}</Badge>
+                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold uppercase">{copy.badgeActive}</Badge>
                 {/if}
               </div>
-              <p class="mt-2 text-xs leading-relaxed text-muted-foreground flex-1">{copy.observeDesc}</p>
+              <p class="preset-card-desc">{copy.observeDesc}</p>
             </button>
 
             <button
               type="button"
               onclick={() => applyProfile("build")}
-              class="flex flex-col text-left rounded-xl border p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md cursor-pointer {activeProfile === 'build' ? 'border-[color-mix(in_oklab,var(--primary)_50%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] ring-2 ring-primary/20' : 'bg-card border-border hover:border-muted-foreground/30'}"
+              class="preset-card {activeProfile === 'build' ? 'preset-card--active' : ''}"
             >
-              <div class="flex items-center justify-between w-full">
-                <span class="font-semibold text-foreground text-sm">{copy.buildTitle}</span>
+              <div class="preset-card-header">
+                <span class="preset-card-title">{copy.buildTitle}</span>
                 {#if activeProfile === 'build'}
-                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold tracking-wide uppercase">{copy.badgeActive}</Badge>
+                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold uppercase">{copy.badgeActive}</Badge>
                 {/if}
               </div>
-              <p class="mt-2 text-xs leading-relaxed text-muted-foreground flex-1">{copy.buildDesc}</p>
+              <p class="preset-card-desc">{copy.buildDesc}</p>
             </button>
 
             <button
               type="button"
               onclick={() => applyProfile("strict")}
-              class="flex flex-col text-left rounded-xl border p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md cursor-pointer {activeProfile === 'strict' ? 'border-[color-mix(in_oklab,var(--primary)_50%,var(--border))] bg-[color-mix(in_oklab,var(--primary)_10%,var(--card))] ring-2 ring-primary/20' : 'bg-card border-border hover:border-muted-foreground/30'}"
+              class="preset-card {activeProfile === 'strict' ? 'preset-card--active' : ''}"
             >
-              <div class="flex items-center justify-between w-full">
-                <span class="font-semibold text-foreground text-sm">{copy.strictTitle}</span>
+              <div class="preset-card-header">
+                <span class="preset-card-title">{copy.strictTitle}</span>
                 {#if activeProfile === 'strict'}
-                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold tracking-wide uppercase">{copy.badgeActive}</Badge>
+                  <Badge variant="default" class="text-[10px] py-0.5 px-2 font-semibold uppercase">{copy.badgeActive}</Badge>
                 {/if}
               </div>
-              <p class="mt-2 text-xs leading-relaxed text-muted-foreground flex-1">{copy.strictDesc}</p>
+              <p class="preset-card-desc">{copy.strictDesc}</p>
             </button>
           </div>
 
           {#if activeProfile === 'custom'}
-            <div class="mt-2 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-500">
+            <div class="custom-profile-warning">
               <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
               </svg>
               <span>{copy.customProfile}</span>
             </div>
           {/if}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Runtime Mode</CardTitle>
-          <CardDescription>Sandbox applies only to Agent bash and subagent bash. It is off by default.</CardDescription>
-        </CardHeader>
-        <CardContent class="flex flex-col gap-5">
-          <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 px-4 py-3">
-            <div class="flex flex-col gap-1">
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">Runtime Mode</h2>
+            <p class="channel-card-desc">Sandbox applies only to Agent bash and subagent bash. It is off by default.</p>
+          </div>
+        </div>
+        <div class="channel-card-body">
+          <div class="channel-toggle-row">
+            <div class="channel-toggle-label">
               <Label for="sb-enabled">Enable OS sandbox for bash</Label>
-              <p class="text-xs text-muted-foreground">When enabled, bash runs with filtered env, filesystem write limits, and network allowlists.</p>
+              <p>When enabled, bash runs with filtered env, filesystem write limits, and network allowlists.</p>
             </div>
-            <Switch id="sb-enabled" bind:checked={sandbox.enabled} />
+            <IosSwitch id="sb-enabled" bind:checked={sandbox.enabled} />
           </div>
 
-          <div class="grid gap-4 md:grid-cols-2">
-            <div class="flex flex-col gap-2">
+          <div class="channel-field-row pt-2">
+            <div class="channel-field">
               <Label for="sb-failure">Initialization failure mode</Label>
               <NativeSelect id="sb-failure" bind:value={sandbox.initFailureMode}>
                 <NativeSelectOption value="warn-disable">Warn and disable sandbox</NativeSelectOption>
                 <NativeSelectOption value="block">Block bash when sandbox fails</NativeSelectOption>
               </NativeSelect>
             </div>
-            <div class="flex flex-col gap-2">
+            <div class="channel-field">
               <Label for="sb-env-mode">Environment inheritance</Label>
               <NativeSelect id="sb-env-mode" bind:value={sandbox.env.inheritMode}>
                 <NativeSelectOption value="minimal">Minimal + allowlist</NativeSelectOption>
@@ -544,86 +538,92 @@
               </NativeSelect>
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Environment Injection</CardTitle>
-          <CardDescription>Molibot parses the workspace env file and injects only allowed keys into sandboxed child processes.</CardDescription>
-        </CardHeader>
-        <CardContent class="flex flex-col gap-4">
-          <div class="flex flex-col gap-2">
-            <Label for="sb-env-path">Workspace env file</Label>
-            <Input id="sb-env-path" bind:value={sandbox.envFilePath} placeholder=".env.sandbox.local" />
-            <p class="text-xs text-muted-foreground">Use a relative path for project-local secrets. The sandbox denies direct reads of this file.</p>
-          </div>
-          <div class="grid gap-4 md:grid-cols-2">
-            <div class="flex flex-col gap-2">
-              <Label for="sb-env-allow">Allowed env keys</Label>
-              <Textarea id="sb-env-allow" bind:value={envAllowText} rows={6} placeholder={"OPENAI_API_KEY\nTAVILY_API_KEY"} />
-            </div>
-            <div class="flex flex-col gap-2">
-              <Label for="sb-env-deny">Denied env keys</Label>
-              <Textarea id="sb-env-deny" bind:value={envDenyText} rows={6} placeholder={"TELEGRAM_BOT_TOKEN\nMOLIBOT_*"} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div class="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Network Policy</CardTitle>
-            <CardDescription>Network access is allowlist based when sandboxing is active.</CardDescription>
-          </CardHeader>
-          <CardContent class="flex flex-col gap-4">
-            <div class="flex flex-col gap-2">
-              <Label for="sb-net-allow">Allowed domains</Label>
-              <Textarea id="sb-net-allow" bind:value={networkAllowText} rows={8} />
-            </div>
-            <div class="flex flex-col gap-2">
-              <Label for="sb-net-deny">Denied domains</Label>
-              <Textarea id="sb-net-deny" bind:value={networkDenyText} rows={4} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Filesystem Policy</CardTitle>
-            <CardDescription>Reads are denylist based; writes are allowlist based.</CardDescription>
-          </CardHeader>
-          <CardContent class="flex flex-col gap-4">
-            <div class="flex flex-col gap-2">
-              <Label for="sb-fs-write">Allowed write paths</Label>
-              <Textarea id="sb-fs-write" bind:value={allowWriteText} rows={4} />
-            </div>
-            <div class="flex flex-col gap-2">
-              <Label for="sb-fs-read">Denied read paths</Label>
-              <Textarea id="sb-fs-read" bind:value={denyReadText} rows={4} />
-            </div>
-            <div class="flex flex-col gap-2">
-              <Label for="sb-fs-deny-write">Denied write paths</Label>
-              <Textarea id="sb-fs-deny-write" bind:value={denyWriteText} rows={4} />
-            </div>
-          </CardContent>
-        </Card>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex flex-col gap-1">
-              <CardTitle>Diagnostics</CardTitle>
-              <CardDescription>Checks platform support, dependencies, env parsing, and effective policy without exposing values.</CardDescription>
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">Environment Injection</h2>
+            <p class="channel-card-desc">Molibot parses the workspace env file and injects only allowed keys into sandboxed child processes.</p>
+          </div>
+        </div>
+        <div class="channel-card-body">
+          <div class="channel-field">
+            <Label for="sb-env-path">Workspace env file</Label>
+            <Input id="sb-env-path" bind:value={sandbox.envFilePath} placeholder=".env.sandbox.local" />
+            <p class="channel-hint">Use a relative path for project-local secrets. The sandbox denies direct reads of this file.</p>
+          </div>
+          <div class="channel-field-row pt-2">
+            <div class="channel-field">
+              <Label for="sb-env-allow">Allowed env keys</Label>
+              <Textarea id="sb-env-allow" class="font-mono text-xs" bind:value={envAllowText} rows={6} placeholder={"OPENAI_API_KEY\nTAVILY_API_KEY"} />
             </div>
-            <Button type="button" variant="outline" onclick={runDiagnostics} disabled={diagnosing}>
+            <div class="channel-field">
+              <Label for="sb-env-deny">Denied env keys</Label>
+              <Textarea id="sb-env-deny" class="font-mono text-xs" bind:value={envDenyText} rows={6} placeholder={"TELEGRAM_BOT_TOKEN\nMOLIBOT_*"} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="channel-field-row">
+        <div class="channel-card">
+          <div class="channel-card-header">
+            <div>
+              <h2 class="channel-card-title">Network Policy</h2>
+              <p class="channel-card-desc">Network access is allowlist based when sandboxing is active.</p>
+            </div>
+          </div>
+          <div class="channel-card-body">
+            <div class="channel-field">
+              <Label for="sb-net-allow">Allowed domains</Label>
+              <Textarea id="sb-net-allow" class="font-mono text-xs" bind:value={networkAllowText} rows={8} />
+            </div>
+            <div class="channel-field">
+              <Label for="sb-net-deny">Denied domains</Label>
+              <Textarea id="sb-net-deny" class="font-mono text-xs" bind:value={networkDenyText} rows={4} />
+            </div>
+          </div>
+        </div>
+
+        <div class="channel-card">
+          <div class="channel-card-header">
+            <div>
+              <h2 class="channel-card-title">Filesystem Policy</h2>
+              <p class="channel-card-desc">Reads are denylist based; writes are allowlist based.</p>
+            </div>
+          </div>
+          <div class="channel-card-body">
+            <div class="channel-field">
+              <Label for="sb-fs-write">Allowed write paths</Label>
+              <Textarea id="sb-fs-write" class="font-mono text-xs" bind:value={allowWriteText} rows={4} />
+            </div>
+            <div class="channel-field">
+              <Label for="sb-fs-read">Denied read paths</Label>
+              <Textarea id="sb-fs-read" class="font-mono text-xs" bind:value={denyReadText} rows={4} />
+            </div>
+            <div class="channel-field">
+              <Label for="sb-fs-deny-write">Denied write paths</Label>
+              <Textarea id="sb-fs-deny-write" class="font-mono text-xs" bind:value={denyWriteText} rows={4} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="channel-card mb-16">
+        <div class="channel-card-header">
+          <div class="flex flex-wrap items-center justify-between gap-3 w-full">
+            <div>
+              <h2 class="channel-card-title">Diagnostics</h2>
+              <p class="channel-card-desc">Checks platform support, dependencies, env parsing, and effective policy without exposing values.</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onclick={runDiagnostics} disabled={diagnosing}>
               {diagnosing ? "Checking..." : "Run diagnostics"}
             </Button>
           </div>
-        </CardHeader>
-        <CardContent class="flex flex-col gap-4">
+        </div>
+        <div class="channel-card-body">
           {#if diagnostics}
             <div class="flex flex-wrap gap-2">
               <Badge variant={badgeVariant(diagnostics.supportedPlatform)}>Platform: {diagnostics.platform}</Badge>
@@ -632,11 +632,11 @@
               <Badge variant={badgeVariant(diagnostics.envFileExists ? diagnostics.envFileReadable : true)}>Env file</Badge>
             </div>
 
-            <div class="grid gap-3 text-sm md:grid-cols-2">
+            <div class="channel-field-row pt-2">
               <div class="rounded-lg border bg-muted/30 p-3">
-                <p class="font-medium text-foreground">Env file</p>
-                <p class="mt-1 break-all text-xs text-muted-foreground">{diagnostics.envFilePath}</p>
-                <p class="mt-2 text-xs text-muted-foreground">
+                <p class="font-medium text-foreground text-xs">Env file</p>
+                <p class="mt-1 break-all text-[11px] text-muted-foreground font-mono">{diagnostics.envFilePath}</p>
+                <p class="mt-2 text-[10px] text-muted-foreground">
                   Exists: {diagnostics.envFileExists ? "yes" : "no"} · Readable: {diagnostics.envFileReadable ? "yes" : "no"}
                 </p>
                 {#if diagnostics.envFileError}
@@ -644,26 +644,107 @@
                 {/if}
               </div>
               <div class="rounded-lg border bg-muted/30 p-3">
-                <p class="font-medium text-foreground">Injected keys</p>
-                <p class="mt-1 text-xs text-muted-foreground">{previewKeys(diagnostics.envKeysInjected)}</p>
-                <p class="mt-2 text-xs text-muted-foreground">Denied: {previewKeys(diagnostics.envKeysDenied)}</p>
-                <p class="mt-2 text-xs text-muted-foreground">Missing allowlist: {previewKeys(diagnostics.envKeysMissing)}</p>
+                <p class="font-medium text-foreground text-xs">Injected keys</p>
+                <p class="mt-1 text-[11px] text-muted-foreground font-mono">{previewKeys(diagnostics.envKeysInjected)}</p>
+                <p class="mt-2 text-[10px] text-muted-foreground">Denied: {previewKeys(diagnostics.envKeysDenied)}</p>
+                <p class="mt-2 text-[10px] text-muted-foreground">Missing allowlist: {previewKeys(diagnostics.envKeysMissing)}</p>
               </div>
             </div>
 
             {#if diagnostics.sandboxError}
-              <Alert variant="destructive"><AlertDescription>{diagnostics.sandboxError}</AlertDescription></Alert>
+              <Alert variant="destructive" class="mt-2"><AlertDescription>{diagnostics.sandboxError}</AlertDescription></Alert>
             {/if}
           {:else}
-            <p class="text-sm text-muted-foreground">Run diagnostics to inspect the effective sandbox state.</p>
+            <p class="text-xs text-muted-foreground">Run diagnostics to inspect the effective sandbox state.</p>
           {/if}
-        </CardContent>
-      </Card>
-
-      <div class="flex justify-end gap-3">
-        <Button type="button" variant="outline" onclick={loadSettings} disabled={saving}>Reset</Button>
-        <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save sandbox policy"}</Button>
+        </div>
       </div>
     </form>
   {/if}
 </div>
+
+<footer class="settings-footbar">
+  <div class="settings-footbar-status">
+    {#if saving}
+      <span class="settings-footbar-saving">
+        <span class="settings-footbar-pulse"></span>
+        Saving changes...
+      </span>
+    {:else if message}
+      <span class="settings-footbar-ok">{message}</span>
+    {/if}
+    {#if error}
+      <span class="settings-footbar-error">{error}</span>
+    {/if}
+  </div>
+  <div class="settings-footbar-actions">
+    <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>Reset</Button>
+    <button type="submit" form="sandbox-form" class="settings-footbar-btn" disabled={loading || saving}>
+      {saving ? "Saving..." : "Save Sandbox Policy"}
+    </button>
+  </div>
+</footer>
+
+<style>
+  .presets-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+  }
+  @media (max-width: 768px) {
+    .presets-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .preset-card {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border);
+    padding: 1rem;
+    background: var(--card);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .preset-card:hover {
+    border-color: var(--muted-foreground);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow);
+  }
+  .preset-card--active {
+    border-color: var(--primary);
+    background: color-mix(in oklab, var(--primary) 6%, var(--card));
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 20%, transparent);
+  }
+  .preset-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+  .preset-card-title {
+    font-weight: 600;
+    color: var(--foreground);
+    font-size: 0.875rem;
+  }
+  .preset-card-desc {
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--muted-foreground);
+    flex: 1;
+  }
+  .custom-profile-warning {
+    margin-top: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in oklab, var(--primary) 20%, transparent);
+    background: color-mix(in oklab, var(--primary) 5%, transparent);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    color: var(--primary);
+  }
+</style>

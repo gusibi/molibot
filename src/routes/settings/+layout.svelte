@@ -92,6 +92,9 @@
 
   let themeMode: ThemeMode = "light";
 
+  const LS_LABELS = "molibot-settings-show-labels";
+  let showLabels = false;
+
   function t(key: string): string {
     return COPY[$locale][key] ?? key;
   }
@@ -108,8 +111,8 @@
 
   /* ── i18n-synced group array ── */
   $: navGroups = [
-    { key: "general", icon: "✦", title: t("general"), links: [{ href: "/settings", label: t("overview"), exact: true }] },
-    { key: "ai", icon: "◈", title: t("aiEngine"), links: [
+    { key: "general", icon: "🏠", title: t("general"), links: [{ href: "/settings", label: t("overview"), exact: true }] },
+    { key: "ai", icon: "🤖", title: t("aiEngine"), links: [
         { href: "/settings/ai/routing", label: t("routingPrompt"), exact: true },
         { href: "/settings/ai/providers", label: t("providersModels"), exact: true },
         { href: "/settings/ai/usage", label: t("usageStats"), exact: true },
@@ -121,14 +124,14 @@
         { href: "/settings/video", label: t("videoTools"), exact: true },
         { href: "/settings/tts", label: t("ttsTools"), exact: true },
       ] },
-    { key: "channels", icon: "▣", title: t("channels"), links: [
+    { key: "channels", icon: "💬", title: t("channels"), links: [
         { href: "/settings/web", label: t("webProfiles"), exact: true },
         { href: "/settings/telegram", label: t("telegramBot"), exact: true },
         { href: "/settings/weixin", label: t("wechatBot"), exact: true },
         { href: "/settings/feishu", label: t("feishuBot"), exact: true },
         { href: "/settings/qq", label: t("qqBot"), exact: true },
       ] },
-    { key: "data", icon: "◉", title: t("agentData"), links: [
+    { key: "data", icon: "💾", title: t("agentData"), links: [
         { href: "/settings/agents", label: t("agents"), exact: true },
         { href: "/settings/memory", label: t("memory"), exact: true },
         { href: "/settings/memory-rejections", label: t("memoryRejections"), exact: true },
@@ -138,7 +141,7 @@
         { href: "/settings/tasks", label: t("tasks"), exact: true },
         { href: "/settings/host-bash", label: t("hostBash"), exact: true },
       ] },
-    { key: "system", icon: "⚙", title: t("systemGroup"), links: [
+    { key: "system", icon: "⚙️", title: t("systemGroup"), links: [
         { href: "/settings/system", label: t("systemConfig"), exact: true },
         { href: "/settings/sandbox", label: t("sandbox"), exact: true },
         { href: "/settings/plugins", label: t("pluginsCore"), exact: true },
@@ -202,6 +205,11 @@
     localStorage.setItem(LS_THEME, themeMode);
   }
 
+  function toggleLabels(): void {
+    showLabels = !showLabels;
+    localStorage.setItem(LS_LABELS, String(showLabels));
+  }
+
   function onLocaleChange(event: Event): void {
     setLocale((event.target as HTMLSelectElement).value as LocaleKey);
   }
@@ -219,6 +227,8 @@
 
     initLocale();
 
+    showLabels = localStorage.getItem(LS_LABELS) === "true";
+
     return () => {
       media.removeEventListener("change", handleSystemThemeChange);
     };
@@ -227,15 +237,19 @@
 
 <main
   class="settings-shell settings-theme text-foreground antialiased selection:bg-[color-mix(in_oklab,var(--primary)_30%,transparent)]"
+  class:has-labels={showLabels}
   use:localizeSettings={$locale}
 >
   <!-- Three-column grid: icon sidebar | page sidebar | content -->
   <div class="settings-layout-grid">
 
-    <!-- ── Primary Sidebar: Icon Navigation (72px) ── -->
+    <!-- ── Primary Sidebar: Icon Navigation (72px / 160px) ── -->
     <aside class="settings-sidebar-primary">
       <a href="/settings" class="settings-pnav-brand" title={t("settings")}>
         <span class="settings-brand-dot" aria-hidden="true"></span>
+        {#if showLabels}
+          <span class="settings-pnav-brand-text font-bold text-sm ml-2 select-none">Molibot</span>
+        {/if}
       </a>
       {#each navGroups as group}
         <a
@@ -245,12 +259,30 @@
           title={group.title}
           aria-current={activeGroupKey === group.key ? "true" : undefined}
         >
-          {group.icon}
+          <span class="settings-pnav-emoji">{group.icon}</span>
+          {#if showLabels}
+            <span class="settings-pnav-text text-xs ml-2 truncate">{group.title}</span>
+          {/if}
         </a>
       {/each}
       <div class="settings-pnav-spacer"></div>
+      <button 
+        type="button" 
+        class="settings-pnav-icon" 
+        onclick={toggleLabels} 
+        title={showLabels ? ($locale === "zh-CN" ? "隐藏名称" : "Hide Names") : ($locale === "zh-CN" ? "显示名称" : "Show Names")}
+        aria-label="Toggle Labels"
+      >
+        <span class="settings-pnav-emoji">🏷️</span>
+        {#if showLabels}
+          <span class="settings-pnav-text text-xs ml-2 truncate">{$locale === "zh-CN" ? "隐藏名称" : "Hide Names"}</span>
+        {/if}
+      </button>
       <button type="button" class="settings-pnav-icon settings-pnav-theme" onclick={toggleTheme} title={t("theme")} aria-label={t("theme")}>
-        {themeMode === "dark" ? "☼" : "☾"}
+        <span class="settings-pnav-emoji">{themeMode === "dark" ? "☼" : "☾"}</span>
+        {#if showLabels}
+          <span class="settings-pnav-text text-xs ml-2 truncate">{t("theme")}</span>
+        {/if}
       </button>
     </aside>
 
@@ -338,6 +370,42 @@
     grid-template-columns: 72px 260px 1fr;
     height: 100dvh;
     width: 100%;
+    transition: grid-template-columns 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .settings-shell.has-labels .settings-layout-grid {
+    grid-template-columns: 168px 260px 1fr;
+  }
+
+  .settings-shell.has-labels .settings-sidebar-primary {
+    align-items: stretch;
+    padding: 1.5rem 0.75rem;
+  }
+
+  .settings-shell.has-labels .settings-pnav-brand {
+    width: auto;
+    justify-content: flex-start;
+    padding: 0 0.5rem;
+  }
+
+  .settings-shell.has-labels .settings-pnav-icon {
+    width: auto;
+    justify-content: flex-start;
+    padding: 0 0.75rem;
+  }
+
+  .settings-pnav-emoji {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+  }
+
+  .settings-pnav-text {
+    font-weight: 600;
+    font-family: inherit;
+    white-space: nowrap;
   }
 
   /* ── Primary Sidebar (icon column) ── */
@@ -562,6 +630,7 @@
     left: calc(72px + 260px);
     right: 0;
     z-index: 5;
+    transition: left 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     height: 3.5rem;
     background: color-mix(in oklab, var(--card) 85%, transparent);
     border-top: 1px solid var(--border);
@@ -570,6 +639,10 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 2rem;
+  }
+
+  .settings-shell.has-labels :global(.settings-footbar) {
+    left: calc(168px + 260px);
   }
 
   :global(.settings-footbar-status) {

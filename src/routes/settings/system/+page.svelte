@@ -3,18 +3,11 @@
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
-  import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle
-  } from "$lib/components/ui/card";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { Separator } from "$lib/components/ui/separator";
-  import { Switch } from "$lib/components/ui/switch";
+  import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { initLocale, locale, setLocale, type LocaleKey } from "$lib/ui/i18n";
 
   interface RunBudgetLimits {
@@ -83,7 +76,7 @@
       displayTitle: "显示与思考设置",
       displaySubtitle: "控制 AI 助手在各个渠道中如何展示其思考过程、工具调用进度及限频机制。",
       toolProgress: "工具执行进度展示",
-      toolProgressHint: "决定在聊天界面中展示多少工具执行的详细步骤和信息。",
+      toolProgressHint: "决定在聊天界面中展示多少工具执行的详细步骤 and 信息。",
       toolProgressOff: "关闭 (Off)",
       toolProgressNew: "仅展示新步骤 (Only new steps)",
       toolProgressAll: "展示全部步骤 (All steps)",
@@ -199,18 +192,14 @@
   let maxToolCalls = 24;
   let maxToolFailures = 6;
   let maxModelAttempts = 6;
-  let savingBudget = false;
 
   let browserTimeoutMs = 60000;
-  let savingBrowser = false;
 
   let toolProgress: "off" | "new" | "all" | "verbose" = "all";
   let showReasoning: "off" | "on" | "stream" | "new" = "off";
   let gatewayNotifyInterval = 0;
-  let savingDisplay = false;
 
   let sandboxEnabled = true;
-  let savingSandbox = false;
 
   $: copy = COPY[$locale];
 
@@ -304,7 +293,7 @@
     }
   }
 
-  async function saveTimezone(): Promise<void> {
+  async function saveAll(): Promise<void> {
     saving = true;
     status = "";
     statusVariant = "default";
@@ -312,119 +301,22 @@
       const response = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ timezone })
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || copy.failedSave);
-      }
-      status = copy.saved;
-      statusVariant = "default";
-    } catch (error) {
-      status = error instanceof Error ? error.message : String(error);
-      statusVariant = "destructive";
-    } finally {
-      saving = false;
-    }
-  }
-
-  async function saveBudget(): Promise<void> {
-    savingBudget = true;
-    status = "";
-    statusVariant = "default";
-    try {
-      const response = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          locale: selectedLocale,
+          timezone,
           budget: {
             maxToolCalls: Number(maxToolCalls),
             maxToolFailures: Number(maxToolFailures),
             maxModelAttempts: Number(maxModelAttempts)
-          }
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || copy.failedSave);
-      }
-      status = copy.saved;
-      statusVariant = "default";
-    } catch (error) {
-      status = error instanceof Error ? error.message : String(error);
-      statusVariant = "destructive";
-    } finally {
-      savingBudget = false;
-    }
-  }
-
-  async function saveBrowserSettings(): Promise<void> {
-    savingBrowser = true;
-    status = "";
-    statusVariant = "default";
-    try {
-      const response = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+          },
           browserAutomation: {
             defaultTimeoutMs: Number(browserTimeoutMs)
-          }
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || copy.failedSave);
-      }
-      status = copy.saved;
-      statusVariant = "default";
-    } catch (error) {
-      status = error instanceof Error ? error.message : String(error);
-      statusVariant = "destructive";
-    } finally {
-      savingBrowser = false;
-    }
-  }
-
-  async function saveDisplaySettings(): Promise<void> {
-    savingDisplay = true;
-    status = "";
-    statusVariant = "default";
-    try {
-      const response = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+          },
           display: {
             toolProgress,
             showReasoning,
             gatewayNotifyInterval: Number(gatewayNotifyInterval)
-          }
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || copy.failedSave);
-      }
-      status = copy.saved;
-      statusVariant = "default";
-    } catch (error) {
-      status = error instanceof Error ? error.message : String(error);
-      statusVariant = "destructive";
-    } finally {
-      savingDisplay = false;
-    }
-  }
-
-  async function saveSandboxEnabled(): Promise<void> {
-    savingSandbox = true;
-    status = "";
-    statusVariant = "default";
-    try {
-      const response = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+          },
           toolSandbox: {
             enabled: sandboxEnabled
           }
@@ -440,7 +332,7 @@
       status = error instanceof Error ? error.message : String(error);
       statusVariant = "destructive";
     } finally {
-      savingSandbox = false;
+      saving = false;
     }
   }
 
@@ -449,281 +341,292 @@
   });
 </script>
 
-<div class="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-  <header class="flex flex-col gap-3">
+<div class="channel-page">
+  <header class="channel-hero">
     <div class="flex flex-wrap items-center gap-2">
       <Badge variant="secondary">{copy.eyebrow}</Badge>
       <Badge variant={versionInfo?.updateAvailable ? "default" : "outline"}>
         {updateStateLabel()}
       </Badge>
     </div>
-    <div class="flex max-w-3xl flex-col gap-2">
-      <h1 class="text-3xl font-semibold tracking-tight text-foreground">{copy.title}</h1>
-      <p class="text-sm leading-6 text-muted-foreground">{copy.subtitle}</p>
-    </div>
+    <h1 class="channel-hero-title">{copy.title}</h1>
+    <p class="channel-hero-desc">{copy.subtitle}</p>
   </header>
 
-  {#if status}
+  {#if status && !saving}
     <Alert variant={statusVariant}>
       <AlertDescription>{status}</AlertDescription>
     </Alert>
   {/if}
 
-  <div class="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
-    <Card>
-      <CardHeader>
-        <CardTitle>{copy.language}</CardTitle>
-        <CardDescription>{copy.languageHint}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <NativeSelect
-          class="w-full"
-          aria-label={copy.language}
-          size="default"
-          value={selectedLocale}
-          onchange={onLocaleChange}
-        >
-          <NativeSelectOption value="zh-CN">中文</NativeSelectOption>
-          <NativeSelectOption value="en-US">English</NativeSelectOption>
-        </NativeSelect>
-      </CardContent>
-    </Card>
-
-    <Card>
-      <CardHeader>
-        <CardTitle>{copy.timezone}</CardTitle>
-        <CardDescription>{copy.timezoneHint}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div class="flex flex-col gap-3 sm:flex-row">
-          <NativeSelect
-            class="min-w-0 flex-1"
-            aria-label={copy.timezone}
-            bind:value={timezone}
-            disabled={loading}
-          >
-            {#each timezoneOptions as zone}
-              <NativeSelectOption value={zone}>{zone}</NativeSelectOption>
-            {/each}
-          </NativeSelect>
-          <Button type="button" onclick={saveTimezone} disabled={saving || loading}>
-            {saving ? copy.saving : copy.save}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  </div>
-
-  <Card>
-    <CardHeader>
-      <CardTitle>{copy.budgetTitle}</CardTitle>
-      <CardDescription>{copy.budgetSubtitle}</CardDescription>
-    </CardHeader>
-    <CardContent class="flex flex-col gap-5">
-      <div class="grid gap-4 sm:grid-cols-3">
-        <div class="flex flex-col gap-2">
-          <Label for="max-tool-calls">{copy.maxToolCalls}</Label>
-          <Input
-            id="max-tool-calls"
-            type="number"
-            min="1"
-            max="500"
-            bind:value={maxToolCalls}
-            disabled={loading}
-          />
-        </div>
-        <div class="flex flex-col gap-2">
-          <Label for="max-tool-failures">{copy.maxToolFailures}</Label>
-          <Input
-            id="max-tool-failures"
-            type="number"
-            min="1"
-            max="100"
-            bind:value={maxToolFailures}
-            disabled={loading}
-          />
-        </div>
-        <div class="flex flex-col gap-2">
-          <Label for="max-model-attempts">{copy.maxModelAttempts}</Label>
-          <Input
-            id="max-model-attempts"
-            type="number"
-            min="1"
-            max="100"
-            bind:value={maxModelAttempts}
-            disabled={loading}
-          />
-        </div>
-      </div>
-      <div class="flex justify-end">
-        <Button type="button" onclick={saveBudget} disabled={savingBudget || loading}>
-          {savingBudget ? copy.savingBudget : copy.saveBudget}
-        </Button>
-      </div>
-    </CardContent>
-  </Card>
-
-  <Card>
-    <CardHeader>
-      <CardTitle>{copy.browserTitle}</CardTitle>
-      <CardDescription>{copy.browserSubtitle}</CardDescription>
-    </CardHeader>
-    <CardContent class="flex flex-col gap-5">
-      <div class="grid gap-4 sm:grid-cols-2">
-        <div class="flex flex-col gap-2">
-          <Label for="browser-timeout">{copy.browserTimeout}</Label>
-          <Input
-            id="browser-timeout"
-            type="number"
-            min="5000"
-            max="300000"
-            step="1000"
-            bind:value={browserTimeoutMs}
-            disabled={loading}
-          />
-          <p class="text-xs text-muted-foreground">{copy.browserTimeoutHint}</p>
-        </div>
-      </div>
-      <div class="flex justify-end">
-        <Button type="button" onclick={saveBrowserSettings} disabled={savingBrowser || loading}>
-          {savingBrowser ? copy.savingBrowser : copy.saveBrowser}
-        </Button>
-      </div>
-    </CardContent>
-  </Card>
-
-  <Card>
-    <CardHeader>
-      <CardTitle>{copy.displayTitle}</CardTitle>
-      <CardDescription>{copy.displaySubtitle}</CardDescription>
-    </CardHeader>
-    <CardContent class="flex flex-col gap-5">
-      <div class="grid gap-4 sm:grid-cols-3">
-        <div class="flex flex-col gap-2">
-          <Label for="show-reasoning">{copy.showReasoning}</Label>
-          <NativeSelect id="show-reasoning" bind:value={showReasoning} disabled={loading}>
-            <NativeSelectOption value="off">{copy.showReasoningOff}</NativeSelectOption>
-            <NativeSelectOption value="on">{copy.showReasoningOn}</NativeSelectOption>
-            <NativeSelectOption value="stream">{copy.showReasoningStream}</NativeSelectOption>
-            <NativeSelectOption value="new">{copy.showReasoningNew}</NativeSelectOption>
-          </NativeSelect>
-          <p class="text-xs text-muted-foreground">{copy.showReasoningHint}</p>
+  {#if loading}
+    <p class="py-8 text-sm text-muted-foreground">Loading system configuration...</p>
+  {:else}
+    <form id="system-form" class="channel-form" onsubmit={(e) => { e.preventDefault(); saveAll(); }}>
+      <div class="channel-field-row">
+        <div class="channel-card">
+          <div class="channel-card-header">
+            <div>
+              <h2 class="channel-card-title">{copy.language}</h2>
+              <p class="channel-card-desc">{copy.languageHint}</p>
+            </div>
+          </div>
+          <div class="channel-card-body">
+            <div class="channel-field">
+              <NativeSelect
+                class="w-full"
+                aria-label={copy.language}
+                size="default"
+                value={selectedLocale}
+                onchange={onLocaleChange}
+              >
+                <NativeSelectOption value="zh-CN">中文</NativeSelectOption>
+                <NativeSelectOption value="en-US">English</NativeSelectOption>
+              </NativeSelect>
+            </div>
+          </div>
         </div>
 
-        <div class="flex flex-col gap-2">
-          <Label for="tool-progress">{copy.toolProgress}</Label>
-          <NativeSelect id="tool-progress" bind:value={toolProgress} disabled={loading}>
-            <NativeSelectOption value="off">{copy.toolProgressOff}</NativeSelectOption>
-            <NativeSelectOption value="new">{copy.toolProgressNew}</NativeSelectOption>
-            <NativeSelectOption value="all">{copy.toolProgressAll}</NativeSelectOption>
-            <NativeSelectOption value="verbose">{copy.toolProgressVerbose}</NativeSelectOption>
-          </NativeSelect>
-          <p class="text-xs text-muted-foreground">{copy.toolProgressHint}</p>
-        </div>
-
-        <div class="flex flex-col gap-2">
-          <Label for="gateway-notify-interval">{copy.gatewayNotifyInterval}</Label>
-          <Input
-            id="gateway-notify-interval"
-            type="number"
-            min="0"
-            bind:value={gatewayNotifyInterval}
-            disabled={loading}
-          />
-          <p class="text-xs text-muted-foreground">{copy.gatewayNotifyIntervalHint}</p>
-        </div>
-      </div>
-      <div class="flex justify-end">
-        <Button type="button" onclick={saveDisplaySettings} disabled={savingDisplay || loading}>
-          {savingDisplay ? copy.savingDisplay : copy.saveDisplay}
-        </Button>
-      </div>
-    </CardContent>
-  </Card>
-
-  <Card>
-    <CardHeader>
-      <CardTitle>{copy.sandboxTitle}</CardTitle>
-      <CardDescription>{copy.sandboxSubtitle}</CardDescription>
-    </CardHeader>
-    <CardContent class="flex flex-col gap-5">
-      <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 px-4 py-3">
-        <div class="flex flex-col gap-1">
-          <Label for="sandbox-enabled">{copy.sandboxEnabled}</Label>
-          <p class="text-xs text-muted-foreground">{copy.sandboxEnabledHint}</p>
-        </div>
-        <Switch id="sandbox-enabled" bind:checked={sandboxEnabled} disabled={loading} />
-      </div>
-
-      <div class="flex items-center justify-between">
-        <a href="/settings/sandbox" class="text-xs text-primary underline hover:text-primary/80">
-          {copy.sandboxDetailLink} &rarr;
-        </a>
-        <Button type="button" onclick={saveSandboxEnabled} disabled={savingSandbox || loading}>
-          {savingSandbox ? copy.savingSandbox : copy.saveSandbox}
-        </Button>
-      </div>
-    </CardContent>
-  </Card>
-
-  <Card>
-    <CardHeader>
-      <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div class="flex flex-col gap-1.5">
-          <CardTitle>{copy.deployment}</CardTitle>
-          <CardDescription>{copy.githubRepoHint}</CardDescription>
-        </div>
-        <Badge variant={versionInfo?.remoteConfigured ? "secondary" : "outline"}>
-          {updateStateLabel()}
-        </Badge>
-      </div>
-    </CardHeader>
-    <CardContent class="flex flex-col gap-5">
-      <div class="grid gap-4 lg:grid-cols-2">
-        <div class="flex flex-col gap-2">
-          <Label for="github-repo">{copy.githubRepo}</Label>
-          <Input
-            id="github-repo"
-            class="font-mono text-xs"
-            value={versionInfo?.repositoryUrl || copy.notConfigured}
-            readonly
-          />
-        </div>
-        <div class="flex flex-col gap-2">
-          <Label for="git-ref">{copy.gitRef}</Label>
-          <Input
-            id="git-ref"
-            class="font-mono text-xs"
-            value={versionInfo?.ref || copy.notConfigured}
-            readonly
-          />
+        <div class="channel-card">
+          <div class="channel-card-header">
+            <div>
+              <h2 class="channel-card-title">{copy.timezone}</h2>
+              <p class="channel-card-desc">{copy.timezoneHint}</p>
+            </div>
+          </div>
+          <div class="channel-card-body">
+            <div class="channel-field">
+              <NativeSelect
+                class="w-full"
+                aria-label={copy.timezone}
+                bind:value={timezone}
+                disabled={loading}
+              >
+                {#each timezoneOptions as zone}
+                  <NativeSelectOption value={zone}>{zone}</NativeSelectOption>
+                {/each}
+              </NativeSelect>
+            </div>
+          </div>
         </div>
       </div>
 
-      <Separator />
-
-      <div class="grid gap-4 sm:grid-cols-3">
-        <div class="flex flex-col gap-1 rounded-lg border bg-muted/40 p-4">
-          <span class="text-xs font-medium text-muted-foreground">{copy.currentVersion}</span>
-          <span class="font-mono text-lg font-semibold">v{versionInfo?.currentVersion ?? "..."}</span>
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">{copy.budgetTitle}</h2>
+            <p class="channel-card-desc">{copy.budgetSubtitle}</p>
+          </div>
         </div>
-        <div class="flex flex-col gap-1 rounded-lg border bg-muted/40 p-4">
-          <span class="text-xs font-medium text-muted-foreground">{copy.latestVersion}</span>
-          <span class="font-mono text-lg font-semibold">
-            {versionInfo?.latestVersion ? `v${versionInfo.latestVersion}` : "-"}
-          </span>
-        </div>
-        <div class="flex flex-col gap-1 rounded-lg border bg-muted/40 p-4">
-          <span class="text-xs font-medium text-muted-foreground">{copy.updateState}</span>
-          <span class="text-sm font-semibold">{updateStateLabel()}</span>
+        <div class="channel-card-body">
+          <div class="channel-field-row">
+            <div class="channel-field">
+              <Label for="max-tool-calls">{copy.maxToolCalls}</Label>
+              <Input
+                id="max-tool-calls"
+                type="number"
+                min="1"
+                max="500"
+                bind:value={maxToolCalls}
+                disabled={loading}
+              />
+            </div>
+            <div class="channel-field">
+              <Label for="max-tool-failures">{copy.maxToolFailures}</Label>
+              <Input
+                id="max-tool-failures"
+                type="number"
+                min="1"
+                max="100"
+                bind:value={maxToolFailures}
+                disabled={loading}
+              />
+            </div>
+          </div>
+          <div class="channel-field pt-2">
+            <Label for="max-model-attempts">{copy.maxModelAttempts}</Label>
+            <Input
+              id="max-model-attempts"
+              type="number"
+              min="1"
+              max="100"
+              bind:value={maxModelAttempts}
+              disabled={loading}
+            />
+          </div>
         </div>
       </div>
 
-      {#if versionInfo?.error}
-        <Alert variant="destructive">
-          <AlertDescription>{versionInfo.error}</AlertDescription>
-        </Alert>
-      {/if}
-    </CardContent>
-  </Card>
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">{copy.browserTitle}</h2>
+            <p class="channel-card-desc">{copy.browserSubtitle}</p>
+          </div>
+        </div>
+        <div class="channel-card-body">
+          <div class="channel-field">
+            <Label for="browser-timeout">{copy.browserTimeout}</Label>
+            <Input
+              id="browser-timeout"
+              type="number"
+              min="5000"
+              max="300000"
+              step="1000"
+              bind:value={browserTimeoutMs}
+              disabled={loading}
+            />
+            <p class="channel-hint">{copy.browserTimeoutHint}</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">{copy.displayTitle}</h2>
+            <p class="channel-card-desc">{copy.displaySubtitle}</p>
+          </div>
+        </div>
+        <div class="channel-card-body">
+          <div class="channel-field-row">
+            <div class="channel-field">
+              <Label for="show-reasoning">{copy.showReasoning}</Label>
+              <NativeSelect id="show-reasoning" bind:value={showReasoning} disabled={loading}>
+                <NativeSelectOption value="off">{copy.showReasoningOff}</NativeSelectOption>
+                <NativeSelectOption value="on">{copy.showReasoningOn}</NativeSelectOption>
+                <NativeSelectOption value="stream">{copy.showReasoningStream}</NativeSelectOption>
+                <NativeSelectOption value="new">{copy.showReasoningNew}</NativeSelectOption>
+              </NativeSelect>
+              <p class="channel-hint">{copy.showReasoningHint}</p>
+            </div>
+
+            <div class="channel-field">
+              <Label for="tool-progress">{copy.toolProgress}</Label>
+              <NativeSelect id="tool-progress" bind:value={toolProgress} disabled={loading}>
+                <NativeSelectOption value="off">{copy.toolProgressOff}</NativeSelectOption>
+                <NativeSelectOption value="new">{copy.toolProgressNew}</NativeSelectOption>
+                <NativeSelectOption value="all">{copy.toolProgressAll}</NativeSelectOption>
+                <NativeSelectOption value="verbose">{copy.toolProgressVerbose}</NativeSelectOption>
+              </NativeSelect>
+              <p class="channel-hint">{copy.toolProgressHint}</p>
+            </div>
+          </div>
+
+          <div class="channel-field pt-2">
+            <Label for="gateway-notify-interval">{copy.gatewayNotifyInterval}</Label>
+            <Input
+              id="gateway-notify-interval"
+              type="number"
+              min="0"
+              bind:value={gatewayNotifyInterval}
+              disabled={loading}
+            />
+            <p class="channel-hint">{copy.gatewayNotifyIntervalHint}</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">{copy.sandboxTitle}</h2>
+            <p class="channel-card-desc">{copy.sandboxSubtitle}</p>
+          </div>
+        </div>
+        <div class="channel-card-body">
+          <div class="channel-toggle-row">
+            <div class="channel-toggle-label">
+              <Label for="sandbox-enabled">{copy.sandboxEnabled}</Label>
+              <p>{copy.sandboxEnabledHint}</p>
+            </div>
+            <IosSwitch id="sandbox-enabled" bind:checked={sandboxEnabled} disabled={loading} />
+          </div>
+
+          <div class="pt-2">
+            <a href="/settings/sandbox" class="text-xs text-primary underline hover:text-primary/80">
+              {copy.sandboxDetailLink} &rarr;
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="channel-card mb-16">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">{copy.deployment}</h2>
+            <p class="channel-card-desc">{copy.githubRepoHint}</p>
+          </div>
+        </div>
+        <div class="channel-card-body">
+          <div class="channel-field-row">
+            <div class="channel-field">
+              <Label for="github-repo">{copy.githubRepo}</Label>
+              <Input
+                id="github-repo"
+                class="font-mono text-xs"
+                value={versionInfo?.repositoryUrl || copy.notConfigured}
+                readonly
+              />
+            </div>
+            <div class="channel-field">
+              <Label for="git-ref">{copy.gitRef}</Label>
+              <Input
+                id="git-ref"
+                class="font-mono text-xs"
+                value={versionInfo?.ref || copy.notConfigured}
+                readonly
+              />
+            </div>
+          </div>
+
+          <Separator />
+
+          <div class="grid gap-4 sm:grid-cols-3">
+            <div class="flex flex-col gap-1 rounded-lg border bg-muted/40 p-4">
+              <span class="text-xs font-medium text-muted-foreground">{copy.currentVersion}</span>
+              <span class="font-mono text-lg font-semibold">v{versionInfo?.currentVersion ?? "..."}</span>
+            </div>
+            <div class="flex flex-col gap-1 rounded-lg border bg-muted/40 p-4">
+              <span class="text-xs font-medium text-muted-foreground">{copy.latestVersion}</span>
+              <span class="font-mono text-lg font-semibold">
+                {versionInfo?.latestVersion ? `v${versionInfo.latestVersion}` : "-"}
+              </span>
+            </div>
+            <div class="flex flex-col gap-1 rounded-lg border bg-muted/40 p-4">
+              <span class="text-xs font-medium text-muted-foreground">{copy.updateState}</span>
+              <span class="text-sm font-semibold">{updateStateLabel()}</span>
+            </div>
+          </div>
+
+          {#if versionInfo?.error}
+            <Alert variant="destructive">
+              <AlertDescription>{versionInfo.error}</AlertDescription>
+            </Alert>
+          {/if}
+        </div>
+      </div>
+    </form>
+  {/if}
 </div>
+
+<footer class="settings-footbar">
+  <div class="settings-footbar-status">
+    {#if saving}
+      <span class="settings-footbar-saving">
+        <span class="settings-footbar-pulse"></span>
+        Saving changes...
+      </span>
+    {:else if status}
+      <span class={statusVariant === "destructive" ? "settings-footbar-error" : "settings-footbar-ok"}>{status}</span>
+    {/if}
+  </div>
+  <div class="settings-footbar-actions">
+    <Button variant="outline" size="sm" onclick={loadSystemConfig} disabled={loading || saving}>
+      Reset
+    </Button>
+    <button type="submit" form="system-form" class="settings-footbar-btn" disabled={loading || saving}>
+      {saving ? "Saving..." : "Save System Config"}
+    </button>
+  </div>
+</footer>

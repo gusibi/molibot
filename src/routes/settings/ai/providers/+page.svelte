@@ -6,7 +6,7 @@
     import { Label } from "$lib/components/ui/label";
     import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
     import { Textarea } from "$lib/components/ui/textarea";
-
+    import { locale } from "$lib/ui/i18n";
 
     type ProviderMode = "pi" | "custom";
     type CustomProviderProtocol = "openai-compatible" | "anthropic";
@@ -110,6 +110,289 @@
         links?: Array<{ label: string; url: string }>;
     }
 
+    const COPY = {
+        "zh-CN": {
+            eyebrow: "AI 引擎",
+            title: "服务商与模型",
+            desc: "配置 AI 推理服务商，管理模型注册表，并为文本、视觉、STT 和 TTS 能力配置路由。",
+            backToRouting: "← 返回路由设置",
+            loading: "正在加载服务商设置...",
+            providerSource: "服务商来源",
+            builtinTab: "内置",
+            customTab: "自定义",
+            builtinDesc: "内置服务商列表如下。启用它们以将原生传输通道加入路由池。",
+            createCustomBtn: "+ 创建自定义服务商",
+            searchPlaceholder: "搜索服务商...",
+            noItemsMatched: "没有匹配的项",
+            defaultTag: "默认",
+            enabledStatus: "已启用",
+            disabledStatus: "已禁用",
+            availableStatus: "可用",
+            unavailableStatus: "不可用",
+            unnamedProvider: "未命名服务商",
+            setAsDefaultBtn: "设为默认",
+            deleteBtn: "删除",
+            providerIdLabel: "服务商 ID",
+            displayNameLabel: "显示名称",
+            builtinNotice: "检测到内置服务商。协议由 pi-ai 原生管理；`baseUrl` 和 `path` 将被忽略。",
+            authMethodLabel: "认证方式：",
+            loginCmdLabel: "登录命令：",
+            envVarLabel: "环境变量：",
+            oauthNotice: "OAuth 服务商：静态 API Key 输入已隐藏。请使用上述命令，并在 DATA_DIR（或通过 PI_AI_AUTH_FILE）下保留 auth.json。",
+            apiKeyOverrideLabel: "API Key 覆盖（可选）",
+            apiKeyOverridePlaceholder: "留空则使用环境变量/OAuth 凭据",
+            protocolLabel: "协议",
+            apiKeyLabel: "API Key",
+            apiBaseUrlLabel: "API 基准 URL",
+            pathEndpointLabel: "接口路径 (Path Endpoint)",
+            thinkingSupportLabel: "Thinking (思考推理) 支持",
+            thinkingFormatLabel: "Thinking 格式",
+            thinkingBehaviorTitle: "Thinking 行为表现",
+            reasoningEffortMappingLabel: "推理力度映射",
+            reasoningEffortMappingAuto: "自动 (推荐)",
+            reasoningEffortMappingCustom: "自定义覆盖",
+            reasoningEffortMappingDesc: "自动为 {format} 映射 low / medium / high: {levels}",
+            thinkingFormatNotice: "{format} 仅支持开启/关闭 thinking，因此不会为此格式发送 low / medium / high 映射参数。",
+            modelRegistryTitle: "模型注册表",
+            pullModelsBtn: "拉取模型",
+            addModelBtn: "+ 添加模型",
+            noModelsDefined: "未定义模型。点击“+ 添加模型”开始。",
+            identifierCol: "标识符",
+            capabilitiesCol: "能力标签",
+            contextCol: "上下文窗口",
+            enabledCol: "启用状态",
+            collapseModelsBtn: "收起模型",
+            showMoreModelsBtn: "展示另外 {count} 个模型",
+            noProviderSelectedTitle: "未选择服务商",
+            noProviderSelectedBuiltinDesc: "从侧边栏选择一个内置服务商，或在上方添加一个。",
+            noProviderSelectedCustomDesc: "从侧边栏选择一个自定义服务商，或创建一个新的。",
+            addModelModalTitle: "添加模型",
+            addModelIdLabel: "模型 ID",
+            addModelCwLabel: "上下文窗口 (Tokens)",
+            cancelBtn: "取消",
+            confirmAddModelBtn: "添加模型",
+            pullModelsModalTitle: "从服务商拉取模型",
+            fetchingModels: "正在获取模型列表...",
+            noModelsReturned: "此服务商未返回任何模型。",
+            closeBtn: "关闭",
+            saving: "保存中...",
+            saveProvidersBtn: "保存服务商",
+            deleteConfirm: "您确定要删除此自定义服务商吗？",
+            fillFieldsError: "在拉取模型前，请先填写 API 基准 URL 和 API Key。",
+            testFailed: "服务商测试失败",
+            savedSuccess: "AI 设置已保存。",
+            authGuides: {
+                "openai-codex": {
+                    modeLabel: "OAuth 登录",
+                    summary: "使用 pi-ai 的设备登录流程获取 OpenAI Codex 授权，不需要在本页填写固定 API Key。",
+                    tokenHint: "登录后会写入 auth.json；运行时会自动读取并按需刷新 token。",
+                    steps: [
+                        "在终端执行登录命令并按提示完成浏览器授权。",
+                        "确认 auth.json 位于 DATA_DIR（默认 ~/.molibot）或通过 PI_AI_AUTH_FILE 指定路径。",
+                        "返回本页仅管理模型与默认路由，无需填写 baseUrl/path。"
+                    ]
+                },
+                "google-gemini-cli": {
+                    modeLabel: "OAuth 登录",
+                    summary: "Gemini CLI 使用 Google OAuth 授权链，优先使用 auth.json，不建议手填 API Key。",
+                    tokenHint: "token 保存在 auth.json；运行时会自动读取并在过期时刷新。",
+                    steps: [
+                        "执行登录命令并在浏览器完成 Google 账号授权。",
+                        "把 auth.json 放到 DATA_DIR（默认 ~/.molibot）或设置 PI_AI_AUTH_FILE。",
+                        "授权完成后在本页只需配置模型与能力标签。"
+                    ]
+                },
+                "google-antigravity": {
+                    modeLabel: "OAuth 登录",
+                    summary: "该提供商走 Google OAuth 授权，不通过 OpenAI 兼容 key/path 模式。",
+                    tokenHint: "token 信息存储在 auth.json，并在运行时自动刷新。",
+                    steps: [
+                        "执行登录命令，完成浏览器设备授权流程。",
+                        "确保 auth.json 在 DATA_DIR 或通过 PI_AI_AUTH_FILE 指向文件。",
+                        "返回本页管理模型映射与默认模型。"
+                    ]
+                },
+                "github-copilot": {
+                    modeLabel: "OAuth 登录",
+                    summary: "GitHub Copilot 通过 GitHub 账号 OAuth 授权，不是静态 API Key 方案。",
+                    tokenHint: "授权后 token 保存在 auth.json，runner 会自动读取。",
+                    steps: [
+                        "执行命令后按终端提示完成 GitHub 登录授权。",
+                        "确认 auth.json 的存放位置（DATA_DIR 或 PI_AI_AUTH_FILE）。",
+                        "本页只维护模型清单、能力标注和默认模型。"
+                    ]
+                },
+                "azure-openai-responses": {
+                    modeLabel: "平台凭据",
+                    summary: "Azure OpenAI 通常需要 endpoint + deployment + key/credential 组合，不是单一 API Key。",
+                    steps: [
+                        "在 Azure Portal 创建 OpenAI 资源并拿到 endpoint/deployment/key。",
+                        "在运行环境配置 Azure 所需环境变量；本页只支持有限 key 覆盖。",
+                        "建议先在服务端环境完成 Azure 配置，再在本页维护模型元数据。"
+                    ]
+                },
+                "default": {
+                    modeLabel: "API Key",
+                    summary: "该 provider 使用 API Key 认证。你可以在本页填写覆盖值，或通过环境变量提供。",
+                    steps: [
+                        "去 provider 控制台创建/复制 API Key。",
+                        "二选一：在本页填写 API Key，或在运行环境设置对应环境变量。",
+                        "保存后用模型测试或实际对话验证。"
+                    ]
+                },
+                "platform_default": {
+                    modeLabel: "平台凭据",
+                    summary: "该内置 provider 可能依赖平台侧凭据或多字段认证，请参考其官方文档配置运行环境。",
+                    steps: [
+                        "先确认该 provider 在 pi-ai 中需要的认证字段。",
+                        "在运行环境完成必要凭据配置。",
+                        "本页继续用于模型元数据和默认模型管理。"
+                    ]
+                }
+            }
+        },
+        "en-US": {
+            eyebrow: "AI Engine",
+            title: "Providers & Models",
+            desc: "Configure AI inference providers, manage model registries, and set up routing for text, vision, STT, and TTS capabilities.",
+            backToRouting: "← Back to routing",
+            loading: "Loading providers...",
+            providerSource: "Provider Source",
+            builtinTab: "Built-in",
+            customTab: "Custom",
+            builtinDesc: "Built-in providers are listed below. Enable them to add native transports to the routing pool.",
+            createCustomBtn: "+ Create Custom Provider",
+            searchPlaceholder: "Search provider...",
+            noItemsMatched: "No items matched",
+            defaultTag: "Default",
+            enabledStatus: "Enabled",
+            disabledStatus: "Disabled",
+            availableStatus: "Available",
+            unavailableStatus: "Unavailable",
+            unnamedProvider: "Unnamed Provider",
+            setAsDefaultBtn: "Set as Default",
+            deleteBtn: "Delete",
+            providerIdLabel: "Provider ID",
+            displayNameLabel: "Display Name",
+            builtinNotice: "Built-in provider detected. Protocol is managed by pi-ai natively; `baseUrl` and `path` are ignored.",
+            authMethodLabel: "Auth method:",
+            loginCmdLabel: "Login command:",
+            envVarLabel: "Env variable:",
+            oauthNotice: "OAuth provider: static API key input is hidden by design. Use the command above, then keep auth.json under DATA_DIR (or set PI_AI_AUTH_FILE).",
+            apiKeyOverrideLabel: "API Key Override (Optional)",
+            apiKeyOverridePlaceholder: "Leave empty to use env/OAuth source",
+            protocolLabel: "Protocol",
+            apiKeyLabel: "API Key",
+            apiBaseUrlLabel: "API Base URL",
+            pathEndpointLabel: "Path Endpoint",
+            thinkingSupportLabel: "Thinking Support",
+            thinkingFormatLabel: "Thinking Format",
+            thinkingBehaviorTitle: "Thinking behavior",
+            reasoningEffortMappingLabel: "Reasoning Effort Mapping",
+            reasoningEffortMappingAuto: "Auto (recommended)",
+            reasoningEffortMappingCustom: "Custom override",
+            reasoningEffortMappingDesc: "Auto maps low / medium / high for {format}: {levels}",
+            thinkingFormatNotice: "{format} only toggles thinking on/off, so low / medium / high mapping is not sent for this format.",
+            modelRegistryTitle: "Model Registry",
+            pullModelsBtn: "Pull Models",
+            addModelBtn: "+ Add Model",
+            noModelsDefined: "No models defined. Click \"+ Add Model\" to begin.",
+            identifierCol: "Identifier",
+            capabilitiesCol: "Capabilities",
+            contextCol: "Context",
+            enabledCol: "Enabled",
+            collapseModelsBtn: "Collapse models",
+            showMoreModelsBtn: "Show {count} more models",
+            noProviderSelectedTitle: "No Provider Selected",
+            noProviderSelectedBuiltinDesc: "Choose a built-in provider from the sidebar or add one above.",
+            noProviderSelectedCustomDesc: "Choose a custom provider from the sidebar or create a new one.",
+            addModelModalTitle: "Add Model",
+            addModelIdLabel: "Model ID",
+            addModelCwLabel: "Context Window (tokens)",
+            cancelBtn: "Cancel",
+            confirmAddModelBtn: "Add Model",
+            pullModelsModalTitle: "Pull Models from Provider",
+            fetchingModels: "Fetching models...",
+            noModelsReturned: "No models returned by this provider.",
+            closeBtn: "Close",
+            saving: "Saving...",
+            saveProvidersBtn: "Save Providers",
+            deleteConfirm: "Are you sure you want to delete this custom provider?",
+            fillFieldsError: "Please fill API Base URL and API Key before pulling models.",
+            testFailed: "Provider test failed",
+            savedSuccess: "AI Settings saved.",
+            authGuides: {
+                "openai-codex": {
+                    modeLabel: "OAuth Login",
+                    summary: "Use pi-ai's device login flow for OpenAI Codex authentication, no fixed API Key required.",
+                    tokenHint: "Token is saved in auth.json; runtime reads and refreshes token as needed.",
+                    steps: [
+                        "Run login command in terminal and complete browser authorization.",
+                        "Verify auth.json is in DATA_DIR (default ~/.molibot) or configured via PI_AI_AUTH_FILE.",
+                        "Return here to manage models and routing. No baseUrl/path needed."
+                    ]
+                },
+                "google-gemini-cli": {
+                    modeLabel: "OAuth Login",
+                    summary: "Gemini CLI uses Google OAuth chain, prefers auth.json, API Key input not recommended.",
+                    tokenHint: "Token is saved in auth.json; runtime reads and refreshes on expiration.",
+                    steps: [
+                        "Run login command and authorize in the browser.",
+                        "Place auth.json in DATA_DIR (default ~/.molibot) or set PI_AI_AUTH_FILE.",
+                        "Once authenticated, configure models and capabilities here."
+                    ]
+                },
+                "google-antigravity": {
+                    modeLabel: "OAuth Login",
+                    summary: "Uses Google OAuth authorization, not OpenAI compatible key/path mode.",
+                    tokenHint: "Token info stored in auth.json and auto-refreshed at runtime.",
+                    steps: [
+                        "Run login command and complete browser device authorization.",
+                        "Ensure auth.json is in DATA_DIR or pointed to by PI_AI_AUTH_FILE.",
+                        "Return here to manage model registry and default model."
+                    ]
+                },
+                "github-copilot": {
+                    modeLabel: "OAuth Login",
+                    summary: "GitHub Copilot auth goes through GitHub OAuth flow, not static API Keys.",
+                    tokenHint: "Token is saved in auth.json, read automatically by the runner.",
+                    steps: [
+                        "Run command and complete GitHub login authorization.",
+                        "Confirm auth.json path (DATA_DIR or PI_AI_AUTH_FILE).",
+                        "Maintain model listings, capability tags, and default model here."
+                    ]
+                },
+                "azure-openai-responses": {
+                    modeLabel: "Credentials",
+                    summary: "Azure OpenAI requires endpoint + deployment + key/credential, not a single API Key.",
+                    steps: [
+                        "Create OpenAI resource in Azure Portal and obtain endpoint/deployment/key.",
+                        "Set Azure environment variables in runtime; page supports limited key overrides.",
+                        "Configure Azure environment first, then maintain model metadata on this page."
+                    ]
+                },
+                "default": {
+                    modeLabel: "API Key",
+                    summary: "Authenticates with an API Key. You can specify overrides here or provide it via environment variables.",
+                    steps: [
+                        "Create/Copy API Key from provider console.",
+                        "Either enter API Key here, or set corresponding environment variables in runtime.",
+                        "Save and verify using model tests or chat."
+                    ]
+                },
+                "platform_default": {
+                    modeLabel: "Platform Credentials",
+                    summary: "May require platform-side credentials or multi-field authentication, please consult official docs.",
+                    steps: [
+                        "Identify required authentication fields in pi-ai.",
+                        "Set up necessary credentials in your runtime environment.",
+                        "Use this page to manage model metadata and default models."
+                    ]
+                }
+            }
+        }
+    } as const;
+
     let loading = true;
     let saving = false;
     let showApiKey = false;
@@ -153,6 +436,8 @@
         "github-copilot",
     ]);
 
+    $: copy = COPY[$locale] ?? COPY["en-US"];
+
     function providerEnvVar(provider: string): string | undefined {
         switch (provider) {
             case "anthropic":
@@ -187,86 +472,29 @@
     }
 
     function builtinAuthGuide(providerId: string): BuiltinAuthGuide {
-        if (providerId === "openai-codex") {
+        const guides = copy.authGuides;
+        const guideTemplate = providerId === "openai-codex" ? guides["openai-codex"]
+            : providerId === "google-gemini-cli" ? guides["google-gemini-cli"]
+            : providerId === "google-antigravity" ? guides["google-antigravity"]
+            : providerId === "github-copilot" ? guides["github-copilot"]
+            : providerId === "azure-openai-responses" ? guides["azure-openai-responses"]
+            : null;
+
+        if (guideTemplate) {
+            const mode = providerId === "azure-openai-responses" ? "platform" : "oauth";
             return {
-                mode: "oauth",
-                modeLabel: "OAuth 登录",
-                summary:
-                    "使用 pi-ai 的设备登录流程获取 OpenAI Codex 授权，不需要在本页填写固定 API Key。",
-                command: "npx @mariozechner/pi-ai login openai-codex",
-                tokenHint:
-                    "登录后会写入 auth.json；运行时会自动读取并按需刷新 token。",
-                steps: [
-                    "在终端执行登录命令并按提示完成浏览器授权。",
-                    "确认 auth.json 位于 DATA_DIR（默认 ~/.molibot）或通过 PI_AI_AUTH_FILE 指定路径。",
-                    "返回本页仅管理模型与默认路由，无需填写 baseUrl/path。",
-                ],
-                links: [{ label: "OpenAI 平台", url: "https://platform.openai.com/" }],
-            };
-        }
-        if (providerId === "google-gemini-cli") {
-            return {
-                mode: "oauth",
-                modeLabel: "OAuth 登录",
-                summary:
-                    "Gemini CLI 使用 Google OAuth 授权链，优先使用 auth.json，不建议手填 API Key。",
-                command: "npx @mariozechner/pi-ai login google-gemini-cli",
-                tokenHint:
-                    "token 保存在 auth.json；运行时会自动读取并在过期时刷新。",
-                steps: [
-                    "执行登录命令并在浏览器完成 Google 账号授权。",
-                    "把 auth.json 放到 DATA_DIR（默认 ~/.molibot）或设置 PI_AI_AUTH_FILE。",
-                    "授权完成后在本页只需配置模型与能力标签。",
-                ],
-                links: [{ label: "Google AI Studio", url: "https://aistudio.google.com/" }],
-            };
-        }
-        if (providerId === "google-antigravity") {
-            return {
-                mode: "oauth",
-                modeLabel: "OAuth 登录",
-                summary:
-                    "该提供商走 Google OAuth 授权，不通过 OpenAI 兼容 key/path 模式。",
-                command: "npx @mariozechner/pi-ai login google-antigravity",
-                tokenHint:
-                    "token 信息存储在 auth.json，并在运行时自动刷新。",
-                steps: [
-                    "执行登录命令，完成浏览器设备授权流程。",
-                    "确保 auth.json 在 DATA_DIR 或通过 PI_AI_AUTH_FILE 指向文件。",
-                    "返回本页管理模型映射与默认模型。",
-                ],
-                links: [{ label: "Google Cloud", url: "https://console.cloud.google.com/" }],
-            };
-        }
-        if (providerId === "github-copilot") {
-            return {
-                mode: "oauth",
-                modeLabel: "OAuth 登录",
-                summary:
-                    "GitHub Copilot 通过 GitHub 账号 OAuth 授权，不是静态 API Key 方案。",
-                command: "npx @mariozechner/pi-ai login github-copilot",
-                tokenHint:
-                    "授权后 token 保存在 auth.json，runner 会自动读取。",
-                steps: [
-                    "执行命令后按终端提示完成 GitHub 登录授权。",
-                    "确认 auth.json 的存放位置（DATA_DIR 或 PI_AI_AUTH_FILE）。",
-                    "本页只维护模型清单、能力标注和默认模型。",
-                ],
-                links: [{ label: "GitHub Copilot", url: "https://github.com/features/copilot" }],
-            };
-        }
-        if (providerId === "azure-openai-responses") {
-            return {
-                mode: "platform",
-                modeLabel: "平台凭据",
-                summary:
-                    "Azure OpenAI 通常需要 endpoint + deployment + key/credential 组合，不是单一 API Key。",
-                steps: [
-                    "在 Azure Portal 创建 OpenAI 资源并拿到 endpoint/deployment/key。",
-                    "在运行环境配置 Azure 所需环境变量；本页只支持有限 key 覆盖。",
-                    "建议先在服务端环境完成 Azure 配置，再在本页维护模型元数据。",
-                ],
-                links: [{ label: "Azure OpenAI 文档", url: "https://learn.microsoft.com/azure/ai-services/openai/" }],
+                mode,
+                modeLabel: guideTemplate.modeLabel,
+                summary: guideTemplate.summary,
+                command: (guideTemplate as any).command,
+                tokenHint: (guideTemplate as any).tokenHint,
+                steps: guideTemplate.steps,
+                links: providerId === "openai-codex" ? [{ label: "OpenAI Platform", url: "https://platform.openai.com/" }]
+                     : providerId === "google-gemini-cli" ? [{ label: "Google AI Studio", url: "https://aistudio.google.com/" }]
+                     : providerId === "google-antigravity" ? [{ label: "Google Cloud", url: "https://console.cloud.google.com/" }]
+                     : providerId === "github-copilot" ? [{ label: "GitHub Copilot", url: "https://github.com/features/copilot" }]
+                     : providerId === "azure-openai-responses" ? [{ label: "Azure OpenAI Docs", url: "https://learn.microsoft.com/azure/ai-services/openai/" }]
+                     : undefined
             };
         }
 
@@ -274,28 +502,18 @@
         if (envVar) {
             return {
                 mode: "api_key",
-                modeLabel: "API Key",
-                summary:
-                    "该 provider 使用 API Key 认证。你可以在本页填写覆盖值，或通过环境变量提供。",
+                modeLabel: guides.default.modeLabel,
+                summary: guides.default.summary,
                 envVar,
-                steps: [
-                    "去 provider 控制台创建/复制 API Key。",
-                    "二选一：在本页填写 API Key，或在运行环境设置对应环境变量。",
-                    "保存后用模型测试或实际对话验证。",
-                ],
+                steps: guides.default.steps
             };
         }
 
         return {
             mode: "platform",
-            modeLabel: "平台凭据",
-            summary:
-                "该内置 provider 可能依赖平台侧凭据或多字段认证，请参考其官方文档配置运行环境。",
-            steps: [
-                "先确认该 provider 在 pi-ai 中需要的认证字段。",
-                "在运行环境完成必要凭据配置。",
-                "本页继续用于模型元数据和默认模型管理。",
-            ],
+            modeLabel: guides.platform_default.modeLabel,
+            summary: guides.platform_default.summary,
+            steps: guides.platform_default.steps
         };
     }
 
@@ -523,7 +741,7 @@
         const target = form.customProviders.find((p) => p.id === id);
         if (target && isBuiltinProvider(target)) return;
 
-        if (!confirm("Are you sure you want to delete this custom provider?")) return;
+        if (!confirm(copy.deleteConfirm)) return;
 
         try {
             const res = await fetch(`/api/settings/custom-providers?id=${id}`, {
@@ -630,7 +848,7 @@
         pullAddingModelId = "";
         pullAddingTags = ["text"];
         showPullModal = true;
-        fetchProviderModels(provider);
+        void fetchProviderModels(provider);
     }
 
     function confirmPullAdd(modelId: string): void {
@@ -894,26 +1112,29 @@
     function thinkingNotices(provider: CustomProviderForm): string[] {
         if (isBuiltinProvider(provider)) return [];
         if (provider.thinkingSupportMode === "auto") {
-            return [
-                "Not enabled / unknown 不会自动探测；当前运行时不会给这个 provider 发送 thinking 参数。",
-            ];
+            return copy.locale === "zh-CN"
+                ? ["未启用 / 未知，不会自动探测；当前运行时不会给这个 provider 发送 thinking 参数。"]
+                : ["Not enabled / unknown; runtime will not send thinking parameters to this provider."];
         }
         if (provider.thinkingSupportMode === "disabled") {
-            return ["Thinking 已明确关闭；全局或会话思索深度会被降为 off。"];
+            return copy.locale === "zh-CN"
+                ? ["Thinking 已明确关闭；全局或会话思索深度会被降为 off。"]
+                : ["Thinking is explicitly disabled; global or session reasoning effort falls back to off."];
         }
 
-        const notices = [
-            `Thinking 已启用；非 off 请求会按 ${thinkingFormatLabel(provider.thinkingFormat)} 发送参数。`,
-        ];
+        const notices = copy.locale === "zh-CN"
+            ? [`Thinking 已启用；非 off 请求会按 ${thinkingFormatLabel(provider.thinkingFormat)} 发送参数。`]
+            : [`Thinking is enabled; non-off requests send parameters via ${thinkingFormatLabel(provider.thinkingFormat)}.`];
+        
         if (provider.thinkingFormat === "auto") {
-            notices.push(
-                "Format 保持 Auto 时实际会走 OpenAI-style reasoning_effort。若上游不是这种协议，建议明确选择格式或关闭。",
-            );
+            notices.push(copy.locale === "zh-CN"
+                ? "Format 保持 Auto 时实际会走 OpenAI-style reasoning_effort。若上游不是这种协议，建议明确选择格式或关闭。"
+                : "Format set to Auto defaults to OpenAI-style reasoning_effort. If the upstream provider uses a different protocol, please select it explicitly.");
         }
         if (provider.models.length > 1) {
-            notices.push(
-                "这组 thinking 配置作用于该 provider 下所有模型；如果不同模型来自不同厂商或协议，建议拆成多个 provider。",
-            );
+            notices.push(copy.locale === "zh-CN"
+                ? "这组 thinking 配置作用于该 provider 下所有模型；如果不同模型来自不同厂商或协议，建议拆成多个 provider。"
+                : "This thinking config applies to all models under this provider. If different models use different backends, split them into separate custom providers.");
         }
         return notices;
     }
@@ -967,7 +1188,7 @@
         const baseUrl = provider.baseUrl.trim();
         const apiKey = provider.apiKey.trim();
         if (!baseUrl || !apiKey) {
-            error = "Please fill API Base URL and API Key before pulling models.";
+            error = copy.fillFieldsError;
             return;
         }
 
@@ -1079,7 +1300,7 @@
             const data = (await res.json()) as ProviderTestResult & {
                 error?: string;
             };
-            if (!res.ok) throw new Error(data.error || "Provider test failed");
+            if (!res.ok) throw new Error(data.error || copy.testFailed);
 
             updateProviderById(providerId, (current) => ({
                 ...current,
@@ -1329,7 +1550,7 @@
             const data = await res.json();
             if (!data.ok)
                 throw new Error(data.error || "Failed to save AI settings");
-            message = "AI Settings saved.";
+            message = copy.savedSuccess;
             await loadAll();
         } catch (e) {
             error = e instanceof Error ? e.message : String(e);
@@ -1345,42 +1566,42 @@
 <div class="providers-page">
   <!-- Hero Header -->
   <header class="providers-hero">
-    <span class="providers-badge">AI Engine</span>
-    <h1 class="providers-hero-title">Providers & Models</h1>
+    <span class="providers-badge">{copy.eyebrow}</span>
+    <h1 class="providers-hero-title">{copy.title}</h1>
     <p class="providers-hero-desc">
-      Configure AI inference providers, manage model registries, and set up routing for text, vision, STT, and TTS capabilities.
+      {copy.desc}
     </p>
-    <a class="providers-hero-link" href="/settings/ai/routing">← Back to routing</a>
+    <a class="providers-hero-link" href="/settings/ai/routing">{copy.backToRouting}</a>
   </header>
     {#if loading}
-        <p class="providers-loading">Loading providers...</p>
+        <p class="providers-loading">{copy.loading}</p>
     {:else}
         <form
             id="providers-form"
             class="providers-form-grid"
-            onsubmit={(e) => { e.preventDefault(); save(); }}
+            onsubmit={(e) => { e.preventDefault(); void save(); }}
         >
             <!-- Providers List Pane -->
             <aside class="providers-sidebar">
                 <div class="providers-sidebar-card">
-                    <h2 class="providers-sidebar-title">Provider Source</h2>
+                    <h2 class="providers-sidebar-title">{copy.providerSource}</h2>
 
                     <div class="providers-sidebar-tabs">
-                        <button type="button" class="providers-sidebar-tab" class:providers-sidebar-tab--active={activeProviderTab === "builtin"} onclick={() => switchProviderTab("builtin")}>Built-in</button>
-                        <button type="button" class="providers-sidebar-tab" class:providers-sidebar-tab--active={activeProviderTab === "custom"} onclick={() => switchProviderTab("custom")}>Custom</button>
+                        <button type="button" class="providers-sidebar-tab" class:providers-sidebar-tab--active={activeProviderTab === "builtin"} onclick={() => switchProviderTab("builtin")}>{copy.builtinTab}</button>
+                        <button type="button" class="providers-sidebar-tab" class:providers-sidebar-tab--active={activeProviderTab === "custom"} onclick={() => switchProviderTab("custom")}>{copy.customTab}</button>
                     </div>
 
                     {#if activeProviderTab === "builtin"}
-                        <div class="providers-sidebar-info">Built-in providers are listed below. Enable them to add native transports to the routing pool.</div>
+                        <div class="providers-sidebar-info">{copy.builtinDesc}</div>
                     {:else}
-                        <button type="button" class="providers-btn-outline" onclick={addCustomProvider}>+ Create Custom Provider</button>
+                        <button type="button" class="providers-btn-outline" onclick={addCustomProvider}>{copy.createCustomBtn}</button>
                     {/if}
 
-                    <input class="providers-sidebar-search" bind:value={providerSearch} placeholder="Search provider..." />
+                    <input class="providers-sidebar-search" bind:value={providerSearch} placeholder={copy.searchPlaceholder} />
 
                     <div class="providers-sidebar-list">
                         {#if filteredCustomProviders().length === 0}
-                            <div class="providers-sidebar-empty">No items matched</div>
+                            <div class="providers-sidebar-empty">{copy.noItemsMatched}</div>
                         {/if}
 
                         {#each filteredCustomProviders() as provider (provider.id)}
@@ -1395,10 +1616,10 @@
                                 <div class="providers-sidebar-item-badges">
                                     <span class="providers-sbadge">{provider.models.length} model{provider.models.length === 1 ? "" : "s"}</span>
                                     {#if form.defaultCustomProviderId === provider.id}
-                                        <span class="providers-sbadge providers-sbadge--accent">Default</span>
+                                        <span class="providers-sbadge providers-sbadge--accent">{copy.defaultTag}</span>
                                     {/if}
-                                    <span class="providers-sbadge" class:providers-sbadge--on={provider.enabled}>{provider.enabled ? "Enabled" : "Disabled"}</span>
-                                    <span class="providers-sbadge" class:providers-sbadge--ok={hasUsableProviderConfig(provider)} class:providers-sbadge--err={!hasUsableProviderConfig(provider)}>{hasUsableProviderConfig(provider) ? "Available" : "Unavailable"}</span>
+                                    <span class="providers-sbadge" class:providers-sbadge--on={provider.enabled}>{provider.enabled ? copy.enabledStatus : copy.disabledStatus}</span>
+                                    <span class="providers-sbadge" class:providers-sbadge--ok={hasUsableProviderConfig(provider)} class:providers-sbadge--err={!hasUsableProviderConfig(provider)}>{hasUsableProviderConfig(provider) ? copy.availableStatus : copy.unavailableStatus}</span>
                                 </div>
                             </button>
                         {/each}
@@ -1413,43 +1634,43 @@
                         {@const cp = getSelectedProviderInActiveTab()!}
 
                         <div class="providers-detail-header">
-                            <h2 class="providers-detail-name">{cp.name || "Unnamed Provider"}</h2>
+                            <h2 class="providers-detail-name">{cp.name || copy.unnamedProvider}</h2>
                             <div class="providers-detail-actions">
                                 <label class="providers-toggle-label">
                                     <IosSwitch checked={cp.enabled} onCheckedChange={(val) => setProviderEnabled(cp.id, val)} />
-                                    <span>{cp.enabled ? "Enabled" : "Disabled"}</span>
+                                    <span>{cp.enabled ? copy.enabledStatus : copy.disabledStatus}</span>
                                 </label>
-                                <button type="button" class="providers-btn-outline-sm" onclick={() => setAsDefaultProvider(cp.id)} disabled={isBuiltinProvider(cp) || form.defaultCustomProviderId === cp.id || !cp.enabled}>{form.defaultCustomProviderId === cp.id ? "Default" : "Set as Default"}</button>
+                                <button type="button" class="providers-btn-outline-sm" onclick={() => setAsDefaultProvider(cp.id)} disabled={isBuiltinProvider(cp) || form.defaultCustomProviderId === cp.id || !cp.enabled}>{form.defaultCustomProviderId === cp.id ? copy.defaultTag : copy.setAsDefaultBtn}</button>
                                 {#if !isBuiltinProvider(cp)}
-                                    <button type="button" class="providers-btn-danger-sm" onclick={() => removeCustomProvider(cp.id)}>Delete</button>
+                                    <button type="button" class="providers-btn-danger-sm" onclick={() => removeCustomProvider(cp.id)}>{copy.deleteBtn}</button>
                                 {/if}
                             </div>
                         </div>
 
                         <div class="providers-detail-form-grid">
                             <label class="providers-detail-form-label">
-                                <span class="providers-detail-form-label-text">Provider ID</span>
+                                <span class="providers-detail-form-label-text">{copy.providerIdLabel}</span>
                                 <Input bind:value={cp.id} disabled={isBuiltinProvider(cp)} />
                             </label>
 
                             <label class="providers-detail-form-label">
-                                <span class="providers-detail-form-label-text">Display Name</span>
+                                <span class="providers-detail-form-label-text">{copy.displayNameLabel}</span>
                                 <Input bind:value={cp.name} />
                             </label>
                             {#if isBuiltinProvider(cp)}
                                 {@const authGuide = builtinAuthGuide(cp.id)}
                                 <div class="providers-detail-notice md:col-span-2">
-                                    Built-in provider detected. Protocol is managed by pi-ai natively; `baseUrl` and `path` are ignored.
+                                    {copy.builtinNotice}
                                 </div>
                                 <div class="providers-detail-auth md:col-span-2">
                                     <div class="providers-detail-auth-row">
-                                        <span class="providers-detail-auth-label">Auth method:</span>
+                                        <span class="providers-detail-auth-label">{copy.authMethodLabel}</span>
                                         <span class="providers-detail-auth-badge">{authGuide.modeLabel}</span>
                                     </div>
                                     <p class="providers-detail-auth-summary">{authGuide.summary}</p>
                                     {#if authGuide.command}
                                         <p class="providers-detail-auth-text">
-                                            Login command: <code class="providers-detail-auth-code">{authGuide.command}</code>
+                                            {copy.loginCmdLabel} <code class="providers-detail-auth-code">{authGuide.command}</code>
                                         </p>
                                     {/if}
                                     {#if authGuide.tokenHint}
@@ -1457,7 +1678,7 @@
                                     {/if}
                                     {#if authGuide.envVar}
                                         <p class="providers-detail-auth-text">
-                                            Env variable: <code class="providers-detail-auth-code">{authGuide.envVar}</code>
+                                            {copy.envVarLabel} <code class="providers-detail-auth-code">{authGuide.envVar}</code>
                                         </p>
                                     {/if}
                                     <ol class="providers-detail-auth-steps">
@@ -1475,17 +1696,17 @@
                                 </div>
                                 {#if isOauthBuiltinProvider(cp)}
                                     <div class="providers-detail-oauth-notice md:col-span-2">
-                                        OAuth provider: static API key input is hidden by design. Use the command above, then keep <code>auth.json</code> under <code>DATA_DIR</code> (or set <code>PI_AI_AUTH_FILE</code>).
+                                        {copy.oauthNotice}
                                     </div>
                                 {:else}
                                     <label class="providers-detail-form-label md:col-span-2">
-                                        <span class="providers-detail-form-label-text">API Key Override (Optional)</span>
+                                        <span class="providers-detail-form-label-text">{copy.apiKeyOverrideLabel}</span>
                                         <div class="providers-key-row">
                                             <Input
                                                 class="providers-key-input"
                                                 bind:value={cp.apiKey}
                                                 type={showApiKey ? "text" : "password"}
-                                                placeholder="Leave empty to use env/OAuth source"
+                                                placeholder={copy.apiKeyOverridePlaceholder}
                                             />
                                             <button type="button" class="providers-key-eye" onclick={() => showApiKey = !showApiKey} title={showApiKey ? "Hide" : "Show"}>
                                                 {showApiKey ? "🙈" : "👁"}
@@ -1498,10 +1719,9 @@
                                     class="providers-detail-form-label md:col-span-2 xl:col-span-1"
                                 >
                                     <span class="providers-detail-form-label-text"
-                                        >Protocol</span
+                                        >{copy.protocolLabel}</span
                                     >
                                     <NativeSelect
-                                        
                                         value={cp.protocol}
                                         onchange={(event) =>
                                             setProviderProtocol(
@@ -1524,7 +1744,7 @@
                                     class="providers-detail-form-label md:col-span-2 xl:col-span-1"
                                 >
                                     <span class="providers-detail-form-label-text"
-                                        >API Key</span
+                                        >{copy.apiKeyLabel}</span
                                     >
                                     <div class="providers-key-row">
                                         <Input
@@ -1543,7 +1763,7 @@
                                     class="providers-detail-form-label md:col-span-2 xl:col-span-1"
                                 >
                                     <span class="providers-detail-form-label-text"
-                                        >API Base URL</span
+                                        >{copy.apiBaseUrlLabel}</span
                                     >
                                     <Input bind:value={cp.baseUrl} placeholder="https://api.openai.com" />
                                 </label>
@@ -1552,7 +1772,7 @@
                                     class="providers-detail-form-label md:col-span-2 xl:col-span-1"
                                 >
                                     <span class="providers-detail-form-label-text"
-                                        >Path Endpoint</span
+                                        >{copy.pathEndpointLabel}</span
                                     >
                                     <Input
                                         bind:value={cp.path}
@@ -1564,7 +1784,7 @@
                                     class="providers-detail-form-label md:col-span-2 xl:col-span-1"
                                 >
                                     <span class="providers-detail-form-label-text"
-                                        >Thinking Support</span
+                                        >{copy.thinkingSupportLabel}</span
                                     >
                                     <NativeSelect  bind:value={cp.thinkingSupportMode}>
                                         <NativeSelectOption value="auto">
@@ -1583,7 +1803,7 @@
                                     class="providers-detail-form-label md:col-span-2 xl:col-span-1"
                                 >
                                     <span class="providers-detail-form-label-text"
-                                        >Thinking Format</span
+                                        >{copy.thinkingFormatLabel}</span
                                     >
                                     <NativeSelect  bind:value={cp.thinkingFormat}>
                                         <NativeSelectOption value="auto">
@@ -1608,8 +1828,7 @@
                                             Qwen `enable_thinking`
                                         </NativeSelectOption>
                                         <NativeSelectOption value="qwen-chat-template">
-                                            Qwen
-                                            `chat_template_kwargs.enable_thinking`
+                                            Qwen `chat_template_kwargs.enable_thinking`
                                         </NativeSelectOption>
                                     </NativeSelect>
                                 </label>
@@ -1624,7 +1843,7 @@
                                             }`}
                                         >
                                             <div class="providers-thinking-notice-title">
-                                                Thinking behavior
+                                                {copy.thinkingBehaviorTitle}
                                             </div>
                                             <ul class="providers-thinking-notice-list">
                                                 {#each thinkingNotices(cp) as notice}
@@ -1637,13 +1856,10 @@
                                     {#if thinkingFormatUsesEffortMap(cp.thinkingFormat)}
                                         <div class="providers-effort-mapping-label">
                                                 <span class="providers-detail-form-label-text"
-                                                    >Reasoning Effort Mapping</span
+                                                    >{copy.reasoningEffortMappingLabel}</span
                                                 >
                                                 <NativeSelect
-                                                    
-                                                    value={reasoningEffortMappingMode(
-                                                        cp,
-                                                    )}
+                                                    value={reasoningEffortMappingMode(cp)}
                                                     onchange={(event) =>
                                                         setReasoningEffortMappingMode(
                                                             cp.id,
@@ -1652,25 +1868,16 @@
                                                         )}
                                                 >
                                                     <NativeSelectOption value="auto">
-                                                        Auto (recommended)
+                                                        {copy.reasoningEffortMappingAuto}
                                                     </NativeSelectOption>
                                                     <NativeSelectOption value="custom">
-                                                        Custom override
+                                                        {copy.reasoningEffortMappingCustom}
                                                     </NativeSelectOption>
                                                 </NativeSelect>
                                             <p class="providers-effort-mapping-desc">
-                                                Auto maps low / medium / high for
-                                                {thinkingFormatLabel(
-                                                    cp.thinkingFormat,
-                                                )}: {thinkingEffortLevels
-                                                    .map(
-                                                        (level) =>
-                                                            `${level} -> ${autoReasoningEffortValue(
-                                                                cp.thinkingFormat,
-                                                                level,
-                                                            )}`,
-                                                    )
-                                                    .join(", ")}.
+                                                {copy.reasoningEffortMappingDesc
+                                                    .replace("{format}", thinkingFormatLabel(cp.thinkingFormat))
+                                                    .replace("{levels}", thinkingEffortLevels.map((level) => `${level} -> ${autoReasoningEffortValue(cp.thinkingFormat, level)}`).join(", "))}
                                             </p>
                                         </div>
 
@@ -1685,15 +1892,7 @@
                                                             >{level}</span
                                                         >
                                                         <NativeSelect
-                                                            
-                                                            value={cp
-                                                                .reasoningEffortMap[
-                                                                level
-                                                            ] ??
-                                                                autoReasoningEffortValue(
-                                                                    cp.thinkingFormat,
-                                                                    level,
-                                                                )}
+                                                            value={cp.reasoningEffortMap[level] ?? autoReasoningEffortValue(cp.thinkingFormat, level)}
                                                             onchange={(event) =>
                                                                 setReasoningEffortMapValue(
                                                                     cp.id,
@@ -1717,10 +1916,7 @@
                                         {/if}
                                     {:else}
                                         <div class="providers-thinking-notice providers-thinking-notice--default">
-                                            {thinkingFormatLabel(cp.thinkingFormat)}
-                                            only toggles thinking on/off, so low
-                                            / medium / high mapping is not sent
-                                            for this format.
+                                            {copy.thinkingFormatNotice.replace("{format}", thinkingFormatLabel(cp.thinkingFormat))}
                                         </div>
                                     {/if}
                                 </div>
@@ -1730,7 +1926,7 @@
                         <!-- Models Header -->
                         <div class="providers-models-header">
                             <h3 class="providers-section-title">
-                                Model Registry
+                                {copy.modelRegistryTitle}
                             </h3>
                             <div class="flex gap-2">
                                 {#if !isBuiltinProvider(cp)}
@@ -1740,7 +1936,7 @@
                                         onclick={() => openPullModal(cp)}
                                         disabled={!cp.enabled}
                                     >
-                                        Pull Models
+                                        {copy.pullModelsBtn}
                                     </button>
                                 {/if}
                                 <button
@@ -1749,24 +1945,24 @@
                                     onclick={() => openAddModelModal(cp.id)}
                                     disabled={!cp.enabled}
                                 >
-                                    + Add Model
+                                    {copy.addModelBtn}
                                 </button>
                             </div>
                         </div>
 
                         {#if cp.models.length === 0}
                             <div class="providers-empty-models">
-                                No models defined. Click "+ Add Model" to begin.
+                                {copy.noModelsDefined}
                             </div>
                         {:else}
                             <div class="providers-table-wrap">
                                 <table class="providers-table">
                                     <thead>
                                         <tr>
-                                            <th>Identifier</th>
-                                            <th>Capabilities</th>
-                                            <th>Context</th>
-                                            <th class="text-center">Enabled</th>
+                                            <th>{copy.identifierCol}</th>
+                                            <th>{copy.capabilitiesCol}</th>
+                                            <th>{copy.contextCol}</th>
+                                            <th class="text-center">{copy.enabledCol}</th>
                                             <th></th>
                                         </tr>
                                     </thead>
@@ -1834,8 +2030,8 @@
                                     onclick={() => toggleModelList(cp.id)}
                                 >
                                     {expandedProviderModelIds.has(cp.id)
-                                        ? "Collapse models"
-                                        : `Show ${hiddenModelCount(cp)} more models`}
+                                        ? copy.collapseModelsBtn
+                                        : copy.showMoreModelsBtn.replace("{count}", String(hiddenModelCount(cp)))}
                                 </button>
                             </div>
                         {/if}
@@ -1843,12 +2039,12 @@
                     {:else}
                         <div class="providers-empty-state">
                             <div class="providers-empty-state-icon">◈</div>
-                            <h3>No Provider Selected</h3>
+                            <h3>{copy.noProviderSelectedTitle}</h3>
                             <p>
                                 {#if activeProviderTab === "builtin"}
-                                    Choose a built-in provider from the sidebar or add one above.
+                                    {copy.noProviderSelectedBuiltinDesc}
                                 {:else}
-                                    Choose a custom provider from the sidebar or create a new one.
+                                    {copy.noProviderSelectedCustomDesc}
                                 {/if}
                             </p>
                         </div>
@@ -1862,17 +2058,17 @@
     {#if showAddModelModal}
         <div class="providers-modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showAddModelModal = false; }} onkeydown={(e) => { if (e.key === 'Escape') showAddModelModal = false; }} role="dialog" aria-label="Add Model" tabindex="-1">
             <div class="providers-modal-card">
-                <h3 class="providers-modal-title">Add Model</h3>
+                <h3 class="providers-modal-title">{copy.addModelModalTitle}</h3>
                 <label class="providers-detail-form-label">
-                    <span class="providers-detail-form-label-text">Model ID</span>
+                    <span class="providers-detail-form-label-text">{copy.addModelIdLabel}</span>
                     <input class="providers-table-input" bind:value={addModelId} placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
                 </label>
                 <label class="providers-detail-form-label">
-                    <span class="providers-detail-form-label-text">Context Window (tokens)</span>
+                    <span class="providers-detail-form-label-text">{copy.addModelCwLabel}</span>
                     <input class="providers-table-input" type="number" min="0" step="1000" placeholder="200000" value={addModelContextWindow ?? ""} oninput={(e) => { const v = Number((e.currentTarget as HTMLInputElement).value); addModelContextWindow = v > 0 ? v : undefined; }} />
                 </label>
                 <div class="providers-modal-caps">
-                    <span class="providers-detail-form-label-text">Capabilities</span>
+                    <span class="providers-detail-form-label-text">{copy.capabilitiesCol}</span>
                     <div class="providers-caps-grid">
                         {#each capabilityTags as tag}
                             <label class="providers-cap-check">
@@ -1883,8 +2079,8 @@
                     </div>
                 </div>
                 <div class="providers-modal-actions">
-                    <button type="button" class="providers-btn-outline" onclick={() => (showAddModelModal = false)}>Cancel</button>
-                    <button type="button" class="providers-btn-primary-sm" onclick={confirmAddModel} disabled={!addModelId.trim()}>Add Model</button>
+                    <button type="button" class="providers-btn-outline" onclick={() => (showAddModelModal = false)}>{copy.cancelBtn}</button>
+                    <button type="button" class="providers-btn-primary-sm" onclick={confirmAddModel} disabled={!addModelId.trim()}>{copy.confirmAddModelBtn}</button>
                 </div>
             </div>
         </div>
@@ -1894,11 +2090,11 @@
     {#if showPullModal}
         <div class="providers-modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showPullModal = false; }} onkeydown={(e) => { if (e.key === 'Escape') showPullModal = false; }} role="dialog" aria-label="Pull Models" tabindex="-1">
             <div class="providers-modal-card providers-modal-card--wide">
-                <h3 class="providers-modal-title">Pull Models from Provider</h3>
+                <h3 class="providers-modal-title">{copy.pullModelsModalTitle}</h3>
                 {#if loadingProviderModelsFor === pullTargetProviderId}
-                    <p class="providers-modal-loading">Fetching models...</p>
+                    <p class="providers-modal-loading">{copy.fetchingModels}</p>
                 {:else if discoveredModels(pullTargetProviderId).length === 0}
-                    <p class="providers-modal-loading">No models returned by this provider.</p>
+                    <p class="providers-modal-loading">{copy.noModelsReturned}</p>
                 {:else}
                     <div class="providers-pull-list">
                         {#each discoveredModels(pullTargetProviderId) as remoteModelId}
@@ -1924,7 +2120,7 @@
                     </div>
                 {/if}
                 <div class="providers-modal-actions">
-                    <button type="button" class="providers-btn-outline" onclick={() => (showPullModal = false)}>Close</button>
+                    <button type="button" class="providers-btn-outline" onclick={() => (showPullModal = false)}>{copy.closeBtn}</button>
                 </div>
             </div>
         </div>
@@ -1942,8 +2138,7 @@
             {/if}
         </div>
         <button type="submit" form="providers-form" class="settings-footbar-btn" disabled={saving}>
-            {saving ? "Saving..." : "Save Providers"}
+            {saving ? copy.saving : copy.saveProvidersBtn}
         </button>
     </footer>
 {/if}
-

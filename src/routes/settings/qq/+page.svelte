@@ -8,6 +8,7 @@
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { Textarea } from "$lib/components/ui/textarea";
+  import { locale } from "$lib/ui/i18n";
 
   interface AgentItem {
     id: string;
@@ -30,6 +31,95 @@
 
   const botFileNames = ["BOT.md", "SOUL.md", "IDENTITY.md", "SONG.md"];
 
+  const COPY = {
+    "zh-CN": {
+      eyebrow: "渠道运行环境",
+      title: "QQ 设置",
+      desc: "配置 QQ Bot，将其关联到 Agent，并编辑 Bot 级别的 Markdown 覆盖文件。",
+      loading: "正在加载 QQ 设置...",
+      botsTitle: "Bots",
+      listDesc: "个已配置",
+      addBtn: "添加 Bot",
+      statusOn: "启用",
+      statusOff: "禁用",
+      configTitle: "Bot 配置",
+      configDesc: "此渠道的基本连接与路由设置。",
+      removeBtn: "删除 Bot",
+      idLabel: "Bot ID",
+      nameLabel: "Bot 名称",
+      idLocked: "创建后 Bot ID 将被锁定，以保持工作区路径 and 引用稳定。",
+      enableLabel: "启用该插件实例",
+      enableDesc: "禁用的 Bot 将保留但无法在运行时选择。",
+      linkedAgentLabel: "关联 Agent",
+      noAgentFallback: "无 Agent（仅使用全局兜底）",
+      sandboxLabel: "沙箱覆盖",
+      sandboxDesc: "覆盖此 Bot 的全局沙箱设置。留空则继承全局设置。",
+      forceOn: "强制开启",
+      forceOff: "强制关闭",
+      resetBtn: "重置",
+      appIdLabel: "App ID",
+      clientSecretLabel: "App Secret",
+      show: "显示",
+      hide: "隐藏",
+      allowedChatIdsLabel: "允许的聊天 ID（逗号分隔）",
+      overridesTitle: "Bot Markdown 覆盖文件",
+      overridesDesc: "文件将保存为包含元数据头部的真实 Markdown 文档。留空则删除覆盖文件。",
+      editText: "在此编辑",
+      saving: "保存中...",
+      savingMsg: "正在保存变更...",
+      saveBtn: "保存 QQ 设置",
+      confirmDelete: "确认删除 QQ Bot 吗？此操作无法撤销。",
+      unsavedConfirm: "当前 Bot 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Bot。",
+      failedLoad: "加载配置失败",
+      failedSave: "保存 QQ 设置失败",
+      failedSaveFiles: "保存配置文件失败",
+      savedSuccess: "已保存 Bot："
+    },
+    "en-US": {
+      eyebrow: "Channel Runtime",
+      title: "QQ Settings",
+      desc: "Configure QQ bots, link them to agents, and edit bot-level Markdown overrides.",
+      loading: "Loading QQ settings...",
+      botsTitle: "Bots",
+      listDesc: "configured",
+      addBtn: "Add Bot",
+      statusOn: "ON",
+      statusOff: "OFF",
+      configTitle: "Bot Configuration",
+      configDesc: "Basic connectivity and routing for this channel.",
+      removeBtn: "Remove Bot",
+      idLabel: "Bot ID",
+      nameLabel: "Bot Name",
+      idLocked: "Bot ID is locked after creation to keep workspace paths and references stable.",
+      enableLabel: "Enable this plugin instance",
+      enableDesc: "Disabled bots stay saved but are not selectable at runtime.",
+      linkedAgentLabel: "Linked Agent",
+      noAgentFallback: "No agent (global fallback only)",
+      sandboxLabel: "Sandbox override",
+      sandboxDesc: "Override the global sandbox setting for this bot. Leave unchecked to inherit.",
+      forceOn: "Force ON",
+      forceOff: "Force OFF",
+      resetBtn: "Reset",
+      appIdLabel: "App ID",
+      clientSecretLabel: "App Secret",
+      show: "Show",
+      hide: "Hide",
+      allowedChatIdsLabel: "Allowed chat IDs (comma-separated)",
+      overridesTitle: "Bot Markdown Overrides",
+      overridesDesc: "Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.",
+      editText: "Edit",
+      saving: "Saving...",
+      savingMsg: "Saving changes...",
+      saveBtn: "Save QQ Settings",
+      confirmDelete: "Delete bot? This cannot be undone.",
+      unsavedConfirm: "Current Bot has unsaved changes. Click 'OK' to save and switch, or 'Cancel' to stay on this Bot.",
+      failedLoad: "Failed to load settings",
+      failedSave: "Failed to save QQ settings",
+      failedSaveFiles: "Failed to save bot files",
+      savedSuccess: "Saved bot: "
+    }
+  } as const;
+
   let loading = true;
   let saving = false;
   let message = "";
@@ -40,6 +130,8 @@
   let selectedBotId = "";
   let savedSnapshots: Record<string, string> = {};
   let showClientSecret = false;
+
+  $: copy = COPY[$locale] ?? COPY["en-US"];
 
   function createBotId(): string {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -110,7 +202,7 @@
     try {
       const res = await fetch("/api/settings");
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Failed to load settings");
+      if (!data.ok) throw new Error(data.error || copy.failedLoad);
 
       agents = Array.isArray(data.settings?.agents) ? data.settings.agents : [];
       const fromList = Array.isArray(data.settings?.channels?.qq?.instances)
@@ -162,7 +254,7 @@
     const dirty = botSnapshot(current) !== baseline;
     if (!dirty) return true;
     if (typeof window === "undefined") return false;
-    const shouldSave = window.confirm('当前 Bot 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Bot。');
+    const shouldSave = window.confirm(copy.unsavedConfirm);
     if (!shouldSave) return false;
     return save();
   }
@@ -190,7 +282,7 @@
     const confirmed =
       typeof window === "undefined"
         ? true
-        : window.confirm(`Delete bot "${botId}"? This cannot be undone.`);
+        : window.confirm(copy.confirmDelete.replace("{botId}", botId));
     if (!confirmed) return;
 
     const target = bots.find((bot) => bot.id === botId);
@@ -258,7 +350,7 @@
         })
       });
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Failed to save QQ settings");
+      if (!data.ok) throw new Error(data.error || copy.failedSave);
 
       const fileRes = await fetch("/api/settings/profile-files", {
         method: "PUT",
@@ -271,7 +363,7 @@
         })
       });
       const fileData = await fileRes.json();
-      if (!fileData.ok) throw new Error(fileData.error || `Failed to save bot files for ${normalized.id}`);
+      if (!fileData.ok) throw new Error(fileData.error || copy.failedSaveFiles);
 
       bots = bots.map((bot) => {
         if (bot.id !== selected.id) return bot;
@@ -285,7 +377,7 @@
         [normalized.id]: botSnapshot({ ...normalized, isNew: false })
       };
 
-      message = `Saved bot: ${normalized.name || normalized.id}`;
+      message = `${copy.savedSuccess}${normalized.name || normalized.id}`;
       return true;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -305,24 +397,24 @@
 
 <div class="channel-page">
   <header class="channel-hero">
-    <span class="channel-badge">Channel Runtime</span>
-    <h1 class="channel-hero-title">QQ Settings</h1>
+    <span class="channel-badge">{copy.eyebrow}</span>
+    <h1 class="channel-hero-title">{copy.title}</h1>
     <p class="channel-hero-desc">
-      Configure QQ bots, link them to agents, and edit bot-level Markdown overrides.
+      {copy.desc}
     </p>
   </header>
 
   {#if loading}
-    <div class="channel-loading">Loading QQ settings...</div>
+    <div class="channel-loading">{copy.loading}</div>
   {:else}
     <div class="channel-master-detail">
       <div class="channel-card">
         <div class="channel-card-header">
           <div>
-            <h2 class="channel-card-title">Bots</h2>
-            <p class="channel-card-desc">{bots.length} configured</p>
+            <h2 class="channel-card-title">{copy.botsTitle}</h2>
+            <p class="channel-card-desc">{bots.length} {copy.listDesc}</p>
           </div>
-          <Button variant="outline" size="sm" type="button" onclick={addBot}>Add Bot</Button>
+          <Button variant="outline" size="sm" type="button" onclick={addBot}>{copy.addBtn}</Button>
         </div>
         <div class="channel-card-body">
           {#each bots as bot (bot.id)}
@@ -336,7 +428,7 @@
                 <span class="channel-sidebar-btn-id">{bot.id}</span>
               </span>
               <span class="channel-sidebar-badge {bot.enabled ? 'channel-sidebar-badge--on' : ''}">
-                {bot.enabled ? "ON" : "OFF"}
+                {bot.enabled ? copy.statusOn : copy.statusOff}
               </span>
             </button>
           {/each}
@@ -344,46 +436,46 @@
       </div>
 
       {#if selectedBot}
-        <form id="channel-form" class="channel-form" onsubmit={(e) => { e.preventDefault(); save(); }}>
+        <form id="channel-form" class="channel-form" onsubmit={(e) => { e.preventDefault(); void save(); }}>
           <div class="channel-card">
             <div class="channel-card-header">
               <div>
-                <h2 class="channel-card-title">Bot Configuration</h2>
-                <p class="channel-card-desc">Basic connectivity and routing for this channel.</p>
+                <h2 class="channel-card-title">{copy.configTitle}</h2>
+                <p class="channel-card-desc">{copy.configDesc}</p>
               </div>
               <Button variant="destructive" size="sm" type="button" onclick={() => removeBot(selectedBot.id)}>
-                Remove Bot
+                {copy.removeBtn}
               </Button>
             </div>
             <div class="channel-card-body">
               <div class="channel-field-row">
                 <div class="channel-field">
-                  <Label for="qq-bot-id">Bot ID</Label>
+                  <Label for="qq-bot-id">{copy.idLabel}</Label>
                   <Input id="qq-bot-id" bind:value={selectedBot.id} placeholder="qq-bot" disabled={!selectedBot.isNew} />
                 </div>
                 <div class="channel-field">
-                  <Label for="qq-bot-name">Bot Name</Label>
+                  <Label for="qq-bot-name">{copy.nameLabel}</Label>
                   <Input id="qq-bot-name" bind:value={selectedBot.name} placeholder="QQ Bot" />
                 </div>
               </div>
               {#if !selectedBot.isNew}
                 <p class="channel-hint">
-                  Bot ID is locked after creation to keep workspace paths and references stable.
+                  {copy.idLocked}
                 </p>
               {/if}
 
               <div class="channel-toggle-row">
                 <div class="channel-toggle-label">
-                  <Label for="qq-enabled">Enable this plugin instance</Label>
-                  <p>Disabled bots stay saved but are not selectable at runtime.</p>
+                  <Label for="qq-enabled">{copy.enableLabel}</Label>
+                  <p>{copy.enableDesc}</p>
                 </div>
                 <IosSwitch id="qq-enabled" bind:checked={selectedBot.enabled} />
               </div>
 
               <div class="channel-field">
-                <Label for="qq-agent">Linked Agent</Label>
+                <Label for="qq-agent">{copy.linkedAgentLabel}</Label>
                 <NativeSelect id="qq-agent" bind:value={selectedBot.agentId}>
-                  <NativeSelectOption value="">No agent (global fallback only)</NativeSelectOption>
+                  <NativeSelectOption value="">{copy.noAgentFallback}</NativeSelectOption>
                   {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
                     <NativeSelectOption value={agent.id}>{agent.name || agent.id}</NativeSelectOption>
                   {/each}
@@ -392,13 +484,13 @@
 
               <div class="channel-toggle-row">
                 <div class="channel-toggle-label">
-                  <Label for="qq-sandbox">Sandbox override</Label>
-                  <p>Override the global sandbox setting for this bot. Leave unchecked to inherit.</p>
+                  <Label for="qq-sandbox">{copy.sandboxLabel}</Label>
+                  <p>{copy.sandboxDesc}</p>
                 </div>
                 <div class="channel-toggle-controls">
                   {#if selectedBot.sandboxEnabled !== undefined}
                     <Badge variant={selectedBot.sandboxEnabled ? "secondary" : "destructive"}>
-                      {selectedBot.sandboxEnabled ? "Force ON" : "Force OFF"}
+                      {selectedBot.sandboxEnabled ? copy.forceOn : copy.forceOff}
                     </Badge>
                   {/if}
                   <IosSwitch
@@ -416,7 +508,7 @@
                   />
                   {#if selectedBot.sandboxEnabled !== undefined}
                     <Button variant="ghost" size="sm" type="button" onclick={() => { selectedBot.sandboxEnabled = undefined; }}>
-                      Reset
+                      {copy.resetBtn}
                     </Button>
                   {/if}
                 </div>
@@ -424,11 +516,11 @@
 
               <div class="channel-field-row">
                 <div class="channel-field">
-                  <Label for="qq-app-id">App ID</Label>
+                  <Label for="qq-app-id">{copy.appIdLabel}</Label>
                   <Input id="qq-app-id" bind:value={selectedBot.appId} placeholder="1024xxxx" />
                 </div>
                 <div class="channel-field">
-                  <Label for="qq-secret">App Secret</Label>
+                  <Label for="qq-secret">{copy.clientSecretLabel}</Label>
                   <div class="channel-password-row">
                     <Input
                       id="qq-secret"
@@ -437,14 +529,14 @@
                       placeholder="Your QQ Client Secret"
                     />
                     <Button variant="outline" size="sm" type="button" onclick={() => (showClientSecret = !showClientSecret)}>
-                      {showClientSecret ? "Hide" : "Show"}
+                      {showClientSecret ? copy.hide : copy.show}
                     </Button>
                   </div>
                 </div>
               </div>
 
               <div class="channel-field">
-                <Label for="qq-chat-ids">Allowed chat IDs (comma-separated)</Label>
+                <Label for="qq-chat-ids">{copy.allowedChatIdsLabel}</Label>
                 <Input
                   id="qq-chat-ids"
                   bind:value={selectedBot.allowedChatIds}
@@ -457,9 +549,9 @@
           <div class="channel-card">
             <div class="channel-card-header">
               <div>
-                <h2 class="channel-card-title">Bot Markdown Overrides</h2>
+                <h2 class="channel-card-title">{copy.overridesTitle}</h2>
                 <p class="channel-card-desc">
-                  Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.
+                  {copy.overridesDesc}
                 </p>
               </div>
             </div>
@@ -472,7 +564,7 @@
                       id="qq-{fileName}"
                       class="channel-textarea"
                       bind:value={selectedBot.profileFiles[fileName]}
-                      placeholder={`Edit ${fileName} here`}
+                      placeholder={`${copy.editText} ${fileName}`}
                     />
                   </div>
                 </details>
@@ -490,7 +582,7 @@
     {#if saving}
       <span class="settings-footbar-saving">
         <span class="settings-footbar-pulse"></span>
-        Saving changes...
+        {copy.saving}
       </span>
     {:else if message}
       <span class="settings-footbar-ok">{message}</span>
@@ -501,10 +593,10 @@
   </div>
   <div class="settings-footbar-actions">
     <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>
-      Reset
+      {copy.resetBtn}
     </Button>
     <button type="submit" form="channel-form" class="settings-footbar-btn" disabled={loading || saving}>
-      {saving ? "Saving..." : "Save QQ Settings"}
+      {saving ? copy.saving : copy.saveBtn}
     </button>
   </div>
 </footer>

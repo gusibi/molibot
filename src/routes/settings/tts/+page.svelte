@@ -64,7 +64,12 @@
       savedMsg: "语音合成设置已保存。",
       loadError: "加载设置失败",
       saveError: "保存设置失败",
-      testError: "语音合成测试失败"
+      testError: "语音合成测试失败",
+      defaultBehavior: "默认行为",
+      defaultBehaviorDesc: "选择语音生成指令的默认行为。",
+      systemDefault: "系统默认",
+      loadingText: "正在加载设置...",
+      savingText: "正在保存修改..."
     },
     "en-US": {
       title: "Speech Synthesis",
@@ -99,7 +104,12 @@
       savedMsg: "Speech synthesis settings saved.",
       loadError: "Failed to load settings",
       saveError: "Failed to save settings",
-      testError: "Speech synthesis test failed"
+      testError: "Speech synthesis test failed",
+      defaultBehavior: "Default Behavior",
+      defaultBehaviorDesc: "Select the default behavior for speech generation commands.",
+      systemDefault: "System Default",
+      loadingText: "Loading settings...",
+      savingText: "Saving changes..."
     }
   };
 
@@ -248,13 +258,13 @@
   {/if}
 
   {#if loading}
-    <p class="py-8 text-sm text-muted-foreground">Loading settings...</p>
+    <p class="py-8 text-sm text-muted-foreground">{t("loadingText")}</p>
   {:else}
     <form id="tts-form" class="space-y-5" onsubmit={(event) => { event.preventDefault(); save(); }}>
       <Card>
         <CardHeader>
-          <CardTitle class="text-sm">Default Behavior</CardTitle>
-          <CardDescription>Select the default behavior for speech generation commands.</CardDescription>
+          <CardTitle class="text-sm">{t("defaultBehavior")}</CardTitle>
+          <CardDescription>{t("defaultBehaviorDesc")}</CardDescription>
         </CardHeader>
         <CardContent class="grid gap-5">
           <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 px-4 py-3">
@@ -297,7 +307,7 @@
               <Label for="macos-voice">{t("voice")}</Label>
               {#if macosVoices.length > 0}
                 <NativeSelect id="macos-voice" bind:value={ttsGenerate.providers.macos.voice}>
-                  <NativeSelectOption value="">System Default</NativeSelectOption>
+                  <NativeSelectOption value="">{t("systemDefault")}</NativeSelectOption>
                   {#each macosVoices as voice}
                     <NativeSelectOption value={voice.id}>{voice.label ?? voice.id}{voice.locale ? ` · ${voice.locale}` : ""}{voice.gender ? ` · ${voice.gender}` : ""}</NativeSelectOption>
                   {/each}
@@ -430,7 +440,7 @@
     <div class="settings-footbar-status">
       {#if saving}
         <span class="flex items-center gap-2 text-xs font-medium text-muted-foreground animate-pulse">
-          Saving changes...
+          {t("savingText")}
         </span>
       {:else if message}
         <span class="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-500">

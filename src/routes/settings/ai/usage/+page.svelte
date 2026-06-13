@@ -21,6 +21,7 @@
         TableHeader,
         TableRow,
     } from "$lib/components/ui/table";
+    import { locale } from "$lib/ui/i18n";
 
     type TimeRange = "today" | "yesterday" | "last7Days" | "last30Days";
 
@@ -104,6 +105,145 @@
         sublabel?: string;
     }
 
+    const COPY = {
+        "zh-CN": {
+            eyebrow: "AI 使用观测台",
+            title: "使用统计",
+            desc: "基于现有 token usage 记录展示请求量、Token 消耗、模型/API 分布和最近事件；没有记录的成本、延迟、成功率不在本页伪造。",
+            timeRange: "时间范围",
+            modelLabel: "模型",
+            allModels: "全部模型",
+            botLabel: "Bot",
+            allBots: "全部 Bot",
+            channelLabel: "渠道",
+            allChannels: "全部渠道",
+            clearFilters: "清空筛选",
+            updatedAt: "更新于",
+            totalRequests: "总请求数",
+            totalRequestsDesc: "当前筛选范围内的 AI 调用记录数",
+            totalTokens: "总 Token 数",
+            totalTokensDesc: "输入 {input} · 输出 {output} · 缓存 {cache}",
+            inputTokensLabel: "输入 Tokens",
+            percentOfTotal: "占总量的 {percent}%",
+            outputTokensLabel: "输出 Tokens",
+            cacheTokensLabel: "缓存 Tokens",
+            cacheReadWrite: "读取 {read} · 写入 {write}",
+            cacheHitRatioLabel: "缓存命中比例",
+            noCachePromptBase: "当前范围没有可计算的 prompt cache 基数",
+            requestTrend: "请求趋势",
+            hourlyAggregation: "按小时聚合",
+            dailyAggregation: "按天聚合",
+            peak: "峰值",
+            tokenTrend: "Token 使用趋势",
+            tokenTrendDesc: "总 Token 数随时间变化",
+            cacheHitTrendTitle: "缓存命中比例趋势",
+            cacheHitTrendDesc: "不含 output / cache write",
+            tokenDistribution: "Token 类型分布",
+            tokenDistributionDesc: "仅展示已记录的 input / output / cache read / cache write 字段",
+            legendInput: "输入",
+            legendOutput: "输出",
+            legendCache: "缓存",
+            apiStatsTitle: "API 详细统计",
+            apiStatsDesc: "按 usage 记录中的 api 字段聚合",
+            noApiRecords: "当前范围没有 API 记录。",
+            requestsCount: "请求",
+            modelStatsTitle: "模型统计",
+            modelStatsDesc: "按 provider / model 聚合",
+            colModelName: "模型名称",
+            colRequests: "请求次数",
+            colTokens: "Token 数量",
+            noModelRecords: "当前范围没有模型记录。",
+            botDistribution: "Bot 分布",
+            botDistributionDesc: "基于现有 botId 字段",
+            channelDistribution: "渠道分布",
+            channelDistributionDesc: "基于现有 channel 字段",
+            eventDetailsTitle: "请求事件明细",
+            eventDetailsDesc: "最近 {count} 条匹配记录；本系统暂未记录结果、延迟、认证索引和费用。",
+            colTime: "时间",
+            colChannel: "渠道",
+            colBot: "Bot",
+            colApi: "API",
+            colInput: "输入",
+            colOutput: "输出",
+            colCache: "缓存",
+            colTotalTokens: "总 Token",
+            noEventRecords: "当前筛选范围没有 usage 记录。",
+            statusSyncing: "数据同步中...",
+            statusReady: "数据已就绪",
+            refreshBtn: "立即刷新",
+            syncingBtn: "同步中",
+            errorPrefix: "错误："
+        },
+        "en-US": {
+            eyebrow: "AI Usage Observatory",
+            title: "AI Usage Stats",
+            desc: "Requests, Token consumption, model/API distribution and recent events based on actual token usage logs. Unrecorded costs, latency, or success rates are not simulated.",
+            timeRange: "Time Range",
+            modelLabel: "Model",
+            allModels: "All Models",
+            botLabel: "Bot",
+            allBots: "All Bots",
+            channelLabel: "Channel",
+            allChannels: "All Channels",
+            clearFilters: "Clear Filters",
+            updatedAt: "Updated at",
+            totalRequests: "Total Requests",
+            totalRequestsDesc: "AI call count in the current filtered scope",
+            totalTokens: "Total Tokens",
+            totalTokensDesc: "Input {input} · Output {output} · Cache {cache}",
+            inputTokensLabel: "Input Tokens",
+            percentOfTotal: "{percent}% of total",
+            outputTokensLabel: "Output Tokens",
+            cacheTokensLabel: "Cache Tokens",
+            cacheReadWrite: "Read {read} · Write {write}",
+            cacheHitRatioLabel: "Cache Hit Ratio",
+            noCachePromptBase: "No prompts cache base available in the current range",
+            requestTrend: "Request Trend",
+            hourlyAggregation: "Hourly aggregation",
+            dailyAggregation: "Daily aggregation",
+            peak: "Peak",
+            tokenTrend: "Token Usage Trend",
+            tokenTrendDesc: "Total tokens over time",
+            cacheHitTrendTitle: "Cache Hit Ratio Trend",
+            cacheHitTrendDesc: "Excludes output / cache write",
+            tokenDistribution: "Token Type Distribution",
+            tokenDistributionDesc: "Only showing logged input / output / cache read / cache write",
+            legendInput: "Input",
+            legendOutput: "Output",
+            legendCache: "Cache",
+            apiStatsTitle: "API Statistics",
+            apiStatsDesc: "Aggregated by the API field in usage records",
+            noApiRecords: "No API records in the current scope.",
+            requestsCount: "requests",
+            modelStatsTitle: "Model Statistics",
+            modelStatsDesc: "Aggregated by provider / model",
+            colModelName: "Model Name",
+            colRequests: "Requests",
+            colTokens: "Tokens",
+            noModelRecords: "No model records in the current scope.",
+            botDistribution: "Bot Distribution",
+            botDistributionDesc: "Based on the botId field",
+            channelDistribution: "Channel Distribution",
+            channelDistributionDesc: "Based on the channel field",
+            eventDetailsTitle: "Request Event Details",
+            eventDetailsDesc: "Recent {count} matching records; results, latency, auth indexes, and costs are not recorded.",
+            colTime: "Time",
+            colChannel: "Channel",
+            colBot: "Bot",
+            colApi: "API",
+            colInput: "Input",
+            colOutput: "Output",
+            colCache: "Cache",
+            colTotalTokens: "Total Tokens",
+            noEventRecords: "No usage records in the current filtered scope.",
+            statusSyncing: "Syncing data...",
+            statusReady: "Data ready",
+            refreshBtn: "Refresh Now",
+            syncingBtn: "Syncing",
+            errorPrefix: "Error: "
+        }
+    } as const;
+
     const emptyTotals = (): UsageTotals => ({
         requests: 0,
         inputTokens: 0,
@@ -121,6 +261,8 @@
     let selectedModelId: "all" | string = "all";
     let selectedBotId: "all" | string = "all";
     let selectedChannel: "all" | string = "all";
+
+    $: copy = COPY[$locale] ?? COPY["en-US"];
 
     async function loadUsage() {
         usageLoading = true;
@@ -213,10 +355,10 @@
 
     function windowTitle(range: TimeRange): string {
         const titles: Record<TimeRange, string> = {
-            today: "今天",
-            yesterday: "昨天",
-            last7Days: "最近 7 天",
-            last30Days: "最近 30 天",
+            today: $locale === "zh-CN" ? "今天" : "Today",
+            yesterday: $locale === "zh-CN" ? "昨天" : "Yesterday",
+            last7Days: $locale === "zh-CN" ? "最近 7 天" : "Last 7 Days",
+            last30Days: $locale === "zh-CN" ? "最近 30 天" : "Last 30 Days",
         };
         return titles[range];
     }
@@ -385,18 +527,18 @@
     <header class="usage-header">
         <div class="usage-header-left">
             <div class="usage-header-badges">
-                <Badge variant="secondary" class="usage-badge-medium">AI Usage Observatory</Badge>
+                <Badge variant="secondary" class="usage-badge-medium">{copy.eyebrow}</Badge>
                 <Badge variant="outline" class="usage-badge-medium">{windowTitle(selectedRange)}</Badge>
             </div>
             <div class="usage-header-text">
-                <h1 class="usage-header-title">使用统计</h1>
+                <h1 class="usage-header-title">{copy.title}</h1>
                 <p class="usage-header-desc">
-                    基于现有 token usage 记录展示请求量、Token 消耗、模型/API 分布和最近事件；没有记录的成本、延迟、成功率不在本页伪造。
+                    {copy.desc}
                 </p>
             </div>
         </div>
         <div class="usage-header-right">
-            <div class="usage-range-buttons" aria-label="时间范围">
+            <div class="usage-range-buttons" aria-label={copy.timeRange}>
                 {#each ["today", "yesterday", "last7Days", "last30Days"] as range}
                     <Button
                         type="button"
@@ -414,7 +556,7 @@
 
     {#if usageError}
         <Alert variant="destructive">
-            <AlertDescription>Error: {usageError}</AlertDescription>
+            <AlertDescription>{copy.errorPrefix}{usageError}</AlertDescription>
         </Alert>
     {:else if usageLoading && !usageStats}
         <Card>
@@ -432,40 +574,40 @@
         <Card>
             <CardContent class="usage-filters">
                 <div class="usage-filter-group">
-                    <Label for="usage-model" class="usage-filter-label">模型</Label>
+                    <Label for="usage-model" class="usage-filter-label">{copy.modelLabel}</Label>
                     <NativeSelect id="usage-model" class="w-full" bind:value={selectedModelId}>
-                        <NativeSelectOption value="all">全部模型</NativeSelectOption>
+                        <NativeSelectOption value="all">{copy.allModels}</NativeSelectOption>
                         {#each availableModels as model}
                             <NativeSelectOption value={model.id}>{model.label}</NativeSelectOption>
                         {/each}
                     </NativeSelect>
                 </div>
                 <div class="usage-filter-group">
-                    <Label for="usage-bot" class="usage-filter-label">Bot</Label>
+                    <Label for="usage-bot" class="usage-filter-label">{copy.botLabel}</Label>
                     <NativeSelect id="usage-bot" class="w-full" bind:value={selectedBotId}>
-                        <NativeSelectOption value="all">全部 Bot</NativeSelectOption>
+                        <NativeSelectOption value="all">{copy.allBots}</NativeSelectOption>
                         {#each availableBots as bot}
                             <NativeSelectOption value={bot.id}>{bot.label}</NativeSelectOption>
                         {/each}
                     </NativeSelect>
                 </div>
                 <div class="usage-filter-group">
-                    <Label for="usage-channel" class="usage-filter-label">渠道</Label>
+                    <Label for="usage-channel" class="usage-filter-label">{copy.channelLabel}</Label>
                     <NativeSelect id="usage-channel" class="w-full" bind:value={selectedChannel}>
-                        <NativeSelectOption value="all">全部渠道</NativeSelectOption>
+                        <NativeSelectOption value="all">{copy.allChannels}</NativeSelectOption>
                         {#each availableChannels as channel}
                             <NativeSelectOption value={channel}>{channel}</NativeSelectOption>
                         {/each}
                     </NativeSelect>
                 </div>
                 <div class="usage-filter-reset">
-                    <Button variant="outline" type="button" onclick={resetFilters} class="usage-filter-reset-btn">清空筛选</Button>
+                    <Button variant="outline" type="button" onclick={resetFilters} class="usage-filter-reset-btn">{copy.clearFilters}</Button>
                 </div>
                 <div class="usage-filter-meta">
                     {#if selectedWindow}
                         <span>{selectedWindow.startDate} → {selectedWindow.endDate}</span>
                     {/if}
-                    <span>更新于 {formatDateTime(usageStats.generatedAt)}</span>
+                    <span>{copy.updatedAt} {formatDateTime(usageStats.generatedAt)}</span>
                 </div>
             </CardContent>
         </Card>
@@ -474,10 +616,10 @@
             <Card class="usage-metric-wide">
                 <CardHeader>
                     <div class="usage-metric-header">
-                        <CardTitle class="font-serif text-lg">总请求数</CardTitle>
+                        <CardTitle class="font-serif text-lg">{copy.totalRequests}</CardTitle>
                         <Badge variant="secondary" class="usage-badge-requests">Requests</Badge>
                     </div>
-                    <CardDescription>当前筛选范围内的 AI 调用记录数</CardDescription>
+                    <CardDescription>{copy.totalRequestsDesc}</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-4">
                     <strong class="usage-metric-value">{formatNumber(totals.requests)}</strong>
@@ -491,11 +633,11 @@
             <Card class="usage-metric-wide">
                 <CardHeader>
                     <div class="usage-metric-header">
-                        <CardTitle class="font-serif text-lg">总 Token 数</CardTitle>
+                        <CardTitle class="font-serif text-lg">{copy.totalTokens}</CardTitle>
                         <Badge variant="secondary" class="usage-badge-tokens">Tokens</Badge>
                     </div>
                     <CardDescription class="tabular-nums">
-                        输入 {formatCompact(totals.inputTokens)} · 输出 {formatCompact(totals.outputTokens)} · 缓存 {formatCompact(cacheTokens)}
+                        {copy.totalTokensDesc.replace("{input}", formatCompact(totals.inputTokens)).replace("{output}", formatCompact(totals.outputTokens)).replace("{cache}", formatCompact(cacheTokens))}
                     </CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-4">
@@ -509,41 +651,41 @@
 
             <Card class="usage-metric-accent-1">
                 <CardHeader>
-                    <CardDescription class="usage-label-uppercase">输入 Tokens</CardDescription>
+                    <CardDescription class="usage-label-uppercase">{copy.inputTokensLabel}</CardDescription>
                     <CardTitle class="tabular-nums">{formatCompact(totals.inputTokens)}</CardTitle>
                 </CardHeader>
                 <CardContent class="usage-card-subtext">
-                    {pct(totals.inputTokens, totals.totalTokens).toFixed(1)}% of total
+                    {copy.percentOfTotal.replace("{percent}", pct(totals.inputTokens, totals.totalTokens).toFixed(1))}
                 </CardContent>
             </Card>
             <Card class="usage-metric-accent-2">
                 <CardHeader>
-                    <CardDescription class="usage-label-uppercase">输出 Tokens</CardDescription>
+                    <CardDescription class="usage-label-uppercase">{copy.outputTokensLabel}</CardDescription>
                     <CardTitle class="tabular-nums">{formatCompact(totals.outputTokens)}</CardTitle>
                 </CardHeader>
                 <CardContent class="usage-card-subtext">
-                    {pct(totals.outputTokens, totals.totalTokens).toFixed(1)}% of total
+                    {copy.percentOfTotal.replace("{percent}", pct(totals.outputTokens, totals.totalTokens).toFixed(1))}
                 </CardContent>
             </Card>
             <Card class="usage-metric-accent-3">
                 <CardHeader>
-                    <CardDescription class="usage-label-uppercase">缓存 Tokens</CardDescription>
+                    <CardDescription class="usage-label-uppercase">{copy.cacheTokensLabel}</CardDescription>
                     <CardTitle class="tabular-nums">{formatCompact(cacheTokens)}</CardTitle>
                 </CardHeader>
                 <CardContent class="usage-card-subtext">
-                    Read {formatCompact(totals.cacheReadTokens)} · Write {formatCompact(totals.cacheWriteTokens)}
+                    {copy.cacheReadWrite.replace("{read}", formatCompact(totals.cacheReadTokens)).replace("{write}", formatCompact(totals.cacheWriteTokens))}
                 </CardContent>
             </Card>
             <Card class="usage-metric-accent-4">
                 <CardHeader>
-                    <CardDescription class="usage-label-uppercase">缓存命中比例</CardDescription>
+                    <CardDescription class="usage-label-uppercase">{copy.cacheHitRatioLabel}</CardDescription>
                     <CardTitle class="tabular-nums">{formatPercent(cacheHitRatio)}</CardTitle>
                 </CardHeader>
                 <CardContent class="usage-card-subtext">
                     {#if cachePromptBase > 0}
                         cache read / (input + cache read)
                     {:else}
-                        当前范围没有可计算的 prompt cache 基数
+                        {copy.noCachePromptBase}
                     {/if}
                 </CardContent>
             </Card>
@@ -552,11 +694,11 @@
         <div class="usage-detail-grid">
             <Card>
                 <CardHeader>
-                    <CardTitle class="font-serif">请求趋势</CardTitle>
-                    <CardDescription>{selectedRange === "today" || selectedRange === "yesterday" ? "按小时聚合" : "按天聚合"}</CardDescription>
+                    <CardTitle class="font-serif">{copy.requestTrend}</CardTitle>
+                    <CardDescription>{selectedRange === "today" || selectedRange === "yesterday" ? copy.hourlyAggregation : copy.dailyAggregation}</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-3">
-                    <svg class="usage-trend-chart usage-trend-chart-area" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="请求趋势折线图">
+                    <svg class="usage-trend-chart usage-trend-chart-area" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Request trend line chart">
                         <g class="usage-trend-grid">
                             <line x1="0" y1="8" x2="100" y2="8"></line>
                             <line x1="0" y1="20" x2="100" y2="20"></line>
@@ -575,11 +717,11 @@
 
             <Card>
                 <CardHeader>
-                    <CardTitle class="font-serif">Token 使用趋势</CardTitle>
-                    <CardDescription>总 Token 数随时间变化</CardDescription>
+                    <CardTitle class="font-serif">{copy.tokenTrend}</CardTitle>
+                    <CardDescription>{copy.tokenTrendDesc}</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-3">
-                    <svg class="usage-trend-chart usage-trend-chart-area-token" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Token 趋势折线图">
+                    <svg class="usage-trend-chart usage-trend-chart-area-token" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Token trend line chart">
                         <g class="usage-trend-grid">
                             <line x1="0" y1="8" x2="100" y2="8"></line>
                             <line x1="0" y1="20" x2="100" y2="20"></line>
@@ -590,7 +732,7 @@
                     </svg>
                     <div class="usage-trend-labels">
                         <span>{trend[0]?.label ?? "--"}</span>
-                        <span>峰值 {formatCompact(maxTokens)}</span>
+                        <span>{copy.peak} {formatCompact(maxTokens)}</span>
                         <span>{trend[trend.length - 1]?.label ?? "--"}</span>
                     </div>
                 </CardContent>
@@ -598,11 +740,11 @@
 
             <Card>
                 <CardHeader>
-                    <CardTitle class="font-serif">缓存命中比例趋势</CardTitle>
-                    <CardDescription>不含 output / cache write</CardDescription>
+                    <CardTitle class="font-serif">{copy.cacheHitTrendTitle}</CardTitle>
+                    <CardDescription>{copy.cacheHitTrendDesc}</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-3">
-                    <svg class="usage-trend-chart usage-trend-chart-area-cache" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="缓存命中比例趋势折线图">
+                    <svg class="usage-trend-chart usage-trend-chart-area-cache" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="Cache hit ratio trend line chart">
                         <g class="usage-trend-grid">
                             <line x1="0" y1="8" x2="100" y2="8"></line>
                             <line x1="0" y1="20" x2="100" y2="20"></line>
@@ -613,7 +755,7 @@
                     </svg>
                     <div class="usage-trend-labels">
                         <span>{trend[0]?.label ?? "--"}</span>
-                        <span>峰值 {formatPercent(maxCacheHitRatio)}</span>
+                        <span>{copy.peak} {formatPercent(maxCacheHitRatio)}</span>
                         <span>{trend[trend.length - 1]?.label ?? "--"}</span>
                     </div>
                 </CardContent>
@@ -624,13 +766,13 @@
             <CardHeader>
                 <div class="usage-metric-header">
                     <div>
-                        <CardTitle class="font-serif">Token 类型分布</CardTitle>
-                        <CardDescription>仅展示已记录的 input / output / cache read / cache write 字段</CardDescription>
+                        <CardTitle class="font-serif">{copy.tokenDistribution}</CardTitle>
+                        <CardDescription>{copy.tokenDistributionDesc}</CardDescription>
                     </div>
                     <div class="usage-legend-badges">
-                        <Badge variant="outline" class="usage-legend-input">输入</Badge>
-                        <Badge variant="outline" class="usage-legend-output">输出</Badge>
-                        <Badge variant="outline" class="usage-legend-cache">缓存</Badge>
+                        <Badge variant="outline" class="usage-legend-input">{copy.legendInput}</Badge>
+                        <Badge variant="outline" class="usage-legend-output">{copy.legendOutput}</Badge>
+                        <Badge variant="outline" class="usage-legend-cache">{copy.legendCache}</Badge>
                     </div>
                 </div>
             </CardHeader>
@@ -656,18 +798,18 @@
         <div class="usage-detail-grid">
             <Card>
                 <CardHeader>
-                    <CardTitle class="font-serif">API 详细统计</CardTitle>
-                    <CardDescription>按 usage 记录中的 api 字段聚合</CardDescription>
+                    <CardTitle class="font-serif">{copy.apiStatsTitle}</CardTitle>
+                    <CardDescription>{copy.apiStatsDesc}</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-2">
                     {#if apiRows.length === 0}
-                        <p class="usage-empty-text">当前范围没有 API 记录。</p>
+                        <p class="usage-empty-text">{copy.noApiRecords}</p>
                     {:else}
                         {#each apiRows.slice(0, 8) as row}
                             <div class="usage-detail-row">
                                 <div class="usage-detail-label">
                                     <p class="usage-detail-label-text">{row.label}</p>
-                                    <p class="usage-detail-label-sub">{formatNumber(row.requests)} 请求</p>
+                                    <p class="usage-detail-label-sub">{formatNumber(row.requests)} {copy.requestsCount}</p>
                                 </div>
                                 <Badge variant="secondary" class="usage-detail-badge">{formatCompact(row.totalTokens)}</Badge>
                             </div>
@@ -678,21 +820,21 @@
 
             <Card>
                 <CardHeader>
-                    <CardTitle class="font-serif">模型统计</CardTitle>
-                    <CardDescription>按 provider / model 聚合</CardDescription>
+                    <CardTitle class="font-serif">{copy.modelStatsTitle}</CardTitle>
+                    <CardDescription>{copy.modelStatsDesc}</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead class="usage-table-head">模型名称</TableHead>
-                                <TableHead class="usage-table-head">请求次数</TableHead>
-                                <TableHead class="usage-table-head">Token 数量</TableHead>
+                                <TableHead class="usage-table-head">{copy.colModelName}</TableHead>
+                                <TableHead class="usage-table-head">{copy.colRequests}</TableHead>
+                                <TableHead class="usage-table-head">{copy.colTokens}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {#if modelRows.length === 0}
-                                <TableRow><TableCell colspan="3" class="usage-empty-text">当前范围没有模型记录。</TableCell></TableRow>
+                                <TableRow><TableCell colspan="3" class="usage-empty-text">{copy.noModelRecords}</TableCell></TableRow>
                             {:else}
                                 {#each modelRows.slice(0, 8) as row}
                                     <TableRow>
@@ -717,15 +859,15 @@
             <div class="usage-detail-grid">
                 <Card>
                     <CardHeader>
-                        <CardTitle class="font-serif">Bot 分布</CardTitle>
-                        <CardDescription>基于现有 botId 字段</CardDescription>
+                        <CardTitle class="font-serif">{copy.botDistribution}</CardTitle>
+                        <CardDescription>{copy.botDistributionDesc}</CardDescription>
                     </CardHeader>
                     <CardContent class="flex flex-col gap-2">
                         {#each botRows.slice(0, 8) as row}
                             <div class="usage-detail-row">
                                 <div class="usage-detail-label">
                                     <p class="usage-detail-label-text">{row.label}</p>
-                                    <p class="usage-detail-label-sub">{formatNumber(row.requests)} 请求</p>
+                                    <p class="usage-detail-label-sub">{formatNumber(row.requests)} {copy.requestsCount}</p>
                                 </div>
                                 <Badge variant="secondary" class="usage-detail-badge">{formatCompact(row.totalTokens)}</Badge>
                             </div>
@@ -735,15 +877,15 @@
 
                 <Card>
                     <CardHeader>
-                        <CardTitle class="font-serif">渠道分布</CardTitle>
-                        <CardDescription>基于现有 channel 字段</CardDescription>
+                        <CardTitle class="font-serif">{copy.channelDistribution}</CardTitle>
+                        <CardDescription>{copy.channelDistributionDesc}</CardDescription>
                     </CardHeader>
                     <CardContent class="flex flex-col gap-2">
                         {#each channelRows.slice(0, 8) as row}
                             <div class="usage-detail-row">
                                 <div class="usage-detail-label">
                                     <p class="usage-detail-label-text">{row.label}</p>
-                                    <p class="usage-detail-label-sub">{formatNumber(row.requests)} 请求</p>
+                                    <p class="usage-detail-label-sub">{formatNumber(row.requests)} {copy.requestsCount}</p>
                                 </div>
                                 <Badge variant="secondary" class="usage-detail-badge">{formatCompact(row.totalTokens)}</Badge>
                             </div>
@@ -755,27 +897,27 @@
 
         <Card>
             <CardHeader>
-                <CardTitle class="font-serif">请求事件明细</CardTitle>
-                <CardDescription>最近 {recentRecords.length} 条匹配记录；本系统暂未记录结果、延迟、认证索引和费用。</CardDescription>
+                <CardTitle class="font-serif">{copy.eventDetailsTitle}</CardTitle>
+                <CardDescription>{copy.eventDetailsDesc.replace("{count}", String(recentRecords.length))}</CardDescription>
             </CardHeader>
             <CardContent>
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead class="usage-table-head">时间</TableHead>
-                            <TableHead class="usage-table-head">模型名称</TableHead>
-                            <TableHead class="usage-table-head">渠道</TableHead>
-                            <TableHead class="usage-table-head">Bot</TableHead>
-                            <TableHead class="usage-table-head">API</TableHead>
-                            <TableHead class="usage-table-head">输入</TableHead>
-                            <TableHead class="usage-table-head">输出</TableHead>
-                            <TableHead class="usage-table-head">缓存</TableHead>
-                            <TableHead class="usage-table-head">总 Token</TableHead>
+                            <TableHead class="usage-table-head">{copy.colTime}</TableHead>
+                            <TableHead class="usage-table-head">{copy.colModelName}</TableHead>
+                            <TableHead class="usage-table-head">{copy.colChannel}</TableHead>
+                            <TableHead class="usage-table-head">{copy.colBot}</TableHead>
+                            <TableHead class="usage-table-head">{copy.colApi}</TableHead>
+                            <TableHead class="usage-table-head">{copy.colInput}</TableHead>
+                            <TableHead class="usage-table-head">{copy.colOutput}</TableHead>
+                            <TableHead class="usage-table-head">{copy.colCache}</TableHead>
+                            <TableHead class="usage-table-head">{copy.colTotalTokens}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {#if recentRecords.length === 0}
-                            <TableRow><TableCell colspan="9" class="usage-empty-text">当前筛选范围没有 usage 记录。</TableCell></TableRow>
+                            <TableRow><TableCell colspan="9" class="usage-empty-text">{copy.noEventRecords}</TableCell></TableRow>
                         {:else}
                             {#each recentRecords as record}
                                 <TableRow>
@@ -808,25 +950,22 @@
         {#if usageLoading}
             <span class="usage-footbar-status-line">
                 <span class="usage-pulse-dot usage-pulse-dot-loading"></span>
-                数据同步中...
+                {copy.statusSyncing}
             </span>
         {:else if usageStats}
             <span class="settings-footbar-ok usage-footbar-status-line">
                 <span class="usage-pulse-dot usage-pulse-dot-ready"></span>
-                数据已就绪
+                {copy.statusReady}
             </span>
         {/if}
     </div>
     <div class="usage-footbar-refresh-line">
         <Button variant="outline" size="sm" onclick={loadUsage} disabled={usageLoading} class="usage-footbar-refresh-btn">
             {#if usageLoading}
-                同步中
+                {copy.syncingBtn}
             {:else}
-                立即刷新
+                {copy.refreshBtn}
             {/if}
         </Button>
     </div>
 </footer>
-
-
-

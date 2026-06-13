@@ -1,14 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
-  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-  import { Checkbox } from "$lib/components/ui/checkbox";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { Textarea } from "$lib/components/ui/textarea";
+  import { IosSwitch } from "$lib/components/ui/ios-switch";
+  import { locale } from "$lib/ui/i18n";
 
   type SkillScope = "global" | "chat" | "bot";
 
@@ -47,6 +46,115 @@
     chatCount: number;
   }
 
+  const COPY = {
+    "zh-CN": {
+      eyebrow: "可复用工作流",
+      title: "技能草稿",
+      desc: "在将可复用工作流草稿转换为正式技能之前对其进行审查。",
+      btnRefresh: "刷新",
+      loading: "正在加载技能草稿...",
+      rulesTitle: "草稿生成规则",
+      rulesDesc: "控制何时保存可复用工作流草稿，以及哪个现有技能应当定义草稿的格式。",
+      autoSaveLabel: "启用自动保存草稿",
+      minToolsLabel: "最少工具调用次数",
+      recoverLabel: "运行从工具失败中恢复时保存草稿",
+      retryLabel: "运行发生模型重试或 fallback 时保存草稿",
+      pathLabel: "工作流技能路径",
+      pathPlaceholder: "~/.molibot/skills/skill-creator/SKILL.md",
+      pathHint: "填入标准的工作流 `SKILL.md` 路径。未配置此路径时，自动草稿生成将保持关闭。",
+      suggestions: "推荐：",
+      autoSaveLocked: "在配置工作流 `SKILL.md` 路径之前，自动草稿生成功能已被锁定。",
+      selectedWorkflow: "已选工作流：",
+      totalCount: "总数",
+      botCount: "Bots",
+      chatCount: "会话",
+      noDrafts: "尚未找到技能草稿。",
+      noDesc: "无描述",
+      manualReview: "人工审查",
+      skillName: "技能名称",
+      promoteScope: "提升范围",
+      scopeChat: "会话",
+      scopeBot: "Bot",
+      scopeGlobal: "全局",
+      draftContent: "草稿内容",
+      editFullBtn: "编辑完整草稿",
+      linesHint: "当前显示前 {limit} 行（共 {count} 行）。打开编辑器以查看和编辑完整草稿。",
+      btnSaveDraft: "保存草稿",
+      btnPromote: "提升为技能",
+      btnDeleteDraft: "删除草稿",
+      modalEditTitle: "编辑草稿内容",
+      modalFullContent: "完整草稿内容",
+      modalCancel: "取消",
+      saving: "保存中...",
+      savingConfig: "正在保存变更...",
+      saveRulesBtn: "保存规则",
+      resetBtn: "重置",
+      failedLoad: "加载技能草稿失败",
+      pathRequiredError: "先指定一个标准 workflow 路径，才能打开自动生成。",
+      failedSaveConfig: "保存技能草稿设置失败",
+      configSaved: "技能草稿设置已保存。",
+      failedSaveDraft: "保存草稿失败",
+      draftSaved: "草稿已保存。",
+      failedPromote: "提升草稿失败",
+      promoteSuccess: "草稿已提升为 {path}。",
+      failedDelete: "删除草稿失败",
+      draftDeleted: "草稿已删除。"
+    },
+    "en-US": {
+      eyebrow: "Reusable Workflows",
+      title: "Skill Drafts",
+      desc: "Review reusable workflow drafts before turning them into live skills.",
+      btnRefresh: "Refresh",
+      loading: "Loading skill drafts...",
+      rulesTitle: "Draft Generation Rules",
+      rulesDesc: "Control when reusable workflow drafts are saved, and which existing skill should define the draft format.",
+      autoSaveLabel: "Enable automatic draft saving",
+      minToolsLabel: "Minimum Tool Calls",
+      recoverLabel: "Save draft when the run recovered from tool failures",
+      retryLabel: "Save draft when the run needed model retries or fallback",
+      pathLabel: "Workflow Skill Path",
+      pathPlaceholder: "~/.molibot/skills/skill-creator/SKILL.md",
+      pathHint: "Fill in the standard workflow `SKILL.md` path. Without this path, automatic draft generation stays off.",
+      suggestions: "Suggestions:",
+      autoSaveLocked: "Automatic draft generation is locked until a workflow `SKILL.md` path is configured.",
+      selectedWorkflow: "Selected workflow: ",
+      totalCount: "Total",
+      botCount: "Bots",
+      chatCount: "Chats",
+      noDrafts: "No skill drafts found yet.",
+      noDesc: "No description",
+      manualReview: "manual review",
+      skillName: "Skill Name",
+      promoteScope: "Promote Scope",
+      scopeChat: "Chat",
+      scopeBot: "Bot",
+      scopeGlobal: "Global",
+      draftContent: "Draft Content",
+      editFullBtn: "Edit full draft",
+      linesHint: "Showing first {limit} of {count} lines. Open the editor to view and edit the full draft.",
+      btnSaveDraft: "Save Draft",
+      btnPromote: "Promote To Skill",
+      btnDeleteDraft: "Delete Draft",
+      modalEditTitle: "Edit Draft Content",
+      modalFullContent: "Full Draft Content",
+      modalCancel: "Cancel",
+      saving: "Saving...",
+      savingConfig: "Saving changes...",
+      saveRulesBtn: "Save Rules",
+      resetBtn: "Reset",
+      failedLoad: "Failed to load skill drafts",
+      pathRequiredError: "Choose a standard workflow skill path first to enable automatic draft saving.",
+      failedSaveConfig: "Failed to save skill draft settings",
+      configSaved: "Skill draft settings saved.",
+      failedSaveDraft: "Failed to save draft",
+      draftSaved: "Draft saved.",
+      failedPromote: "Failed to promote draft",
+      promoteSuccess: "Draft promoted to {path}.",
+      failedDelete: "Failed to delete draft",
+      draftDeleted: "Draft deleted."
+    }
+  } as const;
+
   let loading = true;
   let savingConfig = false;
   let error = "";
@@ -67,11 +175,13 @@
   let editingDraftItem: SkillDraftItem | undefined;
   const collapsedDraftLineLimit = 10;
 
+  $: copy = COPY[$locale] ?? COPY["en-US"];
+
   function formatDate(value: string): string {
     if (!value) return "-";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString("zh-CN", {
+    return date.toLocaleString($locale === "zh-CN" ? "zh-CN" : "en-US", {
       year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
     });
   }
@@ -130,13 +240,13 @@
   }
 
   function formatTemplateScope(item: TemplateSkillOption): string {
-    if (item.scope === "global") return "Global";
-    if (item.scope === "bot") return `Bot · ${item.botId}`;
-    return `Chat · ${item.botId}/${item.chatId}`;
+    if (item.scope === "global") return copy.scopeGlobal;
+    if (item.scope === "bot") return `${copy.scopeBot} · ${item.botId}`;
+    return `${copy.scopeChat} · ${item.botId}/${item.chatId}`;
   }
 
   function hasWorkflowSkillPath(): boolean {
-    return Boolean(String(skillDrafts.template.skillPath ?? "").trim());
+    return HTMLSelectElement && Boolean(String(skillDrafts.template.skillPath ?? "").trim());
   }
 
   async function loadDrafts(): Promise<void> {
@@ -146,7 +256,7 @@
     try {
       const res = await fetch("/api/settings/skill-drafts");
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Failed to load skill drafts");
+      if (!data.ok) throw new Error(data.error || copy.failedLoad);
       items = Array.isArray(data.items) ? data.items : [];
       diagnostics = Array.isArray(data.diagnostics) ? data.diagnostics : [];
       templateSkills = Array.isArray(data.templateSkills) ? data.templateSkills : [];
@@ -157,7 +267,7 @@
         chatCount: Number(data.counts?.chatCount ?? 0)
       };
       syncDraftState(items);
-      message = `Loaded ${items.length} draft(s).`;
+      message = copy.loadedMsg.replace("{count}", String(items.length));
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -171,7 +281,7 @@
     message = "";
     try {
       if (skillDrafts.autoSave.enabled && !hasWorkflowSkillPath()) {
-        throw new Error("先指定一个标准 workflow 路径，才能打开自动生成。");
+        throw new Error(copy.pathRequiredError);
       }
       const res = await fetch("/api/settings", {
         method: "PUT",
@@ -179,9 +289,9 @@
         body: JSON.stringify({ skillDrafts })
       });
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to save skill draft settings");
+      if (!res.ok || !data.ok) throw new Error(data.error || copy.failedSaveConfig);
       skillDrafts = normalizeSkillDraftSettings(data.settings?.skillDrafts ?? skillDrafts);
-      message = "Skill draft settings saved.";
+      message = copy.configSaved;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -201,8 +311,8 @@
         body: JSON.stringify({ action: "save", filePath, content: draftContent[filePath] ?? item.content })
       });
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to save draft");
-      message = "Draft saved.";
+      if (!res.ok || !data.ok) throw new Error(data.error || copy.failedSaveDraft);
+      message = copy.draftSaved;
       await loadDrafts();
       return true;
     } catch (e) {
@@ -228,8 +338,8 @@
         })
       });
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to promote draft");
-      message = `Draft promoted to ${data.saved?.filePath ?? "skill"}.`;
+      if (!res.ok || !data.ok) throw new Error(data.error || copy.failedPromote);
+      message = copy.promoteSuccess.replace("{path}", data.saved?.filePath || "skill");
       await loadDrafts();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -250,8 +360,8 @@
         body: JSON.stringify({ action: "delete", filePath })
       });
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to delete draft");
-      message = "Draft deleted.";
+      if (!res.ok || !data.ok) throw new Error(data.error || copy.failedDelete);
+      message = copy.draftDeleted;
       await loadDrafts();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -267,233 +377,264 @@
   }
 </script>
 
-<div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-  <header class="flex flex-col gap-3">
-    <Badge variant="secondary" class="w-fit">Reusable Workflows</Badge>
-    <div class="flex max-w-3xl flex-col gap-2">
-      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Skill Drafts</h1>
-      <p class="text-sm leading-6 text-muted-foreground">
-        Review reusable workflow drafts before turning them into live skills.
-      </p>
-    </div>
+<div class="channel-page">
+  <header class="channel-hero">
+    <span class="channel-badge">{copy.eyebrow}</span>
+    <h1 class="channel-hero-title">{copy.title}</h1>
+    <p class="channel-hero-desc">{copy.desc}</p>
   </header>
 
-  <div class="flex items-center gap-2">
-    <Button variant="outline" onclick={loadDrafts}>Refresh</Button>
+  <div class="channel-card">
+    <div class="channel-card-body">
+      <div style="display: flex; gap: 0.5rem;">
+        <Button variant="outline" onclick={loadDrafts}>{copy.btnRefresh}</Button>
+      </div>
+    </div>
   </div>
 
-  {#if message}
-    <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
-  {/if}
-  {#if error}
-    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
-  {/if}
-
   {#if loading}
-    <p class="py-8 text-sm text-muted-foreground">Loading skill drafts...</p>
+    <div class="channel-loading">{copy.loading}</div>
   {:else}
-    <Card>
-      <CardHeader>
-        <div class="flex flex-wrap items-start justify-between gap-3">
+    <form id="drafts-form" class="channel-form" onsubmit={(e) => { e.preventDefault(); void saveDraftSettings(); }}>
+      <div class="channel-card">
+        <div class="channel-card-header">
           <div>
-            <CardTitle>Draft Generation Rules</CardTitle>
-            <CardDescription>
-              Control when reusable workflow drafts are saved, and which existing skill should define the draft format.
-            </CardDescription>
-          </div>
-          <Button variant="outline" disabled={savingConfig} onclick={saveDraftSettings}>
-            {savingConfig ? "Saving..." : "Save Rules"}
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent class="space-y-4">
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div class="flex items-center gap-3 rounded-xl border bg-muted/40 px-3 py-3">
-            <Checkbox id="sd-auto" bind:checked={skillDrafts.autoSave.enabled} disabled={!hasWorkflowSkillPath()} />
-            <Label for="sd-auto">Enable automatic draft saving</Label>
-          </div>
-          <div class="grid gap-1.5">
-            <Label for="sd-min-tools" class="text-xs uppercase tracking-wide text-muted-foreground">Minimum Tool Calls</Label>
-            <Input id="sd-min-tools" type="number" min="1" bind:value={skillDrafts.autoSave.minToolCalls} />
+            <h2 class="channel-card-title">{copy.rulesTitle}</h2>
+            <p class="channel-card-desc">{copy.rulesDesc}</p>
           </div>
         </div>
+        <div class="channel-card-body">
+          <div class="channel-field-row" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="channel-toggle-row">
+              <div class="channel-toggle-label">
+                <Label for="sd-auto">{copy.autoSaveLabel}</Label>
+              </div>
+              <IosSwitch id="sd-auto" bind:checked={skillDrafts.autoSave.enabled} disabled={!hasWorkflowSkillPath()} />
+            </div>
+            <div class="channel-field">
+              <Label for="sd-min-tools">{copy.minToolsLabel}</Label>
+              <Input id="sd-min-tools" type="number" min="1" bind:value={skillDrafts.autoSave.minToolCalls} />
+            </div>
+          </div>
 
-        <div class="grid gap-3 sm:grid-cols-2">
-          <div class="flex items-center gap-3 rounded-xl border bg-muted/40 px-3 py-3">
-            <Checkbox id="sd-recover" bind:checked={skillDrafts.autoSave.allowRecoveredToolFailures} />
-            <Label for="sd-recover">Save draft when the run recovered from tool failures</Label>
+          <div class="channel-field-row" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="channel-toggle-row">
+              <div class="channel-toggle-label">
+                <Label for="sd-recover">{copy.recoverLabel}</Label>
+              </div>
+              <IosSwitch id="sd-recover" bind:checked={skillDrafts.autoSave.allowRecoveredToolFailures} />
+            </div>
+            <div class="channel-toggle-row">
+              <div class="channel-toggle-label">
+                <Label for="sd-retry">{copy.retryLabel}</Label>
+              </div>
+              <IosSwitch id="sd-retry" bind:checked={skillDrafts.autoSave.allowModelRetries} />
+            </div>
           </div>
-          <div class="flex items-center gap-3 rounded-xl border bg-muted/40 px-3 py-3">
-            <Checkbox id="sd-retry" bind:checked={skillDrafts.autoSave.allowModelRetries} />
-            <Label for="sd-retry">Save draft when the run needed model retries or fallback</Label>
-          </div>
-        </div>
 
-        <div class="grid gap-1.5">
-          <Label for="sd-path" class="text-xs uppercase tracking-wide text-muted-foreground">Workflow Skill Path</Label>
-          <Input
-            id="sd-path"
-            bind:value={skillDrafts.template.skillPath}
-            list={workflowSuggestionsId}
-            placeholder="~/.molibot/skills/skill-creator/SKILL.md"
-          />
-          <datalist id={workflowSuggestionsId}>
-            {#each templateSkills as option}
-              <option value={option.filePath}>{option.name} · {formatTemplateScope(option)}</option>
-            {/each}
-          </datalist>
-          <p class="text-xs text-muted-foreground">
-            Fill in the standard workflow `SKILL.md` path. Without this path, automatic draft generation stays off.
-          </p>
-          {#if templateSkills.length > 0}
-            <div class="rounded-xl border bg-muted/40 px-3 py-3 text-xs text-muted-foreground">
-              Suggestions:
-              {#each templateSkills as option, index}
-                <div class={index === 0 ? "mt-2" : "mt-1"}>{option.name} · {formatTemplateScope(option)} · {option.filePath}</div>
+          <div class="channel-field">
+            <Label for="sd-path">{copy.pathLabel}</Label>
+            <Input
+              id="sd-path"
+              bind:value={skillDrafts.template.skillPath}
+              list={workflowSuggestionsId}
+              placeholder={copy.pathPlaceholder}
+            />
+            <datalist id={workflowSuggestionsId}>
+              {#each templateSkills as option}
+                <option value={option.filePath}>{option.name} · {formatTemplateScope(option)}</option>
               {/each}
+            </datalist>
+            <p class="channel-hint">{copy.pathHint}</p>
+            {#if templateSkills.length > 0}
+              <div class="channel-hint" style="background: var(--muted); padding: 0.75rem; border-radius: 6px; margin-top: 0.5rem;">
+                <strong>{copy.suggestions}</strong>
+                {#each templateSkills as option}
+                  <div style="margin-top: 0.25rem;">{option.name} · {formatTemplateScope(option)} · {option.filePath}</div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+
+          {#if !hasWorkflowSkillPath()}
+            <div class="channel-hint" style="color: var(--destructive); font-weight: 500;">
+              {copy.autoSaveLocked}
+            </div>
+          {/if}
+
+          {#if skillDrafts.template.skillPath}
+            <div class="channel-hint">
+              {copy.selectedWorkflow}{skillDrafts.template.skillPath}
             </div>
           {/if}
         </div>
+      </div>
+    </form>
 
-        {#if !hasWorkflowSkillPath()}
-          <div class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs text-amber-600 dark:text-amber-400">
-            Automatic draft generation is locked until a workflow `SKILL.md` path is configured.
-          </div>
-        {/if}
-
-        {#if skillDrafts.template.skillPath}
-          <div class="rounded-xl border bg-muted/40 px-3 py-3 text-xs text-muted-foreground">
-            Selected workflow: {skillDrafts.template.skillPath}
-          </div>
-        {/if}
-      </CardContent>
-    </Card>
-
-    <div class="flex flex-wrap gap-3 text-sm">
-      <Badge variant="outline">Total: {counts.total}</Badge>
-      <Badge variant="outline">Bots: {counts.botCount}</Badge>
-      <Badge variant="outline">Chats: {counts.chatCount}</Badge>
+    <div class="channel-card">
+      <div class="channel-card-body" style="gap: 0.5rem;">
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <Badge variant="outline">{copy.totalCount}: {counts.total}</Badge>
+          <Badge variant="outline">{copy.botCount}: {counts.botCount}</Badge>
+          <Badge variant="outline">{copy.chatCount}: {counts.chatCount}</Badge>
+        </div>
+      </div>
     </div>
 
     {#if diagnostics.length > 0}
-      <Alert variant="default"><AlertDescription class="whitespace-pre-wrap">{diagnostics.join("\n")}</AlertDescription></Alert>
+      <div class="channel-card" style="padding: 1rem;">
+        <div class="channel-card-body" style="white-space: pre-wrap;">
+          {diagnostics.join("\n")}
+        </div>
+      </div>
     {/if}
 
-    {#if items.length === 0}
-      <div class="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">No skill drafts found yet.</div>
-    {:else}
-      <div class="space-y-4">
+    <div class="channel-form">
+      {#if items.length === 0}
+        <div class="channel-card">
+          <div class="channel-card-body">
+            <div class="channel-hint">{copy.noDrafts}</div>
+          </div>
+        </div>
+      {:else}
         {#each items as item}
           {@const lineCount = draftLineCount(item)}
-          <article class="rounded-2xl border bg-card/60 p-5 text-sm">
-            <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="channel-card">
+            <div class="channel-card-header">
               <div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <h2 class="text-base font-semibold text-foreground">{item.name}</h2>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <h2 class="channel-card-title">{item.name}</h2>
                   <Badge variant="default">{draftScope[item.filePath] ?? "chat"}</Badge>
                   <Badge variant="outline">merged {item.mergeCount ?? 1}</Badge>
                 </div>
-                <p class="mt-1 text-xs text-muted-foreground">{item.botId} / {item.chatId} · {formatDate(item.updatedAt)}</p>
-                <p class="mt-2 text-sm text-muted-foreground">{item.description || "No description"}</p>
+                <p class="channel-card-desc">
+                  {item.botId} / {item.chatId} · {formatDate(item.updatedAt)}
+                </p>
+                <p class="channel-hint" style="margin-top: 0.25rem;">
+                  {item.description || copy.noDesc}
+                </p>
               </div>
-              <div class="text-right text-xs text-muted-foreground">
-                <div>{item.source || "manual review"}</div>
+              <div style="text-align: right;" class="channel-sidebar-btn-id">
+                <div>{item.source || copy.manualReview}</div>
                 <div>{item.fileName}</div>
               </div>
             </div>
-
-            <div class="mt-4 grid gap-3 sm:grid-cols-[1fr_180px]">
-              <div class="grid gap-1.5">
-                <Label for="sd-name-{item.filePath}" class="text-xs uppercase tracking-wide text-muted-foreground">Skill Name</Label>
-                <Input id="sd-name-{item.filePath}" bind:value={draftName[item.filePath]} />
+            <div class="channel-card-body">
+              <div class="channel-field-row" style="grid-template-columns: 1fr 180px; gap: 0.75rem;">
+                <div class="channel-field">
+                  <Label for="sd-name-{item.filePath}">{copy.skillName}</Label>
+                  <Input id="sd-name-{item.filePath}" bind:value={draftName[item.filePath]} />
+                </div>
+                <div class="channel-field">
+                  <Label for="sd-scope-{item.filePath}">{copy.promoteScope}</Label>
+                  <NativeSelect id="sd-scope-{item.filePath}" bind:value={draftScope[item.filePath]}>
+                    <NativeSelectOption value="chat">{copy.scopeChat}</NativeSelectOption>
+                    <NativeSelectOption value="bot">{copy.scopeBot}</NativeSelectOption>
+                    <NativeSelectOption value="global">{copy.scopeGlobal}</NativeSelectOption>
+                  </NativeSelect>
+                </div>
               </div>
-              <div class="grid gap-1.5">
-                <Label for="sd-scope-{item.filePath}" class="text-xs uppercase tracking-wide text-muted-foreground">Promote Scope</Label>
-                <NativeSelect id="sd-scope-{item.filePath}" bind:value={draftScope[item.filePath]}>
-                  <NativeSelectOption value="chat">Chat</NativeSelectOption>
-                  <NativeSelectOption value="bot">Bot</NativeSelectOption>
-                  <NativeSelectOption value="global">Global</NativeSelectOption>
-                </NativeSelect>
-              </div>
-            </div>
 
-            <div class="mt-4 grid gap-1.5">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <Label for="sd-content-{item.filePath}" class="text-xs uppercase tracking-wide text-muted-foreground">Draft Content</Label>
-                <Button variant="outline" size="xs" type="button" onclick={() => openDraftEditor(item)}>
-                  Edit full draft
+              <div class="channel-field">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <Label for="sd-content-{item.filePath}">{copy.draftContent}</Label>
+                  <Button variant="outline" size="sm" type="button" onclick={() => openDraftEditor(item)}>
+                    {copy.editFullBtn}
+                  </Button>
+                </div>
+                <pre
+                  id="sd-content-{item.filePath}"
+                  class="channel-textarea"
+                  style="max-height: 13.5rem; overflow: hidden; padding: 0.75rem;"
+                >{collapsedDraftContent(item)}</pre>
+                {#if lineCount > collapsedDraftLineLimit}
+                  <p class="channel-hint">
+                    {copy.linesHint.replace("{limit}", String(collapsedDraftLineLimit)).replace("{count}", String(lineCount))}
+                  </p>
+                {/if}
+              </div>
+
+              <div class="channel-field-row" style="grid-template-columns: repeat(3, auto); gap: 0.5rem; justify-content: start; margin-top: 0.5rem;">
+                <Button variant="outline" size="sm" disabled={saving.has(item.filePath)} onclick={() => saveDraft(item)}>
+                  {copy.btnSaveDraft}
+                </Button>
+                <Button size="sm" disabled={saving.has(item.filePath)} onclick={() => promoteDraft(item)}>
+                  {copy.btnPromote}
+                </Button>
+                <Button variant="destructive" size="sm" disabled={saving.has(item.filePath)} onclick={() => deleteDraft(item)}>
+                  {copy.btnDeleteDraft}
                 </Button>
               </div>
-              <pre
-                id="sd-content-{item.filePath}"
-                class="max-h-[13.5rem] overflow-hidden whitespace-pre-wrap rounded-lg border border-input bg-transparent px-2.5 py-2 font-mono text-xs leading-5 text-foreground"
-              >{collapsedDraftContent(item)}</pre>
-              {#if lineCount > collapsedDraftLineLimit}
-                <p class="text-xs text-muted-foreground">
-                  Showing first {collapsedDraftLineLimit} of {lineCount} lines. Open the editor to view and edit the full draft.
-                </p>
-              {/if}
             </div>
-
-            <div class="mt-4 flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" disabled={saving.has(item.filePath)} onclick={() => saveDraft(item)}>
-                Save Draft
-              </Button>
-              <Button size="sm" disabled={saving.has(item.filePath)} onclick={() => promoteDraft(item)}>
-                Promote To Skill
-              </Button>
-              <Button variant="destructive" size="sm" disabled={saving.has(item.filePath)} onclick={() => deleteDraft(item)}>
-                Delete Draft
-              </Button>
-            </div>
-          </article>
+          </div>
         {/each}
-      </div>
-    {/if}
+      {/if}
+    </div>
   {/if}
 </div>
 
 {#if editingDraftItem}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
-    <Card class="max-h-[90dvh] w-full max-w-5xl overflow-hidden">
-      <CardHeader>
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="min-w-0">
-            <CardTitle>Edit Draft Content</CardTitle>
-            <CardDescription class="break-all">
-              {editingDraftItem.fileName}
-            </CardDescription>
-          </div>
-          <Button variant="outline" size="sm" type="button" onclick={closeDraftEditor}>
-            Close
-          </Button>
+    <div class="channel-card" style="width: 100%; max-width: 56rem; max-height: 90dvh; overflow: hidden; display: flex; flex-direction: column;">
+      <div class="channel-card-header">
+        <div>
+          <h2 class="channel-card-title">{copy.modalEditTitle}</h2>
+          <p class="channel-card-desc break-all">{editingDraftItem.fileName}</p>
         </div>
-      </CardHeader>
-      <CardContent class="space-y-4 overflow-y-auto">
-        <div class="grid gap-1.5">
-          <Label for="sd-modal-content" class="text-xs uppercase tracking-wide text-muted-foreground">
-            Full Draft Content
-          </Label>
+        <Button variant="outline" size="sm" type="button" onclick={closeDraftEditor}>
+          {copy.modalCancel}
+        </Button>
+      </div>
+      <div class="channel-card-body" style="overflow-y: auto; flex: 1;">
+        <div class="channel-field">
+          <Label for="sd-modal-content">{copy.modalFullContent}</Label>
           <Textarea
             id="sd-modal-content"
-            rows={28}
-            class="min-h-[60dvh] font-mono text-xs leading-5"
+            rows={20}
+            class="channel-textarea font-mono"
+            style="min-height: 50dvh;"
             bind:value={draftContent[editingDraftItem.filePath]}
           />
         </div>
-        <div class="flex flex-wrap justify-end gap-2">
+        <div class="channel-field-row" style="grid-template-columns: auto auto; gap: 0.5rem; justify-content: end; margin-top: 0.5rem;">
           <Button variant="outline" type="button" onclick={closeDraftEditor}>
-            Cancel
+            {copy.modalCancel}
           </Button>
           <Button
             type="button"
             disabled={saving.has(editingDraftItem.filePath)}
             onclick={() => editingDraftItem && saveEditingDraft(editingDraftItem)}
           >
-            {saving.has(editingDraftItem.filePath) ? "Saving..." : "Save Draft"}
+            {saving.has(editingDraftItem.filePath) ? copy.saving : copy.btnSaveDraft}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   </div>
+{/if}
+
+{#if !loading}
+  <footer class="settings-footbar">
+    <div class="settings-footbar-status">
+      {#if savingConfig}
+        <span class="settings-footbar-saving">
+          <span class="settings-footbar-pulse"></span>
+          {copy.savingConfig}
+        </span>
+      {:else if message}
+        <span class="settings-footbar-ok">{message}</span>
+      {/if}
+      {#if error}
+        <span class="settings-footbar-error">{error}</span>
+      {/if}
+    </div>
+    <div class="settings-footbar-actions">
+      <Button variant="outline" size="sm" onclick={loadDrafts} disabled={loading || savingConfig}>
+        {copy.resetBtn}
+      </Button>
+      <button type="submit" form="drafts-form" class="settings-footbar-btn" disabled={loading || savingConfig}>
+        {savingConfig ? copy.saving : copy.saveRulesBtn}
+      </button>
+    </div>
+  </footer>
 {/if}

@@ -1,13 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
-  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-  import { Checkbox } from "$lib/components/ui/checkbox";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
+  import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { Textarea } from "$lib/components/ui/textarea";
+  import { locale } from "$lib/ui/i18n";
 
   interface AgentItem {
     id: string;
@@ -35,6 +34,107 @@
 
   const fileNames = ["AGENTS.md", "SOUL.md", "IDENTITY.md", "SONG.md"];
 
+  const COPY = {
+    "zh-CN": {
+      eyebrow: "身份层",
+      customCount: "个自定义智能体",
+      title: "Agents",
+      desc: "管理可复用的智能体身份，并直接编辑其 Markdown 提示词文件。",
+      loading: "正在加载智能体设置...",
+      listTitle: "Agent 列表",
+      listDesc: "个已配置",
+      addBtn: "添加",
+      subagentsLabel: "内置 Subagent",
+      subagentsDesc: "个内置委派角色",
+      builtInTag: "内置",
+      builtInTitle: "内置 Subagents",
+      builtInDesc: "共享子智能体工具使用的只读委派角色。",
+      configureRoute: "配置模型路由",
+      explicitRoute: "显式 Subagent 路由：",
+      notSet: "未设置",
+      routeExplanation: "。每个角色将依次使用下方的模型级别映射、此备选路由以及文本路由。",
+      notConfigured: "未配置",
+      tools: "工具",
+      modelLevel: "模型级别",
+      effectiveModel: "生效模型",
+      source: "来源",
+      notResolved: "未解析",
+      unknown: "未知",
+      metaTitle: "Agent 元数据",
+      metaDesc: "设置 Agent ID、显示名称、描述以及启用状态。",
+      removeBtn: "删除",
+      idLabel: "Agent ID",
+      nameLabel: "Agent 名称",
+      idLocked: "创建后 Agent ID 将被锁定以保持引用稳定。",
+      descLabel: "描述",
+      descPlaceholder: "对该智能体角色和身份的简短描述。",
+      enableLabel: "启用这个 Agent",
+      enableDesc: "禁用的智能体将保留但无法在运行时选择。",
+      overridesTitle: "Agent Markdown 覆盖文件",
+      overridesDesc: "留空内容将删除该文件，使运行时回退到上层配置。",
+      saving: "保存中...",
+      savingMsg: "正在保存变更...",
+      saveBtn: "保存 Agent 设置",
+      resetBtn: "重置",
+      confirmDelete: "确认删除吗？此操作无法撤销。",
+      unsavedConfirm: "当前 Agent 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Agent。",
+      failedLoad: "加载配置失败",
+      failedLoadSub: "加载 Subagent 失败",
+      failedSave: "保存 Agent 失败",
+      failedSaveFiles: "保存配置文件失败",
+      savedSuccess: "已保存 Agent："
+    },
+    "en-US": {
+      eyebrow: "Identity Layer",
+      customCount: "custom agents",
+      title: "Agents",
+      desc: "Manage reusable agent identities and edit their Markdown prompt files directly.",
+      loading: "Loading agent settings...",
+      listTitle: "Agent List",
+      listDesc: "configured",
+      addBtn: "Add",
+      subagentsLabel: "Subagents",
+      subagentsDesc: "built-in delegation roles",
+      builtInTag: "BUILT-IN",
+      builtInTitle: "Built-in Subagents",
+      builtInDesc: "Read-only delegation roles used by the shared subagent tool.",
+      configureRoute: "Configure model route",
+      explicitRoute: "Explicit subagent route:",
+      notSet: "not set",
+      routeExplanation: ". Each role first uses its model level mapping below, then this fallback route, then the text route.",
+      notConfigured: "not configured",
+      tools: "Tools",
+      modelLevel: "Model level",
+      effectiveModel: "Effective model",
+      source: "Source",
+      notResolved: "not resolved",
+      unknown: "unknown",
+      metaTitle: "Agent Metadata",
+      metaDesc: "Set agent ID, display name, description, and toggled status.",
+      removeBtn: "Remove",
+      idLabel: "Agent ID",
+      nameLabel: "Agent Name",
+      idLocked: "Agent ID is locked after creation to keep references stable.",
+      descLabel: "Description",
+      descPlaceholder: "Short description of this agent's role and identity.",
+      enableLabel: "Enable this agent",
+      enableDesc: "Disabled agents stay saved but are not selectable at runtime.",
+      overridesTitle: "Agent Markdown Overrides",
+      overridesDesc: "Empty content removes the file so the runtime falls back to upper layers.",
+      saving: "Saving...",
+      savingMsg: "Saving changes...",
+      saveBtn: "Save Agent Settings",
+      resetBtn: "Reset",
+      confirmDelete: "Delete agent? This cannot be undone.",
+      unsavedConfirm: "Current Agent has unsaved changes. Click 'OK' to save and switch, or 'Cancel' to stay on this Agent.",
+      failedLoad: "Failed to load settings",
+      failedLoadSub: "Failed to load subagents",
+      failedSave: "Failed to save agents",
+      failedSaveFiles: "Failed to save files",
+      savedSuccess: "Saved agent: "
+    }
+  } as const;
+
   let loading = true;
   let saving = false;
   let error = "";
@@ -46,6 +146,8 @@
   let subagentModelLevels: Record<string, { key: string; label: string }> = {};
   let selectedAgentId = "";
   let savedSnapshots: Record<string, string> = {};
+
+  $: copy = COPY[$locale] ?? COPY["en-US"];
 
   function createAgentId(): string {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -103,9 +205,9 @@
         fetch("/api/settings/subagents")
       ]);
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Failed to load settings");
+      if (!data.ok) throw new Error(data.error || copy.failedLoad);
       const subagentData = await subagentsRes.json();
-      if (!subagentData.ok) throw new Error(subagentData.error || "Failed to load subagents");
+      if (!subagentData.ok) throw new Error(subagentData.error || copy.failedLoadSub);
       builtInSubagents = Array.isArray(subagentData.subagents)
         ? subagentData.subagents.map((item: BuiltInSubagentItem) => ({
             name: String(item.name ?? ""),
@@ -153,7 +255,7 @@
     const dirty = agentSnapshot(current) !== baseline;
     if (!dirty) return true;
     if (typeof window === "undefined") return false;
-    const shouldSave = window.confirm('当前 Agent 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Agent。');
+    const shouldSave = window.confirm(copy.unsavedConfirm);
     if (!shouldSave) return false;
     return save();
   }
@@ -182,7 +284,7 @@
   }
 
   async function removeAgent(agentId: string): Promise<void> {
-    const confirmed = typeof window === "undefined" ? true : window.confirm(`Delete agent "${agentId}"? This cannot be undone.`);
+    const confirmed = typeof window === "undefined" ? true : window.confirm(copy.confirmDelete);
     if (!confirmed) return;
 
     const target = agents.find((agent) => agent.id === agentId);
@@ -234,7 +336,7 @@
         })
       });
       const settingsData = await settingsRes.json();
-      if (!settingsData.ok) throw new Error(settingsData.error || "Failed to save agents");
+      if (!settingsData.ok) throw new Error(settingsData.error || copy.failedSave);
 
       const res = await fetch("/api/settings/profile-files", {
         method: "PUT",
@@ -246,7 +348,7 @@
         })
       });
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || `Failed to save files for ${normalized.id}`);
+      if (!data.ok) throw new Error(data.error || `${copy.failedSaveFiles} ${normalized.id}`);
 
       agents = agents.map((agent) => {
         if (agent.id !== selected.id) return agent;
@@ -257,7 +359,7 @@
       }
       savedSnapshots = { ...savedSnapshots, [normalized.id]: agentSnapshot({ ...normalized, isNew: false }) };
 
-      message = `Saved agent: ${normalized.name || normalized.id}`;
+      message = `${copy.savedSuccess}${normalized.name || normalized.id}`;
       return true;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -277,207 +379,232 @@
   onMount(loadSettings);
 </script>
 
-<div class="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-  <header class="flex flex-col gap-3">
-    <Badge variant="secondary" class="w-fit">Identity Layer</Badge>
-    <div class="flex max-w-3xl flex-col gap-2">
-      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Agents</h1>
-      <p class="text-sm leading-6 text-muted-foreground">
-        Manage reusable agent identities and edit their Markdown prompt files directly.
-      </p>
-    </div>
+<div class="channel-page">
+  <header class="channel-hero">
+    <span class="channel-badge">{copy.eyebrow}</span>
+    <span class="channel-badge">{agents.length} {copy.customCount}</span>
+    <h1 class="channel-hero-title">{copy.title}</h1>
+    <p class="channel-hero-desc">{copy.desc}</p>
   </header>
 
   {#if loading}
-    <p class="py-8 text-sm text-muted-foreground">Loading agent settings...</p>
+    <div class="channel-loading">{copy.loading}</div>
   {:else}
-    <div class="grid gap-6 lg:grid-cols-[280px_1fr]">
-      <Card>
-        <CardHeader class="pb-3">
-          <div class="flex items-center justify-between">
-            <CardTitle class="text-sm">Agent List</CardTitle>
-            <Button variant="outline" size="sm" type="button" onclick={addAgent}>Add Agent</Button>
+    <div class="channel-master-detail">
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">{copy.listTitle}</h2>
+            <p class="channel-card-desc">{agents.length} {copy.listDesc}</p>
           </div>
-        </CardHeader>
-        <CardContent class="space-y-1">
+          <Button variant="outline" size="sm" type="button" onclick={addAgent}>
+            {copy.addBtn}
+          </Button>
+        </div>
+        <div class="channel-card-body">
           <button
-            class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-muted/60 {showingSubagents ? 'bg-muted' : ''}"
+            class="channel-sidebar-btn {showingSubagents ? 'channel-sidebar-btn--active' : ''}"
             type="button"
             onclick={selectSubagents}
           >
-            <span class="min-w-0">
-              <span class="block truncate font-medium text-foreground">Subagents</span>
-              <span class="block truncate text-xs text-muted-foreground">{builtInSubagents.length} built-in delegation roles</span>
+            <span>
+              <span class="channel-sidebar-btn-name">{copy.subagentsLabel}</span>
+              <span class="channel-sidebar-btn-id">{builtInSubagents.length} {copy.subagentsDesc}</span>
             </span>
-            <Badge variant="secondary" class="shrink-0 text-[10px]">BUILT-IN</Badge>
+            <span class="channel-sidebar-badge">{copy.builtInTag}</span>
           </button>
 
           {#each agents as agent (agent.id)}
             <button
-              class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-muted/60 {selectedAgentId === agent.id ? 'bg-muted' : ''}"
+              class="channel-sidebar-btn {selectedAgentId === agent.id ? 'channel-sidebar-btn--active' : ''}"
               type="button"
               onclick={() => selectAgent(agent.id)}
             >
-              <span class="min-w-0">
-                <span class="block truncate font-medium text-foreground">{agent.name || agent.id}</span>
-                <span class="block truncate text-xs text-muted-foreground">{agent.id}</span>
+              <span>
+                <span class="channel-sidebar-btn-name">{agent.name || agent.id}</span>
+                <span class="channel-sidebar-btn-id">{agent.id}</span>
               </span>
-              <Badge variant={agent.enabled ? "default" : "outline"} class="shrink-0 text-[10px]">
-                {agent.enabled ? "ON" : "OFF"}
-              </Badge>
+              <span class="channel-sidebar-badge {agent.enabled ? 'channel-sidebar-badge--on' : ''}">
+                {agent.enabled ? "On" : "Off"}
+              </span>
             </button>
           {/each}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {#if showingSubagents}
-        <div class="space-y-4">
-          <Card>
-            <CardHeader>
-              <div class="flex items-center justify-between gap-4">
-                <div>
-                  <CardTitle class="text-sm">Built-in Subagents</CardTitle>
-                  <CardDescription>
-                    Read-only delegation roles used by the shared subagent tool.
-                  </CardDescription>
-                </div>
-                <a class="text-sm font-medium text-primary hover:underline" href="/settings/ai/routing">Configure model route</a>
+        <div class="channel-form">
+          <div class="channel-card">
+            <div class="channel-card-header">
+              <div>
+                <h2 class="channel-card-title">{copy.builtInTitle}</h2>
+                <p class="channel-card-desc">{copy.builtInDesc}</p>
               </div>
-            </CardHeader>
-            <CardContent class="space-y-4">
-              <div class="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
-                Explicit subagent route:
-                <span class="text-foreground">{subagentConfiguredModelLabel || "not set"}</span>.
-                Each role first uses its model level mapping below, then this fallback route, then the text route.
+              <a class="channel-hero-link text-primary hover:underline" href="/settings/ai/routing">{copy.configureRoute}</a>
+            </div>
+            <div class="channel-card-body">
+              <div class="channel-hint" style="background: var(--muted); padding: 0.75rem; border-radius: 6px;">
+                {copy.explicitRoute}
+                <strong class="text-foreground">{subagentConfiguredModelLabel || copy.notSet}</strong>
+                {copy.routeExplanation}
               </div>
-              <dl class="grid gap-2 text-sm md:grid-cols-2">
+              <div class="channel-field-row">
                 {#each ["haiku", "sonnet", "opus", "thinking"] as level}
-                  <div class="rounded-lg border bg-muted/40 p-3">
-                    <dt class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{level}</dt>
-                    <dd class="mt-1 text-foreground">{subagentModelLevels[level]?.label || "not configured"}</dd>
+                  <div class="channel-card" style="padding: 1rem;">
+                    <div class="channel-sidebar-btn-id" style="font-weight: 600; text-transform: uppercase;">{level}</div>
+                    <div class="channel-sidebar-btn-name" style="margin-top: 0.25rem;">{subagentModelLevels[level]?.label || copy.notConfigured}</div>
                   </div>
                 {/each}
-              </dl>
-            </CardContent>
-          </Card>
+              </div>
+            </div>
+          </div>
 
-          <div class="grid gap-3 md:grid-cols-2">
+          <div class="channel-field-row" style="grid-template-columns: 1fr 1fr;">
             {#each builtInSubagents as subagent (subagent.name)}
-              <Card>
-                <CardHeader>
-                  <div class="flex items-center justify-between gap-3">
-                    <div class="min-w-0">
-                      <CardTitle class="truncate text-base">{subagent.name}</CardTitle>
-                      <CardDescription>{subagent.description}</CardDescription>
-                    </div>
-                    <Badge variant="secondary" class="shrink-0 text-[10px]">BUILT-IN</Badge>
+              <div class="channel-card">
+                <div class="channel-card-header">
+                  <div>
+                    <h3 class="channel-card-title">{subagent.name}</h3>
+                    <p class="channel-card-desc">{subagent.description}</p>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <dl class="grid gap-2 text-sm">
-                    <div>
-                      <dt class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Tools</dt>
-                      <dd class="mt-1 text-foreground">{subagent.tools.length > 0 ? subagent.tools.join(", ") : "default"}</dd>
-                    </div>
-                    <div>
-                      <dt class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Model level</dt>
-                      <dd class="mt-1 text-foreground">{subagent.modelLevel || subagent.modelHint || "none"}</dd>
-                    </div>
-                    <div>
-                      <dt class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Effective model</dt>
-                      <dd class="mt-1 text-foreground">{subagent.activeModelLabel || subagent.activeModelKey || "not resolved"}</dd>
-                    </div>
-                    <div>
-                      <dt class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Source</dt>
-                      <dd class="mt-1 text-foreground">{subagent.activeModelSource || "unknown"}</dd>
-                    </div>
-                  </dl>
-                </CardContent>
-              </Card>
+                </div>
+                <div class="channel-card-body">
+                  <div class="channel-field">
+                    <span class="channel-sidebar-btn-id">{copy.tools}</span>
+                    <span class="channel-sidebar-btn-name">{subagent.tools.length > 0 ? subagent.tools.join(", ") : "default"}</span>
+                  </div>
+                  <div class="channel-field">
+                    <span class="channel-sidebar-btn-id">{copy.modelLevel}</span>
+                    <span class="channel-sidebar-btn-name">{subagent.modelLevel || subagent.modelHint || "none"}</span>
+                  </div>
+                  <div class="channel-field">
+                    <span class="channel-sidebar-btn-id">{copy.effectiveModel}</span>
+                    <span class="channel-sidebar-btn-name">{subagent.activeModelLabel || subagent.activeModelKey || copy.notResolved}</span>
+                  </div>
+                  <div class="channel-field">
+                    <span class="channel-sidebar-btn-id">{copy.source}</span>
+                    <span class="channel-sidebar-btn-name">{subagent.activeModelSource || copy.unknown}</span>
+                  </div>
+                </div>
+              </div>
             {/each}
           </div>
         </div>
       {:else if selectedAgent}
-        <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); save(); }}>
-          <Card>
-            <CardHeader>
-              <div class="flex items-center justify-between">
-                <CardTitle class="text-sm">Agent Metadata</CardTitle>
-                <Button variant="destructive" size="sm" type="button" onclick={() => removeAgent(selectedAgent.id)}>
-                  Remove Agent
-                </Button>
+        <form id="agent-form" class="channel-form" onsubmit={(event) => { event.preventDefault(); void save(); }}>
+          <div class="channel-card">
+            <div class="channel-card-header">
+              <div>
+                <h2 class="channel-card-title">{copy.metaTitle}</h2>
+                <p class="channel-card-desc">{copy.metaDesc}</p>
               </div>
-            </CardHeader>
-            <CardContent class="space-y-4">
-              <div class="grid gap-1.5">
-                <Label for="agent-id">Agent ID</Label>
-                <Input id="agent-id" bind:value={selectedAgent.id} placeholder="moli" disabled={!selectedAgent.isNew} />
+              <Button
+                variant="destructive"
+                size="sm"
+                type="button"
+                onclick={() => removeAgent(selectedAgent.id)}
+              >
+                {copy.removeBtn}
+              </Button>
+            </div>
+            <div class="channel-card-body">
+              <div class="channel-field-row">
+                <div class="channel-field">
+                  <Label for="agent-id">{copy.idLabel}</Label>
+                  <Input
+                    id="agent-id"
+                    bind:value={selectedAgent.id}
+                    placeholder="moli"
+                    disabled={!selectedAgent.isNew}
+                  />
+                </div>
+                <div class="channel-field">
+                  <Label for="agent-name">{copy.nameLabel}</Label>
+                  <Input
+                    id="agent-name"
+                    bind:value={selectedAgent.name}
+                    placeholder="Moli"
+                  />
+                </div>
               </div>
+
               {#if !selectedAgent.isNew}
-                <p class="text-xs text-muted-foreground">Agent ID is locked after creation to keep references stable.</p>
+                <p class="channel-hint">{copy.idLocked}</p>
               {/if}
 
-              <div class="grid gap-1.5">
-                <Label for="agent-name">Agent Name</Label>
-                <Input id="agent-name" bind:value={selectedAgent.name} placeholder="Moli" />
-              </div>
-
-              <div class="grid gap-1.5">
-                <Label for="agent-desc">Description</Label>
+              <div class="channel-field">
+                <Label for="agent-desc">{copy.descLabel}</Label>
                 <Textarea
                   id="agent-desc"
-                  class="min-h-[88px]"
+                  class="channel-textarea"
+                  style="min-height: 80px;"
                   bind:value={selectedAgent.description}
-                  placeholder="Short description of this agent's role and identity."
+                  placeholder={copy.descPlaceholder}
                 />
               </div>
 
-              <div class="flex items-center gap-3">
-                <Checkbox id="agent-enabled" bind:checked={selectedAgent.enabled} />
-                <Label for="agent-enabled" class="text-sm">Enable this agent</Label>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle class="text-sm">Agent Markdown Files</CardTitle>
-              <CardDescription>
-                Empty content removes the file so the runtime falls back to upper layers.
-              </CardDescription>
-            </CardHeader>
-            <CardContent class="space-y-3">
-              {#each fileNames as fileName}
-                <div class="grid gap-1.5">
-                  <Label for="agent-{fileName}">{fileName}</Label>
-                  <Textarea
-                    id="agent-{fileName}"
-                    class="min-h-[180px] font-mono text-sm"
-                    bind:value={selectedFiles[fileName]}
-                    placeholder={`Edit ${fileName} here`}
-                  />
+              <div class="channel-toggle-row">
+                <div class="channel-toggle-label">
+                  <Label for="agent-enabled">{copy.enableLabel}</Label>
+                  <p>{copy.enableDesc}</p>
                 </div>
-              {/each}
-            </CardContent>
-          </Card>
-
-          <div class="flex items-center gap-3">
-            <Button variant="default" type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save This Agent"}
-            </Button>
-            {#if selectedAgentDirty}
-              <span class="text-xs text-muted-foreground">Current agent has unsaved changes.</span>
-            {/if}
+                <IosSwitch id="agent-enabled" bind:checked={selectedAgent.enabled} />
+              </div>
+            </div>
           </div>
 
-          {#if message}
-            <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
-          {/if}
-          {#if error}
-            <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
-          {/if}
+          <div class="channel-card">
+            <div class="channel-card-header">
+              <div>
+                <h2 class="channel-card-title">{copy.overridesTitle}</h2>
+                <p class="channel-card-desc">{copy.overridesDesc}</p>
+              </div>
+            </div>
+            <div class="channel-accordion">
+              {#each fileNames as fileName}
+                <details class="channel-accordion-item">
+                  <summary>{fileName}</summary>
+                  <div class="channel-accordion-body">
+                    <Textarea
+                      id={`agent-${fileName}`}
+                      class="channel-textarea font-mono"
+                      style="min-height: 180px;"
+                      bind:value={selectedFiles[fileName]}
+                      placeholder={`Edit ${fileName} here`}
+                    />
+                  </div>
+                </details>
+              {/each}
+            </div>
+          </div>
         </form>
       {/if}
     </div>
   {/if}
 </div>
+
+{#if selectedAgent && !showingSubagents}
+  <footer class="settings-footbar">
+    <div class="settings-footbar-status">
+      {#if saving}
+        <span class="settings-footbar-saving">
+          <span class="settings-footbar-pulse"></span>
+          {copy.savingMsg}
+        </span>
+      {:else if message}
+        <span class="settings-footbar-ok">{message}</span>
+      {/if}
+      {#if error}
+        <span class="settings-footbar-error">{error}</span>
+      {/if}
+    </div>
+    <div class="settings-footbar-actions">
+      <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>
+        {copy.resetBtn}
+      </Button>
+      <button type="submit" form="agent-form" class="settings-footbar-btn" disabled={loading || saving}>
+        {saving ? copy.saving : copy.saveBtn}
+      </button>
+    </div>
+  </footer>
+{/if}

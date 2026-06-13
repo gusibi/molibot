@@ -7,12 +7,15 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Solo builders and small teams who want one AI assistant across channels.
 - Users who prefer simple interaction over complex automation.
 
-## 2.7 Scope Clarification (2026-06-07)
-- [Done] Adapter-node SQLite 构建告警清理：生产构建必须显式把 `node:sqlite` 保留为 Node 运行时 external，避免 adapter-node 最终打包阶段因为 Node/Rollup 内置模块列表未包含 SQLite 而输出 unresolved-import notices；项目 Node engine 同步收紧到 `>=22.5.0`。
+## 2.7 Scope Clarification (2026-06-13)
+- [Done] 系统、沙盒及插件设置页面 Warm Shadcn UI 风格重构：对 `/settings/system`、`/settings/sandbox`、`/settings/plugins` 这三个设置页面进行了重构。使用统一的 Warm Shadcn 布局结构，将零散的 Tailwind 工具类收敛为 `.channel-*` 自定义样式类；将开关控件统一升级为 `IosSwitch` 源码组件；将重置和保存动作移至统一的固定底栏（`.settings-footbar`）中，确保与已重构的 9 个设置页面风格交互完全一致。
+- [Done] Adapter-node SQLite 构建告警清理：生产构建必须显式把 `node:sqlite` 保留为 Node 运行时 external，避免 adapter-node 最终打包阶段因为 Node/Rollup 内置模块列表未包含 SQLite 等而输出 unresolved-import notices；项目 Node engine 同步收紧到 `>=22.5.0`。
 - [Done] System Prompt Skill Routing 合并与 Preview 防误导：系统提示词中的 skill routing 规则不得同时散落在 `Message Processing Pipeline`、`Skills Protocol` 和独立 `Skill Routing (Mandatory)` 三处。已将路由判断保留在 pipeline，将已选 skill 后的执行协议保留在 Skills Protocol，并移除独立重复 section；同时把静态 `SYSTEM_PROMPT.preview.md` 改成占位说明，真实 prompt 检查必须走 `buildSystemPromptPreview()`、Web prompt preview endpoint 或 runtime 生成文件，避免旧 preview 继续教模型手写 event JSON。
 - [Done] System Prompt P1 收尾：Prompt 回归测试必须覆盖真实 render 后的长度预算和关键路由锚点，防止后续又把长篇 event/tool/skill 说明塞回系统提示词；提示词重构方案文档中的验证命令必须使用仓库真实 Node test runner；ToolRuntime workspace whitelist 测试不得写真实 settings DB，必须使用隔离测试库。
 - [Done] Trace Facts 模型用量补写与 Usage 关联：修复 `/settings/ai/trace` 最近 Trace Facts 中模型调用缺失 input/output/cache/total token 的问题。`/settings/ai/usage` 继续读取独立 usage JSONL 用量账本，`/settings/ai/trace` 继续读取 SQLite `agent_trace_facts`，但 Runner 会在 assistant message end 拿到 usage 时补发同一 `modelAttemptId` 的 `model.call.after`，使 trace facts 能通过 run/session/model attempt 与 usage 口径对齐；当 provider 未返回显式 total token 时，TraceRecorder 使用 input/output/cache read/cache write 自动补算总数。
 - [Done] 工具调用后的模型续写请求必须作为独立模型调用 fact 记录：同一个 Agent prompt 内部可能发生多次真实 AI API 请求（首轮模型请求、工具调用、工具结果后的续写请求等），Trace 的 `modelAttemptId` 粒度必须按真实 API request 递增，不能用外层 `agent.prompt()` attempt 覆盖前一次模型调用。
+- [Done] 设置页面多语言（i18n）重构与支持：对设置中心全部 24 个页面进行多语言重构，通过中英（zh-CN / en-US）双语的 `COPY` 块和 Svelte 响应式 `$locale` 存储绑定，实现了完全的即时响应式语言切换。弃用了不稳定的 `localizeSettings` 暴力 DOM 翻译插件。同时统一将开关替换为 `IosSwitch` 源码组件，固化粘性保存底栏。
+- [Done] 导航栏图标优化与菜单名称展示切换：将设置左侧侧边栏抽象符号替换为高表达力的 Emojis。在底部新增 `🏷️` 切换按钮支持动态折叠/展开显示菜单组名称，且偏好自动存储于 localStorage 中。
 
 ## 2.6 Scope Clarification (2026-06-06)
 - [Done] SQLite 动态设置迁移与细粒度 API 改造：为了减小大 JSON 对内存及持久化的压力，将搜索、图片生成、视频生成和沙箱设置迁移到 SQLite 动态表 `settings_dynamic` 存储，并在启动时对旧 `settings.json` 字段及旧版独立表做自动提取、合并与清理。新增统一 API 端点 `/api/settings/dynamic/[key]` 完整支持对这些动态配置的 `GET` (读取)、`PUT`/`POST`/`PATCH` (写入与更新)操作，并重构前端 settings 页面仅在加载与保存时定向读写各自的动态配置 Key，彻底消除了大 JSON 请求，同时完全替代了原本大 `PUT /api/settings` 保存机制。进一步将 AI 提供商设置页面（Providers）也从此大设置接口解耦，扩展了 `/api/settings/custom-providers` 的 `GET` 与 `PUT` 支持，彻底实现了各个功能页面的精细化增量更新。
@@ -80,8 +83,8 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - [Done] event execution lease 的唯一性必须包含 channel/bot 作用域；timeout retry 必须等旧 runner 释放后才进入下一次 attempt；启动恢复必须把 lease 状态重新同步到事件 JSON 镜像或重新接管 retry。
 - [Done] 如果首个 scheduled attempt 超过 nominal timeout 但最终成功完成，shared event watcher 必须直接按成功收口，不能再对同一 `trigger_slot` 补发重复 attempt。
 - Bot 维度配置文件 `BOT.md` 必须参与系统提示词最终合并，不仅要出现在 source 列表；合并顺序至少应覆盖 `AGENTS.md -> BOT.md -> SOUL/IDENTITY/...`，确保 bot 级规则真实生效。
-- 设置页任务清单不能只停留在只读展示；运维侧至少要支持单条删除、批量选择删除，并且删除动作必须通过受限后端接口校验目标路径属于 watched events 目录，不能直接把任意文件路径暴露给前端删。
-- `/settings/skill-drafts` 的草稿内容审核区默认不得把长草稿全部展开；超过 10 行的草稿应默认只展示 10 行预览，并通过单独编辑表单查看、编辑、保存完整内容，避免多个草稿同时出现时页面难以扫读。
+- [Done] 设置页任务清单不能只停留在只读展示；运维侧至少要支持单条删除、批量选择删除，并且删除动作必须通过受限后端接口校验目标路径属于 watched events 目录，不能直接把任意文件路径暴露给前端删。
+- [Done] `/settings/skill-drafts` 的草稿内容审核区默认不得把长草稿全部展开；超过 10 行的草稿应默认只展示 10 行预览，并通过单独编辑表单查看、编辑、保存完整内容，避免多个草稿同时出现时页面难以扫读。
 - Skill Draft 的 frontmatter metadata 必须真实遵守配置的 workflow / skill-creator 规范：`name` 是稳定、简短、可复用的功能标识，不得直接使用用户原话、抱怨句或“重试一下”这类本轮操作文本；用户原话只应出现在触发描述、示例或正文上下文中。
 - 事件发送层需要对瞬时网络故障具备有限自愈能力；至少应支持一次立即重试和短退避重试，并在设置页提供人工“立即触发/重试”入口，方便验证任务发送链路而不必等待下一个计划时间。
 - [Done] Host Bash 审批后的自动恢复路径在遇到“上一轮 turn 正在释放 session 锁”的短暂窗口时，必须做共享层短重试并保持服务存活；不能因为 `Another run is currently active in this session.` 直接产生未处理异常并退出 Telegram runtime。

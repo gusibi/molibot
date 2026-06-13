@@ -48,11 +48,13 @@
       enableTool: "启用内置 videoGenerate 工具",
       enableToolDesc: "禁用后，该工具在调用时会返回配置错误，而不会实际执行。",
       defaultEngine: "默认引擎",
+      autoEngine: "自动优先级顺序",
       autoEngineDesc: "在 Auto 模式下，工具会依次检测 Agnes 和 Volcengine，使用第一个配置了有效 API Key 的引擎。",
       enginesTitle: "视频生成引擎",
       enginesDesc: "配置各视频生成服务方的认证密钥、默认模型及 API 端点。",
       apiKey: "API Key",
       baseUrl: "自定义 Base URL",
+      resolvedUrl: "解析后 URL",
       model: "模型 ID",
       testTitle: "测试视频生成",
       testDesc: "即时测试配置的可用性。测试将使用表单中未保存的值尝试生成一段测试视频。",
@@ -84,11 +86,17 @@
       taskDetailsTitle: "任务详情",
       taskIdLabel: "任务 ID",
       videoPathLabel: "保存路径",
+      videoUrlLabel: "视频链接",
+      errorLabel: "错误信息",
       requestParamsLabel: "请求参数",
       downloadVideo: "下载视频",
       close: "关闭",
       viewResult: "查看结果",
-      viewParams: "查看参数"
+      viewParams: "查看参数",
+      defaultBehavior: "默认行为",
+      defaultBehaviorDesc: "选择视频生成指令的默认行为。",
+      loadingText: "正在加载设置...",
+      savingText: "正在保存修改..."
     },
     "en-US": {
       title: "Video Generation",
@@ -96,11 +104,13 @@
       enableTool: "Enable built-in videoGenerate tool",
       enableToolDesc: "When disabled, the tool returns a settings error instead of executing.",
       defaultEngine: "Default engine",
+      autoEngine: "Auto priority order",
       autoEngineDesc: "In auto mode, the tool iterates through Agnes and Volcengine in order, using the first one with a valid API key configured.",
       enginesTitle: "Video Generation Engines",
       enginesDesc: "Configure credentials, default models, and API endpoints for your selected video providers.",
       apiKey: "API Key",
       baseUrl: "Custom base URL",
+      resolvedUrl: "Resolved URL",
       model: "Model ID",
       testTitle: "Test Video Generation",
       testDesc: "Test the configured settings in real-time. Unsaved values from the form will be used to attempt generating a test video.",
@@ -132,11 +142,17 @@
       taskDetailsTitle: "Task Details",
       taskIdLabel: "Task ID",
       videoPathLabel: "Video Path",
+      videoUrlLabel: "Video URL",
+      errorLabel: "Error",
       requestParamsLabel: "Request Parameters",
       downloadVideo: "Download Video",
       close: "Close",
       viewResult: "View Result",
-      viewParams: "View Params"
+      viewParams: "View Params",
+      defaultBehavior: "Default Behavior",
+      defaultBehaviorDesc: "Select the default behavior for video generation commands.",
+      loadingText: "Loading settings...",
+      savingText: "Saving changes..."
     }
   };
 
@@ -324,13 +340,13 @@
   {/if}
 
   {#if loading}
-    <p class="py-8 text-sm text-muted-foreground">Loading settings...</p>
+    <p class="py-8 text-sm text-muted-foreground">{t("loadingText")}</p>
   {:else}
     <form id="video-form" class="space-y-5" onsubmit={(event) => { event.preventDefault(); save(); }}>
       <Card>
         <CardHeader>
-          <CardTitle class="text-sm">Default Behavior</CardTitle>
-          <CardDescription>Select the default behavior for video generation commands.</CardDescription>
+          <CardTitle class="text-sm">{t("defaultBehavior")}</CardTitle>
+          <CardDescription>{t("defaultBehaviorDesc")}</CardDescription>
         </CardHeader>
         <CardContent class="grid gap-5">
           <div class="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 px-4 py-3">
@@ -345,7 +361,7 @@
             <div class="grid gap-1.5">
               <Label for="default-engine">{t("defaultEngine")}</Label>
               <NativeSelect id="default-engine" bind:value={videoGenerate.defaultEngine}>
-                <NativeSelectOption value="auto">Auto priority order</NativeSelectOption>
+                <NativeSelectOption value="auto">{t("autoEngine")}</NativeSelectOption>
                 {#each engines as engine}
                   <NativeSelectOption value={engine.id}>{engine.name}</NativeSelectOption>
                 {/each}
@@ -410,8 +426,8 @@
                 <div class="grid gap-1.5">
                   <Label>{t("baseUrl")}</Label>
                   <Input placeholder={engine.defaultUrl} bind:value={videoGenerate.engines[engine.id].baseUrl} />
-                  <p class="text-xs leading-5 text-muted-foreground">
-                    Resolved URL: <code class="break-all font-semibold text-primary">{resolveCompleteUrl(engine.id, videoGenerate.engines[engine.id].baseUrl ?? "")}</code>
+                  <p class="text-xs leading-5 text-muted-foreground mt-0.5">
+                    {t("resolvedUrl")}: <code class="break-all font-semibold text-primary">{resolveCompleteUrl(engine.id, videoGenerate.engines[engine.id].baseUrl ?? "")}</code>
                   </p>
                 </div>
               </div>
@@ -429,7 +445,7 @@
           <div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_220px_auto]">
             <Input bind:value={testPrompt} placeholder={t("testPromptPlaceholder")} />
             <NativeSelect bind:value={testEngine}>
-              <NativeSelectOption value="auto">Auto engine</NativeSelectOption>
+              <NativeSelectOption value="auto">{t("autoEngine")}</NativeSelectOption>
               {#each engines as engine}
                 <NativeSelectOption value={engine.id}>{engine.name}</NativeSelectOption>
               {/each}
@@ -475,10 +491,10 @@
                 {#each tasks as task}
                   <TableRow>
                     <TableCell class="font-mono text-xs text-muted-foreground">
-                      {new Date(task.createdAt).toLocaleString(undefined, { hour12: false })}
+                      {new Date(task.createdAt).toLocaleString($locale === "zh-CN" ? "zh-CN" : "en-US", { hour12: false })}
                     </TableCell>
                     <TableCell class="font-mono text-xs text-muted-foreground select-all" title={task.id}>
-                      {task.id}
+                      {task.id.slice(0, 8)}...
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" class="text-xs uppercase tracking-wider">{task.engine}</Badge>
@@ -602,13 +618,13 @@
             </div>
           {:else if activeTaskDetails.videoUrl}
             <div class="grid grid-cols-[100px_1fr] gap-2">
-              <span class="text-muted-foreground">Video URL:</span>
+              <span class="text-muted-foreground">{t("videoUrlLabel")}:</span>
               <span class="font-mono text-xs select-all break-all text-muted-foreground">{activeTaskDetails.videoUrl}</span>
             </div>
           {/if}
           {#if activeTaskDetails.errorMessage}
             <div class="grid grid-cols-[100px_1fr] gap-2">
-              <span class="text-muted-foreground">{t("error")}:</span>
+              <span class="text-muted-foreground">{t("errorLabel")}:</span>
               <span class="text-destructive font-mono text-xs leading-5">{activeTaskDetails.errorMessage}</span>
             </div>
           {/if}
@@ -633,7 +649,7 @@
     <div class="settings-footbar-status">
       {#if saving}
         <span class="flex items-center gap-2 text-xs font-medium text-muted-foreground animate-pulse">
-          Saving changes...
+          {t("savingText")}
         </span>
       {:else if message}
         <span class="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-500">

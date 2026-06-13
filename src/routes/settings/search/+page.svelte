@@ -7,6 +7,7 @@
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { WEB_SEARCH_DEFAULT_BASE_URLS, type WebSearchBaseUrlEngine } from "$lib/shared/webSearchDefaults";
   import { IosSwitch } from "$lib/components/ui/ios-switch";
+  import { locale } from "$lib/ui/i18n";
 
   type EngineId =
     | "duckduckgo"
@@ -40,20 +41,165 @@
     engines: Record<EngineId, EngineSettings>;
   }
 
-  const engines: Array<{ id: EngineId; name: string; hint: string; keyLabel: string }> = [
-    { id: "duckduckgo", name: "DuckDuckGo", hint: "No API key. Lightweight fallback for simple lookups.", keyLabel: "No key required" },
-    { id: "brave", name: "Brave Search", hint: "Best first choice for global web and current sources.", keyLabel: "BRAVE_API_KEY" },
-    { id: "tavily", name: "Tavily", hint: "Good for research-style queries and summarized web snippets.", keyLabel: "TAVILY_API_KEY" },
-    { id: "exa", name: "Exa", hint: "Useful for technical documents, blogs, and developer material.", keyLabel: "EXA_API_KEY" },
-    { id: "serper", name: "Serper", hint: "Google SERP compatible fallback.", keyLabel: "SERPER_API_KEY" },
-    { id: "baidu", name: "Baidu Qianfan", hint: "Chinese AI search route.", keyLabel: "BAIDU_SEARCH_API_KEY" },
-    { id: "baidu_fast", name: "Baidu Fast", hint: "Chinese fast web-summary search.", keyLabel: "BAIDU_SEARCH_API_KEY" },
-    { id: "baidu_web", name: "Baidu Web", hint: "Chinese web search with source-oriented results.", keyLabel: "BAIDU_SEARCH_API_KEY" },
-    { id: "ark", name: "Ark Bot", hint: "China-local assistant-backed search fallback.", keyLabel: "ARK_API_KEY" },
-    { id: "grok", name: "Grok", hint: "Global web-search assistant fallback.", keyLabel: "GROK_API_KEY" },
-    { id: "bocha", name: "Bocha", hint: "Chinese web search fallback.", keyLabel: "BOCHA_API_KEY" }
+  const COPY = {
+    "zh-CN": {
+      eyebrow: "内置工具",
+      title: "网页搜索",
+      desc: "配置内置的 Agent 搜索工具。搜索在共享的 Agent 层运行，可在 Web、Telegram、Feishu、QQ 和 Weixin 渠道中使用。",
+      loadingText: "正在加载搜索设置...",
+      defaultBehavior: "默认行为",
+      defaultBehaviorDesc: "设置兜底的搜索逻辑。模型在运行时仍支持覆盖此逻辑。",
+      enableLabel: "启用内置网页搜索工具",
+      enableDesc: "禁用时，该工具将返回设置错误，而不是进行搜索。",
+      defaultRoute: "默认路由",
+      defaultEngine: "默认搜索引擎",
+      autoStrategy: "自动引擎策略",
+      autoStrategyDesc: "仅在默认引擎为“自动”时使用。将自动跳过缺少 API Key 的引擎。",
+      maxResults: "最大搜索结果数",
+      timeoutMs: "超时 / 重试超时时间 (毫秒)",
+      placeholderTimeout: "超时时间",
+      placeholderRetryTimeout: "重试超时时间",
+      routes: {
+        auto: "自动",
+        china: "中国本地源",
+        global: "全球网页",
+        official_docs: "官方文档",
+        research: "研究学术",
+      },
+      engines: {
+        auto: "自动路由顺序",
+        duckduckgo: "DuckDuckGo",
+        brave: "Brave Search",
+        tavily: "Tavily",
+        exa: "Exa",
+        serper: "Serper",
+        baidu: "百度千帆",
+        baidu_fast: "百度快速",
+        baidu_web: "百度网页",
+        ark: "火山方舟",
+        grok: "Grok",
+        bocha: "博查",
+      },
+      strategies: {
+        priority: "优先级顺序",
+        random: "在配置好的引擎中随机",
+        round_robin: "在配置好的引擎中轮询",
+      },
+      engineHints: {
+        duckduckgo: "不需要 API key。适合简单查询的轻量级备用方案。",
+        brave: "全球网页和最新资讯的最佳首选。",
+        tavily: "适合学术研究类查询和生成网页片段摘要。",
+        exa: "适合技术文档、博客和开发者资料。",
+        serper: "兼容 Google SERP 的备用方案。",
+        baidu: "中文 AI 搜索路由。",
+        baidu_fast: "中文快速网页摘要搜索。",
+        baidu_web: "注重来源结果的中文网页搜索。",
+        ark: "国内方舟大模型辅助搜索兜底。",
+        grok: "全球大模型辅助搜索兜底。",
+        bocha: "中文网页搜索备用方案。",
+      },
+      enginesSectionTitle: "搜索引擎",
+      enginesSectionDesc: "DuckDuckGo 无需凭证即可工作。其他引擎在设置 API 密钥之前会被跳过。",
+      apiKeyLabel: "API 密钥",
+      customBaseUrl: "自定义 Base URL",
+      customBaseUrlDesc: "默认值：",
+      testSectionTitle: "测试查询",
+      testSectionDesc: "使用未保存的设置直接测试引擎配置。",
+      testQueryPlaceholder: "搜索查询词",
+      btnTest: "测试",
+      btnTesting: "测试中...",
+      savingText: "正在保存修改...",
+      savedMsg: "搜索设置保存成功。",
+      btnReset: "重置",
+      btnSave: "保存搜索设置",
+    },
+    "en-US": {
+      eyebrow: "Built-in Tool",
+      title: "Web Search",
+      desc: "Configure the built-in agent search tool. Search runs in the shared agent layer and is available across Web, Telegram, Feishu, QQ, and Weixin channels.",
+      loadingText: "Loading search settings...",
+      defaultBehavior: "Default Behavior",
+      defaultBehaviorDesc: "Set the fallback search logic. Model overrides at runtime are still supported.",
+      enableLabel: "Enable built-in webSearch tool",
+      enableDesc: "When disabled, the tool returns a settings error instead of searching.",
+      defaultRoute: "Default route",
+      defaultEngine: "Default engine",
+      autoStrategy: "Auto engine strategy",
+      autoStrategyDesc: "Used only when Default engine is Auto. Engines without required API keys are skipped.",
+      maxResults: "Max results",
+      timeoutMs: "Timeout / Retry Timeout (ms)",
+      placeholderTimeout: "Timeout",
+      placeholderRetryTimeout: "Retry Timeout",
+      routes: {
+        auto: "Auto",
+        china: "China-local sources",
+        global: "Global web",
+        official_docs: "Official docs",
+        research: "Research",
+      },
+      engines: {
+        auto: "Auto route order",
+        duckduckgo: "DuckDuckGo",
+        brave: "Brave Search",
+        tavily: "Tavily",
+        exa: "Exa",
+        serper: "Serper",
+        baidu: "Baidu Qianfan",
+        baidu_fast: "Baidu Fast",
+        baidu_web: "Baidu Web",
+        ark: "Ark Bot",
+        grok: "Grok",
+        bocha: "Bocha",
+      },
+      strategies: {
+        priority: "Priority order",
+        random: "Random among configured",
+        round_robin: "Round-robin among configured",
+      },
+      engineHints: {
+        duckduckgo: "No API key. Lightweight fallback for simple lookups.",
+        brave: "Best first choice for global web and current sources.",
+        tavily: "Good for research-style queries and summarized web snippets.",
+        exa: "Useful for technical documents, blogs, and developer material.",
+        serper: "Google SERP compatible fallback.",
+        baidu: "Chinese AI search route.",
+        baidu_fast: "Chinese fast web-summary search.",
+        baidu_web: "Chinese web search with source-oriented results.",
+        ark: "China-local assistant-backed search fallback.",
+        grok: "Global web-search assistant fallback.",
+        bocha: "Chinese web search fallback.",
+      },
+      enginesSectionTitle: "Search Engines",
+      enginesSectionDesc: "DuckDuckGo works without credentials. Other engines are skipped until API keys are set.",
+      apiKeyLabel: "API Key",
+      customBaseUrl: "Custom base URL",
+      customBaseUrlDesc: "Default: ",
+      testSectionTitle: "Test Query",
+      testSectionDesc: "Test the engine config directly using unsaved settings.",
+      testQueryPlaceholder: "Search query",
+      btnTest: "Test",
+      btnTesting: "Testing...",
+      savingText: "Saving changes...",
+      savedMsg: "Search settings saved.",
+      btnReset: "Reset",
+      btnSave: "Save Search Settings",
+    }
+  };
+
+  const enginesList: Array<{ id: EngineId; name: string; keyLabel: string }> = [
+    { id: "duckduckgo", name: "DuckDuckGo", keyLabel: "No key required" },
+    { id: "brave", name: "Brave Search", keyLabel: "BRAVE_API_KEY" },
+    { id: "tavily", name: "Tavily", keyLabel: "TAVILY_API_KEY" },
+    { id: "exa", name: "Exa", keyLabel: "EXA_API_KEY" },
+    { id: "serper", name: "Serper", keyLabel: "SERPER_API_KEY" },
+    { id: "baidu", name: "Baidu Qianfan", keyLabel: "BAIDU_SEARCH_API_KEY" },
+    { id: "baidu_fast", name: "Baidu Fast", keyLabel: "BAIDU_SEARCH_API_KEY" },
+    { id: "baidu_web", name: "Baidu Web", keyLabel: "BAIDU_SEARCH_API_KEY" },
+    { id: "ark", name: "Ark Bot", keyLabel: "ARK_API_KEY" },
+    { id: "grok", name: "Grok", keyLabel: "GROK_API_KEY" },
+    { id: "bocha", name: "Bocha", keyLabel: "BOCHA_API_KEY" }
   ];
-  const visibleEngines = engines.filter((engine) => engine.id !== "ark");
+  const visibleEngines = enginesList.filter((engine) => engine.id !== "ark");
 
   function defaultBaseUrl(id: EngineId): string {
     return id === "duckduckgo" ? "" : WEB_SEARCH_DEFAULT_BASE_URLS[id as WebSearchBaseUrlEngine];
@@ -107,6 +253,8 @@
     }
   };
 
+  $: copy = COPY[$locale] ?? COPY["en-US"];
+
   function setEngineEnabled(id: EngineId, enabled: boolean): void {
     webSearch = {
       ...webSearch,
@@ -156,7 +304,7 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to save search settings");
       webSearch = normalizeForUi(data.value);
-      message = "Search settings saved.";
+      message = copy.savedMsg;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -190,10 +338,10 @@
 
 <div class="search-page">
   <header class="search-hero">
-    <span class="search-badge">Built-in Tool</span>
-    <h1 class="search-hero-title">Web Search</h1>
+    <span class="search-badge">{copy.eyebrow}</span>
+    <h1 class="search-hero-title">{copy.title}</h1>
     <p class="search-hero-desc">
-      Configure the built-in agent search tool. Search runs in the shared agent layer and is available across Web, Telegram, Feishu, QQ, and Weixin channels.
+      {copy.desc}
     </p>
   </header>
 
@@ -210,67 +358,67 @@
   {/if}
 
   {#if loading}
-    <div class="errors-empty-state"><span class="animate-pulse">Loading search settings...</span></div>
+    <div class="errors-empty-state"><span class="animate-pulse">{copy.loadingText}</span></div>
   {:else}
     <form id="search-form" class="flex flex-col gap-6" onsubmit={(event) => { event.preventDefault(); save(); }}>
       <section class="search-card">
         <div class="search-card-header">
           <div>
-            <h2 class="search-card-title">Default Behavior</h2>
-            <p class="search-card-desc">Set the fallback search logic. Model overrides at runtime are still supported.</p>
+            <h2 class="search-card-title">{copy.defaultBehavior}</h2>
+            <p class="search-card-desc">{copy.defaultBehaviorDesc}</p>
           </div>
         </div>
 
         <div class="search-switch-row">
           <div>
-            <Label for="search-enabled" class="font-bold">Enable built-in webSearch tool</Label>
-            <p class="search-form-hint">When disabled, the tool returns a settings error instead of searching.</p>
+            <Label for="search-enabled" class="font-bold">{copy.enableLabel}</Label>
+            <p class="search-form-hint">{copy.enableDesc}</p>
           </div>
           <IosSwitch id="search-enabled" bind:checked={webSearch.enabled} />
         </div>
 
         <div class="search-form-grid">
           <div class="search-form-group">
-            <Label for="default-route">Default route</Label>
+            <Label for="default-route">{copy.defaultRoute}</Label>
             <NativeSelect id="default-route" bind:value={webSearch.defaultRoute} class="h-10">
-              <NativeSelectOption value="auto">Auto</NativeSelectOption>
-              <NativeSelectOption value="china">China-local sources</NativeSelectOption>
-              <NativeSelectOption value="global">Global web</NativeSelectOption>
-              <NativeSelectOption value="official_docs">Official docs</NativeSelectOption>
-              <NativeSelectOption value="research">Research</NativeSelectOption>
+              <NativeSelectOption value="auto">{copy.routes.auto}</NativeSelectOption>
+              <NativeSelectOption value="china">{copy.routes.china}</NativeSelectOption>
+              <NativeSelectOption value="global">{copy.routes.global}</NativeSelectOption>
+              <NativeSelectOption value="official_docs">{copy.routes.official_docs}</NativeSelectOption>
+              <NativeSelectOption value="research">{copy.routes.research}</NativeSelectOption>
             </NativeSelect>
           </div>
 
           <div class="search-form-group">
-            <Label for="default-engine">Default engine</Label>
+            <Label for="default-engine">{copy.defaultEngine}</Label>
             <NativeSelect id="default-engine" bind:value={webSearch.defaultEngine} class="h-10">
-              <NativeSelectOption value="auto">Auto route order</NativeSelectOption>
+              <NativeSelectOption value="auto">{copy.engines.auto}</NativeSelectOption>
               {#each visibleEngines as engine}
-                <NativeSelectOption value={engine.id}>{engine.name}</NativeSelectOption>
+                <NativeSelectOption value={engine.id}>{copy.engines[engine.id] || engine.name}</NativeSelectOption>
               {/each}
             </NativeSelect>
           </div>
 
           <div class="search-form-group">
-            <Label for="engine-selection-strategy">Auto engine strategy</Label>
+            <Label for="engine-selection-strategy">{copy.autoStrategy}</Label>
             <NativeSelect id="engine-selection-strategy" bind:value={webSearch.engineSelectionStrategy} class="h-10">
-              <NativeSelectOption value="priority">Priority order</NativeSelectOption>
-              <NativeSelectOption value="random">Random among configured</NativeSelectOption>
-              <NativeSelectOption value="round_robin">Round-robin among configured</NativeSelectOption>
+              <NativeSelectOption value="priority">{copy.strategies.priority}</NativeSelectOption>
+              <NativeSelectOption value="random">{copy.strategies.random}</NativeSelectOption>
+              <NativeSelectOption value="round_robin">{copy.strategies.round_robin}</NativeSelectOption>
             </NativeSelect>
-            <p class="search-form-hint">Used only when Default engine is Auto. Engines without required API keys are skipped.</p>
+            <p class="search-form-hint">{copy.autoStrategyDesc}</p>
           </div>
 
           <div class="search-form-group">
-            <Label for="max-results">Max results</Label>
+            <Label for="max-results">{copy.maxResults}</Label>
             <Input id="max-results" type="number" min="1" max="20" bind:value={webSearch.maxResults} class="h-10 tabular-nums" />
           </div>
 
           <div class="search-form-group search-form-group--full">
-            <Label for="timeout-ms">Timeout / Retry Timeout (ms)</Label>
+            <Label for="timeout-ms">{copy.timeoutMs}</Label>
             <div class="grid grid-cols-2 gap-3">
-              <Input id="timeout-ms" type="number" min="1000" max="120000" bind:value={webSearch.timeoutMs} class="h-10 tabular-nums" placeholder="Timeout" />
-              <Input type="number" min="1000" max="180000" bind:value={webSearch.retryTimeoutMs} class="h-10 tabular-nums" placeholder="Retry Timeout" />
+              <Input id="timeout-ms" type="number" min="1000" max="120000" bind:value={webSearch.timeoutMs} class="h-10 tabular-nums" placeholder={copy.placeholderTimeout} />
+              <Input type="number" min="1000" max="180000" bind:value={webSearch.retryTimeoutMs} class="h-10 tabular-nums" placeholder={copy.placeholderRetryTimeout} />
             </div>
           </div>
         </div>
@@ -279,8 +427,8 @@
       <section class="search-card">
         <div class="search-card-header">
           <div>
-            <h2 class="search-card-title">Search Engines</h2>
-            <p class="search-card-desc">DuckDuckGo works without credentials. Other engines are skipped until API keys are set.</p>
+            <h2 class="search-card-title">{copy.enginesSectionTitle}</h2>
+            <p class="search-card-desc">{copy.enginesSectionDesc}</p>
           </div>
         </div>
 
@@ -290,10 +438,10 @@
               <div class="search-engine-header">
                 <div class="flex-1">
                   <div class="search-engine-title-group">
-                    <h3 class="search-engine-title">{engine.name}</h3>
+                    <h3 class="search-engine-title">{copy.engines[engine.id] || engine.name}</h3>
                     <span class="search-pill">{engine.id}</span>
                   </div>
-                  <p class="search-engine-hint">{engine.hint}</p>
+                  <p class="search-engine-hint">{copy.engineHints[engine.id] || ""}</p>
                 </div>
                 <IosSwitch bind:checked={webSearch.engines[engine.id].enabled} />
               </div>
@@ -301,7 +449,7 @@
               {#if engine.id !== "duckduckgo"}
                 <div class="search-engine-inputs">
                   <div class="search-form-group">
-                    <Label>{engine.keyLabel}</Label>
+                    <Label>{engine.keyLabel === "No key required" ? copy.apiKeyLabel : engine.keyLabel}</Label>
                     <div class="search-key-input-container">
                       <Input
                         type={showApiKey[engine.id] ? "text" : "password"}
@@ -326,10 +474,10 @@
                   </div>
 
                   <div class="search-form-group">
-                    <Label>Custom base URL</Label>
+                    <Label>{copy.customBaseUrl}</Label>
                     <Input placeholder={defaultBaseUrl(engine.id)} value={webSearch.engines[engine.id].baseUrl ?? ""} oninput={(event) => setEngineValue(engine.id, "baseUrl", (event.target as HTMLInputElement).value)} class="h-9 text-xs" />
                     <p class="search-form-hint truncate">
-                      Default: <code>{defaultBaseUrl(engine.id)}</code>
+                      {copy.customBaseUrlDesc} <code>{defaultBaseUrl(engine.id)}</code>
                     </p>
                   </div>
                 </div>
@@ -342,25 +490,25 @@
       <section class="search-card">
         <div class="search-card-header">
           <div>
-            <h2 class="search-card-title">Test Query</h2>
-            <p class="search-card-desc">Test the engine config directly using unsaved settings.</p>
+            <h2 class="search-card-title">{copy.testSectionTitle}</h2>
+            <p class="search-card-desc">{copy.testSectionDesc}</p>
           </div>
         </div>
 
         <div class="flex flex-col gap-4">
           <div class="search-test-grid">
-            <Input bind:value={testQuery} placeholder="Search query" class="h-10" />
+            <Input bind:value={testQuery} placeholder={copy.testQueryPlaceholder} class="h-10" />
             <NativeSelect bind:value={testEngine} class="h-10">
-              <NativeSelectOption value="auto">Auto engine</NativeSelectOption>
+              <NativeSelectOption value="auto">{copy.engines.auto}</NativeSelectOption>
               {#each visibleEngines as engine}
-                <NativeSelectOption value={engine.id}>{engine.name}</NativeSelectOption>
+                <NativeSelectOption value={engine.id}>{copy.engines[engine.id] || engine.name}</NativeSelectOption>
               {/each}
-              {#each engines.filter(e => e.id === "ark") as ark}
-                <NativeSelectOption value={ark.id}>{ark.name}</NativeSelectOption>
+              {#each enginesList.filter(e => e.id === "ark") as ark}
+                <NativeSelectOption value={ark.id}>{copy.engines[ark.id] || ark.name}</NativeSelectOption>
               {/each}
             </NativeSelect>
             <Button type="button" variant="outline" onclick={runTest} disabled={testing} class="h-10 px-6 font-bold">
-              {testing ? "Testing..." : "Test"}
+              {testing ? copy.btnTesting : copy.btnTest}
             </Button>
           </div>
 
@@ -381,7 +529,7 @@
     {#if saving}
       <span class="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <span class="h-2 w-2 animate-pulse rounded-full bg-[#A36A5E]"></span>
-        Saving changes...
+        {copy.savingText}
       </span>
     {:else if message}
       <span class="settings-footbar-ok">{message}</span>
@@ -392,12 +540,10 @@
   </div>
   <div class="flex items-center gap-3">
     <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving} class="h-9 px-4 text-xs font-bold">
-      Reset
+      {copy.btnReset}
     </Button>
     <button type="submit" form="search-form" class="settings-footbar-btn" disabled={loading || saving}>
-      {saving ? "Saving..." : "Save Search Settings"}
+      {saving ? copy.savingText : copy.btnSave}
     </button>
   </div>
 </footer>
-
-

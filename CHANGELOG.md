@@ -4,6 +4,22 @@
 
 ## 2026-06-13
 
+### Sidebar Emojis & Label Toggle
+- Upgraded the 5 abstract primary sidebar symbols to intuitive high-fidelity Emojis (`🏠`, `🤖`, `💬`, `💾`, `⚙️`).
+- Added a labels toggle button (`🏷️`) at the bottom of the sidebar to collapse/expand menu names alongside the icons.
+- Persisted layout options in `localStorage` and added a CSS transition for smooth sidebar expansion, matching footer offsets.
+
+### Reactive Multi-Language (i18n) Settings Support
+- Fully migrated all 24 settings sub-pages to support complete reactive translation (English/Chinese) driven by the `$locale` store.
+- Replaced MutationObserver-based translation (`localizeSettings`), resolving bugs where dynamic inputs, modals, and tables did not update on language switch.
+- Standardized toggles to use the `IosSwitch` component and fixed footbars (`.settings-footbar`) across all migrated pages.
+
+### Settings UI Redesign & Design System Alignment
+- Refactored 11 settings sub-pages (`/settings/agents`, `/settings/memory`, `/settings/memory-rejections`, `/settings/skills`, `/settings/skill-drafts`, `/settings/run-history`, `/settings/tasks`, `/settings/host-bash`, `/settings/system`, `/settings/sandbox`, `/settings/plugins`) to align with Warm Shadcn theme and `/settings/web` style standard.
+- Replaced custom layout styles and raw Tailwind CSS classes with semantic custom classes (`channel-page`, `channel-card`, etc.) to match `DESIGN.md`.
+- Converted all configuration toggles to use the `IosSwitch` component instead of native input elements.
+- Pinned configuration save/reset buttons to the sticky bottom footer bar (`.settings-footbar`) to simplify long form interactions.
+
 ### Scheduled Task Fresh Sessions & Auto Cleanup
 - Scheduled events now support `sessionMode: "fresh" | "chat"`; periodic tasks default to fresh, so each run starts in a new `task-` session without accumulated chat history (big input-token saving for daily reports), while replies in the chat still land in that session for follow-up tweaks.
 - Expired task sessions are pruned automatically on each fresh-session creation, controlled by `events.taskSessionRetentionDays` (default 7 days, 0 disables; env `MOLIBOT_EVENT_TASK_SESSION_RETENTION_DAYS`). Active and user-created sessions are never pruned.

@@ -22,6 +22,7 @@
         TableHeader,
         TableRow,
     } from "$lib/components/ui/table";
+    import { locale } from "$lib/ui/i18n";
 
     type TimeRange = "today" | "yesterday" | "last7Days" | "last30Days";
     type FactType =
@@ -171,6 +172,293 @@
         runs: RunSummary[];
     }
 
+    const COPY = {
+        "zh-CN": {
+            eyebrow: "Agent Trace Observatory",
+            title: "Trace 分析",
+            desc: "基于 agent_trace_facts 汇总工具调用、模型请求、session 和 run 维度的执行数据；原始 agent_trace_events 仍作为审计事件保留。",
+            rangeTitles: {
+                today: "今天",
+                yesterday: "昨天",
+                last7Days: "最近 7 天",
+                last30Days: "最近 30 天",
+            },
+            factTypes: {
+                all: "全部类型",
+                run: "运行",
+                tool_call: "工具调用",
+                model_call: "模型请求",
+                skill_usage: "技能使用",
+                subagent_task: "Sub Agent",
+                runtime_notice: "运行提示",
+                approval: "审批",
+                input_enrichment: "输入增强",
+            },
+            statuses: {
+                started: "进行中",
+                success: "成功",
+                error: "失败",
+                blocked: "已阻止",
+                waiting: "等待中",
+                aborted: "已中止",
+                info: "信息",
+                warning: "警告",
+            },
+            filters: {
+                factType: "调用类型",
+                botId: "Bot",
+                botPlaceholder: "按 botId 精确筛选",
+                channel: "Channel",
+                channelPlaceholder: "telegram / feishu / web",
+                chatId: "Chat ID",
+                chatPlaceholder: "按 chatId 精确筛选",
+                sessionId: "Session ID",
+                sessionPlaceholder: "按 session 精确筛选",
+                runId: "Run ID",
+                runPlaceholder: "按 run 精确筛选",
+                limit: "读取上限",
+                limitOptions: {
+                    "1000": "最近 1,000 条",
+                    "5000": "最近 5,000 条",
+                    "10000": "最近 10,000 条",
+                },
+                apply: "应用筛选",
+                reset: "清空",
+            },
+            updatedAt: "更新于",
+            toolCalls: {
+                title: "工具调用",
+                desc: "包含成功、失败、已阻止和进行中的工具 fact",
+                actual: "实际执行 {executed} · 已阻止 {blocked} · 失败 {failed}"
+            },
+            modelCalls: {
+                title: "模型请求",
+                desc: "来自 model_call fact 的请求数 and token 汇总",
+                tokens: "Token {tokens} · 平均耗时 {duration}"
+            },
+            connectedBots: "关联 Bots",
+            connectedBotsDesc: "口径与 Usage 页 botId 一致",
+            connectedChats: "关联 Chats",
+            connectedChatsDesc: "按 channel + chatId 去重",
+            distinctTools: "工具种类",
+            distinctToolsDesc: "按工具 name 去重",
+            connectedSessions: "关联 Sessions",
+            connectedSessionsDesc: "当前筛选范围内的 session 数",
+            sections: {
+                chats: {
+                    title: "Channel / Chat 汇总",
+                    desc: "按 channel + chatId 聚合，定位某个渠道会话的工具和模型调用",
+                    empty: "当前筛选范围没有 channel/chat 数据",
+                },
+                tools: {
+                    title: "工具调用排行",
+                    desc: "按工具 name 聚合调用次数、成功/失败/阻止次数",
+                    empty: "当前筛选范围没有工具调用",
+                },
+                models: {
+                    title: "模型请求排行",
+                    desc: "按 provider / model / api 聚合模型请求",
+                    empty: "当前筛选范围没有模型请求",
+                },
+                bots: {
+                    title: "Bot 汇总",
+                    desc: "按 usage 页同一 botId 口径聚合工具调用和模型 token",
+                    empty: "当前筛选范围没有 bot 数据",
+                },
+                sessions: {
+                    title: "Session 汇总",
+                    desc: "查看某个 session 一共关联多少 run、工具调用和模型请求",
+                    empty: "当前筛选范围没有 session 数据",
+                },
+                runs: {
+                    title: "Run 汇总",
+                    desc: "查看某一轮对话调用了多少工具、发了多少模型请求",
+                    empty: "当前筛选范围没有 run 数据",
+                },
+                recent: {
+                    title: "最近 Trace Facts",
+                    desc: "最多展示当前筛选结果中的最近 200 条 fact",
+                    empty: "当前筛选范围没有 trace fact",
+                }
+            },
+            table: {
+                channel: "Channel",
+                chatId: "Chat ID",
+                sessions: "Sessions",
+                runs: "Runs",
+                tools: "工具",
+                models: "模型",
+                distinctTools: "工具种类",
+                tokens: "Token",
+                avgDuration: "均耗时",
+                provider: "Provider",
+                api: "API",
+                requests: "请求",
+                input: "输入",
+                output: "输出",
+                cache: "缓存",
+                totalTokens: "总 Token",
+                lastUpdate: "最后更新",
+                time: "时间",
+                bot: "Bot",
+                type: "类型",
+                name: "名称",
+                status: "状态",
+                run: "Run",
+                session: "Session",
+                duration: "耗时",
+            },
+            footbar: {
+                syncing: "Trace 数据同步中...",
+                ready: "Trace 数据已就绪",
+                btnSyncing: "同步中",
+                btnRefresh: "立即刷新",
+            }
+        },
+        "en-US": {
+            eyebrow: "Agent Trace Observatory",
+            title: "Trace Analysis",
+            desc: "Aggregated execution data for tool calls, model requests, sessions, and runs based on agent_trace_facts; original agent_trace_events are retained as audit events.",
+            rangeTitles: {
+                today: "Today",
+                yesterday: "Yesterday",
+                last7Days: "Last 7 Days",
+                last30Days: "Last 30 Days",
+            },
+            factTypes: {
+                all: "All Types",
+                run: "Run",
+                tool_call: "Tool Call",
+                model_call: "Model Request",
+                skill_usage: "Skill Usage",
+                subagent_task: "Sub Agent",
+                runtime_notice: "Runtime Notice",
+                approval: "Approval",
+                input_enrichment: "Input Enrichment",
+            },
+            statuses: {
+                started: "Running",
+                success: "Success",
+                error: "Failed",
+                blocked: "Blocked",
+                waiting: "Waiting",
+                aborted: "Aborted",
+                info: "Info",
+                warning: "Warning",
+            },
+            filters: {
+                factType: "Fact Type",
+                botId: "Bot",
+                botPlaceholder: "Exact filter by botId",
+                channel: "Channel",
+                channelPlaceholder: "telegram / feishu / web",
+                chatId: "Chat ID",
+                chatPlaceholder: "Exact filter by chatId",
+                sessionId: "Session ID",
+                sessionPlaceholder: "Exact filter by session",
+                runId: "Run ID",
+                runPlaceholder: "Exact filter by run",
+                limit: "Fetch Limit",
+                limitOptions: {
+                    "1000": "Last 1,000 facts",
+                    "5000": "Last 5,000 facts",
+                    "10000": "Last 10,000 facts",
+                },
+                apply: "Apply Filters",
+                reset: "Reset",
+            },
+            updatedAt: "Updated at",
+            toolCalls: {
+                title: "Tool Calls",
+                desc: "Includes successful, failed, blocked, and active tool facts",
+                actual: "Executed {executed} · Blocked {blocked} · Failed {failed}"
+            },
+            modelCalls: {
+                title: "Model Requests",
+                desc: "Summary of requests and tokens from model_call facts",
+                tokens: "Tokens {tokens} · Avg Duration {duration}"
+            },
+            connectedBots: "Connected Bots",
+            connectedBotsDesc: "Matches Usage page botId logic",
+            connectedChats: "Connected Chats",
+            connectedChatsDesc: "Unique channel + chatId pairs",
+            distinctTools: "Distinct Tools",
+            distinctToolsDesc: "Deduplicated by tool name",
+            connectedSessions: "Connected Sessions",
+            connectedSessionsDesc: "Sessions in current filter range",
+            sections: {
+                chats: {
+                    title: "Channel / Chat Summary",
+                    desc: "Aggregated by channel + chatId to track tool and model calls",
+                    empty: "No channel/chat data in the selected range",
+                },
+                tools: {
+                    title: "Tool Call Rankings",
+                    desc: "Aggregated calls, successes, failures, and block counts by tool name",
+                    empty: "No tool calls in the selected range",
+                },
+                models: {
+                    title: "Model Request Rankings",
+                    desc: "Aggregated model requests by provider / model / api",
+                    empty: "No model requests in the selected range",
+                },
+                bots: {
+                    title: "Bot Summary",
+                    desc: "Aggregated tool calls and model tokens matching the usage page botId",
+                    empty: "No bot data in the selected range",
+                },
+                sessions: {
+                    title: "Session Summary",
+                    desc: "Total runs, tool calls, and model requests for each session",
+                    empty: "No session data in the selected range",
+                },
+                runs: {
+                    title: "Run Summary",
+                    desc: "Tool and model call counts for each interaction run",
+                    empty: "No run data in the selected range",
+                },
+                recent: {
+                    title: "Recent Trace Facts",
+                    desc: "Displays up to 200 recent facts matching filters",
+                    empty: "No trace facts in the selected range",
+                }
+            },
+            table: {
+                channel: "Channel",
+                chatId: "Chat ID",
+                sessions: "Sessions",
+                runs: "Runs",
+                tools: "Tools",
+                models: "Models",
+                distinctTools: "Distinct Tools",
+                tokens: "Tokens",
+                avgDuration: "Avg Dur",
+                provider: "Provider",
+                api: "API",
+                requests: "Reqs",
+                input: "Input",
+                output: "Output",
+                cache: "Cache",
+                totalTokens: "Total Tokens",
+                lastUpdate: "Last Update",
+                time: "Time",
+                bot: "Bot",
+                type: "Type",
+                name: "Name",
+                status: "Status",
+                run: "Run",
+                session: "Session",
+                duration: "Duration",
+            },
+            footbar: {
+                syncing: "Syncing Trace data...",
+                ready: "Trace data ready",
+                btnSyncing: "Syncing",
+                btnRefresh: "Refresh",
+            }
+        }
+    };
+
     const timeRangeOptions: TimeRange[] = ["today", "yesterday", "last7Days", "last30Days"];
 
     let traceLoading = true;
@@ -186,40 +474,18 @@
     let runFilter = "";
     let sourceLimit = "5000";
 
+    $: copy = COPY[$locale] ?? COPY["en-US"];
+
     function windowTitle(range: TimeRange): string {
-        const titles: Record<TimeRange, string> = {
-            today: "今天",
-            yesterday: "昨天",
-            last7Days: "最近 7 天",
-            last30Days: "最近 30 天",
-        };
-        return titles[range];
+        return copy.rangeTitles[range] || range;
     }
 
     function factTypeLabel(type: FactType | TraceFact["factType"]): string {
-        if (type === "run") return "运行";
-        if (type === "tool_call") return "工具调用";
-        if (type === "model_call") return "模型请求";
-        if (type === "skill_usage") return "技能使用";
-        if (type === "subagent_task") return "Sub Agent";
-        if (type === "runtime_notice") return "运行提示";
-        if (type === "approval") return "审批";
-        if (type === "input_enrichment") return "输入增强";
-        return "全部类型";
+        return copy.factTypes[type] || type;
     }
 
     function statusLabel(status: TraceFact["status"]): string {
-        const labels: Record<TraceFact["status"], string> = {
-            started: "进行中",
-            success: "成功",
-            error: "失败",
-            blocked: "已阻止",
-            waiting: "等待中",
-            aborted: "已中止",
-            info: "信息",
-            warning: "警告",
-        };
-        return labels[status];
+        return copy.statuses[status] || status;
     }
 
     function statusVariant(status: TraceFact["status"]): "default" | "secondary" | "destructive" | "outline" {
@@ -246,7 +512,7 @@
     }
 
     function formatDateTime(value: string): string {
-        return new Intl.DateTimeFormat("zh-CN", {
+        return new Intl.DateTimeFormat($locale === "zh-CN" ? "zh-CN" : "en-US", {
             month: "2-digit",
             day: "2-digit",
             hour: "2-digit",
@@ -328,18 +594,18 @@
     <header class="usage-header">
         <div class="usage-header-left">
             <div class="usage-header-badges">
-                <Badge variant="secondary" class="usage-badge-medium">Agent Trace Observatory</Badge>
+                <Badge variant="secondary" class="usage-badge-medium">{copy.eyebrow}</Badge>
                 <Badge variant="outline" class="usage-badge-medium">{windowTitle(selectedRange)}</Badge>
             </div>
             <div class="usage-header-text">
-                <h1 class="usage-header-title">Trace 分析</h1>
+                <h1 class="usage-header-title">{copy.title}</h1>
                 <p class="usage-header-desc">
-                    基于 agent_trace_facts 汇总工具调用、模型请求、session 和 run 维度的执行数据；原始 agent_trace_events 仍作为审计事件保留。
+                    {copy.desc}
                 </p>
             </div>
         </div>
         <div class="usage-header-right">
-            <div class="usage-range-buttons" aria-label="时间范围">
+            <div class="usage-range-buttons" aria-label="Time range / 时间范围">
                 {#each timeRangeOptions as range}
                     <Button
                         type="button"
@@ -375,54 +641,54 @@
         <Card>
             <CardContent class="usage-filters trace-filters">
                 <div class="usage-filter-group">
-                    <Label for="trace-fact-type" class="usage-filter-label">调用类型</Label>
+                    <Label for="trace-fact-type" class="usage-filter-label">{copy.filters.factType}</Label>
                     <NativeSelect id="trace-fact-type" class="w-full" bind:value={selectedFactType}>
-                        <NativeSelectOption value="all">全部类型</NativeSelectOption>
-                        <NativeSelectOption value="run">运行</NativeSelectOption>
-                        <NativeSelectOption value="tool_call">工具调用</NativeSelectOption>
-                        <NativeSelectOption value="model_call">模型请求</NativeSelectOption>
-                        <NativeSelectOption value="skill_usage">技能使用</NativeSelectOption>
-                        <NativeSelectOption value="subagent_task">Sub Agent</NativeSelectOption>
-                        <NativeSelectOption value="runtime_notice">运行提示</NativeSelectOption>
-                        <NativeSelectOption value="approval">审批</NativeSelectOption>
-                        <NativeSelectOption value="input_enrichment">输入增强</NativeSelectOption>
+                        <NativeSelectOption value="all">{copy.factTypes.all}</NativeSelectOption>
+                        <NativeSelectOption value="run">{copy.factTypes.run}</NativeSelectOption>
+                        <NativeSelectOption value="tool_call">{copy.factTypes.tool_call}</NativeSelectOption>
+                        <NativeSelectOption value="model_call">{copy.factTypes.model_call}</NativeSelectOption>
+                        <NativeSelectOption value="skill_usage">{copy.factTypes.skill_usage}</NativeSelectOption>
+                        <NativeSelectOption value="subagent_task">{copy.factTypes.subagent_task}</NativeSelectOption>
+                        <NativeSelectOption value="runtime_notice">{copy.factTypes.runtime_notice}</NativeSelectOption>
+                        <NativeSelectOption value="approval">{copy.factTypes.approval}</NativeSelectOption>
+                        <NativeSelectOption value="input_enrichment">{copy.factTypes.input_enrichment}</NativeSelectOption>
                     </NativeSelect>
                 </div>
                 <div class="usage-filter-group">
-                    <Label for="trace-bot-id" class="usage-filter-label">Bot</Label>
-                    <Input id="trace-bot-id" placeholder="按 botId 精确筛选" bind:value={botFilter} />
+                    <Label for="trace-bot-id" class="usage-filter-label">{copy.filters.botId}</Label>
+                    <Input id="trace-bot-id" placeholder={copy.filters.botPlaceholder} bind:value={botFilter} />
                 </div>
                 <div class="usage-filter-group">
-                    <Label for="trace-channel" class="usage-filter-label">Channel</Label>
-                    <Input id="trace-channel" placeholder="telegram / feishu / web" bind:value={channelFilter} />
+                    <Label for="trace-channel" class="usage-filter-label">{copy.filters.channel}</Label>
+                    <Input id="trace-channel" placeholder={copy.filters.channelPlaceholder} bind:value={channelFilter} />
                 </div>
                 <div class="usage-filter-group">
-                    <Label for="trace-chat-id" class="usage-filter-label">Chat ID</Label>
-                    <Input id="trace-chat-id" placeholder="按 chatId 精确筛选" bind:value={chatFilter} />
+                    <Label for="trace-chat-id" class="usage-filter-label">{copy.filters.chatId}</Label>
+                    <Input id="trace-chat-id" placeholder={copy.filters.chatPlaceholder} bind:value={chatFilter} />
                 </div>
                 <div class="usage-filter-group">
-                    <Label for="trace-session-id" class="usage-filter-label">Session ID</Label>
-                    <Input id="trace-session-id" placeholder="按 session 精确筛选" bind:value={sessionFilter} />
+                    <Label for="trace-session-id" class="usage-filter-label">{copy.filters.sessionId}</Label>
+                    <Input id="trace-session-id" placeholder={copy.filters.sessionPlaceholder} bind:value={sessionFilter} />
                 </div>
                 <div class="usage-filter-group">
-                    <Label for="trace-run-id" class="usage-filter-label">Run ID</Label>
-                    <Input id="trace-run-id" placeholder="按 run 精确筛选" bind:value={runFilter} />
+                    <Label for="trace-run-id" class="usage-filter-label">{copy.filters.runId}</Label>
+                    <Input id="trace-run-id" placeholder={copy.filters.runPlaceholder} bind:value={runFilter} />
                 </div>
                 <div class="usage-filter-group">
-                    <Label for="trace-source-limit" class="usage-filter-label">读取上限</Label>
+                    <Label for="trace-source-limit" class="usage-filter-label">{copy.filters.limit}</Label>
                     <NativeSelect id="trace-source-limit" class="w-full" bind:value={sourceLimit}>
-                        <NativeSelectOption value="1000">最近 1,000 条</NativeSelectOption>
-                        <NativeSelectOption value="5000">最近 5,000 条</NativeSelectOption>
-                        <NativeSelectOption value="10000">最近 10,000 条</NativeSelectOption>
+                        <NativeSelectOption value="1000">{copy.filters.limitOptions["1000"]}</NativeSelectOption>
+                        <NativeSelectOption value="5000">{copy.filters.limitOptions["5000"]}</NativeSelectOption>
+                        <NativeSelectOption value="10000">{copy.filters.limitOptions["10000"]}</NativeSelectOption>
                     </NativeSelect>
                 </div>
                 <div class="usage-filter-reset trace-filter-actions">
-                    <Button variant="default" type="button" onclick={loadTrace} disabled={traceLoading}>应用筛选</Button>
-                    <Button variant="outline" type="button" onclick={resetFilters} disabled={traceLoading}>清空</Button>
+                    <Button variant="default" type="button" onclick={loadTrace} disabled={traceLoading}>{copy.filters.apply}</Button>
+                    <Button variant="outline" type="button" onclick={resetFilters} disabled={traceLoading}>{copy.filters.reset}</Button>
                 </div>
                 <div class="usage-filter-meta trace-filter-meta">
                     <span>{traceStats.window.startDate} → {traceStats.window.endDate}</span>
-                    <span>更新于 {formatDateTime(traceStats.generatedAt)}</span>
+                    <span>{copy.updatedAt} {formatDateTime(traceStats.generatedAt)}</span>
                 </div>
             </CardContent>
         </Card>
@@ -431,15 +697,15 @@
             <Card class="usage-metric-wide">
                 <CardHeader>
                     <div class="usage-metric-header">
-                        <CardTitle class="font-serif text-lg">工具调用</CardTitle>
+                        <CardTitle class="font-serif text-lg">{copy.toolCalls.title}</CardTitle>
                         <Badge variant="secondary" class="usage-badge-requests">Tools</Badge>
                     </div>
-                    <CardDescription>包含成功、失败、已阻止和进行中的工具 fact</CardDescription>
+                    <CardDescription>{copy.toolCalls.desc}</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-2">
                     <strong class="usage-metric-value">{formatNumber(totals.toolCalls)}</strong>
                     <span class="usage-card-subtext">
-                        实际执行 {formatNumber(totals.executedToolCalls)} · 已阻止 {formatNumber(totals.blockedTools)} · 失败 {formatNumber(totals.failedTools)}
+                        {copy.toolCalls.actual.replace("{executed}", formatNumber(totals.executedToolCalls)).replace("{blocked}", formatNumber(totals.blockedTools)).replace("{failed}", formatNumber(totals.failedTools))}
                     </span>
                 </CardContent>
             </Card>
@@ -447,70 +713,72 @@
             <Card class="usage-metric-wide">
                 <CardHeader>
                     <div class="usage-metric-header">
-                        <CardTitle class="font-serif text-lg">模型请求</CardTitle>
+                        <CardTitle class="font-serif text-lg">{copy.modelCalls.title}</CardTitle>
                         <Badge variant="secondary" class="usage-badge-tokens">Model</Badge>
                     </div>
-                    <CardDescription>来自 model_call fact 的请求数和 token 汇总</CardDescription>
+                    <CardDescription>{copy.modelCalls.desc}</CardDescription>
                 </CardHeader>
                 <CardContent class="flex flex-col gap-2">
                     <strong class="usage-metric-value">{formatNumber(totals.modelCalls)}</strong>
-                    <span class="usage-card-subtext">Token {formatCompact(totals.totalTokens)} · 平均耗时 {formatDuration(totals.avgModelDurationMs)}</span>
+                    <span class="usage-card-subtext">
+                        {copy.modelCalls.tokens.replace("{tokens}", formatCompact(totals.totalTokens)).replace("{duration}", formatDuration(totals.avgModelDurationMs))}
+                    </span>
                 </CardContent>
             </Card>
 
             <Card class="usage-metric-accent-1">
                 <CardHeader>
-                    <CardDescription class="usage-label-uppercase">关联 Bots</CardDescription>
+                    <CardDescription class="usage-label-uppercase">{copy.connectedBots}</CardDescription>
                     <CardTitle class="tabular-nums">{formatNumber(totals.bots)}</CardTitle>
                 </CardHeader>
-                <CardContent class="usage-card-subtext">口径与 Usage 页 botId 一致</CardContent>
+                <CardContent class="usage-card-subtext">{copy.connectedBotsDesc}</CardContent>
             </Card>
             <Card class="usage-metric-accent-2">
                 <CardHeader>
-                    <CardDescription class="usage-label-uppercase">关联 Chats</CardDescription>
+                    <CardDescription class="usage-label-uppercase">{copy.connectedChats}</CardDescription>
                     <CardTitle class="tabular-nums">{formatNumber(totals.chats)}</CardTitle>
                 </CardHeader>
-                <CardContent class="usage-card-subtext">按 channel + chatId 去重</CardContent>
+                <CardContent class="usage-card-subtext">{copy.connectedChatsDesc}</CardContent>
             </Card>
             <Card class="usage-metric-accent-3">
                 <CardHeader>
-                    <CardDescription class="usage-label-uppercase">工具种类</CardDescription>
+                    <CardDescription class="usage-label-uppercase">{copy.distinctTools}</CardDescription>
                     <CardTitle class="tabular-nums">{formatNumber(totals.distinctTools)}</CardTitle>
                 </CardHeader>
-                <CardContent class="usage-card-subtext">按工具 name 去重</CardContent>
+                <CardContent class="usage-card-subtext">{copy.distinctToolsDesc}</CardContent>
             </Card>
             <Card class="usage-metric-accent-4">
                 <CardHeader>
-                    <CardDescription class="usage-label-uppercase">关联 Sessions</CardDescription>
+                    <CardDescription class="usage-label-uppercase">{copy.connectedSessions}</CardDescription>
                     <CardTitle class="tabular-nums">{formatNumber(totals.sessions)}</CardTitle>
                 </CardHeader>
-                <CardContent class="usage-card-subtext">当前筛选范围内的 session 数</CardContent>
+                <CardContent class="usage-card-subtext">{copy.connectedSessionsDesc}</CardContent>
             </Card>
         </div>
 
         <div class="usage-detail-grid">
             <Card>
                 <CardHeader>
-                    <CardTitle class="font-serif">Channel / Chat 汇总</CardTitle>
-                    <CardDescription>按 channel + chatId 聚合，定位某个渠道会话的工具和模型调用</CardDescription>
+                    <CardTitle class="font-serif">{copy.sections.chats.title}</CardTitle>
+                    <CardDescription>{copy.sections.chats.desc}</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Channel</TableHead>
-                                <TableHead>Chat ID</TableHead>
-                                <TableHead class="text-right">Sessions</TableHead>
-                                <TableHead class="text-right">Runs</TableHead>
-                                <TableHead class="text-right">工具</TableHead>
-                                <TableHead class="text-right">模型</TableHead>
-                                <TableHead class="text-right">工具种类</TableHead>
-                                <TableHead class="text-right">Token</TableHead>
+                                <TableHead>{copy.table.channel}</TableHead>
+                                <TableHead>{copy.table.chatId}</TableHead>
+                                <TableHead class="text-right">{copy.table.sessions}</TableHead>
+                                <TableHead class="text-right">{copy.table.runs}</TableHead>
+                                <TableHead class="text-right">{copy.table.tools}</TableHead>
+                                <TableHead class="text-right">{copy.table.models}</TableHead>
+                                <TableHead class="text-right">{copy.table.distinctTools}</TableHead>
+                                <TableHead class="text-right">{copy.table.tokens}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {#if traceStats.chats.length === 0}
-                                <TableRow><TableCell colspan={8} class="usage-empty-cell">当前筛选范围没有 channel/chat 数据</TableCell></TableRow>
+                                <TableRow><TableCell colspan={8} class="usage-empty-cell">{copy.sections.chats.empty}</TableCell></TableRow>
                             {:else}
                                 {#each traceStats.chats.slice(0, 30) as chat}
                                     <TableRow>
@@ -532,25 +800,25 @@
 
             <Card>
                 <CardHeader>
-                    <CardTitle class="font-serif">工具调用排行</CardTitle>
-                    <CardDescription>按工具 name 聚合调用次数、成功/失败/阻止次数</CardDescription>
+                    <CardTitle class="font-serif">{copy.sections.tools.title}</CardTitle>
+                    <CardDescription>{copy.sections.tools.desc}</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>工具</TableHead>
-                                <TableHead class="text-right">调用</TableHead>
-                                <TableHead class="text-right">执行</TableHead>
-                                <TableHead class="text-right">成功</TableHead>
-                                <TableHead class="text-right">失败</TableHead>
-                                <TableHead class="text-right">阻止</TableHead>
-                                <TableHead class="text-right">均耗时</TableHead>
+                                <TableHead>{copy.table.tools}</TableHead>
+                                <TableHead class="text-right">{copy.table.requests}</TableHead>
+                                <TableHead class="text-right">{copy.table.run}</TableHead>
+                                <TableHead class="text-right">{copy.table.status}</TableHead>
+                                <TableHead class="text-right">{copy.table.duration}</TableHead>
+                                <TableHead class="text-right">{copy.table.cache}</TableHead>
+                                <TableHead class="text-right">{copy.table.avgDuration}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {#if traceStats.tools.length === 0}
-                                <TableRow><TableCell colspan={7} class="usage-empty-cell">当前筛选范围没有工具调用</TableCell></TableRow>
+                                <TableRow><TableCell colspan={7} class="usage-empty-cell">{copy.sections.tools.empty}</TableCell></TableRow>
                             {:else}
                                 {#each traceStats.tools.slice(0, 20) as tool}
                                     <TableRow>
@@ -571,27 +839,27 @@
 
             <Card>
                 <CardHeader>
-                    <CardTitle class="font-serif">模型请求排行</CardTitle>
-                    <CardDescription>按 provider / model / api 聚合模型请求</CardDescription>
+                    <CardTitle class="font-serif">{copy.sections.models.title}</CardTitle>
+                    <CardDescription>{copy.sections.models.desc}</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>模型</TableHead>
-                                <TableHead>Provider</TableHead>
-                                <TableHead>API</TableHead>
-                                <TableHead class="text-right">请求</TableHead>
-                                <TableHead class="text-right">输入</TableHead>
-                                <TableHead class="text-right">输出</TableHead>
-                                <TableHead class="text-right">缓存</TableHead>
-                                <TableHead class="text-right">总 Token</TableHead>
-                                <TableHead class="text-right">均耗时</TableHead>
+                                <TableHead>{copy.table.models}</TableHead>
+                                <TableHead>{copy.table.provider}</TableHead>
+                                <TableHead>{copy.table.api}</TableHead>
+                                <TableHead class="text-right">{copy.table.requests}</TableHead>
+                                <TableHead class="text-right">{copy.table.input}</TableHead>
+                                <TableHead class="text-right">{copy.table.output}</TableHead>
+                                <TableHead class="text-right">{copy.table.cache}</TableHead>
+                                <TableHead class="text-right">{copy.table.totalTokens}</TableHead>
+                                <TableHead class="text-right">{copy.table.avgDuration}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {#if traceStats.models.length === 0}
-                                <TableRow><TableCell colspan={9} class="usage-empty-cell">当前筛选范围没有模型请求</TableCell></TableRow>
+                                <TableRow><TableCell colspan={9} class="usage-empty-cell">{copy.sections.models.empty}</TableCell></TableRow>
                             {:else}
                                 {#each traceStats.models.slice(0, 20) as model}
                                     <TableRow>
@@ -616,26 +884,26 @@
         <div class="usage-detail-grid">
             <Card>
                 <CardHeader>
-                    <CardTitle class="font-serif">Bot 汇总</CardTitle>
-                    <CardDescription>按 usage 页同一 botId 口径聚合工具调用和模型 token</CardDescription>
+                    <CardTitle class="font-serif">{copy.sections.bots.title}</CardTitle>
+                    <CardDescription>{copy.sections.bots.desc}</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Bot</TableHead>
+                                <TableHead>{copy.table.bot}</TableHead>
                                 <TableHead class="text-right">Channels</TableHead>
                                 <TableHead class="text-right">Chats</TableHead>
-                                <TableHead class="text-right">Sessions</TableHead>
-                                <TableHead class="text-right">Runs</TableHead>
-                                <TableHead class="text-right">工具</TableHead>
-                                <TableHead class="text-right">模型</TableHead>
-                                <TableHead class="text-right">Token</TableHead>
+                                <TableHead class="text-right">{copy.table.sessions}</TableHead>
+                                <TableHead class="text-right">{copy.table.runs}</TableHead>
+                                <TableHead class="text-right">{copy.table.tools}</TableHead>
+                                <TableHead class="text-right">{copy.table.models}</TableHead>
+                                <TableHead class="text-right">{copy.table.tokens}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {#if traceStats.bots.length === 0}
-                                <TableRow><TableCell colspan={8} class="usage-empty-cell">当前筛选范围没有 bot 数据</TableCell></TableRow>
+                                <TableRow><TableCell colspan={8} class="usage-empty-cell">{copy.sections.bots.empty}</TableCell></TableRow>
                             {:else}
                                 {#each traceStats.bots.slice(0, 30) as bot}
                                     <TableRow>
@@ -657,25 +925,25 @@
 
             <Card>
                 <CardHeader>
-                    <CardTitle class="font-serif">Session 汇总</CardTitle>
-                    <CardDescription>查看某个 session 一共关联多少 run、工具调用和模型请求</CardDescription>
+                    <CardTitle class="font-serif">{copy.sections.sessions.title}</CardTitle>
+                    <CardDescription>{copy.sections.sessions.desc}</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Session</TableHead>
-                                <TableHead class="text-right">Runs</TableHead>
-                                <TableHead class="text-right">工具</TableHead>
-                                <TableHead class="text-right">模型</TableHead>
-                                <TableHead class="text-right">工具种类</TableHead>
-                                <TableHead class="text-right">Token</TableHead>
-                                <TableHead>最后更新</TableHead>
+                                <TableHead>{copy.table.session}</TableHead>
+                                <TableHead class="text-right">{copy.table.runs}</TableHead>
+                                <TableHead class="text-right">{copy.table.tools}</TableHead>
+                                <TableHead class="text-right">{copy.table.models}</TableHead>
+                                <TableHead class="text-right">{copy.table.distinctTools}</TableHead>
+                                <TableHead class="text-right">{copy.table.tokens}</TableHead>
+                                <TableHead>{copy.table.lastUpdate}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {#if traceStats.sessions.length === 0}
-                                <TableRow><TableCell colspan={7} class="usage-empty-cell">当前筛选范围没有 session 数据</TableCell></TableRow>
+                                <TableRow><TableCell colspan={7} class="usage-empty-cell">{copy.sections.sessions.empty}</TableCell></TableRow>
                             {:else}
                                 {#each traceStats.sessions.slice(0, 30) as session}
                                     <TableRow>
@@ -696,24 +964,24 @@
 
             <Card>
                 <CardHeader>
-                    <CardTitle class="font-serif">Run 汇总</CardTitle>
-                    <CardDescription>查看某一轮对话调用了多少工具、发了多少模型请求</CardDescription>
+                    <CardTitle class="font-serif">{copy.sections.runs.title}</CardTitle>
+                    <CardDescription>{copy.sections.runs.desc}</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Run</TableHead>
-                                <TableHead>Session</TableHead>
-                                <TableHead class="text-right">工具</TableHead>
-                                <TableHead class="text-right">模型</TableHead>
-                                <TableHead class="text-right">工具种类</TableHead>
-                                <TableHead class="text-right">Token</TableHead>
+                                <TableHead>{copy.table.run}</TableHead>
+                                <TableHead>{copy.table.session}</TableHead>
+                                <TableHead class="text-right">{copy.table.tools}</TableHead>
+                                <TableHead class="text-right">{copy.table.models}</TableHead>
+                                <TableHead class="text-right">{copy.table.distinctTools}</TableHead>
+                                <TableHead class="text-right">{copy.table.tokens}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {#if traceStats.runs.length === 0}
-                                <TableRow><TableCell colspan={6} class="usage-empty-cell">当前筛选范围没有 run 数据</TableCell></TableRow>
+                                <TableRow><TableCell colspan={6} class="usage-empty-cell">{copy.sections.runs.empty}</TableCell></TableRow>
                             {:else}
                                 {#each traceStats.runs.slice(0, 30) as run}
                                     <TableRow>
@@ -734,32 +1002,32 @@
 
         <Card>
             <CardHeader>
-                <CardTitle class="font-serif">最近 Trace Facts</CardTitle>
-                <CardDescription>最多展示当前筛选结果中的最近 200 条 fact</CardDescription>
+                <CardTitle class="font-serif">{copy.sections.recent.title}</CardTitle>
+                <CardDescription>{copy.sections.recent.desc}</CardDescription>
             </CardHeader>
             <CardContent>
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>时间</TableHead>
-                            <TableHead>Bot</TableHead>
-                            <TableHead>Channel</TableHead>
-                            <TableHead>Chat</TableHead>
-                            <TableHead>类型</TableHead>
-                            <TableHead>名称</TableHead>
-                            <TableHead>状态</TableHead>
-                            <TableHead>Run</TableHead>
-                            <TableHead>Session</TableHead>
-                            <TableHead class="text-right">耗时</TableHead>
-                            <TableHead class="text-right">输入</TableHead>
-                            <TableHead class="text-right">输出</TableHead>
-                            <TableHead class="text-right">缓存</TableHead>
-                            <TableHead class="text-right">总 Token</TableHead>
+                            <TableHead>{copy.table.time}</TableHead>
+                            <TableHead>{copy.table.bot}</TableHead>
+                            <TableHead>{copy.table.channel}</TableHead>
+                            <TableHead>{copy.table.chatId}</TableHead>
+                            <TableHead>{copy.table.type}</TableHead>
+                            <TableHead>{copy.table.name}</TableHead>
+                            <TableHead>{copy.table.status}</TableHead>
+                            <TableHead>{copy.table.run}</TableHead>
+                            <TableHead>{copy.table.session}</TableHead>
+                            <TableHead class="text-right">{copy.table.duration}</TableHead>
+                            <TableHead class="text-right">{copy.table.input}</TableHead>
+                            <TableHead class="text-right">{copy.table.output}</TableHead>
+                            <TableHead class="text-right">{copy.table.cache}</TableHead>
+                            <TableHead class="text-right">{copy.table.totalTokens}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {#if recentFacts.length === 0}
-                            <TableRow><TableCell colspan={14} class="usage-empty-cell">当前筛选范围没有 trace fact</TableCell></TableRow>
+                            <TableRow><TableCell colspan={14} class="usage-empty-cell">{copy.sections.recent.empty}</TableCell></TableRow>
                         {:else}
                             {#each recentFacts as fact}
                                 <TableRow>
@@ -799,21 +1067,21 @@
         {#if traceLoading}
             <span class="usage-footbar-status-line">
                 <span class="usage-pulse-dot usage-pulse-dot-loading"></span>
-                Trace 数据同步中...
+                {copy.footbar.syncing}
             </span>
         {:else if traceStats}
             <span class="settings-footbar-ok usage-footbar-status-line">
                 <span class="usage-pulse-dot usage-pulse-dot-ready"></span>
-                Trace 数据已就绪
+                {copy.footbar.ready}
             </span>
         {/if}
     </div>
     <div class="usage-footbar-refresh-line">
         <Button variant="outline" size="sm" onclick={loadTrace} disabled={traceLoading} class="usage-footbar-refresh-btn">
             {#if traceLoading}
-                同步中
+                {copy.footbar.btnSyncing}
             {:else}
-                立即刷新
+                {copy.footbar.btnRefresh}
             {/if}
         </Button>
     </div>

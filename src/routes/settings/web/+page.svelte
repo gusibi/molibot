@@ -8,6 +8,7 @@
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { Textarea } from "$lib/components/ui/textarea";
+  import { locale } from "$lib/ui/i18n";
 
   interface AgentItem {
     id: string;
@@ -27,6 +28,93 @@
 
   const profileFileNames = ["BOT.md", "SOUL.md", "IDENTITY.md", "SONG.md"];
 
+  const COPY = {
+    "zh-CN": {
+      eyebrow: "Web 运行环境",
+      profilesCount: "个 Profile",
+      title: "Web Profiles",
+      desc: "配置 Web 运行时 Profile，关联 Agent，并直接编辑 Profile 级的 Markdown 覆盖文件。",
+      loading: "正在加载 Web 设置...",
+      profilesTitle: "Profiles",
+      listDesc: "个已配置",
+      addBtn: "添加",
+      statusOn: "启用",
+      statusOff: "禁用",
+      configTitle: "Profile 配置",
+      configDesc: "设置 Profile ID、显示名称、启用状态以及关联的 Agent。",
+      removeBtn: "删除",
+      idLabel: "Profile ID",
+      nameLabel: "Profile 名称",
+      idLocked: "创建后 Profile ID 将被锁定，以保持工作区路径和引用稳定。",
+      enableLabel: "启用该 Profile 实例",
+      enableDesc: "禁用的 Profile 将保留但无法在运行时选择。",
+      sandboxLabel: "沙箱覆盖",
+      sandboxDesc: "覆盖此 Profile 的全局沙箱设置。留空则继承全局设置。",
+      forceOn: "强制开启",
+      forceOff: "强制关闭",
+      resetBtn: "重置",
+      linkedAgentLabel: "关联 Agent",
+      noAgentFallback: "无 Agent（仅使用全局兜底）",
+      overridesTitle: "Profile Markdown 覆盖文件",
+      overridesDesc: "文件将保存为包含元数据头部的真实 Markdown 文档。留空则删除覆盖文件。",
+      editText: "在此编辑",
+      noProfileSelected: "未选择 Profile",
+      noProfileSelectedDesc: "创建一个 Profile 来配置 Web 运行时。",
+      addProfileBtn: "添加 Profile",
+      saving: "保存中...",
+      savingMsg: "正在保存变更...",
+      saveBtn: "保存 Web 设置",
+      confirmDelete: "确认删除 Web Profile 吗？此操作无法撤销。",
+      unsavedConfirm: "当前 Profile 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Profile。",
+      failedLoad: "加载配置失败",
+      failedSave: "保存 Web Profile 失败",
+      failedSaveFiles: "保存配置文件失败",
+      savedSuccess: "已保存 Profile："
+    },
+    "en-US": {
+      eyebrow: "Web Runtime",
+      profilesCount: "profiles",
+      title: "Web Profiles",
+      desc: "Configure web runtime profiles, link agents, and edit profile-level Markdown overrides.",
+      loading: "Loading Web settings...",
+      profilesTitle: "Profiles",
+      listDesc: "configured",
+      addBtn: "Add",
+      statusOn: "On",
+      statusOff: "Off",
+      configTitle: "Profile Configuration",
+      configDesc: "Profile ID, display name, enabled state, and linked agent.",
+      removeBtn: "Remove",
+      idLabel: "Profile ID",
+      nameLabel: "Profile Name",
+      idLocked: "Profile ID is locked after creation to keep workspace paths and references stable.",
+      enableLabel: "Enable this profile instance",
+      enableDesc: "Disabled profiles stay saved but are not selectable at runtime.",
+      sandboxLabel: "Sandbox override",
+      sandboxDesc: "Override the global sandbox setting for this profile. Leave unchecked to inherit.",
+      forceOn: "Force ON",
+      forceOff: "Force OFF",
+      resetBtn: "Reset",
+      linkedAgentLabel: "Linked Agent",
+      noAgentFallback: "No agent (global fallback only)",
+      overridesTitle: "Profile Markdown Overrides",
+      overridesDesc: "Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.",
+      editText: "Edit",
+      noProfileSelected: "No profile selected",
+      noProfileSelectedDesc: "Create a profile to configure the Web runtime.",
+      addProfileBtn: "Add Profile",
+      saving: "Saving...",
+      savingMsg: "Saving changes...",
+      saveBtn: "Save Web Settings",
+      confirmDelete: "Delete web profile? This cannot be undone.",
+      unsavedConfirm: "Current Profile has unsaved changes. Click 'OK' to save and switch, or 'Cancel' to stay on this Profile.",
+      failedLoad: "Failed to load settings",
+      failedSave: "Failed to save Web profiles",
+      failedSaveFiles: "Failed to save profile files",
+      savedSuccess: "Saved profile: "
+    }
+  } as const;
+
   let loading = true;
   let saving = false;
   let message = "";
@@ -36,6 +124,8 @@
   let agents: AgentItem[] = [];
   let selectedProfileId = "";
   let savedSnapshots: Record<string, string> = {};
+
+  $: copy = COPY[$locale] ?? COPY["en-US"];
 
   function createProfileId(): string {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -94,7 +184,7 @@
     try {
       const res = await fetch("/api/settings");
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Failed to load settings");
+      if (!data.ok) throw new Error(data.error || copy.failedLoad);
 
       agents = Array.isArray(data.settings?.agents) ? data.settings.agents : [];
       const fromList = Array.isArray(data.settings?.channels?.web?.instances)
@@ -150,7 +240,7 @@
     const dirty = profileSnapshot(current) !== baseline;
     if (!dirty) return true;
     if (typeof window === "undefined") return false;
-    const shouldSave = window.confirm("当前 Profile 有未保存变更。点击“确定”先保存并切换，点击“取消”留在当前 Profile。");
+    const shouldSave = window.confirm(copy.unsavedConfirm);
     if (!shouldSave) return false;
     return save();
   }
@@ -178,7 +268,7 @@
     const confirmed =
       typeof window === "undefined"
         ? true
-        : window.confirm(`Delete web profile "${profileId}"? This cannot be undone.`);
+        : window.confirm(copy.confirmDelete.replace("{profileId}", profileId));
     if (!confirmed) return;
 
     const target = profiles.find((profile) => profile.id === profileId);
@@ -240,7 +330,7 @@
         })
       });
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Failed to save Web profiles");
+      if (!data.ok) throw new Error(data.error || copy.failedSave);
 
       const fileRes = await fetch("/api/settings/profile-files", {
         method: "PUT",
@@ -253,7 +343,7 @@
         })
       });
       const fileData = await fileRes.json();
-      if (!fileData.ok) throw new Error(fileData.error || `Failed to save profile files for ${normalized.id}`);
+      if (!fileData.ok) throw new Error(fileData.error || copy.failedSaveFiles);
 
       profiles = profiles.map((profile) => {
         if (profile.id !== selected.id) return profile;
@@ -270,7 +360,7 @@
         [normalized.id]: profileSnapshot({ ...normalized, isNew: false })
       };
 
-      message = `Saved profile: ${normalized.name || normalized.id}`;
+      message = `${copy.savedSuccess}${normalized.name || normalized.id}`;
       return true;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -290,26 +380,26 @@
 
 <div class="channel-page">
   <header class="channel-hero">
-    <span class="channel-badge">Web Runtime</span>
-    <span class="channel-badge">{profiles.length} profiles</span>
-    <h1 class="channel-hero-title">Web Profiles</h1>
+    <span class="channel-badge">{copy.eyebrow}</span>
+    <span class="channel-badge">{profiles.length} {copy.profilesCount}</span>
+    <h1 class="channel-hero-title">{copy.title}</h1>
     <p class="channel-hero-desc">
-      Configure web runtime profiles, link agents, and edit profile-level Markdown overrides.
+      {copy.desc}
     </p>
   </header>
 
   {#if loading}
-    <div class="channel-loading">Loading Web settings...</div>
+    <div class="channel-loading">{copy.loading}</div>
   {:else}
     <div class="channel-master-detail">
       <div class="channel-card">
         <div class="channel-card-header">
           <div>
-            <h2 class="channel-card-title">Profiles</h2>
-            <p class="channel-card-desc">{profiles.length} configured</p>
+            <h2 class="channel-card-title">{copy.profilesTitle}</h2>
+            <p class="channel-card-desc">{profiles.length} {copy.listDesc}</p>
           </div>
           <Button variant="outline" size="sm" type="button" onclick={addProfile}>
-            Add
+            {copy.addBtn}
           </Button>
         </div>
         <div class="channel-card-body">
@@ -324,7 +414,7 @@
                 <span class="channel-sidebar-btn-id">{profile.id}</span>
               </span>
               <span class="channel-sidebar-badge {profile.enabled ? 'channel-sidebar-badge--on' : ''}">
-                {profile.enabled ? "On" : "Off"}
+                {profile.enabled ? copy.statusOn : copy.statusOff}
               </span>
             </button>
           {/each}
@@ -336,9 +426,9 @@
           <div class="channel-card">
             <div class="channel-card-header">
               <div>
-                <h2 class="channel-card-title">Profile Configuration</h2>
+                <h2 class="channel-card-title">{copy.configTitle}</h2>
                 <p class="channel-card-desc">
-                  Profile ID, display name, enabled state, and linked agent.
+                  {copy.configDesc}
                 </p>
               </div>
               <Button
@@ -347,13 +437,13 @@
                 type="button"
                 onclick={() => removeProfile(selectedProfile.id)}
               >
-                Remove
+                {copy.removeBtn}
               </Button>
             </div>
             <div class="channel-card-body">
               <div class="channel-field-row">
                 <div class="channel-field">
-                  <Label for="web-profile-id">Profile ID</Label>
+                  <Label for="web-profile-id">{copy.idLabel}</Label>
                   <Input
                     id="web-profile-id"
                     bind:value={selectedProfile.id}
@@ -362,7 +452,7 @@
                   />
                 </div>
                 <div class="channel-field">
-                  <Label for="web-profile-name">Profile Name</Label>
+                  <Label for="web-profile-name">{copy.nameLabel}</Label>
                   <Input
                     id="web-profile-name"
                     bind:value={selectedProfile.name}
@@ -373,27 +463,27 @@
 
               {#if !selectedProfile.isNew}
                 <p class="channel-hint">
-                  Profile ID is locked after creation to keep workspace paths and references stable.
+                  {copy.idLocked}
                 </p>
               {/if}
 
               <div class="channel-toggle-row">
                 <div class="channel-toggle-label">
-                  <Label for="web-profile-enabled">Enable this profile instance</Label>
-                  <p>Disabled profiles stay saved but are not selectable at runtime.</p>
+                  <Label for="web-profile-enabled">{copy.enableLabel}</Label>
+                  <p>{copy.enableDesc}</p>
                 </div>
                 <IosSwitch id="web-profile-enabled" bind:checked={selectedProfile.enabled} />
               </div>
 
               <div class="channel-toggle-row">
                 <div class="channel-toggle-label">
-                  <Label for="web-profile-sandbox">Sandbox override</Label>
-                  <p>Override the global sandbox setting for this profile. Leave unchecked to inherit.</p>
+                  <Label for="web-profile-sandbox">{copy.sandboxLabel}</Label>
+                  <p>{copy.sandboxDesc}</p>
                 </div>
                 <div class="channel-toggle-controls">
                   {#if selectedProfile.sandboxEnabled !== undefined}
                     <Badge variant={selectedProfile.sandboxEnabled ? "secondary" : "destructive"}>
-                      {selectedProfile.sandboxEnabled ? "Force ON" : "Force OFF"}
+                      {selectedProfile.sandboxEnabled ? copy.forceOn : copy.forceOff}
                     </Badge>
                   {/if}
                   <IosSwitch
@@ -411,16 +501,16 @@
                   />
                   {#if selectedProfile.sandboxEnabled !== undefined}
                     <Button variant="ghost" size="sm" type="button" onclick={() => { selectedProfile.sandboxEnabled = undefined; }}>
-                      Reset
+                      {copy.resetBtn}
                     </Button>
                   {/if}
                 </div>
               </div>
 
               <div class="channel-field">
-                <Label for="web-profile-agent">Linked Agent</Label>
+                <Label for="web-profile-agent">{copy.linkedAgentLabel}</Label>
                 <NativeSelect id="web-profile-agent" bind:value={selectedProfile.agentId}>
-                  <NativeSelectOption value="">No agent (global fallback only)</NativeSelectOption>
+                  <NativeSelectOption value="">{copy.noAgentFallback}</NativeSelectOption>
                   {#each agents.filter((agent) => agent.enabled) as agent (agent.id)}
                     <NativeSelectOption value={agent.id}>{agent.name || agent.id}</NativeSelectOption>
                   {/each}
@@ -432,9 +522,9 @@
           <div class="channel-card">
             <div class="channel-card-header">
               <div>
-                <h2 class="channel-card-title">Profile Markdown Overrides</h2>
+                <h2 class="channel-card-title">{copy.overridesTitle}</h2>
                 <p class="channel-card-desc">
-                  Files are saved as real Markdown documents with metadata headers. Leave empty to remove the override.
+                  {copy.overridesDesc}
                 </p>
               </div>
             </div>
@@ -447,7 +537,7 @@
                       id={`web-profile-${fileName}`}
                       class="channel-textarea"
                       bind:value={selectedProfile.profileFiles[fileName]}
-                      placeholder={`Edit ${fileName} here`}
+                      placeholder={`${copy.editText} ${fileName}`}
                     />
                   </div>
                 </details>
@@ -459,12 +549,12 @@
         <div class="channel-card">
           <div class="channel-card-header">
             <div>
-              <h2 class="channel-card-title">No profile selected</h2>
-              <p class="channel-card-desc">Create a profile to configure the Web runtime.</p>
+              <h2 class="channel-card-title">{copy.noProfileSelected}</h2>
+              <p class="channel-card-desc">{copy.noProfileSelectedDesc}</p>
             </div>
           </div>
           <Button variant="outline" type="button" onclick={addProfile}>
-            Add Profile
+            {copy.addProfileBtn}
           </Button>
         </div>
       {/if}
@@ -477,7 +567,7 @@
     {#if saving}
       <span class="settings-footbar-saving">
         <span class="settings-footbar-pulse"></span>
-        Saving changes...
+        {copy.saving}
       </span>
     {:else if message}
       <span class="settings-footbar-ok">{message}</span>
@@ -488,10 +578,10 @@
   </div>
   <div class="settings-footbar-actions">
     <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>
-      Reset
+      {copy.resetBtn}
     </Button>
     <button type="submit" form="channel-form" class="settings-footbar-btn" disabled={loading || saving}>
-      {saving ? "Saving..." : "Save Web Settings"}
+      {saving ? copy.saving : copy.saveBtn}
     </button>
   </div>
 </footer>

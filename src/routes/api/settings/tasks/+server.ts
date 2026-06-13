@@ -28,6 +28,7 @@ interface RawEventTask {
   at?: string;
   schedule?: string;
   timezone?: string;
+  sessionMode?: string;
   status?: EventStatus;
 }
 
@@ -49,6 +50,7 @@ interface TaskItem {
   runCount: number;
   completedAt: string;
   lastTriggeredAt: string;
+  sessionMode: string;
   updatedAt: string;
   createdAt: string;
 }
@@ -69,6 +71,7 @@ interface TaskUpdatePatch {
   at?: string;
   schedule?: string;
   timezone?: string;
+  sessionMode?: string;
 }
 
 interface TaskUpdateBody {
@@ -120,6 +123,7 @@ function toTaskItem(
     text: String(raw.text ?? "").trim(),
     scheduleText,
     timezone: String(raw.timezone ?? "").trim(),
+    sessionMode: String(raw.sessionMode ?? "").trim(),
     status,
     statusReason: String(raw.status?.reason ?? "").trim(),
     lastError: String(raw.status?.lastError ?? "").trim(),
@@ -359,6 +363,18 @@ export const POST: RequestHandler = async ({ request }) => {
           return json({ ok: false, error: "timezone cannot be empty for periodic task" }, { status: 400 });
         }
         next.timezone = timezone;
+      }
+    }
+
+    if (patch.sessionMode !== undefined) {
+      const sm = String(patch.sessionMode ?? "").trim().toLowerCase();
+      if (sm !== "" && sm !== "fresh" && sm !== "chat") {
+        return json({ ok: false, error: "sessionMode must be fresh or chat" }, { status: 400 });
+      }
+      if (sm === "") {
+        delete next.sessionMode;
+      } else {
+        next.sessionMode = sm;
       }
     }
 

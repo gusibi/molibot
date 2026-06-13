@@ -4,7 +4,8 @@
   import { Button } from "$lib/components/ui/button";
   import { Label } from "$lib/components/ui/label";
   import { Textarea } from "$lib/components/ui/textarea";
-  import { Switch } from "$lib/components/ui/switch";
+  import { IosSwitch } from "$lib/components/ui/ios-switch";
+  import { locale } from "$lib/ui/i18n";
 
   type McpServerDraft = {
     id: string;
@@ -13,6 +14,59 @@
     type: "stdio" | "http";
     url?: string;
     command?: string;
+  };
+
+  const COPY = {
+    "zh-CN": {
+      eyebrow: "Tooling Surface",
+      title: "MCP 服务",
+      desc: "配置您的 Model Context Protocol (MCP) 服务。在下方输入包含服务定义的 JSON 块，支持嵌套的 mcpServers 结构或扁平的对象映射。",
+      loadingText: "正在加载 MCP 设置...",
+      configTitle: "MCP 配置",
+      configDesc: "以 JSON 格式定义标准的 stdio 或 http MCP 服务",
+      btnReset: "重置",
+      btnParse: "格式化并解析",
+      jsonSchemaLabel: "MCP JSON 配置内容",
+      activeTitle: "活动服务",
+      activeDesc: "已解析并配置的工具概要",
+      parsedCount: "{count} 已解析",
+      emptyState: "尚未配置解析的 MCP 服务。",
+      statusActive: "启用",
+      statusOff: "禁用",
+      missingUrl: "(缺失 URL)",
+      missingCommand: "(缺失 command)",
+      savingText: "正在保存修改...",
+      saveBtn: "保存 MCP 设置",
+      savingBtn: "正在保存...",
+      loadedMsg: "已加载 {count} 个 MCP 服务。",
+      parsedMsg: "已解析 {count} 个 MCP 服务。",
+      savedMsg: "MCP 设置保存成功。"
+    },
+    "en-US": {
+      eyebrow: "Tooling Surface",
+      title: "MCP Servers",
+      desc: "Configure your Model Context Protocol (MCP) servers. Paste one JSON block containing your server definitions; we support both nested mcpServers layout or a flat object map.",
+      loadingText: "Loading MCP settings...",
+      configTitle: "MCP Configuration",
+      configDesc: "Define standard stdio or http MCP servers in JSON format",
+      btnReset: "Reset",
+      btnParse: "Format & Parse",
+      jsonSchemaLabel: "MCP JSON Schema",
+      activeTitle: "Active Servers",
+      activeDesc: "Summary of parsed and configured tools",
+      parsedCount: "{count} parsed",
+      emptyState: "No parsed MCP servers configured yet.",
+      statusActive: "Active",
+      statusOff: "Off",
+      missingUrl: "(missing url)",
+      missingCommand: "(missing command)",
+      savingText: "Saving changes...",
+      saveBtn: "Save MCP Settings",
+      savingBtn: "Saving...",
+      loadedMsg: "Loaded {count} MCP server(s).",
+      parsedMsg: "Parsed {count} MCP server(s).",
+      savedMsg: "MCP settings saved."
+    }
   };
 
   let loading = true;
@@ -29,6 +83,8 @@
     }
   }
 }`;
+
+  $: copy = COPY[$locale] ?? COPY["en-US"];
 
   function toMap(input: unknown): Record<string, unknown> {
     if (!input || typeof input !== "object") return {};
@@ -100,7 +156,7 @@
       const parsed = JSON.parse(rawJson) as unknown;
       const map = normalizePayload(parsed);
       servers = extractServers(map);
-      message = `Parsed ${servers.length} MCP server(s).`;
+      message = copy.parsedMsg.replace("{count}", String(servers.length));
       rawJson = formatMcpJson(map);
     } catch (e) {
       servers = [];
@@ -119,7 +175,7 @@
       const map = normalizePayload(data.settings?.mcpServers ?? {});
       servers = extractServers(map);
       rawJson = formatMcpJson(map);
-      message = `Loaded ${servers.length} MCP server(s).`;
+      message = copy.loadedMsg.replace("{count}", String(servers.length));
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       rawJson = "{\n  \"mcpServers\": {}\n}";
@@ -151,7 +207,7 @@
       const map = normalizePayload(data.settings?.mcpServers ?? payload);
       servers = extractServers(map);
       rawJson = formatMcpJson(map);
-      message = "MCP settings saved.";
+      message = copy.savedMsg;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -165,10 +221,10 @@
 <div class="mcp-page">
   <!-- Hero Header -->
   <header class="mcp-hero">
-    <span class="mcp-badge">Tooling Surface</span>
-    <h1 class="mcp-hero-title">MCP Servers</h1>
+    <span class="mcp-badge">{copy.eyebrow}</span>
+    <h1 class="mcp-hero-title">{copy.title}</h1>
     <p class="mcp-hero-desc">
-      Configure your Model Context Protocol (MCP) servers. Paste one JSON block containing your server definitions; we support both nested <code>mcpServers</code> layout or a flat object map.
+      {copy.desc}
     </p>
   </header>
 
@@ -178,7 +234,7 @@
 
   {#if loading}
     <div class="mcp-empty-state">
-      <span class="animate-pulse">Loading MCP settings...</span>
+      <span class="animate-pulse">{copy.loadingText}</span>
     </div>
   {:else}
     <form id="mcp-form" class="mcp-form" onsubmit={(e) => { e.preventDefault(); save(); }}>
@@ -186,17 +242,17 @@
       <section class="mcp-card">
         <div class="mcp-card-header">
           <div>
-            <h2 class="mcp-card-title">MCP Configuration</h2>
-            <p class="mcp-card-desc">Define standard stdio or http MCP servers in JSON format</p>
+            <h2 class="mcp-card-title">{copy.configTitle}</h2>
+            <p class="mcp-card-desc">{copy.configDesc}</p>
           </div>
           <div class="mcp-card-header-actions">
-            <Button type="button" variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>Reset</Button>
-            <Button type="button" variant="outline" size="sm" onclick={parseRawJson} disabled={loading || saving}>Format & Parse</Button>
+            <Button type="button" variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>{copy.btnReset}</Button>
+            <Button type="button" variant="outline" size="sm" onclick={parseRawJson} disabled={loading || saving}>{copy.btnParse}</Button>
           </div>
         </div>
 
         <div class="mcp-textarea-wrapper">
-          <Label for="mcp-json" class="mcp-textarea-label">MCP JSON Schema</Label>
+          <Label for="mcp-json" class="mcp-textarea-label">{copy.jsonSchemaLabel}</Label>
           <Textarea
             id="mcp-json"
             class="mcp-prompt-editor"
@@ -210,14 +266,14 @@
       <section class="mcp-card">
         <div class="mcp-card-header">
           <div>
-            <h2 class="mcp-card-title">Active Servers</h2>
-            <p class="mcp-card-desc">Summary of parsed and configured tools</p>
+            <h2 class="mcp-card-title">{copy.activeTitle}</h2>
+            <p class="mcp-card-desc">{copy.activeDesc}</p>
           </div>
-          <span class="mcp-pill">{servers.length} parsed</span>
+          <span class="mcp-pill">{copy.parsedCount.replace("{count}", String(servers.length))}</span>
         </div>
 
         {#if servers.length === 0}
-          <div class="mcp-empty-state">No parsed MCP servers configured yet.</div>
+          <div class="mcp-empty-state">{copy.emptyState}</div>
         {:else}
           <div class="mcp-grid">
             {#each servers as item}
@@ -227,17 +283,17 @@
                   <div class="mcp-server-meta">
                     <span class="mcp-pill">{item.type}</span>
                     <span class="mcp-server-detail">
-                      {item.type === "http" ? (item.url || "(missing url)") : (item.command || "(missing command)")}
+                      {item.type === "http" ? (item.url || copy.missingUrl) : (item.command || copy.missingCommand)}
                     </span>
                   </div>
                 </div>
                 <div class="mcp-server-toggle">
                   <span class="mcp-toggle-label" data-tone={item.enabled ? 'success' : 'default'}>
-                    {item.enabled ? "Active" : "Off"}
+                    {item.enabled ? copy.statusActive : copy.statusOff}
                   </span>
-                  <Switch
+                  <IosSwitch
                     bind:checked={item.enabled}
-                    onchange={syncToggleToRawJson}
+                    onCheckedChange={syncToggleToRawJson}
                   />
                 </div>
               </div>
@@ -255,7 +311,7 @@
     {#if saving}
       <span class="settings-footbar-saving">
         <span class="settings-footbar-pulse"></span>
-        Saving changes...
+        {copy.savingText}
       </span>
     {:else if message}
       <span class="settings-footbar-ok">{message}</span>
@@ -266,13 +322,10 @@
   </div>
   <div class="settings-footbar-actions">
     <Button variant="outline" size="sm" onclick={loadSettings} disabled={loading || saving}>
-      Reset
+      {copy.btnReset}
     </Button>
     <button type="submit" form="mcp-form" class="settings-footbar-btn" disabled={loading || saving}>
-      {saving ? "Saving..." : "Save MCP Settings"}
+      {saving ? copy.savingText : copy.saveBtn}
     </button>
   </div>
 </footer>
-
-
-

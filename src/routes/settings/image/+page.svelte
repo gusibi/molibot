@@ -85,11 +85,15 @@
       taskDetailsTitle: "记录详情",
       taskIdLabel: "任务 ID",
       imagePathLabel: "保存路径",
+      imageUrlLabel: "图片链接",
+      errorLabel: "错误信息",
       requestParamsLabel: "请求参数",
       downloadImage: "下载图片",
       close: "关闭",
       viewResult: "查看结果",
-      viewParams: "查看参数"
+      viewParams: "查看参数",
+      loadingText: "正在加载设置...",
+      savingText: "正在保存修改..."
     },
     "en-US": {
       title: "Image Generation",
@@ -136,11 +140,15 @@
       taskDetailsTitle: "Generation Details",
       taskIdLabel: "Task ID",
       imagePathLabel: "Image Path",
+      imageUrlLabel: "Image URL",
+      errorLabel: "Error",
       requestParamsLabel: "Request Parameters",
       downloadImage: "Download Image",
       close: "Close",
       viewResult: "View Result",
-      viewParams: "View Params"
+      viewParams: "View Params",
+      loadingText: "Loading settings...",
+      savingText: "Saving changes..."
     }
   };
 
@@ -336,7 +344,7 @@
   </header>
 
   {#if loading}
-    <p class="py-8 text-sm text-muted-foreground">Loading settings...</p>
+    <p class="py-8 text-sm text-muted-foreground">{t("loadingText")}</p>
   {:else}
     <form id="image-form" class="space-y-5" onsubmit={(event) => { event.preventDefault(); save(); }}>
       <Card>
@@ -483,7 +491,7 @@
                 {#each tasks as task}
                   <TableRow>
                     <TableCell class="font-mono text-xs text-muted-foreground">
-                      {new Date(task.createdAt).toLocaleString(undefined, { hour12: false })}
+                      {new Date(task.createdAt).toLocaleString($locale === "zh-CN" ? "zh-CN" : "en-US", { hour12: false })}
                     </TableCell>
                     <TableCell class="font-mono text-xs text-muted-foreground select-all" title={task.id}>
                       {task.id.slice(0, 8)}...
@@ -504,7 +512,7 @@
                       {/if}
                       {#if task.errorMessage}
                         <p class="mt-1 max-w-[200px] truncate text-xs text-destructive" title={task.errorMessage}>
-                          {task.errorMessage}
+                           {task.errorMessage}
                         </p>
                       {/if}
                     </TableCell>
@@ -604,13 +612,13 @@
             </div>
           {:else if activeTaskDetails.imageUrl}
             <div class="grid grid-cols-[100px_1fr] gap-2">
-              <span class="text-muted-foreground">Image URL:</span>
+              <span class="text-muted-foreground">{t("imageUrlLabel")}:</span>
               <span class="font-mono text-xs select-all break-all text-muted-foreground">{activeTaskDetails.imageUrl}</span>
             </div>
           {/if}
           {#if activeTaskDetails.errorMessage}
             <div class="grid grid-cols-[100px_1fr] gap-2">
-              <span class="text-muted-foreground">Error:</span>
+              <span class="text-muted-foreground">{t("errorLabel")}:</span>
               <span class="text-destructive font-mono text-xs leading-5">{activeTaskDetails.errorMessage}</span>
             </div>
           {/if}
@@ -633,7 +641,7 @@
   <div class="settings-footbar-status">
     {#if saving}
       <span class="flex items-center gap-2 text-xs font-medium text-muted-foreground animate-pulse">
-        Saving changes...
+        {t("savingText")}
       </span>
     {:else if message}
       <span class="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-500">
@@ -651,4 +659,3 @@
     </Button>
   </div>
 </footer>
-

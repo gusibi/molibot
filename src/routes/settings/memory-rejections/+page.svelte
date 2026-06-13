@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
+  import { locale } from "$lib/ui/i18n";
 
   interface RejectionItem {
     createdAt: string;
@@ -22,6 +22,41 @@
     update: number;
   }
 
+  const COPY = {
+    "zh-CN": {
+      eyebrow: "记忆治理",
+      title: "记忆拒绝记录",
+      desc: "审查哪些记忆写入被阻止及其原因。",
+      placeholderSearch: "搜索原因或内容...",
+      btnRefresh: "刷新",
+      loading: "正在加载记忆拒绝记录...",
+      recordsTitle: "拒绝记录",
+      recordsDesc: "拦截的写入：总数：{total} | 新增：{add} | 更新：{update}",
+      noRecords: "未找到被拦截的记忆写入。",
+      reasonLabel: "原因：",
+      emptyContent: "(空)",
+      tagsLabel: "标签：",
+      failedLoad: "加载记忆拒绝记录失败",
+      loadedMsg: "已加载 {count} 条被拒绝的记忆写入。"
+    },
+    "en-US": {
+      eyebrow: "Memory Governance",
+      title: "Memory Rejections",
+      desc: "Review which memory writes were blocked and why.",
+      placeholderSearch: "Search reason or content...",
+      btnRefresh: "Refresh",
+      loading: "Loading memory rejections...",
+      recordsTitle: "Rejection Records",
+      recordsDesc: "Blocked writes: Total: {total} | Add: {add} | Update: {update}",
+      noRecords: "No blocked memory writes found.",
+      reasonLabel: "Reason: ",
+      emptyContent: "(empty)",
+      tagsLabel: "Tags: ",
+      failedLoad: "Failed to load memory rejections",
+      loadedMsg: "Loaded {count} rejected memory write(s)."
+    }
+  } as const;
+
   let loading = true;
   let error = "";
   let message = "";
@@ -30,11 +65,13 @@
   let counts: Counts = { total: 0, add: 0, update: 0 };
   let searchText = "";
 
+  $: copy = COPY[$locale] ?? COPY["en-US"];
+
   function formatDate(value: string): string {
     if (!value) return "-";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString("zh-CN", {
+    return date.toLocaleString($locale === "zh-CN" ? "zh-CN" : "en-US", {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -63,7 +100,7 @@
     try {
       const res = await fetch("/api/settings/memory-rejections");
       const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Failed to load memory rejections");
+      if (!data.ok) throw new Error(data.error || copy.failedLoad);
       items = Array.isArray(data.items) ? data.items : [];
       diagnostics = Array.isArray(data.diagnostics) ? data.diagnostics : [];
       counts = {
@@ -71,7 +108,7 @@
         add: Number(data.counts?.add ?? 0),
         update: Number(data.counts?.update ?? 0)
       };
-      message = `Loaded ${items.length} rejected memory write(s).`;
+      message = copy.loadedMsg.replace("{count}", String(items.length));
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -82,70 +119,93 @@
   onMount(loadRejections);
 </script>
 
-<div class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 sm:px-10 sm:py-10">
-  <header class="flex flex-col gap-3">
-    <Badge variant="secondary" class="w-fit">Memory Governance</Badge>
-    <div class="flex max-w-3xl flex-col gap-2">
-      <h1 class="text-3xl font-semibold tracking-tight text-foreground">Memory Rejections</h1>
-      <p class="text-sm leading-6 text-muted-foreground">Review which memory writes were blocked and why.</p>
-    </div>
+<div class="channel-page">
+  <header class="channel-hero">
+    <span class="channel-badge">{copy.eyebrow}</span>
+    <h1 class="channel-hero-title">{copy.title}</h1>
+    <p class="channel-hero-desc">{copy.desc}</p>
   </header>
 
-  <div class="flex flex-wrap items-center gap-2">
-    <Input class="max-w-xs" bind:value={searchText} placeholder="Search reason or content..." />
-    <Button variant="outline" onclick={loadRejections}>Refresh</Button>
+  <div class="channel-card">
+    <div class="channel-card-body">
+      <div class="channel-field-row" style="grid-template-columns: 2fr 1fr; gap: 0.75rem; align-items: center;">
+        <div class="channel-field">
+          <Input bind:value={searchText} placeholder={copy.placeholderSearch} />
+        </div>
+        <Button variant="outline" onclick={loadRejections}>{copy.btnRefresh}</Button>
+      </div>
+    </div>
   </div>
 
-  {#if message}
-    <Alert variant="default"><AlertDescription>{message}</AlertDescription></Alert>
-  {/if}
-  {#if error}
-    <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
+  {#if message || error}
+    <div class="channel-card" style="padding: 1rem;">
+      <div class="channel-card-body" style="gap: 0.5rem;">
+        {#if message}
+          <div class="settings-footbar-ok">{message}</div>
+        {/if}
+        {#if error}
+          <div class="settings-footbar-error">{error}</div>
+        {/if}
+      </div>
+    </div>
   {/if}
 
   {#if loading}
-    <p class="py-8 text-sm text-muted-foreground">Loading memory rejections...</p>
+    <div class="channel-loading">{copy.loading}</div>
   {:else}
-    <div class="flex flex-wrap gap-3 text-sm">
-      <Badge variant="outline">Total: {counts.total}</Badge>
-      <Badge variant="outline">Add blocked: {counts.add}</Badge>
-      <Badge variant="outline">Update blocked: {counts.update}</Badge>
-    </div>
-
-    {#if diagnostics.length > 0}
-      <Alert variant="default"><AlertDescription class="whitespace-pre-wrap">{diagnostics.join("\n")}</AlertDescription></Alert>
-    {/if}
-
-    {#if filteredItems().length === 0}
-      <div class="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-        No blocked memory writes found.
+    <div class="channel-card">
+      <div class="channel-card-header">
+        <div>
+          <h2 class="channel-card-title">{copy.recordsTitle}</h2>
+          <p class="channel-card-desc">
+            {copy.recordsDesc.replace("{total}", String(counts.total)).replace("{add}", String(counts.add)).replace("{update}", String(counts.update))}
+          </p>
+        </div>
       </div>
-    {:else}
-      <div class="space-y-4">
-        {#each filteredItems() as item}
-          <article class="rounded-2xl border bg-card/60 p-5 text-sm">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <Badge variant="destructive">{item.action}</Badge>
-                  <span class="text-sm font-semibold text-foreground">{item.channel}:{item.externalUserId}</span>
-                  {#if item.layer}
-                    <Badge variant="outline">{item.layer}</Badge>
-                  {/if}
+      <div class="channel-card-body" style="gap: 1.5rem;">
+        {#if diagnostics.length > 0}
+          <div class="channel-hint" style="background: var(--muted); padding: 0.75rem; border-radius: 6px; white-space: pre-wrap;">
+            {diagnostics.join("\n")}
+          </div>
+        {/if}
+        
+        {#if filteredItems().length === 0}
+          <div class="channel-hint">
+            {copy.noRecords}
+          </div>
+        {:else}
+          {#each filteredItems() as item}
+            <div class="channel-card" style="padding: 1rem; background: var(--muted-soft, color-mix(in oklab, var(--muted) 4%, transparent)); border-color: var(--border);">
+              <div class="channel-card-body">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <Badge variant="destructive">{item.action}</Badge>
+                    <span class="channel-sidebar-btn-name">{item.channel}:{item.externalUserId}</span>
+                    {#if item.layer}
+                      <Badge variant="outline">{item.layer}</Badge>
+                    {/if}
+                  </div>
+                  <span class="channel-sidebar-btn-id">{formatDate(item.createdAt)}</span>
                 </div>
-                <p class="mt-2 text-sm text-destructive">{item.reason}</p>
+
+                <div style="color: var(--destructive); font-size: 0.875rem; font-weight: 500;">
+                  {copy.reasonLabel}{item.reason}
+                </div>
+
+                <div class="channel-hint font-mono" style="background: var(--muted); padding: 0.75rem; border-radius: 6px; white-space: pre-wrap; color: var(--foreground);">
+                  {item.content || copy.emptyContent}
+                </div>
+
+                {#if item.tags.length > 0}
+                  <div class="channel-sidebar-btn-id">
+                    {copy.tagsLabel}{item.tags.join(", ")}
+                  </div>
+                {/if}
               </div>
-              <span class="text-xs text-muted-foreground">{formatDate(item.createdAt)}</span>
             </div>
-            <div class="mt-4 rounded-xl border bg-muted/40 p-3 text-sm text-foreground">
-              <p class="whitespace-pre-wrap">{item.content || "(empty)"}</p>
-            </div>
-            {#if item.tags.length > 0}
-              <p class="mt-3 text-xs text-muted-foreground">Tags: {item.tags.join(", ")}</p>
-            {/if}
-          </article>
-        {/each}
+          {/each}
+        {/if}
       </div>
-    {/if}
+    </div>
   {/if}
 </div>

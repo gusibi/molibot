@@ -2,6 +2,20 @@
 
 ## 2026-06-13
 
+### 导航栏图标优化与菜单名称展示切换 (Sidebar Emojis & Label Toggle)
+- **语义化 Emoji 图标**: 优化了设置中心左侧一级导航的 5 个图标，使用更直观、高频表达的 Emojis (`🏠`, `🤖`, `💬`, `💾`, `⚙️`) 替换了原来的抽象几何符号。
+- **名称展示切换开关**: 在一级导航底部添加了一个 `🏷️` (显示名称) 按钮，控制左侧边栏是否展开并显示各菜单组的文本名称（如 “总览”、“AI 引擎”、“渠道”等）。侧边栏展开宽度与底部固定保存栏的左侧定位均完美适配并自带过渡动画。状态保存在 `localStorage` 中，刷新页面亦可自动还原 operator 的选择。
+
+### 设置页面全面响应式多语言支持 (Complete Reactive i18n Overhaul for Settings)
+- **i18n 多语言架构升级**: 全面重构了 `/settings/` 目录下全部 24 个设置子页面，彻底移除了原本基于 MutationObserver 暴力 DOM 替换的 `localizeSettings` 机制。
+- **响应式 `COPY` 与 `$locale` 绑定**: 统一在 Svelte 组件的 script 块中定义中英双语 (`zh-CN` / `en-US`) 的 `COPY` 本地数据源，并通过导入 `$lib/ui/i18n` 的 `$locale` 存储实现完全响应式的模板绑定 (`{copy.title}`)。用户切换语言时，所有动态文本（包括 placeholders、KPI 描述、表格头部、下拉选项和弹窗详情）瞬间即时更新，且绝不产生闪烁或文案漏译。
+- **控件与底栏规范化**: 结合此前重构，对残留的开关控件统一升级为 `IosSwitch`，并规范使用固定的 `.settings-footbar` 底栏，确保在所有设置页面中均实现统一、专业、高水准的交互。
+
+### 设置页面设计系统风格与 iOS Switch 适配 (Settings Pages Design System & iOS Switch Overhaul)
+- **多页面统一风格重构**: 针对 `/settings/agents`, `/settings/memory`, `/settings/memory-rejections`, `/settings/skills`, `/settings/skill-drafts`, `/settings/run-history`, `/settings/tasks`, `/settings/host-bash`, `/settings/system`, `/settings/sandbox`, 和 `/settings/plugins` 11 个设置页面进行了全方位的风格重构，使用统一的 Warm Shadcn 布局和配色，弃用零散的 Tailwind 工具类，引入自定义 CSS 类名（`channel-page` 等），与已重构的 `/settings/web` 保持高度一致。
+- **iOS Switch 开关组件升级**: 在所有重构页面的开关配置处统一使用 `IosSwitch` 源码组件，替换原本的原生 checkbox 或非 iOS Switch 开关。
+- **粘性保存底栏适配**: 将所有带有配置保存/重置动作的页面（包括 Agents, Skills, Skill Drafts 等）的提交按钮和状态反馈信息，均迁移至固定于窗口底部的粘性底栏（`.settings-footbar`）中，确保无论表单多长用户都能随时一键保存。
+
 ### 定时任务 Fresh Session 与任务会话自动清理 (Scheduled Task Fresh Sessions & Auto Cleanup)
 - **事件级 `sessionMode`**: `MomEvent` 新增 `sessionMode: "fresh" | "chat"`。`fresh` 表示每次触发在全新 session 中运行（不携带聊天历史），`chat` 表示沿用聊天 active session（旧行为）。默认值：periodic → fresh，one-shot/immediate → chat（`resolveEventSessionMode`）。解决日报类周期任务的历史报告逐日累积、每次运行重复支付全部历史 input token 的问题。
 - **Fresh session 即 active session**: `MomRuntimeStore.beginTaskSession` 创建 `task-` 前缀的新 session 并切换为 active，任务报告发出后用户直接在聊天中回复即可微调——反馈自然落入该任务 session，生成上下文完整保留。下次任务触发时再开新 session，上一个自动归档。
