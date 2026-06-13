@@ -6,6 +6,12 @@ import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 
 export type SkillScope = "chat" | "global" | "bot";
 
+export interface SkillSignals {
+  cli: string[];
+  mcp: string[];
+  tools: string[];
+}
+
 export interface LoadedSkill {
   name: string;
   description: string;
@@ -14,6 +20,7 @@ export interface LoadedSkill {
   scope: SkillScope;
   mcpServers: string[];
   aliases: string[];
+  signals: SkillSignals;
 }
 
 export interface SkillLoadResult {
@@ -72,6 +79,54 @@ function parseStringList(raw: string | undefined): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return Array.from(new Set(values.map((item) => item.trim()).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function extractFrontmatterLines(content: string): string[] {
+  const match = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
+  return match?.[1]?.split(/\r?\n/) ?? [];
+}
+
+function parseNestedSignalLists(content: string): Partial<SkillSignals> {
+  const out: Partial<SkillSignals> = {};
+  const lines = extractFrontmatterLines(content);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!/^\s*signals\s*:\s*(?:#.*)?$/.test(line)) continue;
+    for (let nested = index + 1; nested < lines.length; nested += 1) {
+      const raw = lines[nested];
+      if (!raw.trim() || raw.trim().startsWith("#")) continue;
+      if (!/^\s+/.test(raw)) break;
+      const field = raw.match(/^\s+(cli|mcp|tools)\s*:\s*(.*)$/);
+      if (!field) continue;
+      const key = field[1] as keyof SkillSignals;
+      out[key] = parseStringList(field[2]);
+    }
+    break;
+  }
+  return out;
+}
+
+function parseSkillSignals(raw: string, fm: Record<string, string>): SkillSignals {
+  const nested = parseNestedSignalLists(raw);
+  return {
+    cli: uniqueSorted([
+      ...parseStringList(fm.signals_cli ?? fm.signal_cli),
+      ...(nested.cli ?? [])
+    ]),
+    mcp: uniqueSorted([
+      ...parseStringList(fm.signals_mcp ?? fm.signal_mcp),
+      ...(nested.mcp ?? [])
+    ]),
+    tools: uniqueSorted([
+      ...parseStringList(fm.signals_tools ?? fm.signal_tools),
+      ...(nested.tools ?? [])
+    ])
+  };
 }
 
 function buildSkillNameAliases(name: string): Set<string> {
@@ -269,7 +324,8 @@ export function loadSkillsFromWorkspace(
       aliases: Array.from(new Set([
         ...buildSkillAliases(name, filePath),
         ...buildFrontmatterAliases(fm.aliases)
-      ])).sort((a, b) => a.localeCompare(b))
+      ])).sort((a, b) => a.localeCompare(b)),
+      signals: parseSkillSignals(raw, fm)
     });
   }
 

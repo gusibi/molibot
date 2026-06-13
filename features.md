@@ -11,7 +11,12 @@
 ### Skill 使用追踪 Phase 2 (SkillSearch Candidate Tracking)
 - **候选触发追踪**: 当 `skillSearch` 成功返回 `details.matches` 时，runner 会对每个结构完整的匹配项发出 `skill.selected`，并标记 `reason: "search_match"`，让 trace 能记录“被检索命中的候选 skill”，即使模型后续没有读取对应 `SKILL.md`。
 - **防御式结果解析**: Phase 2 只读取 `context.result.details.matches`，并逐项校验 `name`、`scope`、`filePath` 为字符串；失败的 `skillSearch`、缺失 details、非数组 matches 或畸形 match 都会被忽略，不影响工具原始执行结果。
-- **语义边界**: `search_match` 只会形成 `payload.level: "triggered"` / `status: "info"` 的 `skill_usage` fact；如果同一 skill 后续已由 Phase 1 标记为 loaded，合并逻辑保持 loaded 不降级。Phase 3 的 executed 归因仍未开始。
+- **语义边界**: `search_match` 只会形成 `payload.level: "triggered"` / `status: "info"` 的 `skill_usage` fact；如果同一 skill 后续已由 Phase 1/3 标记为 loaded 或 executed，合并逻辑保持高置信度层级不降级。
+
+### Skill 使用追踪 Phase 3 (Heuristic Executed Evidence)
+- **可选 signals 元数据**: `SKILL.md` frontmatter 现在可声明 `signals`，支持 `cli`、`mcp`、`tools` 三类特征信号；实现同时兼容嵌套 `signals:` 写法和扁平 `signals_cli` / `signals_mcp` / `signals_tools` 字段。
+- **加载后执行证据归因**: Runner 只对同一 run 内已经 loaded 的 skill 做执行证据归因。成功的 bash/tool/MCP 调用命中声明信号时，会追加 `cli_signal` / `tool_signal` / `mcp_signal` evidence，并把 `skill_usage.payload.level` 单调升级到 `executed`。
+- **保守重叠处理**: 多个已 loaded skill 命中同一 signal 时，只归因给最近 loaded 的匹配 skill，避免一个工具调用同时污染多个 skill fact。executed 仍是启发式证据，不作为确定性执行证明。
 
 ### 导航栏图标优化与菜单名称展示切换 (Sidebar Emojis & Label Toggle)
 - **语义化 Emoji 图标**: 优化了设置中心左侧一级导航的 5 个图标，使用更直观、高频表达的 Emojis (`🏠`, `🤖`, `💬`, `💾`, `⚙️`) 替换了原来的抽象几何符号。

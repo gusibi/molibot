@@ -9,7 +9,7 @@
 |-------|-------|--------|
 | Phase 1 | Track implicit skill loading when the model reads a skill `SKILL.md` | Complete |
 | Phase 2 | Track `skillSearch` candidates as triggered skill facts | Complete |
-| Phase 3 | Attribute executed evidence from declared skill signals | Not started |
+| Phase 3 | Attribute executed evidence from declared skill signals | Complete |
 
 ## Phase 1 Checklist
 
@@ -39,13 +39,13 @@
 
 ## Phase 3 Checklist
 
-- [ ] Define optional `signals` metadata contract in `SKILL.md` frontmatter.
-- [ ] Parse supported signal types from loaded skills.
-- [ ] Attribute conservative post-load tool/bash evidence inside the same run.
-- [ ] Resolve overlapping signal ownership rules.
-- [ ] Emit or record `executed` evidence without presenting it as proof.
-- [ ] Add tests for conservative matching, overlap handling, and no false positives.
-- [ ] Update documentation and this checklist.
+- [x] Define optional `signals` metadata contract in `SKILL.md` frontmatter.
+- [x] Parse supported signal types from loaded skills.
+- [x] Attribute conservative post-load tool/bash evidence inside the same run.
+- [x] Resolve overlapping signal ownership rules.
+- [x] Emit or record `executed` evidence without presenting it as proof.
+- [x] Add tests for conservative matching, overlap handling, and no false positives.
+- [x] Update documentation and this checklist.
 
 ## Follow-up Notes
 
@@ -73,3 +73,18 @@
   - Full `tsc` remains blocked by existing repository errors; filtered check for touched implementation files produced no output.
   - `runner.test.ts` remains blocked by the existing Node test/tsx `?raw` loader issue documented in Phase 1.
 - Phase 2 implementation complete; remaining work is Phase 3.
+- Started Phase 3 implementation.
+- Implemented optional skill `signals` parsing for `cli`, `mcp`, and `tools` from nested `signals:` frontmatter and flat `signals_cli` / `signals_mcp` / `signals_tools` keys.
+- Added runner attribution for successful post-load tool calls:
+  - `cli` signals match successful `bash` command prefixes.
+  - `tools` signals match successful tool names.
+  - `mcp` signals match MCP server id/name/prefix from tool result details.
+- `read` is excluded from executed attribution because reading `SKILL.md` is already the loaded signal and should not also count as execution evidence.
+- Overlapping signal ownership is resolved conservatively by assigning the tool evidence to the most recently loaded matching skill in the same run.
+- Signal evidence emits a `skill.loaded` event with `reason: "cli_signal"`, `reason: "tool_signal"`, or `reason: "mcp_signal"`; `TraceRecorderHook` records those reasons as `payload.level: "executed"` while preserving `status: "success"` and accumulated `payload.evidenceCsv`.
+- Verification:
+  - Passed: `node --import tsx --test src/lib/server/agent/hooks/traceRecorderHook.test.ts`
+  - Passed: `node --import tsx --test --test-name-pattern "parses optional skill execution signals" src/lib/server/agent/skills/skills.test.ts`
+  - Existing failures remain in full `skills.test.ts`: an older locale assertion expects Chinese default text while current output is English, and the workspace whitelist test cannot write the configured SQLite database in this sandbox.
+  - Full `tsc` remains blocked by existing repository errors; filtered check for touched implementation files produced no output. Filtering tests still shows existing `runner.test.ts` provider model fixture errors for missing `enabled`.
+- Phase 3 implementation complete. Executed remains heuristic evidence, not proof of skill execution.

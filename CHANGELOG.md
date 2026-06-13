@@ -14,6 +14,11 @@
 - Search-only skill candidates are recorded as informational triggered facts, while already loaded skill facts remain loaded and are not downgraded.
 - Updated the skill usage tracking checklist to mark Phase 2 complete and keep executed attribution scoped to Phase 3.
 
+### Skill Usage Trace Phase 3
+- Skill frontmatter can now declare optional execution signals for `cli`, `mcp`, and `tools`, using either nested `signals:` metadata or flat `signals_cli` / `signals_mcp` / `signals_tools` fields.
+- Runner now attributes successful post-load bash/tool/MCP calls to the most recently loaded matching skill and upgrades the skill fact to `payload.level: executed` with `cli_signal`, `tool_signal`, or `mcp_signal` evidence.
+- Executed attribution is recorded as heuristic evidence only; triggered, loaded, and executed facts continue to merge monotonically through `payload.evidenceCsv`.
+
 ### Sidebar Emojis & Label Toggle
 - Upgraded the 5 abstract primary sidebar symbols to intuitive high-fidelity Emojis (`🏠`, `🤖`, `💬`, `💾`, `⚙️`).
 - Added a labels toggle button (`🏷️`) at the bottom of the sidebar to collapse/expand menu names alongside the icons.

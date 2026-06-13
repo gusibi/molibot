@@ -160,3 +160,51 @@ Phase 2 complete; Phase 3 not started.
 
 ## Remaining Risk
 - Runner-level Phase 2 test coverage was added but still cannot execute in the current Node test/tsx path because of the existing `?raw` markdown loader issue in `runner.test.ts`.
+
+---
+
+# Task Plan: Skill Usage Tracking Phase 3
+
+## Goal
+Implement Phase 3 of `docs/trace/skill-usage-tracking-plan.md`: record conservative executed evidence from optional skill-declared signals after a skill has been loaded in the same run.
+
+## Current Phase
+Phase 3 complete.
+
+## Phases
+
+### Phase 1: Signal Metadata
+- [x] Define optional `signals` metadata for `cli`, `mcp`, and `tools`.
+- [x] Parse nested `signals:` frontmatter and flat `signals_cli` / `signals_mcp` / `signals_tools` keys.
+- **Status:** complete
+
+### Phase 2: Runner Attribution
+- [x] Track loaded skills in runner state for the active run.
+- [x] Cache minimal tool signal context after gate/preflight/budget allow execution.
+- [x] Match successful post-load bash/tool/MCP calls against declared signals.
+- [x] Resolve overlapping matches by choosing the most recently loaded matching skill.
+- **Status:** complete
+
+### Phase 3: Trace Semantics
+- [x] Treat `cli_signal`, `tool_signal`, and `mcp_signal` as `executed` level evidence.
+- [x] Preserve monotonic merge and `evidenceCsv` accumulation.
+- [x] Keep executed attribution documented as heuristic evidence, not proof.
+- **Status:** complete
+
+### Phase 4: Tests And Documentation
+- [x] Add focused tests for signal parsing and executed-level merge.
+- [x] Add runner coverage for cli signal emission.
+- [x] Update progress checklist and project docs.
+- **Status:** complete
+
+## Decisions Made
+| Decision | Rationale |
+|----------|-----------|
+| Support nested and flat signal metadata | The existing frontmatter parser is intentionally lightweight; flat keys provide a simple fallback. |
+| Attribute only after a skill is loaded | Prevents search-only candidates from being upgraded by unrelated tools. |
+| Pick the most recently loaded matching skill | Avoids one tool call polluting multiple skill facts when signals overlap. |
+| Do not copy full bash commands into `skill_usage` payload | Tool facts already carry args previews; skill facts should keep only compact evidence metadata. |
+
+## Remaining Risk
+- Executed attribution is intentionally heuristic and can still be a false positive when the same tool/CLI is used for reasons unrelated to the loaded skill.
+- Runner-level Phase 3 test coverage was added but still cannot execute in the current Node test/tsx path because of the existing `?raw` markdown loader issue in `runner.test.ts`.

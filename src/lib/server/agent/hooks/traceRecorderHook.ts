@@ -338,7 +338,7 @@ export class TraceRecorderHook implements RuntimeHook {
     const key = factKey("skill_usage", factId);
     const runState = this.runState(event.context.runId, event.timestamp);
     const existing = runState.skillUsage.get(key);
-    const incomingLevel = this.skillLevelForEvent(event.stage);
+    const incomingLevel = this.skillLevelForEvent(event.stage, payload);
     const nextLevel = existing ? maxSkillLevel(existing.level, incomingLevel) : incomingLevel;
     const evidence = this.skillEvidenceForEvent(event.stage, payload);
     const evidenceSet = new Set(existing?.evidenceSet);
@@ -369,7 +369,9 @@ export class TraceRecorderHook implements RuntimeHook {
     );
   }
 
-  private skillLevelForEvent(stage: HookStage): SkillUsageLevel {
+  private skillLevelForEvent(stage: HookStage, payload: Record<string, unknown>): SkillUsageLevel {
+    const reason = stringField(payload, "reason");
+    if (reason === "cli_signal" || reason === "tool_signal" || reason === "mcp_signal") return "executed";
     if (stage === "skill.loaded") return "loaded";
     return "triggered";
   }

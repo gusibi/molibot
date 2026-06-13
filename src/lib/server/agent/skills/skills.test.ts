@@ -21,7 +21,8 @@ function createSkill(name: string, scope: LoadedSkill["scope"], filePath: string
     baseDir: filePath.replace(/\/SKILL\.md$/i, ""),
     scope,
     mcpServers: [],
-    aliases: aliases ?? [name]
+    aliases: aliases ?? [name],
+    signals: { cli: [], mcp: [], tools: [] }
   };
 }
 
@@ -149,3 +150,29 @@ blocked skill
   rmSync(workspaceDir, { recursive: true, force: true });
 });
 
+test("loadSkillsFromWorkspace parses optional skill execution signals", () => {
+  const workspaceDir = "./.tmp/test-skills-signals";
+  const skillDir = join(workspaceDir, "skills/signal-skill");
+  mkdirSync(skillDir, { recursive: true });
+
+  writeFileSync(join(skillDir, "skill.md"), `---
+name: Signal Skill
+description: description
+signals:
+  cli: ["longbridge", "lb"]
+  mcp: ["longbridge"]
+  tools: ["webSearch"]
+signals_tools: imageGenerate
+---
+signal skill
+`);
+
+  const result = loadSkillsFromWorkspace(workspaceDir);
+
+  assert.equal(result.skills.length, 1);
+  assert.deepEqual(result.skills[0]?.signals.cli, ["lb", "longbridge"]);
+  assert.deepEqual(result.skills[0]?.signals.mcp, ["longbridge"]);
+  assert.deepEqual(result.skills[0]?.signals.tools, ["imageGenerate", "webSearch"]);
+
+  rmSync(workspaceDir, { recursive: true, force: true });
+});

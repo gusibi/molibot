@@ -101,3 +101,36 @@
 |-------|------------|
 | Full `tsc` still reports existing unrelated repository errors | Re-ran the touched implementation-file filter; it produced no output. |
 | `runner.test.ts` remains blocked by the existing `?raw` loader issue | Added future runner coverage but relied on executable trace recorder tests plus implementation-file type filtering for current verification. |
+
+---
+
+# Findings & Decisions: Skill Usage Tracking Phase 3
+
+## Requirements
+- Implement Phase 3 from `docs/trace/skill-usage-tracking-plan.md`.
+- Let skill authors optionally declare execution signals.
+- Attribute executed evidence only after the skill has been loaded in the same run.
+- Keep executed as heuristic evidence, not proof.
+- Avoid Channel-layer changes.
+
+## Research Findings
+- The current skill frontmatter parser only returns flat string keys, so nested `signals:` metadata needs a small dedicated parser or flat key fallback.
+- Runner has the active run skill manifest and hook context, so it is still the right place for conservative signal attribution.
+- `tool.call.after` has result details for MCP tools, while bash command text is only reliable from `beforeToolCall`; a small per-tool-call cache is needed.
+- `TraceRecorderHook` already has monotonic skill usage state; it only needs to classify signal reasons as `executed`.
+
+## Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Parse `signals:` plus flat `signals_*` keys | Keeps metadata author-friendly without replacing the project parser. |
+| Match `cli` only against successful bash command prefixes | This is conservative and avoids parsing arbitrary shell internals. |
+| Match `tools` by exact tool name | Avoids fuzzy matches against unrelated tool names. |
+| Match `mcp` by server id/name/prefix from tool result details | MCP local tool names are generated, so server identity is the stable signal. |
+| Attribute overlap to the most recently loaded skill | This gives one owner per tool call and matches the "loaded before use" timeline. |
+
+## Issues Encountered
+| Issue | Resolution |
+|-------|------------|
+| Full `skills.test.ts` has existing failures unrelated to Phase 3 | Ran the new signal parsing test by name; it passed. |
+| Full `tsc` remains blocked by existing repository errors | Filtered touched implementation files; no output was produced. |
+| Filtering touched tests still shows existing runner fixture errors for missing `enabled` | Recorded as pre-existing test fixture issue; implementation files type-filter clean. |

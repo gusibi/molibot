@@ -293,3 +293,41 @@ test("TraceRecorderHook merges skill usage without downgrading level or evidence
   assert.equal(fact?.payload.evidenceCsv, "search_match,read_skill_file");
   store.close();
 });
+
+test("TraceRecorderHook upgrades skill usage to executed for signal evidence", async () => {
+  const store = new SqliteTraceStore(":memory:");
+  const manager = new DefaultHookManager();
+  manager.register(new TraceRecorderHook(store));
+  const runContext = context("run-skill-executed");
+  const filePath = "skills/executed/SKILL.md";
+
+  manager.emit("skill.loaded", runContext, {
+    name: "executed-skill",
+    scope: "global",
+    filePath,
+    reason: "read_skill_file"
+  });
+  manager.emit("skill.loaded", runContext, {
+    name: "executed-skill",
+    scope: "global",
+    filePath,
+    reason: "cli_signal",
+    signalType: "cli",
+    signal: "longbridge",
+    toolName: "bash"
+  });
+  manager.emit("skill.selected", runContext, {
+    name: "executed-skill",
+    scope: "global",
+    filePath,
+    reason: "search_match"
+  });
+  await manager.flush({ timeoutMs: 1000 });
+
+  const fact = store.listFactsByRunId("run-skill-executed").find((row) => row.factType === "skill_usage");
+  assert.equal(fact?.status, "success");
+  assert.equal(fact?.payload.level, "executed");
+  assert.equal(fact?.payload.reason, "search_match");
+  assert.equal(fact?.payload.evidenceCsv, "read_skill_file,cli_signal,search_match");
+  store.close();
+});

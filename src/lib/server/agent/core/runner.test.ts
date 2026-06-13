@@ -138,7 +138,8 @@ function setActiveSkill(runner: MomRunner, filePath: string): void {
       filePath,
       baseDir: filePath.replace(/\/SKILL\.md$/i, ""),
       mcpServers: [],
-      aliases: []
+      aliases: [],
+      signals: { cli: [], mcp: [], tools: [] }
     }
   ]);
 }
@@ -911,6 +912,115 @@ test("runner emits skill.selected for successful skillSearch matches", async () 
   assert.equal(selected[0]?.payload.name, "searched-skill");
   assert.equal(selected[0]?.payload.reason, "search_match");
   assert.equal(selected[0]?.payload.score, 0.87);
+});
+
+test("runner emits executed skill evidence for post-load cli signals", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = createRunnerHookManager(events);
+  const runner = await createRunnerForHookTest({ chatId: "chat-skill-executed", hookManager });
+  activateHookContext(runner, "run-skill-executed", "chat-skill-executed");
+  const skillPath = join(process.cwd(), "skills", "signal", "SKILL.md");
+  const skill = {
+    name: "signal-skill",
+    description: "Signal skill",
+    scope: "bot",
+    filePath: skillPath,
+    baseDir: skillPath.replace(/\/SKILL\.md$/i, ""),
+    mcpServers: [],
+    aliases: [],
+    signals: { cli: ["longbridge"], mcp: [], tools: [] }
+  };
+  (runner as any).setActiveRunSkillManifestForTest([skill]);
+  (runner as any).markSkillLoadedForTest(skill);
+
+  const agent = (runner as any).agent;
+  await agent.beforeToolCall({
+    toolCall: { id: "bash-signal-1", name: "bash", input: {} },
+    args: { command: "longbridge quote NVDA.US", label: "bash" },
+    assistantMessage: { role: "assistant", content: [], timestamp: Date.now() },
+    context: { systemPrompt: "", messages: [], tools: [] }
+  });
+  await agent.afterToolCall({
+    toolCall: { id: "bash-signal-1", name: "bash", input: {} },
+    result: { content: [{ type: "text", text: "ok" }] },
+    isError: false
+  });
+
+  const executed = events.find((event) => event.stage === "skill.loaded" && event.payload.reason === "cli_signal");
+  assert.equal(executed?.payload.name, "signal-skill");
+  assert.equal(executed?.payload.signal, "longbridge");
+  assert.equal(executed?.payload.signalType, "cli");
+});
+
+test("runner emits executed skill evidence for post-load mcp signals", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = createRunnerHookManager(events);
+  const runner = await createRunnerForHookTest({ chatId: "chat-skill-mcp", hookManager });
+  activateHookContext(runner, "run-skill-mcp", "chat-skill-mcp");
+  const skillPath = join(process.cwd(), "skills", "mcp-signal", "SKILL.md");
+  const skill = {
+    name: "mcp-signal-skill",
+    description: "MCP signal skill",
+    scope: "bot",
+    filePath: skillPath,
+    baseDir: skillPath.replace(/\/SKILL\.md$/i, ""),
+    mcpServers: [],
+    aliases: [],
+    signals: { cli: [], mcp: ["longbridge"], tools: [] }
+  };
+  (runner as any).setActiveRunSkillManifestForTest([skill]);
+  (runner as any).markSkillLoadedForTest(skill);
+
+  const agent = (runner as any).agent;
+  await agent.beforeToolCall({
+    toolCall: { id: "mcp-signal-1", name: "mcp__longbridge__quote", input: {} },
+    args: { symbol: "NVDA.US" },
+    assistantMessage: { role: "assistant", content: [], timestamp: Date.now() },
+    context: { systemPrompt: "", messages: [], tools: [] }
+  });
+  await agent.afterToolCall({
+    toolCall: { id: "mcp-signal-1", name: "mcp__longbridge__quote", input: {} },
+    result: { content: [{ type: "text", text: "ok" }], details: { serverId: "longbridge" } },
+    isError: false
+  });
+
+  const executed = events.find((event) => event.stage === "skill.loaded" && event.payload.reason === "mcp_signal");
+  assert.equal(executed?.payload.name, "mcp-signal-skill");
+  assert.equal(executed?.payload.signal, "longbridge");
+  assert.equal(executed?.payload.signalType, "mcp");
+  assert.equal(executed?.payload.mcpServerId, "longbridge");
+});
+
+test("runner does not count read tool skill loading as executed evidence", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = createRunnerHookManager(events);
+  const runner = await createRunnerForHookTest({ chatId: "chat-read-not-executed", hookManager });
+  activateHookContext(runner, "run-read-not-executed", "chat-read-not-executed");
+  const skillPath = join(process.cwd(), "skills", "read-signal", "SKILL.md");
+  (runner as any).setActiveRunSkillManifestForTest([
+    {
+      name: "read-signal-skill",
+      description: "Read signal skill",
+      scope: "bot",
+      filePath: skillPath,
+      baseDir: skillPath.replace(/\/SKILL\.md$/i, ""),
+      mcpServers: [],
+      aliases: [],
+      signals: { cli: [], mcp: [], tools: ["read"] }
+    }
+  ]);
+
+  const agent = (runner as any).agent;
+  await agent.beforeToolCall(readToolCall("read-signal-skill", skillPath));
+  await agent.afterToolCall({
+    toolCall: { id: "read-signal-skill", name: "read", input: {} },
+    result: { content: [{ type: "text", text: "skill body" }] },
+    isError: false
+  });
+
+  const loadedEvents = events.filter((event) => event.stage === "skill.loaded");
+  assert.equal(loadedEvents.length, 1);
+  assert.equal(loadedEvents[0]?.payload.reason, "read_skill_file");
 });
 
 test("runner emits skill.loaded when read opens an active skill file", async () => {

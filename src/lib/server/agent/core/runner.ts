@@ -103,6 +103,16 @@ type ToolCallTrackingContext = {
   isError?: boolean;
 };
 
+type LoadedSkillState = {
+  skill: LoadedSkill;
+  loadedSeq: number;
+};
+
+type PendingToolSignalContext = {
+  toolName: string;
+  command?: string;
+};
+
 export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
   private running = false;
@@ -152,6 +162,9 @@ export class MomRunner implements RunnerLike {
   private modelCallSeq = 0;
   private activeRunSkillManifest = new Map<string, LoadedSkill>();
   private readonly pendingReadPaths = new Map<string, string>();
+  private readonly activeRunLoadedSkills = new Map<string, LoadedSkillState>();
+  private readonly pendingToolSignals = new Map<string, PendingToolSignalContext>();
+  private activeSkillLoadSeq = 0;
 
   private readonly hookManager: HookManager;
 
@@ -282,6 +295,7 @@ export class MomRunner implements RunnerLike {
           return { block: true, reason: finalBlockedReason };
         }
         this.cacheResolvedReadPath(context);
+        this.cacheToolSignalContext(context);
         if (hookContext) {
           this.hookManager.emit("tool.call.before", hookContext, {
             toolName: context.toolCall.name,
@@ -313,6 +327,7 @@ export class MomRunner implements RunnerLike {
         }
         this.emitSkillLoadedForReadTool(context);
         this.emitSkillSearchMatches(context);
+        this.emitSkillExecutedForToolSignals(context);
         return undefined;
       },
       streamFn: (selectedModel, context, opts) => {
@@ -730,6 +745,7 @@ export class MomRunner implements RunnerLike {
     );
     if (this.activeHookContext) {
       for (const skill of explicitlyInvokedSkills) {
+        this.markSkillLoaded(skill);
         this.hookManager.emit("skill.loaded", this.activeHookContext, {
           name: skill.name,
           scope: skill.scope,
@@ -2096,6 +2112,9 @@ export class MomRunner implements RunnerLike {
       this.activePayloadContext = undefined;
       this.activeRunSkillManifest.clear();
       this.pendingReadPaths.clear();
+      this.activeRunLoadedSkills.clear();
+      this.pendingToolSignals.clear();
+      this.activeSkillLoadSeq = 0;
       this.abortRequested = false;
       this.running = false;
     }
@@ -2113,6 +2132,26 @@ export class MomRunner implements RunnerLike {
     }
   }
 
+  private cacheToolSignalContext(context: ToolCallTrackingContext): void {
+    const pending: PendingToolSignalContext = {
+      toolName: context.toolCall.name
+    };
+    if (context.toolCall.name === "bash") {
+      const command = (context.args as { command?: unknown } | undefined)?.command;
+      if (typeof command === "string" && command.trim()) {
+        pending.command = command;
+      }
+    }
+    this.pendingToolSignals.set(context.toolCall.id, pending);
+  }
+
+  private markSkillLoaded(skill: LoadedSkill): void {
+    this.activeRunLoadedSkills.set(pathCompareKey(skill.filePath), {
+      skill,
+      loadedSeq: ++this.activeSkillLoadSeq
+    });
+  }
+
   private emitSkillLoadedForReadTool(context: ToolCallTrackingContext): void {
     if (context.toolCall.name !== "read") return;
     const resolvedPath = this.pendingReadPaths.get(context.toolCall.id);
@@ -2120,12 +2159,124 @@ export class MomRunner implements RunnerLike {
     if (!resolvedPath || context.isError || !this.activeHookContext) return;
     const skill = this.activeRunSkillManifest.get(pathCompareKey(resolvedPath));
     if (!skill) return;
+    this.markSkillLoaded(skill);
     this.hookManager.emit("skill.loaded", this.activeHookContext, {
       name: skill.name,
       scope: skill.scope,
       filePath: skill.filePath,
       reason: "read_skill_file"
     });
+  }
+
+  private emitSkillExecutedForToolSignals(context: ToolCallTrackingContext): void {
+    const pending = this.pendingToolSignals.get(context.toolCall.id) ?? { toolName: context.toolCall.name };
+    this.pendingToolSignals.delete(context.toolCall.id);
+    if (pending.toolName === "read") return;
+    if (context.isError || !this.activeHookContext || this.activeRunLoadedSkills.size === 0) return;
+    const match = this.findBestExecutedSkillSignal(pending, context.result);
+    if (!match) return;
+    this.hookManager.emit("skill.loaded", this.activeHookContext, {
+      name: match.skill.name,
+      scope: match.skill.scope,
+      filePath: match.skill.filePath,
+      reason: match.reason,
+      signalType: match.signalType,
+      signal: match.signal,
+      toolName: pending.toolName,
+      ...(match.mcpServerId ? { mcpServerId: match.mcpServerId } : {})
+    });
+  }
+
+  private findBestExecutedSkillSignal(
+    pending: PendingToolSignalContext,
+    result: unknown
+  ): { skill: LoadedSkill; reason: string; signalType: "cli" | "mcp" | "tool"; signal: string; mcpServerId?: string } | null {
+    const candidates: Array<{
+      state: LoadedSkillState;
+      reason: string;
+      signalType: "cli" | "mcp" | "tool";
+      signal: string;
+      mcpServerId?: string;
+    }> = [];
+    const mcpDetails = this.extractMcpSignalDetails(result);
+
+    for (const state of this.activeRunLoadedSkills.values()) {
+      const { signals } = state.skill;
+      if (pending.toolName === "bash" && pending.command) {
+        const signal = signals.cli.find((item) => this.commandMatchesCliSignal(pending.command ?? "", item));
+        if (signal) {
+          candidates.push({ state, reason: "cli_signal", signalType: "cli", signal });
+        }
+      }
+      const toolSignal = signals.tools.find((item) => item.toLowerCase() === pending.toolName.toLowerCase());
+      if (toolSignal) {
+        candidates.push({ state, reason: "tool_signal", signalType: "tool", signal: toolSignal });
+      }
+      const mcpSignal = signals.mcp.find((item) => this.mcpSignalMatches(pending.toolName, mcpDetails, item));
+      if (mcpSignal) {
+        candidates.push({
+          state,
+          reason: "mcp_signal",
+          signalType: "mcp",
+          signal: mcpSignal,
+          mcpServerId: mcpDetails.serverId
+        });
+      }
+    }
+
+    candidates.sort((a, b) => b.state.loadedSeq - a.state.loadedSeq);
+    const winner = candidates[0];
+    if (!winner) return null;
+    return {
+      skill: winner.state.skill,
+      reason: winner.reason,
+      signalType: winner.signalType,
+      signal: winner.signal,
+      mcpServerId: winner.mcpServerId
+    };
+  }
+
+  private commandMatchesCliSignal(command: string, signal: string): boolean {
+    const normalizedCommand = command.trim().replace(/\s+/g, " ");
+    const normalizedSignal = signal.trim().replace(/\s+/g, " ");
+    if (!normalizedCommand || !normalizedSignal) return false;
+    if (!normalizedCommand.startsWith(normalizedSignal)) return false;
+    const next = normalizedCommand.charAt(normalizedSignal.length);
+    if (!next) return true;
+    if (!/[a-z0-9_-]$/i.test(normalizedSignal)) return true;
+    return /[\s;&|)]/.test(next);
+  }
+
+  private extractMcpSignalDetails(result: unknown): { serverId?: string; serverName?: string; remoteToolName?: string } {
+    if (!result || typeof result !== "object") return {};
+    const details = (result as { details?: unknown }).details;
+    if (!details || typeof details !== "object") return {};
+    const source = details as Record<string, unknown>;
+    return {
+      serverId: typeof source.serverId === "string" ? source.serverId : undefined,
+      serverName: typeof source.serverName === "string" ? source.serverName : undefined,
+      remoteToolName: typeof source.remoteToolName === "string" ? source.remoteToolName : undefined
+    };
+  }
+
+  private mcpSignalMatches(
+    toolName: string,
+    details: { serverId?: string; serverName?: string; remoteToolName?: string },
+    signal: string
+  ): boolean {
+    const normalizedSignal = signal.trim().toLowerCase();
+    if (!normalizedSignal) return false;
+    const toolParts = toolName.startsWith("mcp__") ? toolName.split("__") : [];
+    const candidates = [
+      details.serverId,
+      details.serverName,
+      details.remoteToolName,
+      toolParts[1],
+      toolName
+    ];
+    return candidates
+      .map((item) => item?.trim().toLowerCase())
+      .some((item) => item === normalizedSignal);
   }
 
   private emitSkillSearchMatches(context: ToolCallTrackingContext): void {
@@ -2176,6 +2327,10 @@ export class MomRunner implements RunnerLike {
     this.activeRunSkillManifest = new Map(
       skills.map((skill) => [pathCompareKey(skill.filePath), skill])
     );
+  }
+
+  markSkillLoadedForTest(skill: LoadedSkill): void {
+    this.markSkillLoaded(skill);
   }
 
   getPendingReadPathCountForTest(): number {

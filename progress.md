@@ -127,6 +127,45 @@
 | `npx tsc --noEmit --pretty false` | TypeScript check | Blocked by existing repository errors outside touched implementation files | blocked |
 | `npx tsc --noEmit --pretty false 2>&1 \| rg "src/lib/server/agent/(core/runner\\.ts\|hooks/traceRecorderHook\\.ts\|tools/path\\.ts\|hooks/traceRecorderHook\\.test\\.ts)"` | No touched implementation errors | No output | pass |
 
+### Skill Usage Tracking Phase 3
+- **Status:** complete
+- **Completed:** 2026-06-13
+- Actions taken:
+  - Added optional skill execution signals to `LoadedSkill`.
+  - Parsed nested `signals:` frontmatter and flat `signals_cli` / `signals_mcp` / `signals_tools` keys.
+  - Added runner state for loaded skills in the active run.
+  - Added per-tool-call signal context caching for post-load attribution.
+  - Attributed successful bash/tool/MCP calls to declared signals after load.
+  - Excluded `read` from executed attribution so reading `SKILL.md` remains a loaded signal only.
+  - Resolved overlapping signals by choosing the most recently loaded matching skill.
+  - Upgraded `TraceRecorderHook` signal evidence to `payload.level: "executed"`.
+  - Updated `docs/trace/skill-usage-tracking-progress.md` to mark Phase 3 complete.
+  - Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`.
+- Files created/modified:
+  - `docs/trace/skill-usage-tracking-progress.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+  - `src/lib/server/agent/skills/skills.ts`
+  - `src/lib/server/agent/skills/skills.test.ts`
+  - `src/lib/server/agent/core/runner.ts`
+  - `src/lib/server/agent/core/runner.test.ts`
+  - `src/lib/server/agent/hooks/traceRecorderHook.ts`
+  - `src/lib/server/agent/hooks/traceRecorderHook.test.ts`
+  - `features.md`
+  - `prd.md`
+  - `CHANGELOG.md`
+  - `README.md`
+
+## Test Results: Skill Usage Tracking Phase 3
+| Test | Expected | Actual | Status |
+|------|----------|--------|--------|
+| `node --import tsx --test src/lib/server/agent/hooks/traceRecorderHook.test.ts` | Trace recorder tests pass | 9 passing tests | pass |
+| `node --import tsx --test --test-name-pattern "parses optional skill execution signals" src/lib/server/agent/skills/skills.test.ts` | Signal parsing test passes | 1 passing test | pass |
+| `node --import tsx --test src/lib/server/agent/skills/skills.test.ts` | Skills tests pass | New signal parsing test passed; two existing failures remain: locale default assertion and readonly workspace SQLite write | partial |
+| `npx tsc --noEmit --pretty false 2>&1 \| rg "src/lib/server/agent/(core/runner\\.ts\|hooks/traceRecorderHook\\.ts\|skills/skills\\.ts)"` | No touched implementation errors | No output | pass |
+| `npx tsc --noEmit --pretty false 2>&1 \| rg "src/lib/server/agent/(core/runner\\.ts\|core/runner\\.test\\.ts\|hooks/traceRecorderHook\\.ts\|hooks/traceRecorderHook\\.test\\.ts\|skills/skills\\.ts\|skills/skills\\.test\\.ts)"` | No touched test errors | Existing `runner.test.ts` fixture errors for missing `enabled` | blocked |
+
 ### Skill Usage Tracking Phase 2
 - **Status:** complete
 - **Completed:** 2026-06-13
