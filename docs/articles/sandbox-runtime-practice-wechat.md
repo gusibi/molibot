@@ -92,11 +92,11 @@ socket / IPC failed
 所以我把 bash 的失败路径改成了一个明确的分支：
 
 1. 命令先在 sandbox 里跑；
-2. 如果失败，并且错误看起来像权限/IPC/socket/sandbox 限制；
+2. 如果失败，并且错误明确命中 OS 沙箱的权限签名，比如 `Operation not permitted`、`Permission denied`、`EPERM/EACCES`；
 3. runtime 尝试把命令归类成可审批的 Host Bash capability；
 4. 能归类就创建审批请求；
-5. 当前 turn 返回 `waiting_for_approval`；
-6. 用户批准后，runtime 自动执行原命令，并把 stdout/stderr 回填进原工具上下文；
+5. 当前 bash 工具调用在 run 内阻塞等待用户审批；
+6. 用户批准后，runtime 原地执行宿主命令，并把 stdout/stderr 作为这次工具调用的真实结果返回；
 7. Agent 从这个工具结果继续往下回答。
 
 这一步让体验从“Agent 卡住了”变成“Agent 等我确认一次，然后自己继续”。
@@ -105,7 +105,9 @@ socket / IPC failed
 
 如果用户批准后，命令结果只是作为一条普通聊天消息发出去，Agent 其实并不知道命令执行成功了。它的模型上下文里仍然是“工具失败，等待审批”。
 
-所以我做了自动恢复：审批完成后，把原来那条工具调用的 result 改写成真实 stdout/stderr，再触发 runner 继续执行。这样最终回答仍然是 Agent 总结出来的，而不是系统单独插一条“命令执行成功”。
+第一版我做的是自动恢复：审批完成后，把原来那条工具调用的 result 改写成真实 stdout/stderr，再触发 runner 继续执行。这样最终回答仍然是 Agent 总结出来的，而不是系统单独插一条“命令执行成功”。
+
+最近这块又往前收了一步：审批不再默认结束本轮再 resume，而是变成 bash 工具内部的阻塞式审批门。run 还保持活跃，审批通过就由等待中的工具调用直接拿到宿主命令输出；拒绝或过期就当场返回失败。只有等待超时、测试替身 store 这类无法继续轮询的情况，才回退到旧的“批准后补跑 + resume”路径。
 
 这个细节很小，但对产品质感影响很大。
 
@@ -130,10 +132,12 @@ socket / IPC failed
 
 后来我把 `waiting_for_approval` 变成一个独立的 stop reason，并让它贯穿 runner、subagent、channel、run summary、stream API。
 
+现在主路径改成 run 内阻塞以后，普通审批通过通常不会再让整轮 run 以 `waiting_for_approval` 结束；但这个状态仍然必须存在。它用来表达真正挂起的边界：比如审批等待超时后转入后台补跑、subagent 把等待状态向父级汇总、channel 或 run summary 需要记录“这不是用户取消，也不是模型失败”。
+
 现在的规则是：
 
 - 真正取消才是 `aborted`；
-- 审批挂起就是 `waiting_for_approval`；
+- 审批挂起才是 `waiting_for_approval`；
 - 临时等待提示不进入模型上下文；
 - subagent 如果在等审批，父 runner 也保留这个状态；
 - chain/parallel 不会在等待审批时继续往下跑。
@@ -169,6 +173,10 @@ longbridge news FIG.US 2>&1 | head -30
 > 批准能力，而不是批准每一种命令排版。
 
 这样用户批准一次外部工具后，常见的查看、过滤、截断输出不会不断打断。
+
+这里还有一个后来才补上的限制：自动 Host Bash 审批不能对普通失败太敏感。现在只在 OS 沙箱真正挡住时才自动创建审批，比如 `operation not permitted`、`permission denied`、`sandbox-exec`、`seatbelt`、`EPERM/EACCES`。像普通命令报错里出现 `socket`、`sandbox`、`access denied` 这类宽泛词，不再直接触发 Host Bash 审批。
+
+否则一个命令写错、参数错、服务端拒绝，都可能被误判成“需要宿主机权限”。这会把安全提示变成噪音。
 
 ## 第四个坑：`/sandbox off` 的语义必须说清楚
 
@@ -213,9 +221,11 @@ Agent 经常会跑 Python、Go、npm、测试命令。最开始如果每个 skil
 MOLIBOT_TOOLING_DIR
 ```
 
-默认是 Molibot 自己的数据目录下的 tooling 区域。Python venv、pip cache、uv cache、Go 的 `GOPATH`、`GOCACHE` 都归进去。
+默认是 Molibot 自己的数据目录下的 tooling 区域。Python venv、pip cache、uv cache 会归到这个受控目录；如果显式配置了 `MOLIBOT_TOOLING_DIR`，Go 的 `GOPATH`、`GOCACHE` 也会跟着收敛到同一个 tooling 根目录下。
 
-沙箱写入 allowlist 也同步包含这个 tooling 根目录。
+沙箱写入 allowlist 也同步包含 Python tooling 目录和 venv。后来我又把 Molibot 数据目录、当前 workspace，以及 `/tmp` / 系统临时目录的真实路径一起纳入可写范围。这样定时任务、运行时服务、第三方 CLI 写自己的日志或缓存时，不会因为路径经过符号链接解析而被沙箱误挡。
+
+当然，敏感文件仍然是反向 deny 的：比如 `.env*`、`*.pem`、`*.key`、sandbox env 文件。这些不能因为“数据目录可写”就被工具随便读写。
 
 这样做以后，Agent 可以继续安装和复用工具依赖，但不会把各种缓存、虚拟环境、临时构建文件撒到项目源码里。
 
@@ -264,11 +274,15 @@ Anthropic sandbox-runtime 执行
 如果权限失败：
     → Host Bash 分类
     → 创建审批
-    → 返回 waiting_for_approval
+    → bash 工具调用阻塞等待审批
     → 用户批准
-    → 自动执行 pending action
-    → stdout/stderr 回填工具上下文
-    → Runner 自动恢复
+    → 原地执行 pending action
+    → stdout/stderr 作为工具结果返回
+    → Runner 带着真实工具结果继续
+
+如果等待超时：
+    → 标记 waiting_for_approval
+    → 批准后走后台兜底执行 / resume
 ```
 
 用户能感受到的变化是：
@@ -276,12 +290,13 @@ Anthropic sandbox-runtime 执行
 1. Agent 默认不会随便拿宿主机 full access；
 2. 常规 shell 工作仍然能跑；
 3. 需要宿主机能力时，聊天里会出现明确审批；
-4. 可以选择长期批准、仅本 session 批准、拒绝；
+4. 可以选择仅此一次、本 session 批准、永久批准、拒绝；
 5. 批准后 Agent 会自动继续，不需要用户再说“继续”；
 6. subagent 等待审批时不会被误判为停止；
 7. `/sandbox off` 可以临时让当前会话进入 Host Bash full access；
-8. 设置页能看 sandbox、Host Bash、审批历史和诊断；
-9. 提示词里不再堆满底层 sandbox 实现细节。
+8. `/settings/sandbox` 已经有 Observe / Build / Strict 三个预设，也能识别自定义 profile；
+9. 设置页能看 sandbox、Host Bash、审批历史和诊断；
+10. 提示词里不再堆满底层 sandbox 实现细节。
 
 这已经不是单纯的“接入一个 SDK”了。
 
@@ -293,9 +308,9 @@ Anthropic sandbox-runtime 执行
 
 Anthropic 的 `sandbox-runtime` 很适合作为底层强制层，但它不负责你的业务审批、subagent 权限继承、channel 展示、run 恢复、审计记录。那些都要 runtime 自己做。
 
-第二，审批的核心不是按钮，而是恢复。
+第二，审批的核心不是按钮，而是工具结果能回到 Agent。
 
-如果批准后 Agent 不能带着真实工具结果继续推理，审批就只是一个外挂流程。体验会断。
+不管实现上是 run 内阻塞，还是超时后走后台 resume，如果批准后 Agent 不能带着真实工具结果继续推理，审批就只是一个外挂流程。体验会断。
 
 第三，不要让 channel 承担权限逻辑。
 
@@ -303,26 +318,28 @@ Telegram、飞书、微信、QQ 只应该负责展示按钮或文字指令。队
 
 第四，状态语义一定要干净。
 
-`waiting_for_approval`、`aborted`、`failed`、`completed` 必须分开。Agent runtime 最怕“差不多”的状态，因为恢复、归档、提示词上下文都会依赖这些状态。
+`waiting_for_approval`、`aborted`、`failed`、`completed` 必须分开。即使现在审批主路径已经尽量不让 run 结束在 waiting 状态，这个状态也不能被删掉或复用。Agent runtime 最怕“差不多”的状态，因为恢复、归档、提示词上下文都会依赖这些状态。
 
 第五，沙箱策略要允许临时例外。
 
 完全不让出沙箱，Agent 会做不了真实工作；完全 full access，又失去边界。比较好的体验是默认收紧，但允许 session 级别的临时授权，并且自动过期。
 
-## 下一步我想补的东西
+## 下一步还差什么
 
 现在这套已经能用了，但还不是终点。
 
-我接下来更想做的是 Policy Profile 和 Run Ledger。
+之前我最想补的是 Policy Profile 和 Run Ledger。现在前半段已经落地了一部分：
 
-也就是把底层一堆 allow/deny 配置，包装成用户更容易理解的模式：
+- `/settings/sandbox` 已经有 Observe、Build、Strict 三个预设；
+- 页面能根据当前 allow/deny 配置反向识别 active profile；
+- 用户改过细节后，会显示 Custom Profile；
+- Host-Assisted 还没有作为独立预设出现，但它的核心能力已经由 Host Bash 审批、session 级授权、`/sandbox off` 共同承担。
 
-- Observe：只读观察；
-- Build：允许工作区写入和测试；
-- Strict：默认拒绝网络和敏感路径；
-- Host-Assisted：保留沙箱，但允许明确的 Host Bash 审批路径。
+Run Ledger 也不是完全空白了。现在 run summary、run detail、Trace Facts、Host Bash 审批表、subagent telemetry 已经能拼出很多事实：用了哪些工具、有没有触发 subagent、审批请求是什么、最后 stop reason 是什么、模型调用和 token 用量怎样。
 
-同时，每次 Agent run 应该形成一份可读账本：用了哪个 profile、哪些工具、哪些 subagent、触发了什么审批、产出了哪些文件、最后为什么完成或挂起。
+但它还没有变成一个用户一眼能读懂的“运行账本”。
+
+我接下来更想补的是这层产品化表达：每次 Agent run 都能明确展示用了哪个 profile、哪些工具、哪些 subagent、触发了什么审批、产出了哪些文件、最后为什么完成或挂起。
 
 因为真正可用的 Agent，不只是能执行任务。
 
@@ -333,4 +350,3 @@ Telegram、飞书、微信、QQ 只应该负责展示按钮或文字指令。队
 不是给 AI 套一个笼子。
 
 而是给它一条能认真工作的安全路线。
-
