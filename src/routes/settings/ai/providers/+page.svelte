@@ -438,6 +438,25 @@
 
     $: copy = COPY[$locale] ?? COPY["en-US"];
 
+    // Reactive derivations. The helper functions read activeProviderTab /
+    // selectedProviderId / providerSearch / form internally; in legacy mode a
+    // bare `{#each fn()}` would NOT track those reads, so we reference the
+    // dependencies explicitly here to force recomputation on change.
+    $: filteredProviders =
+        (form.customProviders,
+        activeProviderTab,
+        providerSearch,
+        filteredCustomProviders());
+    $: selectedProviderDetail =
+        (form.customProviders,
+        selectedProviderId,
+        activeProviderTab,
+        providerSearch,
+        getSelectedProviderInActiveTab());
+    $: visibleModels = selectedProviderDetail
+        ? (expandedProviderModelIds, visibleModelRows(selectedProviderDetail))
+        : [];
+
     function providerEnvVar(provider: string): string | undefined {
         switch (provider) {
             case "anthropic":
@@ -900,6 +919,18 @@
             });
             return { ...provider, models };
         });
+    }
+
+    function setProviderId(newId: string): void {
+        const oldId = selectedProviderId;
+        if (!oldId) return;
+        form.customProviders = form.customProviders.map((p) =>
+            p.id === oldId ? { ...p, id: newId } : p,
+        );
+        if (form.defaultCustomProviderId === oldId) {
+            form.defaultCustomProviderId = newId;
+        }
+        selectedProviderId = newId;
     }
 
     function setProviderEnabled(providerId: string, enabled: boolean): void {
@@ -1492,9 +1523,10 @@
         try {
             ensureDefaultCustomProvider();
 
-            // 1. If a custom provider is selected and edited, save it individually via fine-grained API
+            // 1. If a provider is selected and edited, save it individually via fine-grained API.
+            //    Built-in providers are persisted too so enabling/model edits take effect.
             const selected = getSelectedProvider();
-            if (selected && !isBuiltinProvider(selected)) {
+            if (selected) {
                 const normalizedProvider = {
                     ...selected,
                     protocol: normalizeProviderProtocol(selected.protocol),
@@ -1600,11 +1632,11 @@
                     <input class="providers-sidebar-search" bind:value={providerSearch} placeholder={copy.searchPlaceholder} />
 
                     <div class="providers-sidebar-list">
-                        {#if filteredCustomProviders().length === 0}
+                        {#if filteredProviders.length === 0}
                             <div class="providers-sidebar-empty">{copy.noItemsMatched}</div>
                         {/if}
 
-                        {#each filteredCustomProviders() as provider (provider.id)}
+                        {#each filteredProviders as provider (provider.id)}
                             <button
                                 type="button"
                                 class="providers-sidebar-item"
@@ -1630,8 +1662,8 @@
             <!-- Provider Edit Pane -->
             <section class="providers-detail-section">
                 <div class="providers-detail-card">
-                    {#if getSelectedProviderInActiveTab()}
-                        {@const cp = getSelectedProviderInActiveTab()!}
+                    {#if selectedProviderDetail}
+                        {@const cp = selectedProviderDetail!}
 
                         <div class="providers-detail-header">
                             <h2 class="providers-detail-name">{cp.name || copy.unnamedProvider}</h2>
@@ -1650,7 +1682,7 @@
                         <div class="providers-detail-form-grid">
                             <label class="providers-detail-form-label">
                                 <span class="providers-detail-form-label-text">{copy.providerIdLabel}</span>
-                                <Input bind:value={cp.id} disabled={isBuiltinProvider(cp)} />
+                                <Input value={cp.id} disabled={isBuiltinProvider(cp)} oninput={(e) => setProviderId(e.currentTarget.value)} />
                             </label>
 
                             <label class="providers-detail-form-label">
@@ -1967,7 +1999,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {#each visibleModelRows(cp) as row (row.index)}
+                                        {#each visibleModels as row (row.index)}
                                             {@const model = row.model}
                                             {@const index = row.index}
                                             <tr>

@@ -55,7 +55,7 @@
   const defaultSandbox: ToolSandboxSettings = {
     enabled: false,
     initFailureMode: "warn-disable",
-    envFilePath: ".env.sandbox.local",
+    envFilePath: ".env",
     env: {
       inheritMode: "minimal",
       allow: [],
@@ -77,7 +77,7 @@
       deniedDomains: []
     },
     filesystem: {
-      denyRead: ["~/.ssh", "~/.aws", "~/.gnupg", ".env", ".env.*", ".env.sandbox.local"],
+      denyRead: ["~/.ssh", "~/.aws", "~/.gnupg", ".env", ".env.*"],
       allowWrite: [".", "/tmp"],
       denyWrite: [".env", ".env.*", "*.pem", "*.key"]
     }
@@ -114,7 +114,7 @@
     };
   }
 
-  const DEFAULT_DENY_READ = ["~/.ssh", "~/.aws", "~/.gnupg", ".env", ".env.*", ".env.sandbox.local"];
+  const DEFAULT_DENY_READ = ["~/.ssh", "~/.aws", "~/.gnupg", ".env", ".env.*"];
   const DEFAULT_DENY_WRITE = [".env", ".env.*", "*.pem", "*.key"];
 
   const profiles: Record<"observe" | "build" | "strict", ProfileTemplate> = {
@@ -122,7 +122,7 @@
       name: "observe",
       enabled: true,
       initFailureMode: "warn-disable",
-      envFilePath: ".env.sandbox.local",
+      envFilePath: ".env",
       env: {
         inheritMode: "minimal",
         allow: [],
@@ -142,7 +142,7 @@
       name: "build",
       enabled: true,
       initFailureMode: "warn-disable",
-      envFilePath: ".env.sandbox.local",
+      envFilePath: ".env",
       env: {
         inheritMode: "full",
         allow: [],
@@ -173,7 +173,7 @@
       name: "strict",
       enabled: true,
       initFailureMode: "block",
-      envFilePath: ".env.sandbox.local",
+      envFilePath: ".env",
       env: {
         inheritMode: "minimal",
         allow: [],
@@ -551,7 +551,7 @@
         <div class="channel-card-body">
           <div class="channel-field">
             <Label for="sb-env-path">Workspace env file</Label>
-            <Input id="sb-env-path" bind:value={sandbox.envFilePath} placeholder=".env.sandbox.local" />
+            <Input id="sb-env-path" bind:value={sandbox.envFilePath} placeholder=".env" />
             <p class="channel-hint">Use a relative path for project-local secrets. The sandbox denies direct reads of this file.</p>
           </div>
           <div class="channel-field-row pt-2">

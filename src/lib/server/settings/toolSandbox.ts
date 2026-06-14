@@ -9,8 +9,7 @@ const DEFAULT_DENY_READ = [
   "~/.aws",
   "~/.gnupg",
   ".env",
-  ".env.*",
-  ".env.sandbox.local"
+  ".env.*"
 ];
 
 const DEFAULT_DENY_WRITE = [
@@ -23,7 +22,7 @@ const DEFAULT_DENY_WRITE = [
 export const defaultToolSandboxSettings: ToolSandboxSettings = {
   enabled: true,
   initFailureMode: "warn-disable",
-  envFilePath: ".env.sandbox.local",
+  envFilePath: ".env",
   env: {
     inheritMode: "full",
     allow: [],

@@ -42,6 +42,9 @@
         executedToolCalls: number;
         modelCalls: number;
         distinctTools: number;
+        skillUsages: number;
+        executedSkills: number;
+        distinctSkills: number;
         bots: number;
         channels: number;
         chats: number;
@@ -62,6 +65,18 @@
         error: number;
         blocked: number;
         avgDurationMs: number;
+    }
+
+    interface SkillSummary {
+        name: string;
+        scope: string;
+        calls: number;
+        triggered: number;
+        loaded: number;
+        executed: number;
+        runs: number;
+        avgDurationMs: number;
+        lastAt: string;
     }
 
     interface ModelSummary {
@@ -165,6 +180,7 @@
         facts: TraceFact[];
         totals: TraceTotals;
         tools: ToolSummary[];
+        skills: SkillSummary[];
         models: ModelSummary[];
         bots: BotSummary[];
         chats: ChatSummary[];
@@ -236,6 +252,11 @@
                 desc: "来自 model_call fact 的请求数 and token 汇总",
                 tokens: "Token {tokens} · 平均耗时 {duration}"
             },
+            skillCalls: {
+                title: "Skill 调用",
+                desc: "来自 skill_usage fact 的技能命中与执行统计",
+                actual: "实际执行 {executed} · 技能种类 {distinct}"
+            },
             connectedBots: "关联 Bots",
             connectedBotsDesc: "口径与 Usage 页 botId 一致",
             connectedChats: "关联 Chats",
@@ -254,6 +275,11 @@
                     title: "工具调用排行",
                     desc: "按工具 name 聚合调用次数、成功/失败/阻止次数",
                     empty: "当前筛选范围没有工具调用",
+                },
+                skills: {
+                    title: "技能使用排行",
+                    desc: "按技能 name 聚合命中（triggered）、加载（loaded）、执行（executed）次数",
+                    empty: "当前筛选范围没有技能使用",
                 },
                 models: {
                     title: "模型请求排行",
@@ -277,7 +303,7 @@
                 },
                 recent: {
                     title: "最近 Trace Facts",
-                    desc: "最多展示当前筛选结果中的最近 200 条 fact",
+                    desc: "基于筛选范围的 trace fact 列表",
                     empty: "当前筛选范围没有 trace fact",
                 }
             },
@@ -307,13 +333,22 @@
                 run: "Run",
                 session: "Session",
                 duration: "耗时",
+                skill: "技能",
+                scope: "范围",
+                triggered: "命中",
+                loaded: "加载",
+                executed: "执行",
             },
             footbar: {
                 syncing: "Trace 数据同步中...",
                 ready: "Trace 数据已就绪",
                 btnSyncing: "同步中",
                 btnRefresh: "立即刷新",
-            }
+            },
+            paginationInfo: "第 {page} / {pages} 页 (共 {total} 条记录)",
+            pageSizeLabel: "每页条数",
+            prevPage: "上一页",
+            nextPage: "下一页"
         },
         "en-US": {
             eyebrow: "Agent Trace Observatory",
@@ -378,6 +413,11 @@
                 desc: "Summary of requests and tokens from model_call facts",
                 tokens: "Tokens {tokens} · Avg Duration {duration}"
             },
+            skillCalls: {
+                title: "Skill Usage",
+                desc: "Skill hits and executions from skill_usage facts",
+                actual: "Executed {executed} · Distinct {distinct}"
+            },
             connectedBots: "Connected Bots",
             connectedBotsDesc: "Matches Usage page botId logic",
             connectedChats: "Connected Chats",
@@ -396,6 +436,11 @@
                     title: "Tool Call Rankings",
                     desc: "Aggregated calls, successes, failures, and block counts by tool name",
                     empty: "No tool calls in the selected range",
+                },
+                skills: {
+                    title: "Skill Usage Rankings",
+                    desc: "Aggregated triggered / loaded / executed counts by skill name",
+                    empty: "No skill usage in the selected range",
                 },
                 models: {
                     title: "Model Request Rankings",
@@ -419,7 +464,7 @@
                 },
                 recent: {
                     title: "Recent Trace Facts",
-                    desc: "Displays up to 200 recent facts matching filters",
+                    desc: "Recent trace facts matching filters",
                     empty: "No trace facts in the selected range",
                 }
             },
@@ -449,13 +494,22 @@
                 run: "Run",
                 session: "Session",
                 duration: "Duration",
+                skill: "Skill",
+                scope: "Scope",
+                triggered: "Triggered",
+                loaded: "Loaded",
+                executed: "Executed",
             },
             footbar: {
                 syncing: "Syncing Trace data...",
                 ready: "Trace data ready",
                 btnSyncing: "Syncing",
                 btnRefresh: "Refresh",
-            }
+            },
+            paginationInfo: "Page {page} of {pages} ({total} records)",
+            pageSizeLabel: "Page size",
+            prevPage: "Previous",
+            nextPage: "Next"
         }
     };
 
@@ -473,6 +527,68 @@
     let sessionFilter = "";
     let runFilter = "";
     let sourceLimit = "5000";
+
+    let currentPage = 1;
+    let pageSize = 20;
+
+    let paginatedFacts: TraceFact[] = [];
+    let totalFactsCount = 0;
+    let factsLoading = false;
+
+    async function loadPaginatedFacts() {
+        factsLoading = true;
+        try {
+            const params = new URLSearchParams({
+                range: selectedRange,
+                factType: selectedFactType,
+                botId: botFilter.trim(),
+                channel: channelFilter.trim(),
+                chatId: chatFilter.trim(),
+                sessionId: sessionFilter.trim(),
+                runId: runFilter.trim(),
+                page: String(currentPage),
+                pageSize: String(pageSize),
+            });
+            const res = await fetch(`/api/settings/trace/facts?${params.toString()}`);
+            if (!res.ok) throw new Error(res.statusText);
+            const data = await res.json();
+            if (data.ok) {
+                paginatedFacts = data.data;
+                totalFactsCount = data.total;
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            factsLoading = false;
+        }
+    }
+
+    $: {
+        selectedRange;
+        selectedFactType;
+        botFilter;
+        channelFilter;
+        chatFilter;
+        sessionFilter;
+        runFilter;
+        sourceLimit;
+        currentPage = 1;
+    }
+
+    $: {
+        if (traceStats) {
+            currentPage;
+            pageSize;
+            selectedRange;
+            selectedFactType;
+            botFilter;
+            channelFilter;
+            chatFilter;
+            sessionFilter;
+            runFilter;
+            void loadPaginatedFacts();
+        }
+    }
 
     $: copy = COPY[$locale] ?? COPY["en-US"];
 
@@ -587,7 +703,7 @@
     onMount(loadTrace);
 
     $: totals = traceStats?.totals;
-    $: recentFacts = traceStats?.facts ?? [];
+    $: totalPages = Math.ceil(totalFactsCount / pageSize) || 1;
 </script>
 
 <div class="usage-page">
@@ -726,6 +842,22 @@
                 </CardContent>
             </Card>
 
+            <Card class="usage-metric-wide">
+                <CardHeader>
+                    <div class="usage-metric-header">
+                        <CardTitle class="font-serif text-lg">{copy.skillCalls.title}</CardTitle>
+                        <Badge variant="secondary" class="usage-badge-requests">Skill</Badge>
+                    </div>
+                    <CardDescription>{copy.skillCalls.desc}</CardDescription>
+                </CardHeader>
+                <CardContent class="flex flex-col gap-2">
+                    <strong class="usage-metric-value">{formatNumber(totals.skillUsages)}</strong>
+                    <span class="usage-card-subtext">
+                        {copy.skillCalls.actual.replace("{executed}", formatNumber(totals.executedSkills)).replace("{distinct}", formatNumber(totals.distinctSkills))}
+                    </span>
+                </CardContent>
+            </Card>
+
             <Card class="usage-metric-accent-1">
                 <CardHeader>
                     <CardDescription class="usage-label-uppercase">{copy.connectedBots}</CardDescription>
@@ -829,6 +961,47 @@
                                         <TableCell class="text-right tabular-nums">{formatNumber(tool.error)}</TableCell>
                                         <TableCell class="text-right tabular-nums">{formatNumber(tool.blocked)}</TableCell>
                                         <TableCell class="text-right tabular-nums">{formatDuration(tool.avgDurationMs)}</TableCell>
+                                    </TableRow>
+                                {/each}
+                            {/if}
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle class="font-serif">{copy.sections.skills.title}</CardTitle>
+                    <CardDescription>{copy.sections.skills.desc}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>{copy.table.skill}</TableHead>
+                                <TableHead>{copy.table.scope}</TableHead>
+                                <TableHead class="text-right">{copy.table.requests}</TableHead>
+                                <TableHead class="text-right">{copy.table.triggered}</TableHead>
+                                <TableHead class="text-right">{copy.table.loaded}</TableHead>
+                                <TableHead class="text-right">{copy.table.executed}</TableHead>
+                                <TableHead class="text-right">{copy.table.run}</TableHead>
+                                <TableHead class="text-right">{copy.table.avgDuration}</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {#if traceStats.skills.length === 0}
+                                <TableRow><TableCell colspan={8} class="usage-empty-cell">{copy.sections.skills.empty}</TableCell></TableRow>
+                            {:else}
+                                {#each traceStats.skills.slice(0, 20) as skill}
+                                    <TableRow>
+                                        <TableCell class="trace-id-cell" title={skill.name}>{skill.name}</TableCell>
+                                        <TableCell>{skill.scope}</TableCell>
+                                        <TableCell class="text-right tabular-nums">{formatNumber(skill.calls)}</TableCell>
+                                        <TableCell class="text-right tabular-nums">{formatNumber(skill.triggered)}</TableCell>
+                                        <TableCell class="text-right tabular-nums">{formatNumber(skill.loaded)}</TableCell>
+                                        <TableCell class="text-right tabular-nums">{formatNumber(skill.executed)}</TableCell>
+                                        <TableCell class="text-right tabular-nums">{formatNumber(skill.runs)}</TableCell>
+                                        <TableCell class="text-right tabular-nums">{formatDuration(skill.avgDurationMs)}</TableCell>
                                     </TableRow>
                                 {/each}
                             {/if}
@@ -1025,11 +1198,11 @@
                             <TableHead class="text-right">{copy.table.totalTokens}</TableHead>
                         </TableRow>
                     </TableHeader>
-                    <TableBody>
-                        {#if recentFacts.length === 0}
+                    <TableBody class={factsLoading ? "opacity-50 transition-opacity" : "transition-opacity"}>
+                        {#if paginatedFacts.length === 0}
                             <TableRow><TableCell colspan={14} class="usage-empty-cell">{copy.sections.recent.empty}</TableCell></TableRow>
                         {:else}
-                            {#each recentFacts as fact}
+                            {#each paginatedFacts as fact}
                                 <TableRow>
                                     <TableCell class="usage-cell-timestamp">{formatDateTime(fact.updatedAt)}</TableCell>
                                     <TableCell class="trace-id-cell" title={fact.botId ?? "unknown"}>{shortId(fact.botId ?? "unknown")}</TableCell>
@@ -1057,6 +1230,34 @@
                         {/if}
                     </TableBody>
                 </Table>
+
+                {#if totalFactsCount > 0}
+                    <div class="pagination-container">
+                        <div class="pagination-info">
+                            {copy.paginationInfo.replace("{page}", String(currentPage)).replace("{pages}", String(totalPages)).replace("{total}", String(totalFactsCount))}
+                        </div>
+                        <div class="pagination-controls">
+                            <div class="pagination-size">
+                                <label for="trace-page-size">{copy.pageSizeLabel}</label>
+                                <select id="trace-page-size" bind:value={pageSize} onchange={() => currentPage = 1}>
+                                    <option value={10}>10</option>
+                                    <option value={20}>20</option>
+                                    <option value={30}>30</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                </select>
+                            </div>
+                            <div class="pagination-buttons">
+                                <Button variant="outline" size="sm" onclick={() => currentPage = Math.max(1, currentPage - 1)} disabled={currentPage === 1}>
+                                    {copy.prevPage}
+                                </Button>
+                                <Button variant="outline" size="sm" onclick={() => currentPage = Math.min(totalPages, currentPage + 1)} disabled={currentPage === totalPages}>
+                                    {copy.nextPage}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                {/if}
             </CardContent>
         </Card>
     {/if}

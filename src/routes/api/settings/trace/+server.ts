@@ -12,6 +12,9 @@ interface TraceTotals {
   executedToolCalls: number;
   modelCalls: number;
   distinctTools: number;
+  skillUsages: number;
+  executedSkills: number;
+  distinctSkills: number;
   bots: number;
   channels: number;
   chats: number;
@@ -32,6 +35,18 @@ interface ToolSummary {
   error: number;
   blocked: number;
   avgDurationMs: number;
+}
+
+interface SkillSummary {
+  name: string;
+  scope: string;
+  calls: number;
+  triggered: number;
+  loaded: number;
+  executed: number;
+  runs: number;
+  avgDurationMs: number;
+  lastAt: string;
 }
 
 interface ModelSummary {
@@ -151,9 +166,23 @@ function safeString(value: string | undefined, fallback: string): string {
   return trimmed || fallback;
 }
 
+type SkillLevel = "triggered" | "loaded" | "executed";
+
+function skillLevel(fact: TraceFactRecord): SkillLevel {
+  const raw = String((fact.payload as Record<string, unknown>)?.level ?? "").trim();
+  if (raw === "executed") return "executed";
+  if (raw === "loaded") return "loaded";
+  return "triggered";
+}
+
+function skillScope(fact: TraceFactRecord): string {
+  return safeString(String((fact.payload as Record<string, unknown>)?.scope ?? ""), "unknown");
+}
+
 function buildStats(facts: TraceFactRecord[]) {
   const toolFacts = facts.filter((fact) => fact.factType === "tool_call");
   const modelFacts = facts.filter((fact) => fact.factType === "model_call");
+  const skillFacts = facts.filter((fact) => fact.factType === "skill_usage");
   const executedToolFacts = toolFacts.filter((fact) => fact.status === "success" || fact.status === "error");
 
   const totals: TraceTotals = {
@@ -162,6 +191,9 @@ function buildStats(facts: TraceFactRecord[]) {
     executedToolCalls: executedToolFacts.length,
     modelCalls: modelFacts.length,
     distinctTools: new Set(toolFacts.map((fact) => safeString(fact.name, "unknown"))).size,
+    skillUsages: skillFacts.length,
+    executedSkills: skillFacts.filter((fact) => skillLevel(fact) === "executed").length,
+    distinctSkills: new Set(skillFacts.map((fact) => safeString(fact.name, "unknown"))).size,
     bots: new Set(facts.map((fact) => safeString(fact.botId, "unknown"))).size,
     channels: new Set(facts.map((fact) => fact.channel)).size,
     chats: new Set(facts.map((fact) => `${fact.channel}:${fact.chatId}`)).size,
@@ -198,6 +230,34 @@ function buildStats(facts: TraceFactRecord[]) {
       row.durationCount += 1;
     }
     tools.set(name, row);
+  }
+
+  const skills = new Map<string, SkillSummary & { runIds: Set<string>; durationSum: number; durationCount: number }>();
+  for (const fact of skillFacts) {
+    const name = safeString(fact.name, "unknown");
+    const row = skills.get(name) ?? {
+      name,
+      scope: skillScope(fact),
+      calls: 0,
+      triggered: 0,
+      loaded: 0,
+      executed: 0,
+      runs: 0,
+      avgDurationMs: 0,
+      lastAt: fact.updatedAt,
+      runIds: new Set<string>(),
+      durationSum: 0,
+      durationCount: 0
+    };
+    row.calls += 1;
+    row[skillLevel(fact)] += 1;
+    row.runIds.add(fact.runId);
+    if (typeof fact.durationMs === "number") {
+      row.durationSum += fact.durationMs;
+      row.durationCount += 1;
+    }
+    if (fact.updatedAt > row.lastAt) row.lastAt = fact.updatedAt;
+    skills.set(name, row);
   }
 
   const models = new Map<string, ModelSummary & { durationSum: number; durationCount: number }>();
@@ -355,6 +415,13 @@ function buildStats(facts: TraceFactRecord[]) {
     tools: Array.from(tools.values())
       .map(({ durationSum, durationCount, ...row }) => ({
         ...row,
+        avgDurationMs: durationCount > 0 ? Math.round(durationSum / durationCount) : 0
+      }))
+      .sort((a, b) => b.calls - a.calls || a.name.localeCompare(b.name)),
+    skills: Array.from(skills.values())
+      .map(({ runIds, durationSum, durationCount, ...row }) => ({
+        ...row,
+        runs: runIds.size,
         avgDurationMs: durationCount > 0 ? Math.round(durationSum / durationCount) : 0
       }))
       .sort((a, b) => b.calls - a.calls || a.name.localeCompare(b.name)),

@@ -7,7 +7,14 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Solo builders and small teams who want one AI assistant across channels.
 - Users who prefer simple interaction over complex automation.
 
-## 2.7 Scope Clarification (2026-06-13)
+## 2.7 Scope Clarification (2026-06-14)
+- [Done] Feishu Card markdown 渲染优化：Feishu CardKit final card 必须避免把长回答全部塞进单个 markdown 元素；标题需拆分为独立元素，markdown 表格需渲染为飞书原生 table，且 fenced code block 内的 `#`、`-`、`>` 等 markdown 字符不得被兼容转换误改。
+- [Done] Bot Profile 身份锁定：当 `BOT.md`、`IDENTITY.md` 等 operator profile 已生效时，默认系统提示词不得再硬声明默认助手身份并覆盖 bot 身份；模型回答“你是谁 / 工作流 / 核心原则 / 禁止行为”等自我描述问题时，必须优先从 active profile 文件回答，并通过尾部 reminder 抵消后置默认 prompt 的稀释。
+- [Done] `/stop` 成功中止当前运行时，共享命令的用户确认消息必须使用终态文案（“已停止。” / `Stopped.`），不能在飞书等渠道的最终状态卡片已经显示 stopped 后继续停留为“正在停止……”。
+- [Done] 多渠道 System Prompt Preview 热刷新：保存 bot 内容、`BOT.md`、`IDENTITY.md` 等 profile Markdown 后，对应 channel bot 的有效系统提示词预览必须刷新；即使渠道配置进入 no-op apply 分支、不重启适配器，也要重写 runtime 生成的 `SYSTEM_PROMPT.preview.md`，并输出与 Telegram 同类的 `system_prompt_preview_written` 日志。Telegram、Feishu、QQ、Weixin 行为保持一致。
+- [Done] 树洞发帖 Bot Profile 模板：在 `src/lib/server/agent/prompts/templates/treehole-poster/` 保存一套 bot 维度模板，包含 `BOT.md`、`IDENTITY.md`、`SOUL.md`。模板分工必须清晰：`BOT.md` 管发布触发和整理流程，`IDENTITY.md` 管身份边界，`SOUL.md` 管表达气质，避免重复规则导致 prompt 冲突。
+- [Done] AI 用量与 Trace 页面分页：为 `/settings/ai/usage` 的“请求事件明细”和 `/settings/ai/trace` 的“最近 Trace Facts”明细表格添加分页控制与每页条数选择（10/20/30/50/100，默认 20 条），支持上一页、下一页跳转与多语言（i18n）联动重置。
+- [Done] CLI readline 退出防护：本地 CLI adapter 必须处理 stdin/readline 在 Ctrl+C 或 TTY 断开后产生的 `EIO` 读错误，把它视为正常关闭而不是未处理异常；异步消息处理完成后不得对已关闭的 readline 再调用 `prompt()`。
 - [Done] Skill 使用追踪 Phase 1：trace 体系必须记录模型隐式读取 skill `SKILL.md` 的加载事实。Runner 在 `read` 工具通过 gate/preflight/budget 后缓存已解析路径，并在成功 after 时精确匹配当前 run skill manifest，命中后 emit `skill.loaded` (`reason: read_skill_file`)；失败、blocked 与 run cleanup 不得残留 pending path。`TraceRecorderHook` 对 `skill_usage` 使用 `payload.level` 与 `payload.evidenceCsv` 做单调合并，triggered-only 使用 `status: info`，loaded/executed 使用 `status: success`。Phase 1/2/3 checklist 跟踪在 `docs/trace/skill-usage-tracking-progress.md`。
 - [Done] Skill 使用追踪 Phase 2：trace 体系必须记录 `skillSearch` 成功返回的候选 skill，但只能表达为被搜索命中的 triggered 信号，不能暗示已加载或已执行。Runner 在 `afterToolCall` 中防御式读取 `context.result.details.matches`，对结构完整的 match emit `skill.selected` (`reason: search_match`)；`TraceRecorderHook` 将 matched-only facts 保持为 `payload.level: triggered` / `status: info`，并且不得把已 loaded/executed fact 降级。
 - [Done] Skill 使用追踪 Phase 3：trace 体系可以记录声明式 signals 命中的 executed 证据，但必须标注为启发式证据而非执行证明。`SKILL.md` frontmatter 可选声明 `signals.cli`、`signals.mcp`、`signals.tools`（也兼容 `signals_cli` / `signals_mcp` / `signals_tools`）；runner 只在 skill 已 loaded 后，对同一 run 内成功的 bash/tool/MCP 调用做保守匹配，并把匹配 evidence 写成 `cli_signal` / `tool_signal` / `mcp_signal`。多个 loaded skill 同时命中时，只归因给最近 loaded 的匹配 skill，避免一条工具调用污染多个 skill fact。

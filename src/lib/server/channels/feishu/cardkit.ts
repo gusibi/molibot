@@ -1,5 +1,9 @@
 import type * as lark from "@larksuiteoapi/node-sdk";
-import { markdownToFeishuMarkdown } from "$lib/server/channels/feishu/formatting.js";
+import {
+  markdownToFeishuMarkdown,
+  parseFeishuRichTextSegments,
+  type FeishuRichTextSegment
+} from "$lib/server/channels/feishu/formatting.js";
 
 export const FEISHU_STREAMING_ELEMENT_ID = "streaming_content";
 const FEISHU_TOOL_PANEL_LIMIT = 12;
@@ -106,6 +110,77 @@ function buildDetailsPanel(detailsText: string | undefined): Record<string, unkn
   };
 }
 
+function buildTableElement(segment: Extract<FeishuRichTextSegment, { type: "table" }>): Record<string, unknown> {
+  const columnKeys = segment.columns.map((_, index) => `col_${index + 1}`);
+  return {
+    tag: "table",
+    columns: segment.columns.map((name, index) => ({
+      name: columnKeys[index],
+      display_name: markdownToFeishuMarkdown(name || " "),
+      data_type: "lark_md",
+      width: "auto"
+    })),
+    rows: segment.rows.map((row) =>
+      Object.fromEntries(
+        columnKeys.map((key, index) => [key, markdownToFeishuMarkdown(row[index] || " ")])
+      )
+    )
+  };
+}
+
+function splitMarkdownBlocks(content: string): string[] {
+  const lines = String(content ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const blocks: string[] = [];
+  let buffer: string[] = [];
+  let insideCodeFence = false;
+
+  const flush = (): void => {
+    const value = buffer.join("\n").trim();
+    if (value) blocks.push(value);
+    buffer = [];
+  };
+
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      insideCodeFence = !insideCodeFence;
+      buffer.push(line);
+      continue;
+    }
+    if (!insideCodeFence && /^#{1,6}\s+/.test(line)) {
+      flush();
+      blocks.push(line.trim());
+      continue;
+    }
+    buffer.push(line);
+  }
+
+  flush();
+  return blocks;
+}
+
+function buildMarkdownElements(content: string): Record<string, unknown>[] {
+  const blocks = splitMarkdownBlocks(content);
+  return (blocks.length > 0 ? blocks : [" "]).map((block) => ({
+    tag: "markdown",
+    content: markdownToFeishuMarkdown(block),
+    text_align: "left",
+    text_size: "normal_v2"
+  }));
+}
+
+function buildAnswerElements(answerText: string): Record<string, unknown>[] {
+  const segments = parseFeishuRichTextSegments(answerText || "_No response._");
+  const elements: Record<string, unknown>[] = [];
+  for (const segment of segments.length > 0 ? segments : [{ type: "markdown" as const, content: "_No response._" }]) {
+    if (segment.type === "table") {
+      elements.push(buildTableElement(segment));
+      continue;
+    }
+    elements.push(...buildMarkdownElements(segment.content));
+  }
+  return elements.length > 0 ? elements : buildMarkdownElements("_No response._");
+}
+
 function buildSummaryContent(options: { isWorking?: boolean; stopReason?: StopReason; elapsedMs?: number }): string {
   if (options.isWorking) return "生成中...";
   if (options.stopReason === "error") return `出错 · ${formatElapsed(options.elapsedMs ?? 0)}`;
@@ -147,7 +222,7 @@ export function buildFeishuStreamingCard(options: BuildStreamingCardOptions): Re
 export function buildFeishuFinalCard(options: BuildFinalCardOptions): Record<string, unknown> {
   const elements: Record<string, unknown>[] = [];
   if (options.tools.length > 0) elements.push(buildToolPanel(options.tools));
-  elements.push({ tag: "markdown", content: markdownToFeishuMarkdown(options.answerText || "_No response._") });
+  elements.push(...buildAnswerElements(options.answerText));
   const details = buildDetailsPanel(options.detailsText);
   if (details) elements.push(details);
   elements.push({

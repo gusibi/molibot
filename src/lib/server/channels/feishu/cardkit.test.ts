@@ -79,6 +79,49 @@ test("buildFeishuFinalCard closes streaming mode and keeps tool summary", () => 
   assert.equal(JSON.stringify(card).includes("passed"), true);
 });
 
+test("buildFeishuFinalCard splits headings into separate markdown elements", () => {
+  const card = buildFeishuFinalCard({
+    title: "Completed",
+    answerText: ["# Heading 1", "Body", "## Heading 2", "More body"].join("\n"),
+    tools: [],
+    stopReason: "stop",
+    elapsedMs: 1200
+  }) as Record<string, any>;
+
+  const markdownElements = card.body.elements.filter((element: any) => element.tag === "markdown");
+  assert.equal(markdownElements.some((element: any) => element.content === "**Heading 1**"), true);
+  assert.equal(markdownElements.some((element: any) => element.content === "**Heading 2**"), true);
+  assert.equal(markdownElements.some((element: any) => element.content.includes("Body")), true);
+});
+
+test("buildFeishuFinalCard converts markdown tables into native table elements", () => {
+  const card = buildFeishuFinalCard({
+    title: "Completed",
+    answerText: [
+      "Summary",
+      "",
+      "| Name | Value |",
+      "|------|-------|",
+      "| A | 1 |",
+      "| B | 2 |"
+    ].join("\n"),
+    tools: [],
+    stopReason: "stop",
+    elapsedMs: 1200
+  }) as Record<string, any>;
+
+  const table = card.body.elements.find((element: any) => element.tag === "table");
+  assert.ok(table);
+  assert.deepEqual(table.columns, [
+    { name: "col_1", display_name: "Name", data_type: "lark_md", width: "auto" },
+    { name: "col_2", display_name: "Value", data_type: "lark_md", width: "auto" }
+  ]);
+  assert.deepEqual(table.rows, [
+    { col_1: "A", col_2: "1" },
+    { col_1: "B", col_2: "2" }
+  ]);
+});
+
 test("CardKit wrappers send exact SDK payloads", async () => {
   const { client, calls } = createMockClient();
   const card = buildFeishuStreamingCard({ title: "Processing", answerText: "", tools: [], isWorking: true });

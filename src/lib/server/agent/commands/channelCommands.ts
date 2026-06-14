@@ -388,8 +388,8 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(
           input.target,
           cancelledQueued > 0
-            ? this.text(`Stopping... Cleared ${cancelledQueued} queued task(s).`, `正在停止……已清除 ${cancelledQueued} 个排队任务。`)
-            : this.text("Stopping...", "正在停止……")
+            ? this.text(`Stopped. Cleared ${cancelledQueued} queued task(s).`, `已停止，并清除 ${cancelledQueued} 个排队任务。`)
+            : this.text("Stopped.", "已停止。")
         );
       } else if (result.clearedStale) {
         await this.options.sendText(

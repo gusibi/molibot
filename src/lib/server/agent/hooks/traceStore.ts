@@ -368,6 +368,10 @@ export class SqliteTraceStore {
     };
   }
 
+  getDatabase(): DatabaseSync {
+    return this.db;
+  }
+
   close(): void {
     this.db.close();
   }

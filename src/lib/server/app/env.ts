@@ -19,6 +19,14 @@ function expandHomePath(input: string): string {
 
 const defaultDataDir = path.join(os.homedir(), ".molibot");
 const resolvedDataDir = expandHomePath(process.env.DATA_DIR ?? defaultDataDir);
+
+// Load the persistent data-dir `.env` so all runtime secrets (tokens, API
+// keys) live in one place. Runs after DATA_DIR is resolved (DATA_DIR itself
+// must come from the OS env or cwd `.env`, not from inside the data dir).
+// dotenv does not override existing vars, so precedence is:
+//   OS env > cwd .env > <dataDir>/.env
+dotenv.config({ path: path.join(resolvedDataDir, ".env") });
+
 const resolvedDatabaseDir = expandHomePath(process.env.DB_DIR ?? path.join(resolvedDataDir, "db"));
 
 export const config = {

@@ -178,6 +178,7 @@ export class QQManager extends BaseChannelRuntime {
     const allowedChatIdsKey = JSON.stringify([...allowedChatIds].sort());
 
     momLog("qq", "apply", {
+      botId: this.instanceId,
       hasAppId: Boolean(appId),
       hasClientSecret: Boolean(clientSecret),
       allowedChatCount: allowedChatIds.length
@@ -185,7 +186,7 @@ export class QQManager extends BaseChannelRuntime {
 
     if (!appId || !clientSecret) {
       this.stop();
-      momWarn("qq", "disabled_no_credentials");
+      momWarn("qq", "disabled_no_credentials", { botId: this.instanceId });
       return;
     }
 
@@ -195,7 +196,8 @@ export class QQManager extends BaseChannelRuntime {
       this.currentClientSecret === clientSecret &&
       this.currentAllowedChatIdsKey === allowedChatIdsKey
     ) {
-      momLog("qq", "apply_noop_same_credentials");
+      momLog("qq", "apply_noop_same_credentials", { botId: this.instanceId });
+      void this.writePromptPreview(allowedChatIds);
       return;
     }
 

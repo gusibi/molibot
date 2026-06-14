@@ -103,7 +103,7 @@ test("rendered prompt stays under a broad size budget while preserving routing a
       timezone: "UTC"
     });
 
-    assert.ok(prompt.length < 25_000, `rendered prompt length ${prompt.length} exceeded budget`);
+    assert.ok(prompt.length < 26_000, `rendered prompt length ${prompt.length} exceeded budget`);
     assert.match(prompt, /<available-deferred-tools>/);
     assert.match(prompt, /createEvent/);
     assert.match(prompt, /skillSearch/);
@@ -133,6 +133,28 @@ test("bot BOT.md overrides agent/global AGENTS.md instead of injecting both", ()
     });
     assert.match(withBotFile, /BOT-OVERRIDE-MARKER/);
     assert.doesNotMatch(withBotFile, /GLOBAL-AGENTS-MARKER/);
+  } finally {
+    rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("bot operator identity prevents default Momo identity from overriding profile files", () => {
+  const dataRoot = mkdtempSync(join(tmpdir(), "molibot-profile-identity-"));
+  const workspaceDir = join(dataRoot, "moli-test", "bots", "bot-1");
+  try {
+    mkdirSync(workspaceDir, { recursive: true });
+    writeFileSync(join(workspaceDir, "BOT.md"), "# BOT.md\n\nName: WaliMo\nWorkflow: URL to Markdown to sink.", "utf8");
+    writeFileSync(join(workspaceDir, "IDENTITY.md"), "# IDENTITY.md\n\nUse WaliMo as your identity.", "utf8");
+
+    const prompt = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
+      timezone: "UTC"
+    });
+
+    assert.match(prompt, /Name: WaliMo/);
+    assert.match(prompt, /Use WaliMo as your identity/);
+    assert.match(prompt, /Do not identify as Momo Agent unless no operator identity is defined/);
+    assert.match(prompt, /<operator-directives-reminder>/);
+    assert.doesNotMatch(prompt, /You are Momo Agent, an intelligent AI assistant created by goodspeed\./);
   } finally {
     rmSync(dataRoot, { recursive: true, force: true });
   }

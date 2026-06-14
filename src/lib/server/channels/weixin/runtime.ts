@@ -197,6 +197,7 @@ export class WeixinManager extends BaseChannelRuntime {
       this.currentAllowedChatIdsKey === allowedChatIdsKey
     ) {
       momLog("weixin", "apply_noop_same_config", { botId: this.instanceId });
+      void this.writePromptPreview(allowedChatIds);
       return;
     }
 

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { defaultToolSandboxSettings, sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
 import {
+  buildSandboxEnvFileInjection,
   buildToolSandboxEnv,
   getToolSandboxDiagnostics,
   setSandboxProvider,
@@ -134,6 +135,68 @@ test("buildToolSandboxEnv falls back to process env for allowlisted keys missing
   }
 });
 
+test("buildSandboxEnvFileInjection exposes only policy-allowed file-only secrets for the host fallback", () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-sandbox-hostinject-"));
+  const previousPlain = process.env.PLAIN;
+  // BOT_API_TOKEN is a file-only secret in this fixture, so it must not exist in
+  // the process env (the real data-dir `.env` may define it on a dev machine).
+  const previousBotToken = process.env.BOT_API_TOKEN;
+  try {
+    process.env.PLAIN = "from-process";
+    delete process.env.BOT_API_TOKEN;
+    writeFileSync(
+      join(workspaceDir, ".env.sandbox.local"),
+      [
+        "BOT_API_TOKEN=file-token",
+        "TELEGRAM_BOT_TOKEN=blocked-secret",
+        "PLAIN=from-file",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+
+    const settings = sanitizeToolSandboxSettings({
+      ...defaultToolSandboxSettings,
+      enabled: true,
+      envFilePath: join(workspaceDir, ".env.sandbox.local"),
+      env: {
+        inheritMode: "full",
+        allow: [],
+        deny: ["TELEGRAM_*"]
+      }
+    });
+
+    const injection = buildSandboxEnvFileInjection(settings);
+    // File-only secret is injected so the host fallback can reach it.
+    assert.equal(injection.BOT_API_TOKEN, "file-token");
+    // Denied keys never leak to the host.
+    assert.equal(injection.TELEGRAM_BOT_TOKEN, undefined);
+    // Keys already in the parent process env are skipped (host inherits them).
+    assert.equal(injection.PLAIN, undefined);
+
+    // Disabled sandbox never injects file secrets into the host fallback.
+    assert.deepEqual(buildSandboxEnvFileInjection({ ...settings, enabled: false }), {});
+
+    // allowlist mode only injects file-only keys named in allow.
+    const allowlisted = buildSandboxEnvFileInjection({
+      ...settings,
+      env: { inheritMode: "allowlist", allow: ["BOT_API_TOKEN"], deny: [] }
+    });
+    assert.equal(allowlisted.BOT_API_TOKEN, "file-token");
+    const notAllowlisted = buildSandboxEnvFileInjection({
+      ...settings,
+      env: { inheritMode: "allowlist", allow: ["OTHER_KEY"], deny: [] }
+    });
+    assert.equal(notAllowlisted.BOT_API_TOKEN, undefined);
+  } finally {
+    if (previousPlain === undefined) delete process.env.PLAIN;
+    else process.env.PLAIN = previousPlain;
+    if (previousBotToken === undefined) delete process.env.BOT_API_TOKEN;
+    else process.env.BOT_API_TOKEN = previousBotToken;
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
 test("sandbox diagnostics deny direct reads of the workspace env file", async () => {
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-sandbox-diag-"));
   try {
@@ -141,7 +204,7 @@ test("sandbox diagnostics deny direct reads of the workspace env file", async ()
     const diagnostics = await getToolSandboxDiagnostics(settings, workspaceDir);
 
     assert.equal(diagnostics.enabled, true);
-    assert.equal(diagnostics.envFilePath.endsWith(".env.sandbox.local"), true);
+    assert.equal(diagnostics.envFilePath.endsWith(".env"), true);
     assert.equal(diagnostics.effectiveFilesystem.denyRead.includes(diagnostics.envFilePath), true);
     assert.equal(diagnostics.effectiveFilesystem.denyWrite.includes(diagnostics.envFilePath), true);
     assert.deepEqual(diagnostics.envKeysMissing, []);

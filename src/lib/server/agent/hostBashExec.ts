@@ -50,11 +50,19 @@ async function buildHostEnv(permissions: HostBashPermissions): Promise<NodeJS.Pr
     const value = process.env[key];
     if (value !== undefined) env[key] = value;
   }
-  // Inject browser automation timeout from runtime settings (lazy import to break circular dependency)
+  // Inject browser automation timeout + sandbox env-file secrets from runtime
+  // settings (lazy import to break circular dependency).
   try {
     const { getRuntime } = await import("$lib/server/app/runtime.js");
     const settings = getRuntime().getSettings();
     env.AGENT_BROWSER_DEFAULT_TIMEOUT = String(settings.browserAutomation.defaultTimeoutMs);
+
+    // When a sandboxed command is denied it auto-falls-back to Host Bash, so
+    // secrets that live only in the configured sandbox env file must remain
+    // reachable here (gated by the same sandbox env policy). Without this, the
+    // fallback path silently loses the sandbox env and reports "missing token".
+    const { buildSandboxEnvFileInjection } = await import("$lib/server/agent/tools/sandbox.js");
+    Object.assign(env, buildSandboxEnvFileInjection(settings.toolSandbox));
   } catch {
     // Runtime may not be initialized during tests; fall through to process.env
   }

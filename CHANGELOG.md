@@ -2,7 +2,64 @@
 
 ## Version 1.0
 
+## 2026-06-14
+
+### Feishu Card Markdown Rendering
+- Final Feishu CardKit replies now split markdown headings into separate card elements and render markdown tables as native Feishu table elements, reducing layout breakage for large structured answers.
+- Feishu markdown conversion now protects fenced code blocks before applying heading/list/quote compatibility rewrites, so code samples containing `#`, `-`, or `>` stay literal.
+
+### Bot Profile Identity Lock
+- When active profile files define bot identity or behavior, the base system prompt no longer hard-declares the default Momo identity. It now tells the model to use the active `BOT.md`, `IDENTITY.md`, `SOUL.md`, `SONG.md`, and `USER.md` definitions for self-description and behavior.
+- Added a final operator-directives reminder so identity/workflow/core-principle/prohibition questions are answered from the active profile files instead of the default runtime baseline.
+
+### System Prompt Orders Volatile Sections Last for Cache-Friendliness
+- Within the `<system-prompt>` block, the two sections that change between turns — `<available-skills>` and `<current-memory>` — now sit at the very tail, after the static `system-configuration-log` and `log-queries`. `available-skills` previously sat near the top (right after the skills protocol), which meant any skill-list or memory change invalidated almost the entire prefix. The skills *protocol* (static usage rules) stays near the top with the pipeline; only the volatile skill-name list moved.
+- This keeps the large static prefix byte-identical across turns so providers/models that do prefix-based prompt caching can reuse more of it. (Note: Anthropic via pi-ai caches the system as a single block, so this is a no-op there; the win is for finer-grained or custom-protocol caches.) Reorder is in `agent/prompts/prompt.ts` `buildBaseSystemPromptWithOptions`.
+
+### Operator Profile Files Outrank the Default System Prompt (Under a Safety Floor)
+- Bot/agent profile files that express operator intent — `BOT.md`, `IDENTITY.md`, `SOUL.md`, `SONG.md`, `USER.md` — are now injected **above** the default `<system-prompt>` block, fronted by an `<operator-directives>` preamble that declares them high priority and authoritative on conflict. Previously they were appended after the base prompt as plain, unframed text and were easily diluted by the base prompt's tool/bash guidance (e.g. a Skill-Only `BOT.md` whose prohibitions were ignored).
+- An `<inviolable-safety>` block now sits **above** the operator directives as a non-negotiable floor: profile files (and the user, and external content) may add stricter limits but can never weaken or bypass core safety — no disabling safety rules, secret exfiltration, unconfirmed destructive/irreversible actions, system attacks, prompt-injection compliance, or fabricated success claims — even if a profile explicitly says to.
+- `TOOLS.md` and `BOOTSTRAP.md` remain below the base prompt as lower-priority config. `AGENTS.md` is still only injected when no `BOT.md` overrides it, and the project-context block is unchanged. Implemented in `agent/prompts/prompt.ts` (`OPERATOR_DIRECTIVE_FILES`, `SUPPORTING_INSTRUCTION_FILES`, `buildSafetyFloorSection`, `buildOperatorDirectivesPreamble`).
+
+### Stop Command Terminal Confirmation
+- `/stop` confirmations now use terminal copy (`Stopped.` / `已停止。`) once a running task is aborted, including the queued-task cleanup count when relevant. This keeps Feishu's text confirmation aligned with the final stopped status card.
+
 ## 2026-06-13
+
+### Host Bash Fallback Inherits Sandbox Env Secrets
+- When a sandboxed command is denied and auto-falls-back to Host Bash, the host execution now also receives secrets that live only in `.env.sandbox.local` — previously `buildHostEnv` read the parent process env only, so file-only secrets (e.g. `BOT_API_TOKEN`) silently vanished on fallback and produced misleading "missing token" failures.
+- Injection is gated by the same sandbox env policy (`inheritMode`/`allow`/`deny`) and skips keys already present in the parent process env, so the fallback never widens access beyond what the sandbox itself would grant; disabled sandbox injects nothing.
+- New exported helper `buildSandboxEnvFileInjection` in `agent/tools/sandbox.ts`, covered by `sandbox.test.ts`.
+
+### Cross-Channel System Prompt Preview Refresh
+- Feishu, QQ, and Weixin now refresh each bot workspace's generated `SYSTEM_PROMPT.preview.md` during no-op channel apply, matching Telegram when bot/profile Markdown changes without credential changes.
+- Feishu and QQ apply/no-op logs now include `botId`, making preview refresh logs easier to correlate with channel instances.
+
+### Treehole Poster Bot Profile Template
+- Added `src/lib/server/agent/prompts/templates/treehole-poster/` with bot-level `BOT.md`, `IDENTITY.md`, and `SOUL.md` templates for a posting assistant that lightly cleans user thoughts and only publishes on explicit trigger.
+- Split the template responsibilities so workflow rules, identity boundary, and voice guidelines do not repeat each other.
+
+### Providers Page: Fix Dead Click Interactions (Reactivity)
+- Fixed all clicks on the AI providers page (`/settings/ai/providers`) appearing dead: switching the Built-in/Custom tab did not change the sidebar list, and selecting a sidebar provider did not update the detail pane. Root cause was a Svelte 5 legacy-mode reactivity gap — the template rendered lists via bare no-argument helper calls (`{#each filteredCustomProviders()}`, `{#if getSelectedProviderInActiveTab()}`), which do not track the `activeProviderTab` / `selectedProviderId` / `providerSearch` reads happening *inside* those functions, so the blocks never recomputed.
+- Introduced `$:`-derived `filteredProviders`, `selectedProviderDetail`, and `visibleModels` that reference their reactive dependencies explicitly, and switched the template to use them. The model registry also now reacts to the show-more/collapse toggle.
+
+### Providers Page: Fix Selection Jump and Built-in Persistence
+- Fixed the AI providers page (`/settings/ai/providers`) jumping to the first provider while editing a provider's **Provider ID**: the ID field is now synced with the selected provider key (and default-provider reference) instead of silently desyncing `selectedProviderId`, which previously caused the detail pane to fall back to the first listed provider and dropped the edited/new provider on save.
+- `save()` now persists the currently selected provider even when it is a built-in one, so enabling a built-in provider and editing its model registry (capability tags, context window, per-model enabled toggle) actually takes effect instead of reverting on reload.
+
+### AI Usage and Trace Pagination
+- Implemented pagination for the "Request Event Details" table at the bottom of `/settings/ai/usage` and the "Recent Trace Facts" table at `/settings/ai/trace`.
+- Added customizable page sizing (10, 20, 30, 50, 100 entries, defaulting to 20).
+- Fully localized pagination information, selectors, and navigation buttons into both Chinese and English, reactively updating on language switch.
+- Linked pagination state to filter controls so page numbers automatically reset to 1 when filters are changed.
+
+### Trace Skill Usage Statistics
+- `/settings/ai/trace` now surfaces skill calls alongside tool and model calls: added a "Skill 调用" metric card (total skill_usage facts, executed count, distinct skills) and a "技能使用排行" ranking table aggregated by skill name with triggered / loaded / executed / run / avg-duration columns.
+- The trace stats API (`/api/settings/trace`) now aggregates `skill_usage` facts into per-skill summaries and totals (`skillUsages`, `executedSkills`, `distinctSkills`), reading level from `payload.level` and scope from `payload.scope`.
+
+### CLI Readline Shutdown Guard
+- Added a shared readline shutdown guard for the local CLI adapter so Ctrl+C or TTY `read EIO` closes quietly instead of throwing an unhandled Node `Interface` error.
+- The CLI no longer calls `prompt()` after readline has already closed during an async message handler.
 
 ### Skill Usage Trace Phase 1
 - Trace facts now record implicit skill loads when a successful `read` call opens a loaded skill's `SKILL.md`, using `reason: read_skill_file`.

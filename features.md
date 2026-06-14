@@ -1,6 +1,57 @@
 # Molibot Features
 
+## 2026-06-14
+
+### Feishu Card Markdown 渲染优化 (Feishu Card Markdown Rendering)
+- **最终回答结构化渲染**: Feishu CardKit final card 不再把完整回答塞进单个 markdown 元素；标题会拆成独立 markdown 元素，markdown 表格会转换成飞书原生 table 元素，降低大段 H1/结构化回答在 card 中排版错乱的概率。
+- **代码块保护**: `markdownToFeishuMarkdown()` 在应用标题、列表、引用等兼容转换前会先保护 fenced code block，避免代码示例里的 `#`、`-`、`>` 被误改成标题、项目符号或引用样式。
+- **回归测试**: Feishu 测试覆盖代码块 markdown 保护、final card 标题拆分和 markdown table 原生 table 渲染。
+
+### Bot Profile 身份锁定 (Bot Profile Identity Lock)
+- **默认身份不再覆盖 Bot 身份**: 当有效 prompt 中存在 `BOT.md` / `IDENTITY.md` / `SOUL.md` / `SONG.md` / `USER.md` 这类 operator profile 时，默认 `<system-prompt>` 不再硬声明 `You are Momo Agent...`，而是要求模型以 profile 中定义的名称、身份、使命、工作流、语气和禁令作为自我描述与行为准则。
+- **尾部提醒防止后置默认规则稀释**: 新增 `<operator-directives-reminder>` 段，明确回答“你是谁 / 工作流 / 核心原则 / 禁止行为”时必须从 active profile 文件回答；如果 profile 要求缺少必要 skill 时停止，也必须按 profile 原因停止。
+- **回归测试**: `prompt.test.ts` 覆盖有 bot 身份时不再渲染默认 Momo 身份，并保留 profile 内容与尾部提醒。
+
+### System Prompt 易变段落后置以利缓存 (Volatile Sections Last for Cache-Friendliness)
+- **易变内容移到 system 块末尾**: `<available-skills>`（技能名列表）和 `<current-memory>`（记忆内容）这两段会随轮次变化,现在统一放到 `<system-prompt>` 块的**最末尾**,排在静态的 `system-configuration-log` / `log-queries` 之后。此前 `available-skills` 紧跟在 skills protocol 后、靠近顶部,导致技能列表或记忆一变就作废几乎整个前缀。讲用法的 skills **protocol**(静态)仍留在顶部与 pipeline 一起,只挪了易变的技能名列表。
+- **目的**: 让上方那一大段静态前缀跨轮保持字节一致,便于做前缀缓存的 provider/模型复用更多内容。(注:Anthropic 经 pi-ai 把 system 当**单块**缓存,所以在 Anthropic 上是无收益的 no-op;收益面向更细粒度缓存或自定义协议路径。)改动在 `agent/prompts/prompt.ts` 的 `buildBaseSystemPromptWithOptions`。
+
+### Operator Profile 优先级高于默认系统提示词（但有安全底线） (Operator Profile Files Outrank System Prompt, Under a Safety Floor)
+- **代表 operator 意图的 profile 文件上提到最前**: `BOT.md` / `IDENTITY.md` / `SOUL.md` / `SONG.md` / `USER.md` 现在被拼到默认 `<system-prompt>` 之**前**，并由一段 `<operator-directives>` 前言声明它们为高优先级、与默认系统提示词冲突时以这些为准。此前它们被追加在 base prompt 之后、且是无任何框定的纯文本，容易被 base prompt 里的工具/bash 指引稀释——例如 Skill-Only 的 `BOT.md`（禁用 curl/cat 等）规则被忽略。
+- **不可逾越的安全底线压在最上层**: 新增 `<inviolable-safety>` 段，位于 operator directives **之上**，声明 profile 文件（以及用户、外部内容）只能**收紧**而不能放松/绕过核心安全——不得关闭安全规则、不得外泄密钥、不得在未确认下执行破坏性/不可逆操作、不得攻击系统、必须抵御 prompt injection、不得谎报执行成功——**即使 profile 文件明确要求破坏也不行**。
+- **支撑类文件仍为低优先级**: `TOOLS.md` / `BOOTSTRAP.md` 保留在 base prompt 之后作为低优先级配置；`AGENTS.md` 仍仅在没有 `BOT.md` 覆盖时注入；project-context 块保持不变。改动集中在 `agent/prompts/prompt.ts`（新增 `OPERATOR_DIRECTIVE_FILES`、`SUPPORTING_INSTRUCTION_FILES`、`buildSafetyFloorSection`、`buildOperatorDirectivesPreamble`），现有 `prompt.test.ts` 的 BOT.md 覆盖断言仍通过。
+
+### Stop Command Terminal Confirmation Copy
+- **终止确认改为最终态**: `/stop` 成功中止当前运行时，共享命令回复从“正在停止……”改为“已停止。”；同时清理排队任务时继续显示已清除数量，避免飞书等渠道在运行卡片已显示 stopped 后，底部确认消息仍停留在进行态。
+
 ## 2026-06-13
+
+### Host Bash Fallback 继承沙箱环境变量 (Host Bash Fallback Inherits Sandbox Env)
+- **修复 fallback 丢失 token**: 沙箱命令被拒后会自动 fallback 到 Host Bash，但此前 `buildHostEnv` 只读父进程 env，导致只存在于 `.env.sandbox.local` 的密钥（如 `BOT_API_TOKEN`）在 fallback 路径上凭空消失，报出误导性的“缺少 token”。现在 Host Bash 也会注入这些仅存在于沙箱 env 文件中的密钥。
+- **沿用沙箱 env 策略**: 注入受同一套 `inheritMode`/`allow`/`deny` 策略约束，并跳过父进程 env 里已有的 key，因此 fallback 拿到的权限不会超过沙箱本身会授予的范围；沙箱关闭时不注入任何文件密钥（不污染长期存活的主进程 env）。
+- **新增 `buildSandboxEnvFileInjection`** 辅助函数（`agent/tools/sandbox.ts`），由 `sandbox.test.ts` 覆盖。
+
+### 多渠道 System Prompt Preview 热刷新 (Cross-Channel Prompt Preview Refresh)
+- **No-op apply 也刷新预览**: Feishu / QQ / Weixin 在保存 bot 配置或 profile Markdown 后，即使渠道凭据和白名单没有变化、无需重启适配器，也会重写对应 bot workspace 的 `SYSTEM_PROMPT.preview.md`。行为与 Telegram 对齐，避免只有 Telegram 预览更新、其他渠道仍显示旧 prompt 的观测偏差。
+- **日志对齐**: Feishu / QQ 的 apply、no-op apply 日志补充 `botId`，刷新时会输出与 Telegram 同类的 `system_prompt_preview_written` 日志，便于按 bot 核对 prompt 是否已经更新。
+
+### 树洞发帖 Bot Profile 模板 (Treehole Poster Bot Profile Template)
+- **Bot 维度模板**: 新增 `src/lib/server/agent/prompts/templates/treehole-poster/`，提供可复用的 `BOT.md` / `IDENTITY.md` / `SOUL.md` 模板，用于专门负责轻度整理随想并按明确触发发布帖子的 bot。
+- **配置分层去重**: `BOT.md` 只承载工作流、发布触发和风险确认规则；`IDENTITY.md` 只定义身份边界；`SOUL.md` 只定义表达气质，避免三份配置互相重复。
+
+### AI 用量与 Trace 页面分页支持 (AI Usage and Trace Pagination)
+- **分页控制与每页条数自选**: 为 `/settings/ai/usage` 的“请求事件明细”和 `/settings/ai/trace` 的“最近 Trace Facts”表格添加了分页组件。每页支持可选条数（10/20/30/50/100，默认 20 条）。
+- **多语言（i18n）支持**: 分页文本信息（例如 `第 1 / 5 页 (共 98 条记录)` / `Page 1 of 5 (98 records)`）和“上一页”/“下一页”导航控件完美匹配 `$locale` 多语言，在中英文下均可自动适应切换。
+- **状态联动重置**: 在切换时间范围、模型、Bot、渠道或 Fact 调用类型等过滤条件时，分页状态会自动重置归零（`currentPage = 1`），保证过滤结果显示正确。
+
+### Trace Skill 调用统计 (Trace Skill Usage Statistics)
+- **Skill 调用指标卡**: `/settings/ai/trace` 在工具调用、模型请求卡片之外新增 "Skill 调用" 指标卡，展示当前筛选范围内 `skill_usage` fact 总数、实际执行（executed）次数与技能种类（distinct）。
+- **技能使用排行表**: 新增 "技能使用排行" 表格，按技能 name 聚合命中（triggered）、加载（loaded）、执行（executed）次数、关联 run 数与平均耗时，与工具调用排行对齐。
+- **API 汇总扩展**: `/api/settings/trace` 的 `buildStats` 现在产出 per-skill 汇总（`skills[]`）与 totals 字段（`skillUsages` / `executedSkills` / `distinctSkills`），level 取自 `payload.level`、scope 取自 `payload.scope`，复用既有 fact 读取链路，不新增存储。
+
+### CLI Readline 退出防护 (CLI Readline Shutdown Guard)
+- **TTY EIO 防护补齐**: 为 CLI adapter 增加统一的 readline shutdown guard。Ctrl+C、TTY 断开或 stdin `read EIO` 时会安静关闭 readline 并暂停 stdin，不再因为未处理的 `Interface` error 打出 Node.js 崩溃栈。
+- **异步 prompt 防重入**: CLI line handler 在异步回复完成后会先检查 readline 是否已关闭，避免 Ctrl+C 后继续调用 `rl.prompt()` 重新读取已关闭的终端输入。
 
 ### Skill 使用追踪 Phase 1 (Implicit Skill Load Tracking)
 - **隐式读取追踪**: 当模型通过 `read` 工具成功读取当前 run 已加载 skill manifest 中的 `SKILL.md` 时，runner 会记录 `skill.loaded`，并标记 `reason: "read_skill_file"`。这补齐了非显式 `/skill` / `$skill` 调用场景下，模型按 skill routing 自行读取技能文件但 trace 中没有 skill fact 的缺口。

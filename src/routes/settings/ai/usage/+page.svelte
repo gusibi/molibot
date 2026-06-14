@@ -158,7 +158,7 @@
             channelDistribution: "渠道分布",
             channelDistributionDesc: "基于现有 channel 字段",
             eventDetailsTitle: "请求事件明细",
-            eventDetailsDesc: "最近 {count} 条匹配记录；本系统暂未记录结果、延迟、认证索引和费用。",
+            eventDetailsDesc: "按所选条件筛选的 AI 调用记录；本系统暂未记录结果、延迟、认证索引和费用。",
             colTime: "时间",
             colChannel: "渠道",
             colBot: "Bot",
@@ -172,7 +172,11 @@
             statusReady: "数据已就绪",
             refreshBtn: "立即刷新",
             syncingBtn: "同步中",
-            errorPrefix: "错误："
+            errorPrefix: "错误：",
+            paginationInfo: "第 {page} / {pages} 页 (共 {total} 条记录)",
+            pageSizeLabel: "每页条数",
+            prevPage: "上一页",
+            nextPage: "下一页"
         },
         "en-US": {
             eyebrow: "AI Usage Observatory",
@@ -226,7 +230,7 @@
             channelDistribution: "Channel Distribution",
             channelDistributionDesc: "Based on the channel field",
             eventDetailsTitle: "Request Event Details",
-            eventDetailsDesc: "Recent {count} matching records; results, latency, auth indexes, and costs are not recorded.",
+            eventDetailsDesc: "AI call records in the filtered scope; results, latency, auth indexes, and costs are not recorded.",
             colTime: "Time",
             colChannel: "Channel",
             colBot: "Bot",
@@ -240,7 +244,11 @@
             statusReady: "Data ready",
             refreshBtn: "Refresh Now",
             syncingBtn: "Syncing",
-            errorPrefix: "Error: "
+            errorPrefix: "Error: ",
+            paginationInfo: "Page {page} of {pages} ({total} records)",
+            pageSizeLabel: "Page size",
+            prevPage: "Previous",
+            nextPage: "Next"
         }
     } as const;
 
@@ -261,6 +269,58 @@
     let selectedModelId: "all" | string = "all";
     let selectedBotId: "all" | string = "all";
     let selectedChannel: "all" | string = "all";
+
+    let currentPage = 1;
+    let pageSize = 20;
+
+    let paginatedRecords: AiUsageRecord[] = [];
+    let totalRecordsCount = 0;
+    let recordsLoading = false;
+
+    async function loadPaginatedRecords() {
+        recordsLoading = true;
+        try {
+            const params = new URLSearchParams({
+                range: selectedRange,
+                modelId: selectedModelId,
+                botId: selectedBotId,
+                channel: selectedChannel,
+                page: String(currentPage),
+                pageSize: String(pageSize),
+            });
+            const res = await fetch(`/api/settings/usage/records?${params.toString()}`);
+            if (!res.ok) throw new Error(res.statusText);
+            const data = await res.json();
+            if (data.ok) {
+                paginatedRecords = data.data;
+                totalRecordsCount = data.total;
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            recordsLoading = false;
+        }
+    }
+
+    $: {
+        selectedRange;
+        selectedModelId;
+        selectedBotId;
+        selectedChannel;
+        currentPage = 1;
+    }
+
+    $: {
+        if (usageStats) {
+            currentPage;
+            pageSize;
+            selectedRange;
+            selectedModelId;
+            selectedBotId;
+            selectedChannel;
+            void loadPaginatedRecords();
+        }
+    }
 
     $: copy = COPY[$locale] ?? COPY["en-US"];
 
@@ -514,7 +574,7 @@
         sublabel: "bot",
         ...emptyTotals(),
     }));
-    $: recentRecords = [...visibleRecords].sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 80);
+    $: totalPages = Math.ceil(totalRecordsCount / pageSize) || 1;
     $: cacheTokens = totals.cacheReadTokens + totals.cacheWriteTokens;
     $: cachePromptBase = totals.inputTokens + totals.cacheReadTokens;
     $: cacheHitRatio = cacheHitRate(totals);
@@ -898,7 +958,7 @@
         <Card>
             <CardHeader>
                 <CardTitle class="font-serif">{copy.eventDetailsTitle}</CardTitle>
-                <CardDescription>{copy.eventDetailsDesc.replace("{count}", String(recentRecords.length))}</CardDescription>
+                <CardDescription>{copy.eventDetailsDesc}</CardDescription>
             </CardHeader>
             <CardContent>
                 <Table>
@@ -915,11 +975,11 @@
                             <TableHead class="usage-table-head">{copy.colTotalTokens}</TableHead>
                         </TableRow>
                     </TableHeader>
-                    <TableBody>
-                        {#if recentRecords.length === 0}
+                    <TableBody class={recordsLoading ? "opacity-50 transition-opacity" : "transition-opacity"}>
+                        {#if paginatedRecords.length === 0}
                             <TableRow><TableCell colspan="9" class="usage-empty-text">{copy.noEventRecords}</TableCell></TableRow>
                         {:else}
-                            {#each recentRecords as record}
+                            {#each paginatedRecords as record}
                                 <TableRow>
                                     <TableCell class="usage-cell-timestamp">{formatDateTime(record.ts)}</TableCell>
                                     <TableCell>
@@ -940,6 +1000,34 @@
                         {/if}
                     </TableBody>
                 </Table>
+
+                {#if totalRecordsCount > 0}
+                    <div class="pagination-container">
+                        <div class="pagination-info">
+                            {copy.paginationInfo.replace("{page}", String(currentPage)).replace("{pages}", String(totalPages)).replace("{total}", String(totalRecordsCount))}
+                        </div>
+                        <div class="pagination-controls">
+                            <div class="pagination-size">
+                                <label for="usage-page-size">{copy.pageSizeLabel}</label>
+                                <select id="usage-page-size" bind:value={pageSize} onchange={() => currentPage = 1}>
+                                    <option value={10}>10</option>
+                                    <option value={20}>20</option>
+                                    <option value={30}>30</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                </select>
+                            </div>
+                            <div class="pagination-buttons">
+                                <Button variant="outline" size="sm" onclick={() => currentPage = Math.max(1, currentPage - 1)} disabled={currentPage === 1}>
+                                    {copy.prevPage}
+                                </Button>
+                                <Button variant="outline" size="sm" onclick={() => currentPage = Math.min(totalPages, currentPage + 1)} disabled={currentPage === totalPages}>
+                                    {copy.nextPage}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                {/if}
             </CardContent>
         </Card>
     {/if}

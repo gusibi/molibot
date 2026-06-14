@@ -178,7 +178,7 @@ function matchesPattern(value: string, patterns: string[]): boolean {
 }
 
 function resolveEnvFilePath(settings: ToolSandboxSettings): string {
-  const rawPath = settings.envFilePath.trim() || ".env.sandbox.local";
+  const rawPath = settings.envFilePath.trim() || ".env";
   return isAbsolute(rawPath) ? rawPath : resolve(config.dataDir, rawPath);
 }
 
@@ -278,6 +278,28 @@ export function buildToolSandboxEnv(settings: ToolSandboxSettings, workspaceDir:
     deniedKeys: external.deniedKeys,
     missingKeys: external.missingKeys
   };
+}
+
+// Host Bash is the automatic fallback when a sandboxed command is denied, but it
+// builds its environment from the parent process env only — it never reads the
+// sandbox env file. Secrets that live solely in the configured sandbox env file
+// therefore vanish the moment a command falls back to the host, producing misleading
+// "missing token" failures. This returns the env-file-sourced keys the sandbox
+// env policy (inheritMode/allow/deny) would have injected, so the fallback path
+// can grant the same secrets the sandbox already would. Keys also present in the
+// parent process env are skipped — the host already inherits those directly.
+export function buildSandboxEnvFileInjection(settings: ToolSandboxSettings): Record<string, string> {
+  if (!settings.enabled) return {};
+  const envFilePath = resolveEnvFilePath(settings);
+  const { values } = readEnvFile(envFilePath);
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (process.env[key] !== undefined) continue;
+    if (matchesPattern(key, settings.env.deny)) continue;
+    if (settings.env.inheritMode !== "full" && !matchesPattern(key, settings.env.allow)) continue;
+    out[key] = value;
+  }
+  return out;
 }
 
 export interface ToolSandboxEnvStartupReport {

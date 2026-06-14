@@ -864,7 +864,7 @@ test("stop command aborts current run and clears queued pending tasks", async ()
   });
 
   assert.equal(handled, true);
-  assert.deepEqual(sent, ["Stopping... Cleared 2 queued task(s)."]);
+  assert.deepEqual(sent, ["Stopped. Cleared 2 queued task(s)."]);
 });
 
 test("stop command clears queued tasks even when nothing is currently running", async () => {

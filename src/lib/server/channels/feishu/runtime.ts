@@ -190,6 +190,7 @@ export class FeishuManager extends BaseChannelRuntime {
         const allowedChatIdsKey = JSON.stringify([...allowedChatIds].sort());
 
         momLog("feishu", "apply", {
+            botId: this.instanceId,
             hasAppId: Boolean(appId),
             hasAppSecret: Boolean(appSecret),
             hasVerificationToken: Boolean(verificationToken),
@@ -199,7 +200,7 @@ export class FeishuManager extends BaseChannelRuntime {
 
         if (!appId || !appSecret) {
             this.stop();
-            momWarn("feishu", "disabled_no_credentials");
+            momWarn("feishu", "disabled_no_credentials", { botId: this.instanceId });
             return;
         }
 
@@ -211,7 +212,8 @@ export class FeishuManager extends BaseChannelRuntime {
             this.currentEncryptKey === encryptKey &&
             this.currentAllowedChatIdsKey === allowedChatIdsKey
         ) {
-            momLog("feishu", "apply_noop_same_credentials");
+            momLog("feishu", "apply_noop_same_credentials", { botId: this.instanceId });
+            void this.writePromptPreview(allowedChatIds);
             return;
         }
 
