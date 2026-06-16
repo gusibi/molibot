@@ -59,12 +59,13 @@ export class FeishuStreamingSession {
   private reasoningPendingFlush = false;
   private mainAnswerCommitted = false;
   private committedMainAnswerText = "";
+  private workingPhase: "thinking" | "processing" = "processing";
 
   constructor(options: FeishuStreamingSessionOptions) {
     this.client = options.client;
     this.chatId = options.chatId;
     this.runId = options.runId;
-    this.title = options.title ?? "Molibot";
+    this.title = options.title ?? "Processing";
     this.replyToMessageId = options.replyToMessageId ?? null;
     this.replyInThread = options.replyInThread === true;
     this.onMessageSent = options.onMessageSent;
@@ -150,13 +151,27 @@ export class FeishuStreamingSession {
     this.formatter.feedEvent(event);
     if (event.type === "assistant_message_event") {
       const candidate = event.event as { type?: string };
+      // "thinking_start"/"thinking_delta" mean the model is actively reasoning;
+      // any other event (text output, thinking_end, tool activity) is processing.
+      this.workingPhase = candidate.type === "thinking_start" || candidate.type === "thinking_delta"
+        ? "thinking"
+        : "processing";
       if (candidate.type === "thinking_start" || candidate.type === "thinking_delta" || candidate.type === "thinking_end") {
         this.scheduleReasoningFlush();
         return;
       }
       if (candidate.type !== "text_delta") return;
+    } else {
+      this.workingPhase = "processing";
     }
     this.scheduleFlush();
+  }
+
+  // Header label shown while the card is still streaming. Reflects the model's
+  // current phase so the user sees clear semantics (Thinking vs Processing)
+  // instead of a static product name.
+  private resolveStreamingTitle(): string {
+    return this.workingPhase === "thinking" ? "Thinking" : this.title;
   }
 
   private getCardTools(): FeishuToolProgressEntry[] {
@@ -315,7 +330,7 @@ export class FeishuStreamingSession {
         const finalAnswer = this.formatter.renderAnswerMarkdown();
         const cardTools = this.getCardTools();
         const initialCard = buildFeishuStreamingCard({
-          title: this.title,
+          title: this.resolveStreamingTitle(),
           answerText: finalAnswer,
           tools: cardTools,
           detailsText: this.detailsText,
@@ -351,7 +366,7 @@ export class FeishuStreamingSession {
         this.client,
         this.cardId,
         buildFeishuStreamingCard({
-          title: this.title,
+          title: this.resolveStreamingTitle(),
           answerText: finalAnswer,
           tools: cardTools,
           detailsText: this.detailsText,

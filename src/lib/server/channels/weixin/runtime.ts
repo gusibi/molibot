@@ -513,7 +513,7 @@ export class WeixinManager extends BaseChannelRuntime {
         await sendRawText(buildNonInteractiveHostBashApprovalText(runnerEvent.hostBashApproval));
       },
       onRunComplete: async (result, meta) => {
-        if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId) {
+        if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId && this.commandService.shouldSendRunArchiveNotice(scopeId)) {
           await sendVisibleText(formatRunArchiveNotice(result.runId));
         }
       },

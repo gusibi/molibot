@@ -2,6 +2,32 @@
 
 ## Version 1.0
 
+## 2026-06-16
+
+### Feishu Streaming Card Status Label
+- The in-progress Feishu card header now shows a semantic status — "Thinking" while the model is reasoning and "Processing" otherwise — instead of the static product name "Molibot". The finalized card still switches to "Completed"/"Stopped"/"Error".
+
+### Feishu Attachment File Type Fix
+- Fixed Feishu attachments (e.g. generated `.mp4` videos) being sent as untyped generic files when a display `title` without an extension was provided. The upload filename now preserves the real file extension from the source path so videos send as native video messages, voice as audio, etc.
+- Applied the fix to all three Feishu `uploadFile` paths via a shared `resolveFeishuUploadFilename` helper.
+
+### Runlog Notice Controls
+- Automatic archived-run notices are now disabled by default while run details continue to be stored.
+- Added session, bot, and global controls via `/runlog on|off|reset`, `/runlog bot on|off|reset`, and `/runlog global on|off|reset`; `/runlog` still opens the latest record, while `/runlog status` is the status command.
+- Added `/runlog list` for recent archived runs and expanded `/status` with runlog notice, sandbox, tool progress, and reasoning-display state.
+
+### Feishu Topic Runlog Notice Threading
+- Feishu streaming runs now send the archived runlog notice back into the originating topic/thread instead of the parent group chat.
+- Added a Feishu runtime regression test covering topic-scoped archive notices.
+
+### AGENTS Repeated-Fix Guardrails
+- Analyzed recurring correction themes in `CHANGELOG.md` and extracted evergreen prevention rules into `AGENTS.md`, covering prompt/profile final-render checks, settings-page reactivity/design constraints, fine-grained settings persistence, isolated persistence tests, and cross-channel queue idempotency.
+- Updated the documentation tracking files with a concise governance summary while keeping one-off bug history out of long-lived rules.
+
+### Documentation Taxonomy
+- Reorganized `docs/` by durable document purpose: requirements, designs, reviews, research, guides, and reference material now have separate top-level folders.
+- Removed process-only execution plans, migration checklists, progress trackers, and completion logs from the main docs tree. Added `docs/README.md` as the docs taxonomy and filing-rules entrypoint, while leaving `docs/agent-dev-series/` and `docs/superpowers/` untouched as standalone collections.
+
 ## 2026-06-14
 
 ### Feishu Card Markdown Rendering
@@ -64,7 +90,7 @@
 ### Skill Usage Trace Phase 1
 - Trace facts now record implicit skill loads when a successful `read` call opens a loaded skill's `SKILL.md`, using `reason: read_skill_file`.
 - `skill_usage` facts now merge monotonically with `payload.level` and `payload.evidenceCsv`, so later weaker signals cannot downgrade a loaded skill fact.
-- Added a persistent implementation checklist at `docs/trace/skill-usage-tracking-progress.md` for Phase 1/2/3 tracking.
+- The durable Skill Usage Trace behavior is now documented through the product docs and Trace design notes instead of a separate progress checklist.
 
 ### Skill Usage Trace Phase 2
 - Successful `skillSearch` results now emit `skill.selected` with `reason: search_match` for structurally valid matches from `details.matches`.
@@ -550,7 +576,7 @@
 
 ### Message Return & Display Layout Optimization
 - **Unified DisplayFormatter logic**: Extracted a centralized Markdown message formatter class [displayFormatter.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/core/displayFormatter.ts) supporting thinking/reasoning blocks, tool progress, and subagent state outputs.
-- **Bot Instance Display Settings & Commands**: Added `display` settings configuration (`toolProgress`, `showReasoning`, `gatewayNotifyInterval`) to the global and channel instance schemas. Developed two new independent commands `/toolprogress` and `/showreasoning` in [channelCommands.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/commands/channelCommands.ts) to read and write database-backed configurations scoped to the active Bot/Channel instance. Implemented SQLite table migrations (`display_json` column) and static settings serialization mapping to ensure configurations are fully reboot-resistant. Documented both display settings and sandbox overrides in the new unified user guide [session-control-commands.md](file:///Users/gusi/Github/molipibot/docs/session-control-commands.md).
+- **Bot Instance Display Settings & Commands**: Added `display` settings configuration (`toolProgress`, `showReasoning`, `gatewayNotifyInterval`) to the global and channel instance schemas. Developed two new independent commands `/toolprogress` and `/showreasoning` in [channelCommands.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/commands/channelCommands.ts) to read and write database-backed configurations scoped to the active Bot/Channel instance. Implemented SQLite table migrations (`display_json` column) and static settings serialization mapping to ensure configurations are fully reboot-resistant. Documented both display settings and sandbox overrides in the new unified user guide [session-control-commands.md](docs/guides/session-control/session-control-commands.md).
   - Refactored Telegram runner and Feishu card streaming session to consume the new `DisplayFormatter`. Integrated progress overrides into QQ and Weixin `processEvent` execution loops: if `toolProgress` is configured as `"off"`, the transient runner progress messages (`_→ tool_` logs) are entirely discarded. Introduced a memory `messagesBuffer` in WeChat and QQ runtimes to batch all progress updates, running state details, run archive notifications, errors, and final response blocks. The buffer is concatenated with double newlines and sent in a single consolidated chat bubble once the execution finishes, or when a file is uploaded or sensitive approval is triggered, avoiding multiple bubble spam.
   - Added sandbox override controls (`/sandbox [session|bot|agent] [on|off|reset]`), `/toolprogress`, and `/showreasoning` commands to the default `/help` command text.
   - Restored Telegram and Feishu auto-resume flow by returning execution orchestration to `baseRuntime.ts`'s unified `executeApprovedHostBash` wrapper. Enhanced session approval regex support for natural Chinese variations (e.g. "允许本轮", "本会话允许", "本轮允许").
@@ -669,7 +695,7 @@
 ## 2026-05-27
 
 ### Agent v2.1 simplification planning
-- **开发计划落地**: 新增 `docs/agent-v2.1-development-plan.md`，把 `v2.1.md` 转成可执行 TODO 清单，并明确短期先删除 ACP 主路径、建立最小 Workspace 边界，再进入 TurnOrchestrator、ToolRuntime、Approval scope 和 Settings 拆分。
+- **开发计划落地**: 当时曾将 `v2.1.md` 转成可执行 TODO 清单；该过程计划现已从主 docs 树清理，长期架构结论保留在 Agent redesign 设计文档中。
 
 ### ACP active runtime path removal
 - **ACP 主路径下线**: Channel runtime 不再实例化 ACP service，Telegram/Feishu/QQ/Weixin 移除 ACP 自动代理和权限回调，`/acp` / `/approve` / `/deny` 改为返回 inactive-path 提示；Settings 与 README 不再把 ACP 展示为活跃能力。
@@ -689,7 +715,7 @@
 ## 2026-05-25
 
 ### Subagent sandbox research
-- **竞品与产品边界文档**: 新增 `docs/subagent-sandbox-research.md`，对 Claude Code、Codex、GitHub Copilot cloud agent、Replit Agent、Devin、OpenHands、Cursor 的 subagent/sandbox/审批/恢复设计做对比，并转化为 Molibot 下一阶段的用户、边界、数据结构、页面交互和验收标准。
+- **竞品与产品边界文档**: 新增 `docs/research/sandbox/subagent-sandbox.md`，对 Claude Code、Codex、GitHub Copilot cloud agent、Replit Agent、Devin、OpenHands、Cursor 的 subagent/sandbox/审批/恢复设计做对比，并转化为 Molibot 下一阶段的用户、边界、数据结构、页面交互和验收标准。
 
 ### Host approval environment hotfix
 - **审批后环境变量恢复**: approved Host Bash / legacy host tool 执行恢复继承宿主 `process.env`，避免 API key、PATH、HOME 等变量在审批后丢失。

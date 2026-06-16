@@ -1055,7 +1055,8 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const display = {
     toolProgress: displayInput && ["off", "new", "all", "verbose"].includes(String((displayInput as any).toolProgress)) ? ((displayInput as any).toolProgress as any) : (defaultRuntimeSettings.display?.toolProgress ?? "all"),
     showReasoning: displayInput && ["off", "on", "stream", "new"].includes(String((displayInput as any).showReasoning)) ? ((displayInput as any).showReasoning as any) : (defaultRuntimeSettings.display?.showReasoning ?? "off"),
-    gatewayNotifyInterval: displayInput && !isNaN(Number((displayInput as any).gatewayNotifyInterval)) ? Number((displayInput as any).gatewayNotifyInterval) : (defaultRuntimeSettings.display?.gatewayNotifyInterval ?? 0)
+    gatewayNotifyInterval: displayInput && !isNaN(Number((displayInput as any).gatewayNotifyInterval)) ? Number((displayInput as any).gatewayNotifyInterval) : (defaultRuntimeSettings.display?.gatewayNotifyInterval ?? 0),
+    runLogNotice: (displayInput as any)?.runLogNotice === undefined ? (defaultRuntimeSettings.display?.runLogNotice ?? false) : Boolean((displayInput as any).runLogNotice)
   };
   const compactionEnabledRaw = raw.compaction?.enabled;
   const compactionEnabled =
@@ -1881,7 +1882,8 @@ export class SettingsStore {
       display: settings.display ? {
         toolProgress: settings.display.toolProgress,
         showReasoning: settings.display.showReasoning,
-        gatewayNotifyInterval: settings.display.gatewayNotifyInterval
+        gatewayNotifyInterval: settings.display.gatewayNotifyInterval,
+        runLogNotice: settings.display.runLogNotice
       } : undefined,
       browserAutomation: {
         defaultTimeoutMs: settings.browserAutomation.defaultTimeoutMs

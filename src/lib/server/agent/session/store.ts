@@ -781,6 +781,35 @@ export class MomRuntimeStore {
     return value;
   }
 
+  getSessionRunLogNoticeOverride(chatId: string, sessionId?: string): boolean | null {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const val = this.readSessionHeader(chatId, id).preferences?.runLogNoticeOverride;
+    if (val === true) return true;
+    if (val === false) return false;
+    return null;
+  }
+
+  setSessionRunLogNoticeOverride(
+    chatId: string,
+    sessionId: string,
+    value: boolean | null
+  ): boolean | null {
+    const id = this.sanitizeSessionId(sessionId);
+    this.updateSessionHeader(chatId, id, (current) => {
+      const nextPreferences = { ...(current.preferences ?? {}) };
+      if (value === null) {
+        delete nextPreferences.runLogNoticeOverride;
+      } else {
+        nextPreferences.runLogNoticeOverride = value;
+      }
+      return {
+        ...current,
+        preferences: Object.keys(nextPreferences).length > 0 ? nextPreferences : undefined
+      };
+    });
+    return value;
+  }
+
   appendCompaction(
     chatId: string,
     summary: string,
@@ -877,6 +906,29 @@ export class MomRuntimeStore {
       // ignore
     }
     return null;
+  }
+
+  listRunSummaries(chatId: string, limit = 20): Array<Record<string, unknown>> {
+    const file = this.getRunSummaryLogPath(chatId);
+    const max = Math.max(1, Math.min(100, Math.floor(limit) || 20));
+    try {
+      const lines = readFileSync(file, "utf8")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const out: Array<Record<string, unknown>> = [];
+      for (let index = lines.length - 1; index >= 0 && out.length < max; index -= 1) {
+        try {
+          const parsed = JSON.parse(lines[index]) as Record<string, unknown>;
+          if (parsed && typeof parsed === "object") out.push(parsed);
+        } catch {
+          // skip invalid line
+        }
+      }
+      return out;
+    } catch {
+      return [];
+    }
   }
 
   getSessionStatusSnapshot(chatId: string, sessionId?: string): SessionStatusSnapshot {

@@ -1,136 +1,81 @@
-# Findings & Decisions
+# Findings
 
-## Requirements
-- Update `docs/agent-execution/event-run-timeout-retry-design.md` so the design is implementation-ready.
-- Implement scheduled task automatic retry with default timeout 10 minutes, configurable, capped at 3 attempts.
-- Timeout must abort the current run before retrying.
-- `/stop` must stop scheduled runs even when in-memory channel runner state is stale.
-- Keep queue/retry/recovery/orchestration in shared runtime, not channel-specific code.
-- Update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md` after functional changes.
+## Source Material To Review
 
-## Research Findings
-- `EventsWatcher` currently writes `status.state = running` into event JSON and uses a TTL, but that only gates periodic dispatch and does not abort the underlying runner/tool.
-- `BaseChannelRuntime.stopChatWork()` aborts active runner if found, otherwise marks running turns aborted. It does not consult event execution ownership.
-- `TurnOrchestrator.prepareTurn()` auto-releases running turns older than 10 minutes, but this only changes the `runs` table and does not stop the actual agent.
-- `RunnerPool.abort()` can abort only if the current runner instance is found and running.
-- Existing direct event delivery and agent event delivery enter through channel-specific event handlers; V1 should add shared execution ownership without duplicating retry logic per channel.
-- `TaskScheduler` owns workspace/bot event watchers; Telegram also starts chat-scratch watchers. Both now need to pass shared event execution settings and timeout abort hooks into `EventsWatcher`.
-- Channel `triggerTask()` methods need to honor the run id assigned by the lease, otherwise timeout/retry cannot correlate the lease with the `runs` row.
+- `CHANGELOG.md`
+- `features.md`
+- `prd.md`
+- `README.md`
+- Existing `docs/` topic folders
+- Representative `src/lib/server/agent`, `src/lib/server/channels/shared`, channel runtimes, approval, provider routing, settings APIs and pages
 
-## Technical Decisions
-| Decision | Rationale |
-|----------|-----------|
-| Add an `event_execution_leases` table | Event JSON alone cannot provide atomic ownership, bounded retries, or reliable stop semantics. |
-| Use lease status transitions as canonical state | Prevents drift between watcher JSON status, runner memory, and `runs`. |
-| Use event JSON as mirror | Operators can inspect status without letting JSON become the source of truth for active execution. |
-| Treat attempts as belonging to one trigger cycle | Periodic retries must reset on the next cron slot. |
-| Add `RuntimeSettings.events` | Makes timeout, max attempts, and retry delay configurable without per-channel divergence. |
-| Add `abortTaskRun()` separately from `stopTask()` | Timeout abort must not mark the lease as manually stopped, because manual stop suppresses retry. |
+## Key Findings
 
-## Issues Encountered
-| Issue | Resolution |
-|-------|------------|
-| `git status` emitted sandbox temp-cache warnings | It still reported the worktree status; no retry needed. |
-| `npx tsx --test` could not create a local IPC pipe under sandbox | Used `node --import tsx --test` for focused tests. |
-| Same trigger slot could be reacquired after final failure | `EventExecutionLeaseStore.acquire()` now refuses any existing terminal same-slot lease; next periodic cron slot uses a different `triggerSlot`. |
-| Existing `TurnOrchestrator` tests cannot write the configured SQLite DB in this read-only sandbox | Recorded as verification limitation; new lease store tests use in-memory SQLite and passed. |
+- Product direction: Molibot has evolved from a V1 multi-channel assistant into a local-first, multi-channel Agent runtime with profile-driven prompts, tool governance, sandbox/approval, trace observability, scheduled tasks, and built-in media/search tools.
+- Major shipped themes from `CHANGELOG.md` / `features.md` / `prd.md`:
+  - Multi-channel runtime and shared channel layer: Web, Telegram, Feishu, Weixin, QQ, CLI.
+  - Runtime lifecycle: `TurnOrchestrator`, runner pool, session locks, run summaries/details, stop/cancel, approval waiting states.
+  - Sandbox and Host Bash approval: command classification, blocking approval gate, fallback inheritance, idempotent approvals.
+  - Tool hardening: read/write/edit/bash guardrails, path safety, binary/image limits, literal replacement bugs, CRLF preservation.
+  - Prompt/profile governance: system prompt boundary refactor, operator profile priority, safety floor, volatile sections last for prompt caching.
+  - HookManager and trace: observe/gate/transform hooks, SQLite trace facts, skill usage facts, runtime logs.
+  - Built-in deferred tools: webSearch, imageGenerate, videoGenerate, ttsGenerate.
+  - Settings system: SQLite dynamic settings, fine-grained APIs, i18n, design system, fixed footbar.
+  - Scheduled tasks: watched event JSON, runtime event system, fresh task sessions, cleanup, leases/retries.
+  - Multi-channel rendering: Telegram chunk reuse, Feishu CardKit markdown/table/code rendering, video media handling.
+  - Skills/subagents: multi-scope skills, skill usage tracing, subagent telemetry and delegated run visibility.
 
-## Resources
-- `/Users/gusi/Github/molipibot/docs/agent-execution/event-run-timeout-retry-design.md`
-- `/Users/gusi/Github/molipibot/src/lib/server/agent/events.ts`
-- `/Users/gusi/Github/molipibot/src/lib/server/channels/shared/baseRuntime.ts`
-- `/Users/gusi/Github/molipibot/src/lib/server/agent/core/turnOrchestrator.ts`
-- `/Users/gusi/Github/molipibot/src/lib/server/agent/core/runnerPool.ts`
-- `/Users/gusi/Github/molipibot/src/lib/server/agent/eventsLeaseStore.ts`
+## Implementation Anchors
 
-## Visual/Browser Findings
-- None.
+- Runtime lifecycle and concurrency:
+  - `src/lib/server/agent/core/turnOrchestrator.ts`: SQLite `runs` table, session lock, stale lock cleanup, run status updates, memory prep/commit hooks.
+  - `src/lib/server/agent/core/runner.ts`: model/tool loop, HookManager emission, tool budget notices, skill tracing fields, model attempt tracking.
+  - `src/lib/server/channels/shared/baseRuntime.ts`: shared channel execution path, fresh event sessions, `/stop`, approval auto-resume retry, runner pool.
+  - `src/lib/server/channels/shared/inboundCoordinator.ts` and `persistentTaskQueue.ts`: channel-agnostic queue operations exposed to commands.
+- Tool governance and sandbox:
+  - `src/lib/server/agent/tools/toolRuntime.ts`: workspace whitelist, policy decisions, approval waiting loop, debounce aggregation.
+  - `src/lib/server/agent/tools/bashPolicy.ts`: file read/write/edit shell redirects denied in favor of structured tools.
+  - `src/lib/server/agent/tools/sandbox.ts`: sandbox provider abstraction, env allow/deny injection, diagnostics.
+  - `src/lib/server/approval/approvalStore.ts`: SQLite-backed requests/grants.
+- Prompt/profile/session:
+  - `src/lib/server/agent/prompts/prompt.ts`: operator directives above system prompt, safety floor, injection scan, pipeline, volatile prompt sections.
+  - `src/lib/server/agent/prompts/profiles.ts`: global/agent/bot profile file definitions and safe write normalization.
+  - `src/lib/server/agent/core/runtimeNotices.ts`: transient notices stripped from persistent model context.
+  - `src/lib/server/agent/session/compaction.ts`: context summarization with fallback.
+- Observability:
+  - `src/lib/server/agent/hooks/manager.ts`: observe/transform/gate separation, fail-closed gates, per-run observe tails, plugin lifecycle.
+  - `src/lib/server/agent/hooks/traceRecorderHook.ts`: event sanitization, fact upserts, skill usage confidence levels, stale run sweep.
+  - `src/lib/server/agent/hooks/traceStore.ts`: `agent_trace_events` and `agent_trace_facts`.
+  - `src/routes/api/settings/trace/+server.ts`: trace stats aggregation including skill usage.
+- Deferred/media tools:
+  - `src/lib/server/agent/search/webSearchTool.ts`: route-based search, engine fallback, citations, diagnostics.
+  - `src/lib/server/agent/imageGenerate/imageGenerateTool.ts`: provider selection, artifact path guard, SQLite task logging, upload failure separation.
+  - `src/lib/server/agent/videoGenerate/videoGenerateTool.ts`: async task flow, JSON/string image normalization, public URL validation, remote URL cache.
+  - `src/routes/api/settings/dynamic/[key]/+server.ts`: focused dynamic settings endpoint.
+- Channel rendering and events:
+  - `src/lib/server/channels/feishu/cardkit.ts` and `formatting.ts`: final card markdown block splitting, native tables, fenced code protection.
+  - `src/lib/server/channels/telegram/formatting.ts`: chunked text delivery, edit fallback, message id reuse.
+  - `src/lib/server/agent/eventsLeaseStore.ts`: watched-event runtime leases, retry, timeout, abort.
 
----
+## Article Series Shape
 
-# Findings & Decisions: Skill Usage Tracking Phase 1
-
-## Requirements
-- Implement Phase 1 from `docs/trace/skill-usage-tracking-plan.md`.
-- Track implicit skill loading when a successful `read` tool opens a loaded skill `SKILL.md`.
-- Do not change tool execution behavior or Channel layer orchestration.
-- Keep Phase 2 and Phase 3 out of this implementation, but track them in a nearby checklist document.
-- Update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md` after functional changes if required.
-
-## Research Findings
-- `afterToolCall` does not include tool args, so the resolved read path must be cached from `beforeToolCall`.
-- The cache must be set after hook gate, preflight, and budget checks so blocked reads do not leave pending paths.
-- `sanitizePayload` collapses arrays, so evidence must not be stored as a raw array.
-- `TraceRecorderHook` currently overwrites `skill_usage` payload/status without level/evidence merging.
-- `pathCompareKey` exists in `tools/path.ts` but is not exported yet.
-
-## Technical Decisions
-| Decision | Rationale |
-|----------|-----------|
-| Cache resolved read paths in runner | Avoids changing `read` tool result semantics. |
-| Match exact compare keys | Avoids fuzzy path false positives. |
-| Use in-memory skill usage state in the recorder | Keeps Phase 1 small and avoids DB reads per skill signal. |
-| Store evidence as CSV | Works with existing payload sanitizer. |
-
----
-
-# Findings & Decisions: Skill Usage Tracking Phase 2
-
-## Requirements
-- Implement Phase 2 from `docs/trace/skill-usage-tracking-plan.md`.
-- Track successful `skillSearch` matches as triggered candidate skill facts.
-- Do not claim candidate matches are loaded or executed.
-- Do not change Channel-layer behavior.
-- Update progress and project documentation after the functional change.
-
-## Research Findings
-- Runner `afterToolCall` receives the `skillSearch` result payload, so candidate tracking can be added without changing the `skillSearch` tool implementation.
-- `TraceRecorderHook` already treats `skill.selected` with `reason: "search_match"` as `payload.level: "triggered"` and `status: "info"`.
-- Existing monotonic merging already prevents later `search_match` signals from downgrading an earlier loaded fact.
-
-## Technical Decisions
-| Decision | Rationale |
-|----------|-----------|
-| Read only `context.result.details.matches` | This keeps Phase 2 coupled to the existing structured tool detail output rather than parsing display text. |
-| Skip malformed matches | Trace enrichment must not alter or fail tool execution. |
-| Include optional numeric score | It is useful diagnostic metadata and harmless when absent. |
-| Leave `reasons` out of the emitted payload | Existing payload sanitization collapses arrays, and `reason: search_match` is the stable evidence token needed by facts. |
-
-## Issues Encountered
-| Issue | Resolution |
-|-------|------------|
-| Full `tsc` still reports existing unrelated repository errors | Re-ran the touched implementation-file filter; it produced no output. |
-| `runner.test.ts` remains blocked by the existing `?raw` loader issue | Added future runner coverage but relied on executable trace recorder tests plus implementation-file type filtering for current verification. |
-
----
-
-# Findings & Decisions: Skill Usage Tracking Phase 3
-
-## Requirements
-- Implement Phase 3 from `docs/trace/skill-usage-tracking-plan.md`.
-- Let skill authors optionally declare execution signals.
-- Attribute executed evidence only after the skill has been loaded in the same run.
-- Keep executed as heuristic evidence, not proof.
-- Avoid Channel-layer changes.
-
-## Research Findings
-- The current skill frontmatter parser only returns flat string keys, so nested `signals:` metadata needs a small dedicated parser or flat key fallback.
-- Runner has the active run skill manifest and hook context, so it is still the right place for conservative signal attribution.
-- `tool.call.after` has result details for MCP tools, while bash command text is only reliable from `beforeToolCall`; a small per-tool-call cache is needed.
-- `TraceRecorderHook` already has monotonic skill usage state; it only needs to classify signal reasons as `executed`.
-
-## Technical Decisions
-| Decision | Rationale |
-|----------|-----------|
-| Parse `signals:` plus flat `signals_*` keys | Keeps metadata author-friendly without replacing the project parser. |
-| Match `cli` only against successful bash command prefixes | This is conservative and avoids parsing arbitrary shell internals. |
-| Match `tools` by exact tool name | Avoids fuzzy matches against unrelated tool names. |
-| Match `mcp` by server id/name/prefix from tool result details | MCP local tool names are generated, so server identity is the stable signal. |
-| Attribute overlap to the most recently loaded skill | This gives one owner per tool call and matches the "loaded before use" timeline. |
-
-## Issues Encountered
-| Issue | Resolution |
-|-------|------------|
-| Full `skills.test.ts` has existing failures unrelated to Phase 3 | Ran the new signal parsing test by name; it passed. |
-| Full `tsc` remains blocked by existing repository errors | Filtered touched implementation files; no output was produced. |
-| Filtering touched tests still shows existing runner fixture errors for missing `enabled` | Recorded as pre-existing test fixture issue; implementation files type-filter clean. |
+- Avoid duplicating internal docs. Each article should be written as a public-facing engineering story.
+- Recommended structure per article:
+  - Problem that appeared in real use.
+  - Why the naive implementation failed.
+  - Design constraints and tradeoffs.
+  - Final architecture and important code paths.
+  - Pitfalls/regressions/tests.
+  - Takeaways that apply to other Agent projects.
+- Follow-up adjustment: the series should read as a systematic tutorial, not only a topic library. Added a 00-series foundation layer covering the full Agent service map, chatbot vs Agent service, minimal run loop, runtime object model, tool-calling fundamentals, and context/memory/persistence boundaries.
+- Added curriculum/project scaffolding so the series can be consumed as a course:
+  - `CURRICULUM.md`: staged learning goals, reading order, exercises, acceptance criteria.
+  - `PROJECT-ROADMAP.md`: V0-V9 practical build path from CLI Agent to token-aware Agent system.
+- User requested removing topics 16/17/18 because settings UI/dynamic config/local-first data layout felt less directly related to Agent development. Replaced them with `16-token-saving-agent-systems.md`, focused on `publishHtml(filePath)`, Markdown DSL via `momo-paper`, and scheduled task fresh sessions.
+- Follow-up request: restore the missing advanced/productization topics, but keep the tutorial as a serial publication path rather than only a numbered file list. Added five article outlines:
+  - `17-model-routing-and-provider-abstraction.md`
+  - `18-runtime-control-commands.md`
+  - `25-multimodal-agent-input-output.md`
+  - `26-agent-settings-and-operations.md`
+  - `27-agent-deployment-and-maintenance.md`
+- Publishing decision: keep existing file names to avoid breaking links, and add an explicit 33-part serial publication table in `docs/agent-dev-series/README.md`.

@@ -15,6 +15,10 @@ function minimalStore() {
     getSessionThinkingLevelOverride: () => null,
     getSessionHostApprovalMode: () => "default",
     setSessionHostApprovalMode: () => "session",
+    getSessionSandboxOverride: () => null,
+    getSessionRunLogNoticeOverride: () => null,
+    setSessionRunLogNoticeOverride: () => null,
+    listRunSummaries: () => [],
     appendRuntimeEvent: () => {}
   };
 }
@@ -85,6 +89,7 @@ function createTestHostBashStore(
 test("status command includes current session token stats", async () => {
   const sent: string[] = [];
   const store = {
+    ...minimalStore(),
     getActiveSession: () => "session-1",
     getSessionStatusSnapshot: () => ({
       messageCount: 12,
@@ -105,9 +110,7 @@ test("status command includes current session token stats", async () => {
         cacheWriteTokens: 7,
         totalTokens: 181
       }
-    }),
-    listSessions: () => ["session-1"],
-    getSessionThinkingLevelOverride: () => null
+    })
   };
 
   const service = new SharedRuntimeCommandService<string>({
@@ -138,6 +141,10 @@ test("status command includes current session token stats", async () => {
   assert.match(sent[0] ?? "", /Session token total: 181/);
   assert.match(sent[0] ?? "", /Session input\/output: 123 \/ 45/);
   assert.match(sent[0] ?? "", /Compactions: 1/);
+  assert.match(sent[0] ?? "", /Sandbox: on \(global\)/);
+  assert.match(sent[0] ?? "", /Runlog notice: off \(global\)/);
+  assert.match(sent[0] ?? "", /Tool progress: all \(global\)/);
+  assert.match(sent[0] ?? "", /Show reasoning: off \(global\)/);
 });
 
 test("plain approval text approves the only pending host tool request in the chat", async () => {
@@ -409,6 +416,7 @@ test("hosttools approve-session enables session fallback without persisting appr
 test("status command renders markdown table on qq", async () => {
   const sent: string[] = [];
   const store = {
+    ...minimalStore(),
     getActiveSession: () => "session-1",
     getSessionStatusSnapshot: () => ({
       messageCount: 12,
@@ -423,9 +431,7 @@ test("status command renders markdown table on qq", async () => {
         cacheWriteTokens: 0,
         totalTokens: 181
       }
-    }),
-    listSessions: () => ["session-1"],
-    getSessionThinkingLevelOverride: () => null
+    })
   };
 
   const service = new SharedRuntimeCommandService<string>({
@@ -498,6 +504,161 @@ test("runlog latest renders archived detail entries", async () => {
   assert.match(sent[0] ?? "", /运行记录 run-123/);
   assert.match(sent[0] ?? "", /Sandbox: Found 5 books/);
   assert.match(sent[0] ?? "", /结束: Run finished successfully/);
+});
+
+test("runlog without arguments keeps latest semantics", async () => {
+  const sent: string[] = [];
+  const store = {
+    ...minimalStore(),
+    readLatestRunSummary: () => ({ runId: "run-latest" }),
+    readRunDetail: () => ([
+      { timestamp: "2026-05-16T10:00:04.000Z", type: "final", summary: "Run finished successfully." }
+    ])
+  };
+
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: store as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  const handled = await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/runlog",
+    target: "target-1"
+  });
+
+  assert.equal(handled, true);
+  assert.match(sent[0] ?? "", /运行记录 run-latest/);
+});
+
+test("runlog status and session toggle control archive notice visibility", async () => {
+  const sent: string[] = [];
+  let sessionOverride: boolean | null = null;
+  const store = {
+    ...minimalStore(),
+    getSessionRunLogNoticeOverride: () => sessionOverride,
+    setSessionRunLogNoticeOverride: (_scopeId: string, _sessionId: string, value: boolean | null) => {
+      sessionOverride = value;
+      return value;
+    }
+  };
+
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: store as any,
+    runners: {} as any,
+    getSettings: () => ({ ...defaultRuntimeSettings, display: { ...defaultRuntimeSettings.display!, runLogNotice: false } }),
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  assert.equal(service.shouldSendRunArchiveNotice("chat-1"), false);
+  await service.handle({ chatId: "chat-1", scopeId: "chat-1", text: "/runlog on", target: "target-1" });
+  assert.equal(sessionOverride, true);
+  assert.equal(service.shouldSendRunArchiveNotice("chat-1"), true);
+  await service.handle({ chatId: "chat-1", scopeId: "chat-1", text: "/runlog status", target: "target-1" });
+
+  assert.match(sent.at(-1) ?? "", /Effective: on \(session:session-1\)/);
+});
+
+test("runlog bot and global toggles update settings layers", async () => {
+  const sent: string[] = [];
+  let settings: RuntimeSettings = {
+    ...defaultRuntimeSettings,
+    display: { ...defaultRuntimeSettings.display!, runLogNotice: false },
+    channels: {
+      ...defaultRuntimeSettings.channels,
+      telegram: {
+        instances: [{
+          id: "bot-test",
+          name: "Bot Test",
+          enabled: true,
+          credentials: {},
+          allowedChatIds: []
+        }]
+      }
+    }
+  };
+
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => settings,
+    updateSettings: (patch) => {
+      settings = { ...settings, ...patch } as RuntimeSettings;
+      return settings;
+    },
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  await service.handle({ chatId: "chat-1", scopeId: "chat-1", text: "/runlog global on", target: "target-1" });
+  assert.equal(settings.display?.runLogNotice, true);
+  assert.equal(service.shouldSendRunArchiveNotice("chat-1"), true);
+
+  await service.handle({ chatId: "chat-1", scopeId: "chat-1", text: "/runlog bot off", target: "target-1" });
+  assert.equal(settings.channels.telegram.instances[0]?.display?.runLogNotice, false);
+  assert.equal(service.shouldSendRunArchiveNotice("chat-1"), false);
+
+  await service.handle({ chatId: "chat-1", scopeId: "chat-1", text: "/runlog bot reset", target: "target-1" });
+  assert.equal(settings.channels.telegram.instances[0]?.display?.runLogNotice, undefined);
+  assert.equal(service.shouldSendRunArchiveNotice("chat-1"), true);
+});
+
+test("runlog list renders recent archived run summaries", async () => {
+  const sent: string[] = [];
+  const store = {
+    ...minimalStore(),
+    listRunSummaries: () => ([
+      { runId: "run-2", stopReason: "stop", createdAt: "2026-06-16T10:02:00.000Z", summary: "Second" },
+      { runId: "run-1", stopReason: "error", createdAt: "2026-06-16T10:01:00.000Z", errorMessage: "Failed" }
+    ])
+  };
+
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: store as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  await service.handle({ chatId: "chat-1", scopeId: "chat-1", text: "/runlog list", target: "target-1" });
+
+  assert.match(sent[0] ?? "", /run-2 - stop/);
+  assert.match(sent[0] ?? "", /run-1 - error/);
+  assert.match(sent[0] ?? "", /\/runlog <runId>/);
 });
 
 test("runlog prefers file upload when channel supports it", async () => {

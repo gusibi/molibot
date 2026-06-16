@@ -493,6 +493,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   display: {
     toolProgress: "all",
     showReasoning: "off",
-    gatewayNotifyInterval: 0
+    gatewayNotifyInterval: 0,
+    runLogNotice: false
   }
 };

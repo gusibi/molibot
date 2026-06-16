@@ -8,7 +8,6 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
-  import { Textarea } from "$lib/components/ui/textarea";
   import { locale } from "$lib/ui/i18n";
 
   type ProviderMode = "pi" | "custom";
@@ -134,12 +133,10 @@
       legacyPiProviderLabel: "内置兜底服务商",
       legacyPiModelLabel: "内置兜底模型",
       noBuiltinProviderError: "未启用任何内置服务商。如果您希望此锚点生效，请在“服务商”页面中启用至少一个。",
-      agentPersonaTitle: "智能体设定",
-      agentPersonaDesc: "全局系统提示词及环境",
+      agentPersonaTitle: "运行环境",
+      agentPersonaDesc: "时区与运行时环境",
       timezoneLabel: "运行时时区",
       timezoneHint: "用于单条消息的 `<env>` 时间注入、任务调度以及使用量/日期展示。",
-      systemPromptLabel: "系统提示词 (System Prompt)",
-      systemPromptPlaceholder: "例如：你是一个简洁而有帮助的助手...",
       saving: "保存中...",
       saveBtn: "保存路由设置",
       failedLoadSettings: "加载配置失败",
@@ -232,12 +229,10 @@
       legacyPiProviderLabel: "Built-in fallback provider",
       legacyPiModelLabel: "Built-in fallback model",
       noBuiltinProviderError: "No enabled built-in provider. Enable one in Providers if you want this anchor to work.",
-      agentPersonaTitle: "Agent persona",
-      agentPersonaDesc: "Global system prompt",
+      agentPersonaTitle: "Runtime environment",
+      agentPersonaDesc: "Timezone & runtime environment",
       timezoneLabel: "Runtime timezone",
       timezoneHint: "Used for per-message <env> time injection, task scheduling, and usage/date views.",
-      systemPromptLabel: "System prompt",
-      systemPromptPlaceholder: "You are Molibot...",
       saving: "Saving...",
       saveBtn: "Save Routing",
       failedLoadSettings: "Failed to load settings",
@@ -328,7 +323,6 @@
     { route: "text", title: copy.primaryText, description: copy.primaryTextDesc, emptyText: copy.noTextModel },
     { route: "vision", title: copy.vision, description: copy.visionDesc, emptyText: copy.noVisionModel },
     { route: "stt", title: copy.stt, description: copy.sttDesc, emptyText: copy.noSttModel },
-    { route: "tts", title: copy.tts, description: copy.ttsDesc, emptyText: copy.noTtsModel },
     { route: "subagent", title: copy.subagentFallback, description: copy.subagentFallbackDesc, emptyText: copy.noTextModel },
   ] as Array<{ route: ModelRoute; title: string; description: string; emptyText: string }>;
 
@@ -432,8 +426,6 @@
     if (!vision.some((v) => v.key === form.modelRouting.visionModelKey)) setModelRoutingValue("vision", vision[0]?.key ?? "");
     const stt = routingOptions("stt");
     if (!stt.some((v) => v.key === form.modelRouting.sttModelKey)) setModelRoutingValue("stt", stt[0]?.key ?? "");
-    const tts = routingOptions("tts");
-    if (!tts.some((v) => v.key === form.modelRouting.ttsModelKey)) setModelRoutingValue("tts", tts[0]?.key ?? "");
     const subagent = routingOptions("subagent");
     if (form.modelRouting.subagentModelKey && !subagent.some((v) => v.key === form.modelRouting.subagentModelKey)) setModelRoutingValue("subagent", "");
     for (const row of subagentLevelCards) {
@@ -783,10 +775,6 @@
           <p class="routing-form-hint">
             {copy.timezoneHint}
           </p>
-        </div>
-        <div class="routing-form-group">
-          <Label for="rt-prompt">{copy.systemPromptLabel}</Label>
-          <Textarea id="rt-prompt" class="routing-prompt-editor" bind:value={form.systemPrompt} placeholder={copy.systemPromptPlaceholder} />
         </div>
       </section>
 

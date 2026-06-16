@@ -96,6 +96,14 @@ interface ModelTableDisplayRow {
   model: string;
 }
 
+interface BooleanLayerStatus {
+  enabled: boolean;
+  source: string;
+  globalDefault: boolean;
+  botOverride?: boolean;
+  sessionOverride?: boolean | null;
+}
+
 const TWO_COLUMN_TABLE_CHANNELS = new Set(["feishu", "qq", "weixin"]);
 const FIXED_COMMAND_RENDER_MODE: Record<FixedCommandName, FixedCommandRenderMode> = {
   status: "two_column_markdown_table",
@@ -368,9 +376,11 @@ export class SharedRuntimeCommandService<TTarget> {
 
   async handle(input: SharedRuntimeCommandContext<TTarget>): Promise<boolean> {
     const text = String(input.text ?? "").trim();
-    const hostToolApprovalHandled = await this.tryHandleHostToolApproval(input, text);
-    if (hostToolApprovalHandled) return true;
-    if (!text.startsWith("/")) return false;
+    if (!text.startsWith("/")) {
+      const hostToolApprovalHandled = await this.tryHandleHostToolApproval(input, text);
+      if (hostToolApprovalHandled) return true;
+      return false;
+    }
 
     const parts = text.split(/\s+/);
     const cmd = parts[0]?.toLowerCase() || "";
@@ -794,6 +804,105 @@ export class SharedRuntimeCommandService<TTarget> {
     }
 
     if (cmd === "/runlog") {
+      const args = rawArg.split(/\s+/).filter(Boolean);
+      const subcommand = args[0]?.toLowerCase() || "latest";
+
+      if (subcommand === "status") {
+        await this.options.sendText(input.target, this.formatRunLogNoticeStatus(input.scopeId));
+        return true;
+      }
+
+      if (subcommand === "list") {
+        const limit = Number.parseInt(args[1] ?? "", 10);
+        await this.options.sendText(input.target, this.formatRunLogList(input.scopeId, Number.isFinite(limit) ? limit : 10));
+        return true;
+      }
+
+      if (subcommand === "on" || subcommand === "off" || subcommand === "reset") {
+        const sessionId = this.options.store.getActiveSession(input.scopeId);
+        const nextValue = subcommand === "reset" ? null : subcommand === "on";
+        this.options.store.setSessionRunLogNoticeOverride(input.scopeId, sessionId, nextValue);
+        await this.options.sendText(
+          input.target,
+          [
+            this.text(
+              `Session '${sessionId}' runlog notice override set to: ${nextValue === null ? "Inherit" : nextValue ? "ON" : "OFF"}`,
+              `会话 '${sessionId}' 的 runlog 通知覆盖已设置为：${nextValue === null ? "继承" : nextValue ? "开启" : "关闭"}`
+            ),
+            "",
+            this.formatRunLogNoticeStatus(input.scopeId)
+          ].join("\n")
+        );
+        return true;
+      }
+
+      if (subcommand === "bot" || subcommand === "global") {
+        if (!this.options.updateSettings) {
+          await this.options.sendText(input.target, this.text("Settings updates are unavailable in current runtime.", "当前运行时不支持更新设置。"));
+          return true;
+        }
+        const action = args[1]?.toLowerCase();
+        if (action !== "on" && action !== "off" && action !== "reset") {
+          await this.options.sendText(input.target, this.text("Usage: /runlog bot [on|off|reset]\nUsage: /runlog global [on|off|reset]", "用法：/runlog bot [on|off|reset]\n用法：/runlog global [on|off|reset]"));
+          return true;
+        }
+
+        const settings = this.options.getSettings();
+        if (subcommand === "global") {
+          const nextValue = action === "reset" ? false : action === "on";
+          this.options.updateSettings({
+            display: {
+              ...(settings.display ?? { toolProgress: "all", showReasoning: "off", gatewayNotifyInterval: 0 }),
+              runLogNotice: nextValue
+            }
+          });
+          await this.options.sendText(
+            input.target,
+            [
+              this.text(`Global runlog notice default set to: ${nextValue ? "ON" : "OFF"}`, `全局 runlog 通知默认值已设置为：${nextValue ? "开启" : "关闭"}`),
+              "",
+              this.formatRunLogNoticeStatus(input.scopeId)
+            ].join("\n")
+          );
+          return true;
+        }
+
+        const channel = this.options.channel;
+        const channelSettings = settings.channels[channel];
+        if (!channelSettings) {
+          await this.options.sendText(input.target, this.text(`Channel '${channel}' settings not found.`, `未找到渠道 '${channel}' 的设置。`));
+          return true;
+        }
+        const nextValue = action === "reset" ? undefined : action === "on";
+        const instances = channelSettings.instances.map((inst) => inst.id === this.options.instanceId
+          ? {
+              ...inst,
+              display: {
+                ...(inst.display ?? {}),
+                runLogNotice: nextValue
+              }
+            }
+          : inst);
+        this.options.updateSettings({
+          channels: {
+            ...settings.channels,
+            [channel]: { ...channelSettings, instances }
+          }
+        });
+        await this.options.sendText(
+          input.target,
+          [
+            this.text(
+              `Bot '${this.options.instanceId}' runlog notice override set to: ${nextValue === undefined ? "Inherit" : nextValue ? "ON" : "OFF"}`,
+              `机器人 '${this.options.instanceId}' 的 runlog 通知覆盖已设置为：${nextValue === undefined ? "继承" : nextValue ? "开启" : "关闭"}`
+            ),
+            "",
+            this.formatRunLogNoticeStatus(input.scopeId)
+          ].join("\n")
+        );
+        return true;
+      }
+
       const selector = rawArg.split(/\s+/)[0]?.trim() || "latest";
       const latestSummary = selector === "latest"
         ? this.options.store.readLatestRunSummary(input.scopeId)
@@ -1544,6 +1653,146 @@ export class SharedRuntimeCommandService<TTarget> {
       .join("\n\n");
   }
 
+  private boolText(value: boolean): string {
+    return value ? this.text("on", "开启") : this.text("off", "关闭");
+  }
+
+  private resolveRunLogNoticeStatus(scopeId: string, sessionId?: string): BooleanLayerStatus {
+    const settings = this.options.getSettings();
+    const activeSessionId = sessionId ?? this.options.store.getActiveSession(scopeId);
+    const sessionOverride = this.options.store.getSessionRunLogNoticeOverride(scopeId, activeSessionId);
+    const instance = settings.channels[this.options.channel]?.instances.find((inst) => inst.id === this.options.instanceId);
+    const botOverride = instance?.display?.runLogNotice;
+    const globalDefault = settings.display?.runLogNotice ?? false;
+
+    if (sessionOverride !== null) {
+      return {
+        enabled: sessionOverride,
+        source: `session:${activeSessionId}`,
+        globalDefault,
+        botOverride,
+        sessionOverride
+      };
+    }
+    if (botOverride !== undefined) {
+      return {
+        enabled: botOverride,
+        source: `bot:${this.options.instanceId}`,
+        globalDefault,
+        botOverride,
+        sessionOverride
+      };
+    }
+    return {
+      enabled: globalDefault,
+      source: settings.display?.runLogNotice === undefined ? "default" : "global",
+      globalDefault,
+      botOverride,
+      sessionOverride
+    };
+  }
+
+  public shouldSendRunArchiveNotice(scopeId: string, sessionId?: string): boolean {
+    return this.resolveRunLogNoticeStatus(scopeId, sessionId).enabled;
+  }
+
+  private formatRunLogNoticeStatus(scopeId: string): string {
+    const sessionId = this.options.store.getActiveSession(scopeId);
+    const status = this.resolveRunLogNoticeStatus(scopeId, sessionId);
+    const botText = status.botOverride === undefined ? this.text("inherit", "继承") : this.boolText(status.botOverride);
+    const sessionText = status.sessionOverride === null ? this.text("inherit", "继承") : this.boolText(Boolean(status.sessionOverride));
+    return [
+      this.text("Runlog notice status:", "Runlog 通知状态："),
+      `${this.text("Effective", "实际生效")}: ${this.boolText(status.enabled)} (${status.source})`,
+      `${this.text("Session", "会话")}: ${sessionText}`,
+      `${this.text("Bot", "机器人")}: ${botText}`,
+      `${this.text("Global", "全局")}: ${this.boolText(status.globalDefault)}`,
+      "",
+      this.text("Commands:", "命令："),
+      "/runlog on",
+      "/runlog off",
+      "/runlog reset",
+      "/runlog bot on|off|reset",
+      "/runlog global on|off|reset"
+    ].join("\n");
+  }
+
+  private formatRunLogList(scopeId: string, limit = 10): string {
+    const rows = this.options.store.listRunSummaries(scopeId, limit);
+    if (rows.length === 0) return this.text("No archived run log found yet.", "尚未找到归档运行记录。");
+
+    const lines = [
+      this.text(`Recent run logs (${rows.length}):`, `最近运行记录（${rows.length} 条）：`)
+    ];
+    rows.forEach((row, index) => {
+      const runId = String(row.runId ?? "").trim() || "(unknown)";
+      const stopReason = String(row.stopReason ?? row.status ?? "").trim() || "unknown";
+      const createdAt = String(row.createdAt ?? row.timestamp ?? "").trim();
+      const summary = String(row.summary ?? row.errorMessage ?? "").trim();
+      lines.push(`${index + 1}. ${runId} - ${stopReason}${createdAt ? ` - ${createdAt}` : ""}${summary ? ` - ${summary}` : ""}`);
+    });
+    lines.push("");
+    lines.push(this.text("Open: /runlog <runId>", "查看：/runlog <runId>"));
+    return lines.join("\n");
+  }
+
+  private resolveSandboxState(scopeId: string, sessionId: string): BooleanLayerStatus {
+    const settings = this.options.getSettings();
+    const instance = settings.channels[this.options.channel]?.instances.find((inst) => inst.id === this.options.instanceId);
+    const agentId = instance?.agentId;
+    const agent = agentId ? settings.agents.find((row) => row.id === agentId) : undefined;
+    const sessionOverride = this.options.store.getSessionSandboxOverride(scopeId, sessionId);
+    const botOverride = instance?.sandboxEnabled;
+    const agentOverride = agent?.sandboxEnabled;
+    const globalDefault = settings.toolSandbox.enabled;
+
+    if (sessionOverride !== null) return { enabled: sessionOverride, source: `session:${sessionId}`, globalDefault, botOverride, sessionOverride };
+    if (botOverride !== undefined) return { enabled: botOverride, source: `bot:${this.options.instanceId}`, globalDefault, botOverride, sessionOverride };
+    if (agentOverride !== undefined) return { enabled: agentOverride, source: `agent:${agentId}`, globalDefault, botOverride, sessionOverride };
+    return { enabled: globalDefault, source: "global", globalDefault, botOverride, sessionOverride };
+  }
+
+  private resolveTtsToolSummary(settings: RuntimeSettings): { label: string; detail: string } {
+    const tts = settings.ttsGenerate;
+    if (!tts?.enabled) {
+      return { label: this.text("off (built-in tool)", "关闭（内置工具）"), detail: "" };
+    }
+    const providerId = tts.defaultProvider;
+    const providerLabel = providerId === "macos" ? "macOS say" : providerId === "xiaomi" ? this.text("Xiaomi MiMo", "小米 MiMo") : providerId;
+    const provider = tts.providers?.[providerId];
+    const providerEnabled = provider?.enabled !== false;
+    const parts: string[] = [];
+    if (providerId === "xiaomi") {
+      const xiaomi = tts.providers?.xiaomi;
+      if (xiaomi?.model) parts.push(xiaomi.model);
+      if (xiaomi?.voice) parts.push(xiaomi.voice);
+    } else if (providerId === "macos") {
+      const macos = tts.providers?.macos;
+      if (macos?.voice) parts.push(macos.voice);
+    }
+    const suffix = providerEnabled ? "" : this.text(" (provider disabled)", "（该提供方已禁用）");
+    return {
+      label: `[${this.text("Built-in", "内置")}] ${providerLabel}${suffix}`,
+      detail: parts.join(" / ")
+    };
+  }
+
+  private resolveDisplayStatus() {
+    const settings = this.options.getSettings();
+    const instance = settings.channels[this.options.channel]?.instances.find((inst) => inst.id === this.options.instanceId);
+    const globalDisplay = settings.display ?? { toolProgress: "all" as const, showReasoning: "off" as const, gatewayNotifyInterval: 0, runLogNotice: false };
+    return {
+      toolProgress: {
+        value: instance?.display?.toolProgress ?? globalDisplay.toolProgress,
+        source: instance?.display?.toolProgress === undefined ? "global" : `bot:${this.options.instanceId}`
+      },
+      showReasoning: {
+        value: instance?.display?.showReasoning ?? globalDisplay.showReasoning,
+        source: instance?.display?.showReasoning === undefined ? "global" : `bot:${this.options.instanceId}`
+      }
+    };
+  }
+
   private statusText(scopeId: string, target: TTarget): string {
     const settings = this.options.getSettings();
     const sessionId = this.options.store.getActiveSession(scopeId);
@@ -1551,7 +1800,10 @@ export class SharedRuntimeCommandService<TTarget> {
     const textRoute = this.resolveRouteSummary(settings, "text");
     const visionRoute = this.resolveRouteSummary(settings, "vision");
     const sttRoute = this.resolveRouteSummary(settings, "stt");
-    const ttsRoute = this.resolveRouteSummary(settings, "tts");
+    const ttsTool = this.resolveTtsToolSummary(settings);
+    const sandboxState = this.resolveSandboxState(scopeId, sessionId);
+    const runLogNotice = this.resolveRunLogNoticeStatus(scopeId, sessionId);
+    const displayStatus = this.resolveDisplayStatus();
     const { skills } = loadSkillsFromWorkspace(this.options.workspaceDir, scopeId, {
       disabledSkillPaths: settings.disabledSkillPaths
     });
@@ -1588,6 +1840,10 @@ export class SharedRuntimeCommandService<TTarget> {
           : []
       ),
       { label: this.text("Provider mode", "提供方模式"), value: settings.providerMode },
+      { label: "Sandbox", value: `${sandboxState.enabled ? "on" : "off"} (${sandboxState.source})` },
+      { label: "Runlog notice", value: `${runLogNotice.enabled ? "on" : "off"} (${runLogNotice.source})` },
+      { label: "Tool progress", value: `${displayStatus.toolProgress.value} (${displayStatus.toolProgress.source})` },
+      { label: "Show reasoning", value: `${displayStatus.showReasoning.value} (${displayStatus.showReasoning.source})` },
       { label: this.text("Loaded skills", "已加载技能"), value: String(skills.length) },
       ...(this.options.getStatusExtras?.(scopeId, target) ?? []).map((line) => {
         const separator = line.indexOf(":");
@@ -1612,8 +1868,8 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: this.text("Vision key", "视觉 Key"), value: visionRoute.key || this.text("(empty)", "（空）") },
       { label: "STT", value: sttRoute.label },
       { label: "STT key", value: sttRoute.key || this.text("(empty)", "（空）") },
-      { label: "TTS", value: ttsRoute.label },
-      { label: "TTS key", value: ttsRoute.key || this.text("(empty)", "（空）") }
+      { label: "TTS", value: ttsTool.label },
+      ...(ttsTool.detail ? [{ label: this.text("TTS voice", "TTS 音色"), value: ttsTool.detail }] : [])
     ];
 
     if (this.shouldUseMarkdownTable("status")) {
@@ -1652,8 +1908,14 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/delete_sessions <index|sessionId>", value: d("delete a session", "删除会话") },
       { label: "/status", value: d("show current bot/session/runtime status", "查看当前机器人、会话和运行时状态") },
       { label: "/state", value: d("alias of /status", "/status 的别名") },
+      { label: "/runlog", value: d("show the latest archived run log", "查看最新归档运行记录") },
       { label: "/runlog latest", value: d("show the latest archived run log", "查看最新归档运行记录") },
       { label: "/runlog <runId>", value: d("show an archived run log by id", "按 ID 查看归档运行记录") },
+      { label: "/runlog list", value: d("list recent archived run logs", "列出最近归档运行记录") },
+      { label: "/runlog status", value: d("show automatic runlog notice setting", "查看自动 runlog 通知设置") },
+      { label: "/runlog <on|off|reset>", value: d("change automatic runlog notice for current session", "修改当前会话的自动 runlog 通知") },
+      { label: "/runlog bot <on|off|reset>", value: d("change automatic runlog notice for this bot", "修改当前机器人的自动 runlog 通知") },
+      { label: "/runlog global <on|off|reset>", value: d("change global automatic runlog notice default", "修改全局自动 runlog 通知默认值") },
       { label: "/thinking", value: d("show current session thinking setting", "查看当前会话思考设置") },
       { label: "/thinking <default|off|low|medium|high>", value: d("change thinking for current session only", "仅修改当前会话的思考级别") },
       { label: "/toolprogress", value: d("show current bot tool progress configuration", "查看当前机器人工具进度配置") },

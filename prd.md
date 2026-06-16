@@ -8,6 +8,10 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Users who prefer simple interaction over complex automation.
 
 ## 2.7 Scope Clarification (2026-06-14)
+- [Done] Runlog 自动归档通知必须可控且默认关闭：run detail 继续归档，但自动发送“本次执行成功，详细记录已归档。查看：/runlog ...”需按 session > bot > global 开关判断。`/runlog` 保持查看最新记录语义；状态只能通过 `/runlog status` 查看；新增 `/runlog list` 列出最近归档；`/status` 必须展示 runlog notice、sandbox、toolprogress、showreasoning 的有效状态与来源。
+- [Done] Feishu topic 中的执行归档通知必须与 agent 正文回复保持同一 topic 线程；流式输出完成后发送“本次执行成功，详细记录已归档。查看：/runlog ...”时，必须复用原始 Feishu 消息的 thread reply options，不能退化为群聊主消息流普通发送。
+- [Done] Changelog 重复修正问题提炼：分析 `CHANGELOG.md` 中多次出现的修复主题，只将长期有效、可预防的避免规则补充进 `AGENTS.md`，包括 prompt/profile 最终渲染校验、设置页响应式和设计系统约束、细粒度设置保存、持久化测试隔离、跨渠道队列幂等等；一次性 bug 和历史实现细节不得搬进长期规则。
+- [Done] Docs 目录职责分类整理：`docs/` 下除 `agent-dev-series` 与 `superpowers` 两个独立集合外，需求、方案、评审、调研、指南和参考材料必须按文档职责分目录管理；临时执行计划、迁移 checklist、进度记录和完成日志类过程材料不再保留在 `docs/`；新增 `docs/README.md` 作为文档分类入口，并同步根 `README.md` 文档导航。
 - [Done] Feishu Card markdown 渲染优化：Feishu CardKit final card 必须避免把长回答全部塞进单个 markdown 元素；标题需拆分为独立元素，markdown 表格需渲染为飞书原生 table，且 fenced code block 内的 `#`、`-`、`>` 等 markdown 字符不得被兼容转换误改。
 - [Done] Bot Profile 身份锁定：当 `BOT.md`、`IDENTITY.md` 等 operator profile 已生效时，默认系统提示词不得再硬声明默认助手身份并覆盖 bot 身份；模型回答“你是谁 / 工作流 / 核心原则 / 禁止行为”等自我描述问题时，必须优先从 active profile 文件回答，并通过尾部 reminder 抵消后置默认 prompt 的稀释。
 - [Done] `/stop` 成功中止当前运行时，共享命令的用户确认消息必须使用终态文案（“已停止。” / `Stopped.`），不能在飞书等渠道的最终状态卡片已经显示 stopped 后继续停留为“正在停止……”。
@@ -15,7 +19,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - [Done] 树洞发帖 Bot Profile 模板：在 `src/lib/server/agent/prompts/templates/treehole-poster/` 保存一套 bot 维度模板，包含 `BOT.md`、`IDENTITY.md`、`SOUL.md`。模板分工必须清晰：`BOT.md` 管发布触发和整理流程，`IDENTITY.md` 管身份边界，`SOUL.md` 管表达气质，避免重复规则导致 prompt 冲突。
 - [Done] AI 用量与 Trace 页面分页：为 `/settings/ai/usage` 的“请求事件明细”和 `/settings/ai/trace` 的“最近 Trace Facts”明细表格添加分页控制与每页条数选择（10/20/30/50/100，默认 20 条），支持上一页、下一页跳转与多语言（i18n）联动重置。
 - [Done] CLI readline 退出防护：本地 CLI adapter 必须处理 stdin/readline 在 Ctrl+C 或 TTY 断开后产生的 `EIO` 读错误，把它视为正常关闭而不是未处理异常；异步消息处理完成后不得对已关闭的 readline 再调用 `prompt()`。
-- [Done] Skill 使用追踪 Phase 1：trace 体系必须记录模型隐式读取 skill `SKILL.md` 的加载事实。Runner 在 `read` 工具通过 gate/preflight/budget 后缓存已解析路径，并在成功 after 时精确匹配当前 run skill manifest，命中后 emit `skill.loaded` (`reason: read_skill_file`)；失败、blocked 与 run cleanup 不得残留 pending path。`TraceRecorderHook` 对 `skill_usage` 使用 `payload.level` 与 `payload.evidenceCsv` 做单调合并，triggered-only 使用 `status: info`，loaded/executed 使用 `status: success`。Phase 1/2/3 checklist 跟踪在 `docs/trace/skill-usage-tracking-progress.md`。
+- [Done] Skill 使用追踪 Phase 1：trace 体系必须记录模型隐式读取 skill `SKILL.md` 的加载事实。Runner 在 `read` 工具通过 gate/preflight/budget 后缓存已解析路径，并在成功 after 时精确匹配当前 run skill manifest，命中后 emit `skill.loaded` (`reason: read_skill_file`)；失败、blocked 与 run cleanup 不得残留 pending path。`TraceRecorderHook` 对 `skill_usage` 使用 `payload.level` 与 `payload.evidenceCsv` 做单调合并，triggered-only 使用 `status: info`，loaded/executed 使用 `status: success`。
 - [Done] Skill 使用追踪 Phase 2：trace 体系必须记录 `skillSearch` 成功返回的候选 skill，但只能表达为被搜索命中的 triggered 信号，不能暗示已加载或已执行。Runner 在 `afterToolCall` 中防御式读取 `context.result.details.matches`，对结构完整的 match emit `skill.selected` (`reason: search_match`)；`TraceRecorderHook` 将 matched-only facts 保持为 `payload.level: triggered` / `status: info`，并且不得把已 loaded/executed fact 降级。
 - [Done] Skill 使用追踪 Phase 3：trace 体系可以记录声明式 signals 命中的 executed 证据，但必须标注为启发式证据而非执行证明。`SKILL.md` frontmatter 可选声明 `signals.cli`、`signals.mcp`、`signals.tools`（也兼容 `signals_cli` / `signals_mcp` / `signals_tools`）；runner 只在 skill 已 loaded 后，对同一 run 内成功的 bash/tool/MCP 调用做保守匹配，并把匹配 evidence 写成 `cli_signal` / `tool_signal` / `mcp_signal`。多个 loaded skill 同时命中时，只归因给最近 loaded 的匹配 skill，避免一条工具调用污染多个 skill fact。
 - [Done] 系统、沙盒及插件设置页面 Warm Shadcn UI 风格重构：对 `/settings/system`、`/settings/sandbox`、`/settings/plugins` 这三个设置页面进行了重构。使用统一的 Warm Shadcn 布局结构，将零散的 Tailwind 工具类收敛为 `.channel-*` 自定义样式类；将开关控件统一升级为 `IosSwitch` 源码组件；将重置和保存动作移至统一的固定底栏（`.settings-footbar`）中，确保与已重构的 9 个设置页面风格交互完全一致。
@@ -161,7 +165,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - 主答案展示必须有明确生命周期：draft 阶段允许流式编辑或 buffer 替换；一旦 runner 提交主答案，后续 assistant 文本不得覆盖已提交内容。若同一轮模型返回多条独立 terminal assistant 消息，必须按消息边界逐条展示（一条就一条，两条就两条），不得用文本语义猜测去丢弃或覆盖。该规则必须在 shared runtime / context 语义中表达，Channel 层只负责按平台能力渲染。
 
 ## 2.2 Subagent Sandbox Research Backlog (2026-05-25)
-- 竞品调研与下一阶段产品边界记录在 `docs/subagent-sandbox-research.md`。
+- 竞品调研与下一阶段产品边界记录在 `docs/research/sandbox/subagent-sandbox.md`。
 - 下一阶段不应先扩大 Host Bash 能力；应先补齐策略模板、run ledger、审批/诊断/产物关联和恢复边界。
 - P1 建议新增命名 sandbox profile（Observe / Build / Strict / Host-Assisted / Custom），把用户能理解的工作模式映射到底层 env/network/filesystem/approval 策略。
 - P1 建议新增 parent/subagent run ledger，持久化 run tree、模型路由、有效 sandbox profile、审批记录、诊断事件、产物清单和终止原因。
@@ -225,7 +229,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
   - Verified 100% test coverage with all 25 agent-related test suites successfully passing.
 
 ## 2.5 Agent v2.1 Simplification Plan (2026-05-27)
-- v2.1 的执行计划记录在 `docs/agent-v2.1-development-plan.md`，目标是把 `v2.1.md` 的架构方案拆成可逐条执行的 TODO。
+- v2.1 的长期架构方案记录在 `docs/designs/architecture/agent-redesign-v2.1.md` 和 `docs/designs/architecture/agent-redesign-v2.2.md`；临时执行 TODO 不再保留在 `docs/`。
 - **Sprint A / Phase 5 (2026-05-29) 已顺利完成**:
   - Legacy ACP (Agent-Channel Proxy) 被物理清除并移至 `package/acp/` 作为外部依赖，并注册了 `#acp/*` node subpath import。
   - 主代码库中的配置 schema、验证 sanitize、默认值 defaults 与 store 均与 `acp` 彻底解耦，Feishu 渠道中无用的 ACP 卡片卡槽代码均已被物理清理。
@@ -698,7 +702,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - `prd.md`: product scope, priority, and acceptance criteria.
 - `architecture.md`: V1 architecture and sprint plan.
 - `features.md`: implementation status and change log.
-- `docs/plugin-development.md`: plugin development contract, lifecycle, config shape, and current discovery/runtime boundaries.
+- `docs/guides/plugins/plugin-development.md`: plugin development contract, lifecycle, config shape, and current discovery/runtime boundaries.
 - `AGENTS.md`: collaboration and process constraints.
 - Documentation sync rule: `readme.md` must reflect current implemented behavior; when implementation and docs diverge, use `features.md` + actual code/runtime behavior as source of truth and refresh README accordingly.
 - Validation status rule: distinguish clearly between `implemented` and `validated in real usage`; do not describe channels/features as “stable/available” unless they have been actually verified in this project usage context.
@@ -1999,7 +2003,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - ACP 文档里的支持渠道列表必须包含 Weixin。
 - Enforcement:
   - `src/lib/server/channels/weixin/runtime.ts` 必须持有 `AcpService`，并接入 ACP 命令、权限回传、远端命令和默认直通。
-  - `docs/acp-codex-mvp.md` 的 operator 说明必须更新为 Telegram、Feishu、QQ、Weixin 四个渠道。
+  - `docs/requirements/acp-multi-provider-mvp.md` 的 operator 说明必须更新为 Telegram、Feishu、QQ、Weixin 四个渠道。
 
 ## 118. ACP 渠道共享控制层 (2026-03-22)
 - Priority: P1
@@ -2026,7 +2030,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - `src/lib/server/channels/shared/acp.ts` 必须提供可复用的渠道 ACP 模板接口。
   - `src/lib/server/channels/weixin/runtime.ts`、`src/lib/server/channels/qq/runtime.ts`、`src/lib/server/channels/feishu/runtime.ts` 必须改为调用该模板。
-  - `docs/acp-codex-mvp.md` 必须补充新渠道接入优先复用模板的说明。
+  - `docs/requirements/acp-multi-provider-mvp.md` 必须补充新渠道接入优先复用模板的说明。
 
 ## 120. Weixin 入站媒体解析补齐 (2026-03-23)
 - Priority: P1

@@ -1962,7 +1962,7 @@ export class TelegramManager extends BaseChannelRuntime {
           chatId,
           scopeId
         });
-      } else if (result.stopReason === "stop" && detailEventCount > 0 && result.runId) {
+      } else if (result.stopReason === "stop" && detailEventCount > 0 && result.runId && this.commandService.shouldSendRunArchiveNotice(scopeId)) {
         const archiveNotice = formatRunArchiveNotice(result.runId);
         if (status.detailsMessageId) {
           await editTelegramText(bot, chatId, status.detailsMessageId, archiveNotice, undefined, sendOptions);

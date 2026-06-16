@@ -99,6 +99,7 @@ export interface ChannelInstanceDisplaySettings {
   toolProgress?: "off" | "new" | "all" | "verbose";
   showReasoning?: "off" | "on" | "stream" | "new";
   gatewayNotifyInterval?: number;
+  runLogNotice?: boolean;
 }
 
 export interface ChannelInstanceSettings {
@@ -459,6 +460,7 @@ export interface GlobalDisplaySettings {
   toolProgress: "off" | "new" | "all" | "verbose";
   showReasoning: "off" | "on" | "stream" | "new";
   gatewayNotifyInterval: number;
+  runLogNotice: boolean;
 }
 
 export const KNOWN_PROVIDER_LIST: KnownProvider[] = [

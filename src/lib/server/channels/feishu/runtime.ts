@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { basename, extname } from "node:path";
 import * as lark from "@larksuiteoapi/node-sdk";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
@@ -13,6 +14,7 @@ import type { SessionStore } from "$lib/server/sessions/store.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { AiUsageTracker } from "$lib/server/usage/tracker.js";
 import type { ModelErrorTracker } from "$lib/server/usage/modelErrorTracker.js";
+import type { HookManager } from "$lib/server/agent/hooks/index.js";
 import {
     buildFeishuHostToolApprovalCard,
     buildFeishuHostToolApprovalProcessingCard,
@@ -58,6 +60,17 @@ function waitForFeishuCardCallbackResponse(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, FEISHU_CARD_ACTION_BACKGROUND_DELAY_MS));
 }
 
+// Resolve the filename used when uploading an attachment to Feishu. The optional
+// `title` is a human-facing label and may lack an extension (e.g. "T台走秀视频");
+// the real file type must always come from the actual file path so Feishu can
+// pick the correct message type (mp4 → video, opus → voice, etc.). If the title
+// has no extension, borrow the one from the file path.
+export function resolveFeishuUploadFilename(filePath: string, title?: string, fallback = "file"): string {
+    const base = basename(filePath) || fallback;
+    if (!title) return base;
+    return extname(title) ? title : `${title}${extname(base)}`;
+}
+
 // Orchestrates Feishu-specific inbound handling, command flow, and runner lifecycle.
 // Leaf concerns like queueing, message send/edit, and intake parsing live in sibling files.
 export class FeishuManager extends BaseChannelRuntime {
@@ -87,9 +100,12 @@ export class FeishuManager extends BaseChannelRuntime {
         options?: {
             workspaceDir?: string;
             instanceId?: string;
+            queueDbFile?: string;
+            outboxDbFile?: string;
             memory: MemoryGateway;
             usageTracker: AiUsageTracker;
             modelErrorTracker: ModelErrorTracker;
+            hookManager: HookManager;
         }
     ) {
         super({
@@ -104,6 +120,7 @@ export class FeishuManager extends BaseChannelRuntime {
         this.inboundTasks = new InboundTaskCoordinator<ChannelInboundMessage, string>({
             channel: "feishu",
             instanceId: this.instanceId,
+            dbFile: options?.queueDbFile,
             process: async (payload) => {
                 momLog("feishu", "queue_job_starting", { payload });
                 try {
@@ -157,7 +174,7 @@ export class FeishuManager extends BaseChannelRuntime {
                 if (!this.client) {
                     throw new Error("Feishu client is not running.");
                 }
-                const filename = title || filePath.split("/").pop() || "runlog.txt";
+                const filename = resolveFeishuUploadFilename(filePath, title, "runlog.txt");
                 const bytes = readFileSync(filePath);
                 await sendFeishuFile(this.client, chatId, bytes, filename);
             },
@@ -169,6 +186,7 @@ export class FeishuManager extends BaseChannelRuntime {
         this.outbox = new SqliteOutbox<{ chatId: string; text: string }, { messageId: string | null }>({
             channel: "feishu",
             instanceId: this.instanceId,
+            dbFile: options?.outboxDbFile,
             deliver: async (payload) => {
                 const result = await sendFeishuText(this.client, payload.chatId, payload.text);
                 if (!result) {
@@ -787,7 +805,7 @@ export class FeishuManager extends BaseChannelRuntime {
             client: this.client,
             chatId,
             runId,
-            title: "Molibot",
+            title: "Processing",
             displayConfig,
             ...this.replyOptionsForEvent(event),
             onMessageSent: (messageId) => this.recordFeishuBotMessage(event, messageId)
@@ -823,7 +841,7 @@ export class FeishuManager extends BaseChannelRuntime {
             setWorking: async () => {},
             deleteMessage: async () => {},
             uploadFile: async (filePath, title) => {
-                const filename = title || filePath.split("/").pop() || "file";
+                const filename = resolveFeishuUploadFilename(filePath, title);
                 const bytes = readFileSync(filePath);
                 const sent = await sendFeishuFile(this.client, chatId, bytes, filename, this.replyOptionsForEvent(event));
                 this.recordFeishuBotMessage(event, sent?.message_id);
@@ -863,9 +881,20 @@ export class FeishuManager extends BaseChannelRuntime {
             );
         }
 
-        if (result?.stopReason === "stop" && threadEventCount > 0 && result.runId) {
-            await this.sendText(chatId, formatRunArchiveNotice(result.runId));
+        if (result?.stopReason === "stop" && threadEventCount > 0 && result.runId && this.commandService.shouldSendRunArchiveNotice(scopeId, activeSessionId)) {
+            await this.sendRunArchiveNotice(event, result.runId);
         }
+    }
+
+    private async sendRunArchiveNotice(event: ChannelInboundMessage, runId: string): Promise<void> {
+        if (!this.client) return;
+        const sent = await sendFeishuText(
+            this.client,
+            event.chatId,
+            formatRunArchiveNotice(runId),
+            this.replyOptionsForEvent(event)
+        );
+        this.recordFeishuBotMessage(event, sent?.message_id);
     }
 
     private async runSharedFeishuTextTask(event: ChannelInboundMessage): Promise<void> {
@@ -896,7 +925,7 @@ export class FeishuManager extends BaseChannelRuntime {
                     return true;
                 },
                 uploadFile: async (filePath, title) => {
-                    const filename = title || filePath.split("/").pop() || "file";
+                    const filename = resolveFeishuUploadFilename(filePath, title);
                     const bytes = readFileSync(filePath);
                     const sent = await sendFeishuFile(this.client, chatId, bytes, filename, replyOptions);
                     this.recordFeishuBotMessage(event, sent?.message_id);
@@ -908,8 +937,8 @@ export class FeishuManager extends BaseChannelRuntime {
                 }
             },
             onRunComplete: async (result, meta) => {
-                if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId) {
-                    await sendFeishuText(this.client, chatId, formatRunArchiveNotice(result.runId), replyOptions);
+                if (result.stopReason === "stop" && meta.threadEventCount > 0 && result.runId && this.commandService.shouldSendRunArchiveNotice(scopeId, meta.activeSessionId)) {
+                    await this.sendRunArchiveNotice(event, result.runId);
                 }
             },
             createBotMessageId: () => Date.now(),

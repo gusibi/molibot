@@ -54,6 +54,8 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Telegram Native Media Replies**: Telegram attachment uploads preserve source media extensions when a custom title is provided, and detected MP4/WebM/MOV files use native `sendVideo` with streaming enabled so generated videos arrive as video messages instead of extensionless generic uploads.
 - **Feishu Native Video Replies**: Feishu `.mp4` attachment uploads use the official `mp4` file type and native `media` message path. Other video containers are delivered as files, and video attachments are never transcoded into OPUS voice messages.
 - **Feishu Card Markdown Rendering**: Final Feishu CardKit replies split headings into separate markdown elements, render markdown tables as native table elements, and protect fenced code blocks from compatibility rewrites so large structured answers stay readable.
+- **Feishu Topic-Scoped Run Logs**: When Feishu topic replies generate an archived runlog notice, the notice stays in the same topic thread as the answer instead of appearing in the parent group chat.
+- **Runlog Notice Controls**: Run details are always archived, but automatic “查看：/runlog ...” notices are off by default and can be controlled with session, bot, and global `/runlog` switches. `/runlog` still opens the latest record, `/runlog list` shows recent records, and `/status` includes runlog, sandbox, tool-progress, and reasoning-display state.
 - **Committed Main Answer Protection**: Runner and channel contexts now distinguish draft answers from committed main answers. If the model returns multiple terminal assistant messages in one turn, Molibot shows them as separate replies instead of overwriting the earlier complete answer.
 - **Scheduled Event Runtime Guardrails**: watched event tasks now use channel/bot-scoped SQLite execution leases with a 10-minute default timeout, capped retries, timeout-triggered abort, startup recovery, `/stop` visibility across stale runner states, and suppression of duplicate same-slot retries when a late-running attempt still finishes successfully.
 - **Feishu Approval Terminal Cards**: approval clicks return a button-free processing card within Feishu's three-second callback window, then edit the original card into a terminal result after background execution; request-level deduplication prevents HTTP/WebSocket callback races and repeated execution.
@@ -62,7 +64,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Local LaunchAgent Runtime**: Local macOS runs can be managed by `launchd` using the LaunchAgent plist template in `launchd/`, so Molibot is not tied to a foreground terminal session and can be restarted automatically.
 - **CLI Shutdown Resilience**: Local CLI readline input now treats Ctrl+C / TTY `read EIO` as a normal shutdown path, so stopping the service or closing the terminal does not leave an unhandled Node `Interface` error stack.
 - **Built-In Web Search**: `webSearch` is now a shared Agent-layer tool with route-based fallback across DuckDuckGo, Brave, Tavily, Exa, Serper, Baidu Qianfan, Baidu Fast, Baidu Web, Ark, Grok, and Bocha. Routing is intent-based (`china`, `global`, `official_docs`, `research`) instead of fragile Chinese/news keyword buckets, and automatic engine selection can use priority, random, or in-process round-robin among configured engines. Search stays date-aware through tool guidance without mechanically prepending full current dates to provider keywords, so live lookups keep concise queries unless a specific date is actually useful. The system prompt prioritizes this dedicated tool for current web lookups instead of bash curl, browser search, or legacy skill scripts. `/settings/search` manages engine credentials, routing, timeouts, max results, live test queries, effective default base URLs, and redacted request diagnostics for each test attempt; the test panel can also force a specific engine and shows the exact `WebSearchResponse` payload returned by the runtime. Search results include source-level citations, citation-linked results, and provider metadata so final answers can cite real URLs consistently.
-- **Skill Usage Trace Facts**: Trace analytics now records successful `skillSearch` matches as informational triggered candidates, implicit skill loads when the model reads a loaded skill's `SKILL.md`, and optional heuristic executed evidence from declared skill `signals` after load. `skill_usage` facts preserve monotonic confidence via `payload.level` plus `payload.evidenceCsv`, so search-only signals do not imply loaded/executed usage and executed remains evidence rather than proof. Implementation progress for the broader skill tracking plan is tracked in `docs/trace/skill-usage-tracking-progress.md`.
+- **Skill Usage Trace Facts**: Trace analytics now records successful `skillSearch` matches as informational triggered candidates, implicit skill loads when the model reads a loaded skill's `SKILL.md`, and optional heuristic executed evidence from declared skill `signals` after load. `skill_usage` facts preserve monotonic confidence via `payload.level` plus `payload.evidenceCsv`, so search-only signals do not imply loaded/executed usage and executed remains evidence rather than proof.
 - **Built-In Image Generation**: `imageGenerate` is a shared Agent-layer deferred tool supporting Agnes-Image-2.0-Flash, Google Imagen, Volcengine (Seedream), and ModelScope. It standardizes configurations mapping `AGNES_API_KEY`, `GOOGLE_API_KEY`, `VOLCENGINE_API_KEY`, and `MODELSCOPE_API_KEY` env variables. The Agent semantically routes image generation/editing intent in any language through `toolSearch select:imageGenerate` before skill or bash fallbacks. The tool automatically resolves auto engine selection with the configured default engine first, treats a configured default engine with an API key as enabled for older settings compatibility, performs sandbox path guard validation on output files, saves output PNGs to the session's dated scratch directory, returns provider `Remote URL` values when available, and attempts to upload generated images directly back to the active chat channel. Channel upload failures are reported as upload errors while preserving the successful image result. Executed image generation tasks are synchronized and saved to the SQLite settings database (`image_tasks` table). Settings are fully manageable via the `/settings/image` UI page, which supports credentials setup, custom base URL endpoints, per-engine enable switches, default engine selection, live image generation tests, a sticky bottom save bar (`.settings-footbar`), and a visual tasks list showing past records with Task ID copy, request parameters display, and visual image preview modal.
 - **Built-In Video Generation**: `videoGenerate` is a shared Agent-layer deferred tool supporting Agnes Video and Volcengine (Doubao Seedance) engines. It maps credentials from `AGNES_API_KEY` and `VOLCENGINE_API_KEY`. Users can customize the exact model ID for each provider via the settings UI. The Agent routes video generation intent in any language through `toolSearch select:videoGenerate`. The tool accepts array/string/JSON-string reference images but only submits public HTTP(S) URLs, rejecting local paths and Base64/data URLs before provider calls; for image-to-video, the Agent should use the `Remote URL` returned by `imageGenerate`. Status queries use SQLite as the cache source: completed tasks return the stored remote URL, fresh processing tasks return cached progress, and stale processing tasks query the provider once and write the remote `videoUrl` back to DB without downloading the `.mp4` locally. Settings are fully manageable via the `/settings/video` page, which supports credentials, custom models, custom base URLs, live generation tests, a visual task list with Task ID copying, inline HTML5 video results playback through redirect URLs, and a fault-tolerant background poller that safely stops failed/4xx tasks after 3 consecutive failures to prevent infinite loops.
 - **Video Provider Diagnostics**: `videoGenerate` logs provider response status and response body for both successful and failed HTTP calls, while redacting sensitive request headers before printing diagnostics.
@@ -615,22 +617,22 @@ See `.env.example` for full list and detailed descriptions.
 | `prd.md` | Planned scope, priorities, acceptance criteria, and still-open implementation requirements |
 | `features.md` | Delivered features, implementation notes, and detailed internal update log |
 | `CHANGELOG.md` | High-level release history and milestone summaries worth preserving outside `features.md` |
-| `architecture.md` | Architecture decisions, module structure, and design patterns |
-| `v2.2.md` | Agent refactoring design specification: TurnOrchestrator, PiAgentRuntime, ToolRuntime, and ApprovalBroker |
+| `docs/README.md` | Documentation taxonomy, filing rules, and high-level docs navigation |
+| `docs/designs/architecture/v1-architecture.md` | V1 architecture decisions, module structure, and design patterns |
+| `docs/designs/architecture/agent-redesign-v2.2.md` | Agent refactoring design specification: TurnOrchestrator, PiAgentRuntime, ToolRuntime, and ApprovalBroker |
 
 
 ### Development Documentation
-- `docs/session-control-commands.md` - Guide for in-chat display layout, reasoning visibility, and OS sandbox override commands
-- `docs/plugin-development.md` - Plugin contract and development guide
-- `docs/plugin-authoring-guide.md` - Practical plugin tutorial: how to write, install, enable, and demo plugins
-- `docs/tools/deferred-tool-authoring-guide.md` - Practical guide for implementing, registering, routing, configuring, and testing built-in deferred Agent tools
+- `docs/guides/session-control/session-control-commands.md` - Guide for in-chat display layout, reasoning visibility, and OS sandbox override commands
+- `docs/guides/plugins/plugin-development.md` - Plugin contract and development guide
+- `docs/guides/plugins/plugin-authoring.md` - Practical plugin tutorial: how to write, install, enable, and demo plugins
+- `docs/guides/tools/deferred-tool-authoring.md` - Practical guide for implementing, registering, routing, configuring, and testing built-in deferred Agent tools
 - `src/lib/server/plugins/cloudflareHtml/README.md` - Cloudflare HTML publish plugin notes, including local-file upload input and Worker mode vs Direct R2 mode
-- `docs/agent-v2.1-development-plan.md` - Executable TODO plan for the v2.1 Agent simplification work: ACP removal, Workspace, TurnOrchestrator, ToolRuntime, approval scope, and settings split
-- `docs/acp-codex-mvp.md` - ACP (Agent Control Plane) documentation
-- `docs/subagent-sandbox-research.md` - Research and product boundary for the next Agent/Subagent sandbox iteration
+- `docs/requirements/acp-multi-provider-mvp.md` - ACP (Agent Control Plane) MVP documentation
+- `docs/research/sandbox/subagent-sandbox.md` - Research and product boundary for the next Agent/Subagent sandbox iteration
 - `docs/superpowers/specs/2026-06-06-hookmanager-design.md` - Agent HookManager design specification, telemetry trace store, and unified facts table design
 - `docs/superpowers/plans/2026-06-06-hookmanager-runtime-extension.md` - Agent HookManager implementation plan, runtime callback bridging, and lifecycle hardening notes
-- `docs/molibot-architecture.svg` - Architecture diagram source
+- `docs/images/molibot-architecture.svg` - Architecture diagram source
 
 ### Project Governance
 - `AGENTS.md` - Collaboration rules and development guidelines
@@ -649,10 +651,12 @@ See `.env.example` for full list and detailed descriptions.
 1. Before implementing a new feature, confirm the requirement or gap in `prd.md`.
 2. After shipping, update `features.md` with the delivered fact and a dated log entry.
 3. If the change adds or clarifies a long-lived rule, extract only that evergreen rule into `AGENTS.md`.
-4. If the change affects page/UI implementation, verify it against `DESIGN.md` before editing code or styles.
-5. Unless existing `shadcn-svelte` primitives truly cannot support the UI change, prefer `src/lib/components/ui` over non-shadcn components or page-local reimplementations.
-6. If the change affects onboarding, project positioning, or doc navigation, update `README.md`.
-7. If the change is meaningful at release-summary level, add a concise entry to `CHANGELOG.md`.
+4. When mining `CHANGELOG.md` for repeated corrections, extract only recurring, preventable rules into `AGENTS.md`; keep one-off bugs and implementation history in changelog/feature records.
+5. If the change affects page/UI implementation, verify it against `DESIGN.md` before editing code or styles.
+6. Unless existing `shadcn-svelte` primitives truly cannot support the UI change, prefer `src/lib/components/ui` over non-shadcn components or page-local reimplementations.
+7. If the change affects onboarding, project positioning, or doc navigation, update `README.md`.
+8. Add or move project docs according to `docs/README.md` so requirements, designs, reviews, research, guides, and reference material stay separated; do not keep temporary execution checklists or progress logs under `docs/`.
+9. If the change is meaningful at release-summary level, add a concise entry to `CHANGELOG.md`.
 
 ## Current Status
 

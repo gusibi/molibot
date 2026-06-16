@@ -1,5 +1,26 @@
 # Molibot Features
 
+## 2026-06-16
+
+### Runlog Notice Controls
+- **自动归档通知默认关闭**: run detail 仍然持续归档，但“本次执行成功，详细记录已归档。查看：/runlog ...”自动提示默认关闭，减少聊天噪音。
+- **分层开关**: 新增 `/runlog status`、`/runlog on|off|reset`、`/runlog bot on|off|reset`、`/runlog global on|off|reset`，按 session > bot > global 生效；`/runlog` 和 `/runlog latest` 保持查看最新记录语义。
+- **历史列表与状态面板**: 新增 `/runlog list` 列出最近归档记录；`/status` 现在同时展示 runlog notice、sandbox、toolprogress、showreasoning 的当前有效状态和来源。
+- **跨渠道接线**: Telegram、Feishu、QQ、Weixin 的自动归档通知统一遵守共享开关；手动 `/runlog` 查询不受影响。
+
+### Feishu Topic Runlog Notice Threading
+- **Topic 内归档通知对齐**: Feishu 流式输出在 topic 中触发 runlog 归档提示时，现在会沿用原始消息的 `reply_in_thread` 回复参数，不再把“本次执行成功，详细记录已归档。查看：/runlog ...”发送到群聊主消息流。
+- **回归测试**: Feishu runtime 测试覆盖流式 topic 场景，断言归档通知通过 Feishu reply API 回到原 topic。
+
+### AGENTS 重复问题规则提炼
+- **Changelog 复盘提炼**: 分析 `CHANGELOG.md` 中反复出现的修正主题，将稳定的避免规则补充到 `AGENTS.md`，覆盖 prompt/profile 真实生效与去重、设置页响应式与设计系统、细粒度设置保存、测试数据库隔离、跨渠道队列幂等等长期约束。
+- **文档同步**: 按文档职责分层，仅在 `features.md` / `prd.md` / `CHANGELOG.md` / `README.md` 记录本次规则治理摘要，不把 changelog 历史流水账搬入长期规则。
+
+### Docs Taxonomy Cleanup
+- **分类入口**: 新增 `docs/README.md`，按文档职责定义 `requirements`、`designs`、`reviews`、`research`、`guides`、`reference` 等目录用途，并明确 `docs/agent-dev-series` 与 `docs/superpowers` 维持独立结构。
+- **过程数据清理**: 删除 `docs` 下临时执行计划、迁移 checklist、进度记录和完成日志类过程材料；长期需求、架构方案、研究、评审、指南和参考资料保留。
+- **导航同步**: 更新根 `README.md` 的 Docs 和 Documentation Workflow，指向新的文档路径和归档规则。
+
 ## 2026-06-14
 
 ### Feishu Card Markdown 渲染优化 (Feishu Card Markdown Rendering)
@@ -57,7 +78,7 @@
 - **隐式读取追踪**: 当模型通过 `read` 工具成功读取当前 run 已加载 skill manifest 中的 `SKILL.md` 时，runner 会记录 `skill.loaded`，并标记 `reason: "read_skill_file"`。这补齐了非显式 `/skill` / `$skill` 调用场景下，模型按 skill routing 自行读取技能文件但 trace 中没有 skill fact 的缺口。
 - **路径与阻塞安全**: read 路径归因复用工具层 `resolveToolPath` 与导出的 `pathCompareKey`，支持 `data/moli-*/skills/...` 等既有路径纠偏；缓存只在 hook gate、preflight、budget 全部放行后写入，read 成功、失败、blocked 与 run cleanup 都不会残留 pending path。
 - **单调 skill fact 合并**: `TraceRecorderHook` 现在为 `skill_usage` 维护 run 内合并态，使用 `payload.level` (`triggered` / `loaded`) 与 `payload.evidenceCsv` 累积证据，保证后到的低置信度信号不会把已 loaded 的 fact 降级。triggered-only skill facts 使用 `status: "info"`，避免被误显示为进行中。
-- **实施进度文档**: 新增 `docs/trace/skill-usage-tracking-progress.md`，跟踪 Phase 1/2/3 checklist 与当前完成状态。
+- **实施说明**: Skill 使用追踪的长期行为记录在本文件与 Trace 设计文档中，不再保留单独的过程进度 checklist。
 
 ### Skill 使用追踪 Phase 2 (SkillSearch Candidate Tracking)
 - **候选触发追踪**: 当 `skillSearch` 成功返回 `details.matches` 时，runner 会对每个结构完整的匹配项发出 `skill.selected`，并标记 `reason: "search_match"`，让 trace 能记录“被检索命中的候选 skill”，即使模型后续没有读取对应 `SKILL.md`。
@@ -550,7 +571,7 @@
 - **环境变量自动注入**: `hostBashExec.ts` 的 `buildHostEnv` 自动将配置值注入为 `AGENT_BROWSER_DEFAULT_TIMEOUT` 环境变量，所有通过 Host Bash 执行的 `agent-browser` 命令自动继承。
 - **默认值调整**: 默认超时从 25s 提升至 60s，解决了 feishu.cn 等加载较慢网站的超时问题。范围约束 5s~300s。
 - **统一的渲染格式化层 (Unified DisplayFormatter)**: 实现了 [displayFormatter.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/core/displayFormatter.ts) 作为共享逻辑层。统一捕获 `thinking_start/delta/end`、工具调用与子智能体执行事件，规范化输出适用于各个渠道的 Markdown 排版，使得展示逻辑完全与 Channel 消息收发解耦，严格遵守 `AGENTS.md` 的规范边界。
-- **展示设置持久化与校验逻辑**: 扩展了 `schema.ts`、`defaults.ts` 与 `sanitize.ts`，为 `RuntimeSettings` 及各渠道实例的 `ChannelInstanceSettings` 新增了 `display` 配置（包含 `toolProgress`、`showReasoning`、`gatewayNotifyInterval`）。升级了 sanitizer，打通了 SQLite `settings_channel_instances` 表中的 `display_json` 字段及 `settings.json` 中的全局 `display` 属性的持久化存储、动态读取与自动迁移，保证指令 `/toolprogress` 及 `/showreasoning` 的修改状态在系统重启后能够被持久保留。同时将展示配置指令与 `/sandbox` 多级控制指令统一整理编写为指南文档 [session-control-commands.md](file:///Users/gusi/Github/molipibot/docs/session-control-commands.md)。
+- **展示设置持久化与校验逻辑**: 扩展了 `schema.ts`、`defaults.ts` 与 `sanitize.ts`，为 `RuntimeSettings` 及各渠道实例的 `ChannelInstanceSettings` 新增了 `display` 配置（包含 `toolProgress`、`showReasoning`、`gatewayNotifyInterval`）。升级了 sanitizer，打通了 SQLite `settings_channel_instances` 表中的 `display_json` 字段及 `settings.json` 中的全局 `display` 属性的持久化存储、动态读取与自动迁移，保证指令 `/toolprogress` 及 `/showreasoning` 的修改状态在系统重启后能够被持久保留。同时将展示配置指令与 `/sandbox` 多级控制指令统一整理编写为指南文档 [session-control-commands.md](docs/guides/session-control/session-control-commands.md)。
 - **独立会话指令控制 (/toolprogress & /showreasoning)**: 在 [channelCommands.ts](file:///Users/gusi/Github/molipibot/src/lib/server/agent/commands/channelCommands.ts) 中增加了 `/toolprogress` 与 `/showreasoning` 两个独立的聊天命令。仅修改并写回当前渠道的 Bot 实例设置，实现了精细化的 Bot (Channel Instance) 维度控制，各个平台/Bot 互不干扰。
 - **多渠道渲染适配与进度拦截**:
   - **Telegram**: 重构了 Telegram 的消息发送与编辑管道，全面接入 `DisplayFormatter`；若 `toolProgress === 'off'`，则彻底跳过状态消息的生成与编辑。修复了在 `"new"` 进度显示级别下，最后一条临时状态（如 `⏳ 正在运行: bash...`）在智能体执行完成后仍残留于界面的 bug。现已支持在运行终期自动将其物理删除。
@@ -686,7 +707,7 @@
 ## 2026-05-27
 
 ### Agent v2.1 simplification planning
-- **可执行 TODO 计划**: 新增 `docs/agent-v2.1-development-plan.md`，把 `v2.1.md` 拆成 80 条执行项，并明确短期先做“删除 ACP 主路径 + 引入最小 Workspace 边界”，后续再推进 TurnOrchestrator、ToolRuntime、Approval scope 和 Settings 渐进拆分。
+- **可执行 TODO 计划**: 当时曾把 `v2.1.md` 拆成 80 条执行项，用于推进“删除 ACP 主路径 + 引入最小 Workspace 边界”、TurnOrchestrator、ToolRuntime、Approval scope 和 Settings 渐进拆分；该过程计划现已从主 docs 树清理，长期架构结论保留在 Agent redesign 设计文档中。
 
 ### ACP active runtime path removal
 - **ACP 主路径下线**: Web/Telegram/Feishu/QQ/Weixin 的共享 channel runtime 不再实例化 `AcpService`，各渠道移除 ACP 自动代理、ACP 命令模板、权限回调和运行提示；`/acp`、`/approve`、`/deny` 统一返回 inactive-path 提示。
@@ -708,7 +729,7 @@
 ## 2026-05-25
 
 ### Subagent sandbox research and product boundary
-- **竞品调研文档**: 新增 `docs/subagent-sandbox-research.md`，系统梳理 Claude Code、Codex、GitHub Copilot cloud agent、Replit Agent、Devin、OpenHands、Cursor 在 subagent、sandbox、审批、环境快照、回滚和页面交互上的实现方式。
+- **竞品调研文档**: 新增 `docs/research/sandbox/subagent-sandbox.md`，系统梳理 Claude Code、Codex、GitHub Copilot cloud agent、Replit Agent、Devin、OpenHands、Cursor 在 subagent、sandbox、审批、环境快照、回滚和页面交互上的实现方式。
 - **下一阶段边界明确**: 文档把 Molibot 当前第一版能力和缺口拆成 P0/P1/P2/P3，建议先补齐策略模板、run ledger、审批/产物/诊断关联和恢复边界，再扩大 host access 或 Docker sandbox provider。
 
 ### Host approval environment hotfix
@@ -753,7 +774,7 @@
 | DOC-06 | Documentation cleanup | Done | Removed redundant docs and added file-purpose navigation in `readme.md` |
 | DOC-07 | Global SOUL profile tone optimization | Done | Rewrote `~/.molibot/SOUL.md` with decisive, concise, non-corporate voice and explicit direct-answer constraints |
 | DOC-13 | Plugin authoring and installation tutorial | Done | Added a full plugin tutorial covering plugin types, current support boundaries, how to write/install/enable built-in plugins, manifest limits for external plugins, and a Cloudflare HTML publish demo |
-| DOC-18 | Subagent sandbox research spec | Done | Added `docs/subagent-sandbox-research.md` covering users, competitor patterns, functional boundaries, target data structures, page interactions, non-goals, and phased acceptance criteria for the next sandbox/subagent product iteration |
+| DOC-18 | Subagent sandbox research spec | Done | Added `docs/research/sandbox/subagent-sandbox.md` covering users, competitor patterns, functional boundaries, target data structures, page interactions, non-goals, and phased acceptance criteria for the next sandbox/subagent product iteration |
 | ENG-01 | Unified message router implementation | Done | Shared message router now lives at `src/lib/server/channels/shared/messageRouter.ts` with validation, rate limit, and shared pipeline |
 | ENG-153 | Agent hierarchy settings and prompt overlays | Done | Added reusable agent settings, agent-linked bots, in-page Markdown editors for agent/bot profile files, and runtime prompt layering `global -> agent -> bot` |
 | ENG-190 | Shared inbound task ownership above channels | Done | Inbound queue ownership, queue commands, and resume flow now live in shared runtime helpers instead of per-channel queue wiring |
@@ -844,7 +865,7 @@
 | DOC-15 | Documentation role separation and maintenance workflow | Done | Clarified which project rules belong in `AGENTS.md`, which records stay in `prd.md` / `features.md`, and how `README.md` / `CHANGELOG.md` should be kept in sync after each meaningful change |
 | DOC-16 | DESIGN-driven page change governance | Done | Added a long-lived rule that any page/UI change must follow `DESIGN.md`, while keeping detailed design tokens and component guidance in `DESIGN.md` instead of duplicating them into `AGENTS.md` |
 | DOC-17 | shadcn-first UI component governance | Done | Added a long-lived rule that page/UI changes should prefer `shadcn-svelte` and `src/lib/components/ui` unless that component system truly cannot implement the requirement, avoiding drift back to ad hoc non-shadcn components |
-| DOC-18 | Agent v2.1 simplification execution plan | Done | Added `docs/agent-v2.1-development-plan.md` with a short-term execution plan and numbered TODO checklist for ACP removal, Workspace, TurnOrchestrator, ToolRuntime, approval scope, sandbox rules, and settings split |
+| DOC-18 | Agent v2.1 simplification execution plan | Done | Created a short-term execution checklist for ACP removal, Workspace, TurnOrchestrator, ToolRuntime, approval scope, sandbox rules, and settings split; the process checklist has since been removed from the main docs tree |
 | ENG-348 | Minimum Workspace boundary | Done | Added a SQLite-backed `workspaces` registry with default `personal` bootstrap, workspace resolution fallback, and `workspaceId` propagation into new channel/Web messages and run summary/detail archives without moving existing session files |
 | ENG-02 | Telegram adapter implementation | Done | `src/adapters/telegram.ts` built with `grammY` |
 | ENG-03 | Web chat implementation | Done | SvelteKit chat page + API (`src/routes/+page.svelte`, `src/routes/api/chat/+server.ts`) with `pi-web-ui` |
@@ -1241,7 +1262,7 @@
 - 2026-03-14: Added Linus Torvalds-inspired personality templates (`IDENTITY.linus.template.md` and `SOUL.linus.template.md`) to provide a blunt, technical-first agent profile option.
 - 2026-03-14: Fixed shared `Button` event forwarding by adding native click forwarding in `src/lib/ui/Button.svelte`, which restores ACP `Add Project` and other settings-page actions implemented through `<Button on:click={...}>`.
 - 2026-03-14: Added `/settings/acp` web configuration page with structured target/project editors, default approval mode controls, absolute-path project allowlist management, and Settings navigation/overview entry for ACP operations.
-- 2026-03-14: Added Codex ACP MVP documentation at `docs/acp-codex-mvp.md`, persisted ACP settings (`targets` + registered projects), and introduced Telegram `/acp` / `/approve` / `/deny` command flow for chat-scoped ACP coding sessions with live status updates, project allowlisting, and Telegram-mediated permission approvals.
+- 2026-03-14: Added Codex ACP MVP documentation at `docs/requirements/acp-multi-provider-mvp.md`, persisted ACP settings (`targets` + registered projects), and introduced Telegram `/acp` / `/approve` / `/deny` command flow for chat-scoped ACP coding sessions with live status updates, project allowlisting, and Telegram-mediated permission approvals.
 - 2026-03-14: Added Telegram per-bot stream output toggle. `/settings/telegram` now exposes `Enable streaming output (default on)`, persisted in channel-instance credentials as `streamOutput`, and runtime now supports two modes: stream-on incremental `editMessageText` updates and stream-off final one-shot output.
 - 2026-03-14: Added bot-dimension usage analytics. `AiUsageTracker` now records and aggregates `botId` (with backward-compatible fallback for historical logs), channel runner usage writes include workspace-derived bot ID, web writes use `web`, and `/settings/ai/usage` now supports bot filtering and “Bots Used” ranking for cross-bot consumption comparison.
 - 2026-04-21: Fixed `/settings/ai/usage` visual contrast under the shared settings skin so accent icons, token badges, and Usage Timeline bars render with clear green highlights instead of collapsing into near-background black/white.
@@ -1521,7 +1542,7 @@
 - 2026-03-01: Added bounded retry to Feishu STT transcription in `message-intake.ts`: failed or empty transcription attempts now retry up to 3 times with short backoff before downgrading to untranscribed voice input.
 - 2026-03-01: Fixed Feishu duplicate-response risk in `src/lib/server/channels/feishu/runtime.ts`: manager `stop()` now actively closes the prior `WSClient` connection instead of only dropping the reference, preventing duplicate event subscriptions after repeated `apply()` calls.
 - 2026-03-01: Added Feishu plugin-local inbound dedupe keyed by raw `chat_id + message.message_id` before media download/STT, so duplicate WebSocket deliveries are skipped even before entering the generic numeric message log path.
-- 2026-03-01: Added plugin developer documentation in `docs/plugin-development.md`, covering built-in vs external plugin layout, channel/provider contracts, persisted `channels.<plugin>.instances[]` config shape, discovery/load flow, and current runtime limitations.
+- 2026-03-01: Added plugin developer documentation in `docs/guides/plugins/plugin-development.md`, covering built-in vs external plugin layout, channel/provider contracts, persisted `channels.<plugin>.instances[]` config shape, discovery/load flow, and current runtime limitations.
 - 2026-03-03: Added second-stage vision routing behavior in `src/lib/server/agent/runner.ts`: image payloads are sent natively only when the selected custom text model or dedicated vision-route model has `vision` declared and verification-passed; otherwise the runner withholds native image parts and falls back to attachment-based handling.
 - 2026-03-03: Added `audio_input` capability groundwork across settings and `/settings/ai/providers`; it can now be declared explicitly, but remains `untested` and does not change runtime audio handling until native audio prompt transport is supported.
 - 2026-03-04: Added explicit audio routing decisions in `src/lib/server/agent/runner.ts`. Audio inputs now log whether they are using declared STT fallback or degrading because native audio transport is unavailable, and voice-only messages keep placeholder behavior with a visible notice when no STT target exists.
@@ -1586,11 +1607,11 @@
 - 2026-03-17: Added explicit slash skill invocation normalization across `src/lib/server/agent/skills.ts`, `src/lib/server/agent/runner.ts`, and `src/lib/server/agent/prompt.ts`: direct `/skill-name` and `/skill-name@bot` inputs now count as explicit skill selection, normalized aliases ignore case and treat spaces/underscores/hyphens as equivalent, runner appends an `[explicit skill invocation]` block before model execution, and MCP skill-gating now follows the same explicit matcher.
 - 2026-03-18: Fixed explicit skill path drift for bot-scoped skills by enriching runner-injected `[explicit skill invocation]` entries with `name/scope/skill_file` and adding a hard guard in skill protocol that `SKILL.md` must never be executed directly with `sh/bash` (read file first, then run documented scripts/commands).
 - 2026-03-21: Added explicit ACP provider split under `src/lib/server/acp/providers/` with separate `codex.ts` and `claude-code.ts` profiles, introduced `adapter` metadata for ACP targets plus dual default presets, changed `/acp add-project` to allow all enabled targets by default instead of hardcoding Codex, and unified Telegram/UI command presentation so the same `/acp ...` flow works across Codex and Claude Code while remote adapter commands are rendered with provider prefixes.
-- 2026-03-21: Fixed post-review ACP follow-ups by respecting explicit `adapter: "custom"` without re-inferring it back to Codex/Claude behavior, updated `docs/acp-codex-mvp.md` to match the now-shipped multi-provider ACP behavior, and added the new `src/lib/server/acp/providers/` files to version control so the refactor cannot land with missing imports.
+- 2026-03-21: Fixed post-review ACP follow-ups by respecting explicit `adapter: "custom"` without re-inferring it back to Codex/Claude behavior, updated `docs/requirements/acp-multi-provider-mvp.md` to match the now-shipped multi-provider ACP behavior, and added the new `src/lib/server/acp/providers/` files to version control so the refactor cannot land with missing imports.
 - 2026-03-22: Added `/acp remote <command> [args]` in Telegram ACP control flow and implemented provider-aware command parsing in `src/lib/server/acp/service.ts` (supports optional `codex:/...` / `claude-code:/...` prefixes, validates against session `availableCommands` when present, and forwards the resolved command as the ACP prompt).
 - 2026-03-22: Fixed Telegram ACP subcommand argument parsing edge case in `src/lib/server/channels/telegram/runtime.ts`: `/acp remote` and `/acp task` without payload no longer fall through as literal `remote` / `task` commands; they now correctly return usage guidance and avoid unintended remote-command execution.
 - 2026-03-22: Added active-session ACP default proxy mode in `src/lib/server/channels/telegram/runtime.ts`. When ACP is active, non-control messages are sent directly to ACP (no `/acp task` prefix required), while `/acp ...` / `/approve ...` / `/deny ...` remain control-plane commands.
-- 2026-03-22: Generalized ACP into a channel-wide capability. Added shared ACP prompt/help/permission text in `src/lib/server/acp/prompt.ts`, wired Feishu and QQ runtimes to the same `/acp` / `/approve` / `/deny` controls plus active-session default proxy mode, and updated `docs/acp-codex-mvp.md` to describe Telegram, Feishu, and QQ instead of Telegram-only behavior.
+- 2026-03-22: Generalized ACP into a channel-wide capability. Added shared ACP prompt/help/permission text in `src/lib/server/acp/prompt.ts`, wired Feishu and QQ runtimes to the same `/acp` / `/approve` / `/deny` controls plus active-session default proxy mode, and updated `docs/requirements/acp-multi-provider-mvp.md` to describe Telegram, Feishu, and QQ instead of Telegram-only behavior.
 - 2026-03-22: Extended the same ACP control surface to `src/lib/server/channels/weixin/runtime.ts`, including `/acp` commands, `/approve` / `/deny`, provider-aware remote commands, and active-session default proxying so Weixin now behaves like Telegram, Feishu, and QQ.
 - 2026-03-23: Fixed build failure after upgrading `@mariozechner/pi-ai` to `0.62.x` by moving runtime OAuth helper imports in `src/lib/server/agent/auth.ts` onto the new `@mariozechner/pi-ai/oauth` entrypoint; verified by rerunning `npm run build`.
 - 2026-03-24: Hardened upgraded agent runtime around the new `pi-agent-core` control surface: added centralized tool preflight blocking for destructive bash / protected settings-auth-secret file edits / reminder-like memory misuse, serialized mutating tools to prevent parallel write races, and tightened custom model routing so text vs vision tasks only select capability-matching models while Agent session/transport update per active route.
@@ -1678,7 +1699,7 @@
 - 2026-04-19: Removed machine-specific absolute-path examples from the ACP and Skill Drafts settings pages, replacing `~/...` placeholders with relative or generic examples. Also added a project rule in `AGENTS.md` to forbid user-machine absolute paths in code, UI copy, prompts, and docs going forward.
 - 2026-04-19: Upgraded Feishu outbound presentation from minimal single-block cards to structured rich cards in `src/lib/server/channels/feishu/messaging.ts`, added dedicated ACP status/approval cards plus in-card approve/reject handling in `src/lib/server/channels/feishu/runtime.ts`, exposed a new Feishu card callback route at `src/routes/api/feishu/card/+server.ts`, and extended `/settings/feishu` with optional callback security fields (`verificationToken`, `encryptKey`).
 - 2026-04-20: Added the first built-in feature-plugin path for product capabilities beyond channels/providers. `src/lib/server/plugins/feature-registry.ts` now registers built-in feature plugins, plugin catalog output includes `features`, `/settings/plugins` can enable and configure Cloudflare HTML publish, `src/lib/server/agent/prompt.ts` injects plugin-specific guidance, and `publish_html` now lets the agent upload complete HTML documents to Cloudflare R2 and return the configured public URL.
-- 2026-04-20: Added a full practical plugin tutorial in `docs/plugin-authoring-guide.md`, plus cross-links from `docs/plugin-development.md`, `docs/plugin-manifest.md`, and `README.md`. The new guide explains what plugin types exist today, which ones really run, how to write/install/enable a built-in plugin, what the current external-manifest limits are, and includes a full Cloudflare HTML publish demo.
+- 2026-04-20: Added a full practical plugin tutorial in `docs/guides/plugins/plugin-authoring.md`, plus cross-links from `docs/guides/plugins/plugin-development.md`, `docs/designs/plugins/plugin-manifest.md`, and `README.md`. The new guide explains what plugin types exist today, which ones really run, how to write/install/enable a built-in plugin, what the current external-manifest limits are, and includes a full Cloudflare HTML publish demo.
 - 2026-04-20: Fixed a production build blocker in `src/lib/server/app/runtime.ts`. The plugin-settings merge path for `cloudflareHtml` was missing one closing parenthesis, which broke `npm run build`; the merge expression now closes correctly again.
 - 2026-04-20: Restructured Cloudflare HTML publish so the upload tool now lives under `src/lib/server/plugins/cloudflareHtml/` instead of `src/lib/server/agent/tools/`, and the feature registry now owns the registration path end-to-end. Also split the public-link config wording to use a dedicated Worker base host while keeping backward compatibility with older saved `publicBaseUrl` settings.
 - 2026-04-20: Reworked `/settings/plugins` so feature-plugin config forms are now generated from plugin-declared field metadata instead of a hard-coded Cloudflare HTML section. The feature registry now ships settings-field definitions, the page reads current values dynamically, and saving writes plugin settings back by registry key.

@@ -558,11 +558,12 @@ export function sanitizeChannelInstanceDisplaySettings(input: unknown): ChannelI
   const gatewayNotifyInterval = raw.gatewayNotifyInterval !== undefined && !isNaN(Number(raw.gatewayNotifyInterval))
     ? Number(raw.gatewayNotifyInterval)
     : undefined;
+  const runLogNotice = raw.runLogNotice === undefined ? undefined : Boolean(raw.runLogNotice);
 
-  if (toolProgress === undefined && showReasoning === undefined && gatewayNotifyInterval === undefined) {
+  if (toolProgress === undefined && showReasoning === undefined && gatewayNotifyInterval === undefined && runLogNotice === undefined) {
     return undefined;
   }
-  return { toolProgress, showReasoning, gatewayNotifyInterval };
+  return { toolProgress, showReasoning, gatewayNotifyInterval, runLogNotice };
 }
 
 function sanitizeChannels(
@@ -889,7 +890,8 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.display = {
     toolProgress: displayInput && ["off", "new", "all", "verbose"].includes(String(displayInput.toolProgress)) ? (displayInput.toolProgress as any) : (current.display?.toolProgress ?? "all"),
     showReasoning: displayInput && ["off", "on", "stream", "new"].includes(String(displayInput.showReasoning)) ? (displayInput.showReasoning as any) : (current.display?.showReasoning ?? "off"),
-    gatewayNotifyInterval: displayInput && !isNaN(Number(displayInput.gatewayNotifyInterval)) ? Number(displayInput.gatewayNotifyInterval) : (current.display?.gatewayNotifyInterval ?? 0)
+    gatewayNotifyInterval: displayInput && !isNaN(Number(displayInput.gatewayNotifyInterval)) ? Number(displayInput.gatewayNotifyInterval) : (current.display?.gatewayNotifyInterval ?? 0),
+    runLogNotice: displayInput?.runLogNotice === undefined ? (current.display?.runLogNotice ?? false) : Boolean(displayInput.runLogNotice)
   };
 
   next.telegramBotToken = next.telegramBots[0]?.token ?? "";

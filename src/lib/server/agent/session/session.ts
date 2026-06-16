@@ -6,6 +6,7 @@ export interface SessionPreferences {
   thinkingLevelOverride?: RuntimeThinkingLevel | null;
   hostApprovalMode?: "default" | "session";
   sandboxOverride?: boolean | null;
+  runLogNoticeOverride?: boolean | null;
 }
 
 export interface SessionHeaderEntry {
