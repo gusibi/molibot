@@ -1,5 +1,32 @@
 # Molibot Features
 
+## 2026-06-17
+
+### Telegram Rich Message Output
+- **grammY 1.44.0**: Telegram SDK dependency upgraded to `grammy@^1.44.0`, resolving `@grammyjs/types@3.28.0` with Bot API 10.1 rich message types and methods.
+- **富文本优先发送**: Telegram outbound text now prefers Bot API 10.1 rich messages via grammY `sendRichMessage` and rich `editMessageText` payloads, using the original text as the rich Markdown source.
+- **grammY-only Telegram rendering**: Telegram formatting no longer performs local Markdown-to-HTML conversion. If rich message delivery fails, the fallback is grammY `sendMessage` / plain `editMessageText` with the original text.
+- **命令 Markdown 统一输出**: Shared commands now produce one canonical Markdown shape across channels instead of branching by Telegram/Feishu/QQ/Weixin: `/status` uses grouped Markdown lists, while `/help` and queue listings use standard Markdown table blocks. Channel senders remain responsible for platform-specific rendering or fallback.
+- **Runlog 状态块标准化**: `/runlog status` and runlog toggle confirmations now render the status block as Markdown headings plus bullet lists, avoiding Telegram rich Markdown folding single newlines inside plain paragraphs.
+- **命令输出结构化打磨**: Host Bash 审批、queue/session/model/login/compact/thinking/sandbox/toolprogress/showreasoning/runlog 等共享命令的多行结果统一改为 Markdown heading、bullet list、command list 或 table，避免 Telegram rich Markdown 把普通段落单换行折叠成一行，同时保持飞书等渠道复用同一套命令文本。
+- **无本地渲染判断**: Telegram no longer uses local regular expressions to decide whether text is Markdown; grammY/Telegram receives the original text and owns rich rendering.
+
+### Independent Control Daemon (Telegram 运维控制进程)
+- **独立控制守护进程**: 新增 `bin/molibot-control.js`，一个不依赖主程序 agent/runtime/settings 的极小独立进程，用一个专用 Telegram bot 接收运维命令。它与主服务生死无关，因此主服务完全停止时仍能收命令并把服务重新拉起（这是“启动已停服务”唯一可行的路径）。
+- **运维命令**: `/status`、`/start`、`/start dev`、`/stop`、`/restart`、`/restart dev`、`/logs [n]`。每条命令通过 `spawn` 调用相应脚本并把输出回贴到聊天。
+- **两套服务源**: `/start` 走 release 流程(调用 `molibot-update.sh`：拉取并构建最新 git ref → 部署到 `current` → 启动);`/start dev`、`/restart dev` 对齐本地 dev 工作树。stop/status 基于 PID 文件,与启动来源无关。
+- **dev 自动构建**: `/start dev`、`/restart dev` 会先 `npm run build`(通过 login shell 解析 node/npm PATH)再启动,确保拿到最新本地代码;构建失败则中止、不启动。另提供 `/build` 单独构建。
+- **发现模式**: admin 白名单为空时不再退出,而是进入发现模式(不授权任何命令,只把收到消息的 chat_id 记日志),避免「没 id 不让启动、不启动又拿不到 id」的死锁;非白名单消息一律只记日志、不回复。
+- **白名单鉴权**: 仅响应 `MOLIBOT_CONTROL_ADMIN_IDS` 中的 chatId/userId，非白名单消息静默忽略；进程缺少 token 或空白名单时拒绝启动。控制进程不接入任何 agent 能力，只能执行固定命令集。
+- **自身守护**: 新增 `bin/molibot-control-service.sh`，沿用 `molibot-service.sh` 的 nohup 监督循环模式（start/stop/status/restart、崩溃自动重启），让控制进程开机后常驻并在崩溃时自拉起。
+- **配置与发布接线**: `molibot manage` 的 `deploy.env` 新增 `MOLIBOT_CONTROL_TG_TOKEN` / `MOLIBOT_CONTROL_ADMIN_IDS` 两项（交互式可配置），`molibot-release.sh` 把两个新脚本打包进 release。
+- **设计文档**: 方案归档到 `docs/designs/operations/control-daemon.md`，README 部署章节给出快速使用步骤并链接到该文档。
+
+### Telegram Command Menu Cleanup（命令菜单精简）
+- **精简「/」菜单**: 新增 `TELEGRAM_MENU_COMMANDS` 并在启动时调用 `setMyCommands`，Telegram 的命令选择器只暴露 8 个常用命令（`/new`、`/clear`、`/stop`、`/sessions`、`/status`、`/models`、`/skills`、`/help`），按运行时 locale 显示中/英描述。菜单注册失败只告警、不影响启动。
+- **/help 分组**: `/help` 输出拆成「常用命令 / 高级命令」两组,高级命令(steer/followup/queue/compact/thinking/sandbox/runlog/toolprogress/showreasoning/delete_sessions/skills 详情等)合并为更紧凑的带可选参数行。
+- **非破坏式**: 所有命令处理器保持不变(`TELEGRAM_SHARED_COMMANDS` 未删减),高级命令照常可用,仅调整 UI 暴露与帮助呈现。
+
 ## 2026-06-16
 
 ### Runlog Notice Controls
@@ -430,10 +457,10 @@
 - **回归断言补充**: `commandClassifier.test.ts` 增加 quoted URL、未引用 glob、受限 `cd` / `echo` wrapper、动态 `cd` 降级测试，固定审批降噪边界。
 
 ### Telegram 超长编辑统一分片能力 (Telegram Unified Overlong Edit Chunking)
-- **统一发送/编辑分片 helper**: `src/lib/server/channels/telegram/formatting.ts` 现在把 Telegram 文本分片、Markdown/HTML 格式化、plain text fallback 收口到共享 helper，避免 `sendMessage` 和 `editMessageText` 分别维护近似但漂移的逻辑。
+- **统一发送/编辑分片 helper**: `src/lib/server/channels/telegram/formatting.ts` 现在把 Telegram 文本分片、grammY rich message 发送、plain text fallback 收口到共享 helper，避免 `sendMessage` 和 `editMessageText` 分别维护近似但漂移的逻辑。
 - **超长编辑自动续发**: 当 Telegram 对 `editMessageText` 返回 `400: Bad Request: MESSAGE_TOO_LONG` 时，runtime 不再直接失败中断；现在会保留原消息作为第一段并自动补发后续分片消息。
 - **Thread 上下文透传**: Telegram runtime 在状态消息、主答案、思考消息和运行详情消息的编辑路径中，都会把既有的 `message_thread_id` / 发送选项透传给超长续发逻辑，避免 forum topic 场景把后续分片发回主聊天。
-- **回归断言补充**: `formatting.test.ts` 新增针对 plain text 和 Markdown/HTML 路径的超长编辑拆分断言，固定“首条编辑 + 后续补发”的行为。
+- **回归断言补充**: `formatting.test.ts` 新增针对 plain text 和 rich message 路径的超长编辑拆分断言，固定“首条编辑 + 后续补发”的行为。
 
 ### System Prompt Boundary Refactor (P0 + Sandbox Slice)
 - **P0 去重落地**: `src/lib/server/agent/prompts/prompt.ts` 已压缩 `Events`、`ToolSearch` 和 `Tools` 三个区块，移除重复的 `createEvent` 细节、`<functions>` 返回格式教学，以及冗长的 Tool Priority Table，保留最小但足够的路由规则。
@@ -938,7 +965,7 @@
 | ENG-70 | Global `molibot` launcher + home workspace migration | Done | Added npm-linkable `molibot` command, moved default runtime data root to `~/.molibot`, and switched Telegram workspace to `~/.molibot/moli-t` |
 | ENG-71 | Legacy Telegram workspace data migration | Done | Copied legacy runtime data from repo-local `data/telegram-mom` into new home workspace `~/.molibot/moli-t` with file-count parity verification |
 | ENG-72 | Legacy settings file migration | Done | Copied `data/settings.json` to `~/.molibot/settings.json` so runtime settings continue from previous repo-local storage |
-| ENG-73 | Telegram markdown-to-native formatting delivery | Done | Added outbound text formatting adapter that converts common markdown to Telegram HTML (`parse_mode=HTML`) with automatic fallback to plain text on parse errors |
+| ENG-73 | Telegram markdown-to-native formatting delivery | Done | Added the original outbound text formatting adapter; superseded on 2026-06-17 by grammY rich messages with plain text fallback instead of local Markdown-to-HTML conversion |
 | ENG-126 | Telegram chat event path simplification | Done | Simplified chat-local watched events path from `<chatId>/scratch/data/.../events` to `<chatId>/scratch/events` with legacy directory migration |
 | ENG-127 | Settings task inventory page | Done | Added `/settings/tasks` and `/api/settings/tasks` to inspect workspace and chat event tasks grouped by type with status, delivery, schedule, run count, and file path |
 | ENG-155 | Settings task deletion and batch operations | Done | Added task deletion API plus `/settings/tasks` multi-select UI with single delete, section select, select-all, and batch delete actions |
@@ -1505,7 +1532,7 @@
 - 2026-02-16: Updated Telegram mom prompt/path conventions to `moli-t` naming for scratch events and skill-path guidance; kept legacy `data/telegram-mom` and new `data/moli-t` prefixes compatible in tool path normalization.
 - 2026-02-16: Executed one-time data migration from `~/github/molipibot/data/telegram-mom/` to `~/.molibot/moli-t/` using `rsync -a`; verified file-count parity (`2701 -> 2701`).
 - 2026-02-16: Completed missing settings migration by copying `~/github/molipibot/data/settings.json` to `~/.molibot/settings.json`; verified same SHA1 hash on source and target.
-- 2026-02-16: Added Telegram outbound formatting bridge in `src/lib/server/adapters/telegram.ts`: common markdown (code block/inline code/bold/italic/strike/heading/link/list) is converted to Telegram-supported HTML and sent with `parse_mode=HTML`; on parse failure, message auto-falls back to plain text to prevent delivery loss.
+- 2026-02-16: Added the original Telegram outbound formatting bridge. This legacy Markdown-to-HTML approach was superseded on 2026-06-17 by grammY rich messages with plain text fallback.
 - 2026-02-16: Optimized dev boot path in `vite.config.ts`: startup now initializes runtime by `server.ssrLoadModule('/src/lib/server/app/runtime.ts').getRuntime()` directly after Vite listens, removing dependency on first browser request for Telegram activation.
 - 2026-02-16: Added Telegram `/models` command: `/models` lists current/configured model options and `/models <index|key>` switches active model in chat, persisting to runtime settings and re-applying Telegram runtime without requiring web settings page.
 - 2026-02-16: Added Telegram voice/audio support in `src/lib/server/adapters/telegram.ts`: bot now downloads `voice`/`audio` files, stores them as attachments, and (when STT is configured) transcribes audio to text via OpenAI-compatible `audio/transcriptions` endpoint, appending transcript into inbound message text.
@@ -1526,7 +1553,7 @@
 - 2026-02-19: Fixed `+ Add Model` still showing no input by removing empty-id filtering in provider defaults normalization, so draft model rows remain editable before assigning model id.
 - 2026-02-27: Rewrote global profile file `~/.molibot/SOUL.md` with stronger opinionated tone, mandatory brevity, anti-corporate style, and direct-answer opening constraints.
 - 2026-02-28: Removed Telegram-specific wording from core mom system prompt (`prompt.ts`) and moved channel-specific formatting guidance lower in the assembled prompt; core event/tool/identity text is now channel-neutral while adapter-selected channel sections remain isolated.
-- 2026-02-28: Removed Telegram markdown-format guidance from the prompt channel layer; Telegram output formatting is now handled only by adapter-side markdown-to-HTML conversion with runtime fallback, so the model no longer sees Telegram-specific formatting rules.
+- 2026-02-28: Removed Telegram markdown-format guidance from the prompt channel layer. Telegram output formatting is now handled by the channel send path, and since 2026-06-17 that path delegates rich rendering to grammY/Telegram with plain text fallback.
 
 - 2026-03-01: Added planned item `P1-38 Channel plugin registry architecture` to formalize refactor goal: new channels should register through a plugin contract instead of changing runtime/runner/prompt core files.
 - 2026-03-01: Completed channel refactor stage 1 and stage 2 groundwork: mom runtime core now uses channel-agnostic names (`ChannelInboundMessage`, `MomRuntimeStore`, `MomRunner`), memory tool scope no longer hardcodes Telegram, prompt channel type now accepts Telegram/Feishu, and `runtime.ts` now manages built-in channels through a unified registry instead of separate Telegram/Feishu apply branches.

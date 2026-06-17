@@ -1,4 +1,4 @@
-import type { Bot } from "grammy";
+import type { Bot, InputRichMessage } from "grammy";
 import { momWarn } from "$lib/server/agent/common/log.js";
 
 const SEND_RETRY_DELAYS_MS = [0, 500, 1500, 3000, 5000, 8000, 12000] as const;
@@ -13,7 +13,7 @@ interface TelegramRetryPolicy {
 
 interface TelegramTextChunk {
   rawText: string;
-  payload: { text: string; parseMode?: "HTML" };
+  payload: { text: string; richMessage: InputRichMessage };
 }
 
 export interface TelegramTextMessages {
@@ -66,64 +66,17 @@ export function summarizeTelegramToolProgressText(text: string, max = 20): strin
   return `${normalized.slice(0, Math.max(0, max - 1)).trim()}…`;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function escapeHtmlAttr(value: string): string {
-  return escapeHtml(value).replace(/"/g, "&quot;");
-}
-
-function markdownToTelegramHtml(input: string): string {
-  const normalized = input.replace(/\r\n?/g, "\n");
-  const tokens: string[] = [];
-  const saveToken = (content: string): string => {
-    const idx = tokens.push(content) - 1;
-    return `\u0000${idx}\u0000`;
-  };
-
-  let out = normalized;
-
-  out = out.replace(/```(?:[^\n`]*)\n([\s\S]*?)```/g, (_m, code: string) =>
-    saveToken(`<pre><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre>`)
-  );
-
-  out = out.replace(/`([^`\n]+)`/g, (_m, code: string) =>
-    saveToken(`<code>${escapeHtml(code)}</code>`)
-  );
-
-  out = out.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, label: string, url: string) =>
-    saveToken(`<a href="${escapeHtmlAttr(url)}">${escapeHtml(label)}</a>`)
-  );
-
-  out = escapeHtml(out);
-
-  out = out.replace(/^\s*#{1,6}\s+(.+)$/gm, "<b>$1</b>");
-  out = out.replace(/^\s*[-*]\s+/gm, "• ");
-  out = out.replace(/\*\*([^*\n][^*\n]*?)\*\*/g, "<b>$1</b>");
-  out = out.replace(/(^|[^\w])_([^_\n][^_\n]*?)_/g, "$1<i>$2</i>");
-  out = out.replace(/(^|[^\*])\*([^*\n][^*\n]*?)\*/g, "$1<i>$2</i>");
-  out = out.replace(/~~([^~\n][^~\n]*?)~~/g, "<s>$1</s>");
-
-  out = out.replace(/\u0000(\d+)\u0000/g, (_m, rawIdx: string) => tokens[Number(rawIdx)] ?? "");
-  return out;
-}
-
-export function formatTelegramText(text: string): { text: string; parseMode?: "HTML" } {
+export function formatTelegramText(text: string): TelegramTextChunk["payload"] {
   const normalized = text.replace(/\r\n?/g, "\n");
-  const looksLikeMarkdown =
-    /```|`|\*\*|~~|\[[^\]]+\]\(https?:\/\/|^\s*#{1,6}\s+/m.test(normalized) ||
-    /(^|[^\*])\*[^*\n][^*\n]*\*/.test(normalized) ||
-    /(^|[^\w])_[^_\n][^_\n]*_/.test(normalized);
+  return {
+    text: normalized,
+    richMessage: { markdown: normalized }
+  };
+}
 
-  if (!looksLikeMarkdown) {
-    return { text: normalized };
-  }
-
-  return { text: markdownToTelegramHtml(normalized), parseMode: "HTML" };
+function supportsTelegramRichMessages(bot: Bot): boolean {
+  const api = bot.api as unknown as Record<string, unknown>;
+  return typeof api.sendRichMessage === "function";
 }
 
 function isTelegramMessageTooLongError(error: unknown): boolean {
@@ -139,20 +92,18 @@ async function sendTelegramChunk(
   chunk: TelegramTextChunk,
   options?: Record<string, unknown>
 ): Promise<{ message_id: number }> {
-  const sendOptions = chunk.payload.parseMode
-    ? { ...(options ?? {}), parse_mode: chunk.payload.parseMode }
-    : { ...(options ?? {}) };
-
-  try {
-    return await sendTelegramWithRetry(bot, chatId, chunk.payload.text, sendOptions, chunk.payload.parseMode ? "formatted" : "plain");
-  } catch (error) {
-    if (!chunk.payload.parseMode) throw error;
-    momWarn("telegram", "send_message_parse_fallback_plain", {
-      chatId,
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return await sendTelegramWithRetry(bot, chatId, chunk.rawText, { ...(options ?? {}) }, "plain");
+  if (supportsTelegramRichMessages(bot)) {
+    try {
+      return await sendTelegramRichWithRetry(bot, chatId, chunk.payload.richMessage, { ...(options ?? {}) });
+    } catch (error) {
+      momWarn("telegram", "send_message_rich_fallback_plain", {
+        chatId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
+
+  return await sendTelegramWithRetry(bot, chatId, chunk.payload.text, { ...(options ?? {}) }, "plain");
 }
 
 async function editTelegramChunk(
@@ -163,38 +114,31 @@ async function editTelegramChunk(
   options?: Record<string, unknown>,
   retryPolicy?: TelegramRetryPolicy
 ): Promise<void> {
-  const editOptions = chunk.payload.parseMode
-    ? { ...(options ?? {}), parse_mode: chunk.payload.parseMode }
-    : { ...(options ?? {}) };
-
-  try {
-    await retryTelegramApiCall(
-      "edit_message_retry_scheduled",
-      { chatId, messageId, mode: chunk.payload.parseMode ? "formatted" : "plain" },
-      async () => {
-        await bot.api.editMessageText(chatId, messageId, chunk.payload.text, editOptions as never);
-      },
-      retryPolicy
-    );
-  } catch (error) {
-    if (isTelegramRateLimitError(error) && (retryPolicy?.failOnRateLimit || Number.isFinite(retryPolicy?.maxRetryAfterMs))) {
-      throw error;
+  if (supportsTelegramRichMessages(bot)) {
+    try {
+      await editTelegramRichWithRetry(bot, chatId, messageId, chunk.payload.richMessage, { ...(options ?? {}) }, retryPolicy);
+      return;
+    } catch (error) {
+      if (isTelegramRateLimitError(error) && (retryPolicy?.failOnRateLimit || Number.isFinite(retryPolicy?.maxRetryAfterMs))) {
+        throw error;
+      }
+      if (isTelegramMessageTooLongError(error)) throw error;
+      momWarn("telegram", "edit_message_rich_fallback_plain", {
+        chatId,
+        messageId,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
-    if (!chunk.payload.parseMode) throw error;
-    momWarn("telegram", "edit_message_parse_fallback_plain", {
-      chatId,
-      messageId,
-      error: error instanceof Error ? error.message : String(error)
-    });
-    await retryTelegramApiCall(
-      "edit_message_retry_scheduled",
-      { chatId, messageId, mode: "plain_fallback" },
-      async () => {
-        await bot.api.editMessageText(chatId, messageId, chunk.rawText, options as never);
-      },
-      retryPolicy
-    );
   }
+
+  await retryTelegramApiCall(
+    "edit_message_retry_scheduled",
+    { chatId, messageId, mode: "plain" },
+    async () => {
+      await bot.api.editMessageText(chatId, messageId, chunk.payload.text, options as never);
+    },
+    retryPolicy
+  );
 }
 
 async function continueTelegramEditAsChunkedMessages(
@@ -305,12 +249,43 @@ async function sendTelegramWithRetry(
   chatId: string,
   text: string,
   options: Record<string, unknown>,
-  mode: "formatted" | "plain"
+  mode: "plain"
 ): Promise<{ message_id: number }> {
   return retryTelegramApiCall(
     "send_message_retry_scheduled",
     { chatId, mode },
     async () => (await bot.api.sendMessage(chatId, text, options as never)) as { message_id: number }
+  );
+}
+
+async function sendTelegramRichWithRetry(
+  bot: Bot,
+  chatId: string,
+  richMessage: InputRichMessage,
+  options: Record<string, unknown>
+): Promise<{ message_id: number }> {
+  return retryTelegramApiCall(
+    "send_message_retry_scheduled",
+    { chatId, mode: "rich" },
+    async () => (await bot.api.sendRichMessage(chatId, richMessage, options as never)) as { message_id: number }
+  );
+}
+
+async function editTelegramRichWithRetry(
+  bot: Bot,
+  chatId: string,
+  messageId: number,
+  richMessage: InputRichMessage,
+  options: Record<string, unknown>,
+  retryPolicy?: TelegramRetryPolicy
+): Promise<void> {
+  await retryTelegramApiCall(
+    "edit_message_retry_scheduled",
+    { chatId, messageId, mode: "rich" },
+    async () => {
+      await bot.api.editMessageText(chatId, messageId, richMessage, options as never);
+    },
+    retryPolicy
   );
 }
 

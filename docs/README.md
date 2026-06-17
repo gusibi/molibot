@@ -29,6 +29,7 @@ This directory is organized by document purpose first, then by topic.
 - Plugin guides and manifest design: `guides/plugins/`, `designs/plugins/plugin-manifest.md`
 - Deferred tool guide: `guides/tools/deferred-tool-authoring.md`
 - Trace design: `designs/trace/`
+- Operations / remote control: `designs/operations/control-daemon.md`
 
 ## Filing Rules
 

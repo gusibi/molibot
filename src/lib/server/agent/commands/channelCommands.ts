@@ -77,9 +77,6 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   helpLines?: readonly string[];
 }
 
-type FixedCommandRenderMode = "plain" | "two_column_markdown_table";
-type FixedCommandName = "status" | "help";
-
 interface CommandTableRow {
   label: string;
   value: string;
@@ -103,12 +100,6 @@ interface BooleanLayerStatus {
   botOverride?: boolean;
   sessionOverride?: boolean | null;
 }
-
-const TWO_COLUMN_TABLE_CHANNELS = new Set(["feishu", "qq", "weixin"]);
-const FIXED_COMMAND_RENDER_MODE: Record<FixedCommandName, FixedCommandRenderMode> = {
-  status: "two_column_markdown_table",
-  help: "two_column_markdown_table"
-};
 
 export class SharedRuntimeCommandService<TTarget> {
   private readonly thinkingLevels = new Set<string>(RUNTIME_THINKING_LEVELS);
@@ -275,34 +266,34 @@ export class SharedRuntimeCommandService<TTarget> {
     const registered = approved.approved;
     const registeredEntries = approved.approvedEntries ?? (registered ? [registered] : []);
     let message = registered
-      ? [
-          this.text(`Approved Host Bash: ${registered.displayName}`, `已批准 Host Bash：${registered.displayName}`),
-          this.text(
-            `Whitelisted tools: ${registeredEntries.map((item) => item.toolId).join(", ")}`,
-            `已加入白名单的工具：${registeredEntries.map((item) => item.toolId).join("、")}`
-          ),
-          this.text(`Command: ${registered.command}`, `命令：${registered.command}`)
-        ].join("\n")
-      : [
-          this.text(`Approved one-time host action: ${approved.record.displayName}`, `已批准一次性主机操作：${approved.record.displayName}`),
-          this.text(`Request ID: ${approved.record.id}`, `请求 ID：${approved.record.id}`),
-          this.text(`Command: ${approved.record.command}`, `命令：${approved.record.command}`)
-        ].join("\n");
+      ? this.renderMarkdownBulletList(this.text("Approved Host Bash", "已批准 Host Bash"), [
+          { label: this.text("Action", "操作"), value: registered.displayName },
+          {
+            label: this.text("Whitelisted tools", "已加入白名单的工具"),
+            value: registeredEntries.map((item) => this.code(item.toolId)).join(", ")
+          },
+          { label: this.text("Command", "命令"), value: this.code(registered.command) }
+        ])
+      : this.renderMarkdownBulletList(this.text("Approved one-time host action", "已批准一次性主机操作"), [
+          { label: this.text("Action", "操作"), value: approved.record.displayName },
+          { label: this.text("Request ID", "请求 ID"), value: this.code(approved.record.id) },
+          { label: this.text("Command", "命令"), value: this.code(approved.record.command) }
+        ]);
     if (approved.record.pendingAction && this.options.executeApprovedHostBash) {
       if (this.isRunActive(sessionId)) {
-        message += `\n\n${this.text("Approved. The waiting agent run is executing the command now.", "已批准。等待中的 Agent 运行正在执行该命令。")}`;
+        message += `\n\n- ${this.text("Approved. The waiting agent run is executing the command now.", "已批准。等待中的 Agent 运行正在执行该命令。")}`;
         this.scheduleHostBashExecutionFallback(input, approved.approved, approved.record);
       } else {
         this.executeApprovedHostBashInBackground(input, approved.approved, approved.record);
-        message += `\n\n${this.text(
+        message += `\n\n- ${this.text(
           "Approved. The command is now executing; results will follow in chat.",
           "已批准。命令正在执行，结果稍后会发到会话中。"
         )}`;
       }
     } else if (registered) {
-      message += `\n${this.text("This command is now registered as a reusable Host Bash whitelist entry.", "该命令已登记为可复用的 Host Bash 白名单项。")}`;
+      message += `\n\n- ${this.text("This command is now registered as a reusable Host Bash whitelist entry.", "该命令已登记为可复用的 Host Bash 白名单项。")}`;
     } else {
-      message += `\n${this.text("This approval is one-time only and will not be reused for future host commands.", "该审批仅本次有效，不会用于后续主机命令。")}`;
+      message += `\n\n- ${this.text("This approval is one-time only and will not be reused for future host commands.", "该审批仅本次有效，不会用于后续主机命令。")}`;
     }
     return { ok: true, message, request: approved.record };
   }
@@ -332,20 +323,26 @@ export class SharedRuntimeCommandService<TTarget> {
       }
     }, sessionId);
 
-    let message = [
-      `Approved for current session only: ${approved.record.displayName}`,
-      `Request ID: ${approved.record.id}`,
-      `Command: ${approved.record.command}`,
-      `Session: ${sessionId}`,
-      "Future sandbox permission denials in this session will fall back to Host Bash automatically."
-    ].join("\n");
+    let message = this.renderMarkdownBulletList(this.text("Approved for current session only", "已批准当前会话"), [
+      { label: this.text("Action", "操作"), value: approved.record.displayName },
+      { label: this.text("Request ID", "请求 ID"), value: this.code(approved.record.id) },
+      { label: this.text("Command", "命令"), value: this.code(approved.record.command) },
+      { label: this.text("Session", "会话"), value: this.code(sessionId) },
+      {
+        label: this.text("Effect", "效果"),
+        value: this.text(
+          "Future sandbox permission denials in this session will fall back to Host Bash automatically.",
+          "当前会话后续沙盒权限拒绝会自动回退到 Host Bash。"
+        )
+      }
+    ]);
     if (approved.record.pendingAction && this.options.executeApprovedHostBash) {
       if (this.isRunActive(sessionId)) {
-        message += "\n\nApproved. The waiting agent run is executing the command now.";
+        message += `\n\n- ${this.text("Approved. The waiting agent run is executing the command now.", "已批准。等待中的 Agent 运行正在执行该命令。")}`;
         this.scheduleHostBashExecutionFallback(input, undefined, approved.record);
       } else {
         this.executeApprovedHostBashInBackground(input, undefined, approved.record);
-        message += `\n\n${this.text(
+        message += `\n\n- ${this.text(
           "Approved. The command is now executing; results will follow in chat.",
           "已批准。命令正在执行，结果稍后会发到会话中。"
         )}`;
@@ -426,7 +423,7 @@ export class SharedRuntimeCommandService<TTarget> {
         return true;
       }
       if (!rawArg) {
-        await this.options.sendText(input.target, this.text("Usage: /steer <text>", "用法：/steer <文本>"));
+        await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Steer usage", "实时纠正用法"), ["/steer <text>"]));
         return true;
       }
       const result = this.options.steerRun(input.scopeId, rawArg);
@@ -447,7 +444,7 @@ export class SharedRuntimeCommandService<TTarget> {
         return true;
       }
       if (!rawArg) {
-        await this.options.sendText(input.target, this.text("Usage: /followup <text>", "用法：/followup <文本>"));
+        await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Follow-up usage", "追加任务用法"), ["/followup <text>"]));
         return true;
       }
       const result = this.options.followUpRun(input.scopeId, rawArg);
@@ -480,7 +477,7 @@ export class SharedRuntimeCommandService<TTarget> {
           return true;
         }
         if (!queueArg) {
-          await this.options.sendText(input.target, this.text("Usage: /queue front <text>", "用法：/queue front <文本>"));
+          await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Queue front usage", "队列插队用法"), ["/queue front <text>"]));
           return true;
         }
         const queueId = await this.options.enqueueFront(input, queueArg);
@@ -500,7 +497,7 @@ export class SharedRuntimeCommandService<TTarget> {
         }
         const id = Number.parseInt(queueArg, 10);
         if (!Number.isFinite(id) || id <= 0) {
-          await this.options.sendText(input.target, this.text("Usage: /queue delete <queueId>", "用法：/queue delete <队列ID>"));
+          await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Queue delete usage", "队列删除用法"), ["/queue delete <queueId>"]));
           return true;
         }
         const result = await this.options.deleteQueued(input.scopeId, id);
@@ -517,12 +514,11 @@ export class SharedRuntimeCommandService<TTarget> {
 
       await this.options.sendText(
         input.target,
-        [
-          this.text("Queue usage:", "队列命令用法："),
+        this.renderMarkdownCommandList(this.text("Queue usage", "队列命令用法"), [
           "/queue",
           "/queue front <text>",
           "/queue delete <queueId>"
-        ].join("\n")
+        ])
       );
       return true;
     }
@@ -604,7 +600,10 @@ export class SharedRuntimeCommandService<TTarget> {
       if (!rawArg) {
         await this.options.sendText(
           input.target,
-          `${this.formatSessionsOverview(input.scopeId)}\n\n${this.text("Delete usage:", "删除用法：")} /delete_sessions <index|sessionId>`
+          [
+            this.formatSessionsOverview(input.scopeId),
+            this.renderMarkdownCommandList(this.text("Delete usage", "删除用法"), ["/delete_sessions <index|sessionId>"])
+          ].join("\n\n")
         );
         return true;
       }
@@ -619,10 +618,11 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.onSessionMutation?.(input.scopeId);
         await this.options.sendText(
           input.target,
-          this.text(
-            `Deleted session: ${result.deleted}\nCurrent session: ${result.active}\nRemaining: ${result.remaining.length}`,
-            `已删除会话：${result.deleted}\n当前会话：${result.active}\n剩余会话：${result.remaining.length}`
-          )
+          this.renderMarkdownBulletList(this.text("Session deleted", "会话已删除"), [
+            { label: this.text("Deleted", "已删除"), value: this.code(result.deleted) },
+            { label: this.text("Current", "当前会话"), value: this.code(result.active) },
+            { label: this.text("Remaining", "剩余会话"), value: String(result.remaining.length) }
+          ])
         );
         momLog(this.options.channel, "session_deleted", {
           chatId: input.chatId,
@@ -666,7 +666,7 @@ export class SharedRuntimeCommandService<TTarget> {
       }
       const selected = resolveModelSelection(selector, options);
       if (!selected) {
-        await this.options.sendText(input.target, `${this.text("Invalid model selector:", "无效的模型选择器：")} ${selector}\n\n${this.modelsText(route)}`);
+        await this.options.sendText(input.target, `${this.renderMarkdownBulletList(this.text("Invalid model selector", "无效的模型选择器"), [{ label: this.text("Selector", "选择器"), value: this.code(selector) }])}\n\n${this.modelsText(route)}`);
         return true;
       }
       const switched = switchModelSelection({
@@ -676,16 +676,20 @@ export class SharedRuntimeCommandService<TTarget> {
         updateSettings: this.options.updateSettings
       });
       if (!switched) {
-        await this.options.sendText(input.target, `${this.text("Invalid model selector:", "无效的模型选择器：")} ${selector}\n\n${this.modelsText(route)}`);
+        await this.options.sendText(input.target, `${this.renderMarkdownBulletList(this.text("Invalid model selector", "无效的模型选择器"), [{ label: this.text("Selector", "选择器"), value: this.code(selector) }])}\n\n${this.modelsText(route)}`);
         return true;
       }
       await this.options.sendText(
         input.target,
-        [
-          this.text(`Switched ${route} model to: ${switched.selected.label}`, `已将 ${route} 模型切换为：${switched.selected.label}`),
-          this.text("Runtime will auto-use built-in or custom transport based on the selected model.", "运行时会根据所选模型自动使用内置或自定义传输。"),
-          this.text(`Use /models ${route} to check current active ${route} model.`, `使用 /models ${route} 查看当前启用的 ${route} 模型。`)
-        ].join("\n")
+        this.renderMarkdownBulletList(this.text("Model switched", "模型已切换"), [
+          { label: this.text("Route", "路由"), value: this.code(route) },
+          { label: this.text("Selected model", "已选模型"), value: switched.selected.label },
+          {
+            label: this.text("Transport", "传输"),
+            value: this.text("Runtime will auto-use built-in or custom transport based on the selected model.", "运行时会根据所选模型自动使用内置或自定义传输。")
+          },
+          { label: this.text("Check", "查看"), value: this.code(`/models ${route}`) }
+        ])
       );
       momLog(this.options.channel, "model_switched_via_command", {
         chatId: input.chatId,
@@ -713,13 +717,12 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(
           input.target,
           result.changed
-            ? [
-                this.text("Conversation context compacted.", "会话上下文已压缩。"),
-                `before≈${result.beforeTokens} tokens`,
-                `after≈${result.afterTokens} tokens`,
-                `summarized_messages=${result.summarizedMessages}`,
-                `kept_messages=${result.keptMessages}`
-              ].join("\n")
+            ? this.renderMarkdownBulletList(this.text("Conversation context compacted", "会话上下文已压缩"), [
+                { label: this.text("Before", "压缩前"), value: `≈${result.beforeTokens} tokens` },
+                { label: this.text("After", "压缩后"), value: `≈${result.afterTokens} tokens` },
+                { label: this.text("Summarized messages", "已总结消息数"), value: String(result.summarizedMessages) },
+                { label: this.text("Kept messages", "保留消息数"), value: String(result.keptMessages) }
+              ])
             : this.text("Nothing to compact yet.", "当前没有需要压缩的内容。")
         );
       } catch (error) {
@@ -736,12 +739,15 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(
           input.target,
           [
-            this.text(`Auth file: ${resolveAuthFilePath()}`, `认证文件：${resolveAuthFilePath()}`),
-            this.text(`OAuth providers: ${listOAuthProviderIds().join(", ")}`, `OAuth 提供方：${listOAuthProviderIds().join(", ")}`),
-            this.text("Usage:", "用法："),
-            "/login <provider>",
-            "/login <provider> <code-or-redirect-url>"
-          ].join("\n")
+            this.renderMarkdownBulletList(this.text("OAuth login", "OAuth 登录"), [
+              { label: this.text("Auth file", "认证文件"), value: this.code(resolveAuthFilePath()) },
+              { label: this.text("OAuth providers", "OAuth 提供方"), value: listOAuthProviderIds().map((id) => this.code(id)).join(", ") }
+            ]),
+            this.renderMarkdownCommandList(this.text("Usage", "用法"), [
+              "/login <provider>",
+              "/login <provider> <code-or-redirect-url>"
+            ])
+          ].join("\n\n")
         );
         return true;
       }
@@ -758,14 +764,16 @@ export class SharedRuntimeCommandService<TTarget> {
 
         const pending = await startOAuthLogin(scopeKey, provider, {});
         const lines = [
-          this.text(`Login started for '${provider}'.`, `'${provider}' 登录已开始。`),
-          this.text(`Auth file: ${resolveAuthFilePath()}`, `认证文件：${resolveAuthFilePath()}`)
+          this.renderMarkdownBulletList(this.text("Login started", "登录已开始"), [
+            { label: this.text("Provider", "提供方"), value: this.code(provider) },
+            { label: this.text("Auth file", "认证文件"), value: this.code(resolveAuthFilePath()) }
+          ])
         ];
-        if (pending.authUrl) lines.push(this.text(`Open: ${pending.authUrl}`, `打开：${pending.authUrl}`));
+        if (pending.authUrl) lines.push(this.renderMarkdownBulletList(this.text("Next step", "下一步"), [{ label: this.text("Open", "打开"), value: pending.authUrl }]));
         if (pending.instructions) lines.push(pending.instructions);
         if (pending.promptMessage) lines.push(pending.promptMessage);
-        lines.push(this.text(`Finish with: /login ${provider} <code-or-redirect-url>`, `完成登录：/login ${provider} <code-or-redirect-url>`));
-        await this.options.sendText(input.target, lines.join("\n"));
+        lines.push(this.renderMarkdownCommandList(this.text("Finish with", "完成登录"), [`/login ${provider} <code-or-redirect-url>`]));
+        await this.options.sendText(input.target, lines.join("\n\n"));
       } catch (error) {
         await this.options.sendText(input.target, error instanceof Error ? error.message : String(error));
       }
@@ -775,7 +783,7 @@ export class SharedRuntimeCommandService<TTarget> {
     if (cmd === "/logout") {
       const provider = rawArg.split(/\s+/)[0] || "";
       if (!provider) {
-        await this.options.sendText(input.target, this.text("Usage: /logout <provider>", "用法：/logout <provider>"));
+        await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Logout usage", "登出用法"), ["/logout <provider>"]));
         return true;
       }
       const removed = removeStoredAuth(provider);
@@ -825,10 +833,10 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(
           input.target,
           [
-            this.text(
-              `Session '${sessionId}' runlog notice override set to: ${nextValue === null ? "Inherit" : nextValue ? "ON" : "OFF"}`,
-              `会话 '${sessionId}' 的 runlog 通知覆盖已设置为：${nextValue === null ? "继承" : nextValue ? "开启" : "关闭"}`
-            ),
+            this.renderMarkdownBulletList(this.text("Runlog notice updated", "Runlog 通知已更新"), [
+              { label: this.text("Session", "会话"), value: this.code(sessionId) },
+              { label: this.text("Override", "覆盖值"), value: nextValue === null ? this.text("inherit", "继承") : this.boolText(nextValue) }
+            ]),
             "",
             this.formatRunLogNoticeStatus(input.scopeId)
           ].join("\n")
@@ -843,7 +851,10 @@ export class SharedRuntimeCommandService<TTarget> {
         }
         const action = args[1]?.toLowerCase();
         if (action !== "on" && action !== "off" && action !== "reset") {
-          await this.options.sendText(input.target, this.text("Usage: /runlog bot [on|off|reset]\nUsage: /runlog global [on|off|reset]", "用法：/runlog bot [on|off|reset]\n用法：/runlog global [on|off|reset]"));
+          await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Runlog usage", "Runlog 用法"), [
+            "/runlog bot [on|off|reset]",
+            "/runlog global [on|off|reset]"
+          ]));
           return true;
         }
 
@@ -859,7 +870,9 @@ export class SharedRuntimeCommandService<TTarget> {
           await this.options.sendText(
             input.target,
             [
-              this.text(`Global runlog notice default set to: ${nextValue ? "ON" : "OFF"}`, `全局 runlog 通知默认值已设置为：${nextValue ? "开启" : "关闭"}`),
+              this.renderMarkdownBulletList(this.text("Runlog notice updated", "Runlog 通知已更新"), [
+                { label: this.text("Global default", "全局默认"), value: this.boolText(nextValue) }
+              ]),
               "",
               this.formatRunLogNoticeStatus(input.scopeId)
             ].join("\n")
@@ -892,10 +905,10 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(
           input.target,
           [
-            this.text(
-              `Bot '${this.options.instanceId}' runlog notice override set to: ${nextValue === undefined ? "Inherit" : nextValue ? "ON" : "OFF"}`,
-              `机器人 '${this.options.instanceId}' 的 runlog 通知覆盖已设置为：${nextValue === undefined ? "继承" : nextValue ? "开启" : "关闭"}`
-            ),
+            this.renderMarkdownBulletList(this.text("Runlog notice updated", "Runlog 通知已更新"), [
+              { label: this.text("Bot", "机器人"), value: this.code(this.options.instanceId) },
+              { label: this.text("Override", "覆盖值"), value: nextValue === undefined ? this.text("inherit", "继承") : this.boolText(nextValue) }
+            ]),
             "",
             this.formatRunLogNoticeStatus(input.scopeId)
           ].join("\n")
@@ -948,23 +961,26 @@ export class SharedRuntimeCommandService<TTarget> {
       } else if (this.thinkingLevels.has(normalized)) {
         nextOverride = normalized as RuntimeThinkingLevel;
       } else {
-        await this.options.sendText(input.target, `${this.text("Invalid thinking level:", "无效的思考级别：")} ${normalized}\n\n${this.thinkingText(input.scopeId)}`);
+        await this.options.sendText(input.target, `${this.renderMarkdownBulletList(this.text("Invalid thinking level", "无效的思考级别"), [{ label: this.text("Value", "值"), value: this.code(normalized) }])}\n\n${this.thinkingText(input.scopeId)}`);
         return true;
       }
 
       const applied = this.options.store.setSessionThinkingLevelOverride(input.scopeId, sessionId, nextOverride);
       const lines = [
-        applied == null
-          ? this.text("Session thinking reset to global default.", "当前会话思考级别已恢复为全局默认值。")
-          : this.text(`Session thinking set to: ${applied}`, `当前会话思考级别已设置为：${applied}`),
-        this.text(`Session: ${sessionId}`, `会话：${sessionId}`),
-        ...this.buildSessionThinkingSummary(input.scopeId, sessionId)
+        this.renderMarkdownBulletList(this.text("Session thinking updated", "会话思考级别已更新"), [
+          { label: this.text("Session", "会话"), value: this.code(sessionId) },
+          {
+            label: this.text("Override", "覆盖值"),
+            value: applied == null ? this.text("global default", "全局默认值") : this.code(applied)
+          }
+        ]),
+        this.thinkingText(input.scopeId)
       ];
       if (this.options.isRunning(input.scopeId)) {
         lines.push("");
-        lines.push(this.text("Note: this change applies to the next request, not the one already running.", "注意：此更改从下一次请求开始生效，不影响当前正在运行的请求。"));
+        lines.push(`- ${this.text("Note: this change applies to the next request, not the one already running.", "注意：此更改从下一次请求开始生效，不影响当前正在运行的请求。")}`);
       }
-      await this.options.sendText(input.target, lines.join("\n"));
+      await this.options.sendText(input.target, lines.join("\n\n"));
       momLog(this.options.channel, "session_thinking_override_updated", {
         chatId: input.chatId,
         scopeId: input.scopeId,
@@ -994,15 +1010,20 @@ export class SharedRuntimeCommandService<TTarget> {
         else if (action === "off") nextValue = false;
         else if (action === "reset") nextValue = null;
         else {
-          await this.options.sendText(input.target, "Usage:\n- /sandbox [on|off|reset]\n- /sandbox bot [on|off|reset]\n- /sandbox agent [on|off|reset]");
+          await this.options.sendText(input.target, this.sandboxUsageText());
           return true;
         }
 
         this.options.store.setSessionSandboxOverride(input.scopeId, sessionId, nextValue);
         await this.options.sendText(
           input.target,
-          `Session '${sessionId}' sandbox override set to: ${nextValue === null ? "Inherit" : nextValue ? "ON" : "OFF"}\n\n` +
-          this.formatSandboxStatus(input.scopeId, sessionId)
+          [
+            this.renderMarkdownBulletList(this.text("Sandbox updated", "沙盒配置已更新"), [
+              { label: this.text("Session", "会话"), value: this.code(sessionId) },
+              { label: this.text("Override", "覆盖值"), value: nextValue === null ? this.text("inherit", "继承") : this.boolText(nextValue) }
+            ]),
+            this.formatSandboxStatus(input.scopeId, sessionId)
+          ].join("\n\n")
         );
         return true;
       }
@@ -1029,7 +1050,7 @@ export class SharedRuntimeCommandService<TTarget> {
         else if (action === "off") nextValue = false;
         else if (action === "reset") nextValue = undefined;
         else {
-          await this.options.sendText(input.target, "Usage: /sandbox bot [on|off|reset]");
+          await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Sandbox bot usage", "机器人沙盒用法"), ["/sandbox bot [on|off|reset]"]));
           return true;
         }
 
@@ -1049,8 +1070,13 @@ export class SharedRuntimeCommandService<TTarget> {
 
         await this.options.sendText(
           input.target,
-          `Bot '${instanceId}' sandbox override set to: ${nextValue === undefined ? "Inherit" : nextValue ? "ON" : "OFF"}\n\n` +
-          this.formatSandboxStatus(input.scopeId, sessionId)
+          [
+            this.renderMarkdownBulletList(this.text("Sandbox updated", "沙盒配置已更新"), [
+              { label: this.text("Bot", "机器人"), value: this.code(instanceId) },
+              { label: this.text("Override", "覆盖值"), value: nextValue === undefined ? this.text("inherit", "继承") : this.boolText(nextValue) }
+            ]),
+            this.formatSandboxStatus(input.scopeId, sessionId)
+          ].join("\n\n")
         );
         return true;
       }
@@ -1072,7 +1098,7 @@ export class SharedRuntimeCommandService<TTarget> {
         else if (action === "off") nextValue = false;
         else if (action === "reset") nextValue = undefined;
         else {
-          await this.options.sendText(input.target, "Usage: /sandbox agent [on|off|reset]");
+          await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Sandbox agent usage", "Agent 沙盒用法"), ["/sandbox agent [on|off|reset]"]));
           return true;
         }
 
@@ -1087,8 +1113,13 @@ export class SharedRuntimeCommandService<TTarget> {
 
         await this.options.sendText(
           input.target,
-          `Agent '${agentId}' sandbox override set to: ${nextValue === undefined ? "Inherit" : nextValue ? "ON" : "OFF"}\n\n` +
-          this.formatSandboxStatus(input.scopeId, sessionId)
+          [
+            this.renderMarkdownBulletList(this.text("Sandbox updated", "沙盒配置已更新"), [
+              { label: "Agent", value: this.code(agentId) },
+              { label: this.text("Override", "覆盖值"), value: nextValue === undefined ? this.text("inherit", "继承") : this.boolText(nextValue) }
+            ]),
+            this.formatSandboxStatus(input.scopeId, sessionId)
+          ].join("\n\n")
         );
         return true;
       }
@@ -1100,15 +1131,20 @@ export class SharedRuntimeCommandService<TTarget> {
       else if (action === "off") nextValue = false;
       else if (action === "reset") nextValue = null;
       else {
-        await this.options.sendText(input.target, "Usage:\n- /sandbox [on|off|reset]\n- /sandbox bot [on|off|reset]\n- /sandbox agent [on|off|reset]");
+        await this.options.sendText(input.target, this.sandboxUsageText());
         return true;
       }
 
       this.options.store.setSessionSandboxOverride(input.scopeId, sessionId, nextValue);
       await this.options.sendText(
         input.target,
-        `Session '${sessionId}' sandbox override set to: ${nextValue === null ? "Inherit" : nextValue ? "ON" : "OFF"}\n\n` +
-        this.formatSandboxStatus(input.scopeId, sessionId)
+        [
+          this.renderMarkdownBulletList(this.text("Sandbox updated", "沙盒配置已更新"), [
+            { label: this.text("Session", "会话"), value: this.code(sessionId) },
+            { label: this.text("Override", "覆盖值"), value: nextValue === null ? this.text("inherit", "继承") : this.boolText(nextValue) }
+          ]),
+          this.formatSandboxStatus(input.scopeId, sessionId)
+        ].join("\n\n")
       );
       return true;
     }
@@ -1128,12 +1164,15 @@ export class SharedRuntimeCommandService<TTarget> {
         const effectiveVal = instance?.display?.toolProgress ?? globalVal;
         await this.options.sendText(
           input.target,
-          this.text(`Tool progress display config for Bot '${instanceId}':`, `机器人 '${instanceId}' 的工具进度显示配置：`) + "\n" +
-          `${this.text("- Global:", "- 全局：")} ${globalVal}\n` +
-          `${this.text("- Bot:", "- 机器人：")} ${botVal}\n` +
-          `${this.text("- Effective:", "- 实际生效：")} ${effectiveVal}\n\n` +
-          `${this.text("To change, use:", "修改方式：")}\n` +
-          `- /toolprogress [off|new|all|verbose|reset]`
+          [
+            this.renderMarkdownBulletList(this.text("Tool progress display config", "工具进度显示配置"), [
+              { label: this.text("Bot", "机器人"), value: this.code(instanceId) },
+              { label: this.text("Global", "全局"), value: this.code(globalVal) },
+              { label: this.text("Bot override", "机器人覆盖"), value: this.code(botVal) },
+              { label: this.text("Effective", "实际生效"), value: this.code(effectiveVal) }
+            ]),
+            this.renderMarkdownCommandList(this.text("To change", "修改方式"), ["/toolprogress [off|new|all|verbose|reset]"])
+          ].join("\n\n")
         );
         return true;
       }
@@ -1150,7 +1189,7 @@ export class SharedRuntimeCommandService<TTarget> {
       else if (normalized === "verbose") nextValue = "verbose";
       else if (normalized === "reset" || normalized === "inherit") nextValue = undefined;
       else {
-        await this.options.sendText(input.target, "Usage: /toolprogress [off|new|all|verbose|reset]");
+        await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Tool progress usage", "工具进度用法"), ["/toolprogress [off|new|all|verbose|reset]"]));
         return true;
       }
 
@@ -1177,9 +1216,11 @@ export class SharedRuntimeCommandService<TTarget> {
       const effectiveVal = nextValue ?? settings.display?.toolProgress ?? "all";
       await this.options.sendText(
         input.target,
-        this.text(`Bot '${instanceId}' tool progress display set to:`, `机器人 '${instanceId}' 的工具进度显示已设置为：`) +
-        ` ${nextValue === undefined ? this.text("Inherit", "继承") : nextValue}\n` +
-        `${this.text("Effective value:", "实际生效值：")} ${effectiveVal}`
+        this.renderMarkdownBulletList(this.text("Tool progress updated", "工具进度显示已更新"), [
+          { label: this.text("Bot", "机器人"), value: this.code(instanceId) },
+          { label: this.text("Override", "覆盖值"), value: nextValue === undefined ? this.text("inherit", "继承") : this.code(nextValue) },
+          { label: this.text("Effective", "实际生效"), value: this.code(effectiveVal) }
+        ])
       );
 
       return true;
@@ -1200,12 +1241,15 @@ export class SharedRuntimeCommandService<TTarget> {
         const effectiveVal = instance?.display?.showReasoning ?? globalVal;
         await this.options.sendText(
           input.target,
-          this.text(`Show reasoning config for Bot '${instanceId}':`, `机器人 '${instanceId}' 的思考过程显示配置：`) + "\n" +
-          `${this.text("- Global:", "- 全局：")} ${globalVal}\n` +
-          `${this.text("- Bot:", "- 机器人：")} ${botVal}\n` +
-          `${this.text("- Effective:", "- 实际生效：")} ${effectiveVal}\n\n` +
-          `${this.text("To change, use:", "修改方式：")}\n` +
-          `- /showreasoning [off|on|stream|new|reset]`
+          [
+            this.renderMarkdownBulletList(this.text("Show reasoning config", "思考过程显示配置"), [
+              { label: this.text("Bot", "机器人"), value: this.code(instanceId) },
+              { label: this.text("Global", "全局"), value: this.code(globalVal) },
+              { label: this.text("Bot override", "机器人覆盖"), value: this.code(botVal) },
+              { label: this.text("Effective", "实际生效"), value: this.code(effectiveVal) }
+            ]),
+            this.renderMarkdownCommandList(this.text("To change", "修改方式"), ["/showreasoning [off|on|stream|new|reset]"])
+          ].join("\n\n")
         );
         return true;
       }
@@ -1222,7 +1266,7 @@ export class SharedRuntimeCommandService<TTarget> {
       else if (normalized === "new") nextValue = "new";
       else if (normalized === "reset" || normalized === "inherit") nextValue = undefined;
       else {
-        await this.options.sendText(input.target, "Usage: /showreasoning [off|on|stream|new|reset]");
+        await this.options.sendText(input.target, this.renderMarkdownCommandList(this.text("Show reasoning usage", "思考过程显示用法"), ["/showreasoning [off|on|stream|new|reset]"]));
         return true;
       }
 
@@ -1249,9 +1293,11 @@ export class SharedRuntimeCommandService<TTarget> {
       const effectiveVal = nextValue ?? settings.display?.showReasoning ?? "off";
       await this.options.sendText(
         input.target,
-        this.text(`Bot '${instanceId}' show reasoning set to:`, `机器人 '${instanceId}' 的思考过程显示已设置为：`) +
-        ` ${nextValue === undefined ? this.text("Inherit", "继承") : nextValue}\n` +
-        `${this.text("Effective value:", "实际生效值：")} ${effectiveVal}`
+        this.renderMarkdownBulletList(this.text("Show reasoning updated", "思考过程显示已更新"), [
+          { label: this.text("Bot", "机器人"), value: this.code(instanceId) },
+          { label: this.text("Override", "覆盖值"), value: nextValue === undefined ? this.text("inherit", "继承") : this.code(nextValue) },
+          { label: this.text("Effective", "实际生效"), value: this.code(effectiveVal) }
+        ])
       );
 
       return true;
@@ -1316,13 +1362,14 @@ export class SharedRuntimeCommandService<TTarget> {
     if (pending.length > 1) {
       await this.options.sendText(
         input.target,
-        [
-          "There are multiple pending Host Bash approvals. Use one of:",
-          ...pending.flatMap((item) => [
-            `/hosttools approve ${item.id} - ${item.displayName}`,
-            `/hosttools reject ${item.id} - ${item.displayName}`
-          ])
-        ].join("\n")
+        this.renderMarkdownCommandList(
+          this.text("Multiple Host Bash approvals pending", "存在多条待处理 Host Bash 审批"),
+          pending.flatMap((item) => [
+            `/hosttools approve ${item.id}`,
+            `/hosttools reject ${item.id}`
+          ]),
+          pending.map((item) => `${this.code(item.id)}: ${item.displayName}`)
+        )
       );
       return true;
     }
@@ -1362,12 +1409,21 @@ export class SharedRuntimeCommandService<TTarget> {
       await this.options.sendText(
         input.target,
         [
-          this.text(`Pending Host Bash approvals: ${pending.length}`, `待处理 Host Bash 审批：${pending.length}`),
-          ...pending.map((item) => `- ${item.id}: ${item.displayName} (${item.command})`),
-          "",
-          this.text(`Host Bash whitelist entries: ${approved.length}`, `Host Bash 白名单项：${approved.length}`),
-          ...approved.map((item) => `- ${item.toolId}: ${item.displayName} (${item.command})`)
-        ].join("\n").trim()
+          this.renderMarkdownBulletList(this.text("Pending Host Bash approvals", "待处理 Host Bash 审批"), [
+            { label: this.text("Count", "数量"), value: String(pending.length) },
+            ...pending.map((item) => ({
+              label: item.id,
+              value: `${item.displayName} (${this.code(item.command)})`
+            }))
+          ]),
+          this.renderMarkdownBulletList(this.text("Host Bash whitelist entries", "Host Bash 白名单项"), [
+            { label: this.text("Count", "数量"), value: String(approved.length) },
+            ...approved.map((item) => ({
+              label: item.toolId,
+              value: `${item.displayName} (${this.code(item.command)})`
+            }))
+          ])
+        ].join("\n\n")
       );
       return;
     }
@@ -1394,21 +1450,28 @@ export class SharedRuntimeCommandService<TTarget> {
     await this.options.sendText(
       input.target,
       [
-        this.text("Host Bash usage:", "Host Bash 用法："),
-        "/hosttools",
-        "/hosttools approve <approvalId>",
-        "/hosttools approve-once <approvalId>",
-        "/hosttools approve-session <approvalId>",
-        "/hosttools reject <approvalId>",
-        this.text(
-          "Or reply `批准`/`仅此一次` (run once), `永久允许` (whitelist the tool), when exactly one approval is pending in this chat.",
-          "当当前会话只有一条待审批请求时，也可以回复 `批准`/`仅此一次`（仅执行一次）或 `永久允许`（加入白名单）。"
-        ),
-        this.text(
-          "Reply `本会话允许`, `本session允许`, or `approve session` to allow only the current session.",
-          "回复 `本会话允许`、`本session允许` 或 `approve session` 可仅允许当前会话。"
-        )
-      ].join("\n")
+        this.renderMarkdownCommandList(this.text("Host Bash usage", "Host Bash 用法"), [
+          "/hosttools",
+          "/hosttools approve <approvalId>",
+          "/hosttools approve-once <approvalId>",
+          "/hosttools approve-session <approvalId>",
+          "/hosttools reject <approvalId>"
+        ]),
+        this.renderMarkdownBulletList(this.text("Text replies", "文本回复"), [
+          {
+            label: this.text("Run once", "仅执行一次"),
+            value: this.text("Reply `批准` or `仅此一次` when exactly one approval is pending.", "当当前会话只有一条待审批请求时，回复 `批准` 或 `仅此一次`。")
+          },
+          {
+            label: this.text("Whitelist", "加入白名单"),
+            value: this.text("Reply `永久允许`.", "回复 `永久允许`。")
+          },
+          {
+            label: this.text("Current session", "当前会话"),
+            value: this.text("Reply `本会话允许`, `本session允许`, or `approve session`.", "回复 `本会话允许`、`本session允许` 或 `approve session`。")
+          }
+        ])
+      ].join("\n\n")
     );
   }
 
@@ -1429,18 +1492,22 @@ export class SharedRuntimeCommandService<TTarget> {
     const sessions = this.options.store.listSessions(scopeId);
     const active = this.options.store.getActiveSession(scopeId);
     const lines = [
-      this.text(`Current session: ${active}`, `当前会话：${active}`),
-      this.text(`Total sessions: ${sessions.length}`, `会话总数：${sessions.length}`),
+      this.renderMarkdownBulletList(this.text("Session overview", "会话概览"), [
+        { label: this.text("Current session", "当前会话"), value: this.code(active) },
+        { label: this.text("Total sessions", "会话总数"), value: String(sessions.length) }
+      ]),
       "",
-      this.text("Sessions:", "会话列表：")
+      `**${this.text("Sessions", "会话列表")}**`
     ];
     for (let i = 0; i < sessions.length; i += 1) {
       const id = sessions[i];
-      lines.push(`${i + 1}. ${id}${id === active ? this.text(" (current)", "（当前）") : ""}`);
+      lines.push(`${i + 1}. ${this.code(id)}${id === active ? this.text(" (current)", "（当前）") : ""}`);
     }
     lines.push("");
-    lines.push(this.text("Switch: /sessions <index|sessionId>", "切换：/sessions <编号|sessionId>"));
-    lines.push(this.text("Delete: /delete_sessions <index|sessionId>", "删除：/delete_sessions <编号|sessionId>"));
+    lines.push(this.renderMarkdownCommandList(this.text("Session commands", "会话命令"), [
+      "/sessions <index|sessionId>",
+      "/delete_sessions <index|sessionId>"
+    ]));
     return lines.join("\n");
   }
 
@@ -1452,7 +1519,7 @@ export class SharedRuntimeCommandService<TTarget> {
       ? (route === "text" ? "当前模型列表" : `当前 ${route} 模型列表`)
       : (route === "text" ? "Current models" : `Current ${route} models`);
     const lines = [
-      this.isChinese ? `${title}（共${options.length}个）：` : `${title} (${options.length} total):`,
+      this.isChinese ? `**${title}**（共 ${options.length} 个）` : `**${title}** (${options.length} total)`,
       ""
     ];
 
@@ -1469,14 +1536,16 @@ export class SharedRuntimeCommandService<TTarget> {
     }
 
     lines.push("");
-    lines.push(this.text(`Switch ${route} model:`, `切换 ${route} 模型：`));
-    lines.push(this.text(`/models ${route} <number>`, `/models ${route} <编号>`));
-    lines.push(`/models ${route} <key>`);
+    lines.push(this.renderMarkdownCommandList(this.text(`Switch ${route} model`, `切换 ${route} 模型`), [
+      this.text(`/models ${route} <number>`, `/models ${route} <编号>`),
+      `/models ${route} <key>`
+    ]));
     if (route === "text") {
       lines.push("");
-      lines.push(this.text("Quick switch:", "快捷切换："));
-      lines.push(this.text("/models <number>", "/models <编号>"));
-      lines.push("/models <key>");
+      lines.push(this.renderMarkdownCommandList(this.text("Quick switch", "快捷切换"), [
+        this.text("/models <number>", "/models <编号>"),
+        "/models <key>"
+      ]));
     }
     return lines.join("\n");
   }
@@ -1522,9 +1591,10 @@ export class SharedRuntimeCommandService<TTarget> {
             emptyText: "(no skills loaded)",
             footerLines: [
               ...footerLines,
-              "Usage: /skills",
-              "Usage: /skills <id>",
-              "Usage: /skills-detail"
+              this.text("Skills commands:", "技能命令："),
+              "- `/skills`",
+              "- `/skills <id>`",
+              "- `/skills-detail`"
             ]
           })
         ].join("\n");
@@ -1544,8 +1614,8 @@ export class SharedRuntimeCommandService<TTarget> {
       emptyText: "(no skills loaded)",
       footerLines: [
         ...footerLines,
-        this.text("Use /skills <id> for details.", "使用 /skills <id> 查看详情。"),
-        this.text("Use /skills-detail for the full list.", "使用 /skills-detail 查看完整列表。")
+        this.text("Use `/skills <id>` for details.", "使用 `/skills <id>` 查看详情。"),
+        this.text("Use `/skills-detail` for the full list.", "使用 `/skills-detail` 查看完整列表。")
       ],
       locale
     });
@@ -1597,18 +1667,24 @@ export class SharedRuntimeCommandService<TTarget> {
   private thinkingText(scopeId: string): string {
     const sessionId = this.options.store.getActiveSession(scopeId);
     return [
-      this.text(`Session: ${sessionId}`, `会话：${sessionId}`),
-      ...this.buildSessionThinkingSummary(scopeId, sessionId),
-      "",
-      this.text("Set for current session:", "为当前会话设置："),
-      "/thinking off",
-      "/thinking low",
-      "/thinking medium",
-      "/thinking high",
-      "",
-      this.text("Reset to global default:", "恢复全局默认值："),
-      "/thinking default"
-    ].join("\n");
+      this.renderMarkdownBulletList(this.text("Thinking status", "思考状态"), [
+        { label: this.text("Session", "会话"), value: this.code(sessionId) },
+        ...this.buildSessionThinkingSummary(scopeId, sessionId).map((line) => {
+          const separator = line.indexOf(":");
+          return {
+            label: line.slice(0, separator).trim(),
+            value: line.slice(separator + 1).trim()
+          };
+        })
+      ]),
+      this.renderMarkdownCommandList(this.text("Set for current session", "为当前会话设置"), [
+        "/thinking off",
+        "/thinking low",
+        "/thinking medium",
+        "/thinking high"
+      ]),
+      this.renderMarkdownCommandList(this.text("Reset to global default", "恢复全局默认值"), ["/thinking default"])
+    ].join("\n\n");
   }
 
   private resolveRouteSummary(settings: RuntimeSettings, route: ModelRoute): { label: string; key: string } {
@@ -1624,13 +1700,6 @@ export class SharedRuntimeCommandService<TTarget> {
     return Math.max(0, Number(value) || 0).toLocaleString();
   }
 
-  private shouldUseMarkdownTable(command: FixedCommandName): boolean {
-    return (
-      FIXED_COMMAND_RENDER_MODE[command] === "two_column_markdown_table" &&
-      TWO_COLUMN_TABLE_CHANNELS.has(this.options.channel)
-    );
-  }
-
   private escapeMarkdownTableCell(value: string): string {
     return String(value ?? "")
       .replace(/\|/g, "\\|")
@@ -1642,7 +1711,7 @@ export class SharedRuntimeCommandService<TTarget> {
       .filter((section) => section.rows.length > 0)
       .map((section) => {
         const lines: string[] = [];
-        if (section.title) lines.push(`**${section.title}**`);
+        if (section.title) lines.push(`**${section.title}**`, "");
         lines.push(this.text("| Item | Value |", "| 项目 | 值 |"));
         lines.push("| --- | --- |");
         for (const row of section.rows) {
@@ -1653,8 +1722,42 @@ export class SharedRuntimeCommandService<TTarget> {
       .join("\n\n");
   }
 
+  private renderTwoColumnSectionsAsMarkdownList(sections: CommandTableSection[]): string {
+    return sections
+      .filter((section) => section.rows.length > 0)
+      .map((section) => {
+        const lines: string[] = [];
+        if (section.title) lines.push(`**${section.title}**`);
+        for (const row of section.rows) {
+          lines.push(`- **${row.label}**: ${row.value}`);
+        }
+        return lines.join("\n");
+      })
+      .join("\n\n");
+  }
+
   private boolText(value: boolean): string {
     return value ? this.text("on", "开启") : this.text("off", "关闭");
+  }
+
+  private code(value: string): string {
+    return `\`${String(value ?? "").replace(/`/g, "\\`")}\``;
+  }
+
+  private renderMarkdownBulletList(title: string, rows: CommandTableRow[]): string {
+    const lines = [`**${title}**`];
+    for (const row of rows) {
+      lines.push(`- **${row.label}**: ${row.value}`);
+    }
+    return lines.join("\n");
+  }
+
+  private renderMarkdownCommandList(title: string, commands: string[], notes: string[] = []): string {
+    return [
+      `**${title}**`,
+      ...commands.map((command) => `- ${this.code(command)}`),
+      ...(notes.length > 0 ? ["", ...notes.map((note) => `- ${note}`)] : [])
+    ].join("\n");
   }
 
   private resolveRunLogNoticeStatus(scopeId: string, sessionId?: string): BooleanLayerStatus {
@@ -1702,18 +1805,18 @@ export class SharedRuntimeCommandService<TTarget> {
     const botText = status.botOverride === undefined ? this.text("inherit", "继承") : this.boolText(status.botOverride);
     const sessionText = status.sessionOverride === null ? this.text("inherit", "继承") : this.boolText(Boolean(status.sessionOverride));
     return [
-      this.text("Runlog notice status:", "Runlog 通知状态："),
-      `${this.text("Effective", "实际生效")}: ${this.boolText(status.enabled)} (${status.source})`,
-      `${this.text("Session", "会话")}: ${sessionText}`,
-      `${this.text("Bot", "机器人")}: ${botText}`,
-      `${this.text("Global", "全局")}: ${this.boolText(status.globalDefault)}`,
+      `**${this.text("Runlog notice status", "Runlog 通知状态")}**`,
+      `- **${this.text("Effective", "实际生效")}**: ${this.boolText(status.enabled)} (${status.source})`,
+      `- **${this.text("Session", "会话")}**: ${sessionText}`,
+      `- **${this.text("Bot", "机器人")}**: ${botText}`,
+      `- **${this.text("Global", "全局")}**: ${this.boolText(status.globalDefault)}`,
       "",
-      this.text("Commands:", "命令："),
-      "/runlog on",
-      "/runlog off",
-      "/runlog reset",
-      "/runlog bot on|off|reset",
-      "/runlog global on|off|reset"
+      `**${this.text("Commands", "命令")}**`,
+      "- `/runlog on`",
+      "- `/runlog off`",
+      "- `/runlog reset`",
+      "- `/runlog bot on|off|reset`",
+      "- `/runlog global on|off|reset`"
     ].join("\n");
   }
 
@@ -1722,17 +1825,17 @@ export class SharedRuntimeCommandService<TTarget> {
     if (rows.length === 0) return this.text("No archived run log found yet.", "尚未找到归档运行记录。");
 
     const lines = [
-      this.text(`Recent run logs (${rows.length}):`, `最近运行记录（${rows.length} 条）：`)
+      `**${this.text(`Recent run logs (${rows.length})`, `最近运行记录（${rows.length} 条）`)}**`
     ];
     rows.forEach((row, index) => {
       const runId = String(row.runId ?? "").trim() || "(unknown)";
       const stopReason = String(row.stopReason ?? row.status ?? "").trim() || "unknown";
       const createdAt = String(row.createdAt ?? row.timestamp ?? "").trim();
       const summary = String(row.summary ?? row.errorMessage ?? "").trim();
-      lines.push(`${index + 1}. ${runId} - ${stopReason}${createdAt ? ` - ${createdAt}` : ""}${summary ? ` - ${summary}` : ""}`);
+      lines.push(`${index + 1}. ${this.code(runId)} - ${stopReason}${createdAt ? ` - ${createdAt}` : ""}${summary ? ` - ${summary}` : ""}`);
     });
     lines.push("");
-    lines.push(this.text("Open: /runlog <runId>", "查看：/runlog <runId>"));
+    lines.push(this.renderMarkdownCommandList(this.text("Open", "查看"), ["/runlog <runId>"]));
     return lines.join("\n");
   }
 
@@ -1872,65 +1975,48 @@ export class SharedRuntimeCommandService<TTarget> {
       ...(ttsTool.detail ? [{ label: this.text("TTS voice", "TTS 音色"), value: ttsTool.detail }] : [])
     ];
 
-    if (this.shouldUseMarkdownTable("status")) {
-      return this.renderTwoColumnSectionsAsMarkdown([
-        { title: this.text("Status", "状态"), rows: overviewRows },
-        { title: this.text("Thinking", "思考"), rows: thinkingRows },
-        { title: this.text("Models", "模型"), rows: modelRows }
-      ]);
-    }
+    const statusSections = [
+      { title: this.text("Status", "状态"), rows: overviewRows },
+      { title: this.text("Thinking", "思考"), rows: thinkingRows },
+      { title: this.text("Models", "模型"), rows: modelRows }
+    ];
 
-    return [
-      ...overviewRows.map((row) => `${row.label}: ${row.value}`),
-      "",
-      this.text("Thinking:", "思考："),
-      ...thinkingRows.map((row) => `${row.label}: ${row.value}`),
-      "",
-      this.text("Models:", "模型："),
-      ...modelRows.map((row) => `${row.label}: ${row.value}`)
-    ].join("\n");
+    return this.renderTwoColumnSectionsAsMarkdownList(statusSections);
   }
 
   private helpText(): string {
     const d = (english: string, chinese: string) => this.text(english, chinese);
-    const commandRows: CommandTableRow[] = [
+
+    // Common commands surfaced in the Telegram "/" menu and used day-to-day.
+    const essentialRows: CommandTableRow[] = [
+      { label: "/new", value: d("create and switch to a new session", "创建并切换到新会话") },
+      { label: "/clear", value: d("clear context of current session", "清除当前会话上下文") },
       { label: "/stop", value: d("stop current running task", "停止当前运行中的任务") },
+      { label: "/sessions", value: d("list sessions, or switch with /sessions <index|sessionId>", "查看会话列表，或用 /sessions <编号|sessionId> 切换") },
+      { label: "/status", value: d("show current bot/session/runtime status", "查看当前机器人、会话和运行时状态") },
+      { label: "/models", value: d("show or switch model (/models <index|key>)", "查看或切换模型（/models <编号|key>）") },
+      { label: "/skills", value: d("list loaded skill names and file paths", "查看已加载技能名称和文件路径") },
+      { label: "/help", value: d("show this help", "显示此帮助") }
+    ];
+
+    // Power-user commands; fully supported but kept out of the "/" menu.
+    const advancedRows: CommandTableRow[] = [
       { label: "/steer <text|queueId>", value: d("inject a live correction into the current running task", "向当前运行中的任务注入实时纠正") },
       { label: "/followup <text|queueId>", value: d("run a follow-up turn after the current task finishes", "在当前任务完成后追加一轮任务") },
       { label: "/queue", value: d("list current running and queued tasks", "查看当前运行中和排队中的任务") },
       { label: "/queue front <text>", value: d("insert a text task at the front of queue", "将文本任务插入队列最前方") },
       { label: "/queue delete <queueId>", value: d("delete a pending queued task by id", "按 ID 删除排队任务") },
-      { label: "/new", value: d("create and switch to a new session", "创建并切换到新会话") },
-      { label: "/clear", value: d("clear context of current session", "清除当前会话上下文") },
-      { label: "/sessions", value: d("list sessions and current active session", "查看会话列表和当前会话") },
-      { label: "/sessions <index|sessionId>", value: d("switch active session", "切换当前会话") },
-      { label: "/delete_sessions", value: d("list sessions and delete usage", "查看会话列表和删除用法") },
-      { label: "/delete_sessions <index|sessionId>", value: d("delete a session", "删除会话") },
-      { label: "/status", value: d("show current bot/session/runtime status", "查看当前机器人、会话和运行时状态") },
-      { label: "/state", value: d("alias of /status", "/status 的别名") },
-      { label: "/runlog", value: d("show the latest archived run log", "查看最新归档运行记录") },
-      { label: "/runlog latest", value: d("show the latest archived run log", "查看最新归档运行记录") },
-      { label: "/runlog <runId>", value: d("show an archived run log by id", "按 ID 查看归档运行记录") },
-      { label: "/runlog list", value: d("list recent archived run logs", "列出最近归档运行记录") },
-      { label: "/runlog status", value: d("show automatic runlog notice setting", "查看自动 runlog 通知设置") },
-      { label: "/runlog <on|off|reset>", value: d("change automatic runlog notice for current session", "修改当前会话的自动 runlog 通知") },
-      { label: "/runlog bot <on|off|reset>", value: d("change automatic runlog notice for this bot", "修改当前机器人的自动 runlog 通知") },
-      { label: "/runlog global <on|off|reset>", value: d("change global automatic runlog notice default", "修改全局自动 runlog 通知默认值") },
-      { label: "/thinking", value: d("show current session thinking setting", "查看当前会话思考设置") },
-      { label: "/thinking <default|off|low|medium|high>", value: d("change thinking for current session only", "仅修改当前会话的思考级别") },
-      { label: "/toolprogress", value: d("show current bot tool progress configuration", "查看当前机器人工具进度配置") },
-      { label: "/toolprogress <off|new|all|verbose|reset>", value: d("change tool progress configuration for this bot instance", "修改当前机器人工具进度配置") },
-      { label: "/showreasoning", value: d("show current show reasoning configuration", "查看当前思考过程显示配置") },
-      { label: "/showreasoning <off|on|stream|new|reset>", value: d("change show reasoning configuration for this bot instance", "修改当前机器人的思考过程显示配置") },
-      { label: "/sandbox", value: d("show current sandbox override configurations", "查看当前沙盒覆盖配置") },
-      { label: "/sandbox <on|off|reset>", value: d("change sandbox override for current session only", "仅修改当前会话的沙盒覆盖") },
-      { label: "/sandbox bot <on|off|reset>", value: d("change sandbox override for this bot instance", "修改当前机器人的沙盒覆盖") },
-      { label: "/sandbox agent <on|off|reset>", value: d("change sandbox override for this agent", "修改当前 Agent 的沙盒覆盖") },
-      { label: "/models", value: d("show text route models and current active model", "查看文本路由模型和当前模型") },
-      { label: "/models <index|key>", value: d("switch text model", "切换文本模型") },
-      { label: "/models <text|vision|stt|tts|subagent>", value: d("show models and current active model for that route", "查看指定路由的模型和当前模型") },
-      { label: "/models <text|vision|stt|tts|subagent> <index|key>", value: d("switch route model", "切换指定路由模型") },
+      { label: "/delete_sessions [index|sessionId]", value: d("list sessions, or delete one by selector", "查看会话列表，或按选择器删除会话") },
       { label: "/compact [instructions]", value: d("summarize older context of current session", "压缩当前会话的较早上下文") },
+      { label: "/skills <id>", value: d("show details for one loaded skill", "查看单个技能详情") },
+      { label: "/skills-detail", value: d("show full details for all loaded skills", "查看所有已加载技能的完整详情") },
+      { label: "/thinking [default|off|low|medium|high]", value: d("show or change thinking for current session only", "查看或仅修改当前会话的思考级别") },
+      { label: "/models <route> [index|key]", value: d("show or switch model for a route (text|vision|stt|tts|subagent)", "查看或切换指定路由的模型（text|vision|stt|tts|subagent）") },
+      { label: "/sandbox [scope] [on|off|reset]", value: d("show or change sandbox override (session / bot / agent)", "查看或修改沙盒覆盖（会话 / 机器人 / Agent）") },
+      { label: "/runlog [latest|<runId>|list]", value: d("show or list archived run logs", "查看或列出归档运行记录") },
+      { label: "/runlog status | [bot|global] <on|off|reset>", value: d("show or change automatic runlog notice", "查看或修改自动 runlog 通知") },
+      { label: "/toolprogress [off|new|all|verbose|reset]", value: d("show or change tool progress display for this bot", "查看或修改当前机器人的工具进度显示") },
+      { label: "/showreasoning [off|on|stream|new|reset]", value: d("show or change reasoning display for this bot", "查看或修改当前机器人的思考过程显示") },
       ...(this.options.helpLines ?? []).map((line) => {
         const separator = line.indexOf(" - ");
         if (separator < 0) return { label: line, value: "" };
@@ -1938,18 +2024,13 @@ export class SharedRuntimeCommandService<TTarget> {
           label: line.slice(0, separator).trim(),
           value: line.slice(separator + 3).trim()
         };
-      }),
-      { label: "/skills", value: d("list loaded skill names and file paths", "查看已加载技能名称和文件路径") },
-      { label: "/skills <id>", value: d("show details for one loaded skill", "查看单个技能详情") },
-      { label: "/skills-detail", value: d("show full details for all loaded skills", "查看所有已加载技能的完整详情") },
-      { label: "/help", value: d("show this help", "显示此帮助") }
+      })
     ];
 
-    if (this.shouldUseMarkdownTable("help")) {
-      return this.renderTwoColumnSectionsAsMarkdown([{ title: this.text("Available commands", "可用命令"), rows: commandRows }]);
-    }
-
-    return [this.text("Available commands:", "可用命令："), ...commandRows.map((row) => `${row.label} - ${row.value}`)].join("\n");
+    return this.renderTwoColumnSectionsAsMarkdown([
+      { title: this.text("Common commands", "常用命令"), rows: essentialRows },
+      { title: this.text("Advanced commands", "高级命令"), rows: advancedRows }
+    ]);
   }
 
   private async queueText(scopeId: string): Promise<string> {
@@ -1962,11 +2043,7 @@ export class SharedRuntimeCommandService<TTarget> {
       value: row.preview || this.text("(no preview)", "（无预览）")
     }));
 
-    if (this.shouldUseMarkdownTable("help")) {
-      return this.renderTwoColumnSectionsAsMarkdown([{ title: this.text("Queue", "队列"), rows: tableRows }]);
-    }
-
-    return [this.text("Queue:", "队列："), ...rows.map((row) => `#${row.id} [${row.status}] ${row.preview || this.text("(no preview)", "（无预览）")}`)].join("\n");
+    return this.renderTwoColumnSectionsAsMarkdown([{ title: this.text("Queue", "队列"), rows: tableRows }]);
   }
 
   private async tryHandleQueuedLiveCommand(
@@ -2032,6 +2109,14 @@ export class SharedRuntimeCommandService<TTarget> {
     return true;
   }
 
+  private sandboxUsageText(): string {
+    return this.renderMarkdownCommandList(this.text("Sandbox usage", "沙盒用法"), [
+      "/sandbox [on|off|reset]",
+      "/sandbox bot [on|off|reset]",
+      "/sandbox agent [on|off|reset]"
+    ]);
+  }
+
   private formatSandboxStatus(scopeId: string, sessionId: string): string {
     const settings = this.options.getSettings();
     const channel = this.options.channel;
@@ -2086,21 +2171,20 @@ export class SharedRuntimeCommandService<TTarget> {
     }
 
     return [
-      this.text("=== Sandbox Configurations ===", "=== 沙盒配置 ==="),
-      this.text(
-        `Resolved Status: ${resolved ? "ENABLED" : "DISABLED"} (via ${resolvedFrom})`,
-        `最终状态：${resolved ? "已开启" : "已关闭"}（来源：${resolvedFrom}）`
-      ),
-      "",
-      this.text(`1. Session Override [${sessionId}]: ${sessionText}`, `1. 会话覆盖 [${sessionId}]：${sessionText}`),
-      this.text(`2. Bot Override [${instanceId}]: ${botText}`, `2. 机器人覆盖 [${instanceId}]：${botText}`),
-      this.text(`3. Agent Override [${agentId ?? "none"}]: ${agentText}`, `3. Agent 覆盖 [${agentId ?? "无"}]：${agentText}`),
-      this.text(`4. Global Default: ${globalText}`, `4. 全局默认：${globalText}`),
-      "",
-      this.text("Usage:", "用法："),
-      this.text(" - `/sandbox [on|off|reset]` : toggle session sandbox override", " - `/sandbox [on|off|reset]`：修改会话沙盒覆盖"),
-      this.text(" - `/sandbox bot [on|off|reset]` : toggle current bot sandbox override", " - `/sandbox bot [on|off|reset]`：修改当前机器人沙盒覆盖"),
-      this.text(" - `/sandbox agent [on|off|reset]` : toggle default agent sandbox override", " - `/sandbox agent [on|off|reset]`：修改默认 Agent 沙盒覆盖")
-    ].join("\n");
+      this.renderMarkdownBulletList(this.text("Sandbox configuration", "沙盒配置"), [
+        {
+          label: this.text("Resolved status", "最终状态"),
+          value: this.text(
+            `${resolved ? "enabled" : "disabled"} (via ${resolvedFrom})`,
+            `${resolved ? "已开启" : "已关闭"}（来源：${resolvedFrom}）`
+          )
+        },
+        { label: this.text("Session override", "会话覆盖"), value: `${this.code(sessionId)}: ${sessionText}` },
+        { label: this.text("Bot override", "机器人覆盖"), value: `${this.code(instanceId)}: ${botText}` },
+        { label: this.text("Agent override", "Agent 覆盖"), value: `${this.code(agentId ?? "none")}: ${agentText}` },
+        { label: this.text("Global default", "全局默认"), value: globalText }
+      ]),
+      this.sandboxUsageText()
+    ].join("\n\n");
   }
 }

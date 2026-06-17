@@ -2,6 +2,27 @@
 
 ## Version 1.0
 
+## 2026-06-17
+
+### Independent Control Daemon
+- Added `bin/molibot-control.js`, an independent Telegram control daemon that can start/stop/restart the bare-metal service from a dedicated bot. It imports nothing from the main app, so it stays up when the main service is down and can bring a fully stopped service back online from chat.
+- Control commands restricted to an admin allow-list (`MOLIBOT_CONTROL_ADMIN_IDS`); non-admin chats are silently ignored (their chat id is logged for setup). With an empty allow-list the daemon starts in discovery mode (authorizes nothing, logs chat ids) instead of refusing to start, avoiding a bootstrap deadlock.
+- Two service sources: `/start` runs the release flow (`molibot-update.sh`: build latest git ref → deploy to `current` → start), `/start dev` and `/restart dev` target the local dev working tree. Dev commands run `npm run build` first (via a login shell so node/npm resolve from profile PATH) and abort on build failure; `/build` runs the build alone. `/stop`, `/status`, `/restart`, `/logs [n]` round out the set. Each command shells out to the relevant script and reports its output back to chat.
+- Added `bin/molibot-control-service.sh`, a nohup-based supervisor (start/stop/status/restart, crash auto-restart) mirroring `molibot-service.sh`, to keep the control daemon alive.
+- `molibot manage` now reads/writes `MOLIBOT_CONTROL_TG_TOKEN` / `MOLIBOT_CONTROL_ADMIN_IDS` in `deploy.env`, and `molibot-release.sh` bundles both new scripts into releases.
+- Documented the design in `docs/designs/operations/control-daemon.md` with quick-start steps linked from the README.
+
+### Telegram Command Menu Cleanup
+- Telegram now registers a curated `setMyCommands` menu exposing only 8 everyday commands (`/new`, `/clear`, `/stop`, `/sessions`, `/status`, `/models`, `/skills`, `/help`), localized by runtime locale; registration failure warns without blocking startup.
+- `/help` is now split into "Common commands" / "Advanced commands" groups, with advanced entries condensed into compact optional-argument rows.
+- Non-destructive: every command handler still works (`TELEGRAM_SHARED_COMMANDS` unchanged); only the menu surface and help presentation changed.
+
+### Telegram Rich Messages
+- Upgraded `grammy` to `^1.44.0` (`@grammyjs/types@3.28.0`), which exposes Bot API 10.1 rich message methods and types.
+- Telegram outbound text now prefers grammY `sendRichMessage` / rich `editMessageText` with `InputRichMessage.markdown`; rich failures fall back directly to grammY plain text sending instead of local Markdown-to-HTML conversion or local Markdown detection.
+- Shared commands now emit one canonical Markdown shape across channels instead of Telegram-specific plain text: `/status` uses grouped Markdown lists, while `/help`, `/queue`, and `/skills` use standard Markdown table blocks that are handed directly to grammY/Telegram for rich rendering.
+- Cleaned up the remaining multi-line command replies, including runlog, sandbox, thinking, model switching, login, sessions, queue, compact, and Host Bash approval messages, so command output uses Markdown headings, lists, command lists, and tables instead of plain single-newline paragraphs that Telegram rich Markdown can fold together.
+
 ## 2026-06-16
 
 ### Feishu Streaming Card Status Label

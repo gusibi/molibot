@@ -3,7 +3,9 @@ import test from "node:test";
 import {
   editTelegramMessage,
   editTelegramText,
+  formatTelegramText,
   sendTelegramChatAction,
+  sendTelegramText,
   sendTelegramTextSafely,
   summarizeTelegramToolProgressText,
   syncTelegramTextMessages
@@ -80,6 +82,87 @@ test("summarizeTelegramToolProgressText limits summaries to 20 characters", () =
   assert.equal(summary.endsWith("…"), true);
 });
 
+test("sendTelegramText prefers Telegram rich messages for markdown output", async () => {
+  const richSends: Array<{ richMessage: Record<string, unknown>; options?: Record<string, unknown> }> = [];
+  const plainSends: string[] = [];
+  const bot = {
+    api: {
+      async sendRichMessage(_chatId: string, richMessage: Record<string, unknown>, options?: Record<string, unknown>): Promise<{ message_id: number }> {
+        richSends.push({ richMessage, options });
+        return { message_id: 101 };
+      },
+      async sendMessage(_chatId: string, text: string): Promise<{ message_id: number }> {
+        plainSends.push(text);
+        return { message_id: 102 };
+      }
+    }
+  };
+
+  const sent = await sendTelegramText(bot as never, "chat-rich", "**hello**", { message_thread_id: 3 });
+
+  assert.deepEqual(sent, { message_id: 101, message_ids: [101] });
+  assert.deepEqual(richSends, [{ richMessage: { markdown: "**hello**" }, options: { message_thread_id: 3 } }]);
+  assert.deepEqual(plainSends, []);
+});
+
+test("editTelegramText prefers Telegram rich messages for markdown output", async () => {
+  const richEdits: Array<{ messageId: number; richMessage: Record<string, unknown> }> = [];
+  const htmlEdits: string[] = [];
+  const bot = {
+    api: {
+      async editMessageText(_chatId: string, messageId: number, textOrRich: string | Record<string, unknown>): Promise<void> {
+        if (typeof textOrRich === "string") {
+          htmlEdits.push(textOrRich);
+        } else {
+          richEdits.push({ messageId, richMessage: textOrRich });
+        }
+      },
+      async sendMessage(): Promise<{ message_id: number }> {
+        return { message_id: 103 };
+      },
+      async sendRichMessage(): Promise<{ message_id: number }> {
+        return { message_id: 104 };
+      }
+    }
+  };
+
+  await editTelegramText(bot as never, "chat-rich", 44, "# Title");
+
+  assert.deepEqual(richEdits, [{ messageId: 44, richMessage: { markdown: "# Title" } }]);
+  assert.deepEqual(htmlEdits, []);
+});
+
+test("formatTelegramText always delegates text to grammY rich markdown", () => {
+  const formatted = formatTelegramText("| Number | Name |\n| --- | --- |\n| 1 | web-search |");
+
+  assert.equal(formatted.text, "| Number | Name |\n| --- | --- |\n| 1 | web-search |");
+  assert.deepEqual(formatted.richMessage, { markdown: "| Number | Name |\n| --- | --- |\n| 1 | web-search |" });
+
+  const plain = formatTelegramText("plain text");
+  assert.equal(plain.text, "plain text");
+  assert.deepEqual(plain.richMessage, { markdown: "plain text" });
+});
+
+test("sendTelegramText falls back from rich markdown to plain grammY send", async () => {
+  const plainSends: Array<{ text: string; options?: Record<string, unknown> }> = [];
+  const bot = {
+    api: {
+      async sendRichMessage(): Promise<{ message_id: number }> {
+        throw new Error("rich markdown failed");
+      },
+      async sendMessage(_chatId: string, text: string, options?: Record<string, unknown>): Promise<{ message_id: number }> {
+        plainSends.push({ text, options });
+        return { message_id: 105 };
+      }
+    }
+  };
+
+  const sent = await sendTelegramText(bot as never, "chat-rich", "**hello**", { message_thread_id: 3 });
+
+  assert.deepEqual(sent, { message_id: 105, message_ids: [105] });
+  assert.deepEqual(plainSends, [{ text: "**hello**", options: { message_thread_id: 3 } }]);
+});
+
 test("editTelegramText splits MESSAGE_TOO_LONG edits into first edit plus follow-up send", async () => {
   const edits: Array<{ text: string; options?: Record<string, unknown> }> = [];
   const sends: Array<{ text: string; options?: Record<string, unknown> }> = [];
@@ -110,7 +193,7 @@ test("editTelegramText splits MESSAGE_TOO_LONG edits into first edit plus follow
   assert.deepEqual(sends[0].options, { message_thread_id: 7 });
 });
 
-test("editTelegramMessage keeps shared formatting fallback when overlong edit is split", async () => {
+test("editTelegramMessage keeps plain fallback when overlong edit is split", async () => {
   const edits: Array<{ text: string; options?: Record<string, unknown> }> = [];
   const sends: Array<{ text: string; options?: Record<string, unknown> }> = [];
   let nextMessageId = 500;
@@ -134,8 +217,6 @@ test("editTelegramMessage keeps shared formatting fallback when overlong edit is
 
   assert.equal(edits.length >= 2, true);
   assert.equal(sends.length >= 1, true);
-  assert.equal(edits.some((entry) => entry.options?.parse_mode === "HTML"), true);
-  assert.equal(sends.some((entry) => entry.options?.parse_mode === "HTML"), true);
   assert.equal(sends[0].options?.message_thread_id, 9);
   assert.equal(sends[0].options?.disable_notification, true);
 });

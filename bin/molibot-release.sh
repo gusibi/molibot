@@ -51,7 +51,7 @@ cp "$ROOT_DIR/package.json" "$OUTPUT_DIR/package.json"
 cp "$ROOT_DIR/package-lock.json" "$OUTPUT_DIR/package-lock.json"
 cp "$ROOT_DIR/.env.example" "$OUTPUT_DIR/.env.example"
 
-for script_name in molibot.js molibot-release.sh molibot-manage.js molibot-service.sh molibot-update.sh; do
+for script_name in molibot.js molibot-release.sh molibot-manage.js molibot-service.sh molibot-update.sh molibot-control.js molibot-control-service.sh; do
   if [[ -f "$ROOT_DIR/bin/$script_name" ]]; then
     cp "$ROOT_DIR/bin/$script_name" "$OUTPUT_DIR/bin/$script_name"
   fi

@@ -26,7 +26,8 @@ import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared
 import { sendVoiceWithFallback } from "$lib/server/channels/shared/audio.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import type { ParsedRelativeReminder, StatusSession } from "$lib/server/channels/telegram/types.js";
-import { TELEGRAM_SHARED_COMMANDS } from "$lib/server/channels/telegram/commands.js";
+import { TELEGRAM_MENU_COMMANDS, TELEGRAM_SHARED_COMMANDS } from "$lib/server/channels/telegram/commands.js";
+import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
 import { isTelegramBotMention, stripTelegramBotMention, type TelegramMessageEntityLike } from "$lib/server/channels/telegram/mentions.js";
 
 export interface TelegramConfig {
@@ -197,43 +198,6 @@ export class TelegramManager extends BaseChannelRuntime {
 
   private summarizeToolProgressText(text: string, max = 20): string {
     return summarizeTelegramToolProgressText(text, max);
-  }
-
-  private getTelegramToolIcon(toolName: string): string {
-    const normalized = toolName.toLowerCase();
-    if (normalized.includes("search")) return "🔎";
-    if (normalized.includes("event")) return "📅";
-    if (normalized.includes("bash") || normalized.includes("terminal")) return "💻";
-    if (normalized.includes("subagent")) return "🧭";
-    if (normalized.includes("read")) return "📖";
-    if (normalized.includes("write") || normalized.includes("edit")) return "✏️";
-    if (normalized.includes("memory")) return "🧠";
-    if (normalized.includes("skill")) return "🧩";
-    if (normalized.includes("profile")) return "👤";
-    if (normalized.includes("model")) return "🔀";
-    if (normalized.includes("mcp")) return "🔌";
-    return "🛠";
-  }
-
-  private formatTelegramToolProgress(
-    entries: NonNullable<StatusSession["toolProgressEntries"]>,
-    fallbackText: string
-  ): string {
-    if (entries.length === 0) return fallbackText;
-    const maxEntries = 12;
-    const visible = entries.slice(-maxEntries);
-    const hidden = entries.length - visible.length;
-    const lines = visible.map((entry) => {
-      const name = entry.displayName || entry.toolName || entry.label || "tool";
-      const statusIcon = entry.isError ? "❌" : this.getTelegramToolIcon(name);
-      const rawSummary = entry.summary || (entry.label !== entry.toolName ? entry.label : "");
-      const summary = this.summarizeToolProgressText(rawSummary);
-      return summary ? `${statusIcon} ${name}: "${summary}"` : `${statusIcon} ${name}`;
-    });
-    if (hidden > 0) {
-      lines.unshift(`… ${hidden} earlier tool call(s)`);
-    }
-    return lines.join("\n");
   }
 
   private async sendTelegramCommandText(target: TelegramCommandTarget, text: string): Promise<void> {
@@ -707,6 +671,20 @@ export class TelegramManager extends BaseChannelRuntime {
           writeFileSync(join(this.workspaceDir, "BOT_USERNAME.txt"), this.botUsername, "utf8");
         }
         momLog("telegram", "adapter_started", { botUsername: this.botUsername || "unknown" });
+        try {
+          const useChinese = isChineseLocale(this.getSettings().locale);
+          await bot.api.setMyCommands(
+            TELEGRAM_MENU_COMMANDS.map(({ command, en, zh }) => ({
+              command,
+              description: useChinese ? zh : en
+            }))
+          );
+        } catch (error) {
+          momWarn("telegram", "set_my_commands_failed", {
+            botId: this.instanceId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
         await bot.start();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

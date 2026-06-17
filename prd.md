@@ -7,6 +7,11 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Solo builders and small teams who want one AI assistant across channels.
 - Users who prefer simple interaction over complex automation.
 
+## 2.8 Scope Clarification (2026-06-17)
+- [Done] Telegram 富文本输出：Telegram SDK 必须升级到支持 Bot API 10.1 的 `grammy@1.44.0`；若 SDK 已暴露 rich message 能力，Telegram 出站文本应统一使用 rich message 来源（`InputRichMessage.markdown`、`sendRichMessage`、rich `editMessageText`）。Telegram 渲染不得再保留本地 Markdown-to-HTML 转换或 Markdown 正则识别；rich message 失败时只回退到 grammY 普通文本发送，避免自写解析逻辑和 Telegram 富文本解析发生漂移。
+- [Done] 共享命令 Markdown 统一输出：既然 Telegram rich message 已可用，共享命令层不得再按 Telegram/Feishu/QQ/Weixin 分叉生成不同文本；命令只产出一份规范 Markdown，渠道发送层负责渲染或降级。`/status` 统一使用分组 Markdown 列表，`/help`、`/queue`、`/skills` 等表格型输出统一使用标准 Markdown 表格块。Telegram 发送层必须能识别纯 Markdown 表格，确保表格-only 输出也进入富文本路径。
+- [Done] 命令输出格式友好化：所有共享 slash command 的多行结果必须优先使用 Markdown heading、bullet list、command list 或 table 表达结构，不再依赖普通段落中的单个换行来分隔字段；`/runlog`、`/sandbox`、`/thinking`、`/toolprogress`、`/showreasoning`、`/models`、`/sessions`、`/queue`、`/login`、`/compact`、Host Bash 审批等结果需在 Telegram rich Markdown 下保持清晰换行，同时飞书等渠道复用同一套输出。
+
 ## 2.7 Scope Clarification (2026-06-14)
 - [Done] Runlog 自动归档通知必须可控且默认关闭：run detail 继续归档，但自动发送“本次执行成功，详细记录已归档。查看：/runlog ...”需按 session > bot > global 开关判断。`/runlog` 保持查看最新记录语义；状态只能通过 `/runlog status` 查看；新增 `/runlog list` 列出最近归档；`/status` 必须展示 runlog notice、sandbox、toolprogress、showreasoning 的有效状态与来源。
 - [Done] Feishu topic 中的执行归档通知必须与 agent 正文回复保持同一 topic 线程；流式输出完成后发送“本次执行成功，详细记录已归档。查看：/runlog ...”时，必须复用原始 Feishu 消息的 thread reply options，不能退化为群聊主消息流普通发送。
@@ -1039,8 +1044,8 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Requirement:
   - Outbound Telegram messages should use Telegram-supported rich-text format and remain readable even when formatting parse fails.
 - Enforcement:
-  - Convert common markdown patterns to Telegram HTML before sending/editing (`parse_mode=HTML`).
-  - If Telegram rejects formatted payload, automatically resend/edit as plain text fallback.
+  - Send outbound text through grammY rich messages (`sendRichMessage` / rich `editMessageText`) with `InputRichMessage.markdown`.
+  - Do not maintain local Markdown detection or Markdown-to-HTML fallback for Telegram; if Telegram rejects rich payloads, resend/edit the original text through grammY's plain text methods.
 
 ## 44. Startup Readiness Without First Web Request (2026-02-16)
 - Problem:
@@ -2829,17 +2834,16 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Problem:
   - `/status`、`/help` 这类固定命令本质上是“左边字段 / 右边说明”的两列信息，但当前所有渠道都只返回普通文本，长一点时不够清楚。
   - QQ、微信、飞书现在已经具备 Markdown 表格展示能力，如果继续只发纯文本，就浪费了这些渠道已经有的可读性优势。
-  - Telegram 目前不稳定支持表格，如果强行统一切过去，反而会让现有展示退化。
+  - Telegram 此前不稳定支持表格，如果强行统一切过去，反而会让现有展示退化。2026-06-17 起 Telegram rich message 已支持 Markdown，命令层应输出统一 Markdown，由渠道发送层负责渲染差异。
 - Requirement:
-  - 固定命令需要支持按“命令级别”切换输出样式，而不是把所有命令一刀切改成表格。
-  - 先只把两列结构明显的固定命令纳入表格模式，至少包括 `/status` 和 `/help`。
-  - 表格模式只在支持 Markdown 表格的渠道启用；Telegram 等不支持或暂不启用的渠道继续保持原来的纯文本结果。
+  - 固定命令需要支持按“命令语义”选择统一 Markdown 输出样式，而不是按渠道生成不同文本。
+  - 结构明显且短的命令可用表格，例如 `/help`、`/queue`；长状态面板使用分组 Markdown 列表，例如 `/status`。
+  - 渲染差异必须留给渠道发送层处理；命令层不应再维护 Telegram/Feishu/QQ/Weixin 专用展示分支。
   - 三列或不适合表格的命令先保持现状，不要顺手改掉。
 - Enforcement:
-  - `src/lib/server/agent/channelCommands.ts` 必须增加集中控制的固定命令渲染模式配置，按命令决定是否走两列表格输出。
-  - 表格能力判断必须按渠道区分，至少 QQ / Weixin / Feishu 走表格，Telegram 保持纯文本回退。
-  - `/status` 与 `/help` 在支持渠道上必须输出标准 Markdown 两列表格，并保留 Telegram 的原始纯文本兼容路径。
-  - `src/lib/server/agent/channelCommands.test.ts` 必须覆盖“支持渠道输出表格”和“Telegram 保持原样”两条回归验证。
+  - `src/lib/server/agent/channelCommands.ts` 必须集中定义固定命令的 Markdown 文本形态，按命令语义决定列表或表格，不按渠道分叉。
+  - `/status` 必须输出分组 Markdown 列表；`/help` 与 `/queue` 必须输出标准 Markdown 两列表格。
+  - `src/lib/server/agent/channelCommands.test.ts` 必须覆盖不同渠道收到同一份命令 Markdown，以及 `/status` 的分组列表结构。
   - `features.md` 必须记录本次能力落地。
 
 ## 177. 禁止用户机器绝对路径泄漏到代码与界面 (2026-04-19)

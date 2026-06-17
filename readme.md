@@ -51,6 +51,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **Message Return & Display Layout Optimization**: Centralizes message formatting across Telegram, Feishu, QQ, and Weixin. Implements a unified `DisplayFormatter` to render model thinking/reasoning blocks and tool progress cleanly. Supports fine-grained channel instance configurations (`toolProgress` and `showReasoning`) toggleable directly in chat using `/toolprogress` and `/showreasoning` bot-scoped commands, including `/showreasoning new` for live latest-reasoning progress on editable channels.
 - **Compact Single-Tool Progress**: When `toolProgress` is set to `new`, the running-state line is now compressed to `⏳ <tool>...` instead of repeating a separate "running" label, so long tool names remain visible.
 - **Telegram Overlong Edit Resilience**: Telegram editable status/answer/detail messages share one chunked text-delivery path. If `editMessageText` hits `MESSAGE_TOO_LONG`, Molibot keeps the first chunk in the edited message and sends the rest as follow-up messages instead of aborting the run. Streaming answers retain all chunk message IDs so later refreshes edit existing chunks instead of repeatedly creating a new second message.
+- **Telegram Rich Message Output**: Telegram outbound text and shared command output use grammY 1.44 / Bot API 10.1 rich messages (`sendRichMessage` and rich `editMessageText`) when available. Shared commands emit one canonical Markdown shape across channels (`/status` as grouped lists; `/help`, `/queue`, and `/skills` as standard table blocks), and command confirmations/status replies use Markdown headings, lists, command lists, and tables so Telegram does not collapse field-level line breaks. Telegram rich failures fall back to grammY plain text instead of local Markdown detection or Markdown-to-HTML conversion.
 - **Telegram Native Media Replies**: Telegram attachment uploads preserve source media extensions when a custom title is provided, and detected MP4/WebM/MOV files use native `sendVideo` with streaming enabled so generated videos arrive as video messages instead of extensionless generic uploads.
 - **Feishu Native Video Replies**: Feishu `.mp4` attachment uploads use the official `mp4` file type and native `media` message path. Other video containers are delivered as files, and video attachments are never transcoded into OPUS voice messages.
 - **Feishu Card Markdown Rendering**: Final Feishu CardKit replies split headings into separate markdown elements, render markdown tables as native table elements, and protect fenced code blocks from compatibility rewrites so large structured answers stay readable.
@@ -437,6 +438,40 @@ molibot manage                    # Configure, install/update, restart, logs, un
 ./bin/molibot-service.sh status   # Check supervisor/child status
 ./bin/molibot-service.sh restart  # Restart supervisor + service
 ```
+
+### Remote Control Daemon (Telegram)
+
+An independent daemon (`bin/molibot-control.js`) lets you start/stop/restart the
+service from a **dedicated** Telegram bot, even when the main service is down.
+See [docs/designs/operations/control-daemon.md](docs/designs/operations/control-daemon.md)
+for the full design and rationale.
+
+Quick start:
+
+```bash
+# 1. Create a SEPARATE Telegram bot (BotFather) and set two keys in deploy.env
+#    (or run `molibot manage` and answer the control-daemon prompts):
+#       MOLIBOT_CONTROL_TG_TOKEN=<token of the separate bot>
+#       MOLIBOT_CONTROL_ADMIN_IDS=<your chatId(s), comma-separated>
+
+# 2. Run the control daemon under its own nohup supervisor:
+./bin/molibot-control-service.sh start    # auto-restarts on crash
+./bin/molibot-control-service.sh status
+./bin/molibot-control-service.sh stop
+./bin/molibot-control-service.sh restart
+```
+
+Bot commands (admin allow-list only; non-admin chats are silently ignored):
+`/status`, `/start` (release flow: build latest git ref → deploy → start),
+`/start dev` (build the local dev working tree, then start it), `/build`,
+`/stop`, `/restart`, `/restart dev`, `/logs [n]`.
+
+Finding your chat id: if `MOLIBOT_CONTROL_ADMIN_IDS` is empty, the daemon starts
+in **discovery mode** — it authorizes nothing but logs every incoming chat. Send
+any message to the bot, then read the control log
+(`MOLIBOT_CONTROL_LOG_FILE`, default `~/logs/molibot-control.log`) for a line like
+`ignored non-admin message chat_id=...`. Put that id in
+`MOLIBOT_CONTROL_ADMIN_IDS` and restart.
 
 ### Initialization
 ```bash

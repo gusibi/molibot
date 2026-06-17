@@ -137,14 +137,16 @@ test("status command includes current session token stats", async () => {
 
   assert.equal(handled, true);
   assert.equal(sent.length, 1);
-  assert.match(sent[0] ?? "", /Current context≈: 3,456 tokens/);
-  assert.match(sent[0] ?? "", /Session token total: 181/);
-  assert.match(sent[0] ?? "", /Session input\/output: 123 \/ 45/);
-  assert.match(sent[0] ?? "", /Compactions: 1/);
-  assert.match(sent[0] ?? "", /Sandbox: on \(global\)/);
-  assert.match(sent[0] ?? "", /Runlog notice: off \(global\)/);
-  assert.match(sent[0] ?? "", /Tool progress: all \(global\)/);
-  assert.match(sent[0] ?? "", /Show reasoning: off \(global\)/);
+  assert.match(sent[0] ?? "", /\*\*Status\*\*/);
+  assert.doesNotMatch(sent[0] ?? "", /\| Item \| Value \|/);
+  assert.match(sent[0] ?? "", /- \*\*Current context≈\*\*: 3,456 tokens/);
+  assert.match(sent[0] ?? "", /- \*\*Session token total\*\*: 181/);
+  assert.match(sent[0] ?? "", /- \*\*Session input\/output\*\*: 123 \/ 45/);
+  assert.match(sent[0] ?? "", /- \*\*Compactions\*\*: 1/);
+  assert.match(sent[0] ?? "", /- \*\*Sandbox\*\*: on \(global\)/);
+  assert.match(sent[0] ?? "", /- \*\*Runlog notice\*\*: off \(global\)/);
+  assert.match(sent[0] ?? "", /- \*\*Tool progress\*\*: all \(global\)/);
+  assert.match(sent[0] ?? "", /- \*\*Show reasoning\*\*: off \(global\)/);
 });
 
 test("plain approval text approves the only pending host tool request in the chat", async () => {
@@ -207,7 +209,8 @@ test("plain approval text approves the only pending host tool request in the cha
   assert.equal(handled, true);
   assert.equal(pendingApprovals.length, 0);
   assert.equal(approvedTools.length, 0);
-  assert.match(sent[0] ?? "", /Approved one-time host action: Agent Browser/);
+  assert.match(sent[0] ?? "", /\*\*Approved one-time host action\*\*/);
+  assert.match(sent[0] ?? "", /- \*\*Action\*\*: Agent Browser/);
   // Execution now happens in the background, after the approval reply.
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(autoExecuted, true);
@@ -274,7 +277,8 @@ test("persistent approval text whitelists the pending host tool request", async 
   assert.equal(handled, true);
   assert.equal(pendingApprovals.length, 0);
   assert.equal(approvedTools[0]?.toolId, "agent-browser");
-  assert.match(sent[0] ?? "", /Approved Host Bash: Agent Browser/);
+  assert.match(sent[0] ?? "", /\*\*Approved Host Bash\*\*/);
+  assert.match(sent[0] ?? "", /- \*\*Action\*\*: Agent Browser/);
   // Execution now happens in the background, after the approval reply.
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(autoExecuted, true);
@@ -413,7 +417,7 @@ test("hosttools approve-session enables session fallback without persisting appr
   assert.equal(approvalHistory[0]?.status, "executed");
 });
 
-test("status command renders markdown table on qq", async () => {
+test("status command renders the same grouped markdown shape on qq", async () => {
   const sent: string[] = [];
   const store = {
     ...minimalStore(),
@@ -459,8 +463,8 @@ test("status command renders markdown table on qq", async () => {
   assert.equal(handled, true);
   assert.equal(sent.length, 1);
   assert.match(sent[0] ?? "", /\*\*Status\*\*/);
-  assert.match(sent[0] ?? "", /\| Item \| Value \|/);
-  assert.match(sent[0] ?? "", /\| Current context≈ \| 3,456 tokens \|/);
+  assert.doesNotMatch(sent[0] ?? "", /\| Item \| Value \|/);
+  assert.match(sent[0] ?? "", /- \*\*Current context≈\*\*: 3,456 tokens/);
 });
 
 test("runlog latest renders archived detail entries", async () => {
@@ -575,7 +579,9 @@ test("runlog status and session toggle control archive notice visibility", async
   assert.equal(service.shouldSendRunArchiveNotice("chat-1"), true);
   await service.handle({ chatId: "chat-1", scopeId: "chat-1", text: "/runlog status", target: "target-1" });
 
-  assert.match(sent.at(-1) ?? "", /Effective: on \(session:session-1\)/);
+  assert.match(sent.at(-1) ?? "", /\*\*Runlog notice status\*\*/);
+  assert.match(sent.at(-1) ?? "", /- \*\*Effective\*\*: on \(session:session-1\)/);
+  assert.match(sent.at(-1) ?? "", /\*\*Commands\*\*\n- `\/runlog on`/);
 });
 
 test("runlog bot and global toggles update settings layers", async () => {
@@ -656,8 +662,8 @@ test("runlog list renders recent archived run summaries", async () => {
 
   await service.handle({ chatId: "chat-1", scopeId: "chat-1", text: "/runlog list", target: "target-1" });
 
-  assert.match(sent[0] ?? "", /run-2 - stop/);
-  assert.match(sent[0] ?? "", /run-1 - error/);
+  assert.match(sent[0] ?? "", /`run-2` - stop/);
+  assert.match(sent[0] ?? "", /`run-1` - error/);
   assert.match(sent[0] ?? "", /\/runlog <runId>/);
 });
 
@@ -714,7 +720,7 @@ test("runlog prefers file upload when channel supports it", async () => {
   assert.match(uploaded[0]?.content ?? "", /运行记录 run-456/);
 });
 
-test("help command renders markdown table on weixin but stays plain text on telegram", async () => {
+test("help command renders markdown table on weixin and telegram", async () => {
   const createStore = () =>
     ({
       getActiveSession: () => "session-1",
@@ -782,13 +788,17 @@ test("help command renders markdown table on weixin but stays plain text on tele
     target: "target-1"
   });
 
-  assert.match(weixinSent[0] ?? "", /\*\*Available commands\*\*/);
+  assert.match(weixinSent[0] ?? "", /\*\*Common commands\*\*/);
+  assert.match(weixinSent[0] ?? "", /\*\*Common commands\*\*\n\n\| Item \| Value \|/);
+  assert.match(weixinSent[0] ?? "", /\*\*Advanced commands\*\*/);
   assert.match(weixinSent[0] ?? "", /\| \/status \| show current bot\/session\/runtime status \|/);
-  assert.doesNotMatch(telegramSent[0] ?? "", /\| Item \| Value \|/);
-  assert.match(telegramSent[0] ?? "", /Available commands:/);
-  assert.match(telegramSent[0] ?? "", /\/status - show current bot\/session\/runtime status/);
-  assert.match(telegramSent[0] ?? "", /\/skills <id> - show details for one loaded skill/);
-  assert.match(telegramSent[0] ?? "", /\/skills-detail - show full details for all loaded skills/);
+  assert.equal(telegramSent[0], weixinSent[0]);
+  assert.match(telegramSent[0] ?? "", /\*\*Common commands\*\*/);
+  assert.match(telegramSent[0] ?? "", /\*\*Advanced commands\*\*/);
+  assert.match(telegramSent[0] ?? "", /\| Item \| Value \|/);
+  assert.match(telegramSent[0] ?? "", /\| \/status \| show current bot\/session\/runtime status \|/);
+  assert.match(telegramSent[0] ?? "", /\| \/skills <id> \| show details for one loaded skill \|/);
+  assert.match(telegramSent[0] ?? "", /\| \/skills-detail \| show full details for all loaded skills \|/);
 });
 
 test("shared commands use the configured runtime locale", async () => {
@@ -822,8 +832,10 @@ test("shared commands use the configured runtime locale", async () => {
     target: "target-1"
   });
 
-  assert.match(sent[0] ?? "", /可用命令：/);
-  assert.match(sent[0] ?? "", /\/status - 查看当前机器人、会话和运行时状态/);
+  assert.match(sent[0] ?? "", /\*\*常用命令\*\*/);
+  assert.match(sent[0] ?? "", /\*\*高级命令\*\*/);
+  assert.match(sent[0] ?? "", /\| 项目 \| 值 \|/);
+  assert.match(sent[0] ?? "", /\| \/status \| 查看当前机器人、会话和运行时状态 \|/);
   assert.doesNotMatch(sent[0] ?? "", /\/login|\/logout/);
   assert.equal(sent[1], "当前没有运行中的任务。");
 });
@@ -882,7 +894,7 @@ test("skills commands split summary and detail output", async () => {
   assert.match(sent[0] ?? "", /当前技能列表（共1个）/);
   assert.match(sent[0] ?? "", /\| 编号 \| 名称 \| 路径 \|/);
   assert.match(sent[0] ?? "", /\| 1 \| web-search \| .*\/skills\/web-search\/SKILL\.md \|/);
-  assert.match(sent[0] ?? "", /使用 \/skills <id> 查看详情。/);
+  assert.match(sent[0] ?? "", /使用 `\/skills <id>` 查看详情。/);
   assert.doesNotMatch(sent[0] ?? "", /description:/);
 
   assert.match(sent[1] ?? "", /技能：web-search/);
@@ -973,12 +985,12 @@ test("models command renders numbered markdown table with provider and model col
 
   assert.equal(handled, true);
   assert.equal(sent.length, 1);
-  assert.match(sent[0] ?? "", /当前模型列表（共3个）：/);
+  assert.match(sent[0] ?? "", /\*\*当前模型列表\*\*（共 3 个）/);
   assert.match(sent[0] ?? "", /\| 编号 \| 供应商 \| 模型 \|/);
   assert.match(sent[0] ?? "", /\| 1 \| \[Built-in\] anthropic \| claude-sonnet-4-20250514 \|/);
   assert.match(sent[0] ?? "", /\| 2 \| Grok2Api \| grok-4\.20-auto \|/);
   assert.match(sent[0] ?? "", /\| 3 ⭐ 当前活跃中 \| Grok2Api \| grok-4\.20-fast \|/);
-  assert.match(sent[0] ?? "", /快捷切换：/);
+  assert.match(sent[0] ?? "", /\*\*快捷切换\*\*/);
 });
 
 test("stop command aborts current run and clears queued pending tasks", async () => {
@@ -1182,7 +1194,7 @@ test("steer and followup commands validate usage and running state", async () =>
   });
 
   assert.deepEqual(sent, [
-    "Usage: /steer <text>",
+    "**Steer usage**\n- `/steer <text>`",
     "Nothing running. Send a normal message instead."
   ]);
 });
@@ -1368,8 +1380,9 @@ test("queue commands list, front insert, and delete pending tasks", async () => 
     target: "target-1"
   });
 
-  assert.match(sent[0] ?? "", /#11 \[running\] current task/);
-  assert.match(sent[0] ?? "", /#12 \[pending\] queued task/);
+  assert.match(sent[0] ?? "", /\*\*Queue\*\*/);
+  assert.match(sent[0] ?? "", /\| #11 running \| current task \|/);
+  assert.match(sent[0] ?? "", /\| #12 pending \| queued task \|/);
   assert.match(sent[1] ?? "", /Inserted at front of queue\. Queue ID: 99/);
   assert.match(sent[2] ?? "", /Deleted queued task 12\./);
 });

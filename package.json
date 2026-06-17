@@ -1,6 +1,6 @@
 {
   "name": "molibot",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": true,
   "type": "module",
   "imports": {
@@ -37,7 +37,7 @@
     "diff": "^8.0.2",
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
-    "grammy": "^1.38.3",
+    "grammy": "^1.44.0",
     "lit": "^3.3.1",
     "marked": "^16.4.2",
     "mpg123-decoder": "^1.0.3",
