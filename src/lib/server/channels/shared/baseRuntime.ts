@@ -154,6 +154,8 @@ export abstract class BaseChannelRuntime {
     const activeSessionId = this.store.getActiveSession(scopeId);
     const aborted = this.runners.abort(scopeId, activeSessionId);
     if (aborted) {
+      getTurnOrchestrator().abortRunningTurnsForSession(activeSessionId, reason);
+      this.runners.reset(scopeId, activeSessionId);
       momLog(this.channelName, "abort_requested", { chatId: scopeId, sessionId: activeSessionId, reason });
       return { aborted: true };
     }
@@ -164,6 +166,7 @@ export abstract class BaseChannelRuntime {
     );
     if (cleared > 0) {
       this.runners.reset(scopeId, activeSessionId);
+      this.running.delete(scopeId);
       momWarn(this.channelName, "stale_turn_lock_cleared", { chatId: scopeId, sessionId: activeSessionId, cleared, reason });
       return { aborted: false, clearedStale: true };
     }
@@ -181,17 +184,20 @@ export abstract class BaseChannelRuntime {
       this.getEventLeaseScope()
     );
     if (stopped.aborted) {
+      this.running.delete(scopeId);
       momLog(this.channelName, "stop_requested", { chatId: scopeId, sessionId: activeSessionId, eventLeases: abortedLeases });
       return stopped;
     }
 
     if (stopped.clearedStale) {
+      this.running.delete(scopeId);
       momWarn(this.channelName, "stale_turn_lock_cleared", { chatId: scopeId, sessionId: activeSessionId, eventLeases: abortedLeases });
       return stopped;
     }
 
     if (abortedLeases > 0) {
       this.runners.reset(scopeId, activeSessionId);
+      this.running.delete(scopeId);
       momWarn(this.channelName, "event_lease_stopped", { chatId: scopeId, sessionId: activeSessionId, eventLeases: abortedLeases });
       return { aborted: false, clearedStale: true };
     }

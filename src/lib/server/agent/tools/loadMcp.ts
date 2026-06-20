@@ -99,7 +99,14 @@ export function createLoadMcpTool(options: {
       return {
         content: [{
           type: "text",
-          text: `${action === "load" ? "Loaded" : "Unloaded"} MCP server: ${serverId}\nLoaded servers: ${refreshed.serverCount}\nLoaded MCP tools: ${refreshed.toolCount}`
+          text: [
+            `${action === "load" ? "Loaded" : "Unloaded"} MCP server: ${serverId}`,
+            `Loaded servers: ${refreshed.serverCount}`,
+            `Loaded MCP tools: ${refreshed.toolCount}`,
+            action === "load" && refreshed.toolCount > 0
+              ? "Next, call mcpInvoke(action=\"listTools\") to inspect available MCP tools, then mcpInvoke(action=\"call\", ...) to invoke one."
+              : undefined
+          ].filter(Boolean).join("\n")
         }],
         details: {
           action,

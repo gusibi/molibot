@@ -8,6 +8,7 @@ import { getBashToolDefinition } from "$lib/server/agent/tools/bash.js";
 import { decideBashToolPolicy } from "$lib/server/agent/tools/bashPolicy.js";
 import { getEditToolDefinition } from "$lib/server/agent/tools/edit.js";
 import { createEventTool } from "$lib/server/agent/tools/event.js";
+import { createMcpInvokeTool } from "$lib/server/agent/tools/mcpInvoke.js";
 import { createLoadMcpTool } from "$lib/server/agent/tools/loadMcp.js";
 import { createMemoryTool } from "$lib/server/agent/tools/memory.js";
 import { createProfileFilesTool } from "$lib/server/agent/tools/profileFiles.js";
@@ -132,6 +133,7 @@ export function createMomTools(options: {
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
   getSelectedMcpServerIds: () => Set<string>;
   setSelectedMcpServerIds: (next: Set<string>) => void;
+  getLoadedMcpTools: () => AgentTool<any>[];
   refreshLoadedMcpTools: () => Promise<{ serverCount: number; toolCount: number }>;
   onLocalToolsChanged?: (tools: AgentTool<any>[]) => void;
   exposeLoadMcpTool?: boolean;
@@ -336,12 +338,13 @@ export function createMomTools(options: {
         risk,
         source,
         handler: async (input, ctx) => {
-          const res = (await originalTool.execute(ctx.runId, input)) as any;
+          const res = (await originalTool.execute(ctx.runId, input, ctx.signal)) as any;
           return {
             ok: !res.error,
             content: res.content,
             error: res.error,
-            metadata: res.metadata
+            metadata: res.metadata,
+            details: res.details
           };
         }
       };
@@ -596,6 +599,9 @@ export function createMomTools(options: {
       getSelectedServerIds: options.getSelectedMcpServerIds,
       setSelectedServerIds: options.setSelectedMcpServerIds,
       refreshLoadedMcpTools: options.refreshLoadedMcpTools
+    })));
+    tools.splice(3, 0, wrapSerializedTool(createMcpInvokeTool({
+      getLoadedMcpTools: options.getLoadedMcpTools
     })));
   }
 

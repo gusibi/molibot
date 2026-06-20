@@ -10,6 +10,8 @@ import {
 } from "$lib/server/web/identity";
 import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
+import { saveWebResponseAttachment } from "$lib/server/web/attachments";
+import type { ConversationAttachment } from "$lib/shared/types/message";
 
 interface StreamBody {
   userId?: string;
@@ -127,6 +129,7 @@ export const POST: RequestHandler = async ({ request }) => {
         let thinkingText = "";
         const threadNotes: string[] = [];
         const diagnostics: string[] = [];
+        const responseAttachments: ConversationAttachment[] = [];
         const ts = `${Date.now() / 1000}`;
 
         try {
@@ -184,7 +187,17 @@ export const POST: RequestHandler = async ({ request }) => {
             deleteMessage: async () => {
               writeEvent(controller, encoder, "deleted", { ok: true });
             },
-            uploadFile: async () => {},
+            uploadFile: async (filePath, title) => {
+              const attachment = saveWebResponseAttachment({
+                store,
+                externalUserId,
+                filePath,
+                title,
+                ts
+              });
+              responseAttachments.push(attachment);
+              writeEvent(controller, encoder, "attachment", attachment);
+            },
             onRunnerEvent: async (event) => {
               const diagnostic = buildRunnerDiagnostic(event);
               if (diagnostic) diagnostics.push(diagnostic);
@@ -239,7 +252,9 @@ export const POST: RequestHandler = async ({ request }) => {
             "(empty response)";
 
           if (result.stopReason !== "waiting_for_approval") {
-            runtime.sessions.appendMessage(conversation.id, "assistant", assistantText);
+            runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
+              attachments: responseAttachments
+            });
           }
           writeEvent(controller, encoder, "done", {
             ok: true,

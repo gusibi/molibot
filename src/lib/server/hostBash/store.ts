@@ -125,7 +125,10 @@ function rowToApprovalRecord(row: Record<string, any>): HostBashApprovalRecord {
 
 function rowToWhitelistEntry(row: Record<string, any>): ApprovedHostBashEntry {
   const toolId = capabilityToToolId(row.capability);
-  const metadata = parseJson<any>(row.action_fingerprint, {});
+  const parsedMetadata = parseJson<unknown>(row.action_fingerprint, {});
+  const metadata = parsedMetadata && typeof parsedMetadata === "object" && !Array.isArray(parsedMetadata)
+    ? parsedMetadata as Record<string, any>
+    : {};
   return {
     id: row.id,
     toolId,

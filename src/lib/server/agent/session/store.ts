@@ -9,7 +9,6 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
@@ -228,6 +227,40 @@ export class MomRuntimeStore {
     return safe || this.defaultSessionId;
   }
 
+  private formatSessionDate(date = new Date()): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}${month}${day}`;
+  }
+
+  private nextSequentialSessionId(chatId: string, prefix: "s" | "task"): string {
+    const day = this.formatSessionDate();
+    const marker = `${prefix}-${day}-`;
+    const pattern = new RegExp(`^${prefix}-${day}-(\\d+)$`);
+    let max = 0;
+
+    for (const id of this.listSessions(chatId)) {
+      const match = id.match(pattern);
+      if (!match) continue;
+      const n = Number(match[1]);
+      if (Number.isFinite(n)) {
+        max = Math.max(max, n);
+      }
+    }
+
+    let next = max + 1;
+    let candidate = `${marker}${String(next).padStart(4, "0")}`;
+    while (
+      existsSync(this.getSessionContextFile(chatId, candidate)) ||
+      existsSync(this.getSessionEntriesFile(chatId, candidate))
+    ) {
+      next += 1;
+      candidate = `${marker}${String(next).padStart(4, "0")}`;
+    }
+    return candidate;
+  }
+
   private ensureSessionContextFile(chatId: string, sessionId: string): string {
     const id = this.sanitizeSessionId(sessionId);
     const file = this.getSessionContextFile(chatId, id);
@@ -417,7 +450,7 @@ export class MomRuntimeStore {
   }
 
   createSession(chatId: string): string {
-    const id = `s-${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`;
+    const id = this.nextSequentialSessionId(chatId, "s");
     this.ensureSessionContextFile(chatId, id);
     this.ensureSessionEntriesFile(chatId, id);
     this.setActiveSession(chatId, id);
@@ -430,7 +463,7 @@ export class MomRuntimeStore {
    * sessions past the retention window are pruned in the same call.
    */
   beginTaskSession(chatId: string, retentionMs?: number): string {
-    const id = `task-${Date.now().toString(36)}-${randomUUID().slice(0, 4)}`;
+    const id = this.nextSequentialSessionId(chatId, "task");
     this.ensureSessionContextFile(chatId, id);
     this.ensureSessionEntriesFile(chatId, id);
     this.setActiveSession(chatId, id);

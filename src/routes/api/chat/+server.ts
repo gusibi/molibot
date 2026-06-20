@@ -37,6 +37,7 @@ import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { executeHostBashApproval, rewriteApprovalToolResultInContext } from "$lib/server/agent/hostBashExec";
 import { getHostBashStore } from "$lib/server/hostBash";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n";
+import { saveWebResponseAttachment } from "$lib/server/web/attachments";
 
 interface ChatBody {
   userId?: string;
@@ -639,6 +640,7 @@ export const POST: RequestHandler = async ({ request }) => {
   let finalText = "";
   const threadNotes: string[] = [];
   const runnerDiagnostics: string[] = [];
+  const responseAttachments: ConversationAttachment[] = [];
 
   const appendRunnerDiagnostic = (event: RunnerUiEvent): void => {
     if (event.type === "thinking_config") {
@@ -720,7 +722,14 @@ export const POST: RequestHandler = async ({ request }) => {
     setTyping: async () => {},
     setWorking: async () => {},
     deleteMessage: async () => {},
-    uploadFile: async () => {},
+    uploadFile: async (filePath, title) => {
+      responseAttachments.push(saveWebResponseAttachment({
+        store,
+        externalUserId,
+        filePath,
+        title
+      }));
+    },
     onRunnerEvent: async (event) => {
       appendRunnerDiagnostic(event);
     }
@@ -733,7 +742,9 @@ export const POST: RequestHandler = async ({ request }) => {
     "(empty response)";
 
   if (result.stopReason !== "waiting_for_approval") {
-    runtime.sessions.appendMessage(conversation.id, "assistant", assistantText);
+    runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
+      attachments: responseAttachments
+    });
   }
 
   return json({

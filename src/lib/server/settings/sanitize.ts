@@ -490,9 +490,6 @@ export function sanitizeMcpServers(input: unknown): McpServerConfig[] {
     if (dedup.has(id)) continue;
     dedup.add(id);
 
-    const transportRaw = String(item.transport ?? item.type ?? "stdio").trim().toLowerCase();
-    const transport = transportRaw === "http" ? "http" : "stdio";
-
     const stdioRaw = item.stdio && typeof item.stdio === "object"
       ? item.stdio as Record<string, unknown>
       : {};
@@ -512,15 +509,20 @@ export function sanitizeMcpServers(input: unknown): McpServerConfig[] {
     const httpRaw = item.http && typeof item.http === "object"
       ? item.http as Record<string, unknown>
       : {};
+    const topLevelHeadersRaw = item.headers && typeof item.headers === "object"
+      ? item.headers as Record<string, unknown>
+      : {};
     const headersRaw = httpRaw.headers && typeof httpRaw.headers === "object"
       ? httpRaw.headers as Record<string, unknown>
-      : {};
+      : topLevelHeadersRaw;
+    const url = String(httpRaw.url ?? item.url ?? "").trim();
+    const transportRaw = String(item.transport ?? item.type ?? (url ? "http" : "stdio")).trim().toLowerCase();
+    const transport = transportRaw === "http" ? "http" : "stdio";
     const headers = Object.fromEntries(
       Object.entries(headersRaw)
         .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
         .filter(([key]) => Boolean(key))
     );
-    const url = String(httpRaw.url ?? item.url ?? "").trim();
     if (transport === "stdio" && !command) continue;
     if (transport === "http" && !url) continue;
 

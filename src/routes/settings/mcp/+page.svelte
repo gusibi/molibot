@@ -115,7 +115,9 @@
     for (const [id, value] of Object.entries(payload)) {
       if (!value || typeof value !== "object") continue;
       const row = value as Record<string, unknown>;
-      const typeRaw = String(row.type ?? row.transport ?? "stdio").trim().toLowerCase();
+      const url = String((row.http as Record<string, unknown> | undefined)?.url ?? row.url ?? "").trim();
+      const command = String((row.stdio as Record<string, unknown> | undefined)?.command ?? row.command ?? "").trim();
+      const typeRaw = String(row.type ?? row.transport ?? (url ? "http" : "stdio")).trim().toLowerCase();
       const type = typeRaw === "http" ? "http" : "stdio";
       const name = String(row.name ?? id).trim() || id;
       out.push({
@@ -123,8 +125,8 @@
         name,
         enabled: row.enabled === undefined ? true : Boolean(row.enabled),
         type,
-        url: String((row.http as Record<string, unknown> | undefined)?.url ?? row.url ?? "").trim(),
-        command: String((row.stdio as Record<string, unknown> | undefined)?.command ?? row.command ?? "").trim()
+        url,
+        command
       });
     }
     return out.sort((a, b) => a.id.localeCompare(b.id));

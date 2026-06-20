@@ -479,6 +479,8 @@ function buildMcpAccessSection(settings?: RuntimeSettings): string {
     "  1. User explicitly asks to use MCP (for example: '使用MCP', '加载MCP', 'use MCP').",
     "  2. User explicitly invokes a skill (`$skill-name`, `/skill skill-name`, `/skill-name`, `skill:skill-name`, `技能:skill-name`) and that skill itself declares MCP dependency.",
     "- Do not call `loadMcp` outside these two scenarios.",
+    "- MCP tools are not deferred tools. Do not use `toolSearch` to find MCP tools.",
+    "- MCP workflow: call `loadMcp(action=\"list\")` if needed, then `loadMcp(action=\"load\", serverId=\"...\")`, then `mcpInvoke(action=\"listTools\")`, then `mcpInvoke(action=\"call\", serverId=\"...\", toolName=\"...\", arguments={...})`.",
     "- Skill name is not MCP server id. Never assume `serverId = skill name`.",
     "- Skill files do not require any special MCP frontmatter fields.",
     "- If a task requires MCP but the required MCP server/tool is unavailable, clearly report the missing MCP server/tool in your response.",

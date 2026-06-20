@@ -2,7 +2,7 @@ import { type RuntimeSettings } from "$lib/server/settings/index.js";
 import { sanitizeSettings } from "$lib/server/settings/sanitize.js";
 import { applyChannelPlugins } from "$lib/server/plugins/loader.js";
 import { getToolSandboxEnvStartupReport } from "$lib/server/agent/tools/sandbox.js";
-import { config } from "$lib/server/app/env.js";
+import { config, liveServicesDisabled } from "$lib/server/app/env.js";
 import { type ChannelManager } from "$lib/server/channels/registry.js";
 import { TaskScheduler } from "$lib/server/agent/taskScheduler.js";
 import { MessageRouter } from "$lib/server/channels/shared/messageRouter.js";
@@ -141,8 +141,10 @@ export function getRuntime(): RuntimeState {
       state.settings = sanitizeSettings(patch, latestPersisted);
       currentSettings.value = state.settings;
       state.settingsStore.save(state.settings);
-      applyChannelPlugins(state, applySettingsPatch);
-      state.taskScheduler.restart(state.channelManagers, state.settings);
+      if (!liveServicesDisabled()) {
+        applyChannelPlugins(state, applySettingsPatch);
+        state.taskScheduler.restart(state.channelManagers, state.settings);
+      }
       return state.settings;
     };
 
@@ -169,30 +171,37 @@ export function getRuntime(): RuntimeState {
     currentSettings.value = state.settings;
     logMemoryStartup(state);
     logSandboxEnvStartup(state);
-    void state.memory.syncExternalMemories()
-      .then((result) => {
-        console.log(
-          `${memoryLabel("memory")} startup_sync scanned_files=${color(String(result.scannedFiles), ANSI_CYAN)} imported=${color(String(result.importedCount), result.importedCount > 0 ? ANSI_GREEN : ANSI_YELLOW)}`
-        );
-      })
-      .catch((error) => {
-        console.error(`${memoryLabel("memory")} ${color("startup_sync_failed", `${ANSI_BOLD}${ANSI_RED}`)}`, error);
-      });
-    state.memorySyncTimer = setInterval(() => {
+    // Skip every long-lived/networked subsystem when live services are disabled
+    // (node:test runs, or an explicit MOLIBOT_DISABLE_LIVE_CHANNELS opt-out).
+    // Tests still get a fully usable runtime (settings/sessions/memory) but no
+    // channel websockets, scheduler, or keep-alive interval — so the process
+    // can exit cleanly instead of hanging on a retrying Feishu/Telegram client.
+    if (!liveServicesDisabled()) {
       void state.memory.syncExternalMemories()
         .then((result) => {
-          if (result.scannedFiles > 0 || result.importedCount > 0) {
-            console.log(
-              `${memoryLabel("memory")} periodic_sync scanned_files=${color(String(result.scannedFiles), ANSI_CYAN)} imported=${color(String(result.importedCount), result.importedCount > 0 ? ANSI_GREEN : ANSI_YELLOW)}`
-            );
-          }
+          console.log(
+            `${memoryLabel("memory")} startup_sync scanned_files=${color(String(result.scannedFiles), ANSI_CYAN)} imported=${color(String(result.importedCount), result.importedCount > 0 ? ANSI_GREEN : ANSI_YELLOW)}`
+          );
         })
         .catch((error) => {
-          console.error(`${memoryLabel("memory")} ${color("periodic_sync_failed", `${ANSI_BOLD}${ANSI_RED}`)}`, error);
+          console.error(`${memoryLabel("memory")} ${color("startup_sync_failed", `${ANSI_BOLD}${ANSI_RED}`)}`, error);
         });
-    }, 60_000);
-    applyChannelPlugins(state, applySettingsPatch);
-    state.taskScheduler.start(state.channelManagers, state.settings);
+      state.memorySyncTimer = setInterval(() => {
+        void state.memory.syncExternalMemories()
+          .then((result) => {
+            if (result.scannedFiles > 0 || result.importedCount > 0) {
+              console.log(
+                `${memoryLabel("memory")} periodic_sync scanned_files=${color(String(result.scannedFiles), ANSI_CYAN)} imported=${color(String(result.importedCount), result.importedCount > 0 ? ANSI_GREEN : ANSI_YELLOW)}`
+              );
+            }
+          })
+          .catch((error) => {
+            console.error(`${memoryLabel("memory")} ${color("periodic_sync_failed", `${ANSI_BOLD}${ANSI_RED}`)}`, error);
+          });
+      }, 60_000);
+      applyChannelPlugins(state, applySettingsPatch);
+      state.taskScheduler.start(state.channelManagers, state.settings);
+    }
 
     globalThis.__molibotRuntime = state;
   }

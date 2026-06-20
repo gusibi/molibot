@@ -51,8 +51,13 @@ async function buildHostEnv(permissions: HostBashPermissions): Promise<NodeJS.Pr
     if (value !== undefined) env[key] = value;
   }
   // Inject browser automation timeout + sandbox env-file secrets from runtime
-  // settings (lazy import to break circular dependency).
+  // settings (lazy import to break circular dependency). Skipped under the test
+  // runner so host-bash unit tests never boot the runtime singleton (which would
+  // touch the real settings DB and, before the runtime test-guard, hang on live
+  // channel clients); the process.env fallback below is exactly what tests want.
   try {
+    const { liveServicesDisabled } = await import("$lib/server/app/env.js");
+    if (liveServicesDisabled()) return env;
     const { getRuntime } = await import("$lib/server/app/runtime.js");
     const settings = getRuntime().getSettings();
     env.AGENT_BROWSER_DEFAULT_TIMEOUT = String(settings.browserAutomation.defaultTimeoutMs);

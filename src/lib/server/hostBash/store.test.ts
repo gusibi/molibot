@@ -68,6 +68,23 @@ test("approve with persistent scope whitelists every capability of a compound co
   assert.ok(store.getApprovedEntry("osascript")?.enabled);
 });
 
+test("listWhitelist tolerates legacy grants without metadata", () => {
+  const store = createStore();
+  (store as any).db.prepare(`
+    INSERT INTO approval_grants (
+      id, scope, capability, actor_id, workspace_id, session_id, run_id,
+      action_fingerprint, expires_at, created_at, revoked_at
+    )
+    VALUES (?, 'persistent', 'bash:one-time-foo', 'user-1', NULL, NULL, 'request-1', NULL, NULL, ?, NULL)
+  `).run("legacy-grant-1", "2026-06-19T00:00:00.000Z");
+
+  const entry = store.listWhitelist()[0];
+  assert.equal(entry?.id, "legacy-grant-1");
+  assert.equal(entry?.toolId, "one-time-foo");
+  assert.equal(entry?.displayName, "one-time-foo");
+  assert.equal(entry?.enabled, true);
+});
+
 test("new ephemeral request for the same capability expires the older pending card", () => {
   const store = createStore();
   const first = store.requestApproval(requestInput({

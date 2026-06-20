@@ -18,7 +18,7 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 const readSchema = Type.Object({
-  label: Type.String(),
+  label: Type.Optional(Type.String()),
   path: Type.String(),
   offset: Type.Optional(Type.Number()),
   limit: Type.Optional(Type.Number())

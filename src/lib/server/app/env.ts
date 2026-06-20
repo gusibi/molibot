@@ -29,6 +29,22 @@ dotenv.config({ path: path.join(resolvedDataDir, ".env") });
 
 const resolvedDatabaseDir = expandHomePath(process.env.DB_DIR ?? path.join(resolvedDataDir, "db"));
 
+// True when the runtime must not start live network services (channel
+// websockets, the task scheduler, the periodic memory-sync interval). These
+// are real, long-lived side effects that have no place in unit tests: when a
+// tool/unit test transitively reaches `getRuntime()` (for example the host-bash
+// path reads settings through it), booting the Feishu/Telegram clients keeps
+// the process alive forever and the node:test runner never exits.
+//
+// `NODE_TEST_CONTEXT` is set by `node --test` and never in production, so it
+// auto-detects test runs. `MOLIBOT_DISABLE_LIVE_CHANNELS` is an explicit escape
+// hatch for any other harness that imports the runtime without wanting bots.
+export function liveServicesDisabled(): boolean {
+  if (process.env.NODE_TEST_CONTEXT) return true;
+  const raw = String(process.env.MOLIBOT_DISABLE_LIVE_CHANNELS ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 export const config = {
   port: intFromEnv("PORT", 3000),
   dataDir: resolvedDataDir,

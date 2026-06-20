@@ -153,6 +153,15 @@ function readToolCall(id: string, path: string) {
   };
 }
 
+function readToolCallWithoutLabel(id: string, path: string) {
+  return {
+    toolCall: { id, name: "read", input: {} },
+    args: { path },
+    assistantMessage: { role: "assistant", content: [], timestamp: Date.now() },
+    context: { systemPrompt: "", messages: [], tools: [] }
+  };
+}
+
 test("applyAssistantStreamEvent resets buffered assistant text on a new assistant message", () => {
   const afterDelta = applyAssistantStreamEvent(
     { assistantTextStreamed: false, streamedAssistantText: "" },
@@ -1043,6 +1052,30 @@ test("runner emits skill.loaded when read opens an active skill file", async () 
   });
 
   assert.equal((runner as any).getPendingReadPathCountForTest(), 0);
+  const loaded = events.find((event) => event.stage === "skill.loaded");
+  assert.equal(loaded?.payload.name, "example-skill");
+  assert.equal(loaded?.payload.reason, "read_skill_file");
+});
+
+test("runner emits skill.loaded when read omits label", async () => {
+  const events: Array<{ stage: string; payload: any }> = [];
+  const hookManager = createRunnerHookManager(events);
+  const runner = await createRunnerForHookTest({ chatId: "chat-read-skill-no-label", hookManager });
+  activateHookContext(runner, "run-read-skill-no-label", "chat-read-skill-no-label");
+  const skillPath = join(process.cwd(), "skills", "example-no-label", "SKILL.md");
+  setActiveSkill(runner, skillPath);
+
+  const agent = (runner as any).agent;
+  const beforeResult = await agent.beforeToolCall(readToolCallWithoutLabel("read-skill-no-label", skillPath));
+  assert.equal(beforeResult, undefined);
+  assert.equal((runner as any).getPendingReadPathCountForTest(), 1);
+
+  await agent.afterToolCall({
+    toolCall: { id: "read-skill-no-label", name: "read", input: {} },
+    result: { content: [{ type: "text", text: "skill body" }] },
+    isError: false
+  });
+
   const loaded = events.find((event) => event.stage === "skill.loaded");
   assert.equal(loaded?.payload.name, "example-skill");
   assert.equal(loaded?.payload.reason, "read_skill_file");

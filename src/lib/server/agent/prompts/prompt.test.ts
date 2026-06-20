@@ -170,6 +170,14 @@ test("prompt source prioritizes webSearch for current web information", () => {
   assert.match(promptSource, /date-aware guidance, fallback diagnostics, citations, and source metadata/);
 });
 
+test("prompt source directs MCP usage through loadMcp and mcpInvoke, not toolSearch", () => {
+  assert.match(promptSource, /MCP tools are not deferred tools/);
+  assert.match(promptSource, /Do not use `toolSearch` to find MCP tools/);
+  assert.match(promptSource, /`loadMcp\(action="load", serverId="\.\.\."\)`/);
+  assert.match(promptSource, /`mcpInvoke\(action="listTools"\)`/);
+  assert.match(promptSource, /`mcpInvoke\(action="call", serverId="\.\.\.", toolName="\.\.\.", arguments=\{\.\.\.\}\)`/);
+});
+
 test("prompt source prioritizes imageGenerate before skillSearch and bash image scripts", () => {
   assert.match(promptSource, /"imageGenerate"/);
   assert.match(promptSource, /function buildAvailableDeferredToolsSection\(\): string \{[\s\S]*"imageGenerate"[\s\S]*\}/);

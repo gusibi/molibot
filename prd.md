@@ -7,6 +7,27 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Solo builders and small teams who want one AI assistant across channels.
 - Users who prefer simple interaction over complex automation.
 
+## 2.13 Scope Clarification (2026-06-20)
+- [Done] IM 共享 `/new` 命令生成的 Agent runtime session ID 必须使用当天递增格式 `s-YYYYMMDD-0001`，同一天同一 chat/scope 已存在同格式 session 时递增到下一个序号；旧随机格式 session 继续可列出和切换，但不参与新序号计算。
+- [Done] `sessionMode=fresh` 的定时任务 session ID 必须使用同一套当天递增规则，前缀为 `task`，例如 `task-YYYYMMDD-0001`；该逻辑必须留在共享 Agent runtime store，不能下沉到各 Channel。
+
+## 2.12 Scope Clarification (2026-06-20)
+- [Done] Web Chat 中 Agent 工具产生的附件（例如 `attach` 发送截图）必须真实落到 session 的 assistant 消息 `attachments` 元数据里；不能只把工具结果记录成普通文本，否则文件面板无法判断文件类型或打开附件。
+- [Done] Web 附件标题不带扩展名时必须继承源文件扩展名并推断 `mediaType` / `mimeType`，例如 PNG 截图应保存为图片附件而不是未知类型文件。
+
+## 2.11 Scope Clarification (2026-06-20)
+- [Done] `/settings/mcp` 必须兼容常见 HTTP MCP 配置写法：当服务条目包含 `url` 但未显式声明 `type` / `transport` 时，保存流程应自动按 HTTP transport 处理，而不是按默认 stdio 校验并因缺少 `command` 丢弃。
+- [Done] `/settings/mcp` 必须保留顶层 `headers` 写法，并在保存后归一为 HTTP headers，确保 `{ "mcpServers": { "tdx": { "url": "...", "headers": {...} } } }` 这类配置不会保存后丢失。
+- [Done] MCP 工具加载后必须能在同一轮继续调用。由于 agent loop 会在 prompt 开始时拷贝当前工具列表，`loadMcp` 运行中动态追加的 `mcp__...` 工具不能依赖直接进入当前轮工具 schema；需要提供稳定入口 `mcpInvoke` 来列出和调用已加载 MCP 工具，并明确禁止用 `toolSearch` 搜索 MCP 工具。
+- [Done] 内置 `read` 工具的 `label` 只作为展示/日志字段，不得作为读取文件的必填业务参数；只传 `path` 的工具调用必须通过校验，并继续保留读取 `SKILL.md` 时的 `read_skill_file` trace 记录。
+
+## 2.10 Scope Clarification (2026-06-19)
+- [Done] 生产 `node build` 和 control/service 启动路径下，`/settings/agents` 必须能加载内置 Subagent 清单；如果 release 打包资源存在则读取 build chunk 中的 `subagent-agents`，如果本地工作树直接 `node build` 缺少该资源，则回退读取源码目录，不能因为 `/api/settings/subagents` 500 让已存在的 agents 数据在页面上不可见。
+- [Done] `/settings/host-bash` 必须兼容历史 Host Bash 白名单数据；persistent grant 的 `action_fingerprint` 为空或解析后不是对象时，页面 API 应使用 capability tool id 兜底显示，不能整页 500。
+
+## 2.9 Scope Clarification (2026-06-18)
+- [Done] `/stop` 成功返回“已停止”后必须同步释放 channel 层 busy 状态、终止当前 run lock 并重置对应 runner；后续普通消息不得继续因为旧运行态被提示 `Queued as #...`。清理 pending queue 与释放当前运行态必须保持一致，避免用户看到已停止但会话仍表现为忙碌。
+
 ## 2.8 Scope Clarification (2026-06-17)
 - [Done] Telegram 富文本输出：Telegram SDK 必须升级到支持 Bot API 10.1 的 `grammy@1.44.0`；若 SDK 已暴露 rich message 能力，Telegram 出站文本应统一使用 rich message 来源（`InputRichMessage.markdown`、`sendRichMessage`、rich `editMessageText`）。Telegram 渲染不得再保留本地 Markdown-to-HTML 转换或 Markdown 正则识别；rich message 失败时只回退到 grammY 普通文本发送，避免自写解析逻辑和 Telegram 富文本解析发生漂移。
 - [Done] 共享命令 Markdown 统一输出：既然 Telegram rich message 已可用，共享命令层不得再按 Telegram/Feishu/QQ/Weixin 分叉生成不同文本；命令只产出一份规范 Markdown，渠道发送层负责渲染或降级。`/status` 统一使用分组 Markdown 列表，`/help`、`/queue`、`/skills` 等表格型输出统一使用标准 Markdown 表格块。Telegram 发送层必须能识别纯 Markdown 表格，确保表格-only 输出也进入富文本路径。
