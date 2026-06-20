@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { getModels, type AssistantMessage, type Model } from "@mariozechner/pi-ai";
@@ -25,7 +25,7 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { isKnownProvider } from "$lib/server/settings/index.js";
 import { KNOWN_PROVIDER_LIST } from "$lib/server/settings/schema.js";
 import { resolveProviderApiKey } from "$lib/server/agent/identity/auth.js";
-import { momLog } from "$lib/server/agent/common/log.js";
+import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import type { RunnerUiEvent } from "$lib/server/agent/core/types.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
@@ -35,6 +35,16 @@ import { createEditTool } from "$lib/server/agent/tools/edit.js";
 import { createReadTool } from "$lib/server/agent/tools/read.js";
 import { createWriteTool } from "$lib/server/agent/tools/write.js";
 import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
+import type { RunBudgetSnapshot } from "$lib/server/agent/core/runtimeBudget.js";
+import {
+  armSubagentDeadline,
+  DEFAULT_SUBAGENT_DEADLINE_MS,
+  evaluateSubagentEvent,
+  resolveSubagentBudgetLimits,
+  shouldFallbackToNextModel,
+  SubagentExecutionGuard,
+  type SubagentStopKind
+} from "$lib/server/agent/tools/subagentRuntime.js";
 
 const SUBAGENT_NAMES = ["scout", "planner", "worker", "reviewer", "skill-drafter"] as const;
 type SubagentName = (typeof SUBAGENT_NAMES)[number];
@@ -85,6 +95,9 @@ export interface SubagentRunResult {
   errorMessage?: string;
   usage: UsageStats;
   model?: string;
+  budget?: RunBudgetSnapshot;
+  runtimeStopKind?: SubagentStopKind;
+  durationMs?: number;
 }
 
 interface SubagentToolDetails {
@@ -220,13 +233,22 @@ function extractBody(content: string): string {
   return content.replace(/^---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/, "").trim();
 }
 
+function readSubagentSource(name: SubagentName): string {
+  const bundledPath = new URL(`./subagent-agents/${name}.md`, import.meta.url);
+  try {
+    return readFileSync(bundledPath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
+  }
+  return readFileSync(join(process.cwd(), "src/lib/server/agent/tools/subagent-agents", `${name}.md`), "utf8");
+}
+
 function loadSubagentRegistry(): Map<SubagentName, SubagentDefinition> {
   if (cachedRegistry) return cachedRegistry;
 
   const next = new Map<SubagentName, SubagentDefinition>();
   for (const name of SUBAGENT_NAMES) {
-    const filePath = new URL(`./subagent-agents/${name}.md`, import.meta.url);
-    const raw = readFileSync(filePath, "utf8");
+    const raw = readSubagentSource(name);
     const frontmatter = parseSkillFrontmatter(raw);
     if (!frontmatter) {
       throw new Error(`Missing frontmatter for subagent '${name}'.`);
@@ -374,77 +396,138 @@ function hasShellControlOperator(command: string): boolean {
   return false;
 }
 
-async function resolveSubagentModel(
+async function buildModelFromRoute(
   settings: RuntimeSettings,
-  modelHint?: string
-): Promise<{ model: Model<any>; authStorage: AuthStorage; modelRegistry: ModelRegistry }> {
-  const authStorage = AuthStorage.inMemory();
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
-  const routed = resolveSubagentModelRoute(settings, modelHint);
-
-  if (routed) {
-    if (routed.mode === "pi" || isKnownProvider(routed.provider)) {
-      const providerId = routed.provider;
-      const found = getModels(providerId as any).find((row) => row.id === routed.model);
-      if (found) {
-        const configured = settings.customProviders.find((provider) => provider.id === providerId);
-        const apiKey = await resolveProviderApiKey(providerId, () => configured?.apiKey?.trim() || undefined);
-        if (apiKey) {
-          authStorage.setRuntimeApiKey(providerId, apiKey);
-        }
-        return { model: found, authStorage, modelRegistry };
-      }
-    }
-
-    const customProvider = settings.customProviders.find((provider) => provider.id === routed.provider);
-    if (customProvider && customProvider.enabled !== false && customProvider.baseUrl.trim() && routed.model) {
-      const apiKey = await resolveProviderApiKey(customProvider.id, () => customProvider.apiKey.trim());
+  route: SubagentModelRoute,
+  authStorage: AuthStorage
+): Promise<Model<any> | null> {
+  if (route.mode === "pi" || isKnownProvider(route.provider)) {
+    const providerId = route.provider;
+    const found = getModels(providerId as any).find((row) => row.id === route.model);
+    if (found) {
+      const configured = settings.customProviders.find((provider) => provider.id === providerId);
+      const apiKey = await resolveProviderApiKey(providerId, () => configured?.apiKey?.trim() || undefined);
       if (apiKey) {
-        authStorage.setRuntimeApiKey(customProvider.id, apiKey);
+        authStorage.setRuntimeApiKey(providerId, apiKey);
       }
-      const configuredModel = customProvider.models.find((row) => row.id === routed.model);
-      const protocol = resolveCustomProviderProtocol(customProvider.protocol);
-      const model: Model<any> = {
-        id: routed.model,
-        name: customProvider.name || routed.model,
-        api: protocol === "anthropic" ? "anthropic-messages" : "openai-completions",
-        provider: customProvider.id,
-        baseUrl: protocol === "anthropic"
-          ? buildAnthropicBaseUrl(customProvider.baseUrl, customProvider.path)
-          : buildOpenAIBaseUrl(customProvider.baseUrl, customProvider.path),
-        reasoning: resolveCustomProviderReasoningSupport(customProvider),
-        input: configuredModel?.tags?.includes("vision") ? ["text", "image"] : ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: configuredModel?.contextWindow || 200000,
-        maxTokens: 8192,
-        compat: protocol === "anthropic" ? undefined : buildCustomProviderCompat(customProvider)
-      };
-      return { model, authStorage, modelRegistry };
+      return found;
     }
   }
 
+  const customProvider = settings.customProviders.find((provider) => provider.id === route.provider);
+  if (customProvider && customProvider.enabled !== false && customProvider.baseUrl.trim() && route.model) {
+    const apiKey = await resolveProviderApiKey(customProvider.id, () => customProvider.apiKey.trim());
+    if (apiKey) {
+      authStorage.setRuntimeApiKey(customProvider.id, apiKey);
+    }
+    const configuredModel = customProvider.models.find((row) => row.id === route.model);
+    const protocol = resolveCustomProviderProtocol(customProvider.protocol);
+    return {
+      id: route.model,
+      name: customProvider.name || route.model,
+      api: protocol === "anthropic" ? "anthropic-messages" : "openai-completions",
+      provider: customProvider.id,
+      baseUrl: protocol === "anthropic"
+        ? buildAnthropicBaseUrl(customProvider.baseUrl, customProvider.path)
+        : buildOpenAIBaseUrl(customProvider.baseUrl, customProvider.path),
+      reasoning: resolveCustomProviderReasoningSupport(customProvider),
+      input: configuredModel?.tags?.includes("vision") ? ["text", "image"] : ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: configuredModel?.contextWindow || 200000,
+      maxTokens: 8192,
+      compat: protocol === "anthropic" ? undefined : buildCustomProviderCompat(customProvider)
+    };
+  }
+
+  return null;
+}
+
+async function buildSubagentFallbackModel(
+  settings: RuntimeSettings,
+  authStorage: AuthStorage
+): Promise<Model<any> | null> {
   const fallbackProvider = settings.piModelProvider;
   const fallbackModel = getModels(fallbackProvider).find((row) => row.id === settings.piModelName) ?? getModels(fallbackProvider)[0];
-  if (!fallbackModel) {
-    throw new Error(`No fallback model available for provider '${fallbackProvider}'.`);
-  }
+  if (!fallbackModel) return null;
   const fallbackConfigured = settings.customProviders.find((provider) => provider.id === fallbackProvider);
   const apiKey = await resolveProviderApiKey(fallbackProvider, () => fallbackConfigured?.apiKey?.trim() || undefined);
   if (apiKey) {
     authStorage.setRuntimeApiKey(fallbackProvider, apiKey);
   }
-  return { model: fallbackModel, authStorage, modelRegistry };
+  return fallbackModel;
+}
+
+/**
+ * Resolve the ordered list of usable subagent models from the candidate routes,
+ * de-duplicated by provider+id, with the host pi model appended as the ultimate
+ * fallback. A shared in-memory AuthStorage carries each model's runtime key so a
+ * later candidate can be tried without rebuilding auth.
+ */
+async function resolveSubagentModelCandidates(
+  settings: RuntimeSettings,
+  modelHint?: string
+): Promise<{ models: Model<any>[]; authStorage: AuthStorage; modelRegistry: ModelRegistry }> {
+  const authStorage = AuthStorage.inMemory();
+  const modelRegistry = ModelRegistry.inMemory(authStorage);
+  const models: Model<any>[] = [];
+  const seen = new Set<string>();
+  const pushModel = (model: Model<any> | null): void => {
+    if (!model) return;
+    const key = `${model.provider}|${model.id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    models.push(model);
+  };
+
+  for (const route of buildSubagentModelCandidates(settings, modelHint)) {
+    pushModel(await buildModelFromRoute(settings, route, authStorage));
+  }
+  pushModel(await buildSubagentFallbackModel(settings, authStorage));
+
+  if (models.length === 0) {
+    throw new Error(`No subagent model available for provider '${settings.piModelProvider}'.`);
+  }
+  return { models, authStorage, modelRegistry };
+}
+
+type SubagentModelRoute = { mode: "pi" | "custom"; provider: string; model: string };
+
+/**
+ * Build the ordered, de-duplicated list of model routes a subagent may use.
+ * The first entry matches {@link resolveSubagentModelRoute} (backward
+ * compatible); later entries are fallbacks so a failed primary model call can
+ * recover instead of aborting the whole delegated task. The main text route is
+ * always appended last as a final safety net.
+ */
+export function buildSubagentModelCandidates(
+  settings: RuntimeSettings,
+  modelHint?: string
+): SubagentModelRoute[] {
+  const level = parseSubagentModelLevel(modelHint);
+  const ordered: Array<SubagentModelRoute | null> = [
+    parseModelKey(subagentModelLevelKey(settings, level)),
+    parseModelKey(settings.modelRouting.subagentModelKey),
+    level ? null : resolveSubagentModelHint(modelHint, settings),
+    parseModelKey(currentModelKey(settings, "text"))
+  ];
+
+  const seen = new Set<string>();
+  const candidates: SubagentModelRoute[] = [];
+  for (const route of ordered) {
+    if (!route) continue;
+    const key = `${route.mode}|${route.provider}|${route.model}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    candidates.push(route);
+  }
+  return candidates;
 }
 
 export function resolveSubagentModelRoute(
   settings: RuntimeSettings,
   modelHint?: string
-): { mode: "pi" | "custom"; provider: string; model: string } | null {
-  const level = parseSubagentModelLevel(modelHint);
-  return parseModelKey(subagentModelLevelKey(settings, level))
-    ?? parseModelKey(settings.modelRouting.subagentModelKey)
-    ?? (level ? null : resolveSubagentModelHint(modelHint, settings))
-    ?? parseModelKey(currentModelKey(settings, "text"));
+): SubagentModelRoute | null {
+  return buildSubagentModelCandidates(settings, modelHint)[0] ?? null;
 }
 
 function buildUsage(messages: AgentMessage[]): UsageStats {
@@ -663,21 +746,37 @@ function createCustomTools(
   return tools;
 }
 
-async function runSingleSubagent(
+interface RunSingleSubagentOptions {
+  cwd: string;
+  workspaceDir: string;
+  chatId: string;
+  settings: RuntimeSettings;
+  artifactDir?: string;
+  hostApproval?: BashToolHostApprovalOptions;
+  emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
+  signal?: AbortSignal;
+}
+
+interface SubagentAttemptRuntime {
+  model: Model<any>;
+  authStorage: AuthStorage;
+  modelRegistry: ModelRegistry;
+  guard: SubagentExecutionGuard;
+  startedAt: number;
+}
+
+/**
+ * Run the delegated task once against a single resolved model. The execution
+ * guard and start time are injected so a fallback retry shares the same budget
+ * and overall deadline across model candidates.
+ */
+async function runSubagentOnce(
   agent: SubagentDefinition,
   task: string,
-  options: {
-    cwd: string;
-    workspaceDir: string;
-    chatId: string;
-    settings: RuntimeSettings;
-    artifactDir?: string;
-    hostApproval?: BashToolHostApprovalOptions;
-    emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
-    signal?: AbortSignal;
-  }
+  options: RunSingleSubagentOptions,
+  runtime: SubagentAttemptRuntime
 ): Promise<SubagentRunResult> {
-  const { model, authStorage, modelRegistry } = await resolveSubagentModel(options.settings, agent.modelHint);
+  const { model, authStorage, modelRegistry, guard, startedAt } = runtime;
   momLog("runner", "subagent_model_resolved", {
     chatId: options.chatId,
     agent: agent.name,
@@ -756,6 +855,18 @@ async function runSingleSubagent(
   let subagentToolCallCount = 0;
   let subagentLlmCallCount = 0;
   const unsubscribe = session.subscribe((event: any) => {
+    const evaluation = evaluateSubagentEvent(guard, event);
+    if (evaluation.abort) {
+      momWarn("runner", "subagent_budget_abort", {
+        chatId: options.chatId,
+        agent: agent.name,
+        stopKind: guard.getStopReason()?.kind,
+        reason: evaluation.reason,
+        budget: guard.snapshot()
+      });
+      void session.abort();
+    }
+
     if (event.type === "message_start" && event.message?.role === "assistant") {
       subagentLlmCallCount += 1;
       momLog("runner", "subagent_llm_call_start", {
@@ -816,6 +927,21 @@ async function runSingleSubagent(
     void session.abort();
   });
 
+  // Independent deadline timer: the event-driven guard check only runs when the
+  // session emits events, so a stalled/idle session.prompt would never hit the
+  // deadline. This timer aborts such hangs and records the timeout stop reason.
+  const clearDeadline = armSubagentDeadline(guard, () => {
+    if (!guard.checkDeadline().ok) {
+      momWarn("runner", "subagent_deadline_timeout", {
+        chatId: options.chatId,
+        agent: agent.name,
+        modelId: model.id,
+        budget: guard.snapshot()
+      });
+      void session.abort();
+    }
+  });
+
   try {
     momLog("runner", "subagent_prompt_start", {
       chatId: options.chatId,
@@ -832,14 +958,24 @@ async function runSingleSubagent(
 
     const messages = session.state.messages;
     const lastAssistant = getLastAssistant(messages);
+    const guardStop = hostBashApproval ? undefined : guard.getStopReason();
     return {
       agent: agent.name,
       task,
       output: getAssistantText(lastAssistant),
-      stopReason: hostBashApproval ? "waiting_for_approval" : lastAssistant?.stopReason ?? "stop",
-      errorMessage: hostBashApproval ? undefined : lastAssistant?.errorMessage,
+      stopReason: hostBashApproval
+        ? "waiting_for_approval"
+        : guardStop
+          ? "error"
+          : lastAssistant?.stopReason ?? "stop",
+      errorMessage: hostBashApproval
+        ? undefined
+        : guardStop?.reason ?? lastAssistant?.errorMessage,
       usage: buildUsage(messages),
-      model: session.model?.id
+      model: session.model?.id,
+      budget: guard.snapshot(),
+      runtimeStopKind: guardStop?.kind,
+      durationMs: Date.now() - startedAt
     };
   } catch (error) {
     momLog("runner", "subagent_prompt_error", {
@@ -858,11 +994,14 @@ async function runSingleSubagent(
         output: getAssistantText(lastAssistant),
         stopReason: "waiting_for_approval",
         usage: buildUsage(messages),
-        model: session.model?.id
+        model: session.model?.id,
+        budget: guard.snapshot(),
+        durationMs: Date.now() - startedAt
       };
     }
     throw error;
   } finally {
+    clearDeadline();
     options.signal?.removeEventListener("abort", onAbort);
     unsubscribe();
     session.dispose();
@@ -873,6 +1012,69 @@ async function runSingleSubagent(
       toolCalls: subagentToolCallCount
     });
   }
+}
+
+/**
+ * Run a delegated task with model fallback. Resolves the ordered model
+ * candidates, then tries each in turn under a single shared execution guard
+ * (budget + deadline). Falls back to the next model only on a plain model error
+ * — not on success, abort, approval, or a budget/timeout stop.
+ */
+async function runSingleSubagent(
+  agent: SubagentDefinition,
+  task: string,
+  options: RunSingleSubagentOptions
+): Promise<SubagentRunResult> {
+  const { models, authStorage, modelRegistry } = await resolveSubagentModelCandidates(
+    options.settings,
+    agent.modelHint
+  );
+  const guard = new SubagentExecutionGuard({
+    limits: resolveSubagentBudgetLimits(options.settings),
+    deadlineMs: DEFAULT_SUBAGENT_DEADLINE_MS
+  });
+  const startedAt = Date.now();
+
+  let lastError: unknown;
+  for (let index = 0; index < models.length; index += 1) {
+    const isLast = index === models.length - 1;
+    const model = models[index];
+    try {
+      const result = await runSubagentOnce(agent, task, options, {
+        model,
+        authStorage,
+        modelRegistry,
+        guard,
+        startedAt
+      });
+      if (!isLast && shouldFallbackToNextModel(result)) {
+        momWarn("runner", "subagent_model_fallback", {
+          chatId: options.chatId,
+          agent: agent.name,
+          failedModel: model.id,
+          nextModel: models[index + 1]?.id,
+          stopReason: result.stopReason,
+          errorMessage: result.errorMessage
+        });
+        continue;
+      }
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (options.signal?.aborted || isLast) {
+        throw error;
+      }
+      momWarn("runner", "subagent_model_fallback", {
+        chatId: options.chatId,
+        agent: agent.name,
+        failedModel: model.id,
+        nextModel: models[index + 1]?.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  throw lastError ?? new Error("No subagent model candidates were available to run.");
 }
 
 function extractHostBashApprovalPrompt(result: unknown): HostBashApprovalPrompt | undefined {
@@ -956,7 +1158,14 @@ export function createSubagentTool(options: {
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
   runId?: string;
   requestedByDepth?: number;
+  /** Injectable subagent runner; defaults to {@link runSingleSubagent}. Used by tests to exercise per-mode behavior without a live model. */
+  runSubagent?: (
+    agent: SubagentDefinition,
+    task: string,
+    runOptions: RunSingleSubagentOptions
+  ) => Promise<SubagentRunResult>;
 }): AgentTool<typeof subagentSchema> {
+  const runSubagent = options.runSubagent ?? runSingleSubagent;
   return {
     name: "subagent",
     label: "subagent",
@@ -1053,7 +1262,7 @@ export function createSubagentTool(options: {
             (options as any)._testHostApprovalCallback(hostApproval);
           }
 
-          const result = await runSingleSubagent(agent, task, {
+          const result = await runSubagent(agent, task, {
             cwd: options.cwd,
             workspaceDir: options.workspaceDir,
             chatId: options.chatId,
@@ -1085,7 +1294,9 @@ export function createSubagentTool(options: {
             taskIndex: index + 1,
             taskCount: parsed.tasks.length,
             stopReason: normalizeSubagentStopReason(result.stopReason),
-            errorMessage: result.errorMessage
+            errorMessage: result.errorMessage,
+            budget: result.budget,
+            model: result.model
           });
           return result;
         } catch (error) {

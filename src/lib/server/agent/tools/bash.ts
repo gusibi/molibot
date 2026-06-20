@@ -20,6 +20,7 @@ import {
 import { executeApprovedHostBash, executeHostBashApproval } from "$lib/server/agent/hostBashExec.js";
 import { momWarn } from "$lib/server/agent/common/log.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
+import { pollUntilResolved, type PollOutcome } from "$lib/server/approval/approvalWaiter.js";
 import { execCommand, normalizeCommandOutput, shellEscape, stripAnsi, wrapCommandWithVenv, toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { prepareToolSandboxExecution } from "$lib/server/agent/tools/sandbox.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateMiddle, type TruncationResult } from "$lib/server/agent/tools/truncate.js";
@@ -421,62 +422,64 @@ async function waitForHostBashApprovalAndExecute(input: {
     hostBashApproval: prompt
   } as any);
 
-  const start = Date.now();
-  const waitTimeoutMs = input.waitTimeoutMs ?? HOST_APPROVAL_WAIT_TIMEOUT_MS;
-  while (Date.now() - start < waitTimeoutMs) {
-    if (ctx.signal?.aborted) {
-      return { ok: false, error: "Tool execution aborted while waiting for user approval." };
-    }
-    const record = store.getApprovalRecord(prompt.requestId);
-    if (!record) break;
-    if (record.status === "rejected") {
-      return { ok: false, error: "Tool execution is rejected by user approval." };
-    }
-    if (record.status === "expired") {
-      return { ok: false, error: "Tool execution is rejected: the approval request expired." };
-    }
-    if (record.status === "executed" || record.status === "failed") {
-      // The approval handler raced us and already executed the command out-of-band.
-      return record.status === "executed"
-        ? { ok: true, content: [{ type: "text", text: "Command was approved and executed by the approval handler. Output was delivered to the chat." }] }
-        : { ok: false, error: record.errorText || "Approved command failed during execution." };
-    }
-    if (record.status === "approved") {
-      // Claim execution so the channel approval handler cannot also run the
-      // command; if the claim is lost, keep polling until the winner records
-      // the outcome (executed/failed).
-      const claimed = typeof store.claimExecution === "function" ? store.claimExecution(record.id) : true;
-      if (!claimed) {
-        await new Promise((resolve) => setTimeout(resolve, HOST_APPROVAL_POLL_INTERVAL_MS));
-        continue;
+  return pollUntilResolved<ToolResult>({
+    timeoutMs: input.waitTimeoutMs ?? HOST_APPROVAL_WAIT_TIMEOUT_MS,
+    pollMs: HOST_APPROVAL_POLL_INTERVAL_MS,
+    signal: ctx.signal,
+    onAbort: () => ({ ok: false, error: "Tool execution aborted while waiting for user approval." }),
+    onTimeout: () => buildFallbackResult(),
+    poll: async (): Promise<PollOutcome<ToolResult>> => {
+      const record = store.getApprovalRecord!(prompt.requestId);
+      // Record vanished — fall back to the async approve -> execute -> resume flow.
+      if (!record) return { done: true, value: buildFallbackResult() };
+      if (record.status === "rejected") {
+        return { done: true, value: { ok: false, error: "Tool execution is rejected by user approval." } };
       }
-      const approvedTool = findApprovedHostBash(
-        store,
-        tryParseHostBashCommand(record.pendingAction?.originalCommand ?? "")
-      );
-      try {
-        const executed = await executeHostBashApproval({
-          record,
-          approvedTool: approvedTool ?? undefined,
-          cwd: ctx.cwd,
-          signal: ctx.signal
-        });
-        store.markExecution(record.id, "executed");
+      if (record.status === "expired") {
+        return { done: true, value: { ok: false, error: "Tool execution is rejected: the approval request expired." } };
+      }
+      if (record.status === "executed" || record.status === "failed") {
+        // The approval handler raced us and already executed the command out-of-band.
         return {
-          ok: true,
-          content: [{ type: "text", text: executed.rendered }],
-          details: executed.details
+          done: true,
+          value: record.status === "executed"
+            ? { ok: true, content: [{ type: "text", text: "Command was approved and executed by the approval handler. Output was delivered to the chat." }] }
+            : { ok: false, error: record.errorText || "Approved command failed during execution." }
         };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        store.markExecution(record.id, "failed", message);
-        return { ok: false, error: message };
       }
+      if (record.status === "approved") {
+        // Claim execution so the channel approval handler cannot also run the
+        // command; if the claim is lost, keep polling until the winner records
+        // the outcome (executed/failed).
+        const claimed = typeof store.claimExecution === "function" ? store.claimExecution(record.id) : true;
+        if (!claimed) {
+          return { done: false };
+        }
+        const approvedTool = findApprovedHostBash(
+          store,
+          tryParseHostBashCommand(record.pendingAction?.originalCommand ?? "")
+        );
+        try {
+          const executed = await executeHostBashApproval({
+            record,
+            approvedTool: approvedTool ?? undefined,
+            cwd: ctx.cwd,
+            signal: ctx.signal
+          });
+          store.markExecution(record.id, "executed");
+          return {
+            done: true,
+            value: { ok: true, content: [{ type: "text", text: executed.rendered }], details: executed.details }
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          store.markExecution(record.id, "failed", message);
+          return { done: true, value: { ok: false, error: message } };
+        }
+      }
+      return { done: false };
     }
-    await new Promise((resolve) => setTimeout(resolve, HOST_APPROVAL_POLL_INTERVAL_MS));
-  }
-
-  return buildFallbackResult();
+  });
 }
 
 export function tryParseHostBashCommand(command: string): ParsedHostBashCommand | null {

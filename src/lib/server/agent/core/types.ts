@@ -1,6 +1,7 @@
 import type { AssistantMessageEvent, ImageContent } from "@mariozechner/pi-ai";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
 import type { HostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
+import type { RunBudgetSnapshot } from "$lib/server/agent/core/runtimeBudget.js";
 
 export type AttachmentMediaType = "image" | "audio" | "video" | "file";
 
@@ -108,6 +109,8 @@ export type RunnerUiEvent =
       taskCount: number;
       stopReason?: "stop" | "aborted" | "error" | "waiting_for_approval";
       errorMessage?: string;
+      budget?: RunBudgetSnapshot;
+      model?: string;
     };
 
 export interface MomContext {

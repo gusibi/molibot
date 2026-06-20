@@ -8,7 +8,7 @@ import { NOOP_HOOK_MANAGER, type HookContext, type HookManager } from "$lib/serv
 import { currentModelKey } from "$lib/server/settings/modelSwitch.js";
 import { momError, momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { buildSystemPrompt } from "$lib/server/agent/prompts/prompt.js";
-import { buildRunReflection, formatRunClosingNote, type RunSummary } from "$lib/server/agent/session/runSummary.js";
+import { buildRunReflection, buildSubagentTaskRecord, formatRunClosingNote, type RunSummary } from "$lib/server/agent/session/runSummary.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
 import { saveSkillDraft, shouldSuggestSkillDraft } from "$lib/server/agent/skills/skillDraft.js";
 import { buildSkillDraftMetadataViaSubagent } from "$lib/server/agent/skills/skillDraftSubagent.js";
@@ -22,7 +22,7 @@ import { resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
 import { pathCompareKey, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
-import { isRetryableModelError, resolvePromptAttemptDecision, shouldEmitFinalRunnerError } from "$lib/server/agent/core/runnerRetryState.js";
+import { isRetryableModelError, resolveFinalErrorAction, resolvePromptAttemptDecision, shouldCountToolResultAsFailure } from "$lib/server/agent/core/runnerRetryState.js";
 import { formatSubagentProgressLabel } from "$lib/server/agent/subagentProgress.js";
 import type { MomContext, RunResult, RunnerLike, ChannelInboundMessage } from "$lib/server/agent/core/types.js";
 import { resolvePlannedBashDisplayName, resolveToolDisplayName } from "$lib/server/agent/tools/toolDisplay.js";
@@ -162,6 +162,9 @@ export class MomRunner implements RunnerLike {
   private modelCallSeq = 0;
   private activeRunSkillManifest = new Map<string, LoadedSkill>();
   private readonly pendingReadPaths = new Map<string, string>();
+  // Tool-call ids that were blocked because the tool-CALL budget was exhausted.
+  // Their error results must not be counted against the tool-FAILURE budget.
+  private readonly budgetBlockedToolCallIds = new Set<string>();
   private readonly activeRunLoadedSkills = new Map<string, LoadedSkillState>();
   private readonly pendingToolSignals = new Map<string, PendingToolSignalContext>();
   private activeSkillLoadSeq = 0;
@@ -280,6 +283,9 @@ export class MomRunner implements RunnerLike {
         const finalBlockedReason = blockedReason ?? budgetResult.reason;
         if (finalBlockedReason) {
           if (!budgetResult.ok) {
+            // Budget block: remember this call id so its error result is not
+            // mistaken for a tool failure in tool_execution_end.
+            this.budgetBlockedToolCallIds.add(context.toolCall.id);
             this.agent.state.tools = [];
           }
           if (hookContext) {
@@ -500,6 +506,7 @@ export class MomRunner implements RunnerLike {
 
     const botId = basename(this.store.getWorkspaceDir()) || "unknown";
     this.modelCallSeq = 0;
+    this.budgetBlockedToolCallIds.clear();
     this.activeHookContext = {
       runId,
       channel: ctx.channel,
@@ -823,6 +830,7 @@ export class MomRunner implements RunnerLike {
       setSelectedMcpServerIds: (next) => {
         this.selectedMcpServerIds = new Set(next);
       },
+      getLoadedMcpTools: () => loadedMcpTools,
       refreshLoadedMcpTools,
       onLocalToolsChanged: (nextTools) => {
         localTools = nextTools;
@@ -854,16 +862,9 @@ export class MomRunner implements RunnerLike {
           } else if (event.phase === "task_end") {
             const startedAt = subagentTaskStartTimes.get(taskKey);
             subagentTaskStartTimes.delete(taskKey);
-            subagentTaskRecords.push({
-              mode: event.mode,
-              agent: event.agent,
-              taskIndex: event.taskIndex,
-              taskCount: event.taskCount,
-              taskPreview: String(event.task ?? "").replace(/\s+/g, " ").trim().slice(0, 160) || undefined,
-              stopReason: event.stopReason,
-              errorMessage: event.errorMessage,
-              durationMs: startedAt ? Date.now() - startedAt : undefined
-            });
+            subagentTaskRecords.push(
+              buildSubagentTaskRecord(event, startedAt ? Date.now() - startedAt : undefined)
+            );
           }
         }
         if (event.type === "subagent_execution" && this.activeHookContext) {
@@ -1039,8 +1040,10 @@ export class MomRunner implements RunnerLike {
           sandboxAttempted: this.getEffectiveSandboxEnabled()
         });
         const status = event.isError ? "✗" : "✓";
-        const budgetResult = budget.recordToolResult(event.isError);
-        if (event.isError) {
+        const budgetBlocked = this.budgetBlockedToolCallIds.has(event.toolCallId);
+        const countsAsFailure = shouldCountToolResultAsFailure(event.isError, budgetBlocked);
+        const budgetResult = budget.recordToolResult(countsAsFailure);
+        if (countsAsFailure) {
           failedToolNames.push(event.toolName);
         }
         const hostBashApproval = extractHostBashApprovalPrompt(event.result);
@@ -1063,7 +1066,7 @@ export class MomRunner implements RunnerLike {
           summary: body,
           isError: event.isError
         });
-        if (event.isError) {
+        if (countsAsFailure) {
           enqueue(() => respondInThread(text));
           enqueue(() => ctx.respond(`_Error: ${body.slice(0, 200)}_`, false));
         }
@@ -1927,13 +1930,29 @@ export class MomRunner implements RunnerLike {
 
       await ctx.setWorking(false);
 
-      if (shouldEmitFinalRunnerError(errorMessage, finalText)) {
+      const finalErrorAction = resolveFinalErrorAction({
+        errorMessage,
+        finalText,
+        streamedPartial: streamedAssistantText
+      });
+      if (finalErrorAction.kind === "generic") {
         momWarn("runner", "final_error", {
           runId,
           chatId: this.chatId,
           errorMessage,
         });
         await ctx.replaceMessage("Sorry, something went wrong.");
+        await respondInThread(`Error: ${errorMessage}`);
+      } else if (finalErrorAction.kind === "preserve_partial") {
+        // Keep the partial answer the user already saw; append a concise note
+        // instead of wiping the whole message with the generic error.
+        momWarn("runner", "final_error_preserved_partial", {
+          runId,
+          chatId: this.chatId,
+          errorMessage,
+          partialLength: streamedAssistantText.trim().length
+        });
+        await sendSupplement(`⚠️ 本次回复在生成过程中中断，上面是已生成的部分。错误：${errorMessage}`);
         await respondInThread(`Error: ${errorMessage}`);
       }
 

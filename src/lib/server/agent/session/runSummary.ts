@@ -17,6 +17,45 @@ export interface RunSummarySubagentTask {
   stopReason?: string;
   errorMessage?: string;
   durationMs?: number;
+  budget?: RunBudgetSnapshot;
+  model?: string;
+}
+
+export interface SubagentTaskEvent {
+  mode: "single" | "parallel" | "chain";
+  agent?: string;
+  taskIndex?: number;
+  taskCount: number;
+  task?: string;
+  stopReason?: string;
+  errorMessage?: string;
+  budget?: RunBudgetSnapshot;
+  model?: string;
+}
+
+/**
+ * Build a persisted subagent task record from a `subagent_execution` task_end
+ * event. Kept pure so the parent runner only has to supply the wall-clock
+ * duration it measured. Surfaces the child's budget snapshot and resolved model
+ * so the run summary makes delegated work observable.
+ */
+export function buildSubagentTaskRecord(
+  event: SubagentTaskEvent,
+  durationMs?: number
+): RunSummarySubagentTask {
+  const taskPreview = String(event.task ?? "").replace(/\s+/g, " ").trim().slice(0, 160) || undefined;
+  return {
+    mode: event.mode,
+    agent: event.agent,
+    taskIndex: event.taskIndex,
+    taskCount: event.taskCount,
+    taskPreview,
+    stopReason: event.stopReason,
+    errorMessage: event.errorMessage,
+    durationMs,
+    budget: event.budget,
+    model: event.model
+  };
 }
 
 export interface RunSummarySubagent {

@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ApprovalBroker, MemoryApprovalBrokerStore } from "$lib/server/approval/approvalBroker.js";
-import { ToolRegistry, ToolRuntime } from "$lib/server/agent/tools/toolRuntime.js";
+import { buildBrokerApprovalRecord, ToolRegistry, ToolRuntime } from "$lib/server/agent/tools/toolRuntime.js";
+import type { ApprovalRequest } from "$lib/server/approval/approvalTypes.js";
 import type { ToolDefinition, ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 import { WorkspaceStore } from "$lib/server/workspaces/store.js";
 import type { RunDetailEntry } from "$lib/server/agent/session/runDetail.js";
@@ -248,4 +249,64 @@ test("ToolRuntime blocks tool execution if not in workspace whitelist", async ()
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+function sampleApprovalRequest(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
+  return {
+    id: "req-1",
+    runId: "run-9",
+    sessionId: "sess-9",
+    workspaceId: "ws-9",
+    actorId: "actor-9",
+    capability: "host:bash",
+    riskLevel: "high",
+    action: { type: "bash", command: "ls -la", toolName: "bash" },
+    reason: "needs host access",
+    status: "pending",
+    requestedBy: { agentId: "actor-9", depth: 0 },
+    scopeOptions: ["once", "session"],
+    createdAt: "2026-06-20T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+test("buildBrokerApprovalRecord fills the constant broker envelope and maps request fields", () => {
+  const request = sampleApprovalRequest();
+  const record = buildBrokerApprovalRecord({
+    request,
+    actorId: "chat-7",
+    toolId: "bash",
+    displayName: "bash",
+    command: "ls -la",
+    status: "pending"
+  });
+
+  assert.equal(record.id, request.id);
+  assert.equal(record.reason, request.reason);
+  assert.equal(record.scopeId, request.runId);
+  assert.equal(record.sessionId, request.sessionId);
+  assert.equal(record.requestedAt, request.createdAt);
+  assert.equal(record.chatId, "chat-7");
+  assert.equal(record.channel, "");
+  assert.equal(record.approvalMode, "ephemeral");
+  assert.equal(record.toolId, "bash");
+  assert.equal(record.displayName, "bash");
+  assert.equal(record.command, "ls -la");
+  assert.equal(record.status, "pending");
+  assert.deepEqual(record.permissions, { envAllowlist: [], filesystem: "scratch-only", network: "none" });
+  assert.equal(record.pendingAction, undefined);
+});
+
+test("buildBrokerApprovalRecord passes through a one-time pending action", () => {
+  const record = buildBrokerApprovalRecord({
+    request: sampleApprovalRequest(),
+    actorId: "chat-7",
+    toolId: "tool",
+    displayName: "tool",
+    command: "do x",
+    status: "pending",
+    pendingAction: { kind: "run_one_time_host_script", originalCommand: "do x", args: [], timeout: 300 }
+  });
+  assert.equal(record.pendingAction?.kind, "run_one_time_host_script");
+  assert.equal(record.pendingAction?.originalCommand, "do x");
 });

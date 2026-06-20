@@ -1,5 +1,59 @@
 # Molibot Features
 
+## 2026-06-20
+
+### Session 命名序号化
+- **`/new` 会话命名**: IM 共享命令创建的新 session 改为按当天递增的可读格式 `s-YYYYMMDD-0001`、`s-YYYYMMDD-0002`，同一天同一 chat/scope 内自动延续最大序号。
+- **定时任务 session 命名**: `sessionMode=fresh` 的 scheduled task session 改为同样规则的 `task-YYYYMMDD-0001`、`task-YYYYMMDD-0002`，仍保留原有 task session 自动清理策略。
+- **回归验证**: 增加 `MomRuntimeStore` 单元测试覆盖普通 session 与 task session 的日期内递增命名。
+
+### Web 工具附件类型修复
+- **Web `attach` 附件持久化**: Web Chat 的 `/api/chat` 与 `/api/stream` 现在会把 Agent 工具通过 `uploadFile` 产生的文件保存为会话附件，并随 assistant 消息写入 `attachments` 元数据，避免工具显示已发送但文件面板没有结构化附件。
+- **无扩展名标题保留文件类型**: 当 `attach` 传入类似 `Example.com 网页截图` 这类不带扩展名的标题时，Web 保存文件名会保留源文件扩展名（如 `.png`），并写入 `mediaType: image` / `mimeType: image/png`，确保图片可以直接预览和打开。
+- **回归验证**: 新增 Web 附件单元测试覆盖 PNG 文件路径 + 无扩展名标题的保存行为。
+
+### MCP 设置保存兼容性修复
+- **URL-only HTTP 配置保留**: `/settings/mcp` 现在会把包含 `url` 但未显式声明 `type` / `transport` 的 MCP 服务自动识别为 HTTP transport，避免这类配置在保存 sanitizer 中被当作缺少 `command` 的 stdio 服务过滤掉。
+- **顶层 headers 兼容**: MCP 配置支持常见的顶层 `headers` 写法，并在保存时归一到最终 HTTP headers，适配 `{ "mcpServers": { "id": { "url": "...", "headers": {...} } } }` 格式。
+- **回归验证**: 新增 `sanitizeMcpServers` 单元测试覆盖 TDX 风格 payload；验证原始复现 payload 已从空数组变为保留 `tdx` HTTP 配置。
+- **MCP 调用入口修复**: 新增稳定的 `mcpInvoke` 工具，只在显式 MCP 场景随 `loadMcp` 暴露。`loadMcp` 仍负责加载服务器；`mcpInvoke(listTools)` 负责列出已加载 MCP 工具；`mcpInvoke(call)` 负责调用具体 MCP 工具，避免同一轮 `agent.prompt()` 中动态追加工具 schema 不会进入当前 context snapshot 导致模型只能误用 `toolSearch` / `bash`。
+- **MCP 工具包装透传**: `wrapWithToolRuntime` 现在向原始工具透传 `AbortSignal` 和 `details`，保留 MCP 结果中的 `serverId` / `remoteToolName` 等可观测信息，并保持停止/中止链路一致。
+
+### 运行预算降级修复（预算耗尽不再 spiral 成报错 / 不再吞掉半截回复）
+- **预算 block 不再误记为工具失败**: 撞「工具调用预算」被 block 的调用会返回 error 结果，原先在 `tool_execution_end` 里被 `recordToolResult(isError)` 当成「工具失败」计数。当模型一轮并行发出多个工具调用时，这些被 block 的调用会让「失败预算」迅速冲顶并触发硬中止，绕过本该执行的「无工具优雅续写」，最终给用户一句 `Sorry, something went wrong`。现在在 `beforeToolCall` 用 tool-call id 记下被预算 block 的调用（`budgetBlockedToolCallIds`），`tool_execution_end` 通过纯函数 `shouldCountToolResultAsFailure` 跳过这些调用的失败计数，并且不再把重复的「budget exceeded」刷屏到会话线程。
+- **错误时保留半截回复**: 流式输出了一半再报错时，原先会把整条消息 `replaceMessage("Sorry, something went wrong.")`，把用户已经看到的部分全部覆盖。新增纯函数 `resolveFinalErrorAction`：有最终答案 → 不动；有可见的流式 partial → 保留 partial、只追加一句中断说明；确实什么都没产出 → 才用兜底通用错误文案。
+- **测试**: `runnerRetryState.test.ts` 新增 2 组用例（失败计数口径、最终错误动作）；回归 `runner.test.ts` 22/22，全部受影响套件 69/69 通过；改动源文件 tsc 干净。
+
+### 审批收敛 Phase 1（共享 poll 等待器，零行为变更）
+- **背景**: 仓库存在两套独立审批阻塞循环 —— ApprovalBroker 通道（`ToolRuntime.pollApprovalRequest`，非 bash 高危工具）与 Host Bash 通道（`waitForHostBashApprovalAndExecute`，bash host 命令），各自手写 timeout/abort/sleep 轮询（摸底见 `docs/designs/agent-runtime/approval-convergence-plan-2026-06-20.md`）。
+- **改动**: 新增 `src/lib/server/approval/approvalWaiter.ts` 的 `pollUntilResolved<T>` 通用轮询骨架（注入 `now`/`sleep`，可纯单测），把"等到终态或超时/中止"的循环机制抽出。System A 与 System B 都改调它；各自的 store 访问、终态判定、approval 后内联执行逻辑保留在各自的 `poll()` 回调中。**零行为变更**（超时、轮询间隔、中止语义、内联执行均不变）。
+- **测试**: `approvalWaiter.test.ts` 4 条（done/持续轮询/中止/超时，均注入假时钟）；回归 System A `toolRuntime.test.ts` 6/6、System B `bash-output.test.ts` 19/19（含「approval 后阻塞内联执行」用例）。改动源文件 tsc 无新增错误。
+- **Prompt 构造收敛（同样零行为变更）**: 把 `ToolRuntime` 内部两处「假 host-bash prompt」构造（pending 卡片 + rejected/expired 结果）合并为单一 `buildBrokerApprovalRecord` helper —— 两处仅传各自的 toolId/displayName/command/status/pendingAction，公共信封（channel ""、ephemeral、scratch-only 权限、从 request 派生的 id/reason/scopeId/sessionId/requestedAt）收敛到一处。新增纯单测 2 条，回归 toolRuntime 8/8、approval 套件 26/26。
+- **范围**: 以上是审批收敛 Phase 1 的两步（共享等待器 + broker prompt 构造收敛），均零行为变更。跨渠道的卡片形状统一（非纯零行为变更）、单一 store of record、subagent resume 收敛为后续 Phase（见上述设计文档）。
+
+### SubagentRuntime 硬化（第一刀）
+- **执行预算与时间上限**: 新增 `src/lib/server/agent/tools/subagentRuntime.ts`，提供 `SubagentExecutionGuard`。它复用父 runner 的 `RunBudget`（不另造预算），叠加 wall-clock deadline（默认 `DEFAULT_SUBAGENT_DEADLINE_MS = 10min`），在子 agent 超过工具调用 / 工具失败 / 模型调用预算或超时时返回**结构化停止原因**（`{ kind: "budget_exceeded" | "timeout", reason }`）。
+- **会话事件驱动中断**: `evaluateSubagentEvent(guard, event)` 把 pi-coding-agent 的 session 事件映射为预算判定；`runSingleSubagent` 在 `session.subscribe` 中据此 `session.abort()`，子 agent 因此获得与父 runner 一致的预算中断能力。
+- **独立 deadline 计时器（修复 idle hang）**: 仅靠事件驱动检查无法在 `session.prompt` 卡住（provider stall、无后续事件）时触发超时。新增 `armSubagentDeadline(guard, onExpire, scheduler?)`（注入式调度器，纯逻辑可测）+ `guard.remainingMs()`，在每次 attempt 外层挂一个真实计时器，到点记录 timeout stop 并 `session.abort()`，并在 `finally` 中清除，确保空闲挂起也能被中止。
+- **结果携带可观测信息**: `SubagentRunResult` 新增 `budget`（RunBudget 快照）、`runtimeStopKind`、`durationMs`；预算/超时触发时 `stopReason` 归一为 `error` 并附结构化 `errorMessage`。
+- **模型 fallback**: 新增 `buildSubagentModelCandidates(settings, modelHint)`（有序去重候选路由，首项与既有 `resolveSubagentModelRoute` 等价、末项追加主 text 路由兜底）+ `resolveSubagentModelCandidates` / `buildModelFromRoute` / `buildSubagentFallbackModel`。`runSingleSubagent` 重构为「解析候选 → 共享 guard → 逐候选 `runSubagentOnce`」循环，按 `shouldFallbackToNextModel` 决定是否换下一个模型；预算/超时/审批/中止不触发 fallback（避免浪费模型或丢状态）。
+- **Run summary 透传**: 新增纯函数 `buildSubagentTaskRecord`，把子 agent 的 `budget`/`model`/`durationMs` 从 `subagent_execution` task_end 事件落到 `RunSummary.subagent.tasks`，使 trace/分析能看到每个子任务的预算、耗时、模型与 stopReason。
+- **测试**: `subagentRuntime.test.ts`（10）覆盖预算耗尽、deadline 超时、事件映射、limits 解析、fallback 判定；`subagent.test.ts` 新增候选构建/去重；`runSummary.test.ts`（2）覆盖任务记录映射。改动源文件 tsc 干净，全量 agent 回归仅既有 `events.test.ts`（与本次无关）失败。
+- **Per-mode 预算测试**: `createSubagentTool` 新增可注入的 `runSubagent` 依赖（默认 `runSingleSubagent`），无需活模型即可端到端验证三种模式下预算中断的流转：single 透出 `runtimeStopKind="budget_exceeded"` 并发出 `error` 终态事件；parallel 即使某个任务被预算中断仍跑完全部；chain 在被预算中断的步骤后停止、不再执行后续步骤。
+- **对照验收**: 标准 1（预算/超时结构化停止）✅、2（模型 fallback）✅、4（single/parallel/chain 预算中断用例）✅、5（run summary 可见）✅；仅剩 3（审批接口收敛，风险最高，建议与 ToolRuntime 双栈合并规划）作为后续 slice（见 `docs/reviews/agent-runtime/agent-optimization-review-2026-06-20.md`）。
+
+## 2026-06-19
+
+### Settings Data Visibility Reliability
+- **Agents 生产启动可见性修复**: `/settings/agents` 页面依赖 `/api/settings/subagents` 同时加载内置 Subagent 清单。生产 `node build` 若缺少打包进 `build/server/chunks/subagent-agents` 的 Markdown 资源，现在会回退读取本地源码目录中的 `subagent-agents` 定义，避免接口 500 导致已保存 agents 看起来无法加载。
+- **Host Bash 旧白名单兼容**: `/settings/host-bash` 现在兼容旧的 persistent approval grant 记录，即使 `action_fingerprint` 为 `NULL` 也能用 capability tool id 渲染白名单项，不再因为 `metadata.displayName` 为空对象访问而整页 500。
+- **回归验证**: 覆盖 Host Bash legacy grant 单元测试，并验证生产 `node build` 下 `/api/settings/subagents` 与 `/api/settings/host-bash` 均返回 200。
+
+## 2026-06-18
+
+### Stop Command Busy-State Release
+- **Stop 后立即释放会话忙碌态**: `/stop` 成功中止当前运行或清理 stale running turn 时，会同步释放 channel 层 busy 标记、标记当前 run 为 aborted，并重置对应 runner。这样用户收到“已停止”后，下一条普通消息会直接进入新任务，而不会继续被误判为当前任务 follow-up 并提示 `Queued as #...`。
+
 ## 2026-06-17
 
 ### Telegram Rich Message Output
@@ -1851,3 +1905,4 @@
 - 2026-06-09: Added `ttsGenerate`, a shared Agent-layer deferred tool for text-to-speech generation. Supports macOS system voices through the built-in `say` command (macOS only) and Xiaomi MiMo TTS with model and voice selection. Added `/settings/tts` for enabling the tool, selecting the default provider, configuring provider credentials, selecting voices, and running test synthesis. Generated audio is saved to controlled runtime artifacts and automatically uploaded through the shared runtime upload capability when available. Channel implementations do not contain TTS generation logic.
 - 2026-06-12: Fixed Feishu video delivery so outbound `.mp4` files are uploaded with Feishu `file_type: mp4` and sent as native `media` messages instead of being transcoded into OPUS voice messages. Inbound Feishu `media`/video resources are now downloaded as media and saved as `video` attachments, while non-MP4 video containers such as `.webm` are delivered as regular files rather than voice.
 - 2026-06-12: Improved `videoGenerate` provider diagnostics. The tool now logs HTTP response status and response body for provider calls, including failed submissions, and redacts sensitive request headers such as `Authorization` before printing logs.
+- 2026-06-20: Made the built-in `read` tool's display `label` optional. Calls with only `path` now pass schema validation, and focused runner coverage confirms `SKILL.md` reads still emit `skill.loaded` with `reason: read_skill_file`.

@@ -57,3 +57,34 @@ export function resolvePromptAttemptDecision(input: {
 export function shouldEmitFinalRunnerError(errorMessage: string | undefined, finalText: string): boolean {
   return Boolean(errorMessage && !finalText.trim());
 }
+
+/**
+ * Whether an errored tool result should count against the tool-failure budget.
+ * A call the runtime deliberately blocked because the tool-CALL budget was hit
+ * is a budget signal, not a tool failure — counting it would cascade into the
+ * tool-FAILURE budget and trigger a hard abort, bypassing the graceful no-tool
+ * continuation that returns the best partial answer.
+ */
+export function shouldCountToolResultAsFailure(isError: boolean, budgetBlocked: boolean): boolean {
+  return isError && !budgetBlocked;
+}
+
+export type FinalErrorActionKind = "none" | "preserve_partial" | "generic";
+
+/**
+ * Decide how to surface a run that ended with an error.
+ * - `none`: no error, or a real final answer was already delivered — leave the message.
+ * - `preserve_partial`: a streamed partial answer is visible — keep it, append a short
+ *   error note instead of replacing it with a generic message (which loses the partial).
+ * - `generic`: nothing was shown to the user — the generic fallback message is acceptable.
+ */
+export function resolveFinalErrorAction(input: {
+  errorMessage: string | undefined;
+  finalText: string;
+  streamedPartial: string;
+}): { kind: FinalErrorActionKind } {
+  if (!input.errorMessage || input.finalText.trim()) {
+    return { kind: "none" };
+  }
+  return { kind: input.streamedPartial.trim() ? "preserve_partial" : "generic" };
+}

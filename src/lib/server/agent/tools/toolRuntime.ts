@@ -9,6 +9,43 @@ import type {
 } from "$lib/server/agent/tools/toolTypes.js";
 import { getWorkspaceStore, type WorkspaceStore } from "$lib/server/workspaces/store.js";
 import { buildHostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
+import type { HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
+import { pollUntilResolved } from "$lib/server/approval/approvalWaiter.js";
+
+/**
+ * Build the Host-Bash-shaped approval record the ApprovalBroker path reuses to
+ * render an approval card for a non-bash high-risk tool. Both the pending-card
+ * and the rejected/expired-result sites previously hand-built this same envelope
+ * (channel "", ephemeral mode, scratch-only permissions, fields derived from the
+ * request). Consolidated here with zero behavior change as part of the
+ * approval-convergence Phase 1 (one prompt construction site instead of two).
+ */
+export function buildBrokerApprovalRecord(input: {
+  request: ApprovalRequest;
+  actorId: string;
+  toolId: string;
+  displayName: string;
+  command: string;
+  status: HostBashApprovalRecord["status"];
+  pendingAction?: HostBashApprovalRecord["pendingAction"];
+}): HostBashApprovalRecord {
+  return {
+    id: input.request.id,
+    toolId: input.toolId,
+    displayName: input.displayName,
+    command: input.command,
+    reason: input.request.reason,
+    channel: "",
+    chatId: input.actorId,
+    scopeId: input.request.runId,
+    sessionId: input.request.sessionId,
+    approvalMode: "ephemeral",
+    status: input.status,
+    permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
+    pendingAction: input.pendingAction,
+    requestedAt: input.request.createdAt
+  };
+}
 
 export type ToolPolicyDecider = (tool: ToolDefinition, input: unknown, ctx: ToolExecutionContext) => PolicyDecision;
 
@@ -154,21 +191,14 @@ export class ToolRuntime {
               status: "waiting_for_approval"
             },
             details: {
-              hostBashApproval: buildHostBashApprovalPrompt({
-                id: decision.request.id,
+              hostBashApproval: buildHostBashApprovalPrompt(buildBrokerApprovalRecord({
+                request: decision.request,
+                actorId: call.context.actorId,
                 toolId: tool.id,
                 displayName: tool.name,
                 command: decision.request.action.command ?? decision.request.action.path ?? tool.name,
-                reason: decision.request.reason,
-                channel: "",
-                chatId: call.context.actorId,
-                scopeId: decision.request.runId,
-                sessionId: decision.request.sessionId,
-                approvalMode: "ephemeral",
-                status: status === "expired" ? "failed" : status,
-                permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
-                requestedAt: decision.request.createdAt
-              })
+                status: status === "expired" ? "failed" : status
+              }))
             }
           };
         }
@@ -209,64 +239,47 @@ export class ToolRuntime {
       toolName: request.action.toolName || "tool",
       displayName: request.action.toolName || "tool",
       summary: `Waiting for user approval: ${request.reason}`,
-      hostBashApproval: buildHostBashApprovalPrompt({
-        id: request.id,
+      hostBashApproval: buildHostBashApprovalPrompt(buildBrokerApprovalRecord({
+        request,
+        actorId: context.actorId,
         toolId: request.action.toolName || "tool",
         displayName: request.action.toolName || "tool",
         command: request.action.command ?? request.action.path ?? request.action.toolName ?? "tool",
-        reason: request.reason,
-        channel: "",
-        chatId: context.actorId,
-        scopeId: request.runId,
-        sessionId: request.sessionId,
-        approvalMode: "ephemeral",
         status: "pending",
-        permissions: { envAllowlist: [], filesystem: "scratch-only", network: "none" },
         pendingAction: {
           kind: "run_one_time_host_script",
           originalCommand: request.action.command ?? request.action.path ?? request.action.toolName ?? "tool",
           args: [],
           timeout: 300
-        },
-        requestedAt: request.createdAt
-      })
+        }
+      }))
     } as any);
 
-    const start = Date.now();
-    const timeoutMs = 5 * 60 * 1000; // 5 minutes timeout
-
-    while (Date.now() - start < timeoutMs) {
-      if (context.signal?.aborted) {
+    return pollUntilResolved<"approved" | "rejected" | "expired">({
+      timeoutMs: 5 * 60 * 1000, // 5 minutes timeout
+      pollMs: 500,
+      signal: context.signal,
+      poll: () => {
+        const req = this.options.approvalBroker?.getRequest(request.id);
+        if (req?.status === "approved") return { done: true, value: "approved" };
+        if (req?.status === "rejected") return { done: true, value: "rejected" };
+        if (req?.status === "expired") return { done: true, value: "expired" };
+        return { done: false };
+      },
+      onAbort: () => "expired",
+      onTimeout: () => {
+        // Mark as expired in DB/broker
+        const req = this.options.approvalBroker?.getRequest(request.id);
+        if (req && req.status === "pending") {
+          this.options.approvalBroker?.updateRequest({
+            ...req,
+            status: "expired" as const,
+            resolvedAt: new Date().toISOString()
+          });
+        }
         return "expired";
       }
-
-      const req = this.options.approvalBroker?.getRequest(request.id);
-      if (req) {
-        if (req.status === "approved") {
-          return "approved";
-        }
-        if (req.status === "rejected") {
-          return "rejected";
-        }
-        if (req.status === "expired") {
-          return "expired";
-        }
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-
-    // Mark as expired in DB/broker
-    const req = this.options.approvalBroker?.getRequest(request.id);
-    if (req && req.status === "pending") {
-      const expiredRequest = {
-        ...req,
-        status: "expired" as const,
-        resolvedAt: new Date().toISOString()
-      };
-      this.options.approvalBroker?.updateRequest(expiredRequest);
-    }
-    return "expired";
+    });
   }
 }
 

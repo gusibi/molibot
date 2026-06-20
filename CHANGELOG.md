@@ -2,6 +2,55 @@
 
 ## Version 1.0
 
+## 2026-06-20
+
+### Sequential Session Names
+- `/new` Agent runtime sessions now use readable date-scoped IDs such as `s-20260620-0001`, incrementing per chat/scope for existing sessions created on the same day.
+- Fresh scheduled task sessions use the same rule with a `task` prefix, for example `task-20260620-0001`, while retaining existing task-session pruning behavior.
+
+### Web Tool Attachment Metadata
+- Fixed Web Chat tool-generated attachments, such as screenshots sent via `attach`, being lost as structured session attachments. `/api/chat` and `/api/stream` now persist files uploaded through the runner `uploadFile` callback and attach their metadata to the final assistant message.
+- Web attachment filenames now preserve the source extension when the display title has none, so a PNG screenshot titled without `.png` is still saved with `mediaType: image` and `mimeType: image/png`.
+
+### Test Isolation — Runtime No Longer Boots Live Channels Under `node --test`
+- Fixed agent tool/unit suites hanging after their assertions passed. Several tests transitively reach `getRuntime()` (for example the Host Bash path reads runtime settings through `buildHostEnv`), and `getRuntime()` is the full production bootstrap — it applied every channel plugin, started the task scheduler, and a 60s memory-sync interval. On a developer machine with real channel credentials this started a live Feishu websocket that retried forever (`[ws] Maximum number of redirects exceeded`), pinning the `node:test` process open so it never printed its summary or exited (affected `bash-output.test.ts`, `index.test.ts`, and any suite sharing the chain).
+- Added `liveServicesDisabled()` (`app/env.ts`), gated on the `NODE_TEST_CONTEXT` runner flag (auto-detects `node --test`; never set in production) plus an explicit `MOLIBOT_DISABLE_LIVE_CHANNELS` opt-out. `getRuntime()` now skips channel application, the task scheduler, and the keep-alive memory-sync interval when live services are disabled, while still returning a fully usable runtime (settings/sessions/memory). `buildHostEnv` short-circuits to the `process.env` fallback under the same flag so host-bash unit tests don't boot the runtime singleton at all.
+- Production behavior is unchanged (`NODE_TEST_CONTEXT` is never set outside the test runner). Regression covered by `app/runtime.test.ts`.
+
+### MCP Settings Save Compatibility
+- Fixed `/settings/mcp` dropping common HTTP MCP configs that provide a `url` without an explicit `type` / `transport`; these entries are now inferred as HTTP services instead of being filtered as invalid stdio services.
+- Top-level MCP `headers` are now accepted and normalized into the persisted HTTP headers.
+- Added `mcpInvoke`, a stable MCP dispatcher exposed only in explicit MCP scenarios. After `loadMcp` loads a server, agents can list loaded MCP tools and invoke them through `mcpInvoke` without relying on mid-run dynamic tool schema injection.
+- Tool runtime wrapping now forwards abort signals and result details to wrapped tools, preserving MCP metadata such as server and remote tool names.
+
+### Run Budget Degradation Fixes
+- Fixed a cascade where hitting the tool-call budget overflowed into the tool-failure budget: budget-blocked tool calls were counted as tool failures, so a single over-budget turn (especially batched parallel tool calls) tripped the failure budget and hard-aborted the run with a generic error, bypassing the graceful no-tool continuation. Budget-blocked calls are now tracked by tool-call id and excluded from the failure count, and their repeated "budget exceeded" notices no longer spam the chat thread.
+- When a run ends in an error after streaming a partial answer, the runner no longer replaces the whole message with "Sorry, something went wrong" (which discarded the visible partial). It now keeps the partial answer and appends a concise interruption note; the generic message is only used when nothing was shown to the user.
+
+### Approval Convergence — Phase 1 (shared waiter + consolidated broker prompt, no behavior change)
+- Extracted the duplicated approval polling loop shared by the two approval paths (the ApprovalBroker path in `ToolRuntime.pollApprovalRequest` and the Host Bash path in `waitForHostBashApprovalAndExecute`) into a single `pollUntilResolved<T>` primitive (`approval/approvalWaiter.ts`). Each path keeps its own store access and terminal handling in a `poll()` callback; timeouts, poll intervals, abort semantics, and inline execution are unchanged.
+- Consolidated the two hand-built "broker approval card" construction sites inside `ToolRuntime` into one `buildBrokerApprovalRecord` helper (the pending card and the rejected/expired result previously duplicated the same envelope). Zero behavior change.
+- First steps of the staged approval-convergence plan (see `docs/designs/agent-runtime/approval-convergence-plan-2026-06-20.md`).
+
+### Subagent Runtime Hardening
+- Subagents now run under an execution guard that reuses the parent runner's `RunBudget` and adds a wall-clock deadline. When a delegated task exceeds its tool/model budget or times out, the session is aborted and a structured stop reason (`budget_exceeded` / `timeout`) is returned instead of hanging or silently stopping. The deadline is enforced by an independent per-attempt timer (not only on session events), so an idle/stalled `session.prompt` is aborted too.
+- Subagents now fall back across model candidates: `runSingleSubagent` resolves an ordered, de-duplicated candidate list (preferred route first, host model appended as a final fallback) and retries the next model on a plain model error — but not on success, abort, approval, or a budget/timeout stop. The single-route resolver is preserved for backward compatibility.
+- Subagent results carry a budget snapshot, runtime stop kind, and duration, and these are threaded into the run summary (`RunSummary.subagent.tasks`) so each delegated task's budget, model, duration, and stop reason are visible in traces.
+
+### Read Tool Schema Compatibility
+- Made the built-in `read` tool's `label` input optional. File reads now validate with `path` alone, while runner hook logs still fall back to the tool name and `SKILL.md` reads continue to emit `skill.loaded` with `reason: read_skill_file`.
+
+## 2026-06-19
+
+### Settings Data Visibility Fix
+- Fixed `/settings/agents` under production `node build` when started through the control/service path: built-in Subagent metadata now falls back to the source `subagent-agents` directory if the build chunk resource is absent, so `/api/settings/subagents` no longer 500s and the Agents page can render saved agents.
+- Fixed `/settings/host-bash` for legacy persistent Host Bash grants whose `action_fingerprint` is `NULL`; whitelist rows now fall back to the capability tool id instead of throwing on `metadata.displayName`.
+
+## 2026-06-18
+
+### Stop Command Busy-State Release
+- `/stop` now releases the channel busy marker immediately when it aborts an active runner or clears stale running state. It also marks the active run lock aborted and resets the runner instance, so the next user message starts normally instead of being queued behind a task that the user was already told had stopped.
+
 ## 2026-06-17
 
 ### Independent Control Daemon
