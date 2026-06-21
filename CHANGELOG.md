@@ -2,7 +2,20 @@
 
 ## Version 1.0
 
+## 2026-06-21
+
+### Image Generation Diagnostics
+- `imageGenerate` now logs provider HTTP request URLs, redacted headers, request bodies, response status, and response body previews for both settings-page tests and Agent calls. Sensitive API keys are redacted, including Google `?key=` query params and authorization headers.
+
+### OpenAI Images Provider
+- Added an `openai` image generation engine using `OPENAI_API_KEY`, `https://api.openai.com`, and default model `gpt-image-2`. `/settings/image` now includes an OpenAI Images card and backfills old image settings with the new engine key so existing saved configs keep loading.
+- Added an `openai-chat` image generation engine for OpenAI-compatible `/v1/chat/completions` services. It posts a chat-completions payload and extracts image results from JSON fields, Markdown image links, plain image URLs, data URLs, or Base64 returned in the assistant message.
+- `/settings/image` now gives every image provider an explicit enable/disable switch matching `/settings/video`; runtime routing ignores disabled engines even when an API key is present. Legacy image settings without per-engine `enabled` fields are backfilled from existing API keys.
+
 ## 2026-06-20
+
+### Approval Convergence — Phase 2 first cut (ApprovalService façade, no behavior change)
+- Added a unified `ApprovalService` interface (`approval/approvalService.ts`) with a broker-backed `BrokerApprovalService` adapter whose `waitForDecision` reuses the shared `pollUntilResolved` waiter. `ToolRuntime` now depends on `ApprovalService` instead of poking the `ApprovalBroker` directly (existing `approvalBroker` callers are unchanged — the option is wrapped in the adapter). Underlying stores are untouched; the Host Bash adapter and the removal of the cross-store bridge are later steps.
 
 ### Sequential Session Names
 - `/new` Agent runtime sessions now use readable date-scoped IDs such as `s-20260620-0001`, incrementing per chat/scope for existing sessions created on the same day.

@@ -20,6 +20,8 @@ const imageGenerateSchema = Type.Object({
   engine: Type.Optional(Type.Union([
     Type.Literal("auto"),
     Type.Literal("agnes"),
+    Type.Literal("openai"),
+    Type.Literal("openai-chat"),
     Type.Literal("modelscope"),
     Type.Literal("google"),
     Type.Literal("volcengine")
@@ -45,7 +47,7 @@ const imageGenerateSchema = Type.Object({
 
 function buildImageGenerateDescription(settings: RuntimeSettings): string {
   return [
-    "- Generates high-quality images using configured Cloud APIs (Agnes, Google Imagen, Volcengine, ModelScope).",
+    "- Generates high-quality images using configured Cloud APIs (Agnes, OpenAI Images, OpenAI-compatible Chat Completions, Google Imagen, Volcengine, ModelScope).",
     "- Auto-saves the generated image locally to your dated scratch directory or a custom path.",
     "- Automatically uploads and displays the image to the chat interface so the user sees it immediately. Do not call `attach` manually after using this tool.",
     "",
@@ -60,29 +62,29 @@ function resolveEngine(settings: RuntimeSettings["imageGenerate"], requested?: s
   if (requested && requested !== "auto") {
     const engineId = requested as ImageGenerateEngine;
     const config = settings.engines[engineId];
-    if (config && config.apiKey.trim()) {
+    if (config?.enabled && config.apiKey.trim()) {
       return engineId;
     }
-    throw new Error(`Requested image generation engine '${engineId}' lacks an API key.`);
+    throw new Error(`Requested image generation engine '${engineId}' is not enabled or lacks an API key.`);
   }
 
   const defaultEngine = settings.defaultEngine;
   const priorityList: ImageGenerateEngine[] = defaultEngine && defaultEngine !== "auto"
-    ? [defaultEngine, "agnes", "google", "volcengine", "modelscope"]
-    : ["agnes", "google", "volcengine", "modelscope"];
+    ? [defaultEngine, "agnes", "openai", "openai-chat", "google", "volcengine", "modelscope"]
+    : ["agnes", "openai", "openai-chat", "google", "volcengine", "modelscope"];
   const seen = new Set<ImageGenerateEngine>();
   for (const engineId of priorityList) {
     if (seen.has(engineId)) continue;
     seen.add(engineId);
     const config = settings.engines[engineId];
-    if (config && config.apiKey.trim()) {
+    if (config?.enabled && config.apiKey.trim()) {
       return engineId;
     }
   }
 
   throw new Error(
     "No image generation engine is enabled. Please configure at least one API key: " +
-    "AGNES_API_KEY, GOOGLE_API_KEY, VOLCENGINE_API_KEY, or MODELSCOPE_API_KEY."
+    "AGNES_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY, VOLCENGINE_API_KEY, or MODELSCOPE_API_KEY."
   );
 }
 
@@ -108,6 +110,39 @@ function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { re
     path: `${normalizedArtifactDir}/${normalizedPath}`,
     routed: true
   };
+}
+
+function sanitizeRequestHeaders(headers: HeadersInit): Record<string, string> {
+  const result: Record<string, string> = {};
+  const entries = headers instanceof Headers
+    ? Array.from(headers.entries())
+    : Array.isArray(headers)
+      ? headers
+      : Object.entries(headers);
+
+  for (const [key, value] of entries) {
+    const headerName = String(key);
+    const headerValue = String(value);
+    if (/authorization|api[-_]?key|x-api-key/i.test(headerName)) {
+      const prefix = headerValue.slice(0, Math.min(12, headerValue.length));
+      result[headerName] = `${prefix}...redacted`;
+    } else {
+      result[headerName] = headerValue;
+    }
+  }
+  return result;
+}
+
+function redactText(value: string, secrets: string[]): string {
+  let text = value.replace(/([?&]key=)[^&#\s"]+/gi, "$1...redacted");
+  for (const secret of secrets) {
+    if (!secret) continue;
+    text = text.split(secret).join("...redacted");
+  }
+  return text.replace(
+    /("(?:bytesBase64Encoded|b64_json)"\s*:\s*")([^"]{80,})(")/g,
+    (_match, prefix: string, b64: string, suffix: string) => `${prefix}[base64 ${b64.length} chars redacted]${suffix}`
+  );
 }
 
 export function createImageGenerateTool(options: {
@@ -136,6 +171,36 @@ export function createImageGenerateTool(options: {
         throw new Error("Image generation tool is disabled in settings.");
       }
 
+      const configuredSecrets = Object.values(currentSettings.imageGenerate.engines)
+        .map((engineSettings) => engineSettings.apiKey?.trim())
+        .filter((value): value is string => Boolean(value));
+
+      const loggingFetch = async (url: string | URL | Request, init?: RequestInit) => {
+        const urlText = typeof url === "string" || url instanceof URL ? String(url) : url.url;
+        console.log(`[Agent Image Tool] [HTTP REQUEST] URL: ${redactText(urlText, configuredSecrets)}`);
+        if (init?.headers) {
+          console.log(`[Agent Image Tool] [HTTP REQUEST HEADERS]:`, JSON.stringify(sanitizeRequestHeaders(init.headers)));
+        }
+        if (init?.body) {
+          console.log(`[Agent Image Tool] [HTTP REQUEST BODY]: ${redactText(String(init.body), configuredSecrets).slice(0, 2000)}`);
+        }
+        try {
+          const response = await globalThis.fetch(url, init);
+          let text = "";
+          try {
+            text = await response.clone().text();
+          } catch (bodyError) {
+            text = `[failed to read response body: ${bodyError instanceof Error ? bodyError.message : String(bodyError)}]`;
+          }
+          console.log(`[Agent Image Tool] [HTTP RESPONSE] Status: ${response.status} ${response.statusText || ""}`.trim());
+          console.log(`[Agent Image Tool] [HTTP RESPONSE BODY]: ${redactText(text, configuredSecrets).slice(0, 2000) || "(empty)"}`);
+          return response;
+        } catch (err) {
+          console.error(`[Agent Image Tool] [HTTP FETCH ERROR]:`, err);
+          throw err;
+        }
+      };
+
       const inputPrompt = String(params.prompt || "").trim();
       if (!inputPrompt) {
         throw new Error("Prompt is required.");
@@ -143,6 +208,7 @@ export function createImageGenerateTool(options: {
 
       // 1. Resolve engine
       const engine = resolveEngine(currentSettings.imageGenerate, params.engine);
+      const engineEnabled = currentSettings.imageGenerate.engines[engine]?.enabled === true;
 
       // 2. Resolve output path
       const outName = String(params.outputName || "").trim() || `image_${Date.now()}.png`;
@@ -152,6 +218,8 @@ export function createImageGenerateTool(options: {
 
       const requestParams = {
         model: params.model || currentSettings.imageGenerate.engines[engine]?.model,
+        engineEnabled,
+        providerEnabled: engineEnabled,
         size: params.size,
         seed: params.seed,
         images: params.images,
@@ -180,7 +248,7 @@ export function createImageGenerateTool(options: {
 
         const providerContext = {
           settings: currentSettings.imageGenerate,
-          fetch: globalThis.fetch,
+          fetch: loggingFetch,
           signal
         };
 
@@ -240,6 +308,8 @@ export function createImageGenerateTool(options: {
           details: {
             taskId,
             engine,
+            engineEnabled,
+            providerEnabled: engineEnabled,
             model: providerInput.model || "default",
             prompt: inputPrompt,
             imageUrl: result.imageUrl,

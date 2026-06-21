@@ -301,8 +301,11 @@ const defaultWebSearchSettings: WebSearchSettings = {
 
 function imageGenerateEngineFromEnv(id: ImageGenerateEngineId, envKey: string, defaultModel: string): ImageGenerateSettings["engines"][ImageGenerateEngineId] {
   const apiKey = String(process.env[envKey] ?? "").trim();
-  const model = String(process.env[`MOLIBOT_IMAGE_GENERATE_${id.toUpperCase()}_MODEL`] ?? "").trim() || defaultModel;
+  const envId = id.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+  const enabledRaw = String(process.env[`MOLIBOT_IMAGE_GENERATE_${envId}_ENABLED`] ?? "").trim().toLowerCase();
+  const model = String(process.env[`MOLIBOT_IMAGE_GENERATE_${envId}_MODEL`] ?? "").trim() || defaultModel;
   return {
+    enabled: enabledRaw ? enabledRaw !== "false" : Boolean(apiKey),
     apiKey,
     model
   };
@@ -313,6 +316,8 @@ const defaultImageGenerateSettings: ImageGenerateSettings = {
   defaultEngine: (process.env.MOLIBOT_IMAGE_GENERATE_DEFAULT_ENGINE ?? "auto") as ImageGenerateEngineId | "auto",
   engines: {
     agnes: imageGenerateEngineFromEnv("agnes", "AGNES_API_KEY", "agnes-image-2.0-flash"),
+    openai: imageGenerateEngineFromEnv("openai", "OPENAI_API_KEY", "gpt-image-2"),
+    "openai-chat": imageGenerateEngineFromEnv("openai-chat", "OPENAI_API_KEY", "gpt-4o"),
     modelscope: imageGenerateEngineFromEnv("modelscope", "MODELSCOPE_API_KEY", "Tongyi-MAI/Z-Image-Turbo"),
     google: imageGenerateEngineFromEnv("google", "GOOGLE_API_KEY", "imagen-3.0-generate-001"),
     volcengine: imageGenerateEngineFromEnv("volcengine", "VOLCENGINE_API_KEY", "cv_vit_huge_p14_laion2b_s32b_b64_seedream")

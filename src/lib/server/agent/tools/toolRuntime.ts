@@ -10,7 +10,7 @@ import type {
 import { getWorkspaceStore, type WorkspaceStore } from "$lib/server/workspaces/store.js";
 import { buildHostBashApprovalPrompt } from "$lib/server/hostBash/index.js";
 import type { HostBashApprovalRecord } from "$lib/server/hostBash/index.js";
-import { pollUntilResolved } from "$lib/server/approval/approvalWaiter.js";
+import { BrokerApprovalService, type ApprovalService } from "$lib/server/approval/approvalService.js";
 
 /**
  * Build the Host-Bash-shaped approval record the ApprovalBroker path reuses to
@@ -79,14 +79,23 @@ interface DebounceBatch {
 const activeDebounceBatches = new Map<string, DebounceBatch>();
 
 export class ToolRuntime {
+  private readonly approvalService?: ApprovalService;
+
   constructor(
     private readonly registry: ToolRegistry,
     private readonly options: {
       approvalBroker?: ApprovalBroker;
+      approvalService?: ApprovalService;
       decidePolicy?: ToolPolicyDecider;
       workspaceStore?: WorkspaceStore;
     } = {}
-  ) {}
+  ) {
+    // Phase 2 façade: talk to the unified ApprovalService. Existing callers keep
+    // passing `approvalBroker`; it is wrapped in the broker-backed adapter so
+    // behavior is unchanged.
+    this.approvalService = options.approvalService
+      ?? (options.approvalBroker ? new BrokerApprovalService(options.approvalBroker) : undefined);
+  }
 
   async executeToolCall(call: ToolCallInput): Promise<ToolResult> {
     const workspaceId = call.context.workspaceId;
@@ -111,7 +120,7 @@ export class ToolRuntime {
     }
 
     if (decision.type === "approval_required") {
-      const grant = this.options.approvalBroker?.checkGrant({
+      const grant = this.approvalService?.checkGrant({
         capability: decision.request.capability,
         actorId: decision.request.actorId,
         workspaceId: decision.request.workspaceId,
@@ -125,7 +134,7 @@ export class ToolRuntime {
         const isHighRisk = tool.risk === "high" || tool.risk === "critical";
 
         if (isHighRisk) {
-          this.options.approvalBroker?.createRequest(decision.request);
+          this.approvalService?.createRequest(decision.request);
           resolution = await this.pollApprovalRequest(decision.request, call.context);
         } else {
           // Low/medium risk debounce aggregation (1.5 seconds)
@@ -159,7 +168,7 @@ export class ToolRuntime {
                 })
               };
 
-              this.options.approvalBroker?.createRequest(consolidatedRequest);
+              this.approvalService?.createRequest(consolidatedRequest);
 
               void (async () => {
                 const res = await this.pollApprovalRequest(consolidatedRequest, call.context);
@@ -255,30 +264,12 @@ export class ToolRuntime {
       }))
     } as any);
 
-    return pollUntilResolved<"approved" | "rejected" | "expired">({
+    if (!this.approvalService) return "expired";
+    return this.approvalService.waitForDecision({
+      request,
       timeoutMs: 5 * 60 * 1000, // 5 minutes timeout
       pollMs: 500,
-      signal: context.signal,
-      poll: () => {
-        const req = this.options.approvalBroker?.getRequest(request.id);
-        if (req?.status === "approved") return { done: true, value: "approved" };
-        if (req?.status === "rejected") return { done: true, value: "rejected" };
-        if (req?.status === "expired") return { done: true, value: "expired" };
-        return { done: false };
-      },
-      onAbort: () => "expired",
-      onTimeout: () => {
-        // Mark as expired in DB/broker
-        const req = this.options.approvalBroker?.getRequest(request.id);
-        if (req && req.status === "pending") {
-          this.options.approvalBroker?.updateRequest({
-            ...req,
-            status: "expired" as const,
-            resolvedAt: new Date().toISOString()
-          });
-        }
-        return "expired";
-      }
+      signal: context.signal
     });
   }
 }

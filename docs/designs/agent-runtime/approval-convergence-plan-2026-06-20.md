@@ -79,6 +79,7 @@ subagent 内的 bash 同样走 System B 产出 prompt，但 `subagent.ts` 的 `s
 ### 分阶段迁移（每阶段可独立回归、可回滚）
 
 - **Phase 0 — 冻结与契约（本文）**：定稿现状图 + 目标接口草案；不动代码。产出 `ApprovalService` 接口草案（`request / checkGrant / waitForDecision / buildPrompt / resume`）。
+- **Phase 2 第一刀 —— 接口先行 façade（已完成 2026-06-20，零行为变更）**：新增 `approval/approvalService.ts`，定义统一 `ApprovalService` 接口（`checkGrant / createRequest / getRequest / waitForDecision / resolve`）+ `BrokerApprovalService` broker 适配器（`waitForDecision` 复用 Phase 1a 的 `pollUntilResolved`）。`ToolRuntime` 改为依赖 `ApprovalService`（构造时把既有 `approvalBroker` 选项包成 `BrokerApprovalService`，所有调用点不变），其 `pollApprovalRequest` 的内联轮询移入服务。底层 store 未动。验证：新增 adapter 单测 5 条 + 既有 `toolRuntime.test.ts` 6 条行为测试全过（28/28），tsc 干净。**后续**：再写 HostBash 适配器实现同一接口，最终让 channelCommands 通过接口消解 `resolvePendingBrokerRequests` 桥接（Phase 2 第二刀，会改行为，需谨慎）。
 - **Phase 1 — 抽公共件，零行为变更**：
   - ✅ **（已完成 2026-06-20）** 把两个 poll 循环抽成 `pollUntilResolved<T>`（`approval/approvalWaiter.ts`，注入 now/sleep、纯单测 4 条）。System A（`ToolRuntime.pollApprovalRequest`）与 System B（`waitForHostBashApprovalAndExecute`）都改调它；各自的 store 访问/终态/内联执行逻辑保留在 `poll()` 回调里。验证：waiter 4/4、System A toolRuntime 6/6、System B bash-output 19/19（含「approval 后内联执行」用例）。零行为变更。
   - ✅ **（已完成 2026-06-20，零行为变更）** ToolRuntime 内部两处「假 host-bash prompt」构造（pending 卡片 + rejected/expired 结果）合并为单一 `buildBrokerApprovalRecord`（`toolRuntime.ts`，纯单测 2 条）。两处仅传入各自不同的 toolId/displayName/command/status/pendingAction，公共信封（channel ""、ephemeral、scratch-only 权限、从 request 派生的 id/reason/scopeId/sessionId/requestedAt）收敛到一处。回归 toolRuntime 8/8、approval 套件 26/26。

@@ -16,10 +16,12 @@ const defaultTestSettings: RuntimeSettings = {
     enabled: true,
     defaultEngine: "auto",
     engines: {
-      agnes: { apiKey: "agnes-key" },
-      modelscope: { apiKey: "" },
-      google: { apiKey: "" },
-      volcengine: { apiKey: "" }
+      agnes: { enabled: true, apiKey: "agnes-key" },
+      openai: { enabled: false, apiKey: "" },
+      "openai-chat": { enabled: false, apiKey: "" },
+      modelscope: { enabled: false, apiKey: "" },
+      google: { enabled: false, apiKey: "" },
+      volcengine: { enabled: false, apiKey: "" }
     }
   }
 } as unknown as RuntimeSettings;
@@ -82,7 +84,7 @@ test("imageGenerate tool successfully calls Agnes API and downloads image", asyn
     const ctx = getTestContext({
       engines: {
         ...defaultTestSettings.imageGenerate.engines,
-        agnes: { apiKey: "agnes-test-api-key", baseUrl: "https://custom.agnes.ai" }
+        agnes: { enabled: true, apiKey: "agnes-test-api-key", baseUrl: "https://custom.agnes.ai" }
       }
     }, uploadFile);
 
@@ -98,6 +100,8 @@ test("imageGenerate tool successfully calls Agnes API and downloads image", asyn
     assert.ok(result.content[0].text.includes("Successfully generated image using 'agnes' engine."));
     assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/generated-agnes\.png/);
     assert.equal(result.details.imageUrl, "https://example.com/generated-agnes.png");
+    assert.equal(result.details.engineEnabled, true);
+    assert.equal(result.details.providerEnabled, true);
     assert.equal(requestPayload.prompt, "A beautiful mountain");
     assert.equal(requestPayload.size, "1024x768");
     assert.equal(requestPayload.seed, 42);
@@ -120,6 +124,8 @@ test("imageGenerate tool successfully calls Agnes API and downloads image", asyn
     assert.equal(taskRecord.engine, "agnes");
     assert.equal(taskRecord.imagePath, savedFilePath);
     assert.equal(taskRecord.imageUrl, "https://example.com/generated-agnes.png");
+    assert.equal(taskRecord.requestParams.engineEnabled, true);
+    assert.equal(taskRecord.requestParams.providerEnabled, true);
   } finally {
     globalThis.fetch = originalFetch;
     try {
@@ -196,7 +202,7 @@ test("imageGenerate tool successfully calls Google Imagen and saves base64 respo
     const ctx = getTestContext({
       engines: {
         ...defaultTestSettings.imageGenerate.engines,
-        google: { apiKey: "google-test-key" }
+        google: { enabled: true, apiKey: "google-test-key" }
       }
     });
 
@@ -222,6 +228,211 @@ test("imageGenerate tool successfully calls Google Imagen and saves base64 respo
   }
 });
 
+test("imageGenerate tool successfully calls OpenAI Images API and saves base64 response", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestPayload: any = null;
+  let requestHeaders: any = null;
+
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    requestedUrl = String(url);
+    requestPayload = JSON.parse(init?.body as string);
+    requestHeaders = init?.headers;
+    return new Response(JSON.stringify({
+      data: [{ b64_json: "b3BlbmFpLWZha2UtcG5nLWJ5dGVz" }]
+    }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    await fs.mkdir(mockCwd, { recursive: true });
+
+    const ctx = getTestContext({
+      engines: {
+        ...defaultTestSettings.imageGenerate.engines,
+        openai: { enabled: true, apiKey: "openai-test-key" }
+      }
+    });
+
+    const tool = createImageGenerateTool(ctx);
+    const result = await tool.execute("call-openai", {
+      prompt: "A cyber cat",
+      engine: "openai",
+      outputName: "openai_cat.png"
+    });
+
+    assert.ok(result.content[0].text.includes("Successfully generated image using 'openai' engine."));
+    assert.equal(requestedUrl, "https://api.openai.com/v1/images/generations");
+    assert.equal(requestHeaders["Authorization"], "Bearer openai-test-key");
+    assert.equal(requestPayload.model, "gpt-image-2");
+    assert.equal(requestPayload.prompt, "A cyber cat");
+    assert.equal(requestPayload.n, 1);
+
+    const savedFilePath = join(mockCwd, mockArtifactDir, "openai_cat.png");
+    const fileBytes = await fs.readFile(savedFilePath, "utf8");
+    assert.equal(fileBytes, "openai-fake-png-bytes");
+  } finally {
+    globalThis.fetch = originalFetch;
+    try {
+      await fs.rm(mockCwd, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
+test("imageGenerate tool successfully calls OpenAI Chat Completions format and downloads returned image URL", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestPayload: any = null;
+  let requestHeaders: any = null;
+
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const cleanUrl = String(url);
+    if (cleanUrl.includes("/v1/chat/completions")) {
+      requestedUrl = cleanUrl;
+      requestPayload = JSON.parse(init?.body as string);
+      requestHeaders = init?.headers;
+      return new Response(JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({ image_url: "https://example.com/openai-chat-image.png" })
+          }
+        }]
+      }), { status: 200 });
+    }
+    if (cleanUrl.includes("openai-chat-image.png")) {
+      return new Response(Buffer.from("openai-chat-image-bytes"));
+    }
+    return new Response("Not found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    await fs.mkdir(mockCwd, { recursive: true });
+
+    const ctx = getTestContext({
+      engines: {
+        ...defaultTestSettings.imageGenerate.engines,
+        "openai-chat": {
+          enabled: true,
+          apiKey: "openai-chat-test-key",
+          baseUrl: "https://chat-compatible.example.com/v1",
+          model: "chat-image-model"
+        }
+      }
+    });
+
+    const tool = createImageGenerateTool(ctx);
+    const result = await tool.execute("call-openai-chat", {
+      prompt: "A cyber cat",
+      engine: "openai-chat",
+      outputName: "openai_chat_cat.png"
+    });
+
+    assert.ok(result.content[0].text.includes("Successfully generated image using 'openai-chat' engine."));
+    assert.equal(requestedUrl, "https://chat-compatible.example.com/v1/chat/completions");
+    assert.equal(requestHeaders["Authorization"], "Bearer openai-chat-test-key");
+    assert.equal(requestPayload.model, "chat-image-model");
+    assert.equal(requestPayload.messages[0].role, "user");
+    assert.match(requestPayload.messages[0].content, /A cyber cat/);
+    assert.match(result.content[0].text, /Remote URL: https:\/\/example\.com\/openai-chat-image\.png/);
+
+    const savedFilePath = join(mockCwd, mockArtifactDir, "openai_chat_cat.png");
+    const fileBytes = await fs.readFile(savedFilePath, "utf8");
+    assert.equal(fileBytes, "openai-chat-image-bytes");
+  } finally {
+    globalThis.fetch = originalFetch;
+    try {
+      await fs.rm(mockCwd, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
+test("imageGenerate tool logs Google Imagen request and empty response with redacted key", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const originalError = console.error;
+  const logs: string[] = [];
+
+  globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    assert.equal(init?.method, "POST");
+    return new Response(JSON.stringify({}), { status: 200, statusText: "OK" });
+  }) as typeof fetch;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map((arg) => typeof arg === "string" ? arg : JSON.stringify(arg)).join(" "));
+  };
+  console.error = (...args: unknown[]) => {
+    logs.push(args.map((arg) => typeof arg === "string" ? arg : JSON.stringify(arg)).join(" "));
+  };
+
+  try {
+    await fs.mkdir(mockCwd, { recursive: true });
+
+    const ctx = getTestContext({
+      engines: {
+        ...defaultTestSettings.imageGenerate.engines,
+        google: { enabled: true, apiKey: "google-secret-key" }
+      }
+    });
+
+    const tool = createImageGenerateTool(ctx);
+    await assert.rejects(
+      async () => {
+        await tool.execute("call-google-empty-response", {
+          prompt: "A cyber cat",
+          engine: "google",
+          outputName: "google_empty.png"
+        });
+      },
+      /Google Imagen API did not return image bytes/
+    );
+
+    const joined = logs.join("\n");
+    assert.match(joined, /\[Agent Image Tool\] \[HTTP REQUEST\] URL: .*imagen-3\.0-generate-001:predict\?key=\.\.\.redacted/);
+    assert.match(joined, /\[Agent Image Tool\] \[HTTP REQUEST BODY\]: .*A cyber cat/);
+    assert.match(joined, /\[Agent Image Tool\] \[HTTP RESPONSE\] Status: 200 OK/);
+    assert.match(joined, /\[Agent Image Tool\] \[HTTP RESPONSE BODY\]: \{\}/);
+    assert.doesNotMatch(joined, /google-secret-key/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.log = originalLog;
+    console.error = originalError;
+    try {
+      await fs.rm(mockCwd, { recursive: true, force: true });
+    } catch {}
+  }
+});
+
+test("imageGenerate tool rejects a requested engine when it is disabled even with an API key", async () => {
+  let fetchCalled = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    fetchCalled = true;
+    return new Response("unexpected", { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    const ctx = getTestContext({
+      engines: {
+        ...defaultTestSettings.imageGenerate.engines,
+        google: { enabled: false, apiKey: "google-disabled-key" }
+      }
+    });
+
+    const tool = createImageGenerateTool(ctx);
+    await assert.rejects(
+      async () => {
+        await tool.execute("call-disabled-google", {
+          prompt: "A cyber cat",
+          engine: "google",
+          outputName: "disabled_google.png"
+        });
+      },
+      /not enabled or lacks an API key/
+    );
+    assert.equal(fetchCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("imageGenerate tool resolves auto engine correctly based on priority", async () => {
   const originalFetch = globalThis.fetch;
   let resolvedEngine: string | null = null;
@@ -243,13 +454,15 @@ test("imageGenerate tool resolves auto engine correctly based on priority", asyn
   try {
     await fs.mkdir(mockCwd, { recursive: true });
 
-    // Enable only volcengine (which has higher priority than modelscope but lower than agnes and google)
+    // Enable only volcengine (which has higher priority than modelscope but lower than agnes, openai, openai-chat, and google)
     const ctx = getTestContext({
       engines: {
-        agnes: { apiKey: "" },
-        modelscope: { apiKey: "modelscope-key" },
-        google: { apiKey: "" },
-        volcengine: { apiKey: "volc-key" }
+        agnes: { enabled: false, apiKey: "" },
+        openai: { enabled: false, apiKey: "" },
+        "openai-chat": { enabled: false, apiKey: "" },
+        modelscope: { enabled: true, apiKey: "modelscope-key" },
+        google: { enabled: false, apiKey: "" },
+        volcengine: { enabled: true, apiKey: "volc-key" }
       }
     });
 
@@ -260,8 +473,8 @@ test("imageGenerate tool resolves auto engine correctly based on priority", asyn
       outputName: "auto_city.png"
     });
 
-    // Priority is: agnes -> google -> volcengine -> modelscope.
-    // Agnes and Google are disabled/lack key, so volcengine must be resolved instead of modelscope.
+    // Priority is: agnes -> openai -> openai-chat -> google -> volcengine -> modelscope.
+    // Agnes, OpenAI, OpenAI Chat, and Google are disabled/lack key, so volcengine must be resolved instead of modelscope.
     assert.equal(resolvedEngine, "volcengine");
   } finally {
     globalThis.fetch = originalFetch;
@@ -299,8 +512,8 @@ test("imageGenerate tool prefers configured default engine before auto priority 
       defaultEngine: "google",
       engines: {
         ...defaultTestSettings.imageGenerate.engines,
-        agnes: { apiKey: "agnes-key" },
-        google: { apiKey: "google-key" }
+        agnes: { enabled: true, apiKey: "agnes-key" },
+        google: { enabled: true, apiKey: "google-key" }
       }
     });
 
@@ -364,7 +577,7 @@ test("imageGenerate tool handles ModelScope async task submission and polling co
     const ctx = getTestContext({
       engines: {
         ...defaultTestSettings.imageGenerate.engines,
-        modelscope: { apiKey: "ms-key" }
+        modelscope: { enabled: true, apiKey: "ms-key" }
       }
     });
 

@@ -169,7 +169,7 @@ const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
 ];
 const WEB_SEARCH_ROUTES: WebSearchRoute[] = ["auto", "china", "global", "official_docs", "research"];
 const WEB_SEARCH_ENGINE_SELECTION_STRATEGIES: WebSearchEngineSelectionStrategy[] = ["priority", "random", "round_robin"];
-const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["agnes", "modelscope", "google", "volcengine"];
+const IMAGE_GENERATE_ENGINES: ImageGenerateEngineId[] = ["agnes", "openai", "openai-chat", "modelscope", "google", "volcengine"];
 const VIDEO_GENERATE_ENGINES: VideoGenerateEngineId[] = ["agnes", "volcengine"];
 const LEGACY_WEB_SEARCH_ROUTE_MAP: Record<string, WebSearchRoute> = {
   domestic_news: "china",
@@ -326,7 +326,11 @@ function sanitizeImageGenerateSettings(input: unknown): RuntimeSettings["imageGe
       ? enginesSource[engine] as Record<string, unknown>
       : {};
     const apiKey = String(raw.apiKey ?? fallbackEngine.apiKey ?? "").trim();
+    const enabled = raw.enabled === undefined
+      ? fallbackEngine.enabled || Boolean(apiKey)
+      : Boolean(raw.enabled) || (requestedDefaultEngine === engine && Boolean(apiKey));
     return [engine, {
+      enabled,
       apiKey,
       model: String(raw.model ?? fallbackEngine.model ?? "").trim() || undefined,
       baseUrl: String(raw.baseUrl ?? fallbackEngine.baseUrl ?? "").trim() || undefined

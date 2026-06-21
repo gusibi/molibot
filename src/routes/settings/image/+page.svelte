@@ -11,9 +11,10 @@
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
   import { locale } from "$lib/ui/i18n";
 
-  type EngineId = "agnes" | "modelscope" | "google" | "volcengine";
+  type EngineId = "agnes" | "openai" | "openai-chat" | "modelscope" | "google" | "volcengine";
 
   interface EngineSettings {
+    enabled: boolean;
     apiKey: string;
     baseUrl?: string;
     model?: string;
@@ -42,17 +43,18 @@
   const COPY = {
     "zh-CN": {
       title: "图像生成",
-      desc: "配置内置 Agent 图像生成工具。支持 Agnes Image、Google Imagen、火山引擎及 ModelScope 的多引擎路由。",
+      desc: "配置内置 Agent 图像生成工具。支持 Agnes Image、OpenAI、OpenAI Chat Completions 兼容协议、Google Imagen、火山引擎及 ModelScope 的多引擎路由。",
       enableTool: "启用内置 imageGenerate 工具",
       enableToolDesc: "禁用后，该工具在调用时会返回配置错误，而不会实际执行。",
       defaultEngine: "默认引擎",
       autoEngine: "自动优先级顺序",
-      autoEngineDesc: "在自动模式下，工具会依次检测 Agnes、Google、火山引擎和 ModelScope，使用第一个配置了有效 API Key 的引擎。",
+      autoEngineDesc: "在自动模式下，工具会依次检测 Agnes、OpenAI Images、OpenAI Chat、Google、火山引擎和 ModelScope，使用第一个配置了有效 API Key 的引擎。",
       enginesTitle: "图像生成引擎",
       enginesDesc: "配置各图像生成服务方的认证密钥、默认模型及 API 端点。",
       apiKey: "API Key",
       baseUrl: "自定义 Base URL",
       model: "模型 ID",
+      engineEnabled: "启用引擎",
       resolvedUrl: "解析后 URL",
       testTitle: "测试图像生成",
       testDesc: "即时测试配置的可用性。测试将使用表单中未保存的值尝试生成一张测试图片。",
@@ -97,17 +99,18 @@
     },
     "en-US": {
       title: "Image Generation",
-      desc: "Configure the built-in Agent image generation tool. Multi-engine routing is supported across Agnes Image, Google Imagen, Volcengine, and ModelScope.",
+      desc: "Configure the built-in Agent image generation tool. Multi-engine routing is supported across Agnes Image, OpenAI, OpenAI Chat Completions-compatible APIs, Google Imagen, Volcengine, and ModelScope.",
       enableTool: "Enable built-in imageGenerate tool",
       enableToolDesc: "When disabled, the tool returns a settings error instead of executing.",
       defaultEngine: "Default engine",
       autoEngine: "Auto priority order",
-      autoEngineDesc: "In auto mode, the tool iterates through Agnes, Google, Volcengine, and ModelScope in order, using the first one with a valid API key configured.",
+      autoEngineDesc: "In auto mode, the tool iterates through Agnes, OpenAI Images, OpenAI Chat, Google, Volcengine, and ModelScope in order, using the first one with a valid API key configured.",
       enginesTitle: "Image Generation Engines",
       enginesDesc: "Configure credentials, default models, and API endpoints for your selected painting providers.",
       apiKey: "API Key",
       baseUrl: "Custom base URL",
       model: "Model ID",
+      engineEnabled: "Engine enabled",
       resolvedUrl: "Resolved URL",
       testTitle: "Test Image Generation",
       testDesc: "Test the configured settings in real-time. Unsaved values from the form will be used to attempt generating a test image.",
@@ -158,6 +161,8 @@
 
   const engines: Array<{ id: EngineId; name: string; hint: string; keyLabel: string; defaultUrl: string; defaultModel: string }> = [
     { id: "agnes", name: "Agnes Image", hint: "High-performance OpenAI-compatible editing and generation (agnes-image-2.0-flash). ELO 1,184.", keyLabel: "AGNES_API_KEY", defaultUrl: "https://apihub.agnes-ai.com", defaultModel: "agnes-image-2.0-flash" },
+    { id: "openai", name: "OpenAI Images", hint: "Official OpenAI image generation via gpt-image-2.", keyLabel: "OPENAI_API_KEY", defaultUrl: "https://api.openai.com", defaultModel: "gpt-image-2" },
+    { id: "openai-chat", name: "OpenAI Chat Format", hint: "OpenAI-compatible /v1/chat/completions protocol for providers that return image URLs or Base64 from chat messages.", keyLabel: "OPENAI_API_KEY", defaultUrl: "https://api.openai.com", defaultModel: "gpt-4o" },
     { id: "google", name: "Google Imagen", hint: "Excellent English instruction adherence, realism, and style consistency.", keyLabel: "GOOGLE_API_KEY", defaultUrl: "https://generativelanguage.googleapis.com", defaultModel: "imagen-3.0-generate-001" },
     { id: "volcengine", name: "Volcengine (Seedream)", hint: "Outstanding Chinese comprehension and illustration generation.", keyLabel: "VOLCENGINE_API_KEY", defaultUrl: "https://ark.cn-beijing.volces.com", defaultModel: "cv_vit_huge_p14_laion2b_s32b_b64_seedream" },
     { id: "modelscope", name: "ModelScope", hint: "High-speed and cost-effective generic generation (Z-Image-Turbo).", keyLabel: "MODELSCOPE_API_KEY", defaultUrl: "https://api-inference.modelscope.cn", defaultModel: "Tongyi-MAI/Z-Image-Turbo" }
@@ -181,12 +186,38 @@
     enabled: true,
     defaultEngine: "auto",
     engines: {
-      agnes: { apiKey: "", model: "" },
-      modelscope: { apiKey: "", model: "" },
-      google: { apiKey: "", model: "" },
-      volcengine: { apiKey: "", model: "" }
+      agnes: { enabled: false, apiKey: "", model: "" },
+      openai: { enabled: false, apiKey: "", model: "" },
+      "openai-chat": { enabled: false, apiKey: "", model: "" },
+      modelscope: { enabled: false, apiKey: "", model: "" },
+      google: { enabled: false, apiKey: "", model: "" },
+      volcengine: { enabled: false, apiKey: "", model: "" }
     }
   };
+
+  function mergeImageGenerateSettings(value: any): ImageGenerateSettings {
+    const incoming = value ?? {};
+    const incomingEngines = incoming.engines ?? {};
+    const mergedEngines = Object.fromEntries(
+      engines.map((engine) => {
+        const current = imageGenerate.engines[engine.id];
+        const incomingEngine = incomingEngines[engine.id] ?? {};
+        const apiKey = String(incomingEngine.apiKey ?? current.apiKey ?? "").trim();
+        return [engine.id, {
+          ...current,
+          ...incomingEngine,
+          enabled: incomingEngine.enabled === undefined ? Boolean(apiKey || current.apiKey) : Boolean(incomingEngine.enabled),
+          apiKey
+        }];
+      })
+    ) as Record<EngineId, EngineSettings>;
+
+    return {
+      ...imageGenerate,
+      ...incoming,
+      engines: mergedEngines
+    };
+  }
 
   async function loadSettings(): Promise<void> {
     loading = true;
@@ -196,7 +227,7 @@
       const res = await fetch("/api/settings/dynamic/image-generate");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || t("loadError"));
-      imageGenerate = { ...imageGenerate, ...(data.value ?? {}) };
+      imageGenerate = mergeImageGenerateSettings(data.value);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -240,7 +271,7 @@
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || t("saveError"));
-      imageGenerate = data.value;
+      imageGenerate = mergeImageGenerateSettings(data.value);
       message = t("savedMsg");
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -284,11 +315,21 @@
       const urlObj = new URL(parseUrl);
       const pathname = urlObj.pathname.replace(/\/+$/, "");
 
-      if (engineId === "agnes" || engineId === "modelscope") {
+      if (engineId === "agnes" || engineId === "openai" || engineId === "modelscope") {
         if (pathname === "" || pathname === "/") {
           return `${cleanUrl}/v1/images/generations`;
         } else if (pathname.endsWith("/v1")) {
           return `${cleanUrl}/images/generations`;
+        } else {
+          return cleanUrl;
+        }
+      }
+
+      if (engineId === "openai-chat") {
+        if (pathname === "" || pathname === "/") {
+          return `${cleanUrl}/v1/chat/completions`;
+        } else if (pathname.endsWith("/v1")) {
+          return `${cleanUrl}/chat/completions`;
         } else {
           return cleanUrl;
         }
@@ -320,8 +361,10 @@
       // fallback
     }
 
-    if (engineId === "agnes" || engineId === "modelscope") {
+    if (engineId === "agnes" || engineId === "openai" || engineId === "modelscope") {
       return `${cleanUrl}/v1/images/generations`;
+    } else if (engineId === "openai-chat") {
+      return `${cleanUrl}/v1/chat/completions`;
     } else if (engineId === "volcengine") {
       return `${cleanUrl}/api/v3/images/generations`;
     } else {
@@ -391,6 +434,10 @@
                     <Badge variant="secondary">{engine.id}</Badge>
                   </div>
                   <p class="mt-1 text-xs leading-5 text-muted-foreground">{engine.hint}</p>
+                </div>
+                <div class="flex flex-col items-end gap-1">
+                  <Label class="text-xs text-muted-foreground">{t("engineEnabled")}</Label>
+                  <IosSwitch bind:checked={imageGenerate.engines[engine.id].enabled} aria-label={`Enable ${engine.name}`} />
                 </div>
               </div>
               

@@ -73,6 +73,10 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - [Done] 移除 SettingsSection 布局依赖：取消这三个页面对 `SettingsSection` 包装组件的依赖，替换为自定义的 Hero 头部区域，并清理了无用组件导入。
 - [Done] 图像生成记录 SQLite 持久化与历史管理：在 SQLite 中新增 `image_tasks` 表，存储图像生成 Task ID、引擎、会话 ID、状态、提示词、本地保存路径、远程图片 URL、请求参数和错误消息。
 - [Done] 图像生成工具同步入库：`imageGenerate` 执行时先将任务记录创建为 `processing` 状态，并在生成完成后更新为 `completed`（含本地路径和远程 URL）或 `failed`（含错误说明），测试环境支持自定义 taskStore 以隔离测试记录。
+- [Done] 图像生成供应商 HTTP 诊断日志：`imageGenerate` 在调用供应商时记录请求 URL、脱敏 headers、请求体、响应状态和响应体预览，便于在 `/settings/image` 测试和 Agent 实际调用中排查空响应、错误响应或 URL 拼接问题；日志必须脱敏 API key 和 Authorization。
+- [Done] OpenAI Images 引擎：`imageGenerate` 支持 `openai` 供应商，默认读取 `OPENAI_API_KEY`，使用 `https://api.openai.com/v1/images/generations` 与 `gpt-image-2` 生成图片，并支持在 `/settings/image` 中配置 API Key、模型 ID、Base URL、默认引擎和即时测试。
+- [Done] OpenAI Chat Completions 兼容图像协议：`imageGenerate` 支持 `openai-chat` 供应商，默认读取 `OPENAI_API_KEY`，提交到 `/v1/chat/completions`，并从 chat message 内容中的 JSON、Markdown 图片链接、HTTP 图片 URL、data URL 或 Base64 字段提取图像结果，适配不走 `/v1/images/generations` 的 OpenAI-compatible 图像服务。
+- [Done] 图像 provider 独立启用开关：`/settings/image` 为每个图像引擎提供与 `/settings/video` 一致的启用/禁用开关；`imageGenerate` 运行时只选择 `enabled=true` 且有 API Key 的引擎，旧配置缺少 `enabled` 字段时按已配置 API Key 自动补齐为启用以保持升级兼容。
 - [Done] 图像生成历史记录展示与详情弹窗：在 `/settings/image` 页面新增“最近生成记录”表格，降序排列生成记录，支持“查看结果”弹窗（渲染生成的图片和元数据并提供下载）、“查看参数”弹窗（拷贝原始 JSON）及删除操作。
 - [Done] 图像设置表单适配固定粘性底栏：重构 `/settings/image` 提交表单以符合 `DESIGN.md` 第 4 条设计原则，将保存按钮和状态消息承载于固定粘性底栏（`.settings-footbar`）中。
 - [Done] 图像 Serving 端点与任务接口：新增 `/api/settings/image-generate/tasks`（获取及删除任务）与 `/api/settings/image-generate/image`（流式渲染本地图片文件或重定向到远程公网图片 URL）接口。

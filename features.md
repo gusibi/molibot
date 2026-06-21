@@ -1,5 +1,18 @@
 # Molibot Features
 
+## 2026-06-21
+
+### Image Generation Provider Diagnostics
+- **图像工具 HTTP 诊断日志**: `imageGenerate` 现在会在服务端日志打印供应商请求 URL、脱敏请求头、请求体、响应状态和响应体预览，覆盖设置页测试与 Agent 调用，便于排查 Google Imagen 返回空 `{}` 等 provider 侧问题。
+- **敏感信息脱敏**: 图像工具日志会脱敏 `Authorization`、API key header、Google `?key=` 查询参数以及已配置的供应商密钥，避免调试时把真实 key 打到日志里。
+
+### OpenAI Images Provider
+- **OpenAI 图像生成接入**: `imageGenerate` 新增 `openai` 引擎，默认使用 `OPENAI_API_KEY`、`https://api.openai.com` 和 `gpt-image-2`，通过 OpenAI Images API 保存返回的 `b64_json` 图像结果。
+- **设置页 OpenAI 选项**: `/settings/image` 新增 OpenAI Images 配置卡片，支持 API Key、模型 ID、Base URL、默认引擎选择和即时测试；读取旧设置时会补齐新增的 `openai` 引擎配置，避免老数据缺字段导致页面崩溃。
+- **OpenAI Chat Completions 兼容协议**: `imageGenerate` 新增 `openai-chat` 引擎，提交到 `/v1/chat/completions`，用于兼容通过 chat/completions 返回图片 URL、data URL 或 Base64/JSON 的服务；设置页新增 `OpenAI Chat Format` 配置项，同样支持 API Key、模型 ID、Base URL 和即时测试。
+- **图像引擎显式启用开关**: `/settings/image` 的每个 provider 现在和 `/settings/video` 一样有独立启用/禁用开关；运行时只会选择同时启用且配置了 API Key 的引擎。旧配置缺少 `enabled` 字段时会按已有 API Key 自动补齐启用状态，避免升级后不可用。
+- **图像工具返回 provider 启用状态**: `imageGenerate` 执行结果的 `details` 现在包含 `engineEnabled` / `providerEnabled`，任务 `requestParams` 也会记录同样状态，便于调用方和历史记录判断本次 provider 是否启用。
+
 ## 2026-06-20
 
 ### Session 命名序号化
@@ -23,6 +36,12 @@
 - **预算 block 不再误记为工具失败**: 撞「工具调用预算」被 block 的调用会返回 error 结果，原先在 `tool_execution_end` 里被 `recordToolResult(isError)` 当成「工具失败」计数。当模型一轮并行发出多个工具调用时，这些被 block 的调用会让「失败预算」迅速冲顶并触发硬中止，绕过本该执行的「无工具优雅续写」，最终给用户一句 `Sorry, something went wrong`。现在在 `beforeToolCall` 用 tool-call id 记下被预算 block 的调用（`budgetBlockedToolCallIds`），`tool_execution_end` 通过纯函数 `shouldCountToolResultAsFailure` 跳过这些调用的失败计数，并且不再把重复的「budget exceeded」刷屏到会话线程。
 - **错误时保留半截回复**: 流式输出了一半再报错时，原先会把整条消息 `replaceMessage("Sorry, something went wrong.")`，把用户已经看到的部分全部覆盖。新增纯函数 `resolveFinalErrorAction`：有最终答案 → 不动；有可见的流式 partial → 保留 partial、只追加一句中断说明；确实什么都没产出 → 才用兜底通用错误文案。
 - **测试**: `runnerRetryState.test.ts` 新增 2 组用例（失败计数口径、最终错误动作）；回归 `runner.test.ts` 22/22，全部受影响套件 69/69 通过；改动源文件 tsc 干净。
+
+### 审批收敛 Phase 2 第一刀（ApprovalService façade，零行为变更）
+- **统一接口**: 新增 `src/lib/server/approval/approvalService.ts`，定义 `ApprovalService` 接口（`checkGrant / createRequest / getRequest / waitForDecision / resolve`）+ broker 适配器 `BrokerApprovalService`（`waitForDecision` 复用 Phase 1a 的 `pollUntilResolved`）。
+- **ToolRuntime 改为依赖接口**: 不再直接戳 `ApprovalBroker`；构造时把既有 `approvalBroker` 选项包成 `BrokerApprovalService`（所有现有调用点不变），`pollApprovalRequest` 的内联轮询移入服务。底层 store 未动。
+- **测试**: 新增 `approvalService.test.ts` 5 条（delegate/已终态/abort/timeout 落库/resolve 建 grant）；既有 `toolRuntime.test.ts` 6 条行为测试全过，合计 28/28；改动源文件 tsc 干净。
+- **后续**: HostBash 适配器实现同一接口、通过接口消解 `resolvePendingBrokerRequests` 桥接（会改行为，单独谨慎推进）。
 
 ### 审批收敛 Phase 1（共享 poll 等待器，零行为变更）
 - **背景**: 仓库存在两套独立审批阻塞循环 —— ApprovalBroker 通道（`ToolRuntime.pollApprovalRequest`，非 bash 高危工具）与 Host Bash 通道（`waitForHostBashApprovalAndExecute`，bash host 命令），各自手写 timeout/abort/sleep 轮询（摸底见 `docs/designs/agent-runtime/approval-convergence-plan-2026-06-20.md`）。

@@ -253,9 +253,10 @@ export interface WebSearchSettings {
   engines: Record<WebSearchEngineId, WebSearchEngineSettings>;
 }
 
-export type ImageGenerateEngineId = "agnes" | "modelscope" | "google" | "volcengine";
+export type ImageGenerateEngineId = "agnes" | "openai" | "openai-chat" | "modelscope" | "google" | "volcengine";
 
 export interface ImageGenerateEngineSettings {
+  enabled: boolean;
   apiKey: string;
   baseUrl?: string;
   model?: string;

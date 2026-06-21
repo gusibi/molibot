@@ -12,7 +12,7 @@ test("sanitizeSettings backfills imageGenerate for legacy settings", () => {
 
   assert.equal(sanitized.imageGenerate.enabled, defaultRuntimeSettings.imageGenerate.enabled);
   assert.equal(sanitized.imageGenerate.defaultEngine, defaultRuntimeSettings.imageGenerate.defaultEngine);
-  assert.deepEqual(Object.keys(sanitized.imageGenerate.engines).sort(), ["agnes", "google", "modelscope", "volcengine"]);
+  assert.deepEqual(Object.keys(sanitized.imageGenerate.engines).sort(), ["agnes", "google", "modelscope", "openai", "openai-chat", "volcengine"]);
 });
 
 test("sanitizeSettings enables configured default image engine when legacy enabled flag is false", () => {
@@ -36,6 +36,7 @@ test("sanitizeSettings enables configured default image engine when legacy enabl
   const sanitized = sanitizeSettings({}, settings);
 
   assert.equal(sanitized.imageGenerate.defaultEngine, "agnes");
+  assert.equal(sanitized.imageGenerate.engines.agnes.enabled, true);
   assert.equal(sanitized.imageGenerate.engines.agnes.apiKey, "agnes-key");
 });
 
