@@ -2,6 +2,11 @@
 
 ## 2026-06-21
 
+### 审批收敛 Phase 2 (a)：删除 dead broker 桥接
+- **证实再删除**: 新增 lock 测试证明默认策略下唯一的 high-risk 内置分类是 `bash`，而 `bash` 在 `decideBashToolPolicy` 中 opt-out broker（永远 `allow`）——因此没有任何内置工具会创建 broker request，hostBash 审批永远不存在同 scope 的待对账 broker request。据此删除 `channelCommands.ts` 的 `resolvePendingBrokerRequests` 方法、5 处调用、以及无 hostBash 记录时回退 resolve broker 的 NL 审批分支，并清理 `getApprovalBroker` import。
+- **只删死桥接、不动 broker**: `ApprovalBroker` 的 grant 模型仍在 ToolRuntime / TurnOrchestrator / feishu 中存活。
+- **回归保护**: lock 测试在未来新增「非-bash 高危工具」时会失败，提示去显式接线审批。验证：channelCommands + classification + toolRuntime + approvalService 共 43/43 通过，tsc 干净。
+
 ### Image Generation Provider Diagnostics
 - **图像工具 HTTP 诊断日志**: `imageGenerate` 现在会在服务端日志打印供应商请求 URL、脱敏请求头、请求体、响应状态和响应体预览，覆盖设置页测试与 Agent 调用，便于排查 Google Imagen 返回空 `{}` 等 provider 侧问题。
 - **敏感信息脱敏**: 图像工具日志会脱敏 `Authorization`、API key header、Google `?key=` 查询参数以及已配置的供应商密钥，避免调试时把真实 key 打到日志里。

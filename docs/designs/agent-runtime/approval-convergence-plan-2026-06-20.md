@@ -24,6 +24,12 @@
 - 因此「再写一个 HostBashApprovalService 适配器去统一 store」价值有限（store 本就统一）；更高价值是 **(a) 证实并删除 dead 桥接**，或 **(b) 合并两个访问类**。两者都改动不可活测的审批路径，需谨慎、单独推进。
 - **已完成的 Phase 2 第一刀（ApprovalService façade + BrokerApprovalService，零行为变更）依然有效**，是干净的检查点；后续不必急着造 hostBash 适配器，建议先就 (a)/(b) 取舍做决策。
 
+### (a) 已完成（2026-06-20）：证实并删除 dead 桥接
+- **证实**：新增 lock 测试 `toolClassification.test.ts`「bash is the only high-risk built-in classification…」——`getRuntimeToolClassification` 中唯一的 high/critical 是 `bash`，而 `decideBashToolPolicy` 对 bash 永远返回 `allow`（opt-out）。因此默认策略下**没有任何内置工具会创建 broker request**，hostBash 审批永远不存在同 scope 的待对账 broker request → 桥接对所有内置工具不可达。
+- **删除**：移除 `channelCommands.ts` 的 `resolvePendingBrokerRequests` 方法、其 5 处调用、以及「无 hostBash 记录时回退去 resolve broker pending」的 NL 审批分支（改为 `return false`），并清理 `getApprovalBroker` import。
+- **未动**：`ApprovalBroker` / `getApprovalBroker` 的 grant 模型仍在 `index.ts`(ToolRuntime)、`turnOrchestrator.ts`(撤销 grant)、`feishu/runtime.ts` 中存活——只删了死桥接，没动 broker 本身。
+- **回归保护**：lock 测试在未来有人新增「非-bash 高危工具」时会失败，提示去显式接线该工具的审批，而不是依赖已删除的桥接。验证：channelCommands + classification + toolRuntime + approvalService 共 43/43 通过，tsc 干净。
+
 ## 1. 现状摸底：到底有几条路径
 
 ### 路径 A —— ApprovalBroker（ToolRuntime 通道）

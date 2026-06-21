@@ -7,7 +7,6 @@ import type { RuntimeSettings, RuntimeThinkingLevel } from "$lib/server/settings
 import { RUNTIME_THINKING_LEVELS } from "$lib/server/settings/index.js";
 import type { ApprovedHostBashEntry, HostBashApprovalRecord, HostBashStore } from "$lib/server/hostBash/index.js";
 import { getHostBashStore } from "$lib/server/hostBash/index.js";
-import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import {
   buildModelOptions,
   currentModelKey,
@@ -226,26 +225,6 @@ export class SharedRuntimeCommandService<TTarget> {
     }, 3000).unref?.();
   }
 
-  // The agent ToolRuntime gates high-risk tools through the ApprovalBroker and
-  // polls it while the run waits. Host Bash approvals live in a separate store,
-  // so without this bridge a user reply like "本会话允许" resolves the Host Bash
-  // record but leaves the broker request pending until it times out.
-  private resolvePendingBrokerRequests(
-    scopeId: string,
-    status: "approved" | "rejected",
-    selectedScope: "once" | "session" | "persistent"
-  ): void {
-    try {
-      const broker = getApprovalBroker();
-      for (const request of broker.listPendingRequests()) {
-        if (request.runId !== scopeId) continue;
-        broker.resolveRequest({ requestId: request.id, status, selectedScope });
-      }
-    } catch {
-      // Broker bridging is best-effort; Host Bash approval state is authoritative.
-    }
-  }
-
   async approveHostTool(
     input: SharedRuntimeCommandContext<TTarget>,
     approvalId?: string,
@@ -262,7 +241,6 @@ export class SharedRuntimeCommandService<TTarget> {
       if (resolved) return { ok: true, message: resolved };
       return { ok: false, message: this.text("No matching pending Host Bash approval found.", "未找到匹配的待处理 Host Bash 审批。") };
     }
-    this.resolvePendingBrokerRequests(input.scopeId, "approved", scope === "persistent" ? "persistent" : "once");
     const registered = approved.approved;
     const registeredEntries = approved.approvedEntries ?? (registered ? [registered] : []);
     let message = registered
@@ -310,7 +288,6 @@ export class SharedRuntimeCommandService<TTarget> {
       if (resolved) return { ok: true, message: resolved };
       return { ok: false, message: this.text("No matching pending Host Bash approval found.", "未找到匹配的待处理 Host Bash 审批。") };
     }
-    this.resolvePendingBrokerRequests(input.scopeId, "approved", "session");
     this.options.store.setSessionHostApprovalMode(input.scopeId, sessionId, "session");
     this.options.store.appendRuntimeEvent(input.scopeId, {
       code: "SESSION_HOST_APPROVAL_ENABLED",
@@ -363,7 +340,6 @@ export class SharedRuntimeCommandService<TTarget> {
       if (resolved) return { ok: true, message: resolved };
       return { ok: false, message: this.text("No matching pending Host Bash approval found.", "未找到匹配的待处理 Host Bash 审批。") };
     }
-    this.resolvePendingBrokerRequests(input.scopeId, "rejected", "once");
     return {
       ok: true,
       message: this.text(`Rejected Host Bash approval ${request.id} (${request.displayName}).`, `已拒绝 Host Bash 审批 ${request.id}（${request.displayName}）。`),
@@ -1340,24 +1316,7 @@ export class SharedRuntimeCommandService<TTarget> {
       || this.isOnceApprovalText(text)
       || this.isPersistentApprovalText(text);
     if (!isApprovalReply) return false;
-    if (pending.length === 0) {
-      // No Host Bash record, but a high-risk tool may still be waiting on the
-      // ApprovalBroker poll; resolve those so the run does not time out.
-      const brokerPending = getApprovalBroker().listPendingRequests()
-        .filter((request) => request.runId === input.scopeId);
-      if (brokerPending.length === 0) return false;
-      if (this.isRejectText(text)) {
-        this.resolvePendingBrokerRequests(input.scopeId, "rejected", "once");
-        await this.options.sendText(input.target, this.text("Rejected pending tool approval.", "已拒绝待处理的工具审批。"));
-      } else {
-        const scope = this.isSessionApprovalText(text)
-          ? "session" as const
-          : this.isPersistentApprovalText(text) ? "persistent" as const : "once" as const;
-        this.resolvePendingBrokerRequests(input.scopeId, "approved", scope);
-        await this.options.sendText(input.target, this.text("Approved. The waiting tool call will continue automatically.", "已批准。等待中的工具调用会自动继续执行。"));
-      }
-      return true;
-    }
+    if (pending.length === 0) return false;
 
     if (pending.length > 1) {
       await this.options.sendText(

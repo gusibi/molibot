@@ -37,3 +37,25 @@ test("getRuntimeToolClassification: non-MCP normal tool => low risk, builtin sou
   assert.equal(result.risk, "low");
   assert.equal(result.source, "builtin");
 });
+
+// Lock test guarding the removal of the channelCommands broker bridge:
+// the ApprovalBroker (System A) only gates tools whose risk is high/critical.
+// `bash` is the sole high-risk classification, and `bash` opts out of the broker
+// inside decideBashToolPolicy (always returns `allow`). So with the default
+// policy NO built-in tool ever creates a broker request, which is why a Host Bash
+// approval never has a co-pending broker request to reconcile. If a future
+// non-bash high-risk tool is added, this test fails — a signal to wire that
+// tool's approval explicitly rather than relying on the (now removed) bridge.
+test("bash is the only high-risk built-in classification, so no built-in tool triggers the broker approval path", () => {
+  assert.equal(getRuntimeToolClassification("bash").risk, "high");
+  for (const name of [
+    "read", "write", "edit", "webSearch", "subagent", "attach", "event",
+    "memory", "skillSearch", "skillManage", "switchModel", "imageGenerate",
+    "ttsGenerate", "videoGenerate", "mcpInvoke", "loadMcp",
+    "mcp__server__tool", "anyUnknownToolName"
+  ]) {
+    const { risk } = getRuntimeToolClassification(name);
+    assert.notEqual(risk, "high", `${name} must not be high risk`);
+    assert.notEqual(risk, "critical", `${name} must not be critical risk`);
+  }
+});

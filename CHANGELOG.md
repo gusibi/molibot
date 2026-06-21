@@ -4,6 +4,9 @@
 
 ## 2026-06-21
 
+### Approval Convergence — Phase 2 (a): removed the dead broker bridge
+- Removed `resolvePendingBrokerRequests` and its call sites from `channelCommands.ts`. This cross-store bridge resolved a pending ApprovalBroker request whenever a Host Bash approval was answered, but with `bash` opting out of the broker and `bash` being the only high-risk built-in classification, no built-in tool ever creates a broker request — so the bridge never reconciled a real co-pending pair. A lock test (`toolClassification.test.ts`) pins this invariant and will fail if a future non-bash high-risk tool is added, signaling that its approval must be wired explicitly. The ApprovalBroker grant model itself (used by ToolRuntime and TurnOrchestrator) is unchanged.
+
 ### Image Generation Diagnostics
 - `imageGenerate` now logs provider HTTP request URLs, redacted headers, request bodies, response status, and response body previews for both settings-page tests and Agent calls. Sensitive API keys are redacted, including Google `?key=` query params and authorization headers.
 
