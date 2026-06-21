@@ -63,7 +63,7 @@ function createMockClient(options: { failCardCreate?: boolean } = {}) {
 
 test("FeishuStreamingSession streams cumulative answer text into one CardKit message", async () => {
   const { client, messageCreateCalls, contentCalls, settingsCalls } = createMockClient();
-  const session = new FeishuStreamingSession({ client, chatId: "oc_chat", runId: "run_1", title: "Molibot" });
+  const session = new FeishuStreamingSession({ client, chatId: "oc_chat", runId: "run_1" });
 
   await session.handleRunnerEvent({ type: "assistant_message_event", event: { type: "text_delta", delta: "Hello" } as never });
   await session.flushNow();
@@ -80,7 +80,7 @@ test("FeishuStreamingSession streams cumulative answer text into one CardKit mes
 
 test("FeishuStreamingSession aggregates tool progress into CardKit updates", async () => {
   const { client, cardUpdateCalls } = createMockClient();
-  const session = new FeishuStreamingSession({ client, chatId: "oc_chat", runId: "run_1", title: "Molibot" });
+  const session = new FeishuStreamingSession({ client, chatId: "oc_chat", runId: "run_1" });
 
   await session.handleRunnerEvent({ type: "tool_execution_start", toolName: "Read", displayName: "Read", label: "Read file" });
   await session.flushNow();
@@ -94,7 +94,7 @@ test("FeishuStreamingSession aggregates tool progress into CardKit updates", asy
 
 test("FeishuStreamingSession uses one editable post fallback when CardKit creation fails", async () => {
   const { client, messageCreateCalls, messageUpdateCalls } = createMockClient({ failCardCreate: true });
-  const session = new FeishuStreamingSession({ client, chatId: "oc_chat", runId: "run_1", title: "Molibot" });
+  const session = new FeishuStreamingSession({ client, chatId: "oc_chat", runId: "run_1" });
 
   await session.handleRunnerEvent({ type: "assistant_message_event", event: { type: "text_delta", delta: "Hello" } as never });
   await session.flushNow();
@@ -113,7 +113,6 @@ test("FeishuStreamingSession sends reasoning as a separate editable message", as
     client,
     chatId: "oc_chat",
     runId: "run_1",
-    title: "Molibot",
     displayConfig: { toolProgress: "all", showReasoning: "stream", gatewayNotifyInterval: 0 }
   });
 

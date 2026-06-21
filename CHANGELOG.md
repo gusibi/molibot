@@ -4,6 +4,13 @@
 
 ## 2026-06-21
 
+### Bot Profile layering
+- `BOT.md` now stacks on top of the linked agent/global `AGENTS.md` instead of replacing it, and both render in the upper operator-directives block before the default `<system-prompt>`. `AGENTS.md` renders first as the reusable base, then `BOT.md` adds bot-specific rules. Same-name identity files such as `SOUL.md`, `IDENTITY.md`, and `SONG.md` keep the existing bot > agent > global override behavior. Covered by rendered prompt regression tests, including a Feishu bot linked to an agent.
+
+### Feishu: emoji status reactions, no card title, quoted replies
+- Removed the streaming/final card header (the Thinking/Processing/Completed title). Run status now appears as an emoji reaction on the user's own triggering message: `OnIt` while working, swapped to `DONE` on success, `CrossMark` on error, `No` on abort. Added `addFeishuReaction`/`removeFeishuReaction` helpers (`im.messageReaction.*`, fixed Feishu `emoji_type` keys) — best-effort and wrapped in try/catch so a missing reaction scope never breaks a run. The card `summary` is kept for notification previews.
+- Replies now always quote the user's message (not only in thread mode): `replyOptionsForEvent` sets `replyToMessageId` whenever `platformMessageId` exists, with `reply_in_thread` only for topic-sourced messages — so back-to-back questions in plain group/p2p chats are easy to match to their answers. Requires the bot's message-reaction permission scope. Covered by cardkit (6/6) and streamingSession (4/4) suites.
+
 ### Approval Convergence — Phase 2 (b): single approvals table
 - Merged the two approval persistence tables (`approval_requests` + `approval_grants`) into one `approvals` table with a `type` discriminator (`request` / `grant`), and switched both access classes — `SqliteApprovalStore` (broker) and `HostBashStore` (bash-domain workflow) — to read/write it. An idempotent migration copies any existing legacy rows into the unified table on startup; the legacy tables are left in place for reversibility and are no longer created or referenced by application code. Bash-domain rows remain tagged by `capability LIKE 'bash:%'`. Covered by the approval/hostBash/channelCommands/toolRuntime/turnOrchestrator suites (61/61).
 

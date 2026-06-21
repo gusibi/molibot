@@ -2,6 +2,17 @@
 
 ## 2026-06-21
 
+### Bot Profile 与 Agent AGENTS 叠加
+- **`BOT.md` 不再覆盖 `AGENTS.md`**：系统提示词构造时，已绑定 agent/global 的 `AGENTS.md` 与 bot 维度 `BOT.md` 一起放在上方 operator directives 区块；`AGENTS.md` 先作为可复用底座，`BOT.md` 再叠加 bot 专属规则，避免 Feishu/Web/Telegram 等 bot 的专属规则把 agent 维度长期规则整体挤掉。
+- **同名身份文件仍按 bot 优先**：`SOUL.md`、`IDENTITY.md`、`SONG.md` 继续使用 bot > agent > global 取一个的覆盖语义，适合 bot 维度定制人格、身份和表达风格。
+- **回归验证**：新增 prompt render 测试覆盖 bot `BOT.md` 与 global `AGENTS.md` 叠加且位于默认 `<system-prompt>` 前，以及 Feishu bot 绑定 agent 时 agent `AGENTS.md` 先于 bot `BOT.md` 生效、bot `SOUL.md` 覆盖 agent `SOUL.md`。
+
+### Feishu 卡片去标题 + emoji 状态 + 回复引用
+- **去掉卡片标题栏**：`buildFeishuStreamingCard` / `buildFeishuFinalCard` 不再渲染 `header`（原来显示 Thinking/Processing/Completed 等），删除随之失效的 `title` 入参、`FeishuStreamingSession.resolveStreamingTitle()` 与 `workingPhase` 字段。卡片仍保留 `config.summary`，通知列表里照常显示进度文案。
+- **状态改用用户消息上的 emoji reaction**：`FeishuStreamingSession.startStatusIndicator()` 在任务一开始就给「用户的触发消息」加 `OnIt`（处理中）表情；`finalize()` 按 `stopReason` 换成 `DONE`（成功）/`CrossMark`（失败）/`No`（中止）。emoji 用飞书固定 `emoji_type` 枚举（非任意 emoji），新增 `addFeishuReaction` / `removeFeishuReaction` 封装（`client.im.messageReaction.*`），全程 try/catch + `momWarn`，缺权限或错 key 只告警不打断运行。
+- **回复明确引用用户消息**：`replyOptionsForEvent` 放开原先「仅 thread 才 reply」的限制——只要有 `platformMessageId` 就带 `replyToMessageId`，`replyInThread` 仅在源自 topic 时为真。普通群聊/单聊里每条回复都带引用块，连发多条也能快速定位。
+- **测试**：cardkit 6/6、streamingSession 4/4 通过；剔除测试中已删除的 `title` 入参。改动源文件无新增 tsc 错误（messaging 既有 `buildFeishuReplyCards` 类型告警为基线既存）。
+
 ### 审批收敛 Phase 2 (b)：审批落库合并为单表
 - **两表合一**：新增 `approval/approvalSchema.ts`，把 `approval_requests` + `approval_grants` 合并为单表 `approvals`（两套旧表列并集）+ `type` 判别列（`request`/`grant`），并提供幂等迁移 `migrateLegacyApprovalTables`（启动时把旧表数据 `INSERT OR IGNORE` 拷入，旧表保留可回滚）。
 - **两个访问类共用单表**：`SqliteApprovalStore`(broker, 8 语句) 与 `HostBashStore`(bash 工作流, ~24 语句) 全部 SQL 切到 `approvals` 并带显式 `type` 过滤；bash 域行仍以 `capability LIKE 'bash:%'` 标记。生产代码不再创建或引用旧表。

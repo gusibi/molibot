@@ -52,7 +52,6 @@ function createMockClient() {
 
 test("buildFeishuStreamingCard creates CardKit 2.0 streaming card with target element", () => {
   const card = buildFeishuStreamingCard({
-    title: "Processing",
     answerText: "Hello",
     tools: [{ toolName: "Read", label: "Read file", status: "running" }],
     isWorking: true
@@ -66,7 +65,6 @@ test("buildFeishuStreamingCard creates CardKit 2.0 streaming card with target el
 
 test("buildFeishuFinalCard closes streaming mode and keeps tool summary", () => {
   const card = buildFeishuFinalCard({
-    title: "Completed",
     answerText: "Done",
     tools: [{ toolName: "Bash", label: "Run tests", status: "success", summary: "passed" }],
     stopReason: "stop",
@@ -81,7 +79,6 @@ test("buildFeishuFinalCard closes streaming mode and keeps tool summary", () => 
 
 test("buildFeishuFinalCard splits headings into separate markdown elements", () => {
   const card = buildFeishuFinalCard({
-    title: "Completed",
     answerText: ["# Heading 1", "Body", "## Heading 2", "More body"].join("\n"),
     tools: [],
     stopReason: "stop",
@@ -96,7 +93,6 @@ test("buildFeishuFinalCard splits headings into separate markdown elements", () 
 
 test("buildFeishuFinalCard converts markdown tables into native table elements", () => {
   const card = buildFeishuFinalCard({
-    title: "Completed",
     answerText: [
       "Summary",
       "",
@@ -124,7 +120,7 @@ test("buildFeishuFinalCard converts markdown tables into native table elements",
 
 test("CardKit wrappers send exact SDK payloads", async () => {
   const { client, calls } = createMockClient();
-  const card = buildFeishuStreamingCard({ title: "Processing", answerText: "", tools: [], isWorking: true });
+  const card = buildFeishuStreamingCard({ answerText: "", tools: [], isWorking: true });
 
   const cardId = await createFeishuCardEntity(client, card);
   const sent = await sendFeishuCardById(client, "oc_chat", cardId);
@@ -132,7 +128,7 @@ test("CardKit wrappers send exact SDK payloads", async () => {
   await updateFeishuCardEntity(
     client,
     cardId,
-    buildFeishuFinalCard({ title: "Done", answerText: "Hello", tools: [], stopReason: "stop", elapsedMs: 1 }),
+    buildFeishuFinalCard({ answerText: "Hello", tools: [], stopReason: "stop", elapsedMs: 1 }),
     3
   );
   await setFeishuCardStreamingMode(client, cardId, false, 4);

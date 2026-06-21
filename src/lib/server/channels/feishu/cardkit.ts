@@ -19,7 +19,6 @@ export interface FeishuToolProgressEntry {
 }
 
 interface BuildStreamingCardOptions {
-  title: string;
   answerText: string;
   tools: FeishuToolProgressEntry[];
   detailsText?: string;
@@ -27,7 +26,6 @@ interface BuildStreamingCardOptions {
 }
 
 interface BuildFinalCardOptions {
-  title: string;
   answerText: string;
   tools: FeishuToolProgressEntry[];
   detailsText?: string;
@@ -203,6 +201,9 @@ export function buildFeishuStreamingCard(options: BuildStreamingCardOptions): Re
   });
   const details = buildDetailsPanel(options.detailsText);
   if (details) elements.push(details);
+  // No header: run status is conveyed by an emoji reaction on the user's
+  // message instead of a card title. `summary` still feeds the notification
+  // preview so chat lists show progress text.
   return {
     schema: "2.0",
     config: {
@@ -210,10 +211,6 @@ export function buildFeishuStreamingCard(options: BuildStreamingCardOptions): Re
       wide_screen_mode: true,
       update_multi: true,
       summary: { content: buildSummaryContent({ isWorking: options.isWorking }) }
-    },
-    header: {
-      template: "indigo",
-      title: { tag: "plain_text", content: options.title }
     },
     body: { elements }
   };
@@ -230,6 +227,8 @@ export function buildFeishuFinalCard(options: BuildFinalCardOptions): Record<str
     text_size: "notation",
     content: buildSummaryContent({ stopReason: options.stopReason, elapsedMs: options.elapsedMs })
   });
+  // No header: the terminal status (completed/stopped/error) is shown by the
+  // emoji reaction on the user's message plus the summary note appended above.
   return {
     schema: "2.0",
     config: {
@@ -237,10 +236,6 @@ export function buildFeishuFinalCard(options: BuildFinalCardOptions): Record<str
       wide_screen_mode: true,
       update_multi: true,
       summary: { content: buildSummaryContent({ stopReason: options.stopReason, elapsedMs: options.elapsedMs }) }
-    },
-    header: {
-      template: options.stopReason === "error" ? "red" : options.stopReason === "aborted" ? "orange" : "green",
-      title: { tag: "plain_text", content: options.title }
     },
     body: { elements }
   };

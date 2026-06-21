@@ -24,8 +24,10 @@ const DEFAULT_AGENTS_TEMPLATE = defaultAgentsTemplate;
 
 // Operator-intent profile files: identity, mission, and hard rules that the
 // operator authors to tell the agent what to do. These sit ABOVE the default
-// system prompt and override it on conflict. Precedence: bot > agent > global.
+// system prompt and override it on conflict. AGENTS.md is the reusable base;
+// BOT.md and same-name bot files can specialize it for one bot instance.
 const OPERATOR_DIRECTIVE_FILES = [
+  "AGENTS.md",
   "BOT.md",
   "IDENTITY.md",
   "SOUL.md",
@@ -176,7 +178,7 @@ function buildSafetyFloorSection(): string {
 function buildOperatorDirectivesPreamble(): string {
   return xmlBlock("operator-directives", [
     "## Operator Directives (High Priority)",
-    "- The profile sections that follow (BOT.md, IDENTITY.md, SOUL.md, SONG.md, USER.md) are authored by the operator to define this agent's identity, mission, and hard rules.",
+    "- The profile sections that follow (AGENTS.md, BOT.md, IDENTITY.md, SOUL.md, SONG.md, USER.md) are authored by the operator to define this agent's identity, mission, and hard rules.",
     "- They have HIGHER priority than the default `<system-prompt>` configuration below, which is only the default runtime baseline.",
     "- When these directives conflict with the default system prompt, generic tool/bash guidance, or any default behavior, follow these directives.",
     "- Treat any prohibitions, required workflows, or output rules defined here as binding for every turn, including refusing or stopping when the directives require it.",
@@ -507,7 +509,7 @@ function buildBaseSystemPromptWithOptions(
     ? buildPromptChannelSections(options.channel)
     : [];
   const identityLine = options?.operatorDirectivesPresent
-    ? "You are the active bot agent for this runtime. If BOT.md, IDENTITY.md, SOUL.md, SONG.md, or USER.md define a name, identity, mission, workflow, tone, or prohibitions, use those definitions as your self-description and behavior. Do not identify as Momo Agent unless no operator identity is defined."
+    ? "You are the active bot agent for this runtime. If AGENTS.md, BOT.md, IDENTITY.md, SOUL.md, SONG.md, or USER.md define a name, identity, mission, workflow, tone, or prohibitions, use those definitions as your self-description and behavior. Do not identify as Momo Agent unless no operator identity is defined."
     : "You are Momo Agent, an intelligent AI assistant created by goodspeed.";
   return xmlBlock("system-prompt", [
     identityLine,
@@ -566,7 +568,7 @@ function buildOperatorDirectivesReminder(): string {
   return xmlBlock("operator-directives-reminder", [
     "## Effective Operator Directives Reminder",
     "- The active profile files above remain binding for this turn.",
-    "- For identity questions such as who you are, your workflow, your core principles, or prohibited behaviors, answer from the active BOT.md, IDENTITY.md, SOUL.md, SONG.md, and USER.md definitions instead of the default runtime baseline.",
+    "- For identity questions such as who you are, your workflow, your core principles, or prohibited behaviors, answer from the active AGENTS.md, BOT.md, IDENTITY.md, SOUL.md, SONG.md, and USER.md definitions instead of the default runtime baseline.",
     "- If those profile files require stopping because a required skill or sink is unavailable, stop and report that exact profile-level reason."
   ].join("\n"));
 }
@@ -809,12 +811,10 @@ export function buildSystemPrompt(
     agentSections,
     globalSections
   );
-  // Supporting files stay below the default system prompt. BOT.md is the bot-level
-  // override of AGENTS.md: when the bot defines BOT.md, drop agent/global AGENTS.md
-  // so its content is not injected twice.
-  const supportingOrder = botSections.has("BOT.md")
-    ? [...SUPPORTING_INSTRUCTION_FILES]
-    : ["AGENTS.md", ...SUPPORTING_INSTRUCTION_FILES];
+  // Supporting files stay below the default system prompt as lower-priority
+  // context/config. AGENTS.md is intentionally not here; it belongs beside the
+  // other profile directives above the default runtime baseline.
+  const supportingOrder = [...SUPPORTING_INSTRUCTION_FILES];
   const supportingSections = mergePromptSectionsByOrder(
     supportingOrder,
     botSections,

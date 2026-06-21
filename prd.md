@@ -7,6 +7,10 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Solo builders and small teams who want one AI assistant across channels.
 - Users who prefer simple interaction over complex automation.
 
+## 2.14 Scope Clarification (2026-06-21)
+- [Done] Bot profile layering must keep reusable agent rules and bot-specific rules together in the upper operator-directives block: if a bot defines `BOT.md`, the final rendered system prompt must include linked agent/global `AGENTS.md` before `BOT.md`, rather than treating `BOT.md` as a replacement for `AGENTS.md` or placing `AGENTS.md` after the default runtime prompt.
+- [Done] Bot-level same-name identity files remain true overrides: `SOUL.md`, `IDENTITY.md`, and `SONG.md` use bot > agent > global precedence so a bot can customize personality, identity, and tone without duplicating the agent's reusable `AGENTS.md` rules.
+
 ## 2.13 Scope Clarification (2026-06-20)
 - [Done] IM 共享 `/new` 命令生成的 Agent runtime session ID 必须使用当天递增格式 `s-YYYYMMDD-0001`，同一天同一 chat/scope 已存在同格式 session 时递增到下一个序号；旧随机格式 session 继续可列出和切换，但不参与新序号计算。
 - [Done] `sessionMode=fresh` 的定时任务 session ID 必须使用同一套当天递增规则，前缀为 `task`，例如 `task-YYYYMMDD-0001`；该逻辑必须留在共享 Agent runtime store，不能下沉到各 Channel。

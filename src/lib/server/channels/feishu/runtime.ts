@@ -758,10 +758,13 @@ export class FeishuManager extends BaseChannelRuntime {
     }
 
     private replyOptionsForEvent(event: ChannelInboundMessage): { replyToMessageId?: string; replyInThread?: boolean } {
-        if (!event.platformThreadId || !event.platformMessageId) return {};
+        if (!event.platformMessageId) return {};
+        // Always quote the triggering message so the reply clearly points at the
+        // user's question (helps locate answers when several messages are sent
+        // in a row). Thread mode only applies when the source was a thread.
         return {
             replyToMessageId: event.platformMessageId,
-            replyInThread: true
+            replyInThread: Boolean(event.platformThreadId)
         };
     }
 
@@ -805,11 +808,13 @@ export class FeishuManager extends BaseChannelRuntime {
             client: this.client,
             chatId,
             runId,
-            title: "Processing",
             displayConfig,
             ...this.replyOptionsForEvent(event),
             onMessageSent: (messageId) => this.recordFeishuBotMessage(event, messageId)
         });
+        // Show the "processing" emoji on the user's message right away, before
+        // any model output arrives.
+        void streaming.startStatusIndicator();
         let threadEventCount = 0;
         let result: RunResult | null = null;
 

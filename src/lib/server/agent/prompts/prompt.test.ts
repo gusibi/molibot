@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { buildSystemPromptPreview } from "$lib/server/agent/prompts/prompt.js";
+import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const promptSource = readFileSync(join(here, "prompt.ts"), "utf8");
@@ -115,7 +117,7 @@ test("rendered prompt stays under a broad size budget while preserving routing a
   }
 });
 
-test("bot BOT.md overrides agent/global AGENTS.md instead of injecting both", () => {
+test("bot BOT.md stacks with global AGENTS.md instead of replacing it", () => {
   const dataRoot = mkdtempSync(join(tmpdir(), "molibot-profile-merge-"));
   const workspaceDir = join(dataRoot, "moli-test", "bots", "bot-1");
   try {
@@ -132,8 +134,76 @@ test("bot BOT.md overrides agent/global AGENTS.md instead of injecting both", ()
       timezone: "UTC"
     });
     assert.match(withBotFile, /BOT-OVERRIDE-MARKER/);
-    assert.doesNotMatch(withBotFile, /GLOBAL-AGENTS-MARKER/);
+    assert.match(withBotFile, /GLOBAL-AGENTS-MARKER/);
+    assert.ok(
+      withBotFile.indexOf("GLOBAL-AGENTS-MARKER") < withBotFile.indexOf("BOT-OVERRIDE-MARKER"),
+      "AGENTS.md should render in the upper profile block before BOT.md"
+    );
+    const systemPromptIndex = withBotFile.indexOf("\n<system-prompt>\n");
+    assert.ok(systemPromptIndex >= 0, "rendered prompt should contain a system-prompt block");
+    assert.ok(
+      withBotFile.indexOf("BOT-OVERRIDE-MARKER") < systemPromptIndex,
+      "BOT.md should render before the default system prompt"
+    );
   } finally {
+    rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("bot BOT.md stacks with linked agent AGENTS.md while identity files still override by scope", () => {
+  const dataRoot = mkdtempSync(join(tmpdir(), "molibot-agent-profile-merge-"));
+  const workspaceDir = join(dataRoot, "moli-f", "bots", "feishu-grahamo");
+  const agentDir = join(dataRoot, "agents", "agent-smart-momo");
+  const originalDataDir = storagePaths.dataDir;
+  const originalAgentsDir = storagePaths.agentsDir;
+  try {
+    storagePaths.dataDir = dataRoot;
+    storagePaths.agentsDir = join(dataRoot, "agents");
+    mkdirSync(workspaceDir, { recursive: true });
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, "AGENTS.md"), "# AGENTS.md\n\nAGENT-AGENTS-MARKER", "utf8");
+    writeFileSync(join(agentDir, "SOUL.md"), "# SOUL.md\n\nAGENT-SOUL-MARKER", "utf8");
+    writeFileSync(join(workspaceDir, "BOT.md"), "# BOT.md\n\nBOT-STACK-MARKER", "utf8");
+    writeFileSync(join(workspaceDir, "SOUL.md"), "# SOUL.md\n\nBOT-SOUL-MARKER", "utf8");
+
+    const prompt = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
+      timezone: "UTC",
+      channel: "feishu",
+      settings: {
+        ...defaultRuntimeSettings,
+        channels: {
+          ...defaultRuntimeSettings.channels,
+          feishu: {
+            instances: [{
+              id: "feishu-grahamo",
+              name: "Feishu Grahamo",
+              enabled: true,
+              agentId: "agent-smart-momo",
+              credentials: {},
+              allowedChatIds: []
+            }]
+          }
+        }
+      }
+    });
+
+    assert.match(prompt, /BOT-STACK-MARKER/);
+    assert.match(prompt, /AGENT-AGENTS-MARKER/);
+    assert.match(prompt, /BOT-SOUL-MARKER/);
+    assert.doesNotMatch(prompt, /AGENT-SOUL-MARKER/);
+    assert.ok(
+      prompt.indexOf("AGENT-AGENTS-MARKER") < prompt.indexOf("BOT-STACK-MARKER"),
+      "linked agent AGENTS.md should render before bot BOT.md in the upper profile block"
+    );
+    const systemPromptIndex = prompt.indexOf("\n<system-prompt>\n");
+    assert.ok(systemPromptIndex >= 0, "rendered prompt should contain a system-prompt block");
+    assert.ok(
+      prompt.indexOf("BOT-STACK-MARKER") < systemPromptIndex,
+      "profile directives should render before the default system prompt"
+    );
+  } finally {
+    storagePaths.dataDir = originalDataDir;
+    storagePaths.agentsDir = originalAgentsDir;
     rmSync(dataRoot, { recursive: true, force: true });
   }
 });
@@ -173,9 +243,9 @@ test("prompt source prioritizes webSearch for current web information", () => {
 test("prompt source directs MCP usage through loadMcp and mcpInvoke, not toolSearch", () => {
   assert.match(promptSource, /MCP tools are not deferred tools/);
   assert.match(promptSource, /Do not use `toolSearch` to find MCP tools/);
-  assert.match(promptSource, /`loadMcp\(action="load", serverId="\.\.\."\)`/);
-  assert.match(promptSource, /`mcpInvoke\(action="listTools"\)`/);
-  assert.match(promptSource, /`mcpInvoke\(action="call", serverId="\.\.\.", toolName="\.\.\.", arguments=\{\.\.\.\}\)`/);
+  assert.match(promptSource, /`loadMcp\(action=\\"load\\", serverId=\\"\.\.\.\\"\)`/);
+  assert.match(promptSource, /`mcpInvoke\(action=\\"listTools\\"\)`/);
+  assert.match(promptSource, /`mcpInvoke\(action=\\"call\\", serverId=\\"\.\.\.\\", toolName=\\"\.\.\.\\", arguments=\{\.\.\.\}\)`/);
 });
 
 test("prompt source prioritizes imageGenerate before skillSearch and bash image scripts", () => {

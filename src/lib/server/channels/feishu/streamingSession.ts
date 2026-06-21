@@ -2,7 +2,14 @@ import type * as lark from "@larksuiteoapi/node-sdk";
 import type { RunnerUiEvent, RunResult } from "$lib/server/agent/core/types.js";
 import { DisplayFormatter, type DisplayConfig } from "$lib/server/agent/core/displayFormatter.js";
 import { momWarn } from "$lib/server/agent/common/log.js";
-import { editFeishuText, sendFeishuText } from "$lib/server/channels/feishu/messaging.js";
+import {
+  addFeishuReaction,
+  editFeishuText,
+  removeFeishuReaction,
+  sendFeishuText,
+  FEISHU_STATUS_EMOJI,
+  type FeishuStatusReaction
+} from "$lib/server/channels/feishu/messaging.js";
 import {
   FEISHU_STREAMING_ELEMENT_ID,
   buildFeishuFinalCard,
@@ -22,7 +29,6 @@ export interface FeishuStreamingSessionOptions {
   client: lark.Client;
   chatId: string;
   runId: string;
-  title?: string;
   displayConfig?: DisplayConfig;
   replyToMessageId?: string | null;
   replyInThread?: boolean;
@@ -34,7 +40,6 @@ export class FeishuStreamingSession {
   private readonly client: lark.Client;
   private readonly chatId: string;
   private readonly runId: string;
-  private readonly title: string;
   private readonly displayConfig: DisplayConfig;
   private readonly replyToMessageId: string | null;
   private readonly replyInThread: boolean;
@@ -59,13 +64,16 @@ export class FeishuStreamingSession {
   private reasoningPendingFlush = false;
   private mainAnswerCommitted = false;
   private committedMainAnswerText = "";
-  private workingPhase: "thinking" | "processing" = "processing";
+  // Status is shown as an emoji reaction on the user's triggering message
+  // (replacing the old card header). `statusReactionId` is the id of the
+  // "processing" reaction so we can remove it before the terminal one.
+  private statusReactionStarted = false;
+  private statusReactionId: string | null = null;
 
   constructor(options: FeishuStreamingSessionOptions) {
     this.client = options.client;
     this.chatId = options.chatId;
     this.runId = options.runId;
-    this.title = options.title ?? "Processing";
     this.replyToMessageId = options.replyToMessageId ?? null;
     this.replyInThread = options.replyInThread === true;
     this.onMessageSent = options.onMessageSent;
@@ -146,32 +154,40 @@ export class FeishuStreamingSession {
     this.scheduleFlush(true);
   }
 
+  // Add the "processing" reaction to the user's message as soon as the run
+  // starts, giving immediate feedback before the card is even created.
+  // Idempotent and best-effort: a missing scope only logs a warning.
+  async startStatusIndicator(): Promise<void> {
+    if (this.statusReactionStarted || !this.replyToMessageId) return;
+    this.statusReactionStarted = true;
+    this.statusReactionId = await addFeishuReaction(
+      this.client,
+      this.replyToMessageId,
+      FEISHU_STATUS_EMOJI.processing
+    );
+  }
+
+  private async settleStatusIndicator(reaction: FeishuStatusReaction): Promise<void> {
+    if (!this.replyToMessageId) return;
+    if (this.statusReactionId) {
+      await removeFeishuReaction(this.client, this.replyToMessageId, this.statusReactionId);
+      this.statusReactionId = null;
+    }
+    await addFeishuReaction(this.client, this.replyToMessageId, FEISHU_STATUS_EMOJI[reaction]);
+  }
+
   async handleRunnerEvent(event: RunnerUiEvent): Promise<void> {
     if (this.mainAnswerCommitted && event.type === "assistant_message_event") return;
     this.formatter.feedEvent(event);
     if (event.type === "assistant_message_event") {
       const candidate = event.event as { type?: string };
-      // "thinking_start"/"thinking_delta" mean the model is actively reasoning;
-      // any other event (text output, thinking_end, tool activity) is processing.
-      this.workingPhase = candidate.type === "thinking_start" || candidate.type === "thinking_delta"
-        ? "thinking"
-        : "processing";
       if (candidate.type === "thinking_start" || candidate.type === "thinking_delta" || candidate.type === "thinking_end") {
         this.scheduleReasoningFlush();
         return;
       }
       if (candidate.type !== "text_delta") return;
-    } else {
-      this.workingPhase = "processing";
     }
     this.scheduleFlush();
-  }
-
-  // Header label shown while the card is still streaming. Reflects the model's
-  // current phase so the user sees clear semantics (Thinking vs Processing)
-  // instead of a static product name.
-  private resolveStreamingTitle(): string {
-    return this.workingPhase === "thinking" ? "Thinking" : this.title;
   }
 
   private getCardTools(): FeishuToolProgressEntry[] {
@@ -200,6 +216,9 @@ export class FeishuStreamingSession {
     this.closed = true;
     this.clearTimer();
     this.clearReasoningTimer();
+    await this.settleStatusIndicator(
+      result.stopReason === "error" ? "error" : result.stopReason === "aborted" ? "aborted" : "success"
+    );
     if (this.displayConfig.showReasoning === "new") {
       await this.completeLatestReasoningNotice();
     } else {
@@ -224,7 +243,6 @@ export class FeishuStreamingSession {
         this.client,
         this.cardId,
         buildFeishuFinalCard({
-          title: result.stopReason === "error" ? "Error" : result.stopReason === "aborted" ? "Stopped" : "Completed",
           answerText: finalAnswer,
           tools: cardTools,
           detailsText: this.detailsText,
@@ -330,7 +348,6 @@ export class FeishuStreamingSession {
         const finalAnswer = this.formatter.renderAnswerMarkdown();
         const cardTools = this.getCardTools();
         const initialCard = buildFeishuStreamingCard({
-          title: this.resolveStreamingTitle(),
           answerText: finalAnswer,
           tools: cardTools,
           detailsText: this.detailsText,
@@ -366,7 +383,6 @@ export class FeishuStreamingSession {
         this.client,
         this.cardId,
         buildFeishuStreamingCard({
-          title: this.resolveStreamingTitle(),
           answerText: finalAnswer,
           tools: cardTools,
           detailsText: this.detailsText,

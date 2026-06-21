@@ -701,6 +701,60 @@ export async function sendFeishuFile(
   }
 }
 
+/**
+ * Status conveyed as an emoji reaction on the *user's* triggering message,
+ * replacing the old streaming-card header. The values are Feishu's fixed
+ * `emoji_type` keys (not arbitrary emoji) — see
+ * https://open.feishu.cn/document/server-docs/im-v1/message-reaction/emojis-introduce
+ */
+export type FeishuStatusReaction = "processing" | "success" | "error" | "aborted";
+
+export const FEISHU_STATUS_EMOJI: Record<FeishuStatusReaction, string> = {
+  processing: "OnIt",
+  success: "DONE",
+  error: "CrossMark",
+  aborted: "No"
+};
+
+/**
+ * Add an emoji reaction to a message and return the `reaction_id` Feishu
+ * assigned (needed to remove it later). Returns null on failure — a missing
+ * reaction scope or bad emoji key must never break the run.
+ */
+export async function addFeishuReaction(
+  client: lark.Client | undefined,
+  messageId: string | null | undefined,
+  emojiType: string
+): Promise<string | null> {
+  if (!client || !messageId) return null;
+  try {
+    const res = await client.im.messageReaction.create({
+      path: { message_id: messageId },
+      data: { reaction_type: { emoji_type: emojiType } }
+    });
+    return res.data?.reaction_id || null;
+  } catch (error) {
+    momWarn("feishu", "add_reaction_failed", { messageId, emojiType, error: String(error) });
+    return null;
+  }
+}
+
+/** Remove a previously-added reaction by its `reaction_id`. */
+export async function removeFeishuReaction(
+  client: lark.Client | undefined,
+  messageId: string | null | undefined,
+  reactionId: string | null | undefined
+): Promise<void> {
+  if (!client || !messageId || !reactionId) return;
+  try {
+    await client.im.messageReaction.delete({
+      path: { message_id: messageId, reaction_id: reactionId }
+    });
+  } catch (error) {
+    momWarn("feishu", "remove_reaction_failed", { messageId, reactionId, error: String(error) });
+  }
+}
+
 export async function deleteFeishuMessage(
   client: lark.Client | undefined,
   messageId: string | null | undefined

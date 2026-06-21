@@ -148,7 +148,7 @@ export function createProfileFilesTool(options: {
     name: "profileFiles",
     label: "profileFiles",
     description:
-      "Manage bot profile markdown files (BOT/SOUL/USER/TOOLS/IDENTITY/SONG). Parent fallback: SOUL/IDENTITY/SONG fall back to agent then global; BOT.md falls back to AGENTS.md (agent then global); USER/TOOLS fall back to global only. BOOTSTRAP.md is global-only and not managed here.",
+      "Manage bot profile markdown files (BOT/SOUL/USER/TOOLS/IDENTITY/SONG). Runtime layering: agent/global AGENTS.md and bot BOT.md render together in the upper operator-directives block, with AGENTS.md first and BOT.md stacking on top; SOUL/IDENTITY/SONG use bot > agent > global precedence; USER/TOOLS fall back to global only. BOT.md bootstrap can copy AGENTS.md as a starting point. BOOTSTRAP.md is global-only and not managed here.",
     parameters: profileFileSchema,
     execute: async (_toolCallId, params) => {
       const file = ensureKnownProfileFile(params.file);
