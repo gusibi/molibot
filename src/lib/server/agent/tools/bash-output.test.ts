@@ -292,8 +292,7 @@ test("bash can request one-time host approval for compound shell commands", asyn
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
   let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
   const dbStore = getHostBashStore() as any;
-  dbStore.db.exec("DELETE FROM approval_requests");
-  dbStore.db.exec("DELETE FROM approval_grants");
+  dbStore.db.exec("DELETE FROM approvals");
   try {
     const tool = createBashTool(cwd, {
       hostApproval: {
@@ -333,8 +332,7 @@ test("bash blocks on host approval and executes inline once the request is appro
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
   let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
   const dbStore = getHostBashStore() as any;
-  dbStore.db.exec("DELETE FROM approval_requests");
-  dbStore.db.exec("DELETE FROM approval_grants");
+  dbStore.db.exec("DELETE FROM approvals");
   try {
     const tool = createBashTool(cwd, {
       hostApproval: {
@@ -640,8 +638,7 @@ test("bash auto-requests host approval after sandbox permission failure for sing
   writeFileSync(blockedFile, "secret", "utf8");
   let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
   const dbStore = getHostBashStore() as any;
-  dbStore.db.exec("DELETE FROM approval_requests");
-  dbStore.db.exec("DELETE FROM approval_grants");
+  dbStore.db.exec("DELETE FROM approvals");
   try {
     const tool = createBashTool(cwd, {
       sandbox: {
@@ -701,8 +698,7 @@ test("bash falls back to host bash after sandbox denial when session approval mo
   writeFileSync(blockedFile, "secret", "utf8");
   let settings: RuntimeSettings = structuredClone(defaultRuntimeSettings);
   const dbStore = getHostBashStore() as any;
-  dbStore.db.exec("DELETE FROM approval_requests");
-  dbStore.db.exec("DELETE FROM approval_grants");
+  dbStore.db.exec("DELETE FROM approvals");
   try {
     const tool = createBashTool(cwd, {
       sandbox: {

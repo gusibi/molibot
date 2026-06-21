@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
+import { ensureApprovalsTable, migrateLegacyApprovalTables } from "$lib/server/approval/approvalSchema.js";
 import {
   coerceApprovalMode,
   createHostBashApprovalRecord,
@@ -155,55 +156,15 @@ export class HostBashStore {
   constructor(dbPath = storagePaths.settingsDbFile) {
     ensureSqliteParentDir(dbPath);
     this.db = new DatabaseSync(dbPath);
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS approval_requests (
-        id TEXT PRIMARY KEY,
-        run_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        workspace_id TEXT NOT NULL,
-        actor_id TEXT NOT NULL,
-        capability TEXT NOT NULL,
-        risk_level TEXT NOT NULL,
-        action_json TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        status TEXT NOT NULL,
-        requested_by_json TEXT NOT NULL,
-        scope_options_json TEXT NOT NULL,
-        selected_scope TEXT,
-        action_fingerprint TEXT,
-        created_at TEXT NOT NULL,
-        resolved_at TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_approval_requests_run_status ON approval_requests(run_id, status);
-      CREATE INDEX IF NOT EXISTS idx_approval_requests_session_status ON approval_requests(session_id, status);
-      CREATE INDEX IF NOT EXISTS idx_approval_requests_workspace_cap_status ON approval_requests(workspace_id, capability, status);
-      CREATE INDEX IF NOT EXISTS idx_approval_requests_created ON approval_requests(created_at);
-
-      CREATE TABLE IF NOT EXISTS approval_grants (
-        id TEXT PRIMARY KEY,
-        scope TEXT NOT NULL,
-        capability TEXT NOT NULL,
-        actor_id TEXT NOT NULL,
-        workspace_id TEXT,
-        session_id TEXT,
-        run_id TEXT,
-        action_fingerprint TEXT,
-        expires_at TEXT,
-        created_at TEXT NOT NULL,
-        revoked_at TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_approval_grants_capability_actor ON approval_grants(capability, actor_id);
-      CREATE INDEX IF NOT EXISTS idx_approval_grants_workspace ON approval_grants(workspace_id, capability);
-      CREATE INDEX IF NOT EXISTS idx_approval_grants_session ON approval_grants(session_id, capability);
-      CREATE INDEX IF NOT EXISTS idx_approval_grants_run ON approval_grants(run_id, capability);
-    `);
+    ensureApprovalsTable(this.db);
+    migrateLegacyApprovalTables(this.db);
   }
 
   hasAnyData(): boolean {
     const row = this.db.prepare(`
       SELECT
-        (SELECT COUNT(*) FROM approval_requests WHERE capability LIKE 'bash:%') AS record_count,
-        (SELECT COUNT(*) FROM approval_grants WHERE capability LIKE 'bash:%') AS whitelist_count
+        (SELECT COUNT(*) FROM approvals WHERE type = 'request' AND capability LIKE 'bash:%') AS record_count,
+        (SELECT COUNT(*) FROM approvals WHERE type = 'grant' AND capability LIKE 'bash:%') AS whitelist_count
     `).get() as Record<string, unknown> | undefined;
     return Number(row?.record_count ?? 0) > 0 || Number(row?.whitelist_count ?? 0) > 0;
   }
@@ -217,22 +178,22 @@ export class HostBashStore {
     if (pendingApprovals.length === 0 && approvalHistory.length === 0 && approvedTools.length === 0) return;
 
     const insertRecord = this.db.prepare(`
-      INSERT OR IGNORE INTO approval_requests (
-        id, run_id, session_id, workspace_id, actor_id, capability, risk_level,
+      INSERT OR IGNORE INTO approvals (
+        id, type, run_id, session_id, workspace_id, actor_id, capability, risk_level,
         action_json, reason, status, requested_by_json, scope_options_json,
         selected_scope, action_fingerprint, created_at, resolved_at
       ) VALUES (
-        @id, @run_id, @session_id, @workspace_id, @actor_id, @capability, @risk_level,
+        @id, 'request', @run_id, @session_id, @workspace_id, @actor_id, @capability, @risk_level,
         @action_json, @reason, @status, @requested_by_json, @scope_options_json,
         @selected_scope, @action_fingerprint, @created_at, @resolved_at
       )
     `);
     const insertWhitelist = this.db.prepare(`
-      INSERT OR IGNORE INTO approval_grants (
-        id, scope, capability, actor_id, workspace_id, session_id, run_id,
+      INSERT OR IGNORE INTO approvals (
+        id, type, scope, capability, actor_id, workspace_id, session_id, run_id,
         action_fingerprint, expires_at, created_at, revoked_at
       ) VALUES (
-        @id, @scope, @capability, @actor_id, @workspace_id, @session_id, @run_id,
+        @id, 'grant', @scope, @capability, @actor_id, @workspace_id, @session_id, @run_id,
         @action_fingerprint, @expires_at, @created_at, @revoked_at
       )
     `);
@@ -351,9 +312,9 @@ export class HostBashStore {
     // Retire older pending prompts for the same capability in this scope so
     // retried/adjusted commands don't pile up multiple live approval cards.
     this.db.prepare(`
-      UPDATE approval_requests
+      UPDATE approvals
       SET status = 'expired', resolved_at = @resolved_at
-      WHERE status = 'pending' AND run_id = @run_id AND capability = @capability
+      WHERE type = 'request' AND status = 'pending' AND run_id = @run_id AND capability = @capability
     `).run({
       resolved_at: new Date().toISOString(),
       run_id: record.scopeId,
@@ -373,12 +334,12 @@ export class HostBashStore {
     };
 
     this.db.prepare(`
-      INSERT INTO approval_requests (
-        id, run_id, session_id, workspace_id, actor_id, capability, risk_level,
+      INSERT INTO approvals (
+        id, type, run_id, session_id, workspace_id, actor_id, capability, risk_level,
         action_json, reason, status, requested_by_json, scope_options_json,
         selected_scope, action_fingerprint, created_at, resolved_at
       ) VALUES (
-        @id, @run_id, @session_id, @workspace_id, @actor_id, @capability, @risk_level,
+        @id, 'request', @run_id, @session_id, @workspace_id, @actor_id, @capability, @risk_level,
         @action_json, @reason, @status, @requested_by_json, @scope_options_json,
         NULL, NULL, @created_at, NULL
       )
@@ -448,14 +409,15 @@ export class HostBashStore {
           : [{ toolId: record.toolId, command: record.command }];
 
       const insertGrant = this.db.prepare(`
-        INSERT INTO approval_grants (
-          id, scope, capability, actor_id, workspace_id, session_id, run_id,
+        INSERT INTO approvals (
+          id, type, scope, capability, actor_id, workspace_id, session_id, run_id,
           action_fingerprint, expires_at, created_at, revoked_at
         ) VALUES (
-          @id, 'persistent', @capability, 'agent-1', 'personal', NULL, @run_id,
+          @id, 'grant', 'persistent', @capability, 'agent-1', 'personal', NULL, @run_id,
           @action_fingerprint, NULL, @created_at, NULL
         )
         ON CONFLICT(id) DO UPDATE SET
+          type = 'grant',
           scope = excluded.scope,
           capability = excluded.capability,
           run_id = excluded.run_id,
@@ -487,16 +449,16 @@ export class HostBashStore {
       }
     }
 
-    const row = this.db.prepare("SELECT action_json FROM approval_requests WHERE id = ?").get(record.id) as { action_json: string } | undefined;
+    const row = this.db.prepare("SELECT action_json FROM approvals WHERE type = 'request' AND id = ?").get(record.id) as { action_json: string } | undefined;
     const action = row ? parseJson<any>(row.action_json, {}) : {};
 
     this.db.prepare(`
-      UPDATE approval_requests
+      UPDATE approvals
       SET status = 'approved',
           resolved_at = @resolved_at,
           selected_scope = @selected_scope,
           action_json = @action_json
-      WHERE id = @id
+      WHERE type = 'request' AND id = @id
     `).run({
       id: record.id,
       resolved_at: now,
@@ -516,26 +478,26 @@ export class HostBashStore {
     if (!record) return null;
     const now = new Date().toISOString();
     this.db.prepare(`
-      UPDATE approval_requests
+      UPDATE approvals
       SET status = 'rejected',
           resolved_at = @resolved_at
-      WHERE id = @id
+      WHERE type = 'request' AND id = @id
     `).run({ id: record.id, resolved_at: now });
     return this.getApprovalRecord(record.id) ?? { ...record, status: "rejected", resolvedAt: now };
   }
 
   markExecution(recordId: string, status: "executed" | "failed", errorText?: string): void {
-    const row = this.db.prepare("SELECT action_json FROM approval_requests WHERE id = ?").get(recordId) as { action_json: string } | undefined;
+    const row = this.db.prepare("SELECT action_json FROM approvals WHERE type = 'request' AND id = ?").get(recordId) as { action_json: string } | undefined;
     if (!row) return;
     const action = parseJson<any>(row.action_json, {});
     action.executedAt = new Date().toISOString();
     action.errorText = errorText ? String(errorText).slice(0, 4000) : null;
 
     this.db.prepare(`
-      UPDATE approval_requests
+      UPDATE approvals
       SET status = @status,
           action_json = @action_json
-      WHERE id = @id
+      WHERE type = 'request' AND id = @id
     `).run({
       id: recordId,
       status,
@@ -548,16 +510,16 @@ export class HostBashStore {
   // only the caller that wins this compare-and-set runs the command.
   claimExecution(recordId: string): boolean {
     const result = this.db.prepare(`
-      UPDATE approval_requests
+      UPDATE approvals
       SET status = 'executing'
-      WHERE id = ? AND status = 'approved'
+      WHERE type = 'request' AND id = ? AND status = 'approved'
     `).run(recordId);
     return Number(result.changes ?? 0) > 0;
   }
 
   getApprovalRecord(recordId: string): HostBashApprovalRecord | null {
     const row = this.db.prepare(`
-      SELECT * FROM approval_requests WHERE id = ? LIMIT 1
+      SELECT * FROM approvals WHERE type = 'request' AND id = ? LIMIT 1
     `).get(recordId) as Record<string, unknown> | undefined;
     return row ? rowToApprovalRecord(row) : null;
   }
@@ -566,7 +528,7 @@ export class HostBashStore {
     const normalizedId = sanitizeHostBashId(toolId);
     if (!normalizedId) return null;
     const row = this.db.prepare(`
-      SELECT * FROM approval_grants WHERE id = ? LIMIT 1
+      SELECT * FROM approvals WHERE type = 'grant' AND id = ? LIMIT 1
     `).get(`hbw-${normalizedId}`) as Record<string, unknown> | undefined;
     return row ? rowToWhitelistEntry(row) : null;
   }
@@ -574,9 +536,9 @@ export class HostBashStore {
   private expireStalePending(): void {
     const cutoff = new Date(Date.now() - PENDING_APPROVAL_TTL_MS).toISOString();
     this.db.prepare(`
-      UPDATE approval_requests
+      UPDATE approvals
       SET status = 'expired', resolved_at = @resolved_at
-      WHERE status = 'pending' AND capability LIKE 'bash:%' AND created_at < @cutoff
+      WHERE type = 'request' AND status = 'pending' AND capability LIKE 'bash:%' AND created_at < @cutoff
     `).run({ resolved_at: new Date().toISOString(), cutoff });
   }
 
@@ -585,13 +547,13 @@ export class HostBashStore {
     if (scopeId) {
       const stmt = sessionId
         ? this.db.prepare(`
-            SELECT * FROM approval_requests
-            WHERE status = 'pending' AND (run_id = ? OR session_id = ?) AND capability LIKE 'bash:%'
+            SELECT * FROM approvals
+            WHERE type = 'request' AND status = 'pending' AND (run_id = ? OR session_id = ?) AND capability LIKE 'bash:%'
             ORDER BY created_at DESC
           `)
         : this.db.prepare(`
-            SELECT * FROM approval_requests
-            WHERE status = 'pending' AND run_id = ? AND capability LIKE 'bash:%'
+            SELECT * FROM approvals
+            WHERE type = 'request' AND status = 'pending' AND run_id = ? AND capability LIKE 'bash:%'
             ORDER BY created_at DESC
           `);
       const rows = sessionId
@@ -600,8 +562,8 @@ export class HostBashStore {
       return rows.map(rowToApprovalRecord) as HostBashApprovalRecord[];
     }
     const stmt = this.db.prepare(`
-        SELECT * FROM approval_requests
-        WHERE status = 'pending' AND capability LIKE 'bash:%'
+        SELECT * FROM approvals
+        WHERE type = 'request' AND status = 'pending' AND capability LIKE 'bash:%'
         ORDER BY created_at DESC
       `);
     const rows = stmt.all() as Array<Record<string, unknown>>;
@@ -610,8 +572,8 @@ export class HostBashStore {
 
   listWhitelist(): ApprovedHostBashEntry[] {
     const rows = this.db.prepare(`
-      SELECT * FROM approval_grants
-      WHERE scope = 'persistent' AND capability LIKE 'bash:%'
+      SELECT * FROM approvals
+      WHERE type = 'grant' AND scope = 'persistent' AND capability LIKE 'bash:%'
       ORDER BY revoked_at ASC, created_at DESC
     `).all() as Array<Record<string, unknown>>;
     return rows.map(rowToWhitelistEntry);
@@ -622,7 +584,7 @@ export class HostBashStore {
     const status = filters?.status && filters.status !== "all" ? filters.status : null;
     const approvalMode = filters?.approvalMode && filters.approvalMode !== "all" ? filters.approvalMode : null;
 
-    const clauses = ["status != 'pending'", "capability LIKE 'bash:%'"];
+    const clauses = ["type = 'request'", "status != 'pending'", "capability LIKE 'bash:%'"];
     const params: Array<string> = [];
     if (status) {
       clauses.push("status = ?");
@@ -635,7 +597,7 @@ export class HostBashStore {
     }
 
     const rows = this.db.prepare(`
-      SELECT * FROM approval_requests
+      SELECT * FROM approvals
       WHERE ${clauses.join(" AND ")}
       ORDER BY COALESCE(resolved_at, created_at) DESC
     `).all(...params) as Array<Record<string, unknown>>;
@@ -659,29 +621,29 @@ export class HostBashStore {
   setWhitelistEnabled(id: string, enabled: boolean): ApprovedHostBashEntry | null {
     if (enabled) {
       this.db.prepare(`
-        UPDATE approval_grants SET revoked_at = NULL WHERE id = ?
+        UPDATE approvals SET revoked_at = NULL WHERE type = 'grant' AND id = ?
       `).run(id);
     } else {
       this.db.prepare(`
-        UPDATE approval_grants SET revoked_at = ? WHERE id = ?
+        UPDATE approvals SET revoked_at = ? WHERE type = 'grant' AND id = ?
       `).run(new Date().toISOString(), id);
     }
     const row = this.db.prepare(`
-      SELECT * FROM approval_grants WHERE id = ? LIMIT 1
+      SELECT * FROM approvals WHERE type = 'grant' AND id = ? LIMIT 1
     `).get(id) as Record<string, unknown> | undefined;
     return row ? rowToWhitelistEntry(row) : null;
   }
 
   deleteWhitelistEntry(id: string): boolean {
     const result = this.db.prepare(`
-      DELETE FROM approval_grants WHERE id = ?
+      DELETE FROM approvals WHERE type = 'grant' AND id = ?
     `).run(id);
     return Number(result.changes ?? 0) > 0;
   }
 
   deleteHistoryRecord(id: string): boolean {
     const result = this.db.prepare(`
-      DELETE FROM approval_requests WHERE id = ? AND status != 'pending'
+      DELETE FROM approvals WHERE type = 'request' AND id = ? AND status != 'pending'
     `).run(id);
     return Number(result.changes ?? 0) > 0;
   }

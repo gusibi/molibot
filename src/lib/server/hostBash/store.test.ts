@@ -71,11 +71,11 @@ test("approve with persistent scope whitelists every capability of a compound co
 test("listWhitelist tolerates legacy grants without metadata", () => {
   const store = createStore();
   (store as any).db.prepare(`
-    INSERT INTO approval_grants (
-      id, scope, capability, actor_id, workspace_id, session_id, run_id,
+    INSERT INTO approvals (
+      id, type, scope, capability, actor_id, workspace_id, session_id, run_id,
       action_fingerprint, expires_at, created_at, revoked_at
     )
-    VALUES (?, 'persistent', 'bash:one-time-foo', 'user-1', NULL, NULL, 'request-1', NULL, NULL, ?, NULL)
+    VALUES (?, 'grant', 'persistent', 'bash:one-time-foo', 'user-1', NULL, NULL, 'request-1', NULL, NULL, ?, NULL)
   `).run("legacy-grant-1", "2026-06-19T00:00:00.000Z");
 
   const entry = store.listWhitelist()[0];
