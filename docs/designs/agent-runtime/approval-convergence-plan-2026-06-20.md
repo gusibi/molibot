@@ -9,6 +9,21 @@
 
 ---
 
+## 0.1 关键拓扑更正（2026-06-20，构建 HostBash 适配器时发现）
+
+摸底时把「落库」写成「两个 store of record / 独立表」。**深入读代码后更正：两条路径的物理落库是同一张表。**
+
+- `SqliteApprovalStore`（broker，`approvalStore.ts:99-141`）和 `HostBashStore`（`hostBash/store.ts:152-`）**都默认 `storagePaths.settingsDbFile`，且都读写同一组表 `approval_requests` + `approval_grants`。**
+- HostBash 记录就存在 `approval_requests` 里，hostBash 专属字段（`pendingAction`/`classification`/`permissions`/`approvalMode`）打包进 `action_json`；`capability = bash:<toolId>`、`risk_level = high`（insert 见 `hostBash/store.ts:375`）。
+- 即「两个 store of record」其实是**同一物理库上的两个访问类**，不是两个数据库。物理层面的「单一 store of record」**已经成立**。
+- 二者用**不同的 row id**：broker request id 由 `createDefaultApprovalRequest` 生成；hostBash record id 由 bash 分类生成。`resolvePendingBrokerRequests` 对账的是「同一逻辑审批的两行」——但因为 **bash opt-out broker、且无内置非-bash 高危工具**，两行**几乎不会同时存在**，桥接对账实际命中的场景趋近于 0（疑似 dead code）。
+
+**对 Phase 2 的影响：**
+- 原计划「让 hostBash store 成为权威、broker 改为其视图」在**物理层已无需迁移**——它们本就同表。
+- 真正剩下的冗余是**访问类 + grant 模型 + 桥接**这三层逻辑，而非物理库。
+- 因此「再写一个 HostBashApprovalService 适配器去统一 store」价值有限（store 本就统一）；更高价值是 **(a) 证实并删除 dead 桥接**，或 **(b) 合并两个访问类**。两者都改动不可活测的审批路径，需谨慎、单独推进。
+- **已完成的 Phase 2 第一刀（ApprovalService façade + BrokerApprovalService，零行为变更）依然有效**，是干净的检查点；后续不必急着造 hostBash 适配器，建议先就 (a)/(b) 取舍做决策。
+
 ## 1. 现状摸底：到底有几条路径
 
 ### 路径 A —— ApprovalBroker（ToolRuntime 通道）
