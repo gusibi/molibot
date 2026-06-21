@@ -2,6 +2,12 @@
 
 ## 2026-06-21
 
+### 审批收敛 Phase 2 (b)：审批落库合并为单表
+- **两表合一**：新增 `approval/approvalSchema.ts`，把 `approval_requests` + `approval_grants` 合并为单表 `approvals`（两套旧表列并集）+ `type` 判别列（`request`/`grant`），并提供幂等迁移 `migrateLegacyApprovalTables`（启动时把旧表数据 `INSERT OR IGNORE` 拷入，旧表保留可回滚）。
+- **两个访问类共用单表**：`SqliteApprovalStore`(broker, 8 语句) 与 `HostBashStore`(bash 工作流, ~24 语句) 全部 SQL 切到 `approvals` 并带显式 `type` 过滤；bash 域行仍以 `capability LIKE 'bash:%'` 标记。生产代码不再创建或引用旧表。
+- **测试**：`approvalSchema.test.ts`(3) + 既有 broker/hostBash 守卫；hostBash 两处直插旧表用例改为 `approvals`；approval + hostBash + channelCommands + toolRuntime + turnOrchestrator 合计 61/61 通过，改动源文件无新增 tsc 错误。
+- **取舍**：瞬时 request 与持久 grant 同表带来可空列/混生命周期（按用户决定执行）；旧表暂留以便回滚。
+
 ### 审批收敛 Phase 2 (a)：删除 dead broker 桥接
 - **证实再删除**: 新增 lock 测试证明默认策略下唯一的 high-risk 内置分类是 `bash`，而 `bash` 在 `decideBashToolPolicy` 中 opt-out broker（永远 `allow`）——因此没有任何内置工具会创建 broker request，hostBash 审批永远不存在同 scope 的待对账 broker request。据此删除 `channelCommands.ts` 的 `resolvePendingBrokerRequests` 方法、5 处调用、以及无 hostBash 记录时回退 resolve broker 的 NL 审批分支，并清理 `getApprovalBroker` import。
 - **只删死桥接、不动 broker**: `ApprovalBroker` 的 grant 模型仍在 ToolRuntime / TurnOrchestrator / feishu 中存活。

@@ -24,6 +24,13 @@
 - 因此「再写一个 HostBashApprovalService 适配器去统一 store」价值有限（store 本就统一）；更高价值是 **(a) 证实并删除 dead 桥接**，或 **(b) 合并两个访问类**。两者都改动不可活测的审批路径，需谨慎、单独推进。
 - **已完成的 Phase 2 第一刀（ApprovalService façade + BrokerApprovalService，零行为变更）依然有效**，是干净的检查点；后续不必急着造 hostBash 适配器，建议先就 (a)/(b) 取舍做决策。
 
+### (b) 已完成（2026-06-21）：两表合一 + 两个访问类共用单表
+- **统一表**：新增 `approval/approvalSchema.ts` —— 单表 `approvals`（两套旧表列的并集）+ `type` 判别列（`'request' | 'grant'`），及幂等迁移 `migrateLegacyApprovalTables`（`INSERT OR IGNORE` 把旧 `approval_requests`/`approval_grants` 拷进来，旧表保留可回滚）。
+- **两个访问类都切到 `approvals`**：`SqliteApprovalStore`（8 条语句）和 `HostBashStore`（约 24 条语句）的全部 SQL 改为读写 `approvals` 并带显式 `type` 过滤；bash 域行仍用 `capability LIKE 'bash:%'` 标记。两个类构造时各自 `ensureApprovalsTable + migrate`。
+- **不再有任何代码创建旧表**；生产代码对旧表零引用（仅迁移函数的 SELECT 和迁移测试里出现）。
+- **测试**：新增 `approvalSchema.test.ts`(3) + `approvalStore.test.ts` 已有 6 条作为 broker 守卫；`hostBash/store.test.ts` 两处直插旧表的用例改为 `approvals`；合计 approval + hostBash + channelCommands + toolRuntime + turnOrchestrator **61/61 通过**。改动源文件无新增 tsc 错误（store.ts 既有 `classification` 类型 looseness 与本次无关）。
+- **遗留/取舍**：把瞬时 request 与持久 grant 并入一表带来可空列与混生命周期（设计上非最优，按用户决定执行）；旧表暂留以便回滚，后续可在确认无回滚需求后单独 DROP。
+
 ### (a) 已完成（2026-06-20）：证实并删除 dead 桥接
 - **证实**：新增 lock 测试 `toolClassification.test.ts`「bash is the only high-risk built-in classification…」——`getRuntimeToolClassification` 中唯一的 high/critical 是 `bash`，而 `decideBashToolPolicy` 对 bash 永远返回 `allow`（opt-out）。因此默认策略下**没有任何内置工具会创建 broker request**，hostBash 审批永远不存在同 scope 的待对账 broker request → 桥接对所有内置工具不可达。
 - **删除**：移除 `channelCommands.ts` 的 `resolvePendingBrokerRequests` 方法、其 5 处调用、以及「无 hostBash 记录时回退去 resolve broker pending」的 NL 审批分支（改为 `return false`），并清理 `getApprovalBroker` import。

@@ -4,6 +4,9 @@
 
 ## 2026-06-21
 
+### Approval Convergence — Phase 2 (b): single approvals table
+- Merged the two approval persistence tables (`approval_requests` + `approval_grants`) into one `approvals` table with a `type` discriminator (`request` / `grant`), and switched both access classes — `SqliteApprovalStore` (broker) and `HostBashStore` (bash-domain workflow) — to read/write it. An idempotent migration copies any existing legacy rows into the unified table on startup; the legacy tables are left in place for reversibility and are no longer created or referenced by application code. Bash-domain rows remain tagged by `capability LIKE 'bash:%'`. Covered by the approval/hostBash/channelCommands/toolRuntime/turnOrchestrator suites (61/61).
+
 ### Approval Convergence — Phase 2 (a): removed the dead broker bridge
 - Removed `resolvePendingBrokerRequests` and its call sites from `channelCommands.ts`. This cross-store bridge resolved a pending ApprovalBroker request whenever a Host Bash approval was answered, but with `bash` opting out of the broker and `bash` being the only high-risk built-in classification, no built-in tool ever creates a broker request — so the bridge never reconciled a real co-pending pair. A lock test (`toolClassification.test.ts`) pins this invariant and will fail if a future non-bash high-risk tool is added, signaling that its approval must be wired explicitly. The ApprovalBroker grant model itself (used by ToolRuntime and TurnOrchestrator) is unchanged.
 
