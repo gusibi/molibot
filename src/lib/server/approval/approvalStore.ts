@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
+import { ensureApprovalsTable, migrateLegacyApprovalTables } from "$lib/server/approval/approvalSchema.js";
 import type { ApprovalBrokerStore } from "$lib/server/approval/approvalBroker.js";
 import type { ApprovalGrant, ApprovalRequest, ApprovalScope, ApprovalStatus } from "$lib/server/approval/approvalTypes.js";
 
@@ -99,62 +100,23 @@ export class SqliteApprovalStore implements ApprovalBrokerStore {
   constructor(dbPath = storagePaths.settingsDbFile) {
     ensureSqliteParentDir(dbPath);
     this.db = new DatabaseSync(dbPath);
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS approval_requests (
-        id TEXT PRIMARY KEY,
-        run_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        workspace_id TEXT NOT NULL,
-        actor_id TEXT NOT NULL,
-        capability TEXT NOT NULL,
-        risk_level TEXT NOT NULL,
-        action_json TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        status TEXT NOT NULL,
-        requested_by_json TEXT NOT NULL,
-        scope_options_json TEXT NOT NULL,
-        selected_scope TEXT,
-        action_fingerprint TEXT,
-        created_at TEXT NOT NULL,
-        resolved_at TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_approval_requests_run_status ON approval_requests(run_id, status);
-      CREATE INDEX IF NOT EXISTS idx_approval_requests_session_status ON approval_requests(session_id, status);
-      CREATE INDEX IF NOT EXISTS idx_approval_requests_workspace_cap_status ON approval_requests(workspace_id, capability, status);
-      CREATE INDEX IF NOT EXISTS idx_approval_requests_created ON approval_requests(created_at);
-
-      CREATE TABLE IF NOT EXISTS approval_grants (
-        id TEXT PRIMARY KEY,
-        scope TEXT NOT NULL,
-        capability TEXT NOT NULL,
-        actor_id TEXT NOT NULL,
-        workspace_id TEXT,
-        session_id TEXT,
-        run_id TEXT,
-        action_fingerprint TEXT,
-        expires_at TEXT,
-        created_at TEXT NOT NULL,
-        revoked_at TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_approval_grants_capability_actor ON approval_grants(capability, actor_id);
-      CREATE INDEX IF NOT EXISTS idx_approval_grants_workspace ON approval_grants(workspace_id, capability);
-      CREATE INDEX IF NOT EXISTS idx_approval_grants_session ON approval_grants(session_id, capability);
-      CREATE INDEX IF NOT EXISTS idx_approval_grants_run ON approval_grants(run_id, capability);
-    `);
+    ensureApprovalsTable(this.db);
+    migrateLegacyApprovalTables(this.db);
   }
 
   listActiveGrants(): ApprovalGrant[] {
-    const rows = this.db.prepare("SELECT * FROM approval_grants WHERE revoked_at IS NULL").all() as unknown as ApprovalGrantRow[];
+    const rows = this.db.prepare("SELECT * FROM approvals WHERE type = 'grant' AND revoked_at IS NULL").all() as unknown as ApprovalGrantRow[];
     return rows.map(rowToGrant);
   }
 
   saveGrant(grant: ApprovalGrant): void {
     this.db.prepare(`
-      INSERT INTO approval_grants (
-        id, scope, capability, actor_id, workspace_id, session_id, run_id,
+      INSERT INTO approvals (
+        id, type, scope, capability, actor_id, workspace_id, session_id, run_id,
         action_fingerprint, expires_at, created_at, revoked_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, 'grant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
+        type = 'grant',
         scope = excluded.scope,
         capability = excluded.capability,
         actor_id = excluded.actor_id,
@@ -182,21 +144,21 @@ export class SqliteApprovalStore implements ApprovalBrokerStore {
 
   revokeGrant(grantId: string, revokedAt?: Date): boolean {
     const result = this.db.prepare(
-      "UPDATE approval_grants SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL"
+      "UPDATE approvals SET revoked_at = ? WHERE type = 'grant' AND id = ? AND revoked_at IS NULL"
     ).run((revokedAt ?? new Date()).toISOString(), grantId);
     return result.changes > 0;
   }
 
   revokeTurnGrants(runId: string, revokedAt?: Date): number {
     const result = this.db.prepare(
-      "UPDATE approval_grants SET revoked_at = ? WHERE scope IN ('turn', 'once') AND run_id = ? AND revoked_at IS NULL"
+      "UPDATE approvals SET revoked_at = ? WHERE type = 'grant' AND scope IN ('turn', 'once') AND run_id = ? AND revoked_at IS NULL"
     ).run((revokedAt ?? new Date()).toISOString(), runId);
     return Number(result.changes ?? 0);
   }
 
   revokeSessionGrants(sessionId: string, revokedAt?: Date): number {
     const result = this.db.prepare(
-      "UPDATE approval_grants SET revoked_at = ? WHERE scope = 'session' AND session_id = ? AND revoked_at IS NULL"
+      "UPDATE approvals SET revoked_at = ? WHERE type = 'grant' AND scope = 'session' AND session_id = ? AND revoked_at IS NULL"
     ).run((revokedAt ?? new Date()).toISOString(), sessionId);
     return Number(result.changes ?? 0);
   }
@@ -210,12 +172,12 @@ export class SqliteApprovalStore implements ApprovalBrokerStore {
   }
 
   listPendingRequests(): ApprovalRequest[] {
-    const rows = this.db.prepare("SELECT * FROM approval_requests WHERE status = ? ORDER BY created_at ASC").all("pending") as unknown as ApprovalRequestRow[];
+    const rows = this.db.prepare("SELECT * FROM approvals WHERE type = 'request' AND status = ? ORDER BY created_at ASC").all("pending") as unknown as ApprovalRequestRow[];
     return rows.map(rowToRequest);
   }
 
   getRequest(id: string): ApprovalRequest | null {
-    const row = this.db.prepare("SELECT * FROM approval_requests WHERE id = ?").get(id) as unknown as ApprovalRequestRow | undefined;
+    const row = this.db.prepare("SELECT * FROM approvals WHERE type = 'request' AND id = ?").get(id) as unknown as ApprovalRequestRow | undefined;
     return row ? rowToRequest(row) : null;
   }
 
@@ -225,12 +187,13 @@ export class SqliteApprovalStore implements ApprovalBrokerStore {
 
   private writeRequest(request: ApprovalRequest): void {
     this.db.prepare(`
-      INSERT INTO approval_requests (
-        id, run_id, session_id, workspace_id, actor_id, capability, risk_level,
+      INSERT INTO approvals (
+        id, type, run_id, session_id, workspace_id, actor_id, capability, risk_level,
         action_json, reason, status, requested_by_json, scope_options_json,
         selected_scope, action_fingerprint, created_at, resolved_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, 'request', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
+        type = 'request',
         run_id = excluded.run_id,
         session_id = excluded.session_id,
         workspace_id = excluded.workspace_id,
