@@ -36,10 +36,11 @@
     customProviders: CustomProviderForm[];
     modelRouting: {
       textModelKey: string; visionModelKey: string; sttModelKey: string; ttsModelKey: string;
+      compactionModelKey: string;
       subagentModelKey: string; subagentHaikuModelKey: string; subagentSonnetModelKey: string;
       subagentOpusModelKey: string; subagentThinkingModelKey: string;
     };
-    modelFallback: { mode: ModelFallbackMode };
+    modelFallback: { mode: ModelFallbackMode; firstTokenTimeoutMs: number };
     compaction: { enabled: boolean; thresholdPercent: number; reserveTokens: number; keepRecentTokens: number; defaultContextWindow: number };
     systemPrompt: string; timezone: string;
   }
@@ -100,6 +101,8 @@
       fallbackSame: "仅限同服务商",
       fallbackAny: "任意已启用的服务商",
       fallbackHint: "默认为“仅限同服务商”：重试保留在所选服务商内部。",
+      firstTokenTimeoutLabel: "首字响应超时 (毫秒)",
+      firstTokenTimeoutHint: "流式模式下等待首个字符的最长时间，超时则切换到下一个模型；收到首字后不再计时。默认 60000（1 分钟），填 0 关闭。",
       defaultThinkingLabel: "默认推理力度",
       thinkingOff: "关闭",
       thinkingLow: "低 (Low)",
@@ -108,6 +111,9 @@
       thinkingHint: "仅在所选模型或自定义服务商明确支持 Thinking/Reasoning 时生效。",
       autoCompactionLabel: "自动上下文压缩",
       autoCompactionDesc: "当上下文紧张时，自动对较早的对话轮次进行摘要压缩。",
+      compactionModelLabel: "压缩专用模型",
+      compactionModelHint: "用于生成上下文摘要的模型。默认复用主文本模型；可指定更便宜/更快的模型来做压缩，节省成本。触发阈值仍基于主文本模型的上下文窗口。",
+      compactionModelUseText: "复用主文本模型",
       defaultCwLabel: "默认上下文窗口",
       defaultCwHint: "当模型未报告上下文窗口时的兜底值。默认 200000 (200K)。",
       thresholdLabel: "压缩触发阈值 (%)",
@@ -196,6 +202,8 @@
       fallbackSame: "Same provider only",
       fallbackAny: "Any enabled provider",
       fallbackHint: "Same-provider is the default: retries stay inside the selected provider.",
+      firstTokenTimeoutLabel: "First-token timeout (ms)",
+      firstTokenTimeoutHint: "Max time to wait for the first streamed token before switching to the next model; once the first token arrives the timer is cleared. Default 60000 (1 min), 0 disables.",
       defaultThinkingLabel: "Default thinking",
       thinkingOff: "Off",
       thinkingLow: "Low",
@@ -204,6 +212,9 @@
       thinkingHint: "Applies only when the selected model or custom provider explicitly supports thinking.",
       autoCompactionLabel: "Automatic compaction",
       autoCompactionDesc: "Summarize older turns when context gets tight.",
+      compactionModelLabel: "Compaction model",
+      compactionModelHint: "Model used to generate context summaries. Defaults to the primary text model; pick a cheaper/faster model to run compaction and save cost. The trigger threshold still uses the primary text model's context window.",
+      compactionModelUseText: "Reuse primary text model",
       defaultCwLabel: "Default context window",
       defaultCwHint: "Fallback context window when the model doesn't report one. Default 200000 (200K).",
       thresholdLabel: "Compaction threshold (%)",
@@ -272,8 +283,8 @@
   let form: AIForm = {
     providerMode: "pi", piModelProvider: "anthropic", piModelName: "claude-sonnet-4-20250514",
     defaultThinkingLevel: "off", defaultCustomProviderId: "", customProviders: [],
-    modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "", ttsModelKey: "", subagentModelKey: "", subagentHaikuModelKey: "", subagentSonnetModelKey: "", subagentOpusModelKey: "", subagentThinkingModelKey: "" },
-    modelFallback: { mode: "same-provider" },
+    modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "", ttsModelKey: "", compactionModelKey: "", subagentModelKey: "", subagentHaikuModelKey: "", subagentSonnetModelKey: "", subagentOpusModelKey: "", subagentThinkingModelKey: "" },
+    modelFallback: { mode: "same-provider", firstTokenTimeoutMs: 60000 },
     compaction: { enabled: true, thresholdPercent: 75, reserveTokens: 8192, keepRecentTokens: 20000, defaultContextWindow: 200000 },
     systemPrompt: "You are Molibot, a concise and helpful assistant.",
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
@@ -426,6 +437,10 @@
     if (!vision.some((v) => v.key === form.modelRouting.visionModelKey)) setModelRoutingValue("vision", vision[0]?.key ?? "");
     const stt = routingOptions("stt");
     if (!stt.some((v) => v.key === form.modelRouting.sttModelKey)) setModelRoutingValue("stt", stt[0]?.key ?? "");
+    // Compaction reuses text-capable models; empty means "use primary text model".
+    if (form.modelRouting.compactionModelKey && !text.some((r) => r.key === form.modelRouting.compactionModelKey)) {
+      form.modelRouting = { ...form.modelRouting, compactionModelKey: "" };
+    }
     const subagent = routingOptions("subagent");
     if (form.modelRouting.subagentModelKey && !subagent.some((v) => v.key === form.modelRouting.subagentModelKey)) setModelRoutingValue("subagent", "");
     for (const row of subagentLevelCards) {
@@ -473,11 +488,12 @@
         modelRouting: {
           textModelKey: s.modelRouting?.textModelKey ?? "", visionModelKey: s.modelRouting?.visionModelKey ?? "",
           sttModelKey: s.modelRouting?.sttModelKey ?? "", ttsModelKey: s.modelRouting?.ttsModelKey ?? "",
+          compactionModelKey: s.modelRouting?.compactionModelKey ?? "",
           subagentModelKey: s.modelRouting?.subagentModelKey ?? "",
           subagentHaikuModelKey: s.modelRouting?.subagentHaikuModelKey ?? "", subagentSonnetModelKey: s.modelRouting?.subagentSonnetModelKey ?? "",
           subagentOpusModelKey: s.modelRouting?.subagentOpusModelKey ?? "", subagentThinkingModelKey: s.modelRouting?.subagentThinkingModelKey ?? "",
         },
-        modelFallback: { mode: s.modelFallback?.mode === "off" || s.modelFallback?.mode === "any-enabled" ? s.modelFallback.mode : "same-provider" },
+        modelFallback: { mode: s.modelFallback?.mode === "off" || s.modelFallback?.mode === "any-enabled" ? s.modelFallback.mode : "same-provider", firstTokenTimeoutMs: Number(s.modelFallback?.firstTokenTimeoutMs ?? 60000) },
         compaction: { enabled: s.compaction?.enabled ?? true, thresholdPercent: Number(s.compaction?.thresholdPercent ?? 75), reserveTokens: Number(s.compaction?.reserveTokens ?? 8192), keepRecentTokens: Number(s.compaction?.keepRecentTokens ?? 20000), defaultContextWindow: Number(s.compaction?.defaultContextWindow ?? 200000) },
         systemPrompt: s.systemPrompt,
         timezone: s.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
@@ -651,6 +667,12 @@
           </div>
 
           <div class="routing-form-group">
+            <Label for="rt-first-token-timeout">{copy.firstTokenTimeoutLabel}</Label>
+            <Input id="rt-first-token-timeout" type="number" min="0" step="1000" bind:value={form.modelFallback.firstTokenTimeoutMs} />
+            <p class="routing-form-hint">{copy.firstTokenTimeoutHint}</p>
+          </div>
+
+          <div class="routing-form-group">
             <Label for="rt-thinking">{copy.defaultThinkingLabel}</Label>
             <NativeSelect id="rt-thinking" bind:value={form.defaultThinkingLevel}>
               <NativeSelectOption value="off">{copy.thinkingOff}</NativeSelectOption>
@@ -668,6 +690,25 @@
               <Label for="rt-compact" class="routing-checkbox-label">{copy.autoCompactionDesc}</Label>
             </div>
           </div>
+
+          {#if true}
+            {@const compactionOptions = routingOptions("text")}
+            <div class="routing-form-group routing-form-group--full">
+              <Label for="rt-compaction-model">{copy.compactionModelLabel}</Label>
+              <NativeSelect
+                id="rt-compaction-model"
+                value={form.modelRouting.compactionModelKey}
+                disabled={compactionOptions.length === 0}
+                onchange={(e) => form.modelRouting = { ...form.modelRouting, compactionModelKey: (e.currentTarget as HTMLSelectElement).value }}
+              >
+                <NativeSelectOption value="">{copy.compactionModelUseText}</NativeSelectOption>
+                {#each compactionOptions as row}
+                  <NativeSelectOption value={row.key}>{row.label}</NativeSelectOption>
+                {/each}
+              </NativeSelect>
+              <p class="routing-form-hint">{copy.compactionModelHint}</p>
+            </div>
+          {/if}
 
           <div class="routing-form-group">
             <Label for="rt-default-cw">{copy.defaultCwLabel}</Label>

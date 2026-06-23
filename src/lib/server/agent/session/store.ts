@@ -9,6 +9,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
+import { randomInt } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { RuntimeThinkingLevel } from "$lib/server/settings/index.js";
@@ -234,29 +235,24 @@ export class MomRuntimeStore {
     return `${year}${month}${day}`;
   }
 
-  private nextSequentialSessionId(chatId: string, prefix: "s" | "task"): string {
+  private randomSessionSuffix(length = 4): string {
+    const alphabet = "abcdefghijklmnopqrstuvwxyz";
+    let out = "";
+    for (let i = 0; i < length; i += 1) {
+      out += alphabet[randomInt(alphabet.length)];
+    }
+    return out;
+  }
+
+  private nextRandomSessionId(chatId: string, prefix: "s" | "task"): string {
     const day = this.formatSessionDate();
     const marker = `${prefix}-${day}-`;
-    const pattern = new RegExp(`^${prefix}-${day}-(\\d+)$`);
-    let max = 0;
-
-    for (const id of this.listSessions(chatId)) {
-      const match = id.match(pattern);
-      if (!match) continue;
-      const n = Number(match[1]);
-      if (Number.isFinite(n)) {
-        max = Math.max(max, n);
-      }
-    }
-
-    let next = max + 1;
-    let candidate = `${marker}${String(next).padStart(4, "0")}`;
+    let candidate = `${marker}${this.randomSessionSuffix()}`;
     while (
       existsSync(this.getSessionContextFile(chatId, candidate)) ||
       existsSync(this.getSessionEntriesFile(chatId, candidate))
     ) {
-      next += 1;
-      candidate = `${marker}${String(next).padStart(4, "0")}`;
+      candidate = `${marker}${this.randomSessionSuffix()}`;
     }
     return candidate;
   }
@@ -450,7 +446,7 @@ export class MomRuntimeStore {
   }
 
   createSession(chatId: string): string {
-    const id = this.nextSequentialSessionId(chatId, "s");
+    const id = this.nextRandomSessionId(chatId, "s");
     this.ensureSessionContextFile(chatId, id);
     this.ensureSessionEntriesFile(chatId, id);
     this.setActiveSession(chatId, id);
@@ -463,7 +459,7 @@ export class MomRuntimeStore {
    * sessions past the retention window are pruned in the same call.
    */
   beginTaskSession(chatId: string, retentionMs?: number): string {
-    const id = this.nextSequentialSessionId(chatId, "task");
+    const id = this.nextRandomSessionId(chatId, "task");
     this.ensureSessionContextFile(chatId, id);
     this.ensureSessionEntriesFile(chatId, id);
     this.setActiveSession(chatId, id);

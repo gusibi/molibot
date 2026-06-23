@@ -405,6 +405,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     visionModelKey: "",
     sttModelKey: "",
     ttsModelKey: "",
+    compactionModelKey: "",
     subagentModelKey: "",
     subagentHaikuModelKey: "",
     subagentSonnetModelKey: "",
@@ -412,7 +413,11 @@ export const defaultRuntimeSettings: RuntimeSettings = {
     subagentThinkingModelKey: ""
   },
   modelFallback: {
-    mode: "same-provider"
+    mode: "same-provider",
+    firstTokenTimeoutMs: Math.max(
+      0,
+      Number(process.env.MOLIBOT_MODEL_FIRST_TOKEN_TIMEOUT_MS ?? 60000) || 60000
+    )
   },
   compaction: {
     enabled: String(process.env.MOLIBOT_COMPACTION_ENABLED ?? "true").toLowerCase() !== "false",

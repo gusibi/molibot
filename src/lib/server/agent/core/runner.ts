@@ -15,6 +15,7 @@ import { buildSkillDraftMetadataViaSubagent } from "$lib/server/agent/skills/ski
 import { DEFAULT_RUN_BUDGET, RunBudget } from "$lib/server/agent/core/runtimeBudget.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { applyAssistantStreamEvent } from "$lib/server/agent/core/assistantStream.js";
+import { withFirstTokenTimeout } from "$lib/server/agent/core/firstTokenStreamTimeout.js";
 import { buildPromptInputEnvelope } from "$lib/server/agent/prompts/promptInput.js";
 import { createMomTools } from "$lib/server/agent/tools/index.js";
 import { getMcpToolsForRuntime } from "$lib/server/agent/tools/mcp.js";
@@ -48,6 +49,7 @@ import {
   type ResolvedModelSelection,
   resolveModelSelection,
   resolveModel,
+  applyAgentModelRoutingOverride,
   buildModelFallbackSelections,
   toModelAttemptFailure,
   formatModelAttemptFailure,
@@ -176,7 +178,7 @@ export class MomRunner implements RunnerLike {
     private readonly chatId: string,
     private readonly sessionId: string,
     private readonly store: MomRuntimeStore,
-    private readonly getSettings: () => RuntimeSettings,
+    private getSettings: () => RuntimeSettings,
     private readonly updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings,
     private readonly usageTracker: AiUsageTracker,
     private readonly modelErrorTracker: ModelErrorTracker,
@@ -184,6 +186,18 @@ export class MomRunner implements RunnerLike {
     hookManager?: HookManager,
   ) {
     this.hookManager = hookManager ?? NOOP_HOOK_MANAGER;
+    // Layer the bound agent's per-route model overrides (text/vision/stt) on top
+    // of global routing for every settings read this runner makes. Resolving the
+    // agent from the workspace's botId keeps all downstream model resolution
+    // (turn orchestration, compaction, media fallbacks) on the agent's model
+    // without threading an agentId through every call site.
+    const baseGetSettings = this.getSettings;
+    this.getSettings = () =>
+      applyAgentModelRoutingOverride(
+        baseGetSettings(),
+        this.channel,
+        basename(this.store.getWorkspaceDir()) || "unknown"
+      );
     const settings = this.getSettings();
     const model = resolveModel(settings, "text");
     const initialPrompt = buildSystemPrompt(
@@ -368,11 +382,48 @@ export class MomRunner implements RunnerLike {
           modelId: selectedModel.id,
           provider: selectedModel.provider
         });
-        return streamSimple(
+
+        // Guard the wait for the first streamed token. A model that accepts the
+        // request but never starts responding would otherwise hang the run
+        // forever; instead we abort it and throw a retryable error so the loop
+        // falls back to the next model (or surfaces an error once exhausted).
+        const firstTokenTimeoutMs = settingsNow.modelFallback?.firstTokenTimeoutMs ?? 0;
+        if (!(firstTokenTimeoutMs > 0)) {
+          return streamSimple(selectedModel as any, patchedContext as any, opts as any);
+        }
+
+        const upstreamSignal = (opts as { signal?: AbortSignal } | undefined)?.signal;
+        const firstTokenController = new AbortController();
+        if (upstreamSignal) {
+          if (upstreamSignal.aborted) {
+            firstTokenController.abort();
+          } else {
+            upstreamSignal.addEventListener(
+              "abort",
+              () => firstTokenController.abort(),
+              { once: true }
+            );
+          }
+        }
+
+        const stream = streamSimple(
           selectedModel as any,
           patchedContext as any,
-          opts as any,
+          { ...(opts as any), signal: firstTokenController.signal },
         );
+        return withFirstTokenTimeout(stream, {
+          timeoutMs: firstTokenTimeoutMs,
+          onTimeout: () => {
+            momWarn("runner", "llm_first_token_timeout", {
+              chatId: this.chatId,
+              provider: selectedModel.provider,
+              api: selectedModel.api,
+              modelId: selectedModel.id,
+              timeoutMs: firstTokenTimeoutMs
+            });
+            firstTokenController.abort();
+          }
+        });
       },
       getApiKey: async (provider: string) => {
         const settingsNow = this.getSettings();

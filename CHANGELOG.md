@@ -2,6 +2,17 @@
 
 ## Version 1.0
 
+## 2026-06-23
+
+### Per-agent dedicated models (text / vision / stt)
+- Each agent can now override the text, vision, and speech-to-text model routes; everything else (TTS, compaction, subagent levels) keeps following the global routing at `/settings/ai/routing`. `AgentSettings.modelRouting` is optional and any empty key transparently follows global. The override is layered in one place — the runner wraps its `getSettings()` with `applyAgentModelRoutingOverride`, which resolves the bound agent from the workspace botId and replaces only the non-empty text/vision/stt keys — so all downstream model resolution (turn orchestration, compaction, media fallbacks) uses the agent's model without per-call-site changes, and the global settings object is never mutated. Configurable on the `/settings/agents` page (a "Dedicated Models" card reusing the `/api/settings/model-switch` route options, with a "Follow global" empty default), persisted end-to-end through the agent PUT API, sanitize, and a new `settings_agents.model_routing_json` column with an idempotent migration. Covered by new `applyAgentModelRoutingOverride` unit tests (4/4); store/settings suites stay green.
+
+### Dedicated compaction model
+- Session context compaction (summarization) can now run on a model separate from the primary text model. A new `modelRouting.compactionModelKey` route lets you point summaries at a cheaper/faster model while the conversation keeps running on a stronger one; empty reuses the primary text model (unchanged default behavior). The compaction trigger threshold still keys off the *primary text model's* context window — only the summary call uses the dedicated model (`resolveCompactionSelection` in `routing/modelRouting.ts`, wired through `turnOrchestrator.compactSessionContext`). Configurable on the `/settings/ai/routing` page under the compaction settings, and persisted through schema/defaults/sanitize. Compaction/modelRouting suites stay green.
+
+### Stream first-token timeout with model fallback
+- Agent streaming runs no longer hang when an upstream model accepts the request but never starts responding. A new first-token timeout bounds the wait for the first *content* token: pi-ai's `start` (stream opened) and bare `*_start` (content block announced, no bytes yet) events keep the timer armed — the gap up to the first `*_delta` is exactly the time-to-first-token we guard — and only a real `*_delta`/`*_end`/`done`/`error` clears it, so a slow-but-alive model streams to completion untouched. On timeout the request is aborted and a retryable error is thrown, so the existing model-fallback loop switches to the next candidate, and if every candidate is exhausted the run returns an error instead of getting stuck. Default 60s (`MOLIBOT_MODEL_FIRST_TOKEN_TIMEOUT_MS`), configurable per deployment under `modelFallback.firstTokenTimeoutMs` and on the `/settings/ai/routing` page (`0` disables). Covered by `firstTokenStreamTimeout.test.ts` (5/5); runner/modelRouting suites stay green.
+
 ## 2026-06-21
 
 ### Bot Profile layering
@@ -30,9 +41,9 @@
 ### Approval Convergence — Phase 2 first cut (ApprovalService façade, no behavior change)
 - Added a unified `ApprovalService` interface (`approval/approvalService.ts`) with a broker-backed `BrokerApprovalService` adapter whose `waitForDecision` reuses the shared `pollUntilResolved` waiter. `ToolRuntime` now depends on `ApprovalService` instead of poking the `ApprovalBroker` directly (existing `approvalBroker` callers are unchanged — the option is wrapped in the adapter). Underlying stores are untouched; the Host Bash adapter and the removal of the cross-store bridge are later steps.
 
-### Sequential Session Names
-- `/new` Agent runtime sessions now use readable date-scoped IDs such as `s-20260620-0001`, incrementing per chat/scope for existing sessions created on the same day.
-- Fresh scheduled task sessions use the same rule with a `task` prefix, for example `task-20260620-0001`, while retaining existing task-session pruning behavior.
+### Randomized Session Names
+- `/new` Agent runtime sessions now use readable date-scoped IDs with a four-letter random suffix, such as `s-20260622-yush`, avoiding repeated numeric tails across different bots.
+- Fresh scheduled task sessions use the same rule with a `task` prefix, for example `task-20260622-yush`, while retaining existing task-session pruning behavior.
 
 ### Web Tool Attachment Metadata
 - Fixed Web Chat tool-generated attachments, such as screenshots sent via `attach`, being lost as structured session attachments. `/api/chat` and `/api/stream` now persist files uploaded through the runner `uploadFile` callback and attach their metadata to the final assistant message.

@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { type AgentSettings, sanitizeAgentModelRouting } from "$lib/server/settings/schema";
 
 interface AgentPayload {
   id: string;
@@ -8,15 +9,10 @@ interface AgentPayload {
   description?: string;
   enabled?: boolean;
   sandboxEnabled?: boolean;
+  modelRouting?: unknown;
 }
 
-function sanitizeAgent(input: AgentPayload): {
-  id: string;
-  name: string;
-  description: string;
-  enabled: boolean;
-  sandboxEnabled?: boolean;
-} {
+function sanitizeAgent(input: AgentPayload): AgentSettings {
   const id = String(input.id ?? "").trim();
   if (!id) {
     throw new Error("agent.id is required");
@@ -27,7 +23,8 @@ function sanitizeAgent(input: AgentPayload): {
     name: String(input.name ?? "").trim() || id,
     description: String(input.description ?? "").trim(),
     enabled: input.enabled === undefined ? true : Boolean(input.enabled),
-    sandboxEnabled: input.sandboxEnabled === undefined ? undefined : Boolean(input.sandboxEnabled)
+    sandboxEnabled: input.sandboxEnabled === undefined ? undefined : Boolean(input.sandboxEnabled),
+    modelRouting: sanitizeAgentModelRouting(input.modelRouting)
   };
 }
 

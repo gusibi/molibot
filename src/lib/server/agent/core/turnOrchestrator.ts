@@ -7,7 +7,7 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { RunSummary } from "$lib/server/agent/session/runSummary.js";
-import { resolveModelSelection, resolveApiKeyForModel } from "$lib/server/agent/routing/modelRouting.js";
+import { resolveModelSelection, resolveCompactionSelection, resolveApiKeyForModel } from "$lib/server/agent/routing/modelRouting.js";
 import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
 import { momLog } from "$lib/server/agent/common/log.js";
 import type { ApprovalBroker } from "$lib/server/approval/approvalBroker.js";
@@ -285,13 +285,17 @@ export class TurnOrchestrator {
     keptMessages: number;
     messages: AgentMessage[];
   }> {
-    const selection = resolveModelSelection(input.settings, "text");
+    // The trigger decision is based on the primary text model's context window
+    // (that's the model the conversation actually runs on), while the summary
+    // itself can use a dedicated, cheaper compaction model when configured.
+    const textSelection = resolveModelSelection(input.settings, "text");
+    const selection = resolveCompactionSelection(input.settings);
     const apiKey = await resolveApiKeyForModel(selection.model, input.settings);
     if (!apiKey) {
       throw new Error(`Missing API key for compaction model provider '${selection.model.provider}'.`);
     }
 
-    const contextWindow = selection.model.contextWindow || input.settings.compaction.defaultContextWindow;
+    const contextWindow = textSelection.model.contextWindow || input.settings.compaction.defaultContextWindow;
     if (
       input.options?.reason !== "manual" &&
       !shouldCompactContext(input.currentMessages, contextWindow, input.settings.compaction)

@@ -6,13 +6,28 @@
   import { Label } from "$lib/components/ui/label";
   import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { Textarea } from "$lib/components/ui/textarea";
+  import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
   import { locale } from "$lib/ui/i18n";
+
+  type AgentModelRoute = "text" | "vision" | "stt";
+
+  interface AgentModelRouting {
+    textModelKey: string;
+    visionModelKey: string;
+    sttModelKey: string;
+  }
+
+  interface ModelRouteOption {
+    key: string;
+    label: string;
+  }
 
   interface AgentItem {
     id: string;
     name: string;
     description: string;
     enabled: boolean;
+    modelRouting: AgentModelRouting;
     profileFiles: AgentFiles;
     isNew: boolean;
   }
@@ -70,6 +85,13 @@
       descPlaceholder: "对该智能体角色和身份的简短描述。",
       enableLabel: "启用这个 Agent",
       enableDesc: "禁用的智能体将保留但无法在运行时选择。",
+      modelTitle: "专有模型",
+      modelDesc: "为该 Agent 指定文本 / 视觉 / 语音转写模型；保留“跟随全局”则使用全局模型路由。其它路由（TTS、压缩、子智能体）始终走全局。",
+      modelGlobalOption: "跟随全局（默认）",
+      modelTextLabel: "文本模型",
+      modelVisionLabel: "视觉模型",
+      modelSttLabel: "语音转写模型",
+      modelRouteLink: "查看全局模型路由 →",
       overridesTitle: "Agent Markdown 覆盖文件",
       overridesDesc: "留空内容将删除该文件，使运行时回退到上层配置。",
       saving: "保存中...",
@@ -119,6 +141,13 @@
       descPlaceholder: "Short description of this agent's role and identity.",
       enableLabel: "Enable this agent",
       enableDesc: "Disabled agents stay saved but are not selectable at runtime.",
+      modelTitle: "Dedicated Models",
+      modelDesc: "Pick text / vision / STT models for this agent; leave on \"Follow global\" to use the global model routing. Other routes (TTS, compaction, subagents) always follow global.",
+      modelGlobalOption: "Follow global (default)",
+      modelTextLabel: "Text model",
+      modelVisionLabel: "Vision model",
+      modelSttLabel: "Speech-to-text model",
+      modelRouteLink: "View global model routing →",
       overridesTitle: "Agent Markdown Overrides",
       overridesDesc: "Empty content removes the file so the runtime falls back to upper layers.",
       saving: "Saving...",
@@ -141,6 +170,7 @@
   let message = "";
 
   let agents: AgentItem[] = [];
+  let modelRouteOptions: Record<AgentModelRoute, ModelRouteOption[]> = { text: [], vision: [], stt: [] };
   let builtInSubagents: BuiltInSubagentItem[] = [];
   let subagentConfiguredModelLabel = "";
   let subagentModelLevels: Record<string, { key: string; label: string }> = {};
@@ -148,6 +178,11 @@
   let savedSnapshots: Record<string, string> = {};
 
   $: copy = COPY[$locale] ?? COPY["en-US"];
+  $: modelRouteFields = [
+    { route: "text" as AgentModelRoute, label: copy.modelTextLabel },
+    { route: "vision" as AgentModelRoute, label: copy.modelVisionLabel },
+    { route: "stt" as AgentModelRoute, label: copy.modelSttLabel }
+  ];
 
   function createAgentId(): string {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -160,12 +195,25 @@
     return Object.fromEntries(fileNames.map((fileName) => [fileName, ""]));
   }
 
+  function emptyModelRouting(): AgentModelRouting {
+    return { textModelKey: "", visionModelKey: "", sttModelKey: "" };
+  }
+
+  function normalizeModelRouting(input: Partial<AgentModelRouting> | undefined): AgentModelRouting {
+    return {
+      textModelKey: String(input?.textModelKey ?? "").trim(),
+      visionModelKey: String(input?.visionModelKey ?? "").trim(),
+      sttModelKey: String(input?.sttModelKey ?? "").trim()
+    };
+  }
+
   function createAgent(): AgentItem {
     return {
       id: createAgentId(),
       name: "",
       description: "",
       enabled: true,
+      modelRouting: emptyModelRouting(),
       profileFiles: emptyFiles(),
       isNew: true
     };
@@ -178,9 +226,24 @@
       name: agent.name.trim(),
       description: agent.description.trim(),
       enabled: Boolean(agent.enabled),
+      modelRouting: normalizeModelRouting(agent.modelRouting),
       profileFiles: Object.fromEntries(fileNames.map((fileName) => [fileName, String(agent.profileFiles[fileName] ?? "")])),
       isNew: agent.isNew
     };
+  }
+
+  function modelRouteOption(route: AgentModelRoute): ModelRouteOption[] {
+    return modelRouteOptions[route] ?? [];
+  }
+
+  function modelRoutingKey(route: AgentModelRoute): keyof AgentModelRouting {
+    return route === "text" ? "textModelKey" : route === "vision" ? "visionModelKey" : "sttModelKey";
+  }
+
+  function setAgentModelRoute(route: AgentModelRoute, value: string): void {
+    if (!selectedAgent) return;
+    selectedAgent.modelRouting = { ...selectedAgent.modelRouting, [modelRoutingKey(route)]: value };
+    agents = agents;
   }
 
   function agentSnapshot(agent: AgentItem): string {
@@ -200,12 +263,24 @@
     error = "";
     message = "";
     try {
-      const [res, subagentsRes] = await Promise.all([
+      const [res, subagentsRes, modelSwitchRes] = await Promise.all([
         fetch("/api/settings"),
-        fetch("/api/settings/subagents")
+        fetch("/api/settings/subagents"),
+        fetch("/api/settings/model-switch")
       ]);
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || copy.failedLoad);
+      const modelSwitchData = await modelSwitchRes.json();
+      if (modelSwitchData?.ok && modelSwitchData.routes) {
+        const pick = (route: AgentModelRoute): ModelRouteOption[] =>
+          Array.isArray(modelSwitchData.routes[route]?.options)
+            ? modelSwitchData.routes[route].options.map((option: ModelRouteOption) => ({
+                key: String(option.key ?? ""),
+                label: String(option.label ?? option.key ?? "")
+              }))
+            : [];
+        modelRouteOptions = { text: pick("text"), vision: pick("vision"), stt: pick("stt") };
+      }
       const subagentData = await subagentsRes.json();
       if (!subagentData.ok) throw new Error(subagentData.error || copy.failedLoadSub);
       builtInSubagents = Array.isArray(subagentData.subagents)
@@ -231,6 +306,7 @@
           name: agent.name ?? "",
           description: agent.description ?? "",
           enabled: agent.enabled ?? true,
+          modelRouting: normalizeModelRouting(agent.modelRouting),
           profileFiles: await loadAgentFiles(agent.id),
           isNew: false
         }))
@@ -331,7 +407,8 @@
             id: normalized.id,
             name: normalized.name,
             description: normalized.description,
-            enabled: normalized.enabled
+            enabled: normalized.enabled,
+            modelRouting: normalized.modelRouting
           }
         })
       });
@@ -549,6 +626,35 @@
                   <p>{copy.enableDesc}</p>
                 </div>
                 <IosSwitch id="agent-enabled" bind:checked={selectedAgent.enabled} />
+              </div>
+            </div>
+          </div>
+
+          <div class="channel-card">
+            <div class="channel-card-header">
+              <div>
+                <h2 class="channel-card-title">{copy.modelTitle}</h2>
+                <p class="channel-card-desc">{copy.modelDesc}</p>
+              </div>
+              <a class="channel-hero-link text-primary hover:underline" href="/settings/ai/routing">{copy.modelRouteLink}</a>
+            </div>
+            <div class="channel-card-body">
+              <div class="channel-field-row">
+                {#each modelRouteFields as field (field.route)}
+                  <div class="channel-field">
+                    <Label for={`agent-model-${field.route}`}>{field.label}</Label>
+                    <NativeSelect
+                      id={`agent-model-${field.route}`}
+                      value={selectedAgent.modelRouting[modelRoutingKey(field.route)]}
+                      onchange={(e) => setAgentModelRoute(field.route, (e.currentTarget as HTMLSelectElement).value)}
+                    >
+                      <NativeSelectOption value="">{copy.modelGlobalOption}</NativeSelectOption>
+                      {#each modelRouteOption(field.route) as option (option.key)}
+                        <NativeSelectOption value={option.key}>{option.label}</NativeSelectOption>
+                      {/each}
+                    </NativeSelect>
+                  </div>
+                {/each}
               </div>
             </div>
           </div>

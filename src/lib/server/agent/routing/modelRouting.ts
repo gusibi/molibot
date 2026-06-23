@@ -172,6 +172,33 @@ export function resolveCustomModel(selected: CustomProviderConfig, modelId: stri
   };
 }
 
+/**
+ * Layer an agent's per-route model overrides on top of the global routing.
+ *
+ * Resolves which agent owns the (channel, botId) pair via the channel instance's
+ * `agentId`, then overrides only the text/vision/stt keys the agent has set. Every
+ * other route (tts, compaction, subagent levels) is left untouched so it keeps
+ * following global. Returns the original `settings` reference unchanged when there
+ * is no agent or no override — callers can treat this as a cheap pass-through.
+ */
+export function applyAgentModelRoutingOverride(
+  settings: RuntimeSettings,
+  channel: string,
+  botId: string
+): RuntimeSettings {
+  const instances = settings.channels?.[channel]?.instances ?? [];
+  const agentId = (instances.find((instance) => instance.id === botId)?.agentId ?? "").trim();
+  if (!agentId) return settings;
+  const override = settings.agents.find((agent) => agent.id === agentId)?.modelRouting;
+  if (!override) return settings;
+
+  const merged = { ...settings.modelRouting };
+  if (override.textModelKey) merged.textModelKey = override.textModelKey;
+  if (override.visionModelKey) merged.visionModelKey = override.visionModelKey;
+  if (override.sttModelKey) merged.sttModelKey = override.sttModelKey;
+  return { ...settings, modelRouting: merged };
+}
+
 export function resolveModelSelection(
   settings: RuntimeSettings,
   useCase: "text" | "vision" = "text"
@@ -262,6 +289,25 @@ export function resolveModelSelection(
 
 export function resolveModel(settings: RuntimeSettings, useCase: "text" | "vision" = "text"): Model<any> {
   return resolveModelSelection(settings, useCase).model;
+}
+
+/**
+ * Resolve the model used for session context compaction (summarization).
+ *
+ * When `modelRouting.compactionModelKey` is set it takes priority — treated as a
+ * text-capable route — so summaries can run on a cheaper/faster model than the
+ * primary conversation. If it is empty or no longer resolves to a usable model,
+ * this falls back to the primary text selection.
+ */
+export function resolveCompactionSelection(settings: RuntimeSettings): ResolvedModelSelection {
+  const key = settings.modelRouting.compactionModelKey?.trim();
+  if (key) {
+    return resolveModelSelection(
+      { ...settings, modelRouting: { ...settings.modelRouting, textModelKey: key } },
+      "text"
+    );
+  }
+  return resolveModelSelection(settings, "text");
 }
 
 export function appendEndpointPath(baseUrl: string, endpointPath: string): string {

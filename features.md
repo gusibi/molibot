@@ -1,5 +1,25 @@
 # Molibot Features
 
+## 2026-06-23
+
+### Agent 专有模型（text / vision / stt）
+- **分层覆盖**：不同 agent 现在可以配置专有模型，默认与全局模型路由（`/settings/ai/routing`）一致，可单独覆盖文本 / 视觉 / 语音转写三条路由；其它路由（TTS、压缩、subagent 各级别）始终走全局。`AgentSettings.modelRouting` 新增可选字段，三个 key 都留空即透明跟随全局。
+- **单一注入点**：runner 构造时把绑定 agent 的覆盖叠加到 `getSettings()` 返回值上（`applyAgentModelRoutingOverride`，按 workspace 的 botId → channel 实例 `agentId` 解析 agent），下游 turn 编排、压缩、媒体兜底等所有 `resolveModelSelection` 自动用 agent 模型，无需逐处改调用点。覆盖只替换非空的 text/vision/stt key，不改其它路由，也不修改全局 settings 对象。
+- **配置贯通**：`/settings/agents` 页面新增「专有模型」卡片，三个下拉复用 `/api/settings/model-switch` 的 route 选项（首项「跟随全局（默认）」= 空），随 agent 一起保存；`/api/settings/agent` PUT、sanitize、store（新增 `settings_agents.model_routing_json` 列 + 幂等 ALTER 迁移）全链路持久化，空值自动丢弃回退全局。
+- **测试**：新增 `applyAgentModelRoutingOverride` 单测（只覆盖已设路由、不改全局对象、未映射 bot/无覆盖时原样透传）4/4；store/settings 套件全绿；改动源文件无新增 tsc 错误。
+
+### 压缩专用模型
+- **压缩与对话解耦**：会话上下文压缩（摘要）此前固定复用主文本模型，现在可以单独指定。新增 `modelRouting.compactionModelKey` 路由：可把摘要任务交给更便宜/更快的模型，主对话仍跑在更强的文本模型上；留空则复用主文本模型（默认行为不变）。
+- **触发判定仍按主文本模型**：是否触发压缩仍以「主文本模型的上下文窗口」为准（对话实际跑在该模型上），只有摘要那一次调用换用压缩专用模型——`turnOrchestrator.compactSessionContext` 中分别用 `resolveModelSelection(settings, "text")` 取窗口、用新增的 `resolveCompactionSelection(settings)` 取摘要模型与 API key；压缩 key 失效时自动回退到文本兜底链。
+- **配置贯通**：`/settings/ai/routing` 页面压缩设置区新增「压缩专用模型」下拉（复用文本能力模型选项，含「复用主文本模型」空选项），并贯通 schema/defaults/sanitize 持久化；选中的模型若不再存在，保存时自动清空回退到主文本模型。
+- **测试**：compaction、modelRouting、sanitize 套件全绿，改动源文件无新增 tsc 错误。
+
+### 流式首字超时 + 模型兜底
+- **解决卡死**：当上游模型接受了请求却迟迟不返回任何内容时，流式模式下 `for await` 会一直阻塞导致整轮任务卡住。现在在 `runner.ts` 的 `streamFn` 里包了一层首字超时（`withFirstTokenTimeout`，见 `agent/core/firstTokenStreamTimeout.ts`）：计时器对「第一个真正的内容 token」生效，pi-ai 的 `start`（HTTP 流已打开）和裸 `*_start`（声明了内容块但还没产出字节）等事件不会清除计时器——`text_start` 到首个 `text_delta` 之间正是要兜底的「首字响应时间」；只有 `*_delta`/`*_end`/`done`/`error` 到达才清除计时器，慢但还在输出的模型不会被打断。
+- **超时即兜底**：超时后通过独立的 `AbortController` 终止当前请求并抛出带 “timed out” 的可重试错误，命中既有 `isRetryableModelError` 判定，进而走原有的模型候选兜底循环切到下一个模型；所有候选都不可用时返回错误而不是卡住。
+- **可配置**：默认 60 秒（环境变量 `MOLIBOT_MODEL_FIRST_TOKEN_TIMEOUT_MS`），新增 `modelFallback.firstTokenTimeoutMs` 设置项并贯通 schema/defaults/sanitize/store 持久化；`/settings/ai/routing` 页面「首字响应超时」数字输入框可调，填 `0` 关闭。正值会被夹到 1s–10min 区间。
+- **测试**：`firstTokenStreamTimeout.test.ts` 5/5（无事件时超时触发 onTimeout+可重试错误、`start`+`text_start` 后仍因 stall 超时、首个 `text_delta` 到达后不再超时、`result()` 透传、超时为 0 时原样返回）；runner 22/22、modelRouting 2/2 仍全绿，改动文件无新增 tsc 错误。
+
 ## 2026-06-21
 
 ### Bot Profile 与 Agent AGENTS 叠加
@@ -37,10 +57,10 @@
 
 ## 2026-06-20
 
-### Session 命名序号化
-- **`/new` 会话命名**: IM 共享命令创建的新 session 改为按当天递增的可读格式 `s-YYYYMMDD-0001`、`s-YYYYMMDD-0002`，同一天同一 chat/scope 内自动延续最大序号。
-- **定时任务 session 命名**: `sessionMode=fresh` 的 scheduled task session 改为同样规则的 `task-YYYYMMDD-0001`、`task-YYYYMMDD-0002`，仍保留原有 task session 自动清理策略。
-- **回归验证**: 增加 `MomRuntimeStore` 单元测试覆盖普通 session 与 task session 的日期内递增命名。
+### Session 命名日期随机化
+- **`/new` 会话命名**: IM 共享命令创建的新 session 改为日期 + 4 位随机小写字母格式，例如 `s-YYYYMMDD-yush`，避免不同 bot 同一天创建 session 时都出现相同的序号尾缀。
+- **定时任务 session 命名**: `sessionMode=fresh` 的 scheduled task session 使用同样规则，前缀为 `task`，例如 `task-YYYYMMDD-yush`，仍保留原有 task session 自动清理策略。
+- **回归验证**: 增加 `MomRuntimeStore` 单元测试覆盖普通 session 与 task session 的日期随机命名格式。
 
 ### Web 工具附件类型修复
 - **Web `attach` 附件持久化**: Web Chat 的 `/api/chat` 与 `/api/stream` 现在会把 Agent 工具通过 `uploadFile` 产生的文件保存为会话附件，并随 assistant 消息写入 `attachments` 元数据，避免工具显示已发送但文件面板没有结构化附件。

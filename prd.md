@@ -7,13 +7,16 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 - Solo builders and small teams who want one AI assistant across channels.
 - Users who prefer simple interaction over complex automation.
 
+## 2.15 Scope Clarification (2026-06-23)
+- [Done] 不同 agent 可配置专有模型，默认与全局模型路由一致：仅开放文本 / 视觉 / 语音转写三条路由的 per-agent 覆盖，留空即跟随全局；TTS、压缩、subagent 各级别路由始终走全局，不做 per-agent 覆盖。覆盖必须叠加在共享上层模型解析里（runner 注入），不能下沉到各 Channel，也不能修改全局 settings 对象。
+
 ## 2.14 Scope Clarification (2026-06-21)
 - [Done] Bot profile layering must keep reusable agent rules and bot-specific rules together in the upper operator-directives block: if a bot defines `BOT.md`, the final rendered system prompt must include linked agent/global `AGENTS.md` before `BOT.md`, rather than treating `BOT.md` as a replacement for `AGENTS.md` or placing `AGENTS.md` after the default runtime prompt.
 - [Done] Bot-level same-name identity files remain true overrides: `SOUL.md`, `IDENTITY.md`, and `SONG.md` use bot > agent > global precedence so a bot can customize personality, identity, and tone without duplicating the agent's reusable `AGENTS.md` rules.
 
 ## 2.13 Scope Clarification (2026-06-20)
-- [Done] IM 共享 `/new` 命令生成的 Agent runtime session ID 必须使用当天递增格式 `s-YYYYMMDD-0001`，同一天同一 chat/scope 已存在同格式 session 时递增到下一个序号；旧随机格式 session 继续可列出和切换，但不参与新序号计算。
-- [Done] `sessionMode=fresh` 的定时任务 session ID 必须使用同一套当天递增规则，前缀为 `task`，例如 `task-YYYYMMDD-0001`；该逻辑必须留在共享 Agent runtime store，不能下沉到各 Channel。
+- [Done] IM 共享 `/new` 命令生成的 Agent runtime session ID 必须使用日期 + 4 位随机小写字母格式 `s-YYYYMMDD-xxxx`，例如 `s-20260622-yush`，避免不同 bot 同一天创建 session 时都出现相同的序号尾缀。
+- [Done] `sessionMode=fresh` 的定时任务 session ID 必须使用同一套日期随机规则，前缀为 `task`，例如 `task-YYYYMMDD-yush`；该逻辑必须留在共享 Agent runtime store，不能下沉到各 Channel。
 
 ## 2.12 Scope Clarification (2026-06-20)
 - [Done] Web Chat 中 Agent 工具产生的附件（例如 `attach` 发送截图）必须真实落到 session 的 assistant 消息 `attachments` 元数据里；不能只把工具结果记录成普通文本，否则文件面板无法判断文件类型或打开附件。

@@ -2,6 +2,7 @@ import {
   type AgentSettings,
   defaultRuntimeSettings,
   isKnownProvider,
+  sanitizeAgentModelRouting,
   resolveCustomProviderThinkingFormat,
   sanitizeOptionalThinkingSupport,
   sanitizeReasoningEffortMap,
@@ -439,7 +440,8 @@ export function sanitizeAgents(input: unknown): AgentSettings[] {
       name: String(item.name ?? "").trim() || id,
       description: String(item.description ?? "").trim(),
       enabled: item.enabled === undefined ? true : Boolean(item.enabled),
-      sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled)
+      sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
+      modelRouting: sanitizeAgentModelRouting(item.modelRouting)
     });
   }
   return out;
@@ -825,6 +827,7 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
     visionModelKey: String((next as { modelRouting?: { visionModelKey?: unknown } }).modelRouting?.visionModelKey ?? "").trim(),
     sttModelKey: String((next as { modelRouting?: { sttModelKey?: unknown } }).modelRouting?.sttModelKey ?? "").trim(),
     ttsModelKey: String((next as { modelRouting?: { ttsModelKey?: unknown } }).modelRouting?.ttsModelKey ?? "").trim(),
+    compactionModelKey: String((next as { modelRouting?: { compactionModelKey?: unknown } }).modelRouting?.compactionModelKey ?? "").trim(),
     subagentModelKey: String((next as { modelRouting?: { subagentModelKey?: unknown } }).modelRouting?.subagentModelKey ?? "").trim(),
     subagentHaikuModelKey: String((next as { modelRouting?: { subagentHaikuModelKey?: unknown } }).modelRouting?.subagentHaikuModelKey ?? "").trim(),
     subagentSonnetModelKey: String((next as { modelRouting?: { subagentSonnetModelKey?: unknown } }).modelRouting?.subagentSonnetModelKey ?? "").trim(),
@@ -835,8 +838,19 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
     (next as { modelFallback?: { mode?: unknown } }).modelFallback?.mode ??
     current.modelFallback.mode
   ).trim();
+  const firstTokenTimeoutRaw = Number(
+    (next as { modelFallback?: { firstTokenTimeoutMs?: unknown } }).modelFallback?.firstTokenTimeoutMs
+  );
+  // 0 (or a falsy value) disables the guard; any positive value is clamped to a
+  // sane 1s–10min window so a typo can't make it fire after one millisecond.
+  const firstTokenTimeoutMs = !Number.isFinite(firstTokenTimeoutRaw)
+    ? current.modelFallback.firstTokenTimeoutMs
+    : firstTokenTimeoutRaw <= 0
+      ? 0
+      : clampNumber(firstTokenTimeoutRaw, current.modelFallback.firstTokenTimeoutMs, 1000, 600000);
   next.modelFallback = {
-    mode: fallbackMode === "off" || fallbackMode === "any-enabled" ? fallbackMode : "same-provider"
+    mode: fallbackMode === "off" || fallbackMode === "any-enabled" ? fallbackMode : "same-provider",
+    firstTokenTimeoutMs
   };
   next.defaultThinkingLevel = sanitizeRuntimeThinkingLevel(
     (next as { defaultThinkingLevel?: unknown }).defaultThinkingLevel,

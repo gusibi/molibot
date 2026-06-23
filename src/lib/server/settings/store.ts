@@ -3,6 +3,7 @@ import {
   type AgentSettings,
   type ChannelSettingsMap,
   defaultRuntimeSettings,
+  sanitizeAgentModelRouting,
   type ModelCapabilityTag,
   type ModelCapabilityVerification,
   type ProviderModelConfig,
@@ -71,6 +72,7 @@ interface RawSettings {
     visionModelKey?: string;
     sttModelKey?: string;
     ttsModelKey?: string;
+    compactionModelKey?: string;
     subagentModelKey?: string;
     subagentHaikuModelKey?: string;
     subagentSonnetModelKey?: string;
@@ -79,6 +81,7 @@ interface RawSettings {
   };
   modelFallback?: {
     mode?: string;
+    firstTokenTimeoutMs?: number | string;
   };
   compaction?: {
     enabled?: boolean | string;
@@ -648,8 +651,17 @@ function sanitizeModelFallbackSettings(input: unknown): RuntimeSettings["modelFa
     ? input as Record<string, unknown>
     : {};
   const mode = String(source.mode ?? defaultRuntimeSettings.modelFallback.mode).trim();
+  const firstTokenTimeoutRaw = Number(source.firstTokenTimeoutMs);
+  // 0 (or a falsy value) disables the first-token guard; any positive value is
+  // clamped to a sane 1s–10min window.
+  const firstTokenTimeoutMs = !Number.isFinite(firstTokenTimeoutRaw)
+    ? defaultRuntimeSettings.modelFallback.firstTokenTimeoutMs
+    : firstTokenTimeoutRaw <= 0
+      ? 0
+      : clampNumber(firstTokenTimeoutRaw, defaultRuntimeSettings.modelFallback.firstTokenTimeoutMs, 1000, 600000);
   return {
-    mode: mode === "off" || mode === "any-enabled" ? mode : "same-provider"
+    mode: mode === "off" || mode === "any-enabled" ? mode : "same-provider",
+    firstTokenTimeoutMs
   };
 }
 
@@ -736,7 +748,8 @@ function sanitizeAgents(input: unknown): AgentSettings[] {
       name: String(item.name ?? "").trim() || id,
       description: String(item.description ?? "").trim(),
       enabled: item.enabled === undefined ? true : Boolean(item.enabled),
-      sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled)
+      sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
+      modelRouting: sanitizeAgentModelRouting(item.modelRouting)
     });
   }
 
@@ -1106,6 +1119,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       visionModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.visionModelKey),
       sttModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.sttModelKey),
       ttsModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.ttsModelKey),
+      compactionModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.compactionModelKey),
       subagentModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.subagentModelKey),
       subagentHaikuModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.subagentHaikuModelKey),
       subagentSonnetModelKey: normalizeBuiltInRouteKey(raw.modelRouting?.subagentSonnetModelKey),
@@ -1174,6 +1188,7 @@ export class SettingsStore {
         name TEXT NOT NULL,
         description TEXT NOT NULL,
         enabled INTEGER NOT NULL,
+        model_routing_json TEXT,
         updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS settings_channel_instances (
@@ -1264,6 +1279,11 @@ export class SettingsStore {
     }
     try {
       db.exec("ALTER TABLE settings_agents ADD COLUMN sandbox_enabled INTEGER");
+    } catch {
+      // column already exists
+    }
+    try {
+      db.exec("ALTER TABLE settings_agents ADD COLUMN model_routing_json TEXT");
     } catch {
       // column already exists
     }
@@ -1478,19 +1498,23 @@ export class SettingsStore {
     try {
       const legacy = this.loadLegacyDynamicSettings(db);
 
-      const agentsRows = db.prepare("SELECT id, name, description, enabled, sandbox_enabled FROM settings_agents ORDER BY id ASC").all() as Array<{
+      const agentsRows = db.prepare("SELECT id, name, description, enabled, sandbox_enabled, model_routing_json FROM settings_agents ORDER BY id ASC").all() as Array<{
         id: string;
         name: string;
         description: string;
         enabled: number;
         sandbox_enabled: number | null;
+        model_routing_json: string | null;
       }>;
       const agents = agentsRows.map((row) => ({
         id: row.id,
         name: row.name,
         description: row.description,
         enabled: Boolean(row.enabled),
-        sandboxEnabled: row.sandbox_enabled === null ? undefined : Boolean(row.sandbox_enabled)
+        sandboxEnabled: row.sandbox_enabled === null ? undefined : Boolean(row.sandbox_enabled),
+        modelRouting: sanitizeAgentModelRouting(
+          row.model_routing_json ? this.parseDynamicValue(row.model_routing_json, undefined) : undefined
+        )
       }));
 
       const channelRows = db.prepare(`
@@ -1695,8 +1719,8 @@ export class SettingsStore {
       if (keys.includes("agents")) {
         db.exec("DELETE FROM settings_agents");
         const insertAgent = db.prepare(`
-          INSERT INTO settings_agents (id, name, description, enabled, sandbox_enabled, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO settings_agents (id, name, description, enabled, sandbox_enabled, model_routing_json, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
         for (const agent of settings.agents) {
           insertAgent.run(
@@ -1705,6 +1729,7 @@ export class SettingsStore {
             agent.description ?? "",
             agent.enabled ? 1 : 0,
             agent.sandboxEnabled === undefined ? null : (agent.sandboxEnabled ? 1 : 0),
+            agent.modelRouting ? JSON.stringify(agent.modelRouting) : null,
             now
           );
         }
@@ -1831,6 +1856,7 @@ export class SettingsStore {
         visionModelKey: settings.modelRouting.visionModelKey,
         sttModelKey: settings.modelRouting.sttModelKey,
         ttsModelKey: settings.modelRouting.ttsModelKey,
+        compactionModelKey: settings.modelRouting.compactionModelKey,
         subagentModelKey: settings.modelRouting.subagentModelKey,
         subagentHaikuModelKey: settings.modelRouting.subagentHaikuModelKey,
         subagentSonnetModelKey: settings.modelRouting.subagentSonnetModelKey,
@@ -1838,7 +1864,8 @@ export class SettingsStore {
         subagentThinkingModelKey: settings.modelRouting.subagentThinkingModelKey
       },
       modelFallback: {
-        mode: settings.modelFallback.mode
+        mode: settings.modelFallback.mode,
+        firstTokenTimeoutMs: settings.modelFallback.firstTokenTimeoutMs
       },
       compaction: {
         enabled: settings.compaction.enabled,

@@ -25,7 +25,7 @@ test("beginTaskSession creates an active task- session", () => {
   try {
     const chatId = "chat1";
     const id = store.beginTaskSession(chatId);
-    assert.match(id, /^task-\d{8}-0001$/);
+    assert.match(id, /^task-\d{8}-[a-z]{4}$/);
     assert.equal(store.getActiveSession(chatId), id);
     assert.ok(store.listSessions(chatId).includes(id));
   } finally {
@@ -33,30 +33,28 @@ test("beginTaskSession creates an active task- session", () => {
   }
 });
 
-test("createSession uses date-scoped sequential ids", () => {
+test("createSession uses date-scoped random ids", () => {
   const { store, dir } = makeStore();
   try {
     const chatId = "chat1";
     const first = store.createSession(chatId);
     const second = store.createSession(chatId);
-    const day = first.match(/^s-(\d{8})-0001$/)?.[1];
-    assert.ok(day, "first session should use s-YYYYMMDD-0001 format");
-    assert.equal(second, `s-${day}-0002`);
+    assert.match(first, /^s-\d{8}-[a-z]{4}$/);
+    assert.match(second, /^s-\d{8}-[a-z]{4}$/);
     assert.equal(store.getActiveSession(chatId), second);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("beginTaskSession uses date-scoped sequential ids", () => {
+test("beginTaskSession uses date-scoped random ids", () => {
   const { store, dir } = makeStore();
   try {
     const chatId = "chat1";
     const first = store.beginTaskSession(chatId);
     const second = store.beginTaskSession(chatId);
-    const day = first.match(/^task-(\d{8})-0001$/)?.[1];
-    assert.ok(day, "first task session should use task-YYYYMMDD-0001 format");
-    assert.equal(second, `task-${day}-0002`);
+    assert.match(first, /^task-\d{8}-[a-z]{4}$/);
+    assert.match(second, /^task-\d{8}-[a-z]{4}$/);
     assert.equal(store.getActiveSession(chatId), second);
   } finally {
     rmSync(dir, { recursive: true, force: true });

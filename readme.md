@@ -97,7 +97,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 - **MiMo/Anthropic-Compatible Roles**: providers configured as Anthropic keep system instructions in the top-level `system` field, reserve `messages` for conversational roles, and log redacted image-fallback request payloads for debugging
 - **Time-Aware Prompting**: each live user turn can carry structured current-time metadata (`message_received_at` / `timezone` / `today`) for better date-sensitive replies
 - **Pi/Pae-Style Agent Session Persistence**: live runs append user prompts, assistant partial/error messages, and completed tool results at message boundaries, so failed or budget-limited turns can be continued without restarting from the beginning while transient runtime notices and empty assistant error turns stay out of model context
-- **Readable Agent Session Names**: IM `/new` sessions use date-scoped sequential IDs such as `s-20260620-0001`; fresh scheduled task sessions use the same counter shape with `task-20260620-0001`
+- **Readable Agent Session Names**: IM `/new` sessions use date-scoped IDs with a four-letter random suffix such as `s-20260622-yush`; fresh scheduled task sessions use the same shape with `task-20260622-yush`
 - **Subagent Model Routing**: delegated scout/planner/worker/reviewer runs use configurable `haiku` / `sonnet` / `opus` / `thinking` model levels plus a subagent fallback route, with early-delegation nudges before parent runs exhaust the 24-tool budget
 - **Cross-Channel Subagent Visibility**: delegated runs now emit explicit run/task start/end notices across Web, Telegram, Feishu, Weixin, and other shared text channels, so operators can tell when work moved into a child agent
 - **Best-Effort Subagent Progress**: subagent lifecycle notices are UI-only signals delivered through the shared runner queue, so sink failures do not abort delegated work and failed runs still close their visible progress state cleanly
@@ -309,7 +309,7 @@ Open: `http://localhost:3000`
 
 ### Session Management
 - `/chatid` - Show current chat ID
-- `/new` - Create a new date-scoped session, e.g. `s-20260620-0001`
+- `/new` - Create a new date-scoped session, e.g. `s-20260622-yush`
 - `/clear` - Clear current session context
 - `/sessions` - List all sessions
 - `/sessions <index|sessionId>` - Switch to specific session

@@ -26,6 +26,12 @@ export interface ModelRoutingConfig {
   visionModelKey: string;
   sttModelKey: string;
   ttsModelKey: string;
+  /**
+   * Dedicated model for session context compaction (summarization). Empty means
+   * reuse the primary text model. Lets a cheaper/faster model do summaries while
+   * the conversation runs on a stronger text model.
+   */
+  compactionModelKey: string;
   subagentModelKey: string;
   subagentHaikuModelKey: string;
   subagentSonnetModelKey: string;
@@ -45,6 +51,14 @@ export type ModelFallbackMode = "off" | "same-provider" | "any-enabled";
 
 export interface ModelFallbackSettings {
   mode: ModelFallbackMode;
+  /**
+   * Maximum time (ms) to wait for the FIRST streamed token from a model before
+   * giving up on it and falling back to the next candidate. Guards against an
+   * upstream that accepts the request but never starts responding. 0 disables
+   * the guard. Only the first token is bounded — a model that has started
+   * responding is never interrupted.
+   */
+  firstTokenTimeoutMs: number;
 }
 
 export interface CustomProviderConfig {
@@ -87,12 +101,45 @@ export interface QQBotConfig {
   allowedChatIds: string[];
 }
 
+/**
+ * Per-agent model overrides. Only the text/vision/stt routes can be overridden;
+ * every other route (tts, compaction, subagent levels) always follows the global
+ * `modelRouting`. An empty/absent key means "follow global" for that route.
+ */
+export interface AgentModelRouting {
+  textModelKey?: string;
+  visionModelKey?: string;
+  sttModelKey?: string;
+}
+
+export const AGENT_MODEL_ROUTING_KEYS = [
+  "textModelKey",
+  "visionModelKey",
+  "sttModelKey"
+] as const;
+
+/**
+ * Trim and keep only the supported override keys. Returns `undefined` when no
+ * non-empty override remains so the agent transparently follows global routing.
+ */
+export function sanitizeAgentModelRouting(input: unknown): AgentModelRouting | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const obj = input as Record<string, unknown>;
+  const out: AgentModelRouting = {};
+  for (const key of AGENT_MODEL_ROUTING_KEYS) {
+    const value = String(obj[key] ?? "").trim();
+    if (value) out[key] = value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export interface AgentSettings {
   id: string;
   name: string;
   description: string;
   enabled: boolean;
   sandboxEnabled?: boolean;
+  modelRouting?: AgentModelRouting;
 }
 
 export interface ChannelInstanceDisplaySettings {
