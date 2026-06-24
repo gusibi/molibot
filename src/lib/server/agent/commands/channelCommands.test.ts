@@ -149,6 +149,97 @@ test("status command includes current session token stats", async () => {
   assert.match(sent[0] ?? "", /- \*\*Show reasoning\*\*: off \(global\)/);
 });
 
+function settingsWithBoundAgent(): RuntimeSettings {
+  return {
+    ...defaultRuntimeSettings,
+    modelRouting: {
+      ...defaultRuntimeSettings.modelRouting,
+      textModelKey: "pi|anthropic|global-text"
+    },
+    agents: [{ id: "moli", name: "Moli", description: "", enabled: true }],
+    channels: {
+      telegram: {
+        instances: [
+          { id: "bot-test", name: "Bot Test", enabled: true, agentId: "moli", credentials: {}, allowedChatIds: [] }
+        ]
+      }
+    },
+    piModelProvider: "anthropic",
+    piModelName: "global-text"
+  };
+}
+
+test("/models text writes to the bound agent override, not global", async () => {
+  const sent: string[] = [];
+  let settings = settingsWithBoundAgent();
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => settings,
+    updateSettings: (patch) => {
+      settings = { ...settings, ...patch } as RuntimeSettings;
+      return settings;
+    },
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  const handled = await service.handle({
+    chatId: "chat-1",
+    scopeId: "chat-1",
+    text: "/models text pi|anthropic|global-text",
+    target: "target-1"
+  });
+
+  assert.equal(handled, true);
+  assert.match(sent[0] ?? "", /Model switched/);
+  assert.match(sent[0] ?? "", /agent \(moli\)/);
+  // global routing untouched; override landed on the agent
+  assert.equal(settings.modelRouting.textModelKey, "pi|anthropic|global-text");
+  assert.equal(settings.agents.find((a) => a.id === "moli")?.modelRouting?.textModelKey, "pi|anthropic|global-text");
+
+  // reset clears the agent override back to follow-global
+  sent.length = 0;
+  await service.handle({ chatId: "chat-1", scopeId: "chat-1", text: "/models text global", target: "target-1" });
+  assert.match(sent[0] ?? "", /Model reset to global/);
+  assert.equal(settings.agents.find((a) => a.id === "moli")?.modelRouting, undefined);
+});
+
+test("/models tts always switches global even on an agent-bound bot", async () => {
+  const sent: string[] = [];
+  let settings = settingsWithBoundAgent();
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "telegram",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "telegram",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => settings,
+    updateSettings: (patch) => {
+      settings = { ...settings, ...patch } as RuntimeSettings;
+      return settings;
+    },
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    sendText: async (_target, text) => {
+      sent.push(text);
+    }
+  });
+
+  await service.handle({ chatId: "chat-1", scopeId: "chat-1", text: "/models subagent", target: "target-1" });
+  // subagent route is global-only: the listing advertises a global switch target
+  assert.match(sent[0] ?? "", /global/i);
+  assert.equal(settings.agents.find((a) => a.id === "moli")?.modelRouting, undefined);
+});
+
 test("plain approval text approves the only pending host tool request in the chat", async () => {
   const sent: string[] = [];
   const pending: HostBashApprovalRecord = {

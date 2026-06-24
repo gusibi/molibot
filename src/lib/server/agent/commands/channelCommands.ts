@@ -15,6 +15,8 @@ import {
   switchModelSelection,
   type ModelRoute
 } from "$lib/server/settings/modelSwitch.js";
+import { applyAgentModelRoutingOverride } from "$lib/server/agent/routing/modelRouting.js";
+import type { AgentModelRouting } from "$lib/server/settings/schema.js";
 import { listOAuthProviderIds, removeStoredAuth, resolveAuthFilePath, startOAuthLogin, submitOAuthLoginCode } from "$lib/server/agent/identity/auth.js";
 import { momLog } from "$lib/server/agent/common/log.js";
 import {
@@ -640,11 +642,86 @@ export class SharedRuntimeCommandService<TTarget> {
         await this.options.sendText(input.target, this.modelsText(route));
         return true;
       }
-      const selected = resolveModelSelection(selector, options);
-      if (!selected) {
-        await this.options.sendText(input.target, `${this.renderMarkdownBulletList(this.text("Invalid model selector", "无效的模型选择器"), [{ label: this.text("Selector", "选择器"), value: this.code(selector) }])}\n\n${this.modelsText(route)}`);
+
+      // For text/vision/stt on a bot bound to an agent, switching writes the
+      // agent's dedicated model override (what actually takes effect for this
+      // bot). Global-only routes (tts/subagent) and unbound bots keep writing
+      // the global routing.
+      const overrideKey = this.agentOverrideRouteKey(route);
+      const boundAgentId = this.resolveBoundAgentId(settings);
+      const useAgentScope = overrideKey !== null && Boolean(boundAgentId);
+      const invalidSelectorText = `${this.renderMarkdownBulletList(this.text("Invalid model selector", "无效的模型选择器"), [{ label: this.text("Selector", "选择器"), value: this.code(selector) }])}\n\n${this.modelsText(route)}`;
+
+      // `/models <route> global` (or reset/default) clears the agent override.
+      const normalizedSelector = selector.trim().toLowerCase();
+      if (useAgentScope && (normalizedSelector === "global" || normalizedSelector === "reset" || normalizedSelector === "default")) {
+        const nextAgents = settings.agents.map((agent) =>
+          agent.id === boundAgentId
+            ? { ...agent, modelRouting: this.clearedAgentRoute(agent.modelRouting, overrideKey!) }
+            : agent
+        );
+        this.options.updateSettings({ agents: nextAgents });
+        const fallback = this.resolveRouteSummary(this.effectiveModelSettings(this.options.getSettings()), route);
+        await this.options.sendText(
+          input.target,
+          this.renderMarkdownBulletList(this.text("Model reset to global", "已恢复跟随全局"), [
+            { label: this.text("Route", "路由"), value: this.code(route) },
+            { label: this.text("Scope", "作用域"), value: `agent (${boundAgentId})` },
+            { label: this.text("Now using", "当前使用"), value: fallback.label },
+            { label: this.text("Check", "查看"), value: this.code(`/models ${route}`) }
+          ])
+        );
+        momLog(this.options.channel, "model_switched_via_command", {
+          chatId: input.chatId,
+          scopeId: input.scopeId,
+          route,
+          selector,
+          selectedKey: "",
+          scope: "agent-reset",
+          agentId: boundAgentId,
+          instanceId: this.options.instanceId
+        });
         return true;
       }
+
+      const selected = resolveModelSelection(selector, options);
+      if (!selected) {
+        await this.options.sendText(input.target, invalidSelectorText);
+        return true;
+      }
+
+      if (useAgentScope) {
+        const nextAgents = settings.agents.map((agent) =>
+          agent.id === boundAgentId
+            ? { ...agent, modelRouting: { ...(agent.modelRouting ?? {}), [overrideKey!]: selected.key } }
+            : agent
+        );
+        const updated = this.options.updateSettings({ agents: nextAgents });
+        await this.options.sendText(
+          input.target,
+          this.renderMarkdownBulletList(this.text("Model switched", "模型已切换"), [
+            { label: this.text("Route", "路由"), value: this.code(route) },
+            { label: this.text("Scope", "作用域"), value: `agent (${boundAgentId})` },
+            { label: this.text("Selected model", "已选模型"), value: selected.label },
+            { label: this.text("Applies to", "影响范围"), value: this.text("all bots linked to this agent", "所有绑定该 agent 的 bot") },
+            { label: this.text("Reset", "恢复全局"), value: this.code(`/models ${route} global`) },
+            { label: this.text("Check", "查看"), value: this.code(`/models ${route}`) }
+          ])
+        );
+        momLog(this.options.channel, "model_switched_via_command", {
+          chatId: input.chatId,
+          scopeId: input.scopeId,
+          route,
+          selector,
+          selectedKey: selected.key,
+          scope: "agent",
+          agentId: boundAgentId,
+          providerMode: updated.providerMode,
+          instanceId: this.options.instanceId
+        });
+        return true;
+      }
+
       const switched = switchModelSelection({
         settings,
         route,
@@ -652,13 +729,14 @@ export class SharedRuntimeCommandService<TTarget> {
         updateSettings: this.options.updateSettings
       });
       if (!switched) {
-        await this.options.sendText(input.target, `${this.renderMarkdownBulletList(this.text("Invalid model selector", "无效的模型选择器"), [{ label: this.text("Selector", "选择器"), value: this.code(selector) }])}\n\n${this.modelsText(route)}`);
+        await this.options.sendText(input.target, invalidSelectorText);
         return true;
       }
       await this.options.sendText(
         input.target,
         this.renderMarkdownBulletList(this.text("Model switched", "模型已切换"), [
           { label: this.text("Route", "路由"), value: this.code(route) },
+          { label: this.text("Scope", "作用域"), value: this.text("global", "全局") },
           { label: this.text("Selected model", "已选模型"), value: switched.selected.label },
           {
             label: this.text("Transport", "传输"),
@@ -673,6 +751,7 @@ export class SharedRuntimeCommandService<TTarget> {
         route,
         selector,
         selectedKey: switched.selected.key,
+        scope: "global",
         providerMode: switched.settings.providerMode,
         instanceId: this.options.instanceId
       });
@@ -1472,13 +1551,23 @@ export class SharedRuntimeCommandService<TTarget> {
 
   private modelsText(route: ModelRoute): string {
     const settings = this.options.getSettings();
+    const effectiveSettings = this.effectiveModelSettings(settings);
     const options = buildModelOptions(settings, route);
-    const activeKey = currentModelKey(settings, route);
+    const activeKey = currentModelKey(effectiveSettings, route);
+    const { source, agentId } = this.modelRouteSource(settings, route);
+    const overridable = this.agentOverrideRouteKey(route) !== null;
+    const boundAgentId = this.resolveBoundAgentId(settings);
     const title = this.isChinese
       ? (route === "text" ? "当前模型列表" : `当前 ${route} 模型列表`)
       : (route === "text" ? "Current models" : `Current ${route} models`);
+    const scopeLine = overridable && boundAgentId
+      ? (source === "agent"
+          ? this.text(`Switch target: agent (${agentId}). Send /models ${route} global to follow global.`, `切换写入：agent（${agentId}）。发送 /models ${route} global 可恢复跟随全局。`)
+          : this.text(`Switch target: agent (${boundAgentId}). Currently following global.`, `切换写入：agent（${boundAgentId}）。当前跟随全局。`))
+      : this.text("Switch target: global.", "切换写入：全局。");
     const lines = [
       this.isChinese ? `**${title}**（共 ${options.length} 个）` : `**${title}** (${options.length} total)`,
+      scopeLine,
       ""
     ];
 
@@ -1611,7 +1700,7 @@ export class SharedRuntimeCommandService<TTarget> {
     const activeSessionId = sessionId ?? this.options.store.getActiveSession(scopeId);
     const sessionOverride = this.options.store.getSessionThinkingLevelOverride(scopeId, activeSessionId);
     const requested = sessionOverride ?? settings.defaultThinkingLevel;
-    const reasoningSupported = this.resolveTextRouteThinkingSupport(settings);
+    const reasoningSupported = this.resolveTextRouteThinkingSupport(this.effectiveModelSettings(settings));
     const effective = resolveThinkingLevel({ defaultThinkingLevel: requested }, reasoningSupported);
 
     return [
@@ -1653,6 +1742,56 @@ export class SharedRuntimeCommandService<TTarget> {
       key,
       label: option?.label ?? "(not found in current options)"
     };
+  }
+
+  /** Agent id bound to this command's bot instance, or "" when none is linked. */
+  private resolveBoundAgentId(settings: RuntimeSettings): string {
+    const instances = settings.channels?.[this.options.channel]?.instances ?? [];
+    return (instances.find((instance) => instance.id === this.options.instanceId)?.agentId ?? "").trim();
+  }
+
+  /**
+   * Settings as the runner actually resolves them for this bot: the bound agent's
+   * text/vision/stt overrides layered on top of global. Use this for any model
+   * display so /status and /models reflect what the bot will really use.
+   */
+  private effectiveModelSettings(settings: RuntimeSettings): RuntimeSettings {
+    return applyAgentModelRoutingOverride(settings, this.options.channel, this.options.instanceId);
+  }
+
+  /** The agent-override key for a route, or null when the route can't be overridden per agent. */
+  private agentOverrideRouteKey(route: ModelRoute): keyof AgentModelRouting | null {
+    return route === "text"
+      ? "textModelKey"
+      : route === "vision"
+        ? "visionModelKey"
+        : route === "stt"
+          ? "sttModelKey"
+          : null;
+  }
+
+  /** Whether the active model for a route comes from the bound agent override or global. */
+  private modelRouteSource(settings: RuntimeSettings, route: ModelRoute): { source: "agent" | "global"; agentId: string } {
+    const overrideKey = this.agentOverrideRouteKey(route);
+    const agentId = this.resolveBoundAgentId(settings);
+    if (!overrideKey || !agentId) return { source: "global", agentId };
+    const override = settings.agents.find((agent) => agent.id === agentId)?.modelRouting?.[overrideKey];
+    return { source: override ? "agent" : "global", agentId };
+  }
+
+  private modelSourceSuffix(settings: RuntimeSettings, route: ModelRoute): string {
+    const { source, agentId } = this.modelRouteSource(settings, route);
+    return source === "agent"
+      ? this.text(` (agent: ${agentId})`, `（agent：${agentId}）`)
+      : this.text(" (global)", "（全局）");
+  }
+
+  /** Remove one route override from an agent's modelRouting, returning undefined when nothing is left. */
+  private clearedAgentRoute(routing: AgentModelRouting | undefined, key: keyof AgentModelRouting): AgentModelRouting | undefined {
+    if (!routing) return undefined;
+    const next = { ...routing };
+    delete next[key];
+    return Object.keys(next).length > 0 ? next : undefined;
   }
 
   private formatNumber(value: number): string {
@@ -1857,11 +1996,12 @@ export class SharedRuntimeCommandService<TTarget> {
 
   private statusText(scopeId: string, target: TTarget): string {
     const settings = this.options.getSettings();
+    const effectiveSettings = this.effectiveModelSettings(settings);
     const sessionId = this.options.store.getActiveSession(scopeId);
     const sessionStatus = this.options.store.getSessionStatusSnapshot(scopeId, sessionId);
-    const textRoute = this.resolveRouteSummary(settings, "text");
-    const visionRoute = this.resolveRouteSummary(settings, "vision");
-    const sttRoute = this.resolveRouteSummary(settings, "stt");
+    const textRoute = this.resolveRouteSummary(effectiveSettings, "text");
+    const visionRoute = this.resolveRouteSummary(effectiveSettings, "vision");
+    const sttRoute = this.resolveRouteSummary(effectiveSettings, "stt");
     const ttsTool = this.resolveTtsToolSummary(settings);
     const sandboxState = this.resolveSandboxState(scopeId, sessionId);
     const runLogNotice = this.resolveRunLogNoticeStatus(scopeId, sessionId);
@@ -1924,11 +2064,11 @@ export class SharedRuntimeCommandService<TTarget> {
       };
     });
     const modelRows: CommandTableRow[] = [
-      { label: this.text("Text", "文本"), value: textRoute.label },
+      { label: this.text("Text", "文本"), value: `${textRoute.label}${this.modelSourceSuffix(settings, "text")}` },
       { label: this.text("Text key", "文本 Key"), value: textRoute.key || this.text("(empty)", "（空）") },
-      { label: this.text("Vision", "视觉"), value: visionRoute.label },
+      { label: this.text("Vision", "视觉"), value: `${visionRoute.label}${this.modelSourceSuffix(settings, "vision")}` },
       { label: this.text("Vision key", "视觉 Key"), value: visionRoute.key || this.text("(empty)", "（空）") },
-      { label: "STT", value: sttRoute.label },
+      { label: "STT", value: `${sttRoute.label}${this.modelSourceSuffix(settings, "stt")}` },
       { label: "STT key", value: sttRoute.key || this.text("(empty)", "（空）") },
       { label: "TTS", value: ttsTool.label },
       ...(ttsTool.detail ? [{ label: this.text("TTS voice", "TTS 音色"), value: ttsTool.detail }] : [])
@@ -1970,7 +2110,7 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/skills <id>", value: d("show details for one loaded skill", "查看单个技能详情") },
       { label: "/skills-detail", value: d("show full details for all loaded skills", "查看所有已加载技能的完整详情") },
       { label: "/thinking [default|off|low|medium|high]", value: d("show or change thinking for current session only", "查看或仅修改当前会话的思考级别") },
-      { label: "/models <route> [index|key]", value: d("show or switch model for a route (text|vision|stt|tts|subagent)", "查看或切换指定路由的模型（text|vision|stt|tts|subagent）") },
+      { label: "/models <route> [index|key]", value: d("show or switch model for a route (text|vision|stt|tts|subagent); for text/vision/stt on an agent-bound bot it sets the agent's model — use /models <route> global to follow global", "查看或切换指定路由的模型（text|vision|stt|tts|subagent）；绑定 agent 的 bot 切 text/vision/stt 时写入该 agent，/models <route> global 可恢复跟随全局") },
       { label: "/sandbox [scope] [on|off|reset]", value: d("show or change sandbox override (session / bot / agent)", "查看或修改沙盒覆盖（会话 / 机器人 / Agent）") },
       { label: "/runlog [latest|<runId>|list]", value: d("show or list archived run logs", "查看或列出归档运行记录") },
       { label: "/runlog status | [bot|global] <on|off|reset>", value: d("show or change automatic runlog notice", "查看或修改自动 runlog 通知") },

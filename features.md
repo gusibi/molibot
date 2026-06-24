@@ -6,7 +6,8 @@
 - **分层覆盖**：不同 agent 现在可以配置专有模型，默认与全局模型路由（`/settings/ai/routing`）一致，可单独覆盖文本 / 视觉 / 语音转写三条路由；其它路由（TTS、压缩、subagent 各级别）始终走全局。`AgentSettings.modelRouting` 新增可选字段，三个 key 都留空即透明跟随全局。
 - **单一注入点**：runner 构造时把绑定 agent 的覆盖叠加到 `getSettings()` 返回值上（`applyAgentModelRoutingOverride`，按 workspace 的 botId → channel 实例 `agentId` 解析 agent），下游 turn 编排、压缩、媒体兜底等所有 `resolveModelSelection` 自动用 agent 模型，无需逐处改调用点。覆盖只替换非空的 text/vision/stt key，不改其它路由，也不修改全局 settings 对象。
 - **配置贯通**：`/settings/agents` 页面新增「专有模型」卡片，三个下拉复用 `/api/settings/model-switch` 的 route 选项（首项「跟随全局（默认）」= 空），随 agent 一起保存；`/api/settings/agent` PUT、sanitize、store（新增 `settings_agents.model_routing_json` 列 + 幂等 ALTER 迁移）全链路持久化，空值自动丢弃回退全局。
-- **测试**：新增 `applyAgentModelRoutingOverride` 单测（只覆盖已设路由、不改全局对象、未映射 bot/无覆盖时原样透传）4/4；store/settings 套件全绿；改动源文件无新增 tsc 错误。
+- **`/status` 与 `/models` 命令适配**：`/status` 模型区现在显示「实际生效模型」（叠加 agent 覆盖后），并在 text/vision/stt 行标注来源 `（agent：<id>）` 或 `（全局）`；思考能力判定也按生效文本模型。`/models` 切换在「bot 绑定了 agent + 路由是 text/vision/stt」时写入该 agent 的专有模型（影响所有共用该 agent 的 bot），其余（tts/subagent、或未绑定 agent）仍写全局；新增 `/models <route> global`（亦接受 `reset`/`default`）清除 agent 覆盖、恢复跟随全局；`/models` 列表顶部显示本次切换的写入目标（agent/global）。命令处理器经 `this.options.channel` + `instanceId` 解析绑定 agent，全部走共享上层、不下沉 Channel。
+- **测试**：新增 `applyAgentModelRoutingOverride` 单测 4/4；channelCommands 新增 `/models` agent 维度写入 + `global` 重置、tts/subagent 仍走全局 2 例，套件 25/25；store/settings 套件全绿；`npm run build` 通过，改动源文件无新增 tsc 错误。
 
 ### 压缩专用模型
 - **压缩与对话解耦**：会话上下文压缩（摘要）此前固定复用主文本模型，现在可以单独指定。新增 `modelRouting.compactionModelKey` 路由：可把摘要任务交给更便宜/更快的模型，主对话仍跑在更强的文本模型上；留空则复用主文本模型（默认行为不变）。

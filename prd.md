@@ -9,6 +9,7 @@ Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegr
 
 ## 2.15 Scope Clarification (2026-06-23)
 - [Done] 不同 agent 可配置专有模型，默认与全局模型路由一致：仅开放文本 / 视觉 / 语音转写三条路由的 per-agent 覆盖，留空即跟随全局；TTS、压缩、subagent 各级别路由始终走全局，不做 per-agent 覆盖。覆盖必须叠加在共享上层模型解析里（runner 注入），不能下沉到各 Channel，也不能修改全局 settings 对象。
+- [Done] `/status` 必须显示「实际生效模型」（叠加 agent 覆盖后）并标注来源（agent/global）；`/models` 切换在 bot 绑定 agent 且路由为 text/vision/stt 时写入该 agent 维度（影响所有共用该 agent 的 bot），其余仍写全局，并提供 `/models <route> global` 恢复跟随全局。
 
 ## 2.14 Scope Clarification (2026-06-21)
 - [Done] Bot profile layering must keep reusable agent rules and bot-specific rules together in the upper operator-directives block: if a bot defines `BOT.md`, the final rendered system prompt must include linked agent/global `AGENTS.md` before `BOT.md`, rather than treating `BOT.md` as a replacement for `AGENTS.md` or placing `AGENTS.md` after the default runtime prompt.
