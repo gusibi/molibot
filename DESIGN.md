@@ -1,138 +1,331 @@
 ---
-version: v2.0
-name: Molipibot Warm Shadcn
-description: A high-density, "Warm Shadcn" design system for Molipibot's complex setting suite. It blends the structural precision of Shadcn UI with the warm, editorial palette of Anthropic (Paper, Charcoal, Terracotta). The system handles extreme information density via a double-sidebar navigation and master-detail patterns.
-
+version: alpha
+name: Momo Liquid Glass
+description: Momo for Mac design system, Light theme — a macOS 26 “Liquid Glass” aesthetic for the Momo agent desktop client (Chat + Settings). The Dark theme reuses these token names with different values.
+platform: macOS (desktop app)
 colors:
-  # Base Palette (OKLch)
-  bg: "oklch(98.5% 0.004 60)"          # Warm White Paper
-  surface: "oklch(100% 0 0)"           # Pure White
-  fg: "oklch(25% 0.02 60)"             # Soft Charcoal
-  muted: "oklch(60% 0.015 60)"         # Mid-tone gray
-  border: "oklch(93% 0.01 60)"         # Hairline borders
-  accent: "oklch(60% 0.15 35)"         # Anthropic Terracotta
-  accent-soft: "oklch(96% 0.025 35)"   # Subtle highlight/active state
-  
-  # Dark Mode overrides
-  dark-bg: "oklch(20% 0.01 60)"
-  dark-surface: "oklch(24% 0.01 60)"
-  dark-fg: "oklch(94% 0.005 60)"
-  dark-border: "oklch(30% 0.015 60)"
-
+  primary: "#1c1c1e"
+  secondary: "rgba(60,60,67,0.6)"
+  tertiary: "rgba(60,60,67,0.45)"
+  accent: "#007AFF"
+  accent-soft: "#007aff24"
+  label-100: "#1c1c1e"
+  label-200: "rgba(60,60,67,0.75)"
+  label-300: "rgba(60,60,67,0.6)"
+  label-400: "rgba(60,60,67,0.45)"
+  label-500: "rgba(60,60,67,0.3)"
+  fill-100: "rgba(120,120,128,0.12)"
+  fill-200: "rgba(120,120,128,0.16)"
+  fill-300: "rgba(120,120,128,0.24)"
+  fill-selection: "rgba(118,118,128,0.16)"
+  separator: "rgba(0,0,0,0.07)"
+  separator-strong: "rgba(0,0,0,0.12)"
+  hairline-light: "rgba(255,255,255,0.7)"
+  # System accent options (selectable)
+  blue: "#007AFF"
+  purple: "#AF52DE"
+  pink: "#FF2D55"
+  orange: "#FF9500"
+  green: "#34C759"
+  teal: "#30B0C7"
+  red: "#FF5A5F"
+  graphite: "#8E8E93"
+  # Status
+  online: "#34C759"
+  warning: "#FF9500"
+  danger: "#FF3B30"
+  # Channel brand colors
+  channel-local: "#1c1c1e"
+  channel-web: "#0A84FF"
+  channel-telegram: "#2AABEE"
+  channel-feishu: "#3370FF"
+  channel-qq: "#12B7F5"
+  channel-weixin: "#07C160"
+materials:
+  # Translucent “glass” surfaces — always layered over the wallpaper
+  window: "rgba(250,250,252,0.7)"
+  sidebar: "rgba(255,255,255,0.4)"
+  card: "rgba(255,255,255,0.72)"
+  bubble: "rgba(255,255,255,0.78)"
+  chrome: "rgba(255,255,255,0.22)"
+  blur: "blur(40px) saturate(180%)"
+  blur-thin: "blur(20px) saturate(160%)"
+  # Reduce-transparency fallbacks (opaque)
+  window-opaque: "rgba(244,244,247,0.98)"
+  sidebar-opaque: "rgba(236,236,240,0.99)"
+  card-opaque: "#ffffff"
+  blur-off: "saturate(120%)"
+wallpaper:
+  morning: "radial-gradient + linear-gradient, 蓝→薰衣草→桃 (默认)"
+  clouds: "清透蓝白"
+  dusk: "靛紫"
+  graphite: "中性灰"
 typography:
-  display:
-    fontFamily: "'Iowan Old Style', 'Charter', Georgia, serif"
+  large-title:
+    fontFamily: SF Pro / PingFang SC
+    fontSize: 26px
     fontWeight: 700
-    letterSpacing: "-0.01em"
+    lineHeight: 32px
+  title-1:
+    fontFamily: SF Pro / PingFang SC
+    fontSize: 22px
+    fontWeight: 700
+    lineHeight: 28px
+  title-2:
+    fontFamily: SF Pro / PingFang SC
+    fontSize: 16px
+    fontWeight: 700
+    lineHeight: 22px
+  headline:
+    fontFamily: SF Pro / PingFang SC
+    fontSize: 15px
+    fontWeight: 600
+    lineHeight: 20px
   body:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-    fontSize: "14px"
-    lineHeight: "1.6"
-  mono:
-    fontFamily: "'JetBrains Mono', 'IBM Plex Mono', monospace"
-    fontSize: "13px"
-
-shapes:
-  radius-base: "10px"   # Standard for cards/buttons
-  radius-sm: "6px"     # Standard for inputs/pills
-  shadow: "0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.04)"
-
-layout:
-  sidebar-primary-w: "72px"
-  sidebar-secondary-w: "260px"
-  header-h: "64px"
-  footbar-h: "56px"
-  max-width: "1200px"
-
+    fontFamily: SF Pro / PingFang SC
+    fontSize: 14.5px
+    fontWeight: 400
+    lineHeight: 22px
+  callout:
+    fontFamily: SF Pro / PingFang SC
+    fontSize: 13.5px
+    fontWeight: 450
+    lineHeight: 18px
+  subhead:
+    fontFamily: SF Pro / PingFang SC
+    fontSize: 13px
+    fontWeight: 500
+    lineHeight: 18px
+  footnote:
+    fontFamily: SF Pro / PingFang SC
+    fontSize: 12px
+    fontWeight: 400
+    lineHeight: 16px
+  caption-1:
+    fontFamily: SF Pro / PingFang SC
+    fontSize: 11.5px
+    fontWeight: 400
+    lineHeight: 15px
+  caption-2:
+    fontFamily: SF Pro / PingFang SC
+    fontSize: 11px
+    fontWeight: 400
+    lineHeight: 14px
+  section-label:
+    fontFamily: SF Pro / PingFang SC
+    fontSize: 11px
+    fontWeight: 600
+    lineHeight: 14px
+    letterSpacing: 0.04em
+spacing:
+  1: 4px
+  2: 8px
+  3: 12px
+  4: 16px
+  5: 18px
+  6: 24px
+  8: 32px
+  base: 4px
+rounded:
+  xs: 6px
+  sm: 8px
+  md: 10px
+  card: 12px
+  bubble: 18px
+  window: 20px
+  full: 9999px
+icons:
+  library: Phosphor Icons
+  weights: "regular (ph) / fill (ph-fill) / bold (ph-bold)"
+  ui-size: 17px
+  inline-size: 13–15px
+components:
+  button-primary:
+    description: 发送按钮（圆形）
+    backgroundColor: "{colors.accent}"
+    textColor: "#ffffff"
+    rounded: "{rounded.full}"
+    size: 36px
+    shadow: "0 3px 8px -2px rgba(0,90,200,0.5)"
+  button-pill:
+    description: 新对话（强调色浅底胶囊）
+    backgroundColor: "{colors.accent-soft}"
+    textColor: "{colors.accent}"
+    typography: "{typography.subhead}"
+    rounded: "{rounded.md}"
+    padding: "0 12px"
+    height: 38px
+  button-ghost-round:
+    description: 头部操作按钮（搜索/更多）
+    backgroundColor: "{colors.fill-200}"
+    rounded: "{rounded.full}"
+    size: 32px
+  toggle:
+    width: 38px
+    height: 22px
+    knob: 18px
+    on: "{colors.accent}"
+    off: "rgba(120,120,128,0.32)"
+  popup-button:
+    description: 设置行右侧的值选择器（值 + ▾）
+    backgroundColor: "{colors.fill-100}"
+    border: "0.5px solid {colors.separator}"
+    rounded: "{rounded.xs}"
+    padding: "4px 8px"
+    typography: "{typography.subhead}"
+  list-row:
+    rounded: "{rounded.sm}"
+    height: 32–46px
+    selectedBackground: "{colors.accent-soft}"
+    selectedText: "{colors.accent}"
+  bubble-me:
+    backgroundColor: "{colors.accent}"
+    textColor: "#ffffff"
+    rounded: "18px 18px 6px 18px"
+    padding: "11px 15px"
+    typography: "{typography.body}"
+  bubble-them:
+    backgroundColor: "{materials.bubble}"
+    border: "0.5px solid rgba(0,0,0,0.05)"
+    textColor: "{colors.primary}"
+    rounded: "18px 18px 18px 6px"
+    padding: "12px 15px"
+    typography: "{typography.body}"
+  card:
+    backgroundColor: "{materials.card}"
+    border: "0.5px solid rgba(0,0,0,0.06)"
+    rounded: "{rounded.card}"
+    shadow: "0 1px 3px rgba(0,0,0,0.04)"
+  settings-row:
+    minHeight: 46px
+    padding: "8px 15px"
+    divider: "0.5px solid {colors.separator}"
+  category-icon:
+    description: 设置分类彩色圆角图标
+    size: 22px
+    rounded: "{rounded.xs}"
+    glyphColor: "#ffffff"
 ---
 
-## Design Philosophy
+# Momo Liquid Glass
 
-Molipibot is a complex technical tool. The design philosophy balances **Information Density** (high) with **Visual Warmth** (soft). It rejects the "cold" tech aesthetic of slate and blue in favor of a literary, editorial feel.
+## Overview
 
-### 1. The Double-Sidebar Navigation
-To manage 24+ setting pages, we use a two-tiered hierarchy:
-- **Primary Sidebar (Icons)**: High-level categories (Overview, AI, Channels, Data, System). 
-- **Secondary Sidebar (List)**: Detailed page links within the active category.
-This eliminates deep nesting and allows for 2-click access to any configuration.
+Momo Liquid Glass is the design system for Momo’s macOS desktop client. The aesthetic is Apple’s “Liquid Glass”: translucent, frosted surfaces that float over a soft wallpaper, with thin light borders and gentle specular highlights. It follows native macOS conventions — Chat reads like Messages, Settings reads like System Settings — so the app feels at home on the OS rather than like a ported web page.
 
-### 2. Master-Detail Split
-For entities like **AI Providers**, **Channels**, and **Agents**, we use a master-list on the left and a scrollable detail pane on the right. This maintains context while allowing deep configuration.
+This is the Light theme. The Dark theme uses the same token names with different values. Color is restrained and signals state or channel identity; the wallpaper provides the only saturated color, seen through the glass.
 
-### 3. Collapsible Hierarchy
-To handle the repetitive nature of Markdown files (BOT.md, SOUL.md, etc.), we use **Accordions**. This allows multiple files to exist on one page without overwhelming the user vertically.
+## Colors
 
-### 4. Fixed Footer Bar (Sticky Save)
-Any settings page with a save action must place the save button in a **fixed footer bar** (`.settings-footbar`) pinned to the bottom of the content area. The footer mirrors the topbar style — translucent background, `backdrop-filter: blur`, thin top border — and is always visible without scrolling. Status messages (success/error) display to the left; the save button sits to the right. This eliminates the need to scroll to the bottom of a long form to save.
+Color tokens encode intent, not just a swatch:
 
-**How it works:**
-- The layout defines `.settings-footbar` as a `position: fixed` bar at the bottom of the content stage (left offset = sidebar-primary-w + sidebar-secondary-w).
-- Each page renders its own `<div class="settings-footbar">` with status text and a submit button using `form="page-form-id"` to bind to the form.
-- The viewport reserves `4.5rem` of bottom padding so page content doesn't hide behind the footer.
-- On mobile (< 1024px), the footer spans full width (`left: 0`) since sidebars are hidden.
+- `label-100` → `label-500` rank text and icons from primary to faint; `label-100` is primary text, `label-300` secondary, `label-400` placeholder/metadata.
+- `fill-*` are translucent gray fills that layer over any surface — use them for search fields, unselected chips, icon tiles, and hover. `fill-selection` is the neutral sidebar selection in Settings.
+- `separator` / `hairline-light` are the dividing lines: dark hairlines inside content, a light `rgba(255,255,255,0.7)` rim on glass edges.
+- `accent` is the single emphasis color (default system blue). `accent-soft` is the same color at ~14% for selected list rows, the New-Chat pill, and panel-toggle states. The accent is user-selectable across `blue / purple / pink / orange / green / graphite`.
+- `online / warning / danger` carry status; `online` green also marks “已连接”.
+- `channel-*` give each connected channel its identity color (local, web, Telegram, Feishu, QQ, WeChat) — used on channel badges, avatars, and group headers.
+
+Never signal state with color alone — pair it with an icon or label (e.g. 已连接 = green text + dot).
+
+## Materials (Liquid Glass)
+
+The defining layer. Surfaces are translucent and blurred so the wallpaper bleeds through:
+
+- `window` is the panel body; `sidebar` is more transparent than the content area; `card` and `bubble` sit on top, slightly more opaque for legibility; `chrome` is the toolbar/header wash.
+- Every glass surface uses `backdrop-filter: {materials.blur}` (`blur(40px) saturate(180%)`); toolbars use `blur-thin`.
+- The window shell carries a triple shadow plus an inner top highlight for the “lit glass edge”:
+  `box-shadow: 0 40px 80px -24px rgba(28,38,68,0.5), 0 2px 10px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.5)` with a `0.5px {colors.hairline-light}` border.
+- **Reduce Transparency**: when the user enables it (a real macOS accessibility setting, exposed as a tweak), swap to `*-opaque` materials and `blur-off` — panels become solid, blur is dropped.
+
+Implement materials as CSS variables (`--panel-bg`, `--sidebar-bg`, `--card-bg`, `--blur`) so a single switch retints the whole app.
+
+## Typography
+
+San Francisco sets Latin, PingFang SC sets Chinese (`-apple-system, 'SF Pro Text', 'PingFang SC'`). Tokens follow the macOS HIG roles:
+
+- `large-title` / `title-1` title windows and panels (设置, 通用).
+- `title-2` / `headline` for brand and conversation names.
+- `body` is the default for message bubbles and prose; `callout` / `subhead` for list rows and controls.
+- `footnote` / `caption-*` for timestamps and metadata.
+- `section-label` is the uppercase-feel grouping header (本地知识库, 对话, 渠道连接): 11px/600, slight letter-spacing, in `label-300`.
+
+Apply the tokens rather than hand-setting size/weight. Keep to two weights per view.
+
+## Layout
+
+Spacing follows a 4px scale (4 / 8 / 12 / 16 / 18 / 24 / 32). Rhythm: 8px inside a group, 16px between groups, 24px between sections. Cards pad 16px; settings rows are 46px tall with hairline dividers.
+
+The app is one macOS desktop scene (`1920×1130`): a translucent menu bar on top, the **Chat** window (left) and **Settings** window (right) floating on the wallpaper.
+
+- **Chat window — 3 columns (1052 wide):** sidebar `270` (brand · actions · 本地知识库 · channel-grouped conversations · account) | conversation thread `flex` (header · messages · composer) | file panel `288` (collapsible).
+- **Settings window — 2 columns (744 wide):** category sidebar `228` (search · colored-icon list · account) | content `flex` (title · grouped inset cards).
+
+## Elevation & Depth
+
+Depth comes from translucency and layering first; shadows stay soft.
+
+- Window / panel: the triple shadow above.
+- Card, attachment, bubble: `0 2px 8px -3px rgba(0,0,0,0.12)`.
+- Settings group card: `0 1px 3px rgba(0,0,0,0.04)`.
+- Composer: `0 4px 14px -6px rgba(0,0,0,0.16)` plus an inner top highlight.
+
+Stacking order on glass: wallpaper → window → sidebar/content → cards/bubbles → popovers.
+
+## Motion
+
+Motion is functional and short. Toggles and selection use ~150ms; group collapse and panel show/hide ~200ms; modal/overlay ~300ms. Default easing `cubic-bezier(0.2, 0.8, 0.2, 1)`. The send button and toggles animate transform/background only. Honor `prefers-reduced-motion`.
+
+## Shapes
+
+Radii: `6px` controls and tiles, `8–10px` list rows and pills-in-list, `12px` cards and grouped surfaces, `18px` message bubbles and the composer, `20px` window corners, `full` for circular avatars, toggles, and the send button. Keep one radius family per view.
 
 ## Components
 
-### Cards
-- **Feature Card**: Used on the Dashboard. High-contrast, large icon, generous padding.
-- **Metric Card**: Used in Usage/Statistics. High-density, mono-fonts for numbers.
+Tokens above give ready values per element:
 
-### Forms (Shadcn-style)
-- **Inputs**: Hairline borders, subtle ring-focus states.
-- **Buttons**: `radius-sm` (6px), primary button in Terracotta.
-- **Tabs**: Pilled toggle switch for view switching within a card.
-- **iOS Switch**: A smooth, pilled toggle for binary states (Enable/Disable). Uses `--accent` for the 'On' state and a smooth cubic-bezier transition.
+- **Primary button** (send): solid `accent` circle, 36px, white glyph, soft blue shadow.
+- **Pill button** (新对话): `accent-soft` fill, `accent` text/icon.
+- **Ghost round** (header search/more/panel-toggle): `fill-200` circle, 32px; the file-panel toggle switches to `accent-soft` + `accent` when the panel is open.
+- **Toggle**: 38×22 track, 18px knob; `accent` on / translucent gray off; click flips.
+- **Popup button**: `fill-100` chip with a `caret-down`, for选择类设置值 (语言, 关闭窗口时).
+- **List row**: 32–46px, `sm` radius; selected = `accent-soft` background + `accent` label, with a rounded icon tile (`fill-100`, or `accent`-tinted when active).
+- **Message bubbles**: `bubble-me` (accent, right, tail bottom-right) and `bubble-them` (glass, left, tail bottom-left, with 30px avatar).
+- **Cards**: attachment card, task-progress card (✓ green / spinning accent / hollow gray steps), settings group card — all `{materials.card}` with hairline border.
+- **Category icon**: 22px colored rounded square with a white fill-glyph; one hue per category.
 
-### Editors
-- **Markdown Textarea**: Monospace font, high-contrast, contained within collapsible accordion items.
-- **JSON Editor**: Monospace, strict validation styling.
+States: hover lifts a row to `fill-100`; selection uses `accent-soft` (lists) or `fill-selection` (Settings sidebar). Focus on text inputs shows the native blue ring `0 0 0 3px {colors.accent}33`.
 
-## Colors & Theming
+## Channels & Permissions
 
-The system uses **OKLch** for all color definitions to ensure perceptual uniformity and perfect accessibility in both Light and Dark modes.
+A core model of this app:
 
-| Use Case | Token |
-|---|---|
-| Page Background | `--bg` |
-| Primary Action | `--accent` |
-| Active States | `--accent-soft` |
-| Data / Code | `--font-mono` |
+- Conversations are **grouped by channel** in the sidebar: `Momo · 本地`, `飞书`, `Telegram`, `微信`, (`QQ` 未连接). Group headers show the channel icon, count, and an eye mark for read-only channels; groups collapse.
+- **Local (Momo) = editable**: full agent thread with a live composer.
+- **Other channels = read-only**: show the channel’s transcript (with sender avatars/names), a “通过 <渠道> · 仅查看” header badge in the channel color, and a read-only footer bar (“此对话来自 X 渠道，仅支持查看 · 前往 X 回复”) in place of the composer. Never render an input for a read-only channel.
 
-## CSS Class Naming Convention
+## File Panel
 
-To ensure future theme-ability, all UI components **must** use **custom semantic class names** rather than directly applying Tailwind utility classes in markup.
+The right column of Chat manages files produced in conversations: grouped by `今天 / 昨天 / 更早`; each row is a colored type tile (docx blue, png teal, xlsx green, pdf red, md gray) + name + `size · source conversation` + a more-menu. A filter chip row (全部 / 文档 / 图片 / 表格) sits on top and a storage summary on the bottom. The panel is collapsible from the chat header.
 
-### Why
-Hard-coded Tailwind classes (e.g. `text-sm font-medium text-muted-foreground`) make it impossible to override styles globally via a theme layer. Custom class names act as an abstraction — they decouple the component markup from the underlying style implementation.
+## Voice & Content
 
-### How
-1. **Define a custom class name** that describes the component or role (e.g. `.setting-card-title`, `.channel-badge`).
-2. **Compose Tailwind utilities inside that class** using `@apply` or standard CSS rules.
-3. **Never place raw Tailwind classes directly on JSX/HTML elements** unless they are purely layout primitives (`flex`, `grid`, `absolute`) that have no visual style to theme.
+Copy is Simplified Chinese, concise, no filler.
 
-```css
-/* ✅ Good — semantic class, tailwind composed inside */
-.setting-card-title {
-  @apply text-sm font-medium text-muted-foreground;
-}
+- Labels and actions are short noun/verb phrases (新对话, 自动任务, 清除缓存), not 确定/OK.
+- In-progress states use 「…」: 正在执行…, 进行中.
+- Status is explicit and paired with color/icon: 已连接 (green), 未连接 (gray), 在线, 仅查看.
+- Metadata reads `大小 · 来源`：`128 KB · 项目周报数据整理`.
+- Use numerals (28 项, 1.2 GB) and the · middle dot as separator.
 
-/* ❌ Bad — hard-coded on the element */
-<h2 class="text-sm font-medium text-muted-foreground">
-```
+## Do’s and Don’ts
 
-### UI Framework
-The frontend is built on **Shadcn UI** (Radix + Tailwind). Shadcn's own component classes (e.g. `button`, `card`, `dialog`) are acceptable as they are already customizable via the Shadcn theming system. This convention applies to **custom application-level styling** layered on top of Shadcn.
-
-## Do's and Don'ts
-
-### Do
-- Use **Serif headlines** for page titles to add character.
-- Use **Tabular Numerics** (`font-variant-numeric: tabular-nums`) for all stats.
-- Keep border weights at **1px**.
-- Use the **Double-Sidebar** for any view with more than 5 pages.
-- Use the **Fixed Footer Bar** for any settings page with a save/submit action — the button must always be visible without scrolling.
-
-### Don't
-- Don't use saturated blues or purples for UI elements.
-- Don't hide important configuration behind more than 2 levels of modals.
-- Don't use generic placeholder text (lorem ipsum); use real technical examples.
+- Do layer every surface over the wallpaper; glass needs something to refract.
+- Do rank text with `label-100/300/400`, not by shrinking everything.
+- Do keep accent for state and the single primary action per view.
+- Do drive materials from CSS variables so accent / wallpaper / reduce-transparency flip globally.
+- Don’t place solid opaque panels on the desktop — that kills the Liquid Glass look (except under Reduce Transparency).
+- Don’t signal state with color alone.
+- Don’t give read-only channels an input affordance.
+- Don’t mix radius families or more than two font weights in one view.
+- Don’t invent new colors; use the accent, channel, and gray tokens.

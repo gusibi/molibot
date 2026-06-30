@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 DEFAULT_APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_DIR="${MOLIBOT_APP_DIR:-$DEFAULT_APP_DIR}"
-START_COMMAND="${MOLIBOT_START_COMMAND:-node build}"
+START_COMMAND="${MOLIBOT_START_COMMAND:-node scripts/start-server.mjs}"
 LOG_FILE="${MOLIBOT_LOG_FILE:-$HOME/logs/molibot.log}"
 PID_FILE="${MOLIBOT_PID_FILE:-$HOME/.molibot/molibot.pid}"
 CHILD_PID_FILE="${MOLIBOT_CHILD_PID_FILE:-${PID_FILE%.pid}.child.pid}"
@@ -222,7 +222,7 @@ Usage:
 
 Environment:
   MOLIBOT_APP_DIR        Directory to run from (default: repository/release root)
-  MOLIBOT_START_COMMAND  Start command inside app dir (default: node build)
+  MOLIBOT_START_COMMAND  Start command inside app dir (default: node scripts/start-server.mjs)
   MOLIBOT_LOG_FILE       Log file path
   MOLIBOT_PID_FILE       PID file path
   MOLIBOT_CHILD_PID_FILE Child process PID file path

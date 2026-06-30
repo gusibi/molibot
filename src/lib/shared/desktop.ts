@@ -1,0 +1,966 @@
+export interface DesktopProfileSummary {
+  id: string;
+  name: string;
+}
+
+export interface DesktopBootstrapResponse {
+  ok: true;
+  profiles: DesktopProfileSummary[];
+}
+
+export interface DesktopWebProfile {
+  id: string;
+  name: string;
+  enabled: boolean;
+  agentId: string;
+  agentName: string;
+  sandboxEnabled?: boolean;
+}
+
+export interface DesktopWebProfilesResponse {
+  ok: true;
+  profiles: DesktopWebProfile[];
+}
+
+export interface DesktopWebProfilePatch {
+  name?: string;
+  enabled?: boolean;
+  agentId?: string;
+}
+
+export interface DesktopWebProfileSaveRequest {
+  previousId?: string;
+  id: string;
+  name: string;
+  enabled: boolean;
+  agentId: string;
+  sandboxEnabled?: boolean;
+}
+
+export interface DesktopProfileFilesResponse {
+  ok: true;
+  fileNames: string[];
+  files: Record<string, string>;
+}
+
+export interface DesktopWebProfileUpdateResponse {
+  ok: true;
+  profile: DesktopWebProfile;
+}
+
+export interface DesktopUsageTotals {
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+}
+
+export interface DesktopUsageWindow extends DesktopUsageTotals {
+  label: "today" | "yesterday" | "last7Days" | "last30Days";
+  startDate: string;
+  endDate: string;
+}
+
+export interface DesktopUsageSummary {
+  timezone: string;
+  generatedAt: string;
+  totals: DesktopUsageTotals;
+  windows: DesktopUsageWindow[];
+}
+
+export interface DesktopUsageResponse {
+  ok: true;
+  summary: DesktopUsageSummary;
+}
+
+export type DesktopRunOutcome = "success" | "partial" | "failed";
+
+export interface DesktopRunHistoryItem {
+  runId: string;
+  createdAt: string;
+  botId: string;
+  chatId: string;
+  stopReason: string;
+  durationMs: number;
+  toolNames: string[];
+  failedToolNames: string[];
+  reflectionOutcome: DesktopRunOutcome;
+  reflectionSummary: string;
+  nextAction: string;
+  memorySelectedCount: number;
+  usedFallbackModel: boolean;
+}
+
+export interface DesktopRunHistoryResponse {
+  ok: true;
+  items: DesktopRunHistoryItem[];
+  counts: {
+    total: number;
+    success: number;
+    partial: number;
+    failed: number;
+  };
+}
+
+export type DesktopTraceRange = "today" | "yesterday" | "last7Days" | "last30Days";
+
+export interface DesktopTraceTotals {
+  facts: number;
+  toolCalls: number;
+  executedToolCalls: number;
+  modelCalls: number;
+  distinctTools: number;
+  skillUsages: number;
+  executedSkills: number;
+  distinctSkills: number;
+  bots: number;
+  channels: number;
+  chats: number;
+  sessions: number;
+  runs: number;
+  failedTools: number;
+  blockedTools: number;
+  totalTokens: number;
+  avgToolDurationMs: number;
+  avgModelDurationMs: number;
+}
+
+export interface DesktopTraceSummary {
+  timezone: string;
+  generatedAt: string;
+  range: DesktopTraceRange;
+  window: { startDate: string; endDate: string };
+  totals: DesktopTraceTotals;
+}
+
+export interface DesktopTraceResponse {
+  ok: true;
+  summary: DesktopTraceSummary;
+}
+
+export interface DesktopSandboxSummary {
+  enabled: boolean;
+  initFailureMode: "warn-disable" | "block";
+  envFilePath: string | null;
+  envFilePathConfiguredExternally: boolean;
+  env: {
+    inheritMode: "minimal" | "allowlist" | "full";
+    allow: string[];
+    deny: string[];
+  };
+  network: { allowedDomains: string[]; deniedDomains: string[] };
+  filesystem: { denyRead: string[]; allowWrite: string[]; denyWrite: string[] };
+  diagnostics: {
+    supportedPlatform: boolean;
+    dependenciesAvailable: boolean;
+    envFileExists: boolean;
+    envFileReadable: boolean;
+    sandboxInitialized: boolean;
+    sandboxError: string | null;
+    envKeysAvailable: number;
+    envKeysInjected: number;
+    envKeysDenied: number;
+    envKeysMissing: number;
+  };
+}
+
+export interface DesktopSandboxUpdateRequest {
+  enabled?: boolean;
+  initFailureMode?: "warn-disable" | "block";
+  envFilePath?: string;
+  env?: {
+    inheritMode?: "minimal" | "allowlist" | "full";
+    allow?: string[];
+    deny?: string[];
+  };
+  network?: { allowedDomains?: string[]; deniedDomains?: string[] };
+  filesystem?: { denyRead?: string[]; allowWrite?: string[]; denyWrite?: string[] };
+}
+
+export interface DesktopSandboxResponse {
+  ok: true;
+  sandbox: DesktopSandboxSummary;
+}
+
+export interface DesktopSandboxPatchResponse {
+  ok: true;
+  sandbox: DesktopSandboxSummary;
+}
+
+export interface DesktopHostBashWhitelistItem {
+  id: string;
+  toolId: string;
+  displayName: string;
+  reason: string;
+  approvalMode: "persistent" | "ephemeral" | "session";
+  enabled: boolean;
+  approvedAt: string;
+  permissions: {
+    envAllowlist: number;
+    filesystem: string;
+    network: string;
+  };
+}
+
+export interface DesktopHostBashSummary {
+  counts: {
+    pending: number;
+    whitelist: number;
+    whitelistEnabled: number;
+    history: number;
+  };
+  whitelist: DesktopHostBashWhitelistItem[];
+}
+
+export interface DesktopHostBashResponse {
+  ok: true;
+  summary: DesktopHostBashSummary;
+}
+
+export interface DesktopHostBashToggleResponse {
+  ok: true;
+  entry: DesktopHostBashWhitelistItem;
+}
+
+export type DesktopTaskType = "one-shot" | "periodic" | "immediate";
+export type DesktopTaskState = "pending" | "running" | "completed" | "skipped" | "error";
+
+export interface DesktopTaskItem {
+  id: string;
+  channel: string;
+  botId: string;
+  chatId: string;
+  scope: "workspace" | "chat-scratch";
+  type: DesktopTaskType;
+  text: string;
+  delivery: string;
+  scheduleText: string;
+  timezone: string;
+  status: DesktopTaskState;
+  statusReason: string;
+  lastError: string;
+  runCount: number;
+  completedAt: string;
+  lastTriggeredAt: string;
+  sessionMode: string;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface DesktopTaskSummary {
+  items: DesktopTaskItem[];
+  counts: {
+    total: number;
+    byType: Record<DesktopTaskType, number>;
+    byStatus: Record<DesktopTaskState, number>;
+    byScope: { workspace: number; chatScratch: number };
+    byChannel: Record<string, number>;
+  };
+}
+
+export interface DesktopTaskResponse {
+  ok: true;
+  summary: DesktopTaskSummary;
+}
+
+export type DesktopTaskActionRequest =
+  | { action: "update"; id: string; patch: { text?: string; delivery?: string; at?: string; schedule?: string; timezone?: string; sessionMode?: string } }
+  | { action: "delete" | "trigger"; ids: string[] };
+
+export interface DesktopTaskActionResponse extends DesktopTaskResponse {
+  affected: string[];
+  failed: Array<{ id: string; reason: string }>;
+}
+
+export interface DesktopModelOption {
+  key: string;
+  label: string;
+  contextWindow?: number;
+}
+
+export interface DesktopModelState {
+  currentKey: string;
+  options: DesktopModelOption[];
+}
+
+export type DesktopModelFallbackMode = "off" | "same-provider" | "any-enabled";
+
+export interface DesktopModelRoutingSettings {
+  compactionModelKey: string;
+  subagentHaikuModelKey: string;
+  subagentSonnetModelKey: string;
+  subagentOpusModelKey: string;
+  subagentThinkingModelKey: string;
+  modelFallback: { mode: DesktopModelFallbackMode; firstTokenTimeoutMs: number };
+  defaultThinkingLevel: DesktopThinkingLevel;
+  compaction: {
+    enabled: boolean;
+    thresholdPercent: number;
+    reserveTokens: number;
+    keepRecentTokens: number;
+    defaultContextWindow: number;
+  };
+  timezone: string;
+  textOptions: DesktopModelOption[];
+}
+
+export type DesktopModelRoutingUpdateRequest = Omit<DesktopModelRoutingSettings, "textOptions">;
+
+export interface DesktopModelRoutingResponse {
+  ok: true;
+  routing: DesktopModelRoutingSettings;
+}
+
+export interface DesktopSessionSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type DesktopFileMediaType = "image" | "audio" | "video" | "file";
+
+export interface DesktopMessageAttachment {
+  original: string;
+  local: string;
+  mediaType: DesktopFileMediaType;
+  mimeType?: string;
+  size?: number;
+}
+
+export interface DesktopConversationMessage {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  attachments?: DesktopMessageAttachment[];
+}
+
+export interface DesktopSessionDetail extends DesktopSessionSummary {
+  messages: DesktopConversationMessage[];
+}
+
+export interface DesktopSessionFile {
+  id: string;
+  original: string;
+  local: string;
+  mediaType: DesktopFileMediaType;
+  mimeType?: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface DesktopSessionFilesResponse {
+  ok: true;
+  files: DesktopSessionFile[];
+}
+
+export type DesktopThinkingLevel = "off" | "low" | "medium" | "high";
+
+export type DesktopApprovalDecision =
+  | "approve_once"
+  | "approve_session"
+  | "approve_persistent"
+  | "reject";
+
+export interface DesktopApprovalOption {
+  id: string;
+  label: string;
+  style?: string;
+}
+
+export interface DesktopApprovalPrompt {
+  requestId: string;
+  command: string;
+  reason?: string;
+  displayName?: string;
+  options: DesktopApprovalOption[];
+}
+
+export type DesktopProviderMode = "pi" | "custom";
+export type DesktopProviderProtocol = "openai-compatible" | "anthropic";
+export type DesktopProviderModelTag = "text" | "vision" | "audio_input" | "stt" | "tts" | "tool";
+export type DesktopProviderModelRole = "system" | "user" | "assistant" | "tool" | "developer";
+export type DesktopProviderThinkingFormat = "openai" | "openrouter" | "anthropic" | "deepseek" | "zai" | "qwen" | "qwen-chat-template";
+
+export interface DesktopProviderModel {
+  id: string;
+  tags: DesktopProviderModelTag[];
+  supportedRoles: DesktopProviderModelRole[];
+  contextWindow?: number;
+  enabled: boolean;
+  verification: Partial<Record<DesktopProviderModelTag, "untested" | "passed" | "failed">>;
+}
+
+export interface DesktopProviderItem {
+  id: string;
+  name: string;
+  enabled: boolean;
+  isDefault: boolean;
+  protocol: DesktopProviderProtocol;
+  baseUrl: string;
+  hasApiKey: boolean;
+  modelCount: number;
+  defaultModel: string;
+  path: string;
+  supportsThinking: boolean | null;
+  thinkingFormat: DesktopProviderThinkingFormat | null;
+  reasoningEffortMap: Partial<Record<"low" | "medium" | "high", string>>;
+  models: DesktopProviderModel[];
+}
+
+export interface DesktopProvidersSummary {
+  providerMode: DesktopProviderMode;
+  piProvider: string;
+  piModel: string;
+  defaultCustomProviderId: string;
+  customProviders: DesktopProviderItem[];
+  builtinProviders: Array<{ id: string; name: string; models: string[] }>;
+}
+
+export interface DesktopProvidersResponse {
+  ok: true;
+  summary: DesktopProvidersSummary;
+}
+
+/** Creates a complete custom provider and sets providerMode=custom. */
+export interface DesktopProviderCreateRequest extends DesktopProviderUpdateRequest {
+  apiKey: string;
+}
+
+export interface DesktopProviderSubmitResponse {
+  ok: boolean;
+  error?: string;
+  providerId?: string;
+}
+
+export interface DesktopProviderUpdateRequest {
+  id: string;
+  name: string;
+  enabled: boolean;
+  protocol: DesktopProviderProtocol;
+  baseUrl: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
+  models: DesktopProviderModel[];
+  defaultModel: string;
+  path: string;
+  supportsThinking: boolean | null;
+  thinkingFormat: DesktopProviderThinkingFormat | null;
+  reasoningEffortMap: Partial<Record<"low" | "medium" | "high", string>>;
+}
+
+export interface DesktopProviderGlobalsRequest {
+  providerMode: DesktopProviderMode;
+  piProvider: string;
+  piModel: string;
+  defaultCustomProviderId: string;
+}
+
+export interface DesktopProviderMutationResponse {
+  ok: true;
+  summary: DesktopProvidersSummary;
+}
+
+export interface DesktopProviderModelsResponse {
+  ok: true;
+  models: string[];
+}
+
+/** Onboarding provider test — verifies a saved provider can answer. Key stays server-side. */
+export interface DesktopProviderTestRequest {
+  providerId: string;
+  model?: string;
+}
+
+export interface DesktopProviderTestResponse {
+  ok: boolean;
+  error?: string;
+  message?: string;
+  status?: number | null;
+  supportedRoles?: DesktopProviderModelRole[];
+  verification?: Partial<Record<DesktopProviderModelTag, "untested" | "passed" | "failed">>;
+}
+
+export interface DesktopAgentItem {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  sandboxEnabled: boolean | null;
+  modelOverrides: number;
+  modelRouting: { textModelKey: string; visionModelKey: string; sttModelKey: string };
+}
+
+export interface DesktopAgentSaveRequest {
+  previousId?: string;
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  sandboxEnabled: boolean | null;
+  modelRouting: { textModelKey: string; visionModelKey: string; sttModelKey: string };
+}
+
+export interface DesktopAgentsSummary {
+  items: DesktopAgentItem[];
+  counts: { total: number; enabled: number };
+}
+
+export interface DesktopAgentsResponse {
+  ok: true;
+  summary: DesktopAgentsSummary;
+}
+
+export type DesktopMcpTransport = "stdio" | "http";
+
+export interface DesktopMcpItem {
+  id: string;
+  name: string;
+  enabled: boolean;
+  transport: DesktopMcpTransport;
+  toolNamePrefix: string;
+  command: string;
+  argCount: number;
+  envKeyCount: number;
+  envKeys: string[];
+  cwdConfigured: boolean;
+  url: string;
+  headerCount: number;
+  headerKeys: string[];
+}
+
+export interface DesktopMcpSaveRequest {
+  previousId?: string;
+  id: string;
+  name: string;
+  enabled: boolean;
+  transport: DesktopMcpTransport;
+  toolNamePrefix: string;
+  command: string;
+  url: string;
+  args?: string[];
+  clearArgs?: boolean;
+  envValues?: Record<string, string>;
+  clearEnvKeys?: string[];
+  cwdValue?: string;
+  clearCwd?: boolean;
+  headerValues?: Record<string, string>;
+  clearHeaderKeys?: string[];
+}
+
+export interface DesktopMcpSummary {
+  items: DesktopMcpItem[];
+  counts: { total: number; enabled: number; stdio: number; http: number };
+}
+
+export interface DesktopMcpResponse {
+  ok: true;
+  summary: DesktopMcpSummary;
+}
+
+export type DesktopSkillScope = "global" | "bot" | "chat";
+
+export interface DesktopSkillItem {
+  id: string;
+  name: string;
+  description: string;
+  scope: DesktopSkillScope;
+  enabled: boolean;
+  mcpServerCount: number;
+  botId: string;
+  chatId: string;
+}
+
+export interface DesktopSkillSearch {
+  localEnabled: boolean;
+  apiEnabled: boolean;
+  apiProvider: string;
+  apiModel: string;
+  maxTokens: number;
+  temperature: number;
+  timeoutMs: number;
+  minConfidence: number;
+  providers: Array<{ id: string; name: string; defaultModel: string; models: string[] }>;
+}
+
+export type DesktopSkillsUpdateRequest =
+  | { kind: "skill"; id: string; enabled: boolean }
+  | { kind: "search"; localEnabled: boolean; apiEnabled: boolean; apiProvider: string; apiModel: string; maxTokens: number; temperature: number; timeoutMs: number; minConfidence: number };
+
+export interface DesktopSkillsSummary {
+  items: DesktopSkillItem[];
+  counts: { total: number; enabled: number; global: number; bot: number; chat: number };
+  search: DesktopSkillSearch;
+}
+
+export interface DesktopSkillsResponse {
+  ok: true;
+  summary: DesktopSkillsSummary;
+}
+
+export interface DesktopMemoryCapabilities {
+  hybridSearch: boolean;
+  vectorSearch: boolean;
+  incrementalFlush: boolean;
+  layeredMemory: boolean;
+}
+
+export interface DesktopMemorySummary {
+  enabled: boolean;
+  configEnabled: boolean;
+  backend: string;
+  capabilities: DesktopMemoryCapabilities;
+}
+
+export interface DesktopMemoryResponse {
+  ok: true;
+  summary: DesktopMemorySummary;
+}
+
+export interface DesktopMemoryItem {
+  id: string;
+  channel: string;
+  externalUserId: string;
+  content: string;
+  tags: string[];
+  layer: "long_term" | "daily";
+  hasConflict?: boolean;
+  expiresAt?: string;
+  sourceSessionId?: string;
+  updatedAt: string;
+}
+
+export type DesktopMemoryAction = "list" | "search" | "sync" | "flush" | "compact" | "update" | "delete";
+export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; channel?: string; userId?: string; allScopes?: boolean; query?: string; limit?: number; id?: string; content?: string; tags?: string[]; expiresAt?: string | null }
+export interface DesktopMemoryActionResponse { ok: true; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
+export interface DesktopMemoryRejection { createdAt: string; action: "add" | "update"; channel: string; externalUserId: string; reason: string; content: string; layer?: string; tags: string[] }
+export interface DesktopMemoryRejectionsResponse { ok: true; items: DesktopMemoryRejection[]; counts: { total: number; add: number; update: number } }
+
+export interface DesktopChannelInstance {
+  id: string;
+  name: string;
+  enabled: boolean;
+  agentId: string;
+  allowedChatCount: number;
+  allowedChatIds: string[];
+  sandboxEnabled: boolean | null;
+  fields: Record<string, string>;
+  configuredSecrets: string[];
+}
+
+export type DesktopExternalChannel = "telegram" | "feishu" | "qq" | "weixin";
+
+export interface DesktopChannelSaveRequest {
+  channel: DesktopExternalChannel;
+  previousId?: string;
+  id: string;
+  name: string;
+  enabled: boolean;
+  agentId: string;
+  sandboxEnabled: boolean | null;
+  allowedChatIds: string[];
+  fields: Record<string, string>;
+  secretValues?: Record<string, string>;
+  clearSecrets?: string[];
+}
+
+export interface DesktopChannelTestRequest {
+  channel: DesktopExternalChannel;
+  instanceId: string;
+  fields?: Record<string, string>;
+  secretValues?: Record<string, string>;
+}
+
+export interface DesktopChannelTestResponse {
+  ok: boolean;
+  error?: string;
+  label?: string;
+}
+
+export interface DesktopChannelGroup {
+  channel: string;
+  total: number;
+  enabled: number;
+  instances: DesktopChannelInstance[];
+}
+
+export interface DesktopChannelsSummary {
+  groups: DesktopChannelGroup[];
+  counts: { totalInstances: number; enabledInstances: number };
+}
+
+export interface DesktopChannelsResponse {
+  ok: true;
+  summary: DesktopChannelsSummary;
+}
+
+export type DesktopPluginKind = "channel" | "provider" | "feature" | "memory-backend";
+export type DesktopPluginSource = "built-in" | "external";
+export type DesktopPluginStatus = "active" | "error" | "discovered";
+
+export interface DesktopPluginItem {
+  kind: DesktopPluginKind;
+  key: string;
+  name: string;
+  version: string;
+  description: string;
+  source: DesktopPluginSource;
+  status: DesktopPluginStatus;
+  enabled: boolean;
+  error: string;
+}
+
+export type DesktopPluginFieldType = "boolean" | "text" | "password" | "select";
+
+export interface DesktopPluginSettingField {
+  pluginKey: string;
+  key: string;
+  label: string;
+  type: DesktopPluginFieldType;
+  description: string;
+  placeholder: string;
+  required: boolean;
+  options: Array<{ value: string; label: string }>;
+  value: string | boolean;
+  configured: boolean;
+}
+
+export interface DesktopPluginsSummary {
+  items: DesktopPluginItem[];
+  counts: { total: number; active: number; external: number };
+  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }> };
+  featureSettings: Array<{ pluginKey: string; name: string; description: string; fields: DesktopPluginSettingField[] }>;
+}
+
+export interface DesktopPluginsUpdateRequest {
+  memoryEnabled: boolean;
+  memoryBackend: string;
+  values: Record<string, Record<string, string | boolean>>;
+  secretValues?: Record<string, Record<string, string>>;
+  clearSecrets?: Record<string, string[]>;
+}
+
+export interface DesktopPluginsResponse {
+  ok: true;
+  summary: DesktopPluginsSummary;
+}
+
+export interface DesktopWebSearchEngine {
+  id: string;
+  enabled: boolean;
+  /** True when an API key is configured — the key itself never reaches the WebView. */
+  hasApiKey: boolean;
+  baseUrl: string;
+}
+
+export interface DesktopWebSearchSummary {
+  enabled: boolean;
+  defaultRoute: string;
+  defaultEngine: string;
+  engineSelectionStrategy: string;
+  maxResults: number;
+  timeoutMs: number;
+  retryTimeoutMs: number;
+  engines: DesktopWebSearchEngine[];
+  counts: { totalEngines: number; enabledEngines: number; configuredEngines: number };
+}
+
+export interface DesktopWebSearchResponse {
+  ok: true;
+  summary: DesktopWebSearchSummary;
+}
+
+export interface DesktopWebSearchUpdateRequest {
+  enabled: boolean;
+  defaultRoute: string;
+  defaultEngine: string;
+  engineSelectionStrategy: string;
+  maxResults: number;
+  timeoutMs: number;
+  retryTimeoutMs: number;
+  engines: Array<{ id: string; enabled: boolean; baseUrl: string; apiKey?: string; clearApiKey?: boolean }>;
+}
+
+export interface DesktopMediaEngine {
+  id: string;
+  enabled: boolean;
+  /** True when an API key is configured — the key itself never reaches the WebView. */
+  hasApiKey: boolean;
+  baseUrl: string;
+  model: string;
+}
+
+export interface DesktopMediaGenerateSummary {
+  enabled: boolean;
+  defaultEngine: string;
+  engines: DesktopMediaEngine[];
+  counts: { totalEngines: number; enabledEngines: number; configuredEngines: number };
+}
+
+export interface DesktopImageGenerateResponse {
+  ok: true;
+  summary: DesktopMediaGenerateSummary;
+}
+
+export interface DesktopVideoGenerateResponse {
+  ok: true;
+  summary: DesktopMediaGenerateSummary;
+}
+
+export interface DesktopMediaGenerateUpdateRequest {
+  enabled: boolean;
+  defaultEngine: string;
+  engines: Array<{ id: string; enabled: boolean; baseUrl: string; model: string; apiKey?: string; clearApiKey?: boolean }>;
+}
+
+export interface DesktopTtsProvider {
+  id: string;
+  enabled: boolean;
+  voice: string;
+  format: string;
+  /** True when this provider needs and has an API key — macOS (system voices) has none. */
+  hasApiKey: boolean;
+  /** Present only for key-based providers; "" for the macOS system provider. */
+  model: string;
+  baseUrl: string;
+}
+
+export interface DesktopTtsSummary {
+  enabled: boolean;
+  defaultProvider: string;
+  providers: DesktopTtsProvider[];
+}
+
+export interface DesktopTtsResponse {
+  ok: true;
+  summary: DesktopTtsSummary;
+}
+
+export interface DesktopTtsUpdateRequest {
+  enabled: boolean;
+  defaultProvider: string;
+  providers: Array<{ id: string; enabled: boolean; voice: string; format: string; baseUrl: string; model: string; apiKey?: string; clearApiKey?: boolean }>;
+}
+
+export interface DesktopSettingsTestResponse {
+  ok: boolean;
+  error?: string;
+  result?: unknown;
+}
+
+export type DesktopMediaTaskKind = "image" | "video";
+
+export interface DesktopMediaTask {
+  id: string;
+  kind: DesktopMediaTaskKind;
+  engine: string;
+  status: "processing" | "completed" | "failed";
+  progress?: number;
+  prompt: string;
+  resultUrl?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopMediaTasksResponse {
+  ok: true;
+  tasks: DesktopMediaTask[];
+}
+
+export type DesktopExternalChatType = "private" | "group" | "channel";
+
+/**
+ * Read-only external-channel session summary (plan §7.2 / Phase 3). Carries
+ * only display fields — no message content and no raw platform credentials.
+ */
+export interface DesktopExternalSession {
+  id: string;
+  title: string;
+  updatedAt: string;
+  chatType: DesktopExternalChatType;
+  senderName: string;
+  senderAvatarUrl?: string;
+  threadTitle?: string;
+  botInstanceName?: string;
+  platform: string;
+}
+
+export interface DesktopExternalChannelGroup {
+  channel: string;
+  total: number;
+  sessions: DesktopExternalSession[];
+}
+
+export interface DesktopExternalSessionsSummary {
+  groups: DesktopExternalChannelGroup[];
+  counts: { totalSessions: number };
+}
+
+export interface DesktopExternalSessionsResponse {
+  ok: true;
+  summary: DesktopExternalSessionsSummary;
+}
+
+/**
+ * A read-only external-channel transcript message (plan §7.2). External
+ * attachments cannot be previewed through the Web file endpoint, so only the
+ * display-safe attachment fields are kept — the on-disk `local` path is dropped.
+ */
+export interface DesktopExternalTranscriptMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  attachments?: { original: string; mediaType: DesktopFileMediaType; mimeType?: string; size?: number }[];
+}
+
+export interface DesktopExternalTranscript {
+  id: string;
+  channel: string;
+  title: string;
+  updatedAt: string;
+  chatType: DesktopExternalChatType;
+  senderName: string;
+  messages: DesktopExternalTranscriptMessage[];
+}
+
+export interface DesktopExternalTranscriptResponse {
+  ok: true;
+  transcript: DesktopExternalTranscript;
+}
+
+/**
+ * Read-only runtime-environment dependency summary (plan §10). The Desktop
+ * Runtime environment page shows what optional tools are present and how they
+ * would be installed; actual installation is a separate, per-item authorized
+ * action and is not part of this read-only contract. No absolute on-disk paths
+ * or credentials reach the WebView — only display fields.
+ */
+export type DesktopRuntimeDepStatus = "installed" | "missing" | "unknown";
+
+export interface DesktopRuntimeDependency {
+  id: string;
+  name: string;
+  purpose: string;
+  status: DesktopRuntimeDepStatus;
+  version: string;
+  source: string;
+  estimatedSize: string;
+  installCommand: string;
+  installSource: "homebrew" | "tooling" | "system";
+}
+
+export interface DesktopRuntimeEnvSummary {
+  dependencies: DesktopRuntimeDependency[];
+  counts: { total: number; installed: number; missing: number };
+}
+
+export interface DesktopRuntimeEnvResponse {
+  ok: true;
+  summary: DesktopRuntimeEnvSummary;
+}

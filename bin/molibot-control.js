@@ -85,7 +85,7 @@ if (adminIds.size === 0) {
 //     re-runs the release flow (molibot-update.sh) to build/deploy the latest
 //     git ref and restart it.
 //   - dev: the local working tree this daemon lives in; `/start dev` starts it
-//     directly with `node build`, matching `molibot start`.
+//     through `scripts/start-server.mjs`, matching `molibot start` and its data lock.
 const currentLink = cfg("MOLIBOT_CURRENT_LINK");
 const repoRoot = dirname(scriptDir); // the working tree containing this bin/ dir
 const devDir = resolvePath(cfg("MOLIBOT_CONTROL_DEV_DIR") || repoRoot);

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Molibot",
+  "version": "0.1.0",
+  "identifier": "com.eztoolab.molibot",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": false,
+    "windows": [
+      {
+        "label": "chat",
+        "title": "Molibot",
+        "url": "index.html?window=chat",
+        "width": 1120,
+        "height": 760,
+        "minWidth": 720,
+        "minHeight": 520,
+        "center": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      },
+      {
+        "label": "settings",
+        "title": "Molibot Settings",
+        "url": "index.html?window=settings",
+        "width": 860,
+        "height": 650,
+        "minWidth": 620,
+        "minHeight": 480,
+        "center": true,
+        "visible": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' blob: http://127.0.0.1:* http://localhost:*; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": ["dmg"],
+    "category": "Productivity",
+    "copyright": "Copyright © 2026 EZTOOLAB",
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    }
+  }
+}

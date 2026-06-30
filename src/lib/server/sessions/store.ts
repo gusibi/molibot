@@ -410,6 +410,39 @@ export class SessionStore {
     return located.file.conversation;
   }
 
+  deleteConversation(
+    conversationId: string,
+    channel: Channel,
+    externalUserId: string
+  ): boolean {
+    const conversation = this.getConversationById(conversationId, channel, externalUserId);
+    if (!conversation) return false;
+
+    if (channel === "web") {
+      const index = readWebIndex();
+      const owner = index.byConversationId[conversationId];
+      if (!owner || owner.externalUserId !== externalUserId) return false;
+
+      fs.unlinkSync(webSessionFilePath(externalUserId, conversationId));
+      index.byUserId[externalUserId] = (index.byUserId[externalUserId] ?? [])
+        .filter((id) => id !== conversationId);
+      delete index.byConversationId[conversationId];
+      writeWebIndex(index);
+      return true;
+    }
+
+    const index = readLegacyIndex();
+    const owner = index.byConversationId[conversationId];
+    if (!owner || owner.channel !== channel || owner.externalUserId !== externalUserId) return false;
+
+    fs.unlinkSync(legacySessionFilePath(conversationId));
+    const key = userKey(channel, externalUserId);
+    index.byUserKey[key] = (index.byUserKey[key] ?? []).filter((id) => id !== conversationId);
+    delete index.byConversationId[conversationId];
+    writeLegacyIndex(index);
+    return true;
+  }
+
   listMessages(conversationId: string, limit?: number): ConversationMessage[] {
     const located = this.resolveSessionStorage(conversationId);
     if (!located) return [];
@@ -451,5 +484,42 @@ export class SessionStore {
 
   createWebConversation(externalUserId: string): Conversation {
     return this.createConversation("web", externalUserId);
+  }
+
+  /**
+   * Resolves a single non-web conversation by id for read-only external-channel
+   * transcript viewing (plan §7.2). Returns null for web sessions, unknown ids,
+   * or stale index entries whose file is missing.
+   */
+  getExternalSession(conversationId: string): Conversation | null {
+    const index = readLegacyIndex();
+    const entry = index.byConversationId[conversationId];
+    if (!entry || entry.channel === "web") return null;
+    const file = readLegacySession(conversationId);
+    return file?.conversation ?? null;
+  }
+
+  /**
+   * Lists every non-web conversation recorded in the legacy session index, for
+   * Phase 3 desktop external-channel aggregation. Web sessions live in the
+   * separate web index and are surfaced via Web Profiles. Results are sorted by
+   * updatedAt descending. Stale index entries whose session file is missing are
+   * skipped.
+   */
+  listExternalSessions(): { conversation: Conversation; channel: Channel; externalUserId: string }[] {
+    const index = readLegacyIndex();
+    const results: { conversation: Conversation; channel: Channel; externalUserId: string }[] = [];
+    for (const [id, entry] of Object.entries(index.byConversationId)) {
+      if (entry.channel === "web") continue;
+      const file = readLegacySession(id);
+      if (!file) continue;
+      results.push({
+        conversation: file.conversation,
+        channel: entry.channel,
+        externalUserId: entry.externalUserId
+      });
+    }
+    results.sort((a, b) => b.conversation.updatedAt.localeCompare(a.conversation.updatedAt));
+    return results;
   }
 }

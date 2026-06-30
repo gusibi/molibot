@@ -1,5 +1,338 @@
 # Molibot Features
 
+## 2026-06-30
+- Completed macOS Sandbox policy parity with Web: Observe/Build/Strict presets, enable/failure/env modes, relative env-file replacement, env allow/deny keys, network allow/deny domains, filesystem read/write rules, reset, fixed save footer, and diagnostics refresh are fully editable. Presets remain local drafts until save. Existing absolute env-file paths and all env values stay server-side. Verified with 61 focused server/client tests, 6/6 UI structural tests, `svelte-check` 0/0, Desktop/Web production builds, and an isolated standard/640px save-and-reload smoke.
+- Improved macOS AI Provider management: built-in providers, self-hosted providers, and custom models now have distinct bilingual labels and grouped sections. The complete create/edit form opens in a 920px scrollable liquid-glass modal with a persistent action footer instead of being appended below the provider list; Escape, backdrop close, dark theme tokens, and narrow-window single-column layout are supported. Verified against an isolated temporary service at normal and 640px widths, plus frontend tests (5/5), `svelte-check` (0/0), Desktop production build, and Web production build.
+- Refined the standalone macOS Settings shell against `Momo for Mac (standalone).html` / `DESIGN.md`: the sidebar now uses a real bilingual settings filter, compact 34px category rows, native titlebar spacing, and a status footer; the right pane now has fixed title chrome, an independent scrolling body, 46px grouped rows, horizontal appearance controls, layered liquid-glass materials, and translucent sticky save footbars. Existing fine-grained settings actions, light/dark themes, and responsive behavior are preserved. Verified with Desktop `svelte-check` (0/0), frontend tests (4/4), Rust tests (8/8), and production build; visual acceptance remains with the user on macOS as requested.
+- Standardized macOS Desktop Settings i18n and DESIGN.md compliance: replaced hardcoded English (tool `Base URL`, Provider protocol options, Search route/strategy enums, Search/Image/Video engine names, TTS format/provider labels) with bilingual `text.*` keys; added a reusable show/hide API-key reveal control across Web Search, Image, Video, and TTS credential fields.
+- Brought Desktop tool/provider panels to web parity polish: Search per-engine test-target selector; TTS test-provider selector plus Xiaomi MiMo voice dropdown; Provider per-row "Set as default", per-model verification badges, and an editable supported-roles chip row.
+- Added Image/Video generation task-detail modal (preview + download + status/progress/error/timestamps) with 5s auto-polling for in-progress tasks; localized engine names in the task list and default-engine selector.
+- Added a live model-routing compaction-trigger preview callout and a native timezone `<select>` (from `Intl.supportedValuesOf`) replacing the free-text field.
+- Completed the whole-settings i18n sweep: localized header language label, Memory placeholders, Runtime Environment total count, Diagnostics connection state, Weixin QR-login placeholder, and the onboarding sidebar-resize label. Preserved the Desktop privacy boundary (no local paths/session ids/secret-bearing request params in the media-task projection).
+
+### macOS Settings 功能对齐——Provider、模型路由与生成工具
+- **完整 Provider 新建**：Settings 与首次引导统一使用完整 Provider 契约；新建时即可配置 Provider ID、协议、Base URL/path、默认模型、Thinking/Reasoning、多模型、模型能力标签、上下文窗口与启停状态，不再先创建单一 text 模型再二次编辑。
+- **高级模型路由**：补齐 Subagent haiku/sonnet/opus/thinking 路由、fallback 策略、首 Token 超时、默认 Thinking、自动上下文压缩参数、压缩模型和运行时 timezone，并使用细粒度 `/api/desktop/model-routing` 保存。
+- **搜索/图像/视频/TTS 可操作化**：四个原只读区域支持启停、默认路由/引擎、超时、模型、Base URL、凭据替换/显式清空、未保存值测试；图片/视频支持安全的最近任务查看与删除，TTS 支持系统音色和测试音频播放。
+- **安全与交互**：保存使用各动态 key 的 Desktop API，保留未提交密钥；媒体任务契约过滤 session、请求参数和本地绝对路径。多个工具页的未保存状态独立保留，保存按钮固定在 `.settings-footbar`。界面沿用 `Momo for Mac (standalone).html` / `DESIGN.md` 的 macOS 分组卡片、主题 token、中英和窄窗口布局。
+- **验证**：Desktop 回归测试 155/155、`svelte-check` 0 错误/0 警告、Desktop production build 与 Web production build 通过；常规和 680px 窄窗口真实渲染检查通过。真实第三方 Provider 请求仍需在有凭据环境做 smoke。
+
+### macOS Settings 可操作迁移——外部渠道
+- **统一实例管理**：Telegram、Feishu、QQ、Weixin 支持新增、编辑、删除、启停、关联 Agent、沙箱继承/强开/强关、允许会话列表，以及 `BOT.md`、`SOUL.md`、`IDENTITY.md`、`SONG.md` 编辑。
+- **凭据安全**：Desktop 只读取“已配置”的凭据字段名，不回传 Token/Secret；留空保留原值，显式勾选才清空，编辑不会丢弃渠道实例的其它已支持字段。
+- **渠道工具**：飞书支持使用已保存或尚未保存的 App ID/App Secret 测试连接；微信提供与 Web 页一致的本地登录链接二维码生成、清空和原链接打开能力。
+- **验证**：渠道聚焦测试 56/56、Desktop `svelte-check` 0/0、Desktop 与 Web production build 通过。
+
+### macOS Settings 可操作迁移——MCP
+- **服务管理**：stdio 与 HTTP MCP 服务支持新增、编辑、删除、启停，并可配置名称、命令或 URL、工具名前缀。
+- **敏感配置边界**：已保存的 args、env 值、HTTP headers 与 cwd 不回传 Desktop，只展示计数、键名或已配置状态；用户可提交替换值或逐项显式清空，留空保留原配置。
+- **验证**：设置回归测试 79/79、Desktop `svelte-check` 0/0、Desktop 与 Web production build 通过。
+
+### macOS Settings 可操作迁移——Skills
+- **Skill 启停**：已发现的全局、Bot、会话 Skill 可在 Desktop 逐项启用或禁用；WebView 只持有不可逆短 ID，服务端再解析真实路径。
+- **搜索配置**：支持本地/API 技能搜索启停、Provider、模型、最大 Tokens、Temperature、超时和最低置信度，并使用固定保存底栏。
+- **安全边界与验证**：Skill 磁盘路径、搜索 API Key/Base URL/path 不回传且更新时保留。设置回归测试 84/84、Desktop `svelte-check` 0/0、Desktop 与 Web production build 通过。
+
+### macOS Settings 可操作迁移——Plugins
+- **插件配置**：支持启用/禁用记忆能力、选择记忆后端，以及按插件目录声明动态渲染功能插件的布尔、文本、选择和密码字段。
+- **凭据安全**：密码字段只返回已配置状态，支持替换和显式清空；未提交字段、hooks、插件 manifest/entry 路径均不会被覆盖或泄露。
+- **验证**：设置回归测试 90/90、Desktop `svelte-check` 0/0、Desktop 与 Web production build 通过。
+
+### macOS Settings 可操作迁移——Memory
+- **完整操作**：支持全部/指定作用域的记忆列表和搜索、外部文件同步、写入、去重，以及记忆内容、标签、过期时间编辑和删除。
+- **治理记录**：同一页面展示记忆写入拒绝记录，并可按原因、内容、渠道、用户和标签筛选；治理日志磁盘路径不回传。
+- **验证**：设置回归测试 93/93、Desktop `svelte-check` 0/0、Desktop 与 Web production build 通过。
+
+### macOS Settings 可操作迁移——Tasks
+- **任务管理**：显示并筛选完整任务文本，支持单项/批量选择、触发和删除，以及文本、交付方式、会话模式、单次时间或周期 Cron/时区编辑。
+- **运行时边界**：任务绝对 JSON 路径替换为不可逆 ID，服务端解析后复用 watched-event API 的路径白名单、格式校验和渠道 `triggerTask`。
+- **验证**：设置回归测试 98/98、Desktop `svelte-check` 0/0、Desktop 与 Web production build 通过。
+
+### Molibot macOS App 原生麦克风录音与音频回放
+- **根因**：Tauri 在 macOS 用 WKWebView，`navigator.mediaDevices` 不暴露，前端 `getUserMedia` 永远走不到，统一报「当前环境不支持麦克风录音」。与 dev/生产无关，正式包同样如此。
+- **原生采集**：新增 Rust 模块 `apps/desktop/src-tauri/src/audio.rs`，用 `cpal` 打开默认输入设备，在独立线程持有 `!Send` 的 `cpal::Stream` 并缓冲样本；`stop` 时用 `hound` 编码为内存 WAV（16-bit PCM）并以 base64 返回。新增 `start_recording`/`stop_recording`/`cancel_recording` 三个命令与 `AudioState`。
+- **麦克风授权修复**：原先只开流不申请权限，macOS 静默拒绝、只给静音（表现为「没监听麦克风」）。新增 `ensure_microphone_access()`，用 `objc2-av-foundation` 显式查询 `AVCaptureDevice` 授权状态并在未决时调 `requestAccessForMediaType` 弹窗、阻塞等待结果；拒绝/受限/超时分别返回明确错误。
+- **前端接线**：`ChatView.svelte` 录音改为优先调用 Tauri 命令（`__TAURI_INTERNALS__` 探测），把返回的 base64 WAV 还原成 `File` 加入待发送附件；保留纯浏览器 `npm run dev` 的 `MediaRecorder` 回退路径。录音中禁用重复触发。
+- **音频回放**：待发送录音 chip 内嵌 `<audio controls>` 即时试听（object URL 随 `pendingFiles` 增删创建/回收，用独立 tracking map 避免响应式自写循环）；已发送消息的音频附件新增「播放」按钮，按需经 `fetchDesktopFileBlob` 拉取并内联播放，URL 在切换会话/销毁时回收。新增 i18n `play`。
+- **附件发送 CSRF 修复**：打包后带附件（如录音）发送报 `Cross-site POST form submissions are forbidden`——multipart `/api/chat` 请求来自 WebView 的 `tauri://localhost` origin，与 loopback 服务端 origin 不符被 SvelteKit CSRF 拦截。在服务端 `svelte.config.js` 的 `kit.csrf.trustedOrigins` 加入 `tauri://localhost`：保留 Web 部署的完整 CSRF 防护，只放行这一个固定的桌面 origin。运行时随 `prepare:runtime`（root `npm run build`）打包生效。
+- **验证**：`cargo check` 通过、Desktop `svelte-check` 0/0。原生录音、回放、附件发送已在打包版实测通过。
+
+### macOS Settings 可操作迁移——Provider、Web Profile、Agent
+- **AI Provider 管理**：自定义 Provider 支持编辑、删除、启停、默认项、Key 替换/清空、模型注册表增删与启停、能力标签、上下文窗口、默认模型、远端模型发现、逐模型验证、Thinking 格式和推理力度映射；全局 Provider mode、Pi Provider/模型与默认自定义 Provider 可保存。已保存 Key 不回传 Desktop。
+- **Web Profile 管理**：支持新增、编辑、删除、启停、关联 Agent、沙箱继承/强开/强关，以及 `BOT.md`、`SOUL.md`、`IDENTITY.md`、`SONG.md` 编辑。编辑时保留 Desktop 不可见的 credentials/allowedChatIds。
+- **Agent 管理**：支持新增、编辑、删除、启停、沙箱覆盖、文本/视觉/STT 专有模型路由，以及 `AGENTS.md`、`SOUL.md`、`IDENTITY.md`、`SONG.md` 编辑；仍被渠道引用的 Agent 拒绝删除。
+- **验证**：目标测试 70/70、Web production build、Desktop production build、Desktop Svelte check 0/0。设置功能迁移继续推进到渠道、MCP、Skills、Memory、Tasks 与媒体能力。
+
+## 2026-06-28
+
+### Molibot macOS App 设置——Web 功能迁移启动与重连修复
+- **重连操作修复**：移除所有 Desktop Settings 页面底部无条件出现的「重新检查」。本地服务健康时不再渲染该底栏；仅断开时显示语义明确的「重新连接服务」。
+- **AI 服务商首条功能迁移**：Desktop Settings → AI 服务商在新 macOS UI 中支持新增自定义服务商、一次性提交 API Key、保存后刷新列表，以及验证已保存服务商的真实连接。密钥只在保存请求中传入，服务端测试按 provider id 读取，不向 WebView 回显。
+- **设计与验证**：新增表单采用共享语义 CSS、中英即时切换、明暗主题 token、窄窗口单列布局和固定保存底栏。目标测试 55/55、Desktop `svelte-check` 0/0、Desktop 与 Web production build 均通过；其余 Web 设置动作按 `prd.md` 分批迁移。
+
+### Molibot macOS App Chat 输入、录音与 Markdown 可读性修复
+- Chat 输入框现在直接用“Enter 发送 · Shift+Enter 换行”（英文同步）作为 placeholder，不再把提示挤在发送按钮左侧。
+- 原先错误跳转到 TTS 设置页的麦克风按钮已接回现有 `MediaRecorder` 录音流程；录音时显示双语计时条、脉冲状态、取消与完成操作，完成后作为待发送音频附件加入当前消息。macOS bundle 增加麦克风用途声明。
+- AI 消息的 fenced code block 改为保留换行并在容器宽度内自动折行，禁用横向滚动条；新增 3 个 Chat UI 回归检查。Desktop Svelte check 0/0、生产构建和 Info.plist 校验通过。
+
+### Molibot macOS App Phase 4 设置——语音（TTS）只读区
+- **语音区**：Settings 新增「语音」区，只读展示 TTS 配置（启用、默认提供方）与两个提供方：macOS 系统语音（音色/格式，无密钥）与小米 MiMo（是否配置密钥、模型、Base URL、音色、格式），状态徽标文本+颜色（§8 "语音"）。这是 §8 最后一个待补设置区。
+- **凭据安全映射**：新增 `desktopTtsGenerate.ts`（`buildDesktopTtsSummary` + 两个 per-provider 构造器）逐字段投影；小米 `apiKey`→`hasApiKey`，macOS 无密钥。新增 `/api/desktop/tts-generate` GET、`DesktopTtsSummary`/`DesktopTtsProvider` 契约、`loadDesktopTts` loader、能力 scope。
+- **验证边界**：`desktopTtsGenerate.test.ts` 4/4（macOS 无密钥；小米 `apiKey`→bool 且不泄露；空密钥；summary 保序不泄露）——desktop-chat 128/128、Desktop check 0/0、Desktop+Web build 通过。真实配置实机 smoke 待补。**至此 §8「保留现有全部设置能力」全部 22 个区均已在桌面端落地。**
+
+### Molibot macOS App Phase 4 设置——视频生成只读区
+- **视频区**：Settings 新增「视频」区，复用图像/视频共享的媒体映射器只读展示视频生成配置和各引擎状态（是否配置密钥、模型、Base URL），布局与图像区一致（§8 "视频"）。
+- **复用实现**：`/api/desktop/video-generate` GET 复用 `buildDesktopMediaGenerateSummary`（每引擎 `apiKey`→`hasApiKey`）；新增 `DesktopVideoGenerateResponse` 契约别名、`loadDesktopVideoGenerate` loader、能力 scope。无新增映射器/测试（共享映射器已被 `desktopMediaGenerate.test.ts` 覆盖）。
+- **验证边界**：desktop-chat 124/124、Desktop check 0/0、Desktop+Web build 通过。真实配置实机 smoke 待补。
+
+### Molibot macOS App Phase 4 设置——图像生成只读区
+- **图像区**：Settings 新增「图像」区，只读展示图像生成配置（启用、默认引擎）与每引擎状态（是否配置密钥、模型、Base URL）+ 计数（总/启用/已配置）（§8 "图像"）。
+- **可复用媒体映射器**：因图像与视频设置结构完全一致，新增共享 `desktopMediaGenerate.ts`（`buildDesktopMediaEngine` + `buildDesktopMediaGenerateSummary`）与共享 `DesktopMediaGenerateSummary`/`DesktopMediaEngine` 契约，每引擎 `apiKey`→`hasApiKey`，保留 baseUrl/model；新增 `/api/desktop/image-generate` GET、`loadDesktopImageGenerate` loader、能力 scope。
+- **验证边界**：`desktopMediaGenerate.test.ts` 4/4（密钥→bool 且不泄露；未配置引擎；summary 计数；缺 engines map）——desktop-chat 124/124、Desktop check 0/0、Desktop+Web build 通过。
+
+### Molibot macOS App Phase 4 设置——联网搜索只读区
+- **搜索区**：Settings 新增「搜索」区，只读展示联网搜索配置（启用、默认路由/引擎、选择策略、最大结果数）与每个引擎状态（是否配置密钥、Base URL）+ 计数（总/启用/已配置密钥）（§8 "搜索"）。
+- **凭据安全映射**：新增 `desktopWebSearch.ts`（`buildDesktopWebSearchSummary` + per-engine 构造器），每引擎 `apiKey`→`hasApiKey`，保留 baseUrl（端点非密钥）；新增 `/api/desktop/web-search` GET、`DesktopWebSearchSummary` 契约、`loadDesktopWebSearch` loader、能力 scope。
+- **验证边界**：`desktopWebSearch.test.ts` 4/4（密钥→bool 且不泄露；未配置引擎；summary 计数+不泄露；缺 engines map）——desktop-chat 120/120、Desktop check 0/0、Desktop+Web build 通过。
+
+### Molibot macOS App Phase 4 设置——插件只读区
+- **插件区**：Settings 新增「插件」区，只读展示已加载插件（渠道/服务商/功能/记忆后端）：名称、版本、种类、来源（内置/外部）、状态徽标（活跃/错误/已发现）+ 计数（总/活跃/外部）（§8 "插件"）。
+- **完成孤立映射器**：此前 `desktopPlugins.ts` 仅有映射器无路由/测试/UI。本切片端到端接入：新增 `/api/desktop/plugins` GET（映射 `runtime.pluginCatalog`，丢弃 `manifestPath`/`entryPath`/`settingsFields`）、`desktopPlugins.test.ts`、`loadDesktopPlugins` loader、能力 scope。种类/状态标签用显式三元表达式直接引用 `text`（保持 locale 切换响应式，避免 Svelte-5 响应式陷阱）。
+- **验证边界**：`desktopPlugins.test.ts` 4/4（丢弃路径/secret；未知种类/状态 coerce；已知种类顺序+计数；空目录）——desktop-chat 116/116、Desktop check 0/0、Desktop+Web build 通过。
+
+### Molibot macOS App Phase 3 外部会话——Bot 实例层级
+- **多实例自动分层**：外部渠道只读侧栏现按计划 §7.2「单实例时直接显示会话。多实例时自动增加 渠道 → Bot 实例 → 会话 层级」分层。某渠道有多个不同 `botInstanceName` 时渲染每个实例的子标题与其会话；单实例或旧无元数据渠道保持扁平（渠道徽标内联）。旧无元数据会话归入 null 实例桶，仅在渠道被拆分时显示「未指定 Bot 实例」标题。
+- **可测试纯函数**：新增 `groupExternalSessionsByInstance`（返回有序 `ExternalChannelSection[]`，含 `showInstances` + per-instance 段，保持服务端渠道顺序与组内最新优先）。复用现有 `/api/desktop/external-sessions` 契约（已投影 `botInstanceName`），渠道适配器填充后层级自动出现。
+- **验证边界**：新增 api 单测 3 例（单实例扁平；多实例拆分并保序；旧无元数据→null 桶）——desktop-chat 112/112、Desktop check 0/0、Desktop build 通过。改动仅限桌面端，无 Web/server 源码变更。
+
+### Molibot macOS App Phase 4 首次启动——诊断步骤
+- **可工作的第五步**：§9.2 onboarding 的「诊断」步骤不再是延期占位。只读展示运行环境诊断概览：本地服务就绪状态 + 依赖已安装/总数 + 缺失可选依赖名称，并提示前往 设置 → 运行环境（计划 §9.2 step 5「展示运行环境诊断」）。仅信息展示，缺失可选依赖不阻止「完成」。
+- **复用端点**：新增纯函数 `summarizeOnboardingDiagnostics(runtimeEnv, serviceReady)`，复用 `/api/desktop/runtime-env`；加载折入 `connect()` 的 `Promise.all` 并 `.catch(()=>null)`（信息性、非关键），断连重置。**至此 §9.2 五步引导全部实现（provider/agent/channels/launch/diagnostics），无剩余延期占位。**
+- **验证边界**：新增 api 单测 2 例（服务+依赖状态+缺失名；null runtime→空）——desktop-chat 109/109、Desktop check 0/0、Desktop build 通过。
+
+### Molibot macOS App Phase 4 首次启动——渠道步骤
+- **可工作的第三步**：§9.2 onboarding 的「渠道」步骤不再是延期占位。只读展示已配置外部渠道（每渠道 已启用/总数 + 已启用实例计数），并提示前往 设置 → 渠道 连接/编辑（计划 §9.2 step 3「可选连接渠道」）。引导内无输入/连接控件，该步可选、不门控「下一步」。
+- **复用端点**：新增纯函数 `summarizeOnboardingChannels(summary)`，复用 credential-safe `/api/desktop/channels`；加载折入 `connect()` 的 `Promise.all` 并 `.catch(()=>null)`，断连重置。
+- **验证边界**：新增 api 单测 2 例（有序投影+计数；null summary→空）——desktop-chat 107/107、Desktop check 0/0、Desktop build 通过。改动仅限桌面端，复用既有端点。
+
+### Molibot macOS App Phase 4 首次启动——Provider 提交/验证
+- **外部渠道会话右侧展示**：修复了点击左侧“外部渠道”会话时内容依然挤在窄侧边栏展示的问题。现将外部渠道的 transcript 统一呈现在右侧主对话视口 `.messages` 中，复用了 Markdown 渲染与附件芯片样式；并在底部展示只读提示横幅，保证外观和操作逻辑与本地对话完全一致。同时移除了侧栏的临时 `.external-transcript-panel`。
+- **输入框区域置底固定与消息滚动**：修复了 ChatView 消息较多时或搜索栏开启时，底部输入框区域 `.composer-wrap` 会随页面内容向上滚走的问题。将 `.chat-content` 主容器升级为 `display: flex; flex-direction: column; height: 100%; min-height: 0;`（`min-height: 0` 强行约束高度），并将 `.messages` 设置为 `flex: 1; min-height: 0;`。这确保无论是在普通对话、搜索栏开启还是特殊状态提示下，消息区域都可以在高度内自动滚动，而头部和输入框永远稳固钉在界面两端。
+- **列表滑动翻页修复**：修复了 macOS App 内所有长列表在小屏幕或内容溢出时无法使用鼠标滑轮滚动的体验问题。对 `.settings-content` 配置了 `overflow-y: auto` 并设置了 padding-bottom 留空；将 `.settings-footbar` 保存栏改为 `position: sticky; bottom: 0` 粘性置底；使 `.chat-sidebar` 与 `.settings-sidebar` 支持 `overflow-y: auto` 滚动；限制外部会话列表 `.external-list` 与文件列表 `.file-list` 容器高度并启用垂直滚动；对首启引导卡片 `.onboarding-card` 限制最大高度并支持滚动。
+- **可工作的首个步骤**：§9.2 onboarding 的 Provider 配置步骤不再是占位说明。新增了 Provider 提交和真实连接测试的完整功能闭环。
+- **安全设计与 API**：
+  - 新增服务端 `/api/desktop/providers` [POST] 及纯函数 `buildNewCustomProvider`：接收 Provider 配置，创建带有 `desktop-` 唯一时间戳 ID 的 CustomProvider，自动配置 text model 并将 `providerMode` 切为 `"custom"`。API Key 仅本地安全保存，不在任何接口响应中泄露。
+  - 新增服务端 `/api/desktop/provider-test` [POST]：接收 `providerId`，从服务端读取 API 密钥后，调用已有的真实 `testCustomProvider` 执行远程连接验证。密钥绝不传回 WebView。
+  - 新增客户端 API `submitDesktopProvider` 与 `testDesktopProvider`。
+- **UI 与交互**：ChatView 首启引导中移除 deferred 延期占位，增加了「保存 Provider」与「验证连接」的操作流程与 loading/success/error 响应式状态。Next 按钮现被 `providerSubmitted` 状态门控，要求成功保存后才能继续，但不强制连接成功（允许进入主界面/设置排障）。
+- **能力授权**：在 Tauri `default.json` 权限配置中，将 `/api/desktop/provider-test` 的 loopback 访问权限注册到 scopes，保证请求的安全发起。
+- **验证**：新增 `desktopProviderSubmit.test.ts` (5个服务端用例，验证构造合法性与 credentials 隔离不泄露)；`api.test.ts` 新增 2 例 mock-fetch 用例。全部 105 个桌面测试通过，`svelte-check` 0 错误/0 警告。
+
+### Molibot macOS App Phase 4 首次启动——登录启动步骤
+- **可工作的第四步**：§9.2 onboarding 的「登录启动」不再是占位说明。它复用现有 Tauri `tauri-plugin-autostart` / macOS LaunchAgent 与 `set_login_start(enabled)` 命令，通过 App→Chat 显式异步回调展示默认关闭的双语 Switch、保存中状态、实际返回状态和错误；浏览器预览只更新内存，不写 OS scheduler。
+- **精简修复流程**：新增 `resolveOnboardingStartStep` 与 `resolveOnboardingRepairTarget`。已有模型但缺 Web Profile 的损坏配置直接从 Agent 步骤开始；引导锁定初始 `new/usable/broken` 模式和缺失目标，Agent 保存使 readiness 变为可用后仍继续 Channels→Launch→Diagnostics，且顶部提示不会错误翻转。
+- **验证**：desktop-chat 回归 98/98、Rust 8/8、Desktop Svelte check、Desktop production build、现有 Web production build通过。隔离临时数据页面验证到第 4 步：默认关闭、可访问 `role=switch`、中英状态文案和完整修复路径均真实渲染。
+
+### Molibot macOS App Phase 4 首次启动——Agent / Web Profile 确认
+- **可工作的第二步**：§9.2 onboarding 的 Agent 步骤不再显示占位说明。Desktop 从既有 credential-safe `/api/desktop/agents` 与 `/api/desktop/profiles` 读取已启用 Agent 和 Web Profile，提供双语选择器、保存中/成功/错误状态；只有确认保存成功后才可进入下一步。若确认时 Chat 尚无活动 Profile，成功启用后会立即走既有 `loadProfile` 会话路径，避免完成引导后输入区仍未连接。
+- **细粒度安全保存**：`DesktopWebProfilePatch` 与 `/api/desktop/profiles` PATCH 新增可选 `agentId`，服务端校验目标 Agent 存在，只更新指定 Web Profile 的 `agentId`/`enabled`，保留 credentials、allowedChatIds、sandbox override、显示配置、其他 Profile 和其他渠道。未知 Agent 会拒绝且不修改设置。
+- **响应式与验证**：onboarding 标题、提示、步骤名和步骤计数改为显式 `$:` 派生状态，移除模板中的无参数 helper。完整 desktop-chat 回归 96/96、Desktop Svelte check、Desktop production build、现有 Web production build 通过；隔离临时数据页面 smoke 已验证中文修复分支与五步布局。Profile 创建仍由 Settings 完成；Launch 已在后续切片交付，Provider 提交/验证及 Channels/Diagnostics 继续后续实现。
+
+### Molibot macOS App Phase 4 引导健康检查摘要
+- **既有配置健康检查**：首次启动引导的 `usable` 分支（已存在可用配置）现展示「迁移和健康检查摘要」卡片（计划 §9.1「已存在可用 Provider/模型：显示一次迁移和健康检查摘要」）：两行分别列出检测到的文本模型（标签或「未配置」）与 Web Profile 数量（或「未启用」），加一行就绪/未就绪状态。由新增纯函数 `buildOnboardingHealthCheck(readiness, labels)` 构建（locale 无关、标签可注入），卡片边框/状态颜色反映就绪状态，文本标签承载含义（§14 状态不仅靠颜色）。
+- **验证边界**：新增 api 单测 1 例（ready + 缺模型 + 缺 Profile 三分支）——desktop-chat 套件 93/93、Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 复确认、桌面机器路径扫描干净。改动仅限桌面端，无 Web/server 源码变更。复用已加载的 readiness 数据，无需新端点。
+
+### Molibot macOS App Phase 4 引导式首次启动——Provider 步骤
+- **多步引导流**：首次启动引导覆盖层在 `new`/`broken` 配置下升级为 §9.2 五步引导：provider → agent → channels → launch → diagnostics。含步骤指示（`Step n/total`）、有序步骤列表（active/done 状态）、上一步/下一步/完成导航，末步显示「完成」。`usable` 配置仍保留简单摘要 + 继续。
+- **凭据盲的 Provider 草稿表单**：provider 步渲染表单（名称、协议、Base URL、模型、API Key），由新增纯函数 `validateProviderDraft` 实时校验（仅结构：名称/模型非空、已知协议、http(s) Base URL、apiKeyPresent）。API Key **绝不存入草稿**——仅 `apiKeyPresent: boolean`；密钥只活在输入框，提交/验证明确标注将在后续版本接入（需桌面端令牌 §11.1）。下一步在草稿未通过校验时禁用。
+- **纯函数可测**：新增 `ONBOARDING_STEPS`（有序）、`OnboardingStep`、`ProviderDraft`/`ProviderDraftValidation`、`validateProviderDraft`（不联网、不处理密钥）、`advanceOnboardingStep`。双语 i18n（步骤标签、字段标签、已输入/未输入、上一步/下一步/完成、步骤模板、提交延期说明）与语义化 CSS（`.onboarding-steps`/`.onboarding-field`/`.onboarding-error`）。
+- **验证边界**：新增 api 单测 3 例（`validateProviderDraft` 接受完整草稿 + 拒绝各缺失字段 + 错误 URL；`ONBOARDING_STEPS` 顺序；`advanceOnboardingStep` 前进与末步返回 null）——desktop-chat 套件 92/92、Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 复确认、桌面机器路径扫描干净。改动仅限桌面端，无 Web/server 源码变更。Provider 提交/验证、agent/channels/launch/diagnostics 步骤表单与真机 smoke 留作后续切片（需桌面端令牌 + 服务端创建/验证路由或运行服务）。
+
+### Molibot macOS App Phase 4 运行环境设置区
+- **只读依赖检测展示**：Settings 新增「运行环境」区（位于「诊断」之后），提供计数卡片（已安装 / 未安装 / 总数）与每行一条可选依赖：名称、状态徽标（已安装/未安装/未知）、用途、版本、来源、预计体积，以及 `<code>` 块中的准确安装命令。底部说明「安装功能将在后续版本提供逐项授权安装」——本区仅检测/展示，不执行安装（计划 §10「用户逐项明确授权，禁止静默安装」）。Node 因已由内置 sidecar 满足而故意省略。
+- **服务端检测**：新增 `desktopRuntimeEnv.ts`，含 `DESKTOP_RUNTIME_DEPENDENCIES` 声明表（ffmpeg/git/python3）、可注入的 `detectRuntimeDependency`（经 `command -v` 解析、按解析路径判别 homebrew vs system 来源、探测版本、永不抛错）、纯 `buildDesktopRuntimeEnvSummary`/`buildDesktopRuntimeDependency` 映射器，以及 `formatRuntimeInstallCommand`（homebrew → `brew install <formula>`；tooling → `pip install --target ~/.molibot/tooling`；禁 `sudo`、禁 `npm -g`、禁改系统 Python）。映射器丢弃解析出的二进制路径，仅保留来源类别（§11 不变式，逐字段构建）。新增 `/api/desktop/runtime-env` GET 与契约类型。
+- **验证边界**：新增服务端 `desktopRuntimeEnv.test.ts` 7/7（安装命令格式化 homebrew/tooling/system；缺失检测；homebrew vs system 来源判别；映射器投影展示字段并丢弃解析路径；空来源回退；summary 计数与声明顺序；声明依赖无 sudo/npm -g），api 单测新增 1（`missingRuntimeDependencies` 仅返回未安装项）——desktop-chat 套件 89/89、Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。`/api/desktop/runtime-env` 已加入 Tauri HTTP capability scope（127.0.0.1 + localhost）。真机检测 smoke 与逐项授权安装执行（PATH 恢复、实时日志、取消/重试）留作后续 §10 切片。
+
+### Molibot macOS App Phase 4 首次启动引导覆盖层
+- **三分流引导**：ChatView 在服务就绪后展示一次性、由 localStorage 门控的引导覆盖层（`molibot-desktop-first-launch-seen`）。通过新增纯函数 `classifyFirstLaunch` 将就绪摘要分为计划 §9.1 三分支：`new`（无模型且无 Profile → 完整配置引导）、`usable`（两者皆有 → 可直接对话的摘要）、`broken`（仅有一项 → 指明缺失项的精简修复引导，不覆盖既有配置）。每个分支含「打开设置」按钮；`usable` 另含「继续」，`new`/`broken` 另含「不再提示」。任一操作写入 seen 标志，覆盖层不再出现。
+- **纯客户端可测**：`classifyFirstLaunch` 为纯函数，双语 i18n（`onboardingTitleNew/Usable/Broken`、`onboardingHintNew/Usable/BrokenModel/BrokenProfile`、`onboardingContinue`、`onboardingDontShowAgain`）与语义化 CSS（`.onboarding-overlay`/`.onboarding-card`/`.primary-button`，遵循 DESIGN.md，无裸 Tailwind）。`new` 分支不显示「继续对话」主操作，符合 §9.1「全新安装不得假装配置完成」。
+- **验证边界**：新增 api 单测 1 例（覆盖 usable / new（空 + null 模型）/ broken-model / broken-profile 四分支）——desktop-chat 套件 81/81、Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 复确认、桌面机器路径扫描干净。改动仅限桌面端，无 Web/server 源码变更。覆盖层的真机行为（真实就绪数据、真实设置导航）需运行服务 smoke。完整 §9.2 引导式 provider/agent/渠道配置与 §9 既有配置迁移摘要留作后续切片。
+
+### Molibot macOS App Phase 3 外部渠道只读 transcript 面板
+- **只读 transcript 查看**：在「外部渠道」分页中点击某条外部会话，通过新增的 `/api/desktop/external-sessions/[id]` GET 加载只读 transcript，在侧栏内嵌面板渲染：标题 · 会话类型 · 渠道 的头部（含关闭按钮），随后逐条展示消息（角色标签、Markdown 渲染内容、附件名）。无输入框、无重命名、无删除、无归档，外部 transcript 保持只读（计划 §7.2「支持查看…当前 transcript」）。重复点击当前行无操作；切回「本地」清空面板。
+- **服务端契约**：新增 `SessionStore.getExternalSession(id)`（按 id 解析单条非 web 会话，web/未知/陈旧返回 null）与凭据/路径安全的 `/api/desktop/external-sessions/[id]` GET，经 `buildDesktopExternalTranscript` + `buildDesktopExternalTranscriptMessage` 投影。映射器复用列表的会话投影，并逐字段显式投影消息——**丢弃** 附件的磁盘 `local` 路径（外部附件无法经 Web 文件端点预览，仅保留 original/mediaType/mimeType/size），**过滤掉 `system` 角色消息**（控制指令不得作为普通 transcript 呈现，计划 §12）。新增 `DesktopExternalTranscript`/`DesktopExternalTranscriptMessage`/`DesktopExternalTranscriptResponse` 到共享契约。
+- **验证边界**：服务端 `desktopExternalSessions.test.ts` 增至 9/9（新增：transcript 消息丢弃 local 路径并过滤 system；transcript 投影元数据与有序非 system 消息），api 单测新增 1（`groupExternalTranscriptByRole` 计数）——desktop-chat 套件 80/80、Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。`/api/desktop/external-sessions/*` 已加入 Tauri HTTP capability scope（127.0.0.1 + localhost）。真实渠道数据实机 transcript smoke 留作后续。§7.3 实时事件流与统一审批中心留作后续 Phase 3 切片。
+
+### Molibot macOS App Phase 3 外部渠道只读视图
+- **本地/外部分页**：ChatView 侧栏新增「本地 / 外部渠道」分页切换。选择「外部渠道」时通过新增的 `loadDesktopExternalSessions` 客户端 loader 加载 `/api/desktop/external-sessions`，按渠道分组只读展示外部会话——每行含渠道徽标、会话类型（私聊/群聊/频道）、可选 Bot 实例/发送者、更新时间。无输入框、无重命名、无删除、无归档，外部 transcript 保持只读（计划 §7.2）。连接后加载一次，切页时懒加载；空/加载中/错误状态内联处理。
+- **可测试的纯函数**：新增 `groupExternalSessionsForView`（将分组 summary 展平为有序视图列表，保持服务端分组与最新优先顺序）与 `formatExternalSessionPreview`（生成 `Bot 实例 · 线程 · 发送者` 紧凑预览）。新增双语 i18n（`externalChannels`、`externalChannelsHint`、`noExternalSessions`、`chatTypePrivate/Group/Channel`）与语义化 CSS（`.view-tabs`/`.view-tab`/`.external-*`，遵循 DESIGN.md，无裸 Tailwind 工具类）。
+- **验证边界**：新增 api 单测 3 例（分组展平保序并携带展示字段；空 summary；预览拼接 Bot 实例/线程/发送者并降级为空）——desktop-chat 套件 77/77、Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 复确认、桌面机器路径扫描干净。改动仅限桌面端，无 Web/server 源码变更。真实外部会话列表实机 smoke 与只读 transcript 面板 / 实时事件流（§7.3）留作后续 Phase 3 切片。
+
+### Molibot macOS App Phase 3 外部渠道会话聚合（列表/契约起步）
+- **共享 session 元数据扩展**：在共享 `Conversation` 类型上新增向后兼容的可选 `external?: ExternalSessionMetadata`（Bot 实例 id/名称、发送者 id/名称/头像、会话类型 private·group·channel、线程 id/标题、来源平台），供渠道适配器后续填充；旧记录缺失时省略该字段，符合计划 §7.2「现有 session schema 需要向后兼容地增加可选元数据」。元数据定义置于共享 session 层而非渠道代码。
+- **外部会话枚举**：`SessionStore` 新增 `listExternalSessions()`，遍历 legacy session 索引，跳过 `web`，按 `updatedAt` 倒序加载每个非 web 会话文件，并跳过索引中文件已缺失的陈旧条目。
+- **凭据安全的只读聚合端点**：新增 `/api/desktop/external-sessions` GET，经 `buildDesktopExternalSessionsSummary` + `buildDesktopExternalSession`（`desktopExternalSessions.ts`）按 telegram/feishu/qq/weixin 已知顺序分组（排除 `web` 与 `cli`），每个会话仅投影展示字段——id、标题、updatedAt、会话类型、发送者名、可选头像/线程标题/Bot 实例名、平台。原始 `externalUserId` 经 `maskExternalUserId` 截断为 8 字符预览（完整平台 id 不抵达 WebView），列表从不加载消息内容，旧记录无元数据时回退为 `chatType=private` / `senderName=掩码 id` / `platform=渠道`（计划 §7.2「旧记录缺失元数据时使用稳定 fallback，不回头批量请求平台补全」）。
+- **验证边界**：新增服务端 `desktopExternalSessions.test.ts` 7/7（掩码截断+直通；缺失元数据回退为掩码 id+私聊且原始 id 不泄露；元数据投影；空标题+空发送者回退；分组按已知渠道排序且排除 web/cli；空 summary；渠道内顺序保持），`store.test.ts` 新增 `listExternalSessions` 用例（2 个 telegram 会话按最新优先排序、排除 web、暴露 externalUserId/channel）——desktop-chat 套件 74/74、Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。`/api/desktop/external-sessions` 已加入 Tauri HTTP capability scope（127.0.0.1 + localhost）。真实渠道数据实机 smoke 留作后续。只读 transcript 视图、实时事件流（§7.3）、统一审批中心与通知留作后续 Phase 3 切片。
+
+### Molibot macOS App Phase 5 GitHub Actions unsigned-DMG 发布流水线
+- **可复现的 unsigned-beta 构建流水线**：新增 `.github/workflows/desktop-release.yml`（仓库首个 CI 流水线），按计划 §16.1 / Phase 5 在 `macos-14`（Apple Silicon）runner 上产出 unsigned DMG。触发方式：推送 `molibot-v*` tag（发布 prerelease GitHub Release）与 `workflow_dispatch`（仅构建冒烟，不发布）。
+- **构建步骤**：Setup Node 22 + stable Rust，缓存 Cargo，安装根目录与 `apps/desktop` 依赖，执行 `npm run desktop:build`（= 准备内嵌 Node 22.23.1 sidecar runtime → `tauri build --ci`（`tauri.bundle.conf.json`）→ `finalize-desktop-release.mjs` 写 `.sha256`）。随后生成 BUILD-INFO 清单（版本、git commit/ref、构建时间、runner OS/arch、Node/Rust 版本、macOS 13.0 部署目标、内嵌 sidecar Node 版本、明确的 unsigned/未公证说明），上传 `molibot-desktop-dmg` workflow artifact，并在 tag 推送时通过 `softprops/action-gh-release@v2` 发布含 DMG + `.sha256` + 清单的 prerelease（自动生成 release notes）。`MACOSX_DEPLOYMENT_TARGET=13.0` 与 bundle `minimumSystemVersion` 一致。
+- **验证边界**：仅配置改动，未触及 Web/server 运行时代码，故无 Web 回归；YAML 已校验（11 步、`runs-on: macos-14`）。真实 DMG 生产仍需真实 macOS runner（受限沙箱无法运行 `hdiutil`/`tauri build`），端到端验证留待真实 `molibot-v*` tag 构建或 `workflow_dispatch` 运行。`molibot-v*` tag 与现有服务端/Web 产品的 `v*` tag 分离，保持发布语义不混淆。
+
+### Molibot macOS App Phase 4 渠道设置区
+- **只读渠道展示**：Settings 新增「渠道」区（位于「内存」之后），提供计数卡片（实例总数 + 已启用）与按外部渠道分组：每组一个子标题（`渠道 · 已启用/总数`）外加每个 Bot 实例一行，显示名称、关联 Agent、放行会话数、沙箱覆盖（继承/是/否）、启用/禁用状态徽标（文本+颜色，符合 §14）。Web 渠道排除在外（已有独立的 Web Profiles 区）（计划 §8 Telegram/Feishu/QQ/Weixin）。
+- **凭据安全**：新增 `/api/desktop/channels` GET，经 `buildDesktopChannelsSummary` + `buildDesktopChannelInstance` 投影 runtime 设置。映射器过滤掉 `web` 渠道，已知渠道（telegram/feishu/qq/weixin）优先排序，每个实例保留 id/name/enabled/agentId、三态沙箱覆盖、`allowedChatCount`，**整体丢弃** 实例 `credentials`（Bot Token / App 密钥）并将 `allowedChatIds` 降为计数——渠道密钥不抵达 WebView。
+- **验证边界**：新增服务端 `desktopChannels.test.ts` 3/3（实例丢弃 credentials 并将 allowedChatIds 降为计数——断言 `SECRET-BOT-TOKEN`/`sk-secret-app`/`credentials` 不泄露；summary 排除 web、已知渠道优先排序、统计实例；缺失沙箱覆盖→继承），desktop-chat 套件 65/65（本切片无新客户端纯函数）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。服务端测试刻意含夹具 Bot Token/App 密钥以证明映射器会剥离。`/api/desktop/channels` 已加入 Tauri HTTP capability scope。真实 Bot 实例实机 smoke 留作后续。编辑渠道实例/凭据与实时连接状态留作后续（后者属 Phase 3 外部渠道聚合）。
+
+### Molibot macOS App Phase 4 内存设置区
+- **只读内存状态展示**：Settings 新增「内存」区（位于「Skills」之后），提供状态卡片（运行时启用、配置启用、后端名称）与能力卡片（混合检索、向量检索、增量刷新、分层记忆），每项为 yes/no 徽标（文本+颜色，符合 §14）。仅读取后端状态，绝不读取任何记忆内容（计划 §8「内存」）。
+- **隐私安全**：新增 `/api/desktop/memory` GET，经 `buildDesktopMemorySummary` 将 `settings.plugins.memory`（enabled/backend）与运行时 `runtime.memory.isEnabled()`、`runtime.memory.capabilities()` 组合。记忆记录含用户内容，故映射器刻意从不 list/search 记录——只暴露后端名称、配置/运行时启用标志与四个能力标志。
+- **验证边界**：新增服务端 `desktopMemory.test.ts` 2/2（映射 config + 运行时状态 + 能力标志；内存配置缺失时回退为禁用/空后端），desktop-chat 套件 62/62（本切片无新客户端纯函数）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。`/api/desktop/memory` 已加入 Tauri HTTP capability scope。真实后端实机 smoke 留作后续。查看/编辑/删除记忆记录不在范围内（记录内容属用户数据）。
+
+### Molibot macOS App Phase 4 Skills 设置区
+- **只读 Skill 展示**：Settings 新增「Skills」区（位于「MCP」之后），提供计数卡片（总数 / 已启用 / 按作用域 global·bot·chat）与技能搜索状态（本地启用徽标、API 服务商/模型），以及每行一条 Skill 记录：名称、描述、作用域、归属 bot/chat、MCP 服务器数、启用/禁用状态徽标（文本+颜色，符合 §14）（计划 §8「Skills」）。
+- **路径与凭据安全**：新增 `/api/desktop/skills` GET，复用共享 skills 路由的 GET（其忽略 RequestEvent，故传 `undefined`），再经 `buildDesktopSkillsSummary` + `buildDesktopSkillItem` 投影。映射器保留 name/description/scope/enabled/botId/chatId 并将 `mcpServers` 降为计数，**丢弃** 每个 skill 的 `filePath` 与 `baseDir`（绝对磁盘路径），以及路由的 `dataRoot`/`globalSkillsDir`/`diagnostics`/原始 `searchProviders`；`skillSearch` 仅保留 local/api 启用标志与 api provider/model，**丢弃** 技能搜索的 `api.apiKey`——磁盘路径与搜索密钥均不抵达 WebView。
+- **验证边界**：新增服务端 `desktopSkills.test.ts` 3/3（item 丢弃 filePath/baseDir 并将 mcpServers 降为计数——断言 `/Users/secret`/`filePath`/`baseDir` 不泄露；未知 scope 归 global；summary 按作用域计数并丢弃技能搜索 api key——断言 `sk-secret-search-key` 不泄露），desktop-chat 套件 60/60（本切片无新客户端纯函数）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。服务端测试刻意含 `/Users/secret/...` 夹具路径与搜索 api key 以证明映射器会剥离。`/api/desktop/skills` 已加入 Tauri HTTP capability scope。真实技能文件实机 smoke 留作后续。启用/禁用 Skill、查看 SKILL.md 内容与技能草稿管理留作后续切片。
+
+### Molibot macOS App Phase 4 MCP 设置区
+- **只读 MCP 展示**：Settings 新增「MCP」区（位于「Agent」之后），提供计数卡片（总数 / 已启用 / stdio / http）与每行一条服务器记录：传输方式、命令（stdio）或 URL（http）、参数/env/请求头数量、可选工具名前缀、启用/禁用状态徽标（文本+颜色，符合 §14）（计划 §8「MCP」）。
+- **凭据安全**：新增 `/api/desktop/mcp` GET，经 `buildDesktopMcpSummary` + `buildDesktopMcpItem` 投影 runtime 设置。映射器保留 id/name/enabled/transport/toolNamePrefix 与可识别的 `command`（stdio）/`url`（http），并将携带密钥的字段一律降为计数——stdio 的 `env` 值、`cwd`（绝对路径）、`args` 值（可能含内联 token），以及 http 的 `headers` 值（鉴权 token）——WebView 永远拿不到 MCP 凭据。
+- **验证边界**：新增服务端 `desktopMcp.test.ts` 3/3（stdio 保留 command 但 env/cwd/args 降为计数——断言 `sk-secret-env-value`/`SECRET-ARG`/`/Users/secret` 不泄露；http 保留 url 但 headers 降为计数——断言 `sk-secret-header-token` 不泄露；summary 计 total/enabled/stdio/http 且无密钥泄露），desktop-chat 套件 57/57（本切片无新客户端纯函数）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。服务端测试刻意含夹具密钥/路径以证明映射器会剥离。`/api/desktop/mcp` 已加入 Tauri HTTP capability scope。真实服务器实机 smoke 留作后续。新增/编辑/删除 MCP 服务器与查看逐服务器工具列表留作后续切片。
+
+### Molibot macOS App Phase 4 Agent 设置区
+- **只读 Agent 展示**：Settings 新增「Agent」区（位于「AI 服务商」与「Web Profiles」之间），提供计数卡片（总数 + 已启用）与每行一条 Agent 记录：名称、描述、沙箱覆盖（继承/是/否）、逐 Agent 模型路由覆盖数、启用/禁用状态徽标（文本+颜色，符合 §14）（计划 §8「Agent」）。
+- **窄契约投影**：新增 `/api/desktop/agents` GET，经 `buildDesktopAgentsSummary` + `buildDesktopAgentItem` 投影 runtime 设置。Agent 不含服务商密钥，故映射器并非"丢弃敏感字段"而是投影一个窄的展示形状——id/name/description/enabled、三态 `sandboxEnabled`（继承时为 null）、以及由 agent `modelRouting`（text/vision/stt key）推导的 `modelOverrides` 计数——而非把完整 settings 对象交给 WebView。
+- **验证边界**：新增服务端 `desktopAgents.test.ts` 3/3（投影展示字段并计 1 个模型覆盖；缺失 routing/sandbox 时计 0 覆盖/继承；summary 计 total + enabled），desktop-chat 套件 54/54（本切片无新客户端纯函数）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。`/api/desktop/agents` 已加入 Tauri HTTP capability scope。真实配置实机 smoke 留作后续。创建/编辑/删除 Agent 与逐 Agent 模型路由编辑留作后续切片。
+
+### Molibot macOS App Phase 4 语言选择持久化与跨窗口同步
+- **语言偏好持久化**：Settings 语言下拉的选择现经 `normalizeLocale` 校验后写入 `localStorage`，重启后保留；此前仅在内存生效、重启重置（计划 §8「支持中文和英文即时切换」）。
+- **跨窗口实时同步**：Chat 与 Settings 两个 WebView 同源共享存储，通过 `storage` 事件实时同步语言切换，两窗保持一致；与既有主题处理一致。
+- **验证边界**：新增 `normalizeLocale` 纯函数及单测（已知 locale + zh 变体映射 + fallback）；desktop-chat 套件 51/51、Desktop Svelte check 0 错误/警告、Desktop production build 通过、机器路径扫描干净。改动仅限桌面端、纯客户端，无服务端变更。
+
+### Molibot macOS App Phase 4 Desktop Settings 起步：模型路由
+- **多区设置导航**：Settings 窗口从单一「通用」扩展为可切换的左侧导航，新增「模型」区，沿用现有固定底栏、中英即时切换、Light/Dark/System 和紧凑布局；不嵌入现有 `/settings` 页面。
+- **凭据安全的模型配置**：「模型」区按 text/vision/stt/tts/subagent 五条能力路由各提供一个下拉，复用现有 `/api/desktop/models`（现扩展为接受 `route` 参数，向后兼容默认 `text`）即时切换并与 Web 共享；返回项仅含 key/label/contextWindow，绝不向 WebView 暴露 Provider API key 或 Base URL，符合计划 §8/§11 的细粒度复用与凭据掩码要求。
+- **验证边界**：服务端新增 `sanitizeDesktopModelRoute` 与路由化 `buildDesktopModelState` 单测（含五路由不泄漏凭据断言，desktop-chat 套件 20/20）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、**现有 Web production build 回归通过**、机器路径扫描干净。`/api/desktop/models` 改动为附加且向后兼容（ChatView 不传 route 仍走 text）。真机内 Settings 实操 smoke 待运行服务环境补充。
+
+### Molibot macOS App Phase 4 环境就绪摘要
+- **就绪健康卡片**：Settings「通用」区在服务就绪后展示「环境就绪」卡片，按文本模型与 Web Profile 两项给出「就绪/未配置」状态徽标与修复提示；为计划 §9 首启分流（全新/已有可用/损坏配置）提供凭据安全的判定信号。
+- **纯客户端派生**：就绪状态由 `summarizeDesktopReadiness` 从现有 `/api/desktop/bootstrap`（Profile 列表）与 `/api/desktop/models`（文本路由 currentKey/options）派生，无新增服务端接口，不向 WebView 暴露任何 Provider 凭据；状态徽标同时用文字表达，不只靠颜色（§14）。
+- **验证边界**：新增 `summarizeDesktopReadiness` 纯函数及单测（api 套件覆盖有/无模型与 Profile，desktop-chat 套件 22/22）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、机器路径扫描干净。改动仅限桌面端，无服务端变更，故无需 Web 回归；真机内 Settings 实操 smoke 待运行服务环境补充。
+
+### Molibot macOS App Phase 4 Chat 首启分流（无可用模型引导）
+- **不阻断的修复引导**：当本地服务就绪、已有 Web Profile，但未配置可用文本模型时，Chat composer 上方显示橙色引导横幅（标题 + 提示 + 「打开设置」按钮），并禁用附件、输入框与发送，避免「假装配置完成」；保留已有 transcript 历史可见，符合计划 §9「配置存在但不可用：精简修复引导」与「没有可用模型时...允许进入 Settings 排障」。
+- **复用就绪判定**：`modelReady` 由上轮的 `summarizeDesktopReadiness` 从 ChatView 已加载的文本模型 `currentKey/options` 派生；`sendMessage` 增加 `!modelReady` 守卫，双重防止无模型时发送。无新增接口、无凭据暴露。
+- **验证边界**：复用已测的 `summarizeDesktopReadiness`，本切片新增逻辑为模板绑定（派生态 + 横幅 + 禁用条件），由 Svelte check 与 production build 覆盖（desktop-chat 套件 22/22，0 错误/警告，build 通过，机器路径干净）。改动仅限桌面端，无服务端变更。
+
+### Molibot macOS App Phase 4 诊断设置区
+- **本地诊断视图**：Settings 新增「诊断」区，只读展示服务版本、服务所有权（由 Molibot 管理 / 外部服务）、本地 loopback 地址与连接状态；数据全部来自现有 `desktop_status`，不含任何 Provider 凭据或 token，符合计划 §11.3 与 §16.1。
+- **脱敏复制**：提供「复制诊断信息」按钮，经 `buildDiagnosticsSummary` 生成仅含非敏感运行事实的多行文本写入剪贴板，复制后短暂显示「已复制」。
+- **验证边界**：新增 `buildDiagnosticsSummary` 纯函数及单测（含缺失值 fallback 断言，desktop-chat 套件 23/23）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、机器路径扫描干净。改动仅限桌面端，无服务端变更。完整轮转日志与诊断包导出（§11.3）需原生文件写入，留作后续切片。
+
+### Molibot macOS App Phase 4 显式主题切换（System/Light/Dark）
+- **主题选择落地**：Settings「通用」区新增「外观」下拉（跟随系统 / 浅色 / 深色），默认跟随系统，补齐计划 §8「支持 Light、Dark、System，默认跟随系统」此前缺失的显式选择能力；此前仅靠 `@media (prefers-color-scheme)` 跟随系统。
+- **持久化与跨窗口同步**：选择经 `normalizeTheme` 校验后写入 `localStorage` 并设置 `document.documentElement[data-theme]`；Chat 与 Settings 两个 WebView 同源共享存储，通过 `storage` 事件实时同步，重启后保留。CSS 重构为：显式 `:root[data-theme="dark"]` 始终深色、显式浅色保持浅色、未显式选择时 `:not([data-theme])` 仍跟随系统暗色媒体查询。
+- **验证边界**：新增 `normalizeTheme` 纯函数及单测（已知值 + 非法值 fallback，desktop-chat 套件 24/24）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、机器路径扫描干净。改动仅限桌面端，无服务端变更。
+
+
+### Molibot macOS App Phase 4 任务设置区
+- **只读任务展示**：Settings 新增「任务」区，提供计数卡片（总数、按类型/状态/范围）与每行一条任务记录：channel/bot/chat、类型、调度文本+时区、状态、运行次数、上次触发时间、最近错误（计划 §8「任务」）。
+- **凭据与路径安全**：新增 `/api/desktop/tasks` GET，复用共享 tasks 路由的 GET（其忽略 RequestEvent，故传 `undefined`），再经 `buildDesktopTaskSummary` 投影。映射器保留 channel/botId/chatId/scope/type/delivery/scheduleText/timezone/status/statusReason/lastError/runCount/时间戳/sessionMode，**丢弃** `text`（任务 prompt，可能含用户密钥）与 `filePath`（绝对磁盘路径），也丢弃 web 端的 `dataRoot`/`diagnostics`。未知 type/status 归为 `one-shot`/`pending`。
+- **验证边界**：新增服务端 `desktopTasks.test.ts` 3/3（item 丢弃 text/filePath 但保留调度元数据——断言 `API key`/`/Users/secret`/`filePath`/`text` 不泄露；未知 type/status 归默认；summary 按 type/status/scope/channel 计数且无 text 泄露），desktop-chat 套件 47/47（本切片无新客户端纯函数——`taskTypeLabel`/`taskStatusLabel` 为类型化 i18n 取值）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。服务端测试刻意含 `/Users/secret/.../task-123.json` 夹具 `filePath` 与敏感 `text` 以证明映射器会剥离。`/api/desktop/tasks` 已加入 Tauri HTTP capability scope。真实任务的实机 smoke 留作后续。创建/编辑/触发/删除任务留作后续切片。
+
+
+### Molibot macOS App Phase 4 AI 服务商设置区
+- **只读服务商展示**：Settings 新增「AI 服务商」区，提供模式卡片（服务商模式 + 内置 Pi 服务商/模型）与每行一条自定义服务商记录：名称（含默认标记）、协议 + baseUrl、模型数 + 默认模型、API Key 是否已配置、启用/禁用状态徽标（文本+颜色，符合 §14）（计划 §8「AI Provider/模型路由」）。
+- **凭据安全**：新增 `/api/desktop/providers` GET，经 `buildDesktopProvidersSummary` + `buildDesktopProviderItem` 投影 runtime 设置。映射器保留 providerMode/piModelProvider/piModelName/defaultCustomProviderId，以及每个自定义服务商的 id/name/enabled/isDefault/protocol/baseUrl/modelCount/defaultModel，**丢弃** `apiKey`（服务商密钥，改为 `hasApiKey` 布尔值）、各模型 verification 细节与 reasoning-effort 映射——WebView 永远拿不到服务商密钥。
+- **验证边界**：新增服务端 `desktopProviders.test.ts` 3/3（item 丢弃 apiKey 但保留身份/端点/模型数——断言 `sk-super-secret-key`/`apiKey` 不泄露；报告缺失 key + 非默认 + anthropic 协议；summary 映射模式/pi 模型且不泄露 key），desktop-chat 套件 51/51（本切片无新客户端纯函数）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。`/api/desktop/providers` 已加入 Tauri HTTP capability scope。真实配置的实机 smoke 留作后续。创建/编辑/测试/删除服务商与逐模型路由编辑留作后续切片。
+
+### Molibot macOS App Phase 4 Host Bash 设置区
+- **审批状态与白名单**：Settings 新增「Host Bash」区，提供计数卡片（待审批、白名单已启用/总数、历史记录）与白名单列表。每行展示工具 id、显示名、原因、审批模式与权限摘要（文件系统/网络/env 数量）及启用/禁用开关（计划 §8「Host Bash」）。
+- **凭据安全**：新增 `/api/desktop/host-bash` GET + POST（`toggle_whitelist` 复用 `hostBashStore.setWhitelistEnabled`），由 `buildDesktopHostBashSummary` + `buildDesktopHostBashWhitelistItem` 映射，保留 id/toolId/displayName/reason/approvalMode/enabled/approvedAt 与权限摘要（envAllowlist 归约为计数），**丢弃** `command`（shell 命令）、原始 env-allowlist key 名、channel/chatId/scopeId、approvedFromRecordId——桌面白名单列表永远看不到实际命令或 env 变量名。pending/history 归约为计数。
+- **验证边界**：新增服务端 `desktopHostBash.test.ts` 2/2（白项丢弃 command/env key 名但保留身份/原因/模式/权限摘要——断言 `ls -la`/`/Users/secret`/`PATH`/`command` 不泄露；summary 计数 pending/whitelist/enabled/history 且无命令泄露），desktop-chat 套件 44/44（本切片无新客户端纯函数）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。服务端测试刻意含 `ls -la /Users/secret` 夹具命令以证明映射器会剥离。`/api/desktop/host-bash` 已加入 Tauri HTTP capability scope。真实 Host Bash 的实机 smoke 留作后续。删除白名单/历史条目与审批 pending 项留作后续切片。
+
+### Molibot macOS App Phase 4 沙箱设置区
+- **沙箱状态与诊断**：Settings 新增「沙箱」区，提供启用/禁用开关、初始化失败策略与环境变量继承模式；一张诊断卡片（平台支持、依赖可用、沙箱已初始化+错误、env 文件存在性+已注入/可用 key 计数）与一张网络/文件系统规则卡片（允许/拒绝计数）（计划 §8「沙箱」）。
+- **凭据与路径安全**：新增 `/api/desktop/sandbox` GET + PATCH，由 `buildDesktopSandboxSummary` 复用 `getToolSandboxDiagnostics`，保留 enabled/initFailureMode/envInheritMode、network/filesystem 域规则与聚合诊断计数，**丢弃** `envFilePath`（绝对磁盘路径）、原始 env allow/deny key 列表以及逐 key 诊断数组（envKeys* 归约为计数）——env 变量名永不进入 WebView。PATCH 仅切换 `toolSandbox.enabled`，经 `{ ...current, enabled }` 保留其余字段。
+- **验证边界**：新增服务端 `desktopSandbox.test.ts` 2/2（保留模式 + network/filesystem 规则 + 诊断计数但丢弃 envFilePath/env key 名——断言 `/Users/` 与 `SECRET_KEY` 不泄露；展示沙箱错误与缺失 env 计数），desktop-chat 套件 42/42（本切片无新客户端纯函数）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。服务端测试刻意含 `/Users/example/.../.env` 夹具 `envFilePath` 以证明映射器会剥离。`/api/desktop/sandbox` 已加入 Tauri HTTP capability scope。真实沙箱诊断的实机 smoke 留作后续。编辑 network/filesystem 允许/拒绝列表留作后续切片。
+
+### Molibot macOS App Phase 4 Trace 设置区
+- **只读 trace 聚合**：Settings 新增「Trace」区，按可选时间窗口（今天 / 昨天 / 近 7 天 / 近 30 天）展示运行 trace 聚合计数：一张范围卡片（窗口日期 + 时区）+ 一张总计卡片（事实数、运行数、工具调用含失败/拦截、模型调用含 token、技能使用含不同数、平均工具/模型耗时、覆盖 bots/channels/chats/sessions）（计划 §8「Trace」）。
+- **凭据与内容安全**：新增 `/api/desktop/trace` GET，由 `computeDesktopTraceTotals` 从 `SqliteTraceStore.listRecentFacts` 只派生聚合计数与平均，**丢弃**原始 fact 记录——fact 携带 `payload`/`argsPreview`/`resultPreview`/`errorPreview`，可能含用户或命令内容，永不进入 WebView。web 端 `/api/settings/trace` 的 per-tool/skill/model/bot/session/run/chat 明细分组也一并省略，桌面卡片只需聚合。映射器自包含，未改动 web 代码。
+- **验证边界**：新增服务端 `desktopTrace.test.ts` 3/3（`sanitizeDesktopTraceRange` 已知值+fallback；`resolveDesktopTraceWindow` last7Days 跨度=6 天；`computeDesktopTraceTotals` 计数 tools/models/skills/tokens/distinct/coverage 且断言 `errorPreview`/`argsPreview`/`private-model`/`payload` 不泄露），desktop-chat 套件 40/40（本切片复用已测的 `formatTokenCount`/`formatDurationMs`，无新客户端纯函数）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。`/api/desktop/trace` 已加入 Tauri HTTP capability scope。真实 fact 的实机 trace smoke 留作后续。
+
+### Molibot macOS App Phase 4 运行历史设置区
+- **只读运行历史**：Settings 新增「运行历史」区，列出近期运行——统计卡片（成功/部分/失败计数）加每行一条运行记录：结果徽标、bot/chat、创建时间+耗时+停止原因+是否回退模型、反思摘要、工具/失败工具列表（计划 §8「运行历史」）。
+- **凭据与路径安全**：新增 `/api/desktop/run-history` GET，由 `buildDesktopRunHistoryItem` 映射，保留 runId/createdAt/botId/chatId/stopReason/durationMs/toolNames/failedToolNames/reflectionOutcome/reflectionSummary/nextAction/memorySelectedCount/usedFallbackModel，**丢弃** `workspaceDir`/`filePath`/`skillDraftPath`（绝对磁盘路径）、`finalText`（原始模型输出）、`modelFailureSummaries`、`explicitSkillNames`；路由也不再返回 web 端的 `dataRoot`/`diagnostics`。桌面列表永远看不到磁盘位置或 transcript 内容。
+- **验证边界**：新增服务端 `desktopRunHistory.test.ts` 3/3（丢弃绝对路径与 finalText 但保留 timing/tools/reflection；未知 outcome 归为 failed；按 outcome 分组计数），desktop-chat 套件 37/37（新增 `formatDurationMs` 用例：亚秒/秒/分秒/NaN/负数兜底）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、桌面机器路径扫描干净。服务端测试文件刻意含 `/Users/example/...` 夹具路径以证明映射器会剥离（断言输出 `includes("/Users/")` 为 false）。`/api/desktop/run-history` 已加入 Tauri HTTP capability scope。真实运行记录的实机 smoke 留作后续。
+
+### Molibot macOS App Phase 4 用量设置区
+- **只读用量展示**：Settings 新增「用量」区，展示本地 AI 聚合用量——累计卡片（请求数 + 输入/输出/缓存读/缓存写/合计 tokens，附生成时间与时区）与四个时间窗口行（今天 / 昨天 / 近 7 天 / 近 30 天），每行显示请求数、合计 tokens 与日期区间（计划 §8「用量」）。
+- **凭据安全与窄契约**：新增 `/api/desktop/usage` GET，由 `buildDesktopUsageSummary` 将 `UsageStatsResponse` 映射为稳定的 `DesktopUsageSummary`（timezone/generatedAt/totals/四个带 label 的窗口）。映射器刻意丢弃 `records`、`breakdowns` 与各窗口的 `models`/`bots` 数组——provider/model 名称与 bot id 不进入桌面端，用量卡只需聚合 token/请求数。
+- **验证边界**：新增服务端 `desktopUsage.test.ts` 2/2（映射 totals + 四窗口有序；断言 `private-model`/`botId`/`records`/`breakdowns` 不泄露），desktop-chat 套件 33/33（新增 `formatTokenCount` 用例：千分位、四舍五入、NaN/负数兜底）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、机器路径扫描干净。`/api/desktop/usage` 已加入 Tauri HTTP capability scope。真实记录的实机用量 smoke 留作后续。
+
+### Molibot macOS App Phase 4 Web Profile 设置区
+- **Profile 列表与管理**：Settings 新增「Web Profile」区，列出全部已配置的 Web Profile（含已禁用），显示关联 Agent 名称，提供内联重命名（Enter 保存 / Esc 取消）与启用/禁用开关；当没有已启用的 Profile 时显示明确错误卡片，补齐 Chat「请先启用一个 Web Profile」空状态背后的可操作入口（计划 §8）。
+- **凭据安全与窄契约**：新增只读 `/api/desktop/profiles` GET，仅返回 id/name/enabled/agentId/agentName/sandboxEnabled，绝不回显凭据或 allowed-chat 列表；PATCH 仅接受指定 id 的 `name` 和/或 `enabled`，由 `patchDesktopWebProfile` 仅覆盖这两个字段，原样保留 agentId、credentials、allowedChatIds、sandboxEnabled、display，避免凭据盲的桌面端开关抹除服务端配置。写入经 `runtime.updateSettings({ channels: { web: { instances } } })`，`sanitizeChannels` 按渠道深合并，其他渠道不动。
+- **验证边界**：新增服务端 `desktopProfiles.test.ts` 4/4（含禁用 Profile + agentName 解析且凭据不泄露；patch 仅改 name/enabled 保留 agentId/credentials；拒绝未知 id；空名回退 id），desktop-chat 套件 30/30（新增 `hasEnabledWebProfile`、`sanitizeWebProfileName` 用例）；Desktop Svelte check 0 错误/警告、Desktop production build 通过、Web production build 通过（本切片触及服务端，已复跑 Web 回归）、机器路径扫描干净。`/api/desktop/profiles` 已加入 Tauri HTTP capability scope。创建/删除与关联 Agent 留作后续切片。
+
+### Molibot macOS App Phase 1 服务运行时切片
+- **共享单实例租约**：生产启动器、`molibot start` 与开发服务器统一使用 `DATA_DIR/runtime/service.lock`；活跃实例冲突会安全退出，失效租约可回收，状态文件只由持有者清理。测试全部使用临时数据目录。
+- **真实发现与握手**：新增只读、版本化的 Desktop handshake，返回服务版本、实例 ID、所有权和 capability；Tauri 只探测 loopback 地址，兼容的既有 Molibot 服务按 external 接入，绝不由 App 停止。
+- **内置 Node 与服务监管**：构建流程固定校验并打包 Apple Silicon Node 22.23.1 和 production release；Rust supervisor 支持发现、随机端口回退、临时 desktop token 注入、日志、有限退避重启、菜单重启，以及仅对 App-managed 子进程执行 SIGTERM 后超时强制退出。
+- **打包边界**：生成的 App 明确要求 macOS 13+；裁剪 build-only/optional 依赖后，当前 runtime resource 为 249 MB、测试 `.app` 为 363 MB。发布命令使用非交互 CI 打包并在 DMG 成功后自动生成同名 `.sha256`，checksum 逻辑由临时文件测试覆盖。打包 runtime 已通过独立启动/握手/清理 smoke，但完整 App 生命周期 smoke 和受限环境外的压缩 DMG 实产尚未完成，因此仍不构成可发布 beta。
+
+### Molibot macOS App Phase 2 本地 Chat 垂直切片
+- **真实 Web Profile/session 共享**：Desktop 通过窄化的 `/api/desktop/bootstrap` 只读取已启用 Web Profile 摘要，并继续使用现有 `channel=web` session API；支持 Profile 切换、按 Profile 恢复最后会话、新建、选择、内联重命名和两步删除，不新增 `desktop` channel。
+- **共享 transcript 与流式传输**：独立 Desktop UI 可读取持久 transcript，展示 user/assistant 气泡，选择 thinking level，并消费现有 SSE 的 token、replace、thinking、工具状态、done/error 事件；发送和停止均复用共享 Agent runner API，不在桌面端复制执行逻辑。
+- **安全 Markdown 与模型切换**：消息气泡使用 GFM 渲染并通过 DOMPurify 清洗后显示；Desktop 使用只返回模型 key/label/context window 的窄接口读取和切换文本模型，不把完整 settings、Provider API key 或 Base URL送入 WebView。
+- **受限 loopback transport**：新增官方 Tauri HTTP client，能力范围仅允许 `127.0.0.1`/`localhost` 的 Molibot Chat API 路径，支持动态服务端口和流式 body，不开放任意远程 URL。
+- **验证边界**：5 项临时数据/纯流/模型脱敏测试、8 项 Rust 生命周期测试、Desktop Svelte/production build 与现有 Web production build 均通过；标准宽度浏览器 smoke 已验证临时会话切换、新建、重命名和删除。真实模型流、附件、语音、队列/steer/follow-up、审批和文件面板仍属于 Phase 2 后续工作。
+
+### Molibot macOS App Phase 2 当前会话文件面板
+- **只读文件面板**：Chat 头部新增可切换的「文件」面板，复用现有只读 `/api/web/files` 接口，仅索引当前本地 session 的持久附件，并按「全部/图片/视频/音频/文档」媒体类型筛选；切换会话和每轮运行结束后自动刷新，符合「右侧文件面板只索引当前本地 session」的范围约束。
+- **预览与导出**：图片/视频/音频通过 Tauri HTTP loopback 客户端拉取字节并以 object URL 在应用内预览，所有文件均可经浏览器 `download` 锚点导出原文件名；HTTP 能力范围新增 `/api/web/files*`，仍仅限 `127.0.0.1`/`localhost` 的 Molibot 路径，不开放任意远程 URL，也不向 WebView 暴露磁盘绝对路径。
+- **验证边界**：新增 `filterDesktopFiles` 与 `desktopFileContentUrl` 纯函数单测（api 套件 4/4，desktop-chat 套件 8/8），Desktop Svelte check 0 错误/警告、production frontend build 通过；面板改动仅限桌面端，未触及 Web/服务端代码。原平台「Finder 定位」与本地缓存 Quick Look 需要 fs/dialog/opener 原生插件，留作后续切片。
+
+### Molibot macOS App Phase 2 运行进度时间线
+- **实时工具时间线**：运行中的回复气泡内新增可折叠的「运行进度」卡片，按顺序展示工具开始/结束（含成功/失败状态点）、subagent 进度和 thread note，复用现有 SSE 的 `runner_event`/`thread_note` 事件，不新增任何服务端或原生能力；事件解析由纯函数 `parseDesktopActivity` 完成并落入 api 单测。
+- **范围与重置**：时间线随每轮发送和会话切换清空，仅在运行期间展示当前轮的步骤；不把诊断字符串写入持久 transcript，符合「运行进度展示」而非持久消息。
+- **验证边界**：新增 `parseDesktopActivity` 单测覆盖工具开始/结束/错误、thread note 与无关 token 忽略（api 套件 6/6，desktop-chat 套件 10/10），Desktop Svelte check 0 错误/警告、production frontend build 通过；改动仅限桌面端。
+
+### Molibot macOS App Phase 2 消息内联附件
+- **附件随消息展示**：transcript 中每条消息底部新增附件条，按媒体类型显示图标和原文件名；附件数据来自现有 `/api/sessions/[id]` 已返回的 `attachments`，无需服务端改动。
+- **复用预览/下载**：内联附件按 `local` 与已加载的 `/api/web/files` 列表匹配，复用同一套 loopback 预览 overlay 和应用内 `download` 导出（图片/音频/视频可预览，全部可下载）；文件尚未在面板列表就绪时优雅降级为只读文件名条。Agent 生成的回复附件在本轮结束、会话重载后持久出现。
+- **验证边界**：契约新增 `DesktopMessageAttachment` 并为 `DesktopSessionFile` 补充 `local`（均为响应中已有字段）；api 套件 6/6、desktop-chat 套件 10/10、Desktop Svelte check 0 错误/警告、production frontend build 通过、机器路径扫描干净。改动为纯增量且仅限桌面端，未触及 Web/服务端代码。
+
+### Molibot macOS App Phase 2 文件上传
+- **附件随消息发送**：composer 新增附件按钮（隐藏 `<input type=file multiple>`，无需原生插件），选中文件以可移除 chip 形式预览；含附件的消息通过现有 `/api/chat` multipart 接口发送，复用共享 Agent runner 完成整轮处理，不在桌面端复制上传或执行逻辑。
+- **传输与回显**：Tauri HTTP 客户端转发 multipart body 及其自动生成的 boundary（不手动设置 Content-Type），绕过 WebView 跨源限制；HTTP 能力范围新增 `/api/chat*`，仍仅限 loopback。发送时乐观展示用户气泡和待上传文件名，整轮结束后重载会话，持久化的用户附件与 Agent 回复一并出现。含附件的轮次走非流式 `/api/chat`（纯文本消息仍走 `/api/stream` 流式）。
+- **验证边界**：新增 `sendDesktopChatWithFiles` 单测，mock fetch 断言 multipart 字段（profileId/conversationId/message/thinkingLevel/files）与 `/api/chat` 目标 URL（api 套件 7/7，desktop-chat 套件 11/11）；并通过阅读 `@tauri-apps/plugin-http` 源码确认其用标准 `Request` 序列化 FormData 并转发 boundary 头。Desktop Svelte check 0 错误/警告、production frontend build 通过、机器路径扫描干净。受限沙箱无运行服务，真实 multipart 上传实机 smoke 仍待补。改动仅限桌面端（含一处 loopback 能力范围），未触及 Web/服务端代码。
+
+### Molibot macOS App Phase 2 Host Bash 审批
+- **本地审批卡片**：流式回复消费现有 `host_bash_approval` SSE 事件，在 transcript 内渲染审批卡片，结构化展示待执行命令和原因，并按 prompt 选项提供「仅此一次/本会话允许/永久允许此工具/拒绝」按钮（选项标签由桌面端按 id 本地化中英）。
+- **复用共享 runtime 恢复**：审批结果通过 `/api/chat` 的 `/hosttools approve-once|approve-session|approve|reject <id>` 命令解决，命令不持久化为普通 session 消息；服务端执行决策并在后台恢复原任务，桌面端按有限次数（最多 15×1s）轮询 transcript，待恢复出的 assistant 回复落库后停止并刷新，符合「通过共享 runtime 恢复、不持久化临时控制指令」的要求，不在桌面端复制审批或执行逻辑。
+- **验证边界**：契约新增 `DesktopApprovalPrompt`/`DesktopApprovalDecision`；新增 `parseDesktopApproval`（从 SSE 载荷构建卡片）、`hostBashApprovalSubcommand`（决策→`/hosttools` 子命令）纯函数及单测（api 套件 10/10，desktop-chat 套件 14/14）。Desktop Svelte check 0 错误/警告、production frontend build 通过、机器路径扫描干净。受限沙箱无运行服务，真实审批触发与后台恢复实机 smoke 仍待补。改动仅限桌面端，未触及 Web/服务端代码。
+
+### Molibot macOS App Phase 2 会话筛选与 transcript 搜索
+- **侧栏标题筛选**：会话列表上方新增筛选输入，按会话标题大小写不敏感地过滤当前 Profile 的本地会话（计划 §7.4「侧栏按会话标题筛选」），纯前端、即时生效。
+- **当前对话内搜索**：Chat 头部新增「搜索对话」开关，打开后浮出查找条，在当前 transcript 内按消息内容大小写不敏感匹配，显示「第 i / 共 n」计数并支持上一个/下一个匹配跳转——命中消息气泡高亮、活动匹配滚动居中（计划 §7.4「当前 transcript 内搜索，支持上一个/下一个匹配」）。切换会话自动清空查询。首版只做当前会话内搜索，不做跨全部会话全文索引。
+- **验证边界**：新增 `filterSessionsByTitle`/`findTranscriptMatches` 纯函数及单测（api 套件 12/12，desktop-chat 套件 16/16）。Desktop Svelte check 0 错误/警告、production frontend build 通过、机器路径扫描干净。功能完全在客户端，无需运行服务即可验证；改动仅限桌面端，未触及 Web/服务端代码。
+
+### Molibot macOS App Phase 2 跟进队列与媒体预览 CSP 修复
+- **跟进消息队列**：运行期间输入框保持可用，按 Enter 把消息排入本地跟进队列（而非被 409 拒绝）；队列以可移除 chip + 「已排队 · n」徽标展示，当前轮结束后自动按序发送下一条，满足计划 §7.1「follow-up 和队列状态」。主动「停止」会清空队列；切换会话清空队列，但同一会话流式回复重载不清空。Web 渠道服务端无并发队列，本地顺序队列是该 UX 的正确落点。
+- **媒体预览 CSP 修复**：此前 `tauri.conf.json` 的 CSP `img-src` 缺少 `blob:` 且无 `media-src`，会在真机上拦截文件面板、内联附件等用 `URL.createObjectURL` 生成的 `blob:` 预览。现补充 `img-src ... blob:` 与 `media-src 'self' blob:`，使已交付的图片/音频/视频预览在真机生效。
+- **验证边界**：新增 `addToFollowUpQueue`/`nextFollowUp` 纯函数及单测（api 套件 14/14，desktop-chat 套件 18/18）。Desktop Svelte check 0 错误/警告、production frontend build 通过、机器路径扫描干净。队列完全客户端可验证；CSP 为配置修正、真机媒体预览仍待实机确认。改动仅限桌面端，未触及 Web/服务端代码。语音录制与发送（§7.1）因 Tauri WKWebView 的 `getUserMedia` 需额外原生麦克风授权接线、当前沙箱无法验证，留作独立切片。
+
+## 2026-06-27
+
+### Molibot macOS App Phase 1 基础切片
+- **独立桌面工程**：新增 `apps/desktop`，使用独立 Svelte 5 + Vite 前端和 Tauri 2 Rust host，不导入现有 Web 页面或页面 CSS；根 package scripts 提供 `desktop:dev`、`desktop:build`、`desktop:check`、`desktop:test` 入口。
+- **原生宿主基础**：配置 Chat / Settings 两个真实窗口、单实例聚焦、关闭窗口后隐藏保活、Dock reopen、菜单栏打开 Chat/Settings/Web 与明确退出；登录启动使用 Tauri autostart LaunchAgent 能力，默认关闭。
+- **服务边界模型**：新增 App-managed / external 服务所有权、兼容握手决策、端口顺延选择和退出停止策略的 Rust 纯逻辑；4 条单测覆盖兼容外部服务连接、非兼容拒绝、端口占用回退，以及退出时绝不停止外部服务。
+- **桌面视觉基础**：按 `DESIGN.md` 建立独立语义 token、Light/Dark/System、减少透明度/动效降级、固定 Settings 底栏和 620px 紧凑布局；中英即时切换和登录启动开关通过浏览器交互验证。新增巴哥犬 Molibot macOS 图标 master 与 `.icns` 资源。
+- **当前边界**：该基础切片当时尚未打包 Node sidecar、启动真实本地服务或产出 DMG；后续进展见 2026-06-28 记录。
+
 ## 2026-06-23
 
 ### Agent 专有模型（text / vision / stt）

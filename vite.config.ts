@@ -1,11 +1,22 @@
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 export default defineConfig({
   plugins: [
     tailwindcss(),
     sveltekit(),
+    {
+      name: "molibot-service-lease",
+      async configureServer(server) {
+        const { acquireServiceLease, resolveDataDir } = await import("./scripts/runtime/service-lease.mjs");
+        const lease = acquireServiceLease({ dataDir: resolveDataDir() });
+        server.httpServer?.once("close", () => lease.release());
+      }
+    },
     {
       name: "molibot-runtime-bootstrap",
       configureServer(server) {

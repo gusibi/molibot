@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "active": true,
+    "targets": ["dmg"],
+    "resources": {
+      "binaries/molibot-node-aarch64-apple-darwin": "molibot-node",
+      "resources/molibot-runtime/": "molibot-runtime/"
+    }
+  }
+}

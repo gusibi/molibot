@@ -51,6 +51,10 @@ cp "$ROOT_DIR/package.json" "$OUTPUT_DIR/package.json"
 cp "$ROOT_DIR/package-lock.json" "$OUTPUT_DIR/package-lock.json"
 cp "$ROOT_DIR/.env.example" "$OUTPUT_DIR/.env.example"
 
+mkdir -p "$OUTPUT_DIR/scripts/runtime"
+cp "$ROOT_DIR/scripts/start-server.mjs" "$OUTPUT_DIR/scripts/start-server.mjs"
+cp "$ROOT_DIR/scripts/runtime/service-lease.mjs" "$OUTPUT_DIR/scripts/runtime/service-lease.mjs"
+
 for script_name in molibot.js molibot-release.sh molibot-manage.js molibot-service.sh molibot-update.sh molibot-control.js molibot-control-service.sh; do
   if [[ -f "$ROOT_DIR/bin/$script_name" ]]; then
     cp "$ROOT_DIR/bin/$script_name" "$OUTPUT_DIR/bin/$script_name"
@@ -74,7 +78,7 @@ fi
 
 (
   cd "$OUTPUT_DIR"
-  npm ci --omit=dev
+  npm ci --omit=dev --omit=optional
 )
 
 cat > "$OUTPUT_DIR/README.release.md" <<'EOF'
@@ -83,7 +87,7 @@ cat > "$OUTPUT_DIR/README.release.md" <<'EOF'
 This directory is a production runtime artifact. Start it with:
 
 ```bash
-NODE_ENV=production node build
+NODE_ENV=production npm start
 ```
 
 For background process management:

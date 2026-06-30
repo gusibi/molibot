@@ -1,6 +1,299 @@
 # Molibot ChangeLog
 
+## 2026-06-30
+
+### macOS Sandbox policy parity
+- Replaced the Desktop Sandbox read-only summary with Web-parity Observe/Build/Strict presets and full environment, network, and filesystem policy editing.
+- Added draft-only preset application, reset, a fixed save footer, saved-policy diagnostics refresh, and a narrow Desktop PATCH contract.
+- Kept environment values and resolved absolute paths outside the WebView; existing external env-file paths are preserved until explicitly replaced by a relative path.
+- Verified 61 focused server/client tests, 6 UI structural tests, zero Svelte diagnostics, Desktop/Web builds, and isolated standard/640px save-and-reload flows.
+
+### macOS AI Provider editor workflow
+- Moved the complete self-hosted Provider create/edit form from the bottom of the Settings page into a wide, scrollable Liquid Glass modal with a persistent action footer and Escape/backdrop close behavior.
+- Split the UI terminology and hierarchy into built-in providers, self-hosted providers, and custom models without changing the existing credential-safe provider contract.
+- Verified the modal against an isolated temporary service at standard and 640px widths; frontend tests, Desktop type checks/build, and the Web production build pass.
+
+### macOS Settings liquid-glass visual alignment
+- Reworked the standalone Settings composition to match the Momo macOS reference: native titlebar spacing, a functional bilingual sidebar filter, compact category navigation, a fixed right-pane title, an independently scrolling grouped-content area, and 46px native-density rows.
+- Strengthened the material hierarchy with distinct sidebar/content/card translucency, saturation blur, specular highlights, glass hairlines, theme-safe depth, and translucent sticky save footbars while preserving all existing settings behavior.
+- Desktop `svelte-check`, frontend tests (4/4), Rust tests (8/8), and the production build pass. Per request, no screenshot or browser visual validation was performed; final visual acceptance is on macOS.
+
+### macOS Settings i18n standardization and tool/provider parity polish
+- Replaced hardcoded English across Desktop Settings with bilingual `text.*` keys: tool `Base URL`, Provider protocol option labels (`OpenAI 兼容` / `Anthropic`), Search route and strategy enums, Search/Image/Video engine names, TTS format labels (uppercase), and TTS provider display names. Added matching zh-CN/en-US strings.
+- Added a reusable show/hide API-key reveal control (Phosphor eye toggle, `.secret-input` / `.secret-reveal` semantic classes) across Web Search, Image, Video, and TTS engine/provider credential fields.
+- Search: added a per-engine test-target selector so unsaved configs can be tested against a chosen engine, not just the default.
+- TTS: added a test-provider selector, a Xiaomi MiMo voice dropdown (mirroring the web's fixed voice list) replacing free-text entry, and uppercase audio format labels.
+- Provider: added a per-row "Set as default" button, per-model verification result badges (passed/failed/untested), and an editable supported-roles chip row; both verification and roles already round-trip through the existing Desktop contract.
+- Image and Video generation: added a task-detail modal (image/video preview + download + status/progress/prompt/error/timestamps) and 5s polling that auto-starts while tasks are processing and stops when none remain. Engine names in the task list and default-engine selector are now localized (Agnes Image, OpenAI Images, Volcengine, etc.) matching the web.
+- Model routing: added a live compaction-trigger preview callout (computes the firing token count from the current text model's context window vs threshold/reserve) and replaced the free-text timezone field with a native `<select>` populated from `Intl.supportedValuesOf("timeZone")`.
+- Final i18n sweep: localized the remaining hardcoded strings — header language `aria-label`, Memory channel/userId placeholders, Runtime Environment "total" count, Diagnostics service-connection state (ready/disconnected/incompatible/error), the Weixin QR-login link placeholder, and the onboarding sidebar-resize `aria-label`.
+- Preserved the existing Desktop privacy boundary: the `DesktopMediaTask` projection still omits local filesystem paths, session ids, and provider request parameters (which may carry secrets); the new task modal renders only public URLs and status. The matching `desktopMediaTasks` regression test still passes.
+- Kept all changes inside the existing Liquid Glass token/semantic-class system (DESIGN.md); zero new raw Tailwind or ad-hoc color values.
+- Verified zero Svelte diagnostics via `svelte-check` and the full 155-test Desktop regression suite.
+
+## 2026-06-29
+
+### macOS Settings Provider, routing, and generation-tool parity
+- Unified Provider creation and onboarding with the full multi-model editor, including capability tags, context windows, endpoint paths, and thinking/reasoning configuration.
+- Added advanced model routing for tiered subagents, fallback/timeouts, default thinking, compaction, and timezone through a narrow Desktop API.
+- Upgraded Web Search, Image, Video, and TTS from read-only summaries to credential-safe save/test flows; added sanitized image/video task management and macOS voice selection plus TTS test playback.
+- Preserved the existing DESIGN-driven macOS grouped-card UI, bilingual/theme-aware rendering, narrow-window layout, and fixed save footer.
+- Verified 155 Desktop regression tests, zero Svelte diagnostics, Desktop/Web production builds, and normal/680px rendered layouts.
+
+### macOS Settings actionable Tasks management
+- Added full task text/filtering, editing, single/batch triggering, and single/batch deletion to Desktop Settings.
+- Replaced watched-event JSON paths with opaque ids and delegated mutations to the existing path-validated runtime handler.
+- Verified 98 Settings regression tests, zero Desktop Svelte diagnostics, and Desktop/Web production builds.
+
+### macOS Settings actionable Memory management
+- Added scoped/all-scope memory list and search, sync, flush, compact, record edit/delete, and governance-rejection filtering to Desktop Settings.
+- Kept governance-log filesystem paths and diagnostics outside the Desktop contract.
+- Verified 93 Settings regression tests, zero Desktop Svelte diagnostics, and Desktop/Web production builds.
+
+### macOS Settings actionable Plugins configuration
+- Added memory enable/backend controls and dynamic feature-plugin setting fields with a fixed Desktop save footer.
+- Kept plugin passwords replacement-only or explicitly clearable, while preserving omitted settings and hiding catalog filesystem paths.
+- Verified 90 Settings regression tests, zero Desktop Svelte diagnostics, and Desktop/Web production builds.
+
+### macOS Settings actionable Skills configuration
+- Added per-Skill enable/disable controls using opaque server-resolved identifiers, without exposing absolute Skill paths.
+- Added editable local/API skill-search settings for Provider, model, token, temperature, timeout, and confidence controls while preserving hidden server credentials.
+- Verified 84 Settings regression tests, zero Desktop Svelte diagnostics, and Desktop/Web production builds.
+
+### macOS Settings actionable MCP management
+- Added structured stdio/HTTP MCP server create, edit, delete, and enable controls in Desktop Settings.
+- Kept saved args, env values, headers, and cwd server-side while supporting explicit replacement and clearing from the Desktop form.
+- Verified the 79-test Settings regression suite, zero Desktop Svelte diagnostics, and Desktop/Web production builds.
+
+### macOS Settings actionable external-channel management
+- Migrated Telegram, Feishu, QQ, and Weixin instance CRUD, credentials, Agent/sandbox/allowlist configuration, and Bot Markdown files into the new macOS UI through shared credential-safe APIs.
+- Added Feishu connection testing with saved or unsaved credentials and a local Weixin login QR tool; saved secret values never return to the WebView.
+- Verified 56 focused tests, Desktop Svelte check with zero diagnostics, and Desktop/Web production builds.
+
+### Molibot macOS App native microphone recording and audio playback
+- Fixed voice recording always failing with "microphone recording is not supported in this environment": Tauri's macOS WKWebView does not expose `navigator.mediaDevices`, so the renderer's `getUserMedia` path could never run (in both dev and packaged builds).
+- Added a native capture path: new Rust module `audio.rs` opens the default input device via `cpal`, buffers samples on a dedicated thread (cpal's `Stream` is `!Send`), and on stop encodes an in-memory 16-bit PCM WAV with `hound`, returned as base64 through `start_recording`/`stop_recording`/`cancel_recording` commands.
+- Fixed capture returning only silence: the device was opened without ever requesting microphone authorization, so macOS silently denied it. Added `ensure_microphone_access()` which uses `objc2-av-foundation` to check `AVCaptureDevice` authorization and trigger the system permission prompt, surfacing clear denied/restricted/timeout errors.
+- Rewired `ChatView.svelte` to drive the native commands when running inside Tauri (detected via `__TAURI_INTERNALS__`), turning the returned WAV back into a pending audio attachment, while keeping the browser `MediaRecorder` fallback for plain `npm run dev`.
+- Added audio playback: pending (not-yet-sent) recordings get an inline `<audio>` player for instant review, and sent audio messages gain a Play button that lazily fetches the file and plays it inline. Object URLs are created/revoked alongside their files and on session switch/teardown.
+- Fixed sending an attachment (e.g. a recorded voice message) failing in the packaged app with "Cross-site POST form submissions are forbidden": the multipart `/api/chat` POST arrives from the `tauri://localhost` WebView origin, which SvelteKit's CSRF check rejects against the loopback server origin. Added `tauri://localhost` to `kit.csrf.trustedOrigins` in the server config, keeping full CSRF protection for the web deployment while allowing that single fixed desktop origin.
+- `cargo check` passes; Desktop `svelte-check` is clean (0 errors/0 warnings). Native recording, playback, and attachment send verified in a packaged build.
+
+### macOS Settings actionable Provider, Profile, and Agent management
+- Upgraded AI Providers from a read-only summary to credential-safe editing, deletion, global/default selection, model registry management, model discovery/testing, and thinking configuration.
+- Added complete Web Profile CRUD, Agent linkage, sandbox overrides, and Profile Markdown file editing while preserving server-owned credentials and allowlists.
+- Added complete Agent CRUD, dedicated text/vision/STT routes, sandbox overrides, Agent Markdown file editing, and linked-agent deletion protection.
+- Added narrow Desktop entity/profile-file APIs and Tauri loopback scopes; 70 targeted tests, Web/Desktop builds, and Desktop type checks pass.
+
 ## Version 1.0
+
+## 2026-06-28
+
+### Molibot macOS App Settings functional parity kickoff
+- Started Desktop Settings functional parity with the existing Web settings: AI Providers now supports creating credential-bearing custom providers and testing saved providers without returning API keys to the WebView.
+- Removed the unconditional “Check again” footer from every Desktop Settings section. A clearly named service reconnect action now appears only while the local service is disconnected.
+- Added responsive, bilingual, theme-aware provider form styling with a fixed save footer; targeted tests, Desktop type checks, and both Desktop/Web production builds pass.
+
+### Molibot macOS App Chat composer, recording, and Markdown polish
+- Moved the Enter/Shift+Enter guidance into the localized chat textarea placeholder and removed the separate toolbar hint.
+- Rewired the microphone control from TTS Settings to the existing voice recorder, adding a visible recording timer with cancel/finish actions and the macOS microphone usage declaration.
+- Updated assistant Markdown code blocks to wrap long content within the message bubble without horizontal scrolling, with focused UI contract tests plus clean Desktop check/build validation.
+
+### Molibot macOS App desktop Settings — Voice/TTS, Video, Image, Web Search, Plugins (read-only)
+- Completed the §8 "preserve all settings capabilities" set in Desktop Settings with five more read-only sections, each backed by a new credential-safe `/api/desktop/*` route and a field-by-field mapper that never leaks keys or disk paths:
+  - **Voice (TTS)** — `desktopTtsGenerate.ts`: macOS system-voice provider (voice/format, no key) + Xiaomi MiMo provider (`apiKey`→`hasApiKey`, keeps baseUrl/model/voice/format). Covered by `desktopTtsGenerate.test.ts` (4 cases).
+  - **Video & Image** — one shared `desktopMediaGenerate.ts` mapper (image and video share the same shape): per-engine `apiKey`→`hasApiKey`, keeps enabled/baseUrl/model + counts. Covered by `desktopMediaGenerate.test.ts` (4 cases).
+  - **Web Search** — `desktopWebSearch.ts`: routing config + per-engine `apiKey`→`hasApiKey` (keeps baseUrl) + total/enabled/configured counts. Covered by `desktopWebSearch.test.ts` (4 cases).
+  - **Plugins** — wired the previously-orphaned `desktopPlugins.ts` mapper end-to-end (route + test + loader + UI): loaded plugins by kind/source/status, dropping `manifestPath`/`entryPath`/`settingsFields`. Covered by `desktopPlugins.test.ts` (4 cases).
+- Added each route to the Tauri loopback capability scope and a client loader. With these, **every §8 settings capability is now surfaced in Desktop Settings** (22 sections). desktop-chat suite 128/128, Desktop Svelte check 0 errors/0 warnings, Desktop + Web production builds pass. Live smoke against a running service with real config remains pending for each.
+
+### Molibot macOS App Phase 3 external sessions — Bot-instance hierarchy
+- The read-only external-channel sidebar now adds a "channel → bot instance → session" tier only when a channel has more than one distinct bot instance (plan §7.2); single-instance and legacy (no-metadata) channels stay flat. Legacy sessions bucket under a null instance, shown with an "Unspecified bot instance" heading only when the channel is actually split. Added the pure `groupExternalSessionsByInstance` helper (3 new tests); reuses the existing `/api/desktop/external-sessions` contract, so the hierarchy appears automatically once channel adapters populate `botInstanceName`. desktop-chat 112/112, Desktop check/build green.
+
+### Molibot macOS App Phase 4 onboarding — channels & diagnostics steps
+- Replaced the last two §9.2 guided-flow placeholders with working read-only steps: the **channels** step shows configured external channels (enabled/total per channel + connected count, routing to Settings → Channels) and the **diagnostics** step shows runtime diagnostics (service ready state + dependency installed/total + missing dependency names, routing to Settings → Runtime environment). Both are informational, never gate Finish, and reuse existing credential-safe endpoints via the new pure `summarizeOnboardingChannels`/`summarizeOnboardingDiagnostics` helpers (4 new tests). With these, **all five §9.2 guided steps are implemented** (provider/agent/channels/launch/diagnostics). desktop-chat 109/109, Desktop check/build green.
+
+### Molibot macOS App Phase 4 onboarding Provider submit & verification step
+- Relocated the external channel transcript panel from the narrow sidebar to the main right-hand content view (`.messages` element). Selecting an external session renders its transcript messages (including Markdown and attachments) in the central pane, shows a localized read-only composer banner, and renders a proper empty state when no session is selected.
+- Pinned the chat composer to the bottom of the viewport by upgrading the main `.chat-content` container layout to a flex column with `height: 100%; min-height: 0;` (preventing flex-parent overflow expansion) and `.messages` to `flex: 1; min-height: 0;`, resolving layout scrolling issues when messages grow or when the search bar is toggled.
+- Fixed scrolling behavior across all list views: enabled scrollbar scrolling in settings content container with sticky footer position, enabled vertical scrollbar overflow in sidebars, and set explicit max-height and flex grow bounds on sidebar list items and onboarding cards.
+- Replaced the guided onboarding Provider placeholder with a fully functional custom Provider save and connection test flow.
+- Added `/api/desktop/providers` [POST] endpoint and a secure, no-spread `buildNewCustomProvider` mapper to configure and register the custom provider and switch the providerMode to "custom". API keys are saved locally and never exposed in any route responses.
+- Added `/api/desktop/provider-test` [POST] endpoint to perform remote connectivity checks. The endpoint reads the API key from the local config and runs the test, ensuring credentials never travel back to the WebView.
+- Added client-side wrappers `submitDesktopProvider` and `testDesktopProvider` in `api.ts`, mapped scopes in Tauri's default capabilities, updated i18n localization, and wired reactive UI status buttons in `ChatView.svelte` to require submission before advancing.
+- Covered by server-side tests in `desktopProviderSubmit.test.ts` (5 cases) and client-side mocks in `api.test.ts` (2 cases). All tests pass.
+
+### Molibot macOS App Phase 4 onboarding launch-at-login step
+- Replaced the guided onboarding Launch placeholder with a bilingual, default-off switch backed by the existing official Tauri autostart/LaunchAgent command. App owns the native call and passes Chat an explicit async state setter; browser preview changes only in-memory state and never writes an OS scheduler.
+- Fixed the compact repair flow to start at Agent when a model exists but no Web Profile is enabled, then latch the initial onboarding mode and missing prerequisite so a successful Agent/Profile repair does not exit the guide or flip its explanation before Channels, Launch, and Diagnostics. Desktop-chat 98/98, Rust 8/8, Desktop/Web builds, and an isolated page flow through step 4 pass.
+
+### Molibot macOS App Phase 4 onboarding Agent/Profile confirmation
+- Replaced the guided onboarding Agent-step placeholder with working Web Profile and enabled-Agent selection, explicit confirmation states, and a successful-save gate before Next. The onboarding title/hint/step labels are now explicit reactive values instead of no-argument template helpers.
+- Extended the credential-safe `/api/desktop/profiles` PATCH with optional `agentId`; the server validates the target Agent and updates only the selected Web Profile while preserving credentials, allowlists, sandbox/display fields, sibling Profiles, and other channels. The full desktop-chat regression passes 96/96 alongside Desktop checks/build, the existing Web build, and an isolated-data guided-shell page smoke. Profile creation and the remaining guided steps are still pending.
+
+### Molibot macOS App Phase 4 onboarding health-check summary
+- The onboarding `usable` branch (existing-but-usable config) now shows a compact migration/health-check summary card per plan §9.1: detected text model, Web Profile count, and a ready/not-ready status line. Built by a new pure `buildOnboardingHealthCheck(readiness, labels)` helper (locale-agnostic, injectable labels); card border/status color reflects readiness with text labels carrying the meaning (§14).
+- Covered by 1 new api unit test (ready + missing-model + missing-profile branches); desktop-chat suite 93/93, Desktop Svelte check 0 errors/0 warnings, Desktop production build passed, Web production build re-confirmed, desktop machine-path guard clean. Desktop-only change; no Web/server source touched. Reuses already-loaded readiness data — no new endpoint.
+
+### Molibot macOS App Phase 4 guided onboarding provider step
+- The first-launch onboarding overlay is now a 5-step §9.2 guided flow for new/broken configs: provider → agent → channels → launch → diagnostics, with a step indicator, ordered step list (active/done), Back/Next/Finish navigation, and a credential-blind provider draft form (name, protocol, baseUrl, model, API-key) validated live by a new pure `validateProviderDraft`. The API key is never stored in the draft — only an `apiKeyPresent` boolean — and submit/verify is explicitly deferred (it needs the desktop capability token). `usable` configs keep the simple summary.
+- Added pure helpers `ONBOARDING_STEPS`/`advanceOnboardingStep`/`validateProviderDraft`/`ProviderDraft`, bilingual i18n, and semantic CSS.
+- Covered by 3 new api unit tests; desktop-chat suite 92/92, Desktop Svelte check 0 errors/0 warnings, Desktop production build passed, Web production build re-confirmed, desktop machine-path guard clean. Desktop-only change; no Web/server source touched. Provider submit/verify, the agent/channels/launch/diagnostics step forms, and on-device smoke are deferred to later slices.
+
+### Molibot macOS App Phase 4 Runtime environment settings section
+- Added Settings → Runtime environment: a read-only dependency list (ffmpeg, git, python3) with a counts card and one row per tool showing status badge, purpose, version, source, estimated size, and the exact install command. A footer notes per-item authorized installation arrives later — detection/display only, no install execution (plan §10).
+- Server side: `desktopRuntimeEnv.ts` declares the optional deps, detects each via `command -v` (injectable resolver, never throws), classifies homebrew vs system source, and projects a credential/path-safe summary via `buildDesktopRuntimeEnvSummary` (drops the resolved binary path; install commands are `brew install` or `pip install --target ~/.molibot/tooling` — never `sudo`/`npm -g`). Node is omitted because the bundled sidecar already satisfies it. Added `/api/desktop/runtime-env` GET + contract types.
+- Covered by 7 new server tests + 1 client helper test; desktop-chat suite 89/89, Desktop Svelte check 0 errors/0 warnings, Desktop production build passed, Web production build passed (server code touched, Web regression re-run), desktop machine-path guard clean. `/api/desktop/runtime-env` added to the Tauri HTTP capability scope. Live detection smoke and per-item authorized install execution (PATH recovery, real-time logs, cancel/retry) are deferred to a later §10 slice.
+
+### Molibot macOS App Phase 4 first-launch onboarding overlay
+- ChatView now shows a one-time, localStorage-gated onboarding overlay once the service is ready. It classifies readiness via a new pure `classifyFirstLaunch` helper into the three plan §9.1 branches: `new` (no model and no profile → full-setup guidance), `usable` (both present → ready-to-chat summary), `broken` (one but not the other → lightweight repair naming the missing piece, without overwriting config). Each branch has an Open Settings button; `usable` offers Continue, `new`/`broken` offer "Don't show again". Dismissing writes a seen-flag so it does not reappear.
+- Added bilingual i18n strings and semantic CSS (`.onboarding-overlay`/`.onboarding-card`/`.primary-button`) per DESIGN.md.
+- Covered by 1 new api unit test (all four classification branches); desktop-chat suite 81/81, Desktop Svelte check 0 errors/0 warnings, Desktop production build passed, Web production build re-confirmed, desktop machine-path guard clean. Desktop-only change; no Web/server source touched. Full §9.2 guided provider/agent/channel setup and the §9 migration summary are deferred to later slices.
+
+### Molibot macOS App Phase 3 read-only external transcript pane
+- Clicking an external session in the External tab now loads a read-only transcript via a new `/api/desktop/external-sessions/[id]` GET and renders it in a sidebar panel: title · chat-type · channel header, then one block per message (role label, rendered markdown, attachment names). No input, rename, delete, or archive — the external transcript stays read-only per plan §7.2.
+- Server side: added `SessionStore.getExternalSession(id)` and `buildDesktopExternalTranscript` + `buildDesktopExternalTranscriptMessage`, which reuse the list session projection, drop the on-disk attachment `local` path (external attachments can't preview through the Web file endpoint), and filter out `system` control-directive messages per plan §12. Added `DesktopExternalTranscript`/`DesktopExternalTranscriptMessage`/`DesktopExternalTranscriptResponse` to the shared contract.
+- Covered by 2 new server tests + 1 client helper test; desktop-chat suite 80/80, Desktop Svelte check 0 errors/0 warnings, Desktop production build passed, Web production build passed (server code touched, Web regression re-run), desktop machine-path guard clean. `/api/desktop/external-sessions/*` added to the Tauri HTTP capability scope. Live transcript smoke and the §7.3 real-time event stream / unified approvals are deferred to later Phase 3 slices.
+
+### Molibot macOS App Phase 3 read-only external-channel view
+- ChatView now has a Local/External sidebar tab. The External tab loads `/api/desktop/external-sessions` and renders grouped read-only external sessions (channel badge, chat-type, optional bot-instance/sender, time) with no input box, rename, delete, or archive — the external transcript stays read-only per plan §7.2. Loaded once on connect and lazily on tab switch; empty/loading/error states handled inline.
+- Added `loadDesktopExternalSessions` client loader and pure helpers `groupExternalSessionsForView` (flattens the grouped summary into an ordered view list) and `formatExternalSessionPreview` (compact bot-instance · thread · sender one-liner), plus bilingual labels and semantic CSS per DESIGN.md.
+- Covered by 3 new api unit tests; desktop-chat suite 77/77, Desktop Svelte check 0 errors/0 warnings, Desktop production build passed, Web production build re-confirmed, desktop machine-path guard clean. Desktop-only change; no Web/server source touched. Live external-session list smoke and the read-only transcript pane / real-time events (§7.3) are deferred to later Phase 3 slices.
+
+### Molibot macOS App Phase 3 external-session aggregation (list/contract)
+- Started Phase 3 external-channel read-only aggregation (plan §7.2). Extended the shared `Conversation` type with a backward-compatible optional `ExternalSessionMetadata` (bot instance id/name, sender id/name/avatar, chat type private·group·channel, thread id/title, platform) so channel adapters can populate it later; old records omit it.
+- Added `SessionStore.listExternalSessions()` enumerating non-web legacy sessions newest-first (skips `web` and stale index entries).
+- Added a credential-safe `/api/desktop/external-sessions` GET backed by `buildDesktopExternalSessionsSummary` that groups sessions by telegram/feishu/qq/weixin in known order (excluding `web` and `cli`), projecting only display fields. The raw externalUserId is masked to an 8-char preview, message content is never loaded, and old records without metadata fall back to `chatType=private` / `senderName=masked id` / `platform=channel` per plan §7.2.
+- Covered by server `desktopExternalSessions.test.ts` (7/7) and a new `listExternalSessions` store test; desktop-chat suite 74/74, Desktop Svelte check 0 errors/0 warnings, Desktop production build passed, Web production build passed (server code touched, Web regression re-run), desktop machine-path guard clean. `/api/desktop/external-sessions` added to the Tauri HTTP capability scope. Live external-session smoke and the read-only transcript view / real-time event stream (§7.3) / unified approvals are deferred to later Phase 3 slices.
+
+### Molibot macOS App Phase 5 GitHub Actions unsigned-DMG release workflow
+- Added `.github/workflows/desktop-release.yml`, the first CI pipeline in the repo, producing the reproducible Apple Silicon unsigned-beta DMG per plan §16.1 / Phase 5. Triggered by `molibot-v*` tag pushes (publishes a prerelease GitHub Release) and `workflow_dispatch` (build-only smoke).
+- On a `macos-14` runner it sets up Node 22 + stable Rust, caches Cargo, installs root and desktop deps, and runs `npm run desktop:build` (prepare pinned Node 22.23.1 sidecar runtime → `tauri build --ci` → checksum finalizer). It then writes a BUILD-INFO manifest (version, git commit/ref, build time, runner OS/arch, Node/Rust versions, macOS 13.0 deployment target, bundled sidecar Node version, explicit unsigned/no-notarization note), uploads a `molibot-desktop-dmg` workflow artifact, and on tag push publishes the DMG + `.sha256` + manifest with auto-generated release notes.
+- Config-only change: no Web/server runtime code touched, so no Web regression applies. YAML validated. Actual DMG production still requires a real macOS runner (the restricted sandbox cannot run `hdiutil`/`tauri build`); end-to-end verification is deferred to a real `molibot-v*` tag build.
+
+### Molibot macOS App Phase 4 Channels settings section
+- Added a read-only Settings → Channels section grouping external channels (Telegram/Feishu/QQ/Weixin; web excluded) with per-bot-instance rows showing name, linked agent, allowed-chat count, sandbox override, and an enabled/disabled status badge, plus total/enabled instance counts.
+- Backed by a new credential-safe `/api/desktop/channels` GET and `buildDesktopChannelsSummary` that drops each instance's `credentials` (bot tokens / app secrets) entirely and reduces `allowedChatIds` to a count — no channel secret reaches the WebView. Covered by server unit tests; desktop checks/build and the existing Web production build pass. Editing channel instances and live connection status are deferred (the latter to Phase 3).
+
+### Molibot macOS App Phase 4 Memory settings section
+- Added a read-only Settings → Memory section showing runtime/config enabled flags, the backend name, and backend capability flags (hybrid search, vector search, incremental flush, layered memory).
+- Backed by a new `/api/desktop/memory` GET and `buildDesktopMemorySummary` that combines the memory backend config with the live `memory.isEnabled()`/`capabilities()` — it never reads memory record content (that is user data). Covered by server unit tests; desktop checks/build and the existing Web production build pass.
+
+### Molibot macOS App Phase 4 Skills settings section
+- Added a read-only Settings → Skills section showing a counts card (total / enabled / by scope) plus skill-search status, and a per-skill list: name, description, scope, owner bot/chat, MCP-server count, and an enabled/disabled status badge.
+- Backed by a new path/credential-safe `/api/desktop/skills` GET that reuses the shared skills route's GET and projects it through `buildDesktopSkillsSummary`, dropping each skill's `filePath`/`baseDir` (absolute paths) and the skill-search api key, and reducing `mcpServers` to a count. Covered by server unit tests; desktop checks/build and the existing Web production build pass. Enabling/disabling skills and viewing SKILL.md content are deferred to a later slice.
+
+### Molibot macOS App Phase 4 MCP settings section
+- Added a read-only Settings → MCP section showing a counts card (total / enabled / stdio / http) and a per-server list: transport, command (stdio) or URL (http), arg/env-key/header counts, an optional tool-name prefix, and an enabled/disabled status badge.
+- Backed by a new credential-safe `/api/desktop/mcp` GET and `buildDesktopMcpSummary` that reads runtime settings but reduces every secret-bearing field to a count — stdio `env` values, `cwd`, and `args`, plus http `headers` — so no MCP credential reaches the WebView (the identifying command/URL is kept). Covered by server unit tests; desktop checks/build and the existing Web production build pass. Adding/editing/removing MCP servers is deferred to a later slice.
+
+### Molibot macOS App Phase 4 Agents settings section
+- Added a read-only Settings → Agents section showing a counts card (total + enabled) and a per-agent list: name, description, sandbox override (inherit/on/off), per-agent model-routing override count, and an enabled/disabled status badge.
+- Backed by a new `/api/desktop/agents` GET and `buildDesktopAgentsSummary`. Agents hold no provider secrets, so the mapper projects a narrow display shape (id/name/description/enabled, a tri-state sandbox override, and a model-override count) rather than handing the WebView the full settings object. Covered by server unit tests; desktop checks/build and the existing Web production build pass. Creating/editing/deleting agents is deferred to a later slice.
+
+### Molibot macOS App Phase 4 persisted language selection
+- The Settings language choice is now validated by `normalizeLocale`, persisted to localStorage, and synced live across the Chat and Settings windows via a `storage` event, so the language survives restarts and stays consistent between windows (previously it only changed in-memory and did not propagate). Covered by a `normalizeLocale` unit test; desktop checks/build pass and no Web/server code was changed.
+
+### Molibot macOS App Phase 4 AI Providers settings section
+- Added a read-only Settings → AI Providers section showing the provider mode + built-in (Pi) provider/model and a per-custom-provider list: name (with a default badge), protocol + base URL, model count + default model, an API-key-configured flag, and an enabled/disabled status badge.
+- Backed by a new credential-safe `/api/desktop/providers` GET and `buildDesktopProvidersSummary` that reads runtime settings but drops each provider's `apiKey` (replaced by a `hasApiKey` boolean) along with per-model verification details and reasoning maps — no provider secret reaches the WebView. Covered by server unit tests; desktop checks/build and the existing Web production build pass. Creating/editing/testing/deleting providers is deferred to a later slice.
+
+### Molibot macOS App Phase 4 Tasks settings section
+- Added a read-only Settings → Tasks section showing task counts (total, by type/status/scope) and a per-task list: channel/bot/chat, type, schedule + timezone, status, run count, last-triggered time, and last error.
+- Backed by a new credential/path-safe `/api/desktop/tasks` GET that reuses the shared tasks route's GET and projects it through `buildDesktopTaskSummary`, dropping the task `text` (prompt content) and `filePath` (absolute disk path). Covered by server unit tests; desktop checks/build and the existing Web production build pass.
+
+### Molibot macOS App Phase 4 Host Bash settings section
+- Added a Settings → Host Bash section with a counts card (pending, whitelist enabled/total, history) and a whitelist list. Each whitelist row shows tool id, display name, reason, approval mode, and a permission summary (filesystem/network/env-allowlist count) with an enable/disable toggle.
+- Backed by a new credential-safe `/api/desktop/host-bash` GET + POST (toggle) and `buildDesktopHostBashSummary` that reuses `hostBashStore` but drops the `command`, raw env-allowlist key names, and channel/chat/scope ids — pending/history are reduced to counts. Covered by server unit tests; desktop checks/build and the existing Web production build pass.
+
+### Molibot macOS App Phase 4 Sandbox settings section
+- Added a Settings → Sandbox section with an enable/disable toggle, the init-failure and env-inherit modes, a diagnostics card (platform supported, deps available, sandbox initialized + error, env file presence + injected/available key counts), and a network/filesystem rules card.
+- Backed by a new credential/path-safe `/api/desktop/sandbox` GET + PATCH and `buildDesktopSandboxSummary` that reuses `getToolSandboxDiagnostics` but drops `envFilePath` (absolute path) and env variable key names (reduced to counts). PATCH toggles only `enabled`, preserving all other fields. Covered by server unit tests; desktop checks/build and the existing Web production build pass.
+
+### Molibot macOS App Phase 4 Trace settings section
+- Added a read-only Settings → Trace section showing aggregate run-trace counts for a selectable time window (today / yesterday / last 7 / last 30 days): facts, runs, tool calls (failed/blocked), model calls (total tokens), skill usages (distinct), average tool/model durations, and coverage (bots/channels/chats/sessions).
+- Backed by a new credential-safe `/api/desktop/trace` GET and `computeDesktopTraceTotals` that reads `SqliteTraceStore` but derives only aggregate counts/averages — raw fact records (payloads, args/result/error previews) and per-entity breakdowns are dropped so only counts reach the WebView. Self-contained mapper (no web code touched). Covered by server unit tests; desktop checks/build and the existing Web production build pass.
+
+### Molibot macOS App Phase 4 Run history settings section
+- Added a read-only Settings → Run history section listing recent runs: a stats card (success/partial/failed counts) and one row per run with outcome badge, bot/chat id, created-at + duration + stop reason, reflection summary, and tool/failed-tool lists.
+- Backed by a new credential-safe `/api/desktop/run-history` GET and `buildDesktopRunHistoryItem` mapper that reuses `readRunHistory` but drops absolute workspace/file/draft paths, the `finalText` model output, model-failure summaries, and skill-draft info — only outcome/timing/tool/summary fields reach the WebView. Covered by server and desktop unit tests; desktop checks/build and the existing Web production build pass.
+
+### Molibot macOS App Phase 4 Usage settings section
+- Added a read-only Settings → Usage section showing aggregate AI usage: a totals card (requests, input/output/cache-read/cache-write/total tokens) and four time-window rows (today, yesterday, last 7 days, last 30 days) with request counts, total tokens, and date ranges.
+- Backed by a new credential-safe `/api/desktop/usage` GET and `buildDesktopUsageSummary` mapper that reuses `usageTracker.getStats` but drops raw records, breakdowns, and per-model/per-bot arrays — only aggregate token/request counts reach the WebView. Covered by server and desktop unit tests; desktop checks/build and the existing Web production build pass.
+
+### Molibot macOS App Phase 4 Web Profile settings section
+- Added a Settings → Web Profiles section that lists every configured Web Profile (including disabled ones) with its linked agent name, an inline rename, and an enable/disable toggle. When no profile is enabled it shows an explicit error card — the actionable fix behind Chat's existing "Enable a Web Profile" empty state.
+- Backed by a new credential-safe `/api/desktop/profiles` GET (id/name/enabled/agentId/agentName/sandboxEnabled only) and PATCH that accepts only `name`/`enabled` for a given id and preserves agentId, credentials, allowed-chat list, sandbox override, and display settings server-side via `patchDesktopWebProfile`. Covered by server and desktop unit tests; desktop checks/build and the existing Web production build pass. Create/delete and agent-linking are deferred to a later slice.
+
+### Molibot macOS App Phase 4 Desktop Settings start: model routing
+- Expanded Desktop Settings from a single General pane into a sectioned navigation and added a Models section that switches the text/vision/stt/tts/subagent model routes via the existing `/api/desktop/models` endpoint (now accepting a backward-compatible `route` parameter).
+- Model options expose only key/label/context window — no provider keys or base URLs reach the WebView. Covered by `sanitizeDesktopModelRoute` and per-route `buildDesktopModelState` unit tests; desktop checks/build and the existing Web production build pass. The endpoint change is additive and backward-compatible.
+
+### Molibot macOS App Phase 4 environment readiness summary
+- Added an "Environment readiness" card to Settings → General that reports text-model and Web Profile status with ready/not-configured badges (text plus color), seeding the §9 first-launch triage signal.
+- Readiness is derived purely client-side via `summarizeDesktopReadiness` from the existing `/api/desktop/bootstrap` and `/api/desktop/models` data — no new endpoint and no provider credentials reach the WebView. Covered by unit tests; desktop checks/build pass and no Web/server code was changed.
+
+### Molibot macOS App Phase 4 Chat first-launch triage (no usable model)
+- When the service is ready and a Web Profile exists but no usable text model is configured, Chat shows a non-blocking guidance banner above the composer with an Open Settings action and disables sending (composer, attach, send), while keeping existing transcript history visible.
+- Reuses the tested `summarizeDesktopReadiness` for the `modelReady` signal and adds a `!modelReady` guard in `sendMessage`. No new endpoint, no credential exposure; desktop checks/build pass and no Web/server code was changed.
+
+### Molibot macOS App Phase 4 diagnostics settings section
+- Added a read-only Settings → Diagnostics section showing service version, ownership, loopback endpoint, and connection state from the existing `desktop_status`, with a sanitized "Copy diagnostics" button (no provider credentials or tokens).
+- Covered by a `buildDiagnosticsSummary` unit test; desktop checks/build pass and no Web/server code was changed. Full rotating logs and diagnostic-bundle export (§11.3) remain a follow-up needing native file writing.
+
+### Molibot macOS App Phase 4 explicit theme switch (System/Light/Dark)
+- Added an Appearance selector to Settings → General (System/Light/Dark, default System), fulfilling the §8 explicit theme requirement that was previously only honored via the OS `prefers-color-scheme` media query.
+- The choice is validated by `normalizeTheme`, persisted to localStorage, applied via a `data-theme` attribute, and synced live across the Chat and Settings windows through a `storage` event. Covered by a unit test; desktop checks/build pass and no Web/server code was changed.
+
+
+### Molibot macOS App Phase 1 service runtime
+- Added a shared data-directory service lease and versioned loopback handshake so standalone, development, and Desktop-managed launches obey the same single-owner rule.
+- Added a checksum-pinned Apple Silicon Node 22.23.1 runtime and production resources, plus Tauri discovery and supervision for external/managed ownership, bounded restart, logs, menu restart, and graceful managed-child shutdown.
+- Verified the packaged runtime independently, set the App minimum to macOS 13+, and added a non-interactive DMG build plus tested automatic `.sha256` finalization. The compressed DMG artifact and full App lifecycle smoke still need verification outside the restricted build environment, so this is not an installable beta release yet.
+
+### Molibot macOS App Phase 2 local Chat slice
+- Connected the independent Desktop Chat UI to enabled Web Profiles and the existing `channel=web` session store through a narrow bootstrap contract and a loopback-scoped Tauri HTTP transport.
+- Added real local session list/create/select/rename/delete behavior, per-Profile last-session restoration, persisted transcript rendering, thinking-level selection, SSE token/thinking/tool-state consumption, and stop wiring to the shared Web runner.
+- Added sanitized GFM message rendering and a narrow Desktop text-model selector that never returns full settings or provider credentials.
+- Added temporary-data tests for Profile sanitization and session deletion, arbitrary-chunk SSE coverage, and model-response credential exclusion. Desktop Rust/Svelte builds and the existing Web production build remain green; live model streaming and the rest of the Phase 2 feature surface are still pending.
+
+### Molibot macOS App Phase 2 current-session file panel
+- Added a toggleable, read-only Desktop Chat file panel that lists the current local session's persisted attachments via the existing `/api/web/files` endpoint, with media-type filtering and automatic refresh on session switch and after each run.
+- Added in-app preview (image/audio/video via loopback object URLs) and original-filename download, scoping the new HTTP capability to `/api/web/files*` on loopback only without exposing absolute disk paths. Native Finder reveal and Quick Look remain a follow-up slice.
+- Added pure-function unit tests for file filtering and content-URL scoping; desktop checks/tests pass and no Web/server code was changed.
+
+### Molibot macOS App Phase 2 run-progress timeline
+- Added a collapsible live run-progress timeline inside the streaming reply that shows tool start/finish (with success/error states), subagent progress, and thread notes from the existing `runner_event`/`thread_note` SSE events, with no new server or native capability.
+- The timeline is per-run and resets on send and session switch; diagnostics are never written into the persisted transcript. Covered by `parseDesktopActivity` unit tests; desktop checks/tests pass and no Web/server code was changed.
+
+### Molibot macOS App Phase 2 inline message attachments
+- Added inline attachment chips beneath each Desktop Chat message, sourced from the `attachments` already returned by `/api/sessions/[id]`, with media-type icons and the original filename.
+- Matched each attachment to the loaded `/api/web/files` list by relative path to reuse the same loopback preview overlay and in-app download; agent-produced reply attachments appear after the run persists and reloads. Contract-only/desktop-only change — desktop checks/tests pass and no Web/server code was changed.
+
+### Molibot macOS App Phase 2 file upload
+- Added a composer attach control (hidden file input, removable selected-file chips) so Desktop Chat can send attachments through the existing `/api/chat` multipart endpoint and the shared Agent runner, with optimistic message echo and a reload after the turn persists.
+- Routed multipart through the Tauri HTTP client (forwarding the generated boundary), scoping a new loopback-only `/api/chat*` capability. File-bearing turns use the non-streaming `/api/chat`; plain-text turns keep streaming via `/api/stream`. Covered by a `sendDesktopChatWithFiles` multipart unit test; live upload smoke is still pending outside the restricted sandbox. Desktop-only change with no Web/server code touched.
+
+### Molibot macOS App Phase 2 Host Bash approval
+- Added an in-transcript Host Bash approval card driven by the existing `host_bash_approval` SSE event, with localized just-once / session / persistent / reject actions and the pending command and reason.
+- Resolved approvals through the shared `/api/chat` `/hosttools` command path (never persisted as a chat message); the server executes the decision and resumes the original run in the background, which the Desktop polls for and reloads. Covered by `parseDesktopApproval` and `hostBashApprovalSubcommand` unit tests; live approval/resume smoke is still pending outside the restricted sandbox. Desktop-only change with no Web/server code touched.
+
+### Molibot macOS App Phase 2 session filter and transcript search
+- Added a sidebar session-title filter and an in-conversation find bar that searches the current transcript with a match counter and previous/next navigation, highlighting matched bubbles and scrolling the active match into view.
+- First version covers the current conversation only (no cross-session full-text index). Fully client-side, covered by `filterSessionsByTitle`/`findTranscriptMatches` unit tests; desktop checks/tests pass and no Web/server code was changed.
+
+### Molibot macOS App Phase 2 follow-up queue and media-preview CSP fix
+- Added a local follow-up queue: the composer stays usable during a run and Enter queues messages (shown as removable chips with a count) that auto-send in order once the current turn finishes; Stop clears the queue.
+- Fixed the desktop CSP, which omitted `blob:` from `img-src` and had no `media-src`, so the already-shipped file-panel and inline-attachment object-URL previews would have been blocked on-device. Covered by `addToFollowUpQueue`/`nextFollowUp` unit tests; desktop checks/tests pass and no Web/server code was changed. Voice recording (§7.1) is deferred pending native WKWebView microphone permission wiring.
+
+## 2026-06-27
+
+### Molibot macOS App Phase 1 foundation
+- Added an independent `apps/desktop` Svelte 5 + Tauri 2 workspace with real Chat and Settings windows, single-instance focus, close-to-background behavior, Dock reopen, menu-bar actions, explicit quit, and opt-in macOS login start.
+- Added testable service ownership and discovery decisions for managed vs external services, compatible handshakes, occupied-port fallback, and safe quit behavior. Four Rust tests lock the rule that the App must never stop an external Molibot service.
+- Added the first DESIGN-driven desktop shell with system light/dark behavior, reduced-transparency/motion support, a fixed Settings action bar, live Chinese/English switching, compact-window verification, and a pug-based Molibot macOS icon.
+- This is an engineering foundation only; subsequent Node sidecar progress is recorded under 2026-06-28, and the unsigned DMG remains unreleased.
 
 ## 2026-06-23
 

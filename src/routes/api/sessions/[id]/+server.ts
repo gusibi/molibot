@@ -6,6 +6,7 @@ import {
   sanitizeWebUserId,
   toWebExternalUserId
 } from "$lib/server/web/identity";
+import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
 
 export const GET: RequestHandler = async ({ params, url }) => {
   const id = params.id;
@@ -71,4 +72,34 @@ export const PUT: RequestHandler = async ({ params, request }) => {
       updatedAt: updated.updatedAt
     }
   });
+};
+
+export const DELETE: RequestHandler = async ({ params, request }) => {
+  const id = params.id;
+  if (!id) {
+    return json({ ok: false, error: "Session ID is required" }, { status: 400 });
+  }
+
+  let body: { userId?: string; profileId?: string };
+  try {
+    body = (await request.json()) as { userId?: string; profileId?: string };
+  } catch {
+    body = {};
+  }
+
+  const userId = sanitizeWebUserId(body.userId);
+  const profileId = sanitizeWebProfileId(body.profileId);
+  const externalUserId = toWebExternalUserId(userId, profileId);
+  const { pool } = getWebRuntimeContext(profileId);
+  const runner = pool.get(externalUserId, id);
+  if (runner.isRunning()) {
+    return json({ ok: false, error: "Cannot delete a session while it is running" }, { status: 409 });
+  }
+
+  const deleted = getRuntime().sessions.deleteConversation(id, "web", externalUserId);
+  if (!deleted) {
+    return json({ ok: false, error: "Session not found" }, { status: 404 });
+  }
+  pool.reset(externalUserId, id);
+  return json({ ok: true, deleted: true });
 };

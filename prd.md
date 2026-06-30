@@ -1,11 +1,47 @@
 # Molibot PRD (V1)
 
+## 2.20 Scope Clarification (2026-06-30)
+- [Done] Desktop AI Provider 新建和编辑不得追加在长列表底部；完整编辑器使用独立、可滚动的 Liquid Glass 弹窗，并保持保存/取消操作始终可见。
+- [Done] AI 设置界面明确区分“内置服务商”“自建服务商”和“自定义模型”；底层 `providerMode`/`customProviders` 契约保持兼容，不为文案区分引入配置迁移。
+- [Done] Desktop Sandbox 支持 Observe/Build/Strict 预设、完整环境/网络/文件系统策略、相对 env 文件替换、重置、固定保存底栏和诊断刷新；预设仅修改草稿，保存后才影响新运行。
+- [In Progress, P1] 继续补齐模型报错记录、Skill Drafts、Usage/Trace 明细与筛选、完整 Host Bash/System，以及运行环境安装闭环。
+
+## 2.19 Scope Clarification (2026-06-30)
+- [Done] Standalone Desktop Settings 必须按 `Momo for Mac (standalone).html` / `DESIGN.md` 收敛为 macOS Liquid Glass：保留原生 overlay titlebar，左栏提供真实设置搜索与紧凑分类导航，右栏使用固定标题区、独立滚动内容、46px 分组行和分层玻璃材质；不得破坏中英切换、明暗主题、细粒度保存 API 或固定 `.settings-footbar`。
+- [Pending visual acceptance] 由产品负责人在真实 macOS 窗口中检查最终观感；本轮按要求不截图、不执行浏览器视觉验收。代码级 `svelte-check`、Desktop 测试与 production build 已通过。
+
+## 2.18 Scope Clarification (2026-06-29)
+- [Done] Desktop Provider 新建与首次引导必须复用完整编辑契约，一次添加多模型及 text/vision/audio_input/stt/tts/tool 能力标签、上下文窗口、协议/path、Thinking 与 Reasoning 配置。
+- [Done] Desktop 全局模型路由已补齐 Subagent 分级、fallback/首 Token 超时、默认 Thinking、compaction 参数/模型和 timezone。
+- [Done] Desktop Search、Image、Video、TTS 已从只读摘要升级为细粒度保存与未保存配置测试；Image/Video 支持最近任务查看/删除，TTS 支持音色列表和测试音频播放。
+- [Done] Desktop 自定义 AI Provider 必须支持编辑、删除、启停、默认设置、模型注册与验证、Thinking 配置以及 API Key 替换/显式清空；已保存密钥不得回显给 WebView。
+- [Done] Desktop Web Profile 必须支持 CRUD、Agent 关联、沙箱覆盖和 Profile Markdown 文件编辑，并保留未暴露的服务端字段。
+- [Done] Desktop Agent 必须支持 CRUD、沙箱覆盖、文本/视觉/STT 模型覆盖和 Agent Markdown 文件编辑；被渠道引用时禁止删除。
+- [Done] Telegram、Feishu、QQ、Weixin 已迁移实例 CRUD、凭据、Agent/沙箱/允许会话、Bot Markdown 文件、飞书连接测试与微信登录二维码工具。
+- [Done] Desktop MCP 已迁移 stdio/HTTP 服务 CRUD、启停及敏感字段替换/显式清空，且不回显已保存秘密或机器路径。
+- [Done] Desktop Skills 已迁移逐项启停与技能搜索参数保存，使用服务端解析的不可逆 ID，避免暴露 Skill 绝对路径。
+- [Done] Desktop Plugins 已迁移记忆后端和动态功能插件配置，密码字段不回显并支持替换/显式清空。
+- [Done] Desktop Memory 已迁移搜索、同步、写入、去重、编辑、删除和拒绝记录筛选。
+- [Done] Desktop Tasks 已迁移完整文本查看/筛选、编辑、单项/批量触发和删除，任务路径不回传。
+- [In Progress, P1] 继续迁移模型报错记录、Skill Drafts、Usage/Trace 明细与筛选、完整 Host Bash/System，以及运行环境逐项安装闭环。Sandbox 已在 2.20 完成。
+
 ## 1. Product Goal
 Build a minimal but real multi-channel AI assistant using pi-mono, with **Telegram + CLI + Web** in V1.
 
 ## 2. Target Users
 - Solo builders and small teams who want one AI assistant across channels.
 - Users who prefer simple interaction over complex automation.
+
+## 2.17 Scope Clarification (2026-06-28)
+- [In Progress, P0] Desktop Settings 必须迁移现有 Web Settings 的实际操作能力，不能以“分类存在/只读摘要存在”判定完成。新 UI 保持 macOS 设计，但编辑、保存、测试、增删、触发和明细查看能力需逐项对齐。
+- [Done] Desktop Settings 不得在每个页面无条件显示无意义的「重新检查」；只有本地服务断开时才显示「重新连接服务」。
+- [Done] AI 服务商已迁移新增/编辑/删除、凭据保存、模型管理与验证，以及 provider mode/default 切换。
+- [Done] Web Profile/Agent/渠道实例、MCP/Skills/Plugins、Memory/Tasks/Sandbox、Search/Image/Video/TTS 的写操作与测试动作已迁移；Usage/Trace/History 明细仍按 P1 继续。
+
+## 2.16 Scope Clarification (2026-06-28)
+- [Done] macOS Desktop Chat 的 Enter / Shift+Enter 操作提示必须作为输入框 placeholder 展示，不占用发送按钮旁的工具栏空间，并保持中英文同步。
+- [Done] Chat 麦克风按钮必须启动本地录音而不是跳转到 TTS 设置；录音期间必须显示可见计时状态，并提供取消和完成操作，macOS 发布包必须声明麦克风用途。
+- [Done] AI 消息 Markdown code block 必须在消息宽度内自动换行，不得因长代码或长 token 出现横向滚动条。
 
 ## 2.15 Scope Clarification (2026-06-23)
 - [Done] 不同 agent 可配置专有模型，默认与全局模型路由一致：仅开放文本 / 视觉 / 语音转写三条路由的 per-agent 覆盖，留空即跟随全局；TTS、压缩、subagent 各级别路由始终走全局，不做 per-agent 覆盖。覆盖必须叠加在共享上层模型解析里（runner 注入），不能下沉到各 Channel，也不能修改全局 settings 对象。
@@ -3441,3 +3477,33 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Enforcement:
   - `videoGenerate` 的 fetch wrapper 在返回给 provider 解析前，先从 cloned response 读取并打印响应体；读取失败时打印明确的 body read 错误。
   - 单测必须覆盖失败 provider response body 被记录，且完整 API key 不出现在日志中。
+
+## 210. Molibot macOS App (2026-06-27)
+
+- Priority: P0
+- Stage: In Progress — Phase 1 foundation, most local Chat/Settings surfaces, read-only external-session aggregation, and the first-launch health/Provider/Agent steps are delivered; native/live-service and release verification remain
+- Detailed plan: [`docs/requirements/molibot-macos-app-plan.md`](docs/requirements/molibot-macos-app-plan.md)
+- Product target:
+  - 新增独立可安装的 Molibot macOS App，使用 Tauri 提供原生窗口、菜单栏、通知和生命周期管理，内置 Node 22 sidecar 复用现有 Agent、SvelteKit API 和多渠道运行时。
+  - 首版发布 Apple Silicon、macOS 13+ unsigned beta，Bundle ID 为 `com.eztoolab.molibot`，通过 GitHub Releases 交付；正式公开版仍以 Developer ID 签名、公证和安全更新为前置条件。
+- Requirement:
+  - App 与现有 Web 共享 `~/.molibot`、Web Profile、session、设置和运行时数据，但 Desktop Chat 与 Desktop Settings 必须是 `apps/desktop` 下完全独立的 Svelte UI，不嵌入或复用现有 Web 页面和页面 CSS。
+  - 本地服务默认只监听 `127.0.0.1`，优先使用配置端口并支持冲突回退；必须具备单实例、数据目录锁、服务所有权识别、版本/capability 握手、sidecar 崩溃恢复和端口发现。
+  - 关闭主窗口后渠道服务继续运行，Dock 和菜单栏状态项保留；明确退出只停止由 App 启动的 sidecar，不能擅自停止既有外部 Molibot 服务。
+  - Desktop Chat 必须覆盖现有 Web Chat 的 session、流式消息、thinking、模型选择、附件、语音、队列、停止/steer/follow-up 和 Host Bash 审批闭环；右侧文件面板只索引当前本地 session。
+  - Telegram、Feishu、QQ、Weixin 会话必须按渠道和 Bot 实例只读聚合并实时更新；新消息需在共享 session 层保存发送者、会话、线程/Topic、Bot 实例和附件元数据，Channel 只负责平台字段转换。
+  - Desktop Settings 首版保留全部现有设置能力，并遵守细粒度保存、中英即时切换、Light/Dark/System、响应式布局、固定保存底栏和现有设计组件约束。
+  - 首次启动引导必须区分全新安装、已有可用配置和损坏配置；依赖安装由用户逐项明确授权，Node 随 App 内置，其余工具优先使用 `~/.molibot/tooling` 隔离环境或已安装的 Homebrew。
+  - 跨渠道聚合、服务控制、依赖安装和统一审批等桌面专用能力必须使用每次启动生成的临时 capability token，不能暴露给普通本机 Web 页面。
+  - 删除 App 不删除 `~/.molibot`；数据格式迁移前必须备份受影响的结构化数据并原子执行，失败时停止服务并提供恢复。
+- Delivery phases:
+  1. Tauri 壳、Node sidecar、单实例、菜单栏和窗口/服务生命周期。当前已交付独立 desktop workspace、双窗口、单实例、菜单栏、关闭保活、登录启动、共享服务租约、真实握手/发现、固定校验的 Apple Silicon Node 22 runtime、外部/托管所有权、有限退避重启和托管进程优雅退出；完整 App 生命周期 smoke、压缩 DMG 与 checksum 仍待完成。
+  2. 独立 Desktop Chat 与本地 Web Profile/session 完整闭环。当前已交付 Profile/session 管理、持久 transcript、安全 Markdown、模型/thinking、SSE、stop、文件面板、附件上传与展示、运行时间线、Host Bash 审批、会话/全文筛选和本地 follow-up 队列；真实模型流 smoke、语音和 native 文件动作仍待完成。
+  3. 外部渠道只读聚合、统一元数据、实时事件、审批和通知。当前已交付安全聚合列表与只读 transcript；实时事件、统一审批和通知仍待完成。
+  4. 完整 Desktop Settings、首次引导和授权依赖安装器。当前已交付主要设置只读/细粒度控制面、三分支首次启动、健康摘要、Provider 提交与连接验证、可保存的 Agent/Web Profile 确认与官方 LaunchAgent 登录启动选择；渠道/诊断引导步骤与依赖安装执行仍待完成。
+  5. 原生材质、辅助功能、图标、诊断、迁移保护和 GitHub Release DMG。
+- Acceptance:
+  - 安装后无需系统 Node 即可启动，关闭窗口不导致渠道离线，现有 Web 与 server 启动方式无回归。
+  - Web 与 Desktop 可以继续同一个本地 session，但两套 UI 在代码和样式上保持独立。
+  - 四个外部渠道的新消息、Agent 回复、Bot 实例状态和待审批事件能在桌面端实时、只读、无重复地展示。
+  - 自动化测试全部使用临时 `DATA_DIR`、临时数据库或可注入 store；真实渠道 smoke test 只能由用户明确触发。

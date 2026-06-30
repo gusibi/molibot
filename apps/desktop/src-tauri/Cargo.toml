@@ -1,0 +1,39 @@
+[package]
+name = "molibot-desktop"
+version = "0.1.0"
+description = "Molibot macOS desktop host"
+authors = ["EZTOOLAB"]
+edition = "2021"
+
+[lib]
+name = "molibot_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+cpal = "0.15"
+hound = "3"
+base64 = "0.22"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-http = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVMediaFormat"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

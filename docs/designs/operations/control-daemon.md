@@ -30,7 +30,7 @@ settings code), so:
 ```
 ┌─────────────────────────────┐          ┌──────────────────────────────┐
 │  molibot-control (always on) │  control │   molibot main service        │
-│  - dedicated Telegram bot    │ ───────► │   (node build via             │
+│  - dedicated Telegram bot    │ ───────► │   (start-server wrapper via   │
 │  - admin allow-list          │          │    molibot-service.sh)        │
 │  - shells out to             │          │   ← start / stop / restart    │
 │    molibot-service.sh        │          │                              │
@@ -60,7 +60,7 @@ tree the daemon lives in:
 |---------|--------|
 | `/status` | `molibot-service.sh status` (PID-based, mode-agnostic) |
 | `/start` | release flow: run `molibot-update.sh` (build latest git ref → deploy to `current` → start) |
-| `/start dev` | build the dev working tree (`npm run build`), then start it with `node build` |
+| `/start dev` | build the dev working tree (`npm run build`), then start it through `scripts/start-server.mjs` so the shared data-directory lease is enforced |
 | `/build` | build the dev working tree (`npm run build`) only |
 | `/stop` | `molibot-service.sh stop` (writes the stop marker, stays down) |
 | `/restart` | restart the current release |
