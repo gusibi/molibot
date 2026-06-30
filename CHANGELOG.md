@@ -2,6 +2,9 @@
 
 ## 2026-06-30
 
+### Scheduled tasks: session isolation dropdown + consistent default fix
+- The session-isolation control on `/settings/tasks` is now a `fresh` / `chat` dropdown (`NativeSelect`) instead of an `IosSwitch` toggle, so the two modes are explicit rather than an ambiguous on/off. Fixed the bug where a task that looked like `chat` reverted to `fresh` after running once: the edit toggle treated an unset `sessionMode` as `chat` (switch off) while the badge and runtime resolve unset + `periodic` → `fresh`, so saving without touching the toggle persisted an empty value that displayed as `fresh`. The editor now seeds the dropdown with the *effective* mode via a shared `effectiveSessionMode` helper (also reused by the display badge) and always saves an explicit `fresh`/`chat`, so the selection no longer drifts.
+
 ### macOS Sandbox policy parity
 - Replaced the Desktop Sandbox read-only summary with Web-parity Observe/Build/Strict presets and full environment, network, and filesystem policy editing.
 - Added draft-only preset application, reset, a fixed save footer, saved-policy diagnostics refresh, and a narrow Desktop PATCH contract.
@@ -294,7 +297,6 @@
 - Added testable service ownership and discovery decisions for managed vs external services, compatible handshakes, occupied-port fallback, and safe quit behavior. Four Rust tests lock the rule that the App must never stop an external Molibot service.
 - Added the first DESIGN-driven desktop shell with system light/dark behavior, reduced-transparency/motion support, a fixed Settings action bar, live Chinese/English switching, compact-window verification, and a pug-based Molibot macOS icon.
 - This is an engineering foundation only; subsequent Node sidecar progress is recorded under 2026-06-28, and the unsigned DMG remains unreleased.
-
 ## 2026-06-23
 
 ### Per-agent dedicated models (text / vision / stt)

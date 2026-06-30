@@ -6,7 +6,6 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { NativeSelect, NativeSelectOption } from "$lib/components/ui/native-select";
-  import { IosSwitch } from "$lib/components/ui/ios-switch";
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
   import { Textarea } from "$lib/components/ui/textarea";
   import { locale } from "$lib/ui/i18n";
@@ -201,9 +200,13 @@
     return items.filter((item) => item.type === type);
   }
 
+  function effectiveSessionMode(item: TaskItem): string {
+    return item.sessionMode || (item.type === "periodic" ? "fresh" : "chat");
+  }
+
   function beginEdit(item: TaskItem): void {
     editingFilePath = item.filePath;
-    editDraft = { text: item.text || "", delivery: item.delivery || "agent", scheduleText: item.scheduleText || "", timezone: item.timezone || "", sessionMode: item.sessionMode || "" };
+    editDraft = { text: item.text || "", delivery: item.delivery || "agent", scheduleText: item.scheduleText || "", timezone: item.timezone || "", sessionMode: effectiveSessionMode(item) };
     error = ""; message = "";
   }
 
@@ -475,17 +478,12 @@
                       </TableCell>
                       <TableCell>
                         {#if editingFilePath === item.filePath}
-                          {@const isFresh = editDraft.sessionMode === "fresh"}
-                          <div style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem;">
-                            <IosSwitch
-                              checked={isFresh}
-                              onCheckedChange={(v) => { editDraft.sessionMode = v ? "fresh" : "chat"; }}
-                              disabled={saving}
-                            />
-                            <span class="channel-sidebar-btn-id">{isFresh ? "fresh" : "chat"}</span>
-                          </div>
+                          <NativeSelect bind:value={editDraft.sessionMode} disabled={saving}>
+                            <NativeSelectOption value="fresh">fresh</NativeSelectOption>
+                            <NativeSelectOption value="chat">chat</NativeSelectOption>
+                          </NativeSelect>
                         {:else}
-                          {@const effectiveMode = item.sessionMode || (item.type === "periodic" ? "fresh" : "chat")}
+                          {@const effectiveMode = effectiveSessionMode(item)}
                           <Badge variant={effectiveMode === "fresh" ? "secondary" : "outline"} class="text-[9px]">{effectiveMode}</Badge>
                         {/if}
                       </TableCell>

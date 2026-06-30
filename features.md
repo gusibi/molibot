@@ -1,6 +1,11 @@
 # Molibot Features
 
 ## 2026-06-30
+
+### 定时任务：会话隔离改为下拉 + 修复默认值漂移
+- **交互改为下拉**：`/settings/tasks` 编辑态的「会话隔离」由 `IosSwitch` 开关改为 `fresh` / `chat` 下拉（`NativeSelect`），两种模式一目了然，不再用开/关隐含表达。
+- **修复 chat 跑一次变 fresh 的 Bug**：开关此前把「未显式设置 `sessionMode`」当作 `chat`（开关 off），而展示用的 Badge 和运行时（`resolveEventSessionMode`）对「未设置 + periodic」解析为 `fresh`，导致不动开关直接保存会写入空值、运行后显示成 `fresh`。现在编辑态用共享的 `effectiveSessionMode(item)` 以「实际生效模式」初始化下拉（Badge 也复用该 helper），保存时始终写入明确的 `fresh`/`chat`，选择不再漂移。
+
 - Completed macOS Sandbox policy parity with Web: Observe/Build/Strict presets, enable/failure/env modes, relative env-file replacement, env allow/deny keys, network allow/deny domains, filesystem read/write rules, reset, fixed save footer, and diagnostics refresh are fully editable. Presets remain local drafts until save. Existing absolute env-file paths and all env values stay server-side. Verified with 61 focused server/client tests, 6/6 UI structural tests, `svelte-check` 0/0, Desktop/Web production builds, and an isolated standard/640px save-and-reload smoke.
 - Improved macOS AI Provider management: built-in providers, self-hosted providers, and custom models now have distinct bilingual labels and grouped sections. The complete create/edit form opens in a 920px scrollable liquid-glass modal with a persistent action footer instead of being appended below the provider list; Escape, backdrop close, dark theme tokens, and narrow-window single-column layout are supported. Verified against an isolated temporary service at normal and 640px widths, plus frontend tests (5/5), `svelte-check` (0/0), Desktop production build, and Web production build.
 - Refined the standalone macOS Settings shell against `Momo for Mac (standalone).html` / `DESIGN.md`: the sidebar now uses a real bilingual settings filter, compact 34px category rows, native titlebar spacing, and a status footer; the right pane now has fixed title chrome, an independent scrolling body, 46px grouped rows, horizontal appearance controls, layered liquid-glass materials, and translucent sticky save footbars. Existing fine-grained settings actions, light/dark themes, and responsive behavior are preserved. Verified with Desktop `svelte-check` (0/0), frontend tests (4/4), Rust tests (8/8), and production build; visual acceptance remains with the user on macOS as requested.
@@ -332,7 +337,6 @@
 - **服务边界模型**：新增 App-managed / external 服务所有权、兼容握手决策、端口顺延选择和退出停止策略的 Rust 纯逻辑；4 条单测覆盖兼容外部服务连接、非兼容拒绝、端口占用回退，以及退出时绝不停止外部服务。
 - **桌面视觉基础**：按 `DESIGN.md` 建立独立语义 token、Light/Dark/System、减少透明度/动效降级、固定 Settings 底栏和 620px 紧凑布局；中英即时切换和登录启动开关通过浏览器交互验证。新增巴哥犬 Molibot macOS 图标 master 与 `.icns` 资源。
 - **当前边界**：该基础切片当时尚未打包 Node sidecar、启动真实本地服务或产出 DMG；后续进展见 2026-06-28 记录。
-
 ## 2026-06-23
 
 ### Agent 专有模型（text / vision / stt）
