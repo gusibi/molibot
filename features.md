@@ -1,5 +1,11 @@
 # Molibot Features
 
+## 2026-06-30
+
+### 定时任务：会话隔离改为下拉 + 修复默认值漂移
+- **交互改为下拉**：`/settings/tasks` 编辑态的「会话隔离」由 `IosSwitch` 开关改为 `fresh` / `chat` 下拉（`NativeSelect`），两种模式一目了然，不再用开/关隐含表达。
+- **修复 chat 跑一次变 fresh 的 Bug**：开关此前把「未显式设置 `sessionMode`」当作 `chat`（开关 off），而展示用的 Badge 和运行时（`resolveEventSessionMode`）对「未设置 + periodic」解析为 `fresh`，导致不动开关直接保存会写入空值、运行后显示成 `fresh`。现在编辑态用共享的 `effectiveSessionMode(item)` 以「实际生效模式」初始化下拉（Badge 也复用该 helper），保存时始终写入明确的 `fresh`/`chat`，选择不再漂移。
+
 ## 2026-06-23
 
 ### Agent 专有模型（text / vision / stt）

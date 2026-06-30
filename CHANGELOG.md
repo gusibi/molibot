@@ -2,6 +2,11 @@
 
 ## Version 1.0
 
+## 2026-06-30
+
+### Scheduled tasks: session isolation dropdown + consistent default fix
+- The session-isolation control on `/settings/tasks` is now a `fresh` / `chat` dropdown (`NativeSelect`) instead of an `IosSwitch` toggle, so the two modes are explicit rather than an ambiguous on/off. Fixed the bug where a task that looked like `chat` reverted to `fresh` after running once: the edit toggle treated an unset `sessionMode` as `chat` (switch off) while the badge and runtime resolve unset + `periodic` → `fresh`, so saving without touching the toggle persisted an empty value that displayed as `fresh`. The editor now seeds the dropdown with the *effective* mode via a shared `effectiveSessionMode` helper (also reused by the display badge) and always saves an explicit `fresh`/`chat`, so the selection no longer drifts.
+
 ## 2026-06-23
 
 ### Per-agent dedicated models (text / vision / stt)
