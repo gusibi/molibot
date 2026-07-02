@@ -37,7 +37,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
+          cache: pnpm
+
+      - name: Enable pnpm
+        run: corepack enable
 
       - name: Setup Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -53,14 +56,11 @@ jobs:
           restore-keys: |
             desktop-cargo-${{ runner.os }}-
 
-      - name: Install root dependencies
-        run: npm ci
-
-      - name: Install desktop dependencies
-        run: npm --prefix apps/desktop ci
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Prepare runtime + build Tauri DMG + checksum
-        run: npm run desktop:build
+        run: pnpm run desktop:build
 
       - name: Locate release artifacts
         id: artifacts

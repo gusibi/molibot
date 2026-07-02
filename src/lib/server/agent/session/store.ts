@@ -67,6 +67,13 @@ export interface SessionStatusSnapshot {
   usage: SessionUsageSnapshot;
 }
 
+export interface SessionOriginMetadata {
+  origin?: "automation" | "chat";
+  taskId?: string;
+  runId?: string;
+  createdAt?: string;
+}
+
 export class MomRuntimeStore {
   private readonly dedupe = new Map<string, number>();
   private readonly defaultSessionId = "default";
@@ -220,6 +227,10 @@ export class MomRuntimeStore {
 
   private getSessionEntriesFile(chatId: string, sessionId: string): string {
     return join(this.getContextsDir(chatId), `${sessionId}.jsonl`);
+  }
+
+  private getSessionMetadataFile(chatId: string, sessionId: string): string {
+    return join(this.getContextsDir(chatId), `${sessionId}.meta.json`);
   }
 
   private sanitizeSessionId(sessionId: string): string {
@@ -404,6 +415,7 @@ export class MomRuntimeStore {
         .filter((name) => name.endsWith(".json") || name.endsWith(".jsonl"))
         .map((name) => name.replace(/\.(json|jsonl)$/, ""))
     )]
+      .filter((id) => !id.endsWith(".meta"))
       .filter(Boolean)
       .sort();
 
@@ -412,6 +424,31 @@ export class MomRuntimeStore {
       return [this.defaultSessionId];
     }
     return out;
+  }
+
+  readSessionOrigin(chatId: string, sessionId: string): SessionOriginMetadata | null {
+    const id = this.sanitizeSessionId(sessionId);
+    const file = this.getSessionMetadataFile(chatId, id);
+    if (!existsSync(file)) return null;
+    try {
+      const parsed = JSON.parse(readFileSync(file, "utf8")) as SessionOriginMetadata;
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  markSessionOrigin(chatId: string, sessionId: string, metadata: SessionOriginMetadata): void {
+    const id = this.sanitizeSessionId(sessionId);
+    this.ensureSessionEntriesFile(chatId, id);
+    writeFileSync(this.getSessionMetadataFile(chatId, id), `${JSON.stringify({
+      ...metadata,
+      createdAt: metadata.createdAt ?? new Date().toISOString()
+    }, null, 2)}\n`, "utf8");
+  }
+
+  listVisibleSessions(chatId: string): string[] {
+    return this.listSessions(chatId).filter((id) => this.readSessionOrigin(chatId, id)?.origin !== "automation");
   }
 
   getActiveSession(chatId: string): string {
@@ -458,10 +495,15 @@ export class MomRuntimeStore {
    * follow-up replies in the chat land in the task's context. Old task
    * sessions past the retention window are pruned in the same call.
    */
-  beginTaskSession(chatId: string, retentionMs?: number): string {
+  beginTaskSession(
+    chatId: string,
+    retentionMs?: number,
+    metadata?: Omit<SessionOriginMetadata, "origin" | "createdAt">
+  ): string {
     const id = this.nextRandomSessionId(chatId, "task");
     this.ensureSessionContextFile(chatId, id);
     this.ensureSessionEntriesFile(chatId, id);
+    this.markSessionOrigin(chatId, id, { origin: "automation", ...(metadata ?? {}) });
     this.setActiveSession(chatId, id);
     if (retentionMs !== undefined && retentionMs > 0) {
       this.pruneTaskSessions(chatId, retentionMs);
@@ -521,6 +563,11 @@ export class MomRuntimeStore {
     unlinkSync(this.getSessionContextFile(chatId, id));
     try {
       unlinkSync(this.getSessionEntriesFile(chatId, id));
+    } catch {
+      // ignore
+    }
+    try {
+      unlinkSync(this.getSessionMetadataFile(chatId, id));
     } catch {
       // ignore
     }

@@ -1514,7 +1514,7 @@ export class SharedRuntimeCommandService<TTarget> {
   }
 
   private resolveSessionSelection(scopeId: string, selector: string): string | null {
-    const sessions = this.options.store.listSessions(scopeId);
+    const sessions = this.options.store.listVisibleSessions(scopeId);
     const raw = selector.trim();
     if (!raw) return null;
 
@@ -1527,7 +1527,7 @@ export class SharedRuntimeCommandService<TTarget> {
   }
 
   private formatSessionsOverview(scopeId: string): string {
-    const sessions = this.options.store.listSessions(scopeId);
+    const sessions = this.options.store.listVisibleSessions(scopeId);
     const active = this.options.store.getActiveSession(scopeId);
     const lines = [
       this.renderMarkdownBulletList(this.text("Session overview", "会话概览"), [

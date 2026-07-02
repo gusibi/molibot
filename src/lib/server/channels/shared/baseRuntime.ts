@@ -142,12 +142,23 @@ export abstract class BaseChannelRuntime {
     if (event.isEvent && event.sessionMode === "fresh") {
       const sessionId = this.store.beginTaskSession(
         scopeId,
-        taskSessionRetentionMs(this.getSettings().events?.taskSessionRetentionDays)
+        taskSessionRetentionMs(this.getSettings().events?.taskSessionRetentionDays),
+        {
+          taskId: (event as ChannelInboundMessage & { taskId?: string }).taskId,
+          runId: event.runId
+        }
       );
+      if (event.runId) {
+        getEventExecutionLeaseStore().attachSessionByRunId(event.runId, sessionId);
+      }
       momLog(this.channelName, "event_fresh_session_created", { chatId: scopeId, sessionId });
       return sessionId;
     }
-    return this.store.getActiveSession(scopeId);
+    const sessionId = this.store.getActiveSession(scopeId);
+    if (event.isEvent && event.runId) {
+      getEventExecutionLeaseStore().attachSessionByRunId(event.runId, sessionId);
+    }
+    return sessionId;
   }
 
   public abortTaskRun(scopeId: string, reason = "Aborted by runtime."): { aborted: boolean; clearedStale?: boolean } {

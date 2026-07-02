@@ -11,7 +11,7 @@
     "prepare:runtime": "node ../../scripts/prepare-desktop-runtime.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "npm run prepare:runtime && tauri build --ci --config src-tauri/tauri.bundle.conf.json && node ../../scripts/finalize-desktop-release.mjs"
+    "tauri:build": "corepack pnpm run prepare:runtime && tauri build --ci --config src-tauri/tauri.bundle.conf.json && node ../../scripts/finalize-desktop-release.mjs"
   },
   "dependencies": {
     "@phosphor-icons/web": "^2.1.2",

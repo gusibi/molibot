@@ -3,7 +3,7 @@
   import { onMount } from "svelte";
   import ChatView from "./ChatView.svelte";
   import { initialLocale, normalizeLocale, translator, type Locale } from "./lib/i18n";
-  import type { DesktopAgentSaveRequest, DesktopAgentsSummary, DesktopChannelSaveRequest, DesktopChannelsSummary, DesktopExternalChannel, DesktopHostBashSummary, DesktopMcpSaveRequest, DesktopMcpSummary, DesktopMediaGenerateUpdateRequest, DesktopMediaTask, DesktopMediaTaskKind, DesktopModelRoutingSettings, DesktopModelRoutingUpdateRequest, DesktopModelState, DesktopProviderCreateRequest, DesktopProviderGlobalsRequest, DesktopProviderModel, DesktopProviderModelRole, DesktopProviderModelTag, DesktopProvidersSummary, DesktopProviderUpdateRequest, DesktopRuntimeEnvSummary, DesktopRunHistoryItem, DesktopSandboxSummary, DesktopSandboxUpdateRequest, DesktopMemoryItem, DesktopMemoryRejection, DesktopMemorySummary, DesktopPluginsSummary, DesktopSettingsTestResponse, DesktopTtsUpdateRequest, DesktopWebSearchUpdateRequest, DesktopWebSearchSummary, DesktopMediaGenerateSummary, DesktopTtsSummary, DesktopSkillsSummary, DesktopTaskSummary, DesktopTraceRange, DesktopTraceSummary, DesktopUsageSummary, DesktopWebProfile } from "@molibot/desktop-contract";
+  import type { DesktopAgentSaveRequest, DesktopAgentsSummary, DesktopChannelSaveRequest, DesktopChannelsSummary, DesktopExternalChannel, DesktopHostBashSummary, DesktopMcpSaveRequest, DesktopMcpSummary, DesktopMediaGenerateUpdateRequest, DesktopMediaTask, DesktopMediaTaskKind, DesktopModelRoutingSettings, DesktopModelRoutingUpdateRequest, DesktopModelState, DesktopProviderCreateRequest, DesktopProviderGlobalsRequest, DesktopProviderModel, DesktopProviderModelRole, DesktopProviderModelTag, DesktopProvidersSummary, DesktopProviderUpdateRequest, DesktopRuntimeEnvSummary, DesktopRunHistoryItem, DesktopSandboxSummary, DesktopSandboxUpdateRequest, DesktopMemoryItem, DesktopMemoryRejection, DesktopMemorySummary, DesktopPluginsSummary, DesktopSettingsTestResponse, DesktopTtsUpdateRequest, DesktopWebSearchUpdateRequest, DesktopWebSearchSummary, DesktopMediaGenerateSummary, DesktopTtsSummary, DesktopSkillsSummary, DesktopTaskSession, DesktopTaskSummary, DesktopTraceRange, DesktopTraceSummary, DesktopUsageSummary, DesktopWebProfile } from "@molibot/desktop-contract";
   import {
     buildDiagnosticsSummary,
     applyDesktopSandboxPreset,
@@ -42,6 +42,7 @@
     loadDesktopRuntimeEnv,
     loadDesktopSandbox,
     loadDesktopTasks,
+    loadDesktopTaskSession,
     loadDesktopTrace,
     loadDesktopUsage,
     loadDesktopWebProfiles,
@@ -49,7 +50,6 @@
     parseDesktopSandboxList,
     patchDesktopWebProfile,
     providerItemToUpdateRequest,
-    sanitizeWebProfileName,
     saveDesktopAgent,
     saveDesktopAgentFiles,
     saveDesktopBotFiles,
@@ -168,8 +168,6 @@
   let webProfilesLoading = false;
   let webProfilesEndpoint = "";
   let patchingProfileId: string | null = null;
-  let editingProfileId: string | null = null;
-  let editingProfileName = "";
   let profileEdit: ProfileEditor | null = null;
   let profileSaving = false;
   let profileEditorLoading = false;
@@ -178,6 +176,7 @@
   let usageLoading = false;
   let usageEndpoint = "";
   let runHistory: DesktopRunHistoryItem[] = [];
+  let runHistoryQuery = "";
   let runHistoryLoading = false;
   let runHistoryEndpoint = "";
   let trace: DesktopTraceSummary | null = null;
@@ -201,6 +200,7 @@
   let tasksEndpoint = "";
   let taskSelected = new Set<string>();
   let taskEdit: (DesktopTaskSummary["items"][number] & { draftText: string; draftDelivery: string; draftSchedule: string; draftTimezone: string; draftSessionMode: string }) | null = null;
+  let taskSession: DesktopTaskSession | null = null;
   let taskBusy = "";
   let taskQuery = "";
   let taskActionMessage = "";
@@ -238,11 +238,19 @@
   let skillsSearchDraft: DesktopSkillsSummary["search"] | null = null;
   let skillsSaving = false;
   let skillSavingId = "";
+  // Pristine JSON snapshots so page-level save bars only appear when the draft
+  // actually differs from the loaded value (dirty-gated), instead of showing
+  // permanently just because a draft object exists.
+  let skillsSearchPristine = "";
+  let pluginsPristine = "";
+  let sandboxPristine = "";
+  let modelRoutingPristine = "";
   let skillsActionMessage = "";
   let memory: DesktopMemorySummary | null = null;
   let memoryLoading = false;
   let memoryEndpoint = "";
   let memoryItems: DesktopMemoryItem[] = [];
+  let memoryEdit: DesktopMemoryItem | null = null;
   let memoryRejections: DesktopMemoryRejection[] = [];
   let memoryChannel = "";
   let memoryUserId = "";
@@ -305,9 +313,9 @@
     { id: "Dean", label: "Dean", locale: "英文", gender: "男性" }
   ];
   let ttsTestProvider = "macos";
-  function ttsProviderLabel(id: string): string {
-    if (id === "macos") return text.ttsProviderMacos;
-    if (id === "xiaomi") return text.ttsProviderXiaomi;
+  function ttsProviderLabel(id: string, copy: typeof text): string {
+    if (id === "macos") return copy.ttsProviderMacos;
+    if (id === "xiaomi") return copy.ttsProviderXiaomi;
     return id;
   }
   let toolSettingsDirty = new Set<ToolSettingsSection>();
@@ -335,9 +343,9 @@
     grok: "searchEngineGrok",
     bocha: "searchEngineBocha"
   };
-  function webSearchEngineLabel(id: string): string {
+  function webSearchEngineLabel(id: string, copy: typeof text): string {
     const key = WEB_SEARCH_ENGINE_LABELS[id];
-    return key ? (text[key] as string) : id;
+    return key ? (copy[key] as string) : id;
   }
   const IMAGE_ENGINE_LABELS: Record<string, string> = {
     agnes: "Agnes Image",
@@ -380,91 +388,97 @@
     applyTheme(value);
   }
 
-  const ACCENT_STORAGE_KEY = "molibot-desktop-accent";
-  const ACCENT_OPTIONS = ["#007AFF", "#AF52DE", "#FF2D55", "#FF9500", "#34C759", "#8E8E93"];
-  function normalizeAccent(value: string | null): string {
-    return value && ACCENT_OPTIONS.includes(value) ? value : ACCENT_OPTIONS[0];
-  }
-  let accent: string = normalizeAccent(localStorage.getItem(ACCENT_STORAGE_KEY));
+  // Geist owns a single accent (blue-700), defined as --accent / --accent-soft
+  // in styles.css per theme. No user-selectable accent palette.
 
-  function applyAccent(value: string): void {
-    const root = document.documentElement;
-    root.style.setProperty("--accent", value);
-    root.style.setProperty("--accent-soft", `${value}24`);
-  }
-
-  function changeAccent(value: string): void {
-    accent = normalizeAccent(value);
-    localStorage.setItem(ACCENT_STORAGE_KEY, accent);
-    applyAccent(accent);
-  }
-
-  const THEME_PREVIEWS: { value: DesktopTheme; label: () => string }[] = [
-    { value: "light", label: () => text.themeLight },
-    { value: "dark", label: () => text.themeDark },
-    { value: "system", label: () => text.themeSystem }
+  const THEME_PREVIEWS: { value: DesktopTheme; labelKey: "themeLight" | "themeDark" | "themeSystem" }[] = [
+    { value: "light", labelKey: "themeLight" },
+    { value: "dark", labelKey: "themeDark" },
+    { value: "system", labelKey: "themeSystem" }
   ];
 
-  const SETTINGS_NAV: { id: SettingsSection; icon: string; color: string }[] = [
-    { id: "general", icon: "gear-six", color: "#8E8E93" },
-    { id: "models", icon: "cpu", color: "#AF52DE" },
-    { id: "providers", icon: "plugs", color: "#5856D6" },
-    { id: "agents", icon: "robot", color: "#0A84FF" },
-    { id: "mcp", icon: "plugs-connected", color: "#FF9500" },
-    { id: "skills", icon: "magic-wand", color: "#FF2D55" },
-    { id: "memory", icon: "brain", color: "#FF375F" },
-    { id: "channels", icon: "broadcast", color: "#0A84FF" },
-    { id: "plugins", icon: "puzzle-piece", color: "#34C759" },
-    { id: "webSearch", icon: "globe", color: "#30B0C7" },
-    { id: "imageGenerate", icon: "image-square", color: "#FF9500" },
-    { id: "videoGenerate", icon: "film-slate", color: "#FF2D55" },
-    { id: "ttsGenerate", icon: "waveform", color: "#AF52DE" },
-    { id: "profiles", icon: "identification-card", color: "#5856D6" },
-    { id: "usage", icon: "chart-bar", color: "#34C759" },
-    { id: "runHistory", icon: "clock-counter-clockwise", color: "#8E8E93" },
-    { id: "trace", icon: "list-magnifying-glass", color: "#30B0C7" },
-    { id: "sandbox", icon: "shield-check", color: "#34C759" },
-    { id: "hostBash", icon: "terminal-window", color: "#1c1c1e" },
-    { id: "tasks", icon: "list-checks", color: "#FF9500" },
-    { id: "diagnostics", icon: "stethoscope", color: "#FF2D55" },
-    { id: "runtimeEnv", icon: "package", color: "#8E8E93" }
+  const SETTINGS_NAV: { id: SettingsSection; icon: string }[] = [
+    { id: "general", icon: "gear-six" },
+    { id: "models", icon: "cpu" },
+    { id: "providers", icon: "plugs" },
+    { id: "agents", icon: "robot" },
+    { id: "mcp", icon: "plugs-connected" },
+    { id: "skills", icon: "magic-wand" },
+    { id: "memory", icon: "brain" },
+    { id: "channels", icon: "broadcast" },
+    { id: "plugins", icon: "puzzle-piece" },
+    { id: "webSearch", icon: "globe" },
+    { id: "imageGenerate", icon: "image-square" },
+    { id: "videoGenerate", icon: "film-slate" },
+    { id: "ttsGenerate", icon: "waveform" },
+    { id: "profiles", icon: "identification-card" },
+    { id: "usage", icon: "chart-bar" },
+    { id: "runHistory", icon: "clock-counter-clockwise" },
+    { id: "trace", icon: "list-magnifying-glass" },
+    { id: "sandbox", icon: "shield-check" },
+    { id: "hostBash", icon: "terminal-window" },
+    { id: "tasks", icon: "list-checks" },
+    { id: "diagnostics", icon: "stethoscope" },
+    { id: "runtimeEnv", icon: "package" }
+  ];
+
+  const SETTINGS_GROUPS: { id: "general" | "ai" | "channels" | "data" | "system"; sections: SettingsSection[] }[] = [
+    { id: "general", sections: ["general"] },
+    { id: "ai", sections: ["models", "providers", "usage", "trace", "mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"] },
+    { id: "channels", sections: ["profiles", "channels"] },
+    { id: "data", sections: ["agents", "memory", "skills", "runHistory", "tasks", "hostBash"] },
+    { id: "system", sections: ["runtimeEnv", "sandbox", "plugins", "diagnostics"] }
   ];
 
   let settingsFilter = "";
   $: localizedSettingsNav = SETTINGS_NAV.map((item) => ({
     ...item,
-    label: sectionLabel(item.id),
+    label: sectionLabel(item.id, text),
     locale
   }));
   $: filteredSettingsNav = localizedSettingsNav.filter((item) => {
     const query = settingsFilter.trim().toLocaleLowerCase(locale);
     return !query || `${item.label} ${item.id}`.toLocaleLowerCase(locale).includes(query);
   });
+  $: localizedSettingsGroups = SETTINGS_GROUPS.map((group) => ({
+    ...group,
+    label: settingsGroupLabel(group.id, locale),
+    items: group.sections.map((section) => filteredSettingsNav.find((item) => item.id === section)).filter((item): item is (typeof localizedSettingsNav)[number] => Boolean(item))
+  })).filter((group) => group.items.length > 0);
 
-  function sectionLabel(section: SettingsSection): string {
+  function settingsGroupLabel(group: (typeof SETTINGS_GROUPS)[number]["id"], currentLocale: Locale): string {
+    const zh = currentLocale === "zh-CN";
+    if (group === "ai") return zh ? "AI 引擎" : "AI Engine";
+    if (group === "channels") return zh ? "渠道" : "Channels";
+    if (group === "data") return zh ? "助手数据" : "Agent Data";
+    if (group === "system") return zh ? "系统" : "System";
+    return zh ? "总览" : "General";
+  }
+
+  function sectionLabel(section: SettingsSection, copy: typeof text): string {
     switch (section) {
-      case "models": return text.models;
-      case "providers": return text.providers;
-      case "agents": return text.agents;
-      case "mcp": return text.mcp;
-      case "skills": return text.skills;
-      case "memory": return text.memory;
-      case "channels": return text.channels;
-      case "plugins": return text.plugins;
-      case "webSearch": return text.webSearch;
-      case "imageGenerate": return text.imageGenerate;
-      case "videoGenerate": return text.videoGenerate;
-      case "ttsGenerate": return text.ttsGenerate;
-      case "profiles": return text.profiles;
-      case "usage": return text.usage;
-      case "runHistory": return text.runHistory;
-      case "trace": return text.trace;
-      case "sandbox": return text.sandbox;
-      case "hostBash": return text.hostBash;
-      case "tasks": return text.tasks;
-      case "diagnostics": return text.diagnostics;
-      case "runtimeEnv": return text.runtimeEnv;
-      default: return text.general;
+      case "models": return copy.models;
+      case "providers": return copy.providers;
+      case "agents": return copy.agents;
+      case "mcp": return copy.mcp;
+      case "skills": return copy.skills;
+      case "memory": return copy.memory;
+      case "channels": return copy.channels;
+      case "plugins": return copy.plugins;
+      case "webSearch": return copy.webSearch;
+      case "imageGenerate": return copy.imageGenerate;
+      case "videoGenerate": return copy.videoGenerate;
+      case "ttsGenerate": return copy.ttsGenerate;
+      case "profiles": return copy.profiles;
+      case "usage": return copy.usage;
+      case "runHistory": return copy.runHistory;
+      case "trace": return copy.trace;
+      case "sandbox": return copy.sandbox;
+      case "hostBash": return copy.hostBash;
+      case "tasks": return copy.tasks;
+      case "diagnostics": return copy.diagnostics;
+      case "runtimeEnv": return copy.runtimeEnv;
+      default: return copy.general;
     }
   }
 
@@ -477,53 +491,186 @@
   const isSettings = new URLSearchParams(window.location.search).get("window") === "settings";
   const runningInTauri = "__TAURI_INTERNALS__" in window;
 
-  function routeLabel(route: DesktopModelRoute): string {
-    if (route === "text") return text.routeText;
-    if (route === "vision") return text.routeVision;
-    if (route === "stt") return text.routeStt;
-    if (route === "tts") return text.routeTts;
-    return text.routeSubagent;
+  function routeLabel(route: DesktopModelRoute, copy: typeof text): string {
+    if (route === "text") return copy.routeText;
+    if (route === "vision") return copy.routeVision;
+    if (route === "stt") return copy.routeStt;
+    if (route === "tts") return copy.routeTts;
+    return copy.routeSubagent;
   }
 
-  function serviceStateLabel(state: "disconnected" | "ready" | "incompatible" | "error" | undefined): string {
-    if (state === "ready") return text.diagStateReady;
-    if (state === "incompatible") return text.diagStateIncompatible;
-    if (state === "error") return text.diagStateError;
-    return text.diagStateDisconnected;
+  function externalChannelLabel(channel: DesktopExternalChannel, currentLocale: Locale): string {
+    if (channel === "weixin") return currentLocale === "zh-CN" ? "微信" : "WeChat";
+    if (channel === "feishu") return currentLocale === "zh-CN" ? "飞书" : "Feishu";
+    if (channel === "qq") return "QQ";
+    return "Telegram";
   }
 
-  function usageWindowLabel(label: "today" | "yesterday" | "last7Days" | "last30Days"): string {
-    if (label === "today") return text.usageWindow_today;
-    if (label === "yesterday") return text.usageWindow_yesterday;
-    if (label === "last7Days") return text.usageWindow_last7Days;
-    return text.usageWindow_last30Days;
+  function serviceStateLabel(state: "disconnected" | "ready" | "incompatible" | "error" | undefined, copy: typeof text): string {
+    if (state === "ready") return copy.diagStateReady;
+    if (state === "incompatible") return copy.diagStateIncompatible;
+    if (state === "error") return copy.diagStateError;
+    return copy.diagStateDisconnected;
   }
 
-  function runHistoryOutcomeLabel(outcome: "success" | "partial" | "failed"): string {
-    if (outcome === "success") return text.runHistoryOutcome_success;
-    if (outcome === "partial") return text.runHistoryOutcome_partial;
-    return text.runHistoryOutcome_failed;
+  function usageWindowLabel(label: "today" | "yesterday" | "last7Days" | "last30Days", copy: typeof text): string {
+    if (label === "today") return copy.usageWindow_today;
+    if (label === "yesterday") return copy.usageWindow_yesterday;
+    if (label === "last7Days") return copy.usageWindow_last7Days;
+    return copy.usageWindow_last30Days;
   }
 
-  function traceRangeLabel(range: DesktopTraceRange): string {
-    if (range === "today") return text.usageWindow_today;
-    if (range === "yesterday") return text.usageWindow_yesterday;
-    if (range === "last7Days") return text.usageWindow_last7Days;
-    return text.usageWindow_last30Days;
+  function runHistoryOutcomeLabel(outcome: "success" | "partial" | "failed", copy: typeof text): string {
+    if (outcome === "success") return copy.runHistoryOutcome_success;
+    if (outcome === "partial") return copy.runHistoryOutcome_partial;
+    return copy.runHistoryOutcome_failed;
   }
 
-  function taskTypeLabel(type: "one-shot" | "periodic" | "immediate"): string {
-    if (type === "one-shot") return text.taskType_oneShot;
-    if (type === "periodic") return text.taskType_periodic;
-    return text.taskType_immediate;
+  function traceRangeLabel(range: DesktopTraceRange, copy: typeof text): string {
+    if (range === "today") return copy.usageWindow_today;
+    if (range === "yesterday") return copy.usageWindow_yesterday;
+    if (range === "last7Days") return copy.usageWindow_last7Days;
+    return copy.usageWindow_last30Days;
   }
 
-  function taskStatusLabel(status: "pending" | "running" | "completed" | "skipped" | "error"): string {
-    if (status === "pending") return text.taskStatus_pending;
-    if (status === "running") return text.taskStatus_running;
-    if (status === "completed") return text.taskStatus_completed;
-    if (status === "skipped") return text.taskStatus_skipped;
-    return text.taskStatus_error;
+  // --- Lightweight, dependency-free chart geometry helpers (Usage / Trace) ---
+  // All charts are hand-rolled SVG so the Desktop bundle stays free of a chart
+  // library. Trend paths render in a 0 0 100 CHART_H viewBox stretched to the
+  // card width (non-scaling stroke keeps lines crisp); donuts use the classic
+  // r = 100/2π circle so stroke-dasharray values are direct percentages.
+  const CHART_H = 44;
+  const CHART_PAD_TOP = 5;
+  const CHART_PAD_BOTTOM = 4;
+  const DONUT_R = 15.915;
+
+  interface DonutSegment { key: string; color: string; value: number; len: number; offset: number; }
+
+  /** Maps a value series to a smoothed SVG path across the 0–100 chart width. */
+  function trendLinePath(values: number[], max: number): string {
+    const n = values.length;
+    if (n === 0) return "";
+    const span = CHART_H - CHART_PAD_TOP - CHART_PAD_BOTTOM;
+    const yFor = (v: number) => CHART_PAD_TOP + (1 - Math.min(1, max > 0 ? v / max : 0)) * span;
+    if (n === 1) return `M0 ${yFor(values[0]).toFixed(2)} L100 ${yFor(values[0]).toFixed(2)}`;
+    const pts: [number, number][] = values.map((v, i) => [(i / (n - 1)) * 100, yFor(v)]);
+    // Catmull-Rom → cubic bezier for a gentle, non-overshooting curve.
+    let d = `M${pts[0][0].toFixed(2)} ${pts[0][1].toFixed(2)}`;
+    for (let i = 0; i < pts.length - 1; i += 1) {
+      const p0 = pts[i - 1] ?? pts[i];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[i + 2] ?? p2;
+      const t = 0.16;
+      const c1x = p1[0] + (p2[0] - p0[0]) * t;
+      const c1y = p1[1] + (p2[1] - p0[1]) * t;
+      const c2x = p2[0] - (p3[0] - p1[0]) * t;
+      const c2y = p2[1] - (p3[1] - p1[1]) * t;
+      d += ` C${c1x.toFixed(2)} ${c1y.toFixed(2)} ${c2x.toFixed(2)} ${c2y.toFixed(2)} ${p2[0].toFixed(2)} ${p2[1].toFixed(2)}`;
+    }
+    return d;
+  }
+
+  /** Closes a trend line into a filled area down to the chart baseline. */
+  function trendAreaPath(line: string): string {
+    return line ? `${line} L100 ${CHART_H} L0 ${CHART_H} Z` : "";
+  }
+
+  /** Y coordinate for a single value, matching trendLinePath's scale. */
+  function trendY(value: number, max: number): number {
+    const span = CHART_H - CHART_PAD_TOP - CHART_PAD_BOTTOM;
+    return CHART_PAD_TOP + (1 - Math.min(1, max > 0 ? value / max : 0)) * span;
+  }
+
+  /** Builds clockwise-from-top donut ring segments with percentage dash lengths. */
+  function donutSegments(items: { key: string; color: string; value: number }[]): DonutSegment[] {
+    const total = items.reduce((sum, item) => sum + Math.max(0, item.value), 0);
+    if (total <= 0) return [];
+    const segments: DonutSegment[] = [];
+    let acc = 0;
+    for (const item of items) {
+      const value = Math.max(0, item.value);
+      if (value === 0) continue;
+      const len = (value / total) * 100;
+      segments.push({ key: item.key, color: item.color, value, len, offset: 25 - acc });
+      acc += len;
+    }
+    return segments;
+  }
+
+  function percentOf(value: number, total: number): number {
+    return total > 0 ? Math.round((value / total) * 100) : 0;
+  }
+
+  // Usage derived chart data.
+  $: usageDaily = usage?.daily ?? [];
+  $: usageHasTrend = usageDaily.length >= 1;
+  $: usageTokenMax = Math.max(1, ...usageDaily.map((day) => day.totalTokens));
+  $: usageReqMax = Math.max(1, ...usageDaily.map((day) => day.requests));
+  $: usageTokenLine = trendLinePath(usageDaily.map((day) => day.totalTokens), usageTokenMax);
+  $: usageTokenArea = trendAreaPath(usageTokenLine);
+  $: usageReqLine = trendLinePath(usageDaily.map((day) => day.requests), usageReqMax);
+  $: usagePeakIndex = usageDaily.reduce((best, day, index) => (day.totalTokens > (usageDaily[best]?.totalTokens ?? -1) ? index : best), 0);
+  $: usagePeakDay = usageDaily[usagePeakIndex] ?? null;
+  $: usagePeakX = usageDaily.length > 1 ? (usagePeakIndex / (usageDaily.length - 1)) * 100 : 0;
+  // Keep the floating peak label inside the card even when the peak sits at an edge.
+  $: usagePeakTagX = Math.min(90, Math.max(10, usagePeakX));
+  $: usagePeakY = usagePeakDay ? trendY(usagePeakDay.totalTokens, usageTokenMax) : 0;
+  $: usageDistItems = usage
+    ? [
+        { key: "input", label: text.usageInput, value: usage.totals.inputTokens, color: "var(--chart-blue)" },
+        { key: "output", label: text.usageOutput, value: usage.totals.outputTokens, color: "var(--chart-teal)" },
+        { key: "cacheRead", label: text.usageCacheRead, value: usage.totals.cacheReadTokens, color: "var(--chart-purple)" },
+        { key: "cacheWrite", label: text.usageCacheWrite, value: usage.totals.cacheWriteTokens, color: "var(--chart-orange)" }
+      ]
+    : [];
+  $: usageDistTotal = usageDistItems.reduce((sum, item) => sum + item.value, 0);
+  $: usageDistSegments = donutSegments(usageDistItems);
+  $: usageCacheBase = usage ? usage.totals.inputTokens + usage.totals.cacheReadTokens : 0;
+  $: usageCacheHit = usage && usageCacheBase > 0 ? usage.totals.cacheReadTokens / usageCacheBase : 0;
+  $: usageWindowMax = usage ? Math.max(1, ...usage.windows.map((window) => window.totalTokens)) : 1;
+  $: usageAvgPerDay = usageDaily.length > 0 ? usage!.totals.totalTokens / 30 : 0;
+
+  // Trace derived chart data.
+  $: traceActivityItems = trace
+    ? [
+        { key: "tools", label: text.traceToolCalls, value: trace.totals.toolCalls, color: "var(--chart-blue)" },
+        { key: "models", label: text.traceModelCalls, value: trace.totals.modelCalls, color: "var(--chart-purple)" },
+        { key: "skills", label: text.traceSkills, value: trace.totals.skillUsages, color: "var(--chart-teal)" },
+        { key: "runs", label: text.traceRuns, value: trace.totals.runs, color: "var(--chart-indigo)" }
+      ]
+    : [];
+  $: traceActivityMax = Math.max(1, ...traceActivityItems.map((item) => item.value));
+  $: traceOutcomeItems = trace
+    ? [
+        { key: "ok", label: text.traceSucceeded, value: Math.max(0, trace.totals.executedToolCalls - trace.totals.failedTools), color: "var(--chart-green)" },
+        { key: "failed", label: text.traceFailed, value: trace.totals.failedTools, color: "var(--chart-red)" },
+        { key: "blocked", label: text.traceBlocked, value: trace.totals.blockedTools, color: "var(--chart-orange)" }
+      ]
+    : [];
+  $: traceOutcomeTotal = traceOutcomeItems.reduce((sum, item) => sum + item.value, 0);
+  $: traceOutcomeSegments = donutSegments(traceOutcomeItems);
+  $: traceDurationMax = trace ? Math.max(1, trace.totals.avgToolDurationMs, trace.totals.avgModelDurationMs) : 1;
+  $: traceCoverageItems = trace
+    ? [
+        { key: "bots", label: text.traceBots, value: trace.totals.bots, icon: "robot" },
+        { key: "channels", label: text.traceChannels, value: trace.totals.channels, icon: "broadcast" },
+        { key: "chats", label: text.traceChats, value: trace.totals.chats, icon: "chats-circle" },
+        { key: "sessions", label: text.traceSessions, value: trace.totals.sessions, icon: "identification-card" }
+      ]
+    : [];
+
+  function taskTypeLabel(type: "one-shot" | "periodic" | "immediate", copy: typeof text): string {
+    if (type === "one-shot") return copy.taskType_oneShot;
+    if (type === "periodic") return copy.taskType_periodic;
+    return copy.taskType_immediate;
+  }
+
+  function taskStatusLabel(status: "pending" | "running" | "completed" | "skipped" | "error", copy: typeof text): string {
+    if (status === "pending") return copy.taskStatus_pending;
+    if (status === "running") return copy.taskStatus_running;
+    if (status === "completed") return copy.taskStatus_completed;
+    if (status === "skipped") return copy.taskStatus_skipped;
+    return copy.taskStatus_error;
   }
 
   $: serviceReady = status?.service.state === "ready" && !!status?.service.endpoint;
@@ -561,11 +708,18 @@
     void loadRunHistory(status.service.endpoint);
   }
 
-  $: if (isSettings && activeSection === "trace" && serviceReady && status?.service.endpoint) {
+  $: if (isSettings && activeSection === "trace" && serviceReady && status?.service.endpoint
+    && status.service.endpoint !== traceEndpoint) {
     void loadTrace(status.service.endpoint);
   }
 
   $: activeSandboxPreset = sandboxEdit ? detectDesktopSandboxPreset(buildSandboxRequest(sandboxEdit)) : "custom";
+
+  // Dirty-gated save affordances: true only when the working draft diverges from
+  // the pristine loaded snapshot, so the sticky save bar appears on change.
+  $: skillsSearchDirty = skillsSearchDraft !== null && JSON.stringify(skillsSearchDraft) !== skillsSearchPristine;
+  $: pluginsDirty = pluginsEdit !== null && JSON.stringify(pluginsEdit) !== pluginsPristine;
+  $: sandboxDirty = sandboxEdit !== null && JSON.stringify(sandboxEdit) !== sandboxPristine;
 
   $: if (isSettings && activeSection === "sandbox" && serviceReady && status?.service.endpoint
     && status.service.endpoint !== sandboxEndpoint) {
@@ -671,6 +825,7 @@
       MODEL_ROUTES.forEach((route, index) => (next[route] = states[index]));
       modelStates = next;
       modelRoutingAdvanced = routing;
+      modelRoutingPristine = JSON.stringify(routing);
       modelRoutingDirty = false;
     } catch (cause) {
       loadedModelsEndpoint = "";
@@ -763,6 +918,7 @@
     try {
       sandbox = await loadDesktopSandbox(endpoint);
       sandboxEdit = sandboxSummaryToEditor(sandbox);
+      sandboxPristine = JSON.stringify(sandboxEdit);
       sandboxActionMessage = "";
     } catch (cause) {
       sandboxEndpoint = "";
@@ -841,6 +997,22 @@
     sandboxActionMessage = "";
   }
 
+  // Revert the page-level draft to its pristine loaded snapshot (the "Discard"
+  // action on the unsaved-changes save bar).
+  function discardSkillsSearch(): void {
+    if (skillsSearchPristine) skillsSearchDraft = JSON.parse(skillsSearchPristine);
+    skillsActionMessage = "";
+  }
+  function discardPlugins(): void {
+    if (pluginsPristine) pluginsEdit = JSON.parse(pluginsPristine);
+    pluginsActionMessage = "";
+  }
+  function discardModelRouting(): void {
+    if (!modelRoutingPristine) return;
+    modelRoutingAdvanced = JSON.parse(modelRoutingPristine);
+    modelRoutingDirty = false;
+  }
+
   async function saveSandboxPolicy(): Promise<void> {
     const endpoint = status?.service.endpoint;
     if (!endpoint || !sandboxEdit || sandboxSaving) return;
@@ -849,6 +1021,7 @@
     try {
       sandbox = await saveDesktopSandbox(endpoint, buildSandboxRequest(sandboxEdit));
       sandboxEdit = sandboxSummaryToEditor(sandbox);
+      sandboxPristine = JSON.stringify(sandboxEdit);
       sandboxActionMessage = text.sandboxSaved;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -908,7 +1081,6 @@
     try {
       tasks = await loadDesktopTasks(endpoint);
     } catch (cause) {
-      tasksEndpoint = "";
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
       tasksLoading = false;
@@ -936,6 +1108,20 @@
       tasks = result.summary;
       taskSelected = new Set([...taskSelected].filter((id) => !result.affected.includes(id)));
       taskActionMessage = `${action === "trigger" ? text.tasksTriggered : text.tasksDeleted}: ${result.affected.length}${result.failed.length ? ` · ${text.tasksFailed}: ${result.failed.length}` : ""}`;
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      taskBusy = "";
+    }
+  }
+
+  async function openTaskSession(taskId: string, executionId: string): Promise<void> {
+    const endpoint = status?.service.endpoint;
+    if (!endpoint || taskBusy) return;
+    taskBusy = "session";
+    error = "";
+    try {
+      taskSession = await loadDesktopTaskSession(endpoint, taskId, executionId);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -1420,6 +1606,7 @@
     try {
       skills = await loadDesktopSkills(endpoint);
       skillsSearchDraft = { ...skills.search, providers: skills.search.providers.map((provider) => ({ ...provider, models: [...provider.models] })) };
+      skillsSearchPristine = JSON.stringify(skillsSearchDraft);
     } catch (cause) {
       skillsEndpoint = "";
       error = cause instanceof Error ? cause.message : String(cause);
@@ -1451,6 +1638,7 @@
     try {
       skills = await updateDesktopSkills(endpoint, { kind: "search", localEnabled: skillsSearchDraft.localEnabled, apiEnabled: skillsSearchDraft.apiEnabled, apiProvider: skillsSearchDraft.apiProvider, apiModel: skillsSearchDraft.apiModel, maxTokens: skillsSearchDraft.maxTokens, temperature: skillsSearchDraft.temperature, timeoutMs: skillsSearchDraft.timeoutMs, minConfidence: skillsSearchDraft.minConfidence });
       skillsSearchDraft = { ...skills.search, providers: skills.search.providers.map((provider) => ({ ...provider, models: [...provider.models] })) };
+      skillsSearchPristine = JSON.stringify(skillsSearchDraft);
       skillsActionMessage = text.skillsSearchSaved;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -1519,12 +1707,18 @@
     try {
       const result = await runDesktopMemoryAction(endpoint, { action: "update", channel: item.channel, userId: item.externalUserId, id: item.id, content: item.content, tags: item.tags, expiresAt: item.expiresAt || null });
       if (result.item) memoryItems = memoryItems.map((candidate) => candidate.id === item.id ? result.item! : candidate);
+      memoryEdit = null;
       memoryActionMessage = text.memoryUpdated;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
       memoryBusyAction = "";
     }
+  }
+
+  function beginMemoryEdit(item: DesktopMemoryItem): void {
+    memoryEdit = { ...item, tags: [...item.tags] };
+    memoryActionMessage = "";
   }
 
   async function deleteMemoryItem(item: DesktopMemoryItem): Promise<void> {
@@ -1719,6 +1913,7 @@
         secretValues: {},
         clearSecrets: {}
       };
+      pluginsPristine = JSON.stringify(pluginsEdit);
     } catch (cause) {
       pluginsEndpoint = "";
       error = cause instanceof Error ? cause.message : String(cause);
@@ -1757,6 +1952,7 @@
         secretValues: {},
         clearSecrets: {}
       };
+      pluginsPristine = JSON.stringify(pluginsEdit);
       pluginsActionMessage = text.pluginsSaved;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -2004,36 +2200,14 @@
     partial: runHistory.filter((item) => item.reflectionOutcome === "partial").length,
     failed: runHistory.filter((item) => item.reflectionOutcome === "failed").length
   };
-
-  function beginRename(profile: DesktopWebProfile): void {
-    if (patchingProfileId) return;
-    editingProfileId = profile.id;
-    editingProfileName = profile.name;
-  }
-
-  function cancelRename(): void {
-    editingProfileId = null;
-    editingProfileName = "";
-  }
-
-  async function saveRename(profile: DesktopWebProfile): Promise<void> {
-    const endpoint = status?.service.endpoint;
-    if (!endpoint || patchingProfileId) return;
-    const next = sanitizeWebProfileName(editingProfileName, profile.id);
-    editingProfileId = null;
-    editingProfileName = "";
-    if (next === profile.name) return;
-    patchingProfileId = profile.id;
-    error = "";
-    try {
-      const updated = await patchDesktopWebProfile(endpoint, profile.id, { name: next });
-      webProfiles = webProfiles.map((item) => (item.id === updated.id ? updated : item));
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      patchingProfileId = null;
-    }
-  }
+  $: filteredRunHistory = runHistory.filter((item) => {
+    const query = runHistoryQuery.trim().toLocaleLowerCase(locale);
+    if (!query) return true;
+    return [item.botId, item.chatId, item.stopReason, item.reflectionOutcome, item.reflectionSummary, ...item.toolNames, ...item.failedToolNames]
+      .join("\n")
+      .toLocaleLowerCase(locale)
+      .includes(query);
+  });
 
   async function toggleProfile(profile: DesktopWebProfile): Promise<void> {
     const endpoint = status?.service.endpoint;
@@ -2183,7 +2357,7 @@
   function timezoneOptions(): string[] {
     try {
       const supported = Intl.supportedValuesOf("timeZone") as string[];
-      return supported.length > 0 ? supported : commonTimezones();
+      return [...new Set([...commonTimezones(), ...supported])];
     } catch {
       return commonTimezones();
     }
@@ -2202,6 +2376,7 @@
     try {
       const { textOptions: _textOptions, ...request } = modelRoutingAdvanced;
       modelRoutingAdvanced = await saveDesktopModelRouting(endpoint, request satisfies DesktopModelRoutingUpdateRequest);
+      modelRoutingPristine = JSON.stringify(modelRoutingAdvanced);
       modelRoutingDirty = false;
       modelRoutingMessage = text.modelRoutingSaved;
     } catch (cause) {
@@ -2281,11 +2456,6 @@
       locale = normalizeLocale(event.newValue);
       return;
     }
-    if (event.key === ACCENT_STORAGE_KEY) {
-      accent = normalizeAccent(event.newValue);
-      applyAccent(accent);
-      return;
-    }
     if (event.key !== THEME_STORAGE_KEY) return;
     theme = normalizeTheme(event.newValue);
     applyTheme(theme);
@@ -2293,7 +2463,6 @@
 
   onMount(() => {
     applyTheme(theme);
-    applyAccent(accent);
     window.addEventListener("storage", onThemeStorage);
     void refreshStatus();
     const timer = window.setInterval(() => void refreshStatus(), 1000);
@@ -2327,11 +2496,14 @@
         {/if}
       </div>
       <nav class="settings-nav-list" aria-label={text.settings}>
-        {#each filteredSettingsNav as item (item.id)}
-          <button class:active={activeSection === item.id} class="settings-nav" type="button" onclick={() => (activeSection = item.id)}>
-            <span class="nav-tile" style={`background:${item.color}`} aria-hidden="true"><i class={`ph-fill ph-${item.icon}`}></i></span>
-            <span class="nav-label">{item.label}</span>
-          </button>
+        {#each localizedSettingsGroups as group (group.id)}
+          <p class="settings-nav-group-label">{group.label}</p>
+          {#each group.items as item (item.id)}
+            <button class:active={activeSection === item.id} class="settings-nav" type="button" onclick={() => (activeSection = item.id)}>
+              <span class="nav-tile" aria-hidden="true"><i class={`ph-fill ph-${item.icon}`}></i></span>
+              <span class="nav-label">{item.label}</span>
+            </button>
+          {/each}
         {:else}
           <p class="settings-search-empty">{text.settingsSearchEmpty}</p>
         {/each}
@@ -2344,7 +2516,7 @@
     </aside>
     <section class="settings-content">
       <header class="page-header settings-page-header">
-        <h2>{sectionLabel(activeSection)}</h2>
+        <h2>{sectionLabel(activeSection, text)}</h2>
       </header>
 
       <div class="settings-scroll">
@@ -2381,6 +2553,7 @@
         <p class="settings-group-title">{text.theme}</p>
         <div class="settings-card appearance-card">
           <div class="appearance-block">
+            <p class="appearance-label">{text.theme}</p>
             <div class="theme-grid">
               {#each THEME_PREVIEWS as preview (preview.value)}
                 <button
@@ -2392,24 +2565,8 @@
                   onclick={() => changeTheme(preview.value)}
                 >
                   <span class="theme-preview" aria-hidden="true"><span class="tp-side"></span><span class="tp-body"></span></span>
-                  <span class="theme-name">{preview.label()}</span>
+                  <span class="theme-name">{text[preview.labelKey]}</span>
                 </button>
-              {/each}
-            </div>
-          </div>
-          <div class="appearance-block accent-block">
-            <p class="appearance-label">{text.accent}</p>
-            <div class="accent-swatches">
-              {#each ACCENT_OPTIONS as option (option)}
-                <button
-                  type="button"
-                  class="accent-swatch"
-                  class:active={accent === option}
-                  style={`--swatch:${option}`}
-                  aria-label={option}
-                  aria-pressed={accent === option}
-                  onclick={() => changeAccent(option)}
-                ></button>
               {/each}
             </div>
           </div>
@@ -2460,7 +2617,7 @@
             {#each MODEL_ROUTES as route (route)}
               <div class="settings-row">
                 <div>
-                  <strong>{routeLabel(route)}</strong>
+                  <strong>{routeLabel(route, text)}</strong>
                 </div>
                 <select
                   value={modelStates[route]?.currentKey ?? ""}
@@ -2531,7 +2688,7 @@
             </div>
 
             <p class="settings-group-title">{text.modelRuntimeEnvironment}</p>
-            <div class="settings-card"><label class="settings-row"><div><strong>{text.modelTimezone}</strong><p>{text.modelTimezoneHint}</p></div><select class="row-input model-timezone-input" value={modelRoutingAdvanced.timezone} onchange={(event) => updateAdvancedModelRouting((draft) => ({ ...draft, timezone: (event.currentTarget as HTMLSelectElement).value }))}>{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label></div>
+            <div class="settings-card"><label class="settings-row"><div><strong>{text.modelTimezone}</strong><p>{text.modelTimezoneHint}</p></div><select class="row-input model-timezone-input" value={modelRoutingAdvanced.timezone} onchange={(event) => updateAdvancedModelRouting((draft) => ({ ...draft, timezone: (event.currentTarget as HTMLSelectElement).value }))}>{#if modelRoutingAdvanced.timezone && !timezoneOptions().includes(modelRoutingAdvanced.timezone)}<option value={modelRoutingAdvanced.timezone}>{modelRoutingAdvanced.timezone}</option>{/if}{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label></div>
             {#if modelRoutingMessage}<p class="settings-action-message">{modelRoutingMessage}</p>{/if}
           {/if}
         {/if}
@@ -2616,7 +2773,7 @@
                 <label class="settings-field"><span>{text.providerThinkingFormat}</span><select value={providerEdit.thinkingFormat ?? ""} onchange={(event) => updateProviderEdit((draft) => ({ ...draft, thinkingFormat: ((event.currentTarget as HTMLSelectElement).value || null) as DesktopProviderUpdateRequest["thinkingFormat"] }))}><option value="">{text.providerThinkingAuto}</option>{#each PROVIDER_THINKING_FORMATS as format (format)}<option value={format}>{format}</option>{/each}</select></label>
               </div>
               <div class="provider-inline-options">
-                <label><input type="checkbox" checked={providerEdit.enabled} onchange={(event) => updateProviderEdit((draft) => ({ ...draft, enabled: (event.currentTarget as HTMLInputElement).checked }))} /> {text.providerEnabledLabel}</label>
+                <div class="inline-switch-row"><span>{text.providerEnabledLabel}</span><button class:active={providerEdit.enabled} class="switch" type="button" role="switch" aria-label={text.providerEnabledLabel} aria-checked={providerEdit.enabled} onclick={() => updateProviderEdit((draft) => ({ ...draft, enabled: !draft.enabled }))}><span></span></button></div>
                 {#if !providerEdit.isNew}<label><input type="checkbox" bind:checked={providerEditClearApiKey} /> {text.providerClearApiKey}</label>{/if}
               </div>
               <p class="settings-group-title provider-subtitle">{text.providerReasoningMap}</p>
@@ -2720,7 +2877,8 @@
           </div>
         {/if}
         {#if agentEdit}
-          <form id="desktop-agent-form" class="settings-card provider-editor" onsubmit={(event) => { event.preventDefault(); void saveAgentEditor(); }}>
+          <form id="desktop-agent-form" class="settings-card provider-editor" aria-label={sectionLabel("agents", text)} onsubmit={(event) => { event.preventDefault(); void saveAgentEditor(); }}>
+            <header class="entity-editor-head"><strong>{sectionLabel("agents", text)}</strong><button class="modal-close" type="button" aria-label={text.cancel} disabled={agentSaving} onclick={() => (agentEdit = null)}><i class="ph ph-x"></i></button></header>
             <div class="settings-form">
               <label class="settings-field"><span>{text.agentId}</span><input value={agentEdit.id} disabled={!agentEdit.isNew} oninput={(event) => updateAgentEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>
               <label class="settings-field"><span>{text.agentName}</span><input value={agentEdit.name} oninput={(event) => updateAgentEdit((draft) => ({ ...draft, name: (event.currentTarget as HTMLInputElement).value }))} /></label>
@@ -2730,13 +2888,14 @@
                 <label class="settings-field"><span>{field.label}</span><select value={agentEdit.modelRouting[field.key as keyof typeof agentEdit.modelRouting]} onchange={(event) => updateAgentEdit((draft) => ({ ...draft, modelRouting: { ...draft.modelRouting, [field.key]: (event.currentTarget as HTMLSelectElement).value } }))}><option value="">{text.agentFollowGlobal}</option>{#each modelStates[field.route as DesktopModelRoute]?.options ?? [] as option (option.key)}<option value={option.key}>{option.label}</option>{/each}</select></label>
               {/each}
             </div>
-            <div class="provider-inline-options"><label><input type="checkbox" checked={agentEdit.enabled} onchange={(event) => updateAgentEdit((draft) => ({ ...draft, enabled: (event.currentTarget as HTMLInputElement).checked }))} /> {text.agentEnabled}</label></div>
+            <div class="provider-inline-options"><div class="inline-switch-row"><span>{text.agentEnabled}</span><button class:active={agentEdit.enabled} class="switch" type="button" role="switch" aria-label={text.agentEnabled} aria-checked={agentEdit.enabled} onclick={() => updateAgentEdit((draft) => ({ ...draft, enabled: !draft.enabled }))}><span></span></button></div></div>
             <div class="provider-editor-toolbar"><strong>{text.agentFiles}</strong></div>
             <div class="profile-files-editor">
               {#each AGENT_FILE_NAMES as fileName (fileName)}
                 <label class="settings-field"><span>{fileName}</span><textarea rows="7" value={agentEdit.files[fileName] ?? ""} oninput={(event) => updateAgentEdit((draft) => ({ ...draft, files: { ...draft.files, [fileName]: (event.currentTarget as HTMLTextAreaElement).value } }))}></textarea></label>
               {/each}
             </div>
+            <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={agentSaving} onclick={() => (agentEdit = null)}>{text.cancel}</button><button class="primary-button" type="submit" disabled={agentSaving || !agentEdit.id.trim()}>{agentSaving ? text.onboardingProviderSaving : text.save}</button></footer>
           </form>
         {/if}
         {#if agentActionMessage}<p class="settings-action-message">{agentActionMessage}</p>{/if}
@@ -2773,14 +2932,15 @@
           {/if}
           {#if mcpEdit}
             {@const savedMcp = mcp.items.find((item) => item.id === mcpEdit?.previousId)}
-            <form id="desktop-mcp-form" class="settings-card provider-editor" onsubmit={(event) => { event.preventDefault(); void saveMcpEditor(); }}>
+            <form id="desktop-mcp-form" class="settings-card provider-editor" aria-label={sectionLabel("mcp", text)} onsubmit={(event) => { event.preventDefault(); void saveMcpEditor(); }}>
+              <header class="entity-editor-head"><strong>{sectionLabel("mcp", text)}</strong><button class="modal-close" type="button" aria-label={text.cancel} disabled={mcpSaving} onclick={() => (mcpEdit = null)}><i class="ph ph-x"></i></button></header>
               <div class="settings-form">
                 <label class="settings-field"><span>{text.mcpId}</span><input value={mcpEdit.id} disabled={!mcpEdit.isNew} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, id: event.currentTarget.value }))} /></label>
                 <label class="settings-field"><span>{text.mcpName}</span><input value={mcpEdit.name} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, name: event.currentTarget.value }))} /></label>
                 <label class="settings-field"><span>{text.mcpTransport}</span><select value={mcpEdit.transport} onchange={(event) => updateMcpEdit((draft) => ({ ...draft, transport: event.currentTarget.value as "stdio" | "http" }))}><option value="stdio">stdio</option><option value="http">http</option></select></label>
                 <label class="settings-field"><span>{text.mcpPrefix}</span><input value={mcpEdit.toolNamePrefix} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, toolNamePrefix: event.currentTarget.value }))} /></label>
               </div>
-              <div class="provider-inline-options"><label><input type="checkbox" checked={mcpEdit.enabled} onchange={(event) => updateMcpEdit((draft) => ({ ...draft, enabled: event.currentTarget.checked }))} /> {text.mcpEnabled}</label></div>
+              <div class="provider-inline-options"><div class="inline-switch-row"><span>{text.mcpEnabled}</span><button class:active={mcpEdit.enabled} class="switch" type="button" role="switch" aria-label={text.mcpEnabled} aria-checked={mcpEdit.enabled} onclick={() => updateMcpEdit((draft) => ({ ...draft, enabled: !draft.enabled }))}><span></span></button></div></div>
               {#if mcpEdit.transport === "stdio"}
                 <div class="settings-form">
                   <label class="settings-field settings-field-wide"><span>{text.mcpCommand}</span><input value={mcpEdit.command} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, command: event.currentTarget.value }))} /></label>
@@ -2794,6 +2954,7 @@
                   <label class="settings-field settings-field-wide"><span>{text.mcpHeadersReplace}</span><textarea rows="4" value={mcpEdit.headerDraft} placeholder={text.mcpMapPlaceholder} oninput={(event) => updateMcpEdit((draft) => ({ ...draft, headerDraft: event.currentTarget.value }))}></textarea>{#each savedMcp?.headerKeys ?? [] as key (key)}<label class="inline-check"><input type="checkbox" checked={mcpEdit.clearHeaderKeys?.includes(key)} onchange={() => updateMcpEdit((draft) => ({ ...draft, clearHeaderKeys: draft.clearHeaderKeys?.includes(key) ? draft.clearHeaderKeys.filter((item) => item !== key) : [...(draft.clearHeaderKeys ?? []), key] }))} /> {text.mcpClearKey}: {key}</label>{/each}</label>
                 </div>
               {/if}
+              <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={mcpSaving} onclick={() => (mcpEdit = null)}>{text.cancel}</button><button class="primary-button" type="submit" disabled={mcpSaving || !mcpEdit.id.trim() || (mcpEdit.transport === "stdio" ? !mcpEdit.command.trim() : !mcpEdit.url.trim())}>{mcpSaving ? text.onboardingProviderSaving : text.save}</button></footer>
             </form>
           {/if}
           {#if mcpActionMessage}<p class="settings-action-message">{mcpActionMessage}</p>{/if}
@@ -2882,14 +3043,22 @@
             {:else}
               {#each memoryItems as item (item.id)}
                 <div class="memory-record">
-                  <div class="settings-row"><div class="profile-info"><strong>{item.channel}:{item.externalUserId}</strong><p>{item.layer} · {item.updatedAt?.replace("T", " ").slice(0, 19)}{item.hasConflict ? ` · ${text.memoryConflict}` : ""}</p></div></div>
-                  <label class="settings-field settings-field-wide"><span>{text.memoryContent}</span><textarea rows="4" value={item.content} oninput={(event) => (memoryItems = memoryItems.map((candidate) => candidate.id === item.id ? { ...candidate, content: event.currentTarget.value } : candidate))}></textarea></label>
-                  <div class="settings-form"><label class="settings-field"><span>{text.memoryTags}</span><input value={item.tags.join(",")} oninput={(event) => (memoryItems = memoryItems.map((candidate) => candidate.id === item.id ? { ...candidate, tags: event.currentTarget.value.split(",").map((value) => value.trim()).filter(Boolean) } : candidate))} /></label><label class="settings-field"><span>{text.memoryExpires}</span><input value={item.expiresAt ?? ""} oninput={(event) => (memoryItems = memoryItems.map((candidate) => candidate.id === item.id ? { ...candidate, expiresAt: event.currentTarget.value } : candidate))} /></label></div>
-                  <div class="settings-row-actions memory-record-actions"><button class="secondary-button" type="button" disabled={Boolean(memoryBusyAction)} onclick={() => void saveMemoryItem(item)}>{text.save}</button><button class="secondary-button danger-action" type="button" disabled={Boolean(memoryBusyAction)} onclick={() => void deleteMemoryItem(item)}>{text.channelDelete}</button></div>
+                  <div class="settings-row"><div class="profile-info"><strong>{item.channel}:{item.externalUserId}</strong><p>{item.layer} · {item.updatedAt?.replace("T", " ").slice(0, 19)}{item.hasConflict ? ` · ${text.memoryConflict}` : ""}</p><p class="memory-record-preview">{item.content}</p></div><div class="settings-row-actions"><button class="secondary-button" type="button" disabled={Boolean(memoryBusyAction)} onclick={() => beginMemoryEdit(item)}>{text.channelEdit}</button><button class="secondary-button danger-action" type="button" disabled={Boolean(memoryBusyAction)} onclick={() => void deleteMemoryItem(item)}>{text.channelDelete}</button></div></div>
                 </div>
               {/each}
             {/if}
           </div>
+          {#if memoryEdit}
+            <form id="desktop-memory-form" class="settings-card provider-editor" aria-label={sectionLabel("memory", text)} onsubmit={(event) => { event.preventDefault(); if (memoryEdit) void saveMemoryItem(memoryEdit); }}>
+              <header class="entity-editor-head"><div><strong>{sectionLabel("memory", text)}</strong><p>{memoryEdit.channel}:{memoryEdit.externalUserId}</p></div><button class="modal-close" type="button" aria-label={text.cancel} disabled={Boolean(memoryBusyAction)} onclick={() => (memoryEdit = null)}><i class="ph ph-x"></i></button></header>
+              <div class="settings-form">
+                <label class="settings-field settings-field-wide"><span>{text.memoryContent}</span><textarea rows="8" bind:value={memoryEdit.content}></textarea></label>
+                <label class="settings-field"><span>{text.memoryTags}</span><input value={memoryEdit.tags.join(",")} oninput={(event) => { if (memoryEdit) memoryEdit = { ...memoryEdit, tags: event.currentTarget.value.split(",").map((value) => value.trim()).filter(Boolean) }; }} /></label>
+                <label class="settings-field"><span>{text.memoryExpires}</span><input bind:value={memoryEdit.expiresAt} /></label>
+              </div>
+              <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(memoryBusyAction)} onclick={() => (memoryEdit = null)}>{text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(memoryBusyAction) || !memoryEdit.content.trim()}>{memoryBusyAction ? text.onboardingProviderSaving : text.save}</button></footer>
+            </form>
+          {/if}
           <div class="settings-card provider-editor">
             <div class="provider-editor-toolbar"><strong>{text.memoryRejections} · {memoryRejections.length}</strong></div>
             <label class="settings-field settings-field-wide"><span>{text.memoryRejectionSearch}</span><input bind:value={memoryRejectionQuery} /></label>
@@ -2910,7 +3079,7 @@
           {#each DESKTOP_CHANNELS as channel (channel)}
             {@const group = channels.groups.find((item) => item.channel === channel)}
             <div class="channel-section-head">
-              <p class="settings-section-hint">{channel} · {group?.enabled ?? 0}/{group?.total ?? 0}</p>
+              <p class="settings-section-hint">{externalChannelLabel(channel, locale)} · {group?.enabled ?? 0}/{group?.total ?? 0}</p>
               <button class="secondary-button" type="button" disabled={channelEdit !== null} onclick={() => beginNewChannel(channel)}>{text.channelAdd}</button>
             </div>
             {#if !group || group.instances.length === 0}
@@ -2935,8 +3104,8 @@
           {/each}
           {#if channelEdit}
             {@const savedInstance = channels.groups.find((group) => group.channel === channelEdit?.channel)?.instances.find((instance) => instance.id === channelEdit?.previousId)}
-            <form id="desktop-channel-form" class="settings-card provider-editor" onsubmit={(event) => { event.preventDefault(); void saveChannelEditor(); }}>
-              <div class="provider-editor-toolbar"><strong>{channelEdit.channel}</strong></div>
+            <form id="desktop-channel-form" class="settings-card provider-editor" aria-label={sectionLabel("channels", text)} onsubmit={(event) => { event.preventDefault(); void saveChannelEditor(); }}>
+              <header class="entity-editor-head"><strong>{sectionLabel("channels", text)} · {externalChannelLabel(channelEdit.channel, locale)}</strong><button class="modal-close" type="button" aria-label={text.cancel} disabled={channelSaving} onclick={() => (channelEdit = null)}><i class="ph ph-x"></i></button></header>
               <div class="settings-form">
                 <label class="settings-field"><span>{text.channelInstanceId}</span><input value={channelEdit.id} disabled={!channelEdit.isNew} oninput={(event) => updateChannelEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>
                 <label class="settings-field"><span>{text.channelInstanceName}</span><input value={channelEdit.name} oninput={(event) => updateChannelEdit((draft) => ({ ...draft, name: (event.currentTarget as HTMLInputElement).value }))} /></label>
@@ -2944,7 +3113,7 @@
                 <label class="settings-field"><span>{text.profileSandbox}</span><select value={channelEdit.sandboxEnabled === null ? "inherit" : channelEdit.sandboxEnabled ? "on" : "off"} onchange={(event) => { const value = (event.currentTarget as HTMLSelectElement).value; updateChannelEdit((draft) => ({ ...draft, sandboxEnabled: value === "inherit" ? null : value === "on" })); }}><option value="inherit">{text.profileSandboxInherit}</option><option value="on">{text.profileSandboxOn}</option><option value="off">{text.profileSandboxOff}</option></select></label>
                 <label class="settings-field settings-field-wide"><span>{text.channelAllowedChatIds}</span><textarea rows="3" value={channelEdit.allowedChatIds.join("\n")} placeholder={text.channelAllowedChatHint} oninput={(event) => updateChannelEdit((draft) => ({ ...draft, allowedChatIds: (event.currentTarget as HTMLTextAreaElement).value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean) }))}></textarea></label>
               </div>
-              <div class="provider-inline-options"><label><input type="checkbox" checked={channelEdit.enabled} onchange={(event) => updateChannelEdit((draft) => ({ ...draft, enabled: (event.currentTarget as HTMLInputElement).checked }))} /> {text.channelEnabled}</label></div>
+              <div class="provider-inline-options"><div class="inline-switch-row"><span>{text.channelEnabled}</span><button class:active={channelEdit.enabled} class="switch" type="button" role="switch" aria-label={text.channelEnabled} aria-checked={channelEdit.enabled} onclick={() => updateChannelEdit((draft) => ({ ...draft, enabled: !draft.enabled }))}><span></span></button></div></div>
               <div class="provider-editor-toolbar"><strong>{text.channelCredentials}</strong>{#if channelEdit.channel === "feishu"}<button class="secondary-button" type="button" disabled={channelTesting} onclick={() => void testChannelEditor()}>{channelTesting ? text.loading : text.channelTest}</button>{/if}</div>
               <div class="settings-form">
                 {#each CHANNEL_FIELD_CONFIG[channelEdit.channel].visible as key (key)}
@@ -2980,6 +3149,7 @@
                 {#if channelQrImage}<div class="channel-qr-result"><img src={channelQrImage} alt="WeChat login QR code" /><p>{text.channelQrScan}</p></div>{/if}
                 {#if channelQrError}<p class="settings-action-message error-text">{channelQrError}</p>{/if}
               {/if}
+              <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={channelSaving} onclick={() => (channelEdit = null)}>{text.cancel}</button><button class="primary-button" type="submit" disabled={channelSaving || !channelEdit.id.trim()}>{channelSaving ? text.onboardingProviderSaving : text.save}</button></footer>
             </form>
           {/if}
           {#if channelActionMessage}<p class="settings-action-message">{channelActionMessage}</p>{/if}
@@ -3041,14 +3211,14 @@
           <div class="settings-card">
             <div class="settings-row"><div><strong>{text.webSearchEnabled}</strong></div><button class:active={webSearchEdit.enabled} class="switch" type="button" role="switch" aria-checked={webSearchEdit.enabled} aria-label={text.webSearchEnabled} onclick={() => { if (webSearchEdit) webSearchEdit = { ...webSearchEdit, enabled: !webSearchEdit.enabled }; markToolSettingsDirty("webSearch"); }}><span></span></button></div>
             <div class="settings-row"><strong>{text.webSearchDefaultRoute}</strong><select bind:value={webSearchEdit.defaultRoute} onchange={() => markToolSettingsDirty("webSearch")}><option value="auto">{text.searchRouteAuto}</option><option value="china">{text.searchRouteChina}</option><option value="global">{text.searchRouteGlobal}</option><option value="official_docs">{text.searchRouteOfficialDocs}</option><option value="research">{text.searchRouteResearch}</option></select></div>
-            <div class="settings-row"><strong>{text.webSearchDefaultEngine}</strong><select bind:value={webSearchEdit.defaultEngine} onchange={() => markToolSettingsDirty("webSearch")}><option value="auto">{text.searchEngineAuto}</option>{#each webSearchEdit.engines as engine (engine.id)}<option value={engine.id}>{webSearchEngineLabel(engine.id)}</option>{/each}</select></div>
+            <div class="settings-row"><strong>{text.webSearchDefaultEngine}</strong><select bind:value={webSearchEdit.defaultEngine} onchange={() => markToolSettingsDirty("webSearch")}><option value="auto">{text.searchEngineAuto}</option>{#each webSearchEdit.engines as engine (engine.id)}<option value={engine.id}>{webSearchEngineLabel(engine.id, text)}</option>{/each}</select></div>
             <div class="settings-row"><strong>{text.webSearchStrategy}</strong><select bind:value={webSearchEdit.engineSelectionStrategy} onchange={() => markToolSettingsDirty("webSearch")}><option value="priority">{text.searchStrategyPriority}</option><option value="random">{text.searchStrategyRandom}</option><option value="round_robin">{text.searchStrategyRoundRobin}</option></select></div>
           </div>
           <p class="settings-group-title">{text.toolLimits}</p>
           <div class="settings-card"><label class="settings-row"><strong>{text.webSearchMaxResults}</strong><input class="row-input model-number-input" type="number" min="1" max="20" bind:value={webSearchEdit.maxResults} oninput={() => markToolSettingsDirty("webSearch")} /></label><label class="settings-row"><strong>{text.toolTimeout}</strong><input class="row-input model-number-input" type="number" min="1000" max="120000" bind:value={webSearchEdit.timeoutMs} oninput={() => markToolSettingsDirty("webSearch")} /></label><label class="settings-row"><strong>{text.toolRetryTimeout}</strong><input class="row-input model-number-input" type="number" min="1000" max="180000" bind:value={webSearchEdit.retryTimeoutMs} oninput={() => markToolSettingsDirty("webSearch")} /></label></div>
           <p class="settings-group-title">{text.webSearchEngines}</p>
-          <div class="settings-card tool-engine-list">{#each webSearchEdit.engines as engine (engine.id)}<details class="tool-engine-card"><summary><span>{webSearchEngineLabel(engine.id)}</span><span class="status-badge" data-state={engine.enabled ? "ready" : "disconnected"}>{engine.enabled ? text.providerEnabled : text.providerDisabled}</span></summary><div class="tool-engine-body"><div class="settings-row"><strong>{text.providerEnabledLabel}</strong><button class:active={engine.enabled} class="switch" type="button" role="switch" aria-checked={engine.enabled} aria-label={webSearchEngineLabel(engine.id)} onclick={() => { if (webSearchEdit) webSearchEdit = { ...webSearchEdit, engines: webSearchEdit.engines.map((item) => item.id === engine.id ? { ...item, enabled: !item.enabled } : item) }; markToolSettingsDirty("webSearch"); }}><span></span></button></div><div class="settings-form"><label class="settings-field settings-field-wide"><span>{text.toolBaseUrl}</span><input bind:value={engine.baseUrl} oninput={() => markToolSettingsDirty("webSearch")} /></label><label class="settings-field settings-field-wide"><span>{text.webSearchApiKey}</span><div class="secret-input"><input type={secretRevealed(`webSearch:${engine.id}`) ? "text" : "password"} bind:value={engine.apiKey} placeholder={engine.hasApiKey ? text.channelSecretConfigured : ""} autocomplete="new-password" oninput={() => markToolSettingsDirty("webSearch")} /><button class="secret-reveal" type="button" aria-label={text.toggleReveal} onclick={(event) => { event.preventDefault(); toggleRevealSecret(`webSearch:${engine.id}`); }}><i class={`ph ${secretRevealed(`webSearch:${engine.id}`) ? "ph-eye-slash" : "ph-eye"}`}></i></button></div>{#if engine.hasApiKey}<label class="inline-check"><input type="checkbox" bind:checked={engine.clearApiKey} onchange={() => markToolSettingsDirty("webSearch")} /> {text.channelClearSecret}</label>{/if}</label></div></div></details>{/each}</div>
-          <p class="settings-group-title">{text.toolTest}</p><div class="settings-card tool-test-card"><div class="settings-form"><label class="settings-field"><span>{text.webSearchDefaultEngine}</span><select bind:value={toolTestEngine}><option value="auto">{text.searchEngineAuto}</option>{#each webSearchEdit.engines as engine (engine.id)}<option value={engine.id}>{webSearchEngineLabel(engine.id)}</option>{/each}</select></label><label class="settings-field"><span>{text.toolTestQuery}</span><input bind:value={toolTestQuery} /></label></div><div class="settings-row-actions tool-test-actions"><button class="secondary-button" type="button" disabled={toolTestBusy} onclick={() => void testToolSettings("webSearch")}>{toolTestBusy ? text.loading : text.toolTest}</button></div>{#if toolTestResult}<pre class:run-history-failed={!toolTestResult.ok} class="tool-test-result">{JSON.stringify(toolTestResult.result ?? toolTestResult.error, null, 2)}</pre>{/if}</div>
+          <div class="settings-card tool-engine-list">{#each webSearchEdit.engines as engine (engine.id)}<details class="tool-engine-card"><summary><span>{webSearchEngineLabel(engine.id, text)}</span><span class="status-badge" data-state={engine.enabled ? "ready" : "disconnected"}>{engine.enabled ? text.providerEnabled : text.providerDisabled}</span></summary><div class="tool-engine-body"><div class="settings-row"><strong>{text.providerEnabledLabel}</strong><button class:active={engine.enabled} class="switch" type="button" role="switch" aria-checked={engine.enabled} aria-label={webSearchEngineLabel(engine.id, text)} onclick={() => { if (webSearchEdit) webSearchEdit = { ...webSearchEdit, engines: webSearchEdit.engines.map((item) => item.id === engine.id ? { ...item, enabled: !item.enabled } : item) }; markToolSettingsDirty("webSearch"); }}><span></span></button></div><div class="settings-form"><label class="settings-field settings-field-wide"><span>{text.toolBaseUrl}</span><input bind:value={engine.baseUrl} oninput={() => markToolSettingsDirty("webSearch")} /></label><label class="settings-field settings-field-wide"><span>{text.webSearchApiKey}</span><div class="secret-input"><input type={secretRevealed(`webSearch:${engine.id}`) ? "text" : "password"} bind:value={engine.apiKey} placeholder={engine.hasApiKey ? text.channelSecretConfigured : ""} autocomplete="new-password" oninput={() => markToolSettingsDirty("webSearch")} /><button class="secret-reveal" type="button" aria-label={text.toggleReveal} onclick={(event) => { event.preventDefault(); toggleRevealSecret(`webSearch:${engine.id}`); }}><i class={`ph ${secretRevealed(`webSearch:${engine.id}`) ? "ph-eye-slash" : "ph-eye"}`}></i></button></div>{#if engine.hasApiKey}<label class="inline-check"><input type="checkbox" bind:checked={engine.clearApiKey} onchange={() => markToolSettingsDirty("webSearch")} /> {text.channelClearSecret}</label>{/if}</label></div></div></details>{/each}</div>
+          <p class="settings-group-title">{text.toolTest}</p><div class="settings-card tool-test-card"><div class="settings-form"><label class="settings-field"><span>{text.webSearchDefaultEngine}</span><select bind:value={toolTestEngine}><option value="auto">{text.searchEngineAuto}</option>{#each webSearchEdit.engines as engine (engine.id)}<option value={engine.id}>{webSearchEngineLabel(engine.id, text)}</option>{/each}</select></label><label class="settings-field"><span>{text.toolTestQuery}</span><input bind:value={toolTestQuery} /></label></div><div class="settings-row-actions tool-test-actions"><button class="secondary-button" type="button" disabled={toolTestBusy} onclick={() => void testToolSettings("webSearch")}>{toolTestBusy ? text.loading : text.toolTest}</button></div>{#if toolTestResult}<pre class:run-history-failed={!toolTestResult.ok} class="tool-test-result">{JSON.stringify(toolTestResult.result ?? toolTestResult.error, null, 2)}</pre>{/if}</div>
         {/if}
       {:else if activeSection === "imageGenerate"}
         <p class="settings-section-hint">{text.imageGenerateHint}</p>
@@ -3059,7 +3229,7 @@
         {:else}
           <div class="settings-card"><div class="settings-row"><strong>{text.webSearchEnabled}</strong><button class:active={imageGenerateEdit.enabled} class="switch" type="button" role="switch" aria-checked={imageGenerateEdit.enabled} aria-label={text.imageGenerate} onclick={() => { if (imageGenerateEdit) imageGenerateEdit = { ...imageGenerateEdit, enabled: !imageGenerateEdit.enabled }; markToolSettingsDirty("imageGenerate"); }}><span></span></button></div><div class="settings-row"><strong>{text.webSearchDefaultEngine}</strong><select bind:value={imageGenerateEdit.defaultEngine} onchange={() => markToolSettingsDirty("imageGenerate")}><option value="auto">{text.mediaEngineAuto}</option>{#each imageGenerateEdit.engines as engine (engine.id)}<option value={engine.id}>{mediaEngineLabel("image", engine.id)}</option>{/each}</select></div></div>
           <p class="settings-group-title">{text.mediaEngines}</p><div class="settings-card tool-engine-list">{#each imageGenerateEdit.engines as engine (engine.id)}<details class="tool-engine-card"><summary><span>{mediaEngineLabel("image", engine.id)}</span><span class="status-badge" data-state={engine.enabled ? "ready" : "disconnected"}>{engine.enabled ? text.providerEnabled : text.providerDisabled}</span></summary><div class="tool-engine-body"><div class="settings-row"><strong>{text.providerEnabledLabel}</strong><button class:active={engine.enabled} class="switch" type="button" role="switch" aria-checked={engine.enabled} aria-label={mediaEngineLabel("image", engine.id)} onclick={() => { if (imageGenerateEdit) imageGenerateEdit = { ...imageGenerateEdit, engines: imageGenerateEdit.engines.map((item) => item.id === engine.id ? { ...item, enabled: !item.enabled } : item) }; markToolSettingsDirty("imageGenerate"); }}><span></span></button></div><div class="settings-form"><label class="settings-field"><span>{text.toolBaseUrl}</span><input bind:value={engine.baseUrl} oninput={() => markToolSettingsDirty("imageGenerate")} /></label><label class="settings-field"><span>{text.toolModel}</span><input bind:value={engine.model} oninput={() => markToolSettingsDirty("imageGenerate")} /></label><label class="settings-field settings-field-wide"><span>{text.webSearchApiKey}</span><div class="secret-input"><input type={secretRevealed(`image:${engine.id}`) ? "text" : "password"} bind:value={engine.apiKey} placeholder={engine.hasApiKey ? text.channelSecretConfigured : ""} autocomplete="new-password" oninput={() => markToolSettingsDirty("imageGenerate")} /><button class="secret-reveal" type="button" aria-label={text.toggleReveal} onclick={(event) => { event.preventDefault(); toggleRevealSecret(`image:${engine.id}`); }}><i class={`ph ${secretRevealed(`image:${engine.id}`) ? "ph-eye-slash" : "ph-eye"}`}></i></button></div>{#if engine.hasApiKey}<label class="inline-check"><input type="checkbox" bind:checked={engine.clearApiKey} onchange={() => markToolSettingsDirty("imageGenerate")} /> {text.channelClearSecret}</label>{/if}</label></div></div></details>{/each}</div>
-          <p class="settings-group-title">{text.toolTest}</p><div class="settings-card tool-test-card"><div class="settings-form"><label class="settings-field settings-field-wide"><span>{text.toolPrompt}</span><input bind:value={imageTestPrompt} /></label><label class="settings-field"><span>{text.toolImageSize}</span><input bind:value={imageTestSize} /></label></div><div class="settings-row-actions tool-test-actions"><button class="secondary-button" type="button" disabled={toolTestBusy} onclick={() => void testToolSettings("imageGenerate")}>{toolTestBusy ? text.loading : text.toolTest}</button></div>{#if toolTestResult}<pre class:run-history-failed={!toolTestResult.ok} class="tool-test-result">{JSON.stringify(toolTestResult.result ?? toolTestResult.error, null, 2)}</pre>{/if}</div>
+          <p class="settings-group-title">{text.toolTest}</p><div class="settings-card tool-test-card"><div class="settings-form"><label class="settings-field settings-field-wide"><span>{text.toolPrompt}</span><input bind:value={imageTestPrompt} /></label><label class="settings-field"><span>{text.toolImageSize}</span><select bind:value={imageTestSize}><option value="1024x1024">1024 × 1024</option><option value="1536x1024">1536 × 1024</option><option value="1024x1536">1024 × 1536</option></select></label></div><div class="settings-row-actions tool-test-actions"><button class="secondary-button" type="button" disabled={toolTestBusy} onclick={() => void testToolSettings("imageGenerate")}>{toolTestBusy ? text.loading : text.toolTest}</button></div>{#if toolTestResult}<pre class:run-history-failed={!toolTestResult.ok} class="tool-test-result">{JSON.stringify(toolTestResult.result ?? toolTestResult.error, null, 2)}</pre>{/if}</div>
           <p class="settings-group-title">{text.mediaTasks}</p>{#if imageTasks.length === 0}<div class="settings-card"><div class="settings-row"><p>{text.mediaTasksEmpty}</p></div></div>{:else}<div class="settings-card">{#each imageTasks as task (task.id)}<div class="settings-row media-task-row"><div class="profile-info"><strong>{mediaEngineLabel("image", task.engine)} · {task.status === "completed" ? text.mediaTaskCompleted : task.status === "failed" ? text.mediaTaskFailed : text.mediaTaskProcessing}</strong><p>{task.prompt}</p><p>{task.createdAt.slice(0, 19).replace("T", " ")}</p>{#if task.errorMessage}<p class="run-history-failed">{task.errorMessage}</p>{/if}</div><div class="settings-row-actions">{#if task.resultUrl}<a class="secondary-button" href={task.resultUrl} target="_blank" rel="noreferrer">{text.mediaTaskResult}</a>{/if}<button class="secondary-button" type="button" onclick={() => openMediaTaskDetail(task)}>{text.mediaTaskView}</button><button class="secondary-button danger-action" type="button" disabled={mediaTaskBusy === task.id} onclick={() => void removeMediaTask("image", task.id)}>{text.mediaTaskDelete}</button></div></div>{/each}</div>{/if}
           {#if mediaTaskDetail && mediaTaskDetail.kind === "image"}
             <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={text.mediaTaskDetail} onclick={() => closeMediaTaskDetail()} onkeydown={onMediaTaskOverlayKeydown}><div class="modal-card" tabindex="-1" role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}><header class="modal-head"><strong>{text.mediaTaskDetail}</strong><button class="modal-close" type="button" aria-label={text.cancel} onclick={() => closeMediaTaskDetail()}><i class="ph ph-x"></i></button></header><div class="modal-body media-task-detail">{#if mediaTaskDetail.resultUrl && mediaTaskDetail.status === "completed"}<img class="media-task-preview" src={mediaTaskDetail.resultUrl} alt={mediaTaskDetail.prompt} />{/if}<div class="settings-row"><strong>{text.mediaTaskEngine}</strong><span>{mediaEngineLabel("image", mediaTaskDetail.engine)}</span></div><div class="settings-row"><strong>{text.mediaTaskStatus}</strong><span>{mediaTaskDetail.status === "completed" ? text.mediaTaskCompleted : mediaTaskDetail.status === "failed" ? text.mediaTaskFailed : text.mediaTaskProcessing}</span></div><div class="settings-row"><strong>{text.mediaTaskPrompt}</strong><span>{mediaTaskDetail.prompt}</span></div>{#if mediaTaskDetail.errorMessage}<div class="settings-row"><strong>{text.mediaTaskError}</strong><span class="run-history-failed">{mediaTaskDetail.errorMessage}</span></div>{/if}<div class="settings-row"><strong>{text.mediaTaskCreatedAt}</strong><span>{mediaTaskDetail.createdAt.slice(0, 19).replace("T", " ")}</span></div><div class="settings-row"><strong>{text.mediaTaskUpdatedAt}</strong><span>{mediaTaskDetail.updatedAt.slice(0, 19).replace("T", " ")}</span></div>{#if mediaTaskDetail.resultUrl}<div class="settings-row-actions media-task-detail-actions"><a class="secondary-button" href={mediaTaskDetail.resultUrl} target="_blank" rel="noreferrer">{text.mediaTaskDownload}</a></div>{/if}</div></div></div>
@@ -3087,9 +3257,9 @@
         {:else if ttsGenerateLoading || !ttsGenerateEdit}
           <div class="settings-card"><div class="settings-row"><p>{text.loading}</p></div></div>
         {:else}
-          <div class="settings-card"><div class="settings-row"><strong>{text.webSearchEnabled}</strong><button class:active={ttsGenerateEdit.enabled} class="switch" type="button" role="switch" aria-checked={ttsGenerateEdit.enabled} aria-label={text.ttsGenerate} onclick={() => { if (ttsGenerateEdit) ttsGenerateEdit = { ...ttsGenerateEdit, enabled: !ttsGenerateEdit.enabled }; markToolSettingsDirty("ttsGenerate"); }}><span></span></button></div><div class="settings-row"><strong>{text.ttsDefaultProvider}</strong><select bind:value={ttsGenerateEdit.defaultProvider} onchange={() => markToolSettingsDirty("ttsGenerate")}>{#each ttsGenerateEdit.providers as provider (provider.id)}<option value={provider.id}>{ttsProviderLabel(provider.id)}</option>{/each}</select></div></div>
-          <p class="settings-group-title">{text.ttsProviders}</p><div class="settings-card tool-engine-list">{#each ttsGenerateEdit.providers as provider (provider.id)}<details class="tool-engine-card" open><summary><span>{ttsProviderLabel(provider.id)}</span><span class="status-badge" data-state={provider.enabled ? "ready" : "disconnected"}>{provider.enabled ? text.providerEnabled : text.providerDisabled}</span></summary><div class="tool-engine-body"><div class="settings-row"><strong>{text.providerEnabledLabel}</strong><button class:active={provider.enabled} class="switch" type="button" role="switch" aria-checked={provider.enabled} aria-label={ttsProviderLabel(provider.id)} onclick={() => { if (ttsGenerateEdit) ttsGenerateEdit = { ...ttsGenerateEdit, providers: ttsGenerateEdit.providers.map((item) => item.id === provider.id ? { ...item, enabled: !item.enabled } : item) }; markToolSettingsDirty("ttsGenerate"); }}><span></span></button></div><div class="settings-form">{#if provider.id === "macos"}<label class="settings-field"><span>{text.ttsVoice}</span><select bind:value={provider.voice} onchange={() => markToolSettingsDirty("ttsGenerate")}><option value="">{text.ttsSystemVoices}</option>{#each ttsVoices as voice (voice.id)}<option value={voice.id}>{voice.label ?? voice.id}{voice.locale ? ` · ${voice.locale}` : ""}</option>{/each}</select></label>{:else}<label class="settings-field"><span>{text.toolBaseUrl}</span><input bind:value={provider.baseUrl} oninput={() => markToolSettingsDirty("ttsGenerate")} /></label><label class="settings-field"><span>{text.toolModel}</span><input bind:value={provider.model} oninput={() => markToolSettingsDirty("ttsGenerate")} /></label><label class="settings-field"><span>{text.ttsVoice}</span><select bind:value={provider.voice} onchange={() => markToolSettingsDirty("ttsGenerate")}>{#each XIAOMI_VOICES as voice (voice.id)}<option value={voice.id}>{voice.label}{voice.gender ? ` · ${voice.gender}` : ""}{voice.locale ? ` · ${voice.locale}` : ""}</option>{/each}</select></label><label class="settings-field"><span>{text.webSearchApiKey}</span><div class="secret-input"><input type={secretRevealed(`tts:${provider.id}`) ? "text" : "password"} bind:value={provider.apiKey} placeholder={provider.hasApiKey ? text.channelSecretConfigured : ""} autocomplete="new-password" oninput={() => markToolSettingsDirty("ttsGenerate")} /><button class="secret-reveal" type="button" aria-label={text.toggleReveal} onclick={(event) => { event.preventDefault(); toggleRevealSecret(`tts:${provider.id}`); }}><i class={`ph ${secretRevealed(`tts:${provider.id}`) ? "ph-eye-slash" : "ph-eye"}`}></i></button></div>{#if provider.hasApiKey}<label class="inline-check"><input type="checkbox" bind:checked={provider.clearApiKey} onchange={() => markToolSettingsDirty("ttsGenerate")} /> {text.channelClearSecret}</label>{/if}</label>{/if}<label class="settings-field"><span>{text.ttsFormat}</span><select bind:value={provider.format} onchange={() => markToolSettingsDirty("ttsGenerate")}><option value="wav">WAV</option><option value="mp3">MP3</option><option value="aiff">AIFF</option><option value="m4a">M4A</option><option value="caf">CAF</option></select></label></div></div></details>{/each}</div>
-          <p class="settings-group-title">{text.toolTest}</p><div class="settings-card tool-test-card"><div class="settings-form"><label class="settings-field"><span>{text.ttsTestProvider}</span><select bind:value={ttsTestProvider}>{#each ttsGenerateEdit.providers as provider (provider.id)}<option value={provider.id}>{ttsProviderLabel(provider.id)}</option>{/each}</select></label><label class="settings-field"><span>{text.toolTestText}</span><input bind:value={ttsTestText} /></label></div><div class="settings-row-actions tool-test-actions"><button class="secondary-button" type="button" disabled={toolTestBusy} onclick={() => void testToolSettings("ttsGenerate")}>{toolTestBusy ? text.loading : text.toolTest}</button></div>{#if ttsTestAudioUrl}<audio class="tool-test-audio" controls src={ttsTestAudioUrl}>{text.ttsAudioUnsupported}</audio>{/if}{#if toolTestResult}<pre class:run-history-failed={!toolTestResult.ok} class="tool-test-result">{JSON.stringify(toolTestResult.result ?? toolTestResult.error, null, 2)}</pre>{/if}</div>
+          <div class="settings-card"><div class="settings-row"><strong>{text.webSearchEnabled}</strong><button class:active={ttsGenerateEdit.enabled} class="switch" type="button" role="switch" aria-checked={ttsGenerateEdit.enabled} aria-label={text.ttsGenerate} onclick={() => { if (ttsGenerateEdit) ttsGenerateEdit = { ...ttsGenerateEdit, enabled: !ttsGenerateEdit.enabled }; markToolSettingsDirty("ttsGenerate"); }}><span></span></button></div><div class="settings-row"><strong>{text.ttsDefaultProvider}</strong><select bind:value={ttsGenerateEdit.defaultProvider} onchange={() => markToolSettingsDirty("ttsGenerate")}>{#each ttsGenerateEdit.providers as provider (provider.id)}<option value={provider.id}>{ttsProviderLabel(provider.id, text)}</option>{/each}</select></div></div>
+          <p class="settings-group-title">{text.ttsProviders}</p><div class="settings-card tool-engine-list">{#each ttsGenerateEdit.providers as provider (provider.id)}<details class="tool-engine-card" open={provider.id === ttsGenerateEdit.defaultProvider}><summary><span>{ttsProviderLabel(provider.id, text)}</span><span class="status-badge" data-state={provider.enabled ? "ready" : "disconnected"}>{provider.enabled ? text.providerEnabled : text.providerDisabled}</span></summary><div class="tool-engine-body"><div class="settings-row"><strong>{text.providerEnabledLabel}</strong><button class:active={provider.enabled} class="switch" type="button" role="switch" aria-checked={provider.enabled} aria-label={ttsProviderLabel(provider.id, text)} onclick={() => { if (ttsGenerateEdit) ttsGenerateEdit = { ...ttsGenerateEdit, providers: ttsGenerateEdit.providers.map((item) => item.id === provider.id ? { ...item, enabled: !item.enabled } : item) }; markToolSettingsDirty("ttsGenerate"); }}><span></span></button></div><div class="settings-form">{#if provider.id === "macos"}<label class="settings-field"><span>{text.ttsVoice}</span><select bind:value={provider.voice} onchange={() => markToolSettingsDirty("ttsGenerate")}><option value="">{text.ttsSystemVoices}</option>{#each ttsVoices as voice (voice.id)}<option value={voice.id}>{voice.label ?? voice.id}{voice.locale ? ` · ${voice.locale}` : ""}</option>{/each}</select></label>{:else}<label class="settings-field"><span>{text.toolBaseUrl}</span><input bind:value={provider.baseUrl} oninput={() => markToolSettingsDirty("ttsGenerate")} /></label><label class="settings-field"><span>{text.toolModel}</span><input bind:value={provider.model} oninput={() => markToolSettingsDirty("ttsGenerate")} /></label><label class="settings-field"><span>{text.ttsVoice}</span><select bind:value={provider.voice} onchange={() => markToolSettingsDirty("ttsGenerate")}>{#each XIAOMI_VOICES as voice (voice.id)}<option value={voice.id}>{voice.label}{voice.gender ? ` · ${voice.gender}` : ""}{voice.locale ? ` · ${voice.locale}` : ""}</option>{/each}</select></label><label class="settings-field"><span>{text.webSearchApiKey}</span><div class="secret-input"><input type={secretRevealed(`tts:${provider.id}`) ? "text" : "password"} bind:value={provider.apiKey} placeholder={provider.hasApiKey ? text.channelSecretConfigured : ""} autocomplete="new-password" oninput={() => markToolSettingsDirty("ttsGenerate")} /><button class="secret-reveal" type="button" aria-label={text.toggleReveal} onclick={(event) => { event.preventDefault(); toggleRevealSecret(`tts:${provider.id}`); }}><i class={`ph ${secretRevealed(`tts:${provider.id}`) ? "ph-eye-slash" : "ph-eye"}`}></i></button></div>{#if provider.hasApiKey}<label class="inline-check"><input type="checkbox" bind:checked={provider.clearApiKey} onchange={() => markToolSettingsDirty("ttsGenerate")} /> {text.channelClearSecret}</label>{/if}</label>{/if}<label class="settings-field"><span>{text.ttsFormat}</span><select bind:value={provider.format} onchange={() => markToolSettingsDirty("ttsGenerate")}><option value="wav">WAV</option><option value="mp3">MP3</option><option value="aiff">AIFF</option><option value="m4a">M4A</option><option value="caf">CAF</option></select></label></div></div></details>{/each}</div>
+          <p class="settings-group-title">{text.toolTest}</p><div class="settings-card tool-test-card"><div class="settings-form"><label class="settings-field"><span>{text.ttsTestProvider}</span><select bind:value={ttsTestProvider}>{#each ttsGenerateEdit.providers as provider (provider.id)}<option value={provider.id}>{ttsProviderLabel(provider.id, text)}</option>{/each}</select></label><label class="settings-field"><span>{text.toolTestText}</span><input bind:value={ttsTestText} /></label></div><div class="settings-row-actions tool-test-actions"><button class="secondary-button" type="button" disabled={toolTestBusy} onclick={() => void testToolSettings("ttsGenerate")}>{toolTestBusy ? text.loading : text.toolTest}</button></div>{#if ttsTestAudioUrl}<audio class="tool-test-audio" controls src={ttsTestAudioUrl}>{text.ttsAudioUnsupported}</audio>{/if}{#if toolTestResult}<pre class:run-history-failed={!toolTestResult.ok} class="tool-test-result">{JSON.stringify(toolTestResult.result ?? toolTestResult.error, null, 2)}</pre>{/if}</div>
         {/if}
       {:else if activeSection === "profiles"}
         <p class="settings-section-hint">{text.profilesHint}</p>
@@ -3110,30 +3280,12 @@
             {#each webProfiles as profile (profile.id)}
               <div class="settings-row">
                 <div class="profile-info">
-                  {#if editingProfileId === profile.id}
-                    <input
-                      class="profile-name-input"
-                      type="text"
-                      bind:value={editingProfileName}
-                      aria-label={text.nameLabel}
-                      onkeydown={(event) => {
-                        if (event.key === "Enter") void saveRename(profile);
-                        if (event.key === "Escape") cancelRename();
-                      }}
-                    />
-                    <div class="profile-edit-actions">
-                      <button class="secondary-button" type="button" disabled={patchingProfileId !== null} onclick={() => void saveRename(profile)}>{text.save}</button>
-                      <button class="secondary-button" type="button" onclick={cancelRename}>{text.cancel}</button>
-                    </div>
-                  {:else}
-                    <strong>{profile.name}</strong>
-                    <p>{profile.agentName ? `${text.linkedAgent}: ${profile.agentName}` : text.noLinkedAgent}</p>
-                    <div class="profile-edit-actions">
-                      <button class="secondary-button" type="button" disabled={patchingProfileId !== null} onclick={() => beginRename(profile)}>{text.rename}</button>
-                      <button class="secondary-button" type="button" disabled={profileEditorLoading} onclick={() => void beginProfileEdit(profile)}>{text.profileEdit}</button>
-                      <button class="secondary-button danger-action" type="button" disabled={profileSaving} onclick={() => void removeProfile(profile.id)}>{text.profileDelete}</button>
-                    </div>
-                  {/if}
+                  <strong>{profile.name}</strong>
+                  <p>{profile.agentName ? `${text.linkedAgent}: ${profile.agentName}` : text.noLinkedAgent}</p>
+                  <div class="profile-edit-actions">
+                    <button class="secondary-button" type="button" disabled={profileEditorLoading} onclick={() => void beginProfileEdit(profile)}>{text.profileEdit}</button>
+                    <button class="secondary-button danger-action" type="button" disabled={profileSaving} onclick={() => void removeProfile(profile.id)}>{text.profileDelete}</button>
+                  </div>
                 </div>
                 <button
                   class:active={profile.enabled}
@@ -3152,20 +3304,22 @@
           </div>
         {/if}
         {#if profileEdit}
-          <form id="desktop-profile-form" class="settings-card provider-editor" onsubmit={(event) => { event.preventDefault(); void saveProfileEditor(); }}>
+          <form id="desktop-profile-form" class="settings-card provider-editor" aria-label={sectionLabel("profiles", text)} onsubmit={(event) => { event.preventDefault(); void saveProfileEditor(); }}>
+            <header class="entity-editor-head"><strong>{sectionLabel("profiles", text)}</strong><button class="modal-close" type="button" aria-label={text.cancel} disabled={profileSaving} onclick={() => (profileEdit = null)}><i class="ph ph-x"></i></button></header>
             <div class="settings-form">
               <label class="settings-field"><span>{text.profileId}</span><input value={profileEdit.id} disabled={!profileEdit.isNew} oninput={(event) => updateProfileEdit((draft) => ({ ...draft, id: (event.currentTarget as HTMLInputElement).value }))} /></label>
               <label class="settings-field"><span>{text.profileName}</span><input value={profileEdit.name} oninput={(event) => updateProfileEdit((draft) => ({ ...draft, name: (event.currentTarget as HTMLInputElement).value }))} /></label>
               <label class="settings-field"><span>{text.profileAgent}</span><select value={profileEdit.agentId} onchange={(event) => updateProfileEdit((draft) => ({ ...draft, agentId: (event.currentTarget as HTMLSelectElement).value }))}><option value="">{text.profileNoAgent}</option>{#each agents?.items.filter((agent) => agent.enabled) ?? [] as agent (agent.id)}<option value={agent.id}>{agent.name}</option>{/each}</select></label>
               <label class="settings-field"><span>{text.profileSandbox}</span><select value={profileEdit.sandboxEnabled === undefined ? "inherit" : profileEdit.sandboxEnabled ? "on" : "off"} onchange={(event) => { const value = (event.currentTarget as HTMLSelectElement).value; updateProfileEdit((draft) => ({ ...draft, sandboxEnabled: value === "inherit" ? undefined : value === "on" })); }}><option value="inherit">{text.profileSandboxInherit}</option><option value="on">{text.profileSandboxOn}</option><option value="off">{text.profileSandboxOff}</option></select></label>
             </div>
-            <div class="provider-inline-options"><label><input type="checkbox" checked={profileEdit.enabled} onchange={(event) => updateProfileEdit((draft) => ({ ...draft, enabled: (event.currentTarget as HTMLInputElement).checked }))} /> {text.profileEnabled}</label></div>
+            <div class="provider-inline-options"><div class="inline-switch-row"><span>{text.profileEnabled}</span><button class:active={profileEdit.enabled} class="switch" type="button" role="switch" aria-label={text.profileEnabled} aria-checked={profileEdit.enabled} onclick={() => updateProfileEdit((draft) => ({ ...draft, enabled: !draft.enabled }))}><span></span></button></div></div>
             <div class="provider-editor-toolbar"><strong>{text.profileFiles}</strong></div>
             <div class="profile-files-editor">
               {#each PROFILE_FILE_NAMES as fileName (fileName)}
                 <label class="settings-field"><span>{fileName}</span><textarea rows="7" value={profileEdit.files[fileName] ?? ""} oninput={(event) => updateProfileEdit((draft) => ({ ...draft, files: { ...draft.files, [fileName]: (event.currentTarget as HTMLTextAreaElement).value } }))}></textarea></label>
               {/each}
             </div>
+            <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={profileSaving} onclick={() => (profileEdit = null)}>{text.cancel}</button><button class="primary-button" type="submit" disabled={profileSaving || !profileEdit.id.trim()}>{profileSaving ? text.onboardingProviderSaving : text.save}</button></footer>
           </form>
         {/if}
         {#if profileActionMessage}<p class="settings-action-message">{profileActionMessage}</p>{/if}
@@ -3178,34 +3332,119 @@
         {:else if !usage}
           <div class="settings-card"><div class="settings-row"><p>{text.usageEmpty}</p></div></div>
         {:else}
-          <div class="settings-card">
-            <div class="settings-row usage-total-row">
-              <div>
-                <strong>{text.usageTotal}</strong>
-                <p>{text.usageGeneratedAt}: {usage.generatedAt.slice(0, 19).replace("T", " ")} · {usage.timezone}</p>
-              </div>
-              <span class="status-badge" data-state="ready">{formatTokenCount(usage.totals.requests)} {text.usageRequests}</span>
+          <div class="chart-kpi-grid">
+            <div class="chart-kpi" style="--kpi-accent:var(--chart-blue)">
+              <span class="chart-kpi-label">{text.usageRequests}</span>
+              <strong class="chart-kpi-value">{formatTokenCount(usage.totals.requests)}</strong>
+              <span class="chart-kpi-foot">{text.usageWindow_last30Days}</span>
             </div>
-            <div class="settings-row">
-              <div class="usage-metrics">
-                <span><strong>{formatTokenCount(usage.totals.inputTokens)}</strong> {text.usageInput}</span>
-                <span><strong>{formatTokenCount(usage.totals.outputTokens)}</strong> {text.usageOutput}</span>
-                <span><strong>{formatTokenCount(usage.totals.cacheReadTokens)}</strong> {text.usageCacheRead}</span>
-                <span><strong>{formatTokenCount(usage.totals.cacheWriteTokens)}</strong> {text.usageCacheWrite}</span>
-                <span><strong>{formatTokenCount(usage.totals.totalTokens)}</strong> {text.usageTotalTokens}</span>
-              </div>
+            <div class="chart-kpi" style="--kpi-accent:var(--chart-teal)">
+              <span class="chart-kpi-label">{text.usageTotalTokens}</span>
+              <strong class="chart-kpi-value">{formatTokenCount(usage.totals.totalTokens)}</strong>
+              <span class="chart-kpi-foot">{text.usageInput} {formatTokenCount(usage.totals.inputTokens)} · {text.usageOutput} {formatTokenCount(usage.totals.outputTokens)}</span>
+            </div>
+            <div class="chart-kpi" style="--kpi-accent:var(--chart-purple)">
+              <span class="chart-kpi-label">{text.usageCacheHitRatio}</span>
+              <strong class="chart-kpi-value">{Math.round(usageCacheHit * 100)}%</strong>
+              <span class="chart-kpi-foot">{text.usageCacheRead} {formatTokenCount(usage.totals.cacheReadTokens)}</span>
+            </div>
+            <div class="chart-kpi" style="--kpi-accent:var(--chart-orange)">
+              <span class="chart-kpi-label">{text.usageAvgPerDay}</span>
+              <strong class="chart-kpi-value">{formatTokenCount(usageAvgPerDay)}</strong>
+              <span class="chart-kpi-foot">{text.usageWindow_last30Days}</span>
             </div>
           </div>
-          <div class="settings-card">
-            {#each usage.windows as window (window.label)}
-              <div class="settings-row">
-                <div>
-                  <strong>{usageWindowLabel(window.label)}</strong>
-                  <p>{window.startDate} → {window.endDate}</p>
-                </div>
-                <span class="status-badge">{formatTokenCount(window.requests)} {text.usageRequests} · {formatTokenCount(window.totalTokens)} {text.usageTokens}</span>
+
+          <div class="settings-card chart-card">
+            <div class="chart-card-head">
+              <div><strong>{text.usageTrendTitle}</strong><p>{text.usageTrendDesc}</p></div>
+              <div class="chart-legend-inline">
+                <span class="legend-chip"><span class="legend-line" style="--dot:var(--chart-blue)"></span>{text.usageTotalTokens}</span>
+                <span class="legend-chip"><span class="legend-line legend-line-dash" style="--dot:var(--chart-teal)"></span>{text.usageRequests}</span>
               </div>
-            {/each}
+            </div>
+            {#if usageHasTrend}
+              <div class="trend-wrap">
+                <svg class="trend-svg" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="usageTrendFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="var(--chart-blue)" stop-opacity="0.26" />
+                      <stop offset="100%" stop-color="var(--chart-blue)" stop-opacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <line class="trend-grid" x1="0" y1="5" x2="100" y2="5" vector-effect="non-scaling-stroke" />
+                  <line class="trend-grid" x1="0" y1="24.5" x2="100" y2="24.5" vector-effect="non-scaling-stroke" />
+                  <line class="trend-grid" x1="0" y1="40" x2="100" y2="40" vector-effect="non-scaling-stroke" />
+                  <path class="trend-area" d={usageTokenArea} fill="url(#usageTrendFill)" />
+                  <path class="trend-line trend-line-req" d={usageReqLine} vector-effect="non-scaling-stroke" />
+                  <path class="trend-line trend-line-token" d={usageTokenLine} vector-effect="non-scaling-stroke" />
+                  {#if usagePeakDay && usageDaily.length > 1}<line class="trend-peak-guide" x1={usagePeakX} y1="0" x2={usagePeakX} y2="44" vector-effect="non-scaling-stroke" />{/if}
+                </svg>
+                {#if usagePeakDay && usageDaily.length > 1}
+                  <div class="trend-peak-tag" style="left:{usagePeakTagX}%">
+                    <strong>{formatTokenCount(usagePeakDay.totalTokens)}</strong>
+                    <small>{text.usagePeak} · {usagePeakDay.date.slice(5)}</small>
+                  </div>
+                {/if}
+                <div class="trend-axis">
+                  <span>{usageDaily[0]?.date.slice(5)}</span>
+                  <span>{usageDaily[usageDaily.length - 1]?.date.slice(5)}</span>
+                </div>
+              </div>
+            {:else}
+              <p class="chart-empty">{text.usageNoTrend}</p>
+            {/if}
+            <p class="chart-caption">{text.usageGeneratedAt}: {usage.generatedAt.slice(0, 19).replace("T", " ")} · {usage.timezone}</p>
+          </div>
+
+          <div class="usage-split">
+            <div class="settings-card chart-card">
+              <div class="chart-card-head"><div><strong>{text.usageDistribution}</strong></div></div>
+              <div class="donut-block">
+                <div class="donut-wrap">
+                  <svg class="donut-svg" viewBox="0 0 42 42" role="img" aria-label={text.usageDistribution}>
+                    <circle class="donut-track" cx="21" cy="21" r={DONUT_R} />
+                    {#each usageDistSegments as seg (seg.key)}
+                      <circle class="donut-seg" cx="21" cy="21" r={DONUT_R} stroke={seg.color} stroke-dasharray="{seg.len} {100 - seg.len}" stroke-dashoffset={seg.offset} />
+                    {/each}
+                  </svg>
+                  <div class="donut-center">
+                    <strong>{formatTokenCount(usage.totals.totalTokens)}</strong>
+                    <small>{text.usageTotalTokens}</small>
+                  </div>
+                </div>
+                <ul class="chart-legend">
+                  {#each usageDistItems as item (item.key)}
+                    <li>
+                      <span class="legend-dot" style="background:{item.color}"></span>
+                      <span class="legend-name">{item.label}</span>
+                      <span class="legend-value">{formatTokenCount(item.value)}<em>{percentOf(item.value, usageDistTotal)}%</em></span>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            </div>
+
+            <div class="settings-card chart-card">
+              <div class="chart-card-head"><div><strong>{text.usageWindowCompare}</strong></div></div>
+              <div class="window-bars">
+                {#each usage.windows as window (window.label)}
+                  <div class="window-bar-row">
+                    <div class="window-bar-meta">
+                      <strong>{usageWindowLabel(window.label, text)}</strong>
+                      <span>{formatTokenCount(window.requests)} {text.usageRequests}</span>
+                    </div>
+                    <div class="window-bar-track" title={`${formatTokenCount(window.totalTokens)} ${text.usageTokens}`}>
+                      <span class="window-seg" style="width:{percentOf(window.inputTokens, usageWindowMax)}%; background:var(--chart-blue)"></span>
+                      <span class="window-seg" style="width:{percentOf(window.outputTokens, usageWindowMax)}%; background:var(--chart-teal)"></span>
+                      <span class="window-seg" style="width:{percentOf(window.cacheReadTokens, usageWindowMax)}%; background:var(--chart-purple)"></span>
+                      <span class="window-seg" style="width:{percentOf(window.cacheWriteTokens, usageWindowMax)}%; background:var(--chart-orange)"></span>
+                    </div>
+                    <span class="window-bar-total">{formatTokenCount(window.totalTokens)}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
           </div>
         {/if}
       {:else if activeSection === "runHistory"}
@@ -3227,13 +3466,17 @@
               </div>
             </div>
           </div>
+          <div class="settings-card provider-editor"><div class="settings-form"><label class="settings-field settings-field-wide"><span>{text.runHistoryFilter}</span><input bind:value={runHistoryQuery} placeholder={text.runHistoryFilterHint} /></label></div></div>
+          {#if filteredRunHistory.length === 0}
+            <div class="settings-card"><div class="settings-row"><p>{text.runHistoryNoMatches}</p></div></div>
+          {:else}
           <div class="settings-card">
-            {#each runHistory as item (item.runId)}
+            {#each filteredRunHistory as item (item.runId)}
               <div class="settings-row run-history-row">
                 <div class="run-history-item">
                   <div class="run-history-head">
                     <strong>{item.botId} / {item.chatId}</strong>
-                    <span class="status-badge" data-state={item.reflectionOutcome === "success" ? "ready" : item.reflectionOutcome === "failed" ? "error" : "disconnected"}>{runHistoryOutcomeLabel(item.reflectionOutcome)}</span>
+                    <span class="status-badge" data-state={item.reflectionOutcome === "success" ? "ready" : item.reflectionOutcome === "failed" ? "error" : "disconnected"}>{runHistoryOutcomeLabel(item.reflectionOutcome, text)}</span>
                   </div>
                   <p class="run-history-meta">
                     {item.createdAt.slice(0, 19).replace("T", " ")} · {formatDurationMs(item.durationMs)} · {item.stopReason}
@@ -3246,6 +3489,7 @@
               </div>
             {/each}
           </div>
+          {/if}
         {/if}
       {:else if activeSection === "trace"}
         <p class="settings-section-hint">{text.traceHint}</p>
@@ -3257,7 +3501,7 @@
             </div>
             <select value={traceRange} disabled={traceLoading} aria-label={text.traceRange} onchange={(event) => void changeTraceRange((event.currentTarget as HTMLSelectElement).value as DesktopTraceRange)}>
               {#each TRACE_RANGES as range (range)}
-                <option value={range}>{traceRangeLabel(range)}</option>
+                <option value={range}>{traceRangeLabel(range, text)}</option>
               {/each}
             </select>
           </div>
@@ -3269,14 +3513,98 @@
         {:else if !trace}
           <div class="settings-card"><div class="settings-row"><p>{text.traceEmpty}</p></div></div>
         {:else}
-          <div class="settings-card">
-            <div class="settings-row"><div><strong>{text.traceFacts}</strong></div><span class="diag-value">{formatTokenCount(trace.totals.facts)}</span></div>
-            <div class="settings-row"><div><strong>{text.traceRuns}</strong></div><span class="diag-value">{formatTokenCount(trace.totals.runs)}</span></div>
-            <div class="settings-row"><div><strong>{text.traceToolCalls}</strong></div><span class="diag-value">{formatTokenCount(trace.totals.toolCalls)} · {text.traceFailed}: {trace.totals.failedTools} · {text.traceBlocked}: {trace.totals.blockedTools}</span></div>
-            <div class="settings-row"><div><strong>{text.traceModelCalls}</strong></div><span class="diag-value">{formatTokenCount(trace.totals.modelCalls)} · {formatTokenCount(trace.totals.totalTokens)} {text.usageTokens}</span></div>
-            <div class="settings-row"><div><strong>{text.traceSkills}</strong></div><span class="diag-value">{formatTokenCount(trace.totals.skillUsages)} · {text.traceDistinct}: {trace.totals.distinctSkills}</span></div>
-            <div class="settings-row"><div><strong>{text.traceDurations}</strong></div><span class="diag-value">{text.traceTool}: {formatDurationMs(trace.totals.avgToolDurationMs)} · {text.traceModel}: {formatDurationMs(trace.totals.avgModelDurationMs)}</span></div>
-            <div class="settings-row"><div><strong>{text.traceCoverage}</strong></div><span class="diag-value">{trace.totals.bots} {text.traceBots} · {trace.totals.channels} {text.traceChannels} · {trace.totals.chats} {text.traceChats} · {trace.totals.sessions} {text.traceSessions}</span></div>
+          <div class="chart-kpi-grid">
+            <div class="chart-kpi" style="--kpi-accent:var(--chart-indigo)">
+              <span class="chart-kpi-label">{text.traceFacts}</span>
+              <strong class="chart-kpi-value">{formatTokenCount(trace.totals.facts)}</strong>
+              <span class="chart-kpi-foot">{formatTokenCount(trace.totals.runs)} {text.traceRuns}</span>
+            </div>
+            <div class="chart-kpi" style="--kpi-accent:var(--chart-blue)">
+              <span class="chart-kpi-label">{text.traceToolCalls}</span>
+              <strong class="chart-kpi-value">{formatTokenCount(trace.totals.toolCalls)}</strong>
+              <span class="chart-kpi-foot">{text.traceFailed} {trace.totals.failedTools} · {text.traceBlocked} {trace.totals.blockedTools}</span>
+            </div>
+            <div class="chart-kpi" style="--kpi-accent:var(--chart-purple)">
+              <span class="chart-kpi-label">{text.traceModelCalls}</span>
+              <strong class="chart-kpi-value">{formatTokenCount(trace.totals.modelCalls)}</strong>
+              <span class="chart-kpi-foot">{formatTokenCount(trace.totals.totalTokens)} {text.usageTokens}</span>
+            </div>
+            <div class="chart-kpi" style="--kpi-accent:var(--chart-teal)">
+              <span class="chart-kpi-label">{text.traceSkills}</span>
+              <strong class="chart-kpi-value">{formatTokenCount(trace.totals.skillUsages)}</strong>
+              <span class="chart-kpi-foot">{formatTokenCount(trace.totals.distinctSkills)} {text.traceDistinct}</span>
+            </div>
+          </div>
+
+          <div class="settings-card chart-card">
+            <div class="chart-card-head"><div><strong>{text.traceActivity}</strong></div></div>
+            <div class="hbar-list">
+              {#each traceActivityItems as item (item.key)}
+                <div class="hbar-row">
+                  <span class="hbar-label">{item.label}</span>
+                  <div class="hbar-track"><span class="hbar-fill" style="width:{Math.max(2, percentOf(item.value, traceActivityMax))}%; background:{item.color}"></span></div>
+                  <span class="hbar-value">{formatTokenCount(item.value)}</span>
+                </div>
+              {/each}
+            </div>
+          </div>
+
+          <div class="chart-split">
+            <div class="settings-card chart-card">
+              <div class="chart-card-head"><div><strong>{text.traceToolOutcome}</strong></div></div>
+              <div class="donut-block">
+                <div class="donut-wrap">
+                  <svg class="donut-svg" viewBox="0 0 42 42" role="img" aria-label={text.traceToolOutcome}>
+                    <circle class="donut-track" cx="21" cy="21" r={DONUT_R} />
+                    {#each traceOutcomeSegments as seg (seg.key)}
+                      <circle class="donut-seg" cx="21" cy="21" r={DONUT_R} stroke={seg.color} stroke-dasharray="{seg.len} {100 - seg.len}" stroke-dashoffset={seg.offset} />
+                    {/each}
+                  </svg>
+                  <div class="donut-center">
+                    <strong>{formatTokenCount(trace.totals.toolCalls)}</strong>
+                    <small>{text.traceToolCalls}</small>
+                  </div>
+                </div>
+                <ul class="chart-legend">
+                  {#each traceOutcomeItems as item (item.key)}
+                    <li>
+                      <span class="legend-dot" style="background:{item.color}"></span>
+                      <span class="legend-name">{item.label}</span>
+                      <span class="legend-value">{formatTokenCount(item.value)}<em>{percentOf(item.value, traceOutcomeTotal)}%</em></span>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            </div>
+
+            <div class="settings-card chart-card">
+              <div class="chart-card-head"><div><strong>{text.traceCoverage}</strong></div></div>
+              <div class="coverage-grid">
+                {#each traceCoverageItems as item (item.key)}
+                  <div class="coverage-tile">
+                    <span class="coverage-icon"><i class="ph ph-{item.icon}"></i></span>
+                    <strong>{formatTokenCount(item.value)}</strong>
+                    <small>{item.label}</small>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-card chart-card">
+            <div class="chart-card-head"><div><strong>{text.traceDurationCompare}</strong></div></div>
+            <div class="hbar-list">
+              <div class="hbar-row">
+                <span class="hbar-label">{text.traceTool}</span>
+                <div class="hbar-track"><span class="hbar-fill" style="width:{Math.max(2, percentOf(trace.totals.avgToolDurationMs, traceDurationMax))}%; background:var(--chart-blue)"></span></div>
+                <span class="hbar-value">{formatDurationMs(trace.totals.avgToolDurationMs)}</span>
+              </div>
+              <div class="hbar-row">
+                <span class="hbar-label">{text.traceModel}</span>
+                <div class="hbar-track"><span class="hbar-fill" style="width:{Math.max(2, percentOf(trace.totals.avgModelDurationMs, traceDurationMax))}%; background:var(--chart-purple)"></span></div>
+                <span class="hbar-value">{formatDurationMs(trace.totals.avgModelDurationMs)}</span>
+              </div>
+            </div>
           </div>
         {/if}
       {:else if activeSection === "sandbox"}
@@ -3411,13 +3739,19 @@
         {:else}
           <div class="settings-card">
             <div class="settings-row"><strong>{text.tasksTotal}</strong><span class="diag-value">{tasks.counts.total}</span></div>
-            <div class="settings-row"><strong>{text.tasksByType}</strong><span class="diag-value">{text.taskTypeOneShot}: {tasks.counts.byType["one-shot"]} · {text.taskTypePeriodic}: {tasks.counts.byType.periodic} · {text.taskTypeImmediate}: {tasks.counts.byType.immediate}</span></div>
             <div class="settings-row"><strong>{text.tasksByStatus}</strong><span class="diag-value">{text.taskStatusPending}: {tasks.counts.byStatus.pending} · {text.taskStatusRunning}: {tasks.counts.byStatus.running} · {text.taskStatusCompleted}: {tasks.counts.byStatus.completed} · {text.taskStatusError}: {tasks.counts.byStatus.error}</span></div>
             <div class="settings-row"><strong>{text.tasksByScope}</strong><span class="diag-value">{text.taskScopeWorkspace}: {tasks.counts.byScope.workspace} · {text.taskScopeChat}: {tasks.counts.byScope.chatScratch}</span></div>
           </div>
           <div class="settings-card provider-editor">
             <div class="settings-form"><label class="settings-field settings-field-wide"><span>{text.tasksFilter}</span><input bind:value={taskQuery} placeholder={text.tasksFilterHint} /></label></div>
-            <div class="provider-inline-options"><button class="secondary-button" type="button" disabled={filteredTaskItems.length === 0} onclick={() => (taskSelected = new Set(filteredTaskItems.map((item) => item.id)))}>{text.tasksSelectAll}</button><button class="secondary-button" type="button" disabled={taskSelected.size === 0} onclick={() => (taskSelected = new Set())}>{text.tasksClearSelection}</button><button class="secondary-button" type="button" disabled={taskSelected.size === 0 || Boolean(taskBusy)} onclick={() => void executeTaskAction("trigger", [...taskSelected])}>{text.tasksTriggerSelected} ({taskSelected.size})</button><button class="secondary-button danger-action" type="button" disabled={taskSelected.size === 0 || Boolean(taskBusy)} onclick={() => void executeTaskAction("delete", [...taskSelected])}>{text.tasksDeleteSelected} ({taskSelected.size})</button></div>
+            <div class="task-bulk-bar">
+              <span class="task-bulk-count"><i class="ph ph-check-square" aria-hidden="true"></i>{taskSelected.size}</span>
+              <button class="tertiary-button" type="button" disabled={filteredTaskItems.length === 0} onclick={() => (taskSelected = new Set(filteredTaskItems.map((item) => item.id)))}>{text.tasksSelectAll}</button>
+              <button class="tertiary-button" type="button" disabled={taskSelected.size === 0} onclick={() => (taskSelected = new Set())}>{text.tasksClearSelection}</button>
+              <span class="task-bulk-spacer"></span>
+              <button class="secondary-button" type="button" disabled={taskSelected.size === 0 || Boolean(taskBusy)} onclick={() => void executeTaskAction("trigger", [...taskSelected])}>{text.tasksTriggerSelected}</button>
+              <button class="secondary-button danger-action" type="button" disabled={taskSelected.size === 0 || Boolean(taskBusy)} onclick={() => void executeTaskAction("delete", [...taskSelected])}>{text.tasksDeleteSelected}</button>
+            </div>
           </div>
           {#if filteredTaskItems.length === 0}
             <div class="settings-card"><div class="settings-row"><p>{text.tasksEmpty}</p></div></div>
@@ -3428,24 +3762,68 @@
                   <label class="inline-check task-select"><input type="checkbox" checked={taskSelected.has(task.id)} onchange={() => toggleTaskSelection(task.id)} /><span class="sr-only">{text.tasksSelect}</span></label>
                   <div class="profile-info">
                     <strong>{task.channel} / {task.botId}{task.chatId ? ` / ${task.chatId}` : ""}</strong>
-                    <p>{taskTypeLabel(task.type)} · {task.scheduleText || task.delivery} · {task.timezone}</p>
-                    <p>{taskStatusLabel(task.status)}{task.runCount > 0 ? ` · ${text.tasksRunCount}: ${task.runCount}` : ""}{task.lastTriggeredAt ? ` · ${text.tasksLastTriggered}: ${task.lastTriggeredAt.slice(0, 19).replace("T", " ")}` : ""}</p>
-                    <p class="task-text-preview">{task.text}</p>
+                    <p>{taskTypeLabel(task.type, text)} · {task.scheduleText || task.delivery} · {task.timezone}</p>
+                    <p>{taskStatusLabel(task.status, text)}{task.runCount > 0 ? ` · ${text.tasksRunCount}: ${task.runCount}` : ""}{task.lastTriggeredAt ? ` · ${text.tasksLastTriggered}: ${task.lastTriggeredAt.slice(0, 19).replace("T", " ")}` : ""}</p>
+                    <p class="task-text-preview" title={task.text}>{task.text.split(/\r?\n/)[0] || task.text}</p>
                     {#if task.lastError}<p class="run-history-failed">{task.lastError}</p>{/if}
+                    <div class="task-execution-list">
+                      <strong>{text.tasksExecutions}</strong>
+                      {#if task.executions.length === 0}
+                        <p>{text.tasksNoExecutions}</p>
+                      {:else}
+                        {#each task.executions.slice(0, 5) as execution (execution.id)}
+                          <div class="task-execution-row">
+                            <span>{execution.status} · {execution.startedAt.slice(0, 19).replace("T", " ")}</span>
+                            <span>{text.tasksRunCount}: {execution.attempt}/{execution.maxAttempts}</span>
+                            <button class="task-session-link" type="button" title={execution.sessionId} disabled={Boolean(taskBusy) || !execution.sessionId} onclick={() => void openTaskSession(task.id, execution.id)}>
+                              {text.tasksSession}: {execution.sessionId || text.tasksSessionCleaned}
+                            </button>
+                            {#if execution.lastError}<span class="run-history-failed">{execution.lastError}</span>{/if}
+                          </div>
+                        {/each}
+                      {/if}
+                    </div>
                   </div>
-                  <div class="settings-row-actions"><button class="secondary-button" type="button" disabled={Boolean(taskBusy)} onclick={() => void executeTaskAction("trigger", [task.id])}>{text.tasksTrigger}</button><button class="secondary-button" type="button" disabled={Boolean(taskBusy) || taskEdit !== null} onclick={() => beginTaskEdit(task)}>{text.channelEdit}</button><button class="secondary-button danger-action" type="button" disabled={Boolean(taskBusy)} onclick={() => void executeTaskAction("delete", [task.id])}>{text.channelDelete}</button></div>
+                  <div class="row-icon-actions">
+                    <button class="row-icon-btn" type="button" title={text.tasksTrigger} aria-label={text.tasksTrigger} disabled={Boolean(taskBusy)} onclick={() => void executeTaskAction("trigger", [task.id])}><i class="ph ph-play" aria-hidden="true"></i></button>
+                    <button class="row-icon-btn" type="button" title={text.channelEdit} aria-label={text.channelEdit} disabled={Boolean(taskBusy) || taskEdit !== null} onclick={() => beginTaskEdit(task)}><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
+                    <button class="row-icon-btn danger-action" type="button" title={text.channelDelete} aria-label={text.channelDelete} disabled={Boolean(taskBusy)} onclick={() => void executeTaskAction("delete", [task.id])}><i class="ph ph-trash" aria-hidden="true"></i></button>
+                  </div>
                 </div>
               {/each}
             </div>
           {/if}
           {#if taskEdit}
-            <form id="desktop-task-form" class="settings-card provider-editor" onsubmit={(event) => { event.preventDefault(); void saveTaskEditor(); }}>
-              <div class="provider-editor-toolbar"><strong>{taskEdit.channel} / {taskEdit.botId}</strong></div>
+            <form id="desktop-task-form" class="settings-card provider-editor" aria-label={sectionLabel("tasks", text)} onsubmit={(event) => { event.preventDefault(); void saveTaskEditor(); }}>
+              <header class="entity-editor-head"><strong>{sectionLabel("tasks", text)} · {taskEdit.channel} / {taskEdit.botId}</strong><button class="modal-close" type="button" aria-label={text.cancel} disabled={Boolean(taskBusy)} onclick={() => (taskEdit = null)}><i class="ph ph-x"></i></button></header>
               <label class="settings-field settings-field-wide"><span>{text.tasksText}</span><textarea rows="6" bind:value={taskEdit.draftText}></textarea></label>
-              <div class="settings-form"><label class="settings-field"><span>{text.tasksDelivery}</span><select bind:value={taskEdit.draftDelivery}><option value="agent">agent</option><option value="text">text</option></select></label><label class="settings-field"><span>{text.tasksSessionMode}</span><select bind:value={taskEdit.draftSessionMode}><option value="chat">chat</option><option value="fresh">fresh</option></select></label>{#if taskEdit.type !== "immediate"}<label class="settings-field"><span>{text.tasksSchedule}</span><input bind:value={taskEdit.draftSchedule} /></label>{/if}{#if taskEdit.type === "periodic"}<label class="settings-field"><span>{text.tasksTimezone}</span><input bind:value={taskEdit.draftTimezone} /></label>{/if}</div>
+              <div class="settings-form"><label class="settings-field"><span>{text.tasksDelivery}</span><select bind:value={taskEdit.draftDelivery}><option value="agent">agent</option><option value="text">text</option></select></label><label class="settings-field"><span>{text.tasksSessionMode}</span><select bind:value={taskEdit.draftSessionMode}><option value="chat">chat</option><option value="fresh">fresh</option></select></label>{#if taskEdit.type !== "immediate"}<label class="settings-field"><span>{text.tasksSchedule}</span><input bind:value={taskEdit.draftSchedule} /></label>{/if}{#if taskEdit.type === "periodic"}<label class="settings-field"><span>{text.tasksTimezone}</span><select bind:value={taskEdit.draftTimezone}>{#if taskEdit.draftTimezone && !timezoneOptions().includes(taskEdit.draftTimezone)}<option value={taskEdit.draftTimezone}>{taskEdit.draftTimezone}</option>{/if}{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label>{/if}</div>
+              <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(taskBusy)} onclick={() => (taskEdit = null)}>{text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(taskBusy) || !taskEdit.draftText.trim()}>{taskBusy ? text.onboardingProviderSaving : text.save}</button></footer>
             </form>
           {/if}
           {#if taskActionMessage}<p class="settings-action-message">{taskActionMessage}</p>{/if}
+          {#if taskSession}
+            <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={text.tasksSession} onclick={() => (taskSession = null)} onkeydown={(event) => { if (event.key === "Escape") taskSession = null; }}>
+              <div class="modal-card" tabindex="-1" role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+                <header class="modal-head">
+                  <strong>{text.tasksSession} · {taskSession.sessionId}</strong>
+                  <button class="modal-close" type="button" aria-label={text.cancel} onclick={() => (taskSession = null)}><i class="ph ph-x"></i></button>
+                </header>
+                <div class="modal-body task-session-detail">
+                  {#if taskSession.messages.length === 0}
+                    <p>{text.tasksSessionCleaned}</p>
+                  {:else}
+                    {#each taskSession.messages as message, index (`${index}-${message.role}`)}
+                      <div class="task-session-message">
+                        <strong>{message.role || "message"}</strong>
+                        <p>{message.content}</p>
+                      </div>
+                    {/each}
+                  {/if}
+                </div>
+              </div>
+            </div>
+          {/if}
         {/if}
       {:else if activeSection === "runtimeEnv"}
         <p class="settings-section-hint">{text.runtimeEnvHint}</p>
@@ -3496,7 +3874,7 @@
           </div>
           <div class="settings-row">
             <strong>{text.diagState}</strong>
-            <span class="status-badge" data-state={status?.service.state ?? "disconnected"}>{serviceStateLabel(status?.service.state)}</span>
+            <span class="status-badge" data-state={status?.service.state ?? "disconnected"}>{serviceStateLabel(status?.service.state, text)}</span>
           </div>
         </div>
         <div class="diag-actions">
@@ -3508,58 +3886,54 @@
 
       {#if toolSettingsMessage && ["webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"].includes(activeSection)}<p class="settings-action-message">{toolSettingsMessage}</p>{/if}
       {#if error}<p class="error-message">{error}</p>{/if}
-      {#if activeSection === "tasks" && taskEdit}
+      {#if toolSettingsDirty.has(activeSection as ToolSettingsSection)}
         <footer class="settings-footbar">
-          <button class="secondary-button" type="button" disabled={Boolean(taskBusy)} onclick={() => (taskEdit = null)}>{text.cancel}</button>
-          <button class="primary-button" type="submit" form="desktop-task-form" disabled={Boolean(taskBusy) || !taskEdit.draftText.trim()}>{taskBusy ? text.onboardingProviderSaving : text.save}</button>
-        </footer>
-      {:else if toolSettingsDirty.has(activeSection as ToolSettingsSection)}
-        <footer class="settings-footbar">
-          <button class="primary-button" type="button" disabled={toolSettingsSaving} onclick={() => void saveToolSettings()}>{toolSettingsSaving ? text.onboardingProviderSaving : text.save}</button>
+          <span class="settings-footbar-label">{text.settingsUnsaved}</span>
+          <div class="settings-footbar-actions">
+            <button class="primary-button" type="button" disabled={toolSettingsSaving} onclick={() => void saveToolSettings()}>{toolSettingsSaving ? text.onboardingProviderSaving : text.save}</button>
+          </div>
         </footer>
       {:else if activeSection === "models" && modelRoutingDirty}
         <footer class="settings-footbar">
-          <button class="primary-button" type="button" disabled={modelRoutingSaving} onclick={() => void saveAdvancedModelRouting()}>{modelRoutingSaving ? text.onboardingProviderSaving : text.save}</button>
+          <span class="settings-footbar-label">{text.settingsUnsaved}</span>
+          <div class="settings-footbar-actions">
+            <button class="secondary-button" type="button" disabled={modelRoutingSaving} onclick={discardModelRouting}>{text.discardChanges}</button>
+            <button class="primary-button" type="button" disabled={modelRoutingSaving} onclick={() => void saveAdvancedModelRouting()}>{modelRoutingSaving ? text.onboardingProviderSaving : text.save}</button>
+          </div>
         </footer>
-      {:else if activeSection === "plugins" && pluginsEdit}
+      {:else if activeSection === "plugins" && pluginsDirty}
         <footer class="settings-footbar">
-          <button class="primary-button" type="submit" form="desktop-plugins-form" disabled={pluginsSaving}>{pluginsSaving ? text.onboardingProviderSaving : text.save}</button>
+          <span class="settings-footbar-label">{text.settingsUnsaved}</span>
+          <div class="settings-footbar-actions">
+            <button class="secondary-button" type="button" disabled={pluginsSaving} onclick={discardPlugins}>{text.discardChanges}</button>
+            <button class="primary-button" type="submit" form="desktop-plugins-form" disabled={pluginsSaving}>{pluginsSaving ? text.onboardingProviderSaving : text.save}</button>
+          </div>
         </footer>
-      {:else if activeSection === "skills" && skillsSearchDraft}
+      {:else if activeSection === "skills" && skillsSearchDirty}
         <footer class="settings-footbar">
-          <button class="primary-button" type="submit" form="desktop-skills-search-form" disabled={skillsSaving}>{skillsSaving ? text.onboardingProviderSaving : text.save}</button>
-        </footer>
-      {:else if activeSection === "mcp" && mcpEdit}
-        <footer class="settings-footbar">
-          <button class="secondary-button" type="button" disabled={mcpSaving} onclick={() => (mcpEdit = null)}>{text.cancel}</button>
-          <button class="primary-button" type="submit" form="desktop-mcp-form" disabled={mcpSaving || !mcpEdit.id.trim() || (mcpEdit.transport === "stdio" ? !mcpEdit.command.trim() : !mcpEdit.url.trim())}>{mcpSaving ? text.onboardingProviderSaving : text.save}</button>
-        </footer>
-      {:else if activeSection === "channels" && channelEdit}
-        <footer class="settings-footbar">
-          <button class="secondary-button" type="button" disabled={channelSaving} onclick={() => (channelEdit = null)}>{text.cancel}</button>
-          <button class="primary-button" type="submit" form="desktop-channel-form" disabled={channelSaving || !channelEdit.id.trim()}>{channelSaving ? text.onboardingProviderSaving : text.save}</button>
-        </footer>
-      {:else if activeSection === "agents" && agentEdit}
-        <footer class="settings-footbar">
-          <button class="secondary-button" type="button" disabled={agentSaving} onclick={() => (agentEdit = null)}>{text.cancel}</button>
-          <button class="primary-button" type="submit" form="desktop-agent-form" disabled={agentSaving || !agentEdit.id.trim()}>{agentSaving ? text.onboardingProviderSaving : text.save}</button>
-        </footer>
-      {:else if activeSection === "profiles" && profileEdit}
-        <footer class="settings-footbar">
-          <button class="secondary-button" type="button" disabled={profileSaving} onclick={() => (profileEdit = null)}>{text.cancel}</button>
-          <button class="primary-button" type="submit" form="desktop-profile-form" disabled={profileSaving || !profileEdit.id.trim()}>{profileSaving ? text.onboardingProviderSaving : text.save}</button>
+          <span class="settings-footbar-label">{text.settingsUnsaved}</span>
+          <div class="settings-footbar-actions">
+            <button class="secondary-button" type="button" disabled={skillsSaving} onclick={discardSkillsSearch}>{text.discardChanges}</button>
+            <button class="primary-button" type="submit" form="desktop-skills-search-form" disabled={skillsSaving}>{skillsSaving ? text.onboardingProviderSaving : text.save}</button>
+          </div>
         </footer>
       {:else if activeSection === "providers" && providerGlobalsDirty}
         <footer class="settings-footbar">
-          <button class="primary-button" type="button" disabled={providerSaving} onclick={() => void saveProviderGlobals()}>{providerSaving ? text.onboardingProviderSaving : text.providerSaveGlobal}</button>
+          <span class="settings-footbar-label">{text.settingsUnsaved}</span>
+          <div class="settings-footbar-actions">
+            <button class="primary-button" type="button" disabled={providerSaving} onclick={() => void saveProviderGlobals()}>{providerSaving ? text.onboardingProviderSaving : text.providerSaveGlobal}</button>
+          </div>
         </footer>
-      {:else if activeSection === "sandbox" && sandboxEdit}
+      {:else if activeSection === "sandbox" && sandboxDirty}
         <footer class="settings-footbar">
-          <button class="secondary-button" type="button" disabled={sandboxSaving} onclick={resetSandboxEditor}>{text.reset}</button>
-          <button class="primary-button" type="submit" form="desktop-sandbox-form" disabled={sandboxSaving || (!sandboxEdit.preserveExternalEnvFilePath && !sandboxEdit.envFilePath.trim())}>{sandboxSaving ? text.onboardingProviderSaving : text.sandboxSave}</button>
+          <span class="settings-footbar-label">{text.settingsUnsaved}</span>
+          <div class="settings-footbar-actions">
+            <button class="secondary-button" type="button" disabled={sandboxSaving} onclick={resetSandboxEditor}>{text.discardChanges}</button>
+            <button class="primary-button" type="submit" form="desktop-sandbox-form" disabled={sandboxSaving || (!sandboxEdit?.preserveExternalEnvFilePath && !sandboxEdit?.envFilePath.trim())}>{sandboxSaving ? text.onboardingProviderSaving : text.sandboxSave}</button>
+          </div>
         </footer>
       {:else if shouldShowServiceReconnect(serviceReady)}
-        <footer class="settings-footbar">
+        <footer class="settings-footbar settings-footbar-notice">
           <button class="secondary-button" type="button" onclick={refreshStatus}>{text.reconnectService}</button>
         </footer>
       {/if}

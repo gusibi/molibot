@@ -26,9 +26,9 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "tsc -p tsconfig.build.json",
-    "test": "npm run build && node --test dist/test/**/*.test.js",
-    "smoke": "npm run build && node dist/src/smoke.js",
-    "prepack": "npm run clean && npm run test"
+    "test": "corepack pnpm run build && node --test dist/test/**/*.test.js",
+    "smoke": "corepack pnpm run build && node dist/src/smoke.js",
+    "prepack": "corepack pnpm run clean && corepack pnpm run test"
   },
   "dependencies": {
     "pg": "^8.16.3"

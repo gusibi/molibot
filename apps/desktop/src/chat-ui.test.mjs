@@ -26,12 +26,61 @@ test("assistant code blocks wrap without horizontal scrolling", () => {
   assert.match(styles, /\.markdown-body table\s*\{[^}]*table-layout:\s*fixed/s);
 });
 
-test("settings keeps the native-density liquid-glass layout", () => {
+test("session groups start collapsed and use balanced list density", () => {
+  assert.match(view, /activeBotKey = "";[\s\S]*switchViewMode\("external"\)/);
+  assert.doesNotMatch(view, /const firstBot = externalNav/);
+  assert.match(view, /if \(bot\.key === activeBotKey\) \{[\s\S]*activeBotKey = "";/);
+  assert.match(styles, /\.conv-group-head\s*\{[^}]*height:\s*34px/s);
+  assert.match(styles, /\.conversation-select\s*\{[^}]*min-height:\s*36px/s);
+});
+
+test("settings uses the flat Geist layout", () => {
   assert.match(app, /class="settings-search"/);
   assert.match(app, /class="page-header settings-page-header"[\s\S]*class="settings-scroll"/);
-  assert.match(styles, /\.settings-row\s*\{[^}]*min-height:\s*46px/s);
-  assert.match(styles, /\.settings-card\s*\{[^}]*backdrop-filter:\s*blur\(24px\) saturate\(170%\)/s);
+  assert.match(styles, /\.settings-row\s*\{[^}]*min-height:\s*50px/s);
+  // Geist cards are flat: solid surface + subtle shadow, no glass blur.
+  assert.doesNotMatch(styles, /backdrop-filter/);
+  assert.match(styles, /\.settings-card\s*\{[^}]*background:\s*var\(--card-bg\)/s);
+  assert.match(styles, /\.settings-card \+ \.settings-card\s*\{[^}]*margin-top:\s*16px/s);
   assert.match(styles, /\.settings-footbar\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0/s);
+  assert.match(app, /open=\{provider\.id === ttsGenerateEdit\.defaultProvider\}/);
+  assert.match(app, /<option value="1024x1024">1024 × 1024<\/option>/);
+});
+
+test("usage and trace pages render chart dashboards instead of plain rows", () => {
+  // Usage: KPI tiles, the daily token trend area chart, distribution donut, window bars.
+  assert.match(app, /class="chart-kpi-grid"/);
+  assert.match(app, /class="trend-svg"[\s\S]*d=\{usageTokenArea\}/);
+  assert.match(app, /class="trend-line trend-line-token" d=\{usageTokenLine\}/);
+  assert.match(app, /class="donut-seg"[\s\S]*stroke-dasharray="\{seg\.len\}/);
+  assert.match(app, /class="window-bar-track"/);
+  // Trace: activity bars, the tool-outcome donut, coverage tiles, duration bars.
+  assert.match(app, /class="hbar-fill"[\s\S]*percentOf\(item\.value, traceActivityMax\)/);
+  assert.match(app, /each traceOutcomeSegments as seg/);
+  assert.match(app, /class="coverage-grid"/);
+  // Chart geometry + palette are present.
+  assert.match(app, /function trendLinePath\(/);
+  assert.match(app, /function donutSegments\(/);
+  assert.match(styles, /--chart-blue:/);
+  assert.match(styles, /\.donut-seg\s*\{/);
+});
+
+test("settings navigation matches the web taxonomy and entity editors open as dialogs", () => {
+  assert.match(app, /id: "general", sections: \["general"\]/);
+  assert.match(app, /id: "ai", sections: \["models", "providers", "usage", "trace", "mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"\]/);
+  assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
+  assert.match(app, /id: "data", sections: \["agents", "memory", "skills", "runHistory", "tasks", "hostBash"\]/);
+  assert.match(app, /id: "system", sections: \["runtimeEnv", "sandbox", "plugins", "diagnostics"\]/);
+  for (const formId of ["agent", "mcp", "channel", "profile", "task", "memory"]) {
+    assert.match(app, new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));
+    assert.match(styles, new RegExp(`#desktop-${formId}-form`));
+  }
+  assert.match(app, /class="entity-editor-head"/);
+  assert.match(app, /class="entity-editor-foot"/);
+  assert.match(styles, /\.entity-editor-foot\s*\{[^}]*bottom:\s*0/s);
+  assert.match(app, /label: sectionLabel\(item\.id, text\)/);
+  assert.match(app, /<h2>\{sectionLabel\(activeSection, text\)\}<\/h2>/);
+  assert.match(app, /\{text\[preview\.labelKey\]\}/);
 });
 
 test("AI provider editing uses a dedicated modal and separates provider and model concepts", () => {

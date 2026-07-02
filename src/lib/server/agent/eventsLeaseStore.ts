@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 
-export type EventExecutionLeaseStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted";
+export type EventExecutionLeaseStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped";
 
 export interface EventExecutionLease {
   id: string;
@@ -14,6 +14,7 @@ export interface EventExecutionLease {
   chatId: string;
   sessionId: string;
   channel: string;
+  taskId?: string;
   runId: string;
   status: EventExecutionLeaseStatus;
   attempt: number;
@@ -36,6 +37,7 @@ export interface AcquireEventLeaseInput {
   chatId: string;
   sessionId?: string;
   channel?: string;
+  taskId?: string;
   runId: string;
   maxAttempts: number;
   timeoutMs: number;
@@ -52,6 +54,7 @@ interface LeaseRow {
   chat_id: string;
   session_id: string;
   channel: string;
+  task_id: string | null;
   run_id: string;
   status: EventExecutionLeaseStatus;
   attempt: number;
@@ -78,6 +81,7 @@ function rowToLease(row: LeaseRow): EventExecutionLease {
     chatId: row.chat_id,
     sessionId: row.session_id,
     channel: row.channel,
+    taskId: row.task_id ?? undefined,
     runId: row.run_id,
     status: row.status,
     attempt: row.attempt,
@@ -153,10 +157,11 @@ export class EventExecutionLeaseStore {
               stop_reason = NULL,
               last_error = NULL,
               retry_scheduled_at = NULL,
+              task_id = ?,
               event_payload_json = ?,
               updated_at = ?
           WHERE id = ?
-        `).run(input.runId, timeoutMs, nowIso, nowIso, input.eventPayloadJson, nowIso, active.id);
+        `).run(input.runId, timeoutMs, nowIso, nowIso, input.taskId ?? active.taskId ?? null, input.eventPayloadJson, nowIso, active.id);
         const lease = this.getById(active.id);
         this.db.exec("COMMIT");
         return lease;
@@ -171,10 +176,10 @@ export class EventExecutionLeaseStore {
       const id = `event-lease-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       this.db.prepare(`
         INSERT INTO event_execution_leases (
-          id, lease_scope, event_file, event_type, trigger_slot, chat_id, session_id, channel, run_id,
+          id, lease_scope, event_file, event_type, trigger_slot, chat_id, session_id, channel, task_id, run_id,
           status, attempt, max_attempts, timeout_ms, started_at, last_heartbeat_at,
           finished_at, stop_reason, last_error, retry_scheduled_at, event_payload_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?)
       `).run(
         id,
         leaseScope,
@@ -184,6 +189,7 @@ export class EventExecutionLeaseStore {
         input.chatId,
         sessionId,
         channel,
+        input.taskId ?? null,
         input.runId,
         maxAttempts,
         timeoutMs,
@@ -214,6 +220,42 @@ export class EventExecutionLeaseStore {
       WHERE id = ? AND run_id = ? AND status = 'running'
     `).run(nowIso, nowIso, id, runId);
     return Number(result.changes ?? 0) > 0;
+  }
+
+  recordSkipped(input: AcquireEventLeaseInput & { reason: string }): EventExecutionLease {
+    const nowIso = (input.now ?? new Date()).toISOString();
+    const leaseScope = input.leaseScope ?? "default";
+    const sessionId = input.sessionId ?? input.chatId;
+    const channel = input.channel ?? "unknown";
+    const id = `event-lease-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    this.db.prepare(`
+      INSERT INTO event_execution_leases (
+        id, lease_scope, event_file, event_type, trigger_slot, chat_id, session_id, channel, task_id, run_id,
+        status, attempt, max_attempts, timeout_ms, started_at, last_heartbeat_at,
+        finished_at, stop_reason, last_error, retry_scheduled_at, event_payload_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'skipped', 0, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+    `).run(
+      id,
+      leaseScope,
+      input.eventFile,
+      input.eventType,
+      input.triggerSlot,
+      input.chatId,
+      sessionId,
+      channel,
+      input.taskId ?? null,
+      input.runId,
+      Math.max(1, Math.round(input.maxAttempts)),
+      Math.max(1000, Math.round(input.timeoutMs)),
+      nowIso,
+      nowIso,
+      nowIso,
+      input.reason,
+      input.eventPayloadJson,
+      nowIso,
+      nowIso
+    );
+    return this.getById(id)!;
   }
 
   markFailed(id: string, runId: string, error: string, now = new Date()): boolean {
@@ -298,6 +340,44 @@ export class EventExecutionLeaseStore {
     return Boolean(row);
   }
 
+  hasActiveForTask(taskId: string, leaseScope?: string): boolean {
+    const trimmed = String(taskId ?? "").trim();
+    if (!trimmed) return false;
+    const scopeClause = leaseScope ? "AND lease_scope = ?" : "";
+    const params = leaseScope ? [trimmed, leaseScope] : [trimmed];
+    const row = this.db.prepare(`
+      SELECT id FROM event_execution_leases
+      WHERE task_id = ? ${scopeClause} AND status IN ('running', 'retry_wait')
+      LIMIT 1
+    `).get(...params) as { id: string } | undefined;
+    return Boolean(row);
+  }
+
+  attachSessionByRunId(runId: string, sessionId: string, now = new Date()): boolean {
+    const run = String(runId ?? "").trim();
+    const session = String(sessionId ?? "").trim();
+    if (!run || !session) return false;
+    const nowIso = now.toISOString();
+    const result = this.db.prepare(`
+      UPDATE event_execution_leases
+      SET session_id = ?, updated_at = ?
+      WHERE run_id = ? AND status IN ('running', 'retry_wait')
+    `).run(session, nowIso, run);
+    return Number(result.changes ?? 0) > 0;
+  }
+
+  listForTask(taskId: string, limit = 50): EventExecutionLease[] {
+    const trimmed = String(taskId ?? "").trim();
+    if (!trimmed) return [];
+    const rows = this.db.prepare(`
+      SELECT * FROM event_execution_leases
+      WHERE task_id = ?
+      ORDER BY started_at DESC
+      LIMIT ?
+    `).all(trimmed, Math.max(1, Math.min(200, Math.round(limit)))) as unknown as LeaseRow[];
+    return rows.map(rowToLease);
+  }
+
   recoverStaleRunning(now = new Date()): number {
     const rows = this.db.prepare(`
       SELECT * FROM event_execution_leases
@@ -362,6 +442,7 @@ export class EventExecutionLeaseStore {
         chat_id TEXT NOT NULL,
         session_id TEXT NOT NULL,
         channel TEXT NOT NULL,
+        task_id TEXT,
         run_id TEXT NOT NULL,
         status TEXT NOT NULL,
         attempt INTEGER NOT NULL,
@@ -386,11 +467,15 @@ export class EventExecutionLeaseStore {
     if (!columns.some((column) => column.name === "lease_scope")) {
       this.db.exec("ALTER TABLE event_execution_leases ADD COLUMN lease_scope TEXT NOT NULL DEFAULT 'default';");
     }
+    if (!columns.some((column) => column.name === "task_id")) {
+      this.db.exec("ALTER TABLE event_execution_leases ADD COLUMN task_id TEXT;");
+    }
     this.db.exec(`
       DROP INDEX IF EXISTS idx_event_leases_one_active;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_event_leases_one_active
         ON event_execution_leases(lease_scope, event_file, chat_id, trigger_slot)
         WHERE status IN ('running', 'retry_wait');
+      CREATE INDEX IF NOT EXISTS idx_event_leases_task_started ON event_execution_leases(task_id, started_at DESC);
     `);
   }
 }

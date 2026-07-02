@@ -1,7 +1,10 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { buildDesktopTaskSummary, resolveDesktopTaskPaths } from "$lib/server/app/desktopTasks";
+import { buildDesktopTaskSummary, resolveDesktopTaskPaths, type DesktopTaskExecutionLoader } from "$lib/server/app/desktopTasks";
 import type { DesktopTaskActionRequest, DesktopTaskActionResponse, DesktopTaskResponse } from "$lib/shared/desktop";
+import { resolve } from "node:path";
+import { MomRuntimeStore } from "$lib/server/agent/session/store";
+import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore";
 
 // The shared tasks route's GET handler reads task files and returns the full
 // (credential-bearing) item list. It ignores its RequestEvent argument, so we
@@ -14,6 +17,21 @@ interface SharedTaskListResponse {
   items: unknown[];
 }
 
+const loadTaskExecutions: DesktopTaskExecutionLoader = (taskId) => getEventExecutionLeaseStore()
+  .listForTask(taskId, 20)
+  .map((execution) => ({
+    id: execution.id,
+    status: execution.status,
+    sessionId: execution.sessionId,
+    runId: execution.runId,
+    attempt: execution.attempt,
+    maxAttempts: execution.maxAttempts,
+    startedAt: execution.startedAt,
+    finishedAt: execution.finishedAt,
+    stopReason: execution.stopReason,
+    lastError: execution.lastError
+  }));
+
 export const GET: RequestHandler = async () => {
   const result = await listTasks(undefined as never);
   const payload = (await result.json()) as SharedTaskListResponse;
@@ -21,7 +39,7 @@ export const GET: RequestHandler = async () => {
     return json({ ok: false, error: "Failed to list tasks" }, { status: 500 });
   }
 
-  const summary = buildDesktopTaskSummary(payload.items as Parameters<typeof buildDesktopTaskSummary>[0]);
+  const summary = buildDesktopTaskSummary(payload.items as Parameters<typeof buildDesktopTaskSummary>[0], loadTaskExecutions);
   const response: DesktopTaskResponse = { ok: true, summary };
   return json(response, { headers: { "Cache-Control": "no-store" } });
 };
@@ -36,10 +54,39 @@ export const POST: RequestHandler = async ({ request }) => {
     const body = await request.json() as DesktopTaskActionRequest;
     const before = await rawTaskList();
     const rawItems = before.items as Parameters<typeof resolveDesktopTaskPaths>[0];
-    const ids = body.action === "update" ? [body.id] : body.ids;
+    const ids = body.action === "update" || body.action === "session" ? [body.id] : body.ids;
     if (!Array.isArray(ids) || ids.length === 0) throw new Error("Task ids are required");
     const paths = resolveDesktopTaskPaths(rawItems, ids);
     const pathToId = new Map([...paths].map(([id, path]) => [path, id]));
+    if (body.action === "session") {
+      const item = rawItems.find((entry) => pathToId.get(entry.filePath) === body.id);
+      if (!item) throw new Error("Task not found");
+      const execution = getEventExecutionLeaseStore().getById(body.executionId);
+      if (!execution || execution.taskId !== item.taskId) throw new Error("Execution not found");
+      const marker = item.scope === "workspace" ? "/events/" : `/${item.chatId}/scratch/events/`;
+      const markerIndex = resolve(item.filePath).indexOf(marker);
+      if (markerIndex < 0) throw new Error("Unsupported task path");
+      const workspaceDir = resolve(item.filePath).slice(0, markerIndex);
+      const store = new MomRuntimeStore(workspaceDir);
+      const messages = store.loadContext(item.chatId, execution.sessionId).map((message) => ({
+        role: String((message as { role?: unknown }).role ?? ""),
+        content: typeof (message as { content?: unknown }).content === "string"
+          ? String((message as { content?: unknown }).content)
+          : JSON.stringify((message as { content?: unknown }).content ?? "")
+      }));
+      const response: DesktopTaskActionResponse = {
+        ok: true,
+        summary: buildDesktopTaskSummary(rawItems, loadTaskExecutions),
+        affected: [],
+        failed: [],
+        session: {
+          taskId: item.taskId ?? "",
+          sessionId: execution.sessionId,
+          messages
+        }
+      };
+      return json(response);
+    }
     const sharedBody = body.action === "update"
       ? { action: "update", filePath: paths.get(body.id), patch: body.patch }
       : { action: body.action, filePaths: body.ids.map((id) => paths.get(id)) };
@@ -50,7 +97,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const affectedPaths = body.action === "update" ? [managed.updated ?? ""] : body.action === "delete" ? managed.deleted ?? [] : managed.triggered ?? [];
     const response: DesktopTaskActionResponse = {
       ok: true,
-      summary: buildDesktopTaskSummary(after.items as Parameters<typeof buildDesktopTaskSummary>[0]),
+      summary: buildDesktopTaskSummary(after.items as Parameters<typeof buildDesktopTaskSummary>[0], loadTaskExecutions),
       affected: affectedPaths.map((path) => pathToId.get(path)).filter((id): id is string => Boolean(id)),
       failed: (managed.failed ?? []).map((item) => ({ id: pathToId.get(item.filePath) ?? "", reason: item.reason }))
     };

@@ -3,6 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import type {
     DesktopAgentItem,
+    DesktopChannelsSummary,
     DesktopApprovalDecision,
     DesktopApprovalPrompt,
     DesktopConversationMessage,
@@ -31,7 +32,9 @@
     filterDesktopFiles,
     filterSessionsByTitle,
     findTranscriptMatches,
-    groupExternalSessionsByInstance,
+    buildExternalChannelNav,
+    externalSessionsForBot,
+    groupExternalSessionsForView,
     listDesktopSessionFiles,
     listDesktopSessions,
     loadDesktopAgents,
@@ -69,6 +72,7 @@
     type OnboardingStep,
     type OnboardingRepairTarget,
     type ProviderDraft,
+    type ChannelNavBot,
     validateProviderDraft
   } from "./lib/api";
   import { renderMarkdown } from "./lib/markdown";
@@ -116,7 +120,6 @@
   let editingSessionTitle = "";
   let deleteConfirmId = "";
   let sessionFilterQuery = "";
-  let collapsedGroups = new Set<string>();
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
   const SIDEBAR_MIN = 220;
   const SIDEBAR_MAX = 420;
@@ -162,6 +165,13 @@
   let previewFile: DesktopSessionFile | null = null;
   let previewUrl = "";
   let viewMode: "local" | "external" = "local";
+  // Sidebar navigation: a horizontal channel switcher picks the active channel;
+  // its Bots list below, and the active Bot expands to show its sessions. `web`
+  // is the local channel whose "Bots" are Web Profiles (editable sessions); the
+  // external channels list configured Bot instances (read-only sessions).
+  let activeChannel = "web";
+  let activeBotKey = "";
+  let channelSummary: DesktopChannelsSummary | null = null;
   let externalSessions: DesktopExternalSessionsSummary | null = null;
   let externalLoading = false;
   let externalError = "";
@@ -263,52 +273,16 @@
   $: readinessSummary = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions });
   $: showOnboarding = serviceState === "ready" && !onboardingDismissed;
   $: visibleSessions = filterSessionsByTitle(sessions, sessionFilterQuery);
-  $: sessionGroups = groupSessionsByDate(visibleSessions);
-  const GROUP_META: Record<string, { color: string; icon: string }> = {
-    today: { color: "#007AFF", icon: "chats-circle" },
-    yesterday: { color: "#AF52DE", icon: "moon" },
-    week: { color: "#FF9500", icon: "calendar-blank" },
-    earlier: { color: "#8E8E93", icon: "archive" }
-  };
-  function groupSessionsByDate(list: DesktopSessionSummary[]): { key: string; label: string; color: string; icon: string; items: DesktopSessionSummary[] }[] {
-    if (list.length === 0) return [];
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const startOfYesterday = startOfToday - 86400000;
-    const startOf7Days = startOfToday - 7 * 86400000;
-    const meta = (key: string) => GROUP_META[key];
-    const buckets: { key: string; label: string; color: string; icon: string; items: DesktopSessionSummary[] }[] = [
-      { key: "today", label: copy.groupToday, ...meta("today"), items: [] },
-      { key: "yesterday", label: copy.groupYesterday, ...meta("yesterday"), items: [] },
-      { key: "week", label: copy.groupLast7Days, ...meta("week"), items: [] },
-      { key: "earlier", label: copy.groupEarlier, ...meta("earlier"), items: [] }
-    ];
-    for (const session of list) {
-      const ts = new Date(session.updatedAt).getTime();
-      if (Number.isNaN(ts)) { buckets[3].items.push(session); continue; }
-      if (ts >= startOfToday) buckets[0].items.push(session);
-      else if (ts >= startOfYesterday) buckets[1].items.push(session);
-      else if (ts >= startOf7Days) buckets[2].items.push(session);
-      else buckets[3].items.push(session);
-    }
-    return buckets.filter((bucket) => bucket.items.length > 0);
-  }
-  function toggleGroup(key: string): void {
-    const next = new Set(collapsedGroups);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    collapsedGroups = next;
-  }
   const CHANNEL_COLORS: Record<string, string> = {
-    wechat: "#07c160", telegram: "#0A84FF", discord: "#5865F2",
+    web: "#5E5CE6", wechat: "#07c160", telegram: "#0A84FF", discord: "#5865F2",
     slack: "#E01E5A", whatsapp: "#25D366", messenger: "#0084FF",
     lark: "#00D6B9", feishu: "#00D6B9", dingtalk: "#1677FF",
-    qq: "#12B7F5", mail: "#FF9500", email: "#FF9500"
+    qq: "#12B7F5", weixin: "#07c160", mail: "#FF9500", email: "#FF9500"
   };
   const CHANNEL_ICONS: Record<string, string> = {
-    wechat: "wechat-logo", telegram: "telegram-logo", discord: "discord-logo",
+    web: "globe", wechat: "wechat-logo", telegram: "telegram-logo", discord: "discord-logo",
     slack: "slack-logo", whatsapp: "whatsapp-logo", messenger: "messenger-logo",
-    lark: "lark-logo", feishu: "lark-logo", qq: "qq-logo",
+    lark: "lark-logo", feishu: "lark-logo", qq: "qq-logo", weixin: "wechat-logo",
     mail: "envelope", email: "envelope"
   };
   function channelColor(channel: string): string {
@@ -316,31 +290,45 @@
     if (CHANNEL_COLORS[key]) return CHANNEL_COLORS[key];
     let h = 0;
     for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) | 0;
-    const palette = ["#0A84FF", "#AF52DE", "#FF2D55", "#FF9500", "#34C759", "#30B0C7", "#5856D6", "#FF375F"];
+    const palette = ["#006bff", "#a000f8", "#f22782", "#ffae00", "#28a948", "#00ac96", "#8500d1", "#e4106e"];
     return palette[Math.abs(h) % palette.length];
   }
   function channelIcon(channel: string): string {
     return CHANNEL_ICONS[channel.toLowerCase()] ?? "chat-circle-dots";
   }
-  function externalSectionCount(section: { instances: { sessions: unknown[] }[] }): number {
-    return section.instances.reduce((sum, inst) => sum + inst.sessions.length, 0);
-  }
-  $: externalSections = externalSessions ? groupExternalSessionsByInstance(externalSessions) : [];
-  $: externalSessionCount = externalSections.reduce(
-    (sum, section) => sum + section.instances.reduce((s, inst) => s + inst.sessions.length, 0),
-    0
-  );
-  $: activeExternalSession = (() => {
-    if (!activeExternalSessionId) return null;
-    for (const section of externalSections) {
-      for (const inst of section.instances) {
-        for (const s of inst.sessions) {
-          if (s.id === activeExternalSessionId) return s;
-        }
-      }
-    }
-    return null;
-  })();
+  $: externalViews = externalSessions ? groupExternalSessionsForView(externalSessions) : [];
+  $: externalNav = buildExternalChannelNav(channelSummary, externalSessions);
+  // Horizontal channel switcher: the local "web" channel first, then the
+  // external channels that have configured Bots or recorded sessions.
+  $: channelTabs = ["web", ...externalNav.map((group) => group.channel)];
+  // Bots listed under the selected channel. Web Bots are Web Profiles (session
+  // count known only for the loaded profile); external Bots come from the nav.
+  $: activeChannelBots = activeChannel === "web"
+    ? profiles.map((profile) => ({
+        key: profile.id,
+        channel: "web",
+        instanceId: profile.id,
+        name: profile.name,
+        count: (profile.id === activeProfileId ? sessions.length : null) as number | null,
+        kind: "web" as const
+      }))
+    : (externalNav.find((group) => group.channel === activeChannel)?.bots ?? []).map((bot) => ({
+        ...bot,
+        count: bot.count as number | null,
+        kind: "external" as const
+      }));
+  type SidebarBot = (typeof activeChannelBots)[number];
+  $: activeExternalBot = activeChannel === "web"
+    ? null
+    : externalNav.flatMap((group) => group.bots).find((bot) => bot.key === activeBotKey) ?? null;
+  // Sessions for the expanded (active) Bot — editable web list or read-only
+  // external list, depending on the active channel.
+  $: activeBotSessions = activeExternalBot
+    ? externalSessionsForBot(externalViews, activeExternalBot.channel, activeExternalBot.instanceId)
+    : [];
+  $: activeExternalSession = activeExternalSessionId
+    ? externalViews.find((view) => view.id === activeExternalSessionId) ?? null
+    : null;
   $: searchMatchIds = findTranscriptMatches(messages, searchOpen ? searchQuery : "");
   $: activeMatchId = searchMatchIds[Math.min(searchIndex, Math.max(searchMatchIds.length - 1, 0))] ?? "";
   $: if (
@@ -375,6 +363,10 @@
     sessionFiles = [];
     pendingApproval = null;
     queuedMessages = [];
+    channelSummary = null;
+    externalSessions = null;
+    activeChannel = "web";
+    activeBotKey = "";
     closePreview();
   }
 
@@ -420,6 +412,7 @@
       const rememberedProfile = localStorage.getItem(PROFILE_STORAGE_KEY) ?? "";
       onboardingProfiles = nextWebProfiles;
       onboardingAgents = nextAgents.items;
+      channelSummary = nextChannels;
       onboardingChannels = summarizeOnboardingChannels(nextChannels);
       onboardingDiagnostics = summarizeOnboardingDiagnostics(nextRuntimeEnv, true);
       const onboardingSelection = resolveOnboardingAgentSelection(
@@ -452,6 +445,7 @@
   async function loadProfile(profileId: string, generation = connectionGeneration): Promise<void> {
     if (!connectedEndpoint || !profileId) return;
     activeProfileId = profileId;
+    activeChannel = "web";
     localStorage.setItem(PROFILE_STORAGE_KEY, profileId);
     sessions = await listDesktopSessions(connectedEndpoint, profileId);
     if (generation !== connectionGeneration) return;
@@ -569,6 +563,62 @@
     if (mode === "local") {
       closeExternalTranscript();
     }
+  }
+
+  // Channel-switcher display names. Known channels get a proper brand/localized
+  // name; anything unexpected falls back to a capitalized key.
+  function channelLabel(channel: string): string {
+    switch (channel) {
+      case "web": return copy.channelWeb;
+      case "telegram": return "Telegram";
+      case "qq": return "QQ";
+      case "feishu": return copy.channelFeishu;
+      case "weixin": return copy.channelWeixin;
+      default: return channel.charAt(0).toUpperCase() + channel.slice(1);
+    }
+  }
+
+  // Picking a channel swaps the Bot list below it. Bot groups stay collapsed
+  // until explicitly opened so a long session list never expands by surprise.
+  function selectChannel(channel: string): void {
+    if (channel === activeChannel) return;
+    if (channel === "web") {
+      activeChannel = "web";
+      activeBotKey = "";
+      switchViewMode("local");
+      return;
+    }
+    activeChannel = channel;
+    if (!externalSessions && !externalLoading) void loadExternalSessions();
+    activeBotKey = "";
+    switchViewMode("external");
+    closeExternalTranscript();
+  }
+
+  // Selecting a Bot expands its session list. A Web Profile loads its editable
+  // local sessions; an external Bot switches to its read-only session list and
+  // clears the open transcript until the user picks one of its sessions.
+  function selectBot(bot: SidebarBot): void {
+    if (bot.kind === "web" && sending) return;
+    if (bot.key === activeBotKey) {
+      activeBotKey = "";
+      return;
+    }
+    activeBotKey = bot.key;
+    if (bot.kind === "web") {
+      if (activeProfileId === bot.instanceId && activeChannel === "web") return;
+      const generation = ++connectionGeneration;
+      loading = true;
+      error = "";
+      void loadProfile(bot.instanceId, generation)
+        .catch((cause) => { error = cause instanceof Error ? cause.message : String(cause); })
+        .finally(() => { loading = false; });
+      return;
+    }
+    activeChannel = bot.channel;
+    activeBotKey = bot.key;
+    switchViewMode("external");
+    closeExternalTranscript();
   }
 
   async function openExternalTranscript(sessionId: string): Promise<void> {
@@ -1176,6 +1226,24 @@
     return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
   }
 
+  // Session list timestamps: today shows the time, yesterday is prefixed,
+  // older entries fall back to a calendar date so a flat list still tells you
+  // which day a session belongs to.
+  function formatSessionTime(value: string): string {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfYesterday = startOfToday - 86400000;
+    const time = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
+    if (date.getTime() >= startOfToday) return time;
+    if (date.getTime() >= startOfYesterday) return `${copy.groupYesterday} ${time}`;
+    const sameYear = date.getFullYear() === now.getFullYear();
+    return new Intl.DateTimeFormat(undefined, sameYear
+      ? { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }
+      : { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+  }
+
   type NativeRecordingResult = {
     audioBase64: string;
     mimeType: string;
@@ -1190,7 +1258,7 @@
   let recordingBusy = false;
   let recordingTimer: ReturnType<typeof setInterval> | null = null;
   // Browser-only fallback state, used when ChatView runs in a plain dev browser
-  // (`npm run dev`) instead of the Tauri WebView.
+  // (`pnpm run dev`) instead of the Tauri WebView.
   let mediaRecorder: MediaRecorder | null = null;
   let recordingChunks: Blob[] = [];
   let recordingStream: MediaStream | null = null;
@@ -1354,12 +1422,11 @@
       </div>
     </div>
 
-    <button class="new-chat" type="button" disabled={!activeProfileId || sending} onclick={() => { switchViewMode("local"); void createSession(); }}>
-      <i class="ph ph-plus-circle" aria-hidden="true"></i>
-      <span>{copy.newChat}</span>
-    </button>
-
     <div class="nav-list">
+      <button class="nav-item" type="button" disabled={!activeProfileId || sending} onclick={() => { selectChannel("web"); void createSession(); }}>
+        <i class="ph ph-plus-circle" aria-hidden="true"></i>
+        <span>{copy.newChat}</span>
+      </button>
       <button class="nav-item" type="button" onclick={() => openSettings("tasks")}>
         <i class="ph ph-clock-countdown" aria-hidden="true"></i>
         <span>{copy.autoTasks}</span>
@@ -1370,104 +1437,96 @@
       </button>
     </div>
 
-    <p class="nav-section-label">{copy.localKnowledge}</p>
-    <div class="nav-list">
-      <button class="nav-item" type="button" disabled={!activeSessionId} onclick={() => { fileFilter = "all"; filePanelOpen = true; }}>
-        <i class="ph ph-squares-four" aria-hidden="true"></i>
-        <span>{copy.kbFiles}</span>
-      </button>
-      <button class="nav-item" type="button" disabled={!activeSessionId} onclick={() => { fileFilter = "file"; filePanelOpen = true; }}>
-        <i class="ph ph-file-text" aria-hidden="true"></i>
-        <span>{copy.kbDocs}</span>
-      </button>
-      <button class="nav-item" type="button" disabled={!activeSessionId} onclick={() => { fileFilter = "image"; filePanelOpen = true; }}>
-        <i class="ph ph-image-square" aria-hidden="true"></i>
-        <span>{copy.kbImages}</span>
-      </button>
-      <button class="nav-item" type="button" disabled={!activeSessionId} onclick={() => { fileFilter = "all"; filePanelOpen = true; }}>
-        <i class="ph ph-desktop" aria-hidden="true"></i>
-        <span>{copy.kbThisComputer}</span>
-      </button>
+    <div class="channel-switch" role="tablist" aria-label={copy.channels}>
+      {#each channelTabs as channel (channel)}
+        <button
+          class="channel-chip"
+          class:active={channel === activeChannel}
+          type="button"
+          role="tab"
+          aria-selected={channel === activeChannel}
+          title={channelLabel(channel)}
+          onclick={() => selectChannel(channel)}
+        >
+          <span class="channel-chip-avatar" style={`--c:${channelColor(channel)}`}><i class={`ph-fill ph-${channelIcon(channel)}`} aria-hidden="true"></i></span>
+          <span class="channel-chip-label">{channelLabel(channel)}</span>
+        </button>
+      {/each}
     </div>
 
-    <p class="nav-section-label">{copy.conversations}</p>
     <div class="conversation-list">
-      {#each sessionGroups as group (group.key)}
-        <div class="conv-group">
-          <button class="conv-group-head" type="button" onclick={() => toggleGroup(group.key)} aria-expanded={!collapsedGroups.has(group.key)}>
-            <i class="ph-bold ph-caret-down conv-caret" class:open={!collapsedGroups.has(group.key)} aria-hidden="true"></i>
-            <span class="conv-group-tile" style={`background:${group.color}`} aria-hidden="true"><i class={`ph-fill ph-${group.icon}`}></i></span>
-            <span class="conv-group-label">{group.label}</span>
-            <span class="conv-group-count">{group.items.length}</span>
-          </button>
-          {#if !collapsedGroups.has(group.key)}
-            {#each group.items as session (session.id)}
-              <div class:active={session.id === activeSessionId && viewMode === "local"} class="conversation-row">
-                {#if editingSessionId === session.id}
-                  <div class="conversation-editor">
-                    <input bind:value={editingSessionTitle} aria-label={copy.rename} onkeydown={(event) => event.key === "Enter" && saveRename(session)} />
-                    <div>
-                      <button type="button" onclick={() => saveRename(session)}>{copy.save}</button>
-                      <button type="button" onclick={cancelRename}>{copy.cancel}</button>
-                    </div>
-                  </div>
-                {:else}
-                  <button
-                    class="conversation-select"
-                    type="button"
-                    disabled={sending}
-                    onclick={() => {
-                      deleteConfirmId = "";
-                      void selectSession(session.id);
-                    }}
-                  >
-                    <span class="conversation-tile" style={`--tile-color:${group.color}`}><i class="ph-fill ph-chat-circle-dots" aria-hidden="true"></i></span>
-                    <span class="conversation-text">
-                      <strong>{session.title}</strong>
-                      <small>{formatTime(session.updatedAt)}</small>
-                    </span>
-                  </button>
-                  <div class="conversation-actions">
-                    <button type="button" aria-label={copy.rename} title={copy.rename} onclick={() => beginRename(session)}><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
-                    <button type="button" class="danger-action" aria-label={copy.delete} title={copy.delete} onclick={() => removeSession(session)}>
-                      <i class="ph ph-trash" aria-hidden="true"></i>
-                    </button>
-                    {#if deleteConfirmId === session.id}
-                      <button type="button" class="confirm-delete" onclick={() => deleteConfirmId = ""}>{copy.cancel}</button>
-                    {/if}
-                  </div>
-                  {#if deleteConfirmId === session.id}
-                    <span class="confirm-delete-banner">{copy.confirmDelete}</span>
-                  {/if}
-                {/if}
-              </div>
-            {/each}
-          {/if}
-        </div>
-      {/each}
-      {#if sessions.length > 0 && visibleSessions.length === 0}
-        <p class="external-empty">{copy.noMatches}</p>
-      {/if}
-
-      {#if externalLoading && externalSessionCount === 0}
-        <p class="external-empty">{copy.loading}</p>
-      {:else if externalError}
-        <p class="external-empty external-error">{externalError}</p>
-      {:else if externalSessionCount > 0}
-        {#each externalSections as section (section.channel)}
-          <div class="conv-group conv-group-readonly">
-            <button class="conv-group-head" type="button" onclick={() => toggleGroup(`ext:${section.channel}`)} aria-expanded={!collapsedGroups.has(`ext:${section.channel}`)}>
-              <i class="ph-bold ph-caret-down conv-caret" class:open={!collapsedGroups.has(`ext:${section.channel}`)} aria-hidden="true"></i>
-              <span class="conv-group-tile" style={`background:${channelColor(section.channel)}`} aria-hidden="true"><i class={`ph-fill ph-${channelIcon(section.channel)}`}></i></span>
-              <span class="conv-group-label">{section.channel}</span>
+      {#if activeChannelBots.length === 0}
+        <p class="external-empty">{copy.noBotsConfigured}</p>
+      {:else}
+        {#each activeChannelBots as bot (bot.key)}
+          {@const isActiveBot = bot.key === activeBotKey}
+          <div class="conv-group">
+            <button class="conv-group-head" class:open={isActiveBot} type="button" aria-expanded={isActiveBot} onclick={() => selectBot(bot)}>
+              <i class="ph-bold ph-caret-down conv-caret" class:open={isActiveBot} aria-hidden="true"></i>
+              <span class="conv-group-tile" style={`background:${channelColor(bot.channel)}`} aria-hidden="true"><i class="ph-fill ph-robot"></i></span>
+              <span class="conv-group-label">{bot.name || copy.externalInstanceUnknown}</span>
               <span class="conv-group-tail">
-                <i class="ph ph-eye conv-group-readonly-icon" aria-hidden="true" title={copy.externalSessionReadOnly}></i>
-                <span class="conv-group-count">{externalSectionCount(section)}</span>
+                {#if bot.kind === "external"}
+                  <i class="ph ph-eye conv-group-readonly-icon" aria-hidden="true" title={copy.externalSessionReadOnly}></i>
+                {/if}
+                {#if bot.count !== null}<span class="conv-group-count">{bot.count}</span>{/if}
               </span>
             </button>
-            {#if !collapsedGroups.has(`ext:${section.channel}`)}
-              {#each section.instances as instance (instance.botInstanceName ?? "__none__")}
-                {#each instance.sessions as session (session.id)}
+
+            {#if isActiveBot}
+              {#if bot.kind === "web"}
+                {#each visibleSessions as session (session.id)}
+                  <div class:active={session.id === activeSessionId && viewMode === "local"} class="conversation-row">
+                    {#if editingSessionId === session.id}
+                      <div class="conversation-editor">
+                        <input bind:value={editingSessionTitle} aria-label={copy.rename} onkeydown={(event) => event.key === "Enter" && saveRename(session)} />
+                        <div>
+                          <button type="button" onclick={() => saveRename(session)}>{copy.save}</button>
+                          <button type="button" onclick={cancelRename}>{copy.cancel}</button>
+                        </div>
+                      </div>
+                    {:else}
+                      <button
+                        class="conversation-select"
+                        type="button"
+                        disabled={sending}
+                        onclick={() => {
+                          deleteConfirmId = "";
+                          void selectSession(session.id);
+                        }}
+                      >
+                        <span class="conversation-tile" style={`--tile-color:${channelColor("web")}`}><i class="ph-fill ph-chat-circle-dots" aria-hidden="true"></i></span>
+                        <span class="conversation-text">
+                          <strong>{session.title}</strong>
+                          <small>{formatSessionTime(session.updatedAt)}</small>
+                        </span>
+                      </button>
+                      <div class="conversation-actions">
+                        <button type="button" aria-label={copy.rename} title={copy.rename} onclick={() => beginRename(session)}><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
+                        <button type="button" class="danger-action" aria-label={copy.delete} title={copy.delete} onclick={() => removeSession(session)}>
+                          <i class="ph ph-trash" aria-hidden="true"></i>
+                        </button>
+                        {#if deleteConfirmId === session.id}
+                          <button type="button" class="confirm-delete" onclick={() => deleteConfirmId = ""}>{copy.cancel}</button>
+                        {/if}
+                      </div>
+                      {#if deleteConfirmId === session.id}
+                        <span class="confirm-delete-banner">{copy.confirmDelete}</span>
+                      {/if}
+                    {/if}
+                  </div>
+                {/each}
+                {#if sessions.length > 0 && visibleSessions.length === 0}
+                  <p class="external-empty">{copy.noMatches}</p>
+                {/if}
+              {:else if externalLoading && activeBotSessions.length === 0}
+                <p class="external-empty">{copy.loading}</p>
+              {:else if externalError}
+                <p class="external-empty external-error">{externalError}</p>
+              {:else if activeBotSessions.length === 0}
+                <p class="external-empty">{copy.noExternalSessions}</p>
+              {:else}
+                {#each activeBotSessions as session (session.id)}
                   <div class:active={session.id === activeExternalSessionId} class="conversation-row">
                     <button
                       class="conversation-select"
@@ -1475,15 +1534,15 @@
                       title={session.title}
                       onclick={() => void openExternalTranscript(session.id)}
                     >
-                      <span class="conversation-tile" style={`--tile-color:${channelColor(section.channel)}`}><i class="ph-fill ph-chat-circle-dots" aria-hidden="true"></i></span>
+                      <span class="conversation-tile" style={`--tile-color:${channelColor(session.channel)}`}><i class={`ph-fill ph-${channelIcon(session.channel)}`} aria-hidden="true"></i></span>
                       <span class="conversation-text">
                         <strong>{session.title}</strong>
-                        <small>{formatTime(session.updatedAt)}</small>
+                        <small>{formatSessionTime(session.updatedAt)}</small>
                       </span>
                     </button>
                   </div>
                 {/each}
-              {/each}
+              {/if}
             {/if}
           </div>
         {/each}
@@ -1629,7 +1688,7 @@
             {#each externalTranscript.messages as message (message.id)}
               <article class="message-row" class:mine={message.role === "user"} data-message-id={message.id}>
                 <div class="message-bubble markdown-body">{@html renderMarkdown(message.content)}</div>
-                <time class="message-time">{formatTime(message.createdAt)}</time>
+                <time class="message-time">{formatSessionTime(message.createdAt)}</time>
                 {#if message.attachments && message.attachments.length > 0}
                   <div class="attachment-strip">
                     {#each message.attachments as attachment}
@@ -1663,7 +1722,7 @@
             {#if message.role === "user"}
               <div class="message-bubble markdown-body">{@html renderMarkdown(message.content)}</div>
               <time class="message-time">
-                {formatTime(message.createdAt)}
+                {formatSessionTime(message.createdAt)}
                 <i class="ph ph-checks message-read" aria-hidden="true"></i>
               </time>
               {#if message.attachments && message.attachments.length > 0}
@@ -1697,7 +1756,7 @@
               <div class="message-avatar" aria-hidden="true">M</div>
               <div class="message-stack">
                 <div class="message-bubble markdown-body">{@html renderMarkdown(message.content)}</div>
-                <time class="message-time">{formatTime(message.createdAt)}</time>
+                <time class="message-time">{formatSessionTime(message.createdAt)}</time>
                 {#if message.attachments && message.attachments.length > 0}
                   <div class="attachment-strip">
                     {#each message.attachments as attachment, index (index)}
@@ -1793,7 +1852,7 @@
       {#if viewMode === "external"}
         {#if externalTranscript}
           <footer class="composer-wrap">
-            <p class="onboarding-hint" style="text-align: center; font-style: italic; opacity: 0.8; margin: 6px 0;">
+            <p class="external-readonly-notice">
               {copy.externalSessionReadOnly}
             </p>
           </footer>

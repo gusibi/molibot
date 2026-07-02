@@ -37,6 +37,7 @@ export interface ChannelInboundMessage {
   imageContents: ImageContent[];
   hasInlineAudioTranscript?: boolean;
   isEvent?: boolean;
+  taskId?: string;
   // fresh: scheduled-event run should start a new task session instead of the chat's active session.
   sessionMode?: "fresh" | "chat";
   sessionId?: string;

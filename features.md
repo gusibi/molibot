@@ -1,6 +1,63 @@
 # Molibot Features
 
+## 2026-07-02
+
+### Desktop Session 侧栏层级与最近活动排序
+- Bot/Profile 分类行与 Session 行改为接近的紧凑密度，分类标题和图标适度放大、Session 图标和行高收紧，保持中英、明暗主题和可变侧栏宽度兼容。
+- 切换渠道或首次加载时不再自动展开第一个 Bot/Profile；所有分类默认折叠，只有点击分类才展开，再次点击可收起。
+- Web 与外部渠道 Session 均按 `updatedAt` 倒序展示；外部聚合服务和 Desktop 客户端各自显式排序，旧会话产生新消息后会回到所属分类顶部。
+
+### Agent 工作方法论
+- 根 `AGENTS.md` 新增第一性原理与交付前对抗式审查规则：先明确根本问题并拆成可验证单元；所有决定说明原因；交付前主动攻击最可能翻车的 3～5 个点，修正后提供验证证据。
+
+### Desktop 设置页全量 Geist 对齐
+- 按 `DESIGN.vercel.md` 对 Desktop 设置页做了一次全量 Geist 对齐：移除 6 色 macOS 强调色选择器与侧栏每项的 macOS 着色图标（Geist 只用单一 blue-700 强调色，由主题 token 统一管理），侧栏改为单色。
+- 设置样式里所有硬编码 macOS 系统色（iOS 红/绿/蓝/紫/灰 与 Material 红）全部替换为 Geist token（`--danger`/`--online`/`--accent`/`--chart-purple`/`--gray-*`）；状态点、开关、状态徽章、模型校验态、外部渠道 / 首启 / 健康检查视图、侧栏底栏在浅/深色下都改由 token 取色。
+- 圆角统一到 Geist 6/12/16/9999 体系（控件 6px、卡片 12px、药丸 9999px），替换掉散落的 4/5/7/8/9/10/11/18px。
+- 字号字重对齐 Geist：字重仅保留 400/500/600（原 450/550/650/680/700）；半像素字号（13.5/12.5/11.5/10.5/9.5/14.5px）取整。
+- 统一按钮变体 —— primary（gray-1000）、secondary（白底带边框）、tertiary（透明）、新增 error（red-800）—— 全部 32px 高、6px 圆角；危险态 secondary 统一红色 hover 蒙层。下拉选择简化为单 chevron 并补齐 disabled 态（gray-100 底、gray-700 文字、not-allowed）。
+- 验证：Desktop `svelte-check` 0/0、`chat-ui.test.mjs` 8/8、production build 通过。Chat 视图（会话/消息/输入框/文件）仍沿用旧 macOS 色，留作下一个 slice。
+
+### Desktop 聊天 UI：Geist 颜色对齐
+- 完成 Chat 视图（`apps/desktop/src/styles.css` + `ChatView.svelte`）的 Geist 对齐：所有 iOS chrome 字面量改为 token。`rgb(60 60 67 / X%)` 标签灰按透明度映射到 `--label-primary`/`--label-secondary`/`--label-tertiary`（95/85→primary，65–80→secondary，30–55→tertiary）；`rgb(120 120 128 / X%)` 系统灰 hover/底色映射到 `--fill`/`--fill-hover`；iOS 红 `rgb(255 59 48 / X%)`、橙 `rgb(255 149 0 / X%)` 映射为 `--danger`/`--warning` 的 `color-mix` 蒙层。
+- 文件类型 tint（image/video/audio/file）改由 `--online`/`--accent`/`--chart-purple` 经 `color-mix` 派生，不再用裸 iOS 蓝/绿/紫。给 chart-KPI 与实体编辑器阴影去蓝偏（`rgb(28 38 68)`/`rgb(12 16 26)` → 中性 `rgba(0,0,0,X)`），并调淡会话 tile 阴影。
+- 新增显式 `--code-bg`/`--code-text` token（浅/深色均固定为深底），让 markdown 代码块与审批字段代码在深色下也正确显示，替换掉 iOS `#f2f2f7` 文字字面量；清理 10 处 `var(--sidebar-surface, rgba(...))` 死回退为 token。
+- `ChatView.svelte`：把内联样式的只读提示改为语义类 `.external-readonly-notice`；通用渠道 tile 兜底色板由 iOS 系统色调改为 Geist 强调色阶（blue-700/purple-700/pink-700/amber-700/green-700/teal-700）。渠道品牌色（`CHANNEL_COLORS`：Telegram/微信/Discord/Slack/QQ…）作为合法语义身份保留，不改。
+- 验证：Desktop `svelte-check` 0/0、`chat-ui.test.mjs` 8/8、production build 通过。剩余：安装 Geist Sans / Geist Mono 字体。
+
+### macOS 自动化任务执行记录与会话入口
+- macOS app 的 Chat 侧栏“自动化任务”入口现在作为独立 Automations 面板使用：Desktop `/api/desktop/tasks` 只投影周期定时任务，one-shot/immediate 任务继续保留在 Web `/settings/tasks` 诊断页，不出现在 macOS 自动化列表。
+- 周期 event JSON 会获得稳定 `taskId`；后续定时触发、手动“立即运行”和跳过记录都能按 taskId 关联到同一个任务。
+- 共享 event lease SQLite 记录扩展为自动化执行历史：记录 running/retry_wait/completed/failed/aborted/skipped、attempt/maxAttempts、runId、sessionId、错误和停止原因；同一任务禁止并发运行，已有执行未结束时新触发写入 skipped 记录而不启动第二个 Agent。
+- fresh 定时任务创建的 Agent session 会写入 automation 来源元数据，并从普通 `/sessions` 会话列表隐藏；任务执行记录可在 macOS app 中打开只读 session 详情，若 retention 已清理则展示会话已清理状态。
+- Desktop Automations UI 支持中英、多主题 token、窄窗口兼容的执行记录列表和 session 详情弹层，保留编辑、立即运行、删除等原有任务管理能力，且不暴露真实 event JSON 路径。
+- Desktop Automations 可兼容仍在运行的旧本地服务响应：前端会自行剔除 one-shot/immediate 并补齐缺失的执行记录数组；加载失败只显示错误，不再进入无限重试加载。
+- 验证：`apps/desktop` `svelte-check` 0/0；`desktopTasks.test.ts` 4/4；`apps/desktop/src/lib/api.test.ts` 57/57；根级 `tsc --noEmit` 当前仍受仓库既有类型错误阻塞，过滤本次涉及文件无新增错误。
+
+## 2026-07-01
+
+### pnpm workspace 与共享依赖存储
+- 根应用与 `apps/desktop` 已从 npm 双锁文件迁移为统一 `pnpm-lock.yaml` 和 `pnpm-workspace.yaml`；`packageManager` 固定 pnpm 11.7.0，开发机上的不同 workspace/项目通过 pnpm 内容寻址 store 复用相同包内容，降低重复依赖的磁盘占用。
+- 根命令、Desktop/Tauri 命令、发布目录组装、Docker 构建、GitHub Desktop Release workflow、Makefile 和 agent 测试入口均改用 pnpm；CI 使用一次 frozen workspace install，不再分别安装根目录和 Desktop 依赖。
+- Makefile 及其调用的根/Desktop/Mory 嵌套脚本均通过 `corepack pnpm` 调用项目固定版本，不再依赖全局 `pnpm` 是否已加入 shell PATH；仍可用 `PNPM=/path/to/pnpm` 显式覆盖 Make 入口。
+- 保留现有 `@mariozechner/pi-web-ui` 的 URL 间接依赖兼容配置；npm 锁文件已移除，安装入口统一为 `corepack enable && pnpm install`。
+
 ## 2026-06-30
+
+### macOS 聊天侧栏重构为「渠道 → Bot → 会话」导航
+- Chat 页左栏重做成两列布局的统一导航：顶部一排横向圆形渠道切换器（Web / telegram / feishu / qq / weixin，紧凑头像 + 与上方菜单间用分割线隔开），选中渠道后下方列出该渠道已配置的全部 Bot 实例（含 0 会话的），点开某个 Bot 展开它的会话列表，点会话进入右侧对话区。Web 渠道的「Bot」即各 Web Profile（会话可新建/重命名/删除），外部渠道的 Bot 会话只读。
+- 修复「全部显示为未指定 Bot 实例」：外部会话以前只读 `external.botInstanceName`（实际数据未写）。真实数据里 Bot 身份编码在 legacy 索引的 `externalUserId`（`bot:<instanceId>:chat:...`，如 `bot:moli_news_bot:chat:...`），而会话 `id` 只是 UUID。现在后端从 `externalUserId` 解析出 `botInstanceId`，前端再与渠道设置（实例 id=slug、name=显示名）join 出 Bot 名称与完整 Bot 列表 —— 实测 272 条外部会话里 269 条能正确归位（telegram 拆到约 10 个 bot、feishu 8 个、qq 2 个、weixin 1 个），仅 3 条旧式 `chat:<chatId>:...` 无 Bot 前缀的归入「未指定 Bot 实例」兜底。
+- 后端新增纯函数 `parseBotInstanceId`（解析 `externalUserId`）与契约字段 `DesktopExternalSession.botInstanceId`，投影改为透传 `externalUserId`；前端新增纯函数 `buildExternalChannelNav` / `externalSessionsForBot` 与 `.channel-switch` / `.channel-chip` 语义类。
+- 验证：`api.test.ts` 60/60、`desktopExternalSessions.test.ts` 9/9、Desktop `svelte-check` 0/0、production build 通过；并用真实 `~/.molibot/sessions/index.json` 验证分组分布。
+
+### macOS 设置导航分组与实体编辑弹窗
+- macOS Settings 左栏按 Web `/settings` 的五组结构整理为「总览 / AI 引擎 / 渠道 / 助手数据 / 系统」，保留全部 22 个桌面设置入口、双语标签和搜索过滤。
+- Agent、MCP、外部渠道、Web Profile、任务的新增/编辑表单不再追加到长页面底部，统一显示为居中的可滚动编辑窗口；保存仍走原有细粒度 API 和固定底栏。
+- 编辑窗口现在自带固定标题、关闭、取消和保存区，避免操作按钮被浮层遮挡；Memory 记录也从列表内直接改写调整为摘要列表 + 独立编辑窗口。
+- 设置行、38×22 开关、紧凑下拉框、卡片间距继续复用 `DESIGN.md` / standalone 设计稿 token；Provider、Agent、MCP、渠道和 Web Profile 编辑态的启用控件统一为 Switch，并补充减少动态效果适配。
+- 完成 22 个设置入口的逐页布局检查：独立卡片增加 12px 组间距，TTS 默认只展开当前 Provider，图片测试尺寸改为受控下拉，模型/任务时区下拉保留 `UTC` 和旧配置值，运行历史增加双语即时筛选，渠道名称按中英文显示；运行环境长命令在窄窗口安全换行。
+- 在 860×650 实页逐项切换全部 22 页，标题均正确且无横向溢出；620×480 最小窗口确认切换为 170px/449px 双栏布局。服务依赖内容的完整数据态继续由源码契约与 production build 覆盖。
+- 修复 Desktop 设置即时切换语言时的响应式失效：此前正文和分组标题会变英文，但左侧页面名、当前页标题、主题选项以及部分动态状态标签仍停留在中文；现在所有 helper 显式接收当前 `text`/`locale`，避免 Svelte 5 隐藏依赖。已在 620×480 深色英文状态逐项切换 22 页，标题全部即时翻译且无横向溢出，随后恢复中文与跟随系统。
 
 ### 定时任务：会话隔离改为下拉 + 修复默认值漂移
 - **交互改为下拉**：`/settings/tasks` 编辑态的「会话隔离」由 `IosSwitch` 开关改为 `fresh` / `chat` 下拉（`NativeSelect`），两种模式一目了然，不再用开/关隐含表达。
@@ -2305,3 +2362,13 @@
 - 2026-06-12: Fixed Feishu video delivery so outbound `.mp4` files are uploaded with Feishu `file_type: mp4` and sent as native `media` messages instead of being transcoded into OPUS voice messages. Inbound Feishu `media`/video resources are now downloaded as media and saved as `video` attachments, while non-MP4 video containers such as `.webm` are delivered as regular files rather than voice.
 - 2026-06-12: Improved `videoGenerate` provider diagnostics. The tool now logs HTTP response status and response body for provider calls, including failed submissions, and redacts sensitive request headers such as `Authorization` before printing logs.
 - 2026-06-20: Made the built-in `read` tool's display `label` optional. Calls with only `path` now pass schema validation, and focused runner coverage confirms `SKILL.md` reads still emit `skill.loaded` with `reason: read_skill_file`.
+- 2026-07-01: Tightened the macOS Settings page vertical rhythm so sections/modules no longer crowd each other. Reworked the spacing scale in `apps/desktop/src/styles.css`: larger, calmer page-header padding; section hints now have real breathing room above the first card (and a readable max-width) instead of sitting flush against it; group titles create a clearer section break (30px above / 10px below) and use the theme-adaptive `--label-secondary` so they read correctly in dark mode; card-to-card gap 12→16px; and the chart blocks (`chart-kpi-grid`, `chart-split`/`usage-split`) now carry proper top/bottom margins so KPI tiles, trend cards, and split rows no longer touch the neighbouring cards. Verified with the updated UI structure tests, `svelte-check`, the production build, and light/dark render screenshots.
+- 2026-07-01: Rebuilt the macOS Settings **Usage** and **Trace** pages from plain stat rows into chart dashboards. Both pages now lead with KPI tiles and use hand-rolled SVG charts (no chart library added): Usage shows a 30-day token/request trend area chart with a peak marker, a token-type distribution donut, and a stacked time-window comparison; Trace shows an activity bar chart (tool/model/skill/run counts), a tool-outcome donut (succeeded/failed/blocked), coverage tiles (bots/channels/chats/sessions), and an avg tool-vs-model duration comparison. To power the real trend chart, extended the credential-safe desktop usage contract with a `daily` series (`DesktopUsageDailyPoint[]`, date + token/request totals only) projected from the existing shared daily buckets in `buildDesktopUsageSummary` — per-model/per-bot detail is still dropped. Added a categorical `--chart-*` palette (drawn from the macOS accent set, light/dark variants) and chart geometry helpers (`trendLinePath` Catmull-Rom smoothing, `donutSegments`, `percentOf`). Verified with the usage server test (daily projection + credential-safety), 8 desktop UI structure tests, Desktop `svelte-check` (0 errors) and production build, plus a static render harness screenshot in light and dark mode.
+- 2026-07-01: Unified every macOS Settings dropdown into one macOS-style popup button. The page previously mixed a custom single-triangle `.row-select` with raw native `<select>` controls (model routing, subagent levels, runtime defaults), so dropdowns looked inconsistent and "off". All settings selects now share one look in `apps/desktop/src/styles.css`: `appearance: none`, a soft `--control-bg` surface, a faint depth shadow, a clean stroked double-chevron (theme-aware light/dark glyph), plus hover, accent focus-ring, and disabled states. Added `--control-bg/-hover/-border/-border-strong/-shadow` tokens for both themes, gave form-grid selects a height/radius matched to adjacent text inputs, and increased `.settings-row` breathing room (min-height 50px, padding 10×16) for a calmer, more system-native rhythm.
+- 2026-07-01: Migrated the root app and macOS Desktop package from separate npm installs/lockfiles to a pnpm workspace with one lockfile, shared content-addressable storage, pinned pnpm version, and pnpm-based local, CI, Docker, release-bundle, Makefile, and Tauri commands.
+- 2026-07-01: Fixed pnpm-based Make targets on machines without a global pnpm binary by routing `desktop-dev`, `desktop-check`, and `dmg` plus their nested root/Tauri package scripts through Corepack while preserving an overridable `PNPM` command.
+- 2026-07-01: Fixed `make desktop-dev` remaining on “Checking the local service” because the custom SQLite-aware SvelteKit Node adapter left the current adapter-node `BASE` and `PRERENDERED` runtime placeholders unresolved. Added focused replacement coverage and verified the generated service handshake.
+- 2026-07-01: Started migrating the desktop app's visual system from Momo Liquid Glass (`DESIGN.md`) to Vercel Geist (`DESIGN.vercel.md`), a product-directed pivot to a flat, high-contrast, neutral-surface aesthetic across both Chat and Settings. Foundation milestone in `apps/desktop/src/styles.css`: rewrote the `:root` + dark token layers to Geist (gray 100–1000 + gray-alpha, blue-700 `#006bff` accent, `background-100/200` surfaces, 6/12/16px radii, subtle `0 2px 2px` card shadow), keeping legacy variable names remapped so existing rules re-theme without churn, and stripped every `backdrop-filter` blur, the wallpaper gradients, and translucent glass highlights. Converted core primitives: flat bordered `settings-card`, `secondary-button` (white + border), unified `select`/`input` at 6px with the Geist two-layer focus ring, Geist `status-badge` colors, neutral monochrome `settings-nav` selection (removed rainbow category tiles), and flattened brand/avatar gradient marks. Verified light + dark via a settings-layout harness, `svelte-check`, 8/8 UI tests (card assertion updated from glass-blur to flat Geist), and the production build.
+- 2026-07-01: Geist migration second pass — Chat surface + interaction review. Converted `apps/desktop/src` Chat components to Geist: message bubbles (flat, 1px border, 12px radius, no glass shadow), composer (flat + Geist two-layer focus ring), `icon-button` (round macOS → 6px ghost square), send button (dropped blue glow); made `primary-button` a solid `gray-1000` fill with `panel-bg` label (correct Geist primary that inverts in dark), converted `model-chip`/`row-input`/`settings-field` inputs + textareas to 6px white Geist fields, normalized all modal/card radii to 12px, and fixed avatar/brand marks (`color: #fff` → `var(--panel-bg)`) that turned invisible in dark because `gray-1000` is near-white there. Interaction fix on `/settings/tasks` for the "too many buttons in one row" problem: the 4-button bulk-action bar (全选/清除/触发所选/删除所选, all equal weight) became a hierarchy — a selection-count chip + low-emphasis `tertiary-button` 全选/清除 helpers on the left, a spacer, then the real 触发所选 + danger 删除所选 on the right; and the per-row 3 text buttons (触发/编辑/删除) became compact `row-icon-btn` ghost icon buttons with tooltips. Verified light + dark via harness, `svelte-check` (0), 8/8 UI tests, and production build. Still to sweep: provider/sandbox/media detail rows (apply the same icon-action pattern), residual hardcoded macOS colors, and installing the Geist fonts.
+- 2026-07-02: Fixed macOS Automations remaining in a loading state when its hot-reloaded frontend connected to an older local-service build. Desktop now normalizes old task summaries to recurring tasks with empty execution arrays, stops failed loads from immediately retrying forever, and has regression coverage for the version-mismatch response.
+- 2026-07-02: Standardized Desktop Settings save affordances (`apps/desktop/src/App.svelte`, `styles.css`, `lib/i18n.ts`). Audited all ~22 settings sections into four patterns: instant-apply (General, model routes — no button), dirty-gated page save bar (Models advanced routing, Providers globals, Skills, Plugins, Sandbox, Web/Image/Video/TTS), per-entity editor footer (Agents/MCP/Channels/Profiles/Memory/Tasks/Providers), and read-only (Usage/Trace/Run History/Runtime Env/Diagnostics/Host Bash). Fixed the "permanent" Skills/Plugins/Sandbox save bars — they previously appeared whenever the draft object existed (created on load); now a pristine JSON snapshot is captured at load + after save and `skillsSearchDirty`/`pluginsDirty`/`sandboxDirty` derived flags gate the footer to only show on real change (matching how Models/Providers/tools already worked). Unified every save bar to one layout — a left `有未保存的更改` status label + right-aligned `放弃更改`(secondary) + `保存`(primary) via `.settings-footbar-label`/`.settings-footbar-actions` — and added Discard (revert-to-pristine) for Skills/Plugins/Models plus Sandbox's existing reset. Added `settingsUnsaved`/`discardChanges` i18n keys (zh/en). Verified light + dark via harness, `svelte-check` (0 errors), 8/8 UI tests, production build.

@@ -1,6 +1,76 @@
 # Molibot ChangeLog
 
+## 2026-07-02
+
+### Desktop Chat: calmer Session navigation
+- Rebalanced Bot/Profile headers and Session rows to a consistent compact density, changed every group to start collapsed and expand only on click, and made Web/external Session ordering explicitly follow latest `updatedAt` so recently continued conversations return to the top.
+
+### Desktop Settings: consistent, dirty-gated save bars
+- Standardized where and when a Save affordance appears across every Settings page. The sticky bottom save bar is now dirty-gated everywhere: Skills, Plugins, and Sandbox previously showed it permanently (keyed off a draft object that exists from load), so it now compares the working draft against a pristine snapshot and appears only when something actually changed — the phantom Skills save bar is gone. Every save bar now uses one layout — a left "有未保存的更改 / Unsaved changes" label with right-aligned Discard + Save — and Skills/Plugins/Sandbox/Models gained a Discard that reverts to the loaded values. Read-only pages (Usage/Trace/Run History/Diagnostics), instant-apply pages (General), and per-entity editors (Agents/MCP/Channels/Profiles/Memory/Tasks) are unchanged by design.
+
+### Agent engineering methodology
+- Added first-principles problem decomposition and mandatory adversarial pre-delivery review to the repository's long-lived `AGENTS.md` collaboration rules, including explicit rationale, 3–5 likely failure points, and evidence-based verification.
+
+### Service process: clean exit on Ctrl+C / SIGTERM
+- `scripts/start-server.mjs` now force-exits on `SIGINT`, `SIGTERM`, and SvelteKit's `sveltekit:shutdown` after releasing the `service.lock` lease. Previously the process released the lock but stayed alive (EventsWatcher timers, sqlite, `fs.watch` kept the event loop drained-empty from never happening), so each `make desktop-dev` Ctrl+C left an orphaned node process and the next run spawned a fresh one — accumulating multiple live server processes on one data directory. The existing single-instance lock (`~/.molibot/runtime/service.lock`) now actually enforces one-process-per-data-dir again, since orphans no longer linger.
+
+### Desktop Settings UI: full Geist conformance pass
+- Swept the Desktop Settings surface for Geist design-system conformance (`DESIGN.vercel.md`). Removed the 6-color macOS accent picker and the per-nav-item tinted sidebar icons — Geist uses a single blue-700 accent owned by the theme tokens — so the settings sidebar is now monochrome.
+- Replaced every hardcoded macOS system color in the settings styles with Geist tokens (iOS red/green/blue/purple/gray and Material reds → `--danger` / `--online` / `--accent` / `--chart-purple` / `--gray-*`); status dots, switches, status badges, model-chip verify states, the external-channel / onboarding / health-check views, and the sidebar footer now derive color from tokens in both light and dark.
+- Consolidated radii to the Geist 6/12/16/9999 family (controls 6px, cards 12px, pills 9999px), replacing ad-hoc 4/5/7/8/9/10/11/18px values across the whole stylesheet.
+- Aligned typography to the Geist scale: font weights are now only 400/500/600 (was 450/550/650/680/700) and half-pixel sizes (13.5/12.5/11.5/10.5/9.5/14.5px) snapped to whole pixels.
+- Unified button variants — primary (gray-1000), secondary (white + border), tertiary (transparent), and a new error button (red-800) — all 32px with 6px radius; destructive secondary buttons now share a consistent red-tint hover. Simplified the popup select to a single Geist chevron with proper disabled styling (gray-100 fill, gray-700 text, not-allowed).
+- Verified: Desktop `svelte-check` 0/0, `chat-ui.test.mjs` 8/8, production build green. Chat-view color literals (conversation / message / composer / file) still hold the old macOS values and are the next slice.
+
+### Desktop Chat UI: Geist color alignment
+- Finished the Geist alignment on the Chat surface (`apps/desktop/src/styles.css` + `ChatView.svelte`). Every iOS chrome literal is now a Geist token: the `rgb(60 60 67 / X%)` label-gray scale maps to `--label-primary`/`--label-secondary`/`--label-tertiary` by opacity (95/85→primary, 65–80→secondary, 30–55→tertiary); `rgb(120 120 128 / X%)` system-gray hovers/fills map to `--fill`/`--fill-hover`; iOS red `rgb(255 59 48 / X%)` and orange `rgb(255 149 0 / X%)` map to `color-mix` tints of `--danger`/`--warning`.
+- File-type tints (image/video/audio/file) now derive from `--online`/`--accent`/`--chart-purple` via `color-mix` instead of raw iOS blue/green/purple. De-blued the chart-KPI and entity-editor shadows (`rgb(28 38 68)`/`rgb(12 16 26)` → neutral `rgba(0,0,0,X)`) and softened the conversation-tile shadow.
+- Introduced explicit `--code-bg`/`--code-text` tokens (fixed dark in both themes) so the markdown code block and approval-field code render correctly in dark mode too, replacing the iOS `#f2f2f7` text literal. Cleaned the 10 dead `var(--sidebar-surface, rgba(...))` fallbacks down to the token.
+- `ChatView.svelte`: replaced the inline-styled read-only notice with a semantic `.external-readonly-notice` class, and toned the generic channel-tile fallback palette from iOS system tints to Geist accent scales (blue-700/purple-700/pink-700/amber-700/green-700/teal-700). Channel brand identity colors (`CHANNEL_COLORS`: Telegram/WeChat/Discord/Slack/QQ…) are kept as legitimate semantic identity, not chrome.
+- Verified: Desktop `svelte-check` 0/0, `chat-ui.test.mjs` 8/8, production build green. Remaining: install the Geist Sans / Geist Mono fonts.
+
+### macOS Automations: recurring task history and session detail
+- Added a macOS Automations view for recurring watched-event tasks: Desktop now projects only periodic tasks, keeps one-shot/immediate tasks out of this app page, and preserves `/settings/tasks` as the full diagnostics surface.
+- Fixed the Automations page getting stuck during a frontend/local-service version mismatch by normalizing older task responses and stopping automatic retry loops after a failed load.
+- Added stable task ids for future periodic executions, SQLite-backed execution history with session links, skipped records, retry attempt counts, and task-level non-concurrency for scheduled and manual runs.
+- Fresh automation sessions now carry explicit automation origin metadata and are hidden from ordinary session listings; execution records can open a read-only session detail view, with a cleaned-session state when retention has already removed the transcript.
+
+## 2026-07-01
+
+### Desktop app: adopt Geist design system (foundation + Chat + interaction)
+- Began migrating the whole desktop app (Chat + Settings) from the Liquid-Glass macOS aesthetic to Vercel's Geist system (`DESIGN.vercel.md`) per product decision. Re-based the entire token layer to Geist light/dark (gray scale, blue-700 accent, background-100/200 surfaces, 6/12/16 radii, subtle shadows), removed all glass blur/wallpaper/translucency, and converted core controls: flat bordered cards, secondary buttons, 6px selects/inputs with the two-layer focus ring, Geist status badges, and neutral (monochrome) settings-nav selection.
+- Second pass: converted the Chat surface (message bubbles → flat 12px bordered, composer → flat with Geist focus ring, ghost square icon buttons), the shared chips/inputs/model-chips to 6px Geist, made the primary button a solid `gray-1000` (Geist primary, inverts correctly in dark), fixed avatar/brand marks that went invisible in dark, and normalized modal/card radii. Interaction fix on `/settings/tasks`: replaced the flat 4-button bulk bar with a hierarchy (selection count + low-emphasis 全选/清除 helpers, then the real 触发/删除 actions), and the per-row 3 text buttons with compact ghost icon actions. Verified light + dark; remaining detail pages (providers/sandbox/media) still to sweep.
+
+### macOS Desktop local service startup
+- Fixed the Desktop-managed local service repeatedly exiting after a production build by keeping the custom SQLite-aware Node adapter aligned with the current adapter-node runtime placeholders.
+
+### pnpm workspace migration
+- Migrated the root application and macOS Desktop package from separate npm lockfiles to one pnpm workspace and lockfile. Local development, CI, Docker, Tauri, and release-bundle commands now use the pinned pnpm toolchain and shared content-addressable package store.
+- Fixed `make desktop-dev`, `make desktop-check`, and `make dmg` on systems without a global pnpm executable by invoking the pinned package manager through Corepack at both the Make and nested package-script layers.
+
+### macOS Settings layout rhythm polish
+- Reworked the Settings page vertical spacing so modules stop crowding each other: roomier page header, section hints now separated from the first card, stronger group-title section breaks (theme-adaptive color for dark mode), a larger card-to-card gap, and proper margins around the chart blocks so KPI tiles / trend cards / split rows no longer touch neighbouring cards.
+
+### macOS Settings Usage & Trace chart dashboards
+- Rebuilt the Desktop **Usage** and **Trace** settings pages from plain stat rows into chart dashboards: KPI tiles plus hand-rolled SVG charts (no chart library). Usage gets a 30-day token/request trend area chart with a peak marker, a token-type distribution donut, and a stacked time-window comparison; Trace gets an activity bar chart, a tool-outcome donut (succeeded/failed/blocked), coverage tiles, and a tool-vs-model average-duration comparison.
+- Extended the credential-safe desktop usage contract with a `daily` series (date + token/request totals only, projected from the existing shared daily buckets) to power the trend chart, and added a macOS-derived `--chart-*` palette with light/dark variants. No fabricated metrics — only data the runtime already records.
+
+### macOS Settings dropdown polish
+- Replaced the inconsistent mix of custom-triangle and raw native `<select>` controls on the Desktop Settings pages with a single macOS-style popup button: soft surface, faint depth shadow, a clean stroked double-chevron (light/dark variants), and hover / accent-focus / disabled states. Added shared `--control-*` tokens, matched form-grid selects to adjacent input height, and gave settings rows a bit more breathing room for a calmer, more system-native rhythm.
+
 ## 2026-06-30
+
+### macOS chat sidebar: channel → Bot → session navigation
+- Rebuilt the Chat sidebar as a unified two-column navigation: a horizontal channel switcher (Web / telegram / feishu / qq / weixin — compact avatars separated from the nav menu by a hairline divider) sits above the Bot list; selecting a channel lists all of its configured Bot instances (including zero-session ones), expanding a Bot reveals its sessions, and selecting a session opens the chat on the right. Web Bots are Web Profiles (editable sessions); external-channel Bots are read-only.
+- Fixed every external session collapsing into "未指定 Bot 实例": the projection only read the (unpopulated) `external.botInstanceName`. In real data the Bot identity is encoded in the legacy index `externalUserId` (`bot:<instanceId>:chat:...`, e.g. `bot:moli_news_bot:chat:...`), while the conversation `id` is an opaque UUID. The server now recovers `botInstanceId` from `externalUserId` and the client joins it against channel settings (instance id = slug, name = display name) to resolve Bot names and the full list — 269 of 272 external sessions now attribute correctly (telegram fans out to ~10 bots, feishu 8, qq 2, weixin 1); the 3 older `chat:<chatId>:...` keys with no Bot prefix fall back to an "unspecified bot" entry.
+- Added the pure `parseBotInstanceId` helper (parsing `externalUserId`) and the `DesktopExternalSession.botInstanceId` contract field, threading `externalUserId` through the projection; added the pure `buildExternalChannelNav` / `externalSessionsForBot` helpers and `.channel-switch` / `.channel-chip` semantic classes. Verified with `api.test.ts` (60/60), `desktopExternalSessions.test.ts` (9/9), Desktop `svelte-check` (0/0), the Desktop production build, and a dry-run over the real `~/.molibot/sessions/index.json`.
+
+### macOS Settings navigation and editor workflow
+- Aligned the Desktop sidebar with the Web settings taxonomy: General, AI Engine, Channels, Agent Data, and System.
+- Moved Agent, MCP, external channel, Web Profile, Memory record, and task forms into centered scrollable editor panels with their own sticky title/action bars while preserving narrow save APIs.
+- Standardized entity-enabled controls on the DESIGN-defined 38×22 switch instead of falling back to native checkboxes inside editors.
+- Audited all 22 Desktop settings destinations and fixed card rhythm, TTS disclosure defaults, image-size and timezone selectors, run-history filtering, localized channel labels, narrow command wrapping, and the remaining inline Web Profile rename flow.
+- Fixed partial live locale switching in Desktop Settings by making every translated helper explicitly depend on the current translation/locale; validated all 22 pages in English dark mode at the 620×480 minimum window without horizontal overflow.
 
 ### Scheduled tasks: session isolation dropdown + consistent default fix
 - The session-isolation control on `/settings/tasks` is now a `fresh` / `chat` dropdown (`NativeSelect`) instead of an `IosSwitch` toggle, so the two modes are explicit rather than an ambiguous on/off. Fixed the bug where a task that looked like `chat` reverted to `fresh` after running once: the edit toggle treated an unset `sessionMode` as `chat` (switch off) while the badge and runtime resolve unset + `periodic` → `fresh`, so saving without touching the toggle persisted an empty value that displayed as `fresh`. The editor now seeds the dropdown with the *effective* mode via a shared `effectiveSessionMode` helper (also reused by the display badge) and always saves an explicit `fresh`/`chat`, so the selection no longer drifts.

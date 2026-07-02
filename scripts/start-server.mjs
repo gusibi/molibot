@@ -38,11 +38,29 @@ let cleaned = false;
 function cleanup() {
   if (cleaned) return;
   cleaned = true;
-  lease.release();
+  try {
+    lease.release();
+  } catch {
+    // best-effort during shutdown
+  }
+}
+
+let shuttingDown = false;
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  cleanup();
+  // SvelteKit's graceful close drains sockets but won't bring the process down;
+  // background handles (EventsWatcher timers, sqlite, fs.watch) keep the loop
+  // alive, so an orphan would linger after releasing the lock. Force exit.
+  const force = setTimeout(() => process.exit(0), 500);
+  force.unref?.();
 }
 
 process.once("exit", cleanup);
-process.once("sveltekit:shutdown", cleanup);
+process.once("sveltekit:shutdown", shutdown);
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);
 
 try {
   writeServiceState(lease, {

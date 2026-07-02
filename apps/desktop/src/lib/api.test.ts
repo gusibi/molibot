@@ -19,7 +19,8 @@ import {
   formatTokenCount,
   formatExternalSessionPreview,
   groupExternalSessionsForView,
-  groupExternalSessionsByInstance,
+  buildExternalChannelNav,
+  externalSessionsForBot,
   groupExternalTranscriptByRole,
   hasEnabledWebProfile,
   hostBashApprovalSubcommand,
@@ -38,6 +39,7 @@ import {
   runDesktopMemoryAction,
   runDesktopTaskAction,
   loadDesktopMemoryRejections,
+  loadDesktopTasks,
   loadDesktopModelRouting,
   loadDesktopMediaTasks,
   sanitizeWebProfileName,
@@ -438,63 +440,119 @@ test("groupExternalSessionsForView returns an empty list when there are no group
   assert.deepEqual(groupExternalSessionsForView({ groups: [], counts: { totalSessions: 0 } }), []);
 });
 
-test("groupExternalSessionsByInstance keeps a single-instance channel flat", () => {
-  // The default telegram group has one named instance ("Sales Bot") plus one
-  // legacy session with no instance metadata → two buckets, so it splits; but a
-  // channel where every session shares one (or no) instance must stay flat.
-  const sections = groupExternalSessionsByInstance({
+test("groupExternalSessionsForView sorts each channel by updatedAt desc", () => {
+  const views = groupExternalSessionsForView({
+    groups: [{
+      channel: "telegram",
+      total: 2,
+      sessions: [
+        { id: "old", title: "Old", updatedAt: "2026-06-01T00:00:00.000Z", chatType: "private", senderName: "x", platform: "telegram" },
+        { id: "recent", title: "Recent", updatedAt: "2026-07-01T00:00:00.000Z", chatType: "private", senderName: "x", platform: "telegram" }
+      ]
+    }],
+    counts: { totalSessions: 2 }
+  });
+  assert.deepEqual(views.map((view) => view.id), ["recent", "old"]);
+});
+
+test("buildExternalChannelNav lists every configured Bot per channel with session counts", () => {
+  const channels = {
     groups: [
       {
         channel: "telegram",
         total: 2,
-        sessions: [
-          { id: "a", title: "A", updatedAt: "2026-06-28T02:00:00.000Z", chatType: "group", senderName: "x", botInstanceName: "Bot 1", platform: "telegram" },
-          { id: "b", title: "B", updatedAt: "2026-06-28T01:00:00.000Z", chatType: "group", senderName: "y", botInstanceName: "Bot 1", platform: "telegram" }
+        enabled: 2,
+        instances: [
+          { id: "tg-sales", name: "Sales Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], sandboxEnabled: null, fields: {}, configuredSecrets: [] },
+          { id: "tg-support", name: "Support Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], sandboxEnabled: null, fields: {}, configuredSecrets: [] }
         ]
       }
     ],
-    counts: { totalSessions: 2 }
-  });
-  assert.equal(sections.length, 1);
-  assert.equal(sections[0].showInstances, false);
-  assert.equal(sections[0].instances.length, 1);
-  assert.deepEqual(sections[0].instances[0].sessions.map((s) => s.id), ["a", "b"]);
-});
-
-test("groupExternalSessionsByInstance splits a channel with multiple instances and preserves order", () => {
-  const sections = groupExternalSessionsByInstance({
+    counts: { totalInstances: 2, enabledInstances: 2 }
+  };
+  const external = {
     groups: [
       {
         channel: "telegram",
         total: 3,
         sessions: [
-          { id: "a", title: "A", updatedAt: "2026-06-28T03:00:00.000Z", chatType: "group", senderName: "x", botInstanceName: "Bot 1", platform: "telegram" },
-          { id: "b", title: "B", updatedAt: "2026-06-28T02:00:00.000Z", chatType: "group", senderName: "y", botInstanceName: "Bot 2", platform: "telegram" },
-          { id: "c", title: "C", updatedAt: "2026-06-28T01:00:00.000Z", chatType: "group", senderName: "z", botInstanceName: "Bot 1", platform: "telegram" }
+          { id: "a", title: "A", updatedAt: "2026-06-28T03:00:00.000Z", chatType: "group" as const, senderName: "x", botInstanceId: "tg-sales", platform: "telegram" },
+          { id: "b", title: "B", updatedAt: "2026-06-28T02:00:00.000Z", chatType: "group" as const, senderName: "y", botInstanceId: "tg-sales", platform: "telegram" },
+          { id: "c", title: "C", updatedAt: "2026-06-28T01:00:00.000Z", chatType: "group" as const, senderName: "z", botInstanceId: "tg-support", platform: "telegram" }
         ]
       }
     ],
     counts: { totalSessions: 3 }
-  });
-  assert.equal(sections[0].showInstances, true);
-  assert.deepEqual(sections[0].instances.map((i) => i.botInstanceName), ["Bot 1", "Bot 2"]);
-  assert.deepEqual(sections[0].instances[0].sessions.map((s) => s.id), ["a", "c"]);
-  assert.deepEqual(sections[0].instances[1].sessions.map((s) => s.id), ["b"]);
+  };
+  const nav = buildExternalChannelNav(channels, external);
+  assert.equal(nav.length, 1);
+  assert.equal(nav[0].channel, "telegram");
+  assert.deepEqual(nav[0].bots.map((b) => [b.name, b.count, b.configured]), [["Sales Bot", 2, true], ["Support Bot", 1, true]]);
+  assert.equal(nav[0].total, 3);
 });
 
-test("groupExternalSessionsByInstance buckets legacy no-metadata sessions under a null instance", () => {
-  const sections = groupExternalSessionsByInstance({
+test("buildExternalChannelNav keeps configured Bots with zero sessions and appends unconfigured ids", () => {
+  const channels = {
+    groups: [
+      {
+        channel: "telegram",
+        total: 1,
+        enabled: 1,
+        instances: [
+          { id: "tg-idle", name: "Idle Bot", enabled: true, agentId: "a", allowedChatCount: 0, allowedChatIds: [], sandboxEnabled: null, fields: {}, configuredSecrets: [] }
+        ]
+      }
+    ],
+    counts: { totalInstances: 1, enabledInstances: 1 }
+  };
+  const external = {
+    groups: [
+      {
+        channel: "telegram",
+        total: 1,
+        sessions: [{ id: "x", title: "X", updatedAt: "2026-06-28T00:00:00.000Z", chatType: "group" as const, senderName: "x", botInstanceId: "tg-ghost", platform: "telegram" }]
+      }
+    ],
+    counts: { totalSessions: 1 }
+  };
+  const nav = buildExternalChannelNav(channels, external);
+  assert.deepEqual(nav[0].bots.map((b) => [b.instanceId, b.count, b.configured]), [["tg-idle", 0, true], ["tg-ghost", 1, false]]);
+});
+
+test("buildExternalChannelNav buckets sessions with no recoverable Bot id under the unknown entry", () => {
+  const external = {
     groups: [
       {
         channel: "weixin",
         total: 1,
-        sessions: [{ id: "w", title: "W", updatedAt: "2026-06-28T00:00:00.000Z", chatType: "channel", senderName: "", platform: "weixin" }]
+        sessions: [{ id: "w", title: "W", updatedAt: "2026-06-28T00:00:00.000Z", chatType: "channel" as const, senderName: "", platform: "weixin" }]
       }
     ],
     counts: { totalSessions: 1 }
+  };
+  const nav = buildExternalChannelNav(null, external);
+  assert.equal(nav.length, 1);
+  assert.equal(nav[0].channel, "weixin");
+  assert.deepEqual(nav[0].bots.map((b) => [b.key, b.instanceId, b.count, b.configured]), [["weixin:__unknown__", "", 1, false]]);
+});
+
+test("externalSessionsForBot filters a flat view list by channel and Bot id", () => {
+  const views = groupExternalSessionsForView({
+    groups: [
+      {
+        channel: "telegram",
+        total: 2,
+        sessions: [
+          { id: "a", title: "A", updatedAt: "2026-06-28T03:00:00.000Z", chatType: "group", senderName: "x", botInstanceId: "tg-sales", platform: "telegram" },
+          { id: "b", title: "B", updatedAt: "2026-06-28T02:00:00.000Z", chatType: "group", senderName: "y", botInstanceId: "tg-support", platform: "telegram" }
+        ]
+      }
+    ],
+    counts: { totalSessions: 2 }
   });
-  assert.equal(sections[0].showInstances, false);
-  assert.equal(sections[0].instances[0].botInstanceName, null);
+  assert.deepEqual(externalSessionsForBot(views, "telegram", "tg-sales").map((v) => v.id), ["a"]);
+  assert.deepEqual(externalSessionsForBot(views, "telegram", "tg-support").map((v) => v.id), ["b"]);
+  assert.deepEqual(externalSessionsForBot(views, "telegram", "").map((v) => v.id), []);
 });
 
 test("formatExternalSessionPreview joins bot instance, thread, and sender with a separator", () => {
@@ -947,6 +1005,36 @@ test("desktop task actions submit opaque ids to the narrow tasks endpoint", asyn
   try {
     await runDesktopTaskAction("http://127.0.0.1:3000", { action: "trigger", ids: ["opaque-id"] });
     assert.deepEqual(captured, { url: "http://127.0.0.1:3000/api/desktop/tasks", method: "POST", body: { action: "trigger", ids: ["opaque-id"] } });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("desktop task loading tolerates an older runtime response without execution history", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    ok: true,
+    summary: {
+      items: [
+        { id: "once", type: "one-shot", status: "completed", scope: "workspace", channel: "telegram" },
+        { id: "cron", type: "periodic", status: "pending", scope: "workspace", channel: "telegram" }
+      ],
+      counts: {
+        total: 2,
+        byType: { "one-shot": 1, periodic: 1, immediate: 0 },
+        byStatus: { pending: 1, running: 0, completed: 1, skipped: 0, error: 0 },
+        byScope: { workspace: 2, chatScratch: 0 },
+        byChannel: { telegram: 2 }
+      }
+    }
+  }), { status: 200 })) as typeof globalThis.fetch;
+  try {
+    const summary = await loadDesktopTasks("http://127.0.0.1:3000");
+    assert.deepEqual(summary.items.map((item) => item.id), ["cron"]);
+    assert.deepEqual(summary.items[0].executions, []);
+    assert.equal(summary.counts.total, 1);
+    assert.equal(summary.counts.byType.periodic, 1);
+    assert.equal(summary.counts.byType["one-shot"], 0);
   } finally {
     globalThis.fetch = original;
   }

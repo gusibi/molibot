@@ -63,11 +63,23 @@ export interface DesktopUsageWindow extends DesktopUsageTotals {
   endDate: string;
 }
 
+/**
+ * One day of aggregate token/request usage. Carries only the date key and
+ * credential-safe totals — the per-model and per-bot breakdowns from the shared
+ * daily buckets are dropped so the Desktop trend chart never receives provider
+ * names or bot ids.
+ */
+export interface DesktopUsageDailyPoint extends DesktopUsageTotals {
+  date: string;
+}
+
 export interface DesktopUsageSummary {
   timezone: string;
   generatedAt: string;
   totals: DesktopUsageTotals;
   windows: DesktopUsageWindow[];
+  /** Last-30-day daily series, oldest → newest, for the usage trend chart. */
+  daily: DesktopUsageDailyPoint[];
 }
 
 export interface DesktopUsageResponse {
@@ -229,6 +241,7 @@ export type DesktopTaskState = "pending" | "running" | "completed" | "skipped" |
 
 export interface DesktopTaskItem {
   id: string;
+  taskId: string;
   channel: string;
   botId: string;
   chatId: string;
@@ -247,6 +260,33 @@ export interface DesktopTaskItem {
   sessionMode: string;
   updatedAt: string;
   createdAt: string;
+  executions: DesktopTaskExecution[];
+}
+
+export type DesktopTaskExecutionStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped";
+
+export interface DesktopTaskExecution {
+  id: string;
+  status: DesktopTaskExecutionStatus;
+  sessionId: string;
+  runId: string;
+  attempt: number;
+  maxAttempts: number;
+  startedAt: string;
+  finishedAt?: string;
+  stopReason?: string;
+  lastError?: string;
+}
+
+export interface DesktopTaskSessionMessage {
+  role: string;
+  content: string;
+}
+
+export interface DesktopTaskSession {
+  taskId: string;
+  sessionId: string;
+  messages: DesktopTaskSessionMessage[];
 }
 
 export interface DesktopTaskSummary {
@@ -267,11 +307,13 @@ export interface DesktopTaskResponse {
 
 export type DesktopTaskActionRequest =
   | { action: "update"; id: string; patch: { text?: string; delivery?: string; at?: string; schedule?: string; timezone?: string; sessionMode?: string } }
-  | { action: "delete" | "trigger"; ids: string[] };
+  | { action: "delete" | "trigger"; ids: string[] }
+  | { action: "session"; id: string; executionId: string };
 
 export interface DesktopTaskActionResponse extends DesktopTaskResponse {
   affected: string[];
   failed: Array<{ id: string; reason: string }>;
+  session?: DesktopTaskSession;
 }
 
 export interface DesktopModelOption {
@@ -886,6 +928,7 @@ export interface DesktopExternalSession {
   senderName: string;
   senderAvatarUrl?: string;
   threadTitle?: string;
+  botInstanceId?: string;
   botInstanceName?: string;
   platform: string;
 }

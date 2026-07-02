@@ -1,5 +1,6 @@
 import type { UsageStatsResponse } from "$lib/server/usage/tracker";
 import type {
+  DesktopUsageDailyPoint,
   DesktopUsageSummary,
   DesktopUsageTotals,
   DesktopUsageWindow
@@ -35,10 +36,19 @@ export function buildDesktopUsageSummary(stats: UsageStatsResponse): DesktopUsag
     };
   });
 
+  // Project the shared daily buckets into a credential-safe trend series: the
+  // bucket key becomes the date, per-model/per-bot detail is dropped. Buckets
+  // arrive oldest → newest, which the trend chart renders left → right.
+  const daily: DesktopUsageDailyPoint[] = stats.breakdowns.daily.map((point) => ({
+    date: point.bucket,
+    ...pickTotals(point.totals)
+  }));
+
   return {
     timezone: stats.timezone,
     generatedAt: stats.generatedAt,
     totals: pickTotals(stats.totals),
-    windows
+    windows,
+    daily
   };
 }

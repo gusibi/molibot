@@ -7,6 +7,20 @@ import json from "@rollup/plugin-json";
 
 const files = fileURLToPath(new URL("../node_modules/@sveltejs/adapter-node/files", import.meta.url).href);
 
+export function handlerReplacements(builder, envPrefix, precompress) {
+  return {
+    ENV: "./env.js",
+    HANDLER: "./handler.js",
+    MANIFEST: "./server/manifest.js",
+    SERVER: "./server/index.js",
+    SHIMS: "./shims.js",
+    ENV_PREFIX: JSON.stringify(envPrefix),
+    PRECOMPRESS: JSON.stringify(precompress),
+    BASE: JSON.stringify(builder.config.kit.paths.base),
+    PRERENDERED: `new Set(${JSON.stringify(builder.prerendered.paths)})`
+  };
+}
+
 export default function adapter(opts = {}) {
   const { out = "build", precompress = true, envPrefix = "" } = opts;
 
@@ -79,15 +93,7 @@ export default function adapter(opts = {}) {
       });
 
       builder.copy(files, out, {
-        replace: {
-          ENV: "./env.js",
-          HANDLER: "./handler.js",
-          MANIFEST: "./server/manifest.js",
-          SERVER: "./server/index.js",
-          SHIMS: "./shims.js",
-          ENV_PREFIX: JSON.stringify(envPrefix),
-          PRECOMPRESS: JSON.stringify(precompress)
-        }
+        replace: handlerReplacements(builder, envPrefix, precompress)
       });
 
       if (builder.hasServerInstrumentationFile?.()) {

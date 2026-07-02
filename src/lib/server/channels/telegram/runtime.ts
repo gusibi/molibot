@@ -962,6 +962,7 @@ export class TelegramManager extends BaseChannelRuntime {
               attachments: [],
               imageContents: [],
               isEvent: true,
+              taskId: event.taskId,
               sessionMode: resolveEventSessionMode(event)
             };
             (synthetic as ChannelInboundMessage & { runId?: string }).runId = runId;

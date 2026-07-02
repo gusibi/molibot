@@ -49,7 +49,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 ## Key Highlights
 
 - **Multi-Channel in One Runtime**: `Web + Telegram + Feishu + Weixin + CLI`
-- **macOS App Foundation**: `apps/desktop` contains the independent Svelte 5 + Tauri 2 host with native Chat/Settings windows, menu-bar lifecycle, single-instance behavior, login-start support, a checksum-pinned Node 22 runtime, and tested managed/external service ownership boundaries. Desktop Chat shares Web Profiles, sessions, transcripts, streaming, files, approvals, voice capture, and queue controls. Desktop Settings uses the DESIGN-driven macOS Liquid Glass shell with native titlebar spacing, searchable compact navigation, fixed title chrome, grouped inset cards, adaptive light/dark materials, and sticky save footbars; Providers, advanced model routing, Web Search, Image, Video, TTS, Web Profiles, Agents, channels, MCP, Skills, Plugins, Memory, Tasks, and full Sandbox policy now have real save/test/management flows. Provider management separates built-in providers, self-hosted providers, and custom models, with full create/edit in a dedicated responsive modal. Remaining parity work is concentrated in operational detail pages such as model errors, Usage/Trace, Host Bash, System, Skill Drafts, and runtime installation. Full App lifecycle verification and the installable unsigned DMG remain under development.
+- **macOS App Foundation**: `apps/desktop` contains the independent Svelte 5 + Tauri 2 host with native Chat/Settings windows, menu-bar lifecycle, single-instance behavior, login-start support, a checksum-pinned Node 22 runtime, and tested managed/external service ownership boundaries. Desktop Chat shares Web Profiles, sessions, transcripts, streaming, files, approvals, voice capture, and queue controls. Desktop Settings uses the DESIGN-driven macOS Liquid Glass shell with the same five navigation groups as Web Settings, native titlebar spacing, searchable compact navigation, fixed title chrome, consistently spaced inset cards, instant complete Chinese/English switching, adaptive light/dark materials, sticky save footbars, responsive controlled selectors, and dedicated overlay editors with sticky actions for entity forms; Providers, advanced model routing, Web Search, Image, Video, TTS, Web Profiles, Agents, channels, MCP, Skills, Plugins, Memory, Tasks, and full Sandbox policy now have real save/test/management flows. The Chat sidebar Automations entry now focuses on recurring scheduled tasks, showing execution history, skipped/non-concurrent runs, and read-only linked session details while hiding fresh automation sessions from normal session lists; it also tolerates a briefly stale local-service response during development or upgrade without remaining in an infinite loading state. Provider management separates built-in providers, self-hosted providers, and custom models, with full create/edit in a dedicated responsive modal. Remaining parity work is concentrated in operational detail pages such as model errors, Usage/Trace, Host Bash, System, Skill Drafts, and runtime installation. Full App lifecycle verification and the installable unsigned DMG remain under development.
 - **Message Return & Display Layout Optimization**: Centralizes message formatting across Telegram, Feishu, QQ, and Weixin. Implements a unified `DisplayFormatter` to render model thinking/reasoning blocks and tool progress cleanly. Supports fine-grained channel instance configurations (`toolProgress` and `showReasoning`) toggleable directly in chat using `/toolprogress` and `/showreasoning` bot-scoped commands, including `/showreasoning new` for live latest-reasoning progress on editable channels.
 - **Compact Single-Tool Progress**: When `toolProgress` is set to `new`, the running-state line is now compressed to `⏳ <tool>...` instead of repeating a separate "running" label, so long tool names remain visible.
 - **Telegram Overlong Edit Resilience**: Telegram editable status/answer/detail messages share one chunked text-delivery path. If `editMessageText` hits `MESSAGE_TOO_LONG`, Molibot keeps the first chunk in the edited message and sends the rest as follow-up messages instead of aborting the run. Streaming answers retain all chunk message IDs so later refreshes edit existing chunks instead of repeatedly creating a new second message.
@@ -257,9 +257,13 @@ If Mermaid is not rendered in your viewer, use this static diagram:
 ### 1) Install
 
 ```bash
-npm install
-npm link
+corepack enable
+pnpm install
+pnpm link --global
 ```
+
+The root project and `apps/desktop` share one pnpm workspace and one content-addressable package store. Use `pnpm store path` to inspect the shared store and `pnpm store prune` to remove packages no longer referenced by any local project.
+Make targets invoke pnpm through Corepack, so `make desktop-dev`, `make desktop-check`, and `make dmg` do not require a separate global pnpm executable. Desktop development uses the root production server build for its managed local service; run `corepack pnpm run build` after server-side changes before launching `make desktop-dev`.
 
 ### 2) Bootstrap
 
@@ -282,15 +286,14 @@ Open: `http://localhost:3000`
 The macOS implementation is available under `apps/desktop`. It is a separate desktop UI and does not embed the existing Web pages.
 
 ```bash
-npm install
-npm --prefix apps/desktop install
-npm run desktop:check
-npm run desktop:test
-npm run test:desktop-chat
-npm run test:desktop-release
-npm run desktop:prepare
-npm run desktop:dev
-npm run desktop:build
+pnpm install
+pnpm run desktop:check
+pnpm run desktop:test
+pnpm run test:desktop-chat
+pnpm run test:desktop-release
+pnpm run desktop:prepare
+pnpm run desktop:dev
+pnpm run desktop:build
 ```
 
 Current status: the native lifecycle and bundled-sidecar foundation compile and test locally. Desktop Chat covers shared Profile/session management, streaming state, files/uploads, run progress, approvals, search, voice capture, and a local follow-up queue. Desktop Settings exposes bilingual, theme-aware management flows for Provider/model routing, profiles, agents, channels, MCP, Skills, Plugins, Memory, Tasks, Web Search, Image, Video, TTS, and full Sandbox policy. Remaining release blockers include operational-detail parity (model errors, Usage/Trace, Host Bash, System, Skill Drafts, and runtime installation), real-provider/device smoke, external real-time events and unified approvals, launched-App lifecycle verification, and production of the unsigned DMG on a real macOS runner. See [`docs/requirements/molibot-macos-app-plan.md`](docs/requirements/molibot-macos-app-plan.md) and the current parity plan under [`docs/designs/desktop-settings-parity-2026-06-29/`](docs/designs/desktop-settings-parity-2026-06-29/).
@@ -524,14 +527,14 @@ If the controlling terminal closes while the menu is waiting for input, the mana
 Build a self-contained runtime directory:
 
 ```bash
-npm run release
+pnpm run release
 ```
 
 The bundle is written to `dist/molibot-release/` and contains `build/`, production `node_modules/`, package metadata, runtime bootstrap assets, and service scripts. Run it without the source checkout:
 
 ```bash
 cd dist/molibot-release
-NODE_ENV=production npm start
+NODE_ENV=production pnpm start
 ```
 
 For background service management:
@@ -672,7 +675,7 @@ See `.env.example` for full list and detailed descriptions.
 | File | Role |
 |------|------|
 | `README.md` | Project entrypoint: positioning, setup, surface overview, and doc navigation |
-| `AGENTS.md` | Long-lived collaboration rules, architecture boundaries, and doc-maintenance rules |
+| `AGENTS.md` | Long-lived collaboration rules, first-principles and adversarial-review methodology, architecture boundaries, and doc-maintenance rules |
 | `DESIGN.md` | UI/page design source of truth for visual language, typography, color, spacing, and component styling constraints |
 | `prd.md` | Planned scope, priorities, acceptance criteria, and still-open implementation requirements |
 | `features.md` | Delivered features, implementation notes, and detailed internal update log |
@@ -719,6 +722,8 @@ See `.env.example` for full list and detailed descriptions.
 9. If the change is meaningful at release-summary level, add a concise entry to `CHANGELOG.md`.
 
 ## Current Status
+
+Desktop Chat 的渠道 → Bot/Profile → Session 侧栏默认保持分类折叠，并按最后活动时间倒序显示 Session；继续旧对话后，该记录会回到所属分类顶部。
 
 ### Channel Maturity (as of March 2026)
 

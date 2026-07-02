@@ -1,9 +1,12 @@
 # Molibot Makefile
 #
-# Convenience wrappers around the npm scripts. Run `make` (or `make help`) to
+# Convenience wrappers around the package scripts. Run `make` (or `make help`) to
 # list the available targets.
 
 DESKTOP_DMG_DIR := apps/desktop/src-tauri/target/release/bundle/dmg
+# Use Corepack so Make does not depend on a globally installed `pnpm` binary.
+# Override when needed, for example: `make desktop-check PNPM=/path/to/pnpm`.
+PNPM ?= corepack pnpm
 # Data directory holding the singleton service lock/state. Override with
 # `make kill-orphans DATA_DIR=~/.molibot-web` if you use a non-default one.
 DATA_DIR ?= $(HOME)/.molibot
@@ -17,18 +20,18 @@ help: ## List available targets
 
 .PHONY: dmg
 dmg: ## Build the macOS desktop .dmg installer (runtime prep + tauri build + finalize)
-	npm run desktop:build
+	$(PNPM) run desktop:build
 	@echo ""
 	@echo "DMG ready:"
 	@ls -lh $(DESKTOP_DMG_DIR)/*.dmg 2>/dev/null || echo "  (no .dmg found in $(DESKTOP_DMG_DIR))"
 
 .PHONY: desktop-dev
 desktop-dev: ## Run the desktop app in dev mode (tauri dev)
-	npm run desktop:dev
+	$(PNPM) run desktop:dev
 
 .PHONY: desktop-check
 desktop-check: ## Type-check the desktop frontend (svelte-check)
-	npm run desktop:check
+	$(PNPM) run desktop:check
 
 .PHONY: kill-orphans
 kill-orphans: ## Kill orphaned Molibot server processes and clear the stale service lock

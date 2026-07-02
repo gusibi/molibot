@@ -9,6 +9,7 @@ import type {
   DesktopMcpSaveRequest,
   DesktopChannelsResponse,
   DesktopChannelsSummary,
+  DesktopChannelInstance,
   DesktopChannelSaveRequest,
   DesktopChannelTestRequest,
   DesktopChannelTestResponse,
@@ -401,11 +402,36 @@ export async function toggleDesktopHostBashWhitelist(
 
 export async function loadDesktopTasks(endpoint: string): Promise<DesktopTaskSummary> {
   const payload = await requestJson<DesktopTaskResponse>(endpoint, "/api/desktop/tasks");
-  return payload.summary;
+  const items = payload.summary.items
+    .filter((item) => item.type === "periodic")
+    .map((item) => ({ ...item, executions: Array.isArray(item.executions) ? item.executions : [] }));
+  const counts: DesktopTaskSummary["counts"] = {
+    total: items.length,
+    byType: { "one-shot": 0, periodic: items.length, immediate: 0 },
+    byStatus: { pending: 0, running: 0, completed: 0, skipped: 0, error: 0 },
+    byScope: { workspace: 0, chatScratch: 0 },
+    byChannel: {}
+  };
+  for (const item of items) {
+    counts.byStatus[item.status] += 1;
+    item.scope === "workspace" ? counts.byScope.workspace += 1 : counts.byScope.chatScratch += 1;
+    counts.byChannel[item.channel] = (counts.byChannel[item.channel] ?? 0) + 1;
+  }
+  return { items, counts };
 }
 
 export async function runDesktopTaskAction(endpoint: string, input: DesktopTaskActionRequest): Promise<DesktopTaskActionResponse> {
   return requestJson<DesktopTaskActionResponse>(endpoint, "/api/desktop/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+}
+
+export async function loadDesktopTaskSession(
+  endpoint: string,
+  id: string,
+  executionId: string
+): Promise<NonNullable<DesktopTaskActionResponse["session"]>> {
+  const payload = await runDesktopTaskAction(endpoint, { action: "session", id, executionId });
+  if (!payload.session) throw new Error("Session not found");
+  return payload.session;
 }
 
 export async function loadDesktopProviders(endpoint: string): Promise<DesktopProvidersSummary> {
@@ -921,6 +947,7 @@ export interface DesktopExternalSessionView {
   chatType: ExternalChatTypeLabel;
   updatedAt: string;
   threadTitle?: string;
+  botInstanceId?: string;
   botInstanceName?: string;
 }
 
@@ -934,7 +961,7 @@ export function groupExternalSessionsForView(
 ): DesktopExternalSessionView[] {
   const rows: DesktopExternalSessionView[] = [];
   for (const group of summary.groups) {
-    for (const session of group.sessions) {
+    for (const session of [...group.sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))) {
       rows.push({
         id: session.id,
         channel: group.channel,
@@ -943,6 +970,7 @@ export function groupExternalSessionsForView(
         chatType: session.chatType,
         updatedAt: session.updatedAt,
         threadTitle: session.threadTitle,
+        botInstanceId: session.botInstanceId,
         botInstanceName: session.botInstanceName
       });
     }
@@ -962,65 +990,107 @@ export function formatExternalSessionPreview(session: DesktopExternalSessionView
   return parts.join(" · ");
 }
 
-/** One Bot-instance sub-section inside a channel (plan §7.2 hierarchy). */
-export interface ExternalInstanceSection {
-  /** null for legacy/unknown-instance sessions (no botInstanceName). */
-  botInstanceName: string | null;
-  sessions: DesktopExternalSessionView[];
+/** External channels surfaced in the chat rail, in display order (web is local). */
+export const EXTERNAL_CHANNEL_ORDER = ["telegram", "feishu", "qq", "weixin"] as const;
+
+/** Sentinel instance id for external sessions whose Bot id can't be recovered. */
+export const UNKNOWN_BOT_INSTANCE = "__unknown__";
+
+/** One Bot entry under a channel in the chat rail (column 1). */
+export interface ChannelNavBot {
+  /** Selection key, unique across the rail: `<channel>:<instanceId>`. */
+  key: string;
+  channel: string;
+  /** Configured instance id, or "" for the unknown/legacy bucket. */
+  instanceId: string;
+  /** Display name; "" when unknown (callers substitute a localized fallback). */
+  name: string;
+  /** Number of read-only external sessions belonging to this Bot. */
+  count: number;
+  /** True when the Bot exists in channel settings (may have zero sessions). */
+  configured: boolean;
 }
 
-/** One channel section, optionally split into Bot-instance sub-sections. */
-export interface ExternalChannelSection {
+/** One external channel group in the chat rail, with its Bot instances. */
+export interface ChannelNavGroup {
   channel: string;
+  bots: ChannelNavBot[];
   total: number;
-  /** True only when the channel has more than one distinct Bot instance. */
-  showInstances: boolean;
-  instances: ExternalInstanceSection[];
 }
 
 /**
- * Groups external sessions by channel and, within a channel, by Bot instance
- * (plan §7.2 "单实例时直接显示会话。多实例时自动增加 渠道 → Bot 实例 → 会话 层级").
- * Preserves the server's known-channel order and within-instance newest-first
- * order, and surfaces instance sub-sections only when a channel actually has
- * more than one distinct instance — a single-instance (or legacy, no-metadata)
- * channel renders its sessions flat. Pure derivation for testability.
+ * Builds the external-channel side of the chat rail: each known channel lists
+ * its Bot instances (column 1 → expand → bots). Bots come from channel settings
+ * so every configured Bot appears even with zero sessions (per design), in
+ * config order; any Bot id seen in sessions but not configured is appended as an
+ * unconfigured entry, and sessions whose Bot id can't be recovered fall into a
+ * single unknown bucket. Channels with neither configured Bots nor sessions are
+ * omitted. Pure derivation for testability.
  */
-export function groupExternalSessionsByInstance(
-  summary: DesktopExternalSessionsSummary
-): ExternalChannelSection[] {
-  const sections: ExternalChannelSection[] = [];
-  for (const group of summary.groups) {
-    const order: (string | null)[] = [];
-    const buckets = new Map<string | null, DesktopExternalSessionView[]>();
-    for (const session of group.sessions) {
-      const name = session.botInstanceName?.trim();
-      const key = name ? name : null;
-      let bucket = buckets.get(key);
-      if (!bucket) {
-        bucket = [];
-        buckets.set(key, bucket);
-        order.push(key);
+export function buildExternalChannelNav(
+  channelSummary: DesktopChannelsSummary | null,
+  externalSummary: DesktopExternalSessionsSummary | null
+): ChannelNavGroup[] {
+  const countsByChannel = new Map<string, Map<string, number>>();
+  if (externalSummary) {
+    for (const group of externalSummary.groups) {
+      const perInstance = countsByChannel.get(group.channel) ?? new Map<string, number>();
+      for (const session of group.sessions) {
+        const id = session.botInstanceId?.trim() || UNKNOWN_BOT_INSTANCE;
+        perInstance.set(id, (perInstance.get(id) ?? 0) + 1);
       }
-      bucket.push({
-        id: session.id,
-        channel: group.channel,
-        title: session.title,
-        senderName: session.senderName,
-        chatType: session.chatType,
-        updatedAt: session.updatedAt,
-        threadTitle: session.threadTitle,
-        botInstanceName: session.botInstanceName
+      countsByChannel.set(group.channel, perInstance);
+    }
+  }
+  const configuredByChannel = new Map<string, DesktopChannelInstance[]>();
+  if (channelSummary) {
+    for (const group of channelSummary.groups) configuredByChannel.set(group.channel, group.instances);
+  }
+
+  const groups: ChannelNavGroup[] = [];
+  for (const channel of EXTERNAL_CHANNEL_ORDER) {
+    const instances = configuredByChannel.get(channel) ?? [];
+    const perInstance = countsByChannel.get(channel) ?? new Map<string, number>();
+    const seen = new Set<string>();
+    const bots: ChannelNavBot[] = [];
+    for (const instance of instances) {
+      seen.add(instance.id);
+      bots.push({
+        key: `${channel}:${instance.id}`,
+        channel,
+        instanceId: instance.id,
+        name: instance.name || instance.id,
+        count: perInstance.get(instance.id) ?? 0,
+        configured: true
       });
     }
-    sections.push({
-      channel: group.channel,
-      total: group.total,
-      showInstances: order.length >= 2,
-      instances: order.map((key) => ({ botInstanceName: key, sessions: buckets.get(key)! }))
-    });
+    for (const [instanceId, count] of perInstance) {
+      if (instanceId === UNKNOWN_BOT_INSTANCE) {
+        bots.push({ key: `${channel}:${UNKNOWN_BOT_INSTANCE}`, channel, instanceId: "", name: "", count, configured: false });
+        continue;
+      }
+      if (seen.has(instanceId)) continue;
+      bots.push({ key: `${channel}:${instanceId}`, channel, instanceId, name: instanceId, count, configured: false });
+    }
+    if (bots.length === 0) continue;
+    groups.push({ channel, bots, total: bots.reduce((sum, bot) => sum + bot.count, 0) });
   }
-  return sections;
+  return groups;
+}
+
+/**
+ * Selects the external sessions belonging to one Bot (column 2 of the rail).
+ * Matches on channel plus recovered Bot instance id; an empty `instanceId`
+ * selects the unknown/legacy bucket. Input order (newest-first) is preserved.
+ */
+export function externalSessionsForBot(
+  views: DesktopExternalSessionView[],
+  channel: string,
+  instanceId: string
+): DesktopExternalSessionView[] {
+  return views
+    .filter((view) => view.channel === channel && (view.botInstanceId?.trim() || "") === instanceId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function listDesktopSessions(
@@ -1032,7 +1102,7 @@ export async function listDesktopSessions(
     endpoint,
     `/api/sessions?${query.toString()}`
   );
-  return payload.sessions;
+  return [...payload.sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function createDesktopSession(

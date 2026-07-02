@@ -4,7 +4,8 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
-import type { MomEvent } from "$lib/server/agent/events";
+import { createEventTaskId, type MomEvent } from "$lib/server/agent/events";
+import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore";
 import { TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/commands/taskChannels";
 
 type TaskScope = "workspace" | "chat-scratch";
@@ -21,6 +22,7 @@ interface EventStatus {
 }
 
 interface RawEventTask {
+  taskId?: string;
   type: TaskType;
   chatId?: string;
   text?: string;
@@ -34,6 +36,7 @@ interface RawEventTask {
 
 interface TaskItem {
   channel: TaskChannel;
+  taskId: string;
   botId: string;
   chatId: string;
   scope: TaskScope;
@@ -113,6 +116,7 @@ function toTaskItem(
 
   return {
     channel,
+    taskId: String(raw.taskId ?? "").trim(),
     botId,
     chatId,
     scope,
@@ -146,6 +150,10 @@ function readTaskFile(
   try {
     const raw = readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw) as RawEventTask;
+    if (parsed && typeof parsed === "object" && parsed.type === "periodic" && !String(parsed.taskId ?? "").trim()) {
+      parsed.taskId = createEventTaskId();
+      writeFileSync(filePath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+    }
     return toTaskItem(parsed, channel, botId, fallbackChatId, scope, filePath);
   } catch (error) {
     diagnostics.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
@@ -482,7 +490,66 @@ export const POST: RequestHandler = async ({ request }) => {
           continue;
         }
 
-        await manager.triggerTask(parsed as MomEvent, item.filename);
+        if (parsed.type === "periodic") {
+          const taskId = String(parsed.taskId ?? item.taskId ?? "").trim() || createEventTaskId();
+          parsed.taskId = taskId;
+          writeFileSync(resolvedPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+          const leaseScope = `${item.channel}:${item.botId}`;
+          const triggerSlot = `manual:${Date.now()}`;
+          const runId = `${item.filename}:${triggerSlot}:${Math.random().toString(36).slice(2, 8)}`;
+          const store = getEventExecutionLeaseStore();
+          if (store.hasActiveForTask(taskId, leaseScope)) {
+            store.recordSkipped({
+              leaseScope,
+              eventFile: item.filename,
+              eventType: parsed.type,
+              triggerSlot,
+              chatId: item.chatId,
+              sessionId: item.chatId,
+              channel: item.channel,
+              taskId,
+              runId,
+              maxAttempts: 1,
+              timeoutMs: 10 * 60 * 1000,
+              eventPayloadJson: JSON.stringify(parsed),
+              reason: "task_already_running"
+            });
+            failed.push({ filePath: resolvedPath, reason: "task_already_running" });
+            continue;
+          }
+          const lease = store.acquire({
+            leaseScope,
+            eventFile: item.filename,
+            eventType: parsed.type,
+            triggerSlot,
+            chatId: item.chatId,
+            sessionId: item.chatId,
+            channel: item.channel,
+            taskId,
+            runId,
+            maxAttempts: 1,
+            timeoutMs: 10 * 60 * 1000,
+            eventPayloadJson: JSON.stringify(parsed)
+          });
+          if (!lease) {
+            failed.push({ filePath: resolvedPath, reason: "task_already_running" });
+            continue;
+          }
+          const eventForRun: MomEvent = {
+            ...(parsed as MomEvent),
+            taskId,
+            status: { state: parsed.status?.state ?? "running", ...(parsed.status ?? {}), runId }
+          };
+          try {
+            await manager.triggerTask(eventForRun, item.filename);
+            store.markCompleted(lease.id, runId);
+          } catch (error) {
+            store.markFailed(lease.id, runId, error instanceof Error ? error.message : String(error));
+            throw error;
+          }
+        } else {
+          await manager.triggerTask(parsed as MomEvent, item.filename);
+        }
         triggered.push(resolvedPath);
       } catch (error) {
         failed.push({

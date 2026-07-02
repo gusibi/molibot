@@ -7,7 +7,8 @@ import {
   buildDesktopExternalSessionsSummary,
   buildDesktopExternalTranscript,
   buildDesktopExternalTranscriptMessage,
-  maskExternalUserId
+  maskExternalUserId,
+  parseBotInstanceId
 } from "./desktopExternalSessions";
 
 function conversation(overrides: Partial<Conversation> = {}): Conversation {
@@ -44,9 +45,29 @@ test("buildDesktopExternalSession falls back to a masked id and private chat whe
   assert.equal(item.senderAvatarUrl, undefined);
   assert.equal(item.threadTitle, undefined);
   assert.equal(item.botInstanceName, undefined);
+  assert.equal(item.botInstanceId, undefined);
 
   // The raw external user id must not reach the WebView.
   assert.equal(JSON.stringify(item).includes("1234567890123456"), false);
+});
+
+test("parseBotInstanceId recovers the instance id from a channel session key", () => {
+  assert.equal(parseBotInstanceId("bot:moli_news_bot:chat:7706709760:default"), "moli_news_bot");
+  assert.equal(parseBotInstanceId("bot:feishu-momo:chat:oc_abc:default"), "feishu-momo");
+  // Older `chat:<chatId>:...` keys have no Bot prefix → null.
+  assert.equal(parseBotInstanceId("chat:7706709760:s-mloxc862"), null);
+  assert.equal(parseBotInstanceId(""), null);
+});
+
+test("buildDesktopExternalSession recovers botInstanceId from the externalUserId session key", () => {
+  // The conversation id is an opaque UUID; the Bot id lives in the index key.
+  const item = buildDesktopExternalSession(conversation(), "bot:moli_news_bot:chat:7706709760:default");
+  assert.equal(item.botInstanceId, "moli_news_bot");
+  assert.equal(item.botInstanceName, undefined);
+
+  // Older chat-only keys leave the Bot unresolved.
+  const legacy = buildDesktopExternalSession(conversation(), "chat:7706709760:s-mloxc862");
+  assert.equal(legacy.botInstanceId, undefined);
 });
 
 test("buildDesktopExternalSession projects metadata when present", () => {
@@ -104,13 +125,24 @@ test("buildDesktopExternalSessionsSummary returns an empty summary when no exter
   assert.equal(summary.counts.totalSessions, 0);
 });
 
-test("buildDesktopExternalSessionsSummary preserves store ordering (updatedAt desc) within a channel", () => {
+test("buildDesktopExternalSessionsSummary sorts sessions by updatedAt desc within a channel", () => {
   const summary = buildDesktopExternalSessionsSummary([
     entry("telegram", conversation({ id: "tg-old", updatedAt: "2026-06-01T00:00:00.000Z" })),
     entry("telegram", conversation({ id: "tg-new", updatedAt: "2026-06-28T00:00:00.000Z" }))
   ]);
-  // The store pre-sorts by updatedAt desc; the mapper preserves input order.
-  assert.deepEqual(summary.groups[0].sessions.map((s) => s.id), ["tg-old", "tg-new"]);
+  assert.deepEqual(summary.groups[0].sessions.map((s) => s.id), ["tg-new", "tg-old"]);
+});
+
+test("buildDesktopExternalSessionsSummary recovers each session's Bot id from its index key", () => {
+  const summary = buildDesktopExternalSessionsSummary([
+    entry("telegram", conversation({ id: "u1" }), "bot:moli_news_bot:chat:7706709760:default"),
+    entry("telegram", conversation({ id: "u2" }), "bot:molipi_bot:chat:7706709760:default"),
+    entry("telegram", conversation({ id: "u3" }), "chat:7706709760:s-legacy")
+  ]);
+  assert.deepEqual(
+    summary.groups[0].sessions.map((s) => s.botInstanceId),
+    ["moli_news_bot", "molipi_bot", undefined]
+  );
 });
 
 function message(overrides: Partial<ConversationMessage> = {}): ConversationMessage {

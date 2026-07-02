@@ -96,7 +96,7 @@ function printHelp() {
       "molibot command",
       "",
       "Usage:",
-      "  molibot            # start dev mode (same as npm run dev)",
+      "  molibot            # start dev mode (same as pnpm run dev)",
       "  molibot dev",
       "  molibot start",
       "  molibot build",

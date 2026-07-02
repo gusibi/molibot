@@ -1,5 +1,35 @@
 # Molibot PRD (V1)
 
+## 2.25 Desktop Session Navigation (2026-07-02)
+- [Done] Desktop Chat 的 Bot/Profile 分类默认全部折叠，不因首次加载或切换渠道自动展开第一个分类；点击分类后展开，再次点击收起。
+- [Done] 分类与 Session 条目使用协调的视觉密度，保持双语、明暗主题和窄侧栏可读性。
+- [Done] Web 与外部渠道 Session 以最后更新时间倒序排列，而不是创建时间；旧 Session 在新活动后回到列表顶部。
+
+## 2.24 Agent Engineering Methodology (2026-07-02)
+- [Done] 根 `AGENTS.md` 明确采用第一性原理：实现前确认根本问题、拆分最小可验证单元，并为每个决定说明原因。
+- [Done] 所有交付执行对抗式自审：主动列出并修正最可能翻车的 3～5 个点，以验证证据替代主观判断。
+
+## 2.23 Scope Clarification (2026-07-02)
+- [Done] macOS Chat 侧栏“自动化任务”入口应成为独立 Automations 面板，仅展示周期定时任务；一次性/立即 watched-event 任务不在此入口展示，继续作为 settings 诊断/底层运行时能力存在。
+- [Done] 周期任务必须具备稳定 taskId，并把后续定时触发、手动触发、失败、超时、停止、跳过和 retry attempt 关联到同一个执行历史视图。
+- [Done] 同一周期任务禁止并发启动；已有 active execution 时，新触发记录为 skipped，不再启动第二个 Agent。
+- [Done] fresh 自动化 session 不进入普通左侧 session 列表；只能从 Automations 执行记录查看。session retention 清理后，执行记录保留并展示会话已清理状态。
+- [Done] Automations 执行记录可打开只读 session 详情；真实 event JSON 路径和本机绝对路径不得暴露给 macOS WebView。
+- [Done] macOS 前端与本地服务短暂版本错配时，Automations 页面仍须结束加载、只展示周期任务，并兼容旧响应中缺失的执行记录字段。
+- [Follow-up, P1] 创建周期任务的完整表单、可读化 next-runs 预览、复杂 cron 编辑体验和“复制到其他 chat/bot”可在后续迭代补强。
+
+## 2.22 Package Management (2026-07-01)
+- [Done] 根应用与 `apps/desktop` 使用同一个 pnpm workspace 和锁文件，依赖通过 pnpm 内容寻址 store 跨项目复用，降低重复安装的存储成本。
+- [Done] 本地开发、Tauri、CI、Docker 与 release bundle 统一使用固定版本的 pnpm 和 frozen lockfile；npm 锁文件不再作为产品主工程安装入口。
+- [Done] Makefile 及其嵌套 package/Tauri 脚本通过 Corepack 解析项目固定版本，不要求用户额外配置全局 pnpm PATH。
+- [Done] 自定义 SQLite-aware Node adapter 必须替换当前 adapter-node handler 的全部运行时占位符，production build 后 Desktop 托管服务可直接启动并通过 handshake。
+
+## 2.21 Scope Clarification (2026-06-30)
+- [Done] macOS Settings 左侧导航分类与 Web `/settings` 对齐为总览、AI 引擎、渠道、助手数据、系统五组；Desktop 独有的运行环境和诊断归入系统组。
+- [Done] Agent、MCP、外部渠道、Web Profile、Memory 记录和任务编辑使用带固定标题/操作区的独立可滚动窗口，不再在设置主列表中内联展开；开关、下拉框和模块间距继续遵循 `Momo for Mac (standalone).html` 与 `DESIGN.md`。
+- [Done] 逐页检查全部 22 个 Desktop 设置入口：补齐卡片组间距、受控图片尺寸/时区选择、TTS 默认折叠、运行历史筛选、双语渠道名、窄窗口命令换行，并移除 Web Profile 列表内联重命名入口。
+- [Done] Desktop 设置的页面标题、导航项、主题选项和动态标签必须在中英切换时立即更新；依赖通过 helper 参数显式传入，避免 Svelte 5 无法追踪无参数/隐藏响应式依赖。
+
 ## 2.20 Scope Clarification (2026-06-30)
 - [Done] Desktop AI Provider 新建和编辑不得追加在长列表底部；完整编辑器使用独立、可滚动的 Liquid Glass 弹窗，并保持保存/取消操作始终可见。
 - [Done] AI 设置界面明确区分“内置服务商”“自建服务商”和“自定义模型”；底层 `providerMode`/`customProviders` 契约保持兼容，不为文案区分引入配置迁移。

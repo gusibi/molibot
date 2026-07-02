@@ -1,4 +1,5 @@
 import type {
+  DesktopTaskExecution,
   DesktopTaskItem,
   DesktopTaskState,
   DesktopTaskSummary,
@@ -15,10 +16,11 @@ const KNOWN_STATES: readonly DesktopTaskState[] = ["pending", "running", "comple
  * to an opaque id and never returned.
  */
 interface SharedTaskItem {
+  taskId?: string;
   channel: string;
   botId: string;
   chatId: string;
-  scope: "workspace" | "chat-scratch";
+  scope: string;
   type: string;
   text: string;
   filePath: string;
@@ -53,13 +55,17 @@ function coerceState(value: string): DesktopTaskState {
  * because the Web task page supports editing it; the absolute file path is
  * replaced with a stable opaque id.
  */
-export function buildDesktopTaskItem(item: SharedTaskItem): DesktopTaskItem {
+export type DesktopTaskExecutionLoader = (taskId: string) => DesktopTaskExecution[];
+
+export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: DesktopTaskExecutionLoader = () => []): DesktopTaskItem {
+  const taskId = String(item.taskId ?? "").trim() || desktopTaskId(item.filePath);
   return {
     id: desktopTaskId(item.filePath),
+    taskId,
     channel: item.channel,
     botId: item.botId,
     chatId: item.chatId,
-    scope: item.scope,
+    scope: item.scope === "chat-scratch" ? "chat-scratch" : "workspace",
     type: coerceType(item.type),
     text: item.text,
     delivery: item.delivery,
@@ -73,14 +79,15 @@ export function buildDesktopTaskItem(item: SharedTaskItem): DesktopTaskItem {
     lastTriggeredAt: item.lastTriggeredAt,
     sessionMode: item.sessionMode,
     updatedAt: item.updatedAt,
-    createdAt: item.createdAt
+    createdAt: item.createdAt,
+    executions: loadExecutions(taskId)
   };
 }
 
 export function resolveDesktopTaskPaths(items: SharedTaskItem[], ids: string[]): Map<string, string> {
   const requested = new Set(ids);
   const result = new Map<string, string>();
-  for (const item of items) {
+  for (const item of items.filter((entry) => entry.type === "periodic")) {
     const id = desktopTaskId(item.filePath);
     if (requested.has(id)) result.set(id, item.filePath);
   }
@@ -88,8 +95,11 @@ export function resolveDesktopTaskPaths(items: SharedTaskItem[], ids: string[]):
   return result;
 }
 
-export function buildDesktopTaskSummary(items: SharedTaskItem[]): DesktopTaskSummary {
-  const desktopItems = items.map(buildDesktopTaskItem);
+export function buildDesktopTaskSummary(
+  items: SharedTaskItem[],
+  loadExecutions: DesktopTaskExecutionLoader = () => []
+): DesktopTaskSummary {
+  const desktopItems = items.filter((item) => item.type === "periodic").map((item) => buildDesktopTaskItem(item, loadExecutions));
   const byType: Record<DesktopTaskType, number> = { "one-shot": 0, periodic: 0, immediate: 0 };
   const byStatus: Record<DesktopTaskState, number> = {
     pending: 0,

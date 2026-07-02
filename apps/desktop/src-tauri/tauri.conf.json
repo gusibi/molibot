@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.eztoolab.molibot",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "corepack pnpm run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "corepack pnpm run build",
     "frontendDist": "../dist"
   },
   "app": {

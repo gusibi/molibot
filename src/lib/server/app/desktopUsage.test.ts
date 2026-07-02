@@ -28,7 +28,14 @@ function fixture(): UsageStatsResponse {
       last7Days: { startDate: "2026-06-22", endDate: "2026-06-28", totals: totals(40, 200), models: [], bots: [] },
       last30Days: { startDate: "2026-05-30", endDate: "2026-06-28", totals: totals(100, 500), models: [], bots: [] }
     },
-    breakdowns: { daily: [], weekly: [], monthly: [] }
+    breakdowns: {
+      daily: [
+        { bucket: "2026-06-27", startDate: "2026-06-27", endDate: "2026-06-27", totals: totals(5, 25), models: [{ provider: "private", model: "private-model", api: "chat", requests: 5, inputTokens: 25, outputTokens: 25, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 50 }], bots: [{ botId: "default", requests: 5, inputTokens: 25, outputTokens: 25, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 50 }] },
+        { bucket: "2026-06-28", startDate: "2026-06-28", endDate: "2026-06-28", totals: totals(10, 50), models: [], bots: [] }
+      ],
+      weekly: [],
+      monthly: []
+    }
   };
 }
 
@@ -45,6 +52,19 @@ test("buildDesktopUsageSummary maps totals and the four time windows in order", 
   );
   assert.equal(summary.windows[0].requests, 10);
   assert.equal(summary.windows[3].startDate, "2026-05-30");
+});
+
+test("buildDesktopUsageSummary projects the daily series oldest → newest with date + totals", () => {
+  const summary = buildDesktopUsageSummary(fixture());
+
+  assert.equal(summary.daily.length, 2);
+  assert.deepEqual(
+    summary.daily.map((point) => point.date),
+    ["2026-06-27", "2026-06-28"]
+  );
+  assert.equal(summary.daily[0].requests, 5);
+  assert.equal(summary.daily[0].totalTokens, 50);
+  assert.equal(summary.daily[1].requests, 10);
 });
 
 test("buildDesktopUsageSummary drops per-model, per-bot breakdowns and raw records", () => {

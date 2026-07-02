@@ -133,12 +133,12 @@ function wantsDev(ctx) {
   return ctx.match?.toString().trim().toLowerCase() === "dev";
 }
 
-// Compile the dev working tree (npm run build) so `/start dev` reflects the
+// Compile the dev working tree (pnpm run build) so `/start dev` reflects the
 // latest local code. Run through a login shell so node/npm resolve from the
 // operator's profile PATH, matching how the supervisor launches commands.
 function runBuild() {
   return new Promise((resolveRun) => {
-    const child = spawn("bash", ["-lc", "npm run build"], { cwd: devDir, env: baseEnv() });
+    const child = spawn("bash", ["-lc", "pnpm run build"], { cwd: devDir, env: baseEnv() });
     let out = "";
     const cap = (chunk) => {
       out += chunk.toString();
@@ -258,7 +258,7 @@ bot.command("help", async (ctx) => {
       "/status — service status",
       "/start — release flow: build latest, deploy to current, start",
       "/start dev — build the dev working tree, then start it",
-      "/build — build the dev working tree (npm run build)",
+      "/build — build the dev working tree (pnpm run build)",
       "/stop — stop service (stays down)",
       "/restart — restart the current release",
       "/restart dev — build the dev working tree, then restart it",

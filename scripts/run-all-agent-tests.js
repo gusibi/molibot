@@ -30,7 +30,7 @@ const failures = [];
 tests.forEach(testFile => {
   console.log(`Running: ${testFile}...`);
   try {
-    execSync(`npx node --import ./scripts/register-loader.js --import tsx --test "${testFile}"`, { stdio: 'inherit' });
+    execSync(`pnpm exec node --import ./scripts/register-loader.js --import tsx --test "${testFile}"`, { stdio: 'inherit' });
     passed++;
   } catch (error) {
     console.error(`FAILED: ${testFile}`);

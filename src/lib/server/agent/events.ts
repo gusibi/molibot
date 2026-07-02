@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import {
@@ -26,6 +27,7 @@ export type EventDeliveryMode = "text" | "agent";
 export type EventSessionMode = "fresh" | "chat";
 
 interface EventBase {
+  taskId?: string;
   chatId: string;
   text: string;
   // text: send text directly; agent: run through AI agent first, then send result.
@@ -50,6 +52,10 @@ export interface PeriodicEvent {
 }
 
 export type MomEvent = (ImmediateEvent | OneShotEvent | PeriodicEvent) & EventBase;
+
+export function createEventTaskId(): string {
+  return `task_${randomUUID()}`;
+}
 
 export function taskSessionRetentionMs(days: number | undefined): number | undefined {
   if (typeof days !== "number" || !Number.isFinite(days) || days <= 0) return undefined;
@@ -338,40 +344,41 @@ export class EventsWatcher {
         throw new Error("Invalid JSON object");
       }
       const normalized = this.normalizeEventDelivery(parsed);
-      if (normalized.delivery !== parsed.delivery) {
-        this.updateEventFile(filename, () => normalized);
+      const identified = this.ensureTaskId(normalized);
+      if (identified.delivery !== parsed.delivery || identified.taskId !== parsed.taskId) {
+        this.updateEventFile(filename, () => identified);
       }
 
-      if (this.isCompleted(normalized)) {
+      if (this.isCompleted(identified)) {
         this.cancel(filename);
         this.knownFiles.add(filename);
         return;
       }
 
-      if (this.resumeRecoveredLease(filename, normalized)) {
+      if (this.resumeRecoveredLease(filename, identified)) {
         this.knownFiles.add(filename);
         return;
       }
 
-      if (normalized.type === "immediate") {
-        this.dispatchEvent(normalized, filename);
-      } else if (normalized.type === "one-shot") {
-        const at = new Date(normalized.at).getTime();
+      if (identified.type === "immediate") {
+        this.dispatchEvent(identified, filename);
+      } else if (identified.type === "one-shot") {
+        const at = new Date(identified.at).getTime();
         if (!Number.isFinite(at) || at <= Date.now()) {
-          this.markSkipped(filename, normalized, "expired_or_invalid_time");
+          this.markSkipped(filename, identified, "expired_or_invalid_time");
           return;
         }
         const timer = setTimeout(() => {
           this.oneShotTimers.delete(filename);
-          this.dispatchEvent(normalized, filename);
+          this.dispatchEvent(identified, filename);
         }, at - Date.now());
         this.oneShotTimers.set(filename, timer);
         this.knownFiles.add(filename);
-      } else if (normalized.type === "periodic") {
-        const cron = parseCron(normalized.schedule);
+      } else if (identified.type === "periodic") {
+        const cron = parseCron(identified.schedule);
         this.periodic.set(filename, {
           parsed: cron,
-          event: normalized,
+          event: identified,
           filename,
           lastTick: ""
         });
@@ -425,6 +432,26 @@ export class EventsWatcher {
     const settings = this.getExecutionSettings();
     const store = this.getLeaseStore();
     let currentRunId = runId;
+    const taskId = event.taskId ?? `${this.getLeaseScope()}:${filename}`;
+
+    if (store.hasActiveForTask(taskId, this.getLeaseScope())) {
+      store.recordSkipped({
+        leaseScope: this.getLeaseScope(),
+        eventFile: filename,
+        eventType: event.type,
+        triggerSlot,
+        chatId: event.chatId,
+        sessionId: event.chatId,
+        channel: this.options.channel,
+        taskId,
+        runId: currentRunId,
+        maxAttempts: settings.maxAttempts,
+        timeoutMs: settings.executionTimeoutMs,
+        eventPayloadJson: JSON.stringify(event),
+        reason: "task_already_running"
+      });
+      return;
+    }
 
     while (true) {
       const lease = store.acquire({
@@ -435,6 +462,7 @@ export class EventsWatcher {
         chatId: event.chatId,
         sessionId: event.chatId,
         channel: this.options.channel,
+        taskId,
         runId: currentRunId,
         maxAttempts: settings.maxAttempts,
         timeoutMs: settings.executionTimeoutMs,
@@ -633,6 +661,12 @@ export class EventsWatcher {
       ...event,
       delivery
     };
+  }
+
+  private ensureTaskId(event: MomEvent): MomEvent {
+    const raw = String(event.taskId ?? "").trim();
+    if (raw) return { ...event, taskId: raw };
+    return { ...event, taskId: createEventTaskId() };
   }
 
   private markDone(filename: string, event: MomEvent, reason: string, slotKey?: string, runId?: string): void {

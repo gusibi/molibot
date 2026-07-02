@@ -33,12 +33,30 @@ export function maskExternalUserId(id: string): string {
 }
 
 /**
+ * Recovers the Bot instance id encoded in an external session key. Every
+ * external channel keys its sessions as `bot:<instanceId>:chat:<scope>[:<session>]`
+ * (see `channels/shared/baseRuntime.ts`); the legacy session index stores that
+ * key as the conversation's `externalUserId`, while the conversation id itself is
+ * an opaque UUID. The instance id is the segment between the leading `bot:` and
+ * the following `:chat:`. Returns null for keys that don't match (older
+ * `chat:<chatId>:...` records with no Bot prefix), so callers fall back cleanly.
+ */
+export function parseBotInstanceId(sessionKey: string): string | null {
+  const match = /^bot:(.+?):chat:/.exec(String(sessionKey ?? ""));
+  return match ? match[1] : null;
+}
+
+/**
  * Projects a single external conversation into a credential-safe Desktop view.
  * Message content is never loaded for the list; only display metadata survives.
  * Missing `external` metadata (old records) falls back to stable defaults per
- * plan §7.2 rather than back-filling from the platform.
+ * plan §7.2 rather than back-filling from the platform. `externalUserId` is the
+ * legacy index key (`bot:<instanceId>:chat:...`) used to recover Bot identity.
  */
-export function buildDesktopExternalSession(conversation: Conversation): DesktopExternalSession {
+export function buildDesktopExternalSession(
+  conversation: Conversation,
+  externalUserId = ""
+): DesktopExternalSession {
   const ext = conversation.external;
   const senderName = (ext?.senderName ?? "").trim() || maskExternalUserId(conversation.externalUserId);
   const chatType: ExternalChatType = ext?.chatType ?? "private";
@@ -52,6 +70,14 @@ export function buildDesktopExternalSession(conversation: Conversation): Desktop
   };
   if (ext?.senderAvatarUrl) session.senderAvatarUrl = ext.senderAvatarUrl;
   if (ext?.threadTitle) session.threadTitle = ext.threadTitle;
+  // Bot identity: prefer adapter-populated metadata, else recover it from the
+  // session key (`bot:<instanceId>:chat:...`) so existing records that never
+  // wrote `external.botInstance*` still group by their real Bot instance.
+  const botInstanceId = ext?.botInstanceId?.trim()
+    || parseBotInstanceId(externalUserId)
+    || parseBotInstanceId(conversation.id)
+    || "";
+  if (botInstanceId) session.botInstanceId = botInstanceId;
   if (ext?.botInstanceName) session.botInstanceName = ext.botInstanceName;
   return session;
 }
@@ -70,20 +96,22 @@ export interface ExternalSessionEntry {
 export function buildDesktopExternalSessionsSummary(
   sessions: readonly ExternalSessionEntry[]
 ): DesktopExternalSessionsSummary {
-  const byChannel = new Map<Channel, Conversation[]>();
+  const byChannel = new Map<Channel, ExternalSessionEntry[]>();
   for (const entry of sessions) {
     if (!KNOWN_EXTERNAL_CHANNELS.includes(entry.channel)) continue;
     const list = byChannel.get(entry.channel) ?? [];
-    list.push(entry.conversation);
+    list.push(entry);
     byChannel.set(entry.channel, list);
   }
 
   const groups: DesktopExternalChannelGroup[] = [];
   let totalSessions = 0;
   for (const channel of KNOWN_EXTERNAL_CHANNELS) {
-    const convs = byChannel.get(channel);
-    if (!convs || convs.length === 0) continue;
-    const items = convs.map(buildDesktopExternalSession);
+    const entries = byChannel.get(channel);
+    if (!entries || entries.length === 0) continue;
+    const items = entries
+      .map((entry) => buildDesktopExternalSession(entry.conversation, entry.externalUserId))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     totalSessions += items.length;
     groups.push({ channel, total: items.length, sessions: items });
   }

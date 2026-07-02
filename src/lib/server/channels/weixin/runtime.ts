@@ -629,6 +629,7 @@ export class WeixinManager extends BaseChannelRuntime {
         imageContents: [],
         sourceMessage: syntheticMessage,
         isEvent: true,
+        taskId: task.taskId,
         sessionMode: resolveEventSessionMode(task)
       };
       (syntheticEvent as WeixinInboundEvent & { runId?: string }).runId = task.status?.runId;

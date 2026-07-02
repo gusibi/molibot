@@ -1,0 +1,10 @@
+packages:
+  - apps/desktop
+
+blockExoticSubdeps: false
+
+allowBuilds:
+  '@google/genai': true
+  esbuild: true
+  koffi: true
+  protobufjs: true

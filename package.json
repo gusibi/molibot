@@ -2,6 +2,7 @@
   "name": "molibot",
   "version": "2.2.5",
   "private": true,
+  "packageManager": "pnpm@11.7.0",
   "type": "module",
   "imports": {
     "#weixin-agent-sdk/*": "./package/weixin-agent-sdk/*",
@@ -14,11 +15,11 @@
   "scripts": {
     "dev": "svelte-kit sync && vite dev --mode production",
     "build": "svelte-kit sync && vite build",
-    "desktop:dev": "npm --prefix apps/desktop run tauri:dev",
-    "desktop:prepare": "npm --prefix apps/desktop run prepare:runtime",
-    "desktop:build": "npm --prefix apps/desktop run tauri:build",
-    "desktop:check": "npm --prefix apps/desktop run check",
-    "desktop:test": "npm --prefix apps/desktop run test",
+    "desktop:dev": "corepack pnpm --dir apps/desktop run tauri:dev",
+    "desktop:prepare": "corepack pnpm --dir apps/desktop run prepare:runtime",
+    "desktop:build": "corepack pnpm --dir apps/desktop run tauri:build",
+    "desktop:check": "corepack pnpm --dir apps/desktop run check",
+    "desktop:test": "corepack pnpm --dir apps/desktop run test",
     "test:desktop-release": "node --test scripts/finalize-desktop-release.test.mjs",
     "start": "node scripts/start-server.mjs",
     "test:service-bootstrap": "node --test scripts/runtime/service-lease.test.mjs && node --import ./scripts/register-loader.js --import tsx --test src/lib/server/app/desktopHandshake.test.ts",
@@ -26,9 +27,9 @@
     "release": "bin/molibot-release.sh",
     "manage": "node bin/molibot-manage.js",
     "cli": "tsx src/lib/server/app/index.ts --cli",
-    "mory:build": "npm --prefix package/mory run build",
-    "mory:test": "npm --prefix package/mory run test",
-    "mory:smoke": "npm --prefix package/mory run smoke"
+    "mory:build": "corepack pnpm --dir package/mory run build",
+    "mory:test": "corepack pnpm --dir package/mory run test",
+    "mory:smoke": "corepack pnpm --dir package/mory run smoke"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.26",

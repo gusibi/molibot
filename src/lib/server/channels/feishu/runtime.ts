@@ -1057,6 +1057,7 @@ export class FeishuManager extends BaseChannelRuntime {
                 attachments: [],
                 imageContents: [],
                 isEvent: true,
+                taskId: task.taskId,
                 sessionMode: resolveEventSessionMode(task)
             };
             (synthetic as ChannelInboundMessage & { runId?: string }).runId = task.status?.runId;

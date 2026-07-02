@@ -25,7 +25,7 @@ ensure_root_dependency() {
     return 0
   fi
   echo "Adding missing root production dependency: $package_spec"
-  npm install --package-lock-only --save "$package_spec"
+  pnpm add --lockfile-only --save-prod "$package_spec"
 }
 
 (
@@ -37,8 +37,8 @@ ensure_root_dependency() {
 if [[ "${MOLIBOT_RELEASE_SKIP_BUILD:-0}" != "1" ]]; then
   (
     cd "$ROOT_DIR"
-    npm ci
-    npm run build
+    pnpm install --frozen-lockfile
+    pnpm run build
   )
 fi
 
@@ -48,7 +48,8 @@ printf "molibot release bundle\n" > "$OUTPUT_DIR/$MARKER_FILE"
 
 cp -R "$ROOT_DIR/build" "$OUTPUT_DIR/build"
 cp "$ROOT_DIR/package.json" "$OUTPUT_DIR/package.json"
-cp "$ROOT_DIR/package-lock.json" "$OUTPUT_DIR/package-lock.json"
+cp "$ROOT_DIR/pnpm-lock.yaml" "$OUTPUT_DIR/pnpm-lock.yaml"
+cp "$ROOT_DIR/pnpm-workspace.yaml" "$OUTPUT_DIR/pnpm-workspace.yaml"
 cp "$ROOT_DIR/.env.example" "$OUTPUT_DIR/.env.example"
 
 mkdir -p "$OUTPUT_DIR/scripts/runtime"
@@ -78,7 +79,7 @@ fi
 
 (
   cd "$OUTPUT_DIR"
-  npm ci --omit=dev --omit=optional
+  pnpm install --prod --no-optional --frozen-lockfile
 )
 
 cat > "$OUTPUT_DIR/README.release.md" <<'EOF'
@@ -87,7 +88,7 @@ cat > "$OUTPUT_DIR/README.release.md" <<'EOF'
 This directory is a production runtime artifact. Start it with:
 
 ```bash
-NODE_ENV=production npm start
+NODE_ENV=production pnpm start
 ```
 
 For background process management:

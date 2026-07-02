@@ -1,12 +1,14 @@
 FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/desktop/package.json ./apps/desktop/package.json
+RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN npm run build
-RUN npm prune --omit=dev
+RUN pnpm run build
+RUN pnpm prune --prod --no-optional
 
 FROM node:22-bookworm-slim AS runtime
 
@@ -18,7 +20,8 @@ ENV DATA_DIR=/data
 COPY --from=build /app/build ./build
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/package-lock.json ./package-lock.json
+COPY --from=build /app/pnpm-lock.yaml ./pnpm-lock.yaml
+COPY --from=build /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
 COPY --from=build /app/.env.example ./.env.example
 COPY --from=build /app/bin ./bin
 COPY --from=build /app/assets/test-images ./assets/test-images
