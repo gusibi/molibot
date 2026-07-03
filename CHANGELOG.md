@@ -1,5 +1,10 @@
 # Molibot ChangeLog
 
+## 2026-07-03
+
+### Desktop Settings: split the monolithic App into per-domain modules
+- The macOS Settings UI lived in one 3,953-line `App.svelte` (~258 state variables, 147 functions, all 24 sections in a single if/else chain), which was effectively unmaintainable by hand. Refactored it — with no behavior change — into an industry-standard per-domain layout: a shared Svelte 5 runes `session` store for cross-section state, one runes state module per domain under `lib/stores/`, and one presentational component per section under `lib/settings/`. Each store wraps the unchanged pure transport layer (`lib/api.ts`) and owns its own loading/dirty state; each section owns its load effect and its own save bar. Shared SVG chart geometry, timezone options, and profile-file helpers moved to small `lib/settings/` modules. `App.svelte` is now a ~540-line shell (nav, General/Diagnostics, status polling, theme/locale, section dispatch). Verified: `svelte-check` 0/0, production build (213 modules), `chat-ui.test.mjs` 9/9 (repointed at the new files), and a vite runtime transform check of every new module.
+
 ## 2026-07-02
 
 ### Desktop Chat: calmer Session navigation

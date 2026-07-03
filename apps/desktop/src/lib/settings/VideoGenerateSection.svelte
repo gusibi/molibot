@@ -1,0 +1,53 @@
+<script lang="ts">
+  import { session } from "../stores/session.svelte";
+  import {
+    toolsStore,
+    closeMediaTaskDetail,
+    ensureMediaPolling,
+    loadVideoGenerate,
+    markToolSettingsDirty,
+    mediaEngineLabel,
+    onMediaTaskOverlayKeydown,
+    openMediaTaskDetail,
+    removeMediaTask,
+    saveToolSettings,
+    secretRevealed,
+    testToolSettings,
+    toggleRevealSecret
+  } from "../stores/tools.svelte";
+
+  $effect(() => {
+    if (session.serviceReady && session.endpoint && session.endpoint !== toolsStore.videoGenerateEndpoint) {
+      void loadVideoGenerate(session.endpoint);
+    }
+  });
+  $effect(() => {
+    void toolsStore.videoTasks;
+    ensureMediaPolling("video");
+  });
+</script>
+
+<p class="settings-section-hint">{session.text.videoGenerateHint}</p>
+{#if !session.serviceReady}
+  <div class="settings-card"><div class="settings-row"><p>{session.text.videoGenerateUnavailable}</p></div></div>
+{:else if toolsStore.videoGenerateLoading || !toolsStore.videoGenerateEdit}
+  <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
+{:else}
+  <div class="settings-card"><div class="settings-row"><strong>{session.text.webSearchEnabled}</strong><button class:active={toolsStore.videoGenerateEdit.enabled} class="switch" type="button" role="switch" aria-checked={toolsStore.videoGenerateEdit.enabled} aria-label={session.text.videoGenerate} onclick={() => { if (toolsStore.videoGenerateEdit) toolsStore.videoGenerateEdit = { ...toolsStore.videoGenerateEdit, enabled: !toolsStore.videoGenerateEdit.enabled }; markToolSettingsDirty("videoGenerate"); }}><span></span></button></div><div class="settings-row"><strong>{session.text.webSearchDefaultEngine}</strong><select bind:value={toolsStore.videoGenerateEdit.defaultEngine} onchange={() => markToolSettingsDirty("videoGenerate")}><option value="auto">{session.text.mediaEngineAuto}</option>{#each toolsStore.videoGenerateEdit.engines as engine (engine.id)}<option value={engine.id}>{mediaEngineLabel("video", engine.id)}</option>{/each}</select></div></div>
+  <p class="settings-group-title">{session.text.mediaEngines}</p><div class="settings-card tool-engine-list">{#each toolsStore.videoGenerateEdit.engines as engine (engine.id)}<details class="tool-engine-card"><summary><span>{mediaEngineLabel("video", engine.id)}</span><span class="status-badge" data-state={engine.enabled ? "ready" : "disconnected"}>{engine.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span></summary><div class="tool-engine-body"><div class="settings-row"><strong>{session.text.providerEnabledLabel}</strong><button class:active={engine.enabled} class="switch" type="button" role="switch" aria-checked={engine.enabled} aria-label={mediaEngineLabel("video", engine.id)} onclick={() => { if (toolsStore.videoGenerateEdit) toolsStore.videoGenerateEdit = { ...toolsStore.videoGenerateEdit, engines: toolsStore.videoGenerateEdit.engines.map((item) => item.id === engine.id ? { ...item, enabled: !item.enabled } : item) }; markToolSettingsDirty("videoGenerate"); }}><span></span></button></div><div class="settings-form"><label class="settings-field"><span>{session.text.toolBaseUrl}</span><input bind:value={engine.baseUrl} oninput={() => markToolSettingsDirty("videoGenerate")} /></label><label class="settings-field"><span>{session.text.toolModel}</span><input bind:value={engine.model} oninput={() => markToolSettingsDirty("videoGenerate")} /></label><label class="settings-field settings-field-wide"><span>{session.text.webSearchApiKey}</span><div class="secret-input"><input type={secretRevealed(`video:${engine.id}`) ? "text" : "password"} bind:value={engine.apiKey} placeholder={engine.hasApiKey ? session.text.channelSecretConfigured : ""} autocomplete="new-password" oninput={() => markToolSettingsDirty("videoGenerate")} /><button class="secret-reveal" type="button" aria-label={session.text.toggleReveal} onclick={(event) => { event.preventDefault(); toggleRevealSecret(`video:${engine.id}`); }}><i class={`ph ${secretRevealed(`video:${engine.id}`) ? "ph-eye-slash" : "ph-eye"}`}></i></button></div>{#if engine.hasApiKey}<label class="inline-check"><input type="checkbox" bind:checked={engine.clearApiKey} onchange={() => markToolSettingsDirty("videoGenerate")} /> {session.text.channelClearSecret}</label>{/if}</label></div></div></details>{/each}</div>
+  <p class="settings-group-title">{session.text.toolTest}</p><div class="settings-card tool-test-card"><div class="settings-form"><label class="settings-field settings-field-wide"><span>{session.text.toolPrompt}</span><input bind:value={toolsStore.videoTestPrompt} /></label></div><div class="settings-row-actions tool-test-actions"><button class="secondary-button" type="button" disabled={toolsStore.testBusy} onclick={() => void testToolSettings("videoGenerate")}>{toolsStore.testBusy ? session.text.loading : session.text.toolTest}</button></div>{#if toolsStore.testResult}<pre class:run-history-failed={!toolsStore.testResult.ok} class="tool-test-result">{JSON.stringify(toolsStore.testResult.result ?? toolsStore.testResult.error, null, 2)}</pre>{/if}</div>
+  <p class="settings-group-title">{session.text.mediaTasks}</p>{#if toolsStore.videoTasks.length === 0}<div class="settings-card"><div class="settings-row"><p>{session.text.mediaTasksEmpty}</p></div></div>{:else}<div class="settings-card">{#each toolsStore.videoTasks as task (task.id)}<div class="settings-row media-task-row"><div class="profile-info"><strong>{mediaEngineLabel("video", task.engine)} · {task.status === "completed" ? session.text.mediaTaskCompleted : task.status === "failed" ? session.text.mediaTaskFailed : session.text.mediaTaskProcessing}</strong><p>{task.prompt}</p><p>{session.text.mediaTaskProgress}: {task.progress ?? 0}% · {task.createdAt.slice(0, 19).replace("T", " ")}</p>{#if task.errorMessage}<p class="run-history-failed">{task.errorMessage}</p>{/if}</div><div class="settings-row-actions">{#if task.resultUrl}<a class="secondary-button" href={task.resultUrl} target="_blank" rel="noreferrer">{session.text.mediaTaskResult}</a>{/if}<button class="secondary-button" type="button" onclick={() => openMediaTaskDetail(task)}>{session.text.mediaTaskView}</button><button class="secondary-button danger-action" type="button" disabled={toolsStore.mediaTaskBusy === task.id} onclick={() => void removeMediaTask("video", task.id)}>{session.text.mediaTaskDelete}</button></div></div>{/each}</div>{/if}
+  {#if toolsStore.mediaTaskDetail && toolsStore.mediaTaskDetail.kind === "video"}
+    <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={session.text.mediaTaskDetail} onclick={() => closeMediaTaskDetail()} onkeydown={onMediaTaskOverlayKeydown}><div class="modal-card" tabindex="-1" role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}><header class="modal-head"><strong>{session.text.mediaTaskDetail}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => closeMediaTaskDetail()}><i class="ph ph-x"></i></button></header><div class="modal-body media-task-detail">{#if toolsStore.mediaTaskDetail.resultUrl && toolsStore.mediaTaskDetail.status === "completed"}<video class="media-task-preview" controls src={toolsStore.mediaTaskDetail.resultUrl}><track kind="captions" /></video>{/if}<div class="settings-row"><strong>{session.text.mediaTaskEngine}</strong><span>{mediaEngineLabel("video", toolsStore.mediaTaskDetail.engine)}</span></div><div class="settings-row"><strong>{session.text.mediaTaskStatus}</strong><span>{toolsStore.mediaTaskDetail.status === "completed" ? session.text.mediaTaskCompleted : toolsStore.mediaTaskDetail.status === "failed" ? session.text.mediaTaskFailed : session.text.mediaTaskProcessing}</span></div><div class="settings-row"><strong>{session.text.mediaTaskProgress}</strong><span>{toolsStore.mediaTaskDetail.progress ?? 0}%</span></div><div class="settings-row"><strong>{session.text.mediaTaskPrompt}</strong><span>{toolsStore.mediaTaskDetail.prompt}</span></div>{#if toolsStore.mediaTaskDetail.errorMessage}<div class="settings-row"><strong>{session.text.mediaTaskError}</strong><span class="run-history-failed">{toolsStore.mediaTaskDetail.errorMessage}</span></div>{/if}<div class="settings-row"><strong>{session.text.mediaTaskCreatedAt}</strong><span>{toolsStore.mediaTaskDetail.createdAt.slice(0, 19).replace("T", " ")}</span></div><div class="settings-row"><strong>{session.text.mediaTaskUpdatedAt}</strong><span>{toolsStore.mediaTaskDetail.updatedAt.slice(0, 19).replace("T", " ")}</span></div>{#if toolsStore.mediaTaskDetail.resultUrl}<div class="settings-row-actions media-task-detail-actions"><a class="secondary-button" href={toolsStore.mediaTaskDetail.resultUrl} target="_blank" rel="noreferrer">{session.text.mediaTaskDownload}</a></div>{/if}</div></div></div>
+  {/if}
+{/if}
+
+{#if toolsStore.message}<p class="settings-action-message">{toolsStore.message}</p>{/if}
+{#if toolsStore.dirty.has("videoGenerate")}
+  <footer class="settings-footbar">
+    <span class="settings-footbar-label">{session.text.settingsUnsaved}</span>
+    <div class="settings-footbar-actions">
+      <button class="primary-button" type="button" disabled={toolsStore.saving} onclick={() => void saveToolSettings("videoGenerate")}>{toolsStore.saving ? session.text.onboardingProviderSaving : session.text.save}</button>
+    </div>
+  </footer>
+{/if}

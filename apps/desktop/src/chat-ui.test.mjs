@@ -2,10 +2,33 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const view = readFileSync(new URL("./ChatView.svelte", import.meta.url), "utf8");
-const app = readFileSync(new URL("./App.svelte", import.meta.url), "utf8");
-const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
-const infoPlist = readFileSync(new URL("../src-tauri/Info.plist", import.meta.url), "utf8");
+const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+
+const view = read("./ChatView.svelte");
+const app = read("./App.svelte");
+const styles = read("./styles.css");
+const infoPlist = read("../src-tauri/Info.plist");
+
+// The settings UI is split into per-domain runes stores + section components
+// under lib/settings and lib/stores. Assertions target the file where the
+// markup now lives.
+const sections = {
+  agents: read("./lib/settings/AgentsSection.svelte"),
+  mcp: read("./lib/settings/McpSection.svelte"),
+  channels: read("./lib/settings/ChannelsSection.svelte"),
+  profiles: read("./lib/settings/ProfilesSection.svelte"),
+  tasks: read("./lib/settings/TasksSection.svelte"),
+  memory: read("./lib/settings/MemorySection.svelte"),
+  providers: read("./lib/settings/ProvidersSection.svelte"),
+  sandbox: read("./lib/settings/SandboxSection.svelte"),
+  usage: read("./lib/settings/UsageSection.svelte"),
+  trace: read("./lib/settings/TraceSection.svelte"),
+  image: read("./lib/settings/ImageGenerateSection.svelte"),
+  tts: read("./lib/settings/TtsGenerateSection.svelte")
+};
+const charts = read("./lib/settings/charts.ts");
+
+const formSectionKey = { agent: "agents", mcp: "mcp", channel: "channels", profile: "profiles", task: "tasks", memory: "memory" };
 
 test("chat composer keeps keyboard guidance in the textarea placeholder", () => {
   assert.match(view, /placeholder=\{sending \? copy\.queueHint : copy\.enterHint\}/);
@@ -43,24 +66,24 @@ test("settings uses the flat Geist layout", () => {
   assert.match(styles, /\.settings-card\s*\{[^}]*background:\s*var\(--card-bg\)/s);
   assert.match(styles, /\.settings-card \+ \.settings-card\s*\{[^}]*margin-top:\s*16px/s);
   assert.match(styles, /\.settings-footbar\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0/s);
-  assert.match(app, /open=\{provider\.id === ttsGenerateEdit\.defaultProvider\}/);
-  assert.match(app, /<option value="1024x1024">1024 × 1024<\/option>/);
+  assert.match(sections.tts, /open=\{provider\.id === toolsStore\.ttsGenerateEdit\.defaultProvider\}/);
+  assert.match(sections.image, /<option value="1024x1024">1024 × 1024<\/option>/);
 });
 
 test("usage and trace pages render chart dashboards instead of plain rows", () => {
   // Usage: KPI tiles, the daily token trend area chart, distribution donut, window bars.
-  assert.match(app, /class="chart-kpi-grid"/);
-  assert.match(app, /class="trend-svg"[\s\S]*d=\{usageTokenArea\}/);
-  assert.match(app, /class="trend-line trend-line-token" d=\{usageTokenLine\}/);
-  assert.match(app, /class="donut-seg"[\s\S]*stroke-dasharray="\{seg\.len\}/);
-  assert.match(app, /class="window-bar-track"/);
+  assert.match(sections.usage, /class="chart-kpi-grid"/);
+  assert.match(sections.usage, /class="trend-svg"[\s\S]*d=\{usageTokenArea\}/);
+  assert.match(sections.usage, /class="trend-line trend-line-token" d=\{usageTokenLine\}/);
+  assert.match(sections.usage, /class="donut-seg"[\s\S]*stroke-dasharray="\{seg\.len\}/);
+  assert.match(sections.usage, /class="window-bar-track"/);
   // Trace: activity bars, the tool-outcome donut, coverage tiles, duration bars.
-  assert.match(app, /class="hbar-fill"[\s\S]*percentOf\(item\.value, traceActivityMax\)/);
-  assert.match(app, /each traceOutcomeSegments as seg/);
-  assert.match(app, /class="coverage-grid"/);
+  assert.match(sections.trace, /class="hbar-fill"[\s\S]*percentOf\(item\.value, traceActivityMax\)/);
+  assert.match(sections.trace, /each traceOutcomeSegments as seg/);
+  assert.match(sections.trace, /class="coverage-grid"/);
   // Chart geometry + palette are present.
-  assert.match(app, /function trendLinePath\(/);
-  assert.match(app, /function donutSegments\(/);
+  assert.match(charts, /function trendLinePath\(/);
+  assert.match(charts, /function donutSegments\(/);
   assert.match(styles, /--chart-blue:/);
   assert.match(styles, /\.donut-seg\s*\{/);
 });
@@ -71,12 +94,12 @@ test("settings navigation matches the web taxonomy and entity editors open as di
   assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
   assert.match(app, /id: "data", sections: \["agents", "memory", "skills", "runHistory", "tasks", "hostBash"\]/);
   assert.match(app, /id: "system", sections: \["runtimeEnv", "sandbox", "plugins", "diagnostics"\]/);
-  for (const formId of ["agent", "mcp", "channel", "profile", "task", "memory"]) {
-    assert.match(app, new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));
+  for (const [formId, key] of Object.entries(formSectionKey)) {
+    assert.match(sections[key], new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));
     assert.match(styles, new RegExp(`#desktop-${formId}-form`));
   }
-  assert.match(app, /class="entity-editor-head"/);
-  assert.match(app, /class="entity-editor-foot"/);
+  assert.match(sections.agents, /class="entity-editor-head"/);
+  assert.match(sections.agents, /class="entity-editor-foot"/);
   assert.match(styles, /\.entity-editor-foot\s*\{[^}]*bottom:\s*0/s);
   assert.match(app, /label: sectionLabel\(item\.id, text\)/);
   assert.match(app, /<h2>\{sectionLabel\(activeSection, text\)\}<\/h2>/);
@@ -84,23 +107,25 @@ test("settings navigation matches the web taxonomy and entity editors open as di
 });
 
 test("AI provider editing uses a dedicated modal and separates provider and model concepts", () => {
-  assert.match(app, /class="modal-overlay provider-modal-overlay"/);
-  assert.match(app, /class="modal-card provider-modal-card"/);
-  assert.match(app, /text\.providerSelfHostedTitle/);
-  assert.match(app, /text\.providerCustomModelsTitle/);
+  assert.match(sections.providers, /class="modal-overlay provider-modal-overlay"/);
+  assert.match(sections.providers, /class="modal-card provider-modal-card"/);
+  assert.match(sections.providers, /session\.text\.providerSelfHostedTitle/);
+  assert.match(sections.providers, /session\.text\.providerCustomModelsTitle/);
   assert.match(styles, /\.modal-card\.provider-modal-card\s*\{[^}]*width:\s*min\(920px,\s*100%\)/s);
-  assert.doesNotMatch(app, /activeSection === "providers" && providerEdit[\s\S]{0,500}class="settings-footbar"/);
+  // The save footbar belongs to the provider globals (mode/default) and is gated
+  // by its own dirty flag — a separate concern from the provider edit modal.
+  assert.match(sections.providers, /\{#if providersStore\.globalsDirty\}[\s\S]{0,200}class="settings-footbar"/);
 });
 
 test("Sandbox settings expose presets, full policy editing, diagnostics, and a fixed save footer", () => {
-  assert.match(app, /id="desktop-sandbox-form"/);
-  assert.match(app, /id: "observe"/);
-  assert.match(app, /id: "build"/);
-  assert.match(app, /id: "strict"/);
-  assert.match(app, /onclick=\{\(\) => applySandboxPreset\(preset\.id as DesktopSandboxPreset\)\}/);
-  assert.match(app, /text\.sandboxEnvAllow/);
-  assert.match(app, /text\.sandboxNetworkAllow/);
-  assert.match(app, /text\.sandboxFilesystemAllowWrite/);
-  assert.match(app, /form="desktop-sandbox-form"/);
+  assert.match(sections.sandbox, /id="desktop-sandbox-form"/);
+  assert.match(sections.sandbox, /id: "observe"/);
+  assert.match(sections.sandbox, /id: "build"/);
+  assert.match(sections.sandbox, /id: "strict"/);
+  assert.match(sections.sandbox, /onclick=\{\(\) => applySandboxPreset\(preset\.id as DesktopSandboxPreset\)\}/);
+  assert.match(sections.sandbox, /session\.text\.sandboxEnvAllow/);
+  assert.match(sections.sandbox, /session\.text\.sandboxNetworkAllow/);
+  assert.match(sections.sandbox, /session\.text\.sandboxFilesystemAllowWrite/);
+  assert.match(sections.sandbox, /form="desktop-sandbox-form"/);
   assert.match(styles, /\.sandbox-presets\s*\{[^}]*grid-template-columns:\s*repeat\(3,/s);
 });
