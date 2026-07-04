@@ -15,7 +15,7 @@
   "scripts": {
     "dev": "svelte-kit sync && vite dev --mode production",
     "build": "svelte-kit sync && vite build",
-    "desktop:dev": "corepack pnpm --dir apps/desktop run tauri:dev",
+    "desktop:dev": "corepack pnpm run build && corepack pnpm --dir apps/desktop run tauri:dev",
     "desktop:prepare": "corepack pnpm --dir apps/desktop run prepare:runtime",
     "desktop:build": "corepack pnpm --dir apps/desktop run tauri:build",
     "desktop:check": "corepack pnpm --dir apps/desktop run check",

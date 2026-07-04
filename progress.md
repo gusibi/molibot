@@ -1,7 +1,6 @@
-# Progress
+# Chat Workspace Audit Progress
 
-- 2026-07-02: Product decisions completed through grilling session.
-- 2026-07-02: Started codebase inspection and implementation.
-- 2026-07-02: Implemented stable taskId for periodic events, execution history via event leases, task-level non-concurrency, manual run recording, automation session origin metadata, hidden automation sessions in normal command session lists, Desktop periodic-only Automations projection, execution history UI, and read-only session detail modal.
-- 2026-07-02: Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `readme.md`.
-- 2026-07-02: Verification: `cd apps/desktop && pnpm run check` passed; `node --import ./scripts/register-loader.js --import tsx --test src/lib/server/app/desktopTasks.test.ts` passed 4/4; `node --import ./scripts/register-loader.js --import tsx --test apps/desktop/src/lib/api.test.ts` passed 57/57; filtered root `tsc --noEmit` diagnostics show no errors in changed files. Full root `tsc --noEmit` remains blocked by pre-existing unrelated repository errors.
+- 2026-07-04: Scope confirmed; audit will use current-run screenshots, `DESIGN.md`, and source verification. Local audit folder selected by the user.
+- 2026-07-04: Replaced self-captured unavailable states with the three populated screenshots supplied by the user. Chat and Automations screenshots have been inspected and accepted as audit evidence.
+- 2026-07-04: Completed Skills/source inspection and implemented confirmed fixes across Chat errors, localization, focus visibility, navigation targets, reachable compact layout, Automations hierarchy, and Skills search/card layout.
+- 2026-07-04: Saved the combined audit to `docs/audits/chat-workspace-2026-07-04/audit.md`. Verification passed: Svelte 0/0, 76 focused tests, 14 UI structure tests, 8 Tauri tests, Desktop production build, and diff check.

@@ -18,6 +18,7 @@ const sections = {
   channels: read("./lib/settings/ChannelsSection.svelte"),
   profiles: read("./lib/settings/ProfilesSection.svelte"),
   tasks: read("./lib/settings/TasksSection.svelte"),
+  skills: read("./lib/chat/InstalledSkillsPane.svelte"),
   memory: read("./lib/settings/MemorySection.svelte"),
   providers: read("./lib/settings/ProvidersSection.svelte"),
   sandbox: read("./lib/settings/SandboxSection.svelte"),
@@ -27,6 +28,10 @@ const sections = {
   tts: read("./lib/settings/TtsGenerateSection.svelte")
 };
 const charts = read("./lib/settings/charts.ts");
+const transcript = read("./lib/chat/ConversationTranscript.svelte");
+const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
+const runActivity = read("./lib/chat/RunActivity.svelte");
+const transcriptHelpers = read("./lib/chat/transcript.ts");
 
 const formSectionKey = { agent: "agents", mcp: "mcp", channel: "channels", profile: "profiles", task: "tasks", memory: "memory" };
 
@@ -54,7 +59,65 @@ test("session groups start collapsed and use balanced list density", () => {
   assert.doesNotMatch(view, /const firstBot = externalNav/);
   assert.match(view, /if \(bot\.key === activeBotKey\) \{[\s\S]*activeBotKey = "";/);
   assert.match(styles, /\.conv-group-head\s*\{[^}]*height:\s*34px/s);
-  assert.match(styles, /\.conversation-select\s*\{[^}]*min-height:\s*36px/s);
+  assert.match(styles, /\.conversation-select\s*\{[^}]*min-height:\s*40px/s);
+});
+
+test("chat primary navigation stays in the Chat workspace", () => {
+  assert.match(view, /let workspacePane: ChatWorkspacePaneName = "chat"/);
+  assert.match(view, /onclick=\{\(\) => openWorkspacePane\("automations"\)\}/);
+  assert.match(view, /onclick=\{\(\) => openWorkspacePane\("skills"\)\}/);
+  assert.doesNotMatch(view, /onclick=\{\(\) => openSettings\("tasks"\)\}/);
+  assert.doesNotMatch(view, /onclick=\{\(\) => openSettings\("skills"\)\}/);
+  assert.match(view, /activeBotKey = activeProfileId/);
+  assert.match(view, /data-session-id=\{session\.id\}/);
+});
+
+test("automation session detail renders a chat-style transcript", () => {
+  assert.match(view, /import ConversationTranscript from "\.\/lib\/chat\/ConversationTranscript\.svelte"/);
+  assert.match(sections.tasks, /import ConversationTranscript from "\.\.\/chat\/ConversationTranscript\.svelte"/);
+  assert.match(view, /<ConversationTranscript/);
+  assert.match(sections.tasks, /<ConversationTranscript/);
+  assert.match(transcript, /class="message-row"/);
+  assert.match(transcript, /class="message-avatar"/);
+  assert.match(transcript, /class="message-stack"/);
+  assert.match(transcript, /class="message-bubble markdown-body"/);
+  assert.match(transcript, /renderMarkdown\(displayContent\)/);
+  assert.doesNotMatch(sections.tasks, /class="message-(row|avatar|stack|bubble)/);
+});
+
+test("automation management uses a command deck and opens full history in a modal", () => {
+  assert.match(sections.tasks, /class="automation-command-deck"/);
+  assert.match(sections.tasks, /class="automation-card" data-status=/);
+  assert.match(sections.tasks, /class="modal-card task-history-modal"/);
+  assert.match(sections.tasks, /openTaskHistory\(task\.id\)/);
+  assert.doesNotMatch(sections.tasks, /class="task-history-panel"/);
+  assert.match(styles, /\.task-history-modal\s*\{[^}]*width:\s*min\(820px/s);
+});
+
+test("chat workspace design constraints cover skills, errors, focus, and reachable narrow widths", () => {
+  assert.match(sections.skills, /class="installed-skills-search"/);
+  assert.match(sections.skills, /class:expanded=\{expandedIds\.has\(skill\.id\)\}/);
+  assert.match(styles, /\.installed-skill-card\s*\{[^}]*align-self:\s*start/s);
+  assert.match(styles, /\.installed-skill-copy p\s*\{[^}]*-webkit-line-clamp:\s*3/s);
+  assert.match(view, /class="composer-error" role="alert"/);
+  assert.doesNotMatch(view, /messageMediaFailed = failed;\s*error = cause instanceof Error/s);
+  assert.match(styles, /button:focus-visible,[\s\S]*box-shadow:\s*0 0 0 2px var\(--card-bg\), 0 0 0 4px var\(--accent\)/);
+  assert.match(styles, /@media \(max-width: 820px\)/);
+  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.chat-layout \{ grid-template-columns: 180px minmax\(0, 1fr\); \}/);
+  assert.doesNotMatch(styles, /@media \(max-width: 820px\)[\s\S]{0,80}--sidebar-w:/);
+});
+
+test("shared transcript renders media inline and delegates tool activity", () => {
+  assert.match(transcriptAttachments, /transcript-image/);
+  assert.match(transcriptAttachments, /transcript-audio/);
+  assert.match(transcriptAttachments, /transcript-video/);
+  assert.match(transcriptAttachments, /<audio[\s\S]*controls/);
+  assert.match(transcriptAttachments, /<video[\s\S]*controls/);
+  assert.match(transcript, /<RunActivity/);
+  assert.match(transcript, /transcriptDisplayContent\(message, copy\.chatAssistantError\)/);
+  assert.match(transcriptHelpers, /\["\(attachment\)", "\(empty response\)"\]/);
+  assert.match(transcriptHelpers, /content === "Sorry, something went wrong\."/);
+  assert.match(runActivity, /hasError \? copy\.runFailed : copy\.runCompleted/);
 });
 
 test("settings uses the flat Geist layout", () => {

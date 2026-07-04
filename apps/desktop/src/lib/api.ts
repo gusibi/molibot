@@ -13,6 +13,7 @@ import type {
   DesktopChannelSaveRequest,
   DesktopChannelTestRequest,
   DesktopChannelTestResponse,
+  DesktopConversationActivity,
   DesktopExternalSession,
   DesktopExternalSessionsResponse,
   DesktopExternalSessionsSummary,
@@ -404,7 +405,7 @@ export async function loadDesktopTasks(endpoint: string): Promise<DesktopTaskSum
   const payload = await requestJson<DesktopTaskResponse>(endpoint, "/api/desktop/tasks");
   const items = payload.summary.items
     .filter((item) => item.type === "periodic")
-    .map((item) => ({ ...item, executions: Array.isArray(item.executions) ? item.executions : [] }));
+    .map((item) => ({ ...item, executions: Array.isArray(item.executions) ? item.executions : [], executionCount: Number(item.executionCount ?? item.executions?.length ?? 0) }));
   const counts: DesktopTaskSummary["counts"] = {
     total: items.length,
     byType: { "one-shot": 0, periodic: items.length, immediate: 0 },
@@ -417,11 +418,17 @@ export async function loadDesktopTasks(endpoint: string): Promise<DesktopTaskSum
     item.scope === "workspace" ? counts.byScope.workspace += 1 : counts.byScope.chatScratch += 1;
     counts.byChannel[item.channel] = (counts.byChannel[item.channel] ?? 0) + 1;
   }
-  return { items, counts };
+  return { items, counts, targets: Array.isArray(payload.summary.targets) ? payload.summary.targets : [] };
 }
 
 export async function runDesktopTaskAction(endpoint: string, input: DesktopTaskActionRequest): Promise<DesktopTaskActionResponse> {
   return requestJson<DesktopTaskActionResponse>(endpoint, "/api/desktop/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+}
+
+export async function loadDesktopTaskHistory(endpoint: string, id: string, page: number, pageSize = 10) {
+  const payload = await runDesktopTaskAction(endpoint, { action: "history", id, page, pageSize });
+  if (!payload.history) throw new Error("Execution history not found");
+  return payload.history;
 }
 
 export async function loadDesktopTaskSession(
@@ -431,7 +438,48 @@ export async function loadDesktopTaskSession(
 ): Promise<NonNullable<DesktopTaskActionResponse["session"]>> {
   const payload = await runDesktopTaskAction(endpoint, { action: "session", id, executionId });
   if (!payload.session) throw new Error("Session not found");
-  return payload.session;
+  return normalizeDesktopTaskSession(payload.session);
+}
+
+function desktopTaskContentText(content: unknown): string {
+  if (typeof content === "string") {
+    const value = content.trim();
+    if (!value || (value[0] !== "[" && value[0] !== "{")) return value;
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (isDesktopAgentContent(parsed)) return desktopTaskContentText(parsed);
+    } catch {
+      // Preserve ordinary text and malformed JSON verbatim.
+    }
+    return value;
+  }
+  const blocks = Array.isArray(content) ? content : [content];
+  return blocks.map((block) => {
+    if (!block || typeof block !== "object") return "";
+    const item = block as { type?: unknown; text?: unknown };
+    return item.type === "text" && typeof item.text === "string" ? item.text.trim() : "";
+  }).filter(Boolean).join("\n").trim();
+}
+
+function isDesktopAgentContent(value: unknown): boolean {
+  const blocks = Array.isArray(value) ? value : [value];
+  const knownTypes = new Set(["text", "thinking", "toolCall", "toolResult", "image"]);
+  return blocks.length > 0 && blocks.every((block) => Boolean(block) && typeof block === "object" && knownTypes.has(String((block as { type?: unknown }).type ?? "")));
+}
+
+export function normalizeDesktopTaskSession(session: {
+  taskId: string;
+  sessionId: string;
+  messages: Array<{ role: string; content: string; createdAt?: string }>;
+}): NonNullable<DesktopTaskActionResponse["session"]> {
+  return {
+    ...session,
+    messages: session.messages.flatMap((message) => {
+      if (message.role !== "user" && message.role !== "assistant") return [];
+      const content = desktopTaskContentText(message.content);
+      return content ? [{ role: message.role, content, createdAt: message.createdAt ?? "" }] : [];
+    })
+  };
 }
 
 export async function loadDesktopProviders(endpoint: string): Promise<DesktopProvidersSummary> {
@@ -1330,11 +1378,7 @@ export function findTranscriptMatches(
     .map((message) => message.id);
 }
 
-export interface DesktopActivityEntry {
-  kind: "tool" | "subagent" | "note";
-  label: string;
-  state: "start" | "ok" | "error" | "info";
-}
+export type DesktopActivityEntry = DesktopConversationActivity;
 
 function extractDiagnosticField(diagnostic: string, prefix: string): string {
   const rest = diagnostic.slice(prefix.length + 1);
@@ -1350,28 +1394,47 @@ export function parseDesktopActivity(
   event: string,
   data: Record<string, unknown>
 ): DesktopActivityEntry | null {
+  const structured = data.activity;
+  if (structured && typeof structured === "object") {
+    const item = structured as Record<string, unknown>;
+    const kind = String(item.kind ?? "");
+    const state = String(item.state ?? "");
+    const key = String(item.key ?? "").trim();
+    const label = String(item.label ?? "").trim();
+    if (["tool", "subagent", "note"].includes(kind) && ["running", "success", "error", "info"].includes(state) && key && label) {
+      const summary = String(item.summary ?? "").trim();
+      return { kind: kind as DesktopActivityEntry["kind"], state: state as DesktopActivityEntry["state"], key, label, ...(summary ? { summary } : {}) };
+    }
+  }
   if (event === "thread_note") {
     const text = String(data.text ?? "").trim();
-    return text ? { kind: "note", label: text, state: "info" } : null;
+    return text ? { kind: "note", key: `note-${text}`, label: text, state: "info" } : null;
   }
   if (event !== "runner_event") return null;
   const diagnostic = String(data.diagnostic ?? "").trim();
   if (!diagnostic) return null;
   if (diagnostic.startsWith("tool_start=")) {
-    return { kind: "tool", label: extractDiagnosticField(diagnostic, "tool_start"), state: "start" };
+    const label = extractDiagnosticField(diagnostic, "tool_start");
+    return { kind: "tool", key: `legacy-${label}`, label, state: "running" };
   }
   if (diagnostic.startsWith("tool_end=")) {
     const isError = /(^|,\s*)status=error/.test(diagnostic);
     return {
       kind: "tool",
       label: extractDiagnosticField(diagnostic, "tool_end"),
-      state: isError ? "error" : "ok"
+      key: `legacy-${extractDiagnosticField(diagnostic, "tool_end")}`,
+      state: isError ? "error" : "success"
     };
   }
   if (diagnostic.startsWith("subagent")) {
-    return { kind: "subagent", label: diagnostic, state: "info" };
+    return { kind: "subagent", key: `subagent-${diagnostic}`, label: diagnostic, state: "info" };
   }
   return null;
+}
+
+export function reduceDesktopActivities(entries: DesktopActivityEntry[], next: DesktopActivityEntry): DesktopActivityEntry[] {
+  const index = entries.findIndex((entry) => entry.key === next.key);
+  return index < 0 ? [...entries, next] : entries.map((entry, position) => position === index ? next : entry);
 }
 
 function parseSseBlock(block: string): { event: string; data: Record<string, unknown> } | null {

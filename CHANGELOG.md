@@ -1,6 +1,40 @@
 # Molibot ChangeLog
 
+## 2026-07-04
+
+### Desktop Chat workspace design compliance
+- Audited Chat, Automations, and Skills against `DESIGN.md` using supplied production screenshots, then fixed confirmed hierarchy, localization, recovery, responsive, and keyboard-focus gaps.
+- Skills now supports search, compact expandable descriptions, content-height cards, and accurate inventory naming instead of implying an unavailable marketplace.
+- Chat keeps media failures on retryable attachment states, localizes the generic assistant fallback, presents dismissible alert errors, and applies the shared two-layer focus ring across workspace controls.
+- Automations now uses the shared 6px/12px Geist radius family and restrained elevation, avoids duplicated single-line task text, and localizes execution states. The compact breakpoint now activates above the app’s real minimum window width.
+
+### Desktop Automations: complete management and paginated history
+- Upgraded the recurring automation workspace with safe task creation, compact management cards, search, edit/delete, batch actions, and manual runs while keeping one-shot/immediate events out of the product-facing list.
+- Task cards now show only the last execution time and three recent results by default. Full execution history loads on demand from SQLite in newest-first pages of ten, retaining links to read-only run transcripts.
+- Creation uses validated channel/Bot/chat/scope targets and the shared watched-event JSON runtime without exposing host paths to the WebView.
+- Refined the workspace into a Geist operations console with a unified command deck, stronger task/schedule hierarchy, consistent create/edit dialogs, and a dedicated paginated history modal instead of inline expansion.
+
+### Desktop Sessions: hide automation runs from navigation
+- Fixed fresh automation conversations still appearing in external-channel Session groups. The shared session listing now recognizes the persisted `task-*` session-key suffix and excludes those records from ordinary navigation without deleting transcripts or breaking execution-history links.
+- `make desktop-dev` and the root `desktop:dev` script now build the shared Server before launching Tauri dev, preventing the managed service from silently loading a stale `build/index.js` after backend edits.
+
+### Desktop Chat: shared inline media and tool execution
+- The shared `ConversationTranscript` now renders protected image, audio, and video attachments inline: images use the existing preview flow, audio/video use native controls, and generic files retain the compact download treatment. Media is loaded through the guarded Desktop file endpoint as revocable Blob URLs rather than exposing local paths.
+- Replaced duplicate start/end diagnostic chips with a shared collapsible vertical execution view. Streaming and multipart Chat routes now use the same activity collector, merge each tool start/end pair, truncate oversized summaries, and persist the structured result with the assistant message so live Chat, history, external transcripts, and automation details keep one presentation path.
+- Attachment-only messages no longer expose internal `(attachment)` / `(empty response)` placeholders or render empty text bubbles, and failed tool runs now use a distinct attention state instead of the completed label.
+- Added focused media, activity reducer/collector, persistence, and shared-renderer regression coverage; Desktop Svelte diagnostics report 0 errors and 0 warnings.
+
 ## 2026-07-03
+
+### Desktop Automations: Chat-style execution transcript
+- Fixed automation execution sessions displaying Agent content blocks as raw JSON, including historical records where the entire block/object array was itself stored as a JSON string. Both server and Desktop client now extract user/assistant text, omit internal thinking/system/tool content, preserve ordinary user-authored JSON, and tolerate a temporarily older local service.
+- Removed the parallel task-session message styling. The modal now uses the actual Chat page `message-row`, `message-avatar`, `message-stack`, `message-bubble`, Markdown, and timestamp structure, so Molibot no longer has two visual identities.
+- Extracted that structure into the shared `ConversationTranscript` module, now used by local Chat history, external read-only transcripts, and automation sessions. Markdown, roles, thinking, attachments, audio/preview/download actions, search highlights, read state, and timestamps have one implementation; realtime streaming/approval/composer state remains in the Chat shell.
+
+### Desktop Chat: in-workspace navigation and idempotent New Chat
+- “New Chat” now expands the active Web Profile, focuses the fresh Session, and reuses it while it remains empty instead of creating duplicate empty Sessions.
+- Automations and Skills now switch the Chat right pane without opening the separate Settings window. The Skills pane lists the complete installed/discovered skill projection, including Bot/chat-scoped generated skills, while marketplace and installation flows remain deferred.
+- Began decomposing the 2,000+ line Chat view with dedicated workspace routing, installed-skills presentation, and pure New Chat decision modules; added focused regression coverage and responsive bilingual/theme-token styling.
 
 ### Desktop Settings: split the monolithic App into per-domain modules
 - The macOS Settings UI lived in one 3,953-line `App.svelte` (~258 state variables, 147 functions, all 24 sections in a single if/else chain), which was effectively unmaintainable by hand. Refactored it — with no behavior change — into an industry-standard per-domain layout: a shared Svelte 5 runes `session` store for cross-section state, one runes state module per domain under `lib/stores/`, and one presentational component per section under `lib/settings/`. Each store wraps the unchanged pure transport layer (`lib/api.ts`) and owns its own loading/dirty state; each section owns its load effect and its own save bar. Shared SVG chart geometry, timezone options, and profile-file helpers moved to small `lib/settings/` modules. `App.svelte` is now a ~540-line shell (nav, General/Diagnostics, status polling, theme/locale, section dispatch). Verified: `svelte-check` 0/0, production build (213 modules), `chat-ui.test.mjs` 9/9 (repointed at the new files), and a vite runtime transform check of every new module.

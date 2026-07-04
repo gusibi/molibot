@@ -1,5 +1,45 @@
 # Molibot Features
 
+## 2026-07-04
+
+### Desktop Chat 工作区 DESIGN 审计与一致性修正
+- 使用真实 Chat、Automations、Skills 截图对照 `DESIGN.md` 完成组合 UX/可访问性审计，证据与报告保存在 `docs/audits/chat-workspace-2026-07-04/`。
+- Skills 新增即时搜索、无结果状态和可展开的三行说明；卡片按自身内容高度排列，不再被同一行最长描述撑出大片空白；导航名称从“技能广场”收敛为实际能力“技能”。
+- Chat 媒体加载失败不再把重复的技术 404 错误抛到输入框上方；通用 assistant 失败文案按当前语言提供原因方向和下一步，composer 错误使用可关闭的 alert 结构。
+- Chat 全局交互补齐双层 `:focus-visible` 焦点环，主导航/会话行提升到 40px，渠道入口扩大并减少标签截断；真实最小窗口可触发的紧凑断点从 680px 调整为 820px。
+- Automations 收敛装饰圆环、重阴影和自造圆角，统一到 6px/12px Geist 半径与共享轻阴影；单行任务不再重复任务正文，执行状态完成中英本地化。
+
+### Desktop 自动化任务完整管理与执行记录分页
+- macOS Automations 工作区现在提供周期任务创建、搜索、编辑、删除、批量操作和立即运行；创建目标使用受限的 channel/Bot/chat/scope 契约，任务仍通过共享 watched-event JSON 运行时落地。
+- 任务卡片默认只展示计划、状态、上次执行时间与最近 3 次运行，完整执行历史按需展开；历史由 SQLite 按时间倒序、每页 10 条真实分页查询，并继续支持打开只读执行会话。
+- 页面采用紧凑管理卡片、运行状态标识、创建弹窗和响应式分页控件，支持中英、明暗主题与窄窗口；任务变更或手动运行后会失效旧历史缓存，避免展示过期数据。
+- 自动化视觉进一步收敛为 Geist 控制台：总览、运行指标、搜索和创建组成统一 command deck，任务意图、Cron、运行目标与最近状态分层展示；完整执行记录改为独立分页弹窗，不再撑开任务卡片，创建与编辑也统一使用独立编辑弹窗。
+
+### Desktop 自动化 Session 列表隔离修复
+- Desktop 外部渠道 Session 列表现在在共享 `SessionStore` 边界排除 conversation key 末段为 `task-*` 的 fresh 自动化会话；历史自动化记录无需迁移即可立即隐藏。
+- 自动化 transcript 仍可通过执行记录按 conversation id 打开，过滤只影响普通左侧导航，不删除会话或运行记录。
+- 根级 `desktop:dev` / `make desktop-dev` 现在先构建共享 Server，再启动 Tauri dev，避免 Desktop 管理进程继续加载过期的 `build/index.js`。
+
+### Desktop Chat 共享媒体与工具执行展示
+- `ConversationTranscript` 统一负责已完成消息中的图片、音频、视频、普通文件与工具执行展示；本地 Chat、历史会话、外部渠道只读会话和自动任务详情不再维护各自的展示逻辑。
+- 图片通过受保护文件接口加载为可回收 Blob URL，直接内联展示并沿用预览操作；音频、视频使用原生播放器，加载、失败重试、窄屏、明暗主题和中英提示使用共享语义样式。
+- 流式与带附件的非流式 Chat 共用 `ConversationActivityCollector`：工具开始/结束合并为一个稳定条目，结果随 assistant 消息持久化；实时与历史均使用可折叠的纵向执行视图，不再显示重复的横向诊断标签。
+- 纯媒体消息隐藏 `(attachment)` / `(empty response)` 运行时占位文本，不再出现空白气泡；工具失败使用独立的中英文状态标题，避免误报为“已完成”。
+- 验证：Desktop `svelte-check` 0 error / 0 warning；服务端与 Desktop 相关单测 76/76；UI 结构回归 12/12。
+
+## 2026-07-03
+
+### Desktop 自动任务会话对话化展示
+- 修复自动任务执行会话把 Agent `content` 内容块直接展示为 JSON 的问题，覆盖内容块数组、单个内容块 JSON 字符串和整组内容块 JSON 字符串；服务端与 Desktop 客户端双层兼容旧响应，只提取 user/assistant 的 `text`，过滤 thinking、system、toolCall/toolResult，同时保留用户真正输入的普通 JSON。
+- “查看会话”弹窗不再维护 `task-session-*` 平行消息样式，直接复用 Chat 页的 `message-row`、`message-avatar`、`message-stack`、`message-bubble`、Markdown 和时间结构，消除 Molibot 的两套展示身份。
+- 完成真正的共享模块抽取：本地 Chat 历史、外部渠道只读会话、自动任务会话统一调用 `ConversationTranscript`，附件统一调用内部 `TranscriptAttachments`。后续修改已完成消息的 Markdown、头像、气泡、时间、thinking、附件、搜索高亮或已读状态，只需修改一处。
+
+### Desktop Chat 工作区导航与幂等新对话
+- “新对话”会切回 Chat、展开当前 Web Profile、清空 Session 筛选并定位到当前新 Session；当前 Session 仍为空时重复点击会复用，不再堆积空 Session。
+- “自动任务”和“技能广场”不再打开独立 Settings 窗口，而是在保留左侧渠道/Bot/Session 导航的前提下切换右侧工作区。
+- 技能工作区展示 Desktop 安全投影返回的全部已安装/已发现技能，包括全局、Bot 和会话级自动生成技能；本轮不包含技能安装或市场能力。
+- Chat 工作区路由、技能列表与新对话判定已拆到 `lib/chat/`，为继续拆分超大 `ChatView.svelte` 建立稳定边界。
+
 ## 2026-07-02
 
 ### Desktop Session 侧栏层级与最近活动排序

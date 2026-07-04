@@ -26,7 +26,7 @@ dmg: ## Build the macOS desktop .dmg installer (runtime prep + tauri build + fin
 	@ls -lh $(DESKTOP_DMG_DIR)/*.dmg 2>/dev/null || echo "  (no .dmg found in $(DESKTOP_DMG_DIR))"
 
 .PHONY: desktop-dev
-desktop-dev: ## Run the desktop app in dev mode (tauri dev)
+desktop-dev: ## Build the shared server, then run the desktop app in dev mode
 	$(PNPM) run desktop:dev
 
 .PHONY: desktop-check

@@ -49,6 +49,7 @@
     nextFollowUp,
     ONBOARDING_STEPS,
     parseDesktopActivity,
+    reduceDesktopActivities,
     parseDesktopApproval,
     patchDesktopWebProfile,
     renameDesktopSession,
@@ -76,6 +77,11 @@
     validateProviderDraft
   } from "./lib/api";
   import { renderMarkdown } from "./lib/markdown";
+  import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
+  import ConversationTranscript from "./lib/chat/ConversationTranscript.svelte";
+  import type { TranscriptAttachmentActions } from "./lib/chat/transcript";
+  import RunActivity from "./lib/chat/RunActivity.svelte";
+  import { shouldReuseFreshSession, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
 
   export let copy: Translation;
   export let serviceEndpoint: string | null;
@@ -165,6 +171,7 @@
   let previewFile: DesktopSessionFile | null = null;
   let previewUrl = "";
   let viewMode: "local" | "external" = "local";
+  let workspacePane: ChatWorkspacePaneName = "chat";
   // Sidebar navigation: a horizontal channel switcher picks the active channel;
   // its Bots list below, and the active Bot expands to show its sessions. `web`
   // is the local channel whose "Bots" are Web Profiles (editable sessions); the
@@ -483,6 +490,7 @@
 
   async function selectSession(sessionId: string, generation = connectionGeneration): Promise<void> {
     if (!connectedEndpoint || !activeProfileId || !sessionId) return;
+    workspacePane = "chat";
     // Selecting a local session leaves the read-only external transcript view.
     if (viewMode !== "local") {
       viewMode = "local";
@@ -581,6 +589,7 @@
   // Picking a channel swaps the Bot list below it. Bot groups stay collapsed
   // until explicitly opened so a long session list never expands by surprise.
   function selectChannel(channel: string): void {
+    workspacePane = "chat";
     if (channel === activeChannel) return;
     if (channel === "web") {
       activeChannel = "web";
@@ -623,6 +632,7 @@
 
   async function openExternalTranscript(sessionId: string): Promise<void> {
     if (!connectedEndpoint || sessionId === activeExternalSessionId) return;
+    workspacePane = "chat";
     viewMode = "external";
     activeExternalSessionId = sessionId;
     externalTranscript = null;
@@ -875,13 +885,6 @@
     if (mediaType === "audio") return "waveform";
     return "file-text";
   }
-  function activityStepIcon(state: DesktopActivityEntry["state"]): string {
-    if (state === "ok") return "check-circle";
-    if (state === "error") return "x-circle";
-    if (state === "start") return "circle-notch";
-    return "circle";
-  }
-
   function inferAttachmentKind(file: File): DesktopMessageAttachment["mediaType"] {
     const type = file.type.toLowerCase();
     if (type.startsWith("image/")) return "image";
@@ -923,48 +926,100 @@
     return new Map(pendingAudioTracked);
   }
 
-  // Lazily fetched object URLs for playing audio attachments on sent messages.
-  // Keyed by the attachment's local path; cleared when the active session changes.
-  let messageAudioUrls = new Map<string, string>();
-  let messageAudioLoading = new Set<string>();
-  let messageAudioSession = "";
-  $: if (activeSessionId !== messageAudioSession) {
-    for (const url of messageAudioUrls.values()) URL.revokeObjectURL(url);
-    messageAudioUrls = new Map();
-    messageAudioLoading = new Set();
-    messageAudioSession = activeSessionId;
+  // Protected media is fetched through the Desktop adapter and exposed to the
+  // shared transcript as revocable Blob URLs. Nothing leaks a host path.
+  let messageMediaUrls = new Map<string, string>();
+  let messageMediaLoading = new Set<string>();
+  let messageMediaFailed = new Set<string>();
+  $: transcriptAttachmentActions = {
+    filesByLocal: fileByLocal,
+    mediaUrls: messageMediaUrls,
+    mediaLoading: messageMediaLoading,
+    mediaFailed: messageMediaFailed,
+    loadMedia: (file) => void loadMessageMedia(file),
+    canPreview,
+    preview: (file) => void openPreview(file),
+    download: (file) => void downloadFile(file)
+  } satisfies TranscriptAttachmentActions;
+  let messageMediaSession = "";
+  $: if (activeSessionId !== messageMediaSession) {
+    for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
+    messageMediaUrls = new Map();
+    messageMediaLoading = new Set();
+    messageMediaFailed = new Set();
+    messageMediaSession = activeSessionId;
   }
 
-  async function revealMessageAudio(file: DesktopSessionFile): Promise<void> {
+  async function loadMessageMedia(file: DesktopSessionFile): Promise<void> {
     if (!connectedEndpoint) return;
-    if (messageAudioUrls.has(file.local) || messageAudioLoading.has(file.local)) return;
-    const loading = new Set(messageAudioLoading);
+    if (messageMediaUrls.has(file.local) || messageMediaLoading.has(file.local)) return;
+    const requestedSessionId = activeSessionId;
+    const loading = new Set(messageMediaLoading);
     loading.add(file.local);
-    messageAudioLoading = loading;
+    messageMediaLoading = loading;
+    const retrying = new Set(messageMediaFailed);
+    retrying.delete(file.local);
+    messageMediaFailed = retrying;
     try {
       const blob = await fetchDesktopFileBlob(connectedEndpoint, activeProfileId, activeSessionId, file.id);
-      const next = new Map(messageAudioUrls);
-      next.set(file.local, URL.createObjectURL(blob));
-      messageAudioUrls = next;
+      const url = URL.createObjectURL(blob);
+      if (activeSessionId !== requestedSessionId) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      const next = new Map(messageMediaUrls);
+      next.set(file.local, url);
+      messageMediaUrls = next;
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
+      if (activeSessionId !== requestedSessionId) return;
+      const failed = new Set(messageMediaFailed);
+      failed.add(file.local);
+      messageMediaFailed = failed;
     } finally {
-      const done = new Set(messageAudioLoading);
-      done.delete(file.local);
-      messageAudioLoading = done;
+      if (activeSessionId === requestedSessionId) {
+        const done = new Set(messageMediaLoading);
+        done.delete(file.local);
+        messageMediaLoading = done;
+      }
     }
   }
 
   async function createSession(): Promise<void> {
     if (!connectedEndpoint || !activeProfileId || sending) return;
+    workspacePane = "chat";
+    activeChannel = "web";
+    activeBotKey = activeProfileId;
+    sessionFilterQuery = "";
     error = "";
     try {
+      if (shouldReuseFreshSession({
+        activeSessionId,
+        messageCount: messages.length,
+        sending,
+        hasStreamingContent: Boolean(streamingText || streamingThinking)
+      })) {
+        await focusActiveSession();
+        return;
+      }
       const created = await createDesktopSession(connectedEndpoint, activeProfileId);
       await refreshSessions();
       await selectSession(created.id);
+      await focusActiveSession();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     }
+  }
+
+  async function focusActiveSession(): Promise<void> {
+    await tick();
+    document.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(activeSessionId)}"]`)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
+    workspacePane = pane;
+    searchOpen = false;
+    filePanelOpen = false;
   }
 
   function beginRename(session: DesktopSessionSummary): void {
@@ -1097,7 +1152,7 @@
           if (event === "status") activity = String(data.text ?? copy.working);
           if (event === "runner_event") activity = String(data.diagnostic ?? copy.working);
           const step = parseDesktopActivity(event, data);
-          if (step) activityEntries = [...activityEntries, step];
+          if (step) activityEntries = reduceDesktopActivities(activityEntries, step);
           if (event === "host_bash_approval") pendingApproval = parseDesktopApproval(data);
           if (event === "done") {
             streamingText = String(data.response ?? streamingText);
@@ -1403,7 +1458,7 @@
     teardownRecordingStream();
     for (const url of pendingAudioTracked.values()) URL.revokeObjectURL(url);
     pendingAudioTracked.clear();
-    for (const url of messageAudioUrls.values()) URL.revokeObjectURL(url);
+    for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
     closePreview();
   });
 </script>
@@ -1423,15 +1478,15 @@
     </div>
 
     <div class="nav-list">
-      <button class="nav-item" type="button" disabled={!activeProfileId || sending} onclick={() => { selectChannel("web"); void createSession(); }}>
+      <button class:active={workspacePane === "chat"} class="nav-item" type="button" disabled={!activeProfileId || sending} onclick={() => void createSession()}>
         <i class="ph ph-plus-circle" aria-hidden="true"></i>
         <span>{copy.newChat}</span>
       </button>
-      <button class="nav-item" type="button" onclick={() => openSettings("tasks")}>
+      <button class:active={workspacePane === "automations"} class="nav-item" type="button" onclick={() => openWorkspacePane("automations")}>
         <i class="ph ph-clock-countdown" aria-hidden="true"></i>
         <span>{copy.autoTasks}</span>
       </button>
-      <button class="nav-item" type="button" onclick={() => openSettings("skills")}>
+      <button class:active={workspacePane === "skills"} class="nav-item" type="button" onclick={() => openWorkspacePane("skills")}>
         <i class="ph ph-magic-wand" aria-hidden="true"></i>
         <span>{copy.skillsSquare}</span>
       </button>
@@ -1476,7 +1531,7 @@
             {#if isActiveBot}
               {#if bot.kind === "web"}
                 {#each visibleSessions as session (session.id)}
-                  <div class:active={session.id === activeSessionId && viewMode === "local"} class="conversation-row">
+                  <div class:active={session.id === activeSessionId && viewMode === "local"} class="conversation-row" data-session-id={session.id}>
                     {#if editingSessionId === session.id}
                       <div class="conversation-editor">
                         <input bind:value={editingSessionTitle} aria-label={copy.rename} onkeydown={(event) => event.key === "Enter" && saveRename(session)} />
@@ -1571,6 +1626,9 @@
   ></div>
 
   <section class="chat-content">
+    {#if workspacePane !== "chat"}
+      <ChatWorkspacePane pane={workspacePane} {copy} serviceEndpoint={connectedEndpoint || serviceEndpoint} serviceReady={serviceState === "ready"} />
+    {:else}
     <header class="chat-header">
       <div class="chat-title-block">
         <div class="chat-header-avatar" aria-hidden="true">{viewMode === "external" ? (activeExternalSession?.title?.replace(/^@/, "").charAt(0) || "·") : "M"}</div>
@@ -1685,22 +1743,7 @@
                 <span>{copy.externalSessionDivider.replace("{channel}", activeExternalSession.channel)}</span>
               </div>
             {/if}
-            {#each externalTranscript.messages as message (message.id)}
-              <article class="message-row" class:mine={message.role === "user"} data-message-id={message.id}>
-                <div class="message-bubble markdown-body">{@html renderMarkdown(message.content)}</div>
-                <time class="message-time">{formatSessionTime(message.createdAt)}</time>
-                {#if message.attachments && message.attachments.length > 0}
-                  <div class="attachment-strip">
-                    {#each message.attachments as attachment}
-                      <div class="attachment-chip" data-kind={attachment.mediaType}>
-                        <span class="attachment-icon" data-kind={attachment.mediaType} aria-hidden="true"></span>
-                        <span class="attachment-name" title={attachment.original}>{attachment.original}</span>
-                      </div>
-                    {/each}
-                  </div>
-                {/if}
-              </article>
-            {/each}
+            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} />
           {/if}
         {:else}
           {#if messages.length === 0 && !streamingText}
@@ -1710,109 +1753,22 @@
               <p>{copy.emptyChatHint}</p>
             </div>
           {/if}
-          {#each messages as message (message.id)}
-          <article
-            class:mine={message.role === "user"}
-            class:assistant={message.role !== "user"}
-            class:search-match={searchMatchIds.includes(message.id)}
-            class:search-active={message.id === activeMatchId}
-            class="message-row"
-            data-message-id={message.id}
-          >
-            {#if message.role === "user"}
-              <div class="message-bubble markdown-body">{@html renderMarkdown(message.content)}</div>
-              <time class="message-time">
-                {formatSessionTime(message.createdAt)}
-                <i class="ph ph-checks message-read" aria-hidden="true"></i>
-              </time>
-              {#if message.attachments && message.attachments.length > 0}
-                <div class="attachment-strip">
-                  {#each message.attachments as attachment, index (index)}
-                    {@const file = fileByLocal.get(attachment.local)}
-                    <div class="attachment-chip" data-kind={attachment.mediaType}>
-                      <span class="attachment-icon" data-kind={attachment.mediaType} aria-hidden="true"></span>
-                      <span class="attachment-name" title={attachment.original}>{attachment.original}</span>
-                      {#if file}
-                        {#if attachment.mediaType === "audio"}
-                          {#if messageAudioUrls.get(attachment.local)}
-                            <!-- svelte-ignore a11y_media_has_caption -->
-                            <audio class="attachment-audio" controls src={messageAudioUrls.get(attachment.local)}></audio>
-                          {:else}
-                            <button type="button" disabled={messageAudioLoading.has(attachment.local)} onclick={() => revealMessageAudio(file)}>{copy.play}</button>
-                          {/if}
-                        {:else if canPreview(file)}
-                          <button type="button" onclick={() => openPreview(file)}>{copy.preview}</button>
-                        {/if}
-                        <button type="button" onclick={() => downloadFile(file)}>{copy.download}</button>
-                      {/if}
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-              {#if message.thinking}
-                <details class="thinking-card"><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
-              {/if}
-            {:else}
-              <div class="message-avatar" aria-hidden="true">M</div>
-              <div class="message-stack">
-                <div class="message-bubble markdown-body">{@html renderMarkdown(message.content)}</div>
-                <time class="message-time">{formatSessionTime(message.createdAt)}</time>
-                {#if message.attachments && message.attachments.length > 0}
-                  <div class="attachment-strip">
-                    {#each message.attachments as attachment, index (index)}
-                      {@const file = fileByLocal.get(attachment.local)}
-                      <div class="attachment-chip" data-kind={attachment.mediaType}>
-                        <span class="attachment-icon" data-kind={attachment.mediaType} aria-hidden="true"></span>
-                        <span class="attachment-name" title={attachment.original}>{attachment.original}</span>
-                        {#if file}
-                          {#if attachment.mediaType === "audio"}
-                            {#if messageAudioUrls.get(attachment.local)}
-                              <!-- svelte-ignore a11y_media_has_caption -->
-                              <audio class="attachment-audio" controls src={messageAudioUrls.get(attachment.local)}></audio>
-                            {:else}
-                              <button type="button" disabled={messageAudioLoading.has(attachment.local)} onclick={() => revealMessageAudio(file)}>{copy.play}</button>
-                            {/if}
-                          {:else if canPreview(file)}
-                            <button type="button" onclick={() => openPreview(file)}>{copy.preview}</button>
-                          {/if}
-                          <button type="button" onclick={() => downloadFile(file)}>{copy.download}</button>
-                        {/if}
-                      </div>
-                    {/each}
-                  </div>
-                {/if}
-                {#if message.thinking}
-                  <details class="thinking-card"><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
-                {/if}
-              </div>
-            {/if}
-          </article>
-        {/each}
+          <ConversationTranscript
+            {messages}
+            {copy}
+            formatTime={formatSessionTime}
+            {searchMatchIds}
+            {activeMatchId}
+            showReadReceipt={true}
+            attachmentActions={transcriptAttachmentActions}
+          />
         {#if sending}
           <article class="message-row assistant streaming-message">
             <div class="message-avatar" aria-hidden="true">M</div>
             <div class="message-stack">
               <div class="message-status"><span>{activity || copy.working}</span></div>
               {#if activityEntries.length > 0}
-                <details class="activity-card" open>
-                  <summary class="activity-head">
-                    <i class="ph ph-circle-notch activity-spin" aria-hidden="true"></i>
-                    <span class="activity-head-title">{copy.runProgress}</span>
-                    <span class="activity-head-count">{activityEntries.length}</span>
-                    <i class="ph ph-caret-up activity-head-caret" aria-hidden="true"></i>
-                  </summary>
-                  <div class="activity-steps">
-                    {#each activityEntries as entry, index (index)}
-                      {#if index > 0}
-                        <i class="ph ph-caret-right activity-step-arrow" aria-hidden="true"></i>
-                      {/if}
-                      <div class="activity-step" data-state={entry.state}>
-                        <i class={`ph-fill ph-${activityStepIcon(entry.state)} activity-step-icon`} class:spin={entry.state === "start"} aria-hidden="true"></i>
-                        <span class="activity-step-label">{entry.label}</span>
-                      </div>
-                    {/each}
-                  </div>
-                </details>
+                <RunActivity activities={activityEntries} {copy} live={true} />
               {/if}
               {#if streamingThinking}
                 <details class="thinking-card" open><summary>{copy.thinking}</summary><pre>{streamingThinking}</pre></details>
@@ -1868,8 +1824,8 @@
               <button class="secondary-button" type="button" onclick={() => openSettings()}>{copy.openSettings}</button>
             </div>
           {/if}
-          {#if error}<p class="composer-error">{error}</p>{/if}
-          {#if recordingError}<p class="composer-error">{recordingError}</p>{/if}
+          {#if error}<div class="composer-error" role="alert"><i class="ph ph-warning-circle" aria-hidden="true"></i><span><strong>{copy.chatErrorTitle}</strong>{error}</span><button type="button" aria-label={copy.chatErrorDismiss} onclick={() => (error = "")}><i class="ph ph-x" aria-hidden="true"></i></button></div>{/if}
+          {#if recordingError}<div class="composer-error" role="alert"><i class="ph ph-warning-circle" aria-hidden="true"></i><span><strong>{copy.chatErrorTitle}</strong>{recordingError}</span><button type="button" aria-label={copy.chatErrorDismiss} onclick={() => (recordingError = "")}><i class="ph ph-x" aria-hidden="true"></i></button></div>{/if}
           {#if queuedMessages.length > 0}
             <div class="queued-messages">
               <span class="queued-badge">{copy.queued} · {queuedMessages.length}</span>
@@ -1984,6 +1940,7 @@
           </div>
         </footer>
       {/if}
+    {/if}
     {/if}
   </section>
 

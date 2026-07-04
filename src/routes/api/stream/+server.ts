@@ -1,5 +1,6 @@
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { ConversationActivityCollector } from "$lib/server/app/conversationActivity";
 import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
 import type { RunnerUiEvent } from "$lib/server/agent/core/types";
 import { sanitizeRuntimeThinkingLevel } from "$lib/server/settings";
@@ -130,6 +131,7 @@ export const POST: RequestHandler = async ({ request }) => {
         const threadNotes: string[] = [];
         const diagnostics: string[] = [];
         const responseAttachments: ConversationAttachment[] = [];
+        const activityCollector = new ConversationActivityCollector();
         const ts = `${Date.now() / 1000}`;
 
         try {
@@ -211,8 +213,10 @@ export const POST: RequestHandler = async ({ request }) => {
                 return;
               }
               if (event.type === "tool_execution_start" || event.type === "tool_execution_end" || event.type === "subagent_execution") {
+                const activity = activityCollector.record(event);
                 writeEvent(controller, encoder, "runner_event", {
-                  diagnostic: diagnostic ?? ""
+                  diagnostic: diagnostic ?? "",
+                  activity
                 });
                 if (event.type === "tool_execution_end" && event.hostBashApproval) {
                   writeEvent(controller, encoder, "host_bash_approval", event.hostBashApproval);
@@ -253,7 +257,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
           if (result.stopReason !== "waiting_for_approval") {
             runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
-              attachments: responseAttachments
+              attachments: responseAttachments,
+              activities: activityCollector.snapshot()
             });
           }
           writeEvent(controller, encoder, "done", {

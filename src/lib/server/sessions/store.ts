@@ -6,6 +6,7 @@ import type {
   Channel,
   Conversation,
   ConversationAttachment,
+  ConversationActivity,
   ConversationMessage,
   Role
 } from "$lib/shared/types/message.js";
@@ -41,6 +42,10 @@ function sanitizeConversationTitle(input: string): string {
 
 function userKey(channel: Channel, externalUserId: string): string {
   return `${channel}:${externalUserId}`;
+}
+
+function isAutomationConversationKey(externalUserId: string): boolean {
+  return /(?:^|:)task-[^:]+$/.test(String(externalUserId ?? "").trim());
 }
 
 function sanitizeUserDirPart(value: string): string {
@@ -339,7 +344,7 @@ export class SessionStore {
     conversationId: string,
     role: Role,
     content: string,
-    options?: { attachments?: ConversationAttachment[] }
+    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[] }
   ): ConversationMessage {
     const createdAt = new Date().toISOString();
     const message: ConversationMessage = {
@@ -348,7 +353,8 @@ export class SessionStore {
       role,
       content,
       createdAt,
-      attachments: options?.attachments?.length ? options.attachments : undefined
+      attachments: options?.attachments?.length ? options.attachments : undefined,
+      activities: options?.activities?.length ? options.activities : undefined
     };
 
     const located = this.resolveSessionStorage(conversationId);
@@ -511,6 +517,10 @@ export class SessionStore {
     const results: { conversation: Conversation; channel: Channel; externalUserId: string }[] = [];
     for (const [id, entry] of Object.entries(index.byConversationId)) {
       if (entry.channel === "web") continue;
+      // Fresh automation runs use a dedicated `task-*` Agent session appended
+      // to the shared conversation key. Keep those transcripts addressable by
+      // id for execution history, but exclude them from ordinary navigation.
+      if (isAutomationConversationKey(entry.externalUserId)) continue;
       const file = readLegacySession(id);
       if (!file) continue;
       results.push({

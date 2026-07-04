@@ -1,6 +1,6 @@
 // Scheduled tasks settings — state + orchestration.
-import { loadDesktopTasks, loadDesktopTaskSession, runDesktopTaskAction } from "../api";
-import type { DesktopTaskSession, DesktopTaskSummary } from "@molibot/desktop-contract";
+import { loadDesktopTaskHistory, loadDesktopTasks, loadDesktopTaskSession, runDesktopTaskAction } from "../api";
+import type { DesktopTaskExecutionPage, DesktopTaskSession, DesktopTaskSummary, DesktopTaskTarget } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 
 export type TaskEditor = DesktopTaskSummary["items"][number] & {
@@ -11,17 +11,39 @@ export type TaskEditor = DesktopTaskSummary["items"][number] & {
   draftSessionMode: string;
 };
 
+export type TaskCreateDraft = DesktopTaskTarget & {
+  text: string;
+  delivery: string;
+  schedule: string;
+  timezone: string;
+  sessionMode: string;
+};
+
 export const tasksStore = $state({
   tasks: null as DesktopTaskSummary | null,
   loading: false,
   endpoint: "",
   selected: new Set<string>(),
   taskEdit: null as TaskEditor | null,
+  taskCreate: null as TaskCreateDraft | null,
   taskSession: null as DesktopTaskSession | null,
+  historyTaskId: "",
+  histories: {} as Record<string, DesktopTaskExecutionPage>,
   busy: "",
   query: "",
   actionMessage: ""
 });
+
+export function beginTaskCreate(): void {
+  const target = tasksStore.tasks?.targets[0] ?? { channel: "telegram", botId: "", chatId: "", scope: "workspace" as const };
+  tasksStore.taskCreate = { ...target, text: "", delivery: "agent", schedule: "0 9 * * *", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", sessionMode: "fresh" };
+}
+
+export function selectTaskCreateTarget(index: number): void {
+  const target = tasksStore.tasks?.targets[index];
+  if (!target || !tasksStore.taskCreate) return;
+  tasksStore.taskCreate = { ...tasksStore.taskCreate, ...target };
+}
 
 export function taskTypeLabel(type: "one-shot" | "periodic" | "immediate", copy: typeof session.text): string {
   if (type === "one-shot") return copy.taskType_oneShot;
@@ -69,6 +91,8 @@ export async function executeTaskAction(action: "trigger" | "delete", ids: strin
   try {
     const result = await runDesktopTaskAction(endpoint, { action, ids });
     tasksStore.tasks = result.summary;
+    tasksStore.histories = {};
+    tasksStore.historyTaskId = "";
     tasksStore.selected = new Set([...tasksStore.selected].filter((id) => !result.affected.includes(id)));
     tasksStore.actionMessage = `${action === "trigger" ? session.text.tasksTriggered : session.text.tasksDeleted}: ${result.affected.length}${result.failed.length ? ` · ${session.text.tasksFailed}: ${result.failed.length}` : ""}`;
   } catch (cause) {
@@ -92,6 +116,43 @@ export async function openTaskSession(taskId: string, executionId: string): Prom
   }
 }
 
+export async function openTaskHistory(id: string): Promise<void> {
+  tasksStore.historyTaskId = id;
+  if (!tasksStore.histories[id]) await loadTaskHistoryPage(id, 1);
+}
+
+export async function loadTaskHistoryPage(id: string, page: number): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || tasksStore.busy) return;
+  tasksStore.busy = `history:${id}`;
+  session.error = "";
+  try {
+    tasksStore.histories = { ...tasksStore.histories, [id]: await loadDesktopTaskHistory(endpoint, id, page, 10) };
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    tasksStore.busy = "";
+  }
+}
+
+export async function saveTaskCreate(): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || !tasksStore.taskCreate || tasksStore.busy) return;
+  tasksStore.busy = "create";
+  session.error = "";
+  try {
+    const result = await runDesktopTaskAction(endpoint, { action: "create", task: tasksStore.taskCreate });
+    tasksStore.tasks = result.summary;
+    tasksStore.histories = {};
+    tasksStore.taskCreate = null;
+    tasksStore.actionMessage = session.text.tasksCreated;
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    tasksStore.busy = "";
+  }
+}
+
 export async function saveTaskEditor(): Promise<void> {
   const endpoint = session.endpoint;
   if (!endpoint || !tasksStore.taskEdit || tasksStore.busy) return;
@@ -104,6 +165,7 @@ export async function saveTaskEditor(): Promise<void> {
     if (taskEdit.type === "periodic") { patch.schedule = taskEdit.draftSchedule; patch.timezone = taskEdit.draftTimezone; }
     const result = await runDesktopTaskAction(endpoint, { action: "update", id: taskEdit.id, patch });
     tasksStore.tasks = result.summary;
+    tasksStore.histories = {};
     tasksStore.taskEdit = null;
     tasksStore.actionMessage = session.text.tasksUpdated;
   } catch (cause) {

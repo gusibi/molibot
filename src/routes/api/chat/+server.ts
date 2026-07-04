@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { ConversationActivityCollector } from "$lib/server/app/conversationActivity";
 import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
 import {
   findSkillBySelector,
@@ -641,6 +642,7 @@ export const POST: RequestHandler = async ({ request }) => {
   const threadNotes: string[] = [];
   const runnerDiagnostics: string[] = [];
   const responseAttachments: ConversationAttachment[] = [];
+  const activityCollector = new ConversationActivityCollector();
 
   const appendRunnerDiagnostic = (event: RunnerUiEvent): void => {
     if (event.type === "thinking_config") {
@@ -732,6 +734,7 @@ export const POST: RequestHandler = async ({ request }) => {
     },
     onRunnerEvent: async (event) => {
       appendRunnerDiagnostic(event);
+      activityCollector.record(event);
     }
   });
 
@@ -743,7 +746,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
   if (result.stopReason !== "waiting_for_approval") {
     runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
-      attachments: responseAttachments
+      attachments: responseAttachments,
+      activities: activityCollector.snapshot()
     });
   }
 

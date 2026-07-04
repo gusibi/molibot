@@ -28,6 +28,14 @@ export interface ConversationAttachment {
   size?: number;
 }
 
+export interface ConversationActivity {
+  key: string;
+  kind: "tool" | "subagent" | "note";
+  label: string;
+  state: "running" | "success" | "error" | "info";
+  summary?: string;
+}
+
 export interface InboundMessage {
   channel: Channel;
   externalUserId: string;
@@ -42,6 +50,7 @@ export interface ConversationMessage {
   content: string;
   createdAt: string;
   attachments?: ConversationAttachment[];
+  activities?: ConversationActivity[];
 }
 
 export interface Conversation {

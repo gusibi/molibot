@@ -1,14 +1,65 @@
 import type {
   DesktopTaskExecution,
   DesktopTaskItem,
+  DesktopTaskSessionMessage,
   DesktopTaskState,
   DesktopTaskSummary,
+  DesktopTaskTarget,
   DesktopTaskType
 } from "$lib/shared/desktop";
 import { createHash } from "node:crypto";
 
 const KNOWN_TYPES: readonly DesktopTaskType[] = ["one-shot", "periodic", "immediate"];
 const KNOWN_STATES: readonly DesktopTaskState[] = ["pending", "running", "completed", "skipped", "error"];
+
+function taskSessionText(content: unknown): string {
+  if (typeof content === "string") {
+    const value = content.trim();
+    if (!value || (value[0] !== "[" && value[0] !== "{")) return value;
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (isAgentContentBlocks(parsed)) return taskSessionText(parsed);
+    } catch {
+      // Ordinary text that happens to start with JSON punctuation stays intact.
+    }
+    return value;
+  }
+  const blocks = Array.isArray(content) ? content : [content];
+  return blocks
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      const item = block as { type?: unknown; text?: unknown };
+      return item.type === "text" && typeof item.text === "string" ? item.text.trim() : "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function isAgentContentBlocks(value: unknown): boolean {
+  const blocks = Array.isArray(value) ? value : [value];
+  const knownTypes = new Set(["text", "thinking", "toolCall", "toolResult", "image"]);
+  return blocks.length > 0 && blocks.every((block) => {
+    if (!block || typeof block !== "object") return false;
+    return knownTypes.has(String((block as { type?: unknown }).type ?? ""));
+  });
+}
+
+function taskSessionCreatedAt(value: unknown): string {
+  const date = typeof value === "number" || typeof value === "string" ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date.toISOString() : "";
+}
+
+export function buildDesktopTaskSessionMessages(messages: unknown[]): DesktopTaskSessionMessage[] {
+  return messages.flatMap((message) => {
+    if (!message || typeof message !== "object") return [];
+    const source = message as { role?: unknown; content?: unknown; timestamp?: unknown; createdAt?: unknown };
+    const role = String(source.role ?? "");
+    if (role !== "user" && role !== "assistant") return [];
+    const content = taskSessionText(source.content);
+    return content ? [{ role, content, createdAt: taskSessionCreatedAt(source.timestamp ?? source.createdAt) }] : [];
+  });
+}
 
 /**
  * The shape of a task item produced by the shared tasks route. Task text is
@@ -55,10 +106,11 @@ function coerceState(value: string): DesktopTaskState {
  * because the Web task page supports editing it; the absolute file path is
  * replaced with a stable opaque id.
  */
-export type DesktopTaskExecutionLoader = (taskId: string) => DesktopTaskExecution[];
+export type DesktopTaskExecutionLoader = (taskId: string) => { items: DesktopTaskExecution[]; total: number };
 
-export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: DesktopTaskExecutionLoader = () => []): DesktopTaskItem {
+export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: DesktopTaskExecutionLoader = () => ({ items: [], total: 0 })): DesktopTaskItem {
   const taskId = String(item.taskId ?? "").trim() || desktopTaskId(item.filePath);
+  const executions = loadExecutions(taskId);
   return {
     id: desktopTaskId(item.filePath),
     taskId,
@@ -80,7 +132,8 @@ export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: Deskt
     sessionMode: item.sessionMode,
     updatedAt: item.updatedAt,
     createdAt: item.createdAt,
-    executions: loadExecutions(taskId)
+    executions: executions.items,
+    executionCount: executions.total
   };
 }
 
@@ -97,7 +150,8 @@ export function resolveDesktopTaskPaths(items: SharedTaskItem[], ids: string[]):
 
 export function buildDesktopTaskSummary(
   items: SharedTaskItem[],
-  loadExecutions: DesktopTaskExecutionLoader = () => []
+  loadExecutions: DesktopTaskExecutionLoader = () => ({ items: [], total: 0 }),
+  targets: DesktopTaskTarget[] = []
 ): DesktopTaskSummary {
   const desktopItems = items.filter((item) => item.type === "periodic").map((item) => buildDesktopTaskItem(item, loadExecutions));
   const byType: Record<DesktopTaskType, number> = { "one-shot": 0, periodic: 0, immediate: 0 };
@@ -121,6 +175,7 @@ export function buildDesktopTaskSummary(
 
   return {
     items: desktopItems,
+    targets,
     counts: { total: desktopItems.length, byType, byStatus, byScope, byChannel }
   };
 }

@@ -132,3 +132,23 @@ test("startup recovery releases stale running event leases into retry state", ()
   assert.equal(retry?.runId, "run-recovered");
   store.close();
 });
+
+test("task execution history supports newest-first offset pagination and totals", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  for (let index = 0; index < 12; index += 1) {
+    const lease = store.acquire(acquireInput({
+      taskId: "task-paged",
+      triggerSlot: `slot-${index}`,
+      runId: `run-${index}`,
+      now: new Date(Date.UTC(2026, 5, 1, 0, index))
+    }));
+    assert.ok(lease);
+    store.markCompleted(lease.id, lease.runId);
+  }
+
+  assert.equal(store.countForTask("task-paged"), 12);
+  assert.deepEqual(store.listForTask("task-paged", 5, 5).map((item) => item.runId), [
+    "run-6", "run-5", "run-4", "run-3", "run-2"
+  ]);
+  store.close();
+});

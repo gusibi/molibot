@@ -22,7 +22,12 @@ test("deleting a Web conversation removes its file and index entry", () => {
     const store = new SessionStore();
     const externalUserId = "web:personal:web-anonymous";
     const session = store.createWebConversation(externalUserId);
-    store.appendMessage(session.id, "user", "hello");
+    store.appendMessage(session.id, "user", "hello", {
+      activities: [{ key: "read-1", kind: "tool", label: "Read file", state: "success", summary: "done" }]
+    });
+    assert.deepEqual(store.listMessages(session.id)[0]?.activities, [
+      { key: "read-1", kind: "tool", label: "Read file", state: "success", summary: "done" }
+    ]);
 
     const sessionFile = path.join(
       root,
@@ -80,6 +85,35 @@ test("listExternalSessions returns non-web conversations sorted by updatedAt des
     assert.deepEqual(external.map((s) => s.conversation.id), [tgNew.id, tgOld.id]);
     assert.equal(external[0].channel, "telegram");
     assert.equal(external[0].externalUserId, "tg-user-1");
+  } finally {
+    storagePaths.webWorkspaceDir = original.webWorkspaceDir;
+    storagePaths.sessionsDir = original.sessionsDir;
+    storagePaths.sessionsIndexFile = original.sessionsIndexFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("listExternalSessions hides automation conversations from ordinary session navigation", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-desktop-automation-sessions-"));
+  const original = {
+    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    sessionsDir: storagePaths.sessionsDir,
+    sessionsIndexFile: storagePaths.sessionsIndexFile
+  };
+
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+
+    const store = new SessionStore();
+    const visible = store.getOrCreateConversation("telegram", "bot:main:chat:user-1:s-20260704-abcd");
+    store.appendMessage(visible.id, "user", "ordinary chat");
+    const automation = store.getOrCreateConversation("telegram", "bot:main:chat:user-1:task-20260704-wxyz");
+    store.appendMessage(automation.id, "user", "scheduled report");
+
+    assert.deepEqual(store.listExternalSessions().map((item) => item.conversation.id), [visible.id]);
+    assert.ok(store.getExternalSession(automation.id), "automation transcript remains available by id");
   } finally {
     storagePaths.webWorkspaceDir = original.webWorkspaceDir;
     storagePaths.sessionsDir = original.sessionsDir;

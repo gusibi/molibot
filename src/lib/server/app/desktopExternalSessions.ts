@@ -144,6 +144,9 @@ export function buildDesktopExternalTranscriptMessage(
       size: attachment.size
     }));
   }
+  if (Array.isArray(message.activities) && message.activities.length > 0) {
+    projected.activities = message.activities.map((activity) => ({ ...activity }));
+  }
   return projected;
 }
 

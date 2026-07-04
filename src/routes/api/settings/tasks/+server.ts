@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
@@ -81,6 +81,21 @@ interface TaskUpdateBody {
   action?: "update";
   filePath?: string;
   patch?: TaskUpdatePatch;
+}
+
+interface TaskCreateBody {
+  action?: "create";
+  task?: {
+    channel?: string;
+    botId?: string;
+    chatId?: string;
+    scope?: TaskScope;
+    text?: string;
+    delivery?: string;
+    schedule?: string;
+    timezone?: string;
+    sessionMode?: string;
+  };
 }
 
 function inferCreatedAt(filename: string, fallbackIso: string): string {
@@ -215,6 +230,7 @@ export const GET: RequestHandler = async () => {
   const taskRoots = resolveTasksRoots();
   const diagnostics: string[] = [];
   const items: TaskItem[] = [];
+  const targets: Array<{ channel: TaskChannel; botId: string; chatId: string; scope: TaskScope }> = [];
 
   for (const { channel, botsRoot } of taskRoots) {
     if (!existsSync(botsRoot)) continue;
@@ -223,6 +239,7 @@ export const GET: RequestHandler = async () => {
     for (const botEntry of botEntries) {
       const botId = botEntry.name;
       const botDir = join(botsRoot, botId);
+      targets.push({ channel, botId, chatId: "", scope: "workspace" });
 
       for (const filePath of collectJsonFiles(join(botDir, "events"))) {
         const item = readTaskFile(filePath, channel, botId, "", "workspace", diagnostics);
@@ -234,6 +251,7 @@ export const GET: RequestHandler = async () => {
       );
       for (const chatEntry of chatEntries) {
         const chatId = chatEntry.name;
+        targets.push({ channel, botId, chatId, scope: "chat-scratch" });
         for (const filePath of collectJsonFiles(join(botDir, chatId, "scratch", "events"))) {
           const item = readTaskFile(filePath, channel, botId, chatId, "chat-scratch", diagnostics);
           if (item) items.push(item);
@@ -276,6 +294,7 @@ export const GET: RequestHandler = async () => {
     ok: true,
     dataRoot,
     items,
+    targets,
     counts: {
       total: items.length,
       byType: countsByType,
@@ -288,11 +307,55 @@ export const GET: RequestHandler = async () => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-  let body: TaskDeleteBody | TaskTriggerBody | TaskUpdateBody;
+  let body: TaskDeleteBody | TaskTriggerBody | TaskUpdateBody | TaskCreateBody;
   try {
-    body = (await request.json()) as TaskDeleteBody | TaskTriggerBody | TaskUpdateBody;
+    body = (await request.json()) as TaskDeleteBody | TaskTriggerBody | TaskUpdateBody | TaskCreateBody;
   } catch {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  if (body.action === "create") {
+    const task = body.task && typeof body.task === "object" ? body.task : null;
+    if (!task) return json({ ok: false, error: "task is required" }, { status: 400 });
+    const channel = String(task.channel ?? "").trim() as TaskChannel;
+    const botId = String(task.botId ?? "").trim();
+    const chatId = String(task.chatId ?? "").trim();
+    const scope = task.scope === "chat-scratch" ? "chat-scratch" : "workspace";
+    const text = String(task.text ?? "").trim();
+    const delivery = String(task.delivery ?? "agent").trim().toLowerCase();
+    const schedule = String(task.schedule ?? "").trim();
+    const timezone = String(task.timezone ?? "").trim();
+    const sessionMode = String(task.sessionMode ?? "fresh").trim().toLowerCase();
+    if (!text) return json({ ok: false, error: "task text is required" }, { status: 400 });
+    if (delivery !== "agent" && delivery !== "text") return json({ ok: false, error: "delivery must be text or agent" }, { status: 400 });
+    if (schedule.split(/\s+/).filter(Boolean).length !== 5) return json({ ok: false, error: "schedule must be a 5-field cron expression" }, { status: 400 });
+    if (!timezone) return json({ ok: false, error: "timezone is required" }, { status: 400 });
+    if (sessionMode !== "fresh" && sessionMode !== "chat") return json({ ok: false, error: "sessionMode must be fresh or chat" }, { status: 400 });
+
+    const root = resolveTasksRoots().find((entry) => entry.channel === channel);
+    if (!root || !botId || botId.includes("/") || botId.includes("..")) return json({ ok: false, error: "invalid task target" }, { status: 400 });
+    const botDir = join(root.botsRoot, botId);
+    if (!existsSync(botDir)) return json({ ok: false, error: "bot_not_found" }, { status: 404 });
+    if (scope === "chat-scratch" && (!chatId || chatId.includes("/") || chatId.includes("..") || !existsSync(join(botDir, chatId)))) {
+      return json({ ok: false, error: "chat_not_found" }, { status: 404 });
+    }
+    const eventsDir = scope === "workspace" ? join(botDir, "events") : join(botDir, chatId, "scratch", "events");
+    mkdirSync(eventsDir, { recursive: true });
+    const now = Date.now();
+    const filePath = join(eventsDir, `periodic-${now}-${Math.random().toString(36).slice(2, 8)}.json`);
+    const event: RawEventTask = {
+      taskId: createEventTaskId(),
+      type: "periodic",
+      ...(chatId ? { chatId } : {}),
+      text,
+      delivery,
+      schedule,
+      timezone,
+      sessionMode,
+      status: { state: "pending", runCount: 0 }
+    };
+    writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+    return json({ ok: true, created: filePath });
   }
 
   if (body.action === "update") {

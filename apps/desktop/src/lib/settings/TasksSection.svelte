@@ -1,15 +1,20 @@
 <script lang="ts">
   import { session } from "../stores/session.svelte";
   import { timezoneOptions } from "./timezones";
+  import ConversationTranscript from "../chat/ConversationTranscript.svelte";
   import {
     tasksStore,
+    beginTaskCreate,
     beginTaskEdit,
     executeTaskAction,
+    loadTaskHistoryPage,
     loadTasks,
     openTaskSession,
+    saveTaskCreate,
     saveTaskEditor,
+    selectTaskCreateTarget,
     taskStatusLabel,
-    taskTypeLabel,
+    openTaskHistory,
     toggleTaskSelection
   } from "../stores/tasks.svelte";
 
@@ -22,21 +27,51 @@
   const filteredTaskItems = $derived(
     tasksStore.tasks?.items.filter((item) => !tasksStore.query.trim() || [item.text, item.channel, item.botId, item.chatId, item.status, item.type].join("\n").toLowerCase().includes(tasksStore.query.trim().toLowerCase())) ?? []
   );
+
+  function formatSessionTime(value: string): string {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(session.locale, { hour: "2-digit", minute: "2-digit" }).format(date);
+  }
+
+  function formatTaskTime(value: string): string {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? session.text.tasksNeverRun : new Intl.DateTimeFormat(session.locale, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  }
+
+  function pageSummary(page: number, pageSize: number, total: number): string {
+    return session.text.tasksPageSummary.replace("{page}", String(page)).replace("{pages}", String(Math.max(1, Math.ceil(total / pageSize)))).replace("{total}", String(total));
+  }
+
+  function executionStatusLabel(status: "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped"): string {
+    return session.text[`taskExecution_${status}`];
+  }
+
+  function taskBody(text: string): string {
+    return text.split(/\r?\n/).slice(1).join("\n").trim();
+  }
 </script>
 
-<p class="settings-section-hint">{session.text.tasksHint}</p>
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.tasksUnavailable}</p></div></div>
 {:else if tasksStore.loading || !tasksStore.tasks}
   <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
 {:else}
-  <div class="settings-card">
-    <div class="settings-row"><strong>{session.text.tasksTotal}</strong><span class="diag-value">{tasksStore.tasks.counts.total}</span></div>
-    <div class="settings-row"><strong>{session.text.tasksByStatus}</strong><span class="diag-value">{session.text.taskStatusPending}: {tasksStore.tasks.counts.byStatus.pending} · {session.text.taskStatusRunning}: {tasksStore.tasks.counts.byStatus.running} · {session.text.taskStatusCompleted}: {tasksStore.tasks.counts.byStatus.completed} · {session.text.taskStatusError}: {tasksStore.tasks.counts.byStatus.error}</span></div>
-    <div class="settings-row"><strong>{session.text.tasksByScope}</strong><span class="diag-value">{session.text.taskScopeWorkspace}: {tasksStore.tasks.counts.byScope.workspace} · {session.text.taskScopeChat}: {tasksStore.tasks.counts.byScope.chatScratch}</span></div>
-  </div>
-  <div class="settings-card provider-editor">
-    <div class="settings-form"><label class="settings-field settings-field-wide"><span>{session.text.tasksFilter}</span><input bind:value={tasksStore.query} placeholder={session.text.tasksFilterHint} /></label></div>
+  <section class="automation-command-deck" aria-label={session.text.tasksByStatus}>
+    <div class="automation-command-summary">
+      <div class="automation-command-mark" aria-hidden="true"><i class="ph-fill ph-clock-countdown"></i><span></span></div>
+      <div><span class="automation-eyebrow">{session.text.tasksTotal}</span><strong>{tasksStore.tasks.counts.total}</strong><small>{session.text.tasksHint}</small></div>
+    </div>
+    <div class="automation-command-stats">
+      <div><span class="stat-signal running"></span><small>{session.text.taskStatusRunning}</small><strong>{tasksStore.tasks.counts.byStatus.running}</strong></div>
+      <div><span class="stat-signal error"></span><small>{session.text.taskStatusError}</small><strong>{tasksStore.tasks.counts.byStatus.error}</strong></div>
+      <div><span class="stat-signal completed"></span><small>{session.text.tasksRunCount}</small><strong>{tasksStore.tasks.items.reduce((total, item) => total + item.runCount, 0)}</strong></div>
+    </div>
+    <div class="automation-toolbar">
+      <label class="automation-search"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input bind:value={tasksStore.query} aria-label={session.text.tasksFilter} placeholder={session.text.tasksFilterHint} /></label>
+      <button class="primary-button automation-create-button" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.tasks.targets.length === 0} onclick={beginTaskCreate}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>
+    </div>
+  </section>
+  {#if tasksStore.selected.size > 0}
     <div class="task-bulk-bar">
       <span class="task-bulk-count"><i class="ph ph-check-square" aria-hidden="true"></i>{tasksStore.selected.size}</span>
       <button class="tertiary-button" type="button" disabled={filteredTaskItems.length === 0} onclick={() => (tasksStore.selected = new Set(filteredTaskItems.map((item) => item.id)))}>{session.text.tasksSelectAll}</button>
@@ -45,29 +80,42 @@
       <button class="secondary-button" type="button" disabled={tasksStore.selected.size === 0 || Boolean(tasksStore.busy)} onclick={() => void executeTaskAction("trigger", [...tasksStore.selected])}>{session.text.tasksTriggerSelected}</button>
       <button class="secondary-button danger-action" type="button" disabled={tasksStore.selected.size === 0 || Boolean(tasksStore.busy)} onclick={() => void executeTaskAction("delete", [...tasksStore.selected])}>{session.text.tasksDeleteSelected}</button>
     </div>
-  </div>
+  {/if}
   {#if filteredTaskItems.length === 0}
     <div class="settings-card"><div class="settings-row"><p>{session.text.tasksEmpty}</p></div></div>
   {:else}
-    <div class="settings-card">
+    <div class="automation-list">
       {#each filteredTaskItems as task (task.id)}
-        <div class="settings-row">
+        <article class="automation-card" data-status={task.status}>
           <label class="inline-check task-select"><input type="checkbox" checked={tasksStore.selected.has(task.id)} onchange={() => toggleTaskSelection(task.id)} /><span class="sr-only">{session.text.tasksSelect}</span></label>
-          <div class="profile-info">
-            <strong>{task.channel} / {task.botId}{task.chatId ? ` / ${task.chatId}` : ""}</strong>
-            <p>{taskTypeLabel(task.type, session.text)} · {task.scheduleText || task.delivery} · {task.timezone}</p>
-            <p>{taskStatusLabel(task.status, session.text)}{task.runCount > 0 ? ` · ${session.text.tasksRunCount}: ${task.runCount}` : ""}{task.lastTriggeredAt ? ` · ${session.text.tasksLastTriggered}: ${task.lastTriggeredAt.slice(0, 19).replace("T", " ")}` : ""}</p>
-            <p class="task-text-preview" title={task.text}>{task.text.split(/\r?\n/)[0] || task.text}</p>
+          <div class="automation-card-main">
+            <div class="automation-card-head">
+              <div class="automation-title-block"><div><span class:active={task.status === "running"} class:error={task.status === "error"} class="automation-status"><i></i>{taskStatusLabel(task.status, session.text)}</span><span class="automation-target"><i class="ph ph-robot"></i>{task.channel} / {task.botId}{task.chatId ? ` / ${task.chatId}` : ""}</span></div><strong>{task.text.split(/\r?\n/)[0] || task.text}</strong></div>
+              <div class="automation-card-actions">
+                <button class="automation-run-button" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => void executeTaskAction("trigger", [task.id])}><i class="ph-fill ph-play" aria-hidden="true"></i>{session.text.tasksTrigger}</button>
+                <button class="row-icon-btn" type="button" title={session.text.channelEdit} aria-label={session.text.channelEdit} disabled={Boolean(tasksStore.busy) || tasksStore.taskEdit !== null} onclick={() => beginTaskEdit(task)}><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
+                <button class="row-icon-btn danger-action" type="button" title={session.text.channelDelete} aria-label={session.text.channelDelete} disabled={Boolean(tasksStore.busy)} onclick={() => void executeTaskAction("delete", [task.id])}><i class="ph ph-trash" aria-hidden="true"></i></button>
+              </div>
+            </div>
+            <div class:single={!taskBody(task.text)} class="automation-card-body">
+              {#if taskBody(task.text)}<div class="automation-task-copy"><span>{session.text.tasksText}</span><p class="task-text-preview" title={task.text}>{taskBody(task.text)}</p></div>{/if}
+              <div class="automation-schedule-panel">
+                <span>{session.text.tasksSchedule}</span>
+                <strong><i class="ph ph-calendar-dots"></i>{task.scheduleText}</strong>
+                <small><i class="ph ph-globe"></i>{task.timezone}</small>
+                <small><i class="ph ph-clock-counter-clockwise"></i>{formatTaskTime(task.lastTriggeredAt || task.executions[0]?.startedAt || "")}</small>
+              </div>
+            </div>
             {#if task.lastError}<p class="run-history-failed">{task.lastError}</p>{/if}
             <div class="task-execution-list">
-              <strong>{session.text.tasksExecutions}</strong>
+              <div class="task-execution-head"><strong>{session.text.tasksRecentRuns}</strong><span>{task.executionCount}</span></div>
               {#if task.executions.length === 0}
                 <p>{session.text.tasksNoExecutions}</p>
               {:else}
-                {#each task.executions.slice(0, 5) as execution (execution.id)}
+                {#each task.executions as execution (execution.id)}
                   <div class="task-execution-row">
-                    <span>{execution.status} · {execution.startedAt.slice(0, 19).replace("T", " ")}</span>
-                    <span>{session.text.tasksRunCount}: {execution.attempt}/{execution.maxAttempts}</span>
+                    <span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span>
+                    <span>{formatTaskTime(execution.startedAt)}</span>
                     <button class="task-session-link" type="button" title={execution.sessionId} disabled={Boolean(tasksStore.busy) || !execution.sessionId} onclick={() => void openTaskSession(task.id, execution.id)}>
                       {session.text.tasksSession}: {execution.sessionId || session.text.tasksSessionCleaned}
                     </button>
@@ -75,43 +123,70 @@
                   </div>
                 {/each}
               {/if}
+              <button class="task-history-toggle" type="button" disabled={Boolean(tasksStore.busy) && tasksStore.busy !== `history:${task.id}`} onclick={() => void openTaskHistory(task.id)}>{session.text.tasksViewAllRuns}<i class="ph ph-arrow-square-out"></i></button>
             </div>
           </div>
-          <div class="row-icon-actions">
-            <button class="row-icon-btn" type="button" title={session.text.tasksTrigger} aria-label={session.text.tasksTrigger} disabled={Boolean(tasksStore.busy)} onclick={() => void executeTaskAction("trigger", [task.id])}><i class="ph ph-play" aria-hidden="true"></i></button>
-            <button class="row-icon-btn" type="button" title={session.text.channelEdit} aria-label={session.text.channelEdit} disabled={Boolean(tasksStore.busy) || tasksStore.taskEdit !== null} onclick={() => beginTaskEdit(task)}><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
-            <button class="row-icon-btn danger-action" type="button" title={session.text.channelDelete} aria-label={session.text.channelDelete} disabled={Boolean(tasksStore.busy)} onclick={() => void executeTaskAction("delete", [task.id])}><i class="ph ph-trash" aria-hidden="true"></i></button>
-          </div>
-        </div>
+        </article>
       {/each}
     </div>
   {/if}
+  {#if tasksStore.taskCreate}
+    <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={session.text.tasksCreate} onclick={() => (tasksStore.taskCreate = null)} onkeydown={(event) => { if (event.key === "Escape") tasksStore.taskCreate = null; }}>
+      <div class="modal-card task-editor-modal" role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+      <form id="desktop-task-create-form" onsubmit={(event) => { event.preventDefault(); void saveTaskCreate(); }}>
+        <header class="modal-head"><div><strong>{session.text.tasksCreate}</strong><p>{session.text.tasksCreateHint}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.taskCreate = null)}><i class="ph ph-x"></i></button></header>
+        <div class="modal-body task-editor-body">
+          <label class="settings-field settings-field-wide"><span>{session.text.tasksTarget}</span><select value={Math.max(0, tasksStore.tasks.targets.findIndex((target) => target.channel === tasksStore.taskCreate?.channel && target.botId === tasksStore.taskCreate?.botId && target.chatId === tasksStore.taskCreate?.chatId && target.scope === tasksStore.taskCreate?.scope))} onchange={(event) => selectTaskCreateTarget(Number(event.currentTarget.value))}>{#each tasksStore.tasks.targets as target, index}<option value={index}>{target.channel} / {target.botId}{target.chatId ? ` / ${target.chatId}` : ` / ${session.text.taskScopeWorkspace}`}</option>{/each}</select></label>
+          <label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="7" bind:value={tasksStore.taskCreate.text}></textarea></label>
+          <div class="settings-form"><label class="settings-field"><span>{session.text.tasksSchedule}</span><input bind:value={tasksStore.taskCreate.schedule} placeholder="0 9 * * *" /></label><label class="settings-field"><span>{session.text.tasksTimezone}</span><select bind:value={tasksStore.taskCreate.timezone}>{#if tasksStore.taskCreate.timezone && !timezoneOptions().includes(tasksStore.taskCreate.timezone)}<option value={tasksStore.taskCreate.timezone}>{tasksStore.taskCreate.timezone}</option>{/if}{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label><label class="settings-field"><span>{session.text.tasksDelivery}</span><select bind:value={tasksStore.taskCreate.delivery}><option value="agent">agent</option><option value="text">text</option></select></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><select bind:value={tasksStore.taskCreate.sessionMode}><option value="fresh">fresh</option><option value="chat">chat</option></select></label></div>
+        </div>
+        <footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={() => (tasksStore.taskCreate = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(tasksStore.busy) || !tasksStore.taskCreate.text.trim() || tasksStore.taskCreate.schedule.trim().split(/\s+/).length !== 5}>{tasksStore.busy === "create" ? session.text.onboardingProviderSaving : session.text.tasksCreate}</button></footer>
+      </form>
+      </div>
+    </div>
+  {/if}
+  {#if tasksStore.historyTaskId}
+    {@const historyTask = tasksStore.tasks.items.find((item) => item.id === tasksStore.historyTaskId)}
+    {@const history = tasksStore.histories[tasksStore.historyTaskId]}
+    <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={session.text.tasksExecutions} onclick={() => (tasksStore.historyTaskId = "")} onkeydown={(event) => { if (event.key === "Escape") tasksStore.historyTaskId = ""; }}>
+      <div class="modal-card task-history-modal" role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+        <header class="modal-head task-history-modal-head"><div><span>{session.text.tasksExecutions}</span><strong>{historyTask?.text.split(/\r?\n/)[0] || session.text.tasks}</strong></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.historyTaskId = "")}><i class="ph ph-x"></i></button></header>
+        <div class="modal-body task-history-modal-body">
+          {#if !history}<p class="task-history-loading">{session.text.loading}</p>{:else if history.items.length === 0}<p class="task-history-loading">{session.text.tasksNoExecutions}</p>{:else}
+            <div class="task-history-table-head"><span>{session.text.tasksByStatus}</span><span>{session.text.tasksLastTriggered}</span><span>{session.text.tasksSession}</span></div>
+            {#each history.items as execution (execution.id)}
+              <div class="task-execution-row history-row"><span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span><span>{formatTaskTime(execution.startedAt)}</span><button class="task-session-link" type="button" disabled={!execution.sessionId || Boolean(tasksStore.busy)} onclick={() => void openTaskSession(tasksStore.historyTaskId, execution.id)}>{execution.sessionId || session.text.tasksSessionCleaned}</button></div>
+            {/each}
+          {/if}
+        </div>
+        {#if history}<footer class="task-history-modal-foot"><span>{pageSummary(history.page, history.pageSize, history.total)}</span><div><button class="secondary-button" type="button" disabled={history.page <= 1 || Boolean(tasksStore.busy)} onclick={() => void loadTaskHistoryPage(tasksStore.historyTaskId, history.page - 1)}><i class="ph ph-arrow-left"></i>{session.text.tasksPreviousPage}</button><button class="secondary-button" type="button" disabled={history.page * history.pageSize >= history.total || Boolean(tasksStore.busy)} onclick={() => void loadTaskHistoryPage(tasksStore.historyTaskId, history.page + 1)}>{session.text.tasksNextPage}<i class="ph ph-arrow-right"></i></button></div></footer>{/if}
+      </div>
+    </div>
+  {/if}
   {#if tasksStore.taskEdit}
-    <form id="desktop-task-form" class="settings-card provider-editor" aria-label={session.text.tasks} onsubmit={(event) => { event.preventDefault(); void saveTaskEditor(); }}>
-      <header class="entity-editor-head"><strong>{session.text.tasks} · {tasksStore.taskEdit.channel} / {tasksStore.taskEdit.botId}</strong><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}><i class="ph ph-x"></i></button></header>
-      <label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="6" bind:value={tasksStore.taskEdit.draftText}></textarea></label>
-      <div class="settings-form"><label class="settings-field"><span>{session.text.tasksDelivery}</span><select bind:value={tasksStore.taskEdit.draftDelivery}><option value="agent">agent</option><option value="text">text</option></select></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><select bind:value={tasksStore.taskEdit.draftSessionMode}><option value="chat">chat</option><option value="fresh">fresh</option></select></label>{#if tasksStore.taskEdit.type !== "immediate"}<label class="settings-field"><span>{session.text.tasksSchedule}</span><input bind:value={tasksStore.taskEdit.draftSchedule} /></label>{/if}{#if tasksStore.taskEdit.type === "periodic"}<label class="settings-field"><span>{session.text.tasksTimezone}</span><select bind:value={tasksStore.taskEdit.draftTimezone}>{#if tasksStore.taskEdit.draftTimezone && !timezoneOptions().includes(tasksStore.taskEdit.draftTimezone)}<option value={tasksStore.taskEdit.draftTimezone}>{tasksStore.taskEdit.draftTimezone}</option>{/if}{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label>{/if}</div>
-      <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(tasksStore.busy) || !tasksStore.taskEdit.draftText.trim()}>{tasksStore.busy ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
-    </form>
+    <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={session.text.channelEdit} onclick={() => (tasksStore.taskEdit = null)} onkeydown={(event) => { if (event.key === "Escape") tasksStore.taskEdit = null; }}>
+      <div class="modal-card task-editor-modal" role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+        <form id="desktop-task-form" aria-label={session.text.channelEdit} onsubmit={(event) => { event.preventDefault(); void saveTaskEditor(); }}>
+          <header class="modal-head"><div><strong>{session.text.channelEdit}</strong><p>{tasksStore.taskEdit.channel} / {tasksStore.taskEdit.botId}{tasksStore.taskEdit.chatId ? ` / ${tasksStore.taskEdit.chatId}` : ""}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}><i class="ph ph-x"></i></button></header>
+          <div class="modal-body task-editor-body"><label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="7" bind:value={tasksStore.taskEdit.draftText}></textarea></label><div class="settings-form"><label class="settings-field"><span>{session.text.tasksSchedule}</span><input bind:value={tasksStore.taskEdit.draftSchedule} /></label><label class="settings-field"><span>{session.text.tasksTimezone}</span><select bind:value={tasksStore.taskEdit.draftTimezone}>{#if tasksStore.taskEdit.draftTimezone && !timezoneOptions().includes(tasksStore.taskEdit.draftTimezone)}<option value={tasksStore.taskEdit.draftTimezone}>{tasksStore.taskEdit.draftTimezone}</option>{/if}{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label><label class="settings-field"><span>{session.text.tasksDelivery}</span><select bind:value={tasksStore.taskEdit.draftDelivery}><option value="agent">agent</option><option value="text">text</option></select></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><select bind:value={tasksStore.taskEdit.draftSessionMode}><option value="fresh">fresh</option><option value="chat">chat</option></select></label></div></div>
+          <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(tasksStore.busy) || !tasksStore.taskEdit.draftText.trim() || tasksStore.taskEdit.draftSchedule.trim().split(/\s+/).length !== 5}>{tasksStore.busy ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
+        </form>
+      </div>
+    </div>
   {/if}
   {#if tasksStore.actionMessage}<p class="settings-action-message">{tasksStore.actionMessage}</p>{/if}
   {#if tasksStore.taskSession}
     <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={session.text.tasksSession} onclick={() => (tasksStore.taskSession = null)} onkeydown={(event) => { if (event.key === "Escape") tasksStore.taskSession = null; }}>
-      <div class="modal-card" tabindex="-1" role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+      <div class="modal-card task-session-modal" tabindex="-1" role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
         <header class="modal-head">
           <strong>{session.text.tasksSession} · {tasksStore.taskSession.sessionId}</strong>
           <button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.taskSession = null)}><i class="ph ph-x"></i></button>
         </header>
-        <div class="modal-body task-session-detail">
+        <div class="modal-body messages task-session-detail" aria-live="polite">
           {#if tasksStore.taskSession.messages.length === 0}
             <p>{session.text.tasksSessionCleaned}</p>
           {:else}
-            {#each tasksStore.taskSession.messages as message, index (`${index}-${message.role}`)}
-              <div class="task-session-message">
-                <strong>{message.role || "message"}</strong>
-                <p>{message.content}</p>
-              </div>
-            {/each}
+            <ConversationTranscript messages={tasksStore.taskSession.messages} copy={session.text} formatTime={formatSessionTime} />
           {/if}
         </div>
       </div>

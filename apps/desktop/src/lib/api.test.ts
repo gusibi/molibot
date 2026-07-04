@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { transcriptDisplayContent } from "./chat/transcript";
 import type { DesktopAgentItem, DesktopSessionFile, DesktopExternalSessionsSummary, DesktopRuntimeEnvSummary, DesktopWebProfile, DesktopChannelsSummary } from "@molibot/desktop-contract";
 import { normalizeLocale } from "./i18n";
 import {
@@ -29,6 +30,7 @@ import {
   advanceOnboardingStep,
   normalizeTheme,
   parseDesktopActivity,
+  reduceDesktopActivities,
   parseDesktopApproval,
   parseDesktopSandboxList,
   providerItemToUpdateRequest,
@@ -40,6 +42,7 @@ import {
   runDesktopTaskAction,
   loadDesktopMemoryRejections,
   loadDesktopTasks,
+  normalizeDesktopTaskSession,
   loadDesktopModelRouting,
   loadDesktopMediaTasks,
   sanitizeWebProfileName,
@@ -66,6 +69,44 @@ import {
   updateDesktopProviderGlobals,
   ONBOARDING_STEPS
 } from "./api";
+
+test("shared transcript localizes the generic assistant failure without changing user text", () => {
+  assert.equal(transcriptDisplayContent({ role: "assistant", content: "Sorry, something went wrong." }, "回复失败，请重试。"), "回复失败，请重试。");
+  assert.equal(transcriptDisplayContent({ role: "user", content: "Sorry, something went wrong." }, "回复失败，请重试。"), "Sorry, something went wrong.");
+});
+
+test("structured tool activity merges start and end into one stable item", () => {
+  const started = parseDesktopActivity("runner_event", { activity: { kind: "tool", key: "bash-1", label: "Run tests", state: "running" } });
+  const ended = parseDesktopActivity("runner_event", { activity: { kind: "tool", key: "bash-1", label: "Run tests", state: "success", summary: "12 tests passed" } });
+  assert.ok(started);
+  assert.ok(ended);
+  assert.deepEqual(reduceDesktopActivities(reduceDesktopActivities([], started), ended), [{
+    kind: "tool",
+    key: "bash-1",
+    label: "Run tests",
+    state: "success",
+    summary: "12 tests passed"
+  }]);
+});
+
+test("legacy task sessions decode JSON-string Agent blocks in the Desktop client", () => {
+  assert.deepEqual(normalizeDesktopTaskSession({
+    taskId: "task-1",
+    sessionId: "session-1",
+    messages: [
+      { role: "user", content: JSON.stringify({ type: "text", text: "Run it" }) },
+      { role: "assistant", content: JSON.stringify([{ type: "thinking", thinking: "private" }, { type: "text", text: "Done" }]) },
+      { role: "toolResult", content: JSON.stringify({ type: "text", text: "hidden" }) }
+    ]
+  }), {
+    taskId: "task-1",
+    sessionId: "session-1",
+    messages: [
+      { role: "user", content: "Run it", createdAt: "" },
+      { role: "assistant", content: "Done", createdAt: "" }
+    ]
+  });
+});
 
 test("service reconnect is only offered while the local service is unavailable", () => {
   assert.equal(shouldShowServiceReconnect(false), true);
@@ -170,22 +211,22 @@ test("desktopFileContentUrl scopes the request to the session file and adds down
 test("parseDesktopActivity maps tool start/end diagnostics to timeline entries", () => {
   assert.deepEqual(
     parseDesktopActivity("runner_event", { diagnostic: "tool_start=Bash, label=Run tests" }),
-    { kind: "tool", label: "Bash", state: "start" }
+    { kind: "tool", key: "legacy-Bash", label: "Bash", state: "running" }
   );
   assert.deepEqual(
     parseDesktopActivity("runner_event", { diagnostic: "tool_end=Bash, status=ok, summary=done" }),
-    { kind: "tool", label: "Bash", state: "ok" }
+    { kind: "tool", key: "legacy-Bash", label: "Bash", state: "success" }
   );
   assert.deepEqual(
     parseDesktopActivity("runner_event", { diagnostic: "tool_end=Read, status=error, summary=boom" }),
-    { kind: "tool", label: "Read", state: "error" }
+    { kind: "tool", key: "legacy-Read", label: "Read", state: "error" }
   );
 });
 
 test("parseDesktopActivity surfaces thread notes and ignores plain token events", () => {
   assert.deepEqual(
     parseDesktopActivity("thread_note", { text: "Checked the config" }),
-    { kind: "note", label: "Checked the config", state: "info" }
+    { kind: "note", key: "note-Checked the config", label: "Checked the config", state: "info" }
   );
   assert.equal(parseDesktopActivity("token", { delta: "hi" }), null);
   assert.equal(parseDesktopActivity("runner_event", { diagnostic: "" }), null);
@@ -1005,6 +1046,23 @@ test("desktop task actions submit opaque ids to the narrow tasks endpoint", asyn
   try {
     await runDesktopTaskAction("http://127.0.0.1:3000", { action: "trigger", ids: ["opaque-id"] });
     assert.deepEqual(captured, { url: "http://127.0.0.1:3000/api/desktop/tasks", method: "POST", body: { action: "trigger", ids: ["opaque-id"] } });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("desktop task history requests a server-paginated execution page", async () => {
+  const original = globalThis.fetch;
+  let body: unknown;
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    body = init?.body ? JSON.parse(String(init.body)) : null;
+    return new Response(JSON.stringify({ ok: true, summary: { items: [], targets: [], counts: { total: 0, byType: { "one-shot": 0, periodic: 0, immediate: 0 }, byStatus: { pending: 0, running: 0, completed: 0, skipped: 0, error: 0 }, byScope: { workspace: 0, chatScratch: 0 }, byChannel: {} } }, affected: [], failed: [], history: { items: [], page: 2, pageSize: 10, total: 14 } }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    const { loadDesktopTaskHistory } = await import("./api");
+    const page = await loadDesktopTaskHistory("http://127.0.0.1:3000", "opaque-id", 2, 10);
+    assert.deepEqual(body, { action: "history", id: "opaque-id", page: 2, pageSize: 10 });
+    assert.equal(page.total, 14);
   } finally {
     globalThis.fetch = original;
   }

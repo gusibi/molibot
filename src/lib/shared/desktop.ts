@@ -261,6 +261,14 @@ export interface DesktopTaskItem {
   updatedAt: string;
   createdAt: string;
   executions: DesktopTaskExecution[];
+  executionCount: number;
+}
+
+export interface DesktopTaskTarget {
+  channel: string;
+  botId: string;
+  chatId: string;
+  scope: "workspace" | "chat-scratch";
 }
 
 export type DesktopTaskExecutionStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped";
@@ -281,6 +289,7 @@ export interface DesktopTaskExecution {
 export interface DesktopTaskSessionMessage {
   role: string;
   content: string;
+  createdAt: string;
 }
 
 export interface DesktopTaskSession {
@@ -291,6 +300,7 @@ export interface DesktopTaskSession {
 
 export interface DesktopTaskSummary {
   items: DesktopTaskItem[];
+  targets: DesktopTaskTarget[];
   counts: {
     total: number;
     byType: Record<DesktopTaskType, number>;
@@ -306,14 +316,24 @@ export interface DesktopTaskResponse {
 }
 
 export type DesktopTaskActionRequest =
+  | { action: "create"; task: DesktopTaskTarget & { text: string; delivery: string; schedule: string; timezone: string; sessionMode: string } }
   | { action: "update"; id: string; patch: { text?: string; delivery?: string; at?: string; schedule?: string; timezone?: string; sessionMode?: string } }
   | { action: "delete" | "trigger"; ids: string[] }
-  | { action: "session"; id: string; executionId: string };
+  | { action: "session"; id: string; executionId: string }
+  | { action: "history"; id: string; page: number; pageSize: number };
+
+export interface DesktopTaskExecutionPage {
+  items: DesktopTaskExecution[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
 
 export interface DesktopTaskActionResponse extends DesktopTaskResponse {
   affected: string[];
   failed: Array<{ id: string; reason: string }>;
   session?: DesktopTaskSession;
+  history?: DesktopTaskExecutionPage;
 }
 
 export interface DesktopModelOption {
@@ -379,6 +399,15 @@ export interface DesktopConversationMessage {
   content: string;
   createdAt: string;
   attachments?: DesktopMessageAttachment[];
+  activities?: DesktopConversationActivity[];
+}
+
+export interface DesktopConversationActivity {
+  key: string;
+  kind: "tool" | "subagent" | "note";
+  label: string;
+  state: "running" | "success" | "error" | "info";
+  summary?: string;
 }
 
 export interface DesktopSessionDetail extends DesktopSessionSummary {
@@ -960,6 +989,7 @@ export interface DesktopExternalTranscriptMessage {
   content: string;
   createdAt: string;
   attachments?: { original: string; mediaType: DesktopFileMediaType; mimeType?: string; size?: number }[];
+  activities?: DesktopConversationActivity[];
 }
 
 export interface DesktopExternalTranscript {

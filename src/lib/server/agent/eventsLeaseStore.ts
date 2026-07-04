@@ -366,15 +366,29 @@ export class EventExecutionLeaseStore {
     return Number(result.changes ?? 0) > 0;
   }
 
-  listForTask(taskId: string, limit = 50): EventExecutionLease[] {
+  countForTask(taskId: string): number {
+    const trimmed = String(taskId ?? "").trim();
+    if (!trimmed) return 0;
+    const row = this.db.prepare(`
+      SELECT COUNT(*) AS count FROM event_execution_leases
+      WHERE task_id = ?
+    `).get(trimmed) as { count: number } | undefined;
+    return Number(row?.count ?? 0);
+  }
+
+  listForTask(taskId: string, limit = 50, offset = 0): EventExecutionLease[] {
     const trimmed = String(taskId ?? "").trim();
     if (!trimmed) return [];
     const rows = this.db.prepare(`
       SELECT * FROM event_execution_leases
       WHERE task_id = ?
       ORDER BY started_at DESC
-      LIMIT ?
-    `).all(trimmed, Math.max(1, Math.min(200, Math.round(limit)))) as unknown as LeaseRow[];
+      LIMIT ? OFFSET ?
+    `).all(
+      trimmed,
+      Math.max(1, Math.min(200, Math.round(limit))),
+      Math.max(0, Math.round(offset))
+    ) as unknown as LeaseRow[];
     return rows.map(rowToLease);
   }
 

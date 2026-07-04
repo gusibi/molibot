@@ -1,5 +1,41 @@
 # Molibot PRD (V1)
 
+## 2.30 Desktop Chat DESIGN Compliance (2026-07-04)
+- [Done] Chat、Automations、Skills 必须以真实截图对照 `DESIGN.md` 做组合 UX/可访问性审计，并保存项目内证据与结论。
+- [Done] Skills 列表必须支持搜索，长说明默认收敛且可展开；CSS Grid 不得让短卡片继承同排最长卡片高度造成大面积空白。
+- [Done] Chat 媒体失败提示必须贴近对应附件并提供重试，不在 composer 重复暴露技术错误；共享 assistant fallback 必须按界面语言提供可执行的下一步。
+- [Done] Chat 工作区交互必须具备统一 `:focus-visible` 焦点环；实际最小窗口宽度必须能进入紧凑布局，不能使用永远无法触发的断点。
+- [Done] Automations 使用 Geist 6px/12px 半径、轻阴影和有限表面层级；执行状态必须本地化，单行任务标题不得在正文区域重复。
+
+## 2.29 Desktop Automation Management (2026-07-04)
+- [Done] macOS Automations 页面提供周期任务的创建、搜索、编辑、删除、批量管理与立即运行，不把 one-shot/immediate 诊断任务混入产品入口。
+- [Done] 任务默认保持紧凑，只展示计划、状态、上次执行时间与最近 3 次结果；完整执行记录按需展开。
+- [Done] 完整执行记录由 SQLite 按时间倒序分页查询，默认每页 10 条，不在 WebView 预载全量记录后做假分页。
+- [Done] 创建任务通过结构化 channel/bot/chat/scope 目标调用受限后端接口，最终仍只落地 watched event JSON，且不向 WebView 暴露本机路径。
+- [Done] 页面适配中英、明暗主题与窄窗口，并保留执行会话详情入口和旧本地服务响应兼容。
+- [Done] 完整执行记录使用独立分页弹窗，不在任务卡片中下拉展开；任务列表在查看历史时保持稳定高度。
+
+## 2.28 Desktop Shared Rich Transcript (2026-07-04)
+- [Done] 本地 Chat、历史、外部只读会话与自动任务详情共用同一个完成消息 renderer；附件和工具执行的样式/逻辑只能在共享组件中实现。
+- [Done] 图片内联展示并可预览，音频和视频直接使用原生播放器；受保护媒体经 Desktop 文件接口和 Blob URL 加载，不暴露本机路径，并在会话切换/组件销毁时释放 URL。
+- [Done] 工具开始/结束合并为单个结构化执行条目，流式与 multipart 路由共用收集逻辑，并随 assistant 消息持久化以保证历史回放一致。
+- [Done] 共享展示适配中英、明暗主题与窄窗口；媒体加载失败提供重试，普通文件保持紧凑下载入口。
+- [Done] 纯附件消息不展示内部占位文本或空白气泡；工具执行成功、进行中、失败使用准确且可本地化的状态文案。
+- [Done] Fresh 自动化产生的 `task-*` Session 不进入 Desktop 普通左侧 Session 列表；历史记录仍能从自动化执行详情按 id 打开。
+- [Done] Desktop 开发入口必须在启动 Tauri 前构建共享 Server；Server 构建失败时不得继续启动使用旧 `build/` 的 Desktop 服务。
+
+## 2.27 Desktop Automation Transcript (2026-07-03)
+- [Done] 自动任务执行会话不得显示 Agent 内容块 JSON，包括历史数据中的 JSON-string block/object array；只展示 user/assistant 的可读文本，内部 thinking/system/tool 消息不进入用户对话弹窗，并兼容前端连接旧本地服务的短暂版本错配。
+- [Done] 会话详情直接复用 Chat 的消息 DOM/CSS 结构，不另造相似样式；使用相同 Markdown 气泡、时间、头像和滚动布局，并适配明暗主题和窄窗口。
+- [Done] 本地 Chat 历史、外部渠道 transcript 与自动任务会话必须通过同一个 completed-message 展示模块渲染；实时 streaming、审批和 composer 作为 Chat shell 专有状态保留在调用方。
+
+## 2.26 Desktop Chat Workspace Navigation (2026-07-03)
+- [Done] “新对话”必须切回 Chat、展开并定位当前 Web Profile 的新 Session；当前 Session 尚无消息时重复点击不得再次创建。
+- [Done] “自动任务”和“技能广场”必须保留在 Chat 窗口，只切换右侧内容区，不得打开 Settings 窗口。
+- [Done] 技能工作区当前只列出已安装/已发现的全局、Bot、会话级技能，包括自动生成技能；安装、搜索和技能市场留待后续版本。
+- [Done] Chat 工作区导航与新增视图使用独立模块，避免继续把新能力堆入单一 `ChatView.svelte`。
+- [Follow-up, P1] 继续按消息流、文件面板、onboarding 和侧栏边界拆分 `ChatView.svelte`，每个 slice 保持行为回归覆盖，不做一次性大重写。
+
 ## 2.25 Desktop Session Navigation (2026-07-02)
 - [Done] Desktop Chat 的 Bot/Profile 分类默认全部折叠，不因首次加载或切换渠道自动展开第一个分类；点击分类后展开，再次点击收起。
 - [Done] 分类与 Session 条目使用协调的视觉密度，保持双语、明暗主题和窄侧栏可读性。
