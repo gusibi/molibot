@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --test src/chat-ui.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test": "node --test src/chat-ui.test.mjs src/http-scope.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
     "prepare:runtime": "node ../../scripts/prepare-desktop-runtime.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

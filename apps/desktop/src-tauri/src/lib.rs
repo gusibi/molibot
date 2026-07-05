@@ -3,7 +3,7 @@ pub mod service;
 mod supervisor;
 
 use serde::Serialize;
-use service::ServiceStatus;
+use service::{ServiceOwnership, ServiceStatus};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -79,6 +79,19 @@ fn set_login_start(app: AppHandle, enabled: bool) -> Result<bool, String> {
         autostart.disable().map_err(|error| error.to_string())?;
     }
     autostart.is_enabled().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn restart_service(state: tauri::State<'_, Mutex<DesktopState>>) -> Result<(), String> {
+    let desktop = state.lock().map_err(|_| "desktop state is unavailable")?;
+    if !matches!(
+        desktop.service.lock().map_err(|_| "service state is unavailable")?.ownership,
+        Some(ServiceOwnership::Managed)
+    ) {
+        return Err("Only a desktop-managed service can be restarted here.".into());
+    }
+    supervisor::request_restart(&desktop.control);
+    Ok(())
 }
 
 fn install_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -164,6 +177,7 @@ pub fn run() {
             open_settings,
             desktop_status,
             set_login_start,
+            restart_service,
             audio::start_recording,
             audio::stop_recording,
             audio::cancel_recording

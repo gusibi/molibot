@@ -1,5 +1,15 @@
 # Molibot ChangeLog
 
+## 2026-07-05
+
+### Configurable service port and managed restart
+- Added a persisted service-port setting (default 3000) to Web System Settings and Desktop General Settings, with validation for ports 1024–65535.
+- Standalone startup and the Desktop supervisor now honor the saved port on the next launch; an explicit `PORT` environment variable still takes precedence for managed deployments.
+- Desktop users can save and restart the managed service in one action. Restart controls reject external services instead of terminating a process that Molibot cannot bring back.
+- Fixed the Desktop HTTP capability scope so the new port setting can read and write `/api/settings` on loopback endpoints instead of failing before the request reaches Molibot.
+- Port updates now reject occupied loopback ports with a clear conflict response instead of persisting a value the supervisor cannot bind.
+- Fixed Desktop restart adoption: a rediscovered Desktop-managed sidecar remains managed and its PID is adopted into the new supervisor control loop, so Save and Restart stays available after relaunching the app.
+
 ## 2026-07-04
 
 ### Desktop Chat workspace design compliance

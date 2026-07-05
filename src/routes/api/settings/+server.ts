@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import { createServer } from "node:net";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
@@ -184,6 +185,25 @@ function validateTimezonePatch(current: RuntimeSettings, patch: Partial<RuntimeS
   return null;
 }
 
+function validateServerPortPatch(patch: Partial<RuntimeSettings>): string | null {
+  if (!("serverPort" in patch)) return null;
+  const port = Number(patch.serverPort);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    return "Server port must be an integer between 1024 and 65535.";
+  }
+  return null;
+}
+
+async function isServerPortAvailable(port: number): Promise<boolean> {
+  if (port === Number(process.env.PORT)) return true;
+  return await new Promise((resolve) => {
+    const server = createServer();
+    server.once("error", () => resolve(false));
+    server.once("listening", () => server.close(() => resolve(true)));
+    server.listen(port, "127.0.0.1");
+  });
+}
+
 export const GET: RequestHandler = async () => {
   const { getSettings } = getRuntime();
   return json({ ok: true, settings: getSettings() });
@@ -214,6 +234,16 @@ export const PUT: RequestHandler = async ({ request }) => {
   const timezoneValidationError = validateTimezonePatch(runtime.getSettings(), patch);
   if (timezoneValidationError) {
     return json({ ok: false, error: timezoneValidationError }, { status: 400 });
+  }
+  const serverPortValidationError = validateServerPortPatch(patch);
+  if (serverPortValidationError) {
+    return json({ ok: false, error: serverPortValidationError }, { status: 400 });
+  }
+  if ("serverPort" in patch && !(await isServerPortAvailable(Number(patch.serverPort)))) {
+    return json(
+      { ok: false, error: `Server port ${patch.serverPort} is already in use. Choose another port.` },
+      { status: 409 }
+    );
   }
 
   const updated = runtime.updateSettings(patch);

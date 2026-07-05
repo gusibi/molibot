@@ -1,5 +1,21 @@
 # Molibot PRD (V1)
 
+## 2.32 Configurable Service Port (2026-07-05)
+- [Done] 系统设置提供服务端口配置，默认 3000，仅接受 1024–65535 的整数并持久化到共享 Runtime settings。
+- [Done] 独立服务启动与 Desktop supervisor 均读取持久化端口；显式 `PORT` 环境变量继续拥有更高优先级。
+- [Done] Desktop 设置支持保存端口并重启托管服务；外部/非托管服务禁止由 UI 强制终止，避免无法自动恢复。
+- [Done] Web 设置在托管模式下提供独立重启操作，并在端口变化后自动连接新地址。
+- [Done] Desktop Tauri HTTP capability 必须精确放行 loopback `/api/settings`，并由契约测试防止设置读写 scope 回归。
+- [Done] Desktop 重新发现先前由自身启动的 sidecar 时必须恢复托管 ownership 和重启控制，不能一律降级为 external。
+
+## 2.31 Desktop Projects (2026-07-05)
+- [Planned] 支持注册多个外部目录为 Project（注册表 = 名字 + rootPath + 配置），Workspace 数据目录位置与结构零变化，非项目 session 行为零回归。
+- [Planned] 项目 session 的工具 cwd 指向项目 rootPath，scratch/runlogs/memory 仍留在 Workspace；path guard 只放行 rootPath + Workspace 两棵子树。
+- [Planned] 项目 session 存储在 `<dataDir>/projects/<projectId>/sessions/`，与 web/渠道会话物理隔离；删除项目永不触碰 rootPath，项目目录里永不落 molipibot 元数据。
+- [Planned] 项目根目录的 AGENTS.md/AGENT.md/CLAUDE.md（按此优先级取首个）作为高优先"工作规范"注入项目 session 提示词，可覆盖 bot 的干活约定但不可覆盖身份与安全层；目录说明按 Workspace/项目两种模式互斥生成；项目文件一律经注入扫描与截断。
+- [Planned] Desktop 新增 Projects 视图：项目列表/添加/删除、项目详情（会话列表 + 多会话聊天），消息展示复用共享 completed-message renderer；渠道接入（/project 绑定命令）为后续版本。
+- 详细实施方案（分 5 个 Slice，含代码锚点、每步理由与验证清单）：`docs/requirements/projects-feature-plan.md`。
+
 ## 2.30 Desktop Chat DESIGN Compliance (2026-07-04)
 - [Done] Chat、Automations、Skills 必须以真实截图对照 `DESIGN.md` 做组合 UX/可访问性审计，并保存项目内证据与结论。
 - [Done] Skills 列表必须支持搜索，长说明默认收敛且可展开；CSS Grid 不得让短卡片继承同排最长卡片高度造成大面积空白。

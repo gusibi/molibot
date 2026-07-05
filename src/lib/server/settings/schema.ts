@@ -479,6 +479,7 @@ export interface RuntimeSettings {
   compaction: CompactionSettings;
   systemPrompt: string;
   locale: RuntimeLocale;
+  serverPort: number;
   timezone: string;
   agents: AgentSettings[];
   channels: ChannelSettingsMap;

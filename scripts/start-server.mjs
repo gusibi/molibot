@@ -8,6 +8,7 @@ import {
   resolveDataDir,
   writeServiceState
 } from "./runtime/service-lease.mjs";
+import { readConfiguredServicePort } from "./runtime/service-port.mjs";
 
 const releaseRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 dotenv.config({ path: path.join(releaseRoot, ".env") });
@@ -18,7 +19,7 @@ dotenv.config({ path: path.join(dataDir, ".env") });
 const packageInfo = JSON.parse(readFileSync(path.join(releaseRoot, "package.json"), "utf8"));
 process.env.NODE_ENV ||= "production";
 process.env.HOST ||= "127.0.0.1";
-process.env.PORT ||= "3000";
+process.env.PORT ||= String(readConfiguredServicePort(dataDir));
 process.env.MOLIBOT_VERSION ||= String(packageInfo.version || "0.0.0");
 
 let lease;

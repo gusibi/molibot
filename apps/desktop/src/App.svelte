@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
   import { onMount } from "svelte";
   import ChatView from "./ChatView.svelte";
   import SandboxSection from "./lib/settings/SandboxSection.svelte";
@@ -58,6 +59,9 @@
   let readiness: DesktopReadiness | null = null;
   let loadedReadinessEndpoint = "";
   let diagnosticsCopied = false;
+  let servicePort = 3000;
+  let servicePortLoadedFrom = "";
+  let servicePortBusy = false;
   const THEME_STORAGE_KEY = "molibot-desktop-theme";
   let theme: DesktopTheme = normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY));
 
@@ -260,8 +264,52 @@
     }
     try {
       status = await invoke<DesktopStatus>("desktop_status");
+      const endpoint = status.service.endpoint;
+      if (endpoint && status.service.state === "ready" && servicePortLoadedFrom !== endpoint) {
+        const response = await tauriFetch(`${endpoint}/api/settings`);
+        const payload = await response.json();
+        if (response.ok && payload?.ok) {
+          servicePort = Number(payload.settings?.serverPort) || 3000;
+          servicePortLoadedFrom = endpoint;
+        }
+      }
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  async function saveServicePort(): Promise<void> {
+    const endpoint = status?.service.endpoint;
+    if (!endpoint) return;
+    servicePortBusy = true;
+    error = "";
+    try {
+      const response = await tauriFetch(`${endpoint}/api/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serverPort: Number(servicePort) })
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || text.servicePortSaveFailed);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      servicePortBusy = false;
+    }
+  }
+
+  async function restartManagedService(): Promise<void> {
+    servicePortBusy = true;
+    error = "";
+    try {
+      await saveServicePort();
+      if (error) return;
+      servicePortLoadedFrom = "";
+      await invoke("restart_service");
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      servicePortBusy = false;
     }
   }
 
@@ -431,6 +479,22 @@
             <span class="status-badge" data-state={status?.service.state ?? "disconnected"}>
               {ownershipText}
             </span>
+          </div>
+          <div class="settings-row">
+            <div>
+              <strong>{text.servicePort}</strong>
+              <p>{text.servicePortDescription}</p>
+            </div>
+            <input class="row-input" type="number" min="1024" max="65535" step="1" bind:value={servicePort} disabled={!serviceReady || servicePortBusy} />
+          </div>
+          <div class="settings-row">
+            <div>
+              <strong>{text.restartService}</strong>
+              <p>{text.restartServiceDescription}</p>
+            </div>
+            <button class="secondary-button" type="button" onclick={restartManagedService} disabled={!serviceReady || status?.service.ownership !== "managed" || servicePortBusy}>
+              {servicePortBusy ? text.restartingService : text.saveAndRestart}
+            </button>
           </div>
         </div>
 

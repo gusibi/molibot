@@ -92,6 +92,7 @@ interface RawSettings {
   };
   systemPrompt?: string;
   locale?: string;
+  serverPort?: number | string;
   plugins?: {
     memory?: {
       enabled?: boolean | string;
@@ -1138,6 +1139,7 @@ function sanitize(raw: RawSettings): RuntimeSettings {
       String(raw.systemPrompt ?? defaultRuntimeSettings.systemPrompt).trim() ||
       defaultRuntimeSettings.systemPrompt,
     locale: raw.locale === "en-US" ? "en-US" : "zh-CN",
+    serverPort: Math.round(clampNumber(raw.serverPort, defaultRuntimeSettings.serverPort, 1024, 65535)),
     agents,
     channels,
     mcpServers,
@@ -1876,6 +1878,7 @@ export class SettingsStore {
       },
       systemPrompt: settings.systemPrompt,
       locale: settings.locale,
+      serverPort: settings.serverPort,
       plugins: {
         memory: {
           enabled: settings.plugins.memory.enabled,

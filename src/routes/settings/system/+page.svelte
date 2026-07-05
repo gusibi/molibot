@@ -32,6 +32,7 @@
 
   interface RuntimeSettings {
     locale: LocaleKey;
+    serverPort: number;
     timezone: string;
     budget: RunBudgetLimits;
     browserAutomation: BrowserAutomationSettings;
@@ -60,6 +61,13 @@
       languageHint: "语言偏好保存在当前浏览器，本地切换不会重启服务。",
       timezone: "运行时时区",
       timezoneHint: "用于日期感知、用量统计 and 任务调度展示。保存后对后续请求生效。",
+      serverTitle: "服务端口",
+      serverSubtitle: "Molibot Web 服务监听的本机端口。修改并保存后，需要重启服务才会生效。",
+      serverPort: "端口",
+      serverPortHint: "允许范围 1024–65535，默认 3000。重启会中断正在执行的任务。",
+      restart: "重启服务",
+      restarting: "正在重启...",
+      restartFailed: "重启服务失败",
       budgetTitle: "智能体运行预算限制",
       budgetSubtitle: "控制单次执行会话中允许的工具调用和模型尝试的最大次数，防止死循环或超额扣费。",
       maxToolCalls: "最大工具调用次数",
@@ -123,6 +131,13 @@
       languageHint: "Language is stored in this browser and does not restart the service.",
       timezone: "Runtime timezone",
       timezoneHint: "Used for date-aware prompts, usage analytics, and scheduled task display. Applies to future requests after saving.",
+      serverTitle: "Service Port",
+      serverSubtitle: "The local port used by the Molibot web service. Save the change, then restart the service to apply it.",
+      serverPort: "Port",
+      serverPortHint: "Allowed range: 1024–65535. Default: 3000. Restarting interrupts active tasks.",
+      restart: "Restart service",
+      restarting: "Restarting...",
+      restartFailed: "Failed to restart service",
       budgetTitle: "Agent Run Budget Limits",
       budgetSubtitle: "Control the maximum number of tool calls and model attempts allowed per session to avoid loops or billing surprises.",
       maxToolCalls: "Max tool calls per session",
@@ -182,12 +197,14 @@
 
   let selectedLocale: LocaleKey = "zh-CN";
   let timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  let serverPort = 3000;
   let timezoneOptions: string[] = [];
   let versionInfo: VersionInfo | null = null;
   let status = "";
   let statusVariant: "default" | "destructive" = "default";
   let loading = true;
   let saving = false;
+  let restarting = false;
 
   let maxToolCalls = 24;
   let maxToolFailures = 6;
@@ -257,6 +274,7 @@
       selectedLocale = settings.locale || selectedLocale;
       setLocale(selectedLocale);
       timezone = settings.timezone || timezone;
+      serverPort = settings.serverPort || serverPort;
       timezoneOptions = buildTimeZoneOptions(timezone);
       if (settings.budget) {
         maxToolCalls = settings.budget.maxToolCalls ?? maxToolCalls;
@@ -303,6 +321,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           locale: selectedLocale,
+          serverPort: Number(serverPort),
           timezone,
           budget: {
             maxToolCalls: Number(maxToolCalls),
@@ -333,6 +352,38 @@
       statusVariant = "destructive";
     } finally {
       saving = false;
+    }
+  }
+
+  async function waitForRestart(endpoint: string): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      try {
+        await fetch(`${endpoint}/api/desktop/handshake`, { mode: "no-cors", cache: "no-store" });
+        window.location.replace(`${endpoint}/settings/system`);
+        return;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+    throw new Error(copy.restartFailed);
+  }
+
+  async function restartService(): Promise<void> {
+    restarting = true;
+    status = copy.restarting;
+    statusVariant = "default";
+    try {
+      const response = await fetch("/api/system/restart", { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok || !payload?.endpoint) {
+        throw new Error(payload?.error || copy.restartFailed);
+      }
+      await waitForRestart(String(payload.endpoint));
+    } catch (error) {
+      status = error instanceof Error ? error.message : String(error);
+      statusVariant = "destructive";
+      restarting = false;
     }
   }
 
@@ -407,6 +458,30 @@
                 {/each}
               </NativeSelect>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="channel-card">
+        <div class="channel-card-header">
+          <div>
+            <h2 class="channel-card-title">{copy.serverTitle}</h2>
+            <p class="channel-card-desc">{copy.serverSubtitle}</p>
+          </div>
+        </div>
+        <div class="channel-card-body">
+          <div class="channel-field">
+            <Label for="server-port">{copy.serverPort}</Label>
+            <Input
+              id="server-port"
+              type="number"
+              min="1024"
+              max="65535"
+              step="1"
+              bind:value={serverPort}
+              disabled={loading || restarting}
+            />
+            <p class="channel-hint">{copy.serverPortHint}</p>
           </div>
         </div>
       </div>
@@ -612,20 +687,23 @@
 
 <footer class="settings-footbar">
   <div class="settings-footbar-status">
-    {#if saving}
+    {#if saving || restarting}
       <span class="settings-footbar-saving">
         <span class="settings-footbar-pulse"></span>
-        Saving changes...
+        {restarting ? copy.restarting : "Saving changes..."}
       </span>
     {:else if status}
       <span class={statusVariant === "destructive" ? "settings-footbar-error" : "settings-footbar-ok"}>{status}</span>
     {/if}
   </div>
   <div class="settings-footbar-actions">
-    <Button variant="outline" size="sm" onclick={loadSystemConfig} disabled={loading || saving}>
+    <Button variant="outline" size="sm" onclick={loadSystemConfig} disabled={loading || saving || restarting}>
       Reset
     </Button>
-    <button type="submit" form="system-form" class="settings-footbar-btn" disabled={loading || saving}>
+    <Button variant="destructive" size="sm" onclick={restartService} disabled={loading || saving || restarting}>
+      {restarting ? copy.restarting : copy.restart}
+    </Button>
+    <button type="submit" form="system-form" class="settings-footbar-btn" disabled={loading || saving || restarting}>
       {saving ? "Saving..." : "Save System Config"}
     </button>
   </div>

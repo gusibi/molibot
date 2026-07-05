@@ -40,6 +40,25 @@ struct RuntimeStateFile {
     endpoint: String,
     #[serde(default)]
     pid: Option<u32>,
+    #[serde(default)]
+    managed_by_desktop: bool,
+}
+
+fn discovered_ownership(
+    runtime_state: &RuntimeStateFile,
+    handshake: &ServiceHandshake,
+) -> ServiceOwnership {
+    if runtime_state.managed_by_desktop && handshake.managed_by_desktop {
+        ServiceOwnership::Managed
+    } else {
+        ServiceOwnership::External
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeSettingsFile {
+    server_port: Option<u16>,
 }
 
 enum ChildOutcome {
@@ -154,6 +173,15 @@ fn choose_port(preferred: u16) -> Result<u16, String> {
     Ok(port)
 }
 
+fn preferred_port(data_dir: &Path) -> u16 {
+    read_to_string(data_dir.join("settings.json"))
+        .ok()
+        .and_then(|contents| serde_json::from_str::<RuntimeSettingsFile>(&contents).ok())
+        .and_then(|settings| settings.server_port)
+        .filter(|port| *port >= 1024)
+        .unwrap_or(DEFAULT_PORT)
+}
+
 fn open_log(data_dir: &Path) -> Result<File, String> {
     let runtime_dir = data_dir.join("runtime");
     create_dir_all(&runtime_dir).map_err(|error| error.to_string())?;
@@ -198,6 +226,48 @@ fn stop_child(child: &mut Child) {
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+fn stop_process(pid: u32) {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(pid as i32, libc::SIGTERM);
+        for _ in 0..50 {
+            if libc::kill(pid as i32, 0) != 0 {
+                return;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        libc::kill(pid as i32, libc::SIGKILL);
+    }
+}
+
+fn supervise_adopted(
+    layout: RuntimeLayout,
+    data_dir: PathBuf,
+    pid: u32,
+    status: Arc<Mutex<ServiceStatus>>,
+    commands: Receiver<ServiceCommand>,
+) {
+    loop {
+        match commands.recv_timeout(Duration::from_millis(250)) {
+            Ok(ServiceCommand::Restart) => {
+                stop_process(pid);
+                supervise(layout, data_dir, status, commands);
+                return;
+            }
+            Ok(ServiceCommand::Stop(ack)) => {
+                stop_process(pid);
+                let _ = ack.send(());
+                return;
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                stop_process(pid);
+                return;
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+    }
 }
 
 fn supervise_child(
@@ -294,7 +364,7 @@ fn supervise(
 ) {
     let mut failures = 0;
     loop {
-        let port = match choose_port(DEFAULT_PORT) {
+        let port = match choose_port(preferred_port(&data_dir)) {
             Ok(port) => port,
             Err(error) => {
                 set_status(
@@ -403,11 +473,12 @@ fn initialize_worker(
         };
         if let Some(handshake) = wait_for_handshake(&runtime_state.endpoint, wait) {
             let compatible = is_compatible_handshake(&handshake, SUPPORTED_PROTOCOL_VERSION);
+            let ownership = discovered_ownership(&runtime_state, &handshake);
             set_status(
                 &status,
                 ServiceStatus {
                     endpoint: Some(runtime_state.endpoint),
-                    ownership: Some(ServiceOwnership::External),
+                    ownership: Some(ownership.clone()),
                     state: if compatible {
                         ServiceState::Ready
                     } else {
@@ -416,6 +487,11 @@ fn initialize_worker(
                     version: Some(handshake.version),
                 },
             );
+            if compatible && ownership == ServiceOwnership::Managed {
+                if let (Some(pid), Ok(layout)) = (runtime_state.pid, runtime_layout(&app)) {
+                    supervise_adopted(layout, data_dir, pid, status, commands);
+                }
+            }
             return;
         }
     }
@@ -469,6 +545,28 @@ mod tests {
         assert_eq!(local_endpoint_port("http://localhost:3200/"), Some(3200));
         assert_eq!(local_endpoint_port("https://127.0.0.1:3100"), None);
         assert_eq!(local_endpoint_port("http://example.com:3100"), None);
+    }
+
+    #[test]
+    fn rediscovered_desktop_sidecar_remains_managed() {
+        let state = RuntimeStateFile {
+            status: "ready".into(),
+            endpoint: "http://127.0.0.1:3000".into(),
+            pid: Some(42),
+            managed_by_desktop: true,
+        };
+        let handshake = ServiceHandshake {
+            service: "molibot".into(),
+            version: "test".into(),
+            protocol_version: SUPPORTED_PROTOCOL_VERSION,
+            instance_id: None,
+            managed_by_desktop: true,
+            capabilities: vec!["service-ownership-v1".into()],
+        };
+        assert_eq!(
+            discovered_ownership(&state, &handshake),
+            ServiceOwnership::Managed
+        );
     }
 
     #[test]

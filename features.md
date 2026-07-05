@@ -1,5 +1,16 @@
 # Molibot Features
 
+## 2026-07-05
+
+### 可配置服务端口与桌面托管重启
+- Web 系统设置与 Desktop 常规设置均可配置服务端口，默认 3000，保存范围为 1024–65535。
+- 独立启动脚本和 Desktop supervisor 在启动前读取持久化端口；Desktop 可“保存并重启”，Web 重启接口仅对 Desktop 托管服务开放。
+- Desktop 重启保留托管边界，不会从页面终止无法自动拉起的外部服务；修改端口后 supervisor 使用新端口启动并刷新实际 endpoint。
+- 验证：服务端 production build、Desktop `svelte-check`、Rust supervisor 测试和端口读取单测通过。
+- 修复 Desktop HTTP capability 未放行共享 `/api/settings`，导致端口读写在到达服务端前报 `url not allowed on the configured scope`；新增 capability 契约回归测试。
+- 保存端口前检查 loopback 监听占用；目标端口已被其他进程使用时返回 409 和明确错误，不再保存后由 supervisor 静默换成随机端口。
+- Desktop 重新启动后会依据 service-state 与 handshake 的双重托管标记接管仍在运行的 sidecar PID，保持 `managed` ownership；“保存并重启”不再因误判 external 而禁用。
+
 ## 2026-07-04
 
 ### Desktop Chat 工作区 DESIGN 审计与一致性修正
