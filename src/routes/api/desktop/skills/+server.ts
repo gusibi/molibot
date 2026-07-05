@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { buildDesktopSkillSearchSettings, buildDesktopSkillsSummary, resolveDesktopSkillPath } from "$lib/server/app/desktopSkills";
 import { getRuntime } from "$lib/server/app/runtime";
+import { updateSkillsConfig } from "$lib/server/settings/handlers/skills";
 import type { DesktopSkillsResponse, DesktopSkillsUpdateRequest } from "$lib/shared/desktop";
 
 // The shared skills route's GET handler scans skill files and returns the full
@@ -33,9 +34,10 @@ export const PUT: RequestHandler = async ({ request }) => {
       const path = resolveDesktopSkillPath(payload, body.id);
       const disabled = new Set(runtime.getSettings().disabledSkillPaths ?? []);
       body.enabled ? disabled.delete(path) : disabled.add(path);
-      runtime.updateSettings({ disabledSkillPaths: [...disabled] });
+      updateSkillsConfig(runtime, { disabledSkillPaths: [...disabled] });
     } else if (body.kind === "search") {
-      runtime.updateSettings({ skillSearch: buildDesktopSkillSearchSettings(runtime.getSettings(), body) });
+      const skillSearch = buildDesktopSkillSearchSettings(runtime.getSettings(), body);
+      updateSkillsConfig(runtime, { skillSearch });
     } else {
       throw new Error("Unsupported skills update");
     }

@@ -176,20 +176,16 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings");
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || copy.failedLoad);
-      memoryEnabled = Boolean(data.settings?.plugins?.memory?.enabled);
-      memoryBackend = String((data.settings?.plugins?.memory as any)?.backend ?? (data.settings?.plugins?.memory as any)?.core ?? "json-file");
-
       const pluginRes = await fetch("/api/settings/plugins");
       const pluginData = await pluginRes.json();
-      if (!pluginData.ok) throw new Error(pluginData.error || "Failed to load plugin catalog");
+      if (!pluginData.ok) throw new Error(pluginData.error || copy.failedLoad);
+      memoryEnabled = Boolean(pluginData.plugins?.memory?.enabled);
+      memoryBackend = String((pluginData.plugins?.memory as any)?.backend ?? (pluginData.plugins?.memory as any)?.core ?? "json-file");
       channelPlugins = Array.isArray(pluginData.catalog?.channels) ? pluginData.catalog.channels : [];
       providerPlugins = Array.isArray(pluginData.catalog?.providers) ? pluginData.catalog.providers : [];
       featurePlugins = Array.isArray(pluginData.catalog?.features) ? pluginData.catalog.features : [];
       memoryBackendCatalog = Array.isArray(pluginData.catalog?.memoryBackends) ? pluginData.catalog.memoryBackends : [];
-      setFeaturePluginDefaults(data.settings);
+      setFeaturePluginDefaults({ plugins: pluginData.plugins });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -216,7 +212,7 @@
             ),
           ]),
       );
-      const res = await fetch("/api/settings", {
+      const res = await fetch("/api/settings/plugins", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -193,7 +193,7 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings/dynamic/video-generate");
+      const res = await fetch("/api/settings/video-generate");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || t("loadError"));
       videoGenerate = { ...videoGenerate, ...(data.value ?? {}) };
@@ -233,7 +233,7 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings/dynamic/video-generate", {
+      const res = await fetch("/api/settings/video-generate", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: videoGenerate })

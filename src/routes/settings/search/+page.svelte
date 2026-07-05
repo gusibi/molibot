@@ -280,7 +280,7 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings/dynamic/web-search");
+      const res = await fetch("/api/settings/web-search");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
       webSearch = normalizeForUi({ ...webSearch, ...(data.value ?? {}) });
@@ -296,7 +296,7 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings/dynamic/web-search", {
+      const res = await fetch("/api/settings/web-search", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: webSearch })

@@ -202,13 +202,18 @@
     error = "";
     message = "";
     try {
-      const res = await fetch("/api/settings");
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || copy.failedLoad);
+      const [agentsRes, instancesRes] = await Promise.all([
+        fetch("/api/settings/agent"),
+        fetch("/api/settings/channel-instance?channel=telegram")
+      ]);
+      const agentsData = await agentsRes.json();
+      const instancesData = await instancesRes.json();
+      if (!agentsData.ok) throw new Error(agentsData.error || copy.failedLoad);
+      if (!instancesData.ok) throw new Error(instancesData.error || copy.failedLoad);
 
-      agents = Array.isArray(data.settings?.agents) ? data.settings.agents : [];
-      const fromList = Array.isArray(data.settings?.channels?.telegram?.instances)
-        ? data.settings.channels.telegram.instances
+      agents = Array.isArray(agentsData.agents) ? agentsData.agents : [];
+      const fromList = Array.isArray(instancesData.instances)
+        ? instancesData.instances
         : [];
 
       const mapped = fromList.length > 0
@@ -232,23 +237,7 @@
             profileFiles: emptyBotFiles(),
             isNew: false
           }))
-        : (() => {
-            const token = data.settings.telegramBotToken ?? "";
-            return token
-              ? [{
-                  id: "default",
-                  name: "Default Bot",
-                  enabled: true,
-                  streamOutput: true,
-                  agentId: "",
-                  token,
-                  allowedChatIds: (data.settings.telegramAllowedChatIds ?? []).join(","),
-                  sandboxEnabled: undefined,
-                  profileFiles: emptyBotFiles(),
-                  isNew: false
-                }]
-              : [createEmptyBot()];
-          })();
+        : [createEmptyBot()];
 
       bots = await Promise.all(
         mapped.map(async (bot) => ({

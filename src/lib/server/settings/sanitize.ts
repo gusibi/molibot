@@ -30,6 +30,9 @@ import {
   type TtsGenerateProviderId,
   type TtsGenerateSettings,
   type ChannelInstanceSettings,
+  type CompactionSettings,
+  type ModelFallbackSettings,
+  type ModelRoutingConfig,
   sanitizeHostToolSettings,
   sanitizeToolSandboxSettings
 } from "$lib/server/settings/index.js";
@@ -424,25 +427,35 @@ export function sanitizeFeishuBots(input: unknown): FeishuBotConfig[] {
   return out;
 }
 
+export function sanitizeSingleAgent(input: unknown): AgentSettings {
+  if (!input || typeof input !== "object") throw new Error("agent is required");
+  const item = input as Record<string, unknown>;
+  const id = String(item.id ?? "").trim();
+  if (!id) throw new Error("agent.id is required");
+  return {
+    id,
+    name: String(item.name ?? "").trim() || id,
+    description: String(item.description ?? "").trim(),
+    enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+    sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
+    modelRouting: sanitizeAgentModelRouting(item.modelRouting)
+  };
+}
+
 export function sanitizeAgents(input: unknown): AgentSettings[] {
   if (!Array.isArray(input)) return [];
-
   const out: AgentSettings[] = [];
   const dedup = new Set<string>();
   for (const row of input) {
-    if (!row || typeof row !== "object") continue;
-    const item = row as Record<string, unknown>;
-    const id = String(item.id ?? "").trim();
-    if (!id || dedup.has(id)) continue;
-    dedup.add(id);
-    out.push({
-      id,
-      name: String(item.name ?? "").trim() || id,
-      description: String(item.description ?? "").trim(),
-      enabled: item.enabled === undefined ? true : Boolean(item.enabled),
-      sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
-      modelRouting: sanitizeAgentModelRouting(item.modelRouting)
-    });
+    let agent: AgentSettings;
+    try {
+      agent = sanitizeSingleAgent(row);
+    } catch {
+      continue;
+    }
+    if (dedup.has(agent.id)) continue;
+    dedup.add(agent.id);
+    out.push(agent);
   }
   return out;
 }
@@ -574,6 +587,33 @@ export function sanitizeChannelInstanceDisplaySettings(input: unknown): ChannelI
   return { toolProgress, showReasoning, gatewayNotifyInterval, runLogNotice };
 }
 
+export function sanitizeSingleChannelInstance(input: unknown): ChannelInstanceSettings {
+  if (!input || typeof input !== "object") throw new Error("instance is required");
+  const item = input as Record<string, unknown>;
+  const id = String(item.id ?? "").trim();
+  if (!id) throw new Error("instance.id is required");
+  const credentialsSource = item.credentials && typeof item.credentials === "object"
+    ? item.credentials as Record<string, unknown>
+    : {};
+  const credentials = Object.fromEntries(
+    Object.entries(credentialsSource)
+      .map(([credKey, credValue]) => [String(credKey).trim(), String(credValue ?? "").trim()])
+      .filter(([credKey, credValue]) => Boolean(credKey) && Boolean(credValue))
+  );
+  return {
+    id,
+    name: String(item.name ?? "").trim() || id,
+    enabled: item.enabled === undefined ? true : Boolean(item.enabled),
+    agentId: String(item.agentId ?? "").trim(),
+    credentials,
+    allowedChatIds: Array.isArray(item.allowedChatIds)
+      ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
+      : [],
+    sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
+    display: item.display ? sanitizeChannelInstanceDisplaySettings(item.display) : undefined
+  };
+}
+
 function sanitizeChannels(
   input: unknown,
   telegramBots: TelegramBotConfig[],
@@ -603,30 +643,11 @@ function sanitizeChannels(
       : [];
     const instances = rawInstances
       .map((row) => {
-        if (!row || typeof row !== "object") return null;
-        const item = row as Record<string, unknown>;
-        const id = String(item.id ?? "").trim();
-        if (!id) return null;
-        const credentialsSource = item.credentials && typeof item.credentials === "object"
-          ? item.credentials as Record<string, unknown>
-          : {};
-        const credentials = Object.fromEntries(
-          Object.entries(credentialsSource)
-            .map(([credKey, credValue]) => [credKey, String(credValue ?? "").trim()])
-            .filter(([, credValue]) => Boolean(credValue))
-        );
-        return {
-          id,
-          name: String(item.name ?? "").trim() || id,
-          enabled: item.enabled === undefined ? true : Boolean(item.enabled),
-          agentId: String(item.agentId ?? "").trim(),
-          credentials,
-          allowedChatIds: Array.isArray(item.allowedChatIds)
-            ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
-            : [],
-          sandboxEnabled: item.sandboxEnabled === undefined ? undefined : Boolean(item.sandboxEnabled),
-          display: item.display ? sanitizeChannelInstanceDisplaySettings(item.display) : undefined
-        };
+        try {
+          return sanitizeSingleChannelInstance(row);
+        } catch {
+          return null;
+        }
       })
       .filter(Boolean) as ChannelSettingsMap[string]["instances"];
 
@@ -704,6 +725,102 @@ export function sanitizeEventExecutionSettings(
     retryDelayMs: clampNumber(source.retryDelayMs, fallback.retryDelayMs, 0, 60 * 60 * 1000),
     taskSessionRetentionDays: clampNumber(source.taskSessionRetentionDays, fallback.taskSessionRetentionDays, 0, 365)
   };
+}
+
+export function sanitizeModelRoutingConfig(input: unknown, fallback: ModelRoutingConfig): ModelRoutingConfig {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  return {
+    textModelKey: String(source.textModelKey ?? "").trim() || fallback.textModelKey,
+    visionModelKey: String(source.visionModelKey ?? "").trim() || fallback.visionModelKey,
+    sttModelKey: String(source.sttModelKey ?? "").trim() || fallback.sttModelKey,
+    ttsModelKey: String(source.ttsModelKey ?? "").trim() || fallback.ttsModelKey,
+    compactionModelKey: String(source.compactionModelKey ?? "").trim(),
+    subagentModelKey: String(source.subagentModelKey ?? "").trim() || fallback.subagentModelKey,
+    subagentHaikuModelKey: String(source.subagentHaikuModelKey ?? "").trim(),
+    subagentSonnetModelKey: String(source.subagentSonnetModelKey ?? "").trim(),
+    subagentOpusModelKey: String(source.subagentOpusModelKey ?? "").trim(),
+    subagentThinkingModelKey: String(source.subagentThinkingModelKey ?? "").trim()
+  };
+}
+
+export function sanitizeModelFallback(input: unknown, fallback: ModelFallbackSettings): ModelFallbackSettings {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const mode = String(source.mode ?? fallback.mode).trim();
+  const firstTokenTimeoutRaw = Number(source.firstTokenTimeoutMs);
+  const firstTokenTimeoutMs = !Number.isFinite(firstTokenTimeoutRaw)
+    ? fallback.firstTokenTimeoutMs
+    : firstTokenTimeoutRaw <= 0
+      ? 0
+      : clampNumber(firstTokenTimeoutRaw, fallback.firstTokenTimeoutMs, 1000, 600000);
+  return {
+    mode: mode === "off" || mode === "any-enabled" ? mode : "same-provider",
+    firstTokenTimeoutMs
+  } as ModelFallbackSettings;
+}
+
+export function sanitizeCompaction(input: unknown, fallback: CompactionSettings): CompactionSettings {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const reserveTokensRaw = Number(source.reserveTokens);
+  const keepRecentTokensRaw = Number(source.keepRecentTokens);
+  const thresholdPercentRaw = Number(source.thresholdPercent);
+  const defaultContextWindowRaw = Number(source.defaultContextWindow);
+  return {
+    enabled: source.enabled === undefined ? fallback.enabled : Boolean(source.enabled),
+    thresholdPercent: Number.isFinite(thresholdPercentRaw) ? Math.max(10, Math.min(95, Math.round(thresholdPercentRaw))) : fallback.thresholdPercent,
+    reserveTokens: Number.isFinite(reserveTokensRaw) ? Math.max(1024, Math.round(reserveTokensRaw)) : fallback.reserveTokens,
+    keepRecentTokens: Number.isFinite(keepRecentTokensRaw) ? Math.max(2048, Math.round(keepRecentTokensRaw)) : fallback.keepRecentTokens,
+    defaultContextWindow: Number.isFinite(defaultContextWindowRaw) ? Math.max(1024, Math.round(defaultContextWindowRaw)) : fallback.defaultContextWindow
+  };
+}
+
+export interface AiRoutingInput {
+  providerMode?: unknown;
+  piModelProvider?: unknown;
+  piModelName?: unknown;
+  defaultThinkingLevel?: unknown;
+  defaultCustomProviderId?: unknown;
+  modelRouting?: unknown;
+  modelFallback?: unknown;
+  compaction?: unknown;
+  systemPrompt?: unknown;
+  timezone?: unknown;
+}
+
+export function sanitizeAiRoutingConfig(input: AiRoutingInput, current: RuntimeSettings): Partial<RuntimeSettings> {
+  const patch: Partial<RuntimeSettings> = {};
+  if (input.providerMode !== undefined) {
+    const mode = String(input.providerMode ?? "pi").toLowerCase();
+    patch.providerMode = (mode === "custom" ? "custom" : "pi") as ProviderMode;
+  }
+  if (input.piModelProvider !== undefined) {
+    const candidate = String(input.piModelProvider ?? "").trim();
+    if (isKnownProvider(candidate)) patch.piModelProvider = candidate;
+  }
+  if (input.piModelName !== undefined) {
+    patch.piModelName = String(input.piModelName ?? "").trim() || current.piModelName;
+  }
+  if (input.defaultThinkingLevel !== undefined) {
+    patch.defaultThinkingLevel = sanitizeRuntimeThinkingLevel(input.defaultThinkingLevel, current.defaultThinkingLevel);
+  }
+  if (input.defaultCustomProviderId !== undefined) {
+    patch.defaultCustomProviderId = String(input.defaultCustomProviderId ?? "").trim();
+  }
+  if (input.modelRouting !== undefined) {
+    patch.modelRouting = sanitizeModelRoutingConfig(input.modelRouting, current.modelRouting);
+  }
+  if (input.modelFallback !== undefined) {
+    patch.modelFallback = sanitizeModelFallback(input.modelFallback, current.modelFallback);
+  }
+  if (input.compaction !== undefined) {
+    patch.compaction = sanitizeCompaction(input.compaction, current.compaction);
+  }
+  if (input.systemPrompt !== undefined) {
+    patch.systemPrompt = String(input.systemPrompt ?? "").trim() || defaultRuntimeSettings.systemPrompt;
+  }
+  if (input.timezone !== undefined) {
+    patch.timezone = String(input.timezone ?? "").trim();
+  }
+  return patch;
 }
 
 export function sanitizeSettings(input: Partial<RuntimeSettings>, current: RuntimeSettings): RuntimeSettings {

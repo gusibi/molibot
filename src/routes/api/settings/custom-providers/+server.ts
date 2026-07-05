@@ -1,88 +1,60 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import {
+  deleteCustomProvider,
+  readCustomProvidersConfig,
+  replaceCustomProviders,
+  updateGlobalProviderSettings,
+  upsertCustomProvider
+} from "$lib/server/settings/handlers/customProviders";
 
 export const GET: RequestHandler = async () => {
-  const runtime = getRuntime();
   try {
-    const settings = runtime.getSettings();
-    return json({
-      ok: true,
-      providerMode: settings.providerMode,
-      piModelProvider: settings.piModelProvider,
-      piModelName: settings.piModelName,
-      defaultCustomProviderId: settings.defaultCustomProviderId,
-      customProviders: settings.customProviders ?? []
-    });
+    const config = readCustomProvidersConfig(getRuntime());
+    return json({ ok: true, ...config });
   } catch (error: any) {
     return json({ ok: false, error: error.message || String(error) }, { status: 500 });
   }
 };
 
 export const PUT: RequestHandler = async ({ request }) => {
-  let body: any;
+  let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    body = (await request.json()) as Record<string, unknown>;
   } catch {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { providerMode, piModelProvider, piModelName, defaultCustomProviderId } = body;
-  const runtime = getRuntime();
   try {
-    const patch: any = {};
-    if (providerMode !== undefined) patch.providerMode = providerMode;
-    if (piModelProvider !== undefined) patch.piModelProvider = piModelProvider;
-    if (piModelName !== undefined) patch.piModelName = piModelName;
-    if (defaultCustomProviderId !== undefined) patch.defaultCustomProviderId = defaultCustomProviderId;
-
-    const updated = runtime.updateSettings(patch);
-    return json({
-      ok: true,
-      providerMode: updated.providerMode,
-      piModelProvider: updated.piModelProvider,
-      piModelName: updated.piModelName,
-      defaultCustomProviderId: updated.defaultCustomProviderId
-    });
+    const config = updateGlobalProviderSettings(getRuntime(), body);
+    return json({ ok: true, ...config });
   } catch (error: any) {
-    return json({ ok: false, error: error.message || String(error) }, { status: 500 });
+    return json({ ok: false, error: error.message || String(error) }, { status: 400 });
   }
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-  let body: any;
+  let body: { provider?: unknown; customProviders?: unknown };
   try {
-    body = await request.json();
+    body = (await request.json()) as { provider?: unknown; customProviders?: unknown };
   } catch {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { provider } = body;
-  if (!provider || !provider.id) {
-    return json({ ok: false, error: "Provider and provider.id are required" }, { status: 400 });
-  }
-
-  const runtime = getRuntime();
-  const currentSettings = runtime.getSettings();
-  const currentProviders = currentSettings.customProviders ?? [];
-
-  // Replace existing provider or add new one
-  const index = currentProviders.findIndex((p) => p.id === provider.id);
-  const updatedProviders = [...currentProviders];
-  if (index >= 0) {
-    updatedProviders[index] = {
-      ...updatedProviders[index],
-      ...provider
-    };
-  } else {
-    updatedProviders.push(provider);
-  }
-
   try {
-    const updated = runtime.updateSettings({ customProviders: updatedProviders });
-    return json({ ok: true, settings: updated });
+    const runtime = getRuntime();
+    if (body.customProviders !== undefined) {
+      const config = replaceCustomProviders(runtime, body.customProviders);
+      return json({ ok: true, ...config });
+    }
+    if (!body.provider || typeof body.provider !== "object") {
+      return json({ ok: false, error: "provider is required" }, { status: 400 });
+    }
+    const { config, saved } = upsertCustomProvider(runtime, body.provider);
+    return json({ ok: true, ...config, provider: saved });
   } catch (error: any) {
-    return json({ ok: false, error: error.message || String(error) }, { status: 500 });
+    return json({ ok: false, error: error.message || String(error) }, { status: 400 });
   }
 };
 
@@ -91,17 +63,10 @@ export const DELETE: RequestHandler = async ({ url }) => {
   if (!id) {
     return json({ ok: false, error: "Query parameter 'id' is required" }, { status: 400 });
   }
-
-  const runtime = getRuntime();
-  const currentSettings = runtime.getSettings();
-  const currentProviders = currentSettings.customProviders ?? [];
-
-  const updatedProviders = currentProviders.filter((p) => p.id !== id);
-
   try {
-    const updated = runtime.updateSettings({ customProviders: updatedProviders });
-    return json({ ok: true, settings: updated });
+    const config = deleteCustomProvider(getRuntime(), id);
+    return json({ ok: true, ...config });
   } catch (error: any) {
-    return json({ ok: false, error: error.message || String(error) }, { status: 500 });
+    return json({ ok: false, error: error.message || String(error) }, { status: 400 });
   }
 };

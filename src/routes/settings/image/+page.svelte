@@ -224,7 +224,7 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings/dynamic/image-generate");
+      const res = await fetch("/api/settings/image-generate");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || t("loadError"));
       imageGenerate = mergeImageGenerateSettings(data.value);
@@ -264,7 +264,7 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings/dynamic/image-generate", {
+      const res = await fetch("/api/settings/image-generate", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: imageGenerate })

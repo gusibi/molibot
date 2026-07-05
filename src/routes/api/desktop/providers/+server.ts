@@ -3,11 +3,14 @@ import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { buildDesktopProvidersSummary } from "$lib/server/app/desktopProviders";
 import { buildNewCustomProvider } from "$lib/server/app/desktopProviderSubmit";
+import { buildProviderGlobalsPatch, buildProviderUpdatePatch } from "$lib/server/app/desktopProviderManage";
 import {
-  buildProviderDeletePatch,
-  buildProviderGlobalsPatch,
-  buildProviderUpdatePatch
-} from "$lib/server/app/desktopProviderManage";
+  deleteCustomProvider,
+  readCustomProvidersConfig,
+  replaceCustomProviders,
+  updateGlobalProviderSettings,
+  upsertCustomProvider
+} from "$lib/server/settings/handlers/customProviders";
 import type {
   DesktopProviderGlobalsRequest,
   DesktopProviderMutationResponse,
@@ -26,11 +29,6 @@ export const GET: RequestHandler = async () => {
   return json(payload, { headers: { "Cache-Control": "no-store" } });
 };
 
-/**
- * POST — Onboarding provider submit. Creates a new custom provider and makes
- * it the default, switching providerMode to "custom". The API key is persisted
- * in the server config and never returned in the response.
- */
 export const POST: RequestHandler = async ({ request }) => {
   let body: DesktopProviderCreateRequest;
   try {
@@ -53,9 +51,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
   try {
     const runtime = getRuntime();
-    const settings = runtime.getSettings();
-    const existing = Array.isArray(settings.customProviders) ? settings.customProviders : [];
-    if (existing.some((provider) => provider.id === id)) {
+    if (readCustomProvidersConfig(runtime).customProviders.some((provider) => provider.id === id)) {
       return json({ ok: false, error: "Provider id already exists" } satisfies DesktopProviderSubmitResponse, { status: 409 });
     }
     const newProvider = buildNewCustomProvider({
@@ -72,14 +68,8 @@ export const POST: RequestHandler = async ({ request }) => {
       thinkingFormat: body.thinkingFormat,
       reasoningEffortMap: body.reasoningEffortMap ?? {}
     });
-
-    runtime.updateSettings({
-      customProviders: [...existing, newProvider],
-      providerMode: "custom",
-      defaultCustomProviderId: newProvider.id
-    });
-
-    const response: DesktopProviderSubmitResponse = { ok: true, providerId: newProvider.id };
+    const { saved } = upsertCustomProvider(runtime, newProvider, { activateAsDefault: true, switchToCustomMode: true });
+    const response: DesktopProviderSubmitResponse = { ok: true, providerId: saved.id };
     return json(response, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const response: DesktopProviderSubmitResponse = {
@@ -101,9 +91,12 @@ export const PATCH: RequestHandler = async ({ request }) => {
   if (!id) return json({ ok: false, error: "id is required" }, { status: 400 });
   try {
     const runtime = getRuntime();
-    const patch = buildProviderUpdatePatch(runtime.getSettings(), { ...body, id });
-    const updated = runtime.updateSettings(patch);
-    const response: DesktopProviderMutationResponse = { ok: true, summary: buildDesktopProvidersSummary(updated) };
+    const shaped = buildProviderUpdatePatch(runtime.getSettings(), { ...body, id });
+    replaceCustomProviders(runtime, shaped.customProviders);
+    const response: DesktopProviderMutationResponse = {
+      ok: true,
+      summary: buildDesktopProvidersSummary(runtime.getSettings())
+    };
     return json(response, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 400 });
@@ -119,8 +112,12 @@ export const PUT: RequestHandler = async ({ request }) => {
   }
   try {
     const runtime = getRuntime();
-    const updated = runtime.updateSettings(buildProviderGlobalsPatch(runtime.getSettings(), body));
-    const response: DesktopProviderMutationResponse = { ok: true, summary: buildDesktopProvidersSummary(updated) };
+    const shaped = buildProviderGlobalsPatch(runtime.getSettings(), body);
+    updateGlobalProviderSettings(runtime, shaped);
+    const response: DesktopProviderMutationResponse = {
+      ok: true,
+      summary: buildDesktopProvidersSummary(runtime.getSettings())
+    };
     return json(response, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 400 });
@@ -132,8 +129,14 @@ export const DELETE: RequestHandler = async ({ url }) => {
   if (!id) return json({ ok: false, error: "id is required" }, { status: 400 });
   try {
     const runtime = getRuntime();
-    const updated = runtime.updateSettings(buildProviderDeletePatch(runtime.getSettings(), id));
-    const response: DesktopProviderMutationResponse = { ok: true, summary: buildDesktopProvidersSummary(updated) };
+    if (!readCustomProvidersConfig(runtime).customProviders.some((p) => p.id === id)) {
+      return json({ ok: false, error: "Provider not found" }, { status: 404 });
+    }
+    deleteCustomProvider(runtime, id);
+    const response: DesktopProviderMutationResponse = {
+      ok: true,
+      summary: buildDesktopProvidersSummary(runtime.getSettings())
+    };
     return json(response, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 400 });

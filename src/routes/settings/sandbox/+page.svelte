@@ -369,7 +369,7 @@
     message = "";
     error = "";
     try {
-      const res = await fetch("/api/settings/dynamic/sandbox");
+      const res = await fetch("/api/settings/sandbox");
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Failed to load settings");
       sandbox = { ...structuredClone(defaultSandbox), ...(data.value ?? {}) };
@@ -391,7 +391,7 @@
     error = "";
     try {
       const next = buildPatch();
-      const res = await fetch("/api/settings/dynamic/sandbox", {
+      const res = await fetch("/api/settings/sandbox", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: next })

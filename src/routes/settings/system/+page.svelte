@@ -245,15 +245,15 @@
       selectedLocale = $locale;
 
       const [settingsResponse, versionResponse] = await Promise.all([
-        fetch("/api/settings"),
+        fetch("/api/settings/system"),
         fetch("/api/version")
       ]);
       const settingsPayload = await settingsResponse.json();
       const versionPayload = await versionResponse.json();
-      if (!settingsResponse.ok || !settingsPayload?.ok || !settingsPayload?.settings) {
+      if (!settingsResponse.ok || !settingsPayload?.ok) {
         throw new Error(settingsPayload?.error || copy.failedLoad);
       }
-      const settings = settingsPayload.settings as RuntimeSettings;
+      const settings = settingsPayload as RuntimeSettings;
       selectedLocale = settings.locale || selectedLocale;
       setLocale(selectedLocale);
       timezone = settings.timezone || timezone;
@@ -298,7 +298,7 @@
     status = "";
     statusVariant = "default";
     try {
-      const response = await fetch("/api/settings", {
+      const response = await fetch("/api/settings/system", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
