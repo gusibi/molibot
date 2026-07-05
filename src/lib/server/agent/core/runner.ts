@@ -115,6 +115,10 @@ type PendingToolSignalContext = {
   command?: string;
 };
 
+export function resolveSessionWorkingDir(project: MomContext["project"], scratchDir: string): string {
+  return project?.rootPath ?? scratchDir;
+}
+
 export class MomRunner implements RunnerLike {
   private readonly agent: Agent;
   private running = false;
@@ -122,6 +126,11 @@ export class MomRunner implements RunnerLike {
   private selectedMcpServerIds = new Set<string>();
   private promptRefreshKey = "";
   private systemPromptReady = false;
+  private activeProject: MomContext["project"] | undefined;
+
+  private currentWorkingDir(): string {
+    return resolveSessionWorkingDir(this.activeProject, this.store.getScratchDir(this.chatId));
+  }
   private activeRunnerEventSink: NonNullable<MomContext["onRunnerEvent"]> | undefined;
   private activeRunBudget: RunBudget | undefined;
   private activePayloadContext:
@@ -290,7 +299,7 @@ export class MomRunner implements RunnerLike {
         }
 
         const blockedReason = validateToolCallPreflight(context, {
-          cwd: this.store.getScratchDir(this.chatId),
+          cwd: this.currentWorkingDir(),
           workspaceDir: this.store.getWorkspaceDir()
         });
         const budgetResult = this.activeRunBudget?.tryStartTool() ?? { ok: true };
@@ -539,6 +548,7 @@ export class MomRunner implements RunnerLike {
   }
 
   async run(ctx: MomContext): Promise<RunResult> {
+    this.activeProject = ctx.project;
     const messageWithRun = ctx.message as ChannelInboundMessage & { runId?: string };
     let runId = messageWithRun.runId;
     let workspaceId = messageWithRun.workspaceId;
@@ -744,7 +754,8 @@ export class MomRunner implements RunnerLike {
     const runPromptKey = JSON.stringify({
       base: nextPromptKey,
       memory: memorySnapshot.fingerprint,
-      query: memorySnapshot.query
+      query: memorySnapshot.query,
+      project: ctx.project ? [ctx.project.id, ctx.project.rootPath, ctx.project.instructions ?? ""] : null
     });
     if (!this.systemPromptReady || this.promptRefreshKey !== runPromptKey) {
       const memoryText = memorySnapshot.promptText || "(no working memory yet)";
@@ -756,7 +767,8 @@ export class MomRunner implements RunnerLike {
         {
           channel: this.channel as "telegram" | "feishu" | "qq" | "weixin" | "web",
           timezone: settings.timezone,
-          settings
+          settings,
+          project: ctx.project
         },
       );
       if (this.activeHookContext) {
@@ -865,7 +877,7 @@ export class MomRunner implements RunnerLike {
     };
     localTools = createMomTools({
       channel: ctx.channel,
-      cwd: this.store.getScratchDir(this.chatId),
+      cwd: this.currentWorkingDir(),
       workspaceDir: this.store.getWorkspaceDir(),
       chatId: this.chatId,
       sessionId: this.sessionId,
@@ -2038,7 +2050,7 @@ export class MomRunner implements RunnerLike {
           toolNames: usedToolNames,
           templateSkillPath
         }, {
-          cwd: this.store.getScratchDir(this.chatId),
+          cwd: this.currentWorkingDir(),
           workspaceDir: this.store.getWorkspaceDir(),
           chatId: this.chatId,
           settings
@@ -2185,6 +2197,7 @@ export class MomRunner implements RunnerLike {
       this.activeRunLoadedSkills.clear();
       this.pendingToolSignals.clear();
       this.activeSkillLoadSeq = 0;
+      this.activeProject = undefined;
       this.abortRequested = false;
       this.running = false;
     }
@@ -2195,7 +2208,7 @@ export class MomRunner implements RunnerLike {
     const rawPath = (context.args as { path?: unknown } | undefined)?.path;
     if (typeof rawPath !== "string" || !rawPath.trim()) return;
     try {
-      const resolvedPath = resolveToolPath(this.store.getScratchDir(this.chatId), rawPath);
+      const resolvedPath = resolveToolPath(this.currentWorkingDir(), rawPath);
       this.pendingReadPaths.set(context.toolCall.id, resolvedPath);
     } catch {
       // Skill tracking must never change tool execution behavior.

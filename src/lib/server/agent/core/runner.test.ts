@@ -6,7 +6,7 @@ import test from "node:test";
 import { applyAssistantStreamEvent } from "$lib/server/agent/core/assistantStream.js";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
 import type { RuntimeSettings } from "$lib/server/settings/schema.js";
-import { MomRunner } from "$lib/server/agent/core/runner.js";
+import { MomRunner, resolveSessionWorkingDir } from "$lib/server/agent/core/runner.js";
 import { resolveModelSelection } from "$lib/server/agent/routing/modelRouting.js";
 import { decideVisionRouting } from "$lib/server/agent/routing/mediaFallback.js";
 
@@ -40,6 +40,16 @@ function createRunnerTestSettings(): RuntimeSettings {
     ]
   };
 }
+
+test("resolveSessionWorkingDir uses project root only for project runs", () => {
+  assert.equal(resolveSessionWorkingDir(undefined, "/tmp/scratch"), "/tmp/scratch");
+  assert.equal(resolveSessionWorkingDir({
+    id: "wiki",
+    name: "Wiki",
+    rootPath: "/tmp/wiki",
+    scratchDir: "/tmp/scratch"
+  }, "/tmp/scratch"), "/tmp/wiki");
+});
 
 function createRunnerTestMemory() {
   return {

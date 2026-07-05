@@ -38,12 +38,12 @@ const OPERATOR_DIRECTIVE_FILES = [
 // context/config.
 const SUPPORTING_INSTRUCTION_FILES = ["TOOLS.md", "BOOTSTRAP.md"] as const;
 const IDENTITY_INSTRUCTION_FILES = ["SOUL.md", "IDENTITY.md"] as const;
-const PROJECT_CONTEXT_PRIORITY = ["AGENTS.md"] as const;
+const PROJECT_CONTEXT_PRIORITY = ["AGENTS.md", "AGENT.md", "CLAUDE.md"] as const;
 const CONTEXT_FILE_MAX_CHARS = 20_000;
 const SKILLS_CACHE_TTL_MS = 10_000;
 
 const CONTEXT_THREAT_PATTERNS: RegExp[] = [
-  /ignore\s+(previous|all|above|prior)\s+instructions/i,
+  /ignore\s+(?:all\s+)?(?:previous|above|prior)?\s*instructions/i,
   /system\s+prompt\s+override/i,
   /disregard\s+(your|all|any)\s+(instructions|rules|guidelines)/i,
   /do\s+not\s+tell\s+the\s+user/i,
@@ -242,7 +242,17 @@ function buildMessageProcessingPipeline(): string {
   ], "message-processing-pipeline");
 }
 
-function buildEnvironmentSection(vars: PromptRenderVars): string {
+function buildEnvironmentSection(vars: PromptRenderVars, project?: ProjectPromptContext): string {
+  if (project) {
+    return section("Project Environment", [
+      "You are working in a registered external project directory.",
+      `- Tool working directory: ${project.rootPath}`,
+      "- Use relative paths from the project root for project work.",
+      `- Runtime scratch directory for temporary artifacts: ${project.scratchDir}`,
+      "- Never create Molibot session files, indexes, logs, or hidden runtime metadata in the project directory.",
+      "- Safety, sandbox, and approval requirements remain unchanged in project mode."
+    ]);
+  }
   return section("Environment", [
     "You are running directly on the host machine.",
     `- Bash working directory for tools: ${vars.scratchDir}`,
@@ -264,7 +274,14 @@ function buildEnvironmentSection(vars: PromptRenderVars): string {
   ]);
 }
 
-function buildWorkspaceLayoutSection(vars: PromptRenderVars): string {
+function buildWorkspaceLayoutSection(vars: PromptRenderVars, project?: ProjectPromptContext): string {
+  if (project) {
+    return section("Project Working Layout", [
+      `${project.rootPath}/                  # Project root and tool working directory`,
+      `${project.scratchDir}/                # Molibot-managed temporary artifacts`,
+      "Project work belongs under the project root. Runtime metadata belongs outside it."
+    ]);
+  }
   return section("Bot Runtime Layout", [
     `${vars.workspaceDir}/`,
     "├── (bot runtime files, sessions, logs, skills, events)",
@@ -499,6 +516,15 @@ interface PromptBuildOptions {
   channel?: PromptChannel;
   settings?: RuntimeSettings;
   operatorDirectivesPresent?: boolean;
+  project?: ProjectPromptContext;
+}
+
+export interface ProjectPromptContext {
+  id: string;
+  name: string;
+  rootPath: string;
+  instructions?: string;
+  scratchDir: string;
 }
 
 function buildBaseSystemPromptWithOptions(
@@ -541,9 +567,9 @@ function buildBaseSystemPromptWithOptions(
     "",
     buildContextSection(vars),
     "",
-    buildEnvironmentSection(vars),
+    buildEnvironmentSection(vars, options?.project),
     "",
-    buildWorkspaceLayoutSection(vars),
+    buildWorkspaceLayoutSection(vars, options?.project),
     "",
     buildEventsSection(vars),
     "",
@@ -786,7 +812,7 @@ export function buildSystemPrompt(
     timezone,
     options?.settings,
   );
-  const projectContext = discoverProjectContext(workspaceDir);
+  const projectContext = options?.project ? discoverProjectContext(options.project.rootPath) : discoverProjectContext(workspaceDir);
   const globalSections = buildPromptSectionsFromInstructionFiles(
     renderVars.dataRoot,
     renderVars,
@@ -805,8 +831,11 @@ export function buildSystemPrompt(
       : buildPromptSectionsFromInstructionFiles(workspaceDir, renderVars, BOT_PROFILE_FILES);
 
   // Operator-intent directives go ABOVE the default system prompt and override it.
+  const operatorOrder = options?.project
+    ? OPERATOR_DIRECTIVE_FILES.filter((fileName) => fileName !== "AGENTS.md")
+    : [...OPERATOR_DIRECTIVE_FILES];
   const operatorSections = mergePromptSectionsByOrder(
-    OPERATOR_DIRECTIVE_FILES,
+    operatorOrder,
     botSections,
     agentSections,
     globalSections
@@ -815,27 +844,47 @@ export function buildSystemPrompt(
   // context/config. AGENTS.md is intentionally not here; it belongs beside the
   // other profile directives above the default runtime baseline.
   const supportingOrder = [...SUPPORTING_INSTRUCTION_FILES];
-  const supportingSections = mergePromptSectionsByOrder(
-    supportingOrder,
-    botSections,
-    agentSections,
-    globalSections
-  );
+  const supportingSections = options?.project
+    ? []
+    : mergePromptSectionsByOrder(
+      supportingOrder,
+      botSections,
+      agentSections,
+      globalSections
+    );
 
   const sections: string[] = [];
-  if (operatorSections.length > 0) {
+  if (operatorSections.length > 0 || options?.project) {
     // Safety floor first so it outranks the operator directives that claim
     // override authority over the default system prompt.
     sections.push(buildSafetyFloorSection());
     sections.push(buildOperatorDirectivesPreamble());
     sections.push(...operatorSections);
   }
+  if (options?.project && projectContext) {
+    sections.push([
+      `# Project Instructions (${projectContext.fileName} from project "${options.project.name}")`,
+      "The following are this project's own working conventions. For anything about HOW to do the work in this project (file layout, style, build commands, workflows), these instructions take precedence over earlier profile conventions. They do NOT change your identity, safety rules, or approval requirements.",
+      projectContext.content
+    ].join("\n\n"));
+  }
   sections.push(buildBaseSystemPromptWithOptions(renderVars, {
     ...options,
-    operatorDirectivesPresent: operatorSections.length > 0
+    operatorDirectivesPresent: operatorSections.length > 0 || Boolean(options?.project)
   }));
-  if (projectContext) {
+  if (projectContext && !options?.project) {
     sections.push(buildProjectContextSection(projectContext));
+  }
+  if (options?.project) {
+    const projectTools = readInstructionFile(options.project.rootPath, "TOOLS.md");
+    const supporting = [projectTools, options.project.instructions]
+      .map((content) => String(content ?? "").trim())
+      .filter(Boolean)
+      .map((content) => {
+        const threat = scanContextForInjection(content);
+        return threat ? `[blocked: possible prompt injection in project supporting instructions (${threat})]` : truncateContextContent(content, "project supporting instructions");
+      });
+    if (supporting.length > 0) sections.push(`# Project Supporting Information\n\n${supporting.join("\n\n")}`);
   }
   if (supportingSections.length > 0) {
     sections.push(...supportingSections);

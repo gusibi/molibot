@@ -119,6 +119,13 @@ export interface MomContext {
   message: ChannelInboundMessage;
   workspaceDir: string;
   chatDir: string;
+  project?: {
+    id: string;
+    name: string;
+    rootPath: string;
+    instructions?: string;
+    scratchDir: string;
+  };
   thinkingLevelOverride?: RuntimeThinkingLevel;
   respond: (text: string, shouldLog?: boolean) => Promise<void>;
   replaceMessage: (text: string) => Promise<void>;

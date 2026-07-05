@@ -121,3 +121,46 @@ test("listExternalSessions hides automation conversations from ordinary session 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("project conversations use isolated project storage and remain outside Web lists", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-project-sessions-"));
+  const original = {
+    projectsDir: storagePaths.projectsDir,
+    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    sessionsDir: storagePaths.sessionsDir,
+    sessionsIndexFile: storagePaths.sessionsIndexFile
+  };
+  try {
+    storagePaths.projectsDir = path.join(root, "projects");
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    const store = new SessionStore();
+    const owner = "web:personal:user";
+    const project = store.getOrCreateConversation("web", owner, undefined, { projectId: "wiki" });
+    store.appendMessage(project.id, "user", "Project hello");
+    const ordinary = store.createWebConversation(owner);
+    store.appendMessage(ordinary.id, "user", "Web hello");
+
+    assert.equal(existsSync(path.join(root, "projects", "wiki", "sessions", `${project.id}.json`)), true);
+    assert.deepEqual(store.listProjectConversations("wiki").map((item) => item.id), [project.id]);
+    assert.deepEqual(store.listConversations("web", owner).map((item) => item.id), [ordinary.id]);
+    assert.equal(store.listMessages(project.id)[0]?.content, "Project hello");
+
+    const escaped = store.createProjectConversation("../evil", owner);
+    assert.equal(existsSync(path.join(root, "projects", ".._evil", "sessions", `${escaped.id}.json`)), true);
+    assert.equal(existsSync(path.join(root, "evil", "sessions", `${escaped.id}.json`)), false);
+
+    const renamed = store.renameProjectConversation("wiki", project.id, "My project chat");
+    assert.equal(renamed?.title, "My project chat");
+    assert.equal(store.getProjectConversation("wiki", project.id)?.title, "My project chat");
+    assert.equal(store.renameProjectConversation("wiki", "missing", "x"), null);
+
+    assert.equal(store.deleteProjectConversation("wiki", project.id), true);
+    assert.equal(store.getProjectConversation("wiki", project.id), null);
+    assert.equal(store.deleteProjectConversation("wiki", project.id), false);
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -674,6 +674,8 @@ See `.env.example` for full list and detailed descriptions.
 
 ## Docs
 
+The macOS app includes a Projects workspace for selecting external working directories with the native folder picker and keeping conversations directly under each project in a unified sidebar. Selecting a session shows its conversation in the full detail pane. Project conversations reuse the same live Chat runtime and composer while Agents work directly with project files; Molibot session metadata remains isolated in its own data directory and Desktop permits these APIs only through configured loopback service endpoints.
+
 ### Core Documentation
 
 | File | Role |

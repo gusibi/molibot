@@ -7,6 +7,9 @@ name: Desktop Release
 on:
   push:
     tags:
+      # Release tags (bin/molibot-release convention, e.g. v2.2.5) and the legacy
+      # desktop-only tag both build and publish the DMG.
+      - "v*"
       - "molibot-v*"
   workflow_dispatch:
     # Build-only smoke (no release). Use to verify the DMG pipeline on a real macOS runner without publishing.
@@ -33,14 +36,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      # corepack must enable pnpm BEFORE setup-node, otherwise `cache: pnpm`
+      # cannot resolve the pnpm binary to compute the store path and the step fails.
+      - name: Enable pnpm (corepack)
+        run: corepack enable
+
       - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: pnpm
-
-      - name: Enable pnpm
-        run: corepack enable
 
       - name: Setup Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -118,7 +123,7 @@ jobs:
             ${{ steps.manifest.outputs.manifest_path }}
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/molibot-v')
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}

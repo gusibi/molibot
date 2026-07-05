@@ -5,7 +5,6 @@
     DesktopAgentItem,
     DesktopChannelsSummary,
     DesktopApprovalDecision,
-    DesktopApprovalPrompt,
     DesktopConversationMessage,
     DesktopExternalSessionsSummary,
     DesktopExternalTranscript,
@@ -22,7 +21,6 @@
   } from "@molibot/desktop-contract";
   import type { Translation } from "./lib/i18n";
   import {
-    addToFollowUpQueue,
     buildOnboardingHealthCheck,
     classifyFirstLaunch,
     createDesktopProvider,
@@ -46,26 +44,17 @@
     loadDesktopRuntimeEnv,
     loadDesktopSession,
     loadDesktopWebProfiles,
-    nextFollowUp,
     ONBOARDING_STEPS,
-    parseDesktopActivity,
-    reduceDesktopActivities,
-    parseDesktopApproval,
     patchDesktopWebProfile,
     renameDesktopSession,
     resolveOnboardingAgentSelection,
     resolveOnboardingRepairTarget,
     resolveOnboardingStartStep,
-    resolveDesktopHostBash,
-    sendDesktopChatWithFiles,
-    stopDesktopChat,
     summarizeDesktopReadiness,
     summarizeOnboardingChannels,
     summarizeOnboardingDiagnostics,
     switchDesktopModel,
-    streamDesktopChat,
     testDesktopProvider,
-    type DesktopActivityEntry,
     type OnboardingChannelsView,
     type OnboardingDiagnostics,
     type DesktopFileFilter,
@@ -76,11 +65,12 @@
     type ChannelNavBot,
     validateProviderDraft
   } from "./lib/api";
-  import { renderMarkdown } from "./lib/markdown";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
   import ConversationTranscript from "./lib/chat/ConversationTranscript.svelte";
   import type { TranscriptAttachmentActions } from "./lib/chat/transcript";
-  import RunActivity from "./lib/chat/RunActivity.svelte";
+  import ConversationLiveView from "./lib/chat/ConversationLiveView.svelte";
+  import ChatComposerShell from "./lib/chat/ChatComposerShell.svelte";
+  import { createConversationController } from "./lib/chat/conversationController.svelte";
   import { shouldReuseFreshSession, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
 
   export let copy: Translation;
@@ -90,6 +80,7 @@
   export let launchAtLoginBusy: boolean;
   export let setLaunchAtLogin: (enabled: boolean) => Promise<boolean>;
   export let openSettings: (section?: string) => void;
+  export let openProjects: () => void;
 
   type UiMessage = DesktopConversationMessage & { thinking?: string };
 
@@ -104,27 +95,72 @@
   let activeSessionId = "";
   let connectedEndpoint = "";
   let loading = false;
-  let sending = false;
   let error = "";
-  let activity = "";
   let messageInput = "";
   let pendingFiles: File[] = [];
-  let queuedMessages: string[] = [];
   let fileInput: HTMLInputElement;
-  let streamingText = "";
-  let streamingThinking = "";
-  let activityEntries: DesktopActivityEntry[] = [];
-  let pendingApproval: DesktopApprovalPrompt | null = null;
   let thinkingLevel: DesktopThinkingLevel = "medium";
   let modelOptions: DesktopModelOption[] = [];
   let activeModelKey = "";
   let changingModel = false;
   let messagesElement: HTMLDivElement;
-  let sendAbortController: AbortController | null = null;
   let connectionGeneration = 0;
+
+  // The chat turn engine is shared with the project chat surface; ChatView keeps
+  // its rich composer (files, model, thinking) and feeds session state in.
+  const chat = createConversationController({
+    endpoint: () => connectedEndpoint,
+    profileId: () => activeProfileId,
+    sessionId: () => activeSessionId,
+    thinkingLevel: () => thinkingLevel,
+    canSend: () => Boolean(activeProfileId) && modelReady,
+    labels: () => ({
+      working: copy.working,
+      uploading: copy.uploading,
+      stopped: copy.stopped,
+      idle: copy.idle,
+      resuming: copy.resuming
+    }),
+    getMessages: () => messages,
+    appendUserMessage: (content, files) => {
+      messages = [...messages, {
+        id: `pending-${Date.now()}`,
+        conversationId: activeSessionId,
+        role: "user",
+        content,
+        createdAt: new Date().toISOString(),
+        attachments: files.length > 0
+          ? files.map((file) => ({
+              original: file.name,
+              local: "",
+              mediaType: inferAttachmentKind(file),
+              mimeType: file.type || undefined,
+              size: file.size
+            }))
+          : undefined
+      }];
+    },
+    reload: (sessionId) => selectSession(sessionId),
+    refreshSessions: () => refreshSessions(),
+    clearComposer: () => { messageInput = ""; pendingFiles = []; },
+    afterMutate: () => void scrollToBottom(),
+    setError: (message) => (error = message),
+    clearError: () => (error = "")
+  });
+
+  // Read-only aliases so the existing template keeps referencing bare names while
+  // the controller owns the source of truth for turn state.
+  $: sending = chat.sending;
+  $: activity = chat.activity;
+  $: streamingText = chat.streamingText;
+  $: streamingThinking = chat.streamingThinking;
+  $: activityEntries = chat.activities;
+  $: pendingApproval = chat.pendingApproval;
+  $: queuedMessages = chat.queue;
   let editingSessionId = "";
   let editingSessionTitle = "";
   let deleteConfirmId = "";
+  let deleteAnchor = { top: 0, left: 0, width: 0 };
   let sessionFilterQuery = "";
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
   const SIDEBAR_MIN = 220;
@@ -368,8 +404,8 @@
     messages = [];
     activeSessionId = "";
     sessionFiles = [];
-    pendingApproval = null;
-    queuedMessages = [];
+    chat.clearTurn();
+    chat.clearQueue();
     channelSummary = null;
     externalSessions = null;
     activeChannel = "web";
@@ -506,12 +542,9 @@
     messages = detail.messages
       .filter((message) => message.role === "user" || message.role === "assistant")
       .map((message) => ({ ...message }));
-    streamingText = "";
-    streamingThinking = "";
-    activityEntries = [];
-    pendingApproval = null;
+    chat.clearTurn();
     if (switching) {
-      queuedMessages = [];
+      chat.clearQueue();
       searchQuery = "";
       searchIndex = 0;
     }
@@ -1052,142 +1085,46 @@
     }
   }
 
-  async function removeSession(session: DesktopSessionSummary): Promise<void> {
-    if (!connectedEndpoint || sending) return;
-    if (deleteConfirmId !== session.id) {
-      deleteConfirmId = session.id;
-      cancelRename();
-      return;
+  function requestDelete(session: DesktopSessionSummary, event: MouseEvent): void {
+    if (sending) return;
+    deleteConfirmId = session.id;
+    cancelRename();
+    const row = (event.currentTarget as HTMLElement).closest(".conversation-row") as HTMLElement | null;
+    if (row) {
+      const rect = row.getBoundingClientRect();
+      deleteAnchor = { top: rect.top, left: rect.left, width: rect.width };
     }
+  }
+
+  function cancelDelete(): void {
+    deleteConfirmId = "";
+  }
+
+  async function confirmDeleteSession(session: DesktopSessionSummary): Promise<void> {
+    if (!connectedEndpoint || sending) return;
+    const targetId = session.id;
     try {
-      await deleteDesktopSession(connectedEndpoint, activeProfileId, session.id);
-      sessions = sessions.filter((item) => item.id !== session.id);
-      if (activeSessionId === session.id) {
+      await deleteDesktopSession(connectedEndpoint, activeProfileId, targetId);
+      sessions = sessions.filter((item) => item.id !== targetId);
+      deleteConfirmId = "";
+      if (activeSessionId === targetId) {
         if (sessions.length === 0) {
           const created = await createDesktopSession(connectedEndpoint, activeProfileId);
           sessions = [created];
         }
         await selectSession(sessions[0].id);
       }
-      deleteConfirmId = "";
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     }
   }
 
   async function sendMessage(): Promise<void> {
-    const content = messageInput.trim();
-    const outgoingFiles = pendingFiles;
-    const hasFiles = outgoingFiles.length > 0;
-    if (!connectedEndpoint || !activeProfileId || !activeSessionId || sending || !modelReady) return;
-    if (!content && !hasFiles) return;
-
-    sending = true;
-    error = "";
-    activity = hasFiles ? copy.uploading : copy.working;
-    streamingText = "";
-    streamingThinking = "";
-    activityEntries = [];
-    pendingApproval = null;
-    messageInput = "";
-    pendingFiles = [];
-    messages = [...messages, {
-      id: `pending-${Date.now()}`,
-      conversationId: activeSessionId,
-      role: "user",
-      content,
-      createdAt: new Date().toISOString(),
-      attachments: hasFiles
-        ? outgoingFiles.map((file) => ({
-            original: file.name,
-            local: "",
-            mediaType: inferAttachmentKind(file),
-            mimeType: file.type || undefined,
-            size: file.size
-          }))
-        : undefined
-    }];
-    await scrollToBottom();
-
-    if (hasFiles) {
-      sendAbortController = new AbortController();
-      try {
-        await sendDesktopChatWithFiles(connectedEndpoint, {
-          profileId: activeProfileId,
-          sessionId: activeSessionId,
-          message: content,
-          thinkingLevel,
-          files: outgoingFiles
-        }, sendAbortController.signal);
-        await refreshSessions();
-        await selectSession(activeSessionId);
-        activity = "";
-      } catch (cause) {
-        if (!(cause instanceof DOMException && cause.name === "AbortError")) {
-          error = cause instanceof Error ? cause.message : String(cause);
-        }
-        await selectSession(activeSessionId).catch(() => undefined);
-      } finally {
-        sending = false;
-        sendAbortController = null;
-      }
-      drainQueue();
-      return;
-    }
-
-    sendAbortController = new AbortController();
-    try {
-      await streamDesktopChat(
-        connectedEndpoint,
-        {
-          profileId: activeProfileId,
-          sessionId: activeSessionId,
-          message: content,
-          thinkingLevel
-        },
-        async (event, data) => {
-          if (event === "token") streamingText += String(data.delta ?? "");
-          if (event === "replace") streamingText = String(data.text ?? "");
-          if (event === "thinking_delta") streamingThinking += String(data.delta ?? "");
-          if (event === "status") activity = String(data.text ?? copy.working);
-          if (event === "runner_event") activity = String(data.diagnostic ?? copy.working);
-          const step = parseDesktopActivity(event, data);
-          if (step) activityEntries = reduceDesktopActivities(activityEntries, step);
-          if (event === "host_bash_approval") pendingApproval = parseDesktopApproval(data);
-          if (event === "done") {
-            streamingText = String(data.response ?? streamingText);
-            streamingThinking = String(data.thinkingText ?? streamingThinking);
-          }
-          if (event === "error") throw new Error(String(data.error ?? "Stream failed"));
-          await scrollToBottom();
-        },
-        sendAbortController.signal
-      );
-      await refreshSessions();
-      await selectSession(activeSessionId);
-      activity = "";
-    } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError")) {
-        error = cause instanceof Error ? cause.message : String(cause);
-      }
-      await selectSession(activeSessionId).catch(() => undefined);
-    } finally {
-      sending = false;
-      sendAbortController = null;
-    }
-    drainQueue();
+    await chat.send({ message: messageInput, files: pendingFiles });
   }
 
   async function stopRun(): Promise<void> {
-    if (!connectedEndpoint || !activeSessionId || !sending) return;
-    queuedMessages = [];
-    sendAbortController?.abort();
-    try {
-      const stopped = await stopDesktopChat(connectedEndpoint, activeProfileId, activeSessionId);
-      activity = stopped ? copy.stopped : copy.idle;
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-    }
+    await chat.stop();
   }
 
   function approvalOptionLabel(option: { id: string; label: string }): string {
@@ -1199,32 +1136,7 @@
   }
 
   async function resolveApproval(decision: DesktopApprovalDecision): Promise<void> {
-    if (!connectedEndpoint || !pendingApproval || sending) return;
-    const requestId = pendingApproval.requestId;
-    const sessionId = activeSessionId;
-    pendingApproval = null;
-    sending = true;
-    error = "";
-    activity = copy.resuming;
-    try {
-      await resolveDesktopHostBash(connectedEndpoint, activeProfileId, sessionId, requestId, decision);
-      // The approved command runs and the original turn resumes in the background,
-      // appending its answer asynchronously; poll the transcript until it lands.
-      const before = messages.filter((message) => message.role === "assistant").length;
-      for (let attempt = 0; attempt < 15; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        if (sessionId !== activeSessionId) return;
-        await selectSession(sessionId);
-        const after = messages.filter((message) => message.role === "assistant").length;
-        if (decision === "reject" || after > before) break;
-      }
-      await refreshSessions();
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-    } finally {
-      sending = false;
-      activity = "";
-    }
+    await chat.resolveApproval(decision);
   }
 
   async function changeModel(event: Event): Promise<void> {
@@ -1254,25 +1166,11 @@
   }
 
   function queueFollowUp(): void {
-    const next = addToFollowUpQueue(queuedMessages, messageInput);
-    if (next !== queuedMessages) {
-      queuedMessages = next;
-      messageInput = "";
-    }
+    if (chat.enqueue(messageInput)) messageInput = "";
   }
 
   function removeQueued(index: number): void {
-    queuedMessages = queuedMessages.filter((_, position) => position !== index);
-  }
-
-  function drainQueue(): void {
-    if (sending || queuedMessages.length === 0) return;
-    const { next, rest } = nextFollowUp(queuedMessages);
-    queuedMessages = rest;
-    if (next) {
-      messageInput = next;
-      void sendMessage();
-    }
+    chat.removeQueued(index);
   }
 
   function formatTime(value: string): string {
@@ -1450,7 +1348,7 @@
 
   onDestroy(() => {
     connectionGeneration += 1;
-    sendAbortController?.abort();
+    chat.dispose();
     stopRecordingTimer();
     if (recording && isTauriRuntime()) {
       void invoke("cancel_recording").catch(() => { /* ignore */ });
@@ -1481,6 +1379,10 @@
       <button class:active={workspacePane === "chat"} class="nav-item" type="button" disabled={!activeProfileId || sending} onclick={() => void createSession()}>
         <i class="ph ph-plus-circle" aria-hidden="true"></i>
         <span>{copy.newChat}</span>
+      </button>
+      <button class="nav-item" type="button" onclick={openProjects}>
+        <i class="ph ph-folders" aria-hidden="true"></i>
+        <span>{copy.projects}</span>
       </button>
       <button class:active={workspacePane === "automations"} class="nav-item" type="button" onclick={() => openWorkspacePane("automations")}>
         <i class="ph ph-clock-countdown" aria-hidden="true"></i>
@@ -1517,7 +1419,6 @@
           {@const isActiveBot = bot.key === activeBotKey}
           <div class="conv-group">
             <button class="conv-group-head" class:open={isActiveBot} type="button" aria-expanded={isActiveBot} onclick={() => selectBot(bot)}>
-              <i class="ph-bold ph-caret-down conv-caret" class:open={isActiveBot} aria-hidden="true"></i>
               <span class="conv-group-tile" style={`background:${channelColor(bot.channel)}`} aria-hidden="true"><i class="ph-fill ph-robot"></i></span>
               <span class="conv-group-label">{bot.name || copy.externalInstanceUnknown}</span>
               <span class="conv-group-tail">
@@ -1526,6 +1427,7 @@
                 {/if}
                 {#if bot.count !== null}<span class="conv-group-count">{bot.count}</span>{/if}
               </span>
+              <i class="ph-bold ph-caret-down conv-caret" class:open={isActiveBot} aria-hidden="true"></i>
             </button>
 
             {#if isActiveBot}
@@ -1550,7 +1452,6 @@
                           void selectSession(session.id);
                         }}
                       >
-                        <span class="conversation-tile" style={`--tile-color:${channelColor("web")}`}><i class="ph-fill ph-chat-circle-dots" aria-hidden="true"></i></span>
                         <span class="conversation-text">
                           <strong>{session.title}</strong>
                           <small>{formatSessionTime(session.updatedAt)}</small>
@@ -1558,15 +1459,19 @@
                       </button>
                       <div class="conversation-actions">
                         <button type="button" aria-label={copy.rename} title={copy.rename} onclick={() => beginRename(session)}><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
-                        <button type="button" class="danger-action" aria-label={copy.delete} title={copy.delete} onclick={() => removeSession(session)}>
+                        <button type="button" class="danger-action" aria-label={copy.delete} title={copy.delete} onclick={(event) => requestDelete(session, event)}>
                           <i class="ph ph-trash" aria-hidden="true"></i>
                         </button>
-                        {#if deleteConfirmId === session.id}
-                          <button type="button" class="confirm-delete" onclick={() => deleteConfirmId = ""}>{copy.cancel}</button>
-                        {/if}
                       </div>
                       {#if deleteConfirmId === session.id}
-                        <span class="confirm-delete-banner">{copy.confirmDelete}</span>
+                        <div class="conversation-popover" role="alertdialog" aria-modal="false" aria-label={copy.deleteConversationTitle} style={`position:fixed;top:${deleteAnchor.top - 8}px;left:${deleteAnchor.left}px;width:${Math.max(deleteAnchor.width, 220)}px;transform:translateY(-100%);`}>
+                          <strong>{copy.deleteConversationTitle}</strong>
+                          <p>{copy.deleteConversationHint}</p>
+                          <div class="conversation-popover-actions">
+                            <button class="secondary-button" type="button" onclick={cancelDelete}>{copy.cancel}</button>
+                            <button class="secondary-button danger-action" type="button" onclick={() => void confirmDeleteSession(session)}>{copy.delete}</button>
+                          </div>
+                        </div>
                       {/if}
                     {/if}
                   </div>
@@ -1589,7 +1494,6 @@
                       title={session.title}
                       onclick={() => void openExternalTranscript(session.id)}
                     >
-                      <span class="conversation-tile" style={`--tile-color:${channelColor(session.channel)}`}><i class={`ph-fill ph-${channelIcon(session.channel)}`} aria-hidden="true"></i></span>
                       <span class="conversation-text">
                         <strong>{session.title}</strong>
                         <small>{formatSessionTime(session.updatedAt)}</small>
@@ -1746,37 +1650,22 @@
             <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} />
           {/if}
         {:else}
-          {#if messages.length === 0 && !streamingText}
-            <div class="conversation-empty">
-              <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" /></div>
-              <h2>{copy.emptyChatTitle}</h2>
-              <p>{copy.emptyChatHint}</p>
-            </div>
-          {/if}
-          <ConversationTranscript
+          <ConversationLiveView
             {messages}
             {copy}
             formatTime={formatSessionTime}
+            {sending}
+            {streamingText}
+            {streamingThinking}
+            {activity}
+            activities={activityEntries}
+            emptyTitle={copy.emptyChatTitle}
+            emptyHint={copy.emptyChatHint}
             {searchMatchIds}
             {activeMatchId}
             showReadReceipt={true}
             attachmentActions={transcriptAttachmentActions}
           />
-        {#if sending}
-          <article class="message-row assistant streaming-message">
-            <div class="message-avatar" aria-hidden="true">M</div>
-            <div class="message-stack">
-              <div class="message-status"><span>{activity || copy.working}</span></div>
-              {#if activityEntries.length > 0}
-                <RunActivity activities={activityEntries} {copy} live={true} />
-              {/if}
-              {#if streamingThinking}
-                <details class="thinking-card" open><summary>{copy.thinking}</summary><pre>{streamingThinking}</pre></details>
-              {/if}
-              <div class="message-bubble markdown-body">{@html renderMarkdown(streamingText || activity || copy.working)}</div>
-            </div>
-          </article>
-        {/if}
         {#if pendingApproval}
           <div class="approval-card" role="alertdialog" aria-label={copy.approvalTitle}>
             <strong class="approval-title">⚠️ {copy.approvalTitle}</strong>
@@ -1851,7 +1740,17 @@
               {/each}
             </div>
           {/if}
-          <div class="composer">
+          <ChatComposerShell
+            bind:value={messageInput}
+            {copy}
+            {sending}
+            disabled={!activeSessionId || !modelReady}
+            canSend={Boolean(messageInput.trim() || pendingFiles.length > 0)}
+            placeholder={sending ? copy.queueHint : copy.enterHint}
+            onSend={sendMessage}
+            onStop={stopRun}
+            onKeydown={handleComposerKeydown}
+          >
             <input
               bind:this={fileInput}
               type="file"
@@ -1859,13 +1758,6 @@
               hidden
               onchange={onFilesPicked}
             />
-            <textarea
-              bind:value={messageInput}
-              rows="1"
-              placeholder={sending ? copy.queueHint : copy.enterHint}
-              disabled={!activeSessionId || !modelReady}
-              onkeydown={handleComposerKeydown}
-            ></textarea>
             {#if recording}
               <div class="recording-bar" role="status" aria-live="polite">
                 <span class="recording-indicator" aria-hidden="true"></span>
@@ -1875,8 +1767,7 @@
                 <button type="button" class="recording-action primary" onclick={() => finishRecording(true)}>{copy.finishRecording}</button>
               </div>
             {/if}
-            <div class="composer-bar">
-              <div class="composer-tools">
+              <div class="composer-tools" slot="tools">
                 <button
                   class="composer-tool"
                   type="button"
@@ -1904,7 +1795,7 @@
                   onclick={toggleRecording}
                 ><i class="ph ph-microphone" aria-hidden="true"></i></button>
               </div>
-              <div class="composer-selectors">
+              <div class="composer-selectors" slot="selectors">
                 <label class="composer-pill">
                   <i class="ph ph-cpu" aria-hidden="true"></i>
                   <span class="composer-pill-label">{copy.model}</span>
@@ -1927,17 +1818,7 @@
                   <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
                 </label>
               </div>
-              {#if sending}
-                <button class="stop-button" type="button" aria-label={copy.stop} title={copy.stop} onclick={stopRun}>
-                  <i class="ph-fill ph-stop" aria-hidden="true"></i>
-                </button>
-              {:else}
-                <button class="send-button" type="button" aria-label={copy.send} title={copy.send} disabled={(!messageInput.trim() && pendingFiles.length === 0) || !activeSessionId || !modelReady} onclick={sendMessage}>
-                  <i class="ph-fill ph-arrow-up" aria-hidden="true"></i>
-                </button>
-              {/if}
-            </div>
-          </div>
+          </ChatComposerShell>
         </footer>
       {/if}
     {/if}

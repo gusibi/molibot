@@ -14,3 +14,8 @@ test("desktop HTTP scope allows reading and saving the shared system settings", 
   assert.ok(allowedUrls.has("http://127.0.0.1:*/api/settings"));
   assert.ok(allowedUrls.has("http://localhost:*/api/settings"));
 });
+
+test("desktop HTTP scope allows project registry and session routes", () => {
+  assert.ok(allowedUrls.has("http://127.0.0.1:*/api/settings/projects*"));
+  assert.ok(allowedUrls.has("http://localhost:*/api/settings/projects*"));
+});

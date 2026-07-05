@@ -12,6 +12,7 @@ export const storagePaths = {
   outboxDbFile: path.resolve(config.databaseDir, "outbox.sqlite"),
   moryDbFile: path.resolve(config.databaseDir, "mory.sqlite"),
   memoryDir: path.resolve(config.dataDir, "memory"),
+  projectsDir: path.resolve(config.dataDir, "projects"),
   webWorkspaceDir: path.resolve(config.webWorkspaceDir),
   sessionsDir: path.resolve(config.sessionsDir),
   sessionsIndexFile: path.resolve(config.sessionsIndexFile)
@@ -74,6 +75,7 @@ export function initDb(): void {
   fs.mkdirSync(storagePaths.dbDir, { recursive: true });
   fs.mkdirSync(storagePaths.agentsDir, { recursive: true });
   fs.mkdirSync(storagePaths.memoryDir, { recursive: true });
+  fs.mkdirSync(storagePaths.projectsDir, { recursive: true });
   fs.mkdirSync(storagePaths.webWorkspaceDir, { recursive: true });
   fs.mkdirSync(storagePaths.sessionsDir, { recursive: true });
   migrateLegacyDbFiles();
