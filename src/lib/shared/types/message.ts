@@ -60,5 +60,7 @@ export interface Conversation {
   title: string;
   createdAt: string;
   updatedAt: string;
+  projectId?: string;
+  origin?: string;
   external?: ExternalSessionMetadata;
 }

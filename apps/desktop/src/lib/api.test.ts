@@ -3,6 +3,7 @@ import test from "node:test";
 import { transcriptDisplayContent } from "./chat/transcript";
 import type { DesktopAgentItem, DesktopSessionFile, DesktopExternalSessionsSummary, DesktopRuntimeEnvSummary, DesktopWebProfile, DesktopChannelsSummary } from "@molibot/desktop-contract";
 import { normalizeLocale } from "./i18n";
+import { runDesktopConversationTurn } from "./chat/conversationTurn";
 import {
   addToFollowUpQueue,
   applyDesktopSandboxPreset,
@@ -42,6 +43,10 @@ import {
   runDesktopTaskAction,
   loadDesktopMemoryRejections,
   loadDesktopTasks,
+  loadDesktopProjects,
+  createDesktopProject,
+  deleteDesktopProject,
+  loadDesktopProjectSessions,
   normalizeDesktopTaskSession,
   loadDesktopModelRouting,
   loadDesktopMediaTasks,
@@ -266,6 +271,40 @@ test("sendDesktopChatWithFiles posts a multipart turn to /api/chat with message,
     const files = form.getAll("files");
     assert.equal(files.length, 1);
     assert.equal((files[0] as File).name, "note.txt");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("shared conversation turn streams a project response through the same Chat transport", async () => {
+  const original = globalThis.fetch;
+  let requestBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    requestBody = JSON.parse(String(init?.body ?? "{}"));
+    const body = [
+      'event: token\ndata: {"delta":"hello"}',
+      'event: status\ndata: {"text":"working"}',
+      'event: done\ndata: {"response":"hello world","thinkingText":""}',
+      ""
+    ].join("\n\n");
+    return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  }) as typeof globalThis.fetch;
+  const observed = { token: "", status: "", done: "" };
+  try {
+    await runDesktopConversationTurn({
+      endpoint: "http://127.0.0.1:3210",
+      profileId: "personal",
+      sessionId: "session-1",
+      projectId: "project-1",
+      message: "hi",
+      thinkingLevel: "medium"
+    }, {
+      onToken: (delta) => (observed.token += delta),
+      onStatus: (status) => (observed.status = status),
+      onDone: (result) => (observed.done = result.response)
+    });
+    assert.equal(requestBody.projectId, "project-1");
+    assert.deepEqual(observed, { token: "hello", status: "working", done: "hello world" });
   } finally {
     globalThis.fetch = original;
   }
@@ -1093,6 +1132,32 @@ test("desktop task loading tolerates an older runtime response without execution
     assert.equal(summary.counts.total, 1);
     assert.equal(summary.counts.byType.periodic, 1);
     assert.equal(summary.counts.byType["one-shot"], 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("desktop project API uses granular project routes and preserves delete-session choice", async () => {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; method: string; body?: unknown }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (url.endsWith("/api/settings/projects") && init?.method === "POST") {
+      return new Response(JSON.stringify({ ok: true, project: { id: "wiki", name: "Wiki", rootPath: "/tmp/wiki", createdAt: "now", updatedAt: "now" } }));
+    }
+    if (url.includes("/sessions")) return new Response(JSON.stringify({ ok: true, sessions: [] }));
+    if (init?.method === "DELETE") return new Response(JSON.stringify({ ok: true }));
+    return new Response(JSON.stringify({ ok: true, projects: [] }));
+  }) as typeof globalThis.fetch;
+  try {
+    assert.deepEqual(await loadDesktopProjects("http://localhost:3000"), []);
+    assert.equal((await createDesktopProject("http://localhost:3000", { name: "Wiki", rootPath: "/tmp/wiki" })).id, "wiki");
+    assert.deepEqual(await loadDesktopProjectSessions("http://localhost:3000", "wiki"), []);
+    await deleteDesktopProject("http://localhost:3000", "wiki", true);
+    assert.equal(calls[1].method, "POST");
+    assert.deepEqual(calls[1].body, { name: "Wiki", rootPath: "/tmp/wiki" });
+    assert.match(calls[3].url, /removeSessions=true$/);
   } finally {
     globalThis.fetch = original;
   }

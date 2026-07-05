@@ -1,6 +1,29 @@
 # Molibot ChangeLog
 
+## 2026-07-06
+
+### Desktop release automation
+- The Desktop DMG workflow now triggers on the actual release tag convention (`v*`, e.g. `v2.2.5`) in addition to the legacy `molibot-v*` tag, so pushing a release tag automatically builds the Apple Silicon DMG, checksum, and build-info manifest and publishes them to the tag's GitHub Release.
+- Fixed a CI ordering bug where `actions/setup-node` requested the pnpm cache before corepack had enabled pnpm; corepack now runs first so the cache step can resolve the pnpm store.
+
 ## 2026-07-05
+
+### Desktop Projects
+- Added a Projects workspace for registering real external directories and running multiple isolated conversations directly against project files.
+- Project session metadata stays inside Molibot's Workspace while tools use the registered root as cwd; deleting a project never deletes or modifies that directory.
+- Project AGENTS.md, AGENT.md, or CLAUDE.md conventions participate in the final prompt without overriding bot identity, runtime safety, sandbox, or approval rules.
+- Fixed the Desktop HTTP capability scope so project registry and nested session requests are allowed on configured loopback ports.
+- Project creation now uses the native macOS folder picker and derives a default project name from the selected directory.
+- Project conversations now expand directly below the active project, and a newly added empty project immediately creates and opens its first conversation.
+- Project and regular Chat now share one conversation controller (the send/stream/queue/stop/approval turn engine), streaming renderer, and composer shell instead of maintaining a separate project chat implementation.
+- Fixed project session conversations not appearing in the detail pane after selection: selecting a session now surfaces load errors instead of failing silently, and finishing a turn reloads the current session in place rather than jumping back to the most recent one.
+- Project sessions now support inline rename and delete from the session list, sharing the fixed-position popover confirm the Chat session list uses (anchored to the row so it is never clipped by the scroll container).
+- Chat and Project session delete replaced the ambiguous click-trash-again pattern with a popover confirm anchored above the row and explicit 删除/取消 actions.
+- Fixed the first-load race that left the auto-selected project session's messages empty until the view was remounted: `ProjectsView` now drives loads from a single reactive trigger instead of firing `loadProjects` from both `onMount` and the `$:` reactive statement.
+- Project composer now matches the Chat composer: model selector, thinking level, file attachments, and voice recording are all available on the project surface, with shared composer styling.
+- Fixed the first click on a project Session not switching the message pane on a fresh launch: the initial auto-selected session and the user's click fetched transcripts in parallel, and a slower earlier response could clobber the newly selected session's messages; `selectProjectSession` now discards responses that no longer match the active session.
+- Project page now shares the Chat page's visual language — the sidebar (collapsible project groups, session rows, row actions), header (avatar + title block), and layout all reuse the Chat surface's chrome instead of separate project styling.
+- Refined the sidebar group/session hierarchy (shared by Project, Bot, and Agent groups): the disclosure caret moved from the left of the group header to the right, the session list is indented with a vertical guide line so it clearly belongs to its group, and the per-session icon was removed (the indented, guide-lined title alone conveys grouping).
 
 ### Configurable service port and managed restart
 - Added a persisted service-port setting (default 3000) to Web System Settings and Desktop General Settings, with validation for ports 1024–65535.

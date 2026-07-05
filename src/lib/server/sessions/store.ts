@@ -21,6 +21,11 @@ interface WebSessionsIndex {
   byConversationId: Record<string, { externalUserId: string }>;
 }
 
+interface ProjectSessionsIndex {
+  order: string[];
+  byConversationId: Record<string, { origin: string }>;
+}
+
 interface SessionFile {
   conversation: Conversation;
   messages: ConversationMessage[];
@@ -67,6 +72,18 @@ function webUserSessionsDir(externalUserId: string): string {
 
 function webSessionFilePath(externalUserId: string, conversationId: string): string {
   return path.join(webUserSessionsDir(externalUserId), `${conversationId}.json`);
+}
+
+function projectDir(projectId: string): string {
+  return path.join(storagePaths.projectsDir, sanitizeUserDirPart(projectId));
+}
+
+function projectIndexFilePath(projectId: string): string {
+  return path.join(projectDir(projectId), "sessions-index.json");
+}
+
+function projectSessionFilePath(projectId: string, conversationId: string): string {
+  return path.join(projectDir(projectId), "sessions", `${sanitizeUserDirPart(conversationId)}.json`);
 }
 
 function readLegacyIndex(): SessionsIndex {
@@ -132,6 +149,31 @@ function writeWebIndex(index: WebSessionsIndex): void {
   writeJsonFile(webIndexFilePath(), index);
 }
 
+function readProjectIndex(projectId: string): ProjectSessionsIndex {
+  const raw = readJsonFile<Partial<ProjectSessionsIndex>>(projectIndexFilePath(projectId), {});
+  const order = Array.isArray(raw.order) ? raw.order.map(String) : [];
+  const byConversationId: ProjectSessionsIndex["byConversationId"] = {};
+  if (raw.byConversationId && typeof raw.byConversationId === "object") {
+    for (const [id, value] of Object.entries(raw.byConversationId)) {
+      if (!value || typeof value !== "object") continue;
+      byConversationId[id] = { origin: String((value as { origin?: unknown }).origin ?? "") };
+    }
+  }
+  return { order, byConversationId };
+}
+
+function writeProjectIndex(projectId: string, index: ProjectSessionsIndex): void {
+  writeJsonFile(projectIndexFilePath(projectId), index);
+}
+
+function readProjectSession(projectId: string, conversationId: string): SessionFile | null {
+  return readSessionFromFile(projectSessionFilePath(projectId, conversationId));
+}
+
+function writeProjectSession(projectId: string, data: SessionFile): void {
+  writeJsonFile(projectSessionFilePath(projectId, data.conversation.id), data);
+}
+
 function readSessionFromFile(filePath: string): SessionFile | null {
   const data = readJsonFile<SessionFile | null>(filePath, null);
   if (!data || !data.conversation || !Array.isArray(data.messages)) return null;
@@ -166,7 +208,7 @@ function ensureWebIndexEntry(index: WebSessionsIndex, externalUserId: string, co
 }
 
 export class SessionStore {
-  private createConversation(channel: Channel, externalUserId: string): Conversation {
+  private createConversation(channel: Channel, externalUserId: string, projectId?: string): Conversation {
     const now = new Date().toISOString();
     const id = uuidv4();
     const conversation: Conversation = {
@@ -177,6 +219,17 @@ export class SessionStore {
       createdAt: now,
       updatedAt: now
     };
+
+    if (projectId) {
+      conversation.projectId = projectId;
+      conversation.origin = externalUserId;
+      const index = readProjectIndex(projectId);
+      index.order = [...index.order.filter((item) => item !== id), id];
+      index.byConversationId[id] = { origin: externalUserId };
+      writeProjectSession(projectId, { conversation, messages: [] });
+      writeProjectIndex(projectId, index);
+      return conversation;
+    }
 
     if (channel === "web") {
       const webIndex = readWebIndex();
@@ -243,7 +296,17 @@ export class SessionStore {
   private resolveSessionStorage(conversationId: string):
     | { type: "web"; externalUserId: string; file: SessionFile }
     | { type: "legacy"; file: SessionFile }
+    | { type: "project"; projectId: string; file: SessionFile }
     | null {
+    if (fs.existsSync(storagePaths.projectsDir)) {
+      for (const entry of fs.readdirSync(storagePaths.projectsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const index = readProjectIndex(entry.name);
+        if (!index.byConversationId[conversationId]) continue;
+        const file = readProjectSession(entry.name, conversationId);
+        if (file) return { type: "project", projectId: entry.name, file };
+      }
+    }
     const webIndex = readWebIndex();
     const webOwner = webIndex.byConversationId[conversationId];
     if (webOwner?.externalUserId) {
@@ -302,9 +365,32 @@ export class SessionStore {
   getOrCreateConversation(
     channel: Channel,
     externalUserId: string,
-    conversationId?: string
+    conversationId?: string,
+    opts?: { projectId?: string }
   ): Conversation {
     const now = new Date().toISOString();
+
+    if (opts?.projectId) {
+      if (conversationId) {
+        const file = readProjectSession(opts.projectId, conversationId);
+        if (file && file.conversation.externalUserId === externalUserId) {
+          file.conversation.updatedAt = now;
+          writeProjectSession(opts.projectId, file);
+          return file.conversation;
+        }
+      }
+      const list = this.listProjectConversations(opts.projectId);
+      const latest = list.find((item) => item.externalUserId === externalUserId);
+      if (latest) {
+        const file = readProjectSession(opts.projectId, latest.id);
+        if (file) {
+          file.conversation.updatedAt = now;
+          writeProjectSession(opts.projectId, file);
+          return file.conversation;
+        }
+      }
+      return this.createConversation(channel, externalUserId, opts.projectId);
+    }
 
     if (conversationId) {
       const found = this.getConversationById(conversationId, channel, externalUserId);
@@ -314,6 +400,8 @@ export class SessionStore {
           located.file.conversation.updatedAt = now;
           if (located.type === "web") {
             writeWebSession(located.externalUserId, located.file);
+          } else if (located.type === "project") {
+            writeProjectSession(located.projectId, located.file);
           } else {
             writeLegacySession(located.file);
           }
@@ -330,6 +418,8 @@ export class SessionStore {
         located.file.conversation.updatedAt = now;
         if (located.type === "web") {
           writeWebSession(located.externalUserId, located.file);
+        } else if (located.type === "project") {
+          writeProjectSession(located.projectId, located.file);
         } else {
           writeLegacySession(located.file);
         }
@@ -383,6 +473,11 @@ export class SessionStore {
       return message;
     }
 
+    if (located?.type === "project") {
+      writeProjectSession(located.projectId, file);
+      return message;
+    }
+
     if (located?.type === "legacy") {
       writeLegacySession(file);
       return message;
@@ -409,6 +504,8 @@ export class SessionStore {
 
     if (located.type === "web") {
       writeWebSession(located.externalUserId, located.file);
+    } else if (located.type === "project") {
+      writeProjectSession(located.projectId, located.file);
     } else {
       writeLegacySession(located.file);
     }
@@ -490,6 +587,46 @@ export class SessionStore {
 
   createWebConversation(externalUserId: string): Conversation {
     return this.createConversation("web", externalUserId);
+  }
+
+  createProjectConversation(projectId: string, externalUserId: string): Conversation {
+    return this.createConversation("web", externalUserId, projectId);
+  }
+
+  listProjectConversations(projectId: string): Conversation[] {
+    const index = readProjectIndex(projectId);
+    const conversations = index.order
+      .map((id) => readProjectSession(projectId, id)?.conversation)
+      .filter((item): item is Conversation => Boolean(item));
+    conversations.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return conversations;
+  }
+
+  getProjectConversation(projectId: string, conversationId: string): Conversation | null {
+    const index = readProjectIndex(projectId);
+    if (!index.byConversationId[conversationId]) return null;
+    return readProjectSession(projectId, conversationId)?.conversation ?? null;
+  }
+
+  renameProjectConversation(projectId: string, conversationId: string, title: string): Conversation | null {
+    const index = readProjectIndex(projectId);
+    if (!index.byConversationId[conversationId]) return null;
+    const file = readProjectSession(projectId, conversationId);
+    if (!file) return null;
+    file.conversation.title = sanitizeConversationTitle(title);
+    file.conversation.updatedAt = new Date().toISOString();
+    writeProjectSession(projectId, file);
+    return file.conversation;
+  }
+
+  deleteProjectConversation(projectId: string, conversationId: string): boolean {
+    const index = readProjectIndex(projectId);
+    if (!index.byConversationId[conversationId]) return false;
+    fs.rmSync(projectSessionFilePath(projectId, conversationId), { force: true });
+    index.order = index.order.filter((id) => id !== conversationId);
+    delete index.byConversationId[conversationId];
+    writeProjectIndex(projectId, index);
+    return true;
   }
 
   /**

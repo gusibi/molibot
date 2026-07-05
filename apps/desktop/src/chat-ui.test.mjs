@@ -31,12 +31,17 @@ const charts = read("./lib/settings/charts.ts");
 const transcript = read("./lib/chat/ConversationTranscript.svelte");
 const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
 const runActivity = read("./lib/chat/RunActivity.svelte");
+const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
+const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
+const projectChat = read("./lib/projects/ProjectChat.svelte");
+const conversationController = read("./lib/chat/conversationController.svelte.ts");
 const transcriptHelpers = read("./lib/chat/transcript.ts");
 
 const formSectionKey = { agent: "agents", mcp: "mcp", channel: "channels", profile: "profiles", task: "tasks", memory: "memory" };
 
 test("chat composer keeps keyboard guidance in the textarea placeholder", () => {
   assert.match(view, /placeholder=\{sending \? copy\.queueHint : copy\.enterHint\}/);
+  assert.match(chatComposerShell, /<textarea bind:value/);
   assert.doesNotMatch(view, /class="composer-hint"/);
 });
 
@@ -120,6 +125,24 @@ test("shared transcript renders media inline and delegates tool activity", () =>
   assert.match(runActivity, /hasError \? copy\.runFailed : copy\.runCompleted/);
 });
 
+test("local Chat and Project Chat share the live conversation, composer, and turn controller", () => {
+  // Both surfaces render the shared presentation and drive a single turn engine
+  // (ConversationController) rather than re-implementing send/stream/queue logic.
+  for (const source of [view, projectChat]) {
+    assert.match(source, /ConversationLiveView/);
+    assert.match(source, /ChatComposerShell/);
+    assert.match(source, /createConversationController/);
+    assert.match(source, /chat\.send\(/);
+  }
+  // Only the controller talks to the turn runtime; the views no longer do.
+  assert.match(conversationController, /runDesktopConversationTurn/);
+  assert.doesNotMatch(view, /runDesktopConversationTurn/);
+  assert.doesNotMatch(projectChat, /streamDesktopChat/);
+  assert.doesNotMatch(projectChat, /runDesktopConversationTurn/);
+  assert.match(conversationLiveView, /<ConversationTranscript/);
+  assert.match(conversationLiveView, /<RunActivity/);
+});
+
 test("settings uses the flat Geist layout", () => {
   assert.match(app, /class="settings-search"/);
   assert.match(app, /class="page-header settings-page-header"[\s\S]*class="settings-scroll"/);
@@ -131,6 +154,86 @@ test("settings uses the flat Geist layout", () => {
   assert.match(styles, /\.settings-footbar\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0/s);
   assert.match(sections.tts, /open=\{provider\.id === toolsStore\.ttsGenerateEdit\.defaultProvider\}/);
   assert.match(sections.image, /<option value="1024x1024">1024 × 1024<\/option>/);
+});
+
+test("project creation uses the native directory picker instead of a path text field", () => {
+  const projectList = readFileSync(new URL("./lib/projects/ProjectList.svelte", import.meta.url), "utf8");
+  assert.match(projectList, /pick_project_directory/);
+  assert.match(projectList, /project-selected-directory/);
+  assert.doesNotMatch(projectList, /bind:value=\{rootPath\}/);
+});
+
+test("project sessions render under the active project reusing the chat sidebar chrome", () => {
+  const projectList = readFileSync(new URL("./lib/projects/ProjectList.svelte", import.meta.url), "utf8");
+  const projectDetail = readFileSync(new URL("./lib/projects/ProjectDetail.svelte", import.meta.url), "utf8");
+  const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
+  // The project tree shares the chat sidebar's collapsible group + session row
+  // classes so both surfaces read as one design.
+  assert.match(projectList, /class="chat-sidebar"/);
+  assert.match(projectList, /class="conv-group"/);
+  assert.match(projectList, /class="conversation-select"/);
+  assert.doesNotMatch(projectDetail, /class="project-sessions"/);
+  assert.match(projectsStore, /projectsStore\.sessions\.length === 0/);
+  assert.match(projectsStore, /createAndSelectProjectSession/);
+});
+
+test("project detail reuses the chat header chrome for a single visual language", () => {
+  const projectDetail = readFileSync(new URL("./lib/projects/ProjectDetail.svelte", import.meta.url), "utf8");
+  const projectsView = readFileSync(new URL("./lib/projects/ProjectsView.svelte", import.meta.url), "utf8");
+  assert.match(projectsView, /class="chat-layout projects-layout"/);
+  assert.match(projectDetail, /class="chat-content"/);
+  assert.match(projectDetail, /class="chat-header"/);
+  assert.match(projectDetail, /class="chat-header-avatar"/);
+});
+
+test("selectProjectSession discards stale transcript responses when switching sessions", () => {
+  // First-open race: the auto-selected session and a user click both fetch in
+  // parallel; the guard prevents a slower earlier fetch from clobbering the
+  // newly selected session's messages.
+  const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
+  assert.match(projectsStore, /if \(projectsStore\.selectedSessionId !== id\) return;/);
+});
+
+test("selected project sessions keep the shared conversation visible in the detail pane", () => {
+  assert.match(styles, /\.project-chat\s*\{[^}]*flex:\s*1;/s);
+  assert.match(styles, /\.project-chat\s*\{[^}]*width:\s*100%;/s);
+});
+
+test("project sessions support rename and delete from the session list", () => {
+  const projectList = readFileSync(new URL("./lib/projects/ProjectList.svelte", import.meta.url), "utf8");
+  const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
+  // Rename inline editor + delete popover anchor to the row, so the actions live
+  // on the session row itself rather than behind a separate management screen.
+  assert.match(projectList, /conversation-editor/);
+  assert.match(projectList, /beginRename/);
+  assert.match(projectList, /commitRename/);
+  assert.match(projectList, /conversation-popover/);
+  assert.match(projectList, /deleteAnchor/);
+  // The store wires the new operations through the project-scoped session API.
+  assert.match(projectsStore, /renameProjectSession/);
+  assert.match(projectsStore, /removeProjectSession/);
+  assert.match(projectsStore, /renameDesktopProjectSession/);
+  assert.match(projectsStore, /deleteDesktopProjectSession/);
+});
+
+test("chat and project session delete use a popover confirm anchored to the row", () => {
+  // Both surfaces position the confirm as a fixed popover so it escapes the
+  // scroll container instead of being clipped at the list edges.
+  assert.match(view, /conversation-popover/);
+  assert.match(view, /deleteAnchor/);
+  assert.match(view, /requestDelete/);
+  assert.match(view, /confirmDeleteSession/);
+  assert.match(styles, /\.conversation-popover\s*\{[^}]*z-index:\s*200/s);
+});
+
+test("ProjectsView loads project state from a single reactive trigger", () => {
+  // The first-load race that left the auto-selected session's messages empty
+  // came from onMount + the $: reactive both calling loadProjects. Only the $:
+  // trigger remains, so the initial fetch no longer doubles up.
+  const projectsView = readFileSync(new URL("./lib/projects/ProjectsView.svelte", import.meta.url), "utf8");
+  assert.match(projectsView, /\$: if \(endpoint && endpoint !== projectsStore\.endpoint\)/);
+  assert.doesNotMatch(projectsView, /onMount\s*\(/);
+  assert.doesNotMatch(projectsView, /import\s*\{[^}]*onMount/);
 });
 
 test("usage and trace pages render chart dashboards instead of plain rows", () => {

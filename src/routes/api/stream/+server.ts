@@ -13,6 +13,7 @@ import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { saveWebResponseAttachment } from "$lib/server/web/attachments";
 import type { ConversationAttachment } from "$lib/shared/types/message";
+import { resolveProjectContext } from "$lib/server/projects/context";
 
 interface StreamBody {
   userId?: string;
@@ -20,6 +21,7 @@ interface StreamBody {
   conversationId?: string;
   profileId?: string;
   thinkingLevel?: string;
+  projectId?: string;
 }
 
 function writeEvent(
@@ -83,6 +85,14 @@ export const POST: RequestHandler = async ({ request }) => {
   const message = String(body.message ?? "").trim();
   const conversationId = String(body.conversationId ?? "").trim() || undefined;
   const thinkingLevel = sanitizeRuntimeThinkingLevel(body.thinkingLevel);
+  const projectResult = resolveProjectContext(body.projectId);
+  if (!projectResult.ok) {
+    return new Response(JSON.stringify({ ok: false, error: projectResult.error }), {
+      status: projectResult.status,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  const project = projectResult.project;
 
   if (!message) {
     return new Response(JSON.stringify({ ok: false, error: "Empty message." }), {
@@ -97,7 +107,8 @@ export const POST: RequestHandler = async ({ request }) => {
   const conversation = runtime.sessions.getOrCreateConversation(
     "web",
     externalUserId,
-    conversationId
+    conversationId,
+    { projectId: project?.id }
   );
 
   const { store, pool } = getWebRuntimeContext(profileId);
@@ -140,6 +151,13 @@ export const POST: RequestHandler = async ({ request }) => {
             workspaceDir: store.getWorkspaceDir(),
             chatDir: store.getChatDir(externalUserId),
             thinkingLevelOverride: thinkingLevel,
+            project: project ? {
+              id: project.id,
+              name: project.name,
+              rootPath: project.rootPath,
+              instructions: project.instructions,
+              scratchDir: store.getScratchDir(externalUserId)
+            } : undefined,
             message: {
               chatId: externalUserId,
               workspaceId,

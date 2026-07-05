@@ -129,6 +129,80 @@ export async function loadDesktopBootstrap(endpoint: string): Promise<DesktopPro
   return payload.profiles;
 }
 
+export interface DesktopProject {
+  id: string;
+  name: string;
+  rootPath: string;
+  instructions?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopProjectSession {
+  conversationId: string;
+  title: string;
+  updatedAt: string;
+  origin: string;
+}
+
+export interface DesktopProjectMessage {
+  id: string;
+  conversationId: string;
+  role: "user" | "assistant" | "system" | "tool";
+  content: string;
+  createdAt: string;
+  attachments?: Array<{ original: string; local: string; mediaType: "image" | "audio" | "video" | "file"; mimeType?: string; size?: number }>;
+  activities?: DesktopConversationActivity[];
+}
+
+export async function loadDesktopProjects(endpoint: string): Promise<DesktopProject[]> {
+  return (await requestJson<{ ok: true; projects: DesktopProject[] }>(endpoint, "/api/settings/projects")).projects;
+}
+
+export async function createDesktopProject(endpoint: string, input: { name: string; rootPath: string; instructions?: string }): Promise<DesktopProject> {
+  return (await requestJson<{ ok: true; project: DesktopProject }>(endpoint, "/api/settings/projects", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
+  })).project;
+}
+
+export async function patchDesktopProject(endpoint: string, id: string, patch: { name?: string; rootPath?: string; instructions?: string }): Promise<DesktopProject> {
+  return (await requestJson<{ ok: true; project: DesktopProject }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch)
+  })).project;
+}
+
+export async function deleteDesktopProject(endpoint: string, id: string, removeSessions = false): Promise<void> {
+  await requestJson(endpoint, `/api/settings/projects/${encodeURIComponent(id)}?removeSessions=${String(removeSessions)}`, { method: "DELETE" });
+}
+
+export async function loadDesktopProjectSessions(endpoint: string, id: string): Promise<DesktopProjectSession[]> {
+  return (await requestJson<{ ok: true; sessions: DesktopProjectSession[] }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}/sessions`)).sessions;
+}
+
+export async function createDesktopProjectSession(endpoint: string, id: string): Promise<string> {
+  return (await requestJson<{ ok: true; conversationId: string }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}/sessions`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+  })).conversationId;
+}
+
+export async function loadDesktopProjectSession(endpoint: string, projectId: string, conversationId: string): Promise<DesktopProjectMessage[]> {
+  return (await requestJson<{ ok: true; messages: DesktopProjectMessage[] }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(conversationId)}`)).messages;
+}
+
+export async function renameDesktopProjectSession(endpoint: string, projectId: string, conversationId: string, title: string): Promise<DesktopProjectSession> {
+  const payload = await requestJson<{ ok: true; conversation: { id: string; title: string; updatedAt: string; origin?: string } }>(
+    endpoint,
+    `/api/settings/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(conversationId)}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) }
+  );
+  const conv = payload.conversation;
+  return { conversationId: conv.id, title: conv.title, updatedAt: conv.updatedAt, origin: conv.origin ?? "" };
+}
+
+export async function deleteDesktopProjectSession(endpoint: string, projectId: string, conversationId: string): Promise<void> {
+  await requestJson(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
+}
+
 export type DesktopModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";
 
 export async function loadDesktopModels(
@@ -1457,6 +1531,7 @@ export async function streamDesktopChat(
     sessionId: string;
     message: string;
     thinkingLevel: DesktopThinkingLevel;
+    projectId?: string;
   },
   onEvent: SseHandler,
   signal?: AbortSignal
@@ -1468,7 +1543,8 @@ export async function streamDesktopChat(
       profileId: input.profileId,
       conversationId: input.sessionId,
       message: input.message,
-      thinkingLevel: input.thinkingLevel
+      thinkingLevel: input.thinkingLevel,
+      projectId: input.projectId
     }),
     signal
   });
@@ -1534,6 +1610,7 @@ export async function sendDesktopChatWithFiles(
     message: string;
     thinkingLevel: DesktopThinkingLevel;
     files: File[];
+    projectId?: string;
   },
   signal?: AbortSignal
 ): Promise<DesktopChatResult> {
@@ -1542,6 +1619,7 @@ export async function sendDesktopChatWithFiles(
   form.set("conversationId", input.sessionId);
   form.set("message", input.message);
   form.set("thinkingLevel", input.thinkingLevel);
+  if (input.projectId) form.set("projectId", input.projectId);
   for (const file of input.files) form.append("files", file);
 
   const payload = await requestJson<{

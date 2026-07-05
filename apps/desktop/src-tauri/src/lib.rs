@@ -50,6 +50,23 @@ fn open_settings(app: AppHandle) {
 }
 
 #[tauri::command]
+async fn pick_project_directory() -> Result<Option<String>, String> {
+    let output = std::process::Command::new("/usr/bin/osascript")
+        .args(["-e", "POSIX path of (choose folder)"])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        return Ok((!path.is_empty()).then_some(path));
+    }
+    let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if error.contains("-128") || error.to_lowercase().contains("canceled") {
+        return Ok(None);
+    }
+    Err(if error.is_empty() { "Unable to open the folder picker.".into() } else { error })
+}
+
+#[tauri::command]
 fn desktop_status(
     app: AppHandle,
     state: tauri::State<'_, Mutex<DesktopState>>,
@@ -175,6 +192,7 @@ pub fn run() {
         .manage(audio::AudioState::default())
         .invoke_handler(tauri::generate_handler![
             open_settings,
+            pick_project_directory,
             desktop_status,
             set_login_start,
             restart_service,

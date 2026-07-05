@@ -322,21 +322,13 @@ a:focus-visible {
 .conversation-placeholder small { color: var(--label-secondary); }
 .conversation-list { display: flex; flex-direction: column; gap: 1px; overflow: auto; flex: 1; min-height: 0; padding: 0 0 6px; }
 .conversation-row { position: relative; border-radius: var(--rounded-sm); margin: 1px 8px; overflow: hidden; }
+/* Sessions sit under a collapsible group, so indent them left of their parent's
+   tile to read as nested items rather than peers of the bot/project row. */
+.conv-group .conversation-row { margin-left: 26px; }
+.conversation-row:has(.conversation-popover) { overflow: visible; z-index: 30; }
 .conversation-row:hover { background: var(--fill); }
 .conversation-row.active { background: var(--accent-soft); }
 .conversation-row.active .conversation-select strong { color: var(--accent); }
-.conversation-tile {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--rounded-sm);
-  background: var(--tile-color, var(--fill));
-  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-}
-.conversation-tile .ph { font-size: 12px; color: #fff; }
 .conversation-select {
   display: flex;
   align-items: center;
@@ -358,7 +350,11 @@ a:focus-visible {
 .conversation-editor button { padding: 3px 7px; border: 0; border-radius: var(--rounded-sm); background: var(--fill); font-size: 10px; cursor: pointer; }
 
 /* Date group headers, per the Momo sidebar's grouped conversations. */
-.conv-group { display: flex; flex-direction: column; gap: 1px; margin-top: 2px; }
+.conv-group { position: relative; display: flex; flex-direction: column; gap: 1px; margin-top: 2px; }
+/* Vertical guide line tying an expanded group's sessions to their parent. It
+   spans only the session area below the head, so it collapses to nothing (and
+   paints nothing) when the group is closed and only the head remains. */
+.conv-group::before { content: ""; position: absolute; left: 19px; top: 37px; bottom: 6px; width: 1.5px; border-radius: 1px; background: var(--separator); pointer-events: none; }
 .conv-group-head {
   display: flex;
   align-items: center;
@@ -373,7 +369,7 @@ a:focus-visible {
   transition: background .15s ease;
 }
 .conv-group-head:hover { background: var(--fill); }
-.conv-caret { font-size: 10px; color: var(--label-tertiary); transition: transform .15s ease; }
+.conv-caret { flex: none; margin-left: 2px; font-size: 10px; color: var(--label-tertiary); transition: transform .15s ease; }
 .conv-caret { transform: rotate(-90deg); }
 .conv-caret.open { transform: rotate(0deg); }
 .conv-group-tile {
@@ -387,7 +383,7 @@ a:focus-visible {
   box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 .conv-group-tile .ph-fill { font-size: 12px; color: #fff; }
-.conv-group-label { font-size: 13px; font-weight: 600; color: var(--label-secondary); letter-spacing: 0.01em; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-group-label { flex: 1; font-size: 13px; font-weight: 600; color: var(--label-secondary); letter-spacing: 0.01em; min-width: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conv-group-head.open .conv-group-label { color: var(--accent); }
 .conv-group-badge {
   display: inline-flex;
@@ -498,18 +494,34 @@ a:focus-visible {
 .conversation-actions button:hover { background: var(--fill-hover); color: inherit; }
 .conversation-actions .danger-action:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
 .confirm-delete { width: auto !important; padding: 0 8px !important; font-size: 10px; font-weight: 600; color: var(--danger); }
-.confirm-delete-banner {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 3px 10px;
-  font-size: 10px;
-  font-weight: 600;
-  color: #fff;
-  background: color-mix(in srgb, var(--danger) 85%, transparent);
-  border-radius: 0 0 9px 9px;
+.conversation-popover {
+  z-index: 200;
+  display: grid;
+  gap: 5px;
+  padding: 10px 11px;
+  border: 1px solid var(--glass-border-dark);
+  border-radius: var(--rounded-md);
+  background: var(--card-bg);
+  box-shadow: var(--soft-shadow);
+  animation: conversation-popover-in .12s ease-out;
 }
+.conversation-popover::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid var(--glass-border-dark);
+  border-bottom: 1px solid var(--glass-border-dark);
+  background: var(--card-bg);
+  transform: rotate(45deg);
+}
+.conversation-popover strong { font-size: 12px; color: var(--label-primary); }
+.conversation-popover p { margin: 0; color: var(--label-tertiary); font-size: 11px; line-height: 1.45; }
+.conversation-popover-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.conversation-popover-actions button { height: 28px; padding-inline: 10px; font-size: 11px; }
+@keyframes conversation-popover-in { from { opacity: 0; transform: translateY(4px) translateY(-100%); } to { opacity: 1; transform: translateY(-100%); } }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray-700); }
 .status-dot[data-state="ready"] { background: var(--online); }
 .status-dot[data-state="error"], .status-dot[data-state="incompatible"] { background: var(--danger); }
@@ -1838,3 +1850,22 @@ a:focus-visible {
   .message-row { max-width: 90%; }
   .conversation-actions { position: static; justify-content: flex-end; padding: 0 7px 5px; opacity: 1; background: transparent !important; }
 }
+
+/* Projects — reuses the chat surface's sidebar/header/composer chrome for a single
+   visual language. Only the project-specific chrome (add form, tree, empty states)
+   is defined here; everything else piggybacks on the .chat-* classes. */
+.project-add-form { display: grid; gap: 10px; margin: 6px 8px 2px; padding: 12px; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); }
+.project-add-form label { display: grid; gap: 5px; color: var(--label-secondary); font-size: 11px; font-weight: 600; }
+.project-add-form input { min-width: 0; height: 32px; padding: 0 9px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--control-bg); color: var(--label-primary); }
+.project-selected-directory { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 7px; min-width: 0; padding: 6px 6px 6px 9px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--surface-secondary); color: var(--label-primary); font-weight: 400; }
+.project-selected-directory > .ph { color: var(--accent); font-size: 16px; }.project-selected-directory > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }.project-selected-directory .secondary-button { height: 28px; padding-inline: 8px; }
+.project-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* "New chat" affordance at the foot of an expanded project's session list. */
+.conv-new-session { display: flex; align-items: center; gap: 8px; height: 32px; margin: 1px 8px 2px 26px; padding: 0 8px 0 10px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); font-size: 12px; text-align: left; cursor: pointer; transition: background .15s ease, color .15s ease; }
+.conv-new-session:hover { background: var(--fill); color: var(--label-secondary); }
+.conv-new-session .ph { font-size: 14px; }
+.project-body { display: flex; min-width: 0; min-height: 0; flex: 1; }
+.project-chat { display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
+.project-empty, .project-welcome { display: grid; place-items: center; align-content: center; gap: 10px; min-height: 100%; padding: 32px; color: var(--label-secondary); text-align: center; }.project-empty .ph, .project-welcome .ph { font-size: 28px; color: var(--accent); }.project-empty p, .project-welcome p { max-width: 420px; margin: 0; color: var(--label-tertiary); font-size: 12px; line-height: 1.6; }.project-welcome h1 { margin: 0; color: var(--label-primary); font-size: 22px; }
+.projects-error { position: absolute; right: 18px; bottom: 18px; z-index: 8; max-width: 520px; margin: 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--danger); font-size: 12px; }
+.project-dialog-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.48); }.project-dialog { width: min(440px, 100%); padding: 22px; border: 1px solid var(--glass-border); border-radius: var(--rounded-md); background: var(--card-bg); box-shadow: var(--glass-shadow); }.project-dialog h2 { margin: 0 0 8px; font-size: 18px; }.project-dialog p { color: var(--label-secondary); font-size: 13px; line-height: 1.55; }.project-delete-option { display: flex; align-items: center; gap: 8px; margin: 18px 0; font-size: 12px; }

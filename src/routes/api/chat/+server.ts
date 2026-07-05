@@ -39,6 +39,7 @@ import { executeHostBashApproval, rewriteApprovalToolResultInContext } from "$li
 import { getHostBashStore } from "$lib/server/hostBash";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n";
 import { saveWebResponseAttachment } from "$lib/server/web/attachments";
+import { resolveProjectContext } from "$lib/server/projects/context";
 
 interface ChatBody {
   userId?: string;
@@ -46,6 +47,7 @@ interface ChatBody {
   conversationId?: string;
   profileId?: string;
   thinkingLevel?: string;
+  projectId?: string;
 }
 
 interface ParsedWebChatRequest {
@@ -55,6 +57,7 @@ interface ParsedWebChatRequest {
   profileId: string;
   files: File[];
   thinkingLevel: RuntimeThinkingLevel;
+  projectId?: string;
 }
 
 interface WebCommandResult {
@@ -535,7 +538,8 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
       conversationId: conversationRaw || undefined,
       profileId,
       files,
-      thinkingLevel: sanitizeRuntimeThinkingLevel(String(form.get("thinkingLevel") ?? ""))
+      thinkingLevel: sanitizeRuntimeThinkingLevel(String(form.get("thinkingLevel") ?? "")),
+      projectId: String(form.get("projectId") ?? "").trim() || undefined
     };
   }
 
@@ -546,7 +550,8 @@ async function parseRequest(request: Request): Promise<ParsedWebChatRequest> {
     conversationId: String(body.conversationId ?? "").trim() || undefined,
     profileId: sanitizeWebProfileId(body.profileId),
     files: [],
-    thinkingLevel: sanitizeRuntimeThinkingLevel(body.thinkingLevel)
+    thinkingLevel: sanitizeRuntimeThinkingLevel(body.thinkingLevel),
+    projectId: String(body.projectId ?? "").trim() || undefined
   };
 }
 
@@ -582,12 +587,16 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const runtime = getRuntime();
+  const projectResult = resolveProjectContext(parsed.projectId);
+  if (!projectResult.ok) return json({ ok: false, error: projectResult.error }, { status: projectResult.status });
+  const project = projectResult.project;
   const workspaceId = resolveWorkspaceId();
   const externalUserId = toWebExternalUserId(parsed.userId, parsed.profileId);
   const conversation = runtime.sessions.getOrCreateConversation(
     "web",
     externalUserId,
-    parsed.conversationId
+    parsed.conversationId,
+    { projectId: project?.id }
   );
 
   const { store, pool } = getWebRuntimeContext(parsed.profileId);
@@ -694,6 +703,13 @@ export const POST: RequestHandler = async ({ request }) => {
     workspaceDir: store.getWorkspaceDir(),
     chatDir: store.getChatDir(externalUserId),
     thinkingLevelOverride: parsed.thinkingLevel,
+    project: project ? {
+      id: project.id,
+      name: project.name,
+      rootPath: project.rootPath,
+      instructions: project.instructions,
+      scratchDir: store.getScratchDir(externalUserId)
+    } : undefined,
     message: {
       chatId: externalUserId,
       workspaceId,
