@@ -1,5 +1,43 @@
 # Molibot Features
 
+## 2026-07-07
+
+### 外部会话查看器改为从 Agent `contexts/` 派生
+- Desktop“外部会话”只读查看器（telegram/feishu/qq/weixin）的列表与 transcript 现在直接从 Agent 的 `contexts/` 存储派生，不再依赖单独的 legacy `~/.molibot/sessions` 扁平副本。外部渠道每轮对话不再向该冗余、无限增长的存储双写；Web 与 Project 会话不受影响。
+- 新增 `src/lib/server/app/externalSessionsFromContexts.ts`：位于 app 上层的只读投影，按渠道工作区枚举每个可见 Agent session，映射为既有的 `ExternalSessionEntry`/transcript 结构，排除 `automation`（`task-*`）会话，并用不透明的 base64url id 承载身份（`{channel,botId,chatId,sessionId}`）。两个 `/api/desktop/external-sessions` 路由改用它；Desktop 前端无需改动（id 端到端本就是不透明的）。
+- 将 legacy `SessionStore` 的外部写入路径置为惰性（`writeLegacySession` 空实现；`createConversation` 的外部分支不再落盘/写索引），并移除已失效的 `listExternalSessions()` / `getExternalSession()` 读接口。无需数据迁移——`contexts/` 已保存完整历史；现存的 `~/.molibot/sessions/*.json` 变为孤儿文件，验证后可手动归档/删除。
+- 分层：投影只读、仅访问 `contexts/`，放在 app 上层（与 `desktopExternalSessions`/`conversationThinking`/`desktopRunHistory` 一致），不穿透 Channel↔Agent 边界。
+- 验证：新增 `externalSessionsFromContexts.test.ts`（列表投影、automation/空会话排除、内容块文本提取、非法/穿越/缺失 id 处理）与更新的 `sessions/store.test.ts`（外部渠道不再落盘、Web/Project 存储不受影响）；`tsc` 类型检查 0 错误。
+
+## 2026-07-06
+
+### Desktop Chat 连续对话流
+- Assistant 的 thinking、工具活动和最终回复改为同一内容列中的连续信息流：移除头像与回复卡片，thinking 和工具明细保留折叠能力但不再使用独立卡片容器。
+- 用户消息继续右对齐，背景从强调蓝改为 `DESIGN.md` 的 Geist 中性色 `gray-100`，暗色主题使用 `gray-200`，文字与边框继续使用语义 token。
+- 修复回复完成并 reload 后 thinking 消失：Desktop session API 现在从 Agent context 的结构化消息读取 thinking，按前置用户消息匹配轮次，并聚合工具调用前后的多段 assistant reasoning；历史会话无需迁移或重复写入即可恢复显示。
+- 该共享渲染同时作用于本地 Chat、Project Chat、外部只读 transcript 和自动任务会话详情；Desktop Svelte 检查 0 错误，chat UI 回归测试 23/23 通过。
+
+### Desktop 周期任务可视化计划编辑器
+- 自动任务创建与编辑不再要求普通用户直接输入 Cron；提供每天、每周多选、每月指定日期和自定义 Cron 四种周期计划，统一生成现有五段 Cron 并继续通过 watched-event JSON 运行时落地。
+- 旧任务中的简单 Cron 自动回显为对应可视化模式；步进、范围、限定月份或日期/星期组合等复杂表达式自动进入自定义模式并原样保留，避免编辑时数据丢失。
+- 周多选、月末缺失日期提示、生成结果、交付方式和会话模式均提供中英文人类可读文案，并适配明暗主题、键盘焦点与窄窗口两列布局。
+- 创建目标不再枚举 Bot 文件目录或提供含义不明的“工作区”：服务端直接读取已启用渠道实例的 `allowedChatIds`；前端拆为 Bot 与“发送到”两级选择，右侧只显示该 Bot 明确允许的 Chat ID。空值和重复 ID 会被清理，禁用 Bot、Web、内部目录和未配置 ID 均不会出现；已有工作区任务仍可查看和编辑。
+
+### 修复周期任务永久卡在 running 状态
+- 修复周期（cron）任务会永久卡在 `running` 的问题：当一次触发因同 `taskId` 的兄弟任务仍在运行而被判定 `task_already_running` 跳过时，`dispatchEvent` 已通过周期运行锁把事件文件写成 `running`，但跳过分支直接 `return`、从不释放该锁，导致文件永远停在 `running`。新增 `releasePeriodicRunLock`，在跳过时释放运行锁并将该时间槽标记为已消费，使文件复位为 `pending`（不增加 `runCount`）。
+- 修复启动恢复忽略孤儿 `retry_wait` 租约的问题：`recoverStaleRunning()` 原先只回收 `running` 租约，导致重试从未被拾起的 `retry_wait`（如进程在重试等待期间退出）永久保持“活跃”，并因 `taskId` 可跨事件共享而通过 `hasActiveForTask` 永久阻塞所有兄弟任务。恢复逻辑现在也会回收超期（超过一个完整 timeout 窗口）的 `retry_wait`，标记 `stop_reason = 'retry_abandoned'`。
+- 说明：多个互不相关的周期事件共用同一个通用 `taskId`（如 `"explicit"`）会经由 `hasActiveForTask` 被当作互斥；应给每个独立任务分配不同 `taskId`，避免误判 `already running` 而跳过。
+- 修复既有单测 `late successful event completion suppresses timeout retry outcome` 的 pre-existing 失败：该用例本想验证“超时先触发、run 之后才成功”时结果仍为 success 且 `onTimeout` 只调用一次，但它用 `createLease(store, 5)` 申请 5ms 超时，而 `acquire` 会把 `timeoutMs` 钳到 1000ms 下限（早于用例存在），导致 20ms 的 run 永远先于超时完成、`onTimeout` 从不触发。改为在调用 `runAttemptWithTimeout` 时用 `{ ...lease, timeoutMs: 5 }` 显式给出低于 run 时长的超时，真正复现该竞态；生产逻辑无需改动。
+- 租约库不再静默钳制：当调用方请求的 `timeoutMs` 低于 1000ms 下限、或 `maxAttempts` 小于 1 时，`acquire()` 与 `recordSkipped()` 会通过 `momWarn` 打出 `eventLease/timeout_below_floor`、`eventLease/max_attempts_below_floor` 警告（附 `eventFile`/`runId`/请求值/实际值），把“毫秒被下限吞掉”这类踩坑显式暴露出来。
+- 验证：新增 `events.test.ts`（跳过时释放文件运行锁）、`eventsLeaseStore.test.ts`（回收超期 `retry_wait`、低于下限时钳制并告警）回归用例；`events`+`eventsLeaseStore`+`tools/event` 三个测试文件共 16/16 全部通过。
+
+### 任务 taskId 全局唯一且可读
+- taskId 生成格式改为可读的 `<slug>-<4位随机>`（如 `ai-news-daily-8x2k`），取代原 `task_<uuid>`；`createEventTaskId(slug?)` 会对可选名称做 slug 化并追加随机后缀。
+- `createEvent` 工具现在为每个新建事件盖上唯一 `taskId`，并保证与同一 Bot `events/` 目录下已有事件不重复；新增可选 `name` 参数用于指定可读 slug；按 chatId+schedule+timezone 命中的周期任务更新时保留原 `taskId`，保持执行历史关联。
+- `createEvent` 文件名改为带随机后缀（`event-<ts>-<rand>.json`），避免同一毫秒创建的两个事件互相覆盖。
+- 将现有 `moli_news_bot` 任务从共享/通用标签迁移到唯一 id：`explicit`/`explicit`/`news` → `ai-news-daily-*`、`ai-daily-report-*`、`news-daily-*`（旧 id 下的历史执行记录仍在租约库中，但不再归属到改名后的任务）。
+- 验证：新增 `tools/event.test.ts`（可读唯一 taskId、目录内去重、周期更新保留 id、无名回退 `task-` slug、文件名去重）5 个用例全部通过；`desktopTasks`/`taskSessions` 等既有任务用例保持 13/13 通过。
+
 ## 2026-07-05
 
 ### Desktop Projects：外部真实目录与独立多会话

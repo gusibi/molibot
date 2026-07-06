@@ -83,10 +83,13 @@ test("automation session detail renders a chat-style transcript", () => {
   assert.match(view, /<ConversationTranscript/);
   assert.match(sections.tasks, /<ConversationTranscript/);
   assert.match(transcript, /class="message-row"/);
-  assert.match(transcript, /class="message-avatar"/);
+  assert.doesNotMatch(transcript, /class="message-avatar"/);
   assert.match(transcript, /class="message-stack"/);
   assert.match(transcript, /class="message-bubble markdown-body"/);
   assert.match(transcript, /renderMarkdown\(displayContent\)/);
+  assert.match(styles, /\.message-row\.assistant \.message-bubble \{[^}]*background: transparent/s);
+  assert.match(styles, /\.message-row\.mine \.message-bubble \{[^}]*background: var\(--gray-100\)/s);
+  assert.match(styles, /\.run-activity \{[^}]*border: 0;[^}]*background: transparent/s);
   assert.doesNotMatch(sections.tasks, /class="message-(row|avatar|stack|bubble)/);
 });
 

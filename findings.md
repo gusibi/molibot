@@ -7,3 +7,17 @@
 - Screenshot 03 (`03-skills.png`) shows populated Skills. Strengths: visible total/enabled counts, consistent status badges, scope metadata, and a straightforward two-column inventory. Critical layout issue: CSS Grid rows inherit the tallest card, so long descriptions create large blank areas in neighboring cards. There is no search/filter despite 26 entries, descriptions are unbounded, mixed-language metadata dominates the screen, and “技能广场” promises discovery/installation while the page only inventories installed/generated skills. Repeated identical icons and pills provide little scanning value.
 - Source verification confirms several `DESIGN.md` mismatches: primary nav rows are 34px, composer tools 32px, selectors 28px, send 36px, and automation actions 28–38px versus the documented 40px medium control; most interactive Chat controls lack explicit `:focus-visible` rings; skill cards use unrestricted description height; automation uses multiple custom radii and shadows beyond the intended tight family.
 - Adversarial review found that changing the breakpoint alone was insufficient: the sidebar width is stored in an inline CSS custom property, so a media-query custom-property assignment would lose the cascade. The compact rule now overrides `grid-template-columns` and the resizer position directly.
+
+## Periodic Schedule Builder — 2026-07-06
+
+- Desktop task creation is already periodic-only end to end; the create API accepts `schedule` and always writes a periodic watched-event JSON file.
+- The UX problem is isolated to direct Cron entry and edit-state parsing. No runtime scheduler or channel-layer change is needed.
+- Existing arbitrary Cron expressions must fall back to custom mode so editing never rewrites or drops unsupported ranges, steps, months, or mixed fields.
+- The project has no `src/lib/components/ui` shadcn-svelte tree. This task must therefore reuse existing semantic controls and shared CSS rather than introduce a parallel component system.
+- Rendered comparison exposed an existing CSS cascade issue: the later base `.modal-card` width overrode `.task-editor-modal`, shrinking the editor to about 560px. The task-specific selector now has sufficient specificity to preserve its intended 720px width.
+
+## Automation Target Picker — 2026-07-06
+
+- The old target list treated every Bot child directory as a chat and separately added a Bot-level workspace target. That directly exposed internal storage topology as product choices.
+- External session keys encode the real Bot and scope as `bot:<instance>:chat:<scope>:<session>`, while conversation metadata carries Bot name, sender name, thread title, and chat type. These are the correct source for user-facing targets.
+- The correct source of truth is each enabled channel instance's `allowedChatIds`, not filesystem directories or historical external-session metadata. Existing workspace tasks remain in task summaries but workspace is no longer offered for creation.

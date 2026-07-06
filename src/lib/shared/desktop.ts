@@ -269,6 +269,7 @@ export interface DesktopTaskTarget {
   botId: string;
   chatId: string;
   scope: "workspace" | "chat-scratch";
+  botDisplayName?: string;
 }
 
 export type DesktopTaskExecutionStatus = "running" | "retry_wait" | "completed" | "failed" | "aborted" | "skipped";
@@ -398,6 +399,7 @@ export interface DesktopConversationMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+  thinking?: string;
   attachments?: DesktopMessageAttachment[];
   activities?: DesktopConversationActivity[];
 }

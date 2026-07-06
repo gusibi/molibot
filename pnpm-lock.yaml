@@ -84,6 +84,15 @@ importers:
       '@mariozechner/pi-web-ui':
         specifier: ^0.73.1
         version: 0.73.1(@mariozechner/mini-lit@0.2.1(lit@3.3.3)(tailwindcss@4.3.2))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(lit@3.3.3)(ws@8.21.0)(zod@4.4.3)
+      '@rollup/plugin-commonjs':
+        specifier: ^29.0.3
+        version: 29.0.3(rollup@4.62.2)
+      '@rollup/plugin-json':
+        specifier: ^6.1.0
+        version: 6.1.0(rollup@4.62.2)
+      '@rollup/plugin-node-resolve':
+        specifier: ^16.0.3
+        version: 16.0.3(rollup@4.62.2)
       '@sveltejs/adapter-node':
         specifier: ^5.2.12
         version: 5.5.7(@sveltejs/kit@2.68.0(@sveltejs/vite-plugin-svelte@6.2.4(svelte@5.56.4)(vite@7.3.6(@types/node@24.13.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)(yaml@2.9.0)))(svelte@5.56.4)(typescript@5.9.3)(vite@7.3.6(@types/node@24.13.2)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)(yaml@2.9.0)))
@@ -114,6 +123,9 @@ importers:
       lit:
         specifier: ^3.3.1
         version: 3.3.3
+      rollup:
+        specifier: ^4.62.2
+        version: 4.62.2
       tailwind-variants:
         specifier: ^3.2.2
         version: 3.2.2(tailwind-merge@3.6.0)(tailwindcss@4.3.2)

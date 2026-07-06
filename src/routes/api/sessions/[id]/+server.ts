@@ -7,6 +7,7 @@ import {
   toWebExternalUserId
 } from "$lib/server/web/identity";
 import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
+import { attachContextThinking } from "$lib/server/app/conversationThinking.js";
 
 export const GET: RequestHandler = async ({ params, url }) => {
   const id = params.id;
@@ -23,7 +24,11 @@ export const GET: RequestHandler = async ({ params, url }) => {
     return json({ ok: false, error: "Session not found" }, { status: 404 });
   }
 
-  const messages = sessions.listMessages(id, 1000);
+  const { store } = getWebRuntimeContext(profileId);
+  const messages = attachContextThinking(
+    sessions.listMessages(id, 1000),
+    store.loadContext(externalUserId, id)
+  );
   return json({
     ok: true,
     session: {

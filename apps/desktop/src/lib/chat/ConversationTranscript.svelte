@@ -39,16 +39,15 @@
         <details class="thinking-card"><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
       {/if}
     {:else}
-      <div class="message-avatar" aria-hidden="true">M</div>
       <div class="message-stack">
+        {#if message.thinking}
+          <details class="thinking-card"><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
+        {/if}
         {#if message.activities?.length}<RunActivity activities={message.activities} {copy} />{/if}
         {#if displayContent}<div class="message-bubble markdown-body">{@html renderMarkdown(displayContent)}</div>{/if}
         {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
         {#if message.attachments?.length}
           <TranscriptAttachments attachments={message.attachments} {copy} actions={attachmentActions} />
-        {/if}
-        {#if message.thinking}
-          <details class="thinking-card"><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
         {/if}
       </div>
     {/if}

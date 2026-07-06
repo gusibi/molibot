@@ -32,11 +32,10 @@
 <ConversationTranscript {messages} {copy} {formatTime} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} />
 {#if sending}
   <article class="message-row assistant streaming-message">
-    <div class="message-avatar" aria-hidden="true">M</div>
     <div class="message-stack">
       <div class="message-status"><span>{activity || copy.working}</span></div>
-      {#if activities.length > 0}<RunActivity {activities} {copy} live={true} />{/if}
       {#if streamingThinking}<details class="thinking-card" open><summary>{copy.thinking}</summary><pre>{streamingThinking}</pre></details>{/if}
+      {#if activities.length > 0}<RunActivity {activities} {copy} live={true} />{/if}
       <div class="message-bubble markdown-body">{@html renderMarkdown(streamingText || activity || copy.working)}</div>
     </div>
   </article>

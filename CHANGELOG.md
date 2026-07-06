@@ -1,10 +1,44 @@
 # Molibot ChangeLog
 
+## 2026-07-07
+
+### External sessions viewer derives from the Agent `contexts/` store
+- The Desktop "External sessions" read-only viewer (telegram/feishu/qq/weixin) now derives its list and transcripts directly from the Agent `contexts/` store instead of a separate legacy `~/.molibot/sessions` flat copy. External-channel turns no longer double-write that redundant, unbounded store; web and project conversations are unaffected.
+- Added `src/lib/server/app/externalSessionsFromContexts.ts` — a read-only, app-layer projection that enumerates each visible Agent session per channel workspace, projects it into the existing `ExternalSessionEntry`/transcript shapes, excludes `automation` (`task-*`) sessions, and carries identity in an opaque base64url id. The two `/api/desktop/external-sessions` routes now use it; the Desktop UI needs no change (the id was already opaque end-to-end).
+- Made the legacy `SessionStore` external write path inert (`writeLegacySession` no-ops; the external branch of `createConversation` no longer persists a file/index) and removed the now-dead `listExternalSessions()` / `getExternalSession()` readers. No data migration is needed — `contexts/` already holds the full history; existing `~/.molibot/sessions/*.json` files are orphaned and can be archived/removed after verification.
+- Coverage: new `externalSessionsFromContexts.test.ts` (list projection, automation/empty-session exclusion, content-block extraction, malformed/traversal/missing id handling) and updated `sessions/store.test.ts` (external channels no longer persist; web/project storage intact). Typecheck clean.
+
 ## 2026-07-06
+
+### Desktop Chat continuous conversation flow
+- Replaced the assistant avatar/card treatment with one continuous content column for reasoning, tool activity, and the final response. Reasoning and tool details remain collapsible but no longer render as separate cards.
+- Changed right-aligned user messages from the blue accent fill to Geist neutral gray tokens for both light and dark themes.
+- Fixed reasoning disappearing after a completed response reload. The Desktop session projection now enriches final assistant messages from the structured Agent context, matching by user turn and aggregating reasoning segments across intervening tool calls, including existing history without data migration.
+- Updated shared transcript regression coverage; Desktop Svelte checks and all 23 chat UI tests pass.
+
+### Easier recurring-task schedules
+- Replaced the primary raw Cron field in Desktop Automations with daily, multi-select weekly, monthly-by-date, and custom schedule modes while preserving the existing five-field Cron runtime format.
+- Existing complex Cron expressions fall back to custom mode without being rewritten; create and edit now share the same responsive, localized schedule builder with human-readable delivery and session options.
+- Fixed the task editor's intended 720px width being overridden by the base modal rule, and added 40px keyboard-focusable schedule controls with narrow-window reflow.
+- Replaced the raw target-directory list with separate Bot and Chat ID selectors backed directly by each enabled channel instance's `allowedChatIds`. Empty/duplicate IDs, disabled Bots, Web, internal folders, and recipient-less workspace targets are excluded, while existing workspace tasks remain compatible.
+
+### Scheduled task stuck-in-running fix
+- Fixed periodic (cron) tasks getting permanently stuck in the `running` state. When a triggered run was skipped because a sibling task sharing the same `taskId` was already active (`task_already_running`), `dispatchEvent` had already flipped the event file to `running` via the periodic run-lock, but the skip path returned without releasing it — leaving the file frozen at `running` forever. The skip path now releases the run-lock (`releasePeriodicRunLock`) and marks the slot consumed, so the file returns to `pending`.
+- Fixed startup recovery ignoring orphaned `retry_wait` leases. `recoverStaleRunning()` only recovered `running` leases, so a `retry_wait` lease whose retry was never picked up (e.g. the process died mid-retry) stayed "active" indefinitely and — because `taskId` can be shared across events — permanently blocked every sibling task via `hasActiveForTask`. Recovery now also abandons `retry_wait` leases that are overdue by more than a full timeout window (`stop_reason = 'retry_abandoned'`).
+- Note: sharing a generic `taskId` (e.g. `"explicit"`) across unrelated periodic events makes them mutually exclusive through `hasActiveForTask`; give each independent task a distinct `taskId` to avoid false "already running" skips.
+
+### Globally-unique, readable task ids
+- Task ids are now minted in the readable form `<slug>-<4-char-random>` (e.g. `ai-news-daily-8x2k`) instead of `task_<uuid>`. `createEventTaskId(slug?)` slugifies an optional name and appends a random suffix.
+- `createEvent` now stamps a unique `taskId` on every newly created event and guarantees it does not collide with any existing event file in the same bot's `events/` directory. A new optional `name` parameter lets the caller choose the readable slug; updating an existing periodic task (matched by chatId + schedule + timezone) preserves its current `taskId` so execution history stays linked.
+- `createEvent` filenames now include a random suffix (`event-<ts>-<rand>.json`) so two events created in the same millisecond no longer overwrite each other.
+- Migrated the existing `moli_news_bot` tasks off the shared/generic labels: `explicit`/`explicit`/`news` → `ai-news-daily-*`, `ai-daily-report-*`, `news-daily-*`. (Past execution history recorded under the old ids stays in the lease store but is no longer shown under the renamed task.)
+- Fixed the pre-existing failing unit test `late successful event completion suppresses timeout retry outcome`: it requested a 5ms lease timeout but `acquire()` clamps `timeoutMs` to a 1000ms floor (which predates the test), so the 20ms run always finished before the timeout and `onTimeout` never fired. The test now passes an explicit sub-run-duration timeout to `runAttemptWithTimeout` to genuinely exercise the "timeout fires first, run succeeds later" race; no production code changed.
+- The lease store now warns (`momWarn` `eventLease/timeout_below_floor` and `eventLease/max_attempts_below_floor`) whenever a caller requests a `timeoutMs` under the 1000ms floor or `maxAttempts` under 1, instead of silently clamping. This surfaces the exact footgun behind the stale test — passing milliseconds where the floor swallows them — in both `acquire()` and `recordSkipped()`.
 
 ### Desktop release automation
 - The Desktop DMG workflow now triggers on the actual release tag convention (`v*`, e.g. `v2.2.5`) in addition to the legacy `molibot-v*` tag, so pushing a release tag automatically builds the Apple Silicon DMG, checksum, and build-info manifest and publishes them to the tag's GitHub Release.
 - Fixed a CI ordering bug where `actions/setup-node` requested the pnpm cache before corepack had enabled pnpm; corepack now runs first so the cache step can resolve the pnpm store.
+- Declared `rollup` and `@rollup/plugin-{node-resolve,commonjs,json}` as root devDependencies. The custom `scripts/svelte-adapter-node-sqlite.js` adapter imports them at module load, but they were only present via a dirty local install; a clean `pnpm install --frozen-lockfile` (as on CI) failed the desktop build with `Cannot find package 'rollup'` during Svelte config load. They are now in `package.json` and the lockfile.
 
 ## 2026-07-05
 

@@ -1,7 +1,9 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { getRuntime } from "$lib/server/app/runtime";
+import { resolve } from "node:path";
+import { config } from "$lib/server/app/env";
 import { buildDesktopExternalTranscript } from "$lib/server/app/desktopExternalSessions";
+import { readExternalTranscriptFromContexts } from "$lib/server/app/externalSessionsFromContexts";
 import type { DesktopExternalTranscriptResponse } from "$lib/shared/desktop";
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -10,16 +12,14 @@ export const GET: RequestHandler = async ({ params }) => {
     return json({ ok: false, error: "Session ID is required" }, { status: 400 });
   }
 
-  const { sessions } = getRuntime();
-  const conversation = sessions.getExternalSession(id);
-  if (!conversation) {
+  const session = readExternalTranscriptFromContexts(resolve(config.dataDir), id);
+  if (!session) {
     return json({ ok: false, error: "Session not found" }, { status: 404 });
   }
 
-  const messages = sessions.listMessages(id, 1000);
   const payload: DesktopExternalTranscriptResponse = {
     ok: true,
-    transcript: buildDesktopExternalTranscript(conversation, messages)
+    transcript: buildDesktopExternalTranscript(session.conversation, session.messages)
   };
   return json(payload, { headers: { "Cache-Control": "no-store" } });
 };

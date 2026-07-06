@@ -7,10 +7,20 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { createEventTaskId, type MomEvent } from "$lib/server/agent/events";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore";
 import { TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/commands/taskChannels";
+import { buildDesktopTaskTargets } from "$lib/server/app/desktopTasks";
 
 type TaskScope = "workspace" | "chat-scratch";
 type TaskType = "one-shot" | "periodic" | "immediate";
 type TaskState = "pending" | "running" | "completed" | "skipped" | "error";
+const INTERNAL_TASK_TARGET_DIRS = new Set([
+  "attachments",
+  "contexts",
+  "events",
+  "run-details",
+  "scratch",
+  "skill-drafts",
+  "skills"
+]);
 
 interface EventStatus {
   state?: TaskState;
@@ -230,7 +240,6 @@ export const GET: RequestHandler = async () => {
   const taskRoots = resolveTasksRoots();
   const diagnostics: string[] = [];
   const items: TaskItem[] = [];
-  const targets: Array<{ channel: TaskChannel; botId: string; chatId: string; scope: TaskScope }> = [];
 
   for (const { channel, botsRoot } of taskRoots) {
     if (!existsSync(botsRoot)) continue;
@@ -239,19 +248,16 @@ export const GET: RequestHandler = async () => {
     for (const botEntry of botEntries) {
       const botId = botEntry.name;
       const botDir = join(botsRoot, botId);
-      targets.push({ channel, botId, chatId: "", scope: "workspace" });
-
       for (const filePath of collectJsonFiles(join(botDir, "events"))) {
         const item = readTaskFile(filePath, channel, botId, "", "workspace", diagnostics);
         if (item) items.push(item);
       }
 
       const chatEntries = readdirSync(botDir, { withFileTypes: true }).filter(
-        (entry) => entry.isDirectory() && entry.name !== "events" && entry.name !== "skills" && entry.name !== "attachments"
+        (entry) => entry.isDirectory() && !INTERNAL_TASK_TARGET_DIRS.has(entry.name)
       );
       for (const chatEntry of chatEntries) {
         const chatId = chatEntry.name;
-        targets.push({ channel, botId, chatId, scope: "chat-scratch" });
         for (const filePath of collectJsonFiles(join(botDir, chatId, "scratch", "events"))) {
           const item = readTaskFile(filePath, channel, botId, chatId, "chat-scratch", diagnostics);
           if (item) items.push(item);
@@ -266,6 +272,7 @@ export const GET: RequestHandler = async () => {
     if (typeDiff !== 0) return typeDiff;
     return b.updatedAt.localeCompare(a.updatedAt);
   });
+  const targets = buildDesktopTaskTargets(getRuntime().getSettings());
 
   const countsByType = {
     "one-shot": items.filter((item) => item.type === "one-shot").length,

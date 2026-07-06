@@ -8,6 +8,7 @@ import type {
   DesktopTaskType
 } from "$lib/shared/desktop";
 import { createHash } from "node:crypto";
+import type { RuntimeSettings } from "$lib/server/settings/schema";
 
 const KNOWN_TYPES: readonly DesktopTaskType[] = ["one-shot", "periodic", "immediate"];
 const KNOWN_STATES: readonly DesktopTaskState[] = ["pending", "running", "completed", "skipped", "error"];
@@ -107,6 +108,34 @@ function coerceState(value: string): DesktopTaskState {
  * replaced with a stable opaque id.
  */
 export type DesktopTaskExecutionLoader = (taskId: string) => { items: DesktopTaskExecution[]; total: number };
+
+/**
+ * Projects enabled channel instances' explicit allow-lists into task targets.
+ * Runtime settings are the source of truth: filesystem directories and
+ * partially populated session metadata never participate in target discovery.
+ */
+export function buildDesktopTaskTargets(settings: RuntimeSettings): DesktopTaskTarget[] {
+  const targets: DesktopTaskTarget[] = [];
+  for (const [channel, group] of Object.entries(settings.channels ?? {})) {
+    if (channel === "web") continue;
+    for (const instance of group?.instances ?? []) {
+      if (instance.enabled === false) continue;
+      const chatIds = Array.from(new Set((instance.allowedChatIds ?? []).map(String).map((value) => value.trim()).filter(Boolean)));
+      for (const chatId of chatIds) {
+        targets.push({
+          channel,
+          botId: instance.id,
+          botDisplayName: String(instance.name ?? "").trim() || instance.id,
+          chatId,
+          scope: "chat-scratch"
+        });
+      }
+    }
+  }
+  return targets.sort((a, b) => a.channel.localeCompare(b.channel)
+    || (a.botDisplayName || a.botId).localeCompare(b.botDisplayName || b.botId)
+    || a.chatId.localeCompare(b.chatId));
+}
 
 export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: DesktopTaskExecutionLoader = () => ({ items: [], total: 0 })): DesktopTaskItem {
   const taskId = String(item.taskId ?? "").trim() || desktopTaskId(item.filePath);

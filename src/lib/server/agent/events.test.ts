@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -34,6 +34,66 @@ function createLease(store: EventExecutionLeaseStore, timeoutMs: number): EventE
   return lease;
 }
 
+test("skipping a periodic run for task_already_running releases the file run-lock", async () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-"));
+  const filename = "event.json";
+  const eventPath = join(eventsDir, filename);
+
+  // A sibling event sharing the same taskId is already running.
+  const blocking = store.acquire({
+    leaseScope: "telegram",
+    eventFile: "sibling.json",
+    eventType: "periodic",
+    triggerSlot: "2026-06-04T09:00",
+    chatId: "chat-1",
+    sessionId: "session-1",
+    channel: "telegram",
+    taskId: "explicit",
+    runId: "blocking-run",
+    maxAttempts: 3,
+    timeoutMs: 600_000,
+    eventPayloadJson: "{}",
+    now: new Date("2026-06-04T09:00:00.000Z")
+  });
+  assert.equal(blocking?.status, "running");
+
+  const event: MomEvent = { ...createPeriodicEvent(), taskId: "explicit" };
+  writeFileSync(eventPath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+
+  let onEventCalls = 0;
+  const watcher = new EventsWatcher(
+    eventsDir,
+    async () => {
+      onEventCalls += 1;
+    },
+    { leaseStore: store, channel: "telegram" }
+  ) as unknown as {
+    tryAcquirePeriodicRunLock: (filename: string, slotKey: string) => { event: MomEvent; slotKey: string; runId: string } | null;
+    runLeasedEvent: (event: MomEvent, filename: string, triggerSlot: string, runId: string) => Promise<void>;
+  };
+
+  try {
+    const lock = watcher.tryAcquirePeriodicRunLock(filename, "2026-06-04T17:00");
+    assert.ok(lock, "periodic dispatch should acquire the file run-lock");
+    // Run-lock flipped the file to "running".
+    assert.equal(JSON.parse(readFileSync(eventPath, "utf8")).status.state, "running");
+
+    await watcher.runLeasedEvent(lock.event, filename, lock.slotKey, lock.runId);
+
+    // The run was skipped (never executed) and the file lock was released.
+    assert.equal(onEventCalls, 0);
+    const status = JSON.parse(readFileSync(eventPath, "utf8")).status;
+    assert.equal(status.state, "pending");
+    assert.equal(status.reason, "task_already_running");
+    assert.equal(status.runningSlotKey, undefined);
+    assert.equal(status.runId, undefined);
+  } finally {
+    rmSync(eventsDir, { recursive: true, force: true });
+    store.close();
+  }
+});
+
 test("late successful event completion suppresses timeout retry outcome", async () => {
   const store = new EventExecutionLeaseStore(":memory:");
   const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-"));
@@ -51,6 +111,10 @@ test("late successful event completion suppresses timeout retry outcome", async 
     }
   );
   const lease = createLease(store, 5);
+  // `acquire` clamps lease.timeoutMs to a 1000ms floor, so drive the race with an
+  // explicit sub-run-duration timeout to actually exercise "timeout fires first,
+  // run succeeds later" (5ms timeout vs the 20ms onEvent above).
+  const fastTimeoutLease: EventExecutionLease = { ...lease, timeoutMs: 5 };
 
   try {
     const runAttemptWithTimeout = (
@@ -63,7 +127,7 @@ test("late successful event completion suppresses timeout retry outcome", async 
       }
     ).runAttemptWithTimeout.bind(watcher);
 
-    const result = await runAttemptWithTimeout(createPeriodicEvent(), "event.json", lease);
+    const result = await runAttemptWithTimeout(createPeriodicEvent(), "event.json", fastTimeoutLease);
     assert.deepEqual(result, { status: "success" });
     assert.equal(timeoutCalls, 1);
   } finally {

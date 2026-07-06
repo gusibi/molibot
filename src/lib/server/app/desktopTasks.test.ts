@@ -4,6 +4,7 @@ import {
   buildDesktopTaskSessionMessages,
   buildDesktopTaskItem,
   buildDesktopTaskSummary,
+  buildDesktopTaskTargets,
   resolveDesktopTaskPaths
 } from "./desktopTasks";
 
@@ -101,6 +102,34 @@ test("buildDesktopTaskSummary exposes only periodic automations", () => {
   assert.equal(summary.counts.byChannel.telegram, 1);
   assert.equal(summary.counts.byChannel.feishu, undefined);
   assert.equal(summary.items[0].text.includes("API key"), true);
+});
+
+test("task targets come only from enabled Bot allowed chat ids", () => {
+  const settings = {
+    channels: {
+      telegram: { instances: [
+        { id: "news", name: "News Bot", enabled: true, allowedChatIds: ["7706709760", " 7706709760 ", "-5296983178", ""] },
+        { id: "disabled", name: "Disabled", enabled: false, allowedChatIds: ["should-not-appear"] }
+      ] },
+      feishu: { instances: [
+        { id: "office", name: "Office Bot", enabled: true, allowedChatIds: ["oc_group__thread_topic"] }
+      ] },
+      web: { instances: [
+        { id: "web", name: "Web", enabled: true, allowedChatIds: ["web-chat"] }
+      ] }
+    }
+  } as Parameters<typeof buildDesktopTaskTargets>[0];
+
+  const targets = buildDesktopTaskTargets(settings);
+
+  assert.deepEqual(targets, [
+    { channel: "feishu", botId: "office", chatId: "oc_group__thread_topic", scope: "chat-scratch", botDisplayName: "Office Bot" },
+    { channel: "telegram", botId: "news", chatId: "-5296983178", scope: "chat-scratch", botDisplayName: "News Bot" },
+    { channel: "telegram", botId: "news", chatId: "7706709760", scope: "chat-scratch", botDisplayName: "News Bot" }
+  ]);
+  assert.equal(JSON.stringify(targets).includes("should-not-appear"), false);
+  assert.equal(JSON.stringify(targets).includes("web-chat"), false);
+  assert.equal(targets.some((target) => target.scope === "workspace"), false);
 });
 
 test("task ids resolve to server-side paths and reject unknown ids", () => {

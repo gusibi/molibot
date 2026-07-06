@@ -1,5 +1,10 @@
 # Molibot PRD (V1)
 
+## 2.33 Desktop Periodic Schedule Builder (2026-07-06)
+- [Done] 周期任务创建与编辑提供每天、每周多选、每月指定日期和自定义 Cron 四种计划模式；旧复杂 Cron 必须无损回退到自定义模式，且保持中英、明暗主题、键盘与窄窗口可用。
+- [Done] 新建任务目标只能来自已启用 Bot 配置中的 `allowedChatIds`，并按渠道/Bot 与 Chat ID 两级选择；不得依赖历史 Session 展示元数据，也不得把内部目录或无明确收件人的工作区暴露为目标。已有工作区任务保持兼容。
+- [Follow-up, P1] 补充可读化 next-runs 预览和“复制到其他 chat/bot”。
+
 ## 2.32 Configurable Service Port (2026-07-05)
 - [Done] 系统设置提供服务端口配置，默认 3000，仅接受 1024–65535 的整数并持久化到共享 Runtime settings。
 - [Done] 独立服务启动与 Desktop supervisor 均读取持久化端口；显式 `PORT` 环境变量继续拥有更高优先级。
@@ -73,7 +78,7 @@
 - [Done] fresh 自动化 session 不进入普通左侧 session 列表；只能从 Automations 执行记录查看。session retention 清理后，执行记录保留并展示会话已清理状态。
 - [Done] Automations 执行记录可打开只读 session 详情；真实 event JSON 路径和本机绝对路径不得暴露给 macOS WebView。
 - [Done] macOS 前端与本地服务短暂版本错配时，Automations 页面仍须结束加载、只展示周期任务，并兼容旧响应中缺失的执行记录字段。
-- [Follow-up, P1] 创建周期任务的完整表单、可读化 next-runs 预览、复杂 cron 编辑体验和“复制到其他 chat/bot”可在后续迭代补强。
+- [Follow-up, P1] 周期任务的可读化 next-runs 预览和“复制到其他 chat/bot”可在后续迭代补强。
 
 ## 2.22 Package Management (2026-07-01)
 - [Done] 根应用与 `apps/desktop` 使用同一个 pnpm workspace 和锁文件，依赖通过 pnpm 内容寻址 store 跨项目复用，降低重复安装的存储成本。
@@ -3578,6 +3583,8 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 本地服务默认只监听 `127.0.0.1`，优先使用配置端口并支持冲突回退；必须具备单实例、数据目录锁、服务所有权识别、版本/capability 握手、sidecar 崩溃恢复和端口发现。
   - 关闭主窗口后渠道服务继续运行，Dock 和菜单栏状态项保留；明确退出只停止由 App 启动的 sidecar，不能擅自停止既有外部 Molibot 服务。
   - Desktop Chat 必须覆盖现有 Web Chat 的 session、流式消息、thinking、模型选择、附件、语音、队列、停止/steer/follow-up 和 Host Bash 审批闭环；右侧文件面板只索引当前本地 session。
+  - Desktop Chat 的 Assistant 回复采用连续内容流：thinking、工具活动与最终正文共享同一内容列，不使用相互割裂的卡片；用户消息保持右对齐并使用 Geist 中性背景，不使用强调蓝填充。（Delivered 2026-07-06）
+  - Desktop transcript 必须从 Agent context 恢复已持久化的 thinking，并按用户轮次聚合工具调用之间的多段 reasoning；刷新或重新打开历史会话不得丢失思考过程，也不得要求复制保存第二份 thinking。（Delivered 2026-07-06）
   - Telegram、Feishu、QQ、Weixin 会话必须按渠道和 Bot 实例只读聚合并实时更新；新消息需在共享 session 层保存发送者、会话、线程/Topic、Bot 实例和附件元数据，Channel 只负责平台字段转换。
   - Desktop Settings 首版保留全部现有设置能力，并遵守细粒度保存、中英即时切换、Light/Dark/System、响应式布局、固定保存底栏和现有设计组件约束。
   - 首次启动引导必须区分全新安装、已有可用配置和损坏配置；依赖安装由用户逐项明确授权，Node 随 App 内置，其余工具优先使用 `~/.molibot/tooling` 隔离环境或已安装的 Homebrew。

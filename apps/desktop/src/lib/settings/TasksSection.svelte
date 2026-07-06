@@ -1,6 +1,8 @@
 <script lang="ts">
   import { session } from "../stores/session.svelte";
   import { timezoneOptions } from "./timezones";
+  import TaskScheduleBuilder from "./TaskScheduleBuilder.svelte";
+  import { externalChannelLabel } from "../stores/channels.svelte";
   import ConversationTranscript from "../chat/ConversationTranscript.svelte";
   import {
     tasksStore,
@@ -27,6 +29,25 @@
   const filteredTaskItems = $derived(
     tasksStore.tasks?.items.filter((item) => !tasksStore.query.trim() || [item.text, item.channel, item.botId, item.chatId, item.status, item.type].join("\n").toLowerCase().includes(tasksStore.query.trim().toLowerCase())) ?? []
   );
+
+  const taskTargetGroups = $derived.by(() => {
+    const groups = new Map<string, { key: string; label: string; options: Array<{ index: number; label: string }> }>();
+    for (const [index, target] of (tasksStore.tasks?.targets ?? []).entries()) {
+      const key = `${target.channel}\n${target.botId}`;
+      const channel = externalChannelLabel(target.channel as "telegram" | "feishu" | "qq" | "weixin", session.locale);
+      const group = groups.get(key) ?? { key, label: `${channel} · ${target.botDisplayName || target.botId}`, options: [] };
+      group.options.push({ index, label: target.chatId });
+      groups.set(key, group);
+    }
+    return [...groups.values()];
+  });
+
+  const selectedTaskTargetGroup = $derived(tasksStore.taskCreate ? `${tasksStore.taskCreate.channel}\n${tasksStore.taskCreate.botId}` : "");
+
+  function selectTaskTargetGroup(key: string): void {
+    const first = taskTargetGroups.find((group) => group.key === key)?.options[0];
+    if (first) selectTaskCreateTarget(first.index);
+  }
 
   function formatSessionTime(value: string): string {
     const date = new Date(value);
@@ -136,9 +157,14 @@
       <form id="desktop-task-create-form" onsubmit={(event) => { event.preventDefault(); void saveTaskCreate(); }}>
         <header class="modal-head"><div><strong>{session.text.tasksCreate}</strong><p>{session.text.tasksCreateHint}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.taskCreate = null)}><i class="ph ph-x"></i></button></header>
         <div class="modal-body task-editor-body">
-          <label class="settings-field settings-field-wide"><span>{session.text.tasksTarget}</span><select value={Math.max(0, tasksStore.tasks.targets.findIndex((target) => target.channel === tasksStore.taskCreate?.channel && target.botId === tasksStore.taskCreate?.botId && target.chatId === tasksStore.taskCreate?.chatId && target.scope === tasksStore.taskCreate?.scope))} onchange={(event) => selectTaskCreateTarget(Number(event.currentTarget.value))}>{#each tasksStore.tasks.targets as target, index}<option value={index}>{target.channel} / {target.botId}{target.chatId ? ` / ${target.chatId}` : ` / ${session.text.taskScopeWorkspace}`}</option>{/each}</select></label>
+          <div class="task-target-picker">
+            <label class="settings-field"><span>{session.text.tasksTargetBot}</span><select value={selectedTaskTargetGroup} onchange={(event) => selectTaskTargetGroup(event.currentTarget.value)}>{#each taskTargetGroups as group (group.key)}<option value={group.key}>{group.label}</option>{/each}</select></label>
+            <label class="settings-field"><span>{session.text.tasksTargetConversation}</span><select value={Math.max(0, tasksStore.tasks.targets.findIndex((target) => target.channel === tasksStore.taskCreate?.channel && target.botId === tasksStore.taskCreate?.botId && target.chatId === tasksStore.taskCreate?.chatId && target.scope === tasksStore.taskCreate?.scope))} onchange={(event) => selectTaskCreateTarget(Number(event.currentTarget.value))}>{#each taskTargetGroups.find((group) => group.key === selectedTaskTargetGroup)?.options ?? [] as option (option.index)}<option value={option.index}>{option.label}</option>{/each}</select></label>
+            <small>{session.text.tasksTargetHint}</small>
+          </div>
           <label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="7" bind:value={tasksStore.taskCreate.text}></textarea></label>
-          <div class="settings-form"><label class="settings-field"><span>{session.text.tasksSchedule}</span><input bind:value={tasksStore.taskCreate.schedule} placeholder="0 9 * * *" /></label><label class="settings-field"><span>{session.text.tasksTimezone}</span><select bind:value={tasksStore.taskCreate.timezone}>{#if tasksStore.taskCreate.timezone && !timezoneOptions().includes(tasksStore.taskCreate.timezone)}<option value={tasksStore.taskCreate.timezone}>{tasksStore.taskCreate.timezone}</option>{/if}{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label><label class="settings-field"><span>{session.text.tasksDelivery}</span><select bind:value={tasksStore.taskCreate.delivery}><option value="agent">agent</option><option value="text">text</option></select></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><select bind:value={tasksStore.taskCreate.sessionMode}><option value="fresh">fresh</option><option value="chat">chat</option></select></label></div>
+          <TaskScheduleBuilder bind:schedule={tasksStore.taskCreate.schedule} />
+          <div class="settings-form task-advanced-settings"><label class="settings-field"><span>{session.text.tasksTimezone}</span><select bind:value={tasksStore.taskCreate.timezone}>{#if tasksStore.taskCreate.timezone && !timezoneOptions().includes(tasksStore.taskCreate.timezone)}<option value={tasksStore.taskCreate.timezone}>{tasksStore.taskCreate.timezone}</option>{/if}{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label><label class="settings-field"><span>{session.text.tasksDelivery}</span><select bind:value={tasksStore.taskCreate.delivery}><option value="agent">{session.text.tasksDeliveryAgent}</option><option value="text">{session.text.tasksDeliveryText}</option></select></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><select bind:value={tasksStore.taskCreate.sessionMode}><option value="fresh">{session.text.tasksSessionFresh}</option><option value="chat">{session.text.tasksSessionChat}</option></select></label></div>
         </div>
         <footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={() => (tasksStore.taskCreate = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(tasksStore.busy) || !tasksStore.taskCreate.text.trim() || tasksStore.taskCreate.schedule.trim().split(/\s+/).length !== 5}>{tasksStore.busy === "create" ? session.text.onboardingProviderSaving : session.text.tasksCreate}</button></footer>
       </form>
@@ -168,7 +194,7 @@
       <div class="modal-card task-editor-modal" role="presentation" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
         <form id="desktop-task-form" aria-label={session.text.channelEdit} onsubmit={(event) => { event.preventDefault(); void saveTaskEditor(); }}>
           <header class="modal-head"><div><strong>{session.text.channelEdit}</strong><p>{tasksStore.taskEdit.channel} / {tasksStore.taskEdit.botId}{tasksStore.taskEdit.chatId ? ` / ${tasksStore.taskEdit.chatId}` : ""}</p></div><button class="modal-close" type="button" aria-label={session.text.cancel} disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}><i class="ph ph-x"></i></button></header>
-          <div class="modal-body task-editor-body"><label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="7" bind:value={tasksStore.taskEdit.draftText}></textarea></label><div class="settings-form"><label class="settings-field"><span>{session.text.tasksSchedule}</span><input bind:value={tasksStore.taskEdit.draftSchedule} /></label><label class="settings-field"><span>{session.text.tasksTimezone}</span><select bind:value={tasksStore.taskEdit.draftTimezone}>{#if tasksStore.taskEdit.draftTimezone && !timezoneOptions().includes(tasksStore.taskEdit.draftTimezone)}<option value={tasksStore.taskEdit.draftTimezone}>{tasksStore.taskEdit.draftTimezone}</option>{/if}{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label><label class="settings-field"><span>{session.text.tasksDelivery}</span><select bind:value={tasksStore.taskEdit.draftDelivery}><option value="agent">agent</option><option value="text">text</option></select></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><select bind:value={tasksStore.taskEdit.draftSessionMode}><option value="fresh">fresh</option><option value="chat">chat</option></select></label></div></div>
+          <div class="modal-body task-editor-body"><label class="settings-field settings-field-wide"><span>{session.text.tasksText}</span><textarea rows="7" bind:value={tasksStore.taskEdit.draftText}></textarea></label><TaskScheduleBuilder bind:schedule={tasksStore.taskEdit.draftSchedule} /><div class="settings-form task-advanced-settings"><label class="settings-field"><span>{session.text.tasksTimezone}</span><select bind:value={tasksStore.taskEdit.draftTimezone}>{#if tasksStore.taskEdit.draftTimezone && !timezoneOptions().includes(tasksStore.taskEdit.draftTimezone)}<option value={tasksStore.taskEdit.draftTimezone}>{tasksStore.taskEdit.draftTimezone}</option>{/if}{#each timezoneOptions() as tz (tz)}<option value={tz}>{tz}</option>{/each}</select></label><label class="settings-field"><span>{session.text.tasksDelivery}</span><select bind:value={tasksStore.taskEdit.draftDelivery}><option value="agent">{session.text.tasksDeliveryAgent}</option><option value="text">{session.text.tasksDeliveryText}</option></select></label><label class="settings-field"><span>{session.text.tasksSessionMode}</span><select bind:value={tasksStore.taskEdit.draftSessionMode}><option value="fresh">{session.text.tasksSessionFresh}</option><option value="chat">{session.text.tasksSessionChat}</option></select></label></div></div>
           <footer class="entity-editor-foot"><button class="secondary-button" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => (tasksStore.taskEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(tasksStore.busy) || !tasksStore.taskEdit.draftText.trim() || tasksStore.taskEdit.draftSchedule.trim().split(/\s+/).length !== 5}>{tasksStore.busy ? session.text.onboardingProviderSaving : session.text.save}</button></footer>
         </form>
       </div>

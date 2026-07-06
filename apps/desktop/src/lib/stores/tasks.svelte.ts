@@ -35,7 +35,7 @@ export const tasksStore = $state({
 });
 
 export function beginTaskCreate(): void {
-  const target = tasksStore.tasks?.targets[0] ?? { channel: "telegram", botId: "", chatId: "", scope: "workspace" as const };
+  const target = tasksStore.tasks?.targets[0] ?? { channel: "telegram", botId: "", chatId: "", scope: "chat-scratch" as const };
   tasksStore.taskCreate = { ...target, text: "", delivery: "agent", schedule: "0 9 * * *", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", sessionMode: "fresh" };
 }
 

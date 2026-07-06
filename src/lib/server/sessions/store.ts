@@ -49,10 +49,6 @@ function userKey(channel: Channel, externalUserId: string): string {
   return `${channel}:${externalUserId}`;
 }
 
-function isAutomationConversationKey(externalUserId: string): boolean {
-  return /(?:^|:)task-[^:]+$/.test(String(externalUserId ?? "").trim());
-}
-
 function sanitizeUserDirPart(value: string): string {
   const safe = String(value ?? "").trim().replace(/[^a-zA-Z0-9._-]/g, "_");
   return safe || "anonymous";
@@ -187,8 +183,11 @@ function readLegacySession(conversationId: string): SessionFile | null {
   return readSessionFromFile(legacySessionFilePath(conversationId));
 }
 
-function writeLegacySession(data: SessionFile): void {
-  writeJsonFile(legacySessionFilePath(data.conversation.id), data);
+function writeLegacySession(_data: SessionFile): void {
+  // Intentionally inert: external-channel conversations are no longer persisted
+  // to the legacy `~/.molibot/sessions` flat store. The Desktop viewer now reads
+  // them from the Agent `contexts/` store (see externalSessionsFromContexts.ts).
+  // Web and Project conversations use their own writers and are unaffected.
 }
 
 function readWebSession(externalUserId: string, conversationId: string): SessionFile | null {
@@ -239,12 +238,10 @@ export class SessionStore {
       return conversation;
     }
 
-    const index = readLegacyIndex();
-    const key = userKey(channel, externalUserId);
-    writeLegacySession({ conversation, messages: [] });
-    index.byUserKey[key] = [...(index.byUserKey[key] ?? []), id];
-    index.byConversationId[id] = { channel, externalUserId };
-    writeLegacyIndex(index);
+    // External channels no longer persist a separate legacy `sessions/` copy.
+    // The Desktop external viewer derives transcripts from the Agent `contexts/`
+    // store; return an in-memory conversation so channel callers still get a
+    // stable id without writing a redundant file/index entry.
     return conversation;
   }
 
@@ -629,44 +626,4 @@ export class SessionStore {
     return true;
   }
 
-  /**
-   * Resolves a single non-web conversation by id for read-only external-channel
-   * transcript viewing (plan §7.2). Returns null for web sessions, unknown ids,
-   * or stale index entries whose file is missing.
-   */
-  getExternalSession(conversationId: string): Conversation | null {
-    const index = readLegacyIndex();
-    const entry = index.byConversationId[conversationId];
-    if (!entry || entry.channel === "web") return null;
-    const file = readLegacySession(conversationId);
-    return file?.conversation ?? null;
-  }
-
-  /**
-   * Lists every non-web conversation recorded in the legacy session index, for
-   * Phase 3 desktop external-channel aggregation. Web sessions live in the
-   * separate web index and are surfaced via Web Profiles. Results are sorted by
-   * updatedAt descending. Stale index entries whose session file is missing are
-   * skipped.
-   */
-  listExternalSessions(): { conversation: Conversation; channel: Channel; externalUserId: string }[] {
-    const index = readLegacyIndex();
-    const results: { conversation: Conversation; channel: Channel; externalUserId: string }[] = [];
-    for (const [id, entry] of Object.entries(index.byConversationId)) {
-      if (entry.channel === "web") continue;
-      // Fresh automation runs use a dedicated `task-*` Agent session appended
-      // to the shared conversation key. Keep those transcripts addressable by
-      // id for execution history, but exclude them from ordinary navigation.
-      if (isAutomationConversationKey(entry.externalUserId)) continue;
-      const file = readLegacySession(id);
-      if (!file) continue;
-      results.push({
-        conversation: file.conversation,
-        channel: entry.channel,
-        externalUserId: entry.externalUserId
-      });
-    }
-    results.sort((a, b) => b.conversation.updatedAt.localeCompare(a.conversation.updatedAt));
-    return results;
-  }
 }

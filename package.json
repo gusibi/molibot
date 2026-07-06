@@ -1,6 +1,6 @@
 {
   "name": "molibot",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "type": "module",
@@ -55,10 +55,13 @@
     "ws": "^8.19.0"
   },
   "devDependencies": {
-    "@mariozechner/mini-lit": "^0.2.0",
-    "@mariozechner/pi-web-ui": "^0.73.1",
     "@internationalized/date": "^3.12.1",
     "@lucide/svelte": "^1.14.0",
+    "@mariozechner/mini-lit": "^0.2.0",
+    "@mariozechner/pi-web-ui": "^0.73.1",
+    "@rollup/plugin-commonjs": "^29.0.3",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
     "@sveltejs/adapter-node": "^5.2.12",
     "@sveltejs/kit": "^2.48.1",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
@@ -69,6 +72,7 @@
     "bits-ui": "^2.18.1",
     "express": "^4.21.2",
     "lit": "^3.3.1",
+    "rollup": "^4.62.2",
     "tailwind-variants": "^3.2.2",
     "tailwindcss": "^4.2.0",
     "tsx": "^4.19.2",
