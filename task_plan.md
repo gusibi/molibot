@@ -1,5 +1,32 @@
 # Chat Workspace Design Audit
 
+# macOS First-Launch Bootstrap
+
+## Goal
+Make a packaged Molibot desktop app start successfully on a Mac with no existing Molibot installation or data directory, while preserving existing user data on later launches.
+
+## Success Criteria
+- Packaged runtime contains every production dependency needed before server initialization.
+- Starting with an isolated empty data root creates required settings, SQLite schema, directories, and bundled default profile files.
+- Bootstrap is idempotent and never overwrites existing profile/config data.
+- Focused regression tests, packaged-runtime verification, and relevant builds pass.
+- Product documentation records the shipped behavior.
+
+## Plan
+- [complete] Reproduce the packaged-runtime failure and inventory bootstrap requirements.
+- [complete] Add regression coverage for empty-data-root startup and packaged dependencies.
+- [complete] Implement the smallest shared bootstrap/package fix.
+- [complete] Verify first launch, repeat launch, builds, and adversarial failure cases.
+- [complete] Update features, PRD, changelog, and README.
+
+## Errors Encountered
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Packaged `start-server.mjs` cannot resolve `dotenv` | 1 | Under investigation; failure occurs before data initialization. |
+| Real archive smoke found missing `scripts/runtime/service-port.mjs` | 1 | Release manifest copied `service-lease.mjs` only; added the second static startup dependency. |
+| Real archive smoke found missing runtime `@sveltejs/kit` | 1 | Adapter Node imports `@sveltejs/kit/node` at runtime; moved the package from devDependencies to dependencies. |
+
+
 ## Goal
 Assess whether the complete Desktop Chat workspace—including conversation navigation, Chat, Automations, Skills, dialogs, and responsive states—meets `DESIGN.md` and identify evidence-backed improvements.
 

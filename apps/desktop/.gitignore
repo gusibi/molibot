@@ -4,3 +4,5 @@
 /src-tauri/target/
 /src-tauri/binaries/
 /src-tauri/resources/molibot-runtime/
+/src-tauri/resources/molibot-runtime.tar.gz
+/src-tauri/resources/molibot-runtime.version

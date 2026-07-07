@@ -1,5 +1,13 @@
 # Chat Workspace Audit Progress
 
+- 2026-07-07: Started macOS empty-machine first-launch investigation. Read the supplied sidecar log and confirmed a pre-bootstrap packaged dependency failure for `dotenv`; preserving the unrelated existing `apps/desktop/src/lib/api.ts` worktree edit.
+- 2026-07-07: Added a red-then-green regression test for idempotent global Profile bootstrap. Added runtime-archive materialization coverage in the Desktop supervisor; 5 focused Rust supervisor tests pass.
+- 2026-07-07: Real archived-runtime smoke advanced past `dotenv` and exposed a second release-manifest defect: `service-port.mjs` was not copied. Added it to the release bundle and retained the failed invocation as evidence.
+- 2026-07-07: The next real smoke reached Adapter Node and exposed `@sveltejs/kit` incorrectly classified as dev-only despite a runtime import. Promoted it to a production dependency.
+- 2026-07-07: Real archive startup passed after matching the supervisor working directory. Added an internal health bootstrap before service `ready` so settings, SQLite, directories, and Profile defaults exist without waiting for the UI's first request.
+- 2026-07-07: Final verification passed: clean archived-runtime ready/bootstrap smoke, production DMG build, packaged-resource inspection, 1 Profile bootstrap test, 6 service/release tests, 10 Rust tests, Desktop Svelte check (0/0), and diff whitespace check. Documentation synchronized.
+
+
 - 2026-07-04: Scope confirmed; audit will use current-run screenshots, `DESIGN.md`, and source verification. Local audit folder selected by the user.
 - 2026-07-04: Replaced self-captured unavailable states with the three populated screenshots supplied by the user. Chat and Automations screenshots have been inspected and accepted as audit evidence.
 - 2026-07-04: Completed Skills/source inspection and implemented confirmed fixes across Chat errors, localization, focus visibility, navigation targets, reachable compact layout, Automations hierarchy, and Skills search/card layout.

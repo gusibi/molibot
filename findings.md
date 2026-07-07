@@ -1,5 +1,17 @@
 # Chat Workspace Audit Findings
 
+## macOS First-Launch Bootstrap — 2026-07-07
+
+- Supplied desktop sidecar log deterministically fails before server initialization: Node cannot resolve `dotenv` imported by the packaged `molibot-runtime/scripts/start-server.mjs`.
+- Because module linking fails before script execution, creating DB/settings/profile files alone cannot repair this build; packaged dependency completeness must be fixed first.
+- Existing `~/.molibot` is evidence for data shape only. User-specific settings, credentials, histories, queues, and profile contents must not be copied as defaults.
+- Tauri's installed resource tree omitted the entire `node_modules` directory even though the prepared release directory contains it. The server build retains many external package imports, so removing only the top-level `dotenv` import would merely reveal the next missing package.
+- The release runtime must therefore travel as an opaque archive and be materialized into the writable data-root runtime cache. A version marker makes this idempotent and refreshes it after an app/runtime update.
+- The correct shared profile bootstrap seam is immediately after `initDb()` and before runtime services load settings or prompts. Six bundled templates exist (`AGENTS`, `BOOTSTRAP`, `IDENTITY`, `SOUL`, `TOOLS`, `USER`); `SONG.md` has no bundled default and remains optional.
+- The generated Adapter Node `build/handler.js` imports `@sveltejs/kit/node` at runtime. Keeping `@sveltejs/kit` in devDependencies makes every `pnpm install --prod` release incomplete even when `node_modules` itself is packaged.
+- Adapter Node loads `hooks.server.ts` lazily on the first HTTP request. The sidecar now performs an internal `/health` request after the listener binds and before publishing `ready`, so DB/profile/settings initialization is complete at the service-ready boundary rather than depending on the Desktop UI's first API call.
+
+
 - `DESIGN.md` requires a 4px spacing scale, 8/16/32–40px grouping rhythm, compact cards at 16px and standard cards at 24px, mobile/desktop reflow, restrained tonal elevation, one tight radius family (6/12/16), 40px medium controls, visible two-layer focus rings, and concise sentence-case copy.
 - Audit destination: `docs/audits/chat-workspace-2026-07-04/`.
 - Screenshot 01 (`01-chat.png`) shows the normal Chat workspace. Strengths: stable two-pane structure, clear selected session, restrained neutral surfaces, centered transcript column, and a persistent composer. Risks: header and composer icon-only controls appear around 32px rather than the 40px medium-control target; “Failed to load file (404)” is separated from the affected attachment and exposes technical English without retry/remove guidance; the assistant failure bubble is generic English in a Chinese UI; channel label truncation (`Teleg...`) happens despite a very wide window; the composer has many equal-weight controls and weak grouping between attachment/tools/voice and model/reasoning/send.

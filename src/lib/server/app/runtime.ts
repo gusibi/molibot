@@ -18,6 +18,7 @@ import { getHostBashStore, type HostBashStore } from "$lib/server/hostBash/index
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 import { getTurnOrchestrator, SqliteTurnCleanupStore } from "$lib/server/agent/core/turnOrchestrator.js";
 import { createDefaultHookManager, type HookManager } from "$lib/server/agent/hooks/index.js";
+import { ensureGlobalProfileDefaults } from "$lib/server/agent/prompts/profiles.js";
 
 interface RuntimeState {
   sessions: SessionStore;
@@ -96,6 +97,7 @@ function logSandboxEnvStartup(state: RuntimeState): void {
 export function getRuntime(): RuntimeState {
   if (!globalThis.__molibotRuntime) {
     initDb();
+    ensureGlobalProfileDefaults();
     getWorkspaceStore().ensureDefaultWorkspace();
 
     try {

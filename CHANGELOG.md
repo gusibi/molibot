@@ -2,6 +2,30 @@
 
 ## 2026-07-07
 
+### Dynamic local service port fallback
+- The configured server port is now a preferred starting port. If occupied at startup, both the Desktop supervisor and standalone server scan upward (`3000`, `3001`, `3002`, …) and use the first available loopback port.
+- The selected endpoint remains discoverable through the runtime state file and Desktop handshake, without persisting a second fixed port.
+
+### Desktop Chat sticks to the newest message
+- The chat transcript now follows new content the way a chat should: while the reader is at the bottom, streamed tokens and appended messages keep the latest line in view; opening a conversation (or switching sessions) jumps to its newest message instead of showing the top of a long history.
+- Following is suspended the moment the reader scrolls up to read history, so they are never yanked back down, and re-arms automatically once they scroll back to the bottom (48px threshold).
+- Implemented as a shared `use:stickToBottom={sessionId}` Svelte action (`lib/chat/stickToBottom.ts`) used by both `ChatView` and `ProjectChat`: a scroll listener owns the pinned state, a `MutationObserver` follows subtree changes while pinned, and a key (conversation id) change forces a jump-to-latest. Replaced the previous unconditional `scrollToBottom()`/`afterMutate` calls that ignored reader position and never followed streaming growth.
+
+### Desktop Chat streaming no longer waits for the whole turn
+- Fixed Desktop chat rendering nothing during a turn — thinking and result tokens only appeared in one jump at the end. The SSE transport was streaming correctly (token/thinking events arrive individually over seconds); the regression was reactivity. `ChatView.svelte` and `ProjectChat.svelte` run in legacy mode (`export let` + `$:`), whose `$:` tracking is compile-time and only re-runs when a referenced top-level `let` is reassigned. Reading `chat.streamingText`/`.sending`/… there never updated, because the shared `ConversationController`'s runes `$state` mutate through Svelte's signal graph, invisible to the legacy tracker; only the post-turn `reload()` (which reassigns a legacy transcript `let`) painted, hence the one-shot appearance.
+- Added `ConversationController.view` (`toStore(() => ({...}))`), a subscribable snapshot of the live turn state (`sending`, `streamingText`, `streamingThinking`, `activity`, `activities`, `pendingApproval`, `queue`). Both host surfaces now auto-subscribe via `$conversationView`, so streaming stays reactive. Any new legacy-mode chat surface must read live state through `$view` (or be runes-mode) rather than `controller.foo` in a `$:`.
+- The live reasoning card now streams expanded while the model is thinking and auto-collapses (`open={!streamingText}`) once the result starts streaming, matching the intended thinking → collapse → answer flow.
+- `svelte-check` clean (0 errors/warnings); `api.test.ts` 65/65 pass.
+
+### macOS application icon packaging
+- Reworked the Molibot pug icon with a warm light background, a macOS-style rounded-square silhouette, and real transparent outer corners while preserving the existing mascot composition.
+- Generated the native PNG/ICNS assets and explicitly configured the Tauri bundle to use them, so Finder, Dock, the app bundle, tray, and DMG no longer fall back to an unrelated/default icon.
+
+### macOS Desktop clean-machine first launch
+- Fixed packaged Desktop builds omitting the production `node_modules` tree, which caused the bundled service to fail immediately on a Mac without an existing Molibot installation. The prepared runtime is now shipped as a versioned archive and atomically materialized under the writable data directory before launch.
+- Completed the release runtime manifest by including `service-port.mjs` and classifying `@sveltejs/kit` as a production dependency required by Adapter Node.
+- Empty data roots now receive the bundled `AGENTS.md`, `BOOTSTRAP.md`, `IDENTITY.md`, `SOUL.md`, `TOOLS.md`, and `USER.md` defaults during shared runtime initialization. Existing files are never overwritten; settings and SQLite stores continue to initialize through the shared server layer.
+
 ### External sessions viewer derives from the Agent `contexts/` store
 - The Desktop "External sessions" read-only viewer (telegram/feishu/qq/weixin) now derives its list and transcripts directly from the Agent `contexts/` store instead of a separate legacy `~/.molibot/sessions` flat copy. External-channel turns no longer double-write that redundant, unbounded store; web and project conversations are unaffected.
 - Added `src/lib/server/app/externalSessionsFromContexts.ts` — a read-only, app-layer projection that enumerates each visible Agent session per channel workspace, projects it into the existing `ExternalSessionEntry`/transcript shapes, excludes `automation` (`task-*`) sessions, and carries identity in an opaque base64url id. The two `/api/desktop/external-sessions` routes now use it; the Desktop UI needs no change (the id was already opaque end-to-end).

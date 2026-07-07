@@ -36,6 +36,18 @@ const TEMPLATE_MAP: Partial<Record<string, string>> = {
   "USER.md": userTemplate
 };
 
+export function ensureGlobalProfileDefaults(dataDir = storagePaths.dataDir): string[] {
+  fs.mkdirSync(dataDir, { recursive: true });
+  const created: string[] = [];
+  for (const [fileName, template] of Object.entries(TEMPLATE_MAP)) {
+    const filePath = path.join(dataDir, fileName);
+    if (fs.existsSync(filePath)) continue;
+    fs.writeFileSync(filePath, template.endsWith("\n") ? template : `${template}\n`, "utf8");
+    created.push(filePath);
+  }
+  return created;
+}
+
 function ensureAllowedFile(fileName: string, allowed: readonly string[]): string {
   const normalized = String(fileName ?? "").trim();
   if (!allowed.includes(normalized)) {

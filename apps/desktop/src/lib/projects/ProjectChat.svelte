@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import type {
     DesktopApprovalDecision,
@@ -10,6 +10,7 @@
   import ConversationLiveView from "../chat/ConversationLiveView.svelte";
   import ChatComposerShell from "../chat/ChatComposerShell.svelte";
   import { createConversationController } from "../chat/conversationController.svelte";
+  import { stickToBottom } from "../chat/stickToBottom";
   import {
     loadDesktopModels,
     summarizeDesktopReadiness,
@@ -25,7 +26,6 @@
   let modelOptions: DesktopModelOption[] = [];
   let activeModelKey = "";
   let changingModel = false;
-  let messagesElement: HTMLDivElement;
 
   const formatTime = (value: string) => new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 
@@ -97,23 +97,20 @@
     reload: (sessionId) => selectProjectSession(sessionId),
     refreshSessions: () => refreshProjectSessionList(projectsStore.selectedProjectId),
     clearComposer: () => { message = ""; pendingFiles = []; },
-    afterMutate: () => void scrollToBottom(),
     setError: (msg) => (projectsStore.error = msg),
     clearError: () => (projectsStore.error = "")
   });
 
-  $: sending = chat.sending;
-  $: activity = chat.activity;
-  $: streamingText = chat.streamingText;
-  $: streamingThinking = chat.streamingThinking;
-  $: activityEntries = chat.activities;
-  $: pendingApproval = chat.pendingApproval;
-  $: queuedMessages = chat.queue;
-
-  async function scrollToBottom(): Promise<void> {
-    await tick();
-    messagesElement?.scrollTo({ top: messagesElement.scrollHeight, behavior: "auto" });
-  }
+  // Legacy `$:` can't track the controller's runes `$state`; subscribe to its
+  // `view` store so streaming/turn state stays reactive here.
+  const conversationView = chat.view;
+  $: sending = $conversationView.sending;
+  $: activity = $conversationView.activity;
+  $: streamingText = $conversationView.streamingText;
+  $: streamingThinking = $conversationView.streamingThinking;
+  $: activityEntries = $conversationView.activities;
+  $: pendingApproval = $conversationView.pendingApproval;
+  $: queuedMessages = $conversationView.queue;
 
   function inferAttachmentKind(file: File): "image" | "audio" | "video" | "file" {
     const type = file.type.toLowerCase();
@@ -350,7 +347,7 @@
 </script>
 
 <section class="project-chat">
-  <div class="messages" bind:this={messagesElement} aria-live="polite">
+  <div class="messages" use:stickToBottom={projectsStore.selectedSessionId} aria-live="polite">
     <ConversationLiveView
       messages={projectsStore.messages}
       {copy}

@@ -1563,29 +1563,11 @@ export async function streamDesktopChat(
   await consumeDesktopSse(response, onEvent);
 }
 
-/**
- * Yields to the next animation frame so the webview can paint accumulated
- * state. Falls back to a macrotask outside the browser (e.g. the Node test
- * runner) where `requestAnimationFrame` is unavailable.
- */
-function yieldToPaint(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
-    else setTimeout(resolve);
-  });
-}
-
 export async function consumeDesktopSse(response: Response, onEvent: SseHandler): Promise<void> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Streaming response body is unavailable");
   const decoder = new TextDecoder();
   let buffer = "";
-  // Tauri's IPC-based body reader coalesces bursts (notably the thinking phase)
-  // into a single chunk, so one read can carry hundreds of events. Processing
-  // them all synchronously makes the webview paint just once — the reasoning
-  // trace appears in one jump. Yield ~once per frame so batched deltas replay
-  // progressively, without adding per-event overhead to slower text streams.
-  let lastPaint = Date.now();
 
   while (true) {
     const { value, done } = await reader.read();
@@ -1595,13 +1577,7 @@ export async function consumeDesktopSse(response: Response, onEvent: SseHandler)
       const block = buffer.slice(0, separator);
       buffer = buffer.slice(separator + 2);
       const parsed = parseSseBlock(block);
-      if (parsed) {
-        await onEvent(parsed.event, parsed.data);
-        if (Date.now() - lastPaint > 16) {
-          await yieldToPaint();
-          lastPaint = Date.now();
-        }
-      }
+      if (parsed) await onEvent(parsed.event, parsed.data);
       separator = buffer.indexOf("\n\n");
     }
     if (done) break;

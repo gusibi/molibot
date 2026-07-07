@@ -24,6 +24,8 @@ const archivePath = path.join(cacheDir, NODE_ARCHIVE);
 const extractDir = path.join(cacheDir, `node-v${NODE_VERSION}`);
 const nodeBinaryPath = path.join(tauriDir, "binaries/molibot-node-aarch64-apple-darwin");
 const runtimeDir = path.join(tauriDir, "resources/molibot-runtime");
+const runtimeArchivePath = path.join(tauriDir, "resources/molibot-runtime.tar.gz");
+const runtimeVersionPath = path.join(tauriDir, "resources/molibot-runtime.version");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -76,6 +78,10 @@ function prepareRuntime() {
   run("bash", ["bin/molibot-release.sh", runtimeDir], {
     env: { ...process.env, MOLIBOT_RELEASE_SKIP_BUILD: "1" }
   });
+  rmSync(runtimeArchivePath, { force: true });
+  run("tar", ["-czf", runtimeArchivePath, "-C", path.dirname(runtimeDir), path.basename(runtimeDir)]);
+  const packageInfo = JSON.parse(readFileSync(path.join(rootDir, "package.json"), "utf8"));
+  writeFileSync(runtimeVersionPath, `${packageInfo.version}\n`, "utf8");
 }
 
 await prepareNodeBinary();
@@ -83,3 +89,4 @@ prepareRuntime();
 console.log(`Desktop Node runtime prepared: Node ${NODE_VERSION}`);
 console.log(`Node binary: ${path.relative(rootDir, nodeBinaryPath)}`);
 console.log(`Runtime resources: ${path.relative(rootDir, runtimeDir)}`);
+console.log(`Runtime archive: ${path.relative(rootDir, runtimeArchivePath)}`);

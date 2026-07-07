@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createServer } from "node:net";
 import path from "node:path";
 
 export const DEFAULT_SERVICE_PORT = 3000;
@@ -15,4 +16,29 @@ export function readConfiguredServicePort(dataDir, fallback = DEFAULT_SERVICE_PO
   } catch {
     return fallback;
   }
+}
+
+function isServicePortAvailable(port, host) {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.unref();
+    server.once("error", (error) => {
+      if (error?.code === "EADDRINUSE" || error?.code === "EACCES") {
+        resolve(false);
+        return;
+      }
+      reject(error);
+    });
+    server.listen({ port, host, exclusive: true }, () => {
+      server.close((error) => error ? reject(error) : resolve(true));
+    });
+  });
+}
+
+export async function findAvailableServicePort(preferred, host = "127.0.0.1") {
+  const start = normalizeServicePort(preferred);
+  for (let port = start; port <= 65535; port += 1) {
+    if (await isServicePortAvailable(port, host)) return port;
+  }
+  throw new Error(`No available service port from ${start} through 65535`);
 }

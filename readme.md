@@ -407,8 +407,15 @@ All settings pages (including Core, Channel, and Advanced sub-pages) have been m
 
 Default data dir: `~/.molibot`
 
+On a clean Desktop install, the bundled service creates this directory, `settings.json`, required SQLite stores, and the default `AGENTS.md` / `BOOTSTRAP.md` / `IDENTITY.md` / `SOUL.md` / `TOOLS.md` / `USER.md` profiles automatically. Bootstrap is idempotent: existing configuration and profile files are never replaced.
+
+The macOS bundle icon is generated from `apps/desktop/public/molibot-icon.png` into the tracked Tauri PNG/ICNS assets under `apps/desktop/src-tauri/icons/`.
+
 ```text
 ~/.molibot/
+  AGENTS.md              # Default global operating rules (created once)
+  SOUL.md                # Default global tone/profile (created once)
+  USER.md                # Default user context template (created once)
   settings.json          # Stable bootstrap configuration
   db/                    # SQLite databases and sidecar WAL/SHM files
     settings.sqlite      # Dynamic relational configuration
@@ -587,6 +594,7 @@ docker compose up -d --build
 ### Core
 - `PORT` (default `3000`) - HTTP server port
 - `DATA_DIR` (default `~/.molibot`) - Data directory path
+- `PORT` / `serverPort` (default `3000`) - Preferred local service port. If occupied, startup increments until it finds an available loopback port; Desktop discovers the selected endpoint automatically.
 - `DB_DIR` (default `${DATA_DIR}/db`) - Central SQLite database directory
 - `NODE_ENV` (`development`|`production`) - Runtime environment
 

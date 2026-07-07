@@ -3,7 +3,7 @@ use crate::service::{
 };
 use serde::Deserialize;
 use std::env;
-use std::fs::{create_dir_all, read_to_string, File, OpenOptions};
+use std::fs::{create_dir_all, read_to_string, remove_dir_all, rename, File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -86,13 +86,75 @@ fn data_dir() -> Result<PathBuf, String> {
     Ok(PathBuf::from(home).join(".molibot"))
 }
 
-fn runtime_layout(app: &AppHandle) -> Result<RuntimeLayout, String> {
+fn materialize_bundled_runtime(resource_dir: &Path, data_dir: &Path) -> Result<PathBuf, String> {
+    let archive = resource_dir.join("molibot-runtime.tar.gz");
+    let version = read_to_string(resource_dir.join("molibot-runtime.version"))
+        .map_err(|error| format!("failed to read bundled runtime version: {error}"))?;
+    let runtime_cache = data_dir.join("runtime/desktop-runtime");
+    let marker = runtime_cache.join(".molibot-runtime-version");
+    if read_to_string(&marker).ok().as_deref() == Some(version.as_str())
+        && runtime_cache.join("scripts/start-server.mjs").is_file()
+        && runtime_cache
+            .join("node_modules/dotenv/package.json")
+            .is_file()
+    {
+        return Ok(runtime_cache);
+    }
+
+    let runtime_parent = data_dir.join("runtime");
+    let staging_parent = runtime_parent.join(format!("desktop-runtime-{}", Uuid::new_v4()));
+    create_dir_all(&staging_parent).map_err(|error| error.to_string())?;
+    let result = Command::new("/usr/bin/tar")
+        .args(["-xzf"])
+        .arg(&archive)
+        .arg("-C")
+        .arg(&staging_parent)
+        .status()
+        .map_err(|error| format!("failed to extract bundled runtime: {error}"));
+    match result {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            let _ = remove_dir_all(&staging_parent);
+            return Err(format!("bundled runtime extraction exited with {status}"));
+        }
+        Err(error) => {
+            let _ = remove_dir_all(&staging_parent);
+            return Err(error);
+        }
+    }
+    let staged_runtime = staging_parent.join("molibot-runtime");
+    if !staged_runtime.join("scripts/start-server.mjs").is_file()
+        || !staged_runtime
+            .join("node_modules/dotenv/package.json")
+            .is_file()
+    {
+        let _ = remove_dir_all(&staging_parent);
+        return Err("bundled runtime archive is incomplete".into());
+    }
+    std::fs::write(staged_runtime.join(".molibot-runtime-version"), &version)
+        .map_err(|error| error.to_string())?;
+    let _ = remove_dir_all(&runtime_cache);
+    rename(&staged_runtime, &runtime_cache).map_err(|error| error.to_string())?;
+    let _ = remove_dir_all(&staging_parent);
+    Ok(runtime_cache)
+}
+
+fn runtime_layout(app: &AppHandle, data_dir: &Path) -> Result<RuntimeLayout, String> {
     let resource_dir = app
         .path()
         .resource_dir()
         .map_err(|error| error.to_string())?;
     let bundled_runtime = resource_dir.join("molibot-runtime");
     let bundled_node = resource_dir.join("molibot-node");
+    if resource_dir.join("molibot-runtime.tar.gz").is_file()
+        && resource_dir.join("molibot-runtime.version").is_file()
+        && bundled_node.is_file()
+    {
+        return Ok(RuntimeLayout {
+            node_binary: bundled_node,
+            runtime_root: materialize_bundled_runtime(&resource_dir, data_dir)?,
+        });
+    }
     if bundled_runtime.join("scripts/start-server.mjs").is_file() && bundled_node.is_file() {
         return Ok(RuntimeLayout {
             node_binary: bundled_node,
@@ -159,18 +221,16 @@ fn wait_for_handshake(endpoint: &str, timeout: Duration) -> Option<ServiceHandsh
 }
 
 fn choose_port(preferred: u16) -> Result<u16, String> {
-    if let Ok(listener) = TcpListener::bind((Ipv4Addr::LOCALHOST, preferred)) {
-        drop(listener);
-        return Ok(preferred);
+    for port in preferred..=u16::MAX {
+        if let Ok(listener) = TcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
+            drop(listener);
+            return Ok(port);
+        }
     }
-    let listener =
-        TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|error| error.to_string())?;
-    let port = listener
-        .local_addr()
-        .map_err(|error| error.to_string())?
-        .port();
-    drop(listener);
-    Ok(port)
+    Err(format!(
+        "no available loopback service port from {preferred} through {}",
+        u16::MAX
+    ))
 }
 
 fn preferred_port(data_dir: &Path) -> u16 {
@@ -488,7 +548,9 @@ fn initialize_worker(
                 },
             );
             if compatible && ownership == ServiceOwnership::Managed {
-                if let (Some(pid), Ok(layout)) = (runtime_state.pid, runtime_layout(&app)) {
+                if let (Some(pid), Ok(layout)) =
+                    (runtime_state.pid, runtime_layout(&app, &data_dir))
+                {
                     supervise_adopted(layout, data_dir, pid, status, commands);
                 }
             }
@@ -496,7 +558,7 @@ fn initialize_worker(
         }
     }
 
-    let layout = match runtime_layout(&app) {
+    let layout = match runtime_layout(&app, &data_dir) {
         Ok(layout) => layout,
         Err(error) => {
             eprintln!("[desktop] failed to resolve bundled runtime: {error}");
@@ -537,7 +599,7 @@ pub fn stop_sender_and_wait(sender: Sender<ServiceCommand>, timeout: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::{read_to_string, remove_dir_all};
+    use std::fs::{read_to_string, remove_dir_all, write};
 
     #[test]
     fn endpoint_parser_accepts_only_loopback_http() {
@@ -590,6 +652,42 @@ mod tests {
         thread::sleep(Duration::from_millis(100));
         stop_child(&mut child);
         assert_eq!(read_to_string(&marker).expect("SIGTERM marker"), "term");
+        remove_dir_all(temp_dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn bundled_runtime_is_materialized_once_with_production_dependencies() {
+        let temp_dir = env::temp_dir().join(format!("molibot-runtime-{}", Uuid::new_v4()));
+        let resources = temp_dir.join("resources");
+        let source = temp_dir.join("source/molibot-runtime");
+        let data_dir = temp_dir.join("data");
+        create_dir_all(source.join("scripts")).expect("create scripts fixture");
+        create_dir_all(source.join("node_modules/dotenv")).expect("create dependency fixture");
+        create_dir_all(&resources).expect("create resources fixture");
+        write(source.join("scripts/start-server.mjs"), "// fixture\n")
+            .expect("write server fixture");
+        write(source.join("node_modules/dotenv/package.json"), "{}")
+            .expect("write dependency fixture");
+        write(resources.join("molibot-runtime.version"), "test-version\n").expect("write version");
+        let status = Command::new("/usr/bin/tar")
+            .args(["-czf"])
+            .arg(resources.join("molibot-runtime.tar.gz"))
+            .arg("-C")
+            .arg(temp_dir.join("source"))
+            .arg("molibot-runtime")
+            .status()
+            .expect("create runtime archive");
+        assert!(status.success());
+
+        let runtime =
+            materialize_bundled_runtime(&resources, &data_dir).expect("materialize runtime");
+        write(runtime.join("preserved"), "yes").expect("write idempotency marker");
+        let second = materialize_bundled_runtime(&resources, &data_dir).expect("reuse runtime");
+        assert_eq!(runtime, second);
+        assert_eq!(
+            read_to_string(second.join("preserved")).expect("preserved marker"),
+            "yes"
+        );
         remove_dir_all(temp_dir).expect("remove temp dir");
     }
 }

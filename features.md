@@ -2,6 +2,32 @@
 
 ## 2026-07-07
 
+### 本地服务端口动态递增
+- `serverPort` 改为首选起始端口；启动时若已占用，Desktop supervisor 与独立服务都会按 `3000 → 3001 → 3002` 顺序寻找第一个可用端口。
+- 实际 endpoint 继续写入 runtime state 并通过 Desktop handshake 自动发现，前端无需依赖固定端口，也不会把临时回退端口覆盖回设置。
+- 验证覆盖端口选择单测、Desktop Rust 回归，以及真实占用起始端口后的完整服务启动与握手。
+
+### Desktop Chat 自动吸底（跟随最新消息）
+- 聊天记录现在会像正常聊天一样跟随最新内容：当阅读位置在底部时，流式 token 与新追加的消息会持续把最新一行保持在可视区；打开会话或切换会话时直接定位到最新一条消息，而不是停在长历史的顶部。
+- 一旦用户向上滚动去看历史，自动跟随立即暂停，不会被强制拉回底部；当用户再次滚动回到底部（48px 阈值内）时自动重新开启跟随。
+- 实现为共享的 `use:stickToBottom={sessionId}` Svelte action（`lib/chat/stickToBottom.ts`），`ChatView` 与 `ProjectChat` 共用：scroll 监听维护"是否吸底"状态，`MutationObserver` 在吸底时跟随子树变化，会话 id（key）变化时强制跳到最新。替换了此前无视阅读位置、也不跟随流式增长的 `scrollToBottom()`/`afterMutate` 无条件滚动。
+
+### 修复 Desktop Chat 思考/结果不流式（要等整轮结束才一次性显示）
+- 现象：桌面 Chat 在一轮对话过程中什么都不显示，思考过程与结果 token 都在最后一次性蹦出来。经诊断打点确认 SSE 传输本身完全正常（token/thinking 事件是逐个、隔秒到达的），根因是前端响应式：`ChatView.svelte` 与 `ProjectChat.svelte` 是 legacy 模式组件（`export let` + `$:`），legacy `$:` 采用编译期依赖追踪，只有引用的顶层 `let` 被重新赋值时才重跑。`$: streamingText = chat.streamingText` 这类别名永不更新——共享 `ConversationController` 的 runes `$state` 走 Svelte 信号系统，legacy 追踪器看不见；只有整轮结束后的 `reload()`（重新赋值 legacy transcript `let`）才触发渲染，于是表现为"最后一次性输出"。
+- 在 `conversationController.svelte.ts` 新增 `readonly view = toStore(() => ({...}))`，把实时轮次状态（`sending`、`streamingText`、`streamingThinking`、`activity`、`activities`、`pendingApproval`、`queue`）打包成可订阅的 Svelte store。两个宿主组件改用 `$conversationView` 自动订阅，流式状态恢复响应式。约定：任何新增的 legacy 模式聊天界面都必须通过 `$view` 读取实时状态（或改为 runes 模式），不能在 `$:` 里直接读 `controller.foo`。
+- `ConversationLiveView` 的实时思考卡片改为 `open={!streamingText}`：模型思考时展开并流式，一旦结果开始输出即自动折叠，实现"思考流式 → 折叠 → 结果流式"的预期交互。
+- 验证：`svelte-check` 0 错误 0 警告；`api.test.ts` 65/65 通过。
+
+### macOS App 图标正式接入打包
+- 保留现有巴哥犬主体构图，将深色底板改为浅暖色，并生成带真实透明外角的 macOS 圆角图标。
+- 从同一源图生成 512px PNG 与 ICNS，Tauri bundle 显式声明这两个资源，统一用于 App、Dock、Finder、托盘和 DMG。
+
+### macOS Desktop 空机器首次启动自举
+- Desktop 生产 runtime 改为版本化归档随 App 发布，supervisor 首次启动时原子解包到数据目录缓存；不再依赖目标 Mac 已安装 Node、npm 包或已有 `~/.molibot`。
+- 修复 release 清单遗漏 `service-port.mjs`，并将 Adapter Node 运行时实际依赖的 `@sveltejs/kit` 纳入 production dependencies。
+- 共享 runtime 在 DB 初始化后幂等生成 `AGENTS.md`、`BOOTSTRAP.md`、`IDENTITY.md`、`SOUL.md`、`TOOLS.md`、`USER.md` 六个内置模板；已存在文件保持原样，用户设置、密钥、历史和角色内容不会从开发机复制。
+- 验证覆盖 Profile 不覆盖、runtime 归档解包/复用，以及真实归档在隔离空数据目录下启动后生成设置、SQLite 与 Profile 文件。
+
 ### 外部会话查看器改为从 Agent `contexts/` 派生
 - Desktop“外部会话”只读查看器（telegram/feishu/qq/weixin）的列表与 transcript 现在直接从 Agent 的 `contexts/` 存储派生，不再依赖单独的 legacy `~/.molibot/sessions` 扁平副本。外部渠道每轮对话不再向该冗余、无限增长的存储双写；Web 与 Project 会话不受影响。
 - 新增 `src/lib/server/app/externalSessionsFromContexts.ts`：位于 app 上层的只读投影，按渠道工作区枚举每个可见 Agent session，映射为既有的 `ExternalSessionEntry`/transcript 结构，排除 `automation`（`task-*`）会话，并用不透明的 base64url id 承载身份（`{channel,botId,chatId,sessionId}`）。两个 `/api/desktop/external-sessions` 路由改用它；Desktop 前端无需改动（id 端到端本就是不透明的）。

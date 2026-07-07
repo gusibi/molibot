@@ -71,6 +71,7 @@
   import ConversationLiveView from "./lib/chat/ConversationLiveView.svelte";
   import ChatComposerShell from "./lib/chat/ChatComposerShell.svelte";
   import { createConversationController } from "./lib/chat/conversationController.svelte";
+  import { stickToBottom } from "./lib/chat/stickToBottom";
   import { shouldReuseFreshSession, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
 
   export let copy: Translation;
@@ -143,20 +144,22 @@
     reload: (sessionId) => selectSession(sessionId),
     refreshSessions: () => refreshSessions(),
     clearComposer: () => { messageInput = ""; pendingFiles = []; },
-    afterMutate: () => void scrollToBottom(),
     setError: (message) => (error = message),
     clearError: () => (error = "")
   });
 
   // Read-only aliases so the existing template keeps referencing bare names while
-  // the controller owns the source of truth for turn state.
-  $: sending = chat.sending;
-  $: activity = chat.activity;
-  $: streamingText = chat.streamingText;
-  $: streamingThinking = chat.streamingThinking;
-  $: activityEntries = chat.activities;
-  $: pendingApproval = chat.pendingApproval;
-  $: queuedMessages = chat.queue;
+  // the controller owns the source of truth for turn state. The controller's
+  // reactive fields are runes `$state`; legacy `$:` cannot track those directly,
+  // so we auto-subscribe to its `view` store (`$conversationView`) instead.
+  const conversationView = chat.view;
+  $: sending = $conversationView.sending;
+  $: activity = $conversationView.activity;
+  $: streamingText = $conversationView.streamingText;
+  $: streamingThinking = $conversationView.streamingThinking;
+  $: activityEntries = $conversationView.activities;
+  $: pendingApproval = $conversationView.pendingApproval;
+  $: queuedMessages = $conversationView.queue;
   let editingSessionId = "";
   let editingSessionTitle = "";
   let deleteConfirmId = "";
@@ -429,11 +432,6 @@
     );
   }
 
-  async function scrollToBottom(): Promise<void> {
-    await tick();
-    messagesElement?.scrollTo({ top: messagesElement.scrollHeight, behavior: "auto" });
-  }
-
   async function connect(endpoint: string): Promise<void> {
     const generation = ++connectionGeneration;
     connectedEndpoint = endpoint;
@@ -548,7 +546,9 @@
       searchQuery = "";
       searchIndex = 0;
     }
-    await scrollToBottom();
+    // The stick-to-bottom action follows the reloaded transcript: a session
+    // switch (key change) jumps to the newest message; a same-session reload
+    // only scrolls if the reader was still pinned to the bottom.
     void refreshFiles(sessionId, generation);
   }
 
@@ -1625,7 +1625,7 @@
         <p>{copy.externalChannelsHint}</p>
       </div>
     {:else}
-      <div class="messages" bind:this={messagesElement} aria-live="polite">
+      <div class="messages" bind:this={messagesElement} use:stickToBottom={activeSessionId} aria-live="polite">
         {#if viewMode === "external"}
           {#if externalTranscriptLoading}
             <div class="conversation-empty">

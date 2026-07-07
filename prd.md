@@ -3573,7 +3573,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 ## 210. Molibot macOS App (2026-06-27)
 
 - Priority: P0
-- Stage: In Progress — Phase 1 foundation, most local Chat/Settings surfaces, read-only external-session aggregation, and the first-launch health/Provider/Agent steps are delivered; native/live-service and release verification remain
+- Stage: In Progress — Phase 1 foundation, clean-machine runtime/data bootstrap, most local Chat/Settings surfaces, read-only external-session aggregation, and the first-launch health/Provider/Agent steps are delivered; native/live-service and signed release verification remain
 - Detailed plan: [`docs/requirements/molibot-macos-app-plan.md`](docs/requirements/molibot-macos-app-plan.md)
 - Product target:
   - 新增独立可安装的 Molibot macOS App，使用 Tauri 提供原生窗口、菜单栏、通知和生命周期管理，内置 Node 22 sidecar 复用现有 Agent、SvelteKit API 和多渠道运行时。
@@ -3581,6 +3581,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
 - Requirement:
   - App 与现有 Web 共享 `~/.molibot`、Web Profile、session、设置和运行时数据，但 Desktop Chat 与 Desktop Settings 必须是 `apps/desktop` 下完全独立的 Svelte UI，不嵌入或复用现有 Web 页面和页面 CSS。
   - 本地服务默认只监听 `127.0.0.1`，优先使用配置端口并支持冲突回退；必须具备单实例、数据目录锁、服务所有权识别、版本/capability 握手、sidecar 崩溃恢复和端口发现。
+  - 配置端口仅作为起始首选值；如果启动时已占用，必须向上递增选择第一个可用端口，并通过 runtime state/握手向 Desktop 暴露实际 endpoint。（Delivered 2026-07-07）
   - 关闭主窗口后渠道服务继续运行，Dock 和菜单栏状态项保留；明确退出只停止由 App 启动的 sidecar，不能擅自停止既有外部 Molibot 服务。
   - Desktop Chat 必须覆盖现有 Web Chat 的 session、流式消息、thinking、模型选择、附件、语音、队列、停止/steer/follow-up 和 Host Bash 审批闭环；右侧文件面板只索引当前本地 session。
   - Desktop Chat 的 Assistant 回复采用连续内容流：thinking、工具活动与最终正文共享同一内容列，不使用相互割裂的卡片；用户消息保持右对齐并使用 Geist 中性背景，不使用强调蓝填充。（Delivered 2026-07-06）
@@ -3588,6 +3589,8 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - Telegram、Feishu、QQ、Weixin 会话必须按渠道和 Bot 实例只读聚合并实时更新；新消息需在共享 session 层保存发送者、会话、线程/Topic、Bot 实例和附件元数据，Channel 只负责平台字段转换。
   - Desktop Settings 首版保留全部现有设置能力，并遵守细粒度保存、中英即时切换、Light/Dark/System、响应式布局、固定保存底栏和现有设计组件约束。
   - 首次启动引导必须区分全新安装、已有可用配置和损坏配置；依赖安装由用户逐项明确授权，Node 随 App 内置，其余工具优先使用 `~/.molibot/tooling` 隔离环境或已安装的 Homebrew。
+  - 全新安装必须在服务就绪前具备完整 production runtime；空数据目录首次进入 runtime 后自动创建 settings、SQLite schema、必要目录和内置全局 Profile 模板，重复启动不得覆盖用户文件。（Delivered 2026-07-07）
+  - App 与 DMG 必须使用项目 Molibot Logo 的原生 ICNS/PNG 资源；macOS 图标采用浅色圆角底板和透明外角，不得回退到默认 Tauri 图标。（Delivered 2026-07-07）
   - 跨渠道聚合、服务控制、依赖安装和统一审批等桌面专用能力必须使用每次启动生成的临时 capability token，不能暴露给普通本机 Web 页面。
   - 删除 App 不删除 `~/.molibot`；数据格式迁移前必须备份受影响的结构化数据并原子执行，失败时停止服务并提供恢复。
 - Delivery phases:

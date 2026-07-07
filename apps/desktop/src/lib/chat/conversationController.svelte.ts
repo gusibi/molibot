@@ -1,3 +1,5 @@
+import { toStore } from "svelte/store";
+import type { Readable } from "svelte/store";
 import {
   addToFollowUpQueue,
   nextFollowUp,
@@ -15,6 +17,17 @@ import type {
 
 /** A transcript message plus the optional collapsed reasoning trace. */
 export type UiMessage = DesktopConversationMessage & { thinking?: string };
+
+/** Immutable snapshot of the controller's live turn state (see `view`). */
+export interface ConversationView {
+  sending: boolean;
+  streamingText: string;
+  streamingThinking: string;
+  activity: string;
+  activities: DesktopActivityEntry[];
+  pendingApproval: DesktopApprovalPrompt | null;
+  queue: string[];
+}
 
 /** Localized status strings surfaced by the controller as a turn progresses. */
 export interface ConversationLabels {
@@ -70,6 +83,25 @@ export class ConversationController {
   activities = $state<DesktopActivityEntry[]>([]);
   pendingApproval = $state<DesktopApprovalPrompt | null>(null);
   queue = $state<string[]>([]);
+
+  /**
+   * A store snapshot of the live turn state. Host surfaces run in legacy mode
+   * (`export let` + `$:`), whose reactivity is compile-time: a `$:` only re-runs
+   * when a referenced top-level `let` is reassigned. Reading `controller.foo`
+   * there never re-runs, because the controller reference is stable and the
+   * `$state` fields mutate through Svelte's signal graph, invisible to the
+   * legacy tracker. Exposing the state as a store lets those components
+   * auto-subscribe with `$view` and stay reactive while a turn streams.
+   */
+  readonly view: Readable<ConversationView> = toStore(() => ({
+    sending: this.sending,
+    streamingText: this.streamingText,
+    streamingThinking: this.streamingThinking,
+    activity: this.activity,
+    activities: this.activities,
+    pendingApproval: this.pendingApproval,
+    queue: this.queue
+  }));
 
   private abort: AbortController | null = null;
 
