@@ -1,6 +1,10 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { listDesktopConversations } from "$lib/server/app/desktopConversations.js";
+import {
+  listDesktopConversations,
+  renameDesktopConversation,
+  deleteDesktopConversation
+} from "$lib/server/app/desktopConversations.js";
 import type {
   DesktopConversationChannel,
   DesktopConversationsResponse
@@ -48,4 +52,37 @@ export const GET: RequestHandler = async ({ url }) => {
     hasMore: result.hasMore
   };
   return json(payload, { headers: { "Cache-Control": "no-store" } });
+};
+
+/**
+ * Renames a Web conversation from the sidebar row menu. Web-only: external
+ * channels are read-only mirrors, so their rows never surface this action.
+ */
+export const PATCH: RequestHandler = async ({ request }) => {
+  const body = (await request.json().catch(() => null)) as { sessionId?: unknown; title?: unknown } | null;
+  const sessionId = String(body?.sessionId ?? "").trim();
+  const title = String(body?.title ?? "").trim();
+  if (!sessionId || !title) {
+    return json({ ok: false, error: "sessionId and title are required" }, { status: 400 });
+  }
+  const result = renameDesktopConversation(sessionId, title);
+  if (!result) {
+    return json({ ok: false, error: "conversation not found" }, { status: 404 });
+  }
+  return json({ ok: true, title: result.title }, { headers: { "Cache-Control": "no-store" } });
+};
+
+/**
+ * Deletes a Web conversation from the sidebar row menu (Web-only).
+ */
+export const DELETE: RequestHandler = async ({ url }) => {
+  const sessionId = String(url.searchParams.get("sessionId") ?? "").trim();
+  if (!sessionId) {
+    return json({ ok: false, error: "sessionId is required" }, { status: 400 });
+  }
+  const ok = deleteDesktopConversation(sessionId);
+  if (!ok) {
+    return json({ ok: false, error: "conversation not found" }, { status: 404 });
+  }
+  return json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 };

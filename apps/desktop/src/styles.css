@@ -151,7 +151,7 @@ a:focus-visible {
 .settings-layout { grid-template-columns: 228px minmax(0, 1fr); overflow: hidden; isolation: isolate; }
 .settings-layout > * { position: relative; z-index: 1; }
 .chat-sidebar, .settings-sidebar {
-  padding: 48px 12px 8px;
+  padding: 30px 12px 8px;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--separator);
   overflow-y: auto;
@@ -729,9 +729,11 @@ a:focus-visible {
 .empty-state p { margin: 0; color: var(--label-secondary); line-height: 1.55; }
 .empty-state .secondary-button { margin-top: 18px; }
 .messages { flex: 1; min-height: 0; overflow: auto; padding: 24px clamp(20px, 5vw, 56px); scroll-behavior: smooth; }
-.conversation-empty { max-width: 420px; margin: 15vh auto 0; color: var(--label-secondary); text-align: center; }
-.conversation-empty h2 { margin: 18px 0 8px; color: inherit; font-size: 20px; }
-.conversation-empty p { margin: 0; line-height: 1.55; }
+.conversation-empty { max-width: 440px; margin: 16vh auto 0; color: var(--label-secondary); text-align: center; animation: conversation-empty-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.conversation-empty .empty-icon { width: 64px; height: 64px; }
+.conversation-empty h2 { margin: 20px 0 10px; color: var(--label-primary); font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+.conversation-empty p { margin: 0 auto; max-width: 340px; line-height: 1.6; font-size: 13.5px; }
+@keyframes conversation-empty-in { from { opacity: 0; transform: translateY(8px); } }
 .message-row { display: grid; justify-items: start; gap: 5px; max-width: min(80%, 760px); margin: 0 0 18px; }
 .message-row.mine { justify-items: end; margin-left: auto; }
 .message-row.mine .message-bubble { max-width: 100%; }
@@ -981,12 +983,10 @@ a:focus-visible {
 .pending-chip[data-kind="video"] { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .pending-chip[data-kind="audio"] { max-width: 320px; border-radius: var(--rounded-md); border-color: color-mix(in srgb, var(--chart-purple) 40%, transparent); }
 .pending-audio { height: 30px; max-width: 220px; }
-.send-button, .stop-button { display: flex; flex: none; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; color: white; cursor: pointer; }
-.send-button .ph-fill, .stop-button .ph-fill { font-size: 18px; }
-.send-button { background: var(--accent); }
-.send-button:hover { background: var(--accent-hover); }
+.send-button { display: flex; flex: none; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--accent); color: white; cursor: pointer; transition: background .15s ease; }
+.send-button .ph-fill { font-size: 17px; }
+.send-button:hover:not(:disabled) { background: var(--accent-hover); }
 .send-button:disabled { cursor: default; opacity: .4; }
-.stop-button { background: var(--danger); }
 .composer-error { display: grid; grid-template-columns: 18px minmax(0, 1fr) 28px; align-items: center; gap: 8px; margin: 0 0 8px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent); border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--danger) 7%, var(--card-bg)); color: var(--danger); font-size: 11px; }
 .composer-error > span { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }.composer-error strong { color: var(--label-primary); font-size: 11px; }.composer-error > button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-secondary); cursor: pointer; }.composer-error > button:hover { background: var(--fill); }
 .model-banner {

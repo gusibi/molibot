@@ -20,8 +20,9 @@
     onOpenSettings,
     onToggleChannel,
     onSelectSession,
-    onStopSession,
-    onMoreChannel
+    onMoreChannel,
+    onRenameSession,
+    onDeleteSession
   }: {
     copy: {
       appName: string;
@@ -38,6 +39,12 @@
       emptyExternal: string;
       notConfigured: string;
       goToSettings: string;
+      conversationMenu: string;
+      renameConversation: string;
+      deleteConversation: string;
+      renamePlaceholder: string;
+      deleteConversationPrompt: string;
+      cancelAction: string;
     };
     channels: ChannelDescriptor[];
     expandedChannel: string;
@@ -54,8 +61,9 @@
     onOpenSettings: () => void;
     onToggleChannel: (channel: string) => void;
     onSelectSession: (item: DesktopConversationItem) => void;
-    onStopSession: (item: DesktopConversationItem) => void;
     onMoreChannel: (channel: string) => void;
+    onRenameSession: (item: DesktopConversationItem, title: string) => void;
+    onDeleteSession: (item: DesktopConversationItem) => void;
   } = $props();
 
   const accordionLabels = $derived({
@@ -67,7 +75,13 @@
     emptyWeb: copy.emptyWeb,
     emptyExternal: copy.emptyExternal,
     notConfigured: copy.notConfigured,
-    goToSettings: copy.goToSettings
+    goToSettings: copy.goToSettings,
+    menu: copy.conversationMenu,
+    rename: copy.renameConversation,
+    delete: copy.deleteConversation,
+    renamePlaceholder: copy.renamePlaceholder,
+    deletePrompt: copy.deleteConversationPrompt,
+    cancel: copy.cancelAction
   });
 </script>
 
@@ -105,9 +119,10 @@
         {formatTime}
         onToggle={() => onToggleChannel(channel.id)}
         onSelect={onSelectSession}
-        onStop={onStopSession}
         onMore={() => onMoreChannel(channel.id)}
         onConfigure={onOpenSettings}
+        onRenameItem={onRenameSession}
+        onDeleteItem={onDeleteSession}
       />
     {/each}
   </div>
@@ -130,8 +145,9 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
-    padding: 6px 6px 8px;
-    border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.06));
+    padding: 0 0 8px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--separator, rgba(0, 0, 0, 0.06));
   }
   .nav-item {
     display: flex;
@@ -141,14 +157,15 @@
     padding: 6px 8px;
     border: none;
     background: transparent;
-    border-radius: 8px;
+    border-radius: var(--rounded-sm, 6px);
     cursor: pointer;
-    color: inherit;
+    color: var(--label-primary, #171717);
     text-align: left;
     font-size: 13px;
+    transition: background 0.12s ease;
   }
-  .nav-item:hover { background: var(--fill-hover, rgba(0, 0, 0, 0.04)); }
-  .nav-item i { font-size: 16px; opacity: 0.85; }
+  .nav-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
+  .nav-item i { font-size: 16px; color: var(--label-secondary, #666); }
   .sidebar-channels {
     flex: 1 1 auto;
     overflow-y: auto;
@@ -162,13 +179,13 @@
     width: 100%;
     padding: 8px 10px;
     border: none;
-    border-top: 1px solid var(--border, rgba(0, 0, 0, 0.06));
+    border-top: 1px solid var(--separator, rgba(0, 0, 0, 0.06));
     background: transparent;
     cursor: pointer;
     color: inherit;
     text-align: left;
   }
-  .sidebar-footer:hover { background: var(--fill-hover, rgba(0, 0, 0, 0.04)); }
+  .sidebar-footer:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .sidebar-footer-logo {
     display: inline-flex;
     align-items: center;

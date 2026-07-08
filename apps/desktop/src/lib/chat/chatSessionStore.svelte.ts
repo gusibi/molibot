@@ -20,6 +20,7 @@ import {
   createDesktopSession,
   listDesktopSessionRuns,
   loadDesktopSession,
+  stopDesktopChat,
   type DesktopActivityEntry
 } from "../api";
 
@@ -92,8 +93,6 @@ export class ChatSessionStore {
   draftProfileId = $state("");
 
   private deps: ChatSessionStoreDeps | null = null;
-  /** Session keys restored as live on the last reconnect poll (plan §11.2). */
-  private restoredKeys = new Set<string>();
 
   init(deps: ChatSessionStoreDeps): void {
     this.deps = deps;
@@ -208,14 +207,6 @@ export class ChatSessionStore {
     this.registry.active?.clearError();
   }
 
-  /** Stops a specific (possibly background) session's run (plan §9.2). */
-  async stopSession(profileId: string, sessionId: string): Promise<void> {
-    const entry = this.registry.get(profileId, sessionId);
-    if (!entry) return;
-    await entry.controller.stop();
-    void entry.reloadFromServer();
-  }
-
   async resolveApproval(decision: DesktopApprovalDecision): Promise<void> {
     await this.registry.active?.controller.resolveApproval(decision);
   }
@@ -232,13 +223,13 @@ export class ChatSessionStore {
   }
 
   /**
-   * Reconnect recovery (plan §11). Restores running/waiting runs from the
-   * server's `session-runs` table into the registry, reloads each restored
-   * session's transcript so the right pane shows persisted messages rather than
-   * replaying missed tokens, and reconciles runs that have since finished: a
-   * previously-restored run no longer present is marked completed (background
-   * unread dot, or idle for the active session). Returns the count of restored
-   * live runs.
+   * Reconnect recovery (plan §11). A crashed/disconnected Desktop can't resume
+   * the dead SSE stream of a server-side run, so an orphaned run's live output
+   * is unreachable - and the server keeps the session locked (the next send is
+   * rejected as "Already working"). Rather than restore a phantom "running"
+   * dot and leave the session blocked, abort each orphaned run server-side so
+   * the user can start a new turn. Runs this Desktop is actively driving (a live
+   * client turn) are left alone. Returns the count of aborted orphaned runs.
    */
   async reconnect(): Promise<number> {
     const deps = this.deps;
@@ -252,27 +243,23 @@ export class ChatSessionStore {
     } catch {
       return 0;
     }
-    const restored = this.registry.restoreFromRuns(runs);
-    const restoredSet = new Set(restored);
-    for (const prevKey of this.restoredKeys) {
-      if (restoredSet.has(prevKey)) continue;
-      const sep = prevKey.indexOf(":");
-      this.registry.markRunCompleted(prevKey.slice(0, sep), prevKey.slice(sep + 1));
+    let aborted = 0;
+    for (const run of runs) {
+      if (!run.profileId || !run.sessionId) continue;
+      const existing = this.registry.get(run.profileId, run.sessionId);
+      if (existing?.controller.sending) continue;
+      try {
+        await stopDesktopChat(endpoint, run.profileId, run.sessionId);
+        aborted += 1;
+      } catch {
+        // Leave it; the next poll retries the abort.
+      }
     }
-    this.restoredKeys = restoredSet;
-    for (const key of restored) {
-      const sep = key.indexOf(":");
-      const profileId = key.slice(0, sep);
-      const sessionId = key.slice(sep + 1);
-      const entry = this.registry.get(profileId, sessionId);
-      if (entry) void entry.reloadFromServer();
-    }
-    return restored.length;
+    return aborted;
   }
 
   disposeAll(): void {
     this.registry.disposeAll();
-    this.restoredKeys.clear();
     this.draftMode = false;
     this.draftProfileId = "";
   }

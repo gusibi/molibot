@@ -290,6 +290,22 @@ export class SessionStore {
     }
   }
 
+  /**
+   * Migrates every legacy Web user's sessions into the Web workspace index.
+   * Used by the cross-profile desktop conversation list (plan §12.2), which has
+   * no single `externalUserId` to pass to the lazy per-user migration. Safe to
+   * call repeatedly - already-migrated users have no legacy entries left.
+   */
+  migrateAllLegacyWebUsers(): void {
+    const legacy = readLegacyIndex();
+    const keys = Object.keys(legacy.byUserKey);
+    for (const key of keys) {
+      if (!key.startsWith("web:")) continue;
+      const externalUserId = key.slice("web:".length);
+      if (externalUserId) this.migrateLegacyWebUser(externalUserId);
+    }
+  }
+
   private resolveSessionStorage(conversationId: string):
     | { type: "web"; externalUserId: string; file: SessionFile }
     | { type: "legacy"; file: SessionFile }
@@ -598,6 +614,12 @@ export class SessionStore {
     externalUserId: string;
     lastMessageText: string;
   }> {
+    // Migrate any not-yet-migrated legacy Web sessions into the Web workspace
+    // index before reading it. The per-profile `listConversations` migrates a
+    // single user lazily; this cross-profile list must migrate every legacy Web
+    // user, otherwise conversations created before the Web-workspace migration
+    // would be invisible to the desktop sidebar (plan §12.2 cross-Bot aggregation).
+    this.migrateAllLegacyWebUsers();
     const webIndex = readWebIndex();
     const out: Array<{ conversation: Conversation; externalUserId: string; lastMessageText: string }> = [];
     for (const [id, owner] of Object.entries(webIndex.byConversationId)) {

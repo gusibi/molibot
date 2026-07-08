@@ -28,6 +28,7 @@ const sections = {
   tts: read("./lib/settings/TtsGenerateSection.svelte")
 };
 const charts = read("./lib/settings/charts.ts");
+const row = read("./lib/chat/ConversationRow.svelte");
 const transcript = read("./lib/chat/ConversationTranscript.svelte");
 const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
 const runActivity = read("./lib/chat/RunActivity.svelte");
@@ -59,17 +60,30 @@ test("assistant code blocks wrap without horizontal scrolling", () => {
   assert.match(styles, /\.markdown-body table\s*\{[^}]*table-layout:\s*fixed/s);
 });
 
-test("sidebar keeps exactly one channel expanded with balanced list density", () => {
-  // The new sidebar (plan §2.2) is five mutually-exclusive channel accordions:
-  // `expandedChannel` is the single open one, and toggling it only ever expands
-  // (clicking the current channel never collapses it).
+test("sidebar channel groups are independently collapsible with balanced list density", () => {
+  // The sidebar (plan §2.2) is five channel accordions. At most one is open at a
+  // time, but every group can now be collapsed (`expandedChannel === ""`): clicking
+  // the currently-open channel closes it instead of forcing one to stay open.
   assert.match(view, /<ChatSidebar/);
-  assert.match(view, /let expandedChannel/);
-  assert.match(view, /if \(expandedChannel === channel\) return;/);
+  assert.match(view, /let expandedChannel: DesktopConversationChannel \| ""/);
+  assert.match(view, /if \(expandedChannel === channel\) \{[^}]*expandedChannel = "";/s);
   assert.doesNotMatch(view, /const firstBot = externalNav/);
   // The project tree still reuses the shared collapsible group + session row chrome.
   assert.match(styles, /\.conv-group-head\s*\{[^}]*height:\s*34px/s);
   assert.match(styles, /\.conversation-select\s*\{[^}]*min-height:\s*40px/s);
+});
+
+test("sidebar conversation rows expose a rename/delete menu", () => {
+  // Web conversation rows carry an ellipsis menu (rename + delete); external
+  // channels are read-only mirrors and never surface it.
+  assert.match(row, /class="row-menu-btn"/);
+  assert.match(row, /class="row-menu"/);
+  assert.match(row, /onRename\?\.\(/);
+  assert.match(row, /onDelete\?\.\(/);
+  assert.match(row, /!item\.readOnly && Boolean\(onRename\) && Boolean\(onDelete\)/);
+  // The host wires the row actions to the desktop conversation API.
+  assert.match(view, /renameDesktopConversation\(connectedEndpoint/);
+  assert.match(view, /deleteDesktopConversation\(connectedEndpoint/);
 });
 
 test("chat primary navigation stays in the Chat workspace", () => {

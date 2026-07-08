@@ -1244,6 +1244,27 @@ export async function listDesktopConversations(
   );
 }
 
+export async function renameDesktopConversation(
+  endpoint: string,
+  sessionId: string,
+  title: string
+): Promise<string> {
+  const payload = await requestJson<{ ok: true; title: string }>(
+    endpoint,
+    "/api/desktop/conversations",
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, title }) }
+  );
+  return payload.title;
+}
+
+export async function deleteDesktopConversation(endpoint: string, sessionId: string): Promise<void> {
+  await requestJson(
+    endpoint,
+    `/api/desktop/conversations?sessionId=${encodeURIComponent(sessionId)}`,
+    { method: "DELETE" }
+  );
+}
+
 export async function listDesktopConversationGroups(
   endpoint: string,
   params: { channel: DesktopConversationChannel; query?: string }

@@ -25,9 +25,11 @@
     classifyFirstLaunch,
     createDesktopProvider,
     fetchDesktopFileBlob,
+    deleteDesktopConversation,
     filterDesktopFiles,
     findTranscriptMatches,
     listDesktopConversations,
+    renameDesktopConversation,
     listDesktopSessionFiles,
     loadDesktopAgents,
     loadDesktopAgentFiles,
@@ -66,7 +68,7 @@
   import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
   import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
   import ConversationBrowserDialog from "./lib/chat/ConversationBrowserDialog.svelte";
-  import BotSelector from "./lib/chat/BotSelector.svelte";
+  import BotMention from "./lib/chat/BotMention.svelte";
   import { ChatSessionStore } from "./lib/chat/chatSessionStore.svelte";
   import type { ConversationLabels, UiMessage } from "./lib/chat/conversationController.svelte";
   import { stickToBottom } from "./lib/chat/stickToBottom";
@@ -116,7 +118,8 @@
   // Sidebar navigation: five mutually-exclusive channel accordions (plan §2.2).
   // `expandedChannel` is the one open; `expandedItems` is its cross-Bot recent
   // list (max 10) from `listDesktopConversations`.
-  let expandedChannel: DesktopConversationChannel = "web";
+  // `""` means every channel group is collapsed (no group is forced open).
+  let expandedChannel: DesktopConversationChannel | "" = "web";
   let expandedItems: DesktopConversationItem[] = [];
   let expandedHasMore = false;
   let expandedLoading = false;
@@ -298,6 +301,14 @@
   $: filteredFiles = filterDesktopFiles(sessionFiles, fileFilter);
   $: fileByLocal = new Map(sessionFiles.map((file) => [file.local, file]));
   $: botOptions = profiles.map((profile) => ({ id: profile.id, name: profile.name }));
+  $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? copy.model;
+  // The pill only shows the bare model name (last "/"-segment); the provider
+  // prefix like "[Custom] CliProxyAPI /" is kept for the dropdown + tooltip.
+  $: activeModelLabel = (() => {
+    const slash = activeModelFullLabel.lastIndexOf("/");
+    return (slash >= 0 ? activeModelFullLabel.slice(slash + 1) : activeModelFullLabel).trim();
+  })();
+  $: thinkingLabel = ({ off: copy.thinkingOff, low: copy.thinkingLow, medium: copy.thinkingMedium, high: copy.thinkingHigh } as Record<DesktopThinkingLevel, string>)[thinkingLevel] ?? copy.thinkingLevel;
   $: activeBotName = profiles.find((profile) => profile.id === (draftMode ? draftProfileId : activeProfileId))?.name ?? copy.bot;
   $: activeSessionTitle = expandedItems.find((item) => item.sessionId === activeSessionId)?.title ?? copy.chat;
   $: sidebarActiveSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
@@ -383,11 +394,12 @@
     return profiles[0]?.id ?? "";
   }
 
-  function persistChannel(channel: DesktopConversationChannel): void {
+  function persistChannel(channel: DesktopConversationChannel | ""): void {
     localStorage.setItem(LAST_CHANNEL_KEY, channel);
   }
-  function restoreChannel(): DesktopConversationChannel {
+  function restoreChannel(): DesktopConversationChannel | "" {
     const saved = localStorage.getItem(LAST_CHANNEL_KEY);
+    if (saved === "") return "";
     return saved === "telegram" || saved === "feishu" || saved === "qq" || saved === "weixin" || saved === "web"
       ? saved
       : "web";
@@ -513,7 +525,7 @@
   }
 
   async function loadExpanded(): Promise<void> {
-    if (!connectedEndpoint) {
+    if (!connectedEndpoint || !expandedChannel) {
       expandedItems = [];
       expandedHasMore = false;
       return;
@@ -533,7 +545,14 @@
 
   function toggleChannel(channel: DesktopConversationChannel): void {
     workspacePane = "chat";
-    if (expandedChannel === channel) return;
+    if (expandedChannel === channel) {
+      // Collapse the currently open group — all groups may now be closed.
+      expandedChannel = "";
+      persistChannel("");
+      expandedItems = [];
+      expandedHasMore = false;
+      return;
+    }
     expandedChannel = channel;
     persistChannel(channel);
     void loadExpanded();
@@ -575,8 +594,40 @@
     void refreshFiles(item.botId, item.sessionId);
   }
 
-  function stopSessionRow(item: DesktopConversationItem): void {
-    void chatStore.stopSession(item.botId, item.sessionId);
+  async function renameSession(item: DesktopConversationItem, title: string): Promise<void> {
+    if (!connectedEndpoint || item.readOnly) return;
+    const trimmed = title.trim();
+    if (!trimmed || trimmed === item.title) return;
+    try {
+      const saved = await renameDesktopConversation(connectedEndpoint, item.sessionId, trimmed);
+      // Reflect the sanitized title immediately, then refresh from the server.
+      expandedItems = expandedItems.map((it) =>
+        it.sessionId === item.sessionId ? { ...it, title: saved } : it
+      );
+      await loadExpanded();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  async function deleteSession(item: DesktopConversationItem): Promise<void> {
+    // Confirmation happens inline in the row menu (native window.confirm is
+    // unreliable in the Tauri webview), so this just performs the delete.
+    if (!connectedEndpoint || item.readOnly) return;
+    try {
+      await deleteDesktopConversation(connectedEndpoint, item.sessionId);
+      chatStore.disposeSession(item.botId, item.sessionId);
+      expandedItems = expandedItems.filter((it) => it.sessionId !== item.sessionId);
+      // If the deleted conversation was the one being viewed, fall back to a draft.
+      if (viewMode === "local" && item.sessionId === activeSessionId) {
+        syncDraftOut();
+        chatStore.newConversationDraft(defaultBot());
+        loadDraftIn();
+      }
+      await loadExpanded();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    }
   }
 
   function openBrowser(channel: DesktopConversationChannel): void {
@@ -1028,7 +1079,8 @@
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    // Shift+Enter sends; a bare Enter inserts a newline (avoids accidental sends).
+    if (event.key === "Enter" && event.shiftKey && !event.isComposing) {
       event.preventDefault();
       if (sending) queueFollowUp();
       else void sendMessage();
@@ -1094,6 +1146,24 @@
     return new Intl.DateTimeFormat(undefined, sameYear
       ? { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }
       : { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+  }
+
+  // Sidebar list timestamps: show the clock only for today; anything older
+  // collapses to a bare date (no hour/minute) to keep the compact rows tidy.
+  function formatListTime(value: string): string {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfYesterday = startOfToday - 86400000;
+    if (date.getTime() >= startOfToday) {
+      return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
+    }
+    if (date.getTime() >= startOfYesterday) return copy.groupYesterday;
+    const sameYear = date.getFullYear() === now.getFullYear();
+    return new Intl.DateTimeFormat(undefined, sameYear
+      ? { month: "numeric", day: "numeric" }
+      : { year: "numeric", month: "numeric", day: "numeric" }).format(date);
   }
 
   let reconnectTimer: ReturnType<typeof setInterval> | null = null;
@@ -1281,7 +1351,7 @@
     expandedLoading={expandedLoading}
     activeSessionId={sidebarActiveSessionId}
     {statusDots}
-    formatTime={formatSessionTime}
+    formatTime={formatListTime}
     onNewConversation={newConversation}
     onOpenProjects={openProjects}
     onOpenAutoTasks={() => openWorkspacePane("automations")}
@@ -1289,8 +1359,9 @@
     onOpenSettings={() => openSettings()}
     onToggleChannel={(channel) => toggleChannel(channel as DesktopConversationChannel)}
     onSelectSession={openSession}
-    onStopSession={stopSessionRow}
     onMoreChannel={(channel) => openBrowser(channel as DesktopConversationChannel)}
+    onRenameSession={renameSession}
+    onDeleteSession={deleteSession}
   />
 
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
@@ -1509,15 +1580,6 @@
               {/each}
             </div>
           {/if}
-          {#if profiles.length > 0 && (draftMode || activeSessionId)}
-            <BotSelector
-              mode={draftMode ? "select" : "locked"}
-              bots={botOptions}
-              selectedId={draftMode ? draftProfileId : activeProfileId}
-              onSelect={(id) => chatStore.setDraftProfileId(id)}
-              labels={{ bot: copy.bot, chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
-            />
-          {/if}
           <ChatComposerShell
             bind:value={messageInput}
             {copy}
@@ -1536,6 +1598,15 @@
               hidden
               onchange={onFilesPicked}
             />
+            {#if profiles.length > 0 && (draftMode || activeSessionId)}
+              <BotMention
+                mode={draftMode ? "select" : "locked"}
+                bots={botOptions}
+                selectedId={draftMode ? draftProfileId : activeProfileId}
+                onSelect={(id) => chatStore.setDraftProfileId(id)}
+                labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
+              />
+            {/if}
             {#if recording}
               <div class="recording-bar" role="status" aria-live="polite">
                 <span class="recording-indicator" aria-hidden="true"></span>
@@ -1554,29 +1625,11 @@
                   disabled={(!draftMode && !activeSessionId) || sending || !modelReady}
                   onclick={() => fileInput?.click()}
                 ><i class="ph ph-paperclip" aria-hidden="true"></i></button>
-                <button
-                  class="composer-tool"
-                  type="button"
-                  aria-label={copy.files}
-                  title={copy.files}
-                  disabled={!draftMode && !activeSessionId}
-                  onclick={() => (filePanelOpen = !filePanelOpen)}
-                ><i class="ph ph-squares-four" aria-hidden="true"></i></button>
-                <button
-                  class="composer-tool"
-                  class:recording={recording}
-                  type="button"
-                  aria-label={recording ? copy.finishRecording : copy.startRecording}
-                  title={recording ? copy.finishRecording : copy.startRecording}
-                  aria-pressed={recording}
-                  disabled={(!draftMode && !activeSessionId) || sending || !modelReady}
-                  onclick={toggleRecording}
-                ><i class="ph ph-microphone" aria-hidden="true"></i></button>
               </div>
               <div class="composer-selectors" slot="selectors">
-                <label class="composer-pill">
+                <label class="composer-pill" title={activeModelFullLabel}>
                   <i class="ph ph-cpu" aria-hidden="true"></i>
-                  <span class="composer-pill-label">{copy.model}</span>
+                  <span class="composer-pill-label">{activeModelLabel}</span>
                   <select value={activeModelKey} disabled={sending || changingModel || modelOptions.length === 0} onchange={changeModel} aria-label={copy.model}>
                     {#each modelOptions as model (model.key)}
                       <option value={model.key}>{model.label}</option>
@@ -1586,7 +1639,7 @@
                 </label>
                 <label class="composer-pill">
                   <i class="ph ph-brain" aria-hidden="true"></i>
-                  <span class="composer-pill-label">{copy.thinkingLevel}</span>
+                  <span class="composer-pill-label">{thinkingLabel}</span>
                   <select bind:value={thinkingLevel} disabled={sending} aria-label={copy.thinkingLevel}>
                     <option value="off">{copy.thinkingOff}</option>
                     <option value="low">{copy.thinkingLow}</option>
@@ -1596,6 +1649,17 @@
                   <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
                 </label>
               </div>
+              <button
+                slot="action"
+                class="composer-tool"
+                class:recording={recording}
+                type="button"
+                aria-label={recording ? copy.finishRecording : copy.startRecording}
+                title={recording ? copy.finishRecording : copy.startRecording}
+                aria-pressed={recording}
+                disabled={(!draftMode && !activeSessionId) || sending || !modelReady}
+                onclick={toggleRecording}
+              ><i class="ph ph-microphone" aria-hidden="true"></i></button>
           </ChatComposerShell>
         </footer>
       {/if}
@@ -1662,7 +1726,7 @@
     channel={browserChannel}
     open={browserOpen}
     labels={{ search: copy.searchConversations, searchEmpty: copy.searchEmpty, loading: copy.loading, loadMore: copy.loadMore, empty: copy.noConversations, deletedBot: copy.deletedBot, unknownBot: copy.unknownBot }}
-    formatTime={formatSessionTime}
+    formatTime={formatListTime}
     onSelect={openSession}
     onClose={() => (browserOpen = false)}
   />

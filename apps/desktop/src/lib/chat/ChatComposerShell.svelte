@@ -17,10 +17,11 @@
   <div class="composer-bar">
     <slot name="tools"><div class="composer-tools"></div></slot>
     <slot name="selectors"><div class="composer-selectors"></div></slot>
+    <slot name="action" />
     {#if sending && onStop}
-      <button class="stop-button" type="button" aria-label={copy.stop} title={copy.stop} onclick={onStop}><i class="ph-fill ph-stop" aria-hidden="true"></i></button>
+      <button class="send-button" type="button" aria-label={copy.stop} title={copy.stop} onclick={onStop}><i class="ph-fill ph-stop" aria-hidden="true"></i></button>
     {:else}
-      <button class="send-button" type="button" aria-label={copy.send} title={copy.send} disabled={!canSend || disabled} onclick={onSend}><i class="ph-fill ph-arrow-up" aria-hidden="true"></i></button>
+      <button class="send-button" type="button" aria-label={copy.send} title={copy.send} disabled={!canSend || disabled} onclick={onSend}><i class="ph-fill ph-paper-plane-tilt" aria-hidden="true"></i></button>
     {/if}
   </div>
 </div>

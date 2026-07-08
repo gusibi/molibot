@@ -280,14 +280,20 @@ function collectItems(
   channel: DesktopConversationChannel,
   resolver: BotNameResolver
 ): DesktopConversationItem[] {
+  let items: DesktopConversationItem[];
   if (channel === "web") {
     const entries = getRuntime().sessions.listAllWebConversations();
-    return buildWebItems(entries, resolver);
+    items = buildWebItems(entries, resolver);
+  } else {
+    const entries = listExternalSessionsFromContexts(resolve(config.dataDir)).filter(
+      (entry) => entry.channel === channel
+    );
+    items = buildExternalItems(entries, resolver);
   }
-  const entries = listExternalSessionsFromContexts(resolve(config.dataDir)).filter(
-    (entry) => entry.channel === channel
-  );
-  return buildExternalItems(entries, resolver);
+  // The sidebar / browser only show ordinary conversations (plan §7/§16):
+  // project / automation / diagnostic / test sessions are excluded here, in
+  // the shared query layer, rather than duplicated into channels or UI.
+  return items.filter((item) => item.purpose === "conversation");
 }
 
 export function listDesktopConversations(input: {
@@ -315,6 +321,33 @@ export function listDesktopConversationGroups(input: {
   const resolver = buildBotNameResolver(getRuntime().getSettings());
   const items = collectItems(input.channel, resolver);
   return queryGroups(items, { query: input.query, groupLimit: input.groupLimit });
+}
+
+/**
+ * Renames a Web conversation from the desktop sidebar. Only Web sessions are
+ * writable here — external channels are read-only mirrors. The owning
+ * `externalUserId` is resolved from the Web index by session id, so the
+ * caller only needs the session id. Returns the sanitized title, or `null`
+ * if the session is not a known Web conversation.
+ */
+export function renameDesktopConversation(sessionId: string, title: string): { title: string } | null {
+  const sessions = getRuntime().sessions;
+  const owner = sessions.getWebConversationOwner(sessionId);
+  if (!owner) return null;
+  const conversation = sessions.renameConversation(sessionId, "web", owner, title);
+  return conversation ? { title: conversation.title } : null;
+}
+
+/**
+ * Deletes a Web conversation from the desktop sidebar (Web-only, same
+ * ownership resolution as {@link renameDesktopConversation}). Returns `false`
+ * when the session is not a known Web conversation.
+ */
+export function deleteDesktopConversation(sessionId: string): boolean {
+  const sessions = getRuntime().sessions;
+  const owner = sessions.getWebConversationOwner(sessionId);
+  if (!owner) return false;
+  return sessions.deleteConversation(sessionId, "web", owner);
 }
 
 function normalizeRunStatus(status: string): DesktopSessionRunStatus {

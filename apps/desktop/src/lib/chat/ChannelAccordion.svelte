@@ -24,9 +24,10 @@
     formatTime,
     onToggle,
     onSelect,
-    onStop,
     onMore,
-    onConfigure
+    onConfigure,
+    onRenameItem,
+    onDeleteItem
   }: {
     channel: ChannelDescriptor;
     expanded: boolean;
@@ -45,22 +46,25 @@
       emptyExternal: string;
       notConfigured: string;
       goToSettings: string;
+      menu: string;
+      rename: string;
+      delete: string;
+      renamePlaceholder: string;
+      deletePrompt: string;
+      cancel: string;
     };
     formatTime: (iso: string) => string;
     onToggle: () => void;
     onSelect: (item: DesktopConversationItem) => void;
-    onStop: (item: DesktopConversationItem) => void;
     onMore: () => void;
     onConfigure: () => void;
+    onRenameItem: (item: DesktopConversationItem, title: string) => void;
+    onDeleteItem: (item: DesktopConversationItem) => void;
   } = $props();
 
   function dotFor(item: DesktopConversationItem): SessionStatusDot | null {
     if (item.readOnly) return null;
     return statusDots.get(sessionRuntimeKey(item.botId, item.sessionId)) ?? null;
-  }
-
-  function stopFor(item: DesktopConversationItem): (() => void) | undefined {
-    return item.readOnly ? undefined : () => onStop(item);
   }
 </script>
 
@@ -94,9 +98,10 @@
                 active={item.sessionId === activeSessionId}
                 statusDot={dotFor(item)}
                 {formatTime}
-                labels={{ running: labels.running, waitingApproval: labels.waitingApproval, completed: labels.completed, failed: labels.failed }}
+                labels={{ running: labels.running, waitingApproval: labels.waitingApproval, completed: labels.completed, failed: labels.failed, menu: labels.menu, rename: labels.rename, delete: labels.delete, placeholder: labels.renamePlaceholder, deletePrompt: labels.deletePrompt, cancel: labels.cancel }}
                 onSelect={() => onSelect(item)}
-                onStop={stopFor(item)}
+                onRename={(title) => onRenameItem(item, title)}
+                onDelete={() => onDeleteItem(item)}
               />
             </li>
           {/each}
@@ -110,29 +115,33 @@
 </section>
 
 <style>
-  .channel-accordion { border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.06)); }
+  .channel-accordion { margin-top: 2px; }
+  .channel-accordion:first-child { margin-top: 0; }
   .channel-accordion-header {
     display: flex;
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 7px 10px;
+    padding: 6px 8px;
     border: none;
+    border-radius: var(--rounded-sm, 6px);
     background: transparent;
     cursor: pointer;
-    color: inherit;
+    color: var(--label-secondary, #666);
     text-align: left;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
+    letter-spacing: 0.01em;
+    transition: background 0.12s ease;
   }
-  .channel-accordion-header:hover { background: var(--fill-hover, rgba(0, 0, 0, 0.04)); }
-  .channel-accordion-header i:first-child { font-size: 16px; opacity: 0.85; }
+  .channel-accordion-header:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
+  .channel-accordion-header i:first-child { font-size: 15px; opacity: 0.7; }
   .channel-accordion-name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chevron { font-size: 12px; opacity: 0.5; transition: transform 0.12s ease; flex: 0 0 auto; }
+  .chevron { font-size: 11px; color: var(--label-tertiary, #8f8f8f); transition: transform 0.12s ease; flex: 0 0 auto; }
   .chevron.open { transform: rotate(90deg); }
-  .channel-accordion-body { padding: 2px 6px 8px; }
+  .channel-accordion-body { padding: 1px 0 4px; }
   .channel-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
-  .channel-state { padding: 10px 8px; font-size: 12px; opacity: 0.55; margin: 0; }
+  .channel-state { padding: 8px; font-size: 12px; color: var(--label-tertiary, #8f8f8f); margin: 0; }
   .channel-configure, .channel-more {
     border: none;
     background: transparent;

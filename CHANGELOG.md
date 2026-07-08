@@ -2,6 +2,28 @@
 
 ## 2026-07-08
 
+### Desktop composer button & selector cleanup
+- Swapped the composer send shortcut to avoid accidental sends: a bare Enter now inserts a newline and Shift+Enter sends (queues a follow-up while running); placeholder hints updated in both locales.
+- The model pill now shows only the bare model name (last `/`-segment), with the full provider-qualified label kept in the dropdown and as the pill's hover tooltip.
+- Dropped the composer's files-panel toggle button (the top-right header already opens the same file list), leaving the paperclip as the only left-side tool.
+- Moved the microphone/record button to the right, immediately left of the send button.
+- Unified send and stop into one blue action button — no more red stop; the two states are distinguished by icon only (paper-plane to send, square to stop), and the disliked up-arrow send glyph was replaced with a paper-plane.
+- Model and thinking-level pills now display the *current selection* (e.g. the actual model name, or "高") instead of the static "模型" / "思考档位" labels.
+
+### Desktop composer Bot picker as inline `@mention`
+- Replaced the bulky "Bot" bar that sat above the composer textarea with a compact `@mention` token rendered *inside* the composer box, so the Bot selector now reads as part of the input rather than a separate strip.
+- With a single Bot the token renders as a static, non-interactive `@<Bot>` label (nothing to pick); with multiple Bots a draft conversation shows `@<default Bot>` preselected and opens an upward avatar+name dropdown to switch. Once the first message is sent the token locks to a quiet `@<Bot>` with a lock affordance.
+- Removed the now-dead `BotSelector.svelte`; added `BotMention.svelte` (runes, outside-click/Escape dismissal). Lightly refined the empty-conversation greeting (larger icon, tighter heading, fade-in). `svelte-check` 0/0.
+
+### Desktop chat sidebar list polish
+- Refined the chat sidebar conversation list to match the Geist reference: channel headers now read as quiet section labels, conversation rows use the `--fill`/`--accent-soft` token states with accent-highlighted active titles, and the busy per-section borders were dropped for a cleaner grouped look.
+- Moved the sidebar nav up by reducing the oversized top padding (48→30px) so the list no longer sits below a large gap beneath the window controls.
+- Added a per-conversation row menu (⋯) on Web sessions with Rename (inline edit) and Delete (confirm) actions, backed by new `PATCH`/`DELETE` desktop conversation endpoints. External-channel rows stay read-only and never show the menu.
+- Made the channel groups (Web/Telegram/飞书/QQ/微信) independently collapsible — clicking the open group now closes it, so all groups can be collapsed at once instead of one always staying open.
+- Compacted each conversation row to a single line: the status dot moved onto the avatar as a corner badge (no longer competing with the title), the title fills the middle, and the timestamp sits far right and swaps to the ⋯ menu only on hover.
+- Sidebar timestamps now show the clock only for today's conversations; older rows show a bare date (no hour/minute). Transcript message timestamps are unchanged.
+- Fixed Delete doing nothing: it relied on the native `window.confirm`, which is unreliable in the Tauri webview. Deletion now uses an inline two-step confirm inside the row menu.
+
 ### Clean-machine first-launch fixes
 - Added a built-in `default` Agent and linked the default Web profile to it during settings bootstrap/sanitization, so a fresh data directory starts with a usable global Agent association.
 - Expanded Desktop onboarding with a personalization step that asks the user's preferred name and AI response style, then writes a managed section into the selected Agent's `USER.md` / `SOUL.md` without replacing existing content.
@@ -19,7 +41,8 @@
 - Rewired `ChatView.svelte` onto the Slice 2 per-session registry through a new `lib/chat/chatSessionStore.svelte.ts` (runes). The old single `ConversationController` that followed whichever session was "active" is gone; each session keeps its own pinned controller, so different sessions now run truly in parallel while the same session stays serial with its own follow-up queue, approval, and abort (plan §7). The store bridges the active entry's live turn state to the legacy `$:` template through a single `state` store — the proven `$conversationView` pattern, generalized to whichever session is currently viewed (memory `desktop-controller-legacy-reactivity`).
 - Replaced the old sidebar (horizontal channel switcher + per-Bot two-level tree) with the new `ChatSidebar` / `ChannelAccordion` / `ConversationRow` runes components: five mutually-exclusive channel accordions, a cross-Bot recent list (max 10) per channel, stable Bot avatars, and live status dots (running/waiting/completed/failed) that never cross sessions. Web Profile is shown everywhere as "Bot"; external channels stay read-only (plan §2/§3).
 - "New chat" now enters a not-yet-persisted draft instead of creating an empty session on click; the session is only created on the first sent message, bound to the Bot chosen in the `BotSelector` (last-used Bot → default → none). Composer drafts (text/attachments/thinking/Bot) are isolated per session and restored on switch (plan §6/§10).
-- Wired the "more conversations" `ConversationBrowserDialog` (per-Bot grouping, debounced search, independent per-group cursor pagination) and reconnect recovery: on service ready, `GET /api/desktop/session-runs` restores running/waiting dots and reloads transcripts, and a 4s poll reconciles finished runs into completed dots (plan §5/§11).
+- Wired the "more conversations" `ConversationBrowserDialog` (per-Bot grouping, debounced search, independent per-group cursor pagination) and reconnect recovery: on service ready and via a 4s poll, `GET /api/desktop/session-runs` is queried and any orphaned server-side run left behind by a crash/disconnect (which holds the session lock and blocks new sends) is aborted via `/api/stream/stop`, so the user can start a new turn. Runs the Desktop is actively driving are left alone (plan §5/§11).
+- Fixed the sidebar showing no conversations for existing installs: `listAllWebConversations` now migrates every legacy Web user's sessions into the Web workspace index before reading it (the per-profile `listConversations` already did this lazily), so conversations created before the Web-workspace migration are no longer invisible. The shared query layer also filters to `purpose === "conversation"`, keeping project/automation/test sessions out of the sidebar (plan §7/§16).
 - `chat-ui.test.mjs` updated to assert the new sidebar/store design; `svelte-check` 0/0; desktop build clean; 25/25 desktop + 14/14 chat unit + 12/12 server-conversation tests pass.
 
 ### Desktop per-session runtime registry (multi-session sidebar, Slice 2)

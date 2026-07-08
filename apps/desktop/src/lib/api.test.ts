@@ -702,8 +702,8 @@ test("validateProviderDraft accepts a complete draft and rejects each missing fi
   assert.equal(badUrl.errors[0].field, "baseUrl");
 });
 
-test("ONBOARDING_STEPS is ordered provider → agent → channels → launch → diagnostics", () => {
-  assert.deepEqual([...ONBOARDING_STEPS], ["provider", "agent", "channels", "launch", "diagnostics"]);
+test("ONBOARDING_STEPS is ordered provider → agent → personalization → channels → launch → diagnostics", () => {
+  assert.deepEqual([...ONBOARDING_STEPS], ["provider", "agent", "personalization", "channels", "launch", "diagnostics"]);
 });
 
 test("summarizeOnboardingChannels projects ordered rows and counts connected", () => {

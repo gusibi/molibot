@@ -11,12 +11,11 @@ import {
   deriveStatusDot,
   nextTurnStatus,
   sessionRuntimeKey,
-  statusFromRestoredRun,
   type SessionRunStatus,
   type SessionRuntimeKey,
   type SessionStatusDot
 } from "./sessionStatusDot";
-import type { DesktopMessageAttachment, DesktopSessionRun } from "@molibot/desktop-contract";
+import type { DesktopMessageAttachment } from "@molibot/desktop-contract";
 
 /**
  * Per-session runtime registry (plan §7.3 / §13). Replaces the old single
@@ -24,7 +23,7 @@ import type { DesktopMessageAttachment, DesktopSessionRun } from "@molibot/deskt
  * every session gets its OWN controller PINNED to a fixed profileId/sessionId,
  * so a background turn keeps streaming into its own state while the user views
  * another session. Switching sessions only changes which entry the view binds
- * to — it never repoints or disposes a running controller (plan §7.1 / §7.4).
+ * to - it never repoints or disposes a running controller (plan §7.1 / §7.4).
  *
  * Each entry also owns its transcript + error + status dot + draft, so the
  * pinned controller's host adapter is self-contained and never reads mutable
@@ -228,7 +227,7 @@ export class SessionRuntimeRegistry {
   /**
    * Marks a session as the one the user is viewing. A background session whose
    * run just completed/failed is considered "read" the moment it becomes active
-   * — its terminal status is cleared so no unread dot lingers (plan §8.2).
+   * - its terminal status is cleared so no unread dot lingers (plan §8.2).
    * Viewing a running/waiting session leaves its live status intact.
    */
   setActive(profileId: string, sessionId: string): void {
@@ -260,53 +259,9 @@ export class SessionRuntimeRegistry {
     if (this.activeKey === key) this.activeKey = null;
   }
 
-  /**
-   * Marks a session whose server run has disappeared (finished) during reconnect
-   * polling (plan §11.2 / §8.3). A background session records a terminal
-   * `completed` status so its dot surfaces as unread; the active session goes
-   * `idle` (its outcome is visible inline after the transcript reloads). A
-   * session with a live client turn is left untouched — the client is
-   * authoritative there.
-   */
-  markRunCompleted(profileId: string, sessionId: string): void {
-    const entry = this.entries.get(sessionRuntimeKey(profileId, sessionId)) as SessionRuntimeEntryImpl | undefined;
-    if (!entry) return;
-    if (entry.controller.sending) return;
-    if (entry.isActive) {
-      entry.status = "idle";
-      return;
-    }
-    entry.status = "completed";
-  }
-
   disposeAll(): void {
     for (const entry of this.entries.values()) entry.dispose();
     this.entries.clear();
     this.activeKey = null;
-  }
-
-  /**
-   * Reconciles active server runs (from `GET /api/desktop/session-runs`) into
-   * the registry after a reconnect (plan §11). For each run, the session's
-   * entry is ensured and its status is restored to `running`/`waiting` — UNLESS
-   * the desktop already has a client turn in flight for that session, in which
-   * case the client side is authoritative. Returns the keys that are now in a
-   * restored live state so the host can poll their transcripts.
-   */
-  restoreFromRuns(runs: DesktopSessionRun[]): SessionRuntimeKey[] {
-    if (!this.deps) return [];
-    const restored: SessionRuntimeKey[] = [];
-    for (const run of runs) {
-      if (!run.profileId || !run.sessionId) continue;
-      const entry = this.getOrCreate(run.profileId, run.sessionId) as SessionRuntimeEntryImpl;
-      entry.lastRunId = run.runId;
-      // Don't clobber a live client turn.
-      if (entry.controller.sending) continue;
-      if (run.status !== "running" && run.status !== "waiting_for_approval") continue;
-      const restoredStatus = statusFromRestoredRun(run.status);
-      entry.status = restoredStatus;
-      restored.push(entry.key);
-    }
-    return restored;
   }
 }
