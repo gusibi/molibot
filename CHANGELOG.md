@@ -2,6 +2,9 @@
 
 ## 2026-07-09
 
+### Fixed: Project transcript blank on first open until a Chat round-trip
+- On first launch, opening Projects and clicking a Session showed nothing on the right; leaving to Chat and back made it work. `ProjectDetail` gated the whole right pane on a legacy `$:` derivation (`project = projects.find(...)`), and in Svelte 5 a legacy `$:` does not subscribe to external rune `$state`, so it only ran once at init while `projectsStore.projects` was still loading and stayed `undefined`. Converted `ProjectDetail` to runes (`$props`/`$state`/`$derived`) so the derivation tracks the store; the pane now renders as soon as projects load. (`svelte-check` 0/0, desktop UI test 24/24.)
+
 ### Project conversations run in an isolated project workspace
 - Project conversations now execute in a dedicated runtime workspace under `<dataRoot>/projects/<projectId>/runtime` instead of the shared bot workspace. Their agent context/transcript no longer leaks into `moli-*/bots/<bot>/…/contexts/`; a project's runtime, sessions, and scratch all live under its own project directory, isolated from every bot.
 - Added `getProjectRuntimeContext`/`resolveRuntimeContext`/`getRuntimeContextForConversation` so send, stream, stop, `/compact`, and Host-Bash approval-resume all route a project conversation to its own store+pool. `SessionStore.getConversationProjectId` resolves the owning project by conversation id.

@@ -2,6 +2,9 @@
 
 ## 2026-07-09
 
+### 修复：首次打开进入 Project 点击 Session 右侧空白，去 Chat 转一圈才正常
+- 首次启动进入 Projects、点击某个 Session 时右侧不显示对话；切到 Chat 再切回来才正常。根因：`ProjectDetail` 用一条 legacy `$:`（`project = projects.find(...)`）来门控整个右侧面板，而 Svelte 5 里 legacy `$:` 不会订阅外部 rune `$state`，所以它只在初始化时跑一次——那时 `projectsStore.projects` 还在加载、结果是 `undefined`，面板一直不渲染，直到组件重新挂载。把 `ProjectDetail` 改为 runes 模式（`$props`/`$state`/`$derived`），派生值现在能正确跟踪 store，项目加载完成后面板立即渲染。验证：`svelte-check` 0 错 0 警告、Desktop UI 测试 24/24。
+
 ### Project 对话在独立的项目工作区运行（与 bot 隔离）
 - Project 对话现在在独立运行时工作区 `<dataRoot>/projects/<projectId>/runtime` 下执行，不再复用共享的 bot 工作区。其 agent 上下文/transcript 不再泄漏到 `moli-*/bots/<bot>/…/contexts/`；一个 project 的运行时、session、scratch 全部落在自己的项目目录下，与所有 bot 完全隔离。
 - 新增 `getProjectRuntimeContext`/`resolveRuntimeContext`/`getRuntimeContextForConversation`：发送、streaming、停止、`/compact`、Host-Bash 审批续跑都会把 project 对话路由到它自己的 store+pool；`SessionStore.getConversationProjectId` 按会话 id 反查所属 project。

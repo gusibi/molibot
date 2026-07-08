@@ -2,11 +2,16 @@
   import type { Translation } from "../i18n";
   import { newProjectSession, projectsStore, removeProject } from "../stores/projects.svelte";
   import ProjectChat from "./ProjectChat.svelte";
-  export let copy: Translation;
-  let confirmDelete = false;
-  let removeSessions = false;
-  $: project = projectsStore.projects.find((item) => item.id === projectsStore.selectedProjectId);
-  $: projectInitial = (project?.name.trim().charAt(0) || "M").toUpperCase();
+  // Runes mode (not legacy `$:`) so these derivations track the `projectsStore`
+  // rune `$state`. A legacy `$:` only runs once at init and would leave `project`
+  // undefined on first open (when projects are still loading), hiding the whole
+  // right pane until a remount — the Project transcript "first-click does nothing"
+  // bug. Template reads elsewhere (e.g. ProjectList's `{#each}`) stay reactive.
+  let { copy }: { copy: Translation } = $props();
+  let confirmDelete = $state(false);
+  let removeSessions = $state(false);
+  const project = $derived(projectsStore.projects.find((item) => item.id === projectsStore.selectedProjectId));
+  const projectInitial = $derived((project?.name.trim().charAt(0) || "M").toUpperCase());
 </script>
 
 {#if project}
