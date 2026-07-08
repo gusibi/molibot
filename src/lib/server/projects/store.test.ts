@@ -57,3 +57,20 @@ test("validateProjectRootPath rejects unsafe and invalid roots", () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("ProjectStore can create a unique managed directory and register it atomically", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-managed-project-"));
+  const managedRoot = path.join(root, "Molibot Projects");
+  const store = new ProjectStore(path.join(root, "settings.sqlite"), managedRoot);
+  try {
+    const first = store.create({ name: "Product / Notes", createDirectory: true });
+    const second = store.create({ name: "Product / Notes", createDirectory: true });
+    assert.equal(fs.statSync(first.rootPath).isDirectory(), true);
+    assert.equal(fs.statSync(second.rootPath).isDirectory(), true);
+    assert.equal(path.dirname(first.rootPath), fs.realpathSync(managedRoot));
+    assert.notEqual(first.rootPath, second.rootPath);
+    assert.deepEqual(fs.readdirSync(first.rootPath), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

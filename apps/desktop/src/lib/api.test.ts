@@ -1152,11 +1152,11 @@ test("desktop project API uses granular project routes and preserves delete-sess
   }) as typeof globalThis.fetch;
   try {
     assert.deepEqual(await loadDesktopProjects("http://localhost:3000"), []);
-    assert.equal((await createDesktopProject("http://localhost:3000", { name: "Wiki", rootPath: "/tmp/wiki" })).id, "wiki");
+    assert.equal((await createDesktopProject("http://localhost:3000", { name: "Wiki", createDirectory: true })).id, "wiki");
     assert.deepEqual(await loadDesktopProjectSessions("http://localhost:3000", "wiki"), []);
     await deleteDesktopProject("http://localhost:3000", "wiki", true);
     assert.equal(calls[1].method, "POST");
-    assert.deepEqual(calls[1].body, { name: "Wiki", rootPath: "/tmp/wiki" });
+    assert.deepEqual(calls[1].body, { name: "Wiki", createDirectory: true });
     assert.match(calls[3].url, /removeSessions=true$/);
   } finally {
     globalThis.fetch = original;

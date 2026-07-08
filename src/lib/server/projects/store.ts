@@ -16,6 +16,13 @@ export interface ProjectRecord {
   updatedAt: string;
 }
 
+export interface CreateProjectInput {
+  name: string;
+  rootPath?: string;
+  createDirectory?: boolean;
+  instructions?: string;
+}
+
 interface ProjectRow {
   id: string;
   name: string;
@@ -76,6 +83,13 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "") || "project";
 }
 
+function projectDirectoryName(value: string): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/[. ]+$/g, "") || "Untitled Project";
+}
+
 function rowToProject(row: ProjectRow): ProjectRecord {
   return {
     id: row.id,
@@ -90,7 +104,24 @@ function rowToProject(row: ProjectRow): ProjectRecord {
 }
 
 export class ProjectStore {
-  constructor(private readonly dbFile = storagePaths.settingsDbFile) {}
+  constructor(
+    private readonly dbFile = storagePaths.settingsDbFile,
+    private readonly managedProjectsDir = path.join(os.homedir(), "Documents", "Molibot Projects")
+  ) {}
+
+  private createManagedRoot(name: string): string {
+    fs.mkdirSync(this.managedProjectsDir, { recursive: true });
+    const baseName = projectDirectoryName(name);
+    for (let suffix = 1; ; suffix += 1) {
+      const candidate = path.join(this.managedProjectsDir, suffix === 1 ? baseName : `${baseName} ${suffix}`);
+      try {
+        fs.mkdirSync(candidate);
+        return candidate;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+    }
+  }
 
   private openDb(): DatabaseSync {
     ensureSqliteParentDir(this.dbFile);
@@ -131,14 +162,19 @@ export class ProjectStore {
     }
   }
 
-  create(input: { name: string; rootPath: string; instructions?: string }): ProjectRecord {
+  create(input: CreateProjectInput): ProjectRecord {
     const name = String(input.name ?? "").trim();
     if (!name) throw new Error("Project name is required.");
-    const validation = validateProjectRootPath(input.rootPath);
-    if (!validation.ok) throw new Error(validation.reason);
+    const createdRoot = input.createDirectory ? this.createManagedRoot(name) : "";
+    const validation = validateProjectRootPath(createdRoot || String(input.rootPath ?? ""));
+    if (!validation.ok) {
+      if (createdRoot) fs.rmSync(createdRoot, { recursive: true, force: true });
+      throw new Error(validation.reason);
+    }
 
-    const db = this.openDb();
+    let db: DatabaseSync | null = null;
     try {
+      db = this.openDb();
       const rows = db.prepare("SELECT id, root_path FROM projects").all() as unknown as Array<Pick<ProjectRow, "id" | "root_path">>;
       if (rows.some((row) => pathCompareKey(row.root_path) === pathCompareKey(validation.resolved))) {
         throw new Error("This project directory is already registered.");
@@ -153,8 +189,11 @@ export class ProjectStore {
       ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)`)
         .run(id, name, validation.resolved, String(input.instructions ?? "").trim() || null, now, now);
       return rowToProject(db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as unknown as ProjectRow);
+    } catch (error) {
+      if (createdRoot) fs.rmSync(createdRoot, { recursive: true, force: true });
+      throw error;
     } finally {
-      db.close();
+      db?.close();
     }
   }
 

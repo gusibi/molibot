@@ -1,5 +1,22 @@
 # Chat Workspace Audit Findings
 
+## Project Workspace Alignment — 2026-07-09
+
+- The user confirmed the implementation brief: preserve the current product design system, make Project match Chat's Session UI and behavior, and keep every control fully functional.
+- Creation must be a staged flow: enter project name first; then choose automatic directory creation or an existing folder. Only the existing-folder branch may open a native directory picker, and only once.
+- The first-entry defect requires a deterministic regression signal asserting that selecting a Project Session immediately populates the right-side conversation.
+- Product Design saved context is not configured; `DESIGN.md` and the current Chat implementation are the authoritative visual sources.
+- Project currently owns a hand-built Session row, inline rename controls, and a separate delete popover, while Chat already centralizes these in `chat/ConversationRow.svelte`; this duplication explains the visible drift.
+- Clicking Add Project currently calls the native picker before rendering any name UI (`beginAdding -> chooseProjectDirectory`), exactly matching the reported double/early picker behavior.
+- `projectsStore.loadProjectSessions` automatically selects the first Session while Project rows can concurrently select another; the store has a response guard, but the page still depends on async selection side effects and has no loading/selection generation model.
+- Existing Project layout/styles are semantic shared CSS, but the creation form is inline in the sidebar. The requested Codex-like branch choice is better represented by the existing modal pattern and existing semantic button/input tokens.
+- All Project implementation landed in one initial commit, including comments claiming first-load race protection; there is no behavioral regression test behind those claims, only source-regex assertions.
+- Automatic directory creation is not implemented in either the Desktop host or Projects API. The server store already owns path validation and Project registration, making it the safest seam for atomic create-and-register behavior without a second native dialog.
+- The deterministic race reproduced as expected: after selecting Project B, Project A's delayed Session-list response changed `selectedSessionId` from `b-1` to `a-1`. Project ID + request-generation ownership is the necessary guard; Session ID alone is insufficient.
+- Real rendered QA confirmed the name-only first step and two directory choices in dark theme. At 540×720 the dialog measured 440px inside a 540px body with no horizontal overflow. No project or directory was created during visual verification.
+- The local QA service had no registered Projects, so populated Session-row identity is verified at the real shared-component seam (`ProjectList -> ConversationRow`) plus the runnable selection-state regression, not by fabricating production data.
+
+
 ## macOS First-Launch Bootstrap — 2026-07-07
 
 - Supplied desktop sidecar log deterministically fails before server initialization: Node cannot resolve `dotenv` imported by the packaged `molibot-runtime/scripts/start-server.mjs`.

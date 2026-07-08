@@ -68,9 +68,9 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(view, /let expandedChannel: DesktopConversationChannel \| ""/);
   assert.match(view, /if \(expandedChannel === channel\) \{[^}]*expandedChannel = "";/s);
   assert.doesNotMatch(view, /const firstBot = externalNav/);
-  // The project tree still reuses the shared collapsible group + session row chrome.
+  // Project and Chat share the same collapsible group rhythm and 40px Session row.
   assert.match(styles, /\.conv-group-head\s*\{[^}]*height:\s*34px/s);
-  assert.match(styles, /\.conversation-select\s*\{[^}]*min-height:\s*40px/s);
+  assert.match(row, /\.conversation-row\s*\{[^}]*min-height:\s*40px/s);
 });
 
 test("sidebar conversation rows expose a rename/delete menu", () => {
@@ -182,10 +182,13 @@ test("settings uses the flat Geist layout", () => {
   assert.match(sections.image, /<option value="1024x1024">1024 × 1024<\/option>/);
 });
 
-test("project creation uses the native directory picker instead of a path text field", () => {
+test("project creation asks for a name before offering managed or existing directories", () => {
   const projectList = readFileSync(new URL("./lib/projects/ProjectList.svelte", import.meta.url), "utf8");
   assert.match(projectList, /pick_project_directory/);
-  assert.match(projectList, /project-selected-directory/);
+  assert.match(projectList, /project-create-dialog/);
+  assert.match(projectList, /createDirectory:\s*true/);
+  assert.match(projectList, /projectUseExistingFolder/);
+  assert.doesNotMatch(projectList, /beginAdding[\s\S]{0,160}chooseProjectDirectory/);
   assert.doesNotMatch(projectList, /bind:value=\{rootPath\}/);
 });
 
@@ -193,13 +196,15 @@ test("project sessions render under the active project reusing the chat sidebar 
   const projectList = readFileSync(new URL("./lib/projects/ProjectList.svelte", import.meta.url), "utf8");
   const projectDetail = readFileSync(new URL("./lib/projects/ProjectDetail.svelte", import.meta.url), "utf8");
   const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
-  // The project tree shares the chat sidebar's collapsible group + session row
-  // classes so both surfaces read as one design.
+  // Project uses the exact same Session row component as Chat rather than a
+  // second hand-built row that only shares class names.
   assert.match(projectList, /class="chat-sidebar"/);
   assert.match(projectList, /class="conv-group"/);
-  assert.match(projectList, /class="conversation-select"/);
+  assert.match(projectList, /import ConversationRow from "\.\.\/chat\/ConversationRow\.svelte"/);
+  assert.match(projectList, /<ConversationRow/);
+  assert.doesNotMatch(projectList, /class="conversation-select"/);
   assert.doesNotMatch(projectDetail, /class="project-sessions"/);
-  assert.match(projectsStore, /projectsStore\.sessions\.length === 0/);
+  assert.match(projectsStore, /if \(sessions\[0\]\)/);
   assert.match(projectsStore, /createAndSelectProjectSession/);
 });
 
@@ -213,11 +218,12 @@ test("project detail reuses the chat header chrome for a single visual language"
 });
 
 test("selectProjectSession discards stale transcript responses when switching sessions", () => {
-  // First-open race: the auto-selected session and a user click both fetch in
-  // parallel; the guard prevents a slower earlier fetch from clobbering the
-  // newly selected session's messages.
+  // Project and Session request generations prevent stale list/transcript
+  // responses from taking ownership after the user changes selection.
   const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
-  assert.match(projectsStore, /if \(projectsStore\.selectedSessionId !== id\) return;/);
+  assert.match(projectsStore, /generation !== projectSelectionGeneration/);
+  assert.match(projectsStore, /generation !== sessionSelectionGeneration/);
+  assert.match(projectsStore, /projectsStore\.selectedProjectId !== projectId/);
 });
 
 test("selected project sessions keep the shared conversation visible in the detail pane", () => {
@@ -228,13 +234,11 @@ test("selected project sessions keep the shared conversation visible in the deta
 test("project sessions support rename and delete from the session list", () => {
   const projectList = readFileSync(new URL("./lib/projects/ProjectList.svelte", import.meta.url), "utf8");
   const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
-  // Rename inline editor + delete popover anchor to the row, so the actions live
-  // on the session row itself rather than behind a separate management screen.
-  assert.match(projectList, /conversation-editor/);
-  assert.match(projectList, /beginRename/);
-  assert.match(projectList, /commitRename/);
-  assert.match(projectList, /conversation-popover/);
-  assert.match(projectList, /deleteAnchor/);
+  // The shared Chat ConversationRow owns rename and delete UI for both pages.
+  assert.match(projectList, /<ConversationRow/);
+  assert.match(projectList, /onRename=\{\(title\) => void renameProjectSession/);
+  assert.match(projectList, /onDelete=\{\(\) => void removeProjectSession/);
+  assert.doesNotMatch(projectList, /conversation-editor|conversation-popover|deleteAnchor/);
   // The store wires the new operations through the project-scoped session API.
   assert.match(projectsStore, /renameProjectSession/);
   assert.match(projectsStore, /removeProjectSession/);
@@ -242,16 +246,10 @@ test("project sessions support rename and delete from the session list", () => {
   assert.match(projectsStore, /deleteDesktopProjectSession/);
 });
 
-test("project session delete uses a popover confirm anchored to the row", () => {
-  // The chat sidebar's compact ConversationRow no longer carries inline
-  // rename/delete (plan §3.4 / handoff: row + status dot + hover stop); the
-  // fixed-position confirm popover remains the project list's pattern, so it
-  // escapes the scroll container instead of being clipped at the list edges.
+test("project session delete uses Chat's shared row menu", () => {
   const projectList = readFileSync(new URL("./lib/projects/ProjectList.svelte", import.meta.url), "utf8");
-  assert.match(projectList, /conversation-popover/);
-  assert.match(projectList, /deleteAnchor/);
-  assert.match(projectList, /requestDelete/);
-  assert.match(styles, /\.conversation-popover\s*\{[^}]*z-index:\s*200/s);
+  assert.match(projectList, /<ConversationRow/);
+  assert.doesNotMatch(projectList, /conversation-popover|deleteAnchor|requestDelete/);
 });
 
 test("ProjectsView loads project state from a single reactive trigger", () => {
@@ -259,7 +257,8 @@ test("ProjectsView loads project state from a single reactive trigger", () => {
   // came from onMount + the $: reactive both calling loadProjects. Only the $:
   // trigger remains, so the initial fetch no longer doubles up.
   const projectsView = readFileSync(new URL("./lib/projects/ProjectsView.svelte", import.meta.url), "utf8");
-  assert.match(projectsView, /\$: if \(endpoint && endpoint !== projectsStore\.endpoint\)/);
+  assert.match(projectsView, /let loadedEndpoint = ""/);
+  assert.match(projectsView, /\$: if \(endpoint && endpoint !== loadedEndpoint\)/);
   assert.doesNotMatch(projectsView, /onMount\s*\(/);
   assert.doesNotMatch(projectsView, /import\s*\{[^}]*onMount/);
 });

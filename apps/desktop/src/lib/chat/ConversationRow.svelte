@@ -4,6 +4,8 @@
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
 
+  type ConversationRowItem = Pick<DesktopConversationItem, "title" | "updatedAt" | "readOnly" | "botId" | "botName" | "botDeleted">;
+
   let {
     item,
     active = false,
@@ -14,7 +16,7 @@
     onRename,
     onDelete
   }: {
-    item: DesktopConversationItem;
+    item: ConversationRowItem;
     active?: boolean;
     statusDot?: SessionStatusDot | null;
     formatTime: (iso: string) => string;
@@ -223,6 +225,7 @@
     align-items: center;
     gap: 8px;
     width: 100%;
+    min-height: 40px;
     padding: 6px 8px;
     border: none;
     background: transparent;

@@ -1,5 +1,23 @@
 # Molibot Features
 
+## 2026-07-09
+
+### Project 对话在独立的项目工作区运行（与 bot 隔离）
+- Project 对话现在在独立运行时工作区 `<dataRoot>/projects/<projectId>/runtime` 下执行，不再复用共享的 bot 工作区。其 agent 上下文/transcript 不再泄漏到 `moli-*/bots/<bot>/…/contexts/`；一个 project 的运行时、session、scratch 全部落在自己的项目目录下，与所有 bot 完全隔离。
+- 新增 `getProjectRuntimeContext`/`resolveRuntimeContext`/`getRuntimeContextForConversation`：发送、streaming、停止、`/compact`、Host-Bash 审批续跑都会把 project 对话路由到它自己的 store+pool；`SessionStore.getConversationProjectId` 按会话 id 反查所属 project。
+- workspace 路径解析器新增 `projects/<id>/runtime` 标记（project 运行时的 dataRoot / memory / 全局 skills 目录都能正确回溯），并用足够具体的正则避免祖先路径里的 `projects` 段被误判。注意：本次改动之前开始的对话仍保留旧的 bot 目录上下文；展示用的历史消息来自 project session 存储，不受影响。
+- 验证：workspace 解析测试 4/4、sessions store 测试 3/3、变更文件 `tsc` 无报错。
+
+### profileFiles 支持写全局 / agent 作用域
+- `profileFiles` 工具新增 `scope` 参数（默认 `bot`，可选 `global`、`agent`）。`global` 写入 workspace 根目录、被所有 bot/agent 共享的 profile，长期身份/语气/用户信息终于可以正常落全局，不必再用被全局写保护拦截后绕道的 bash。`BOT.md` 在 global/agent 作用域映射为 `AGENTS.md`；agent 作用域仅限 AGENTS/SOUL/IDENTITY/SONG，且未绑定 agent 时报错。同步更新了工具描述和全局 `TOOLS.md` 指引，引导长期 profile 修改使用 `scope:"global"`。
+- 验证：profileFiles 工具测试 5/5（含默认 bot、global、BOT→AGENTS 映射、global 读回、无 agent 报错）。
+
+### Desktop Projects 创建流程与 Session UI 对齐
+- “添加项目”改为两阶段弹窗：先输入项目名，再选择“自动创建目录”或“使用现有文件夹”。自动模式在用户文稿目录的 `Molibot Projects` 下创建唯一文件夹；只有现有文件夹模式会调用一次系统目录选择器。
+- Project Session 列表不再维护单独的行、重命名和删除 UI，直接复用 Chat 的 `ConversationRow.svelte`，因此头像、单行标题/时间、选中态和更多操作菜单保持同一实现。
+- 修复首次进入 Projects 或快速切换 Project 时右侧对话不显示：Project 列表与 transcript 请求现在都有选择代次和 Project ID 所有权校验，旧请求不能覆盖当前 Session；页面每次挂载会重载当前 Project，并在 transcript 返回前显示明确的载入状态。
+- 验证：Project 并发选择与自动目录测试 4/4、Desktop UI 结构测试 24/24、Svelte 检查 0/0；真实页面在 1280px 与 540px 暗色窗口下检查无横向溢出。
+
 ## 2026-07-08
 
 ### Desktop 输入框按钮与选择器精简
@@ -119,21 +137,21 @@
 - Projects UI 使用独立 runes store/组件、共享 `ConversationTranscript`、中英文本、明暗主题 token 与窄窗口布局。
 - 验证：聚焦存储/路径/prompt/runner 测试、`test:desktop-chat`、Desktop `svelte-check`（0/0）、Desktop/Rust tests 与 production build 全部通过。
 - 修复 Desktop HTTP capability 只允许 `/api/settings` 精确路径、导致 Projects 请求在到达服务端前被 Tauri 拒绝的问题；新增 Projects 嵌套路由 scope 契约测试。
-- 添加项目改用 Tauri/macOS 原生目录选择面板；选择目录后自动以文件夹名建议项目名称，表单只读展示所选路径并支持重新选择。
+- 添加项目使用两阶段创建弹窗：先输入名称，再选择自动创建唯一目录或使用已有文件夹；仅已有文件夹分支调用一次 Tauri/macOS 原生目录选择面板。
 - Projects 导航改为项目与会话一体的树状侧栏，移除独立会话列；修复新项目添加后没有首个会话、必须重启才能进入聊天的问题。
 - 删除 Project Chat 的独立 stream/消息/composer 实现，改为与普通 Chat 共享 conversation turn、实时活动/思考展示和输入外壳；项目发送仅补充 projectId。
 - 修复项目 Session 切换后右侧共享对话区域收缩不可见的问题，历史消息与空会话状态现在均占满详情面板。
 - 抽取共享会话控制器 `lib/chat/conversationController.svelte.ts`（`ConversationController`，`$state` 承载 sending/streaming/activity/approval/queue，统一 send/stop/resolveApproval/queue/drain 逻辑），通过 host 适配器注入各自的 endpoint/profile/session/projectId、乐观消息与 reload/refresh 钩子。`ChatView` 与 `ProjectChat` 均改为实例化该控制器：ChatView 保留富 composer（文件、模型、思考等级）并以 `$:` 只读别名复用既有模板，`runDesktopConversationTurn` 只在控制器内被调用一次。
 - 修复点击项目 Session 右侧不显示对话：`selectProjectSession` 现在捕获并上报加载错误而非静默失败；新增 `refreshProjectSessionList` 在发送完成后只刷新会话标题/排序、不再把选中会话跳回最近会话，从而在原会话就地重载消息。
-- 项目会话列表新增内联重命名与删除：行内 hover 出重命名/删除按钮，删除改用锚定在行上的 fixed popover 二次确认（删除/取消），与会话列表滚动容器解耦，不会被边缘裁切。
+- 项目会话列表直接复用 Chat 的 `ConversationRow.svelte`，共享单行标题/时间、头像、选中态、重命名与删除确认菜单，不再维护第二套相似 UI。
 - Chat 与 Project 会话删除统一改为 popover 二次确认，替换原先“点垃圾桶后再点一次垃圾桶”的不明显交互；新增 `deleteConversationTitle`/`deleteConversationHint` 中英文案。
 - 新增项目会话 rename/delete 服务端：`renameProjectConversation`（project 存储直写，绕过 web index 查找）、`deleteProjectConversation`，对应 `PATCH`/`DELETE /api/settings/projects/[id]/sessions/[conversationId]` 与桌面 API `renameDesktopProjectSession`/`deleteDesktopProjectSession`。
-- 修复首次进入 Projects 页选择 Session 不显示消息的竞态：`ProjectsView` 原先 `onMount` 与 `$:` 都触发 `loadProjects`，并发两次加载导致选中会话消息为空；改为只由 `$:` 单一触发，并附带说明注释。
+- Projects 页面使用组件实例级 endpoint 标记，每次进入页面都会重载当前 Project，同时避免同一挂载周期重复加载。
 - Project composer 与 Chat composer 对齐：补齐模型选择、思考档位、附件、录音（Tauri 原生 + 浏览器 fallback），复用 `.composer-wrap` 样式与 `ChatComposerShell`，并通过 controller host 适配器接入 `thinkingLevel`/`canSend`/`appendUserMessage(files)`。
-- 修复首次打开 App 从 Chat 进入 Projects 页、第一次点击 Session 右侧消息不切换的过期响应竞态：初始自动选中会话与用户点击会并发拉取 transcript，`selectProjectSession` 现在校验响应返回时 `selectedSessionId` 仍等于请求 id，否则丢弃过期响应，避免较慢的先发请求覆盖新选中会话的消息。
-- Projects 页 UI 与 Chat 页统一视觉语言：`ProjectsView` 改用 `.chat-layout` 外壳；`ProjectList` 侧栏复用 `.chat-sidebar`/`.brand-row`/`.nav-list`，项目改为可折叠 `.conv-group`、会话行复用 `.conversation-row`/`.conversation-select`/`.conversation-tile`/`.conversation-actions`；`ProjectDetail` 头部复用 `.chat-header`/`.chat-header-avatar`/`.chat-title-*`。删除全部 `project-sidebar`/`project-session-*`/`project-header` 等重复样式，仅保留项目专属的新建表单、空态与 `.conv-new-session`。
+- 修复首次打开 App 从 Chat 进入 Projects 页、第一次点击 Session 右侧消息不切换的竞态：Project 列表与 transcript 分别使用递增请求代次，并同时校验 Project ID、Session ID；任何旧 Project/Session 响应都不能接管当前右侧对话。
+- Projects 页 UI 与 Chat 页统一为真实共享实现：`ProjectsView`/`ProjectDetail` 继续复用 Chat 外壳与头部，Project Session 直接渲染 `ConversationRow.svelte`，删除重复的行内编辑、操作按钮与 popover DOM/CSS。
 - 优化侧栏分组（Project / Bot / Agent）与会话列表的层级观感（`.conv-group`，Chat 与 Projects 共用）：展开三角 `.conv-caret` 从组标题左侧移到最右侧（`.conv-group-label` 改 `flex:1` 把 caret 与计数/只读标推到右端）；会话行 `.conversation-row` 与 `.conv-new-session` 左缩进 26px，并在展开时由 `.conv-group::before` 画一条纵向引导线（收起时自动隐藏），一眼可见其从属分组；并移除会话行图标 `.conversation-tile`（缩进 + 引导线已足够表达从属关系，图标反而造成与分组图标的主次倒置，冗余无价值）。
-- 验证：扩展 sessions store 测试覆盖 `renameProjectConversation`/`deleteProjectConversation`；新增并更新 Desktop chat-ui 结构测试（项目侧栏复用 chat 侧栏/头部、rename/delete 复用 conversation-editor/popover、`selectProjectSession` 过期响应守卫）；Desktop `svelte-check`（0/0）、Desktop chat-ui 测试（23/23）、后端 sessions store 测试通过。
+- 验证：扩展 sessions store 测试覆盖 `renameProjectConversation`/`deleteProjectConversation`；Project store/选择并发测试覆盖自动目录与跨 Project 过期响应；Desktop `svelte-check`（0/0）、Desktop chat-ui 测试（24/24）通过。
 
 ### 可配置服务端口与桌面托管重启
 - Web 系统设置与 Desktop 常规设置均可配置服务端口，默认 3000，保存范围为 1024–65535。

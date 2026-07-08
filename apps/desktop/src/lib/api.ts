@@ -166,7 +166,7 @@ export async function loadDesktopProjects(endpoint: string): Promise<DesktopProj
   return (await requestJson<{ ok: true; projects: DesktopProject[] }>(endpoint, "/api/settings/projects")).projects;
 }
 
-export async function createDesktopProject(endpoint: string, input: { name: string; rootPath: string; instructions?: string }): Promise<DesktopProject> {
+export async function createDesktopProject(endpoint: string, input: { name: string; rootPath?: string; createDirectory?: boolean; instructions?: string }): Promise<DesktopProject> {
   return (await requestJson<{ ok: true; project: DesktopProject }>(endpoint, "/api/settings/projects", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
   })).project;

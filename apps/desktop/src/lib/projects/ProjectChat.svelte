@@ -347,43 +347,47 @@
 </script>
 
 <section class="project-chat">
-  <div class="messages" use:stickToBottom={projectsStore.selectedSessionId} aria-live="polite">
-    <ConversationLiveView
-      messages={projectsStore.messages}
-      {copy}
-      {formatTime}
-      {sending}
-      {streamingText}
-      {streamingThinking}
-      {activity}
-      activities={activityEntries}
-      emptyTitle={copy.projectEmptyChat}
-      emptyHint={copy.projectEmptyChatHint}
-    />
-    {#if pendingApproval}
-      <div class="approval-card" role="alertdialog" aria-label={copy.approvalTitle}>
-        <strong class="approval-title">⚠️ {copy.approvalTitle}</strong>
-        <div class="approval-field">
-          <span>{copy.approvalCommand}</span>
-          <code>{pendingApproval.command}</code>
-        </div>
-        {#if pendingApproval.reason}
+  <div class="messages" use:stickToBottom={projectsStore.selectedSessionId} aria-live="polite" aria-busy={projectsStore.messagesLoading}>
+    {#if projectsStore.messagesLoading}
+      <div class="project-transcript-loading" role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.projectLoadingSession}</div>
+    {:else}
+      <ConversationLiveView
+        messages={projectsStore.messages}
+        {copy}
+        {formatTime}
+        {sending}
+        {streamingText}
+        {streamingThinking}
+        {activity}
+        activities={activityEntries}
+        emptyTitle={copy.projectEmptyChat}
+        emptyHint={copy.projectEmptyChatHint}
+      />
+      {#if pendingApproval}
+        <div class="approval-card" role="alertdialog" aria-label={copy.approvalTitle}>
+          <strong class="approval-title">⚠️ {copy.approvalTitle}</strong>
           <div class="approval-field">
-            <span>{copy.approvalReason}</span>
-            <p>{pendingApproval.reason}</p>
+            <span>{copy.approvalCommand}</span>
+            <code>{pendingApproval.command}</code>
           </div>
-        {/if}
-        <div class="approval-actions">
-          {#each pendingApproval.options as option (option.id)}
-            <button
-              type="button"
-              class:danger-action={option.id === "reject"}
-              disabled={sending}
-              onclick={() => resolveApproval(option.id as DesktopApprovalDecision)}
-            >{approvalOptionLabel(option)}</button>
-          {/each}
+          {#if pendingApproval.reason}
+            <div class="approval-field">
+              <span>{copy.approvalReason}</span>
+              <p>{pendingApproval.reason}</p>
+            </div>
+          {/if}
+          <div class="approval-actions">
+            {#each pendingApproval.options as option (option.id)}
+              <button
+                type="button"
+                class:danger-action={option.id === "reject"}
+                disabled={sending}
+                onclick={() => resolveApproval(option.id as DesktopApprovalDecision)}
+              >{approvalOptionLabel(option)}</button>
+            {/each}
+          </div>
         </div>
-      </div>
+      {/if}
     {/if}
   </div>
   <footer class="composer-wrap">

@@ -25,11 +25,23 @@ const profileFileSchema = Type.Object({
     Type.Literal("edit")
   ]),
   file: Type.Union(PROFILE_FILE_NAMES.map((name) => Type.Literal(name))),
+  scope: Type.Optional(
+    Type.Union([Type.Literal("bot"), Type.Literal("agent"), Type.Literal("global")], {
+      description:
+        "Which profile layer to target. 'bot' (default) only affects the current bot; 'global' writes the workspace-root profile shared by every bot/agent; 'agent' writes the bound agent's profile (only AGENTS/SOUL/IDENTITY/SONG). For long-term identity, voice, and user facts that should apply everywhere, use 'global'."
+    })
+  ),
   content: Type.Optional(Type.String()),
   oldText: Type.Optional(Type.String()),
   newText: Type.Optional(Type.String()),
   autoBootstrap: Type.Optional(Type.Boolean())
 });
+
+type ProfileScope = "bot" | "agent" | "global";
+
+function resolveRequestedScope(scope: string | undefined): ProfileScope {
+  return scope === "global" ? "global" : scope === "agent" ? "agent" : "bot";
+}
 
 function readEditableBody(filePath: string): string {
   if (!existsSync(filePath)) return "";
@@ -97,6 +109,50 @@ function resolveScopePaths(params: {
   };
 }
 
+function resolveScopeTargetPath(
+  scope: ProfileScope,
+  paths: { botFilePath: string; agentFilePath: string | null; globalFilePath: string }
+): string {
+  if (scope === "global") return paths.globalFilePath;
+  if (scope === "agent") {
+    if (!paths.agentFilePath) {
+      throw new Error(
+        "No agent is bound to this bot (or this file is not an agent-scope profile), so agent scope is unavailable. Use scope 'global' or 'bot'."
+      );
+    }
+    return paths.agentFilePath;
+  }
+  return paths.botFilePath;
+}
+
+function persistScopedProfile(params: {
+  scope: ProfileScope;
+  channel: string;
+  botId: string;
+  agentId: string;
+  file: ProfileFileName;
+  content: string;
+}): void {
+  const parentFile = resolveParentProfileFileName(params.file);
+  if (params.scope === "global") {
+    writeProfileFiles({ scope: "global", files: { [parentFile]: params.content } });
+    return;
+  }
+  if (params.scope === "agent") {
+    if (!params.agentId) {
+      throw new Error("No agent is bound to this bot; agent scope is unavailable. Use scope 'global' or 'bot'.");
+    }
+    if (!(AGENT_PROFILE_FILES as readonly string[]).includes(parentFile)) {
+      throw new Error(
+        `${parentFile} is not an agent-scope profile file. Agent scope only holds: ${AGENT_PROFILE_FILES.join(", ")}.`
+      );
+    }
+    writeProfileFiles({ scope: "agent", agentId: params.agentId, files: { [parentFile]: params.content } });
+    return;
+  }
+  writeProfileFiles({ scope: "bot", channel: params.channel, botId: params.botId, files: { [params.file]: params.content } });
+}
+
 function resolveBaselineSource(paths: {
   agentFilePath: string | null;
   globalFilePath: string;
@@ -148,10 +204,11 @@ export function createProfileFilesTool(options: {
     name: "profileFiles",
     label: "profileFiles",
     description:
-      "Manage bot profile markdown files (BOT/SOUL/USER/TOOLS/IDENTITY/SONG). Runtime layering: agent/global AGENTS.md and bot BOT.md render together in the upper operator-directives block, with AGENTS.md first and BOT.md stacking on top; SOUL/IDENTITY/SONG use bot > agent > global precedence; USER/TOOLS fall back to global only. BOT.md bootstrap can copy AGENTS.md as a starting point. BOOTSTRAP.md is global-only and not managed here.",
+      "Manage profile markdown files (BOT/SOUL/USER/TOOLS/IDENTITY/SONG). Runtime layering: agent/global AGENTS.md and bot BOT.md render together in the upper operator-directives block, with AGENTS.md first and BOT.md stacking on top; SOUL/IDENTITY/SONG use bot > agent > global precedence; USER/TOOLS fall back to global only. Use the `scope` parameter to choose which layer to write: 'bot' (default) only affects the current bot; 'global' writes the workspace-root profile shared by every bot/agent (use this for long-term identity, voice, and user facts); 'agent' writes the bound agent's profile (AGENTS/SOUL/IDENTITY/SONG only). BOT.md maps to AGENTS.md at global/agent scope. BOT.md bootstrap can copy AGENTS.md as a starting point. BOOTSTRAP.md is global-only and not managed here.",
     parameters: profileFileSchema,
     execute: async (_toolCallId, params) => {
       const file = ensureKnownProfileFile(params.file);
+      const requestedScope = resolveRequestedScope(params.scope);
       const autoBootstrap = params.autoBootstrap !== false;
       const paths = resolveScopePaths({
         channel: options.channel,
@@ -161,6 +218,25 @@ export function createProfileFilesTool(options: {
       });
 
       if (params.action === "read") {
+        // An explicit scope reads exactly that layer; otherwise show the
+        // effective resolution (bot > agent > global) the runtime would use.
+        if (params.scope) {
+          const targetPath = resolveScopeTargetPath(requestedScope, paths);
+          const exists = existsSync(targetPath);
+          return {
+            content: [{
+              type: "text",
+              text: [
+                `file: ${file}`,
+                `source: ${exists ? `${requestedScope}:${targetPath}` : `${requestedScope}:none`}`,
+                `agentId: ${paths.agentId || "(none)"}`,
+                "",
+                (exists ? readEditableBody(targetPath) : "") || "(empty)"
+              ].join("\n")
+            }],
+            details: undefined
+          };
+        }
         const botExists = existsSync(paths.botFilePath);
         const baseline = resolveBaselineSource({
           agentFilePath: paths.agentFilePath,
@@ -207,7 +283,9 @@ export function createProfileFilesTool(options: {
         };
       }
 
-      if (!existsSync(paths.botFilePath) && autoBootstrap) {
+      // autoBootstrap only seeds the bot-scope file from the inherited baseline.
+      // Global/agent writes target their own file directly, no bootstrap needed.
+      if (requestedScope === "bot" && !existsSync(paths.botFilePath) && autoBootstrap) {
         bootstrapBotFile({
           channel: options.channel,
           workspaceDir: options.workspaceDir,
@@ -216,20 +294,23 @@ export function createProfileFilesTool(options: {
         });
       }
 
-      const current = readEditableBody(paths.botFilePath);
+      const targetPath = resolveScopeTargetPath(requestedScope, paths);
+      const current = readEditableBody(targetPath);
 
       if (params.action === "write") {
         if (typeof params.content !== "string") {
           throw new Error("content is required for write action");
         }
-        writeProfileFiles({
-          scope: "bot",
+        persistScopedProfile({
+          scope: requestedScope,
           channel: options.channel,
           botId: paths.botId,
-          files: { [file]: params.content }
+          agentId: paths.agentId,
+          file,
+          content: params.content
         });
         return {
-          content: [{ type: "text", text: `Updated ${file} for bot ${paths.botId}` }],
+          content: [{ type: "text", text: `Updated ${file} at ${requestedScope} scope` }],
           details: undefined
         };
       }
@@ -245,14 +326,16 @@ export function createProfileFilesTool(options: {
           throw new Error(`${file} oldText appears multiple times; provide a unique snippet`);
         }
         const next = current.replace(params.oldText, params.newText);
-        writeProfileFiles({
-          scope: "bot",
+        persistScopedProfile({
+          scope: requestedScope,
           channel: options.channel,
           botId: paths.botId,
-          files: { [file]: next }
+          agentId: paths.agentId,
+          file,
+          content: next
         });
         return {
-          content: [{ type: "text", text: `Edited ${file} for bot ${paths.botId}` }],
+          content: [{ type: "text", text: `Edited ${file} at ${requestedScope} scope` }],
           details: undefined
         };
       }

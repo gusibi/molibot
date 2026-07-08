@@ -1,6 +1,8 @@
 <script lang="ts">
-  import type { Translation } from "../i18n";
+  import { tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import type { Translation } from "../i18n";
+  import ConversationRow from "../chat/ConversationRow.svelte";
   import {
     addProject,
     newProjectSession,
@@ -10,40 +12,39 @@
     selectProject,
     selectProjectSession
   } from "../stores/projects.svelte";
-  import { projectNameFromPath } from "./projectPicker";
-  import type { DesktopProjectSession } from "../api";
+
   export let copy: Translation;
   export let openChat: () => void;
+
   let adding = false;
+  let createStep: "name" | "location" = "name";
   let name = "";
-  let rootPath = "";
-  let editingSessionId = "";
-  let editingSessionTitle = "";
-  let deleteConfirmId = "";
-  let deleteAnchor = { top: 0, left: 0, width: 0 };
+  let nameInput: HTMLInputElement;
 
-  async function chooseProjectDirectory(): Promise<boolean> {
-    projectsStore.error = "";
-    try {
-      const selected = await invoke<string | null>("pick_project_directory");
-      if (!selected) return false;
-      rootPath = selected;
-      if (!name.trim()) name = projectNameFromPath(selected);
-      return true;
-    } catch (cause) {
-      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
-      return false;
-    }
-  }
-
-  async function beginAdding(): Promise<void> {
-    if (adding) { adding = false; return; }
-    if (await chooseProjectDirectory()) adding = true;
-  }
-
-  async function submit(): Promise<void> {
-    if (await addProject({ name, rootPath })) { name = ""; rootPath = ""; adding = false; }
-  }
+  let rowLabels: {
+    running: string;
+    waitingApproval: string;
+    completed: string;
+    failed: string;
+    menu: string;
+    rename: string;
+    delete: string;
+    placeholder: string;
+    deletePrompt: string;
+    cancel: string;
+  };
+  $: rowLabels = {
+    running: copy.running,
+    waitingApproval: copy.waitingApproval,
+    completed: copy.completed,
+    failed: copy.failed,
+    menu: copy.conversationMenu,
+    rename: copy.renameConversation,
+    delete: copy.deleteConversation,
+    placeholder: copy.renamePlaceholder,
+    deletePrompt: copy.deleteConversationPrompt,
+    cancel: copy.cancelAction
+  };
 
   function formatSessionTime(value: string): string {
     const date = new Date(value);
@@ -56,48 +57,41 @@
     return new Intl.DateTimeFormat(undefined, { month: "numeric", day: "numeric" }).format(date);
   }
 
-  function beginRename(session: DesktopProjectSession): void {
-    if (projectsStore.busy === "session") return;
-    editingSessionId = session.conversationId;
-    editingSessionTitle = session.title;
-    deleteConfirmId = "";
+  async function beginAdding(): Promise<void> {
+    adding = true;
+    createStep = "name";
+    name = "";
+    projectsStore.error = "";
+    await tick();
+    nameInput?.focus();
   }
 
-  function cancelRename(): void {
-    editingSessionId = "";
-    editingSessionTitle = "";
+  function cancelAdding(): void {
+    if (projectsStore.busy === "add") return;
+    adding = false;
+    createStep = "name";
+    name = "";
   }
 
-  function commitRename(session: DesktopProjectSession): void {
-    const title = editingSessionTitle.trim();
-    if (title && title !== session.title) {
-      void renameProjectSession(session.conversationId, title);
+  function continueToLocation(): void {
+    if (!name.trim()) return;
+    createStep = "location";
+  }
+
+  async function createManagedProject(): Promise<void> {
+    if (await addProject({ name: name.trim(), createDirectory: true })) cancelAdding();
+  }
+
+  async function useExistingProjectFolder(): Promise<void> {
+    if (projectsStore.busy === "add") return;
+    projectsStore.error = "";
+    try {
+      const rootPath = await invoke<string | null>("pick_project_directory");
+      if (!rootPath) return;
+      if (await addProject({ name: name.trim(), rootPath })) cancelAdding();
+    } catch (cause) {
+      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
     }
-    cancelRename();
-  }
-
-  function requestDelete(session: DesktopProjectSession, event: MouseEvent): void {
-    deleteConfirmId = session.conversationId;
-    editingSessionId = "";
-    const row = (event.currentTarget as HTMLElement).closest(".conversation-row") as HTMLElement | null;
-    if (row) {
-      const rect = row.getBoundingClientRect();
-      deleteAnchor = { top: rect.top, left: rect.left, width: rect.width };
-    }
-  }
-
-  function cancelDelete(): void {
-    deleteConfirmId = "";
-  }
-
-  function confirmDelete(session: DesktopProjectSession): void {
-    deleteConfirmId = "";
-    void removeProjectSession(session.conversationId);
-  }
-
-  function onRenameKeydown(event: KeyboardEvent, session: DesktopProjectSession): void {
-    if (event.key === "Enter") { event.preventDefault(); commitRename(session); }
-    else if (event.key === "Escape") { event.preventDefault(); cancelRename(); }
   }
 </script>
 
@@ -118,14 +112,6 @@
     </button>
   </div>
 
-  {#if adding}
-    <form class="project-add-form" onsubmit={(event) => { event.preventDefault(); void submit(); }}>
-      <label>{copy.projectName}<input bind:value={name} required /></label>
-      <label>{copy.projectPath}<span class="project-selected-directory"><i class="ph ph-folder-open" aria-hidden="true"></i><span title={rootPath}>{rootPath}</span><button class="secondary-button" type="button" onclick={() => void chooseProjectDirectory()}>{copy.changeProjectFolder}</button></span></label>
-      <div class="project-form-actions"><button class="secondary-button" type="button" onclick={() => (adding = false)}>{copy.cancel}</button><button class="primary-button" disabled={projectsStore.busy === "add"}>{copy.add}</button></div>
-    </form>
-  {/if}
-
   <div class="conversation-list">
     {#each projectsStore.projects as project (project.id)}
       {@const isActiveProject = project.id === projectsStore.selectedProjectId}
@@ -137,39 +123,23 @@
         </button>
 
         {#if isActiveProject}
-          {#each projectsStore.sessions as item (item.conversationId)}
-            <div class="conversation-row" class:active={item.conversationId === projectsStore.selectedSessionId} data-session-id={item.conversationId}>
-              {#if editingSessionId === item.conversationId}
-                <div class="conversation-editor">
-                  <input bind:value={editingSessionTitle} aria-label={copy.rename} onkeydown={(event) => onRenameKeydown(event, item)} />
-                  <div>
-                    <button type="button" onclick={() => commitRename(item)}>{copy.save}</button>
-                    <button type="button" onclick={cancelRename}>{copy.cancel}</button>
-                  </div>
-                </div>
-              {:else}
-                <button class="conversation-select" type="button" onclick={() => { deleteConfirmId = ""; void selectProjectSession(item.conversationId); }}>
-                  <span class="conversation-text">
-                    <strong title={item.title}>{item.title}</strong>
-                    <small>{formatSessionTime(item.updatedAt)}</small>
-                  </span>
-                </button>
-                <div class="conversation-actions">
-                  <button type="button" aria-label={copy.rename} title={copy.rename} onclick={() => beginRename(item)}><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
-                  <button type="button" class="danger-action" aria-label={copy.delete} title={copy.delete} onclick={(event) => requestDelete(item, event)}><i class="ph ph-trash" aria-hidden="true"></i></button>
-                </div>
-                {#if deleteConfirmId === item.conversationId}
-                  <div class="conversation-popover" role="alertdialog" aria-modal="false" aria-label={copy.deleteConversationTitle} style={`position:fixed;top:${deleteAnchor.top - 8}px;left:${deleteAnchor.left}px;width:${Math.max(deleteAnchor.width, 220)}px;transform:translateY(-100%);`}>
-                    <strong>{copy.deleteConversationTitle}</strong>
-                    <p>{copy.deleteConversationHint}</p>
-                    <div class="conversation-popover-actions">
-                      <button class="secondary-button" type="button" onclick={cancelDelete}>{copy.cancel}</button>
-                      <button class="secondary-button danger-action" type="button" onclick={() => confirmDelete(item)}>{copy.delete}</button>
-                    </div>
-                  </div>
-                {/if}
-              {/if}
-            </div>
+          {#each projectsStore.sessions as session (session.conversationId)}
+            <ConversationRow
+              item={{
+                title: session.title,
+                updatedAt: session.updatedAt,
+                readOnly: false,
+                botId: project.id,
+                botName: project.name,
+                botDeleted: false
+              }}
+              active={session.conversationId === projectsStore.selectedSessionId}
+              formatTime={formatSessionTime}
+              labels={rowLabels}
+              onSelect={() => void selectProjectSession(session.conversationId, project.id)}
+              onRename={(title) => void renameProjectSession(session.conversationId, title)}
+              onDelete={() => void removeProjectSession(session.conversationId)}
+            />
           {/each}
           <button class="conv-new-session" type="button" onclick={() => void newProjectSession()}><i class="ph ph-plus" aria-hidden="true"></i>{copy.newChat}</button>
         {/if}
@@ -177,3 +147,47 @@
     {/each}
   </div>
 </aside>
+
+{#if adding}
+  <div class="project-dialog-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelAdding()}>
+    <div class="project-dialog project-create-dialog" role="dialog" aria-modal="true" aria-labelledby="project-create-title">
+      <div class="project-dialog-heading">
+        <span class="project-dialog-icon" aria-hidden="true"><i class="ph-fill ph-folder-plus"></i></span>
+        <div>
+          <h2 id="project-create-title">{copy.projectCreateTitle}</h2>
+          <p>{createStep === "name" ? copy.projectCreateNameHint : copy.projectChooseLocationHint}</p>
+        </div>
+      </div>
+
+      {#if createStep === "name"}
+        <form onsubmit={(event) => { event.preventDefault(); continueToLocation(); }}>
+          <label class="project-name-field">
+            <span>{copy.projectName}</span>
+            <input bind:this={nameInput} bind:value={name} autocomplete="off" required placeholder={copy.projectNamePlaceholder} />
+          </label>
+          <div class="project-form-actions">
+            <button class="secondary-button" type="button" onclick={cancelAdding}>{copy.cancel}</button>
+            <button class="primary-button" disabled={!name.trim()}>{copy.continueAction}</button>
+          </div>
+        </form>
+      {:else}
+        <div class="project-location-options" aria-label={copy.projectChooseLocation}>
+          <button type="button" class="project-location-option" disabled={projectsStore.busy === "add"} onclick={() => void createManagedProject()}>
+            <span class="project-location-icon"><i class="ph-fill ph-folder-simple-plus" aria-hidden="true"></i></span>
+            <span><strong>{copy.projectCreateFolder}</strong><small>{copy.projectCreateFolderHint}</small></span>
+            <i class="ph ph-arrow-right" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="project-location-option" disabled={projectsStore.busy === "add"} onclick={() => void useExistingProjectFolder()}>
+            <span class="project-location-icon"><i class="ph-fill ph-folder-open" aria-hidden="true"></i></span>
+            <span><strong>{copy.projectUseExistingFolder}</strong><small>{copy.projectUseExistingFolderHint}</small></span>
+            <i class="ph ph-arrow-right" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="project-form-actions project-location-actions">
+          <button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={() => (createStep = "name")}>{copy.back}</button>
+          <button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={cancelAdding}>{copy.cancel}</button>
+        </div>
+      {/if}
+    </div>
+  </div>
+{/if}

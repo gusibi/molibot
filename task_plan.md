@@ -1,5 +1,55 @@
 # Chat Workspace Design Audit
 
+# Project Workspace Alignment — 2026-07-09
+
+## Goal
+Align Project creation and Session browsing with the current Chat workspace, while fixing the first-selection conversation rendering failure.
+
+## Success Criteria
+- Add Project first asks for a name, then offers automatic directory creation or one-time existing-folder selection.
+- Existing-folder selection opens exactly one native directory picker; automatic creation opens none.
+- Project and Chat render Sessions through the same shared UI component and interaction contract.
+- Selecting a Project Session on first page entry immediately renders its conversation on the right.
+- Focused regression tests, Svelte checks, build, responsive/theme/localization checks, and project documentation pass.
+
+## Plan
+
+### Phase 1: Inspect and reproduce
+- Inspected product constraints and the current Chat/Project implementations; reproduced the selection race.
+- **Status:** complete
+
+### Phase 2: Define the shared design
+- Chose Chat's existing Session row as the shared UI and defined the name-first creation flow.
+- **Status:** complete
+
+### Phase 3: Implement and regress
+- Implemented managed/existing directory creation, shared Session rows, and request ownership with tests.
+- **Status:** complete
+
+### Phase 4: Verify and review
+- Verified responsive UI, localization/theme tokens, focused tests, Svelte checks, and production builds.
+- **Status:** complete
+
+### Phase 5: Document and deliver
+- Updated features, PRD, changelog, README, findings, and progress.
+- **Status:** complete
+
+## Errors Encountered
+| Error | Attempt | Resolution |
+|---|---:|---|
+| zsh expanded SvelteKit `[id]` route paths as glob patterns | 1 | Quote bracketed paths on the next inspection; no source files changed. |
+| First Svelte check found a dialog-role warning and test-only `$state` type conflict | 1 | Use a semantic-neutral `div[role=dialog]` and isolate the test shim behind `any`; production behavior unchanged. |
+| Managed-directory test compared macOS `/var` with canonical `/private/var` | 1 | Compare against `realpathSync`; production code correctly stores canonical paths. |
+| Two source assertions still encoded the superseded implicit-selection implementation | 1 | Updated them to assert generation ownership and explicit first-session selection. |
+| In-app Browser DOM snapshot API was unavailable for the selected local tab | 1 | Reconnected through the documented Browser path and used its visible DOM plus screenshots; no product issue. |
+| Planning completion helper was not executable | 1 | Run it explicitly with `bash`; no project artifact affected. |
+
+## Adversarial Review
+- Managed directory cleanup now also covers database-open/insert failures, so failed registration does not leave an empty orphan folder.
+- Project and transcript mutations both require current request generation plus matching Project/Session identity.
+- Project no longer carries orphaned picker helpers, Session DOM, copy, or CSS; the 40px row target lives in the shared component.
+- Automatic-directory intent is asserted through the Desktop API request body and server-side temporary-store tests.
+
 # macOS First-Launch Bootstrap
 
 ## Goal

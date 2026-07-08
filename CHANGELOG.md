@@ -1,5 +1,20 @@
 # Molibot ChangeLog
 
+## 2026-07-09
+
+### Project conversations run in an isolated project workspace
+- Project conversations now execute in a dedicated runtime workspace under `<dataRoot>/projects/<projectId>/runtime` instead of the shared bot workspace. Their agent context/transcript no longer leaks into `moli-*/bots/<bot>/…/contexts/`; a project's runtime, sessions, and scratch all live under its own project directory, isolated from every bot.
+- Added `getProjectRuntimeContext`/`resolveRuntimeContext`/`getRuntimeContextForConversation` so send, stream, stop, `/compact`, and Host-Bash approval-resume all route a project conversation to its own store+pool. `SessionStore.getConversationProjectId` resolves the owning project by conversation id.
+- Taught the workspace path resolver to recognize the `projects/<id>/runtime` marker (data root, memory root, and global skills dir resolve correctly for project runtimes), with a specific pattern so a stray `projects` ancestor segment can't hijack resolution. Note: conversations started before this change keep their old bot-dir context; displayed history (from the project session store) is unaffected.
+
+### profileFiles can write the global/agent profile scope
+- The `profileFiles` tool gained a `scope` parameter (`bot` default, `global`, `agent`). Global writes target the workspace-root profile shared by every bot/agent, so long-term identity/voice/user facts can finally be saved without the bash bypass that the global-write guard (correctly) blocks. `BOT.md` maps to `AGENTS.md` at global/agent scope; agent scope is limited to AGENTS/SOUL/IDENTITY/SONG and errors when no agent is bound. Updated the tool description and the global `TOOLS.md` guidance to steer long-term profile edits to `scope:"global"`.
+
+### Desktop Projects creation and Session alignment
+- Reworked Add Project into a name-first, two-step dialog with two explicit choices: create a unique managed directory under Documents/Molibot Projects, or select an existing folder through the native picker. The native picker is now invoked only by the existing-folder choice.
+- Replaced Project's separate Session-row implementation with Chat's shared `ConversationRow`, including the same avatar, active state, timestamp, rename, and delete-confirm menu.
+- Fixed the first-open/rapid-switch transcript failure by giving Project-list and transcript requests selection generations plus Project/Session ownership checks. Stale Project responses can no longer replace the active Session, and remounting Projects reloads the selected transcript with a visible loading state.
+
 ## 2026-07-08
 
 ### Desktop composer button & selector cleanup
@@ -127,16 +142,16 @@
 - Project session metadata stays inside Molibot's Workspace while tools use the registered root as cwd; deleting a project never deletes or modifies that directory.
 - Project AGENTS.md, AGENT.md, or CLAUDE.md conventions participate in the final prompt without overriding bot identity, runtime safety, sandbox, or approval rules.
 - Fixed the Desktop HTTP capability scope so project registry and nested session requests are allowed on configured loopback ports.
-- Project creation now uses the native macOS folder picker and derives a default project name from the selected directory.
+- Project creation now asks for a name first, then either creates a unique managed directory or invokes the native macOS folder picker once for an existing folder.
 - Project conversations now expand directly below the active project, and a newly added empty project immediately creates and opens its first conversation.
 - Project and regular Chat now share one conversation controller (the send/stream/queue/stop/approval turn engine), streaming renderer, and composer shell instead of maintaining a separate project chat implementation.
 - Fixed project session conversations not appearing in the detail pane after selection: selecting a session now surfaces load errors instead of failing silently, and finishing a turn reloads the current session in place rather than jumping back to the most recent one.
-- Project sessions now support inline rename and delete from the session list, sharing the fixed-position popover confirm the Chat session list uses (anchored to the row so it is never clipped by the scroll container).
-- Chat and Project session delete replaced the ambiguous click-trash-again pattern with a popover confirm anchored above the row and explicit 删除/取消 actions.
-- Fixed the first-load race that left the auto-selected project session's messages empty until the view was remounted: `ProjectsView` now drives loads from a single reactive trigger instead of firing `loadProjects` from both `onMount` and the `$:` reactive statement.
+- Project sessions now use Chat's shared `ConversationRow` implementation for selection, rename, and delete confirmation instead of maintaining similar markup and behavior.
+- Chat and Project session delete share the same explicit confirmation menu.
+- Projects reloads once per component mount/endpoint and shows a transcript loading state instead of an unexplained empty detail pane.
 - Project composer now matches the Chat composer: model selector, thinking level, file attachments, and voice recording are all available on the project surface, with shared composer styling.
-- Fixed the first click on a project Session not switching the message pane on a fresh launch: the initial auto-selected session and the user's click fetched transcripts in parallel, and a slower earlier response could clobber the newly selected session's messages; `selectProjectSession` now discards responses that no longer match the active session.
-- Project page now shares the Chat page's visual language — the sidebar (collapsible project groups, session rows, row actions), header (avatar + title block), and layout all reuse the Chat surface's chrome instead of separate project styling.
+- Fixed the first click on a Project Session not switching the message pane: Project-list and transcript requests now validate request generation, Project ID, and Session ID before mutating visible state.
+- Project page now shares Chat's actual Session-row component in addition to the existing shared sidebar/header/layout chrome.
 - Refined the sidebar group/session hierarchy (shared by Project, Bot, and Agent groups): the disclosure caret moved from the left of the group header to the right, the session list is indented with a vertical guide line so it clearly belongs to its group, and the per-session icon was removed (the indented, guide-lined title alone conveys grouping).
 
 ### Configurable service port and managed restart

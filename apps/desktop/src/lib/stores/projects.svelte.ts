@@ -20,9 +20,13 @@ export const projectsStore = $state({
   selectedSessionId: "",
   messages: [] as DesktopProjectMessage[],
   loading: false,
+  messagesLoading: false,
   busy: "",
   error: ""
 });
+
+let projectSelectionGeneration = 0;
+let sessionSelectionGeneration = 0;
 
 export async function loadProjects(endpoint: string): Promise<void> {
   projectsStore.endpoint = endpoint;
@@ -41,7 +45,7 @@ export async function loadProjects(endpoint: string): Promise<void> {
   }
 }
 
-export async function addProject(input: { name: string; rootPath: string; instructions?: string }): Promise<boolean> {
+export async function addProject(input: { name: string; rootPath?: string; createDirectory?: boolean; instructions?: string }): Promise<boolean> {
   if (!projectsStore.endpoint || projectsStore.busy) return false;
   projectsStore.busy = "add";
   projectsStore.error = "";
@@ -59,47 +63,58 @@ export async function addProject(input: { name: string; rootPath: string; instru
 }
 
 export async function selectProject(id: string): Promise<void> {
+  const generation = ++projectSelectionGeneration;
   projectsStore.selectedProjectId = id;
   projectsStore.selectedSessionId = "";
+  projectsStore.sessions = [];
   projectsStore.messages = [];
-  await loadProjectSessions(id);
-  if (projectsStore.sessions.length === 0) await createAndSelectProjectSession(id);
-}
-
-async function createAndSelectProjectSession(projectId: string): Promise<void> {
-  const id = await createDesktopProjectSession(projectsStore.endpoint, projectId);
-  projectsStore.sessions = await loadDesktopProjectSessions(projectsStore.endpoint, projectId);
-  await selectProjectSession(id);
-}
-
-export async function loadProjectSessions(id: string): Promise<void> {
-  if (!projectsStore.endpoint || !id) { projectsStore.sessions = []; return; }
-  projectsStore.sessions = await loadDesktopProjectSessions(projectsStore.endpoint, id);
-  if (projectsStore.sessions[0]) await selectProjectSession(projectsStore.sessions[0].conversationId);
-}
-
-export async function selectProjectSession(id: string): Promise<void> {
-  projectsStore.selectedSessionId = id;
+  projectsStore.error = "";
   try {
-    const messages = await loadDesktopProjectSession(projectsStore.endpoint, projectsStore.selectedProjectId, id);
-    // Guard against out-of-order responses: the initial auto-select (loadProjectSessions)
-    // and a user click can be in flight at the same time. Only write the transcript if this
-    // response still matches the active session, otherwise a slower earlier fetch would
-    // clobber the newly selected session's messages (first-open "click doesn't switch" bug).
-    if (projectsStore.selectedSessionId !== id) return;
-    projectsStore.messages = messages;
+    const sessions = await loadDesktopProjectSessions(projectsStore.endpoint, id);
+    if (generation !== projectSelectionGeneration || projectsStore.selectedProjectId !== id) return;
+    projectsStore.sessions = sessions;
+    if (sessions[0]) await selectProjectSession(sessions[0].conversationId, id);
+    else await createAndSelectProjectSession(id, generation);
   } catch (cause) {
-    if (projectsStore.selectedSessionId !== id) return;
+    if (generation !== projectSelectionGeneration || projectsStore.selectedProjectId !== id) return;
     projectsStore.error = cause instanceof Error ? cause.message : String(cause);
   }
 }
 
-// Refresh session titles/order after a turn without changing the active session
-// (unlike loadProjectSessions, which auto-selects the most recent conversation).
+async function createAndSelectProjectSession(projectId: string, projectGeneration = projectSelectionGeneration): Promise<void> {
+  const id = await createDesktopProjectSession(projectsStore.endpoint, projectId);
+  const sessions = await loadDesktopProjectSessions(projectsStore.endpoint, projectId);
+  if (projectGeneration !== projectSelectionGeneration || projectsStore.selectedProjectId !== projectId) return;
+  projectsStore.sessions = sessions;
+  await selectProjectSession(id, projectId);
+}
+
+export async function selectProjectSession(id: string, projectId = projectsStore.selectedProjectId): Promise<void> {
+  const generation = ++sessionSelectionGeneration;
+  projectsStore.selectedSessionId = id;
+  projectsStore.messages = [];
+  projectsStore.messagesLoading = true;
+  projectsStore.error = "";
+  try {
+    const messages = await loadDesktopProjectSession(projectsStore.endpoint, projectId, id);
+    if (generation !== sessionSelectionGeneration || projectsStore.selectedProjectId !== projectId || projectsStore.selectedSessionId !== id) return;
+    projectsStore.messages = messages;
+  } catch (cause) {
+    if (generation !== sessionSelectionGeneration || projectsStore.selectedProjectId !== projectId || projectsStore.selectedSessionId !== id) return;
+    projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    if (generation === sessionSelectionGeneration && projectsStore.selectedProjectId === projectId && projectsStore.selectedSessionId === id) {
+      projectsStore.messagesLoading = false;
+    }
+  }
+}
+
+// Refresh session titles/order after a turn without changing the active session.
 export async function refreshProjectSessionList(id: string): Promise<void> {
   if (!projectsStore.endpoint || !id) return;
   try {
-    projectsStore.sessions = await loadDesktopProjectSessions(projectsStore.endpoint, id);
+    const sessions = await loadDesktopProjectSessions(projectsStore.endpoint, id);
+    if (projectsStore.selectedProjectId === id) projectsStore.sessions = sessions;
   } catch (cause) {
     projectsStore.error = cause instanceof Error ? cause.message : String(cause);
   }

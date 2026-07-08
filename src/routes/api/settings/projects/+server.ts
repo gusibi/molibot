@@ -6,10 +6,11 @@ export const GET: RequestHandler = () => json({ ok: true, projects: getProjectSt
 
 export const POST: RequestHandler = async ({ request }) => {
   try {
-    const body = await request.json() as { name?: string; rootPath?: string; instructions?: string };
+    const body = await request.json() as { name?: string; rootPath?: string; createDirectory?: boolean; instructions?: string };
     const project = getProjectStore().create({
       name: String(body.name ?? ""),
-      rootPath: String(body.rootPath ?? ""),
+      rootPath: body.rootPath === undefined ? undefined : String(body.rootPath),
+      createDirectory: body.createDirectory === true,
       instructions: body.instructions
     });
     return json({ ok: true, project }, { status: 201 });

@@ -6,11 +6,13 @@
   export let copy: Translation;
   export let endpoint: string | null;
   export let openChat: () => void;
-  // A single reactive trigger handles both the initial load and endpoint
-  // changes. Calling loadProjects from onMount as well doubles the first fetch
-  // (projectsStore.endpoint is still "" on mount) and races two loads, which
-  // leaves the auto-selected session's messages empty until the view is remounted.
-  $: if (endpoint && endpoint !== projectsStore.endpoint) void loadProjects(endpoint);
+  let loadedEndpoint = "";
+  // This marker belongs to the component instance, so every Project-page mount
+  // reloads its selected transcript while endpoint changes still trigger once.
+  $: if (endpoint && endpoint !== loadedEndpoint) {
+    loadedEndpoint = endpoint;
+    void loadProjects(endpoint);
+  }
 </script>
 
 <main class="chat-layout projects-layout">

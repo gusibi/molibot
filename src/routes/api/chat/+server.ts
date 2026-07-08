@@ -30,7 +30,11 @@ import {
   sanitizeWebUserId,
   toWebExternalUserId
 } from "$lib/server/web/identity";
-import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
+import {
+  getWebRuntimeContext,
+  getRuntimeContextForConversation,
+  resolveRuntimeContext
+} from "$lib/server/web/runtimeContext";
 import { sanitizeRuntimeThinkingLevel, type RuntimeThinkingLevel } from "$lib/server/settings";
 import type { RunnerUiEvent } from "$lib/server/agent/core/types";
 import type { ConversationAttachment } from "$lib/shared/types/message";
@@ -176,7 +180,7 @@ async function handleWebHostToolsCommand(
   if (!externalUserId) {
     return { ok: true, response: "No active Web chat scope for Host Bash approvals." };
   }
-  const { store } = getWebRuntimeContext(profileId);
+  const { store, pool } = getRuntimeContextForConversation(profileId, conversationId);
   const hostBashStore = getHostBashStore();
   const [subcommand = "list", approvalId = ""] = rawArg.split(/\s+/).filter(Boolean);
   const scopeId = externalUserId;
@@ -272,7 +276,6 @@ async function handleWebHostToolsCommand(
 
         if (rewritten) {
           store.saveContext(scopeId, messages, sessionId);
-          const { pool } = getWebRuntimeContext(profileId);
           pool.reset(scopeId, sessionId);
           const runner = pool.get(scopeId, sessionId);
 
@@ -440,7 +443,7 @@ async function tryHandleWebCommand(
         response: webCommandText("No active conversation to compact. Start a chat first, then run /compact.", "没有可压缩的当前会话。请先开始聊天，再运行 /compact。")
       };
     }
-    const { pool } = getWebRuntimeContext(profileId);
+    const { pool } = getRuntimeContextForConversation(profileId, conversationId);
     const result = await pool.compact(externalUserId, conversationId, {
       reason: "manual",
       customInstructions: rawArg || undefined
@@ -599,7 +602,7 @@ export const POST: RequestHandler = async ({ request }) => {
     { projectId: project?.id }
   );
 
-  const { store, pool } = getWebRuntimeContext(parsed.profileId);
+  const { store, pool } = resolveRuntimeContext({ profileId: parsed.profileId, projectId: project?.id });
   const ts = `${Date.now() / 1000}`;
   const messageId = Date.now();
   const attachments: FileAttachment[] = [];

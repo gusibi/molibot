@@ -35,10 +35,12 @@
 - [Done] 项目根目录的 AGENTS.md/AGENT.md/CLAUDE.md（按此优先级取首个）作为高优先"工作规范"注入项目 session 提示词，可覆盖 bot 的干活约定但不可覆盖身份与安全层；目录说明按 Workspace/项目两种模式互斥生成；项目文件一律经注入扫描与截断。
 - [Done] Desktop 新增 Projects 视图：项目列表/添加/删除、项目详情（会话列表 + 多会话聊天），消息展示复用共享 completed-message renderer；渠道接入（/project 绑定命令）为后续版本。
 - [Done] Desktop Tauri HTTP capability 放行 loopback Projects CRUD 与嵌套 session 路由，任意已配置本地服务端口均可访问。
-- [Done] 添加项目使用 macOS 原生目录选择器，选择后显示路径并自动建议项目名，不要求用户手动输入绝对路径。
+- [Done] 添加项目先弹窗输入名称，再提供“自动创建目录 / 使用现有文件夹”两种方式；仅后者调用一次 macOS 原生目录选择器，用户始终不需要输入绝对路径。
 - [Done] Projects 使用 Codex 式两列布局：会话直接展开在当前项目下方，右侧只显示聊天；新增或选择空项目时立即创建并打开首个会话。
 - [Done] 普通 Chat 与 Project Chat 共用同一套会话发送运行模块、实时消息视图和 composer 外壳；Project 只通过 adapter 增加 projectId，不维护独立 SSE/消息实现。
 - [Done] 项目 Session 切换后，右侧详情面板立即显示对应历史消息或明确的空会话状态。
+- [Done] Project 与 Chat 的 Session 列表必须直接复用同一个 `ConversationRow` 组件，不允许只复用相似 class 后继续维护两套重命名/删除交互。
+- [Done] Project/Session 异步加载必须按 Project ID、Session ID 和请求代次保持所有权；首次进入和快速切换时，旧响应不得覆盖当前右侧对话。
 - 详细实施方案（分 5 个 Slice，含代码锚点、每步理由与验证清单）：`docs/requirements/projects-feature-plan.md`。
 
 ## 2.30 Desktop Chat DESIGN Compliance (2026-07-04)

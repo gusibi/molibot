@@ -9,7 +9,7 @@ import {
   sanitizeWebUserId,
   toWebExternalUserId
 } from "$lib/server/web/identity";
-import { getWebRuntimeContext } from "$lib/server/web/runtimeContext";
+import { resolveRuntimeContext } from "$lib/server/web/runtimeContext";
 import { resolveWorkspaceId } from "$lib/server/workspaces/store";
 import { saveWebResponseAttachment } from "$lib/server/web/attachments";
 import type { ConversationAttachment } from "$lib/shared/types/message";
@@ -111,7 +111,7 @@ export const POST: RequestHandler = async ({ request }) => {
     { projectId: project?.id }
   );
 
-  const { store, pool } = getWebRuntimeContext(profileId);
+  const { store, pool } = resolveRuntimeContext({ profileId, projectId: project?.id });
   const runner = pool.get(externalUserId, conversation.id);
   if (runner.isRunning()) {
     return new Response(

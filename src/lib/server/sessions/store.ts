@@ -644,6 +644,19 @@ export class SessionStore {
     return webIndex.byConversationId[conversationId]?.externalUserId ?? null;
   }
 
+  /**
+   * Returns the owning project id for a conversation, or null for plain Web
+   * conversations. Used by the runtime router so a project conversation's
+   * agent execution (context/transcript) lands in the project workspace rather
+   * than the shared bot workspace.
+   */
+  getConversationProjectId(conversationId: string): string | null {
+    const id = String(conversationId ?? "").trim();
+    if (!id) return null;
+    const located = this.resolveSessionStorage(id);
+    return located?.type === "project" ? located.projectId : null;
+  }
+
   createProjectConversation(projectId: string, externalUserId: string): Conversation {
     return this.createConversation("web", externalUserId, projectId);
   }

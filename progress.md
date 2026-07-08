@@ -1,5 +1,19 @@
 # Chat Workspace Audit Progress
 
+## Project Workspace Alignment — 2026-07-09
+
+- Started the confirmed Project/Chat alignment brief. Loaded the design, frontend, diagnosis, and file-planning workflows; Product Design preflight found no saved context.
+- Success criteria and phased verification plan recorded before implementation.
+- Inspected `DESIGN.md`, `prd.md`, Project components/store, and Chat's shared Session components. Confirmed an early native-picker call and duplicated Project Session row implementation.
+- One read command hit zsh bracket expansion on SvelteKit route paths; recorded the error and switched to quoted paths.
+- Added red-capable tests. The concurrency test reproduced the exact ownership failure (`a-1` overwrote expected `b-1`); managed-directory and UI-sharing assertions also failed before implementation.
+- Implemented request-generation ownership, per-mount Project reload, explicit transcript loading, managed directory creation, the two-step creation dialog, and shared Chat `ConversationRow` rendering.
+- Focused tests passed after implementation: 4 Project/store tests, 24 Desktop UI structure tests, and Svelte 0/0.
+- Rendered the real local page in the in-app browser. Verified both creation steps at desktop width and 540×720, then cancelled without invoking either directory action; no horizontal overflow was present.
+- Removed Project's now-orphaned picker helper, old hand-built Session DOM styles/copy, and unused implicit list loader; moved the 40px row target into the shared `ConversationRow` itself.
+- Final verification passed: 69 focused TypeScript tests, 24 Desktop UI tests, Svelte 0/0, Desktop production build, server production build, and diff whitespace check. Build output contains only the repository's existing chunk-size/dynamic-import warnings.
+
+
 - 2026-07-07: Started macOS empty-machine first-launch investigation. Read the supplied sidecar log and confirmed a pre-bootstrap packaged dependency failure for `dotenv`; preserving the unrelated existing `apps/desktop/src/lib/api.ts` worktree edit.
 - 2026-07-07: Added a red-then-green regression test for idempotent global Profile bootstrap. Added runtime-archive materialization coverage in the Desktop supervisor; 5 focused Rust supervisor tests pass.
 - 2026-07-07: Real archived-runtime smoke advanced past `dotenv` and exposed a second release-manifest defect: `service-port.mjs` was not copied. Added it to the release bundle and retained the failed invocation as evidence.
