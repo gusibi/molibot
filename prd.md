@@ -1,5 +1,20 @@
 # Molibot PRD (V1)
 
+## 2.34 Clean-machine First Launch Polish (2026-07-08)
+- [Done] 全新数据目录必须自动拥有 `default` Agent，并让默认 Web Profile 关联该 Agent；旧数据中缺失 Agent 或默认 Web 关联为空时必须幂等补齐。
+- [Done] Desktop 首次启动配置必须在对话式引导中询问用户称呼与偏好的 AI 回复风格，并保存到当前默认 Agent 的 profile 文件。
+- [Done] 首次配置 Provider 后，Desktop 模型列表必须即时刷新，不要求用户重启 App 或服务。
+- [Done] Web Search 首启默认使用无需 API key 的 DuckDuckGo；旧配置缺失 DuckDuckGo engine 时必须自动补齐，`auto` 与显式 `duckduckgo` 都不能因为缺少 API key 被判为不可用。
+- [Done] Desktop Automations 必须允许为 Web Profile 创建任务；Web 创建的提醒/任务必须仍走 watched event JSON 与共享事件运行时执行。
+- [Done] macOS overlay titlebar 下，Chat/Settings/Project/Workspace 顶部空白与标题区域必须可拖动窗口。
+- [Follow-up, P1] 在真实打包 App 上复测“先显示窗口、后台启动服务”的启动体验；当前代码路径已异步启动服务且主 Chat 窗口默认可见，如仍慢需继续定位 WebView 首屏资源加载。
+
+## 2.35 Desktop Release Versioning and Intel DMG (2026-07-08)
+- [Done] Desktop App 的展示/包版本必须来自 `apps/desktop/package.json`，并在构建前同步到 Tauri config 与 Rust crate，不得继续停留在 `0.1.0`。
+- [Done] GitHub Desktop Release 必须同时产出 Apple Silicon 与 Intel DMG；两个包必须内置各自架构的 Node sidecar。
+- [Done] DMG 文件名必须包含 Desktop App 版本号和架构，格式为 `Molibot_<version>_<arch>.dmg`，对应 checksum 文件必须引用最终文件名。
+- [Follow-up, P1] 若后续需要 Universal DMG，再评估 Rust/Tauri app、Node sidecar 与签名公证的 universal bundle 成本；当前先发布两个清晰分开的架构包。
+
 ## 2.33 Desktop Periodic Schedule Builder (2026-07-06)
 - [Done] 周期任务创建与编辑提供每天、每周多选、每月指定日期和自定义 Cron 四种计划模式；旧复杂 Cron 必须无损回退到自定义模式，且保持中英、明暗主题、键盘与窄窗口可用。
 - [Done] 新建任务目标只能来自已启用 Bot 配置中的 `allowedChatIds`，并按渠道/Bot 与 Chat ID 两级选择；不得依赖历史 Session 展示元数据，也不得把内部目录或无明确收件人的工作区暴露为目标。已有工作区任务保持兼容。

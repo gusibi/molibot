@@ -1,5 +1,38 @@
 # Molibot Features
 
+## 2026-07-08
+
+### 空机器首次启动修复
+- 新增内置 `default` Agent，并在默认 Web Profile 上自动关联该 Agent；旧设置中 Agent 为空或默认 Web Profile 未绑定 Agent 时会在 sanitizer/store 层补齐。
+- Desktop 首次启动引导新增“个性化”步骤，询问用户称呼与 AI 回复风格，并写入当前默认 Agent 的 `USER.md` / `SOUL.md` 标记区块，不覆盖用户已有内容。
+- Provider 创建/编辑/删除/全局默认变更后会通知模型设置页重拉模型；onboarding 保存 Provider 后也立即刷新当前文本模型列表，避免必须重启才能选择新模型。
+- Web Search 默认引擎改为 DuckDuckGo，并补齐旧配置缺失的 DuckDuckGo engine 默认值，保留其无需 API key 的可用路径。
+- Desktop Automations 现在包含 Web Profile 目标；Web channel runtime 注册到共享 channel registry，Web 提醒/任务继续落地 watched event JSON 并可由事件运行时执行。
+- Desktop Chat、项目详情、自动化/技能面板和设置标题区增加 Tauri 拖动区域，修复 overlay titlebar 下窗口顶部不可拖动的问题。
+
+### Desktop 发布版本号与双架构 DMG
+- Desktop App 版本源统一为 `apps/desktop/package.json`，构建前自动同步到 `src-tauri/tauri.conf.json`、`Cargo.toml` 和 `Cargo.lock`，避免打包 App 长期显示 `0.1.0`。
+- GitHub Desktop Release workflow 改为 matrix 构建 Apple Silicon (`aarch64-apple-darwin`) 与 Intel (`x86_64-apple-darwin`) 两个 DMG，并为每个架构准备对应的 Node 22 sidecar。
+- `finalize-desktop-release` 会把产物标准化命名为 `Molibot_<version>_<arch>.dmg`，并生成引用最终文件名的 `.sha256` 校验文件。
+
+### Desktop 聊天侧栏重接与多会话并发（Slice 3）
+- 通过新的 `lib/chat/chatSessionStore.svelte.ts`（runes）把 `ChatView.svelte` 接到 Slice 2 的按 Session registry 上。旧的"跟随当前活动会话"的单 `ConversationController` 被移除，每个会话拥有自己固定的控制器：不同 Session 真正并行运行，同一 Session 仍串行并保留自己的 follow-up 队列、审批与停止（方案 §7）。store 把活动会话的实时轮次状态经单一 `state` store 桥接给 legacy `$:` 模板——沿用已验证的 `$conversationView` 模式，只是改为跟随当前查看的会话（记忆 `desktop-controller-legacy-reactivity`）。
+- 用新的 `ChatSidebar` / `ChannelAccordion` / `ConversationRow` runes 组件替换旧侧栏（水平渠道切换条 + 按 Bot 二级折叠树）：五个互斥渠道折叠组、每渠道跨 Bot 聚合的最近列表（最多 10 条）、稳定 Bot 头像、且不串会话的实时状态点（running/waiting/completed/failed）。Web Profile 在界面统一显示为「Bot」；外部渠道保持只读（方案 §2/§3）。
+- 「新对话」改为进入尚未落盘的草稿，点击不再立即创建空 Session；只有在发送第一条消息时才用 `BotSelector` 所选 Bot 创建并绑定 Session（默认 Bot：上次成功发送的 Bot → 系统默认 → 无则禁用发送）。composer 草稿（文本/附件/Thinking/Bot）按 Session 隔离，切换会话后恢复（方案 §6/§10）。
+- 接入「更多对话」`ConversationBrowserDialog`（按 Bot 分组、防抖搜索、每组独立游标分页）与重连恢复：服务就绪后 `GET /api/desktop/session-runs` 恢复 running/waiting 状态点并重载转录，并以 4s 轮询把已结束的运行对账为 completed 状态点（方案 §5/§11）。
+- 验证：`chat-ui.test.mjs` 更新为新侧栏/store 设计的断言；`svelte-check` 0 错误 0 警告；Desktop 构建通过；桌面 25/25、聊天单测 14/14、服务端会话查询 12/12 全过。
+
+### Desktop 按 Session 隔离运行状态（多会话侧栏改造 Slice 2）
+- 新增按 Session 隔离的运行 registry（`lib/chat/sessionRuntimeRegistry.svelte.ts`）：每个会话拥有自己的 `ConversationController`，且固定绑定到该会话的 `profileId`/`sessionId`，取代此前"跟随当前活动会话"的单控制器。后台轮次继续把流式写入自己的状态，切换会话只改视图绑定、不会重定向或销毁运行中的控制器（方案 §7.1/§7.4），根治了"A 的 token/审批落到 B"的串线问题。
+- 每个 registry 条目自持转录、错误、状态与状态点，宿主 adapter 自包含且固定（控制器不再读取可变的"活动"状态）。轮次结束驱动侧栏状态点：后台运行结束记录 `completed`/`failed`（未读绿/红，打开后消除），活动会话结束则置 idle（结果内联展示，不留未读点——方案 §8.2）。`restoreFromRuns` 在重连后从 `GET /api/desktop/session-runs` 恢复 running/waiting 状态，且不覆盖正在进行的前端轮次（方案 §11）。
+- 新增 `lib/chat/sessionDraftStore.ts`（按 Session 保存输入文本/附件/Thinking/已选 Bot，仅内存——方案 §10.3）与 `lib/chat/sessionStatusDot.ts`（纯状态与状态点推导）。纯逻辑 14 条单测覆盖；runes registry 通过 `svelte-check`（0 错误 0 警告）。
+
+### Desktop 共享会话与运行状态接口（多会话侧栏改造 Slice 1）
+- 新增共享查询层 `src/lib/server/app/desktopConversations.ts`，为即将到来的 Desktop 侧栏与多会话导航提供数据底座。跨所有 Web Profile 与外部 Bot 实例聚合普通会话，解析 Bot 身份与名称（含已删除 Bot），并提供稳定的 `updatedAt + sessionId` 游标分页与「标题 / Bot / 最近消息摘要」搜索；分页、聚合、过滤全部在共享上层完成，不落入任何 Channel。
+- 新增三个接口：`GET /api/desktop/conversations` 返回某渠道最新倒序、跨 Bot 聚合的会话列表（默认 10 条，带游标与 `hasMore`）；`GET /api/desktop/conversations/groups` 返回「更多对话」弹窗所需的按 Bot 分组视图，每组独立游标；`GET /api/desktop/session-runs` 从 runtime `runs` 表（并结合审批 broker）返回活动中的 running / waiting-for-approval 运行，服务端解析出 Web profileId，使 Desktop 重连后能恢复真实会话状态而非依赖前端内存。
+- `SessionStore` 新增 `listAllWebConversations()` / `getWebConversationOwner()`；`ExternalSessionEntry` 新增 `preview` 字段。共享层统一计算 `purpose`（`conversation | project | automation | diagnostic | test`），侧栏只取 `conversation`，把项目/自动任务/诊断/测试会话排除在列表外，避免把分类判断复制进各渠道或多个 UI 组件。
+- 验证：新增 12 条单测（含插入新会话时游标不重复不遗漏、搜索、分组、已删除 Bot 分组、跨 Profile 聚合）；`svelte-check` 0 错误 0 警告；`api.test.ts` 65/65 通过。
+
 ## 2026-07-07
 
 ### 本地服务端口动态递增

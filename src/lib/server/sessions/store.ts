@@ -586,6 +586,42 @@ export class SessionStore {
     return this.createConversation("web", externalUserId);
   }
 
+  /**
+   * Lists every Web conversation across all profiles (plan §12.2 cross-Bot
+   * aggregation). Returns the conversation metadata, the owning externalUserId
+   * (so the caller can recover the profile id) and a short last-message preview
+   * for the sidebar's "latest message" line and title/preview search. Used only
+   * by the shared desktop conversation query layer — never by channel runtimes.
+   */
+  listAllWebConversations(): Array<{
+    conversation: Conversation;
+    externalUserId: string;
+    lastMessageText: string;
+  }> {
+    const webIndex = readWebIndex();
+    const out: Array<{ conversation: Conversation; externalUserId: string; lastMessageText: string }> = [];
+    for (const [id, owner] of Object.entries(webIndex.byConversationId)) {
+      const file = readWebSession(owner.externalUserId, id);
+      if (!file) continue;
+      const last = file.messages[file.messages.length - 1];
+      const text = last
+        ? String(last.content ?? "").replace(/\s+/g, " ").trim().slice(0, 300)
+        : "";
+      out.push({ conversation: file.conversation, externalUserId: owner.externalUserId, lastMessageText: text });
+    }
+    return out;
+  }
+
+  /**
+   * Returns the Web externalUserId that owns a conversation id, or null. Used
+   * by the desktop session-run query (plan §11.3) to resolve a run's
+   * `session_id` back to its Web profile id without exposing the index shape.
+   */
+  getWebConversationOwner(conversationId: string): string | null {
+    const webIndex = readWebIndex();
+    return webIndex.byConversationId[conversationId]?.externalUserId ?? null;
+  }
+
   createProjectConversation(projectId: string, externalUserId: string): Conversation {
     return this.createConversation("web", externalUserId, projectId);
   }

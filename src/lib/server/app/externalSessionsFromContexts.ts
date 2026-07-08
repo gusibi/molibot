@@ -201,10 +201,15 @@ export function listExternalSessionsFromContexts(dataRoot: string): ExternalSess
         for (const sessionId of listContextSessionIds(contextsDir)) {
           if (isAutomationSession(contextsDir, sessionId)) continue;
           const entries = readEntries(contextsDir, sessionId);
-          if (messageEntriesOf(entries).length === 0) continue;
+          const messageEntries = messageEntriesOf(entries);
+          if (messageEntries.length === 0) continue;
           const ref: ExternalSessionRef = { channel, botId: bot.name, chatId: chat.name, sessionId };
           const conversation = buildConversation(ref, entries);
-          out.push({ conversation, channel, externalUserId: conversation.externalUserId });
+          const lastMessage = messageEntries[messageEntries.length - 1];
+          const preview = lastMessage
+            ? contentText(messageContent(lastMessage.message)).replace(/\s+/g, " ").trim().slice(0, 300)
+            : "";
+          out.push({ conversation, channel, externalUserId: conversation.externalUserId, preview });
         }
       }
     }

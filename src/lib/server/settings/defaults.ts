@@ -1,6 +1,8 @@
 import type { KnownProvider } from "@mariozechner/pi-ai";
 import {
   type AgentSettings,
+  DEFAULT_AGENT_ID,
+  defaultAgentSettings,
   isKnownProvider,
   type ChannelInstanceSettings,
   type CustomProviderConfig,
@@ -231,7 +233,7 @@ const defaultQQBots: QQBotConfig[] = defaultQQAppId && defaultQQClientSecret
   }]
   : [];
 
-const defaultAgents: AgentSettings[] = [];
+const defaultAgents: AgentSettings[] = [defaultAgentSettings()];
 const defaultMcpServers = parseEnvMcpServers();
 const defaultSkillSearchSettings: SkillSearchSettings = {
   local: {
@@ -276,7 +278,7 @@ function webSearchEngineFromEnv(id: WebSearchEngineId, envKey: string, enabledFa
 const defaultWebSearchSettings: WebSearchSettings = {
   enabled: String(process.env.MOLIBOT_WEB_SEARCH_ENABLED ?? "true").toLowerCase() !== "false",
   defaultRoute: "auto",
-  defaultEngine: "auto",
+  defaultEngine: "duckduckgo",
   engineSelectionStrategy: "priority",
   maxResults: Math.max(1, Math.min(20, Number(process.env.MOLIBOT_WEB_SEARCH_MAX_RESULTS ?? 5) || 5)),
   timeoutMs: Math.max(1000, Math.min(120000, Number(process.env.MOLIBOT_WEB_SEARCH_TIMEOUT_MS ?? 60000) || 60000)),
@@ -442,7 +444,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
           id: "default",
           name: "Default Web",
           enabled: true,
-          agentId: "",
+          agentId: DEFAULT_AGENT_ID,
           credentials: {},
           allowedChatIds: []
         }

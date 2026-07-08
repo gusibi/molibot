@@ -3,6 +3,7 @@
   import type { DesktopModelRoutingSettings } from "@molibot/desktop-contract";
   import { session } from "../stores/session.svelte";
   import { timezoneOptions } from "./timezones";
+  import { PROVIDERS_CHANGED_EVENT } from "../stores/providers.svelte";
   import {
     modelsStore,
     MODEL_ROUTES,
@@ -19,6 +20,14 @@
     if (session.serviceReady && session.endpoint && session.endpoint !== modelsStore.loadedEndpoint) {
       void loadModels(session.endpoint);
     }
+  });
+
+  $effect(() => {
+    const refreshAfterProviderChange = () => {
+      if (session.serviceReady && session.endpoint) void loadModels(session.endpoint);
+    };
+    window.addEventListener(PROVIDERS_CHANGED_EVENT, refreshAfterProviderChange);
+    return () => window.removeEventListener(PROVIDERS_CHANGED_EVENT, refreshAfterProviderChange);
   });
 </script>
 

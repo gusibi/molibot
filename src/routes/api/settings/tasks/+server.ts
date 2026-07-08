@@ -198,7 +198,9 @@ function resolveTasksRoots(): Array<{ channel: TaskChannel; botsRoot: string }> 
   const dataRoot = resolve(config.dataDir);
   return TASK_CHANNEL_ROOTS.map(({ channel, dir }) => ({
     channel,
-    botsRoot: join(dataRoot, dir, "bots")
+    botsRoot: channel === "web"
+      ? join(resolve(config.webWorkspaceDir), "bots")
+      : join(dataRoot, dir, "bots")
   }));
 }
 
@@ -291,6 +293,7 @@ export const GET: RequestHandler = async () => {
     chatScratch: items.filter((item) => item.scope === "chat-scratch").length
   };
   const countsByChannel: Record<TaskChannel, number> = {
+    web: items.filter((item) => item.channel === "web").length,
     telegram: items.filter((item) => item.channel === "telegram").length,
     feishu: items.filter((item) => item.channel === "feishu").length,
     qq: items.filter((item) => item.channel === "qq").length,
@@ -343,8 +346,18 @@ export const POST: RequestHandler = async ({ request }) => {
     if (!root || !botId || botId.includes("/") || botId.includes("..")) return json({ ok: false, error: "invalid task target" }, { status: 400 });
     const botDir = join(root.botsRoot, botId);
     if (!existsSync(botDir)) return json({ ok: false, error: "bot_not_found" }, { status: 404 });
-    if (scope === "chat-scratch" && (!chatId || chatId.includes("/") || chatId.includes("..") || !existsSync(join(botDir, chatId)))) {
-      return json({ ok: false, error: "chat_not_found" }, { status: 404 });
+    if (scope === "chat-scratch") {
+      if (!chatId || chatId.includes("/") || chatId.includes("..")) {
+        return json({ ok: false, error: "chat_not_found" }, { status: 404 });
+      }
+      const chatDir = join(botDir, chatId);
+      if (!existsSync(chatDir)) {
+        if (channel === "web") {
+          mkdirSync(chatDir, { recursive: true });
+        } else {
+          return json({ ok: false, error: "chat_not_found" }, { status: 404 });
+        }
+      }
     }
     const eventsDir = scope === "workspace" ? join(botDir, "events") : join(botDir, chatId, "scratch", "events");
     mkdirSync(eventsDir, { recursive: true });

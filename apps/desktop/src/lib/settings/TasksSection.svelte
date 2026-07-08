@@ -34,7 +34,9 @@
     const groups = new Map<string, { key: string; label: string; options: Array<{ index: number; label: string }> }>();
     for (const [index, target] of (tasksStore.tasks?.targets ?? []).entries()) {
       const key = `${target.channel}\n${target.botId}`;
-      const channel = externalChannelLabel(target.channel as "telegram" | "feishu" | "qq" | "weixin", session.locale);
+      const channel = target.channel === "web"
+        ? "Web"
+        : externalChannelLabel(target.channel as "telegram" | "feishu" | "qq" | "weixin", session.locale);
       const group = groups.get(key) ?? { key, label: `${channel} · ${target.botDisplayName || target.botId}`, options: [] };
       group.options.push({ index, label: target.chatId });
       groups.set(key, group);

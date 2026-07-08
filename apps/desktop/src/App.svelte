@@ -386,7 +386,7 @@
 {#if isSettings}
   <main class="settings-layout">
     <aside class="settings-sidebar">
-      <div class="settings-titlebar-space" aria-hidden="true"></div>
+      <div class="settings-titlebar-space" data-tauri-drag-region aria-hidden="true"></div>
       <div class="settings-search">
         <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
         <input bind:value={settingsFilter} aria-label={text.settingsSearch} placeholder={text.settingsSearch} />
@@ -414,8 +414,8 @@
       </div>
     </aside>
     <section class="settings-content">
-      <header class="page-header settings-page-header">
-        <h2>{sectionLabel(activeSection, text)}</h2>
+      <header class="page-header settings-page-header" data-tauri-drag-region>
+        <h2 data-tauri-drag-region>{sectionLabel(activeSection, text)}</h2>
       </header>
 
       <div class="settings-scroll">

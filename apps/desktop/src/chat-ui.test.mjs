@@ -59,22 +59,28 @@ test("assistant code blocks wrap without horizontal scrolling", () => {
   assert.match(styles, /\.markdown-body table\s*\{[^}]*table-layout:\s*fixed/s);
 });
 
-test("session groups start collapsed and use balanced list density", () => {
-  assert.match(view, /activeBotKey = "";[\s\S]*switchViewMode\("external"\)/);
+test("sidebar keeps exactly one channel expanded with balanced list density", () => {
+  // The new sidebar (plan §2.2) is five mutually-exclusive channel accordions:
+  // `expandedChannel` is the single open one, and toggling it only ever expands
+  // (clicking the current channel never collapses it).
+  assert.match(view, /<ChatSidebar/);
+  assert.match(view, /let expandedChannel/);
+  assert.match(view, /if \(expandedChannel === channel\) return;/);
   assert.doesNotMatch(view, /const firstBot = externalNav/);
-  assert.match(view, /if \(bot\.key === activeBotKey\) \{[\s\S]*activeBotKey = "";/);
+  // The project tree still reuses the shared collapsible group + session row chrome.
   assert.match(styles, /\.conv-group-head\s*\{[^}]*height:\s*34px/s);
   assert.match(styles, /\.conversation-select\s*\{[^}]*min-height:\s*40px/s);
 });
 
 test("chat primary navigation stays in the Chat workspace", () => {
   assert.match(view, /let workspacePane: ChatWorkspacePaneName = "chat"/);
-  assert.match(view, /onclick=\{\(\) => openWorkspacePane\("automations"\)\}/);
-  assert.match(view, /onclick=\{\(\) => openWorkspacePane\("skills"\)\}/);
+  assert.match(view, /openWorkspacePane\("automations"\)/);
+  assert.match(view, /openWorkspacePane\("skills"\)/);
   assert.doesNotMatch(view, /onclick=\{\(\) => openSettings\("tasks"\)\}/);
   assert.doesNotMatch(view, /onclick=\{\(\) => openSettings\("skills"\)\}/);
-  assert.match(view, /activeBotKey = activeProfileId/);
-  assert.match(view, /data-session-id=\{session\.id\}/);
+  // "New chat" enters a not-yet-persisted draft; a row click opens that session.
+  assert.match(view, /chatStore\.newConversationDraft\(/);
+  assert.match(view, /chatStore\.selectSession\(/);
 });
 
 test("automation session detail renders a chat-style transcript", () => {
@@ -129,15 +135,18 @@ test("shared transcript renders media inline and delegates tool activity", () =>
 });
 
 test("local Chat and Project Chat share the live conversation, composer, and turn controller", () => {
-  // Both surfaces render the shared presentation and drive a single turn engine
-  // (ConversationController) rather than re-implementing send/stream/queue logic.
+  // Both surfaces render the shared presentation and drive the shared turn
+  // engine (ConversationController) rather than re-implementing send/stream.
   for (const source of [view, projectChat]) {
     assert.match(source, /ConversationLiveView/);
     assert.match(source, /ChatComposerShell/);
-    assert.match(source, /createConversationController/);
-    assert.match(source, /chat\.send\(/);
   }
-  // Only the controller talks to the turn runtime; the views no longer do.
+  // Project chat drives its own controller directly; main chat drives the
+  // per-session registry store (which owns the pinned controllers).
+  assert.match(view, /ChatSessionStore/);
+  assert.match(projectChat, /createConversationController/);
+  assert.match(projectChat, /chat\.send\(/);
+  // Only the controller talks to the turn runtime; the views never do.
   assert.match(conversationController, /runDesktopConversationTurn/);
   assert.doesNotMatch(view, /runDesktopConversationTurn/);
   assert.doesNotMatch(projectChat, /streamDesktopChat/);
@@ -219,13 +228,15 @@ test("project sessions support rename and delete from the session list", () => {
   assert.match(projectsStore, /deleteDesktopProjectSession/);
 });
 
-test("chat and project session delete use a popover confirm anchored to the row", () => {
-  // Both surfaces position the confirm as a fixed popover so it escapes the
-  // scroll container instead of being clipped at the list edges.
-  assert.match(view, /conversation-popover/);
-  assert.match(view, /deleteAnchor/);
-  assert.match(view, /requestDelete/);
-  assert.match(view, /confirmDeleteSession/);
+test("project session delete uses a popover confirm anchored to the row", () => {
+  // The chat sidebar's compact ConversationRow no longer carries inline
+  // rename/delete (plan §3.4 / handoff: row + status dot + hover stop); the
+  // fixed-position confirm popover remains the project list's pattern, so it
+  // escapes the scroll container instead of being clipped at the list edges.
+  const projectList = readFileSync(new URL("./lib/projects/ProjectList.svelte", import.meta.url), "utf8");
+  assert.match(projectList, /conversation-popover/);
+  assert.match(projectList, /deleteAnchor/);
+  assert.match(projectList, /requestDelete/);
   assert.match(styles, /\.conversation-popover\s*\{[^}]*z-index:\s*200/s);
 });
 
@@ -271,7 +282,7 @@ test("settings navigation matches the web taxonomy and entity editors open as di
   assert.match(sections.agents, /class="entity-editor-foot"/);
   assert.match(styles, /\.entity-editor-foot\s*\{[^}]*bottom:\s*0/s);
   assert.match(app, /label: sectionLabel\(item\.id, text\)/);
-  assert.match(app, /<h2>\{sectionLabel\(activeSection, text\)\}<\/h2>/);
+  assert.match(app, /<h2[^>]*>\{sectionLabel\(activeSection, text\)\}<\/h2>/);
   assert.match(app, /\{text\[preview\.labelKey\]\}/);
 });
 

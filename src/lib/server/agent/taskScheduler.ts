@@ -23,7 +23,9 @@ export class TaskScheduler {
         continue;
       }
 
-      const botsRoot = join(dataRoot, dir, "bots");
+      const botsRoot = channel === "web"
+        ? join(resolve(config.webWorkspaceDir), "bots")
+        : join(dataRoot, dir, "bots");
       if (!existsSync(botsRoot)) {
         momLog("taskScheduler", "bots_root_missing", { channel, botsRoot });
         continue;

@@ -23,6 +23,7 @@ import { session, setError } from "./session.svelte";
 export const PROVIDER_MODEL_TAGS: DesktopProviderModelTag[] = ["text", "vision", "audio_input", "stt", "tts", "tool"];
 export const PROVIDER_MODEL_ROLES: DesktopProviderModelRole[] = ["system", "user", "assistant", "tool", "developer"];
 export const PROVIDER_THINKING_FORMATS = ["openai", "openrouter", "anthropic", "deepseek", "zai", "qwen", "qwen-chat-template"] as const;
+export const PROVIDERS_CHANGED_EVENT = "molibot:providers-changed";
 
 export type ProviderEditor = DesktopProviderUpdateRequest & { isNew: boolean };
 
@@ -49,6 +50,10 @@ export function defaultProviderPath(protocol: "openai-compatible" | "anthropic")
 
 function createProviderId(): string {
   return `custom-${Date.now().toString(36)}`;
+}
+
+function notifyProvidersChanged(): void {
+  window.dispatchEvent(new CustomEvent(PROVIDERS_CHANGED_EVENT));
 }
 
 export async function loadProviders(endpoint: string): Promise<void> {
@@ -212,6 +217,7 @@ export async function saveProviderEdit(): Promise<void> {
       providersStore.globals = { ...providersStore.globals, defaultCustomProviderId: providersStore.providers.defaultCustomProviderId };
       closeProviderEdit();
     }
+    notifyProvidersChanged();
     providersStore.actionMessage = session.text.providerSaved;
   } catch (cause) {
     providersStore.actionFailed = true;
@@ -231,6 +237,7 @@ export async function removeProvider(providerId: string): Promise<void> {
     if (providersStore.providerEdit?.id === providerId) closeProviderEdit();
     providersStore.actionFailed = false;
     providersStore.actionMessage = session.text.providerDeleted;
+    notifyProvidersChanged();
   } catch (cause) {
     providersStore.actionFailed = true;
     providersStore.actionMessage = cause instanceof Error ? cause.message : String(cause);
@@ -254,6 +261,7 @@ export async function saveProviderGlobals(): Promise<void> {
     providersStore.globalsDirty = false;
     providersStore.actionFailed = false;
     providersStore.actionMessage = session.text.providerGlobalsSaved;
+    notifyProvidersChanged();
   } catch (cause) {
     providersStore.actionFailed = true;
     providersStore.actionMessage = cause instanceof Error ? cause.message : String(cause);

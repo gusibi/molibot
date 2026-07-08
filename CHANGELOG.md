@@ -1,5 +1,38 @@
 # Molibot ChangeLog
 
+## 2026-07-08
+
+### Clean-machine first-launch fixes
+- Added a built-in `default` Agent and linked the default Web profile to it during settings bootstrap/sanitization, so a fresh data directory starts with a usable global Agent association.
+- Expanded Desktop onboarding with a personalization step that asks the user's preferred name and AI response style, then writes a managed section into the selected Agent's `USER.md` / `SOUL.md` without replacing existing content.
+- Fixed first-run model/provider freshness by refreshing Desktop model state immediately after onboarding provider creation and after provider settings mutations.
+- Backfilled DuckDuckGo as the default no-key search engine and repaired legacy webSearch settings that were missing engine defaults.
+- Exposed Web profiles as Desktop automation targets and registered a shared Web channel runtime so reminders/tasks created from Web can execute through watched event JSON.
+- Added Tauri drag regions to Desktop title/header areas while keeping settings/search/action controls clickable.
+
+### Desktop release versioning and Intel builds
+- Synced the macOS App version from `apps/desktop/package.json` into Tauri config and the Rust crate so packaged Apps no longer stay at `0.1.0`.
+- Extended the Desktop GitHub release workflow to build both Apple Silicon (`aarch64`) and Intel (`x86_64`) DMGs, each with the matching bundled Node sidecar.
+- Final release artifacts are normalized to `Molibot_<version>_<arch>.dmg` with matching `.sha256` files, so downloaded DMGs carry both version and architecture in the filename.
+
+### Desktop chat sidebar rewire + multi-session concurrency (Slice 3)
+- Rewired `ChatView.svelte` onto the Slice 2 per-session registry through a new `lib/chat/chatSessionStore.svelte.ts` (runes). The old single `ConversationController` that followed whichever session was "active" is gone; each session keeps its own pinned controller, so different sessions now run truly in parallel while the same session stays serial with its own follow-up queue, approval, and abort (plan §7). The store bridges the active entry's live turn state to the legacy `$:` template through a single `state` store — the proven `$conversationView` pattern, generalized to whichever session is currently viewed (memory `desktop-controller-legacy-reactivity`).
+- Replaced the old sidebar (horizontal channel switcher + per-Bot two-level tree) with the new `ChatSidebar` / `ChannelAccordion` / `ConversationRow` runes components: five mutually-exclusive channel accordions, a cross-Bot recent list (max 10) per channel, stable Bot avatars, and live status dots (running/waiting/completed/failed) that never cross sessions. Web Profile is shown everywhere as "Bot"; external channels stay read-only (plan §2/§3).
+- "New chat" now enters a not-yet-persisted draft instead of creating an empty session on click; the session is only created on the first sent message, bound to the Bot chosen in the `BotSelector` (last-used Bot → default → none). Composer drafts (text/attachments/thinking/Bot) are isolated per session and restored on switch (plan §6/§10).
+- Wired the "more conversations" `ConversationBrowserDialog` (per-Bot grouping, debounced search, independent per-group cursor pagination) and reconnect recovery: on service ready, `GET /api/desktop/session-runs` restores running/waiting dots and reloads transcripts, and a 4s poll reconciles finished runs into completed dots (plan §5/§11).
+- `chat-ui.test.mjs` updated to assert the new sidebar/store design; `svelte-check` 0/0; desktop build clean; 25/25 desktop + 14/14 chat unit + 12/12 server-conversation tests pass.
+
+### Desktop per-session runtime registry (multi-session sidebar, Slice 2)
+- Introduces a per-session runtime registry (`lib/chat/sessionRuntimeRegistry.svelte.ts`) that gives each conversation its OWN `ConversationController` PINNED to a fixed `profileId`/`sessionId`, instead of the old single controller that followed whichever session was "active". A background turn now keeps streaming into its own state while the user views another session; switching sessions only rebinds the view and never repoints or disposes a running controller (plan §7.1/§7.4) — fixing the cross-talk where one session's tokens/approval could land in another.
+- Each registry entry owns its transcript, error, status, and status-dot, with a self-contained pinned host adapter (so the controller never reads mutable "active" state). Turn-end transitions drive the sidebar status dot: a background run records `completed`/`failed` (unread green/red until opened), while the active session goes idle (its outcome shows inline, no unread dot — plan §8.2). `restoreFromRuns` rebuilds running/waiting status from `GET /api/desktop/session-runs` after a reconnect without clobbering a live client turn (plan §11).
+- Adds `lib/chat/sessionDraftStore.ts` (per-session input text / attachments / thinking-level / selected-Bot, in-memory only per plan §10.3) and `lib/chat/sessionStatusDot.ts` (pure status + dot derivation). Pure logic is unit-tested (14 tests); the runes registry is `svelte-check` clean (0/0).
+
+### Desktop shared conversation & session-run APIs (multi-session sidebar, Slice 1)
+- New shared query layer (`src/lib/server/app/desktopConversations.ts`) powers the upcoming Desktop sidebar + multi-session navigator. It aggregates ordinary conversation sessions across all Web profiles and external Bot instances, resolves Bot identity/names (including deleted Bots), and offers stable `updatedAt + sessionId` cursor pagination plus title/Bot/preview search — all in the shared upper layer, never in a Channel.
+- `GET /api/desktop/conversations` returns the newest-first cross-Bot list for a channel (default 10) with a cursor and `hasMore`; `GET /api/desktop/conversations/groups` returns per-Bot groups for the "more conversations" browser, each with its own cursor; `GET /api/desktop/session-runs` returns active running / waiting-for-approval runs from the runtime `runs` table (cross-referenced with the approval broker) with the Web profile id resolved server-side, so a restarted Desktop rebuilds true session state instead of trusting its own memory.
+- Added `SessionStore.listAllWebConversations()` / `getWebConversationOwner()` and a `preview` field on `ExternalSessionEntry`. A `purpose` classification (`conversation | project | automation | diagnostic | test`) is computed in the shared layer; the sidebar filters to `conversation`, keeping project/automation/test sessions out of the list without duplicating that logic into channels or UI.
+- Verified: 12 new unit tests (cursor stability on insert, no dup/omit, search, grouping, deleted-Bot grouping, cross-profile aggregation); `svelte-check` 0/0; `api.test.ts` 65/65.
+
 ## 2026-07-07
 
 ### Dynamic local service port fallback

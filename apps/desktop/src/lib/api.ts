@@ -14,6 +14,11 @@ import type {
   DesktopChannelTestRequest,
   DesktopChannelTestResponse,
   DesktopConversationActivity,
+  DesktopConversationBotGroup,
+  DesktopConversationChannel,
+  DesktopConversationItem,
+  DesktopConversationsGroupsResponse,
+  DesktopConversationsResponse,
   DesktopExternalSession,
   DesktopExternalSessionsResponse,
   DesktopExternalSessionsSummary,
@@ -79,6 +84,8 @@ import type {
   DesktopSessionDetail,
   DesktopSessionFile,
   DesktopSessionFilesResponse,
+  DesktopSessionRun,
+  DesktopSessionRunsResponse,
   DesktopSessionSummary,
   DesktopTaskResponse,
   DesktopTaskSummary,
@@ -867,6 +874,7 @@ export function summarizeOnboardingDiagnostics(
 export const ONBOARDING_STEPS = [
   "provider",
   "agent",
+  "personalization",
   "channels",
   "launch",
   "diagnostics"
@@ -1213,6 +1221,43 @@ export function externalSessionsForBot(
   return views
     .filter((view) => view.channel === channel && (view.botInstanceId?.trim() || "") === instanceId)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function listDesktopConversations(
+  endpoint: string,
+  params: {
+    channel: DesktopConversationChannel;
+    limit?: number;
+    cursor?: string | null;
+    query?: string;
+    botId?: string;
+  }
+): Promise<DesktopConversationsResponse> {
+  const search = new URLSearchParams({ channel: params.channel });
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.cursor) search.set("cursor", params.cursor);
+  if (params.query) search.set("query", params.query);
+  if (params.botId) search.set("botId", params.botId);
+  return requestJson<DesktopConversationsResponse>(
+    endpoint,
+    `/api/desktop/conversations?${search.toString()}`
+  );
+}
+
+export async function listDesktopConversationGroups(
+  endpoint: string,
+  params: { channel: DesktopConversationChannel; query?: string }
+): Promise<DesktopConversationsGroupsResponse> {
+  const search = new URLSearchParams({ channel: params.channel });
+  if (params.query) search.set("query", params.query);
+  return requestJson<DesktopConversationsGroupsResponse>(
+    endpoint,
+    `/api/desktop/conversations/groups?${search.toString()}`
+  );
+}
+
+export async function listDesktopSessionRuns(endpoint: string): Promise<DesktopSessionRunsResponse> {
+  return requestJson<DesktopSessionRunsResponse>(endpoint, "/api/desktop/session-runs");
 }
 
 export async function listDesktopSessions(

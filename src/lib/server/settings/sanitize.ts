@@ -1,5 +1,7 @@
 import {
   type AgentSettings,
+  DEFAULT_AGENT_ID,
+  defaultAgentSettings,
   defaultRuntimeSettings,
   isKnownProvider,
   sanitizeAgentModelRouting,
@@ -144,7 +146,7 @@ export function sanitizeWebSearchSettings(
     ? source.engines as Record<string, unknown>
     : {};
   const engines = Object.fromEntries(WEB_SEARCH_ENGINES.map((engine) => {
-    const fallbackEngine = fallback.engines[engine];
+    const fallbackEngine = fallback.engines?.[engine] ?? defaultRuntimeSettings.webSearch.engines[engine];
     const raw = enginesSource[engine] && typeof enginesSource[engine] === "object"
       ? enginesSource[engine] as Record<string, unknown>
       : {};
@@ -871,7 +873,8 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
 
   next.systemPrompt = String(next.systemPrompt ?? "").trim() || defaultRuntimeSettings.systemPrompt;
   next.locale = next.locale === "zh-CN" ? "zh-CN" : "en-US";
-  next.agents = sanitizeAgents(next.agents ?? current.agents);
+  const sanitizedAgents = sanitizeAgents(next.agents ?? current.agents);
+  next.agents = sanitizedAgents.length > 0 ? sanitizedAgents : [defaultAgentSettings()];
   const sanitizedTelegramBots = sanitizeTelegramBots(next.telegramBots);
   const sanitizedFeishuBots = sanitizeFeishuBots(next.feishuBots);
   const sanitizedQQBots = sanitizeQQBots(next.qqBots);
@@ -905,6 +908,25 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
     ? next.disabledSkillPaths.map((v) => String(v).trim()).filter(Boolean)
     : current.disabledSkillPaths;
   next.channels = sanitizeChannels(next.channels, next.telegramBots, next.feishuBots, next.qqBots, current.channels);
+  if (next.agents.some((agent) => agent.id === DEFAULT_AGENT_ID)) {
+    const webInstances = Array.isArray(next.channels.web?.instances) ? next.channels.web.instances : [];
+    next.channels.web = {
+      instances: webInstances.length > 0
+        ? webInstances.map((instance) =>
+          instance.id === "default" && !String(instance.agentId ?? "").trim()
+            ? { ...instance, agentId: DEFAULT_AGENT_ID }
+            : instance
+        )
+        : [{
+          id: "default",
+          name: "Default Web",
+          enabled: true,
+          agentId: DEFAULT_AGENT_ID,
+          credentials: {},
+          allowedChatIds: []
+        }]
+    };
+  }
 
   const displayInput = next.display ?? current.display;
   next.display = {

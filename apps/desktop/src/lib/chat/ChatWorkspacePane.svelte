@@ -10,12 +10,12 @@
   export let serviceReady: boolean;
 </script>
 
-<header class="chat-header workspace-header">
-  <div class="chat-title-block">
+<header class="chat-header workspace-header" data-tauri-drag-region>
+  <div class="chat-title-block" data-tauri-drag-region>
     <div class="workspace-header-icon" aria-hidden="true">
       <i class={`ph-fill ph-${pane === "automations" ? "clock-countdown" : "magic-wand"}`}></i>
     </div>
-    <div class="chat-title-text">
+    <div class="chat-title-text" data-tauri-drag-region>
       <div class="chat-title-name">{pane === "automations" ? copy.autoTasks : copy.skillsSquare}</div>
       <div class="chat-title-sub">{pane === "automations" ? copy.tasksHint : copy.installedSkillsHint}</div>
     </div>
@@ -29,4 +29,3 @@
     <InstalledSkillsPane {copy} {serviceEndpoint} {serviceReady} />
   {/if}
 </div>
-

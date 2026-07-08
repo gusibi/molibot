@@ -1010,6 +1010,107 @@ export interface DesktopExternalTranscriptResponse {
 }
 
 /**
+ * Channels surfaced by the unified desktop conversation navigator (plan §2.2).
+ * `web` aggregates every Web Profile; the four external channels aggregate
+ * their configured Bot instances.
+ */
+export type DesktopConversationChannel = "web" | "telegram" | "feishu" | "qq" | "weixin";
+
+/**
+ * Session purpose classification (plan §12.4). The sidebar only lists
+ * `conversation`; project / automation / diagnostic / test sessions are
+ * excluded. The shared query layer derives this from existing storage signals
+ * (web index vs project index vs automation origin) so the classification is
+ * not duplicated into channels or UI components.
+ */
+export type DesktopConversationPurpose =
+  | "conversation"
+  | "project"
+  | "automation"
+  | "diagnostic"
+  | "test";
+
+/**
+ * One conversation in the unified navigator view (plan §12.2). `botId` is the
+ * Web profile id for `web`, or the external Bot instance id for external
+ * channels; `botDeleted` marks a Bot whose configuration no longer exists so
+ * the UI can surface its history under a "deleted Bot" group. `readOnly` is
+ * true for external channels (plan §3.3).
+ */
+export interface DesktopConversationItem {
+  sessionId: string;
+  title: string;
+  updatedAt: string;
+  botId: string;
+  botName: string;
+  botDeleted: boolean;
+  channel: DesktopConversationChannel;
+  purpose: DesktopConversationPurpose;
+  readOnly: boolean;
+  latestMessagePreview?: string;
+}
+
+export interface DesktopConversationsResponse {
+  ok: true;
+  channel: DesktopConversationChannel;
+  items: DesktopConversationItem[];
+  /** Opaque base64url cursor for stable `updatedAt + sessionId` pagination. */
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/**
+ * One Bot group inside the "more conversations" browser (plan §5.2). Each
+ * group carries its own cursor so a single Bot can be paged independently
+ * without re-fetching the other groups.
+ */
+export interface DesktopConversationBotGroup {
+  botId: string;
+  botName: string;
+  botDeleted: boolean;
+  readOnly: boolean;
+  total: number;
+  items: DesktopConversationItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface DesktopConversationsGroupsResponse {
+  ok: true;
+  channel: DesktopConversationChannel;
+  groups: DesktopConversationBotGroup[];
+}
+
+/**
+ * Live run status for a session (plan §11.3). Used by the Desktop to restore
+ * running / waiting-for-approval / failed state after a reconnect instead of
+ * trusting its own process memory. Status comes from the runtime `runs` table
+ * and the approval broker's pending requests, never from Desktop memory.
+ */
+export type DesktopSessionRunStatus =
+  | "running"
+  | "waiting_for_approval"
+  | "completed"
+  | "failed"
+  | "aborted";
+
+export interface DesktopSessionRun {
+  /** Resolved Web profile id; empty for runs not attributable to a Web profile. */
+  profileId: string;
+  sessionId: string;
+  runId: string;
+  status: DesktopSessionRunStatus;
+  startedAt: string;
+  waitingApproval: boolean;
+  errorCode: string | null;
+}
+
+export interface DesktopSessionRunsResponse {
+  ok: true;
+  runs: DesktopSessionRun[];
+}
+
+/**
  * Read-only runtime-environment dependency summary (plan §10). The Desktop
  * Runtime environment page shows what optional tools are present and how they
  * would be installed; actual installation is a separate, per-item authorized

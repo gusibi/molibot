@@ -8,10 +8,11 @@
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "node --test src/chat-ui.test.mjs src/http-scope.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
+    "sync:version": "node ../../scripts/sync-desktop-version.mjs",
     "prepare:runtime": "node ../../scripts/prepare-desktop-runtime.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "corepack pnpm run prepare:runtime && tauri build --ci --config src-tauri/tauri.bundle.conf.json && node ../../scripts/finalize-desktop-release.mjs"
+    "tauri:build": "corepack pnpm run sync:version && corepack pnpm run prepare:runtime && node ../../scripts/build-desktop-tauri.mjs && node ../../scripts/finalize-desktop-release.mjs"
   },
   "dependencies": {
     "@phosphor-icons/web": "^2.1.2",

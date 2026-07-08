@@ -9,6 +9,7 @@ import type {
 } from "$lib/shared/desktop";
 import { createHash } from "node:crypto";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
+import { toWebExternalUserId } from "$lib/server/web/identity";
 
 const KNOWN_TYPES: readonly DesktopTaskType[] = ["one-shot", "periodic", "immediate"];
 const KNOWN_STATES: readonly DesktopTaskState[] = ["pending", "running", "completed", "skipped", "error"];
@@ -117,9 +118,18 @@ export type DesktopTaskExecutionLoader = (taskId: string) => { items: DesktopTas
 export function buildDesktopTaskTargets(settings: RuntimeSettings): DesktopTaskTarget[] {
   const targets: DesktopTaskTarget[] = [];
   for (const [channel, group] of Object.entries(settings.channels ?? {})) {
-    if (channel === "web") continue;
     for (const instance of group?.instances ?? []) {
       if (instance.enabled === false) continue;
+      if (channel === "web") {
+        targets.push({
+          channel,
+          botId: instance.id,
+          botDisplayName: String(instance.name ?? "").trim() || instance.id,
+          chatId: toWebExternalUserId("web-anonymous", instance.id),
+          scope: "chat-scratch"
+        });
+        continue;
+      }
       const chatIds = Array.from(new Set((instance.allowedChatIds ?? []).map(String).map((value) => value.trim()).filter(Boolean)));
       for (const chatId of chatIds) {
         targets.push({

@@ -1,8 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import {
   type AgentSettings,
+  DEFAULT_AGENT_ID,
   type ChannelSettingsMap,
   defaultRuntimeSettings,
+  defaultAgentSettings,
   sanitizeAgentModelRouting,
   type ModelCapabilityTag,
   type ModelCapabilityVerification,
@@ -1052,12 +1054,32 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const feishuBots = feishuBotsFromList.length > 0 ? feishuBotsFromList : [];
   const qqBotsFromList = sanitizeQQBots(raw.qqBots);
   const qqBots = qqBotsFromList.length > 0 ? qqBotsFromList : [];
+  const sanitizedAgents = sanitizeAgents(raw.agents);
+  const agents = sanitizedAgents.length > 0 ? sanitizedAgents : [defaultAgentSettings()];
   const channels = sanitizeChannels(raw.channels, telegramBots, feishuBots, qqBots);
+  if (agents.some((agent) => agent.id === DEFAULT_AGENT_ID)) {
+    const webInstances = Array.isArray(channels.web?.instances) ? channels.web.instances : [];
+    channels.web = {
+      instances: webInstances.length > 0
+        ? webInstances.map((instance) =>
+          instance.id === "default" && !String(instance.agentId ?? "").trim()
+            ? { ...instance, agentId: DEFAULT_AGENT_ID }
+            : instance
+        )
+        : [{
+          id: "default",
+          name: "Default Web",
+          enabled: true,
+          agentId: DEFAULT_AGENT_ID,
+          credentials: {},
+          allowedChatIds: []
+        }]
+    };
+  }
   const effectiveTelegramBots = telegramBots.length > 0 ? telegramBots : deriveTelegramBotsFromChannels(channels);
   const effectiveFeishuBots = feishuBots.length > 0 ? feishuBots : deriveFeishuBotsFromChannels(channels);
   const effectiveQQBots = qqBots.length > 0 ? qqBots : deriveQQBotsFromChannels(channels);
   const primaryBot = effectiveTelegramBots[0];
-  const agents = sanitizeAgents(raw.agents);
   const mcpServers = sanitizeMcpServers(raw.mcpServers ?? defaultRuntimeSettings.mcpServers);
   const skillSearch = sanitizeSkillSearchSettings(raw.skillSearch ?? defaultRuntimeSettings.skillSearch);
   const skillDrafts = sanitizeSkillDraftSettings(raw.skillDrafts ?? defaultRuntimeSettings.skillDrafts);

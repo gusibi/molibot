@@ -15,6 +15,50 @@ test("sanitizeSettings backfills imageGenerate for legacy settings", () => {
   assert.deepEqual(Object.keys(sanitized.imageGenerate.engines).sort(), ["agnes", "google", "modelscope", "openai", "openai-chat", "volcengine"]);
 });
 
+test("sanitizeSettings backfills default agent and links default Web profile", () => {
+  const legacySettings = {
+    ...defaultRuntimeSettings,
+    agents: [],
+    channels: {
+      ...defaultRuntimeSettings.channels,
+      web: {
+        instances: [{
+          id: "default",
+          name: "Default Web",
+          enabled: true,
+          agentId: "",
+          credentials: {},
+          allowedChatIds: []
+        }]
+      }
+    }
+  } as RuntimeSettings;
+
+  const sanitized = sanitizeSettings({}, legacySettings);
+
+  assert.equal(sanitized.agents.length, 1);
+  assert.equal(sanitized.agents[0]?.id, "default");
+  assert.equal(sanitized.channels.web.instances[0]?.agentId, "default");
+});
+
+test("sanitizeSettings backfills DuckDuckGo web search defaults for incomplete legacy settings", () => {
+  const legacySettings = {
+    ...defaultRuntimeSettings,
+    webSearch: {
+      ...defaultRuntimeSettings.webSearch,
+      defaultEngine: "auto",
+      engines: {} as RuntimeSettings["webSearch"]["engines"]
+    }
+  } as RuntimeSettings;
+
+  const sanitized = sanitizeSettings({}, legacySettings);
+
+  assert.equal(defaultRuntimeSettings.webSearch.defaultEngine, "duckduckgo");
+  assert.equal(sanitized.webSearch.defaultEngine, "auto");
+  assert.equal(sanitized.webSearch.engines.duckduckgo.enabled, true);
+  assert.equal(sanitized.webSearch.engines.duckduckgo.apiKey, "");
+});
+
 test("sanitizeSettings enables configured default image engine when legacy enabled flag is false", () => {
   const settings = {
     ...defaultRuntimeSettings,

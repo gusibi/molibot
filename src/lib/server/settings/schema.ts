@@ -142,6 +142,17 @@ export interface AgentSettings {
   modelRouting?: AgentModelRouting;
 }
 
+export const DEFAULT_AGENT_ID = "default";
+
+export function defaultAgentSettings(): AgentSettings {
+  return {
+    id: DEFAULT_AGENT_ID,
+    name: "Default",
+    description: "Default assistant used by Web and new channel profiles.",
+    enabled: true
+  };
+}
+
 export interface ChannelInstanceDisplaySettings {
   toolProgress?: "off" | "new" | "all" | "verbose";
   showReasoning?: "off" | "on" | "stream" | "new";

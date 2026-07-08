@@ -13,16 +13,34 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const NODE_VERSION = "22.23.1";
-const NODE_ARCHIVE = `node-v${NODE_VERSION}-darwin-arm64.tar.xz`;
-const NODE_ARCHIVE_SHA256 = "fb526811860f81dcac7dd8b2b55eca4accfc5d61c3b7c2508f2639faee8a738d";
+const NODE_TARGETS = {
+  "aarch64-apple-darwin": {
+    nodeArch: "arm64",
+    binarySuffix: "aarch64-apple-darwin",
+    sha256: "fb526811860f81dcac7dd8b2b55eca4accfc5d61c3b7c2508f2639faee8a738d"
+  },
+  "x86_64-apple-darwin": {
+    nodeArch: "x64",
+    binarySuffix: "x86_64-apple-darwin",
+    sha256: "efeec6641a2f15f5396d27cd0b32f5062d6689d1e9e5d89607d0b29bda890233"
+  }
+};
+const buildTarget = String(process.env.TAURI_BUILD_TARGET ?? "").trim()
+  || (process.arch === "x64" ? "x86_64-apple-darwin" : "aarch64-apple-darwin");
+const nodeTarget = NODE_TARGETS[buildTarget];
+if (!nodeTarget) {
+  throw new Error(`Unsupported Desktop build target: ${buildTarget}`);
+}
+const NODE_ARCHIVE = `node-v${NODE_VERSION}-darwin-${nodeTarget.nodeArch}.tar.xz`;
+const NODE_ARCHIVE_SHA256 = nodeTarget.sha256;
 const NODE_DOWNLOAD_URL = `https://nodejs.org/download/release/v${NODE_VERSION}/${NODE_ARCHIVE}`;
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tauriDir = path.join(rootDir, "apps/desktop/src-tauri");
 const cacheDir = path.join(rootDir, ".cache/desktop-runtime");
 const archivePath = path.join(cacheDir, NODE_ARCHIVE);
-const extractDir = path.join(cacheDir, `node-v${NODE_VERSION}`);
-const nodeBinaryPath = path.join(tauriDir, "binaries/molibot-node-aarch64-apple-darwin");
+const extractDir = path.join(cacheDir, `node-v${NODE_VERSION}-darwin-${nodeTarget.nodeArch}`);
+const nodeBinaryPath = path.join(tauriDir, `binaries/molibot-node-${nodeTarget.binarySuffix}`);
 const runtimeDir = path.join(tauriDir, "resources/molibot-runtime");
 const runtimeArchivePath = path.join(tauriDir, "resources/molibot-runtime.tar.gz");
 const runtimeVersionPath = path.join(tauriDir, "resources/molibot-runtime.version");
@@ -66,7 +84,7 @@ async function prepareNodeBinary() {
     "-C",
     extractDir,
     "--strip-components=2",
-    `node-v${NODE_VERSION}-darwin-arm64/bin/node`
+    `node-v${NODE_VERSION}-darwin-${nodeTarget.nodeArch}/bin/node`
   ]);
   mkdirSync(path.dirname(nodeBinaryPath), { recursive: true });
   copyFileSync(path.join(extractDir, "node"), nodeBinaryPath);
@@ -87,6 +105,7 @@ function prepareRuntime() {
 await prepareNodeBinary();
 prepareRuntime();
 console.log(`Desktop Node runtime prepared: Node ${NODE_VERSION}`);
+console.log(`Build target: ${buildTarget}`);
 console.log(`Node binary: ${path.relative(rootDir, nodeBinaryPath)}`);
 console.log(`Runtime resources: ${path.relative(rootDir, runtimeDir)}`);
 console.log(`Runtime archive: ${path.relative(rootDir, runtimeArchivePath)}`);

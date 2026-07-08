@@ -86,6 +86,8 @@ export interface ExternalSessionEntry {
   conversation: Conversation;
   channel: Channel;
   externalUserId: string;
+  /** Short last-message text for the sidebar preview / search (plan §12.2). */
+  preview: string;
 }
 
 /**

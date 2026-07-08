@@ -11,10 +11,10 @@
 
 {#if project}
   <section class="chat-content">
-    <header class="chat-header">
-      <div class="chat-title-block">
+    <header class="chat-header" data-tauri-drag-region>
+      <div class="chat-title-block" data-tauri-drag-region>
         <div class="chat-header-avatar" aria-hidden="true">{projectInitial}</div>
-        <div class="chat-title-text">
+        <div class="chat-title-text" data-tauri-drag-region>
           <div class="chat-title-name">{project.name}</div>
           <div class="chat-title-sub" title={project.rootPath}>{project.rootPath}</div>
         </div>

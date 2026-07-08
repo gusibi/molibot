@@ -104,7 +104,7 @@ test("buildDesktopTaskSummary exposes only periodic automations", () => {
   assert.equal(summary.items[0].text.includes("API key"), true);
 });
 
-test("task targets come only from enabled Bot allowed chat ids", () => {
+test("task targets include enabled Web profiles and external Bot allowed chat ids", () => {
   const settings = {
     channels: {
       telegram: { instances: [
@@ -115,7 +115,7 @@ test("task targets come only from enabled Bot allowed chat ids", () => {
         { id: "office", name: "Office Bot", enabled: true, allowedChatIds: ["oc_group__thread_topic"] }
       ] },
       web: { instances: [
-        { id: "web", name: "Web", enabled: true, allowedChatIds: ["web-chat"] }
+        { id: "default", name: "Default Web", enabled: true, allowedChatIds: ["web-chat"] }
       ] }
     }
   } as Parameters<typeof buildDesktopTaskTargets>[0];
@@ -125,7 +125,8 @@ test("task targets come only from enabled Bot allowed chat ids", () => {
   assert.deepEqual(targets, [
     { channel: "feishu", botId: "office", chatId: "oc_group__thread_topic", scope: "chat-scratch", botDisplayName: "Office Bot" },
     { channel: "telegram", botId: "news", chatId: "-5296983178", scope: "chat-scratch", botDisplayName: "News Bot" },
-    { channel: "telegram", botId: "news", chatId: "7706709760", scope: "chat-scratch", botDisplayName: "News Bot" }
+    { channel: "telegram", botId: "news", chatId: "7706709760", scope: "chat-scratch", botDisplayName: "News Bot" },
+    { channel: "web", botId: "default", chatId: "web:default:web-anonymous", scope: "chat-scratch", botDisplayName: "Default Web" }
   ]);
   assert.equal(JSON.stringify(targets).includes("should-not-appear"), false);
   assert.equal(JSON.stringify(targets).includes("web-chat"), false);
