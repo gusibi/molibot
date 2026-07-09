@@ -1,6 +1,37 @@
 # Molibot Features
 
+## 2026-07-10
+
+### Agent harness 优化：缓存前缀稳定、压缩触发修正、工具调用保真、turn 心跳租约
+- **memory 快照移出 system prompt**：每轮的工作记忆快照改为注入用户消息信封内的 `<current-memory>` 块（只发给模型、不落库），`runPromptKey` 不再包含逐轮变化的 query/memory 指纹。system prompt 跨轮字节一致，provider 前缀缓存（prompt caching）从此覆盖完整 prompt + 历史消息，不再每轮全量失效。
+- **压缩触发改用真实 usage**：`shouldCompactContext` 优先使用最近一条 assistant 响应中 provider 上报的真实 token 用量（input + cacheRead + cacheWrite + output），并以压缩摘要消息的时间戳为屏障，压缩前产生的旧 usage 不会导致压缩死循环。字符估算本身对 CJK 字符按约 1 token/字加权（原 chars/4 对中文低估 3-4 倍，阈值压缩形同虚设）。
+- **修复 ToolRuntime 包装链丢参**：registry handler 现在拿到真实 `toolCallId`（原先被共享的 `runId` 顶替，同轮并行调用会串号）和 `onUpdate` 流式进度回调（原先被丢弃，工具进度更新静默失效）。
+- **turn 锁改为心跳租约**：运行中的 turn 每 30 秒刷新 `runs.last_heartbeat`，锁冲突判定与启动清理都基于心跳（2 分钟超时）而非固定 10 分钟墙钟。合法长任务（视频轮询、subagent 链）只要进程存活就一直持锁；进程崩溃后约 2 分钟内自动放锁。无心跳的历史记录沿用旧 10 分钟规则；心跳在 run 主 try 块内启动、finally 中必然停止，防止僵尸续租。
+- 验证：agent 全量测试 378 通过（唯一失败为 skills 文案语言断言的既有问题，与本次无关）；改动文件 `tsc` 无类型错误。
+
+### Agent harness 后续优化：中文注入检测、数据库热路径、videoGenerate 机制化限制
+- **注入检测补中文模式**：项目上下文文件（CLAUDE.md/AGENTS.md 等）的 prompt 注入扫描新增中文模式（忽略以上指令 / 覆盖系统提示 / 不要告诉用户），与既有英文模式一一对应；模式刻意收紧（必须命中指令类宾语），并有回归测试保证正常中文项目文档不被误伤。
+- **TurnOrchestrator 数据库访问出热路径**：每个 orchestrator 复用单个 SQLite 连接，schema DDL 只在首次打开时执行一次；此前 prepareTurn/心跳/状态更新每次都开新连接并重跑 CREATE TABLE。
+- **videoGenerate 单轮限制从 prompt 恳求改为机制强制**：同一 run 内视频任务提交成功后，runner 在 beforeToolCall 直接拦截后续提交（错误信息携带已有 taskId，指引模型报告 taskId 并结束回合）；带 taskId 的进度查询不受影响；提交失败不会误触发拦截。prompt 里对应的加粗恳求句改为一句"运行时会拦截"的说明。
+- 验证：agent 全量测试 379 通过（唯一失败仍为 skills 文案语言断言既有问题）；改动文件 `tsc` 干净（runner.test.ts 的 fixture 类型报错为 HEAD 上已存在的既有问题）。
+
 ## 2026-07-09
+
+### Desktop Chat / Project 输入区与右侧组件复用
+- 补强 macOS overlay titlebar 拖动区域：Chat 与 Settings 根布局顶部现在有一条 52px 透明拖拽蒙版，点击后直接调用 Tauri `startDragging()`；Chat/Project 左侧栏顶部仍保留独立拖拽条，Chat/Project/Workspace 标题栏的头像、图标、标题与副标题子元素也参与拖拽；右上角搜索、文件、设置、新建、删除等按钮提升到蒙版之上，保持正常点击。
+- 修复 Chat 启动期卡在“正在连接本地会话…”且页面看似不可点击的问题：核心服务配置加载完成后立即释放 loading，默认会话/侧栏列表改为后台选择；侧栏拖拽分隔条在窗口失焦或鼠标离开时会强制结束 resize，避免 `pointer-events: none` 长期留在整页上。
+- Chat 与 Project 共享输入框完成紧凑化打磨：焦点态从强蓝双层描边改为轻量提示，外壳上下 padding 收窄，textarea 默认显示更多行并按内容自动增长，发送按钮缩小到与麦克风按钮同一视觉尺寸。
+- 修复 Chat 左侧外部渠道图标：飞书和 QQ 不再使用图标库中不存在的 `lark-logo` / `qq-logo`，改用已打包可渲染的渠道图标占位，避免列表里出现空图标。
+- 修复 fresh 定时任务会话出现在普通 Chat Session 列表的问题：Desktop conversation 共享查询层现在把 `origin:"automation"` 和 `task-*` 会话归类为 `automation`，继续只在自动任务页面展示，普通侧栏和“更多对话”只返回 `conversation`。
+- 修复外部渠道（Telegram/飞书/QQ/微信）旧任务上下文继续混入普通 Session 列表的问题：`contexts/` 投影层现在同时过滤 `origin:"automation"`、`task-*` 和历史 `[EVENT:...]` 首条用户消息，任务运行只留在自动任务历史中查看。
+- Chat 右侧 Header 改为单行：头像显示当前 Bot 名称首字而不是会话标题首字，在线/离线状态挪到左下 Molibot logo 徽标上，Header 不再显示在线副标题和设置按钮。
+- 把 Desktop Chat 与 Project Chat 的完整输入区收敛到共享 `ChatInputArea.svelte`：模型缺失提示、错误提示、队列 chips、待发送附件、录音条、文件按钮、录音按钮、模型选择和 thinking 选择都走同一组件，之后改输入区不再需要分别改 ChatView 和 ProjectChat。
+- Project Chat 输入区现在也传入真实模型名与当前 thinking 档位；不再显示静态“模型/思考档位”，也不再塞入对项目页无意义的 `@Default Web` 或 Project token。
+- 抽出 `ApprovalCard.svelte`、`ChatMessagesPane.svelte`、`ChatHeader.svelte`、`PendingFilesBar.svelte`、`QueuedMessagesBar.svelte`、`RecordingBar.svelte` 等通用展示组件；业务判断仍留在调用方，组件只接收数据、slot 和回调。
+- Project 页左侧复用通用 sidebar 小组件（`SidebarShell`、`GroupHeader`、`ConversationRow`），但保留项目页语义：顶部只提供“添加项目”，项目分组右侧提供 `+` 新对话，底部提供返回 Chat 与紧凑的 logo 设置入口，不再搬入 Chat 的新对话/项目/自动任务/技能主导航。
+- Project 详情头部继续复用 `ChatHeader`，只展示项目名，不再把本机路径放进标题栏；操作按钮改为 Chat 同款图标按钮，避免右上角文字按钮和 Chat 标题栏视觉割裂。
+- Chat 与 Project 的侧栏底部品牌入口改为展示 Molibot logo，不再用字母 `M` 占位。
+- 验证：外部会话投影测试 3/3、Desktop UI 结构测试 28/28、Desktop `svelte-check` 0 错误 0 警告，Desktop production build 通过。
 
 ### 修复：首次打开进入 Project 点击 Session 右侧空白，去 Chat 转一圈才正常
 - 首次启动进入 Projects、点击某个 Session 时右侧不显示对话；切到 Chat 再切回来才正常。根因：`ProjectDetail` 用一条 legacy `$:`（`project = projects.find(...)`）来门控整个右侧面板，而 Svelte 5 里 legacy `$:` 不会订阅外部 rune `$state`，所以它只在初始化时跑一次——那时 `projectsStore.projects` 还在加载、结果是 `undefined`，面板一直不渲染，直到组件重新挂载。把 `ProjectDetail` 改为 runes 模式（`$props`/`$state`/`$derived`），派生值现在能正确跟踪 store，项目加载完成后面板立即渲染。验证：`svelte-check` 0 错 0 警告、Desktop UI 测试 24/24。

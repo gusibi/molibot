@@ -47,7 +47,13 @@ const CONTEXT_THREAT_PATTERNS: RegExp[] = [
   /system\s+prompt\s+override/i,
   /disregard\s+(your|all|any)\s+(instructions|rules|guidelines)/i,
   /do\s+not\s+tell\s+the\s+user/i,
-  /<\s*div\s+style\s*=\s*["'][^"']*display\s*:\s*none/i
+  /<\s*div\s+style\s*=\s*["'][^"']*display\s*:\s*none/i,
+  // Chinese equivalents of the patterns above. Kept narrow: a false positive
+  // blocks the whole context file, so each pattern requires an instruction-like
+  // object (指令/规则/设定/提示词) or the explicit hide-from-user phrasing.
+  /(?:忽略|无视|忘记|忘掉)\s*(?:之前|以上|上面|前面|先前|所有|全部)\s*的?\s*(?:所有|全部)?\s*(?:指令|指示|规则|设定|提示词?)/,
+  /(?:覆盖|重写|替换|绕过)\s*(?:系统|默认)\s*(?:提示词?|指令|设定)/,
+  /(?:不要|别|不得|禁止)\s*(?:告诉|告知|透露给?)\s*用户/
 ];
 
 const CONTEXT_INVISIBLE_CHARS = [
@@ -84,42 +90,6 @@ function xmlBlock(tag: string, content: string): string {
 
 function section(title: string, lines: string[], tagName?: string): string {
   return xmlBlock(tagName ?? promptTagName(title), [`## ${title}`, ...lines].join("\n"));
-}
-
-function compactPromptMemory(memory: string): string {
-  const source = String(memory ?? "").trim();
-  if (!source) return "(none)";
-
-  const rawLines = source
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const kept: string[] = [];
-  let itemCount = 0;
-  for (const line of rawLines) {
-    if (/^recent daily memory:?$/i.test(line)) {
-      continue;
-    }
-    if (/^long-term memory:?$/i.test(line)) {
-      kept.push("Long-term memory (trimmed):");
-      continue;
-    }
-    if (/^\d+\.\s*/.test(line)) {
-      itemCount += 1;
-      if (itemCount > 5) continue;
-      const compact = line.replace(/\s+/g, " ").trim();
-      kept.push(compact.length > 220 ? `${compact.slice(0, 219).trimEnd()}…` : compact);
-      continue;
-    }
-    if (kept.length < 8) {
-      const compact = line.replace(/\s+/g, " ").trim();
-      kept.push(compact.length > 220 ? `${compact.slice(0, 219).trimEnd()}…` : compact);
-    }
-  }
-
-  if (kept.length === 0) return "(none)";
-  return kept.join("\n");
 }
 
 function stripYamlFrontmatter(content: string): string {
@@ -209,7 +179,7 @@ function buildMessageProcessingPipeline(): string {
 
     "Step 0 — Dedicated Runtime Tool Short-Circuit (mandatory, always check first)",
     "  a) Image generation/editing requests in any language (for example: generate image) → infer the intent semantically, call `toolSearch` with `select:imageGenerate`, then call `imageGenerate`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python image scripts, or create a skill unless `imageGenerate` is unavailable or fails.",
-    "  b) Video generation requests in any language (for example: generate video, 文生视频, 图生视频, check video progress) → infer the intent semantically, call `toolSearch` with `select:videoGenerate`, then call `videoGenerate`. For image-to-video, `images` must contain only public HTTP(S) Remote URL values, preferably the `Remote URL` returned by `imageGenerate`; never pass Base64, data URLs, local file paths, or `Absolute path` values. When submitting a new video task, it will immediately return a taskId. You must immediately inform the user of this taskId and end your turn. **Do not call `videoGenerate` again in the same turn.** When checking progress later (e.g. if the user asks 'is the video done?'), locate the taskId and engine in the history and call `videoGenerate(taskId: '...', engine: '...')`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python video scripts, or create a skill unless `videoGenerate` is unavailable or fails.",
+    "  b) Video generation requests in any language (for example: generate video, 文生视频, 图生视频, check video progress) → infer the intent semantically, call `toolSearch` with `select:videoGenerate`, then call `videoGenerate`. For image-to-video, `images` must contain only public HTTP(S) Remote URL values, preferably the `Remote URL` returned by `imageGenerate`; never pass Base64, data URLs, local file paths, or `Absolute path` values. When submitting a new video task, it will immediately return a taskId. You must immediately inform the user of this taskId and end your turn (the runtime blocks a second video submission in the same turn). When checking progress later (e.g. if the user asks 'is the video done?'), locate the taskId and engine in the history and call `videoGenerate(taskId: '...', engine: '...')`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python video scripts, or create a skill unless `videoGenerate` is unavailable or fails.",
     "  c) Text-to-speech requests in any language (for example: convert text to speech, generate narration, create voiceover audio, 合成语音, 文字转语音, 朗读成音频) → infer the intent semantically, call `toolSearch` with `select:ttsGenerate`, then call `ttsGenerate`. Do not search by translated keywords first. Do not use `skillSearch`, bash, Python audio scripts, macOS `say`, or create a skill unless `ttsGenerate` is unavailable or fails.",
     "  d) Current web information requests → call `toolSearch` with `select:webSearch`, then call `webSearch`. Do not use bash curl, browser search, or search skills unless `webSearch` is unavailable or fails.",
 
@@ -384,8 +354,16 @@ function buildMemoryContractSection(vars: PromptRenderVars): string {
   ].join("\n"));
 }
 
-function buildCurrentMemorySection(vars: PromptRenderVars): string {
-  return xmlBlock("current-memory", ["## Current Memory", compactPromptMemory(vars.memory)].join("\n"));
+function buildCurrentMemorySection(): string {
+  // The actual working-memory snapshot is injected per turn inside the user
+  // message envelope (see buildPromptInputEnvelope). Keeping this section
+  // static keeps the whole system prompt byte-identical across turns so
+  // provider prefix caching covers both the prompt and the message history.
+  return xmlBlock("current-memory", [
+    "## Current Memory",
+    "The working-memory snapshot relevant to the current request is provided in the `<current-memory>` block inside the latest user message envelope.",
+    "Use the `memory` tool to search for anything beyond that snapshot."
+  ].join("\n"));
 }
 
 function buildSystemLogSection(vars: PromptRenderVars): string {
@@ -586,7 +564,7 @@ function buildBaseSystemPromptWithOptions(
     // turns, which helps providers that do prefix-based prompt caching.
     buildSkillsRuntimeStateSection(vars),
     "",
-    buildCurrentMemorySection(vars),
+    buildCurrentMemorySection(),
   ].join("\n"));
 }
 

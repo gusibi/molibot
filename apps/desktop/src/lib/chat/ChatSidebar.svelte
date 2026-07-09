@@ -11,6 +11,7 @@
     expandedHasMore = false,
     expandedLoading = false,
     activeSessionId = "",
+    serviceState = "disconnected",
     statusDots = new Map<string, SessionStatusDot>(),
     formatTime,
     onNewConversation,
@@ -52,6 +53,7 @@
     expandedHasMore?: boolean;
     expandedLoading?: boolean;
     activeSessionId?: string;
+    serviceState?: "disconnected" | "ready" | "incompatible" | "error";
     statusDots?: Map<string, SessionStatusDot>;
     formatTime: (iso: string) => string;
     onNewConversation: () => void;
@@ -86,6 +88,7 @@
 </script>
 
 <aside class="chat-sidebar">
+  <div class="sidebar-titlebar-drag" data-tauri-drag-region aria-hidden="true"></div>
   <nav class="sidebar-nav" aria-label={copy.newChat}>
     <button type="button" class="nav-item" onclick={onNewConversation}>
       <i class="ph-fill ph-plus-circle" aria-hidden="true"></i>
@@ -128,7 +131,9 @@
   </div>
 
   <button type="button" class="sidebar-footer" onclick={onOpenSettings} title={copy.goToSettings}>
-    <span class="sidebar-footer-logo" aria-hidden="true">M</span>
+    <span class="sidebar-footer-logo-wrap" data-state={serviceState} aria-hidden="true">
+      <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" />
+    </span>
     <span class="sidebar-footer-name">{copy.appName}</span>
     <i class="ph ph-gear-six sidebar-footer-gear" aria-hidden="true"></i>
   </button>
@@ -176,8 +181,10 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    width: 100%;
-    padding: 8px 10px;
+    width: calc(100% + 24px);
+    height: 46px;
+    margin: auto -12px -8px;
+    padding: 0 22px;
     border: none;
     border-top: 1px solid var(--separator, rgba(0, 0, 0, 0.06));
     background: transparent;
@@ -186,18 +193,33 @@
     text-align: left;
   }
   .sidebar-footer:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
-  .sidebar-footer-logo {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
-    background: var(--accent, #006bff);
-    color: #fff;
-    font-weight: 700;
-    font-size: 13px;
+  .sidebar-footer-logo-wrap {
+    position: relative;
     flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+  }
+  .sidebar-footer-logo-wrap::after {
+    content: "";
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 8px;
+    height: 8px;
+    border: 2px solid var(--sidebar-bg, #fff);
+    border-radius: 50%;
+    background: var(--gray-700, #8a8a8a);
+  }
+  .sidebar-footer-logo-wrap[data-state="ready"]::after { background: var(--online, #28a745); }
+  .sidebar-footer-logo-wrap[data-state="error"]::after,
+  .sidebar-footer-logo-wrap[data-state="incompatible"]::after { background: var(--danger, #ff453a); }
+  .sidebar-footer-logo {
+    display: block;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
   }
   .sidebar-footer-name { flex: 1 1 auto; font-weight: 600; font-size: 13px; }
   .sidebar-footer-gear { opacity: 0.6; font-size: 16px; }

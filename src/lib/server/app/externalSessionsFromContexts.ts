@@ -125,6 +125,7 @@ function listContextSessionIds(contextsDir: string): string[] {
  * excluded from ordinary navigation.
  */
 function isAutomationSession(contextsDir: string, sessionId: string): boolean {
+  if (sessionId.startsWith("task-")) return true;
   const metaFile = join(contextsDir, `${sessionId}.meta.json`);
   if (!existsSync(metaFile)) return false;
   try {
@@ -133,6 +134,12 @@ function isAutomationSession(contextsDir: string, sessionId: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isEventPromptSession(entries: SessionFileEntry[]): boolean {
+  const firstUser = messageEntriesOf(entries).find((entry) => entry.message.role === "user");
+  if (!firstUser) return false;
+  return contentText(messageContent(firstUser.message)).trimStart().startsWith("[EVENT:");
 }
 
 function readEntries(contextsDir: string, sessionId: string): SessionFileEntry[] {
@@ -201,6 +208,7 @@ export function listExternalSessionsFromContexts(dataRoot: string): ExternalSess
         for (const sessionId of listContextSessionIds(contextsDir)) {
           if (isAutomationSession(contextsDir, sessionId)) continue;
           const entries = readEntries(contextsDir, sessionId);
+          if (isEventPromptSession(entries)) continue;
           const messageEntries = messageEntriesOf(entries);
           if (messageEntries.length === 0) continue;
           const ref: ExternalSessionRef = { channel, botId: bot.name, chatId: chat.name, sessionId };

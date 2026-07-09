@@ -24,6 +24,7 @@
   import ImageGenerateSection from "./lib/settings/ImageGenerateSection.svelte";
   import VideoGenerateSection from "./lib/settings/VideoGenerateSection.svelte";
   import TtsGenerateSection from "./lib/settings/TtsGenerateSection.svelte";
+  import WindowDragMask from "./lib/WindowDragMask.svelte";
   import { session } from "./lib/stores/session.svelte";
   import { initialLocale, normalizeLocale, translator, type Locale } from "./lib/i18n";
   import {
@@ -66,6 +67,7 @@
   const THEME_STORAGE_KEY = "molibot-desktop-theme";
   let theme: DesktopTheme = normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY));
   let mainView: "chat" | "projects" = "chat";
+  let requestedChatPane: "chat" | "automations" | "skills" = "chat";
 
   function applyTheme(value: DesktopTheme): void {
     const root = document.documentElement;
@@ -385,6 +387,7 @@
 
 {#if isSettings}
   <main class="settings-layout">
+    <WindowDragMask />
     <aside class="settings-sidebar">
       <div class="settings-titlebar-space" data-tauri-drag-region aria-hidden="true"></div>
       <div class="settings-search">
@@ -600,7 +603,12 @@
     </section>
   </main>
 {:else if mainView === "projects"}
-  <ProjectsView copy={text} endpoint={status?.service.endpoint ?? null} openChat={() => (mainView = "chat")} />
+  <ProjectsView
+    copy={text}
+    endpoint={status?.service.endpoint ?? null}
+    openChat={() => { requestedChatPane = "chat"; mainView = "chat"; }}
+    openSettings={() => openSettings()}
+  />
 {:else}
   <ChatView
     copy={text}
@@ -611,5 +619,6 @@
     setLaunchAtLogin={setLoginStart}
     {openSettings}
     openProjects={() => (mainView = "projects")}
+    requestedWorkspacePane={requestedChatPane}
   />
 {/if}

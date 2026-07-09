@@ -24,6 +24,7 @@ pnpm-debug.log*
 
 # docs
 docs/agent-dev-series/
+market/
 
 # runtime data (keep skills versioned, ignore chat runtime outputs)
 data/telegram-mom/*

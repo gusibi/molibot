@@ -94,13 +94,13 @@ export function buildBotNameResolver(settings: RuntimeSettings): BotNameResolver
 }
 
 export function buildWebItems(
-  entries: ReadonlyArray<{ conversation: { id: string; title: string; updatedAt: string; projectId?: string }; externalUserId: string; lastMessageText: string }>,
+  entries: ReadonlyArray<{ conversation: { id: string; title: string; updatedAt: string; projectId?: string; origin?: string }; externalUserId: string; lastMessageText: string }>,
   resolver: BotNameResolver
 ): DesktopConversationItem[] {
   return entries.map((entry) => {
     const profileId = parseWebProfileId(entry.externalUserId);
     const { name, deleted } = resolver.webName(profileId);
-    const purpose: DesktopConversationPurpose = entry.conversation.projectId ? "project" : "conversation";
+    const purpose = classifyWebPurpose(entry.conversation);
     return {
       sessionId: entry.conversation.id,
       title: entry.conversation.title || "New Session",
@@ -114,6 +114,13 @@ export function buildWebItems(
       latestMessagePreview: entry.lastMessageText || undefined
     };
   });
+}
+
+export function classifyWebPurpose(conversation: { id: string; projectId?: string; origin?: string }): DesktopConversationPurpose {
+  if (conversation.projectId) return "project";
+  if (conversation.origin === "automation") return "automation";
+  if (conversation.id.startsWith("task-")) return "automation";
+  return "conversation";
 }
 
 export function buildExternalItems(

@@ -1,12 +1,22 @@
 # Molibot PRD (V1)
 
+## 2.36 Memory System Improvement Plan (2026-07-10)
+- 背景：定位收敛为「记忆优先、可审计、长期陪伴的个人 Agent」（魔魔计划）；审计发现 mory SDK 能力足够但宿主接线不足，详细任务清单与验收标准见 `docs/requirements/memory-improvement-plan.md`。
+- [Planned, P0] T1 中文分词检索修复：Intl.Segmenter + CJK bigram + 停用词降权，替换三处按空格切词的打分（moryCore / jsonFileCore / classifier.memoryPriority），共享模块放 `package/mory`。
+- [Planned, P0] T2 记忆路径策略改造：factKey → 稳定语义路径，激活 mory 写入门控/冲突解析/版本链；语义类型不再压扁为 task/event。
+- [Planned, P1] T3 flush 接入 LLM extractor：从触发词启发式升级为 LLM 抽取双方消息，产出带 reason 的结构化候选，走 mory commit 管道。
+- [Planned, P1] T4 embedder + engine.retrieve 语义检索：关键词/语义双通道，注入预算可配置，无 key 时降级。
+- [Planned, P2] T5 Memory Inbox：候选记忆 pending → 确认/忽略/编辑 状态机，自动抽取默认进 Inbox，桌面端 UI。
+- [Planned, P2] T6 scope 维度扩展：owner 级跨渠道共享、项目绑定、`mory://self` 与 `mory://content` 命名空间（支撑重复梗检测）。
+- [Planned, P3] T7 可审计补全：reason 字段、消息级溯源、版本历史 UI、记忆固定（pin）。
+
 ## 2.34 Clean-machine First Launch Polish (2026-07-08)
 - [Done] 全新数据目录必须自动拥有 `default` Agent，并让默认 Web Profile 关联该 Agent；旧数据中缺失 Agent 或默认 Web 关联为空时必须幂等补齐。
 - [Done] Desktop 首次启动配置必须在对话式引导中询问用户称呼与偏好的 AI 回复风格，并保存到当前默认 Agent 的 profile 文件。
 - [Done] 首次配置 Provider 后，Desktop 模型列表必须即时刷新，不要求用户重启 App 或服务。
 - [Done] Web Search 首启默认使用无需 API key 的 DuckDuckGo；旧配置缺失 DuckDuckGo engine 时必须自动补齐，`auto` 与显式 `duckduckgo` 都不能因为缺少 API key 被判为不可用。
 - [Done] Desktop Automations 必须允许为 Web Profile 创建任务；Web 创建的提醒/任务必须仍走 watched event JSON 与共享事件运行时执行。
-- [Done] macOS overlay titlebar 下，Chat/Settings/Project/Workspace 顶部空白与标题区域必须可拖动窗口。
+- [Done] macOS overlay titlebar 下，Chat/Settings/Project/Workspace 顶部空白与标题区域必须可拖动窗口；顶部必须有与红黄绿窗口控制区高度匹配的透明拖拽蒙版并调用原生 `startDragging()`；Chat/Project 左侧栏顶部和标题栏非交互子元素也必须是拖拽区域，按钮/输入框不得被拖拽层覆盖。
 - [Follow-up, P1] 在真实打包 App 上复测“先显示窗口、后台启动服务”的启动体验；当前代码路径已异步启动服务且主 Chat 窗口默认可见，如仍慢需继续定位 WebView 首屏资源加载。
 
 ## 2.35 Desktop Release Versioning and Intel DMG (2026-07-08)
@@ -41,6 +51,15 @@
 - [Done] 项目 Session 切换后，右侧详情面板立即显示对应历史消息或明确的空会话状态。
 - [Done] Project 与 Chat 的 Session 列表必须直接复用同一个 `ConversationRow` 组件，不允许只复用相似 class 后继续维护两套重命名/删除交互。
 - [Done] Project/Session 异步加载必须按 Project ID、Session ID 和请求代次保持所有权；首次进入和快速切换时，旧响应不得覆盖当前右侧对话。
+- [Done] Project Chat composer 必须复用 `ChatInputArea`，并由调用方传入真实模型名和 thinking 档位；共享组件不得内置 Project/Chat 分支判断，也不得把无意义的 Bot/Profile 或 Project token 塞入输入区。
+- [Done] Chat 与 Project 共享 composer 必须保持紧凑可用：焦点态不能用过重的高饱和描边，正文区域默认可见多行并可随内容增长，工具区和发送按钮不得挤占正文输入空间。
+- [Done] Desktop Chat 启动时不得把普通会话列表/默认会话选择作为整页 loading 的硬阻塞；侧栏 resize 状态必须能在窗口失焦、鼠标离开或组件销毁时释放，不能让整页长期不可点击。
+- [Done] Projects 左侧只保留项目页语义：顶部“添加项目”、项目分组、项目下 Session 列表、项目名右侧 `+` 新对话；不得搬入 Chat 的新对话/自动任务/技能主导航。
+- [Done] Project 详情头部只展示项目名，不展示本机 root path；Project 侧栏底部提供返回 Chat；Chat 与 Project 侧栏底部品牌入口都使用 Molibot logo，并保持紧凑高度与整行 hover 背景。
+- [Done] Chat 侧栏外部渠道必须使用可渲染的图标；飞书和 QQ 不得引用当前图标字体里不存在的 glyph 名称。
+- [Done] Fresh 自动任务会话（`origin:"automation"` 或 `task-*`）不得进入普通 Chat Session 列表和更多对话弹窗；只通过自动任务历史入口查看。
+- [Done] 外部渠道 `contexts/` 中的历史任务会话也不得进入普通 Chat Session 列表；除 `origin:"automation"` 和 `task-*` 外，旧格式首条用户消息为 `[EVENT:...]` 的会话也必须过滤，只能从自动任务历史查看。
+- [Done] Chat 右侧 Header 必须保持单行，头像显示当前 Bot 名称首字；在线/离线状态由左下 Molibot logo 徽标表达，Header 不再展示在线副标题或设置按钮。
 - 详细实施方案（分 5 个 Slice，含代码锚点、每步理由与验证清单）：`docs/requirements/projects-feature-plan.md`。
 
 ## 2.30 Desktop Chat DESIGN Compliance (2026-07-04)
@@ -3601,6 +3620,7 @@ V1 is complete when a user can chat with Molibot from Telegram, CLI, and Web wit
   - 配置端口仅作为起始首选值；如果启动时已占用，必须向上递增选择第一个可用端口，并通过 runtime state/握手向 Desktop 暴露实际 endpoint。（Delivered 2026-07-07）
   - 关闭主窗口后渠道服务继续运行，Dock 和菜单栏状态项保留；明确退出只停止由 App 启动的 sidecar，不能擅自停止既有外部 Molibot 服务。
   - Desktop Chat 必须覆盖现有 Web Chat 的 session、流式消息、thinking、模型选择、附件、语音、队列、停止/steer/follow-up 和 Host Bash 审批闭环；右侧文件面板只索引当前本地 session。
+  - Desktop Chat 与 Project Chat 的输入区、消息区、审批卡和右侧 header 必须通过共享展示组件复用；组件内部不得用大批 project/chat 分支判断，业务差异由调用方通过 props、slot 和回调提供。（Delivered 2026-07-09）
   - Desktop Chat 的 Assistant 回复采用连续内容流：thinking、工具活动与最终正文共享同一内容列，不使用相互割裂的卡片；用户消息保持右对齐并使用 Geist 中性背景，不使用强调蓝填充。（Delivered 2026-07-06）
   - Desktop transcript 必须从 Agent context 恢复已持久化的 thinking，并按用户轮次聚合工具调用之间的多段 reasoning；刷新或重新打开历史会话不得丢失思考过程，也不得要求复制保存第二份 thinking。（Delivered 2026-07-06）
   - Telegram、Feishu、QQ、Weixin 会话必须按渠道和 Bot 实例只读聚合并实时更新；新消息需在共享 session 层保存发送者、会话、线程/Topic、Bot 实例和附件元数据，Channel 只负责平台字段转换。

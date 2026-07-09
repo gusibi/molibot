@@ -9,6 +9,7 @@ import {
   buildBotNameResolver,
   buildExternalItems,
   buildWebItems,
+  classifyWebPurpose,
   clampLimit,
   decodeCursor,
   encodeCursor,
@@ -185,6 +186,38 @@ test("buildWebItems maps entries, marks deleted profiles, and keeps web read/wri
   assert.equal(items[1].botDeleted, true);
   assert.equal(items[1].purpose, "project");
   assert.equal(items[1].latestMessagePreview, undefined);
+});
+
+test("buildWebItems classifies fresh automation sessions so the sidebar can filter them", () => {
+  const items = buildWebItems([
+    {
+      conversation: { id: "task-20260709-abcd", title: "Daily report", updatedAt: "2026-07-09T00:00:00Z" },
+      externalUserId: "web:personal:web-anonymous",
+      lastMessageText: "automation output"
+    },
+    {
+      conversation: { id: "s-automation-origin", title: "Explicit automation", updatedAt: "2026-07-09T00:01:00Z", origin: "automation" },
+      externalUserId: "web:personal:web-anonymous",
+      lastMessageText: "automation output"
+    },
+    {
+      conversation: { id: "s-normal", title: "Normal chat", updatedAt: "2026-07-09T00:02:00Z" },
+      externalUserId: "web:personal:web-anonymous",
+      lastMessageText: "hello"
+    }
+  ], fakeResolver);
+
+  assert.equal(items[0].purpose, "automation");
+  assert.equal(items[1].purpose, "automation");
+  assert.equal(items[2].purpose, "conversation");
+  assert.deepEqual(items.filter((item) => item.purpose === "conversation").map((item) => item.sessionId), ["s-normal"]);
+});
+
+test("classifyWebPurpose keeps project above automation fallbacks", () => {
+  assert.equal(classifyWebPurpose({ id: "task-project", projectId: "p-1", origin: "automation" }), "project");
+  assert.equal(classifyWebPurpose({ id: "task-legacy" }), "automation");
+  assert.equal(classifyWebPurpose({ id: "s-origin", origin: "automation" }), "automation");
+  assert.equal(classifyWebPurpose({ id: "s-normal" }), "conversation");
 });
 
 test("buildExternalItems marks external sessions read-only and recovers bot id", () => {

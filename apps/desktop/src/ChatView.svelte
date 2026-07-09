@@ -63,9 +63,11 @@
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
   import ConversationTranscript from "./lib/chat/ConversationTranscript.svelte";
   import type { TranscriptAttachmentActions } from "./lib/chat/transcript";
-  import ConversationLiveView from "./lib/chat/ConversationLiveView.svelte";
-  import ChatComposerShell from "./lib/chat/ChatComposerShell.svelte";
+  import ApprovalCard from "./lib/chat/ApprovalCard.svelte";
+  import ChatInputArea from "./lib/chat/ChatInputArea.svelte";
+  import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
   import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
+  import WindowDragMask from "./lib/WindowDragMask.svelte";
   import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
   import ConversationBrowserDialog from "./lib/chat/ConversationBrowserDialog.svelte";
   import BotMention from "./lib/chat/BotMention.svelte";
@@ -82,6 +84,7 @@
   export let setLaunchAtLogin: (enabled: boolean) => Promise<boolean>;
   export let openSettings: (section?: string) => void;
   export let openProjects: () => void;
+  export let requestedWorkspacePane: ChatWorkspacePaneName = "chat";
 
   const PROFILE_STORAGE_KEY = "molibot-desktop-profile";
   const LAST_BOT_KEY = "molibot-desktop-last-bot";
@@ -135,8 +138,10 @@
   let activeExternalSessionId = "";
   let activeExternalTitle = "";
   let activeExternalChannel = "";
+  let activeExternalBotName = "";
   let viewMode: "local" | "external" = "local";
-  let workspacePane: ChatWorkspacePaneName = "chat";
+  let workspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
+  let appliedRequestedWorkspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
 
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
   const SIDEBAR_MIN = 220;
@@ -152,6 +157,8 @@
     resizingSidebar = true;
     window.addEventListener("mousemove", onSidebarResize);
     window.addEventListener("mouseup", stopSidebarResize);
+    window.addEventListener("blur", stopSidebarResize);
+    document.addEventListener("mouseleave", stopSidebarResize);
   }
   function onSidebarResize(event: MouseEvent): void {
     if (!resizingSidebar) return;
@@ -162,6 +169,8 @@
     resizingSidebar = false;
     window.removeEventListener("mousemove", onSidebarResize);
     window.removeEventListener("mouseup", stopSidebarResize);
+    window.removeEventListener("blur", stopSidebarResize);
+    document.removeEventListener("mouseleave", stopSidebarResize);
     localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
   }
   function onSidebarKeydown(event: KeyboardEvent): void {
@@ -308,13 +317,28 @@
     const slash = activeModelFullLabel.lastIndexOf("/");
     return (slash >= 0 ? activeModelFullLabel.slice(slash + 1) : activeModelFullLabel).trim();
   })();
-  $: thinkingLabel = ({ off: copy.thinkingOff, low: copy.thinkingLow, medium: copy.thinkingMedium, high: copy.thinkingHigh } as Record<DesktopThinkingLevel, string>)[thinkingLevel] ?? copy.thinkingLevel;
+  $: thinkingLabel = {
+    off: copy.thinkingOff,
+    low: copy.thinkingLow,
+    medium: copy.thinkingMedium,
+    high: copy.thinkingHigh
+  }[thinkingLevel];
+  $: if (requestedWorkspacePane !== appliedRequestedWorkspacePane) {
+    appliedRequestedWorkspacePane = requestedWorkspacePane;
+    workspacePane = requestedWorkspacePane;
+  }
   $: activeBotName = profiles.find((profile) => profile.id === (draftMode ? draftProfileId : activeProfileId))?.name ?? copy.bot;
+  $: activeHeaderBotName = viewMode === "external" ? (activeExternalBotName || copy.bot) : activeBotName;
+  $: activeHeaderAvatar = activeHeaderBotName.trim().charAt(0).toUpperCase() || "M";
   $: activeSessionTitle = expandedItems.find((item) => item.sessionId === activeSessionId)?.title ?? copy.chat;
   $: sidebarActiveSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
   $: sidebarChannels = buildSidebarChannels(profiles, channelSummary);
   $: searchMatchIds = findTranscriptMatches(messages, searchOpen ? searchQuery : "");
   $: activeMatchId = searchMatchIds[Math.min(searchIndex, Math.max(searchMatchIds.length - 1, 0))] ?? "";
+  $: approvalOptions = pendingApproval?.options.map((option) => ({
+    id: option.id,
+    label: approvalOptionLabel(option)
+  })) ?? [];
   $: if (
     serviceState === "ready" &&
     serviceEndpoint &&
@@ -353,6 +377,7 @@
     activeExternalSessionId = "";
     activeExternalTitle = "";
     activeExternalChannel = "";
+    activeExternalBotName = "";
     viewMode = "local";
     externalTranscript = null;
     sessionFiles = [];
@@ -365,8 +390,8 @@
     return [
       { id: "web", icon: "globe", name: copy.channelWeb, configured: profilesList.length > 0 },
       { id: "telegram", icon: "telegram-logo", name: "Telegram", configured: enabled("telegram") > 0 },
-      { id: "feishu", icon: "lark-logo", name: copy.channelFeishu, configured: enabled("feishu") > 0 },
-      { id: "qq", icon: "qq-logo", name: "QQ", configured: enabled("qq") > 0 },
+      { id: "feishu", icon: "bird", name: copy.channelFeishu, configured: enabled("feishu") > 0 },
+      { id: "qq", icon: "linux-logo", name: "QQ", configured: enabled("qq") > 0 },
       { id: "weixin", icon: "wechat-logo", name: copy.channelWeixin, configured: enabled("weixin") > 0 }
     ];
   }
@@ -482,7 +507,8 @@
         }
       });
 
-      await selectDefaultSession(generation);
+      loading = false;
+      void selectDefaultSession(generation);
       void chatStore.reconnect();
       startReconnectPoll();
     } catch (cause) {
@@ -581,7 +607,7 @@
       void loadExpanded();
     }
     if (item.readOnly) {
-      void openExternalTranscript(item.sessionId, item.channel, item.title);
+      void openExternalTranscript(item.sessionId, item.channel, item.title, item.botName);
       return;
     }
     workspacePane = "chat";
@@ -635,13 +661,14 @@
     browserOpen = true;
   }
 
-  async function openExternalTranscript(sessionId: string, channel: string, title: string): Promise<void> {
+  async function openExternalTranscript(sessionId: string, channel: string, title: string, botName: string): Promise<void> {
     if (!connectedEndpoint || sessionId === activeExternalSessionId) return;
     workspacePane = "chat";
     viewMode = "external";
     activeExternalSessionId = sessionId;
     activeExternalTitle = title;
     activeExternalChannel = channel;
+    activeExternalBotName = botName;
     externalTranscript = null;
     externalTranscriptError = "";
     externalTranscriptLoading = true;
@@ -661,6 +688,7 @@
     activeExternalSessionId = "";
     activeExternalTitle = "";
     activeExternalChannel = "";
+    activeExternalBotName = "";
   }
 
   function dismissOnboarding(): void {
@@ -1060,6 +1088,10 @@
     await chatStore.resolveApproval(decision);
   }
 
+  function resolveApprovalId(decision: string): void {
+    void resolveApproval(decision as DesktopApprovalDecision);
+  }
+
   async function changeModel(event: Event): Promise<void> {
     if (!connectedEndpoint || sending || changingModel) return;
     changingModel = true;
@@ -1196,12 +1228,6 @@
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   }
 
-  function formatDuration(seconds: number): string {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${String(s).padStart(2, "0")}`;
-  }
-
   function startRecordingTimer(): void {
     recordingSeconds = 0;
     recordingTimer = setInterval(() => { recordingSeconds += 1; }, 1000);
@@ -1322,6 +1348,7 @@
 
   onDestroy(() => {
     connectionGeneration += 1;
+    stopSidebarResize();
     stopReconnectPoll();
     chatStore.disposeAll();
     stopRecordingTimer();
@@ -1342,6 +1369,7 @@
   class:resizing={resizingSidebar}
   style={`--sidebar-w:${sidebarWidth}px`}
 >
+  <WindowDragMask />
   <ChatSidebar
     {copy}
     channels={sidebarChannels}
@@ -1350,6 +1378,7 @@
     expandedHasMore={expandedHasMore}
     expandedLoading={expandedLoading}
     activeSessionId={sidebarActiveSessionId}
+    serviceState={serviceState}
     {statusDots}
     formatTime={formatListTime}
     onNewConversation={newConversation}
@@ -1384,16 +1413,9 @@
     {:else}
     <header class="chat-header" data-tauri-drag-region>
       <div class="chat-title-block" data-tauri-drag-region>
-        <div class="chat-header-avatar" aria-hidden="true">{viewMode === "external" ? (activeExternalTitle?.replace(/^@/, "").charAt(0) || "·") : "M"}</div>
+        <div class="chat-header-avatar" data-tauri-drag-region aria-hidden="true">{activeHeaderAvatar}</div>
         <div class="chat-title-text" data-tauri-drag-region>
-          <div class="chat-title-name">{viewMode === "external" ? (activeExternalTitle || copy.chat) : activeSessionTitle}</div>
-          <div class="chat-title-sub">
-            {#if viewMode !== "external"}
-              <span>{activeBotName}</span>
-            {/if}
-            <span class="status-dot" data-state={serviceState}></span>
-            <span>{serviceState === "ready" ? copy.statusOnline : copy.statusOffline}</span>
-          </div>
+          <div class="chat-title-name" data-tauri-drag-region>{viewMode === "external" ? (activeExternalTitle || copy.chat) : activeSessionTitle}</div>
         </div>
       </div>
       <div class="header-actions">
@@ -1420,9 +1442,6 @@
             {#if sessionFiles.length}<span class="icon-badge">{sessionFiles.length}</span>{/if}
           </button>
         {/if}
-        <button class="icon-button" type="button" aria-label={copy.openSettings} title={copy.openSettings} onclick={() => openSettings()}>
-          <i class="ph ph-gear-six" aria-hidden="true"></i>
-        </button>
       </div>
     </header>
 
@@ -1464,9 +1483,8 @@
         <h2>{copy.chat}</h2>
         <p>{copy.externalChannelsHint}</p>
       </div>
-    {:else}
+    {:else if viewMode === "external"}
       <div class="messages" bind:this={messagesElement} use:stickToBottom={activeSessionId} aria-live="polite">
-        {#if viewMode === "external"}
           {#if externalTranscriptLoading}
             <div class="conversation-empty">
               <h2>{copy.loading}</h2>
@@ -1489,180 +1507,102 @@
             {/if}
             <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} />
           {/if}
-        {:else}
-          <ConversationLiveView
-            {messages}
-            {copy}
-            formatTime={formatSessionTime}
-            {sending}
-            {streamingText}
-            {streamingThinking}
-            {activity}
-            activities={activityEntries}
-            emptyTitle={copy.emptyChatTitle}
-            emptyHint={copy.emptyChatHint}
-            {searchMatchIds}
-            {activeMatchId}
-            showReadReceipt={true}
-            attachmentActions={transcriptAttachmentActions}
-          />
-        {#if pendingApproval}
-          <div class="approval-card" role="alertdialog" aria-label={copy.approvalTitle}>
-            <strong class="approval-title">⚠️ {copy.approvalTitle}</strong>
-            <div class="approval-field">
-              <span>{copy.approvalCommand}</span>
-              <code>{pendingApproval.command}</code>
-            </div>
-            {#if pendingApproval.reason}
-              <div class="approval-field">
-                <span>{copy.approvalReason}</span>
-                <p>{pendingApproval.reason}</p>
-              </div>
-            {/if}
-            <div class="approval-actions">
-              {#each pendingApproval.options as option (option.id)}
-                <button
-                  type="button"
-                  class:danger-action={option.id === "reject"}
-                  disabled={sending}
-                  onclick={() => resolveApproval(option.id as DesktopApprovalDecision)}
-                >{approvalOptionLabel(option)}</button>
-              {/each}
-            </div>
-          </div>
-        {/if}
-        {/if}
       </div>
-
-      {#if viewMode === "external"}
-        {#if externalTranscript}
-          <footer class="composer-wrap">
-            <p class="external-readonly-notice">
-              {copy.externalSessionReadOnly}
-            </p>
-          </footer>
-        {/if}
-      {:else}
+      {#if externalTranscript}
         <footer class="composer-wrap">
-          {#if !modelReady}
-            <div class="model-banner" role="status">
-              <div>
-                <strong>{copy.noModelBannerTitle}</strong>
-                <p>{copy.noModelBannerHint}</p>
-              </div>
-              <button class="secondary-button" type="button" onclick={() => openSettings()}>{copy.openSettings}</button>
-            </div>
-          {/if}
-          {#if error || chatError}<div class="composer-error" role="alert"><i class="ph ph-warning-circle" aria-hidden="true"></i><span><strong>{copy.chatErrorTitle}</strong>{error || chatError}</span><button type="button" aria-label={copy.chatErrorDismiss} onclick={() => { error = ""; chatStore.clearActiveError?.(); }}><i class="ph ph-x" aria-hidden="true"></i></button></div>{/if}
-          {#if recordingError}<div class="composer-error" role="alert"><i class="ph ph-warning-circle" aria-hidden="true"></i><span><strong>{copy.chatErrorTitle}</strong>{recordingError}</span><button type="button" aria-label={copy.chatErrorDismiss} onclick={() => (recordingError = "")}><i class="ph ph-x" aria-hidden="true"></i></button></div>{/if}
-          {#if queuedMessages.length > 0}
-            <div class="queued-messages">
-              <span class="queued-badge">{copy.queued} · {queuedMessages.length}</span>
-              {#each queuedMessages as queued, index (index)}
-                <span class="pending-chip">
-                  <span class="pending-name" title={queued}>{queued}</span>
-                  <button type="button" aria-label={copy.removeQueued} onclick={() => removeQueued(index)}>×</button>
-                </span>
-              {/each}
-            </div>
-          {/if}
-          {#if pendingFiles.length > 0}
-            <div class="pending-files">
-              {#each pendingFiles as file, index (index)}
-                <span class="pending-chip" data-kind={inferAttachmentKind(file)}>
-                  <span class="pending-name" title={file.name}>{file.name}</span>
-                  {#if pendingAudioUrls.get(file)}
-                    <!-- svelte-ignore a11y_media_has_caption -->
-                    <audio class="pending-audio" controls src={pendingAudioUrls.get(file)}></audio>
-                  {/if}
-                  <button type="button" aria-label={copy.removeFile} disabled={sending} onclick={() => removePendingFile(index)}>×</button>
-                </span>
-              {/each}
-            </div>
-          {/if}
-          <ChatComposerShell
-            bind:value={messageInput}
-            {copy}
-            {sending}
-            disabled={!modelReady || (!draftMode && !activeSessionId)}
-            canSend={Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}
-            placeholder={sending ? copy.queueHint : copy.enterHint}
-            onSend={sendMessage}
-            onStop={stopRun}
-            onKeydown={handleComposerKeydown}
-          >
-            <input
-              bind:this={fileInput}
-              type="file"
-              multiple
-              hidden
-              onchange={onFilesPicked}
-            />
-            {#if profiles.length > 0 && (draftMode || activeSessionId)}
-              <BotMention
-                mode={draftMode ? "select" : "locked"}
-                bots={botOptions}
-                selectedId={draftMode ? draftProfileId : activeProfileId}
-                onSelect={(id) => chatStore.setDraftProfileId(id)}
-                labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
-              />
-            {/if}
-            {#if recording}
-              <div class="recording-bar" role="status" aria-live="polite">
-                <span class="recording-indicator" aria-hidden="true"></span>
-                <span class="recording-label">{copy.recording}</span>
-                <time>{formatDuration(recordingSeconds)}</time>
-                <button type="button" class="recording-action" onclick={() => finishRecording(false)}>{copy.cancel}</button>
-                <button type="button" class="recording-action primary" onclick={() => finishRecording(true)}>{copy.finishRecording}</button>
-              </div>
-            {/if}
-              <div class="composer-tools" slot="tools">
-                <button
-                  class="composer-tool"
-                  type="button"
-                  aria-label={copy.addFiles}
-                  title={copy.addFiles}
-                  disabled={(!draftMode && !activeSessionId) || sending || !modelReady}
-                  onclick={() => fileInput?.click()}
-                ><i class="ph ph-paperclip" aria-hidden="true"></i></button>
-              </div>
-              <div class="composer-selectors" slot="selectors">
-                <label class="composer-pill" title={activeModelFullLabel}>
-                  <i class="ph ph-cpu" aria-hidden="true"></i>
-                  <span class="composer-pill-label">{activeModelLabel}</span>
-                  <select value={activeModelKey} disabled={sending || changingModel || modelOptions.length === 0} onchange={changeModel} aria-label={copy.model}>
-                    {#each modelOptions as model (model.key)}
-                      <option value={model.key}>{model.label}</option>
-                    {/each}
-                  </select>
-                  <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
-                </label>
-                <label class="composer-pill">
-                  <i class="ph ph-brain" aria-hidden="true"></i>
-                  <span class="composer-pill-label">{thinkingLabel}</span>
-                  <select bind:value={thinkingLevel} disabled={sending} aria-label={copy.thinkingLevel}>
-                    <option value="off">{copy.thinkingOff}</option>
-                    <option value="low">{copy.thinkingLow}</option>
-                    <option value="medium">{copy.thinkingMedium}</option>
-                    <option value="high">{copy.thinkingHigh}</option>
-                  </select>
-                  <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
-                </label>
-              </div>
-              <button
-                slot="action"
-                class="composer-tool"
-                class:recording={recording}
-                type="button"
-                aria-label={recording ? copy.finishRecording : copy.startRecording}
-                title={recording ? copy.finishRecording : copy.startRecording}
-                aria-pressed={recording}
-                disabled={(!draftMode && !activeSessionId) || sending || !modelReady}
-                onclick={toggleRecording}
-              ><i class="ph ph-microphone" aria-hidden="true"></i></button>
-          </ChatComposerShell>
+          <p class="external-readonly-notice">
+            {copy.externalSessionReadOnly}
+          </p>
         </footer>
       {/if}
+    {:else}
+      <ChatMessagesPane
+        bind:messagesElement
+        {messages}
+        {copy}
+        formatTime={formatSessionTime}
+        stickKey={activeSessionId}
+        {sending}
+        {streamingText}
+        {streamingThinking}
+        {activity}
+        activities={activityEntries}
+        emptyTitle={copy.emptyChatTitle}
+        emptyHint={copy.emptyChatHint}
+        {searchMatchIds}
+        {activeMatchId}
+        showReadReceipt={true}
+        attachmentActions={transcriptAttachmentActions}
+      >
+        {#if pendingApproval}
+          <ApprovalCard
+            title={copy.approvalTitle}
+            commandLabel={copy.approvalCommand}
+            reasonLabel={copy.approvalReason}
+            command={pendingApproval.command}
+            reason={pendingApproval.reason}
+            options={approvalOptions}
+            disabled={sending}
+            onResolve={resolveApprovalId}
+          />
+        {/if}
+      </ChatMessagesPane>
+      <input
+        bind:this={fileInput}
+        type="file"
+        multiple
+        hidden
+        onchange={onFilesPicked}
+      />
+      <ChatInputArea
+        bind:value={messageInput}
+        bind:thinkingLevel
+        {copy}
+        {sending}
+        disabled={!modelReady || (!draftMode && !activeSessionId)}
+        canSend={Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}
+        placeholder={sending ? copy.queueHint : copy.enterHint}
+        {modelReady}
+        {modelOptions}
+        {activeModelKey}
+        {activeModelLabel}
+        activeModelTitle={activeModelFullLabel}
+        thinkingLevelLabel={thinkingLabel}
+        {changingModel}
+        error={error || chatError}
+        {recordingError}
+        {queuedMessages}
+        {pendingFiles}
+        {pendingAudioUrls}
+        {recording}
+        {recordingSeconds}
+        showSettingsAction={true}
+        fileToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady}
+        recordingToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady}
+        inferAttachmentKind={inferAttachmentKind}
+        onSend={sendMessage}
+        onStop={stopRun}
+        onKeydown={handleComposerKeydown}
+        onPickFiles={() => fileInput?.click()}
+        onToggleRecording={toggleRecording}
+        onFinishRecording={(send) => void finishRecording(send)}
+        onRemoveQueued={removeQueued}
+        onRemoveFile={removePendingFile}
+        onDismissError={() => { error = ""; chatStore.clearActiveError?.(); }}
+        onDismissRecordingError={() => (recordingError = "")}
+        onOpenSettings={() => openSettings()}
+        onChangeModel={changeModel}
+      >
+        {#if profiles.length > 0 && (draftMode || activeSessionId)}
+          <BotMention
+            mode={draftMode ? "select" : "locked"}
+            bots={botOptions}
+            selectedId={draftMode ? draftProfileId : activeProfileId}
+            onSelect={(id) => chatStore.setDraftProfileId(id)}
+            labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
+          />
+        {/if}
+      </ChatInputArea>
     {/if}
     {/if}
   </section>

@@ -1176,3 +1176,74 @@ test("runner matches read skill paths after tool path correction", async () => {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("videoGenerate submissions are blocked after a successful submission in the same run", async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-video-"));
+  try {
+    const runner = await createRunnerForHookTest({
+      chatId: "chat-video",
+      workspaceDir,
+      hookManager: createRunnerHookManager([])
+    });
+    const r = runner as any;
+
+    // No submission yet: a new submission passes the gate.
+    assert.equal(
+      r.resolveRepeatVideoSubmissionBlock({ toolCall: { name: "videoGenerate" }, args: { prompt: "a cat" } }),
+      undefined
+    );
+
+    // Failed submissions are not tracked.
+    r.trackVideoSubmission({
+      toolCall: { id: "call-0", name: "videoGenerate" },
+      args: { prompt: "a cat" },
+      result: { details: { status: "failed" } },
+      isError: true
+    });
+    assert.equal(
+      r.resolveRepeatVideoSubmissionBlock({ toolCall: { name: "videoGenerate" }, args: { prompt: "a cat" } }),
+      undefined
+    );
+
+    // Successful submission is tracked from the tool result details.
+    r.trackVideoSubmission({
+      toolCall: { id: "call-1", name: "videoGenerate" },
+      args: { prompt: "a cat" },
+      result: { details: { status: "processing", taskId: "task-123", engine: "test-engine" } },
+      isError: false
+    });
+
+    const reason = r.resolveRepeatVideoSubmissionBlock({
+      toolCall: { name: "videoGenerate" },
+      args: { prompt: "another cat" }
+    });
+    assert.match(String(reason), /task-123/);
+
+    // Progress checks with a taskId stay allowed, and other tools are unaffected.
+    assert.equal(
+      r.resolveRepeatVideoSubmissionBlock({
+        toolCall: { name: "videoGenerate" },
+        args: { taskId: "task-123", engine: "test-engine" }
+      }),
+      undefined
+    );
+    assert.equal(
+      r.resolveRepeatVideoSubmissionBlock({ toolCall: { name: "bash" }, args: {} }),
+      undefined
+    );
+
+    // Progress checks must not overwrite the tracked submission.
+    r.trackVideoSubmission({
+      toolCall: { id: "call-2", name: "videoGenerate" },
+      args: { taskId: "task-123", engine: "test-engine" },
+      result: { details: { status: "processing", taskId: "task-123" } },
+      isError: false
+    });
+    assert.match(
+      String(r.resolveRepeatVideoSubmissionBlock({ toolCall: { name: "videoGenerate" }, args: { prompt: "x" } })),
+      /task-123/
+    );
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});

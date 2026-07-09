@@ -34,6 +34,10 @@ const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
 const runActivity = read("./lib/chat/RunActivity.svelte");
 const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
 const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
+const chatInputArea = read("./lib/chat/ChatInputArea.svelte");
+const chatMessagesPane = read("./lib/chat/ChatMessagesPane.svelte");
+const chatHeader = read("./lib/chat/ChatHeader.svelte");
+const recordingBar = read("./lib/chat/RecordingBar.svelte");
 const projectChat = read("./lib/projects/ProjectChat.svelte");
 const conversationController = read("./lib/chat/conversationController.svelte.ts");
 const transcriptHelpers = read("./lib/chat/transcript.ts");
@@ -42,14 +46,18 @@ const formSectionKey = { agent: "agents", mcp: "mcp", channel: "channels", profi
 
 test("chat composer keeps keyboard guidance in the textarea placeholder", () => {
   assert.match(view, /placeholder=\{sending \? copy\.queueHint : copy\.enterHint\}/);
-  assert.match(chatComposerShell, /<textarea bind:value/);
+  assert.match(chatComposerShell, /<textarea[^>]*bind:value[^>]*\{placeholder\}[^>]*onkeydown=\{onKeydown\}/);
+  assert.match(chatComposerShell, /<textarea[^>]*rows="2"/);
+  assert.match(chatComposerShell, /scrollHeight/);
   assert.doesNotMatch(view, /class="composer-hint"/);
 });
 
 test("microphone control starts recording and exposes a timer bar", () => {
-  assert.match(view, /onclick=\{toggleRecording\}/);
-  assert.match(view, /class="recording-bar"/);
-  assert.match(view, /formatDuration\(recordingSeconds\)/);
+  assert.match(view, /onToggleRecording=\{toggleRecording\}/);
+  assert.match(chatInputArea, /onclick=\{onToggleRecording\}/);
+  assert.match(chatInputArea, /<RecordingBar/);
+  assert.match(recordingBar, /class="recording-bar"/);
+  assert.match(recordingBar, /seconds % 60/);
   assert.match(infoPlist, /<key>NSMicrophoneUsageDescription<\/key>/);
 });
 
@@ -87,7 +95,7 @@ test("sidebar conversation rows expose a rename/delete menu", () => {
 });
 
 test("chat primary navigation stays in the Chat workspace", () => {
-  assert.match(view, /let workspacePane: ChatWorkspacePaneName = "chat"/);
+  assert.match(view, /let workspacePane: ChatWorkspacePaneName = requestedWorkspacePane/);
   assert.match(view, /openWorkspacePane\("automations"\)/);
   assert.match(view, /openWorkspacePane\("skills"\)/);
   assert.doesNotMatch(view, /onclick=\{\(\) => openSettings\("tasks"\)\}/);
@@ -95,6 +103,53 @@ test("chat primary navigation stays in the Chat workspace", () => {
   // "New chat" enters a not-yet-persisted draft; a row click opens that session.
   assert.match(view, /chatStore\.newConversationDraft\(/);
   assert.match(view, /chatStore\.selectSession\(/);
+});
+
+test("chat header is single-line and service status lives on the sidebar logo", () => {
+  const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
+  assert.match(view, /activeHeaderAvatar/);
+  assert.match(view, /openExternalTranscript\(item\.sessionId, item\.channel, item\.title, item\.botName\)/);
+  assert.doesNotMatch(view, /activeExternalTitle\?\.replace/);
+  assert.doesNotMatch(view, /class="chat-title-sub"[\s\S]*copy\.statusOnline/);
+  assert.doesNotMatch(view, /aria-label=\{copy\.openSettings\} title=\{copy\.openSettings\}/);
+  assert.match(view, /serviceState=\{serviceState\}/);
+  assert.match(chatSidebar, /sidebar-footer-logo-wrap/);
+  assert.match(chatSidebar, /data-state=\{serviceState\}/);
+});
+
+test("chat shell does not stay click-blocked during startup or sidebar resize", () => {
+  assert.doesNotMatch(view, /await selectDefaultSession\(generation\)/);
+  assert.match(view, /loading = false;\s*void selectDefaultSession\(generation\)/);
+  assert.match(view, /window\.addEventListener\("blur", stopSidebarResize\)/);
+  assert.match(view, /document\.addEventListener\("mouseleave", stopSidebarResize\)/);
+  assert.match(view, /onDestroy\(\(\) => \{[\s\S]*stopSidebarResize\(\)/);
+});
+
+test("desktop top chrome exposes draggable Tauri regions without covering controls", () => {
+  const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
+  const sidebarShell = read("./lib/chat/SidebarShell.svelte");
+  const workspacePane = read("./lib/chat/ChatWorkspacePane.svelte");
+  const windowDragMask = read("./lib/WindowDragMask.svelte");
+  assert.match(view, /<WindowDragMask \/>/);
+  assert.match(app, /<WindowDragMask \/>/);
+  assert.match(windowDragMask, /getCurrentWindow\(\)\.startDragging\(\)/);
+  assert.match(styles, /\.window-drag-mask\s*\{[^}]*position:\s*absolute;[^}]*height:\s*52px;[^}]*z-index:\s*30;/s);
+  assert.match(chatSidebar, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
+  assert.match(sidebarShell, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
+  assert.match(styles, /\.sidebar-titlebar-drag\s*\{[^}]*position:\s*absolute;[^}]*height:\s*30px;/s);
+  assert.match(view, /class="chat-header-avatar" data-tauri-drag-region/);
+  assert.match(chatHeader, /class="chat-header-avatar" data-tauri-drag-region/);
+  assert.match(workspacePane, /class="workspace-header-icon" data-tauri-drag-region/);
+  assert.match(styles, /\.header-actions\s*\{[^}]*z-index:\s*31;/s);
+  assert.doesNotMatch(view, /<button[\s\S]{0,160}data-tauri-drag-region/);
+});
+
+test("external channel groups use icons that exist in the bundled icon font", () => {
+  assert.match(view, /id: "telegram", icon: "telegram-logo"/);
+  assert.match(view, /id: "feishu", icon: "bird"/);
+  assert.match(view, /id: "qq", icon: "linux-logo"/);
+  assert.match(view, /id: "weixin", icon: "wechat-logo"/);
+  assert.doesNotMatch(view, /lark-logo|qq-logo/);
 });
 
 test("automation session detail renders a chat-style transcript", () => {
@@ -127,7 +182,7 @@ test("chat workspace design constraints cover skills, errors, focus, and reachab
   assert.match(sections.skills, /class:expanded=\{expandedIds\.has\(skill\.id\)\}/);
   assert.match(styles, /\.installed-skill-card\s*\{[^}]*align-self:\s*start/s);
   assert.match(styles, /\.installed-skill-copy p\s*\{[^}]*-webkit-line-clamp:\s*3/s);
-  assert.match(view, /class="composer-error" role="alert"/);
+  assert.match(chatInputArea, /class="composer-error" role="alert"/);
   assert.doesNotMatch(view, /messageMediaFailed = failed;\s*error = cause instanceof Error/s);
   assert.match(styles, /button:focus-visible,[\s\S]*box-shadow:\s*0 0 0 2px var\(--card-bg\), 0 0 0 4px var\(--accent\)/);
   assert.match(styles, /@media \(max-width: 820px\)/);
@@ -152,9 +207,17 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   // Both surfaces render the shared presentation and drive the shared turn
   // engine (ConversationController) rather than re-implementing send/stream.
   for (const source of [view, projectChat]) {
-    assert.match(source, /ConversationLiveView/);
-    assert.match(source, /ChatComposerShell/);
+    assert.match(source, /ChatMessagesPane/);
+    assert.match(source, /ChatInputArea/);
   }
+  assert.match(chatMessagesPane, /<ConversationLiveView/);
+  assert.match(chatInputArea, /<ChatComposerShell/);
+  assert.match(chatInputArea, /thinkingLevelLabel/);
+  assert.match(view, /thinkingLevelLabel=\{thinkingLabel\}/);
+  assert.match(projectChat, /thinkingLevelLabel=\{thinkingLabel\}/);
+  assert.match(projectChat, /activeModelTitle=\{activeModelFullLabel\}/);
+  assert.doesNotMatch(projectChat, /<BotMention/);
+  assert.doesNotMatch(projectChat, /project-context-token|defaultWeb|Default Web/);
   // Project chat drives its own controller directly; main chat drives the
   // per-session registry store (which owns the pinned controllers).
   assert.match(view, /ChatSessionStore/);
@@ -198,7 +261,16 @@ test("project sessions render under the active project reusing the chat sidebar 
   const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
   // Project uses the exact same Session row component as Chat rather than a
   // second hand-built row that only shares class names.
-  assert.match(projectList, /class="chat-sidebar"/);
+  assert.match(projectList, /<SidebarShell>/);
+  assert.match(projectList, /copy\.addProject/);
+  assert.doesNotMatch(projectList, /<SidebarNav|copy\.autoTasks|copy\.skillsSquare/);
+  assert.match(projectList, /actionLabel=\{copy\.newChat\}/);
+  assert.match(projectList, /onAction=\{\(\) => void newProjectSession\(\)\}/);
+  assert.match(projectList, /class="sidebar-return"/);
+  assert.match(projectList, /onclick=\{openChat\}/);
+  assert.match(projectList, /class="sidebar-footer"/);
+  assert.match(styles, /\.sidebar-bottom-actions\s*\{[^}]*margin:\s*auto -12px -8px/s);
+  assert.match(styles, /\.sidebar-bottom-actions \.sidebar-footer\s*\{[^}]*padding:\s*0 26px/s);
   assert.match(projectList, /class="conv-group"/);
   assert.match(projectList, /import ConversationRow from "\.\.\/chat\/ConversationRow\.svelte"/);
   assert.match(projectList, /<ConversationRow/);
@@ -213,8 +285,13 @@ test("project detail reuses the chat header chrome for a single visual language"
   const projectsView = readFileSync(new URL("./lib/projects/ProjectsView.svelte", import.meta.url), "utf8");
   assert.match(projectsView, /class="chat-layout projects-layout"/);
   assert.match(projectDetail, /class="chat-content"/);
-  assert.match(projectDetail, /class="chat-header"/);
-  assert.match(projectDetail, /class="chat-header-avatar"/);
+  assert.match(projectDetail, /<ChatHeader/);
+  assert.doesNotMatch(projectDetail, /subtitle=\{project\.rootPath\}/);
+  assert.match(projectDetail, /class="icon-button"[\s\S]*aria-label=\{copy\.delete\}/);
+  assert.match(projectDetail, /class="icon-button"[\s\S]*aria-label=\{copy\.newChat\}/);
+  assert.doesNotMatch(projectDetail, /class="secondary-button" type="button" onclick=\{\(\) => \(confirmDelete = true\)\}/);
+  assert.match(chatHeader, /class="chat-header"/);
+  assert.match(chatHeader, /class="chat-header-avatar"/);
 });
 
 test("selectProjectSession discards stale transcript responses when switching sessions", () => {

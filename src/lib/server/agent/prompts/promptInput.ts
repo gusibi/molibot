@@ -6,6 +6,46 @@ interface PromptInputEnvelopeOptions {
   attachmentPaths?: string[];
   messageTimestamp?: string | number | Date;
   timezone: string;
+  memorySnapshotText?: string;
+}
+
+// Working-memory snapshots ride inside the per-turn envelope (model message
+// only) instead of the system prompt, so the system prompt stays byte-identical
+// across turns and provider prefix caching keeps covering it plus history.
+export function compactPromptMemory(memory: string): string {
+  const source = String(memory ?? "").trim();
+  if (!source) return "(none)";
+
+  const rawLines = source
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const kept: string[] = [];
+  let itemCount = 0;
+  for (const line of rawLines) {
+    if (/^recent daily memory:?$/i.test(line)) {
+      continue;
+    }
+    if (/^long-term memory:?$/i.test(line)) {
+      kept.push("Long-term memory (trimmed):");
+      continue;
+    }
+    if (/^\d+\.\s*/.test(line)) {
+      itemCount += 1;
+      if (itemCount > 5) continue;
+      const compact = line.replace(/\s+/g, " ").trim();
+      kept.push(compact.length > 220 ? `${compact.slice(0, 219).trimEnd()}…` : compact);
+      continue;
+    }
+    if (kept.length < 8) {
+      const compact = line.replace(/\s+/g, " ").trim();
+      kept.push(compact.length > 220 ? `${compact.slice(0, 219).trimEnd()}…` : compact);
+    }
+  }
+
+  if (kept.length === 0) return "(none)";
+  return kept.join("\n");
 }
 
 function resolveMessageTimestamp(value: PromptInputEnvelopeOptions["messageTimestamp"]): Date {
@@ -50,6 +90,10 @@ export function buildPromptInputEnvelope(options: PromptInputEnvelopeOptions): {
   const today = localDateKeyInTimeZone(messageDate, timeZone);
   const scratchArtifactDir = resolveScratchArtifactDir(timeZone, messageDate);
   const persistedMessage = appendAttachmentBlock(options.messageText, attachmentPaths);
+  const memoryText = String(options.memorySnapshotText ?? "").trim();
+  const memoryBlock = memoryText
+    ? ["<current-memory>", compactPromptMemory(memoryText), "</current-memory>", ""]
+    : [];
   const modelMessage = appendAttachmentBlock(
     [
       "<env>",
@@ -59,6 +103,7 @@ export function buildPromptInputEnvelope(options: PromptInputEnvelopeOptions): {
       `scratch_artifact_dir: ${scratchArtifactDir}`,
       "</env>",
       "",
+      ...memoryBlock,
       "<user_message>",
       options.messageText,
       "</user_message>"

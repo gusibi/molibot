@@ -6,6 +6,7 @@
   export let copy: Translation;
   export let endpoint: string | null;
   export let openChat: () => void;
+  export let openSettings: () => void;
   let loadedEndpoint = "";
   // This marker belongs to the component instance, so every Project-page mount
   // reloads its selected transcript while endpoint changes still trigger once.
@@ -16,7 +17,7 @@
 </script>
 
 <main class="chat-layout projects-layout">
-  <ProjectList {copy} {openChat} />
+  <ProjectList {copy} {openChat} {openSettings} />
   <ProjectDetail {copy} />
   {#if projectsStore.error}<p class="projects-error" role="alert">{projectsStore.error}</p>{/if}
 </main>

@@ -114,6 +114,118 @@ test("prepareTurn expires and releases locks older than 10 minutes", () => {
   assert.equal(turn2.runId, `chat-1-${sessionId}-102`);
 });
 
+test("prepareTurn keeps the lock for a long run with a fresh heartbeat", () => {
+  const orchestrator = new TurnOrchestrator();
+  const sessionId = `session-hb-fresh-${Date.now()}-${Math.random()}`;
+  const runId = `run-hb-fresh-${Date.now()}-${Math.random()}`;
+
+  // Long-running turn: started 30 minutes ago but heartbeating right now.
+  const db = new DatabaseSync(storagePaths.settingsDbFile);
+  db.prepare(`
+    INSERT INTO runs (id, session_id, actor_id, channel_id, status, started_at, last_heartbeat)
+    VALUES (?, ?, 'user-1', 'web', 'running', ?, ?)
+  `).run(
+    runId,
+    sessionId,
+    new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    new Date().toISOString()
+  );
+  db.close();
+
+  assert.throws(() => {
+    orchestrator.prepareTurn({
+      chatId: "chat-1",
+      sessionId,
+      message: message({ messageId: 200 })
+    });
+  }, /Another run is currently active in this session/);
+
+  orchestrator.abortRunningTurnsForSession(sessionId, "test cleanup");
+});
+
+test("prepareTurn releases a lock whose heartbeat went stale", () => {
+  const orchestrator = new TurnOrchestrator();
+  const sessionId = `session-hb-stale-${Date.now()}-${Math.random()}`;
+  const runId = `run-hb-stale-${Date.now()}-${Math.random()}`;
+
+  // Recently started but the owning process died: heartbeat is 3 minutes old.
+  const db = new DatabaseSync(storagePaths.settingsDbFile);
+  db.prepare(`
+    INSERT INTO runs (id, session_id, actor_id, channel_id, status, started_at, last_heartbeat)
+    VALUES (?, ?, 'user-1', 'web', 'running', ?, ?)
+  `).run(
+    runId,
+    sessionId,
+    new Date(Date.now() - 4 * 60 * 1000).toISOString(),
+    new Date(Date.now() - 3 * 60 * 1000).toISOString()
+  );
+  db.close();
+
+  const turn = orchestrator.prepareTurn({
+    chatId: "chat-1",
+    sessionId,
+    message: message({ messageId: 201 })
+  });
+  assert.equal(turn.runId, `chat-1-${sessionId}-201`);
+
+  const db2 = new DatabaseSync(storagePaths.settingsDbFile);
+  const row = db2.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string };
+  db2.close();
+  assert.equal(row.status, "failed");
+
+  orchestrator.abortRunningTurnsForSession(sessionId, "test cleanup");
+});
+
+test("heartbeatTurn refreshes running rows and ignores settled rows", () => {
+  const orchestrator = new TurnOrchestrator();
+  const sessionId = `session-hb-touch-${Date.now()}-${Math.random()}`;
+  const runningId = `run-hb-touch-${Date.now()}-${Math.random()}`;
+  const doneId = `run-hb-done-${Date.now()}-${Math.random()}`;
+
+  const db = new DatabaseSync(storagePaths.settingsDbFile);
+  db.prepare(`
+    INSERT INTO runs (id, session_id, actor_id, channel_id, status, started_at)
+    VALUES (?, ?, 'user-1', 'web', 'running', datetime('now'))
+  `).run(runningId, sessionId);
+  db.prepare(`
+    INSERT INTO runs (id, session_id, actor_id, channel_id, status, started_at)
+    VALUES (?, ?, 'user-1', 'web', 'completed', datetime('now'))
+  `).run(doneId, sessionId);
+  db.close();
+
+  assert.equal(orchestrator.heartbeatTurn(runningId), true);
+  assert.equal(orchestrator.heartbeatTurn(doneId), false);
+
+  const db2 = new DatabaseSync(storagePaths.settingsDbFile);
+  const row = db2.prepare("SELECT last_heartbeat FROM runs WHERE id = ?").get(runningId) as { last_heartbeat: string | null };
+  db2.close();
+  assert.ok(row.last_heartbeat, "running row should have a refreshed heartbeat");
+
+  orchestrator.abortRunningTurnsForSession(sessionId, "test cleanup");
+});
+
+test("cleanupStaleRunningTurns keeps long runs with fresh heartbeats", () => {
+  const failed: string[] = [];
+  const store: TurnCleanupStore = {
+    listRunningTurns: () => [
+      // Old start, fresh heartbeat: still alive.
+      { id: "long-alive", status: "running", startedAt: "2026-05-28T00:00:00.000Z", lastHeartbeat: "2026-05-28T01:00:00.000Z" },
+      // Old start, stale heartbeat: dead.
+      { id: "dead", status: "running", startedAt: "2026-05-28T00:00:00.000Z", lastHeartbeat: "2026-05-28T00:30:00.000Z" }
+    ],
+    markTurnFailed: (id) => {
+      failed.push(id);
+    }
+  };
+
+  const count = new TurnOrchestrator().cleanupStaleRunningTurns(store, {
+    now: new Date("2026-05-28T01:00:30.000Z")
+  });
+
+  assert.equal(count, 1);
+  assert.deepEqual(failed, ["dead"]);
+});
+
 test("cleanupStaleRunningTurns fails only expired running records", () => {
   const records: RunningTurnRecord[] = [
     { id: "old-running", status: "running", startedAt: "2026-05-28T00:00:00.000Z" },

@@ -9,11 +9,19 @@
   export let onSend: () => void;
   export let onStop: (() => void) | undefined = undefined;
   export let onKeydown: (event: KeyboardEvent) => void;
+
+  let textarea: HTMLTextAreaElement;
+
+  function resizeTextarea(): void {
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }
 </script>
 
 <div class="composer">
   <slot />
-  <textarea bind:value rows="1" {placeholder} {disabled} onkeydown={onKeydown}></textarea>
+  <textarea bind:this={textarea} bind:value rows="2" {placeholder} {disabled} onkeydown={onKeydown} oninput={resizeTextarea}></textarea>
   <div class="composer-bar">
     <slot name="tools"><div class="composer-tools"></div></slot>
     <slot name="selectors"><div class="composer-selectors"></div></slot>

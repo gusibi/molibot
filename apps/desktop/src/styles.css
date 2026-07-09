@@ -150,7 +150,16 @@ a:focus-visible {
 }
 .settings-layout { grid-template-columns: 228px minmax(0, 1fr); overflow: hidden; isolation: isolate; }
 .settings-layout > * { position: relative; z-index: 1; }
+.window-drag-mask {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 52px;
+  z-index: 30;
+}
 .chat-sidebar, .settings-sidebar {
+  position: relative;
   padding: 30px 12px 8px;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--separator);
@@ -162,6 +171,13 @@ a:focus-visible {
   padding: 0;
   overflow: hidden;
   background: var(--sidebar-bg);
+}
+.sidebar-titlebar-drag {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 30px;
 }
 .brand-row { display: flex; align-items: center; gap: 10px; padding: 2px 8px 14px; }
 .brand-copy { display: grid; gap: 2px; min-width: 0; }
@@ -211,18 +227,19 @@ a:focus-visible {
 .new-chat .ph { font-size: 18px; }
 
 /* Primary nav + knowledge-base shortcuts, per the Momo sidebar design. */
+.sidebar-nav { display: flex; flex-direction: column; gap: 1px; padding: 0 0 8px; margin-bottom: 6px; border-bottom: 1px solid var(--separator); }
 .nav-list { display: flex; flex-direction: column; gap: 1px; padding: 0 4px; }
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 8px;
   height: 40px;
-  padding: 0 12px;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--rounded-sm);
   background: transparent;
   color: inherit;
-  font-size: 14px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
   transition: background .15s ease;
@@ -241,7 +258,7 @@ a:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 54px;
+  height: 46px;
   flex: 0 0 auto;
   margin-top: auto;
   padding: 0 14px;
@@ -254,18 +271,42 @@ a:focus-visible {
   transition: background .15s ease;
 }
 .sidebar-footer:hover { background: var(--fill); }
-.sidebar-avatar {
+.sidebar-bottom-actions {
   display: flex;
-  flex: none;
+  flex-direction: column;
+  flex: 0 0 auto;
+  margin: auto -12px -8px;
+}
+.sidebar-bottom-actions .sidebar-footer {
+  width: 100%;
+  margin-top: 0;
+  padding: 0 26px;
+}
+.sidebar-return {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--gray-1000);
-  color: var(--panel-bg);
+  gap: 10px;
+  width: 100%;
+  height: 38px;
+  padding: 0 26px;
+  border: 0;
+  border-top: 0.5px solid var(--glass-border-dark);
+  background: transparent;
+  color: var(--label-secondary);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.sidebar-return:hover { background: var(--fill); color: var(--label-primary); }
+.sidebar-return .ph { font-size: 17px; color: var(--label-tertiary); }
+.sidebar-avatar {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 .sidebar-footer-info { flex: 1; font-size: 13px; font-weight: 500; color: var(--label-primary); }
 .sidebar-footer > .ph { font-size: 17px; color: var(--label-tertiary); }
@@ -320,35 +361,58 @@ a:focus-visible {
 .conversation-placeholder { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: var(--rounded-sm); background: var(--fill); }
 .conversation-placeholder div { display: grid; gap: 2px; min-width: 0; }
 .conversation-placeholder small { color: var(--label-secondary); }
-.conversation-list { display: flex; flex-direction: column; gap: 1px; overflow: auto; flex: 1; min-height: 0; padding: 0 0 6px; }
+.conversation-list { display: flex; flex-direction: column; gap: 1px; overflow: auto; flex: 1; min-height: 0; padding: 2px 0 6px; }
 .conversation-row { position: relative; border-radius: var(--rounded-sm); margin: 1px 8px; overflow: hidden; }
-/* Sessions sit under a collapsible group, so indent them left of their parent's
-   tile to read as nested items rather than peers of the bot/project row. */
-.conv-group .conversation-row { margin-left: 26px; }
 .conversation-row:hover { background: var(--fill); }
 .conversation-row.active { background: var(--accent-soft); }
 
 /* Date group headers, per the Momo sidebar's grouped conversations. */
 .conv-group { position: relative; display: flex; flex-direction: column; gap: 1px; margin-top: 2px; }
-/* Vertical guide line tying an expanded group's sessions to their parent. It
-   spans only the session area below the head, so it collapses to nothing (and
-   paints nothing) when the group is closed and only the head remains. */
-.conv-group::before { content: ""; position: absolute; left: 19px; top: 37px; bottom: 6px; width: 1.5px; border-radius: 1px; background: var(--separator); pointer-events: none; }
 .conv-group-head {
   display: flex;
   align-items: center;
-  gap: 8px;
   height: 34px;
-  padding: 0 10px;
+  margin: 0 4px;
   border: 0;
   border-radius: var(--rounded-sm);
   background: transparent;
   color: inherit;
-  cursor: pointer;
   transition: background .15s ease;
 }
 .conv-group-head:hover { background: var(--fill); }
-.conv-caret { flex: none; margin-left: 2px; font-size: 10px; color: var(--label-tertiary); transition: transform .15s ease; }
+.conv-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.conv-caret-button,
+.conv-group-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--rounded-sm);
+  background: transparent;
+  color: var(--label-tertiary);
+  cursor: pointer;
+}
+.conv-group-action:hover,
+.conv-caret-button:hover { background: var(--fill-hover); color: var(--label-secondary); }
+.conv-group-action .ph { font-size: 14px; }
+.conv-caret { flex: none; font-size: 10px; color: inherit; transition: transform .15s ease; }
 .conv-caret { transform: rotate(-90deg); }
 .conv-caret.open { transform: rotate(0deg); }
 .conv-group-tile {
@@ -356,14 +420,13 @@ a:focus-visible {
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: var(--rounded-sm);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  width: 18px;
+  height: 18px;
+  color: var(--label-tertiary);
 }
-.conv-group-tile .ph-fill { font-size: 12px; color: #fff; }
-.conv-group-label { flex: 1; font-size: 13px; font-weight: 600; color: var(--label-secondary); letter-spacing: 0.01em; min-width: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conv-group-head.open .conv-group-label { color: var(--accent); }
+.conv-group-tile .ph-fill { font-size: 15px; color: inherit; opacity: .7; }
+.conv-group-label { flex: 1; font-size: 12px; font-weight: 500; color: var(--label-secondary); letter-spacing: 0.01em; min-width: 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-group-head.open .conv-group-label { color: var(--label-secondary); }
 .conv-group-badge {
   display: inline-flex;
   flex: none;
@@ -496,7 +559,7 @@ a:focus-visible {
 .secondary-button { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 12px; border: 1px solid var(--control-border); border-radius: var(--rounded-sm); background: var(--card-bg); color: var(--label-primary); font-size: 13px; font-weight: 500; transition: background .12s ease, border-color .12s ease; }
 .secondary-button:hover { background: var(--control-bg-hover); border-color: var(--control-border-strong); }
 .secondary-button:disabled { opacity: .5; cursor: default; }
-.header-actions { display: flex; align-items: center; gap: 8px; }
+.header-actions { position: relative; z-index: 31; display: flex; align-items: center; gap: 8px; }
 .header-actions .secondary-button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
 .workspace-header { flex: 0 0 auto; }
 .workspace-header-icon { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: var(--rounded-md); background: var(--accent-soft); color: var(--accent); }
@@ -833,15 +896,15 @@ a:focus-visible {
 .composer {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px 10px;
+  gap: 4px;
+  padding: 8px 10px 8px;
   border: 1px solid var(--control-border);
   border-radius: var(--rounded-md);
   background: var(--composer-bg);
   box-shadow: var(--soft-shadow);
 }
-.composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--content-bg), 0 0 0 4px var(--accent); }
-.composer textarea { width: 100%; min-width: 0; max-height: 140px; resize: none; padding: 2px 2px 4px; border: 0; outline: 0; background: transparent; line-height: 1.5; font-size: 14px; }
+.composer:focus-within { border-color: color-mix(in srgb, var(--accent) 38%, var(--control-border-strong)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent); }
+.composer textarea { width: 100%; min-width: 0; min-height: 42px; max-height: 180px; resize: none; padding: 0 2px 2px; border: 0; outline: 0; background: transparent; line-height: 1.5; font-size: 14px; overflow-y: auto; }
 .composer textarea::placeholder { color: var(--label-tertiary); }
 .recording-bar {
   display: flex;
@@ -861,7 +924,7 @@ a:focus-visible {
 .recording-action { padding: 4px 8px; border: 0; border-radius: var(--rounded-sm); background: var(--fill); color: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .recording-action.primary { background: var(--accent); color: white; }
 @keyframes recording-pulse { 50% { opacity: .45; transform: scale(.82); } }
-.composer-bar { display: flex; align-items: center; gap: 6px; }
+.composer-bar { display: flex; align-items: center; gap: 5px; }
 .composer-tools { display: flex; align-items: center; gap: 2px; }
 .composer-tool {
   display: flex;
@@ -901,8 +964,8 @@ a:focus-visible {
 .pending-chip[data-kind="video"] { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .pending-chip[data-kind="audio"] { max-width: 320px; border-radius: var(--rounded-md); border-color: color-mix(in srgb, var(--chart-purple) 40%, transparent); }
 .pending-audio { height: 30px; max-width: 220px; }
-.send-button { display: flex; flex: none; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--accent); color: white; cursor: pointer; transition: background .15s ease; }
-.send-button .ph-fill { font-size: 17px; }
+.send-button { display: flex; flex: none; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: var(--accent); color: white; cursor: pointer; transition: background .15s ease; }
+.send-button .ph-fill { font-size: 15px; }
 .send-button:hover:not(:disabled) { background: var(--accent-hover); }
 .send-button:disabled { cursor: default; opacity: .4; }
 .composer-error { display: grid; grid-template-columns: 18px minmax(0, 1fr) 28px; align-items: center; gap: 8px; margin: 0 0 8px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent); border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--danger) 7%, var(--card-bg)); color: var(--danger); font-size: 11px; }
@@ -1796,6 +1859,7 @@ a:focus-visible {
 /* "New chat" affordance at the foot of an expanded project's session list. */
 .conv-new-session { display: flex; align-items: center; gap: 8px; height: 32px; margin: 1px 8px 2px 26px; padding: 0 8px 0 10px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); font-size: 12px; text-align: left; cursor: pointer; transition: background .15s ease, color .15s ease; }
 .conv-new-session:hover { background: var(--fill); color: var(--label-secondary); }
+.conv-new-session.active { background: var(--accent-soft); color: var(--accent); }
 .conv-new-session .ph { font-size: 14px; }
 .project-body { display: flex; min-width: 0; min-height: 0; flex: 1; }
 .project-chat { display: flex; width: 100%; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }

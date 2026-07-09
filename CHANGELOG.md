@@ -1,6 +1,33 @@
 # Molibot ChangeLog
 
+## 2026-07-10
+
+### Agent harness: prompt-cache stability, compaction accuracy, tool-call fidelity, turn heartbeat lease
+- The per-turn working-memory snapshot moved out of the system prompt into a `<current-memory>` block inside the user-message envelope (model message only, never persisted). The system prompt no longer changes with each turn's memory/query, so provider prefix caching now covers the full prompt plus history across turns instead of being invalidated every message.
+- Context-compaction triggering now prefers the exact token usage reported by the provider on the latest assistant response over the char-based estimate, with a compaction-summary timestamp barrier so pre-compaction usage cannot re-trigger compaction in a loop. The char estimator itself now weights CJK characters at ~1 token each instead of chars/4, which had under-counted Chinese conversations by 3-4x and effectively disabled threshold compaction.
+- Fixed the ToolRuntime wrapper dropping per-call identity and progress: registry handlers now receive the real `toolCallId` (previously replaced by the shared `runId`, colliding across parallel calls) and the `onUpdate` streaming callback (previously discarded, silencing tool progress updates).
+- Session turn locks are now heartbeat leases: running turns refresh `runs.last_heartbeat` every 30s, lock conflict/cleanup checks follow the heartbeat (2-minute timeout) instead of a fixed 10-minute wall clock, so legitimate long runs keep their lock for as long as the process lives while crashed runs free the session within ~2 minutes. Legacy rows without heartbeats keep the old 10-minute rule.
+- Verified with the full agent test suite (378 passing; the one failure is a pre-existing skills text-locale assertion unrelated to these changes) and a clean `tsc` on all touched files.
+
+### Agent harness follow-ups: Chinese injection patterns, DB hot path, mechanical videoGenerate guard
+- The prompt-injection scanner for project context files now also matches common Chinese injection phrasings (ignore-previous-instructions, override-system-prompt, hide-from-user), mirroring the existing English patterns; ordinary Chinese project docs are covered by a regression test to avoid false positives.
+- TurnOrchestrator now opens one SQLite connection per orchestrator with schema DDL ensured once at open, instead of an open/CREATE TABLE/close cycle inside every turn operation (prepareTurn, heartbeat, status updates).
+- The "do not call videoGenerate again in the same turn" rule moved from prompt prose to a mechanical gate: after a successful video submission in a run, further submissions are blocked at beforeToolCall with a reason pointing at the existing taskId, while progress checks (calls carrying a taskId) stay allowed. The prompt sentence now just notes the runtime enforcement.
+
 ## 2026-07-09
+
+### Desktop Chat / Project shared input and surface components
+- Fixed macOS window dragging gaps in the Desktop app: Chat and Settings now mount a 52px transparent top drag mask that calls Tauri `startDragging()`, Chat/Project sidebar top chrome still exposes a drag strip, and action buttons remain above the mask and clickable.
+- Fixed a startup deadlock where Chat could remain on "Connecting to local conversations..." while the service was already online: default-session/sidebar loading now happens in the background after core bootstrap, and the sidebar resize state is released on window blur or mouse-leave so it cannot leave the whole page click-blocked.
+- Tightened the shared Chat/Project composer: focus now uses a subtle ring instead of a loud blue outline, vertical padding is reduced, the textarea shows multiple lines by default and auto-grows with content, and the send button is sized to match the nearby microphone control.
+- Fixed missing icons for Feishu and QQ in the Desktop Chat sidebar by replacing unsupported icon-font names with bundled glyphs that render reliably.
+- Fixed fresh automation task sessions leaking into the normal Desktop Chat Session list. The shared conversation query now classifies `origin:"automation"` and `task-*` Web sessions as automation, so they remain available through Automations history instead of the ordinary sidebar/browser.
+- Fixed legacy external-channel automation contexts leaking into the normal Chat Session list. The external `contexts/` projection now also filters `origin:"automation"`, `task-*`, and old `[EVENT:...]` prompt sessions.
+- Simplified the Chat header to one line: the avatar now uses the active Bot initial instead of the conversation-title initial, service status moved to the lower-left logo badge, and the redundant header settings button/status subtitle are gone.
+- Extracted the complete Desktop chat input area into shared components and wired both Chat and Project Chat through it, so composer banners, queued messages, pending files, recording UI, model/thinking selectors, send/stop, and tool buttons now have one implementation.
+- Project Chat now passes the actual model label and thinking-level label into the shared composer instead of showing static "Model / Thinking level" pills, without adding meaningless `@Default Web` or Project-name tokens to the input area.
+- Added shared right-pane pieces for approval cards, message panes, headers, and Project sidebar building blocks while keeping business decisions in each caller instead of adding project/channel conditionals inside generic components. Project keeps project-specific navigation, uses a `+` action beside each project name for new sessions, hides local paths from the header, and has compact bottom actions for returning to Chat plus the logo-based settings entry.
+- Verified with external-session projection tests, Desktop UI structure tests, Desktop `svelte-check`, and production build.
 
 ### Fixed: Project transcript blank on first open until a Chat round-trip
 - On first launch, opening Projects and clicking a Session showed nothing on the right; leaving to Chat and back made it work. `ProjectDetail` gated the whole right pane on a legacy `$:` derivation (`project = projects.find(...)`), and in Svelte 5 a legacy `$:` does not subscribe to external rune `$state`, so it only ran once at init while `projectsStore.projects` was still loading and stayed `undefined`. Converted `ProjectDetail` to runes (`$props`/`$state`/`$derived`) so the derivation tracks the store; the pane now renders as soon as projects load. (`svelte-check` 0/0, desktop UI test 24/24.)

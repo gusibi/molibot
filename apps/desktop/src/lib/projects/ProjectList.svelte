@@ -3,6 +3,8 @@
   import { invoke } from "@tauri-apps/api/core";
   import type { Translation } from "../i18n";
   import ConversationRow from "../chat/ConversationRow.svelte";
+  import GroupHeader from "../chat/GroupHeader.svelte";
+  import SidebarShell from "../chat/SidebarShell.svelte";
   import {
     addProject,
     newProjectSession,
@@ -15,6 +17,7 @@
 
   export let copy: Translation;
   export let openChat: () => void;
+  export let openSettings: () => void;
 
   let adding = false;
   let createStep: "name" | "location" = "name";
@@ -45,7 +48,6 @@
     deletePrompt: copy.deleteConversationPrompt,
     cancel: copy.cancelAction
   };
-
   function formatSessionTime(value: string): string {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "";
@@ -95,32 +97,26 @@
   }
 </script>
 
-<aside class="chat-sidebar">
-  <div class="brand-row">
-    <div class="brand-mark" aria-hidden="true">M</div>
-    <div class="brand-copy"><strong>{copy.projects}</strong></div>
-  </div>
-
-  <div class="nav-list">
-    <button class="nav-item" type="button" onclick={openChat}>
-      <i class="ph ph-arrow-left" aria-hidden="true"></i>
-      <span>{copy.chat}</span>
-    </button>
-    <button class="nav-item" class:active={adding} type="button" onclick={() => void beginAdding()}>
-      <i class="ph ph-folder-plus" aria-hidden="true"></i>
+<SidebarShell>
+  <nav class="sidebar-nav" aria-label={copy.projects}>
+    <button type="button" class="nav-item" class:active={adding} onclick={() => void beginAdding()}>
+      <i class="ph-fill ph-folder-plus" aria-hidden="true"></i>
       <span>{copy.addProject}</span>
     </button>
-  </div>
+  </nav>
 
   <div class="conversation-list">
     {#each projectsStore.projects as project (project.id)}
       {@const isActiveProject = project.id === projectsStore.selectedProjectId}
       <div class="conv-group">
-        <button class="conv-group-head" class:open={isActiveProject} type="button" aria-expanded={isActiveProject} onclick={() => void selectProject(project.id)}>
-          <span class="conv-group-tile" style="background: var(--accent)" aria-hidden="true"><i class="ph-fill ph-notebook"></i></span>
-          <span class="conv-group-label">{project.name}</span>
-          <i class="ph-bold ph-caret-down conv-caret" class:open={isActiveProject} aria-hidden="true"></i>
-        </button>
+        <GroupHeader
+          label={project.name}
+          icon="ph-fill ph-notebook"
+          open={isActiveProject}
+          actionLabel={copy.newChat}
+          onAction={() => void newProjectSession()}
+          onToggle={() => void selectProject(project.id)}
+        />
 
         {#if isActiveProject}
           {#each projectsStore.sessions as session (session.conversationId)}
@@ -141,12 +137,23 @@
               onDelete={() => void removeProjectSession(session.conversationId)}
             />
           {/each}
-          <button class="conv-new-session" type="button" onclick={() => void newProjectSession()}><i class="ph ph-plus" aria-hidden="true"></i>{copy.newChat}</button>
         {/if}
       </div>
     {/each}
   </div>
-</aside>
+
+  <div class="sidebar-bottom-actions">
+    <button class="sidebar-return" type="button" onclick={openChat}>
+      <i class="ph ph-arrow-left" aria-hidden="true"></i>
+      <span>{copy.chat}</span>
+    </button>
+    <button class="sidebar-footer" type="button" onclick={openSettings}>
+      <img class="sidebar-avatar" src="/molibot-icon.png" alt="" aria-hidden="true" />
+      <span class="sidebar-footer-info">Molibot</span>
+      <i class="ph ph-gear" aria-hidden="true"></i>
+    </button>
+  </div>
+</SidebarShell>
 
 {#if adding}
   <div class="project-dialog-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelAdding()}>

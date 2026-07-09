@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
   import { newProjectSession, projectsStore, removeProject } from "../stores/projects.svelte";
+  import ChatHeader from "../chat/ChatHeader.svelte";
   import ProjectChat from "./ProjectChat.svelte";
   // Runes mode (not legacy `$:`) so these derivations track the `projectsStore`
   // rune `$state`. A legacy `$:` only runs once at init and would leave `project`
@@ -16,19 +17,16 @@
 
 {#if project}
   <section class="chat-content">
-    <header class="chat-header" data-tauri-drag-region>
-      <div class="chat-title-block" data-tauri-drag-region>
-        <div class="chat-header-avatar" aria-hidden="true">{projectInitial}</div>
-        <div class="chat-title-text" data-tauri-drag-region>
-          <div class="chat-title-name">{project.name}</div>
-          <div class="chat-title-sub" title={project.rootPath}>{project.rootPath}</div>
-        </div>
-      </div>
-      <div class="header-actions">
-        <button class="secondary-button" type="button" onclick={() => (confirmDelete = true)}>{copy.delete}</button>
-        <button class="secondary-button" type="button" onclick={() => void newProjectSession()}><i class="ph ph-plus" aria-hidden="true"></i>{copy.newChat}</button>
-      </div>
-    </header>
+    <ChatHeader avatar={projectInitial} title={project.name}>
+      <svelte:fragment slot="actions">
+        <button class="icon-button" type="button" aria-label={copy.delete} title={copy.delete} onclick={() => (confirmDelete = true)}>
+          <i class="ph ph-trash" aria-hidden="true"></i>
+        </button>
+        <button class="icon-button" type="button" aria-label={copy.newChat} title={copy.newChat} onclick={() => void newProjectSession()}>
+          <i class="ph ph-plus" aria-hidden="true"></i>
+        </button>
+      </svelte:fragment>
+    </ChatHeader>
     <div class="project-body">{#if projectsStore.selectedSessionId}<ProjectChat {copy} />{:else}<div class="project-empty"><strong>{copy.projectNoSessions}</strong><button class="primary-button" type="button" onclick={() => void newProjectSession()}>{copy.newChat}</button></div>{/if}</div>
   </section>
   {#if confirmDelete}

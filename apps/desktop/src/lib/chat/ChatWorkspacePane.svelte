@@ -12,12 +12,12 @@
 
 <header class="chat-header workspace-header" data-tauri-drag-region>
   <div class="chat-title-block" data-tauri-drag-region>
-    <div class="workspace-header-icon" aria-hidden="true">
-      <i class={`ph-fill ph-${pane === "automations" ? "clock-countdown" : "magic-wand"}`}></i>
+    <div class="workspace-header-icon" data-tauri-drag-region aria-hidden="true">
+      <i class={`ph-fill ph-${pane === "automations" ? "clock-countdown" : "magic-wand"}`} data-tauri-drag-region></i>
     </div>
     <div class="chat-title-text" data-tauri-drag-region>
-      <div class="chat-title-name">{pane === "automations" ? copy.autoTasks : copy.skillsSquare}</div>
-      <div class="chat-title-sub">{pane === "automations" ? copy.tasksHint : copy.installedSkillsHint}</div>
+      <div class="chat-title-name" data-tauri-drag-region>{pane === "automations" ? copy.autoTasks : copy.skillsSquare}</div>
+      <div class="chat-title-sub" data-tauri-drag-region>{pane === "automations" ? copy.tasksHint : copy.installedSkillsHint}</div>
     </div>
   </div>
 </header>

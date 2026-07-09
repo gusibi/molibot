@@ -96,6 +96,9 @@ import {
 import { prepareEnrichedInput } from "$lib/server/agent/core/runnerInputEnricher.js";
 
 const TOOL_BUDGET_EXHAUSTED_CODE = "RUN_TOOL_BUDGET_EXHAUSTED";
+// Stable placeholder: the real snapshot is injected per turn via the user
+// message envelope so the system prompt never varies with memory contents.
+const SYSTEM_PROMPT_MEMORY_PLACEHOLDER = "(working memory is provided per turn in the user message envelope)";
 const SUBAGENT_DELEGATION_NOTICE_TOOL_CALLS = 12;
 
 type ToolCallTrackingContext = {
@@ -179,6 +182,10 @@ export class MomRunner implements RunnerLike {
   private readonly activeRunLoadedSkills = new Map<string, LoadedSkillState>();
   private readonly pendingToolSignals = new Map<string, PendingToolSignalContext>();
   private activeSkillLoadSeq = 0;
+  // Mechanical single-submission-per-turn guard for videoGenerate: once a
+  // submission succeeds in this run, further submissions are blocked at the
+  // tool gate (progress checks with a taskId stay allowed).
+  private submittedVideoTaskId: string | undefined;
 
   private readonly hookManager: HookManager;
 
@@ -213,7 +220,7 @@ export class MomRunner implements RunnerLike {
       this.store.getWorkspaceDir(),
       this.chatId,
       this.sessionId,
-      "(memory will be loaded via gateway before each run)",
+      SYSTEM_PROMPT_MEMORY_PLACEHOLDER,
       {
         channel: this.channel as "telegram" | "feishu" | "qq" | "weixin" | "web",
         timezone: settings.timezone,
@@ -301,7 +308,7 @@ export class MomRunner implements RunnerLike {
         const blockedReason = validateToolCallPreflight(context, {
           cwd: this.currentWorkingDir(),
           workspaceDir: this.store.getWorkspaceDir()
-        });
+        }) ?? this.resolveRepeatVideoSubmissionBlock(context);
         const budgetResult = this.activeRunBudget?.tryStartTool() ?? { ok: true };
         const finalBlockedReason = blockedReason ?? budgetResult.reason;
         if (finalBlockedReason) {
@@ -357,6 +364,7 @@ export class MomRunner implements RunnerLike {
         this.emitSkillLoadedForReadTool(context);
         this.emitSkillSearchMatches(context);
         this.emitSkillExecutedForToolSignals(context);
+        this.trackVideoSubmission(context);
         return undefined;
       },
       streamFn: (selectedModel, context, opts) => {
@@ -565,9 +573,16 @@ export class MomRunner implements RunnerLike {
       runStartedAt = turn.startedAt;
     }
 
+    // Turn-lock heartbeat lease. Started inside the main try block (so the
+    // paired finally always stops it — a leaked heartbeat would keep a dead
+    // run's lock alive forever); until then the lock rides on the initial
+    // last_heartbeat written by prepareTurn.
+    let stopTurnHeartbeat: (() => void) | undefined;
+
     const botId = basename(this.store.getWorkspaceDir()) || "unknown";
     this.modelCallSeq = 0;
     this.budgetBlockedToolCallIds.clear();
+    this.submittedVideoTaskId = undefined;
     this.activeHookContext = {
       runId,
       channel: ctx.channel,
@@ -751,19 +766,20 @@ export class MomRunner implements RunnerLike {
       this.memory
     );
     const nextPromptKey = buildPromptRefreshKey(settings, this.channel, this.store.getWorkspaceDir());
+    // The per-turn memory snapshot and query are intentionally NOT part of this
+    // key: the snapshot travels in the user-message envelope, so the system
+    // prompt only changes when settings/channel/project actually change and
+    // provider prefix caching stays valid across turns.
     const runPromptKey = JSON.stringify({
       base: nextPromptKey,
-      memory: memorySnapshot.fingerprint,
-      query: memorySnapshot.query,
       project: ctx.project ? [ctx.project.id, ctx.project.rootPath, ctx.project.instructions ?? ""] : null
     });
     if (!this.systemPromptReady || this.promptRefreshKey !== runPromptKey) {
-      const memoryText = memorySnapshot.promptText || "(no working memory yet)";
       let systemPrompt = buildSystemPrompt(
         this.store.getWorkspaceDir(),
         this.chatId,
         this.sessionId,
-        memoryText,
+        SYSTEM_PROMPT_MEMORY_PLACEHOLDER,
         {
           channel: this.channel as "telegram" | "feishu" | "qq" | "weixin" | "web",
           timezone: settings.timezone,
@@ -1282,6 +1298,7 @@ export class MomRunner implements RunnerLike {
       | undefined;
 
     try {
+      stopTurnHeartbeat = getTurnOrchestrator().startTurnHeartbeat(runId);
       this.activeRunBudget = budget;
       this.agent.state.messages = prepareMessagesForModelContext(
         this.agent.state.messages as AgentMessage[]
@@ -1296,7 +1313,8 @@ export class MomRunner implements RunnerLike {
         messageText: effectiveInputText,
         attachmentPaths: nonImage,
         messageTimestamp: ctx.message.ts,
-        timezone: settings.timezone
+        timezone: settings.timezone,
+        memorySnapshotText: memorySnapshot.promptText
       });
       const userMessage = promptInput.modelMessage;
       currentModelPromptMessage = userMessage;
@@ -2177,6 +2195,7 @@ export class MomRunner implements RunnerLike {
       }
       return { runId, workspaceId, stopReason: "error", errorMessage: message };
     } finally {
+      stopTurnHeartbeat?.();
       unsubscribe();
       unsubscribeHooks();
       await finishHookRun();
@@ -2197,10 +2216,29 @@ export class MomRunner implements RunnerLike {
       this.activeRunLoadedSkills.clear();
       this.pendingToolSignals.clear();
       this.activeSkillLoadSeq = 0;
+      this.submittedVideoTaskId = undefined;
       this.activeProject = undefined;
       this.abortRequested = false;
       this.running = false;
     }
+  }
+
+  private resolveRepeatVideoSubmissionBlock(context: { toolCall: { name: string }; args?: unknown }): string | undefined {
+    if (context.toolCall.name !== "videoGenerate" || !this.submittedVideoTaskId) return undefined;
+    const args = context.args as { taskId?: unknown } | undefined;
+    const isProgressCheck = typeof args?.taskId === "string" && args.taskId.trim().length > 0;
+    if (isProgressCheck) return undefined;
+    return `A video generation task (taskId: ${this.submittedVideoTaskId}) was already submitted in this turn. Do not submit another one now: report that taskId to the user and end the turn. Progress can be checked later with videoGenerate(taskId, engine).`;
+  }
+
+  private trackVideoSubmission(context: ToolCallTrackingContext): void {
+    if (context.toolCall.name !== "videoGenerate" || context.isError) return;
+    const args = context.args as { taskId?: unknown } | undefined;
+    if (typeof args?.taskId === "string" && args.taskId.trim()) return; // progress check, not a submission
+    const details = (context.result as { details?: { taskId?: unknown } } | undefined)?.details;
+    this.submittedVideoTaskId = typeof details?.taskId === "string" && details.taskId
+      ? details.taskId
+      : "unknown";
   }
 
   private cacheResolvedReadPath(context: ToolCallTrackingContext): void {

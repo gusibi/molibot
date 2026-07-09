@@ -37,26 +37,94 @@ function textFromBlocks(content: unknown): string {
     .join("\n");
 }
 
+// CJK scripts (Han, kana, hangul, CJK punctuation, fullwidth forms) tokenize
+// to roughly one token per character; the chars/4 heuristic only holds for
+// ASCII-ish text and undercounts CJK-heavy contexts by 3-4x, which made the
+// threshold trigger far too late for Chinese conversations.
+const CJK_CHAR_PATTERN = /[\u1100-\u11ff\u2e80-\u9fff\ua960-\ua97f\uac00-\ud7ff\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef]/g;
+
+function countTextTokens(text: string): number {
+  if (!text) return 0;
+  const cjkCount = (text.match(CJK_CHAR_PATTERN) ?? []).length;
+  const otherCount = text.length - cjkCount;
+  return cjkCount + Math.ceil(otherCount / 4);
+}
+
 export function estimateMessageTokens(message: AgentMessage): number {
   if (!message || typeof message !== "object") return 0;
   const msg = message as unknown as Record<string, unknown>;
   const role = String(msg.role ?? "");
 
-  if (role === "user") {
-    return Math.ceil(textFromBlocks(msg.content).length / 4);
-  }
-  if (role === "assistant") {
-    return Math.ceil(textFromBlocks(msg.content).length / 4);
-  }
-  if (role === "toolResult") {
-    return Math.ceil(textFromBlocks(msg.content).length / 4);
+  if (role === "user" || role === "assistant" || role === "toolResult") {
+    return countTextTokens(textFromBlocks(msg.content));
   }
 
-  return Math.ceil(JSON.stringify(message).length / 4);
+  return countTextTokens(JSON.stringify(message));
 }
 
 export function estimateContextTokens(messages: AgentMessage[]): number {
   return messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+}
+
+function extractUsageContextTokens(message: AgentMessage): number | null {
+  const msg = message as unknown as {
+    role?: unknown;
+    usage?: { input?: unknown; output?: unknown; cacheRead?: unknown; cacheWrite?: unknown; totalTokens?: unknown };
+  };
+  if (msg.role !== "assistant" || !msg.usage || typeof msg.usage !== "object") return null;
+  const asCount = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+  // Prompt tokens at that call = input + cacheRead + cacheWrite (providers
+  // report cached segments separately); the response itself stays in context.
+  const total = asCount(msg.usage.input) + asCount(msg.usage.cacheRead) + asCount(msg.usage.cacheWrite) + asCount(msg.usage.output);
+  if (total > 0) return total;
+  const totalTokens = asCount(msg.usage.totalTokens);
+  return totalTokens > 0 ? totalTokens : null;
+}
+
+function isCompactionSummaryMessage(message: AgentMessage): boolean {
+  const msg = message as unknown as { role?: unknown; content?: unknown };
+  return msg.role === "user" && textFromBlocks(msg.content).startsWith(SUMMARY_PREFIX);
+}
+
+function newestCompactionBarrierTimestamp(messages: AgentMessage[]): number {
+  let barrier = 0;
+  for (const message of messages) {
+    if (!isCompactionSummaryMessage(message)) continue;
+    const ts = (message as unknown as { timestamp?: unknown }).timestamp;
+    barrier = Math.max(
+      barrier,
+      typeof ts === "number" && Number.isFinite(ts) ? ts : Number.MAX_SAFE_INTEGER
+    );
+  }
+  return barrier;
+}
+
+/**
+ * Resolve the current context size, preferring the exact token usage reported
+ * by the provider on the most recent assistant response over the char-based
+ * estimate. Usage on assistant messages created BEFORE the latest compaction
+ * measured the pre-compaction context, so anything at or older than the newest
+ * summary-message timestamp is ignored (otherwise compaction would re-trigger
+ * in a loop right after compacting).
+ */
+export function resolveContextTokens(messages: AgentMessage[]): { tokens: number; source: "usage" | "estimate" } {
+  const barrier = newestCompactionBarrierTimestamp(messages);
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i] as AgentMessage & { role?: unknown; timestamp?: unknown };
+    if (message?.role !== "assistant") continue;
+    const usageTokens = extractUsageContextTokens(message);
+    if (usageTokens === null) continue;
+    if (barrier > 0) {
+      const ts = typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ? message.timestamp : 0;
+      if (ts <= barrier) break;
+    }
+    return {
+      tokens: usageTokens + estimateContextTokens(messages.slice(i + 1)),
+      source: "usage"
+    };
+  }
+  return { tokens: estimateContextTokens(messages), source: "estimate" };
 }
 
 export function shouldCompactContext(
@@ -68,7 +136,7 @@ export function shouldCompactContext(
   const percentLimit = Math.max(0, Math.floor(contextWindow * settings.thresholdPercent / 100));
   const reserveLimit = Math.max(0, contextWindow - settings.reserveTokens);
   const threshold = Math.min(percentLimit, reserveLimit);
-  return estimateContextTokens(messages) >= threshold;
+  return resolveContextTokens(messages).tokens >= threshold;
 }
 
 function findFirstKeptIndex(messages: AgentMessage[], keepRecentTokens: number): number {

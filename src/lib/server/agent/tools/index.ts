@@ -232,7 +232,11 @@ export function createMomTools(options: {
 
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
 
-  const buildExecutionContext = (signal?: AbortSignal): ToolExecutionContext => {
+  const buildExecutionContext = (
+    signal?: AbortSignal,
+    toolCallId?: string,
+    onUpdate?: (update: any) => void
+  ): ToolExecutionContext => {
     return {
       runId: options.runId ?? "default-run",
       sessionId: options.sessionId,
@@ -240,6 +244,8 @@ export function createMomTools(options: {
       actorId: options.chatId,
       cwd: options.cwd,
       signal,
+      toolCallId,
+      onUpdate,
       fs: {
         readText: async (path) => {
           const filePath = resolveToolPath(options.cwd, path);
@@ -338,7 +344,9 @@ export function createMomTools(options: {
         risk,
         source,
         handler: async (input, ctx) => {
-          const res = (await originalTool.execute(ctx.runId, input, ctx.signal)) as any;
+          // toolCallId falls back to runId only for callers that predate the
+          // per-call context fields; onUpdate keeps progress streaming alive.
+          const res = (await originalTool.execute(ctx.toolCallId ?? ctx.runId, input, ctx.signal, ctx.onUpdate)) as any;
           return {
             ok: !res.error,
             content: res.content,
@@ -354,7 +362,7 @@ export function createMomTools(options: {
     return {
       ...originalTool,
       execute: async (toolCallId, params, signal, onUpdate) => {
-        const toolCtx = buildExecutionContext(signal);
+        const toolCtx = buildExecutionContext(signal, toolCallId, onUpdate);
         const result = await toolRuntime.executeToolCall({
           toolId: originalTool.name,
           input: params,
@@ -380,7 +388,7 @@ export function createMomTools(options: {
       description: def.description,
       parameters: def.inputSchema as any,
       execute: async (toolCallId, params, signal, onUpdate) => {
-        const toolCtx = buildExecutionContext(signal);
+        const toolCtx = buildExecutionContext(signal, toolCallId, onUpdate);
         const result = await toolRuntime.executeToolCall({
           toolId: def.id,
           input: params,

@@ -7,10 +7,10 @@
     DesktopThinkingLevel
   } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
-  import ConversationLiveView from "../chat/ConversationLiveView.svelte";
-  import ChatComposerShell from "../chat/ChatComposerShell.svelte";
+  import ApprovalCard from "../chat/ApprovalCard.svelte";
+  import ChatInputArea from "../chat/ChatInputArea.svelte";
+  import ChatMessagesPane from "../chat/ChatMessagesPane.svelte";
   import { createConversationController } from "../chat/conversationController.svelte";
-  import { stickToBottom } from "../chat/stickToBottom";
   import {
     loadDesktopModels,
     summarizeDesktopReadiness,
@@ -30,6 +30,17 @@
   const formatTime = (value: string) => new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 
   $: modelReady = summarizeDesktopReadiness([], { currentKey: activeModelKey, options: modelOptions }).hasModel;
+  $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? copy.model;
+  $: activeModelLabel = (() => {
+    const slash = activeModelFullLabel.lastIndexOf("/");
+    return (slash >= 0 ? activeModelFullLabel.slice(slash + 1) : activeModelFullLabel).trim();
+  })();
+  $: thinkingLabel = {
+    off: copy.thinkingOff,
+    low: copy.thinkingLow,
+    medium: copy.thinkingMedium,
+    high: copy.thinkingHigh
+  }[thinkingLevel];
 
   // Load model options for the project composer so it matches the chat surface.
   // Re-loads whenever the endpoint changes (e.g. service restart).
@@ -189,6 +200,15 @@
     void chat.resolveApproval(decision);
   }
 
+  function resolveApprovalId(decision: string): void {
+    resolveApproval(decision as DesktopApprovalDecision);
+  }
+
+  $: approvalOptions = pendingApproval?.options.map((option) => ({
+    id: option.id,
+    label: approvalOptionLabel(option)
+  })) ?? [];
+
   // --- Voice recording (mirrors ChatView so project chat has parity) ---
   type NativeRecordingResult = {
     audioBase64: string;
@@ -208,12 +228,6 @@
 
   function isTauriRuntime(): boolean {
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-  }
-
-  function formatDuration(seconds: number): string {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${String(s).padStart(2, "0")}`;
   }
 
   function startRecordingTimer(): void {
@@ -347,167 +361,72 @@
 </script>
 
 <section class="project-chat">
-  <div class="messages" use:stickToBottom={projectsStore.selectedSessionId} aria-live="polite" aria-busy={projectsStore.messagesLoading}>
-    {#if projectsStore.messagesLoading}
-      <div class="project-transcript-loading" role="status"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.projectLoadingSession}</div>
-    {:else}
-      <ConversationLiveView
-        messages={projectsStore.messages}
-        {copy}
-        {formatTime}
-        {sending}
-        {streamingText}
-        {streamingThinking}
-        {activity}
-        activities={activityEntries}
-        emptyTitle={copy.projectEmptyChat}
-        emptyHint={copy.projectEmptyChatHint}
+  <ChatMessagesPane
+    messages={projectsStore.messages}
+    {copy}
+    {formatTime}
+    stickKey={projectsStore.selectedSessionId}
+    loading={projectsStore.messagesLoading}
+    loadingLabel={copy.projectLoadingSession}
+    {sending}
+    {streamingText}
+    {streamingThinking}
+    {activity}
+    activities={activityEntries}
+    emptyTitle={copy.projectEmptyChat}
+    emptyHint={copy.projectEmptyChatHint}
+  >
+    {#if pendingApproval}
+      <ApprovalCard
+        title={copy.approvalTitle}
+        commandLabel={copy.approvalCommand}
+        reasonLabel={copy.approvalReason}
+        command={pendingApproval.command}
+        reason={pendingApproval.reason}
+        options={approvalOptions}
+        disabled={sending}
+        onResolve={resolveApprovalId}
       />
-      {#if pendingApproval}
-        <div class="approval-card" role="alertdialog" aria-label={copy.approvalTitle}>
-          <strong class="approval-title">⚠️ {copy.approvalTitle}</strong>
-          <div class="approval-field">
-            <span>{copy.approvalCommand}</span>
-            <code>{pendingApproval.command}</code>
-          </div>
-          {#if pendingApproval.reason}
-            <div class="approval-field">
-              <span>{copy.approvalReason}</span>
-              <p>{pendingApproval.reason}</p>
-            </div>
-          {/if}
-          <div class="approval-actions">
-            {#each pendingApproval.options as option (option.id)}
-              <button
-                type="button"
-                class:danger-action={option.id === "reject"}
-                disabled={sending}
-                onclick={() => resolveApproval(option.id as DesktopApprovalDecision)}
-              >{approvalOptionLabel(option)}</button>
-            {/each}
-          </div>
-        </div>
-      {/if}
     {/if}
-  </div>
-  <footer class="composer-wrap">
-    {#if !modelReady && projectsStore.selectedSessionId}
-      <div class="model-banner" role="status">
-        <div>
-          <strong>{copy.noModelBannerTitle}</strong>
-          <p>{copy.noModelBannerHint}</p>
-        </div>
-      </div>
-    {/if}
-    {#if projectsStore.error}
-      <div class="composer-error" role="alert">
-        <i class="ph ph-warning-circle" aria-hidden="true"></i>
-        <span><strong>{copy.chatErrorTitle}</strong>{projectsStore.error}</span>
-        <button type="button" aria-label={copy.chatErrorDismiss} onclick={() => (projectsStore.error = "")}><i class="ph ph-x" aria-hidden="true"></i></button>
-      </div>
-    {/if}
-    {#if recordingError}
-      <div class="composer-error" role="alert">
-        <i class="ph ph-warning-circle" aria-hidden="true"></i>
-        <span><strong>{copy.chatErrorTitle}</strong>{recordingError}</span>
-        <button type="button" aria-label={copy.chatErrorDismiss} onclick={() => (recordingError = "")}><i class="ph ph-x" aria-hidden="true"></i></button>
-      </div>
-    {/if}
-    {#if queuedMessages.length > 0}
-      <div class="queued-messages">
-        <span class="queued-badge">{copy.queued} · {queuedMessages.length}</span>
-        {#each queuedMessages as queued, index (index)}
-          <span class="pending-chip">
-            <span class="pending-name" title={queued}>{queued}</span>
-            <button type="button" aria-label={copy.removeQueued} onclick={() => removeQueued(index)}>×</button>
-          </span>
-        {/each}
-      </div>
-    {/if}
-    {#if pendingFiles.length > 0}
-      <div class="pending-files">
-        {#each pendingFiles as file, index (index)}
-          <span class="pending-chip" data-kind={inferAttachmentKind(file)}>
-            <span class="pending-name" title={file.name}>{file.name}</span>
-            {#if pendingAudioUrls.get(file)}
-              <!-- svelte-ignore a11y_media_has_caption -->
-              <audio class="pending-audio" controls src={pendingAudioUrls.get(file)}></audio>
-            {/if}
-            <button type="button" aria-label={copy.removeFile} disabled={sending} onclick={() => removePendingFile(index)}>×</button>
-          </span>
-        {/each}
-      </div>
-    {/if}
-    <ChatComposerShell
-      bind:value={message}
-      {copy}
-      {sending}
-      disabled={!projectsStore.selectedSessionId || !modelReady}
-      canSend={Boolean(message.trim()) || pendingFiles.length > 0}
-      placeholder={sending ? copy.queueHint : copy.projectComposerPlaceholder}
-      onSend={sendMessage}
-      onStop={stopRun}
-      onKeydown={handleComposerKeydown}
-    >
-      <input
-        bind:this={fileInput}
-        type="file"
-        multiple
-        hidden
-        onchange={onFilesPicked}
-      />
-      {#if recording}
-        <div class="recording-bar" role="status" aria-live="polite">
-          <span class="recording-indicator" aria-hidden="true"></span>
-          <span class="recording-label">{copy.recording}</span>
-          <time>{formatDuration(recordingSeconds)}</time>
-          <button type="button" class="recording-action" onclick={() => finishRecording(false)}>{copy.cancel}</button>
-          <button type="button" class="recording-action primary" onclick={() => finishRecording(true)}>{copy.finishRecording}</button>
-        </div>
-      {/if}
-      <div class="composer-tools" slot="tools">
-        <button
-          class="composer-tool"
-          type="button"
-          aria-label={copy.addFiles}
-          title={copy.addFiles}
-          disabled={!projectsStore.selectedSessionId || sending || !modelReady}
-          onclick={() => fileInput?.click()}
-        ><i class="ph ph-paperclip" aria-hidden="true"></i></button>
-        <button
-          class="composer-tool"
-          class:recording={recording}
-          type="button"
-          aria-label={recording ? copy.finishRecording : copy.startRecording}
-          title={recording ? copy.finishRecording : copy.startRecording}
-          aria-pressed={recording}
-          disabled={!projectsStore.selectedSessionId || sending || !modelReady}
-          onclick={toggleRecording}
-        ><i class="ph ph-microphone" aria-hidden="true"></i></button>
-      </div>
-      <div class="composer-selectors" slot="selectors">
-        <label class="composer-pill">
-          <i class="ph ph-cpu" aria-hidden="true"></i>
-          <span class="composer-pill-label">{copy.model}</span>
-          <select value={activeModelKey} disabled={sending || changingModel || modelOptions.length === 0} onchange={changeModel} aria-label={copy.model}>
-            {#each modelOptions as model (model.key)}
-              <option value={model.key}>{model.label}</option>
-            {/each}
-          </select>
-          <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
-        </label>
-        <label class="composer-pill">
-          <i class="ph ph-brain" aria-hidden="true"></i>
-          <span class="composer-pill-label">{copy.thinkingLevel}</span>
-          <select bind:value={thinkingLevel} disabled={sending} aria-label={copy.thinkingLevel}>
-            <option value="off">{copy.thinkingOff}</option>
-            <option value="low">{copy.thinkingLow}</option>
-            <option value="medium">{copy.thinkingMedium}</option>
-            <option value="high">{copy.thinkingHigh}</option>
-          </select>
-          <i class="ph-bold ph-caret-down" aria-hidden="true"></i>
-        </label>
-      </div>
-    </ChatComposerShell>
-  </footer>
+  </ChatMessagesPane>
+
+  <input bind:this={fileInput} type="file" multiple hidden onchange={onFilesPicked} />
+  <ChatInputArea
+    bind:value={message}
+    bind:thinkingLevel
+    {copy}
+    {sending}
+    disabled={!projectsStore.selectedSessionId || !modelReady}
+    canSend={Boolean(message.trim()) || pendingFiles.length > 0}
+    placeholder={sending ? copy.queueHint : copy.projectComposerPlaceholder}
+    {modelReady}
+    {modelOptions}
+    {activeModelKey}
+    {activeModelLabel}
+    activeModelTitle={activeModelFullLabel}
+    thinkingLevelLabel={thinkingLabel}
+    {changingModel}
+    error={projectsStore.error}
+    {recordingError}
+    {queuedMessages}
+    {pendingFiles}
+    {pendingAudioUrls}
+    {recording}
+    {recordingSeconds}
+    fileToolDisabled={!projectsStore.selectedSessionId || sending || !modelReady}
+    recordingToolDisabled={!projectsStore.selectedSessionId || sending || !modelReady}
+    inferAttachmentKind={inferAttachmentKind}
+    onSend={sendMessage}
+    onStop={stopRun}
+    onKeydown={handleComposerKeydown}
+    onPickFiles={() => fileInput?.click()}
+    onToggleRecording={toggleRecording}
+    onFinishRecording={(send) => void finishRecording(send)}
+    onRemoveQueued={removeQueued}
+    onRemoveFile={removePendingFile}
+    onDismissError={() => (projectsStore.error = "")}
+    onDismissRecordingError={() => (recordingError = "")}
+    onOpenSettings={() => undefined}
+    onChangeModel={changeModel}
+  />
 </section>
