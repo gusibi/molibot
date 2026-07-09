@@ -32,6 +32,17 @@
       void loadProviders(session.endpoint);
     }
   });
+
+  let hasEditBaseUrl = $derived(!!providersStore.providerEdit?.baseUrl.trim());
+  let hasEditApiKey = $derived(
+    !!(
+      providersStore.editApiKey.trim() ||
+      (!providersStore.providerEdit?.isNew &&
+        providersStore.providers?.customProviders.find((item) => item.id === providersStore.providerEdit?.id)?.hasApiKey &&
+        !providersStore.editClearApiKey)
+    )
+  );
+  let canDiscoverModels = $derived(hasEditBaseUrl && hasEditApiKey && !providersStore.discovering);
 </script>
 
         <p class="settings-section-hint">{session.text.providersHint}</p>
@@ -127,7 +138,7 @@
                 <div><strong>{session.text.providerCustomModelsTitle}</strong><p>{session.text.providerCustomModelsHint}</p></div>
                 <div class="settings-row-actions">
                   <button class="secondary-button" type="button" onclick={() => addProviderModel()}>{session.text.providerAddModel}</button>
-                  <button class="secondary-button" type="button" disabled={providersStore.providerEdit.isNew || providersStore.discovering || !providersStore.providers.customProviders.find((item) => item.id === providersStore.providerEdit?.id)?.hasApiKey} title={providersStore.providerEdit.isNew ? session.text.providerSaveBeforeRemote : undefined} onclick={() => void discoverProviderModels()}>{providersStore.discovering ? session.text.loading : session.text.providerPullModels}</button>
+                  <button class="secondary-button" type="button" disabled={!canDiscoverModels} onclick={() => void discoverProviderModels()}>{providersStore.discovering ? session.text.loading : session.text.providerPullModels}</button>
                 </div>
               </div>
               {#if providersStore.discoveredModels.length > 0}

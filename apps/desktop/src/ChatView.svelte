@@ -454,6 +454,46 @@
     pendingFiles = draft.files;
     thinkingLevel = draft.thinkingLevel;
   }
+  const settingsChannel = new BroadcastChannel("molibot-settings-channel");
+  settingsChannel.onmessage = (event) => {
+    if (event.data?.type === "refresh-models") {
+      void refreshModelsAndProfiles();
+    }
+  };
+
+  async function refreshModelsAndProfiles(): Promise<void> {
+    if (!connectedEndpoint || loading) return;
+    try {
+      const [nextProfiles, modelState, nextWebProfiles, nextAgents, nextChannels, nextRuntimeEnv] = await Promise.all([
+        loadDesktopBootstrap(connectedEndpoint),
+        loadDesktopModels(connectedEndpoint),
+        loadDesktopWebProfiles(connectedEndpoint),
+        loadDesktopAgents(connectedEndpoint).catch(() => null),
+        loadDesktopChannels(connectedEndpoint).catch(() => null),
+        loadDesktopRuntimeEnv(connectedEndpoint).catch(() => null)
+      ]);
+      
+      profiles = nextProfiles;
+      modelOptions = modelState.options;
+      activeModelKey = modelState.currentKey;
+      onboardingProfiles = nextWebProfiles;
+      if (nextAgents) onboardingAgents = nextAgents.items;
+      if (nextChannels) {
+        channelSummary = nextChannels;
+        onboardingChannels = summarizeOnboardingChannels(nextChannels);
+      }
+      if (nextRuntimeEnv) {
+        onboardingDiagnostics = summarizeOnboardingDiagnostics(nextRuntimeEnv, true);
+      }
+      
+      const nextReadiness = summarizeDesktopReadiness(nextProfiles, modelState);
+      onboardingMode = classifyFirstLaunch(nextReadiness);
+      onboardingRepairTarget = resolveOnboardingRepairTarget(nextReadiness);
+      onboardingStep = resolveOnboardingStartStep(nextReadiness);
+    } catch (e) {
+      console.error("Failed to refresh models and profiles:", e);
+    }
+  }
 
   async function connect(endpoint: string): Promise<void> {
     const generation = ++connectionGeneration;
@@ -1360,6 +1400,7 @@
     pendingAudioTracked.clear();
     for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
     closePreview();
+    settingsChannel.close();
   });
 </script>
 

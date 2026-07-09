@@ -19,24 +19,58 @@ function parseModelIds(rawBody: unknown): string[] {
 
 export const POST: RequestHandler = async ({ request }) => {
   let providerId = "";
+  let baseUrl: string | undefined;
+  let apiKey: string | undefined;
+  let protocolParam: string | undefined;
+  let pathParam: string | undefined;
   try {
-    providerId = String(((await request.json()) as { providerId?: unknown }).providerId ?? "").trim();
+    const body = (await request.json()) as { providerId?: unknown; baseUrl?: unknown; apiKey?: unknown; protocol?: unknown; path?: unknown };
+    providerId = String(body.providerId ?? "").trim();
+    baseUrl = body.baseUrl ? String(body.baseUrl).trim() : undefined;
+    apiKey = body.apiKey ? String(body.apiKey).trim() : undefined;
+    protocolParam = body.protocol ? String(body.protocol).trim() : undefined;
+    pathParam = body.path ? String(body.path).trim() : undefined;
   } catch {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
-  if (!providerId) return json({ ok: false, error: "providerId is required" }, { status: 400 });
-  const provider = (getRuntime().getSettings().customProviders ?? []).find((row) => row.id === providerId);
-  if (!provider) return json({ ok: false, error: "Provider not found" }, { status: 404 });
-  if (!provider.baseUrl || !provider.apiKey) {
+
+  let finalBaseUrl = "";
+  let finalApiKey = "";
+  let finalProtocol = "";
+  let finalPathParam = "";
+
+  if (baseUrl !== undefined && apiKey !== undefined) {
+    finalBaseUrl = baseUrl;
+    finalApiKey = apiKey;
+    finalProtocol = protocolParam ?? "openai-compatible";
+    finalPathParam = pathParam ?? "";
+  } else {
+    if (!providerId) return json({ ok: false, error: "providerId is required when baseUrl or apiKey is not provided" }, { status: 400 });
+    const provider = (getRuntime().getSettings().customProviders ?? []).find((row) => row.id === providerId);
+    if (!provider) return json({ ok: false, error: "Provider not found" }, { status: 404 });
+    finalBaseUrl = provider.baseUrl || "";
+    finalApiKey = provider.apiKey || "";
+    finalProtocol = provider.protocol || "openai-compatible";
+    finalPathParam = provider.path || "";
+  }
+
+  if (!finalBaseUrl || !finalApiKey) {
     return json({ ok: false, error: "Provider is missing baseUrl or apiKey" }, { status: 400 });
   }
-  const protocol = resolveCustomProviderProtocol(provider.protocol);
+
+  const protocol = resolveCustomProviderProtocol(finalProtocol);
   const endpoint = protocol === "anthropic"
-    ? `${buildAnthropicBaseUrl(provider.baseUrl, provider.path)}/v1/models`
-    : `${buildOpenAIBaseUrl(provider.baseUrl, provider.path)}/models`;
+    ? `${buildAnthropicBaseUrl(finalBaseUrl, finalPathParam)}/v1/models`
+    : `${buildOpenAIBaseUrl(finalBaseUrl, finalPathParam)}/models`;
+
+  const dummyProvider = {
+    apiKey: finalApiKey
+  };
+
   const headers = protocol === "anthropic"
-    ? buildAnthropicCompatibleHeaders(provider)
-    : buildOpenAICompatibleHeaders(provider);
+    ? buildAnthropicCompatibleHeaders(dummyProvider)
+    : buildOpenAICompatibleHeaders(dummyProvider);
+
   try {
     const upstream = await fetch(endpoint, { method: "GET", headers });
     const text = await upstream.text();

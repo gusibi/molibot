@@ -2,6 +2,10 @@
 
 ## 2026-07-10
 
+### Desktop settings synchronization and unsaved model pulling
+- **Multi-window dynamic sync**: Integrated BroadcastChannel to broadcast settings changes from the Settings window to the main Chat window, avoiding app restarts when adding custom providers or updating model settings.
+- **Pull models before saving**: Updated the `/api/desktop/provider-models` endpoint and UI disabled properties to support pulling model lists using transient form inputs (baseUrl and apiKey) before a provider is saved.
+
 ### Agent harness: prompt-cache stability, compaction accuracy, tool-call fidelity, turn heartbeat lease
 - The per-turn working-memory snapshot moved out of the system prompt into a `<current-memory>` block inside the user-message envelope (model message only, never persisted). The system prompt no longer changes with each turn's memory/query, so provider prefix caching now covers the full prompt plus history across turns instead of being invalidated every message.
 - Context-compaction triggering now prefers the exact token usage reported by the provider on the latest assistant response over the char-based estimate, with a compaction-summary timestamp barrier so pre-compaction usage cannot re-trigger compaction in a loop. The char estimator itself now weights CJK characters at ~1 token each instead of chars/4, which had under-counted Chinese conversations by 3-4x and effectively disabled threshold compaction.

@@ -2,6 +2,11 @@
 
 ## 2026-07-10
 
+### Desktop 动态设置同步与免保存拉取模型
+- **多窗口设置动态同步**：引入前端 `BroadcastChannel` 机制监听设置变更。当用户在设置窗口中对自定义服务商（Providers）、模型路由（Models）、配置文件（Profiles）或助手（Agents）进行保存或删除修改时，主聊天窗口接收广播并自动、在非阻塞的状态下重新加载最新的路由配置及下拉选项，解决了“退出设置页面返回 chat 页面不生效，必须重启”的问题。
+- **免保存拉取模型支持**：升级 `/api/desktop/provider-models` 接口和前端 Pull Models 机制。支持传递临时配置（`baseUrl`, `apiKey`, `protocol`, `path`），使用当前表单输入进行模型发现，从而让用户在新建或修改服务商配置时，无需先保存即可点击“拉取模型”获取最新的模型列表。
+- **验证**：通过了 `svelte-check` 静态类型检查，并通过了桌面前端的 30 个单元测试及 Rust 的 10 个测试。
+
 ### Agent harness 优化：缓存前缀稳定、压缩触发修正、工具调用保真、turn 心跳租约
 - **memory 快照移出 system prompt**：每轮的工作记忆快照改为注入用户消息信封内的 `<current-memory>` 块（只发给模型、不落库），`runPromptKey` 不再包含逐轮变化的 query/memory 指纹。system prompt 跨轮字节一致，provider 前缀缓存（prompt caching）从此覆盖完整 prompt + 历史消息，不再每轮全量失效。
 - **压缩触发改用真实 usage**：`shouldCompactContext` 优先使用最近一条 assistant 响应中 provider 上报的真实 token 用量（input + cacheRead + cacheWrite + output），并以压缩摘要消息的时间戳为屏障，压缩前产生的旧 usage 不会导致压缩死循环。字符估算本身对 CJK 字符按约 1 token/字加权（原 chars/4 对中文低估 3-4 倍，阈值压缩形同虚设）。

@@ -13,7 +13,7 @@
 ## 2.34 Clean-machine First Launch Polish (2026-07-08)
 - [Done] 全新数据目录必须自动拥有 `default` Agent，并让默认 Web Profile 关联该 Agent；旧数据中缺失 Agent 或默认 Web 关联为空时必须幂等补齐。
 - [Done] Desktop 首次启动配置必须在对话式引导中询问用户称呼与偏好的 AI 回复风格，并保存到当前默认 Agent 的 profile 文件。
-- [Done] 首次配置 Provider 后，Desktop 模型列表必须即时刷新，不要求用户重启 App 或服务。
+- [Done] 首次配置 Provider 后，Desktop 模型列表必须即时刷新，不要求用户重启 App 或服务。通过 BroadcastChannel 实现多窗口间设置更改的动态同步（覆盖 Providers/Models/Profiles/Agents 保存与删除），主窗口收到事件后非阻塞式重新拉取并更新数据；允许用户在未保存新服务商前，使用表单中的临时 URL 与 API Key 拉取并发现远端模型。
 - [Done] Web Search 首启默认使用无需 API key 的 DuckDuckGo；旧配置缺失 DuckDuckGo engine 时必须自动补齐，`auto` 与显式 `duckduckgo` 都不能因为缺少 API key 被判为不可用。
 - [Done] Desktop Automations 必须允许为 Web Profile 创建任务；Web 创建的提醒/任务必须仍走 watched event JSON 与共享事件运行时执行。
 - [Done] macOS overlay titlebar 下，Chat/Settings/Project/Workspace 顶部空白与标题区域必须可拖动窗口；顶部必须有与红黄绿窗口控制区高度匹配的透明拖拽蒙版并调用原生 `startDragging()`；Chat/Project 左侧栏顶部和标题栏非交互子元素也必须是拖拽区域，按钮/输入框不得被拖拽层覆盖。

@@ -10,7 +10,7 @@ import {
   type DesktopModelRoute
 } from "../api";
 import type { DesktopModelRoutingSettings, DesktopModelRoutingUpdateRequest, DesktopModelState } from "@molibot/desktop-contract";
-import { session, setError } from "./session.svelte";
+import { session, setError, notifySettingsChanged } from "./session.svelte";
 
 export const MODEL_ROUTES: DesktopModelRoute[] = ["text", "vision", "stt", "tts", "subagent"];
 
@@ -119,6 +119,7 @@ export async function saveAdvancedModelRouting(): Promise<void> {
     modelsStore.routingPristine = JSON.stringify(modelsStore.routing);
     modelsStore.routingDirty = false;
     modelsStore.routingMessage = session.text.modelRoutingSaved;
+    notifySettingsChanged();
   } catch (cause) {
     setError(cause);
   } finally {

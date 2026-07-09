@@ -1876,11 +1876,23 @@ export async function deleteDesktopProvider(endpoint: string, providerId: string
   return payload.summary;
 }
 
-export async function discoverDesktopProviderModels(endpoint: string, providerId: string): Promise<string[]> {
+export async function discoverDesktopProviderModels(
+  endpoint: string,
+  providerId: string,
+  options?: {
+    baseUrl?: string;
+    apiKey?: string;
+    protocol?: string;
+    path?: string;
+  }
+): Promise<string[]> {
   const payload = await requestJson<DesktopProviderModelsResponse>(endpoint, "/api/desktop/provider-models", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ providerId })
+    body: JSON.stringify({
+      providerId,
+      ...options
+    })
   });
   return payload.models;
 }

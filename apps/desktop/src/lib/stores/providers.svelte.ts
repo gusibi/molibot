@@ -18,7 +18,7 @@ import type {
   DesktopProvidersSummary,
   DesktopProviderUpdateRequest
 } from "@molibot/desktop-contract";
-import { session, setError } from "./session.svelte";
+import { session, setError, notifySettingsChanged } from "./session.svelte";
 
 export const PROVIDER_MODEL_TAGS: DesktopProviderModelTag[] = ["text", "vision", "audio_input", "stt", "tts", "tool"];
 export const PROVIDER_MODEL_ROLES: DesktopProviderModelRole[] = ["system", "user", "assistant", "tool", "developer"];
@@ -54,6 +54,7 @@ function createProviderId(): string {
 
 function notifyProvidersChanged(): void {
   window.dispatchEvent(new CustomEvent(PROVIDERS_CHANGED_EVENT));
+  notifySettingsChanged();
 }
 
 export async function loadProviders(endpoint: string): Promise<void> {
@@ -279,10 +280,19 @@ export async function setProviderAsDefault(providerId: string): Promise<void> {
 
 export async function discoverProviderModels(): Promise<void> {
   const endpoint = session.endpoint;
-  if (!endpoint || !providersStore.providerEdit || providersStore.providerEdit.isNew || providersStore.discovering) return;
+  if (!endpoint || !providersStore.providerEdit || providersStore.discovering) return;
   providersStore.discovering = true;
+  providersStore.actionMessage = "";
+  providersStore.actionFailed = false;
   try {
-    providersStore.discoveredModels = await discoverDesktopProviderModels(endpoint, providersStore.providerEdit.id);
+    const edit = providersStore.providerEdit;
+    const apiKey = providersStore.editApiKey.trim() || undefined;
+    providersStore.discoveredModels = await discoverDesktopProviderModels(endpoint, edit.id, {
+      baseUrl: edit.baseUrl.trim(),
+      apiKey,
+      protocol: edit.protocol,
+      path: edit.path.trim()
+    });
     providersStore.actionFailed = false;
     providersStore.actionMessage = session.text.providerModelsDiscovered.replace("{count}", String(providersStore.discoveredModels.length));
   } catch (cause) {

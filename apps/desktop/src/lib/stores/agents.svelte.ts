@@ -1,7 +1,7 @@
 // Agent definitions settings — state + orchestration.
 import { deleteDesktopAgent, loadDesktopAgentFiles, loadDesktopAgents, saveDesktopAgent, saveDesktopAgentFiles } from "../api";
 import type { DesktopAgentSaveRequest, DesktopAgentsSummary } from "@molibot/desktop-contract";
-import { session, setError } from "./session.svelte";
+import { session, setError, notifySettingsChanged } from "./session.svelte";
 
 export const AGENT_FILE_NAMES = ["AGENTS.md", "SOUL.md", "IDENTITY.md", "SONG.md"] as const;
 
@@ -97,6 +97,7 @@ export async function saveAgentEditor(): Promise<void> {
     await saveDesktopAgentFiles(endpoint, agentEdit.id.trim(), agentEdit.files);
     agentsStore.agentEdit = null;
     agentsStore.actionMessage = session.text.agentSaved;
+    notifySettingsChanged();
   } catch (cause) {
     setError(cause);
   } finally {
@@ -113,6 +114,7 @@ export async function removeAgent(agentId: string): Promise<void> {
     agentsStore.agents = await deleteDesktopAgent(endpoint, agentId);
     if (agentsStore.agentEdit?.previousId === agentId) agentsStore.agentEdit = null;
     agentsStore.actionMessage = session.text.agentDeleted;
+    notifySettingsChanged();
   } catch (cause) {
     setError(cause);
   } finally {
