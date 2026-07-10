@@ -152,6 +152,13 @@ export class ChatSessionStore {
     this.draftStore.setProfileId(NEW_CONVERSATION_KEY, defaultProfileId);
   }
 
+  /** Clears selection without creating an unsaved draft. */
+  clearSelection(): void {
+    this.registry.clearActive();
+    this.draftMode = false;
+    this.draftProfileId = "";
+  }
+
   setDraftProfileId(profileId: string): void {
     this.draftProfileId = profileId;
     this.draftStore.setProfileId(NEW_CONVERSATION_KEY, profileId);

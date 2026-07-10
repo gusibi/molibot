@@ -23,6 +23,7 @@
   import {
     buildOnboardingHealthCheck,
     classifyFirstLaunch,
+    createDesktopSession,
     createDesktopProvider,
     fetchDesktopFileBlob,
     deleteDesktopConversation,
@@ -67,6 +68,8 @@
   import ChatInputArea from "./lib/chat/ChatInputArea.svelte";
   import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
   import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
+  import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
+  import { projectsStore } from "./lib/stores/projects.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
   import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
   import ConversationBrowserDialog from "./lib/chat/ConversationBrowserDialog.svelte";
@@ -83,12 +86,10 @@
   export let launchAtLoginBusy: boolean;
   export let setLaunchAtLogin: (enabled: boolean) => Promise<boolean>;
   export let openSettings: (section?: string) => void;
-  export let openProjects: () => void;
   export let requestedWorkspacePane: ChatWorkspacePaneName = "chat";
 
   const PROFILE_STORAGE_KEY = "molibot-desktop-profile";
   const LAST_BOT_KEY = "molibot-desktop-last-bot";
-  const LAST_CHANNEL_KEY = "molibot-desktop-last-channel";
   const LAST_SESSION_KEY = "molibot-desktop-last-session";
   const FIRST_LAUNCH_SEEN_KEY = "molibot-desktop-first-launch-seen";
   const PERSONALIZATION_MARKER_START = "<!-- molibot:onboarding-personalization:start -->";
@@ -118,14 +119,15 @@
   let fileInput: HTMLInputElement;
   let thinkingLevel: DesktopThinkingLevel = "medium";
 
-  // Sidebar navigation: five mutually-exclusive channel accordions (plan §2.2).
-  // `expandedChannel` is the one open; `expandedItems` is its cross-Bot recent
-  // list (max 10) from `listDesktopConversations`.
-  // `""` means every channel group is collapsed (no group is forced open).
-  let expandedChannel: DesktopConversationChannel | "" = "web";
-  let expandedItems: DesktopConversationItem[] = [];
-  let expandedHasMore = false;
-  let expandedLoading = false;
+  // Sidebar expansion is separate from selection. Every group may be open and
+  // the preference survives restarts.
+  const SIDEBAR_TREE_KEY = "molibot-desktop-sidebar-tree-v2";
+  let conversationsExpanded = true;
+  let projectsExpanded = true;
+  let expandedChannels: Record<DesktopConversationChannel, boolean> = { web: true, telegram: false, feishu: false, qq: false, weixin: false };
+  let channelItems: Record<string, DesktopConversationItem[]> = {};
+  let channelHasMore: Record<string, boolean> = {};
+  let channelLoading: Record<string, boolean> = {};
   let browserChannel: DesktopConversationChannel = "web";
   let browserOpen = false;
   let channelSummary: DesktopChannelsSummary | null = null;
@@ -140,6 +142,8 @@
   let activeExternalChannel = "";
   let activeExternalBotName = "";
   let viewMode: "local" | "external" = "local";
+  let projectPaneActive = false;
+  let activeProjectSessionId = "";
   let workspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
   let appliedRequestedWorkspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
 
@@ -330,8 +334,14 @@
   $: activeBotName = profiles.find((profile) => profile.id === (draftMode ? draftProfileId : activeProfileId))?.name ?? copy.bot;
   $: activeHeaderBotName = viewMode === "external" ? (activeExternalBotName || copy.bot) : activeBotName;
   $: activeHeaderAvatar = activeHeaderBotName.trim().charAt(0).toUpperCase() || "M";
-  $: activeSessionTitle = expandedItems.find((item) => item.sessionId === activeSessionId)?.title ?? copy.chat;
-  $: sidebarActiveSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+  $: activeSessionItem = Object.values(channelItems).flat().find((item) => item.sessionId === activeSessionId);
+  $: activeSessionTitle = activeSessionItem
+    ? `${sidebarChannels.find((channel) => channel.id === activeSessionItem?.channel)?.name ?? activeSessionItem.channel} / ${activeSessionItem.title}`
+    : copy.chat;
+  $: activeExternalTitleWithSource = activeExternalSessionId
+    ? `${sidebarChannels.find((channel) => channel.id === activeExternalChannel)?.name ?? activeExternalChannel} / ${activeExternalTitle}`
+    : copy.chat;
+  $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
   $: sidebarChannels = buildSidebarChannels(profiles, channelSummary);
   $: searchMatchIds = findTranscriptMatches(messages, searchOpen ? searchQuery : "");
   $: activeMatchId = searchMatchIds[Math.min(searchIndex, Math.max(searchMatchIds.length - 1, 0))] ?? "";
@@ -371,9 +381,12 @@
     onboardingMode = "new";
     onboardingRepairTarget = null;
     onboardingStep = "provider";
-    expandedItems = [];
-    expandedHasMore = false;
-    expandedChannel = "web";
+    channelItems = {};
+    channelHasMore = {};
+    channelLoading = {};
+    expandedChannels = { web: true, telegram: false, feishu: false, qq: false, weixin: false };
+    projectPaneActive = false;
+    activeProjectSessionId = "";
     activeExternalSessionId = "";
     activeExternalTitle = "";
     activeExternalChannel = "";
@@ -419,16 +432,6 @@
     return profiles[0]?.id ?? "";
   }
 
-  function persistChannel(channel: DesktopConversationChannel | ""): void {
-    localStorage.setItem(LAST_CHANNEL_KEY, channel);
-  }
-  function restoreChannel(): DesktopConversationChannel | "" {
-    const saved = localStorage.getItem(LAST_CHANNEL_KEY);
-    if (saved === "") return "";
-    return saved === "telegram" || saved === "feishu" || saved === "qq" || saved === "weixin" || saved === "web"
-      ? saved
-      : "web";
-  }
   function persistSelected(profileId: string, sessionId: string): void {
     if (!profileId || !sessionId) return;
     localStorage.setItem(LAST_SESSION_KEY, `${profileId}:${sessionId}`);
@@ -539,10 +542,10 @@
         modelReady: () => modelReady,
         labels: () => conversationLabels(),
         loadTranscript,
-        refreshSidebar: () => loadExpanded(),
+        refreshSidebar: () => loadChannel("web"),
         onSessionCreated: (profileId, sessionId) => {
           localStorage.setItem(LAST_BOT_KEY, profileId);
-          void loadExpanded();
+          void loadChannel("web");
           void refreshFiles(profileId, sessionId);
         }
       });
@@ -560,21 +563,26 @@
     }
   }
 
-  async function selectDefaultSession(generation = connectionGeneration): Promise<void> {
-    // The sidebar opens the last-expanded channel; the right pane's default is
-    // always a Web conversation (plan §2.3), independent of that channel.
-    expandedChannel = restoreChannel();
-    await loadExpanded();
-    if (generation !== connectionGeneration) return;
-    let webItems: DesktopConversationItem[] = expandedChannel === "web" ? expandedItems : [];
-    if (expandedChannel !== "web") {
-      try {
-        const webRes = await listDesktopConversations(connectedEndpoint, { channel: "web", limit: 10 });
-        webItems = webRes.items;
-      } catch {
-        webItems = [];
+  function restoreSidebarTree(): void {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SIDEBAR_TREE_KEY) || "{}");
+      conversationsExpanded = saved.conversationsExpanded !== false;
+      projectsExpanded = saved.projectsExpanded !== false;
+      if (saved.expandedChannels && typeof saved.expandedChannels === "object") {
+        expandedChannels = { ...expandedChannels, ...saved.expandedChannels };
       }
-    }
+    } catch { /* defaults are intentional */ }
+  }
+
+  function persistSidebarTree(): void {
+    localStorage.setItem(SIDEBAR_TREE_KEY, JSON.stringify({ conversationsExpanded, projectsExpanded, expandedChannels }));
+  }
+
+  async function selectDefaultSession(generation = connectionGeneration): Promise<void> {
+    restoreSidebarTree();
+    await Promise.all((Object.entries(expandedChannels) as Array<[DesktopConversationChannel, boolean]>).filter(([, open]) => open).map(([channel]) => loadChannel(channel)));
+    if (generation !== connectionGeneration) return;
+    const webItems = channelItems.web ?? [];
     const last = restoreSelected();
     const lastItem = last
       ? webItems.find((item) => item.sessionId === last.sessionId && item.botId === last.profileId)
@@ -584,74 +592,75 @@
       chatStore.selectSession(target.botId, target.sessionId);
       loadDraftIn();
       void refreshFiles(target.botId, target.sessionId);
-    } else {
-      chatStore.newConversationDraft(defaultBot());
-      loadDraftIn();
-    }
+    } else chatStore.clearSelection();
   }
 
-  async function loadExpanded(): Promise<void> {
-    if (!connectedEndpoint || !expandedChannel) {
-      expandedItems = [];
-      expandedHasMore = false;
-      return;
-    }
-    expandedLoading = true;
+  async function loadChannel(channel: DesktopConversationChannel): Promise<void> {
+    if (!connectedEndpoint) return;
+    channelLoading = { ...channelLoading, [channel]: true };
     try {
-      const res = await listDesktopConversations(connectedEndpoint, { channel: expandedChannel, limit: 10 });
-      expandedItems = res.items;
-      expandedHasMore = Boolean(res.hasMore) || res.items.length >= 10;
+      const res = await listDesktopConversations(connectedEndpoint, { channel, limit: 10 });
+      channelItems = { ...channelItems, [channel]: res.items };
+      channelHasMore = { ...channelHasMore, [channel]: Boolean(res.hasMore) || res.items.length >= 10 };
     } catch {
-      expandedItems = [];
-      expandedHasMore = false;
+      channelItems = { ...channelItems, [channel]: [] };
+      channelHasMore = { ...channelHasMore, [channel]: false };
     } finally {
-      expandedLoading = false;
+      channelLoading = { ...channelLoading, [channel]: false };
     }
   }
 
   function toggleChannel(channel: DesktopConversationChannel): void {
-    workspacePane = "chat";
-    if (expandedChannel === channel) {
-      // Collapse the currently open group — all groups may now be closed.
-      expandedChannel = "";
-      persistChannel("");
-      expandedItems = [];
-      expandedHasMore = false;
-      return;
-    }
-    expandedChannel = channel;
-    persistChannel(channel);
-    void loadExpanded();
+    const open = !expandedChannels[channel];
+    expandedChannels = { ...expandedChannels, [channel]: open };
+    persistSidebarTree();
+    if (open) void loadChannel(channel);
   }
 
-  function newConversation(): void {
+  function toggleConversations(): void {
+    conversationsExpanded = !conversationsExpanded;
+    persistSidebarTree();
+  }
+
+  function toggleProjects(): void {
+    projectsExpanded = !projectsExpanded;
+    persistSidebarTree();
+  }
+
+  async function newConversation(): Promise<void> {
     if (!connectedEndpoint) return;
     workspacePane = "chat";
     viewMode = "local";
+    projectPaneActive = false;
     closeExternalTranscript();
-    if (expandedChannel !== "web") {
-      expandedChannel = "web";
-      persistChannel("web");
-      void loadExpanded();
+    try {
+      const created = await createDesktopSession(connectedEndpoint, defaultBot());
+      conversationsExpanded = true;
+      expandedChannels = { ...expandedChannels, web: true };
+      persistSidebarTree();
+      await loadChannel("web");
+      syncDraftOut();
+      chatStore.selectSession(defaultBot(), created.id);
+      loadDraftIn();
+      persistSelected(defaultBot(), created.id);
+      void refreshFiles(defaultBot(), created.id);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
     }
-    syncDraftOut();
-    chatStore.newConversationDraft(defaultBot());
-    loadDraftIn();
   }
 
   function openSession(item: DesktopConversationItem): void {
     browserOpen = false;
-    if (expandedChannel !== item.channel) {
-      expandedChannel = item.channel;
-      persistChannel(item.channel);
-      void loadExpanded();
-    }
+    expandedChannels = { ...expandedChannels, [item.channel]: true };
+    persistSidebarTree();
     if (item.readOnly) {
+      projectPaneActive = false;
       void openExternalTranscript(item.sessionId, item.channel, item.title, item.botName);
       return;
     }
     workspacePane = "chat";
     viewMode = "local";
+    projectPaneActive = false;
     closeExternalTranscript();
     syncDraftOut();
     chatStore.selectSession(item.botId, item.sessionId);
@@ -667,10 +676,10 @@
     try {
       const saved = await renameDesktopConversation(connectedEndpoint, item.sessionId, trimmed);
       // Reflect the sanitized title immediately, then refresh from the server.
-      expandedItems = expandedItems.map((it) =>
+      channelItems = { ...channelItems, [item.channel]: (channelItems[item.channel] ?? []).map((it) =>
         it.sessionId === item.sessionId ? { ...it, title: saved } : it
-      );
-      await loadExpanded();
+      ) };
+      await loadChannel(item.channel);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     }
@@ -683,14 +692,13 @@
     try {
       await deleteDesktopConversation(connectedEndpoint, item.sessionId);
       chatStore.disposeSession(item.botId, item.sessionId);
-      expandedItems = expandedItems.filter((it) => it.sessionId !== item.sessionId);
-      // If the deleted conversation was the one being viewed, fall back to a draft.
+      const remaining = (channelItems[item.channel] ?? []).filter((it) => it.sessionId !== item.sessionId);
+      channelItems = { ...channelItems, [item.channel]: remaining };
       if (viewMode === "local" && item.sessionId === activeSessionId) {
-        syncDraftOut();
-        chatStore.newConversationDraft(defaultBot());
-        loadDraftIn();
+        if (remaining[0]) openSession(remaining[0]);
+        else chatStore.clearSelection();
       }
-      await loadExpanded();
+      await loadChannel(item.channel);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     }
@@ -1414,24 +1422,36 @@
   <ChatSidebar
     {copy}
     channels={sidebarChannels}
-    {expandedChannel}
-    expandedItems={expandedItems}
-    expandedHasMore={expandedHasMore}
-    expandedLoading={expandedLoading}
+    {conversationsExpanded}
+    {projectsExpanded}
+    activeWorkspacePane={workspacePane}
+    {expandedChannels}
+    {channelItems}
+    {channelHasMore}
+    {channelLoading}
     activeSessionId={sidebarActiveSessionId}
+    {activeProjectSessionId}
+    endpoint={connectedEndpoint}
     serviceState={serviceState}
     {statusDots}
     formatTime={formatListTime}
     onNewConversation={newConversation}
-    onOpenProjects={openProjects}
     onOpenAutoTasks={() => openWorkspacePane("automations")}
     onOpenSkills={() => openWorkspacePane("skills")}
     onOpenSettings={() => openSettings()}
+    onToggleConversations={toggleConversations}
+    onToggleProjects={toggleProjects}
     onToggleChannel={(channel) => toggleChannel(channel as DesktopConversationChannel)}
     onSelectSession={openSession}
     onMoreChannel={(channel) => openBrowser(channel as DesktopConversationChannel)}
     onRenameSession={renameSession}
     onDeleteSession={deleteSession}
+    onActivateProjectSession={() => {
+      projectPaneActive = true;
+      workspacePane = "chat";
+      viewMode = "local";
+      activeProjectSessionId = projectsStore.selectedSessionId;
+    }}
   />
 
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
@@ -1448,6 +1468,13 @@
     onkeydown={onSidebarKeydown}
   ></div>
 
+  {#if projectPaneActive}
+    <ProjectDetail
+      {copy}
+      onSearch={() => { searchOpen = !searchOpen; }}
+      onOpenFiles={() => { filePanelOpen = !filePanelOpen; }}
+    />
+  {:else}
   <section class="chat-content">
     {#if workspacePane !== "chat"}
       <ChatWorkspacePane pane={workspacePane} {copy} serviceEndpoint={connectedEndpoint || serviceEndpoint} serviceReady={serviceState === "ready"} />
@@ -1456,7 +1483,7 @@
       <div class="chat-title-block" data-tauri-drag-region>
         <div class="chat-header-avatar" data-tauri-drag-region aria-hidden="true">{activeHeaderAvatar}</div>
         <div class="chat-title-text" data-tauri-drag-region>
-          <div class="chat-title-name" data-tauri-drag-region>{viewMode === "external" ? (activeExternalTitle || copy.chat) : activeSessionTitle}</div>
+          <div class="chat-title-name" data-tauri-drag-region>{viewMode === "external" ? activeExternalTitleWithSource : activeSessionTitle}</div>
         </div>
       </div>
       <div class="header-actions">
@@ -1647,6 +1674,7 @@
     {/if}
     {/if}
   </section>
+  {/if}
 
   {#if filePanelOpen && serviceState === "ready" && profiles.length > 0}
     <aside class="file-panel">

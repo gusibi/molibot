@@ -37,7 +37,7 @@ test("STT route ignores disabled providers", () => {
         path: "/audio/transcriptions",
         defaultModel: "stt-a",
         models: [
-          { id: "stt-a", tags: ["stt"], supportedRoles: ["system", "user", "assistant", "tool"] }
+          { id: "stt-a", enabled: true, tags: ["stt"], supportedRoles: ["system", "user", "assistant", "tool"] }
         ]
       }
     ]
@@ -62,7 +62,7 @@ test("vision fallback route ignores disabled providers", () => {
         path: "/chat/completions",
         defaultModel: "vision-a",
         models: [
-          { id: "vision-a", tags: ["vision"], supportedRoles: ["system", "user", "assistant", "tool"] }
+          { id: "vision-a", enabled: true, tags: ["vision"], supportedRoles: ["system", "user", "assistant", "tool"] }
         ]
       }
     ]

@@ -207,7 +207,7 @@ function ensureWebIndexEntry(index: WebSessionsIndex, externalUserId: string, co
 }
 
 export class SessionStore {
-  private createConversation(channel: Channel, externalUserId: string, projectId?: string): Conversation {
+  private createConversation(channel: Channel, externalUserId: string, projectId?: string, origin?: string): Conversation {
     const now = new Date().toISOString();
     const id = uuidv4();
     const conversation: Conversation = {
@@ -218,6 +218,7 @@ export class SessionStore {
       createdAt: now,
       updatedAt: now
     };
+    if (origin) conversation.origin = origin;
 
     if (projectId) {
       conversation.projectId = projectId;
@@ -379,7 +380,7 @@ export class SessionStore {
     channel: Channel,
     externalUserId: string,
     conversationId?: string,
-    opts?: { projectId?: string }
+    opts?: { projectId?: string; origin?: string }
   ): Conversation {
     const now = new Date().toISOString();
 
@@ -402,7 +403,7 @@ export class SessionStore {
           return file.conversation;
         }
       }
-      return this.createConversation(channel, externalUserId, opts.projectId);
+      return this.createConversation(channel, externalUserId, opts.projectId, opts.origin);
     }
 
     if (conversationId) {
@@ -440,7 +441,7 @@ export class SessionStore {
       }
     }
 
-    return this.createConversation(channel, externalUserId);
+    return this.createConversation(channel, externalUserId, undefined, opts?.origin);
   }
 
   appendMessage(
@@ -603,6 +604,18 @@ export class SessionStore {
   }
 
   /**
+   * Returns the newest empty Web conversation for this profile, or creates one.
+   * Keeping this decision in the shared store makes repeated new-chat requests
+   * idempotent without teaching desktop/channel callers about storage files.
+   */
+  getOrCreateEmptyWebConversation(externalUserId: string): { conversation: Conversation; reused: boolean } {
+    const existing = this.listConversations("web", externalUserId)
+      .find((conversation) => this.listMessages(conversation.id).length === 0);
+    if (existing) return { conversation: existing, reused: true };
+    return { conversation: this.createWebConversation(externalUserId), reused: false };
+  }
+
+  /**
    * Lists every Web conversation across all profiles (plan §12.2 cross-Bot
    * aggregation). Returns the conversation metadata, the owning externalUserId
    * (so the caller can recover the profile id) and a short last-message preview
@@ -659,6 +672,14 @@ export class SessionStore {
 
   createProjectConversation(projectId: string, externalUserId: string): Conversation {
     return this.createConversation("web", externalUserId, projectId);
+  }
+
+  /** Same empty-session contract as Web, scoped to one project workspace. */
+  getOrCreateEmptyProjectConversation(projectId: string, externalUserId: string): { conversation: Conversation; reused: boolean } {
+    const existing = this.listProjectConversations(projectId)
+      .find((conversation) => this.listMessages(conversation.id).length === 0);
+    if (existing) return { conversation: existing, reused: true };
+    return { conversation: this.createProjectConversation(projectId, externalUserId), reused: false };
   }
 
   listProjectConversations(projectId: string): Conversation[] {

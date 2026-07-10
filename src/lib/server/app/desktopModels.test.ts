@@ -25,6 +25,7 @@ test("desktop model state exposes labels and keys without provider credentials",
       defaultModel: "private-model",
       models: [{
         id: "private-model",
+        enabled: true,
         tags: ["text"],
         supportedRoles: ["system", "user", "assistant", "tool"]
       }]
@@ -61,6 +62,7 @@ test("buildDesktopModelState builds each route without leaking credentials", () 
       defaultModel: "private-model",
       models: [{
         id: "private-model",
+        enabled: true,
         tags: ["text", "vision", "stt", "tts"],
         supportedRoles: ["system", "user", "assistant", "tool"]
       }]

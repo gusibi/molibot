@@ -89,15 +89,20 @@ test("skill text formatters split summary and detail views", () => {
   skill.mcpServers = ["tavily"];
   const diagnostics = ["Duplicate skill ignored"];
 
+  // Default locale is en-US since the command i18n change; zh-CN is opt-in.
   const summary = formatSkillsSummaryText([skill], diagnostics, {
     footerLines: ["Use /skills <id> for details."]
   });
-  assert.match(summary, /当前技能列表（共1个）/);
-  assert.match(summary, /\| 编号 \| 名称 \| 路径 \|/);
+  assert.match(summary, /Loaded skills \(1 total\):/);
+  assert.match(summary, /\| Number \| Name \| Path \|/);
   assert.match(summary, /\| 1 \| web-search \| \/tmp\/bot\/skills\/web-search\/SKILL\.md \|/);
   assert.doesNotMatch(summary, /description:/);
   assert.match(summary, /Use \/skills <id> for details\./);
   assert.match(summary, /Diagnostics:/);
+
+  const zhSummary = formatSkillsSummaryText([skill], diagnostics, { locale: "zh-CN" });
+  assert.match(zhSummary, /当前技能列表（共1个）/);
+  assert.match(zhSummary, /\| 编号 \| 名称 \| 路径 \|/);
 
   const detail = formatSkillDetailText(skill);
   assert.match(detail, /Skill: web-search/);

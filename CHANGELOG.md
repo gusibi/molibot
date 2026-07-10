@@ -2,9 +2,24 @@
 
 ## 2026-07-10
 
+### DuckDuckGo / Web Search UX polish
+- Polished the built-in search tool response summary to distinguish between successful queries with no search results and configuration errors. When a search engine successfully queries but returns 0 results, the system now returns "No search results found." instead of "No configured search engine returned results.".
+
+### Desktop automation watched-event routing
+- Fixed Desktop Automation task creation to store events in the bot-level watched `events/` directory while preserving the selected chat as the delivery target. At scheduler startup, legacy Web events found in chat scratch directories are moved into the watched directory, so previously created tasks resume running without manual recreation.
+
+### Desktop Automations
+- Reworked the Chat Automation workspace into a compact task list with a selected-task detail and execution-history pane, substantially increasing list density for larger task collections.
+- Added visible active states for the Automation and Skills sidebar shortcuts, with localized, themed, keyboard-focusable, narrow-window behavior preserved.
+
 ### Desktop settings synchronization and unsaved model pulling
 - **Multi-window dynamic sync**: Integrated BroadcastChannel to broadcast settings changes from the Settings window to the main Chat window, avoiding app restarts when adding custom providers or updating model settings.
 - **Pull models before saving**: Updated the `/api/desktop/provider-models` endpoint and UI disabled properties to support pulling model lists using transient form inputs (baseUrl and apiKey) before a provider is saved.
+
+### Unified Desktop conversation and project navigation
+- Projects no longer open a separate Desktop page. The Chat sidebar now has independently persistent Conversations and Projects trees; channels/projects and their Session children can be expanded concurrently without changing the active chat.
+- New Web and project conversations are now saved immediately through a shared create-or-reuse-empty Session Store contract. Each Web Profile/project scope reuses its single empty Session, preventing missing `New Session` rows and duplicate blank sessions. Headers show `source or project / session` and active-session deletion selects the next sibling or clears selection.
+- Follow-up visual pass: removed the duplicate Projects subheading, promoted Conversations/Projects to icon-led primary sidebar headings, hid expand/add affordances until hover/focus, removed sidebar horizontal scrolling, constrained Session titles to a 30-character visual width, and gave right-side timestamps/menus safe padded overlay positions. Project headers now omit the avatar and use the same Search/Files actions as Chat.
 
 ### Agent harness: prompt-cache stability, compaction accuracy, tool-call fidelity, turn heartbeat lease
 - The per-turn working-memory snapshot moved out of the system prompt into a `<current-memory>` block inside the user-message envelope (model message only, never persisted). The system prompt no longer changes with each turn's memory/query, so provider prefix caching now covers the full prompt plus history across turns instead of being invalidated every message.
@@ -17,6 +32,10 @@
 - The prompt-injection scanner for project context files now also matches common Chinese injection phrasings (ignore-previous-instructions, override-system-prompt, hide-from-user), mirroring the existing English patterns; ordinary Chinese project docs are covered by a regression test to avoid false positives.
 - TurnOrchestrator now opens one SQLite connection per orchestrator with schema DDL ensured once at open, instead of an open/CREATE TABLE/close cycle inside every turn operation (prepareTurn, heartbeat, status updates).
 - The "do not call videoGenerate again in the same turn" rule moved from prompt prose to a mechanical gate: after a successful video submission in a run, further submissions are blocked at beforeToolCall with a reason pointing at the existing taskId, while progress checks (calls carrying a taskId) stay allowed. The prompt sentence now just notes the runtime enforcement.
+
+### Fixed: stale skills-locale test and repo-wide ProviderModelConfig `enabled` type debt
+- Fixed the long-failing `skills.test.ts` formatter test: the June command-i18n change made formatters default to English with opt-in `locale: "zh-CN"`, but the test still asserted the old hard-coded Chinese output. The test now asserts the English default and adds an explicit zh-CN case; the agent suite is fully green again (380/380). Also passed `locale` through the one `/skills <id>`-not-found branch in channelCommands that had missed it.
+- Cleared every `Property 'enabled' is missing` TypeScript error against `ProviderModelConfig` (22 sites across 6 test files plus 3 production spots: the ai-meta custom-provider template, the env-provider default model, and the legacy provider migration). Runtime consumers treat missing `enabled` as enabled (`!== false`), so `enabled: true` is behavior-preserving; tests run through tsx (no typecheck), which is why these never failed at runtime.
 
 ## 2026-07-09
 
@@ -269,6 +288,11 @@
 - Fixed the Automations page getting stuck during a frontend/local-service version mismatch by normalizing older task responses and stopping automatic retry loops after a failed load.
 - Added stable task ids for future periodic executions, SQLite-backed execution history with session links, skipped records, retry attempt counts, and task-level non-concurrency for scheduled and manual runs.
 - Fresh automation sessions now carry explicit automation origin metadata and are hidden from ordinary session listings; execution records can open a read-only session detail view, with a cleaned-session state when retention has already removed the transcript.
+
+### macOS Automations: list-first execution controls
+- Made the Automation workspace list-first: details now open only after selecting a task and can be closed, while compact header totals and per-row execution count/last-run metadata preserve scan density.
+- Replaced the page-wide manual-run lock with task-scoped running indicators, so unrelated tasks remain selectable and actionable while another run is pending.
+- Added persisted pause/resume for periodic watched events and a scheduler guard for disabled events. Also fixed the non-`task-*` automation-session origin path and the overlapping Session timestamp overlay.
 
 ## 2026-07-01
 

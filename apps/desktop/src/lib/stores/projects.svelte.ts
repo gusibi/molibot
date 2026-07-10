@@ -52,7 +52,6 @@ export async function addProject(input: { name: string; rootPath?: string; creat
   try {
     const project = await createDesktopProject(projectsStore.endpoint, input);
     projectsStore.projects = [project, ...projectsStore.projects];
-    await selectProject(project.id);
     return true;
   } catch (cause) {
     projectsStore.error = cause instanceof Error ? cause.message : String(cause);
@@ -73,8 +72,6 @@ export async function selectProject(id: string): Promise<void> {
     const sessions = await loadDesktopProjectSessions(projectsStore.endpoint, id);
     if (generation !== projectSelectionGeneration || projectsStore.selectedProjectId !== id) return;
     projectsStore.sessions = sessions;
-    if (sessions[0]) await selectProjectSession(sessions[0].conversationId, id);
-    else await createAndSelectProjectSession(id, generation);
   } catch (cause) {
     if (generation !== projectSelectionGeneration || projectsStore.selectedProjectId !== id) return;
     projectsStore.error = cause instanceof Error ? cause.message : String(cause);
@@ -82,11 +79,11 @@ export async function selectProject(id: string): Promise<void> {
 }
 
 async function createAndSelectProjectSession(projectId: string, projectGeneration = projectSelectionGeneration): Promise<void> {
-  const id = await createDesktopProjectSession(projectsStore.endpoint, projectId);
+  const { session } = await createDesktopProjectSession(projectsStore.endpoint, projectId);
   const sessions = await loadDesktopProjectSessions(projectsStore.endpoint, projectId);
   if (projectGeneration !== projectSelectionGeneration || projectsStore.selectedProjectId !== projectId) return;
   projectsStore.sessions = sessions;
-  await selectProjectSession(id, projectId);
+  await selectProjectSession(session.conversationId, projectId);
 }
 
 export async function selectProjectSession(id: string, projectId = projectsStore.selectedProjectId): Promise<void> {
@@ -154,7 +151,6 @@ export async function removeProjectSession(conversationId: string): Promise<void
       else {
         projectsStore.selectedSessionId = "";
         projectsStore.messages = [];
-        await createAndSelectProjectSession(projectsStore.selectedProjectId);
       }
     }
   } catch (cause) {

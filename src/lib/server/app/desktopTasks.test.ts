@@ -87,6 +87,11 @@ test("buildDesktopTaskItem coerces unknown type and status to defaults", () => {
   assert.equal(desktop.status, "pending");
 });
 
+test("buildDesktopTaskItem exposes the persisted pause state", () => {
+  assert.equal(buildDesktopTaskItem(item({ enabled: false })).enabled, false);
+  assert.equal(buildDesktopTaskItem(item()).enabled, true);
+});
+
 test("buildDesktopTaskSummary exposes only periodic automations", () => {
   const summary = buildDesktopTaskSummary([
     item({ type: "periodic", status: "pending", scope: "workspace", channel: "telegram" }),
@@ -102,6 +107,7 @@ test("buildDesktopTaskSummary exposes only periodic automations", () => {
   assert.equal(summary.counts.byChannel.telegram, 1);
   assert.equal(summary.counts.byChannel.feishu, undefined);
   assert.equal(summary.items[0].text.includes("API key"), true);
+  assert.deepEqual(summary.counts.executions, { total: 0, completed: 0, failed: 0 });
 });
 
 test("task targets include enabled Web profiles and external Bot allowed chat ids", () => {
@@ -123,14 +129,14 @@ test("task targets include enabled Web profiles and external Bot allowed chat id
   const targets = buildDesktopTaskTargets(settings);
 
   assert.deepEqual(targets, [
-    { channel: "feishu", botId: "office", chatId: "oc_group__thread_topic", scope: "chat-scratch", botDisplayName: "Office Bot" },
-    { channel: "telegram", botId: "news", chatId: "-5296983178", scope: "chat-scratch", botDisplayName: "News Bot" },
-    { channel: "telegram", botId: "news", chatId: "7706709760", scope: "chat-scratch", botDisplayName: "News Bot" },
-    { channel: "web", botId: "default", chatId: "web:default:web-anonymous", scope: "chat-scratch", botDisplayName: "Default Web" }
+    { channel: "feishu", botId: "office", chatId: "oc_group__thread_topic", scope: "workspace", botDisplayName: "Office Bot" },
+    { channel: "telegram", botId: "news", chatId: "-5296983178", scope: "workspace", botDisplayName: "News Bot" },
+    { channel: "telegram", botId: "news", chatId: "7706709760", scope: "workspace", botDisplayName: "News Bot" },
+    { channel: "web", botId: "default", chatId: "web:default:web-anonymous", scope: "workspace", botDisplayName: "Default Web" }
   ]);
   assert.equal(JSON.stringify(targets).includes("should-not-appear"), false);
   assert.equal(JSON.stringify(targets).includes("web-chat"), false);
-  assert.equal(targets.some((target) => target.scope === "workspace"), false);
+  assert.equal(targets.every((target) => target.scope === "workspace"), true);
 });
 
 test("task ids resolve to server-side paths and reject unknown ids", () => {

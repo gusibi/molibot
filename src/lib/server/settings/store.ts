@@ -1007,7 +1007,7 @@ function migrateLegacyCustomProvider(raw: RawSettings): CustomProviderConfig[] {
       protocol: "openai-compatible",
       baseUrl,
       apiKey,
-      models: model ? [{ id: model, tags: ["text"], supportedRoles: [...DEFAULT_ROLES] }] : [],
+      models: model ? [{ id: model, tags: ["text"], enabled: true, supportedRoles: [...DEFAULT_ROLES] }] : [],
       defaultModel: model,
       path
     }

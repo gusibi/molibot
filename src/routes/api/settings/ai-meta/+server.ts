@@ -24,6 +24,7 @@ export const GET: RequestHandler = async () => {
       {
         id: "",
         tags: ["text"],
+        enabled: true,
         supportedRoles: ["system", "user", "assistant", "tool"]
       }
     ],

@@ -49,3 +49,17 @@ Thumbs.db
 .idea/
 .vscode/
 *.code-workspace
+
+# test
+chat-hook-gate
+chat-model-hook
+chat-read-blocked
+chat-read-error
+chat-read-non-skill
+chat-read-not-executed
+chat-read-skill
+chat-read-skill-no-label
+chat-skill-executed
+chat-skill-hook
+chat-skill-mcp
+chat-skill-search

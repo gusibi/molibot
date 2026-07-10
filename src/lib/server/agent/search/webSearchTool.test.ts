@@ -298,6 +298,33 @@ test("runWebSearch maps Bocha source metadata and requests summaries", async () 
   }
 });
 
+test("runWebSearch returns 'No search results found.' if query succeeded but yielded no results", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({}), { status: 200 })) as typeof fetch;
+  try {
+    const result = await runWebSearch({ query: "nonexistent", engine: "duckduckgo" }, settings);
+    assert.equal(result.summary, "No search results found.");
+    assert.equal(result.results.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runWebSearch returns 'No configured search engine returned results.' if all engines were skipped/disabled", async () => {
+  const disabledSettings: WebSearchSettings = {
+    ...settings,
+    engines: {
+      ...settings.engines,
+      duckduckgo: { enabled: false, apiKey: "" },
+      brave: { enabled: false, apiKey: "" }
+    }
+  };
+  const result = await runWebSearch({ query: "hello", engine: "duckduckgo" }, disabledSettings);
+  assert.equal(result.summary, "No configured search engine returned results.");
+  assert.equal(result.results.length, 0);
+});
+
 test("runWebSearch rejects empty queries", async () => {
   await assert.rejects(() => runWebSearch({ query: " " }, settings), /Search query is required/);
 });
+

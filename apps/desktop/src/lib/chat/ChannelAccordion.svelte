@@ -137,7 +137,8 @@
   .channel-accordion-header:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .channel-accordion-header i:first-child { font-size: 15px; opacity: 0.7; }
   .channel-accordion-name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chevron { font-size: 11px; color: var(--label-tertiary, #8f8f8f); transition: transform 0.12s ease; flex: 0 0 auto; }
+  .chevron { opacity: 0; font-size: 11px; color: var(--label-tertiary, #8f8f8f); transition: opacity .12s ease, transform 0.12s ease; flex: 0 0 auto; }
+  .channel-accordion-header:hover .chevron, .channel-accordion-header:focus-visible .chevron { opacity: 1; }
   .chevron.open { transform: rotate(90deg); }
   .channel-accordion-body { padding: 1px 0 4px; }
   .channel-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }

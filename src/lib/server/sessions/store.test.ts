@@ -50,6 +50,36 @@ test("deleting a Web conversation removes its file and index entry", () => {
   }
 });
 
+test("automation Web conversations persist their origin for the shared sidebar filter", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-automation-origin-"));
+  const original = {
+    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    sessionsDir: storagePaths.sessionsDir,
+    sessionsIndexFile: storagePaths.sessionsIndexFile
+  };
+
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+
+    const store = new SessionStore();
+    const conversation = store.getOrCreateConversation(
+      "web",
+      "bot:default:chat:web:default:web-anonymous:task-20260710-test",
+      undefined,
+      { origin: "automation" } as any
+    );
+    assert.equal(conversation.origin, "automation");
+    assert.equal(store.listAllWebConversations()[0]?.conversation.origin, "automation");
+  } finally {
+    storagePaths.webWorkspaceDir = original.webWorkspaceDir;
+    storagePaths.sessionsDir = original.sessionsDir;
+    storagePaths.sessionsIndexFile = original.sessionsIndexFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("external-channel conversations no longer persist to the legacy sessions store", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-external-noop-"));
   const original = {
@@ -119,6 +149,47 @@ test("project conversations use isolated project storage and remain outside Web 
     assert.equal(store.deleteProjectConversation("wiki", project.id), true);
     assert.equal(store.getProjectConversation("wiki", project.id), null);
     assert.equal(store.deleteProjectConversation("wiki", project.id), false);
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("empty conversations are reused once per Web profile and project", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-empty-session-"));
+  const original = {
+    projectsDir: storagePaths.projectsDir,
+    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    sessionsDir: storagePaths.sessionsDir,
+    sessionsIndexFile: storagePaths.sessionsIndexFile
+  };
+  try {
+    storagePaths.projectsDir = path.join(root, "projects");
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    const store = new SessionStore();
+    const personal = "web:personal:user";
+    const work = "web:work:user";
+
+    const firstWeb = store.getOrCreateEmptyWebConversation(personal);
+    const reusedWeb = store.getOrCreateEmptyWebConversation(personal);
+    assert.equal(firstWeb.reused, false);
+    assert.equal(reusedWeb.reused, true);
+    assert.equal(reusedWeb.conversation.id, firstWeb.conversation.id);
+    assert.notEqual(store.getOrCreateEmptyWebConversation(work).conversation.id, firstWeb.conversation.id);
+
+    store.appendMessage(firstWeb.conversation.id, "user", "Start work");
+    const nextWeb = store.getOrCreateEmptyWebConversation(personal);
+    assert.equal(nextWeb.reused, false);
+    assert.notEqual(nextWeb.conversation.id, firstWeb.conversation.id);
+
+    const firstProject = store.getOrCreateEmptyProjectConversation("wiki", personal);
+    const reusedProject = store.getOrCreateEmptyProjectConversation("wiki", personal);
+    assert.equal(firstProject.reused, false);
+    assert.equal(reusedProject.reused, true);
+    assert.equal(reusedProject.conversation.id, firstProject.conversation.id);
+    assert.notEqual(store.getOrCreateEmptyProjectConversation("notes", personal).conversation.id, firstProject.conversation.id);
   } finally {
     Object.assign(storagePaths, original);
     rmSync(root, { recursive: true, force: true });

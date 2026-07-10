@@ -1016,11 +1016,13 @@ test("models command renders numbered markdown table with provider and model col
         models: [
           {
             id: "grok-4.20-auto",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           },
           {
             id: "grok-4.20-fast",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           }

@@ -135,3 +135,32 @@ test("late successful event completion suppresses timeout retry outcome", async 
     store.close();
   }
 });
+
+test("disabled periodic events never enter the scheduler dispatch loop", async () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-paused-"));
+  const filename = "paused.json";
+  writeFileSync(join(eventsDir, filename), JSON.stringify({
+    ...createPeriodicEvent(),
+    schedule: "* * * * *",
+    enabled: false
+  }), "utf8");
+
+  let calls = 0;
+  const watcher = new EventsWatcher(eventsDir, async () => { calls += 1; }, { leaseStore: store }) as unknown as {
+    handleFile: (filename: string) => void;
+    tickPeriodic: () => void;
+    stop: () => void;
+  };
+
+  try {
+    watcher.handleFile(filename);
+    watcher.tickPeriodic();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(calls, 0);
+  } finally {
+    watcher.stop();
+    rmSync(eventsDir, { recursive: true, force: true });
+    store.close();
+  }
+});

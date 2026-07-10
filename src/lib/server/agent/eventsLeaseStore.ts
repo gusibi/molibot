@@ -411,6 +411,23 @@ export class EventExecutionLeaseStore {
     return Number(row?.count ?? 0);
   }
 
+  summarizeTasks(taskIds: string[]): { total: number; completed: number; failed: number } {
+    const ids = [...new Set(taskIds.map((id) => String(id ?? "").trim()).filter(Boolean))];
+    if (ids.length === 0) return { total: 0, completed: 0, failed: 0 };
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = this.db.prepare(`
+      SELECT status, COUNT(*) AS count FROM event_execution_leases
+      WHERE task_id IN (${placeholders})
+      GROUP BY status
+    `).all(...ids) as Array<{ status: EventExecutionLeaseStatus; count: number }>;
+    const byStatus = new Map(rows.map((row) => [row.status, Number(row.count ?? 0)]));
+    return {
+      total: rows.reduce((sum, row) => sum + Number(row.count ?? 0), 0),
+      completed: byStatus.get("completed") ?? 0,
+      failed: (byStatus.get("failed") ?? 0) + (byStatus.get("aborted") ?? 0)
+    };
+  }
+
   listForTask(taskId: string, limit = 50, offset = 0): EventExecutionLease[] {
     const trimmed = String(taskId ?? "").trim();
     if (!trimmed) return [];

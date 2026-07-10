@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { config } from "$lib/server/app/env.js";
 import { EventsWatcher } from "$lib/server/agent/events.js";
@@ -6,6 +6,42 @@ import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
 import type { ChannelManager } from "$lib/server/channels/registry.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+
+/**
+ * Desktop automations are watched by this shared scheduler at
+ * `<bot>/events`. Early Desktop builds incorrectly stored Web automations in
+ * a chat scratch directory, which the Web runtime never watches. Move those
+ * files once at scheduler start while keeping their chatId payload intact.
+ */
+export function migrateLegacyWebTaskEvents(botsRoot: string): string[] {
+  if (!existsSync(botsRoot)) return [];
+
+  const migrated: string[] = [];
+  for (const botEntry of readdirSync(botsRoot, { withFileTypes: true })) {
+    if (!botEntry.isDirectory()) continue;
+    const botDir = join(botsRoot, botEntry.name);
+    const eventsDir = join(botDir, "events");
+
+    for (const chatEntry of readdirSync(botDir, { withFileTypes: true })) {
+      if (!chatEntry.isDirectory() || chatEntry.name === "events") continue;
+      const legacyEventsDir = join(botDir, chatEntry.name, "scratch", "events");
+      if (!existsSync(legacyEventsDir)) continue;
+
+      for (const entry of readdirSync(legacyEventsDir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+        mkdirSync(eventsDir, { recursive: true });
+        let destination = join(eventsDir, entry.name);
+        if (existsSync(destination)) {
+          const suffix = `-migrated-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          destination = join(eventsDir, `${entry.name.slice(0, -5)}${suffix}.json`);
+        }
+        renameSync(join(legacyEventsDir, entry.name), destination);
+        migrated.push(destination);
+      }
+    }
+  }
+  return migrated;
+}
 
 export class TaskScheduler {
   private watchers: EventsWatcher[] = [];
@@ -26,6 +62,12 @@ export class TaskScheduler {
       const botsRoot = channel === "web"
         ? join(resolve(config.webWorkspaceDir), "bots")
         : join(dataRoot, dir, "bots");
+      if (channel === "web") {
+        const migrated = migrateLegacyWebTaskEvents(botsRoot);
+        if (migrated.length > 0) {
+          momLog("taskScheduler", "legacy_web_events_migrated", { count: migrated.length, botsRoot });
+        }
+      }
       if (!existsSync(botsRoot)) {
         momLog("taskScheduler", "bots_root_missing", { channel, botsRoot });
         continue;
@@ -46,8 +88,8 @@ export class TaskScheduler {
 
         const eventsDir = join(botsRoot, botId, "events");
         if (!existsSync(eventsDir)) {
-          momLog("taskScheduler", "events_dir_missing", { channel, botId, eventsDir });
-          continue;
+          mkdirSync(eventsDir, { recursive: true });
+          momLog("taskScheduler", "events_dir_created", { channel, botId, eventsDir });
         }
 
         const watcher = new EventsWatcher(

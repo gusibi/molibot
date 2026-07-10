@@ -43,7 +43,7 @@ export const POST: RequestHandler = async ({ request }) => {
   const profileId = sanitizeWebProfileId(body.profileId);
   const externalUserId = toWebExternalUserId(userId, profileId);
   const { sessions } = getRuntime();
-  const session = sessions.createWebConversation(externalUserId);
+  const { conversation: session, reused } = sessions.getOrCreateEmptyWebConversation(externalUserId);
 
   return json({
     ok: true,
@@ -52,6 +52,7 @@ export const POST: RequestHandler = async ({ request }) => {
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       title: session.title || "New Session"
-    }
+    },
+    reused
   });
 };

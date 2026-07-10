@@ -27,6 +27,8 @@ export type EventSessionMode = "fresh" | "chat";
 
 interface EventBase {
   taskId?: string;
+  // Missing keeps historical event files enabled.
+  enabled?: boolean;
   chatId: string;
   text: string;
   // text: send text directly; agent: run through AI agent first, then send result.
@@ -372,6 +374,12 @@ export class EventsWatcher {
       const identified = this.ensureTaskId(normalized);
       if (identified.delivery !== parsed.delivery || identified.taskId !== parsed.taskId) {
         this.updateEventFile(filename, () => identified);
+      }
+
+      if (identified.enabled === false) {
+        this.cancel(filename);
+        this.knownFiles.add(filename);
+        return;
       }
 
       if (this.isCompleted(identified)) {

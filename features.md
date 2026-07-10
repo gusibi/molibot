@@ -2,10 +2,30 @@
 
 ## 2026-07-10
 
+### 修复：DuckDuckGo 搜索零结果时的错误提示混淆
+- 修复了在搜索工具中，如果搜索引擎正常调用但没有任何结果返回，错误地显示为 "No configured search engine returned results."（未配置任何搜索引擎）的问题。
+- 系统现在会区分“成功查询但未找到结果”与“未配置任何可用搜索引擎”两种场景：若至少有一个搜索引擎成功进行了请求但结果为空，将正确显示 `"No search results found."`。
+- **验证**：在 `webSearchTool.test.ts` 中新增了对应的单元测试，且全仓 search 相关测试 21/21 顺利通过。
+
+### 修复：Desktop 自动任务写入未监控的 Web scratch 目录
+- Desktop Automations 新建任务改为写入 Bot 级 `events/` watched directory，保留原 `chatId` 作为投递目标，不再把 Web 任务写进未被 Web runtime 监控的 chat scratch。运行时启动时会幂等迁移此前误放在 Web scratch 的 JSON 事件，因此已有任务无需手动重建即可重新被共享 scheduler 执行。
+- **验证**：Desktop task target 与 Web legacy migration 单元测试 8/8 通过；Desktop `svelte-check` 0 错误/警告。
+
+### Desktop 紧凑自动任务工作区
+- Chat 侧的“自动任务”现为可选中的高密度任务列表与独立详情/执行记录面板，而非逐条展开的大卡片；“自动任务”和“技能”侧栏入口会标识当前选中状态。创建、编辑、立即运行、删除、执行会话和分页历史入口保持不变，并遵循共享 Geist token 与窄窗口上下堆叠布局。
+
 ### Desktop 动态设置同步与免保存拉取模型
 - **多窗口设置动态同步**：引入前端 `BroadcastChannel` 机制监听设置变更。当用户在设置窗口中对自定义服务商（Providers）、模型路由（Models）、配置文件（Profiles）或助手（Agents）进行保存或删除修改时，主聊天窗口接收广播并自动、在非阻塞的状态下重新加载最新的路由配置及下拉选项，解决了“退出设置页面返回 chat 页面不生效，必须重启”的问题。
 - **免保存拉取模型支持**：升级 `/api/desktop/provider-models` 接口和前端 Pull Models 机制。支持传递临时配置（`baseUrl`, `apiKey`, `protocol`, `path`），使用当前表单输入进行模型发现，从而让用户在新建或修改服务商配置时，无需先保存即可点击“拉取模型”获取最新的模型列表。
 - **验证**：通过了 `svelte-check` 静态类型检查，并通过了桌面前端的 30 个单元测试及 Rust 的 10 个测试。
+
+### Desktop 统一对话与项目侧栏
+- Desktop Chat 侧栏现在以两棵可折叠三级树统一展示：`对话 → 渠道 → Session` 与 `项目 → 项目 → Session`。频道、项目和两个一级分组可同时独立展开，展开状态会在重启后恢复；折叠只影响导航，不会切换右侧内容或中断 Agent。
+- 项目不再作为独立页面或顶部快捷入口。项目 Session 直接在同一主聊天布局的右侧打开，并以 `项目名 / 会话名` 显示标题；普通和外部渠道会话同样以 `来源 / 会话名` 显示。
+- “新对话”和项目内“新对话”现在立即持久化。共享 Session Store 会在 Web Profile 或单个项目范围内复用唯一无消息 Session，避免左侧漏掉 `New Session` 或反复产生空会话；创建失败不写入假条目。
+- 删除当前 Session 时会切到同一分组的下一条，分组为空时进入未选择状态而不擅自新建。项目仍保持独立工作目录、运行时与 Session 存储，并继续不出现在普通 Web 列表中。
+- **验证**：Desktop `svelte-check` 0 错误/警告；Desktop UI/HTTP + Rust 测试 40/40；Session Store 与 Desktop API 测试 69/69。
+- **侧栏打磨（2026-07-10）**：一级“对话／项目”改为与主导航同级的图标标题；项目只保留一个一级标题，移除重复的二级“项目”行。展开箭头和新增按钮默认隐藏，仅在 hover 或键盘聚焦时出现。Session 行限制在 30 个字符宽度内省略，时间与 ⋯ 菜单以带右内边距的右侧覆盖层呈现，侧栏强制禁止横向滚动。项目右侧 Header 移除头像、删除与新建按钮，改用与 Chat 一致的搜索和资源管理器图标。
 
 ### Agent harness 优化：缓存前缀稳定、压缩触发修正、工具调用保真、turn 心跳租约
 - **memory 快照移出 system prompt**：每轮的工作记忆快照改为注入用户消息信封内的 `<current-memory>` 块（只发给模型、不落库），`runPromptKey` 不再包含逐轮变化的 query/memory 指纹。system prompt 跨轮字节一致，provider 前缀缓存（prompt caching）从此覆盖完整 prompt + 历史消息，不再每轮全量失效。
@@ -19,6 +39,10 @@
 - **TurnOrchestrator 数据库访问出热路径**：每个 orchestrator 复用单个 SQLite 连接，schema DDL 只在首次打开时执行一次；此前 prepareTurn/心跳/状态更新每次都开新连接并重跑 CREATE TABLE。
 - **videoGenerate 单轮限制从 prompt 恳求改为机制强制**：同一 run 内视频任务提交成功后，runner 在 beforeToolCall 直接拦截后续提交（错误信息携带已有 taskId，指引模型报告 taskId 并结束回合）；带 taskId 的进度查询不受影响；提交失败不会误触发拦截。prompt 里对应的加粗恳求句改为一句"运行时会拦截"的说明。
 - 验证：agent 全量测试 379 通过（唯一失败仍为 skills 文案语言断言既有问题）；改动文件 `tsc` 干净（runner.test.ts 的 fixture 类型报错为 HEAD 上已存在的既有问题）。
+
+### 修复：skills 文案语言断言 + 全仓 ProviderModelConfig `enabled` 类型债
+- **skills.test.ts 长期红灯修复**：6 月的命令 i18n 改造把技能列表格式化函数改成默认英文、`locale: "zh-CN"` 可选，但测试仍断言旧的中文写死输出（同一测试内其他断言已是英文默认值，自相矛盾）。测试改为断言英文默认输出，并补充显式 zh-CN 用例；agent 全量测试恢复 380/380 全绿。顺带补上 channelCommands 中 `/skills <id>` 未命中分支漏传的 `locale` 参数。
+- **清零 `ProviderModelConfig.enabled` 缺失的 tsc 报错**：共 22 处，涉及 6 个测试文件的 provider fixture，以及 3 处生产代码（ai-meta 设置接口的自定义 provider 模板、env 变量默认 provider 的模型、legacy provider 迁移）。运行时消费方一律按 `enabled !== false` 判断（缺省即启用），因此补 `enabled: true` 不改变任何行为；测试经 tsx 运行不做类型检查，这也是这批错误从未在运行时暴露的原因。
 
 ## 2026-07-09
 
@@ -273,6 +297,10 @@
 - fresh 定时任务创建的 Agent session 会写入 automation 来源元数据，并从普通 `/sessions` 会话列表隐藏；任务执行记录可在 macOS app 中打开只读 session 详情，若 retention 已清理则展示会话已清理状态。
 - Desktop Automations UI 支持中英、多主题 token、窄窗口兼容的执行记录列表和 session 详情弹层，保留编辑、立即运行、删除等原有任务管理能力，且不暴露真实 event JSON 路径。
 - Desktop Automations 可兼容仍在运行的旧本地服务响应：前端会自行剔除 one-shot/immediate 并补齐缺失的执行记录数组；加载失败只显示错误，不再进入无限重试加载。
+- Automations 工作区默认只显示搜索、简要统计和紧凑任务列表；只有显式选择任务后才打开可关闭的详情面板。每行同时展示计划、状态、累计执行次数和上次执行时间。
+- “立即运行”改为任务级运行状态：运行中的任务在列表和详情按钮各自显示转动指示，其它任务仍可选择、暂停或立即执行，不再被全局 busy 状态锁住。
+- 周期任务支持持久化启用/暂停；暂停状态写入 watched event JSON，事件 watcher 不会调度已暂停任务，恢复后无需重新创建任务。
+- 自动任务写入 Web 会话时会保留 `automation` 来源标记，因此即使使用非 `task-*` 的会话 id，也不会混入普通 Session 列表；会话行右侧时间覆盖层带有与当前表面一致的背景，长标题不再与时间重叠。
 - 验证：`apps/desktop` `svelte-check` 0/0；`desktopTasks.test.ts` 4/4；`apps/desktop/src/lib/api.test.ts` 57/57；根级 `tsc --noEmit` 当前仍受仓库既有类型错误阻塞，过滤本次涉及文件无新增错误。
 
 ## 2026-07-01

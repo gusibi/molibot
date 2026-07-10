@@ -247,6 +247,7 @@ export interface DesktopTaskItem {
   chatId: string;
   scope: "workspace" | "chat-scratch";
   type: DesktopTaskType;
+  enabled: boolean;
   text: string;
   delivery: string;
   scheduleText: string;
@@ -308,6 +309,7 @@ export interface DesktopTaskSummary {
     byStatus: Record<DesktopTaskState, number>;
     byScope: { workspace: number; chatScratch: number };
     byChannel: Record<string, number>;
+    executions?: { total: number; completed: number; failed: number };
   };
 }
 
@@ -318,7 +320,7 @@ export interface DesktopTaskResponse {
 
 export type DesktopTaskActionRequest =
   | { action: "create"; task: DesktopTaskTarget & { text: string; delivery: string; schedule: string; timezone: string; sessionMode: string } }
-  | { action: "update"; id: string; patch: { text?: string; delivery?: string; at?: string; schedule?: string; timezone?: string; sessionMode?: string } }
+  | { action: "update"; id: string; patch: { enabled?: boolean; text?: string; delivery?: string; at?: string; schedule?: string; timezone?: string; sessionMode?: string } }
   | { action: "delete" | "trigger"; ids: string[] }
   | { action: "session"; id: string; executionId: string }
   | { action: "history"; id: string; page: number; pageSize: number };

@@ -184,6 +184,7 @@ const envCustomProvider: CustomProviderConfig = {
     ? [{
       id: String(process.env.CUSTOM_AI_MODEL).trim(),
       tags: ["text", "vision", "stt", "tts"],
+      enabled: true,
       supportedRoles: ["system", "user", "assistant", "tool", "developer"]
     }]
     : [],

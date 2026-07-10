@@ -1,21 +1,41 @@
 # Molibot PRD (V1)
 
-## 2.36 Memory System Improvement Plan (2026-07-10)
-- 背景：定位收敛为「记忆优先、可审计、长期陪伴的个人 Agent」（魔魔计划）；审计发现 mory SDK 能力足够但宿主接线不足，详细任务清单与验收标准见 `docs/requirements/memory-improvement-plan.md`。
-- [Planned, P0] T1 中文分词检索修复：Intl.Segmenter + CJK bigram + 停用词降权，替换三处按空格切词的打分（moryCore / jsonFileCore / classifier.memoryPriority），共享模块放 `package/mory`。
-- [Planned, P0] T2 记忆路径策略改造：factKey → 稳定语义路径，激活 mory 写入门控/冲突解析/版本链；语义类型不再压扁为 task/event。
-- [Planned, P1] T3 flush 接入 LLM extractor：从触发词启发式升级为 LLM 抽取双方消息，产出带 reason 的结构化候选，走 mory commit 管道。
-- [Planned, P1] T4 embedder + engine.retrieve 语义检索：关键词/语义双通道，注入预算可配置，无 key 时降级。
-- [Planned, P2] T5 Memory Inbox：候选记忆 pending → 确认/忽略/编辑 状态机，自动抽取默认进 Inbox，桌面端 UI。
-- [Planned, P2] T6 scope 维度扩展：owner 级跨渠道共享、项目绑定、`mory://self` 与 `mory://content` 命名空间（支撑重复梗检测）。
-- [Planned, P3] T7 可审计补全：reason 字段、消息级溯源、版本历史 UI、记忆固定（pin）。
+## 2.39 DuckDuckGo Search UX Polish (2026-07-10)
+- [Done] 区分“未配置任何可用引擎”和“成功调用但无结果”，当有成功尝试但返回 0 条结果时，正确提示 `"No search results found."`。
+- [Done] 修复搜索引擎测试或调用中，若引擎正常工作但没有返回结果，错误地提示配置错误（"No configured search engine returned results."）的问题。
+
+## 2.38 Desktop Automation Workspace Density (2026-07-10)
+- [Done] Chat 内的“自动任务”工作区采用紧凑的任务列表 + 右侧详情/执行记录布局；任务行只保留名称、计划与状态，选中后才展示完整任务文本、计划元数据和最近执行，避免任务数量增多时大量卡片撑高页面。
+- [Done] “自动任务”和“技能”主导航必须反映当前工作区的选中状态；任务创建、编辑、立即运行、删除、执行会话和完整历史入口保持可用。
+- [Done] Automation 工作区在中英、明暗主题、键盘焦点与窄窗口下保持可用；窄窗口改为列表在上、详情在下，不产生横向溢出。
+
+## 2.37 Unified Desktop Conversation and Project Navigation (2026-07-10)
+- [Done] Desktop Chat 将项目从独立页面收进同一侧栏：一级菜单为“对话”和“项目”，二级为渠道/项目，三级为 Session；一级与二级均可多开、折叠状态本地持久化，折叠不得改变当前右侧会话或中断运行。
+- [Done] 普通 Web Profile 与每个项目各自最多保留一个立即持久化的空 Session；重复点击新对话必须复用所属范围的空 Session，保存失败不得插入虚假列表行。
+- [Done] 项目 Session 仅在所属项目树中显示，普通/外部会话仅在对话树中显示；右侧标题统一为 `来源或项目名 / 会话名`，项目工作目录与运行时隔离保持不变。
+- [Done] 侧栏一级标题与主导航使用同级图标字重；项目不重复展示二级“项目”行。展开/新增控件仅在 hover 或键盘焦点时显示，Session 行不得造成横向滚动，右侧时间/菜单保留安全内边距并可覆盖超长标题。
+
+## 2.36 Memory System Improvement Plan v2.2 (2026-07-10)
+- 背景：定位收敛为「记忆优先、可审计、长期陪伴的个人 Agent」（魔魔计划）；审计发现 mory SDK 能力足够但宿主接线不足。经三轮外部 review 修订至 v2.2，详细契约、任务书与端到端验收见 `docs/requirements/memory-improvement-plan.md`。
+- [Decided] C0 统一契约：**mory 为唯一正式后端**（owner 决策 2026-07-10，`MemoryBackend` 插拔接口保留供未来接入其他记忆工具，json-file 转维护模式 + 迁移）；**namespace（owner/chat/project/agent/content 编码）是 mory 的检索隔离键，domain 只做审计与注入策略标签，注入由显式 query plan 合并 namespace，content 绝不自动注入普通聊天**（v2.1）；三入口写入状态机（显式记住直写 / 反思抽取进候选 / importer 收编治理），**候选确认唯一入口 `gateway.confirmCandidate`：reload → revalidate → 策略 → ingest → 原子确认，编辑后必须重校验，任何入口不得绕过（v2.2）**；**反思运行契约**：watched-event `execution:"internal"` → MemoryReflectionService（**不经聊天 Runner、不写会话消息、不向用户外泄过程，通知为成功后的独立步骤**，v2.2），幂等键 ReflectionTargetId(hash of owner+bot+timezone+scopes)+localDate + per-conversation watermark + 候选 fingerprint，重试幂等、中断不推进，输入经 ReflectionSourceReader 只读投影（messages + 可选 Summary，可降级）；溯源为多消息数组（conversationMessageId 必填 + platformMessageId 可选）；layer/retention 与 lowConfidencePath 入契约；Summary 定位为会话连续性输入而非长期记忆。
+- [Planned, P0] T1a 宿主中文分词止血：`package/mory/src/moryTokenize.ts`（Intl.Segmenter + CJK bigram + 停用词降权），替换三处按空格切词的打分，无依赖可立即做。
+- [Planned, P1] T1b mory 全链路统一 tokenizer：宿主检索 / prompt 行选择 / moryRetrieval / writeGate 去重冲突四个消费点强制统一，防止 T4 接管后中文匹配回退。
+- [Planned, P1] T2 稳定路径与版本链激活：路径主来源为 extractor 完整输出（domain+type+subject+path），inferFactKey 仅低置信兜底且不落共享路径（防「喜欢简洁」覆盖「喜欢中文」）；与 T6a 同批做一次 schema 变更。
+- [Planned, P1] T3 双链路抽取：即时链路只处理显式「记住」（廉价）；每日反思走 watched-event `execution:"internal"` 内部执行（不经聊天 Runner、不污染会话、不外发过程，通知独立，v2.2），按 ReflectionTarget 经 SourceReader 批量读当天增量 + 可选 Summary + 既有记忆，产出结构化候选进 Inbox，**不再挂在 per-message flush 上**；同 RunKey 重试幂等、中断不推进 watermark。
+- [Planned, P1] T5 Candidate Inbox：独立候选层（pending 绝不写 mory），confirm 后才 ingest 到目标 namespace；importer 收编进治理与候选；确定性 suppression key 先行（不依赖 T4）；reason/sources 等最小审计字段随本批落库；与 T3 必须同批同 Agent。
+- [Planned, P1] T6a Namespace 与 Domain 模型落地：namespace 编码为 mory userId（存量懒迁移），domain 列同批加；owner 跨渠道注入合并（带共享开关）、project 绑定隔离（v2.1）。
+- [Planned, P2] T4 语义检索：embedder + engine.retrieve、存量回填、embedding 模型版本记录、继承 T1b、**retrieve 接口增加 namespace/domain 过滤**（普通聊天只检索 owner+chat+agent，content 绝不自动注入）、注入预算可配置、无 key 降级。
+- [Planned, P2] T6b 内容/自我记忆应用：已发布内容记录与重复梗检测（依赖 T4）、魔魔成长状态存取。
+- [Planned, P2] T7 可审计收尾：版本历史 UI、来源跳转、pin、遗忘/过期策略（moryForgetting 接入）。
+- [Planned] 端到端验收集四场景：跨渠道注入、偏好演变可追溯、反思候选未确认零影响、已发内容防重。
+- 拆出：T8 Subagent 信息采集 → `docs/requirements/content-collection-pipeline.md`；T9 Project 级技能加载 → `docs/requirements/project-skills-loading.md`（记忆 MVP 不依赖两者）。
 
 ## 2.34 Clean-machine First Launch Polish (2026-07-08)
 - [Done] 全新数据目录必须自动拥有 `default` Agent，并让默认 Web Profile 关联该 Agent；旧数据中缺失 Agent 或默认 Web 关联为空时必须幂等补齐。
 - [Done] Desktop 首次启动配置必须在对话式引导中询问用户称呼与偏好的 AI 回复风格，并保存到当前默认 Agent 的 profile 文件。
 - [Done] 首次配置 Provider 后，Desktop 模型列表必须即时刷新，不要求用户重启 App 或服务。通过 BroadcastChannel 实现多窗口间设置更改的动态同步（覆盖 Providers/Models/Profiles/Agents 保存与删除），主窗口收到事件后非阻塞式重新拉取并更新数据；允许用户在未保存新服务商前，使用表单中的临时 URL 与 API Key 拉取并发现远端模型。
 - [Done] Web Search 首启默认使用无需 API key 的 DuckDuckGo；旧配置缺失 DuckDuckGo engine 时必须自动补齐，`auto` 与显式 `duckduckgo` 都不能因为缺少 API key 被判为不可用。
-- [Done] Desktop Automations 必须允许为 Web Profile 创建任务；Web 创建的提醒/任务必须仍走 watched event JSON 与共享事件运行时执行。
+- [Done] Desktop Automations 必须允许为 Web Profile 创建任务；所有 Desktop 自动任务必须写入 Bot 级 `events/` watched directory，保留 `chatId` 作为投递目标；此前误写入 Web chat scratch 的 JSON 在 scheduler 启动时迁移，以保证继续由共享事件运行时执行。
 - [Done] macOS overlay titlebar 下，Chat/Settings/Project/Workspace 顶部空白与标题区域必须可拖动窗口；顶部必须有与红黄绿窗口控制区高度匹配的透明拖拽蒙版并调用原生 `startDragging()`；Chat/Project 左侧栏顶部和标题栏非交互子元素也必须是拖拽区域，按钮/输入框不得被拖拽层覆盖。
 - [Follow-up, P1] 在真实打包 App 上复测“先显示窗口、后台启动服务”的启动体验；当前代码路径已异步启动服务且主 Chat 窗口默认可见，如仍慢需继续定位 WebView 首屏资源加载。
 
@@ -68,6 +88,8 @@
 - [Done] Chat 媒体失败提示必须贴近对应附件并提供重试，不在 composer 重复暴露技术错误；共享 assistant fallback 必须按界面语言提供可执行的下一步。
 - [Done] Chat 工作区交互必须具备统一 `:focus-visible` 焦点环；实际最小窗口宽度必须能进入紧凑布局，不能使用永远无法触发的断点。
 - [Done] Automations 使用 Geist 6px/12px 半径、轻阴影和有限表面层级；执行状态必须本地化，单行任务标题不得在正文区域重复。
+- [Done] Chat-side Automations 默认只展示紧凑列表和简单执行统计；用户选择任务后才展开可关闭的详情面板，列表必须显示执行次数与上次执行时间。
+- [Done] 周期任务必须支持启用/暂停并持久化到 watched event JSON；手动运行状态只能锁定当前任务，不得冻结其它任务或其详情/操作。
 
 ## 2.29 Desktop Automation Management (2026-07-04)
 - [Done] macOS Automations 页面提供周期任务的创建、搜索、编辑、删除、批量管理与立即运行，不把 one-shot/immediate 诊断任务混入产品入口。

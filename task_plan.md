@@ -1,148 +1,190 @@
-# Chat Workspace Design Audit
-
-# Project Workspace Alignment — 2026-07-09
+# Unified conversation and project sidebar plan
 
 ## Goal
-Align Project creation and Session browsing with the current Chat workspace, while fixing the first-selection conversation rendering failure.
 
-## Success Criteria
-- Add Project first asks for a name, then offers automatic directory creation or one-time existing-folder selection.
-- Existing-folder selection opens exactly one native directory picker; automatic creation opens none.
-- Project and Chat render Sessions through the same shared UI component and interaction contract.
-- Selecting a Project Session on first page entry immediately renders its conversation on the right.
-- Focused regression tests, Svelte checks, build, responsive/theme/localization checks, and project documentation pass.
+Move Projects out of their separate desktop page and into the chat sidebar as a
+collapsible first-level group, while fixing creation and display of empty
+sessions. The existing project directory and Agent-context behavior remains
+unchanged.
 
-## Plan
+## Confirmed product decisions
 
-### Phase 1: Inspect and reproduce
-- Inspected product constraints and the current Chat/Project implementations; reproduced the selection race.
-- **Status:** complete
+- The sidebar has two first-level groups: **Conversations** and **Projects**.
+- Conversations contain channels as second-level nodes; projects contain
+  projects as second-level nodes. Sessions are third-level nodes in both.
+- First- and second-level groups are independently expandable; several may be
+  open simultaneously. Their expansion state persists locally across restarts.
+- Toggling a group is navigation-only: it must never change the active right
+  pane or interrupt an Agent run.
+- Project rows only expand/collapse. Clicking a project session selects it in
+  the shared chat pane. There is no Projects page.
+- Top-level New Conversation creates/reuses the Web empty draft. A project has
+  its own New Conversation action; it creates/reuses that project's empty
+  draft. Each scope has at most one empty draft.
+- Empty drafts are saved immediately and only appear once persistence succeeds.
+  On failure, preserve the active chat and present a retryable error.
+- Project sessions never duplicate into the Conversations group.
+- Ordering is newest activity first within every second-level node.
+- Header format is `source-or-project / session name`.
+- Creation of a project expands it but changes neither the active right pane
+  nor session selection. Existing project directory behavior and management
+  actions remain.
+- Deleting an active session opens the next most-recent session in its group;
+  if none remains, show an unselected empty state without recreating a draft.
 
-### Phase 2: Define the shared design
-- Chose Chat's existing Session row as the shared UI and defined the name-first creation flow.
-- **Status:** complete
+## Implementation phases
 
-### Phase 3: Implement and regress
-- Implemented managed/existing directory creation, shared Session rows, and request ownership with tests.
-- **Status:** complete
+1. **Map and test current data flows** — complete
+   - Verify Web draft creation, project session API behavior, current title
+     ownership, and existing test coverage.
+2. **Unify sidebar and selection state** — complete
+   - Replace the separate Projects view with the shared sidebar tree and
+     selection-aware shared chat pane.
+3. **Correct draft lifecycle** — complete
+   - Persist/reuse blank Web and project sessions and update ordering safely.
+4. **Apply the responsive, bilingual themed UI** — complete
+   - Build the three-level navigation using existing UI patterns/tokens.
+5. **Verify and document** — complete
+   - Unit/integration checks, desktop visual checks in light/dark and Chinese/
+     English, then update project documentation required by AGENTS.md.
 
-### Phase 4: Verify and review
-- Verified responsive UI, localization/theme tokens, focused tests, Svelte checks, and production builds.
-- **Status:** complete
+## Verification gates
 
-### Phase 5: Document and deliver
-- Updated features, PRD, changelog, README, findings, and progress.
-- **Status:** complete
+- New Web and project sessions appear immediately after a successful save.
+- Repeated creation reopens the scope's existing empty session.
+- Existing sessions, management actions, channel transport, project working
+  directory behavior, and active Agent runs remain intact.
+- Collapsing/expanding multiple groups persists across restart and never alters
+  the right pane.
+- The Projects page and its sidebar shortcut no longer exist.
 
-## Errors Encountered
-| Error | Attempt | Resolution |
-|---|---:|---|
-| zsh expanded SvelteKit `[id]` route paths as glob patterns | 1 | Quote bracketed paths on the next inspection; no source files changed. |
-| First Svelte check found a dialog-role warning and test-only `$state` type conflict | 1 | Use a semantic-neutral `div[role=dialog]` and isolate the test shim behind `any`; production behavior unchanged. |
-| Managed-directory test compared macOS `/var` with canonical `/private/var` | 1 | Compare against `realpathSync`; production code correctly stores canonical paths. |
-| Two source assertions still encoded the superseded implicit-selection implementation | 1 | Updated them to assert generation ownership and explicit first-session selection. |
-| In-app Browser DOM snapshot API was unavailable for the selected local tab | 1 | Reconnected through the documented Browser path and used its visible DOM plus screenshots; no product issue. |
-| Planning completion helper was not executable | 1 | Run it explicitly with `bash`; no project artifact affected. |
+## Proposed technical design
 
-## Adversarial Review
-- Managed directory cleanup now also covers database-open/insert failures, so failed registration does not leave an empty orphan folder.
-- Project and transcript mutations both require current request generation plus matching Project/Session identity.
-- Project no longer carries orphaned picker helpers, Session DOM, copy, or CSS; the 40px row target lives in the shared component.
-- Automatic-directory intent is asserted through the Desktop API request body and server-side temporary-store tests.
+### Session persistence contract
 
-# macOS First-Launch Bootstrap
+- Add a shared session-store operation that returns the existing message-less
+  conversation for a scope, or creates exactly one when none exists. Its scope
+  is a Web profile or a single project id.
+- Expose it through the existing granular Web-session and project-session
+  endpoints. Both responses return the full session summary and whether the
+  result was reused; do not make the client infer emptiness from a title.
+- Keep project ownership in the session store so project sessions stay excluded
+  from the normal Web query and retain their project execution workspace.
 
-## Goal
-Make a packaged Molibot desktop app start successfully on a Mac with no existing Molibot installation or data directory, while preserving existing user data on later launches.
+### Sidebar and active-pane model
 
-## Success Criteria
-- Packaged runtime contains every production dependency needed before server initialization.
-- Starting with an isolated empty data root creates required settings, SQLite schema, directories, and bundled default profile files.
-- Bootstrap is idempotent and never overwrites existing profile/config data.
-- Focused regression tests, packaged-runtime verification, and relevant builds pass.
-- Product documentation records the shipped behavior.
+- Replace the single `expandedChannel` and its single item array with a
+  persisted tree state plus per-node loading/cache records. Expansion is wholly
+  independent from selection.
+- Merge the project list into `ChatSidebar`; remove the `mainView` switch,
+  `ProjectsView`, and the Projects navigation shortcut.
+- Treat the active target as a discriminated source (Web, project, or
+  read-only external channel). Reuse the chat shell, transcript and composer
+  primitives; source-specific data loading and runtime context stay behind the
+  existing Web/project adapters rather than leaking project logic into channel
+  adapters.
+- The active header derives from the selected target as
+  `source name / session title`. Unselected state has no synthetic session.
 
-## Plan
-- [complete] Reproduce the packaged-runtime failure and inventory bootstrap requirements.
-- [complete] Add regression coverage for empty-data-root startup and packaged dependencies.
-- [complete] Implement the smallest shared bootstrap/package fix.
-- [complete] Verify first launch, repeat launch, builds, and adversarial failure cases.
-- [complete] Update features, PRD, changelog, and README.
+### Lifecycle and recovery
 
-## Errors Encountered
-| Error | Attempt | Resolution |
-|---|---:|---|
-| Packaged `start-server.mjs` cannot resolve `dotenv` | 1 | Under investigation; failure occurs before data initialization. |
-| Real archive smoke found missing `scripts/runtime/service-port.mjs` | 1 | Release manifest copied `service-lease.mjs` only; added the second static startup dependency. |
-| Real archive smoke found missing runtime `@sveltejs/kit` | 1 | Adapter Node imports `@sveltejs/kit/node` at runtime; moved the package from devDependencies to dependencies. |
+- New-conversation actions await the idempotent persistence result before
+  changing selection or list state. They then expand only the parent required
+  to reveal the newly selected session.
+- Successful sends refresh only the owning node to maintain newest-first order.
+- A deleted active session selects the next item from its own loaded node; if
+  none exists it clears selection without creating a replacement.
+- Failed loads/creates retain the existing active target, show a scoped,
+  retryable error, and never insert an optimistic phantom row.
 
+## Expected implementation surface
 
-## Goal
-Assess whether the complete Desktop Chat workspace—including conversation navigation, Chat, Automations, Skills, dialogs, and responsive states—meets `DESIGN.md` and identify evidence-backed improvements.
+- Desktop: `App.svelte`, `ChatView.svelte`, `ChatSidebar.svelte`, the existing
+  channel accordion/session-row components, project list/store/chat adapters,
+  and desktop i18n/tests.
+- Service: session-store scope helpers, Web and project session routes, their
+  API client contracts, and tests using temporary session/project storage.
+- Documentation after implementation: `features.md`, `prd.md`,
+  `CHANGELOG.md`, and `README.md` as required by the repository instructions.
 
-## Success Criteria
-- Capture and inspect current-run screenshots for each reachable workspace state.
-- Compare visible hierarchy, spacing, shape, typography, states, accessibility, and responsive behavior with `DESIGN.md`.
-- Inspect source only to verify behavior that screenshots cannot prove.
-- Save ordered screenshots and a self-contained audit report under `docs/audits/chat-workspace-2026-07-04/`.
-- Separate confirmed issues, likely risks, and evidence limits; do not modify product code.
+## Errors encountered
 
-## Plan
-- [complete] Establish audit baseline and inspect supplied Chat desktop state.
-- [complete] Inspect supplied Automations and Skills states.
-- [complete] Inspect source and tokens for accessibility/interaction constraints not visible in screenshots.
-- [complete] Implement confirmed design, localization, recovery, responsive, and accessibility fixes.
-- [complete] Write prioritized combined UX/accessibility audit and verify artifacts.
+| Error | Resolution |
+| --- | --- |
+| Search included absent `packages/` directory | Restrict subsequent searches to verified workspace roots. |
+| zsh expanded bracketed Svelte route path as a glob | Quote literal route paths in subsequent reads. |
 
-## Errors Encountered
-| Error | Attempt | Resolution |
-|---|---:|---|
-| Audit framework path was resolved from the plugin root instead of the audit skill directory | 1 | Located and read `skills/audit/references/design-audit-framework.md`. |
-| Existing UI regression expected 36px session rows after the design target changed to 40px | 1 | Updated the assertion to the documented 40px control height and reran the suite. |
+## Planning status
+
+Implementation started after user approval. Phases 2 and 3 proceed together:
+the persisted draft contract must exist before the unified sidebar can select it.
+
+## Delivery result
+
+All planned phases are complete. The Desktop sidebar and project pane passed
+`svelte-check`, the Desktop UI/HTTP/Rust suite, and server/client Session tests.
 
 ---
 
-# Periodic Schedule Builder
+# Automation workspace density refresh (2026-07-10)
 
 ## Goal
-Replace the primary raw Cron field in the Desktop automation editor with an accessible periodic schedule builder for daily, multi-select weekly, monthly-by-date, and custom Cron schedules, without changing the watched-event runtime format.
 
-## Success Criteria
-- Daily, weekly, monthly, and custom modes round-trip to valid five-field Cron strings.
-- Existing Cron expressions open without data loss; unsupported expressions use custom mode.
-- Create and edit use the same interaction, with Chinese/English, dark theme, and narrow-width styles.
-- Focused tests, Svelte checks, and relevant API tests pass.
-- Product documentation reflects the delivered behavior.
+Make the desktop Automation workspace compact and scan-friendly: a selected
+sidebar shortcut must be visible, task rows must remain dense, and selecting a
+row must reveal its execution details in a dedicated right-hand pane.
 
-## Plan
-- [complete] Define and test the Cron-to-form model and form-to-Cron conversion.
-- [complete] Integrate the shared schedule builder into create/edit task flows.
-- [complete] Add localized copy and responsive/theme-compatible semantic styles.
-- [complete] Verify behavior, inspect the rendered UI, and fix regressions.
-- [complete] Update features, PRD, changelog, and README; perform adversarial review.
+## Implementation phases
 
-## Errors Encountered
-| Error | Attempt | Resolution |
-|---|---:|---|
-| `svelte-check` rejected a `.ts` suffix in the new test import | 1 | Changed it to the repository's extensionless TypeScript import style. |
+1. **Map existing workspace, task actions, and style primitives** — complete
+2. **Build the compact two-pane Automation workspace** — complete
+3. **Wire sidebar active state and preserve task actions** — complete
+4. **Verify localized, themed, responsive behavior and document** — complete
+
+## Verification gates
+
+- Automation and Skills show a visible selected state in the chat sidebar.
+- Automation rows show title, schedule, state, and next/last run without
+  expanding into cards; selecting a row opens its full detail and run history.
+- Existing create, edit, run, and delete behavior remains available.
+- Light/dark, Chinese/English, keyboard focus, and narrow-window layouts remain usable.
+
+## Delivery result
+
+The Automation workspace now uses the requested dense list/detail structure.
+`svelte-check` and all Desktop chat UI checks pass; the existing local preview
+confirmed both sidebar active states and reported no console errors. Its service
+was not connected, so live task rows could not be populated during that preview.
 
 ---
 
-# Automation Target Picker Cleanup
+# Automation interaction and scheduling controls (2026-07-10)
 
 ## Goal
-Expose only real, deliverable external conversations in the automation create picker and replace the raw channel/Bot/directory list with a clear Bot → conversation selection.
 
-## Success Criteria
-- Workspace and internal folders such as `skill-drafts` never appear as create targets.
-- Targets are backed directly by enabled Bot `allowedChatIds` and grouped by channel/Bot.
-- Recipient options display the configured Chat ID exactly, without Session-name inference.
-- Existing workspace tasks remain readable/editable and no runtime event format changes.
-- Focused tests, Svelte checks, builds, responsive checks, and documentation updates pass.
+Keep Automations list-first by default, reveal a closable detail pane only for
+the selected task, show per-task execution activity without globally blocking
+the workspace, prevent automation runs from leaking into ordinary sessions,
+and support pausing individual periodic tasks.
 
-## Plan
-- [complete] Trace target discovery and Bot allowed-chat configuration.
-- [complete] Filter/project real task targets with regression tests.
-- [complete] Replace the raw selector with Bot and conversation controls.
-- [complete] Verify rendered desktop/narrow states and complete adversarial review.
-- [complete] Update product documentation and final verification evidence.
+## Implementation phases
+
+1. **Reproduce the automation-session leak and map task execution state** — complete
+2. **Add persisted task enabled/paused state and scheduler guard** — complete
+3. **Refine list-first workspace interactions and per-task execution UI** — complete
+4. **Verify focused regressions, UI behavior, and documentation** — complete
+
+## Verification gates
+
+- A fresh periodic automation run never appears in normal Web/Channel session navigation.
+- Triggering task A leaves task B runnable and selectable while A alone shows running state.
+- Paused tasks do not dispatch through the watcher and can be resumed without recreation.
+- The default workspace shows only search, compact summary, and list; detail opens and closes predictably.
+
+## Delivery result
+
+All requested interaction fixes are complete. Focused server/session tests,
+Desktop Svelte diagnostics, Desktop UI regression tests, production build, and
+the scoped `git diff --check` passed. The worktree has one pre-existing,
+unrelated trailing-blank-line warning in `webSearchTool.test.ts`; it was left
+untouched. Production build keeps only its existing dynamic-import advisories.

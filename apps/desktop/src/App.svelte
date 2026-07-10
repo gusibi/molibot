@@ -3,7 +3,6 @@
   import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
   import { onMount } from "svelte";
   import ChatView from "./ChatView.svelte";
-  import ProjectsView from "./lib/projects/ProjectsView.svelte";
   import SandboxSection from "./lib/settings/SandboxSection.svelte";
   import HostBashSection from "./lib/settings/HostBashSection.svelte";
   import RuntimeEnvSection from "./lib/settings/RuntimeEnvSection.svelte";
@@ -66,7 +65,6 @@
   let servicePortBusy = false;
   const THEME_STORAGE_KEY = "molibot-desktop-theme";
   let theme: DesktopTheme = normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY));
-  let mainView: "chat" | "projects" = "chat";
   let requestedChatPane: "chat" | "automations" | "skills" = "chat";
 
   function applyTheme(value: DesktopTheme): void {
@@ -602,13 +600,6 @@
       </div>
     </section>
   </main>
-{:else if mainView === "projects"}
-  <ProjectsView
-    copy={text}
-    endpoint={status?.service.endpoint ?? null}
-    openChat={() => { requestedChatPane = "chat"; mainView = "chat"; }}
-    openSettings={() => openSettings()}
-  />
 {:else}
   <ChatView
     copy={text}
@@ -618,7 +609,6 @@
     launchAtLoginBusy={busy}
     setLaunchAtLogin={setLoginStart}
     {openSettings}
-    openProjects={() => (mainView = "projects")}
     requestedWorkspacePane={requestedChatPane}
   />
 {/if}

@@ -2,70 +2,65 @@
   import ChannelAccordion, { type ChannelDescriptor } from "./ChannelAccordion.svelte";
   import type { DesktopConversationItem } from "@molibot/desktop-contract";
   import type { SessionStatusDot } from "./sessionStatusDot.js";
+  import ProjectTree from "../projects/ProjectTree.svelte";
+  import type { Translation } from "../i18n";
 
   let {
     copy,
     channels,
-    expandedChannel,
-    expandedItems = [],
-    expandedHasMore = false,
-    expandedLoading = false,
+    conversationsExpanded,
+    projectsExpanded,
+    activeWorkspacePane = "chat",
+    expandedChannels,
+    channelItems,
+    channelHasMore,
+    channelLoading,
     activeSessionId = "",
+    activeProjectSessionId = "",
+    endpoint,
     serviceState = "disconnected",
     statusDots = new Map<string, SessionStatusDot>(),
     formatTime,
     onNewConversation,
-    onOpenProjects,
     onOpenAutoTasks,
     onOpenSkills,
     onOpenSettings,
+    onToggleConversations,
+    onToggleProjects,
     onToggleChannel,
     onSelectSession,
     onMoreChannel,
     onRenameSession,
-    onDeleteSession
+    onDeleteSession,
+    onActivateProjectSession
   }: {
-    copy: {
-      appName: string;
-      newChat: string;
-      projects: string;
-      autoTasks: string;
-      skillsSquare: string;
-      running: string;
-      waitingApproval: string;
-      completed: string;
-      failed: string;
-      more: string;
-      emptyWeb: string;
-      emptyExternal: string;
-      notConfigured: string;
-      goToSettings: string;
-      conversationMenu: string;
-      renameConversation: string;
-      deleteConversation: string;
-      renamePlaceholder: string;
-      deleteConversationPrompt: string;
-      cancelAction: string;
-    };
+    copy: Translation;
     channels: ChannelDescriptor[];
-    expandedChannel: string;
-    expandedItems?: DesktopConversationItem[];
-    expandedHasMore?: boolean;
-    expandedLoading?: boolean;
+    conversationsExpanded: boolean;
+    projectsExpanded: boolean;
+    activeWorkspacePane?: "chat" | "automations" | "skills";
+    expandedChannels: Record<string, boolean>;
+    channelItems: Record<string, DesktopConversationItem[]>;
+    channelHasMore: Record<string, boolean>;
+    channelLoading: Record<string, boolean>;
     activeSessionId?: string;
+    activeProjectSessionId?: string;
+    endpoint: string;
     serviceState?: "disconnected" | "ready" | "incompatible" | "error";
     statusDots?: Map<string, SessionStatusDot>;
     formatTime: (iso: string) => string;
     onNewConversation: () => void;
-    onOpenProjects: () => void;
     onOpenAutoTasks: () => void;
     onOpenSkills: () => void;
     onOpenSettings: () => void;
+    onToggleConversations: () => void;
+    onToggleProjects: () => void;
     onToggleChannel: (channel: string) => void;
     onSelectSession: (item: DesktopConversationItem) => void;
     onMoreChannel: (channel: string) => void;
     onRenameSession: (item: DesktopConversationItem, title: string) => void;
     onDeleteSession: (item: DesktopConversationItem) => void;
+    onActivateProjectSession: () => void;
   } = $props();
 
   const accordionLabels = $derived({
@@ -94,40 +89,46 @@
       <i class="ph-fill ph-plus-circle" aria-hidden="true"></i>
       <span>{copy.newChat}</span>
     </button>
-    <button type="button" class="nav-item" onclick={onOpenProjects}>
-      <i class="ph-fill ph-folders" aria-hidden="true"></i>
-      <span>{copy.projects}</span>
-    </button>
-    <button type="button" class="nav-item" onclick={onOpenAutoTasks}>
+    <button type="button" class="nav-item" class:active={activeWorkspacePane === "automations"} aria-current={activeWorkspacePane === "automations" ? "page" : undefined} onclick={onOpenAutoTasks}>
       <i class="ph-fill ph-clock-countdown" aria-hidden="true"></i>
       <span>{copy.autoTasks}</span>
     </button>
-    <button type="button" class="nav-item" onclick={onOpenSkills}>
+    <button type="button" class="nav-item" class:active={activeWorkspacePane === "skills"} aria-current={activeWorkspacePane === "skills" ? "page" : undefined} onclick={onOpenSkills}>
       <i class="ph-fill ph-sparkle" aria-hidden="true"></i>
       <span>{copy.skillsSquare}</span>
     </button>
   </nav>
 
   <div class="sidebar-channels">
-    {#each channels as channel (channel.id)}
-      <ChannelAccordion
-        {channel}
-        expanded={channel.id === expandedChannel}
-        items={channel.id === expandedChannel ? expandedItems : []}
-        hasMore={channel.id === expandedChannel ? expandedHasMore : false}
-        loading={channel.id === expandedChannel ? expandedLoading : false}
-        {activeSessionId}
-        {statusDots}
-        labels={accordionLabels}
-        {formatTime}
-        onToggle={() => onToggleChannel(channel.id)}
-        onSelect={onSelectSession}
-        onMore={() => onMoreChannel(channel.id)}
-        onConfigure={onOpenSettings}
-        onRenameItem={onRenameSession}
-        onDeleteItem={onDeleteSession}
-      />
-    {/each}
+    <section class="sidebar-tree-section">
+      <button type="button" class="sidebar-tree-title" aria-expanded={conversationsExpanded} onclick={onToggleConversations}>
+        <i class="ph-fill ph-chats-circle" aria-hidden="true"></i><span>{copy.chat}</span><i class="ph ph-caret-right sidebar-tree-caret" class:open={conversationsExpanded} aria-hidden="true"></i>
+      </button>
+      {#if conversationsExpanded}
+        {#each channels as channel (channel.id)}
+          <ChannelAccordion
+            {channel}
+            expanded={Boolean(expandedChannels[channel.id])}
+            items={channelItems[channel.id] ?? []}
+            hasMore={Boolean(channelHasMore[channel.id])}
+            loading={Boolean(channelLoading[channel.id])}
+            {activeSessionId}
+            {statusDots}
+            labels={accordionLabels}
+            {formatTime}
+            onToggle={() => onToggleChannel(channel.id)}
+            onSelect={onSelectSession}
+            onMore={() => onMoreChannel(channel.id)}
+            onConfigure={onOpenSettings}
+            onRenameItem={onRenameSession}
+            onDeleteItem={onDeleteSession}
+          />
+        {/each}
+      {/if}
+    </section>
+    <section class="sidebar-tree-section">
+      <ProjectTree {copy} {endpoint} expanded={projectsExpanded} activeSessionId={activeProjectSessionId} {formatTime} onToggle={onToggleProjects} onActivateSession={onActivateProjectSession} />
+    </section>
   </div>
 
   <button type="button" class="sidebar-footer" onclick={onOpenSettings} title={copy.goToSettings}>
@@ -170,13 +171,24 @@
     transition: background 0.12s ease;
   }
   .nav-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
+  .nav-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); font-weight: 600; }
+  .nav-item.active i { color: var(--accent, #006bff); }
   .nav-item i { font-size: 16px; color: var(--label-secondary, #666); }
   .sidebar-channels {
     flex: 1 1 auto;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 2px 0;
     min-height: 0;
   }
+  .sidebar-tree-section { min-width: 0; padding: 2px 0; }
+  .sidebar-tree-title { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 0 8px; border: 0; background: transparent; color: var(--label-primary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
+  .sidebar-tree-title:hover { color: var(--label-primary); }
+  .sidebar-tree-title span { flex: 1; }
+  .sidebar-tree-title > i:first-child { color: var(--label-secondary); font-size: 16px; }
+  .sidebar-tree-caret { opacity: 0; font-size: 11px; color: var(--label-tertiary); transition: opacity .12s ease, transform .12s ease; }
+  .sidebar-tree-title:hover .sidebar-tree-caret, .sidebar-tree-title:focus-visible .sidebar-tree-caret { opacity: 1; }
+  .sidebar-tree-caret.open { transform: rotate(90deg); }
   .sidebar-footer {
     display: flex;
     align-items: center;

@@ -1643,7 +1643,8 @@ export class SharedRuntimeCommandService<TTarget> {
               "- `/skills`",
               "- `/skills <id>`",
               "- `/skills-detail`"
-            ]
+            ],
+            locale
           })
         ].join("\n");
       }

@@ -39,6 +39,12 @@ const loadTaskExecutions: DesktopTaskExecutionLoader = (taskId) => ({
   total: getEventExecutionLeaseStore().countForTask(taskId)
 });
 
+function buildSummary(payload: SharedTaskListResponse) {
+  const items = payload.items as Parameters<typeof buildDesktopTaskSummary>[0];
+  const taskIds = items.map((item) => String(item.taskId ?? "").trim()).filter(Boolean);
+  return buildDesktopTaskSummary(items, loadTaskExecutions, payload.targets ?? [], getEventExecutionLeaseStore().summarizeTasks(taskIds));
+}
+
 export const GET: RequestHandler = async () => {
   const result = await listTasks(undefined as never);
   const payload = (await result.json()) as SharedTaskListResponse;
@@ -46,7 +52,7 @@ export const GET: RequestHandler = async () => {
     return json({ ok: false, error: "Failed to list tasks" }, { status: 500 });
   }
 
-  const summary = buildDesktopTaskSummary(payload.items as Parameters<typeof buildDesktopTaskSummary>[0], loadTaskExecutions, payload.targets ?? []);
+  const summary = buildSummary(payload);
   const response: DesktopTaskResponse = { ok: true, summary };
   return json(response, { headers: { "Cache-Control": "no-store" } });
 };
@@ -67,7 +73,7 @@ export const POST: RequestHandler = async ({ request }) => {
       if (!managed.ok || !managed.created) throw new Error(managed.error || "Failed to create task");
       const after = await rawTaskList();
       const createdId = desktopTaskId(managed.created);
-      return json({ ok: true, summary: buildDesktopTaskSummary(after.items as Parameters<typeof buildDesktopTaskSummary>[0], loadTaskExecutions, after.targets ?? []), affected: [createdId], failed: [] } satisfies DesktopTaskActionResponse);
+      return json({ ok: true, summary: buildSummary(after), affected: [createdId], failed: [] } satisfies DesktopTaskActionResponse);
     }
     const ids = body.action === "update" || body.action === "session" || body.action === "history" ? [body.id] : body.ids;
     if (!Array.isArray(ids) || ids.length === 0) throw new Error("Task ids are required");
@@ -81,7 +87,7 @@ export const POST: RequestHandler = async ({ request }) => {
       const taskId = String(item.taskId ?? "").trim();
       const response: DesktopTaskActionResponse = {
         ok: true,
-        summary: buildDesktopTaskSummary(rawItems, loadTaskExecutions, before.targets ?? []),
+        summary: buildSummary(before),
         affected: [], failed: [],
         history: { items: projectExecutions(taskId, pageSize, (page - 1) * pageSize), page, pageSize, total: getEventExecutionLeaseStore().countForTask(taskId) }
       };
@@ -100,7 +106,7 @@ export const POST: RequestHandler = async ({ request }) => {
       const messages = buildDesktopTaskSessionMessages(store.loadContext(item.chatId, execution.sessionId));
       const response: DesktopTaskActionResponse = {
         ok: true,
-        summary: buildDesktopTaskSummary(rawItems, loadTaskExecutions, before.targets ?? []),
+        summary: buildSummary(before),
         affected: [],
         failed: [],
         session: {
@@ -121,7 +127,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const affectedPaths = body.action === "update" ? [managed.updated ?? ""] : body.action === "delete" ? managed.deleted ?? [] : managed.triggered ?? [];
     const response: DesktopTaskActionResponse = {
       ok: true,
-      summary: buildDesktopTaskSummary(after.items as Parameters<typeof buildDesktopTaskSummary>[0], loadTaskExecutions, after.targets ?? []),
+      summary: buildSummary(after),
       affected: affectedPaths.map((path) => pathToId.get(path)).filter((id): id is string => Boolean(id)),
       failed: (managed.failed ?? []).map((item) => ({ id: pathToId.get(item.filePath) ?? "", reason: item.reason }))
     };

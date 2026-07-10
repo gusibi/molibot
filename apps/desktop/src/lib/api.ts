@@ -152,6 +152,11 @@ export interface DesktopProjectSession {
   origin: string;
 }
 
+export interface DesktopProjectSessionCreation {
+  session: DesktopProjectSession;
+  reused: boolean;
+}
+
 export interface DesktopProjectMessage {
   id: string;
   conversationId: string;
@@ -186,10 +191,11 @@ export async function loadDesktopProjectSessions(endpoint: string, id: string): 
   return (await requestJson<{ ok: true; sessions: DesktopProjectSession[] }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}/sessions`)).sessions;
 }
 
-export async function createDesktopProjectSession(endpoint: string, id: string): Promise<string> {
-  return (await requestJson<{ ok: true; conversationId: string }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}/sessions`, {
+export async function createDesktopProjectSession(endpoint: string, id: string): Promise<DesktopProjectSessionCreation> {
+  const payload = await requestJson<{ ok: true; session: DesktopProjectSession; reused: boolean }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}/sessions`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
-  })).conversationId;
+  });
+  return { session: payload.session, reused: payload.reused };
 }
 
 export async function loadDesktopProjectSession(endpoint: string, projectId: string, conversationId: string): Promise<DesktopProjectMessage[]> {
@@ -486,13 +492,19 @@ export async function loadDesktopTasks(endpoint: string): Promise<DesktopTaskSum
   const payload = await requestJson<DesktopTaskResponse>(endpoint, "/api/desktop/tasks");
   const items = payload.summary.items
     .filter((item) => item.type === "periodic")
-    .map((item) => ({ ...item, executions: Array.isArray(item.executions) ? item.executions : [], executionCount: Number(item.executionCount ?? item.executions?.length ?? 0) }));
+    .map((item) => ({
+      ...item,
+      enabled: item.enabled !== false,
+      executions: Array.isArray(item.executions) ? item.executions : [],
+      executionCount: Number(item.executionCount ?? item.executions?.length ?? 0)
+    }));
   const counts: DesktopTaskSummary["counts"] = {
     total: items.length,
     byType: { "one-shot": 0, periodic: items.length, immediate: 0 },
     byStatus: { pending: 0, running: 0, completed: 0, skipped: 0, error: 0 },
     byScope: { workspace: 0, chatScratch: 0 },
-    byChannel: {}
+    byChannel: {},
+    executions: payload.summary.counts.executions ?? { total: 0, completed: 0, failed: 0 }
   };
   for (const item of items) {
     counts.byStatus[item.status] += 1;
@@ -1296,8 +1308,8 @@ export async function listDesktopSessions(
 export async function createDesktopSession(
   endpoint: string,
   profileId: string
-): Promise<DesktopSessionSummary> {
-  const payload = await requestJson<{ ok: true; session: DesktopSessionSummary }>(
+): Promise<DesktopSessionSummary & { reused: boolean }> {
+  const payload = await requestJson<{ ok: true; session: DesktopSessionSummary; reused: boolean }>(
     endpoint,
     "/api/sessions",
     {
@@ -1306,7 +1318,7 @@ export async function createDesktopSession(
       body: JSON.stringify({ profileId })
     }
   );
-  return payload.session;
+  return { ...payload.session, reused: payload.reused };
 }
 
 export async function loadDesktopSession(

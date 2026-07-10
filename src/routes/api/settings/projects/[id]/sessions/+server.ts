@@ -18,6 +18,15 @@ export const POST: RequestHandler = async ({ params, request }) => {
   if (!getProjectStore().get(params.id)) return json({ ok: false, error: "Unknown project" }, { status: 404 });
   const body = await request.json().catch(() => ({})) as { externalUserId?: string };
   const externalUserId = String(body.externalUserId ?? "web:personal:web-anonymous").trim();
-  const conversation = getRuntime().sessions.createProjectConversation(params.id, externalUserId);
-  return json({ ok: true, conversationId: conversation.id }, { status: 201 });
+  const { conversation, reused } = getRuntime().sessions.getOrCreateEmptyProjectConversation(params.id, externalUserId);
+  return json({
+    ok: true,
+    session: {
+      conversationId: conversation.id,
+      title: conversation.title || "New Session",
+      updatedAt: conversation.updatedAt,
+      origin: conversation.origin ?? conversation.externalUserId
+    },
+    reused
+  }, { status: reused ? 200 : 201 });
 };

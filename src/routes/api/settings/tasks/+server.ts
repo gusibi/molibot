@@ -33,6 +33,7 @@ interface EventStatus {
 
 interface RawEventTask {
   taskId?: string;
+  enabled?: boolean;
   type: TaskType;
   chatId?: string;
   text?: string;
@@ -53,6 +54,7 @@ interface TaskItem {
   filename: string;
   filePath: string;
   type: TaskType;
+  enabled: boolean;
   delivery: string;
   text: string;
   scheduleText: string;
@@ -79,6 +81,7 @@ interface TaskTriggerBody {
 }
 
 interface TaskUpdatePatch {
+  enabled?: boolean;
   text?: string;
   delivery?: string;
   at?: string;
@@ -148,6 +151,7 @@ function toTaskItem(
     filename,
     filePath,
     type,
+    enabled: raw.enabled !== false,
     delivery: String(raw.delivery ?? "agent").trim() || "agent",
     text: String(raw.text ?? "").trim(),
     scheduleText,
@@ -365,6 +369,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const filePath = join(eventsDir, `periodic-${now}-${Math.random().toString(36).slice(2, 8)}.json`);
     const event: RawEventTask = {
       taskId: createEventTaskId(),
+      enabled: true,
       type: "periodic",
       ...(chatId ? { chatId } : {}),
       text,
@@ -412,6 +417,13 @@ export const POST: RequestHandler = async ({ request }) => {
     }
 
     const next: RawEventTask = { ...current };
+
+    if (patch.enabled !== undefined) {
+      if (typeof patch.enabled !== "boolean") {
+        return json({ ok: false, error: "enabled must be boolean" }, { status: 400 });
+      }
+      next.enabled = patch.enabled;
+    }
 
     if (patch.text !== undefined) {
       next.text = String(patch.text ?? "").trim();
@@ -559,6 +571,10 @@ export const POST: RequestHandler = async ({ request }) => {
         const item = toTaskItem(parsed, context.channel, context.botId, context.chatId, context.scope, resolvedPath);
         if (!item) {
           failed.push({ filePath: resolvedPath, reason: "invalid_task_payload" });
+          continue;
+        }
+        if (parsed.enabled === false) {
+          failed.push({ filePath: resolvedPath, reason: "task_paused" });
           continue;
         }
 

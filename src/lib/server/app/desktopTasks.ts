@@ -75,6 +75,7 @@ interface SharedTaskItem {
   chatId: string;
   scope: string;
   type: string;
+  enabled?: boolean;
   text: string;
   filePath: string;
   delivery: string;
@@ -112,6 +113,8 @@ export type DesktopTaskExecutionLoader = (taskId: string) => { items: DesktopTas
 
 /**
  * Projects enabled channel instances' explicit allow-lists into task targets.
+ * Desktop automations are bot-scoped watched events; chatId remains the
+ * delivery target, but event files always belong in the bot's events folder.
  * Runtime settings are the source of truth: filesystem directories and
  * partially populated session metadata never participate in target discovery.
  */
@@ -126,7 +129,7 @@ export function buildDesktopTaskTargets(settings: RuntimeSettings): DesktopTaskT
           botId: instance.id,
           botDisplayName: String(instance.name ?? "").trim() || instance.id,
           chatId: toWebExternalUserId("web-anonymous", instance.id),
-          scope: "chat-scratch"
+          scope: "workspace"
         });
         continue;
       }
@@ -137,7 +140,7 @@ export function buildDesktopTaskTargets(settings: RuntimeSettings): DesktopTaskT
           botId: instance.id,
           botDisplayName: String(instance.name ?? "").trim() || instance.id,
           chatId,
-          scope: "chat-scratch"
+          scope: "workspace"
         });
       }
     }
@@ -158,6 +161,7 @@ export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: Deskt
     chatId: item.chatId,
     scope: item.scope === "chat-scratch" ? "chat-scratch" : "workspace",
     type: coerceType(item.type),
+    enabled: item.enabled !== false,
     text: item.text,
     delivery: item.delivery,
     scheduleText: item.scheduleText,
@@ -190,7 +194,8 @@ export function resolveDesktopTaskPaths(items: SharedTaskItem[], ids: string[]):
 export function buildDesktopTaskSummary(
   items: SharedTaskItem[],
   loadExecutions: DesktopTaskExecutionLoader = () => ({ items: [], total: 0 }),
-  targets: DesktopTaskTarget[] = []
+  targets: DesktopTaskTarget[] = [],
+  executionTotals: { total: number; completed: number; failed: number } = { total: 0, completed: 0, failed: 0 }
 ): DesktopTaskSummary {
   const desktopItems = items.filter((item) => item.type === "periodic").map((item) => buildDesktopTaskItem(item, loadExecutions));
   const byType: Record<DesktopTaskType, number> = { "one-shot": 0, periodic: 0, immediate: 0 };
@@ -215,6 +220,6 @@ export function buildDesktopTaskSummary(
   return {
     items: desktopItems,
     targets,
-    counts: { total: desktopItems.length, byType, byStatus, byScope, byChannel }
+    counts: { total: desktopItems.length, byType, byStatus, byScope, byChannel, executions: executionTotals }
   };
 }

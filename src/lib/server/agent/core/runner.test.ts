@@ -32,6 +32,7 @@ function createRunnerTestSettings(): RuntimeSettings {
         models: [
           {
             id: "fake-model",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           }
@@ -213,12 +214,14 @@ test("decideVisionRouting prefers an explicit dedicated vision route over a visi
         models: [
           {
             id: "mimo-v2.5-pro",
+            enabled: true,
             tags: ["text", "vision"],
             verification: { vision: "passed" },
             supportedRoles: ["system", "user", "assistant"]
           },
           {
             id: "mimo-v2.5",
+            enabled: true,
             tags: ["text", "vision"],
             verification: { vision: "passed" },
             supportedRoles: ["system", "user", "assistant"]
@@ -258,6 +261,7 @@ test("decideVisionRouting keeps the text route when the vision route resolves to
         models: [
           {
             id: "mimo-v2.5",
+            enabled: true,
             tags: ["text", "vision"],
             verification: { vision: "passed" },
             supportedRoles: ["system", "user", "assistant"]
@@ -297,11 +301,13 @@ test("decideVisionRouting does not send custom images natively before vision ver
         models: [
           {
             id: "mimo-v2.5-pro",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant"]
           },
           {
             id: "mimo-v2.5",
+            enabled: true,
             tags: ["text", "vision"],
             supportedRoles: ["system", "user", "assistant"]
           }
@@ -340,6 +346,7 @@ test("custom vision models advertise image input only after vision verification 
         models: [
           {
             id: "mimo-v2.5",
+            enabled: true,
             tags: ["text", "vision"],
             supportedRoles: ["system", "user", "assistant"]
           }
@@ -402,6 +409,7 @@ test("manual compact reloads the latest persisted session before summarizing", a
         models: [
           {
             id: "compact-model",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           }
@@ -463,6 +471,7 @@ test("host bash approval is forwarded to runner event sink but does not abort ex
         models: [
           {
             id: "fake-model",
+            enabled: true,
             tags: ["text"],
             supportedRoles: ["system", "user", "assistant", "tool", "developer"]
           }

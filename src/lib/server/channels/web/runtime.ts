@@ -85,7 +85,8 @@ export class WebManager extends BaseChannelRuntime {
       "assistant",
       event.text,
       "web_event_direct_session_append_failed",
-      { chatId: event.chatId, runId, filename }
+      { chatId: event.chatId, runId, filename },
+      "automation"
     );
   }
 

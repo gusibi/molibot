@@ -1128,10 +1128,12 @@ test("desktop task loading tolerates an older runtime response without execution
   try {
     const summary = await loadDesktopTasks("http://127.0.0.1:3000");
     assert.deepEqual(summary.items.map((item) => item.id), ["cron"]);
+    assert.equal(summary.items[0].enabled, true);
     assert.deepEqual(summary.items[0].executions, []);
     assert.equal(summary.counts.total, 1);
     assert.equal(summary.counts.byType.periodic, 1);
     assert.equal(summary.counts.byType["one-shot"], 0);
+    assert.deepEqual(summary.counts.executions, { total: 0, completed: 0, failed: 0 });
   } finally {
     globalThis.fetch = original;
   }

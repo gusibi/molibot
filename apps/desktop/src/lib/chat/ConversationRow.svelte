@@ -221,10 +221,14 @@
 
 <style>
   .conversation-row {
+    --conversation-row-overlay: var(--sidebar-bg, #fafafa);
+    position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     min-height: 40px;
     padding: 6px 8px;
     border: none;
@@ -238,9 +242,11 @@
   .conversation-row:hover,
   .conversation-row:focus-visible,
   .conversation-row.menu-open {
+    --conversation-row-overlay: var(--fill, rgba(0, 0, 0, 0.05));
     background: var(--fill, rgba(0, 0, 0, 0.05));
   }
   .conversation-row.active {
+    --conversation-row-overlay: var(--accent-soft, #f0f7ff);
     background: var(--accent-soft, #f0f7ff);
   }
   .conversation-row.active .row-title {
@@ -262,6 +268,7 @@
   .row-title {
     flex: 1 1 auto;
     min-width: 0;
+    max-width: min(30ch, 100%);
     font-size: 13px;
     line-height: 1.35;
     color: var(--label-primary, #171717);
@@ -270,8 +277,13 @@
     text-overflow: ellipsis;
   }
   .row-time {
-    flex: 0 0 auto;
-    margin-left: auto;
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding-left: 8px;
+    background: var(--conversation-row-overlay);
+    box-shadow: -7px 0 8px var(--conversation-row-overlay);
     font-size: 11px;
     color: var(--label-tertiary, #8f8f8f);
     white-space: nowrap;
@@ -325,13 +337,15 @@
      sits in the timestamp's right-hand slot. */
   .row-menu-btn {
     display: none;
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    margin-left: auto;
     width: 22px;
     height: 22px;
-    margin-right: -2px;
     padding: 0;
     border: none;
     border-radius: var(--rounded-sm, 6px);

@@ -29,13 +29,16 @@ export const tasksStore = $state({
   taskSession: null as DesktopTaskSession | null,
   historyTaskId: "",
   histories: {} as Record<string, DesktopTaskExecutionPage>,
+  runningTaskIds: new Set<string>(),
+  updatingTaskIds: new Set<string>(),
+  pendingDeleteIds: null as string[] | null,
   busy: "",
   query: "",
   actionMessage: ""
 });
 
 export function beginTaskCreate(): void {
-  const target = tasksStore.tasks?.targets[0] ?? { channel: "telegram", botId: "", chatId: "", scope: "chat-scratch" as const };
+  const target = tasksStore.tasks?.targets[0] ?? { channel: "telegram", botId: "", chatId: "", scope: "workspace" as const };
   tasksStore.taskCreate = { ...target, text: "", delivery: "agent", schedule: "0 9 * * *", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", sessionMode: "fresh" };
 }
 
@@ -82,11 +85,40 @@ export function beginTaskEdit(item: DesktopTaskSummary["items"][number]): void {
   tasksStore.taskEdit = { ...item, draftText: item.text, draftDelivery: item.delivery || "agent", draftSchedule: item.scheduleText, draftTimezone: item.timezone, draftSessionMode: item.sessionMode || (item.type === "periodic" ? "fresh" : "chat") };
 }
 
+export function isTaskRunning(id: string): boolean {
+  return tasksStore.runningTaskIds.has(id) || tasksStore.tasks?.items.some((task) => task.id === id && task.status === "running") === true;
+}
+
+export function isTaskUpdating(id: string): boolean {
+  return tasksStore.updatingTaskIds.has(id);
+}
+
+/** Request deletion — stores IDs and waits for user confirmation via confirmDeleteTask(). */
+export function requestDeleteTask(ids: string[]): void {
+  if (ids.length === 0 || tasksStore.busy) return;
+  tasksStore.pendingDeleteIds = ids;
+}
+
+/** User confirmed the deletion. */
+export async function confirmDeleteTask(): Promise<void> {
+  const ids = tasksStore.pendingDeleteIds;
+  tasksStore.pendingDeleteIds = null;
+  if (!ids || ids.length === 0) return;
+  await executeTaskAction("delete", ids);
+}
+
+/** User cancelled the deletion. */
+export function cancelDeleteTask(): void {
+  tasksStore.pendingDeleteIds = null;
+}
+
 export async function executeTaskAction(action: "trigger" | "delete", ids: string[]): Promise<void> {
   const endpoint = session.endpoint;
-  if (!endpoint || tasksStore.busy || ids.length === 0) return;
-  if (action === "delete" && !window.confirm(session.text.tasksDeleteConfirm.replace("{count}", String(ids.length)))) return;
-  tasksStore.busy = action;
+  if (!endpoint || ids.length === 0) return;
+  if (action === "trigger" && ids.some((id) => isTaskRunning(id) || isTaskUpdating(id))) return;
+  if (action === "delete" && tasksStore.busy) return;
+  if (action === "trigger") tasksStore.runningTaskIds = new Set([...tasksStore.runningTaskIds, ...ids]);
+  else tasksStore.busy = action;
   session.error = "";
   try {
     const result = await runDesktopTaskAction(endpoint, { action, ids });
@@ -98,7 +130,25 @@ export async function executeTaskAction(action: "trigger" | "delete", ids: strin
   } catch (cause) {
     setError(cause);
   } finally {
-    tasksStore.busy = "";
+    if (action === "trigger") tasksStore.runningTaskIds = new Set([...tasksStore.runningTaskIds].filter((id) => !ids.includes(id)));
+    else tasksStore.busy = "";
+  }
+}
+
+export async function setTaskEnabled(id: string, enabled: boolean): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || tasksStore.busy || isTaskRunning(id) || isTaskUpdating(id)) return;
+  tasksStore.updatingTaskIds = new Set([...tasksStore.updatingTaskIds, id]);
+  session.error = "";
+  try {
+    const result = await runDesktopTaskAction(endpoint, { action: "update", id, patch: { enabled } });
+    tasksStore.tasks = result.summary;
+    tasksStore.histories = {};
+    tasksStore.actionMessage = enabled ? session.text.tasksResume : session.text.tasksPaused;
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    tasksStore.updatingTaskIds = new Set([...tasksStore.updatingTaskIds].filter((item) => item !== id));
   }
 }
 

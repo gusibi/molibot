@@ -295,12 +295,17 @@ export async function runWebSearch(
     }
   }
 
+  const hasSuccessfulAttempt = attempts.some((a) => a.ok && !a.skipped);
+  const summary = hasSuccessfulAttempt
+    ? "No search results found."
+    : "No configured search engine returned results.";
+
   return buildSearchResponse({
     engine: null,
     route,
     query: input.query,
     providerResult: { results: [] },
-    summary: "No configured search engine returned results.",
+    summary,
     summarySource: "none",
     attempts,
     fallbackOrder: engines
