@@ -155,6 +155,18 @@ test("validation: passes through optional importance field", () => {
     assert.equal(r.memory?.importance, 0.75);
 });
 
+test("validation: passes through optional domain field", () => {
+  const result = validateCanonicalMemory({
+    path: "mory://user_preference/language",
+    type: "user_preference",
+    subject: "language",
+    value: "中文",
+    confidence: 0.9,
+    domain: "owner"
+  });
+  assert.equal(result.memory?.domain, "owner");
+});
+
 test("validation: strictPath rejects unnormalized path", () => {
     const r = validateCanonicalMemory(
         { path: "mory://INVALID/path!!", value: "test", confidence: 0.8, updatedPolicy: "overwrite" },

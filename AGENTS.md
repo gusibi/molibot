@@ -87,9 +87,11 @@ ______
 - 涉及 SQLite、settings、队列、trace、任务记录、Host Bash 审批等持久化测试时，必须使用临时数据库或可注入 store；不要让测试读写真实用户的 `settings.sqlite`、队列库或运行时数据目录。
 - 跨渠道队列和运行状态要保持幂等：忙碌重试、恢复、审批、停止、完成、失败、取消都不能复制同一入站任务或长期保留 terminal 队列行；队列清理和去重应在共享上层实现。
 - 文档职责要分层：`AGENTS.md` 只放长期有效的协作规则、架构边界和文档维护约束；`prd.md` 放计划中或待核对的需求、优先级、验收口径；`features.md` 放已交付事实、实施记录和细粒度变更；`README.md` 放项目入口说明和文档导航；`CHANGELOG.md` 放适合对外查看的高层发布摘要。
+- 归档约定：为了防止 `prd.md`、`CHANGELOG.md` 和 `features.md` 无限追加导致文件过大（超过 256KB 读取上限），每季度末或文件过大时，需将旧条目移入 `docs/archive/prd-archive-YYYY-QN.md`、`docs/archive/changelog-YYYY-QN.md` 与 `docs/archive/features-archive-YYYY-QN.md`，主文件仅保留最近 1-2 个月的活跃条目 + 指向归档的索引链接。更新这些文件时只需在主文件中追加，无需修改归档文件。
 - 如果要把 `features.md` / `prd.md` 的内容提炼到 `AGENTS.md`，只提炼以后每次都该遵守的稳定规则；一次性需求、历史交付说明、实现细节和长篇变更记录不要整段搬进来。
 - 如果从 `CHANGELOG.md` 中复盘重复修正问题，只把反复出现、可预防、长期有效的“避免规则”提炼到 `AGENTS.md`；不要把单次 bug、具体实现路径或历史流水账搬进长期规则。
 > Molibot 项目配置文件，为 AI 编码助手提供上下文。
+
 
 
 ## 文件更新规则

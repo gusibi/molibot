@@ -9,6 +9,34 @@ This skill is for agent execution systems where bugs often cross several layers:
 
 Use it to avoid treating a runtime symptom as a local UI or one-file bug.
 
+## Repo Map (this project)
+
+Skip re-discovery; the layers live here:
+
+| Layer | Location |
+|-------|----------|
+| Runner / orchestrator | `src/lib/server/agent/core/runner.ts`, `turnOrchestrator.ts`, `runnerPool.ts` |
+| Runtime notices / budget | `src/lib/server/agent/core/runtimeNotices.ts`, `runtimeBudget.ts` |
+| Session store / compaction / workspace | `src/lib/server/agent/session/` (`store.ts`, `compaction.ts`, `workspace.ts`) |
+| Tool dispatch | `src/lib/server/agent/tools/` (`bash.ts`, `bashPolicy.ts`, `edit.ts`, `mcpInvoke.ts`, ...) |
+| Host bash / host tool approval | `src/lib/server/agent/hostBashExec.ts`, `hostToolExec.ts`, `src/lib/server/approval/` |
+| Watched events / scheduler / leases | `src/lib/server/agent/events.ts`, `eventsLeaseStore.ts`, `taskScheduler.ts` |
+| Subagents | `src/lib/server/agent/subagentProgress.ts`, `src/lib/server/agent/tools/` |
+| Channel intake | `src/lib/server/channels/{telegram,feishu,qq,weixin,web}/`, `shared/`, `registry.ts` |
+| Shared app/query layer | `src/lib/server/app/` |
+| Prompts | `src/lib/server/agent/prompts/` |
+
+## Known Past Failure Modes (check these first)
+
+Bugs this codebase has already shipped; re-check the matching one before hunting elsewhere:
+
+- `toolCallId` collision: a wrapper passing the shared `runId` instead of the per-call id breaks parallel tool calls; dropped `onUpdate` silences tool progress.
+- Lock/lease staleness: session turn locks are heartbeat leases (30s refresh, 2-min timeout); orphaned `retry_wait` leases with a shared `taskId` can block every sibling task.
+- Prompt-cache invalidation: anything per-turn injected into the *system prompt* (memory snapshot, query text) kills provider prefix caching — per-turn data belongs in the user-message envelope, unpersisted.
+- CJK under-count: char/4 token estimation under-counts Chinese 3-4x and can disable threshold compaction; whitespace tokenization collapses CJK queries to one token.
+- Automation-session leakage: sessions missing `origin:"automation"` (or matched only by `task-*` / legacy `[EVENT:...]`) leak into ordinary conversation lists — filter in the shared query layer.
+- Duplicate concurrent automation runs: an active execution must cause new triggers to record `skipped`, not start a second agent.
+
 ## Inputs to Collect
 
 Start from the smallest relevant set:
@@ -38,6 +66,7 @@ State assumptions before editing when the behavior can be interpreted in more th
    - `sandbox/host approval`: approval scope, environment inheritance, command display, repeated prompts.
    - `tool-call limit`: partial output preservation, continuation behavior, user-visible boundary.
    - `prompt pollution`: runtime notices or control directives stored as normal conversation.
+   - `scheduler/lease`: watched-event tasks not firing, firing twice, or permanently blocked; stale or orphaned leases; skipped-vs-concurrent semantics.
    - `observability`: logs cannot distinguish stuck, waiting, running, or blocked states.
 
 2. Trace the execution path end to end.
@@ -96,6 +125,15 @@ Result
 ```
 
 ## Verification Scenarios
+
+Baseline for any runtime change in this repo (node test runner, not vitest):
+
+```bash
+node --import ./scripts/register-loader.js --import tsx --test <touched .test.ts files, or a src/lib/server/agent/**/*.test.ts glob>
+npx tsc --noEmit   # on touched files / project
+```
+
+Persistence-touching tests (SQLite, settings, queues, leases, approval) must use a temp database or injectable store — never the real user data dir (AGENTS.md rule).
 
 Choose the scenario matching the symptom:
 

@@ -1,9 +1,10 @@
 # 技术方案:共享 UI 组件库(Astryx 视觉 · Svelte 实现)
 
-> 状态:草案 · 待评审
+> 状态:草案 v2 · 已对照 Astryx 源码 review 修订
 > 作者:Molipibot
 > 日期:2026-07-11
 > 关联文档:`AGENTS.md`、`DESIGN.md`、`DESIGN.vercel.md`(Geist)、`prd.md`
+> Astryx 源码本地路径:与本仓库同级的 `astryx/` 克隆(不写绝对路径;下文 `astryx:` 前缀均指该克隆内路径)
 
 ---
 
@@ -42,7 +43,7 @@ Molipibot 的 **Web 端(设置管理后台)** 视觉粗糙,且存在结构性技
 | 样式 | Tailwind v4 (`@tailwindcss/vite`) | **纯 CSS + CSS 变量,无 Tailwind、无构建插件** |
 | 组件基座 | `bits-ui`(Shadcn 风) | 无 UI 库,chat/projects/settings 各自手写 |
 | 设计方向 | 待上 Astryx | Vercel Geist(`DESIGN.vercel.md`) |
-| UI 组件数 | `src/lib/components/ui` 约 52 个文件(约 15 个去重原子) | 无独立 UI 层 |
+| UI 组件数 | `src/lib/components/ui` 17 个组件目录(约 15 个去重原子) | 无独立 UI 层 |
 | 路由页面 | 约 30 个设置页 | — |
 | 是否复用对方 | — | **完全未复用 Web 组件** |
 | 共享包 | **不存在**;`pnpm-workspace.yaml` 仅含 `apps/desktop` | |
@@ -50,13 +51,23 @@ Molipibot 的 **Web 端(设置管理后台)** 视觉粗糙,且存在结构性技
 **Web 实际用到的原子组件(约 15 个):**
 `button / card / alert / badge / checkbox / input / label / select / native-select / switch(ios-switch) / table / tabs / textarea / separator / skeleton`
 
-### Astryx 关键事实
+### Astryx 关键事实(已对照本地源码核实)
 - Meta 开源设计系统,**React + StyleX**,MIT 许可,当前 **Beta**。
-- 主打 "built for people and agents":提供 CLI 与 MCP Server 供 AI agent 读取。
+- 组件规模:`packages/core/src` 约 105 个组件目录,`packages/lab` 另有 14 个;官方主题 7 套(neutral/matcha/stone/gothic/chocolate/y2k/butter)。
+- 主打 "built for people and agents":提供 CLI 与 MCP endpoint 供 AI agent 读取;CLI 支持 `--lang zh` 输出中文文档。
 - **不存在"导出 JSON UI 协议"能力**(不会把界面序列化成可反渲染的 JSON 树)。其 JSON 能力是**给 agent 读的元数据**:
-  - `astryx docs --json` → 设计 token(配色/字号/间距/圆角/阴影),**框架无关的纯数据,本方案会用到**。
+  - `astryx docs tokens --json` → 设计 token(配色/字号/间距/圆角/阴影/motion),**框架无关的纯数据,本方案会用到**。
   - `astryx component <Name> --json [--dense]` → 组件文档/props/示例,作为**视觉与 API 规格参考**(其源码是 React/StyleX,不可直接翻译)。
-  - `astryx manifest --json` → CLI 自描述清单(OpenAPI 式),与 UI 无关。
+  - `astryx theme build <file>` → 把 `defineTheme()` 文件编译为纯 CSS(token 覆盖 + 组件覆盖),可直接用作 theme 文件底稿。
+- **源码已克隆到本地**,不依赖 npx 下载:
+  - token 全量默认值直接读 `astryx:packages/core/src/theme/tokens.stylex.ts`(`colorDefaults / spacingDefaults / radiusDefaults / typeScaleDefaults / durationDefaults / easeDefaults` 等);
+  - 每个组件的精确视觉规格直接读 `astryx:packages/core/src/<Name>/<Name>.tsx` 的 `stylex.create` 块(间距、transition、伪类、reduced-motion 降级),比文档 JSON 更完整。
+- ⚠️ **Astryx 的 theme ≠ 纯 token 覆盖**。`DefinedTheme`(`defineTheme.ts`)包含四部分,本方案需逐一决定取舍(见 §5.5、§6.2):
+  1. `tokens` — CSS 变量覆盖(本方案主要采纳);
+  2. `components` — 按组件/variant 的样式覆盖(如 `button: {'variant:ghost': {borderWidth: '1px'}}`),落地机制是组件私有变量 `--_button-radius` 之类;
+  3. `icons` — 主题自带图标注册表(neutral 主题整套换 Lucide);
+  4. typography — 字体族与加载(neutral 用 Figtree)。
+- ⚠️ **所有颜色 token 都是 `light-dark()` 双值**(如 `--color-accent: light-dark(#0064E0, #2694FE)`),暗色模式是 token 体系的地基,不是附加功能(见 §5.5)。
 
 ---
 
@@ -77,7 +88,12 @@ Molipibot 的 **Web 端(设置管理后台)** 视觉粗糙,且存在结构性技
       └────────────────────┘     └────────────────────┘
 ```
 
-**核心机制:token 契约。** 组件内部**永不硬编码视觉值**,只引用一组语义 CSS 变量(`--ui-*`)。每个 app 在自己的全局样式里给这组变量赋值 → 同一套组件在两端呈现不同设计语言。这既是 Astryx 自身哲学("a theme is a set of CSS custom property overrides"),也天然满足跨 app 复用需求。
+**核心机制:token 契约。** 组件内部**永不硬编码视觉值**,只引用一组语义 CSS 变量(`--ui-*`)。每个 app 在自己的全局样式里给这组变量赋值 → 同一套组件在两端呈现不同设计语言。
+
+Astryx 的主题机制以 token 覆盖为主体,但不止于此(还有组件级覆盖、图标注册表、字体,见 §3)。本方案对应的完整契约是三层:
+1. **全局 token**(`--ui-*`)— 主题的主体;
+2. **组件私有变量**(`--_component-*`)— 每个组件的逃生舱,带全局 token 回退(仿 Astryx `var(--_button-radius, var(--radius-element))` 模式),两张皮在单个组件上策略不同时不用改组件本体;
+3. **图标注入**(snippet/props)— 内置图标的组件(select 箭头、alert 状态图标、spinner)不硬编码图标,由调用方或 theme 层注入(Web 可选 Lucide 风格,Desktop 用现有 Phosphor)。
 
 ---
 

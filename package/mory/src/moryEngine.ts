@@ -241,6 +241,7 @@ export class MoryEngine {
       id: mkId(),
       userId,
       path,
+      domain: memory.domain,
       memoryType,
       subject: memory.subject || path.split("/").pop() || "unknown",
       title: memory.title,

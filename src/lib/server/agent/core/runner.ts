@@ -760,8 +760,12 @@ export class MomRunner implements RunnerLike {
     }
 
     const memorySnapshot = await getTurnOrchestrator().prepareTurnMemory(
-      this.channel,
-      this.chatId,
+      {
+        channel: this.channel,
+        externalUserId: this.chatId,
+        botId,
+        projectId: this.activeProject?.id
+      },
       enrichedText,
       this.memory
     );

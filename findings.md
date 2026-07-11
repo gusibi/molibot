@@ -1,5 +1,34 @@
 # Findings
 
+## Memory batch 1 kickoff (2026-07-11)
+
+- C0 is implementation-ready: all identity, schema, write-state, reflection,
+  and Summary boundaries have explicit decisions in v2.2.
+- Batch 1 will not flip memory defaults; that remains coupled to T3+T5 so an
+  Inbox exists before automatic extraction becomes the default.
+- T2 and T6a must share one schema migration because stable paths are only safe
+  when version chains are isolated by namespace and carry domain metadata.
+- Current mory already versions by `userId + path`; the host defeats it by
+  generating a timestamped path for every write and encoding only
+  `channel::externalUserId` as userId.
+- `domain` is absent from both SDK rows and host metadata. The migration must be
+  additive and idempotent for existing SQLite files; merely changing CREATE
+  TABLE is insufficient because `CREATE TABLE IF NOT EXISTS` does not add a
+  column to an existing database.
+- SQLite migration order matters: creating the domain index before ALTER fails
+  on a legacy table. The verified order is schema bootstrap, PRAGMA inspection,
+  additive ALTER when absent, then idempotent index creation.
+- Canonical subjects need a dedicated normalizer. Reusing the content slugger
+  changed `answer_length` into `answer-length`, which would fork version chains;
+  subject normalization now preserves `_`, `.`, and `-`.
+- The runtime already has a stable bot identity at the runner/tool seam and the
+  active Project id in `MomContext`; passing one `MemoryScope` through that seam
+  keeps namespace policy out of Channel adapters.
+- Global search and compaction must enumerate indexed namespace keys directly.
+  Reconstructing only `chatNamespace(scope)` silently omits owner/project/agent
+  rows even when the scope index knows they exist.
+
+
 ## Project Session implementation kickoff (2026-07-11)
 
 - The approved order is Slice A, B, C, D; runtime automatic cleanup is deferred.

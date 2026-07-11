@@ -75,6 +75,9 @@ export interface CanonicalMemory {
   /** Resolved canonical path, e.g. "mory://user_preference/answer_length" */
   path: string;
 
+  /** Host-defined audit/injection domain; storage isolation remains userId. */
+  domain?: string;
+
   /** Semantic category */
   type: MemoryType;
 

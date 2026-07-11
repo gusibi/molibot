@@ -16,12 +16,15 @@ import type {
   MemoryCompactResult,
   MemoryFlushResult,
   MemoryLayer,
+  MemoryDomain,
+  MemoryNamespace,
   MemoryRecord,
   MemoryScope,
   MemorySearchInput,
   MemorySearchMode,
   MemoryUpdateInput
 } from "$lib/server/memory/types.js";
+import { chatNamespace, contentNamespace, namespaceForDomain, promptMemoryNamespaces } from "$lib/server/memory/namespaces.js";
 import {
   classifyAutoMemoryCandidate,
   inferFactKey
@@ -39,6 +42,20 @@ interface MoryRecordMeta {
   expiresAt?: string;
   factKey?: string;
   sourceSessionId?: string;
+  namespace?: MemoryNamespace;
+  domain?: MemoryDomain;
+  lowConfidencePath?: boolean;
+  reason?: string;
+}
+
+export interface MoryWritePlan {
+  namespace: MemoryNamespace;
+  domain: MemoryDomain;
+  type: NonNullable<MemoryRecord["type"]>;
+  subject: string;
+  path: string;
+  lowConfidencePath: boolean;
+  updatedPolicy: "overwrite" | "merge_append";
 }
 
 function normalizeTags(input: string[] | undefined): string[] {
@@ -101,7 +118,43 @@ function slugify(input: string, fallback = "memory"): string {
   return slug || fallback;
 }
 
-function encodeScope(scope: MemoryScope): string {
+function normalizeSubject(input: string, fallback = "memory"): string {
+  const subject = input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_")
+    .replace(/^[_ .-]+|[_ .-]+$/g, "")
+    .slice(0, 96);
+  return subject || fallback;
+}
+
+export function buildMoryWritePlan(
+  scope: MemoryScope,
+  input: MemoryAddInput,
+  content: string,
+  layer: MemoryLayer,
+  nowIso: string
+): MoryWritePlan {
+  const structured = Boolean(input.type && input.subject?.trim());
+  const domain: MemoryDomain = input.domain ?? (scope.projectId ? "project" : "owner");
+  const namespace = input.namespace ?? (structured
+    ? namespaceForDomain(scope, domain)
+    : chatNamespace(scope));
+  const type = input.type ?? (layer === "daily" ? "event" : "task");
+  const subject = structured ? normalizeSubject(input.subject!, "memory") : slugify(content);
+  if (structured) {
+    return { namespace, domain, type, subject, path: `mory://${type}/${subject}`, lowConfidencePath: false, updatedPolicy: "overwrite" };
+  }
+  const stamp = nowIso.replace(/[-:.TZ]/g, "").slice(0, 14);
+  const scopeSlug = slugify(`${scope.channel}-${scope.externalUserId}`, "scope");
+  const contentSlug = slugify(content, "memory");
+  const path = layer === "daily"
+    ? `mory://event/${nowIso.slice(0, 10)}.${scopeSlug}.${contentSlug}.${stamp}`
+    : `mory://task/${scopeSlug}.${contentSlug}.${stamp}`;
+  return { namespace, domain, type, subject, path, lowConfidencePath: true, updatedPolicy: "merge_append" };
+}
+
+function legacyEncodeScope(scope: MemoryScope): string {
   return `${encodeURIComponent(scope.channel)}::${encodeURIComponent(scope.externalUserId)}`;
 }
 
@@ -116,7 +169,11 @@ function parseMeta(detail: string | undefined, fallback: MemoryScope, fallbackLa
         tags: normalizeTags(Array.isArray(parsed.tags) ? parsed.tags : []),
         expiresAt: normalizeExpiresAt(parsed.expiresAt),
         factKey: typeof parsed.factKey === "string" ? parsed.factKey : undefined,
-        sourceSessionId: typeof parsed.sourceSessionId === "string" ? parsed.sourceSessionId : undefined
+        sourceSessionId: typeof parsed.sourceSessionId === "string" ? parsed.sourceSessionId : undefined,
+        namespace: typeof parsed.namespace === "string" ? parsed.namespace as MemoryNamespace : undefined,
+        domain: typeof parsed.domain === "string" ? parsed.domain as MemoryDomain : undefined,
+        lowConfidencePath: parsed.lowConfidencePath === true,
+        reason: typeof parsed.reason === "string" ? parsed.reason : undefined
       };
     } catch {
       // fall through
@@ -129,7 +186,11 @@ function parseMeta(detail: string | undefined, fallback: MemoryScope, fallbackLa
     tags: [],
     expiresAt: undefined,
     factKey: undefined,
-    sourceSessionId: undefined
+    sourceSessionId: undefined,
+    namespace: undefined,
+    domain: undefined,
+    lowConfidencePath: undefined,
+    reason: undefined
   };
 }
 
@@ -143,6 +204,14 @@ function toRecord(row: PersistedMemoryNode, fallbackScope: MemoryScope): MemoryR
     content: row.value,
     tags: meta.tags,
     layer: meta.layer,
+    namespace: meta.namespace ?? row.userId as MemoryNamespace,
+    domain: meta.domain ?? row.domain as MemoryDomain | undefined,
+    type: row.memoryType as MemoryRecord["type"],
+    subject: row.subject,
+    path: row.path,
+    lowConfidencePath: meta.lowConfidencePath,
+    confidence: row.confidence,
+    reason: meta.reason,
     factKey: meta.factKey,
     hasConflict: row.conflictFlag,
     sourceSessionId: meta.sourceSessionId,
@@ -174,7 +243,10 @@ export class MoryMemoryBackend implements MemoryBackend {
       supportsHybridSearch: true,
       supportsVectorSearch: false,
       supportsIncrementalFlush: true,
-      supportsLayeredMemory: true
+      supportsLayeredMemory: true,
+      supportsDomains: true,
+      supportsVersioning: true,
+      supportsCandidates: false
     };
   }
 
@@ -194,7 +266,7 @@ export class MoryMemoryBackend implements MemoryBackend {
   }
 
   private rememberScope(scope: MemoryScope): string {
-    const userId = encodeScope(scope);
+    const userId = chatNamespace(scope);
     const data = this.loadScopeIndex();
     data.scopes[userId] = scope;
     this.saveScopeIndex(data);
@@ -207,16 +279,6 @@ export class MoryMemoryBackend implements MemoryBackend {
 
   private saveCursors(cursors: Record<string, number>): void {
     writeJsonFile(this.cursorPath, cursors);
-  }
-
-  private makePath(scope: MemoryScope, layer: MemoryLayer, content: string, nowIso: string): string {
-    const stamp = nowIso.replace(/[-:.TZ]/g, "").slice(0, 14);
-    const scopeSlug = slugify(`${scope.channel}-${scope.externalUserId}`, "scope");
-    const contentSlug = slugify(content, "memory");
-    if (layer === "daily") {
-      return `mory://event/${nowIso.slice(0, 10)}.${scopeSlug}.${contentSlug}.${stamp}`;
-    }
-    return `mory://task/${scopeSlug}.${contentSlug}.${stamp}`;
   }
 
   private scoreAndSlice(items: MemoryRecord[], input: MemorySearchInput): MemoryRecord[] {
@@ -240,21 +302,60 @@ export class MoryMemoryBackend implements MemoryBackend {
   private async listScopeRecords(scope: MemoryScope, limit = 500): Promise<MemoryRecord[]> {
     await this.ensureInit();
     const userId = this.rememberScope(scope);
-    const rows = await this.storage.list(userId, { includeArchived: false, limit });
+    const legacyUserId = legacyEncodeScope(scope);
+    const rows = [
+      ...await this.storage.list(userId, { includeArchived: false, limit }),
+      ...(legacyUserId === userId ? [] : await this.storage.list(legacyUserId, { includeArchived: false, limit }))
+    ];
     const nowMs = Date.now();
     return rows
       .map((row) => toRecord(row, scope))
       .filter((row) => !isExpired(row, nowMs));
   }
 
+  private async listPromptRecords(scope: MemoryScope, limit = 500): Promise<MemoryRecord[]> {
+    await this.ensureInit();
+    const namespaces = [...promptMemoryNamespaces(scope), legacyEncodeScope(scope)];
+    const unique = [...new Set(namespaces)];
+    const rows = (await Promise.all(unique.map((namespace) =>
+      this.storage.list(namespace, { includeArchived: false, limit })
+    ))).flat();
+    const nowMs = Date.now();
+    return rows.map((row) => toRecord(row, scope)).filter((row) => !isExpired(row, nowMs));
+  }
+
+  private managementNamespaces(scope: MemoryScope): string[] {
+    return [...new Set([
+      ...promptMemoryNamespaces(scope),
+      contentNamespace(scope.botId),
+      legacyEncodeScope(scope)
+    ])];
+  }
+
+  private async findRecord(scope: MemoryScope, id: string): Promise<{ userId: string; row: PersistedMemoryNode } | null> {
+    for (const userId of this.managementNamespaces(scope)) {
+      const row = await this.storage.readById(userId, id);
+      if (row && !row.archivedAt) return { userId, row };
+    }
+    return null;
+  }
+
   async add(scope: MemoryScope, input: MemoryAddInput): Promise<MemoryRecord> {
     await this.ensureInit();
-    const userId = this.rememberScope(scope);
     const content = normalizeContent(input.content);
     if (!content) throw new Error("Memory content is required.");
 
     const layer = input.layer ?? "long_term";
-    const existingRows = await this.listScopeRecords(scope, 2000);
+    const nowIso = new Date().toISOString();
+    const plan = buildMoryWritePlan(scope, input, content, layer, nowIso);
+    const { namespace, domain } = plan;
+    const userId = plan.namespace;
+    const scopeData = this.loadScopeIndex();
+    scopeData.scopes[userId] = scope;
+    this.saveScopeIndex(scopeData);
+    const existingRows = plan.lowConfidencePath
+      ? await this.listScopeRecords(scope, 2000)
+      : (await this.storage.list(userId, { includeArchived: false, limit: 2000 })).map((row) => toRecord(row, scope));
     const existing = existingRows.find((row) =>
       row.layer === layer && normalizeContent(row.content).toLowerCase() === content.toLowerCase()
     );
@@ -268,7 +369,11 @@ export class MoryMemoryBackend implements MemoryBackend {
         tags: mergedTags,
         expiresAt: nextExpiresAt,
         factKey: inferFactKey(content) ?? existing.factKey,
-        sourceSessionId: input.sourceSessionId ?? existing.sourceSessionId
+        sourceSessionId: input.sourceSessionId ?? existing.sourceSessionId,
+        namespace,
+        domain,
+        lowConfidencePath: existing.lowConfidencePath ?? plan.lowConfidencePath,
+        reason: input.reason ?? existing.reason
       };
       const updated = await this.storage.update(userId, existing.id, {
         detail: JSON.stringify(meta),
@@ -278,15 +383,15 @@ export class MoryMemoryBackend implements MemoryBackend {
       return updated ? toRecord(updated, scope) : existing;
     }
 
-    const nowIso = new Date().toISOString();
     const expiresAt = normalizeExpiresAt(input.expiresAt) ?? defaultExpiresAt(layer);
     const memory = {
-      path: this.makePath(scope, layer, content, nowIso),
-      type: layer === "daily" ? "event" : "task",
-      subject: slugify(content),
+      path: plan.path,
+      domain,
+      type: plan.type,
+      subject: plan.subject,
       value: content,
-      confidence: 0.85,
-      updatedPolicy: "merge_append" as const,
+      confidence: input.confidence ?? 0.85,
+      updatedPolicy: plan.updatedPolicy,
       title: content.slice(0, 40),
       source: input.sourceSessionId,
       observedAt: nowIso
@@ -313,7 +418,11 @@ export class MoryMemoryBackend implements MemoryBackend {
       tags: normalizeTags(input.tags),
       expiresAt,
       factKey: inferFactKey(content) ?? undefined,
-      sourceSessionId: input.sourceSessionId
+      sourceSessionId: input.sourceSessionId,
+      namespace,
+      domain,
+      lowConfidencePath: plan.lowConfidencePath,
+      reason: input.reason
     };
 
     const updated = await this.storage.update(userId, row.id, {
@@ -326,41 +435,44 @@ export class MoryMemoryBackend implements MemoryBackend {
 
   async get(scope: MemoryScope, id: string): Promise<MemoryRecord | null> {
     await this.ensureInit();
-    const userId = this.rememberScope(scope);
-    const row = await this.storage.readById(userId, id);
-    if (!row || row.archivedAt) return null;
-    const record = toRecord(row, scope);
+    const found = await this.findRecord(scope, id);
+    if (!found) return null;
+    const record = toRecord(found.row, scope);
     return isExpired(record, Date.now()) ? null : record;
   }
 
   async search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]> {
-    const rows = await this.listScopeRecords(scope, Math.max(Number(input.limit ?? 50) * 4, 100));
+    const rows = await this.listPromptRecords(scope, Math.max(Number(input.limit ?? 50) * 4, 100));
     return this.scoreAndSlice(rows, input);
   }
 
   async searchAll(input: MemorySearchInput): Promise<MemoryRecord[]> {
     await this.ensureInit();
     const index = this.loadScopeIndex();
-    const allRows = await Promise.all(
-      Object.values(index.scopes).map((scope) => this.listScopeRecords(scope, Math.max(Number(input.limit ?? 100) * 2, 100)))
-    );
+    const allRows = await Promise.all(Object.entries(index.scopes).map(async ([namespace, scope]) => {
+      const rows = await this.storage.list(namespace, {
+        includeArchived: false,
+        limit: Math.max(Number(input.limit ?? 100) * 2, 100)
+      });
+      return rows.map((row) => toRecord(row, scope)).filter((row) => !isExpired(row, Date.now()));
+    }));
     return this.scoreAndSlice(allRows.flat(), input);
   }
 
   async delete(scope: MemoryScope, id: string): Promise<boolean> {
     await this.ensureInit();
-    const userId = this.rememberScope(scope);
-    const found = await this.storage.readById(userId, id);
-    if (!found || found.archivedAt) return false;
+    const found = await this.findRecord(scope, id);
+    if (!found) return false;
+    const { userId } = found;
     const archived = await this.storage.archive(userId, [id]);
     return archived > 0;
   }
 
   async update(scope: MemoryScope, id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null> {
     await this.ensureInit();
-    const userId = this.rememberScope(scope);
-    const found = await this.storage.readById(userId, id);
-    if (!found || found.archivedAt) return null;
+    const located = await this.findRecord(scope, id);
+    if (!located) return null;
+    const { userId, row: found } = located;
 
     const current = toRecord(found, scope);
     const nextContent = typeof input.content === "string" ? normalizeContent(input.content) : current.content;
@@ -370,7 +482,8 @@ export class MoryMemoryBackend implements MemoryBackend {
     const nextExpiresAt = typeof input.expiresAt !== "undefined" || input.expiresAt === null
       ? normalizeExpiresAt(input.expiresAt)
       : current.expiresAt;
-    const sibling = (await this.listScopeRecords(scope, 2000)).find((row) =>
+    const siblingRows = await this.storage.list(userId, { includeArchived: false, limit: 2000 });
+    const sibling = siblingRows.map((row) => toRecord(row, scope)).find((row) =>
       row.id !== id &&
       row.layer === current.layer &&
       normalizeContent(row.content).toLowerCase() === nextContent.toLowerCase()
@@ -386,7 +499,11 @@ export class MoryMemoryBackend implements MemoryBackend {
         tags: mergedTags,
         expiresAt: mergedExpiresAt,
         factKey: inferFactKey(nextContent) ?? sibling.factKey,
-        sourceSessionId: sibling.sourceSessionId ?? current.sourceSessionId
+        sourceSessionId: sibling.sourceSessionId ?? current.sourceSessionId,
+        namespace: sibling.namespace,
+        domain: sibling.domain,
+        lowConfidencePath: sibling.lowConfidencePath,
+        reason: sibling.reason
       };
       const updatedSibling = await this.storage.update(userId, sibling.id, {
         detail: JSON.stringify(siblingMeta),
@@ -404,7 +521,11 @@ export class MoryMemoryBackend implements MemoryBackend {
       tags: nextTags,
       expiresAt: nextExpiresAt,
       factKey: inferFactKey(nextContent) ?? undefined,
-      sourceSessionId: current.sourceSessionId
+      sourceSessionId: current.sourceSessionId,
+      namespace: current.namespace,
+      domain: current.domain,
+      lowConfidencePath: current.lowConfidencePath,
+      reason: current.reason
     };
 
     const updated = await this.storage.update(userId, id, {
@@ -427,7 +548,7 @@ export class MoryMemoryBackend implements MemoryBackend {
     let scannedMessages = 0;
     let updatedCursorConversations = 0;
     const cursors = this.loadCursors();
-    const cursorKeyPrefix = `${encodeScope(scope)}:`;
+    const cursorKeyPrefix = `${chatNamespace(scope)}:`;
 
     for (const conv of conversations) {
       const messages = this.sessions.listMessages(conv.id, 1000);
@@ -470,13 +591,15 @@ export class MoryMemoryBackend implements MemoryBackend {
 
   async compact(scope?: MemoryScope): Promise<MemoryCompactResult> {
     await this.ensureInit();
-    const scopes = scope ? [scope] : Object.values(this.loadScopeIndex().scopes);
+    const indexedScopes = this.loadScopeIndex().scopes;
+    const scopes = scope
+      ? this.managementNamespaces(scope).map((namespace) => ({ namespace, scope }))
+      : Object.entries(indexedScopes).map(([namespace, indexedScope]) => ({ namespace, scope: indexedScope }));
     let scannedCount = 0;
     let removedCount = 0;
     let scopesAffected = 0;
 
-    for (const currentScope of scopes) {
-      const userId = this.rememberScope(currentScope);
+    for (const { namespace: userId, scope: currentScope } of scopes) {
       const rows = await this.storage.list(userId, { includeArchived: false, limit: 10000 });
       const records = rows
         .map((row) => toRecord(row, currentScope))
@@ -519,7 +642,11 @@ export class MoryMemoryBackend implements MemoryBackend {
             tags: mergedTags,
             expiresAt: record.expiresAt,
             factKey: record.factKey,
-            sourceSessionId: record.sourceSessionId
+            sourceSessionId: record.sourceSessionId,
+            namespace: record.namespace,
+            domain: record.domain,
+            lowConfidencePath: record.lowConfidencePath,
+            reason: record.reason
           })
         });
       }

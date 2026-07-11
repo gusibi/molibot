@@ -262,13 +262,20 @@ test("prepareTurnMemory invokes sync and snapshot gateway functions", async () =
       snapshotCalled = true;
       assert.equal(scope.channel, "telegram");
       assert.equal(scope.externalUserId, "chat-1");
+      assert.equal(scope.botId, "assistant");
+      assert.equal(scope.projectId, "project-1");
       assert.equal(text, "query text");
       assert.equal(limit, 12);
       return { fingerprint: "fp-123" };
     }
   };
 
-  const snapshot = await orchestrator.prepareTurnMemory("telegram", "chat-1", "query text", mockMemoryGateway as any);
+  const snapshot = await orchestrator.prepareTurnMemory({
+    channel: "telegram",
+    externalUserId: "chat-1",
+    botId: "assistant",
+    projectId: "project-1"
+  }, "query text", mockMemoryGateway as any);
   assert.equal(syncCalled, true);
   assert.equal(snapshotCalled, true);
   assert.equal(snapshot.fingerprint, "fp-123");

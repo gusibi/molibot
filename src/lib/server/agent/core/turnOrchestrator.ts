@@ -6,6 +6,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
+import type { MemoryScope } from "$lib/server/memory/types.js";
 import type { RunSummary } from "$lib/server/agent/session/runSummary.js";
 import { resolveModelSelection, resolveCompactionSelection, resolveApiKeyForModel } from "$lib/server/agent/routing/modelRouting.js";
 import { compactContextMessages, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
@@ -307,14 +308,13 @@ export class TurnOrchestrator {
   }
 
   async prepareTurnMemory(
-    channel: string,
-    chatId: string,
+    scope: MemoryScope,
     queryText: string,
     memoryGateway: MemoryGateway
   ): Promise<any> {
     await memoryGateway.syncExternalMemories();
     return await memoryGateway.createPromptSnapshot(
-      { channel, externalUserId: chatId },
+      scope,
       queryText,
       12
     );

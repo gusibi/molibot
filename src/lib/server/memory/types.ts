@@ -1,10 +1,24 @@
 export interface MemoryScope {
   channel: string;
   externalUserId: string;
+  botId?: string;
+  ownerId?: string;
+  projectId?: string;
+  shareOwner?: boolean;
 }
 
 export type MemoryLayer = "long_term" | "daily";
 export type MemorySearchMode = "keyword" | "recent" | "hybrid";
+export type MemoryDomain = "owner" | "project" | "agent_self" | "content";
+export type MemorySemanticType = "user_preference" | "user_fact" | "skill" | "event" | "task" | "world_knowledge";
+export type MemoryNamespace = `owner:${string}` | `chat:${string}:${string}:${string}` | `project:${string}:${string}` | `agent:${string}` | `content:${string}`;
+
+export interface MemorySourceRef {
+  channel: string;
+  sessionId: string;
+  conversationMessageId: string;
+  platformMessageId?: string;
+}
 
 export interface MemoryRecord {
   id: string;
@@ -13,6 +27,15 @@ export interface MemoryRecord {
   content: string;
   tags: string[];
   layer: MemoryLayer;
+  namespace?: MemoryNamespace;
+  domain?: MemoryDomain;
+  type?: MemorySemanticType;
+  subject?: string;
+  path?: string;
+  lowConfidencePath?: boolean;
+  confidence?: number;
+  reason?: string;
+  sources?: MemorySourceRef[];
   factKey?: string;
   hasConflict?: boolean;
   sourceSessionId?: string;
@@ -27,6 +50,13 @@ export interface MemoryAddInput {
   layer?: MemoryLayer;
   sourceSessionId?: string;
   expiresAt?: string;
+  namespace?: MemoryNamespace;
+  domain?: MemoryDomain;
+  type?: MemorySemanticType;
+  subject?: string;
+  confidence?: number;
+  reason?: string;
+  sources?: MemorySourceRef[];
 }
 
 export interface MemoryUpdateInput {
@@ -75,6 +105,9 @@ export interface MemoryBackendCapabilities {
   supportsVectorSearch: boolean;
   supportsIncrementalFlush: boolean;
   supportsLayeredMemory: boolean;
+  supportsDomains?: boolean;
+  supportsVersioning?: boolean;
+  supportsCandidates?: boolean;
 }
 
 export interface MemoryBackend {

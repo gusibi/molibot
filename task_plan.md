@@ -1,5 +1,47 @@
 # Unified conversation and project sidebar plan
 
+# Memory improvement batch 1 — T2 + T6a (2026-07-11)
+
+## Goal
+
+Activate mory stable-path version chains and introduce the namespace/domain
+model in one compatible schema batch. Do not implement reflection or Candidate
+Inbox early.
+
+## Contract status
+
+- C0.1–C0.6 reviewed against current code — approved.
+- mory is the only formal backend for new capabilities; json-file remains
+  readable and compatible without receiving the new behavior.
+- Namespace is the storage/version-chain isolation key; domain is audit and
+  injection policy metadata; type remains mory's closed semantic type.
+
+## Phases
+
+1. **Map current gateway/mory schema and ingestion seams** — complete
+2. **Add namespace/domain and stable-path contracts with migration** — complete
+3. **Activate version-chain behavior and query plans** — complete
+4. **Add focused namespace/version/migration tests** — complete
+5. **Adversarial review, regression, and documentation** — complete
+
+## Verification gates
+
+- Same namespace + type + subject updates one version chain.
+- Different subjects and different namespaces never overwrite each other.
+- Unstructured text keeps a unique path and `lowConfidencePath: true`.
+- Ordinary prompt lookup merges only owner/current-chat/current-agent; Project
+  lookup additionally includes current project; content is never auto-injected.
+- Existing json-file and legacy mory records remain readable.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Combined runtime-scope patch missed an already-clean formatting context | First scope-wiring patch | Split the patch into surgical edits; no partial changes were produced by the failed patch. |
+| New default-domain test referenced an undefined timestamp constant | First focused regression run | Replaced it with the explicit fixed timestamp used by the surrounding tests. |
+
+---
+
 # Project Session output routing and inspection implementation (2026-07-11)
 
 ## Goal

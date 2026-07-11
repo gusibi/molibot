@@ -128,7 +128,7 @@ export function createMomTools(options: {
   workspaceId?: string;
   timezone: string;
   messageTimestamp?: string | number | Date;
-  project?: { rootPath: string; scratchDir: string };
+  project?: { id?: string; rootPath: string; scratchDir: string };
   store: MomRuntimeStore;
   memory: MemoryGateway;
   getSettings: () => RuntimeSettings;
@@ -590,7 +590,15 @@ export function createMomTools(options: {
   deferredTools = deferredEntries.map((item) => item.entry);
 
   tools = [
-    createMemoryTool({ memory: options.memory, channel: options.channel, chatId: options.chatId }),
+    createMemoryTool({
+      memory: options.memory,
+      scope: {
+        channel: options.channel,
+        externalUserId: options.chatId,
+        botId,
+        projectId: options.project?.id
+      }
+    }),
     createSkillSearchTool({
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,

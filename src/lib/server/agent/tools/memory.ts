@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
+import type { MemoryScope } from "$lib/server/memory/types.js";
 
 const memorySchema = Type.Object({
   action: Type.Union([
@@ -29,8 +30,7 @@ type MemoryAction = "add" | "search" | "list" | "update" | "delete" | "flush" | 
 
 export function createMemoryTool(options: {
   memory: MemoryGateway;
-  channel: string;
-  chatId: string;
+  scope: MemoryScope;
 }): AgentTool<typeof memorySchema> {
   return {
     name: "memory",
@@ -40,7 +40,7 @@ export function createMemoryTool(options: {
     parameters: memorySchema,
     execute: async (_toolCallId, params) => {
       const action = params.action as MemoryAction;
-      const scope = { channel: options.channel, externalUserId: options.chatId };
+      const scope = options.scope;
       const allScopes = Boolean(params.allScopes);
 
       if (action === "sync") {

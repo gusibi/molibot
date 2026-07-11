@@ -1,5 +1,27 @@
 # Progress log
 
+## 2026-07-11 — Memory batch 1 (T2 + T6a)
+
+- Closed the Project Session delivery and deferred runtime cleanup as decided.
+- Reviewed Memory Plan C0 against current code; no unresolved product decision
+  remains. Started mapping gateway, mory schema, adapter, and ingestion seams.
+- Added shared namespace/domain/semantic/source types plus namespace encoders and
+  the automatic prompt query plan. Five namespace/classifier tests pass.
+- Added optional domain persistence across mory canonical validation, in-memory,
+  SQLite, and pgvector contracts. Legacy SQLite migration preserves existing
+  rows and adds the column/index idempotently.
+- Structured host writes now resolve stable `mory://<type>/<subject>` paths and
+  domain namespaces; unstructured writes retain unique low-confidence paths.
+  Prompt search merges owner/chat/agent/project namespaces plus legacy chat ids.
+- Verification: mory 181/181, host namespace/path 7/7, root production build pass.
+- Completed runtime scope propagation for prompt snapshots and the Agent Memory
+  tool, including current Project identity. Cross-namespace get/update/delete,
+  global search, and compact now operate on actual namespace rows.
+- Adversarial review fixed structured default-domain writes falling back to chat
+  and owner/project rows being skipped by global operations. Final verification:
+  host scope/path tests 23/23, mory 181/181, production build pass, diff check pass.
+
+
 ## 2026-07-11 — Project Session output routing and inspection
 
 - User approved implementation order: Project Session first, runtime cleanup later.
