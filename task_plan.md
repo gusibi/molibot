@@ -1,5 +1,49 @@
 # Unified conversation and project sidebar plan
 
+# Project Session output routing and inspection implementation (2026-07-11)
+
+## Goal
+
+Implement `docs/requirements/project-session-provenance-and-inspection.md` in
+four verified slices. Runtime automatic cleanup is explicitly deferred.
+
+## Implementation phases
+
+1. **Slice A — P0 output safety** — complete
+   - Disable Project-mode Bash mtime artifact relocation.
+   - Store truncated Bash full output under Project runtime `tool-output`.
+   - Preserve ordinary Bot behavior and add focused regression tests.
+2. **Slice B — shared output routing** — complete
+   - Introduce `RunOutputLayout`, explicit project/scratch targets, and
+     structured file-tool details without filename-based routing guesses.
+3. **Slice C — read-only ProjectInspection** — complete
+   - Add bounded tree/file preview and hardened scoped Git status/diff routes.
+4. **Slice D — Desktop project file panel** — complete
+   - Add localized Files/Changes/Attachments tabs using existing shared UI.
+   - Verify light/dark themes, keyboard behavior, and narrow widths.
+5. **Documentation and adversarial verification** — complete
+   - Run focused and regression tests; update features/prd/changelog/readme.
+
+## Success criteria
+
+- Project commands never relocate concurrently edited project files.
+- Project root receives no Molibot scratch, attachment, or full-output metadata.
+- Project inspection is bounded, read-only, root-confined, and does not invoke
+  Agent Bash.
+- The Desktop accurately labels project-global Files/Changes and session-local
+  Attachments.
+- Runtime automatic cleanup remains out of scope.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Root package has no `check` script | `npm run check -- --output human` | Use the repository's available build/test scripts and direct focused Node tests instead. |
+| Desktop API test command doubled the `apps/desktop` path | Combined `--dir apps/desktop` with an `apps/desktop` working directory | Run pnpm from the repository root or omit `--dir` when already inside the package. |
+| Desktop UI suite expects removed `ph-chats-circle` sidebar icon | Full Desktop test run; failure is in concurrent/pre-existing `ChatSidebar.svelte` changes outside Project inspection | Leave unrelated sidebar code untouched; retain passing Svelte check and Project-specific UI assertion evidence, and report the unrelated regression separately. |
+
+---
+
 ## Goal
 
 Move Projects out of their separate desktop page and into the chat sidebar as a

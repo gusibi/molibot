@@ -39,7 +39,7 @@ export interface DesktopWebProfileSaveRequest {
 
 export interface DesktopProfileFilesResponse {
   ok: true;
-  fileNames: string[];
+  fileNames: readonly string[];
   files: Record<string, string>;
 }
 
@@ -992,7 +992,7 @@ export interface DesktopExternalTranscriptMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
-  attachments?: { original: string; mediaType: DesktopFileMediaType; mimeType?: string; size?: number }[];
+  attachments?: { original: string; local?: string; mediaType: DesktopFileMediaType; mimeType?: string; size?: number }[];
   activities?: DesktopConversationActivity[];
 }
 

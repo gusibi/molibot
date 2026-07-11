@@ -102,7 +102,7 @@
   <div class="sidebar-channels">
     <section class="sidebar-tree-section">
       <button type="button" class="sidebar-tree-title" aria-expanded={conversationsExpanded} onclick={onToggleConversations}>
-        <i class="ph-fill ph-chats-circle" aria-hidden="true"></i><span>{copy.chat}</span><i class="ph ph-caret-right sidebar-tree-caret" class:open={conversationsExpanded} aria-hidden="true"></i>
+        <span>{copy.chat}</span><i class="ph ph-caret-right sidebar-tree-caret" class:open={conversationsExpanded} aria-hidden="true"></i>
       </button>
       {#if conversationsExpanded}
         {#each channels as channel (channel.id)}
@@ -152,7 +152,7 @@
     flex-direction: column;
     gap: 1px;
     padding: 0 0 8px;
-    margin-bottom: 6px;
+    margin-bottom: 0;
     border-bottom: 1px solid var(--separator, rgba(0, 0, 0, 0.06));
   }
   .nav-item {
@@ -178,14 +178,13 @@
     flex: 1 1 auto;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 2px 0;
+    padding: 0;
     min-height: 0;
   }
-  .sidebar-tree-section { min-width: 0; padding: 2px 0; }
-  .sidebar-tree-title { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 0 8px; border: 0; background: transparent; color: var(--label-primary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
+  .sidebar-tree-section { min-width: 0; padding: 0 0 8px; }
+  .sidebar-tree-title { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 8px; border: 0; background: transparent; color: var(--label-secondary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
   .sidebar-tree-title:hover { color: var(--label-primary); }
   .sidebar-tree-title span { flex: 1; }
-  .sidebar-tree-title > i:first-child { color: var(--label-secondary); font-size: 16px; }
   .sidebar-tree-caret { opacity: 0; font-size: 11px; color: var(--label-tertiary); transition: opacity .12s ease, transform .12s ease; }
   .sidebar-tree-title:hover .sidebar-tree-caret, .sidebar-tree-title:focus-visible .sidebar-tree-caret { opacity: 1; }
   .sidebar-tree-caret.open { transform: rotate(90deg); }
@@ -193,10 +192,10 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    width: calc(100% + 24px);
-    height: 46px;
-    margin: auto -12px -8px;
-    padding: 0 22px;
+    width: 100%;
+    height: 48px;
+    margin: auto 0 -8px;
+    padding: 0 8px;
     border: none;
     border-top: 1px solid var(--separator, rgba(0, 0, 0, 0.06));
     background: transparent;

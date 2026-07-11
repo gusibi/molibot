@@ -1,5 +1,45 @@
 # Progress log
 
+## 2026-07-11 — Project Session output routing and inspection
+
+- User approved implementation order: Project Session first, runtime cleanup later.
+- Started Slice A investigation and established persistent implementation plan.
+- Completed Slice A: added Project-mode Bash relocation and full-output routing
+  controls, wired them from the shared runner, and passed all 21 focused Bash
+  output/approval tests.
+- Started Slice B with a shared `RunOutputLayout` and Project-aware `write`
+  targets/details. The combined Bash/write suite passes 24 tests.
+- `npm run check` is not defined in the root package; recorded this and switched
+  verification to supported repository commands.
+- Root production build completed successfully; only pre-existing Vite dynamic/static
+  import warnings were reported.
+- Added the first ProjectInspection implementation and four read-only Project
+  routes for tree, preview, Git status, and per-path diff.
+- Added coverage for bounded tree reads, `.git` hiding, outside symlinks,
+  filenames with spaces, deleted/untracked files, non-Git directories, and a
+  malicious repository `core.fsmonitor`; focused suite now passes 28 tests.
+- Production build passes with the new generated routes; existing Vite import
+  advisories remain unchanged.
+- Completed Desktop Project panel integration with Files, Changes, and
+  Attachments tabs; directory navigation, text preview, Git diff/untracked
+  preview, media preview/download, refresh, errors, loading, and read-only copy.
+- Added zh-CN/en-US copy, Geist semantic styles, focus-visible treatment, and a
+  narrow-window overlay layout. `frontend-design` reinforced the restrained,
+  developer-tool visual direction rather than introducing a second UI system.
+- Verification: Desktop Svelte check 0/0, UI structure 34/34, Desktop API
+  66/66, Tauri Rust 10/10, ProjectInspection 4/4, root production build pass.
+- Completed Slice C with opaque tree cursors/load-more, binary and oversized
+  states, bounded partial Git output, empty-repository behavior, and parent-repo
+  path projection. ProjectInspection coverage is now 8/8.
+- Completed Slice B structured results for Project write/edit, generated image,
+  video and speech files, and attachments. Focused output/inspection suite is
+  40/40 and Desktop Svelte check remains 0/0.
+- Final root production build passes. The full Desktop UI suite currently has
+  one unrelated assertion failure: it expects `ph-chats-circle`, while the
+  concurrently modified `ChatSidebar.svelte` no longer contains that icon.
+  Project panel assertions pass; unrelated sidebar code was not changed.
+
+
 ## 2026-07-10 — planning
 
 - Completed the `grill-me` interview and reached agreement on the navigation,

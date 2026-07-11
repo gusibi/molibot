@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
@@ -68,7 +68,13 @@ export function createAttachTool(options: {
 
       return {
         content: [{ type: "text", text: `Attached ${title}` }],
-        details: undefined
+        details: {
+          requestedPath: params.path,
+          relativePath: basename(filePath),
+          rootKind: "attachment",
+          action: "attached",
+          sizeBytes: statSync(filePath).size
+        }
       };
     }
   };

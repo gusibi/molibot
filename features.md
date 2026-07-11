@@ -2,10 +2,68 @@
 
 ## 2026-07-11
 
+### Desktop 项目文件面板 - inline 展开 + diff2html + .gitignore
+- **交互改为 inline 展开**：点文件/变更行就地向下展开内容（GitHub 风格），再点折叠；不再打开覆盖整列的"预览页"。修复了预览随列表滚走、以及预览固定黑色不跟明暗主题的问题。
+- **diff 用 diff2html**：行号、`+/-` 配色、hunk 结构交给 diff2html 渲染（替换手搓的按行 span）；覆写 `.d2h-*` 到 Geist token，跟随明暗主题。
+- **后端尊重 .gitignore**：用 `ignore` 库过滤文件树，node_modules/dist/build 不再刷屏。
+- **文件类型图标**：按扩展名映射 Phosphor 文件图标（`ph-file-ts/js/css/py/...`）+ GitHub 式语言配色。（`vscode-material-icon-theme` 是 VS Code 扩展、不可 npm 引入，改用 Phosphor 的文件类型集。）
+- **变更状态标签上色**：修改=琥珀、新增=绿、删除=红、重命名=蓝、未跟踪=灰，并缩小。
+- **滚动**：全局细滚动条（10px 轨 / 6px 滑块）；面板加 `min-height:0`，文件多时可滚动。
+- **范围**：`apps/desktop` + `src/lib/server/projects/inspection.ts`。**验证**：`svelte-check` 0/0、`vite build` 通过（diff2html CSS 已打包）、inspection 测试 8/8 通过。
+- **遗留（按 IDE 技术栈讨论）**：monaco（只读、不做编辑）、chokidar/fast-glob/fdir/@tanstack/virtual（暂无对应功能）先不引入；simple-git 不采用（保留现有硬化版 `runGit`）。
+
+### Desktop 项目文件面板重构
+- **修复未定义 token bug**：`var(--background)` / `var(--background-secondary)` 从未定义（active tab 透明、预览层透明、代码块无底色、focus 环失效），现在映射到 `--card-bg` / `--surface-secondary` / `--code-bg`；loading 转圈引用了不存在的 `@keyframes spin`，改用 `project-spin`。
+- **预览层重构**：把 文件 / 代码 / diff / 附件 预览移到不滚动的 `.project-panel-body`，预览钉在视口而非随文件列表滚走。
+- **边框**：面板外壳 `0.5px` 改 `1px solid var(--separator)`。
+- **尺度收敛**：外壳与 `.project-*` 全部收到 Geist 尺度（padding 32/48、高度 32/40/48、`--rounded-sm`、字号 >=12、代码走 `--code-bg` 12/16）。
+- **diff 行级配色**：按行渲染 `+` 绿 / `-` 红 / `@@` hunk 灰（之前是无样式的纯 `<pre>`）。
+- **文件行操作**：hover 出现 复制路径（剪贴板，复制后打勾 1.2s）；空状态加图标；面包屑用 caret 分隔替代裸 `/`。
+- **遗留**：项目树文件的 下载 需要后端 blob 接口（当前没有），附件已有下载。范围仅 `apps/desktop`。
+- **验证**：`svelte-check` 0 error / 0 warning，`vite build` 通过。
+
+### Desktop Geist 字体与层级打磨
+- **真正加载 Geist 字体**：通过 Fontsource 引入 Geist Sans（400/500/600）与 Geist Mono（400）的 latin 子集，让 `DESIGN.vercel.md` 的字体系统真正渲染，不再静默回退到 SF；CJK 仍按既有栈回退到 PingFang SC。这是“看着粗糙却说不出来”的主因。
+- **字距收敛到 Geist 规范**：标题改用负字距（页面/空态 h2 `-0.04em`、品牌标题 `-0.02em`），过松的大写小标签字距（`0.08em`/`0.07em`）收敛到标准 `0.04em`。
+- **阴影收敛到 Geist 三档层级**：自定义阴影收敛为 raised card / popover / modal 三档加功能性 focus/选中环；移除装饰性头像与内嵌高光，修复 `--shadow-card` 未定义 token 导致 Project 文件标签 active 态无阴影的 bug，把 30-72% 重透明度的弹层/浮层替换为规范 token 值（新增 `--popover-shadow` 用于菜单与浮动条，含 dark 变体）。
+- **字号修正**：移除半像素 `13.5px` 空态正文（Geist 无 13.5px；归到 `14px` / copy-14）。
+- **验证**：`vite build` 正确打包 Geist woff2 资源，`svelte-check` 0 error / 0 warning。范围仅 `apps/desktop`。
+- **遗留**：间距尺度（大量 10/14/18/28/30px 偏离 4-8-12-16-24-32）与 <12px 小字号（9/10/11px）未在本轮处理，建议先看真实 Geist 字体渲染效果再决定是否收敛。
+
+### Desktop 侧栏三级菜单层级与间距
+- **颜色置换**：对话/项目 一级标题改为 `label-secondary`（更浅，只负责折叠），其下的 channel / 项目子组改为 `label-primary`（更深，才是可点击目标）。
+- **去图标**：去掉 对话/项目 一级标题前的图标，仅保留文字 + caret；二级 channel 保留各自图标，主次更清晰。
+- **二级缩进**：channel 与项目子组相对一级标题向右缩进 8px。
+- **间距收敛到 Geist 尺度**：nav→tree 间距 14→8px、section padding、tree-title/header min-height 34→32。
+- **底部设置条规范修正**：高度 46→48px、padding 22→8px（内容与 nav 对齐），去掉全宽负 margin 溢出，footer 与顶部 border 落在 sidebar content box 内，与其它 chrome 一致。
+- **验证**：`svelte-check` 0 error / 0 warning，`vite build` 通过。范围仅 `apps/desktop`。
+- **遗留**：nav-item（新对话/任务/技能）的 6px 垂直 padding 暂未动，避免改动点击密度；若仍觉得偏松可再收到 4px。
+
+### Project Session 输出安全与显式路由（实施中）
+- Project Bash 不再通过 mtime 猜测并搬运项目根文件；压缩后的完整输出写入 Project runtime `tool-output`，普通 Bot 日期归档保持兼容。
+- Project `write` 默认写项目根，并支持显式 `target: "scratch"` 写 runtime 日期目录；成功结果返回安全相对路径、root kind、动作与字节数。
+- **验证**：Bash/write 聚焦测试 24/24 通过，根项目 production build 通过。ProjectInspection 与 Desktop 文件面板仍待后续切片。
+- ProjectInspection 服务端首批接口已落地：懒加载目录、受限文本预览、Git porcelain v2 status 与 `diff HEAD`，包含路径越界/软链接、Git config、pager、超时和输出上限防护。
+- Desktop Project 文件面板已接入 **文件 / 变更 / 附件** 三标签：文件和 Git 状态按 Project 全局实时读取，附件严格跟随当前 Session；支持目录下钻、文本/diff/未跟踪文件预览、媒体附件预览与下载、刷新及窄窗口覆盖层。Project 附件读取会校验 projectId 与 sessionId，不再误读普通 Web workspace。
+- Project 文件检查已完成安全收尾：目录使用稳定 cursor 并可“加载更多”；Git 超限结果显式标记截断；二进制、超大文件、空仓库、删除文件和大仓库子目录均有明确语义。父仓库路径不会返回 Desktop，跨 Project rename 的外侧来源仅保留布尔标记。
+- Project 文件工具统一返回结构化结果：write/edit、图片、视频、语音生成和 attach 均提供安全相对路径/root kind/action（及可用时的字节数），不建设或冒充完整的 per-turn provenance。
+
 ### 修复：自动任务执行 Session 泄漏与页面自动刷新
 - **修复 sidebar 泄漏**：在 `getOrCreateConversation` 查找或复用已有 conversation 时，如果传入 `origin: "automation"` 但已有会话没有此标记，现在会补写该 origin 标记。这解决了定时任务如果使用 `sessionMode: "chat"` 导致 event 对话泄露到左侧 Web 对话列表的问题。
 - **页面自动刷新与可见性监听**：给自动任务（`TasksSection.svelte`）增加了 `onMount` 挂载刷新、浏览器 Page Visibility API（切回标签页时立即更新）以及 30 秒定时轮询机制，让昨日打开的 app 数据在今日任务触发后能自动刷新，解决了页面停滞状态下数据不更新的问题。
 - **验证**：通过了 `svelte-check` 检查和桌面 app 全量 33 个单元测试（含 `TasksSection` 单元测试与 Rust 单元测试均 100% 绿灯）。
+
+### 修复：微信等外部渠道 Session 详情提示找不到（Session not found）
+- **路径与标识符安全策略放宽**：修改了 `src/lib/server/app/externalSessionsFromContexts.ts` 中的 `isSafeSegment` 函数。从原来只允许字母数字下划线减号点 `^[a-zA-Z0-9._-]+$` 改为允许 `@`, `:`, `+`, `%` 等在第三方聊天平台（如微信 `o9cq803dQf4bT1KSlE1f0Bb8sxmc@im.wechat`）中极为常见且在路径安全防穿透上完全无害的安全特殊字符，解决了点击该类微信 Session 时弹出 "Session not found" 的 bug。
+- **验证**：在 `externalSessionsFromContexts.test.ts` 中新增了测试用例，真实模拟并验证了含有 `@` 与 `:` 的外部 chatId/sessionId 能够成功被解析，相关单元测试 100% 通过。
+
+### 修复：微信/飞书/Telegram等外部渠道 Session 文件无法查看及媒体无法预览的问题
+- **Desktop UI 支持外部会话文件加载**：在 `apps/desktop/src/ChatView.svelte` 的 `openSession` 中，对于只读外部会话，在打开 external transcript 的同时调用 `refreshFiles(item.botId, item.sessionId)` 以更新文件面板。
+- **文件预览与下载关联外部会话上下文**：修改 `openPreview`、`downloadFile` 和 `loadMessageMedia`，当 `viewMode === "external"` 时，从 `channelItems` 动态查找并提取外部会话对应的真实 `botId` 作为 `profileId`，并将 base64 编码的外部 session ID 作为 `sessionId` 发送给 API 端点，防止在外部会话模式下调用文件接口时因 `activeSessionId` 为空而无法预览。
+- **消息内联媒体加载与气泡渲染**：给外部 Transcript 的 `ConversationTranscript` 传入了 `attachmentActions={transcriptAttachmentActions}` 属性，使 Svelte UI 的消息列表气泡能正确触发 `loadMedia`，渲染出生成的图片或内嵌播放器。
+- **外部消息附件与 Local 路径保留**：更新 `src/lib/server/app/desktopExternalSessions.ts` 中的 `buildDesktopExternalTranscriptMessage`，使其不再丢弃附件的 `local` 相对路径；同时更新 `src/lib/server/app/externalSessionsFromContexts.ts` 的 `buildMessages` 映射器，解码并提取 agent 消息实体中的附件列表（`ConversationAttachment[]`）。这两者让 Svelte 的 `TranscriptAttachments` 能够成功匹配 `filesByLocal` 并触发 `loadMedia`。
+- **支持外部渠道的 Web 文件接口**：修改 `src/routes/api/web/files/+server.ts` 的 `GET` 处理，若 `sessionId` 能被解码为有效的 `ExternalSessionRef`，则从 `contexts/` 目录读取 `.jsonl`/`.json` 文件内容，扫描 `scratch/` 目录并将包含在会话历史中的文件作为列表返回，能够按 `fileId` 正确读取并服务对应文件。
+- **验证**：修改了 `desktopExternalSessions.test.ts` 中的断言以确认 `local` 相对路径得以保留。运行全仓桌面测试 `test:desktop-chat`（181/181）、外部会话测试（4/4）和 Svelte UI 测试 `desktop:test`（34/34）全部绿灯通过。
 
 ## 2026-07-10
 

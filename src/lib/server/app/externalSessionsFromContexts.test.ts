@@ -172,3 +172,161 @@ test("readExternalTranscriptFromContexts returns null for malformed, traversal, 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("readExternalTranscriptFromContexts resolves ids with safe special characters (@, :, +, %)", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-ctx-spec-"));
+  try {
+    const dir = contextsDir(root, "moli-wx", "weixin-momo-2", "o9cq803dQf4bT1KSlE1f0Bb8sxmc@im.wechat");
+    seedSession(
+      dir,
+      "s-12345:67890",
+      [{ role: "user", content: "Hello", timestamp: "2026-07-01T00:00:00.000Z" }],
+      "2026-07-01T00:00:00.000Z"
+    );
+
+    const id = encodeExternalSessionId({
+      channel: "weixin",
+      botId: "weixin-momo-2",
+      chatId: "o9cq803dQf4bT1KSlE1f0Bb8sxmc@im.wechat",
+      sessionId: "s-12345:67890"
+    });
+    const result = readExternalTranscriptFromContexts(root, id);
+    assert.ok(result);
+    assert.equal(result!.conversation.channel, "weixin");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("readExternalTranscriptFromContexts attaches generated image from imageGenerate toolResult to the following assistant message", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-ctx-image-"));
+  try {
+    const dir = contextsDir(root, "moli-f", "feishu-momo", "oc_chat1");
+    const workspaceDir = path.join(root, "moli-f", "bots", "feishu-momo", "oc_chat1");
+    const imageAbsPath = path.join(workspaceDir, "scratch", "2026", "07", "10", "pastoral_evening.jpg");
+
+    const lines: string[] = [
+      JSON.stringify({ type: "session", version: 1, id: "default", timestamp: "2026-07-10T12:33:23.000Z" }),
+      JSON.stringify({
+        type: "message",
+        id: "u1",
+        parentId: null,
+        timestamp: "2026-07-10T12:33:23.017Z",
+        message: { role: "user", content: [{ type: "text", text: "生成一张图" }] }
+      }),
+      JSON.stringify({
+        type: "message",
+        id: "a1",
+        parentId: "u1",
+        timestamp: "2026-07-10T12:33:23.510Z",
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "call_1", name: "imageGenerate", arguments: { prompt: "x" } }]
+        }
+      }),
+      JSON.stringify({
+        type: "message",
+        id: "t1",
+        parentId: "a1",
+        timestamp: "2026-07-10T12:34:17.388Z",
+        message: {
+          role: "toolResult",
+          toolCallId: "call_1",
+          toolName: "imageGenerate",
+          content: [{ type: "text", text: "Successfully generated image" }],
+          details: { path: "2026/07/10/pastoral_evening.jpg", filePath: imageAbsPath, uploaded: true },
+          isError: false
+        }
+      }),
+      JSON.stringify({
+        type: "message",
+        id: "a2",
+        parentId: "t1",
+        timestamp: "2026-07-10T12:34:17.390Z",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "已生成这幅田园晚景图" }]
+        }
+      })
+    ];
+    writeFileSync(path.join(dir, "default.jsonl"), `${lines.join("\n")}\n`, "utf8");
+
+    const id = encodeExternalSessionId({
+      channel: "feishu",
+      botId: "feishu-momo",
+      chatId: "oc_chat1",
+      sessionId: "default"
+    });
+    const result = readExternalTranscriptFromContexts(root, id);
+    assert.ok(result);
+
+    const assistant = result!.messages.find((m) => m.content.startsWith("已生成"));
+    assert.ok(assistant, "assistant follow-up message should be present");
+    const attachment = assistant!.attachments?.[0];
+    assert.ok(attachment, "generated image should be attached to the assistant message");
+    assert.equal(attachment!.mediaType, "image");
+    assert.equal(attachment!.original, "pastoral_evening.jpg");
+    assert.equal(attachment!.local, path.join("scratch", "2026", "07", "10", "pastoral_evening.jpg"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("readExternalTranscriptFromContexts recovers user-sent attachments from the channel_attachments block and strips it from display", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-ctx-user-att-"));
+  try {
+    const dir = contextsDir(root, "moli-wx", "weixin-momo-2", "oc_chat1");
+    const workspaceDir = path.join(root, "moli-wx", "bots", "weixin-momo-2", "oc_chat1");
+    const attachmentAbsPath = path.join(workspaceDir, "attachments", "1774279785778_weixin_photo.jpeg");
+
+    const userContent = [
+      `[2026-03-23T15:29:45.000Z] [oc_chat1]: 看看这张图`,
+      ``,
+      `<channel_attachments>`,
+      attachmentAbsPath,
+      `</channel_attachments>`
+    ].join("\n");
+
+    const lines: string[] = [
+      JSON.stringify({ type: "session", version: 1, id: "default", timestamp: "2026-03-23T15:29:45.000Z" }),
+      JSON.stringify({
+        type: "message",
+        id: "u1",
+        parentId: null,
+        timestamp: "2026-03-23T15:29:45.000Z",
+        message: { role: "user", content: [{ type: "text", text: userContent }] }
+      }),
+      JSON.stringify({
+        type: "message",
+        id: "a1",
+        parentId: "u1",
+        timestamp: "2026-03-23T15:29:50.000Z",
+        message: { role: "assistant", content: [{ type: "text", text: "收到" }] }
+      })
+    ];
+    writeFileSync(path.join(dir, "default.jsonl"), `${lines.join("\n")}\n`, "utf8");
+
+    const id = encodeExternalSessionId({
+      channel: "weixin",
+      botId: "weixin-momo-2",
+      chatId: "oc_chat1",
+      sessionId: "default"
+    });
+    const result = readExternalTranscriptFromContexts(root, id);
+    assert.ok(result);
+
+    const user = result!.messages.find((m) => m.role === "user");
+    assert.ok(user, "user message should be present");
+    assert.equal(user!.content.includes("<channel_attachments>"), false, "attachment block must be stripped from display");
+    assert.equal(user!.content.includes("看看这张图"), true, "user text must be preserved");
+    const attachment = user!.attachments?.[0];
+    assert.ok(attachment, "user attachment should be recovered from the block");
+    assert.equal(attachment!.mediaType, "image");
+    assert.equal(attachment!.mimeType, "image/jpeg");
+    assert.equal(attachment!.original, "1774279785778_weixin_photo.jpeg");
+    assert.equal(attachment!.local, path.join("attachments", "1774279785778_weixin_photo.jpeg"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+

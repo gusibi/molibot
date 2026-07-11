@@ -200,7 +200,7 @@
 <div class="project-tree">
   <div class="project-tree-head" class:open={expanded}>
     <button type="button" class="project-tree-toggle" aria-expanded={expanded} onclick={onToggle}>
-      <i class="ph-fill ph-folders" aria-hidden="true"></i><span>{copy.projects}</span><i class="ph ph-caret-right project-tree-caret" class:open={expanded} aria-hidden="true"></i>
+      <span>{copy.projects}</span><i class="ph ph-caret-right project-tree-caret" class:open={expanded} aria-hidden="true"></i>
     </button>
     <button type="button" class="project-add" aria-label={copy.addProject} title={copy.addProject} onclick={() => void beginAdding()}><i class="ph ph-plus" aria-hidden="true"></i></button>
   </div>
@@ -248,10 +248,10 @@
 {/if}
 
 <style>
-  .project-tree { min-width: 0; padding: 2px 0 6px; }
-  .project-tree-head { display: flex; align-items: center; min-height: 34px; padding: 0 4px; }
-  .project-tree-toggle { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 34px; padding: 0 4px; border: 0; background: transparent; color: var(--label-primary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
-  .project-tree-toggle > i:first-child { color: var(--label-secondary); font-size: 16px; }
+  .project-tree { min-width: 0; padding: 0 0 8px; }
+  .project-tree-group { padding-left: 8px; }
+  .project-tree-head { display: flex; align-items: center; min-height: 32px; padding: 0 4px; }
+  .project-tree-toggle { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 32px; padding: 0 4px; border: 0; background: transparent; color: var(--label-secondary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
   .project-tree-toggle span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .project-tree-caret, .project-add { opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; }
   .project-tree-head:hover .project-tree-caret, .project-tree-head:hover .project-add, .project-tree-head:focus-within .project-tree-caret, .project-tree-head:focus-within .project-add { opacity: 1; pointer-events: auto; }

@@ -1,5 +1,42 @@
 # Findings
 
+## Project Session implementation kickoff (2026-07-11)
+
+- The approved order is Slice A, B, C, D; runtime automatic cleanup is deferred.
+- The working tree already contains unrelated/uncommitted memory and automation
+  changes. Project Session edits must avoid overwriting or reformatting them.
+- The earlier provenance proposal in this file is superseded by the final
+  requirement: no turn ledger or manifest; Files/Changes are live Project-global
+  views, while attachments remain Session-scoped.
+- Project runs expose `ctx.project` in the shared runner. Its `rootPath` is the
+  tool cwd and its `scratchDir` is inside the Project runtime, so output routing
+  can be explicit without putting Project logic into a Channel adapter.
+- Ordinary Bot artifact relocation remains enabled; Project runs now disable it
+  and use an absolute runtime scratch date directory plus sibling `tool-output`.
+- Image/video/TTS tools already share `artifactDir`; making that directory
+  absolute for Project runs routes their default output into runtime scratch.
+  Their remaining Slice B work is structured path-detail normalization.
+- ProjectInspection now has a direct fixed-argv Git seam with config/pager
+  isolation and process-group timeout/output caps. It never calls Agent Bash.
+- The old Desktop file pane always called `/api/web/files` against the ordinary
+  Web runtime, even while Project Chat was active. Project attachments now use
+  the same endpoint with a server-verified `projectId + sessionId` association
+  and resolve bytes only from that Project runtime.
+- The Project panel is intentionally read-only and separates Project-global
+  Files/Changes from Session-local Attachments in its labels and data loaders.
+- Adversarial review found and fixed a parent-repository disclosure: porcelain
+  paths from a Project nested in a larger repository are now stripped back to
+  Project-relative paths; a rename source outside the Project is represented by
+  a boolean marker without returning its parent path.
+- Tree pagination uses an opaque directory/file sort cursor and the Desktop can
+  load subsequent pages. Git status and diff now preserve bounded partial output
+  with an explicit truncation flag instead of turning size limits into generic
+  failures or silently dropping content.
+- Binary and oversized files never render raw bytes. Empty repositories,
+  deleted large files, spaces in names, non-Git directories, and malicious
+  fsmonitor config all have focused coverage.
+
+
 ## Product-design interview (2026-07-10)
 
 The user approved all decisions recorded in `task_plan.md`, including the

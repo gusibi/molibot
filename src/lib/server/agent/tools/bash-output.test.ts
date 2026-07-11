@@ -125,6 +125,52 @@ test("bash relocates modified existing root artifacts into dated artifact direct
   }
 });
 
+test("project bash leaves modified project files in place", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-project-bash-"));
+  const toolOutputDir = mkdtempSync(join(tmpdir(), "molibot-project-output-"));
+  try {
+    writeFileSync(join(cwd, "README.md"), "before", "utf8");
+    const tool = createBashTool(cwd, {
+      artifactDir: "2026/07/11",
+      relocateRootArtifacts: false,
+      toolOutputDir
+    });
+    await tool.execute("tool-1", {
+      label: "bash",
+      command: "printf 'after' > README.md"
+    });
+
+    assert.equal(readFileSync(join(cwd, "README.md"), "utf8"), "after");
+    assert.equal(existsSync(join(cwd, "2026/07/11/README.md")), false);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(toolOutputDir, { recursive: true, force: true });
+  }
+});
+
+test("project bash stores truncated full output outside the project root", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "molibot-project-bash-"));
+  const toolOutputDir = mkdtempSync(join(tmpdir(), "molibot-project-output-"));
+  try {
+    const tool = createBashTool(cwd, {
+      relocateRootArtifacts: false,
+      toolOutputDir
+    });
+    const result = await tool.execute("tool-1", {
+      label: "bash",
+      command: "for i in $(seq 1 700); do printf 'line-%s-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n' \"$i\"; done"
+    });
+    const details = result.details as { fullOutputPath?: string } | undefined;
+
+    assert.ok(details?.fullOutputPath?.startsWith(toolOutputDir));
+    assert.equal(existsSync(details?.fullOutputPath ?? ""), true);
+    assert.equal(existsSync(join(cwd, ".mom-tool-output")), false);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(toolOutputDir, { recursive: true, force: true });
+  }
+});
+
 test("bash leaves non-artifact root support files in place", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "molibot-bash-"));
   try {

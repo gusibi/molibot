@@ -115,7 +115,7 @@
 </section>
 
 <style>
-  .channel-accordion { margin-top: 2px; }
+  .channel-accordion { margin-top: 2px; padding-left: 8px; }
   .channel-accordion:first-child { margin-top: 0; }
   .channel-accordion-header {
     display: flex;
@@ -127,11 +127,11 @@
     border-radius: var(--rounded-sm, 6px);
     background: transparent;
     cursor: pointer;
-    color: var(--label-secondary, #666);
+    color: var(--label-primary, #171717);
     text-align: left;
     font-size: 12px;
     font-weight: 500;
-    letter-spacing: 0.01em;
+    letter-spacing: 0;
     transition: background 0.12s ease;
   }
   .channel-accordion-header:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }

@@ -6,6 +6,7 @@ import type { ChildProcess } from "node:child_process";
 import { basename, dirname, extname } from "node:path";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import { describeFileToolResult, type RunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
 import { TTS_GENERATE_PROVIDERS } from "./providers.js";
 import type { TtsGenerateFormat, TtsGenerateProvider } from "./types.js";
 
@@ -127,6 +128,7 @@ export function createTtsGenerateTool(options: {
   cwd: string;
   workspaceDir: string;
   artifactDir?: string;
+  outputLayout?: RunOutputLayout;
   uploadFile?: (filePath: string, title?: string, text?: string) => Promise<void>;
   fetch?: typeof fetch;
   platform?: NodeJS.Platform;
@@ -255,6 +257,9 @@ export function createTtsGenerateTool(options: {
           ].filter(Boolean).join("\n")
         }],
         details: {
+          ...(options.outputLayout
+            ? describeFileToolResult(options.outputLayout, finalFilePath, "generated", finalFileName)
+            : {}),
           provider,
           voice: result.voice,
           model: result.model,

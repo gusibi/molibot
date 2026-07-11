@@ -1,11 +1,12 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { parseSessionEntries } from "$lib/server/agent/session/session.js";
 import type { SessionFileEntry, SessionMessageEntry } from "$lib/server/agent/session/session.js";
 import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
 import type { ExternalSessionEntry } from "$lib/server/app/desktopExternalSessions.js";
-import type { Channel, Conversation, ConversationMessage } from "$lib/shared/types/message.js";
+import type { Channel, Conversation, ConversationMessage, ConversationAttachment } from "$lib/shared/types/message.js";
+import { mediaTypeFromName, mimeFromFilename } from "$lib/shared/filePreview.js";
 
 /**
  * Read-only projection of external-channel conversations from the Agent
@@ -66,7 +67,7 @@ function summarizeTitle(text: string): string {
 
 /** Path segments are decoded from an opaque id, so guard against traversal. */
 function isSafeSegment(value: string): boolean {
-  return /^[a-zA-Z0-9._-]+$/.test(value) && !value.includes("..");
+  return /^[a-zA-Z0-9._\-@:+%]+$/.test(value) && !value.includes("..");
 }
 
 function sessionKey(ref: ExternalSessionRef): string {
@@ -136,6 +137,7 @@ function isAutomationSession(contextsDir: string, sessionId: string): boolean {
   }
 }
 
+/** Path segments are decoded from an opaque id, so guard against traversal. */
 function isEventPromptSession(entries: SessionFileEntry[]): boolean {
   const firstUser = messageEntriesOf(entries).find((entry) => entry.message.role === "user");
   if (!firstUser) return false;
@@ -173,15 +175,146 @@ function buildConversation(ref: ExternalSessionRef, entries: SessionFileEntry[])
   };
 }
 
-function buildMessages(ref: ExternalSessionRef, entries: SessionFileEntry[]): ConversationMessage[] {
+/**
+ * Recovers generated media (image/video tool outputs) from a toolResult message
+ * as displayable attachments. The `imageGenerate`/`videoGenerate` tools never
+ * write `message.attachments` - the produced file lives only in the toolResult
+ * `details` (`filePath`/`videoPath`). Without this, generated images would never
+ * surface in the external transcript. `local` is the path relative to the session
+ * workspace so it matches the file-panel scan in `+/api/web/files`.
+ */
+function extractGeneratedAttachments(message: AgentMessage, workspaceDir: string): ConversationAttachment[] {
+  const record = message as { role?: string; toolName?: string; details?: unknown };
+  if (record.role !== "toolResult") return [];
+  const details = record.details;
+  if (!details || typeof details !== "object") return [];
+  const detailRecord = details as { filePath?: unknown; videoPath?: unknown };
+  const pickFile = (value: unknown): string | undefined => {
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  };
+  let filePath: string | undefined;
+  let mediaType: "image" | "video" | undefined;
+  if (record.toolName === "imageGenerate") {
+    filePath = pickFile(detailRecord.filePath);
+    mediaType = "image";
+  } else if (record.toolName === "videoGenerate") {
+    filePath = pickFile(detailRecord.videoPath) ?? pickFile(detailRecord.filePath);
+    mediaType = "video";
+  }
+  if (!filePath || !mediaType) return [];
+  const resolved = isAbsolute(filePath) ? resolve(filePath) : resolve(workspaceDir, filePath);
+  const rel = relative(workspaceDir, resolved);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return [];
+  return [{ original: basename(resolved), local: rel, mediaType }];
+}
+
+/**
+ * Recovers user-sent attachments from the `<channel_attachments>` block embedded
+ * in persisted user-message text. External channels (Feishu/Telegram/Weixin/QQ)
+ * never persist `message.attachments`; instead the inbound attachment paths are
+ * folded into the prompt text (see `appendAttachmentBlock`). Without this, user-
+ * sent images could not be previewed inline in the external transcript. `local`
+ * is the path relative to the session workspace so it matches the Files-pane scan.
+ * Returns the extracted attachments plus the display text with the block stripped.
+ */
+function extractChannelAttachments(content: string, workspaceDir: string): {
+  attachments: ConversationAttachment[];
+  displayContent: string;
+} {
+  const match = content.match(/<channel_attachments>\n?([\s\S]*?)<\/channel_attachments>/);
+  if (!match) return { attachments: [], displayContent: content };
+  const attachments: ConversationAttachment[] = [];
+  for (const line of match[1].split("\n")) {
+    const candidate = line.trim();
+    if (!candidate || !isAbsolute(candidate)) continue;
+    const resolved = resolve(candidate);
+    const rel = relative(workspaceDir, resolved);
+    if (!rel || rel.startsWith("..") || isAbsolute(rel)) continue;
+    attachments.push({
+      original: basename(resolved),
+      local: rel,
+      mediaType: mediaTypeFromName(resolved),
+      mimeType: mimeFromFilename(resolved) ?? undefined
+    });
+  }
+  const displayContent = content
+    .replace(/\n*<channel_attachments>[\s\S]*?<\/channel_attachments>\n*/g, "")
+    .trim();
+  return { attachments, displayContent };
+}
+
+function buildMessages(ref: ExternalSessionRef, entries: SessionFileEntry[], workspaceDir: string): ConversationMessage[] {
   const conversationId = encodeExternalSessionId(ref);
   const messages: ConversationMessage[] = [];
+  let pendingAttachments: ConversationAttachment[] = [];
   for (const entry of messageEntriesOf(entries)) {
     const role = entry.message.role;
+    if (role === "toolResult") {
+      const generated = extractGeneratedAttachments(entry.message, workspaceDir);
+      if (generated.length) pendingAttachments = [...pendingAttachments, ...generated];
+      continue;
+    }
     if (role !== "user" && role !== "assistant") continue;
     const content = contentText(messageContent(entry.message));
-    if (!content.trim()) continue;
-    messages.push({ id: entry.id, conversationId, role, content, createdAt: entry.timestamp });
+
+    const attachments: ConversationAttachment[] = [];
+    const messageAttachments = (
+      entry.message as {
+        attachments?: Array<{
+          original: string;
+          local: string;
+          mediaType?: ConversationAttachment["mediaType"];
+          mimeType?: string;
+          size?: number;
+          isImage?: boolean;
+          isAudio?: boolean;
+        }>;
+      }
+    ).attachments;
+    if (Array.isArray(messageAttachments)) {
+      for (const att of messageAttachments) {
+        attachments.push({
+          original: att.original,
+          local: att.local,
+          mediaType: att.mediaType || (att.isImage ? "image" : (att.isAudio ? "audio" : "file")),
+          mimeType: att.mimeType,
+          size: att.size
+        });
+      }
+    }
+    let displayContent = content;
+    if (role === "user") {
+      const { attachments: channelAttachments, displayContent: stripped } = extractChannelAttachments(content, workspaceDir);
+      if (channelAttachments.length) {
+        attachments.push(...channelAttachments);
+        displayContent = stripped;
+      }
+    }
+    if (role === "assistant" && pendingAttachments.length) {
+      attachments.push(...pendingAttachments);
+      pendingAttachments = [];
+    }
+
+    if (!displayContent.trim() && attachments.length === 0) continue;
+
+    messages.push({
+      id: entry.id,
+      conversationId,
+      role,
+      content: displayContent,
+      createdAt: entry.timestamp,
+      attachments: attachments.length > 0 ? attachments : undefined
+    });
+  }
+  if (pendingAttachments.length) {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "assistant") {
+        messages[i].attachments = [...(messages[i].attachments ?? []), ...pendingAttachments];
+        break;
+      }
+    }
   }
   return messages;
 }
@@ -238,12 +371,13 @@ export function readExternalTranscriptFromContexts(
   if (!ref) return null;
   const dir = channelDir(ref.channel);
   if (!dir) return null;
-  const contextsDir = join(resolve(dataRoot), dir, "bots", ref.botId, ref.chatId, "contexts");
+  const workspaceDir = join(resolve(dataRoot), dir, "bots", ref.botId, ref.chatId);
+  const contextsDir = join(workspaceDir, "contexts");
   const file = join(contextsDir, `${ref.sessionId}.jsonl`);
   if (!existsSync(file)) return null;
   const entries = readEntries(contextsDir, ref.sessionId);
   return {
     conversation: buildConversation(ref, entries),
-    messages: buildMessages(ref, entries)
+    messages: buildMessages(ref, entries, workspaceDir)
   };
 }

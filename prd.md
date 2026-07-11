@@ -1,5 +1,15 @@
 # Molibot PRD (V1)
 
+## 2.43 Support Files and Media Preview for External Sessions (2026-07-11)
+- [Done] 解决微信/飞书/Telegram等外部渠道会话在 macOS app 中点击时无法加载/刷新 scratch 生成文件、无法预览 inline 媒体（图片、音频、视频等）以及无法下载附件的问题。
+- [Done] 外部会话查看时，使 Desktop 前端在 openSession 时触发 refreshFiles，并动态查找外部会话 botId 以作为 profileId、外部 session ID 作为 sessionId 发送给 `/api/web/files` 接口。
+- [Done] 外部 Transcript 接口 `buildDesktopExternalTranscriptMessage` 保留附件的 `local` 相对路径以便 Svelte 匹配，并且 `externalSessionsFromContexts.ts` 中 `buildMessages` 补充解析 `entry.message.attachments`；
+- [Done] 文件 API 端点 `/api/web/files` 支持解析外部 Session ID，递归扫描对应的 Agent scratch 目录，返回完整的文件记录，并能够服务（下载/预览）具体的外部文件资源。
+
+## 2.42 Fix WeChat External Session Loading (2026-07-11)
+- [Done] 解决微信（weixin-momo 等）以及其它第三方外部渠道 Session 在 Desktop 侧栏列表能展示，但点击加载时因 ID 包含特殊字符（例如 `@`）被 `isSafeSegment` 过度安全检查误判为 traversal 进而返回 "Session not found" 的问题。
+- [Done] 扩充 `isSafeSegment` 安全字符白名单，支持 `@`, `:`, `+`, `%`，并在单元测试中覆盖包含 `@` 和 `:` 的 WeChat ID 解析。
+
 ## 2.41 Desktop Automation State Refresh & Sidebar Leak Fix (2026-07-11)
 - [Done] 修复定时任务在 `sessionMode=chat` 下执行时，因复用已有会话导致 `origin: "automation"` 标记丢失，使 event 对话泄露到左侧 Sidebar 对话树中的问题。
 - [Done] 引入定时任务面板的自动更新机制：结合 `onMount` 初次强制刷新、浏览器 Page Visibility API（恢复焦点即刷新）与 30 秒定时轮询，确保页面在长期停滞后依然能呈现最新触发任务的运行状态。
@@ -8,9 +18,13 @@
 - [Decided] Project 文件与 Git 变更采用全局实时视角，不再按 Session/run 归因，也不建设 `TurnFileProvenance`、文件 baseline、manifest 或 SQLite effect ledger。任意 Project Session 打开文件面板，都看到同一份当前文件树和 Git 工作区状态。
 - [Planned, P1] Project Desktop 提供 Project-aware 的 **文件 / 变更 / 附件** 视图：文件树和 Git status/diff 属于 Project 全局；附件沿用现有会话消息和附件存储，只显示当前 Session。非 Git Project 不模拟变更历史。
 - [Planned, P1] 新增只读 ProjectInspection：仅在注册 Project root 下执行受限的目录/Git 查询，所有 API 返回相对路径；必须处理 Git 不可用、嵌套仓库、软链接逃逸、未跟踪文件、二进制、大目录/大 diff 截断，并隔离 Git config、pager、external diff 与 textconv。
-- [Planned, P0] Project 模式立即禁用 Bash 基于 mtime 的根文件自动搬家，并把 `.mom-tool-output` 移到 Project runtime，避免用户并发保存的正常项目文件被移动或 Molibot 元数据污染 Project root。
+- [Done, P0] Project 模式已禁用 Bash 基于 mtime 的根文件自动搬家，并把完整截断输出移到 Project runtime `tool-output`，避免用户并发保存的正常项目文件被移动或 Molibot 元数据污染 Project root。
 - [Decided] Project 输出使用显式 `target: project | scratch`：文本 `write/edit` 默认写 Project，媒体/下载/转换默认写 runtime scratch 日期目录；工具返回结构化最终路径供卡片展示，但不把它当作完整修改历史。删除 Session 或 Project history 永不触碰用户 Project root。
 - 详细契约、数据模型、接口、安全边界、实施切片与验收矩阵见 `docs/requirements/project-session-provenance-and-inspection.md`。
+- [In Progress] Slice B 已落地共享 `RunOutputLayout` 与 Project `write` 的 project/scratch 目标和结构化结果；媒体/附件统一、ProjectInspection 与 Desktop 面板待续。runtime 自动清理明确延期。
+- [In Progress] Slice C 首批只读 ProjectInspection 与 tree/file/status/diff 路由已落地；cursor 和剩余极端边界矩阵完成后再标记交付。
+- [Done] Slice D Desktop 面板已接入文件、变更、附件三个准确作用域的标签页，并覆盖中英、主题 token、键盘焦点和窄窗口布局。
+- [Done] Slice B/C 已收尾：文件工具结构化结果覆盖文本编辑、媒体生成与附件；ProjectInspection 支持稳定 cursor、显式截断、二进制/超限、空仓库和父仓库子目录隔离。runtime 自动清理仍按决策延期。
 
 ## 2.39 DuckDuckGo Search UX Polish (2026-07-10)
 - [Done] 区分“未配置任何可用引擎”和“成功调用但无结果”，当有成功尝试但返回 0 条结果时，正确提示 `"No search results found."`。

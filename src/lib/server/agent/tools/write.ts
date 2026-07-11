@@ -1,15 +1,22 @@
-import { dirname, isAbsolute } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import fs from "node:fs";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
+import type { RunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
+
+function isWithinRoot(root: string, filePath: string): boolean {
+  const rel = relative(root, filePath);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
 
 const writeSchema = Type.Object({
   label: Type.String(),
   path: Type.String(),
-  content: Type.String()
+  content: Type.String(),
+  target: Type.Optional(Type.Union([Type.Literal("project"), Type.Literal("scratch")]))
 });
 
 function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { requestedPath: string; path: string; routed: boolean } {
@@ -36,7 +43,7 @@ function routeDefaultArtifactPath(inputPath: string, artifactDir?: string): { re
   };
 }
 
-export function getWriteToolDefinition(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string }): ToolDefinition {
+export function getWriteToolDefinition(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string; outputLayout?: RunOutputLayout }): ToolDefinition {
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
 
   return {
@@ -47,9 +54,37 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
     risk: "medium",
     source: "builtin",
     handler: async (params: any, ctx) => {
-      const target = routeDefaultArtifactPath(params.path, options.artifactDir);
-      const filePath = resolveToolPath(ctx.cwd, target.path);
+      const requestedPath = String(params.path ?? "").trim();
+      const requestedTarget = params.target === "project" || params.target === "scratch" ? params.target : undefined;
+      const defaultTarget = options.outputLayout?.projectRoot ? "project" : "scratch";
+      let rootKind: "project" | "scratch" = requestedTarget ?? defaultTarget;
+      if (rootKind === "project" && !options.outputLayout?.projectRoot) {
+        return { ok: false, error: "The project output target is only available in a Project Session." };
+      }
+
+      let baseRoot = rootKind === "project"
+        ? options.outputLayout!.projectRoot!
+        : options.outputLayout?.scratchRoot;
+      const legacyTarget = options.outputLayout
+        ? { requestedPath, path: requestedPath, routed: false }
+        : routeDefaultArtifactPath(requestedPath, options.artifactDir);
+      const filePath = isAbsolute(requestedPath)
+        ? resolve(requestedPath)
+        : baseRoot
+          ? resolve(baseRoot, requestedPath)
+          : resolveToolPath(ctx.cwd, legacyTarget.path);
       ensureAllowedPath(filePath);
+      if (options.outputLayout && isAbsolute(requestedPath)) {
+        if (isWithinRoot(options.outputLayout.scratchRoot, filePath)) {
+          rootKind = "scratch";
+          baseRoot = options.outputLayout.scratchRoot;
+        } else if (options.outputLayout.projectRoot && isWithinRoot(options.outputLayout.projectRoot, filePath)) {
+          rootKind = "project";
+          baseRoot = options.outputLayout.projectRoot;
+        } else {
+          return { ok: false, error: "Absolute output paths must stay inside the Project root or runtime scratch root." };
+        }
+      }
 
       const dir = dirname(filePath);
       await fs.promises.mkdir(dir, { recursive: true });
@@ -60,17 +95,23 @@ export function getWriteToolDefinition(options: { cwd: string; workspaceDir: str
         ok: true,
         content: [{
           type: "text",
-          text: target.routed
-            ? `Wrote ${writtenBytes} bytes to ${target.path} (default artifact path for ${target.requestedPath})`
-            : `Wrote ${writtenBytes} bytes to ${target.path}`
+          text: legacyTarget.routed
+            ? `Wrote ${writtenBytes} bytes to ${legacyTarget.path} (default artifact path for ${legacyTarget.requestedPath})`
+            : `Wrote ${writtenBytes} bytes to ${requestedPath}`
         }],
-        details: undefined
+        details: baseRoot ? {
+          requestedPath,
+          relativePath: relative(baseRoot, filePath).replaceAll("\\", "/"),
+          rootKind,
+          action: "created",
+          sizeBytes: writtenBytes
+        } : undefined
       };
     }
   };
 }
 
-export function createWriteTool(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string }): AgentTool<typeof writeSchema> {
+export function createWriteTool(options: { cwd: string; workspaceDir: string; chatId: string; artifactDir?: string; outputLayout?: RunOutputLayout }): AgentTool<typeof writeSchema> {
   const def = getWriteToolDefinition(options);
   return toolDefToAgentTool(def, options.cwd);
 }

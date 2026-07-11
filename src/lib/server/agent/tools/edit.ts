@@ -4,6 +4,7 @@ import * as Diff from "diff";
 import { toolDefToAgentTool } from "$lib/server/agent/tools/helpers.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import type { ToolDefinition } from "$lib/server/agent/tools/toolTypes.js";
+import { describeFileToolResult, type RunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
 
 const editSchema = Type.Object({
   label: Type.String(),
@@ -88,7 +89,7 @@ export function buildDiff(oldText: string, newText: string, contextLines = 4): s
   return out.join("\n");
 }
 
-export function getEditToolDefinition(options: { cwd: string; workspaceDir: string }): ToolDefinition {
+export function getEditToolDefinition(options: { cwd: string; workspaceDir: string; outputLayout?: RunOutputLayout }): ToolDefinition {
   const ensureAllowedPath = createPathGuard(options.cwd, options.workspaceDir);
 
   return {
@@ -145,13 +146,18 @@ export function getEditToolDefinition(options: { cwd: string; workspaceDir: stri
             ? `Updated ${params.path} (replaced ${matches} occurrences)`
             : `Updated ${params.path}`
         }],
-        details: { diff: buildDiff(content, replaced) }
+        details: {
+          diff: buildDiff(content, replaced),
+          ...(options.outputLayout
+            ? describeFileToolResult(options.outputLayout, filePath, "modified", params.path, Buffer.byteLength(replaced, "utf8"))
+            : {})
+        }
       };
     }
   };
 }
 
-export function createEditTool(options: { cwd: string; workspaceDir: string }): AgentTool<typeof editSchema> {
+export function createEditTool(options: { cwd: string; workspaceDir: string; outputLayout?: RunOutputLayout }): AgentTool<typeof editSchema> {
   const def = getEditToolDefinition(options);
   return toolDefToAgentTool(def, options.cwd);
 }

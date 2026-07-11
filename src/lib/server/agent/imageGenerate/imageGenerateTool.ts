@@ -8,6 +8,7 @@ import type { ImageGenerateEngine, ImageGenerateInput } from "./types.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { SqliteImageTaskStore } from "./imageTaskStore.js";
+import { describeFileToolResult, type RunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
 
 const imageGenerateSchema = Type.Object({
   prompt: Type.String({
@@ -150,6 +151,7 @@ export function createImageGenerateTool(options: {
   cwd: string;
   workspaceDir: string;
   artifactDir?: string;
+  outputLayout?: RunOutputLayout;
   uploadFile?: (filePath: string, title?: string, text?: string) => Promise<void>;
   sessionId?: string;
   taskStore?: SqliteImageTaskStore;
@@ -306,6 +308,9 @@ export function createImageGenerateTool(options: {
             ].filter(Boolean).join("\n")
           }],
           details: {
+            ...(options.outputLayout
+              ? describeFileToolResult(options.outputLayout, filePath, "generated", outName, imageBuffer.byteLength)
+              : {}),
             taskId,
             engine,
             engineEnabled,

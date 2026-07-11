@@ -192,6 +192,13 @@ test("filterDesktopFiles returns all files when the filter is 'all'", () => {
   assert.deepEqual(filterDesktopFiles(files, "all"), files);
 });
 
+test("project attachment URLs retain project and session scope", () => {
+  assert.equal(
+    desktopFileContentUrl("http://127.0.0.1:3210", "personal", "session-1", "file-1", false, "project-1"),
+    "http://127.0.0.1:3210/api/web/files?profileId=personal&sessionId=session-1&fileId=file-1&projectId=project-1"
+  );
+});
+
 test("filterDesktopFiles keeps only the matching media type", () => {
   const files = [file("a", "image"), file("b", "file"), file("c", "image")];
   assert.deepEqual(

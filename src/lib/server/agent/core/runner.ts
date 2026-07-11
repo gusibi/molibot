@@ -901,6 +901,7 @@ export class MomRunner implements RunnerLike {
       workspaceId,
       timezone: settings.timezone,
       messageTimestamp: ctx.message.ts,
+      project: this.activeProject,
       store: this.store,
       memory: this.memory,
       getSettings: this.getSettings,

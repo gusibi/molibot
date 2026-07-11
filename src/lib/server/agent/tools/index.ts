@@ -1,7 +1,7 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { promises as fs } from "node:fs";
-import { dirname as pathDirname, basename } from "node:path";
+import { dirname as pathDirname, basename, join } from "node:path";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import { createAttachTool } from "$lib/server/agent/tools/attach.js";
 import { getBashToolDefinition } from "$lib/server/agent/tools/bash.js";
@@ -37,6 +37,7 @@ import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.j
 import { wrapCommandWithVenv, execCommand } from "$lib/server/agent/tools/helpers.js";
 import { prepareToolSandboxExecution, resolveEffectiveSandboxSettings } from "$lib/server/agent/tools/sandbox.js";
 import { getRuntimeToolClassification } from "$lib/server/agent/tools/toolClassification.js";
+import { buildRunOutputLayout } from "$lib/server/agent/tools/outputLayout.js";
 
 function wrapSerializedTool<T extends AgentTool<any>>(tool: T): T {
   let chain = Promise.resolve();
@@ -127,6 +128,7 @@ export function createMomTools(options: {
   workspaceId?: string;
   timezone: string;
   messageTimestamp?: string | number | Date;
+  project?: { rootPath: string; scratchDir: string };
   store: MomRuntimeStore;
   memory: MemoryGateway;
   getSettings: () => RuntimeSettings;
@@ -140,7 +142,20 @@ export function createMomTools(options: {
   uploadFile: (filePath: string, title?: string, text?: string) => Promise<void>;
   emitRunnerEvent?: (event: RunnerUiEvent) => Promise<void>;
 }): AgentTool<any>[] {
-  const artifactDir = resolveScratchArtifactDir(options.timezone, options.messageTimestamp);
+  const datedArtifactDir = resolveScratchArtifactDir(options.timezone, options.messageTimestamp);
+  const artifactDir = options.project
+    ? join(options.project.scratchDir, datedArtifactDir)
+    : datedArtifactDir;
+  const toolOutputDir = options.project
+    ? join(pathDirname(options.project.scratchDir), "tool-output")
+    : undefined;
+  const outputLayout = options.project
+    ? buildRunOutputLayout({
+        cwd: options.cwd,
+        scratchRoot: artifactDir,
+        projectRoot: options.project.rootPath
+      })
+    : undefined;
   const botId = basename(options.workspaceDir) || "unknown";
   const sandboxSettings = resolveEffectiveSandboxSettings({
     getSettings: options.getSettings,
@@ -177,6 +192,7 @@ export function createMomTools(options: {
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
     artifactDir,
+    outputLayout,
     uploadFile: options.uploadFile,
     sessionId: options.sessionId
   }));
@@ -185,6 +201,7 @@ export function createMomTools(options: {
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
     artifactDir,
+    outputLayout,
     uploadFile: options.uploadFile,
     sessionId: options.sessionId
   }));
@@ -193,6 +210,7 @@ export function createMomTools(options: {
     cwd: options.cwd,
     workspaceDir: options.workspaceDir,
     artifactDir,
+    outputLayout,
     uploadFile: options.uploadFile
   }));
 
@@ -411,15 +429,17 @@ export function createMomTools(options: {
   const readToolDef = getReadToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir });
   registry.register(readToolDef);
 
-  const writeToolDef = getWriteToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir });
+  const writeToolDef = getWriteToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, chatId: options.chatId, artifactDir, outputLayout });
   registry.register(writeToolDef);
 
-  const editToolDef = getEditToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir });
+  const editToolDef = getEditToolDefinition({ cwd: options.cwd, workspaceDir: options.workspaceDir, outputLayout });
   registry.register(editToolDef);
 
   const bashToolDef = getBashToolDefinition({
     cwd: options.cwd,
     artifactDir,
+    relocateRootArtifacts: !options.project,
+    toolOutputDir,
     sandbox: {
       settings: sandboxSettings,
       workspaceDir: options.workspaceDir

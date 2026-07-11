@@ -116,3 +116,46 @@ export function isTextPreviewKind(kind: FilePreviewKind): boolean {
     kind === "text"
   );
 }
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".tiff": "image/tiff",
+  ".tif": "image/tiff",
+  ".svg": "image/svg+xml",
+  ".ogg": "audio/ogg",
+  ".oga": "audio/ogg",
+  ".opus": "audio/ogg",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".flac": "audio/flac",
+  ".silk": "audio/silk",
+  ".amr": "audio/amr",
+  ".mp4": "video/mp4",
+  ".m4v": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".avi": "video/x-msvideo"
+};
+
+/** Best-effort MIME type from a filename's extension. Returns null when unknown. */
+export function mimeFromFilename(filename: string): string | null {
+  const mime = MIME_BY_EXTENSION[extensionOf(filename)];
+  return mime ?? null;
+}
+
+/** Derives a coarse media category from a filename for attachment rendering. */
+export function mediaTypeFromName(filename: string): "image" | "audio" | "video" | "file" {
+  const mime = mimeFromFilename(filename);
+  if (!mime) return "file";
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("audio/")) return "audio";
+  if (mime.startsWith("video/")) return "video";
+  return "file";
+}

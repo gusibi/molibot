@@ -39,6 +39,7 @@ const chatMessagesPane = read("./lib/chat/ChatMessagesPane.svelte");
 const chatHeader = read("./lib/chat/ChatHeader.svelte");
 const recordingBar = read("./lib/chat/RecordingBar.svelte");
 const projectChat = read("./lib/projects/ProjectChat.svelte");
+const projectFilePanel = read("./lib/projects/ProjectFilePanel.svelte");
 const taskStore = read("./lib/stores/tasks.svelte.ts");
 const conversationController = read("./lib/chat/conversationController.svelte.ts");
 const transcriptHelpers = read("./lib/chat/transcript.ts");
@@ -332,6 +333,19 @@ test("project detail reuses the chat header chrome for a single visual language"
   assert.doesNotMatch(projectDetail, /aria-label=\{copy\.delete\}/);
   assert.match(chatHeader, /class="chat-header"/);
   assert.match(chatHeader, /class="chat-header-avatar"/);
+});
+
+test("project file panel exposes live files, Git changes, and session attachments", () => {
+  assert.match(view, /<ProjectFilePanel/);
+  assert.match(projectFilePanel, /selectTab\("files"\)/);
+  assert.match(projectFilePanel, /selectTab\("changes"\)/);
+  assert.match(projectFilePanel, /selectTab\("attachments"\)/);
+  assert.match(projectFilePanel, /loadDesktopProjectTree/);
+  assert.match(projectFilePanel, /loadDesktopProjectGitStatus/);
+  assert.match(projectFilePanel, /listDesktopSessionFiles\(endpoint, "personal", sessionId, projectId\)/);
+  assert.match(projectFilePanel, /projectReadOnlyHint/);
+  assert.match(styles, /\.project-file-tabs/);
+  assert.match(styles, /@media \(max-width: 820px\)[\s\S]*\.chat-layout\.with-files \.file-panel/);
 });
 
 test("selectProjectSession discards stale transcript responses when switching sessions", () => {

@@ -15,10 +15,13 @@
     "tauri:build": "corepack pnpm run sync:version && corepack pnpm run prepare:runtime && node ../../scripts/build-desktop-tauri.mjs && node ../../scripts/finalize-desktop-release.mjs"
   },
   "dependencies": {
+    "@fontsource/geist-mono": "^5.2.8",
+    "@fontsource/geist-sans": "^5.2.5",
     "@phosphor-icons/web": "^2.1.2",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-http": "^2.5.9",
+    "diff2html": "^3.4.56",
     "dompurify": "^3.4.11",
     "marked": "^18.0.5",
     "qrcode": "^1.5.4",

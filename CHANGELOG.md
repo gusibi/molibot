@@ -2,6 +2,65 @@
 
 ## 2026-07-11
 
+### Desktop Project File Panel - Inline Accordion + diff2html + .gitignore
+- Replaced the overlay "preview page" with a GitHub-style inline accordion: clicking a file/change row expands its content inline below; click again to collapse. Fixes the preview scrolling away with the list and the fixed-dark overlay not respecting light/dark theme.
+- Diff rendering now uses `diff2html` (line numbers, +/- coloring, hunk structure) instead of hand-rolled per-line spans; theme-aware overrides map diff2html's `.d2h-*` to Geist tokens so it follows light/dark.
+- Backend tree scan now respects `.gitignore` (via the `ignore` lib) - node_modules/dist/build no longer clutter the file list.
+- File rows show per-type Phosphor icons (`ph-file-ts/js/css/py/...`) with GitHub-ish per-language colors. (`vscode-material-icon-theme` is a VS Code extension, not npm-importable, so Phosphor's file-type set is used instead.)
+- Change-list status badges are now colored by status (modified=amber, added=green, deleted=red, renamed=blue, untracked=gray) and compact.
+- Added thin global scrollbars (10px track / 6px thumb) and `min-height:0` on the panel so long file lists scroll.
+- Scope: `apps/desktop` + `src/lib/server/projects/inspection.ts`. Verified: `svelte-check` 0/0, `vite build` clean (diff2html CSS bundled), 8/8 inspection tests pass.
+- Deferred (per the IDE-stack discussion): monaco (read-only, no editing), chokidar/fast-glob/fdir/@tanstack/virtual (no matching features yet). simple-git rejected in favor of the existing hardened `runGit`.
+
+### Desktop Project File Panel Overhaul
+- Fixed undefined-token bugs: `var(--background)`/`var(--background-secondary)` (active tab, preview overlay, code block, media, focus ring) now map to `--card-bg`/`--surface-secondary`/`--code-bg`; the loading spinner's `animation: spin` referenced a non-existent keyframe and now uses `project-spin`.
+- Restructured the file/code/diff/attachment preview into a non-scrolling `.project-panel-body` so the overlay pins to the viewport instead of scrolling away with the file list.
+- Replaced 0.5px panel borders with 1px `--separator`.
+- Normalized the panel shell and `.project-*` content onto the Geist scale: 32/48px padding, 32/40/48px heights, `--rounded-sm`, >=12px fonts, code on `--code-bg` at 12/16.
+- Diff view now renders line-by-line with +/- added/removed/hunk coloring (was a plain `<pre>` with no styling).
+- File rows get a copy-path action (clipboard) on hover; empty states get icons; breadcrumb uses a caret separator instead of a raw "/".
+- Note: download for project tree files needs a backend blob endpoint (not present); attachments already had download. Scope: `apps/desktop`. Verified: `svelte-check` 0/0, `vite build` clean.
+
+### Desktop Geist Typography & Elevation Polish
+- Loaded the actual Geist Sans (400/500/600) and Geist Mono (400) webfonts via Fontsource so the `DESIGN.vercel.md` type system renders instead of silently falling back to San Francisco; CJK still falls back to PingFang SC through the existing font stack.
+- Converged letter-spacing onto the Geist spec: headings now use negative tracking (page/empty-state h2 at `-0.04em`, brand title at `-0.02em`) instead of loose positives, and the loosest tracked caps (`0.08em`/`0.07em`) were brought down to a standard `0.04em`.
+- Reduced ad-hoc box-shadows to the three Geist elevation tiers (raised card / popover / modal) plus functional focus and selection rings: removed decorative avatar and inset-highlight shadows, fixed an undefined `--shadow-card` reference that left the active project-file tab with no shadow, and replaced heavy 30-72% opacity dialogs/popovers with the spec token values (added a `--popover-shadow` tier for menus and floating bars, with dark-theme variants).
+- Removed the half-pixel `13.5px` empty-state body size (Geist has no 13.5px; snapped to `14px` / copy-14).
+- Verified: `vite build` bundles the Geist woff2 assets and `svelte-check` reports 0 errors / 0 warnings. Scope: `apps/desktop` only.
+
+### Desktop Sidebar Hierarchy & Spacing
+- Inverted the sidebar's 3-level color hierarchy: the expandable section headers (对话/项目) are now `label-secondary` (lighter, since they only collapse) and their channel/project entries are `label-primary` (darker, the actual targets).
+- Removed the leading icons from the 对话/项目 section headers (text + caret only) so level-1 and level-2 no longer share an aligned icon row; channels keep their icons.
+- Indented level-2 (channels and project sub-groups) by 8px relative to the level-1 headers.
+- Normalized sidebar spacing onto the Geist 4/8/12/16 scale: nav-to-tree gap 14px→8px, section padding, tree-title/header min-heights 34→32.
+- Footer spec fix: height 46→48px, padding 22→8px (content now aligns with the nav items), and removed the full-width horizontal bleed so the footer and its top border sit within the sidebar's content box like the rest of the chrome.
+- Verified: `svelte-check` 0 errors / 0 warnings, `vite build` clean. Scope: `apps/desktop`.
+
+### Support Files and Media Preview for External Sessions
+- Fixed an issue where files generated in the `scratch/` directory of external sessions (such as Feishu, Telegram, WeChat) could not be listed in the "Files" pane, and inline media files could not be previewed or downloaded from the conversation transcript.
+- Updated the external session view to pass `attachmentActions` to `ConversationTranscript`, allowing Svelte message bubbles to correctly load and display inline images/media below their conversation turns.
+- Updated `openSession` in Svelte desktop front-end to trigger `refreshFiles` for read-only external sessions, resolving the real profileId (botId) and the base64-encoded sessionId to pass correct context to the backend.
+- Updated `buildDesktopExternalTranscriptMessage` to preserve the relative `local` path of attachments, and updated `buildMessages` in `externalSessionsFromContexts.ts` to decode attachments from the message JSONL. This allows the frontend Svelte components to match message attachments against the list of session files.
+- Fixed generated images/videos not appearing inline in the external transcript: `imageGenerate`/`videoGenerate` never write `message.attachments`, so `buildMessages` now recovers the produced file from the toolResult `details` (`filePath`/`videoPath`) and attaches it to the following assistant message, with `local` resolved relative to the session workspace so it matches the Files-pane scan.
+- Fixed user-sent images/voice not previewing inline in the external transcript: external channels fold inbound attachment paths into the user message's `<channel_attachments>` block instead of `message.attachments`, so `buildMessages` now parses that block, recovers each attachment (path-relative `local`, extension-derived `mediaType`/`mimeType`), and strips the raw block from the displayed text. The `/api/web/files` endpoint now scans the per-session `attachments/` directory alongside `scratch/` so user-sent files appear in the Files pane and are servable.
+- Derived a real `mimeType` from the filename extension for externally scanned files (previously always `undefined`, which served `application/octet-stream` with `nosniff`); shared the lookup via `mimeFromFilename`/`mediaTypeFromName` in `$lib/shared/filePreview`.
+- Enhanced the `/api/web/files` endpoint to decode external session references, recursively scan files in their `scratch/` directory, and serve external resources directly from the respective channel's bot directory.
+- Tightened the external-session file filter to match the scanned relative path only (previously also matched bare basenames, which could surface unrelated files whose name happened to appear in the transcript). Also fixed the Project branch of that endpoint to use `getProjectConversation(projectId, sessionId)` instead of a malformed single-arg `getConversationById` call.
+
+### WeChat/External Session Loading Fix
+- Fixed an issue where clicking a WeChat or other external channel session prompted "Session not found". The SvelteKit desktop backend was overly strict when validating the decoded opaque session reference path segments, treating any segment containing `@` (such as `o9cq803dQf4bT1KSlE1f0Bb8sxmc@im.wechat`) or other special symbols as path traversal and returning null.
+- Relaxed the safety boundaries in `isSafeSegment` to allow safe characters: `@`, `:`, `+`, `%`. This maintains full path-traversal resilience while enabling correct parsing of all third-party channel identifiers.
+
+### Project Session output safety
+- Project Bash no longer relocates project-root files based on mtime, and full truncated output is stored under the Project runtime instead of `.mom-tool-output` in the project.
+- Started explicit Project output routing: `write` defaults to the project root, supports a scratch target, and returns structured relative-path details.
+- Fixed `write` absolute-path root classification to check the scratch root before the project root, so a scratch path nested under the project root is correctly classified as `scratch` (previously the project-root check won first and produced a wrong relative path).
+- Removed the unused `toolOutputRoot` field from `RunOutputLayout` (write never read it; bash already receives its tool-output dir separately via `toolOutputDir`).
+- Fixed a pre-existing crash in Host Bash approval lookup/auto-reason: the `one-time-script` command classification has no `capabilities` array, so accessing it in the non-persistent-capability branch threw. One-time scripts now short-circuit (no persistent pre-approval) with a tailored reason string.
+- Added the first bounded, read-only Project tree/file/Git inspection routes with root-confinement and hardened Git subprocess execution.
+- Replaced the unusable Project attachment-only pane with a working Files / Changes / Attachments inspector, including directory navigation, file and diff previews, Project-aware session attachments, bilingual copy, and responsive Geist styling.
+- Completed Project inspection hardening with cursor pagination, explicit truncation, binary/oversized handling, empty-repository behavior, and parent-repository path isolation; file-producing tools now return consistent structured path details.
+
 ### Desktop automation state auto-refresh and sidebar leak fix
 - Fixed an issue where scheduled task runs executed with `sessionMode: "chat"` would leak event conversations into the left sidebar's chat tree due to missing `origin: "automation"` flags on reused conversations.
 - Introduced an auto-refresh workflow for the Desktop automation workspace page (`TasksSection.svelte`). It integrates automatic reloading `onMount`, page-visible revalidation via the browser Page Visibility API, and a 30-second interval poll to ensure task statuses are dynamically updated when tasks fire background triggers.

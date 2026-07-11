@@ -157,6 +157,43 @@ export interface DesktopProjectSessionCreation {
   reused: boolean;
 }
 
+export interface DesktopProjectTreeEntry {
+  name: string;
+  path: string;
+  kind: "file" | "directory" | "symlink";
+  sizeBytes?: number;
+}
+
+export interface DesktopProjectTreePage {
+  path: string;
+  entries: DesktopProjectTreeEntry[];
+  truncated: boolean;
+  nextCursor?: string;
+}
+
+export type DesktopProjectFilePreview =
+  | { status: "text"; path: string; content: string; sizeBytes: number; truncated: boolean }
+  | { status: "binary" | "oversized"; path: string; sizeBytes: number };
+
+export interface DesktopProjectGitEntry {
+  path: string;
+  previousPath?: string;
+  previousOutsideProject?: boolean;
+  indexStatus: string;
+  worktreeStatus: string;
+  untracked: boolean;
+}
+
+export type DesktopProjectGitStatus =
+  | { status: "ok"; entries: DesktopProjectGitEntry[]; truncated: boolean }
+  | { status: "unavailable"; reason: string };
+
+export type DesktopProjectGitDiff =
+  | { status: "diff"; path: string; content: string; truncated: boolean }
+  | { status: "untracked"; path: string; preview: DesktopProjectFilePreview }
+  | { status: "binary" | "oversized"; path: string; sizeBytes: number }
+  | { status: "unavailable"; reason: string };
+
 export interface DesktopProjectMessage {
   id: string;
   conversationId: string;
@@ -214,6 +251,26 @@ export async function renameDesktopProjectSession(endpoint: string, projectId: s
 
 export async function deleteDesktopProjectSession(endpoint: string, projectId: string, conversationId: string): Promise<void> {
   await requestJson(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
+}
+
+export async function loadDesktopProjectTree(endpoint: string, projectId: string, treePath = "", cursor?: string): Promise<DesktopProjectTreePage> {
+  const query = new URLSearchParams({ path: treePath });
+  if (cursor) query.set("cursor", cursor);
+  return (await requestJson<{ ok: true; page: DesktopProjectTreePage }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/tree?${query}`)).page;
+}
+
+export async function loadDesktopProjectFile(endpoint: string, projectId: string, filePath: string): Promise<DesktopProjectFilePreview> {
+  const query = new URLSearchParams({ path: filePath });
+  return (await requestJson<{ ok: true; preview: DesktopProjectFilePreview }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/file?${query}`)).preview;
+}
+
+export async function loadDesktopProjectGitStatus(endpoint: string, projectId: string): Promise<DesktopProjectGitStatus> {
+  return (await requestJson<{ ok: true; result: DesktopProjectGitStatus }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/status`)).result;
+}
+
+export async function loadDesktopProjectGitDiff(endpoint: string, projectId: string, filePath: string): Promise<DesktopProjectGitDiff> {
+  const query = new URLSearchParams({ path: filePath });
+  return (await requestJson<{ ok: true; result: DesktopProjectGitDiff }>(endpoint, `/api/settings/projects/${encodeURIComponent(projectId)}/inspection/diff?${query}`)).result;
 }
 
 export type DesktopModelRoute = "text" | "vision" | "stt" | "tts" | "subagent";
@@ -1369,9 +1426,11 @@ export type DesktopFileFilter = "all" | DesktopFileMediaType;
 export async function listDesktopSessionFiles(
   endpoint: string,
   profileId: string,
-  sessionId: string
+  sessionId: string,
+  projectId?: string
 ): Promise<DesktopSessionFile[]> {
   const query = new URLSearchParams({ profileId, sessionId });
+  if (projectId) query.set("projectId", projectId);
   const payload = await requestJson<DesktopSessionFilesResponse>(
     endpoint,
     `/api/web/files?${query.toString()}`
@@ -1384,10 +1443,12 @@ export function desktopFileContentUrl(
   profileId: string,
   sessionId: string,
   fileId: string,
-  download = false
+  download = false,
+  projectId?: string
 ): string {
   const query = new URLSearchParams({ profileId, sessionId, fileId });
   if (download) query.set("download", "1");
+  if (projectId) query.set("projectId", projectId);
   return serviceUrl(endpoint, `/api/web/files?${query.toString()}`);
 }
 
@@ -1396,10 +1457,11 @@ export async function fetchDesktopFileBlob(
   profileId: string,
   sessionId: string,
   fileId: string,
-  download = false
+  download = false,
+  projectId?: string
 ): Promise<Blob> {
   const response = await fetchFromDesktop(
-    desktopFileContentUrl(endpoint, profileId, sessionId, fileId, download)
+    desktopFileContentUrl(endpoint, profileId, sessionId, fileId, download, projectId)
   );
   if (!response.ok) {
     throw new Error(`Failed to load file (${response.status})`);

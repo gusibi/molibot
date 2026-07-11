@@ -69,6 +69,7 @@
   import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
   import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
+  import ProjectFilePanel from "./lib/projects/ProjectFilePanel.svelte";
   import { projectsStore } from "./lib/stores/projects.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
   import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
@@ -335,6 +336,7 @@
   $: activeHeaderBotName = viewMode === "external" ? (activeExternalBotName || copy.bot) : activeBotName;
   $: activeHeaderAvatar = activeHeaderBotName.trim().charAt(0).toUpperCase() || "M";
   $: activeSessionItem = Object.values(channelItems).flat().find((item) => item.sessionId === activeSessionId);
+  $: activeExternalSessionItem = Object.values(channelItems).flat().find((item) => item.sessionId === activeExternalSessionId);
   $: activeSessionTitle = activeSessionItem
     ? `${sidebarChannels.find((channel) => channel.id === activeSessionItem?.channel)?.name ?? activeSessionItem.channel} / ${activeSessionItem.title}`
     : copy.chat;
@@ -656,6 +658,7 @@
     if (item.readOnly) {
       projectPaneActive = false;
       void openExternalTranscript(item.sessionId, item.channel, item.title, item.botName);
+      void refreshFiles(item.botId, item.sessionId);
       return;
     }
     workspacePane = "chat";
@@ -967,9 +970,11 @@
   }
 
   async function openPreview(file: DesktopSessionFile): Promise<void> {
-    if (!connectedEndpoint || !activeProfileId || !activeSessionId) return;
+    const currentProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
+    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
     try {
-      const blob = await fetchDesktopFileBlob(connectedEndpoint, activeProfileId, activeSessionId, file.id);
+      const blob = await fetchDesktopFileBlob(connectedEndpoint, currentProfileId, currentSessionId, file.id);
       closePreview();
       previewFile = file;
       previewUrl = URL.createObjectURL(blob);
@@ -985,9 +990,11 @@
   }
 
   async function downloadFile(file: DesktopSessionFile): Promise<void> {
-    if (!connectedEndpoint || !activeProfileId || !activeSessionId) return;
+    const currentProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
+    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
     try {
-      const blob = await fetchDesktopFileBlob(connectedEndpoint, activeProfileId, activeSessionId, file.id, true);
+      const blob = await fetchDesktopFileBlob(connectedEndpoint, currentProfileId, currentSessionId, file.id, true);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -1070,18 +1077,23 @@
     download: (file) => void downloadFile(file)
   } satisfies TranscriptAttachmentActions;
   let messageMediaSession = "";
-  $: if (activeSessionId !== messageMediaSession) {
-    for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
-    messageMediaUrls = new Map();
-    messageMediaLoading = new Set();
-    messageMediaFailed = new Set();
-    messageMediaSession = activeSessionId;
+  $: {
+    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    if (currentSessionId !== messageMediaSession) {
+      for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
+      messageMediaUrls = new Map();
+      messageMediaLoading = new Set();
+      messageMediaFailed = new Set();
+      messageMediaSession = currentSessionId;
+    }
   }
 
   async function loadMessageMedia(file: DesktopSessionFile): Promise<void> {
-    if (!connectedEndpoint || !activeProfileId || !activeSessionId) return;
+    const currentProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
+    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
     if (messageMediaUrls.has(file.local) || messageMediaLoading.has(file.local)) return;
-    const requestedSessionId = activeSessionId;
+    const requestedSessionId = currentSessionId;
     const loading = new Set(messageMediaLoading);
     loading.add(file.local);
     messageMediaLoading = loading;
@@ -1089,9 +1101,9 @@
     retrying.delete(file.local);
     messageMediaFailed = retrying;
     try {
-      const blob = await fetchDesktopFileBlob(connectedEndpoint, activeProfileId, activeSessionId, file.id);
+      const blob = await fetchDesktopFileBlob(connectedEndpoint, currentProfileId, currentSessionId, file.id);
       const url = URL.createObjectURL(blob);
-      if (activeSessionId !== requestedSessionId) {
+      if ((viewMode === "external" ? activeExternalSessionId : activeSessionId) !== requestedSessionId) {
         URL.revokeObjectURL(url);
         return;
       }
@@ -1099,12 +1111,12 @@
       next.set(file.local, url);
       messageMediaUrls = next;
     } catch (cause) {
-      if (activeSessionId !== requestedSessionId) return;
+      if ((viewMode === "external" ? activeExternalSessionId : activeSessionId) !== requestedSessionId) return;
       const failed = new Set(messageMediaFailed);
       failed.add(file.local);
       messageMediaFailed = failed;
     } finally {
-      if (activeSessionId === requestedSessionId) {
+      if ((viewMode === "external" ? activeExternalSessionId : activeSessionId) === requestedSessionId) {
         const done = new Set(messageMediaLoading);
         done.delete(file.local);
         messageMediaLoading = done;
@@ -1414,7 +1426,7 @@
 
 <main
   class="chat-layout"
-  class:with-files={filePanelOpen && serviceState === "ready" && profiles.length > 0}
+  class:with-files={filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0)}
   class:resizing={resizingSidebar}
   style={`--sidebar-w:${sidebarWidth}px`}
 >
@@ -1573,7 +1585,7 @@
                 <span>{copy.externalSessionDivider.replace("{channel}", activeExternalChannel)}</span>
               </div>
             {/if}
-            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} />
+            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} attachmentActions={transcriptAttachmentActions} />
           {/if}
       </div>
       {#if externalTranscript}
@@ -1676,7 +1688,15 @@
   </section>
   {/if}
 
-  {#if filePanelOpen && serviceState === "ready" && profiles.length > 0}
+  {#if filePanelOpen && serviceState === "ready" && projectPaneActive && projectsStore.selectedProjectId}
+    <ProjectFilePanel
+      endpoint={connectedEndpoint || serviceEndpoint || ""}
+      projectId={projectsStore.selectedProjectId}
+      sessionId={projectsStore.selectedSessionId}
+      {copy}
+      onClose={() => (filePanelOpen = false)}
+    />
+  {:else if filePanelOpen && serviceState === "ready" && profiles.length > 0}
     <aside class="file-panel">
       <div class="file-panel-head">
         <i class="ph-fill ph-folder-simple file-panel-icon" aria-hidden="true"></i>
