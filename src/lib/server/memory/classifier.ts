@@ -1,4 +1,4 @@
-import { scoreLexical } from "../../../../package/mory/src/index.js";
+import { scoreLexical } from "#mory";
 import type { MemoryAddInput, MemoryLayer, MemoryRecord } from "$lib/server/memory/types.js";
 
 export interface MemoryWriteAssessment {
@@ -8,16 +8,8 @@ export interface MemoryWriteAssessment {
 }
 
 const DURABLE_HINTS = [
-  "以后",
-  "总是",
-  "偏好",
-  "我的名字",
-  "remember this preference",
-  "always",
-  "never",
-  "prefer",
-  "call me",
-  "my name is"
+  "以后", "总是", "偏好", "我的名字", "remember this preference",
+  "always", "never", "prefer", "call me", "my name is"
 ];
 
 const REMEMBER_HINTS = [
@@ -186,15 +178,8 @@ export function classifyAutoMemoryCandidate(
   if (normalized.length > 500) return null;
 
   const hasDaily = hasHint(normalized, DAILY_HINTS);
-  const hasDurable = hasHint(normalized, DURABLE_HINTS);
   const hasRemember = hasHint(normalized, REMEMBER_HINTS);
-  const layer = hasDurable
-    ? "long_term"
-    : hasDaily
-      ? "daily"
-      : hasRemember
-        ? "long_term"
-        : null;
+  const layer = hasRemember ? (hasDaily ? "daily" : "long_term") : null;
   if (!layer) return null;
 
   return {

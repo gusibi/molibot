@@ -1,4 +1,161 @@
+# Daily materials internal task (2026-07-11)
+
+## Goal
+
+Implement `docs/requirements/daily-materials-task-handoff.md` end to end without routing internal work through the ordinary Agent Runner.
+
+## Phases
+
+1. Audit seams and establish red tests — complete
+2. Implement event contract, isolated watermark reader, and service — complete
+3. Wire runtime dispatch, scheduling, and manual trigger — complete
+4. Implement settings/API/Desktop controls — complete
+5. Update momo-agent templates and docs — complete
+6. Verify, adversarially review, and update product docs — complete
+
+## Verification gates
+
+- Daily-material and reflection watermarks remain isolated.
+- Failure, abort, and path escape never advance watermark or write scratch fallback.
+- Internal manual trigger never enters the ordinary Agent Runner.
+- Old settings sanitize safely and Desktop saves preserve unrelated fields.
+- Manual trigger writes the dated file inside the registered Project.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Planning/source patches failed to write | 1-3 | Disk had only ~101 MiB free at 100% usage; removed only the reproducible Desktop `dist` build output before retrying. |
+| First Desktop plugin persistence fixture used an empty memory-backend catalog | 1 | Added the fixture's expected `mory` backend; production validation remains unchanged. |
+| Parallel Desktop `corepack pnpm check` wrapper hung without diagnostics | 1 | Terminated only that check process and verified with installed `svelte-check` and `vite` binaries. |
+
+---
+
 # Unified conversation and project sidebar plan
+
+# Configurable memory reflection schedule and completion notice (2026-07-11)
+
+## Goal
+
+Allow the daily memory reflection time to be configured from Desktop and emit a
+separate human-facing completion notice after a successful run, without routing
+the reflection itself through the chat Runner or persisting runtime controls as
+conversation messages.
+
+## Assumptions
+
+- The schedule is a global Memory plugin setting in local `HH:mm` time and is
+  applied per enabled Bot using the Bot timezone already used by reflection.
+- A completion notice is sent only when at least one new candidate is created;
+  zero-candidate runs remain quiet.
+- The notification uses existing channel delivery infrastructure and is never
+  appended to model/session context.
+
+## Phases
+
+1. **Trace settings → watched event → internal dispatch → channel notice** — complete
+2. **Add regression tests for schedule persistence and notice separation** — complete
+3. **Implement shared settings, scheduler, runtime notice, and Desktop UI** — complete
+4. **Run focused/full regression, visual/type checks, and update docs** — complete
+
+## Verification gates
+
+- Valid `HH:mm` values survive granular settings save/reload; invalid values are
+  sanitized without losing unrelated Memory fields.
+- Scheduler rewrites only the managed reflection event when configured time
+  changes and preserves the internal execution contract.
+- Successful runs with candidates emit one user notice; empty, failed, aborted,
+  or retried duplicate runs emit none.
+- No reflection prompt/control text or notice becomes a conversation message or
+  future model context.
+- Desktop control is bilingual, theme-safe, responsive, and uses existing
+  shared settings components and fixed save footbar behavior.
+
+---
+
+# Memory review bug fixes (2026-07-11)
+
+## Goal
+
+Fix the five confirmed review findings without expanding memory behavior:
+complete-day reflection coverage, per-candidate isolation, embedding key rotation,
+embedding failure cooldown, and linear-time compaction membership checks.
+
+## Phases
+
+1. **Add five red-capable regression tests** — complete
+2. **Apply surgical fixes at the owning seams** — complete
+3. **Run focused and memory-wide regression suites** — complete
+4. **Adversarial review and required documentation updates** — complete
+
+## Verification gates
+
+- A 03:00 scheduled run reads the previous complete local calendar day.
+- One rejected extracted candidate does not suppress valid siblings or prevent
+  the projection watermark from advancing.
+- Rotating an embedding API key reconfigures the backend without persisting or
+  logging the secret.
+- After one embedding failure, add/search use lexical fallback during a bounded
+  cooldown instead of repeating network attempts.
+- Compaction uses constant-time membership sets for expired and duplicate IDs.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| All five new regression cases failed against the reviewed implementation | Initial red run | Confirmed each root cause, then applied one owning-seam fix per finding. |
+| Broad catch around candidate creation could hide storage failures | First adversarial review | Added `MemoryCandidateValidationError`; reflection skips only malformed extracted candidates and still propagates infrastructure failures. |
+
+---
+
+# Memory improvement remaining delivery — T1b/T3/T4/T5/T6b/T7 (2026-07-11)
+
+## Goal
+
+Complete every remaining in-scope task in
+`docs/requirements/memory-improvement-plan.md` without pausing for intermediate
+approval. T8/T9 and Project runtime automatic cleanup remain out of scope.
+
+## Assumptions
+
+- The approved v2.2 C0 contracts are authoritative; implementation will not
+  silently change identity, candidate, reflection, or prompt-injection policy.
+- Reflection and Candidate Inbox ship together before memory defaults flip.
+- Provider-backed embeddings must degrade cleanly; no API key is required for
+  lexical operation or repository tests.
+- All persistent tests use temporary/injectable storage, never user runtime DBs.
+
+## Phases
+
+1. **Map remaining seams and close T1b tokenizer consistency** — complete
+2. **Implement T3 + T5 candidate/reflection state machine and importer governance** — complete
+3. **Flip safe defaults and add json-file → mory migration** — complete
+4. **Implement T4 semantic retrieval, namespace filters, and resumable backfill** — complete
+5. **Implement T6b content/agent-self applications** — complete
+6. **Implement T7 audit details, pinning, versions, and forgetting** — complete
+7. **Complete Desktop Inbox/audit UI and APIs** — complete
+8. **Run four end-to-end scenarios, adversarial review, full regression, docs** — complete
+
+## Verification gates
+
+- Pending candidates never enter prompt retrieval; confirm is atomic/idempotent.
+- Reflection retries and aborts preserve watermark/fingerprint invariants and
+  never write conversation messages or send channel output.
+- Semantic retrieval is namespace-filtered and lexical fallback stays available.
+- Content duplicate checks are explicit-only; content never leaks into chat.
+- Pinned records survive compact/forgetting; versions/sources are inspectable.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Unified tokenizer made changed same-path values fall below the old similarity threshold and insert | First T1b regression | Stable-path records now always follow their update policy after exact duplicate detection; wording similarity no longer decides path identity. |
+| New retrieval fixture was filtered by planner/type interaction | First T1b regression | Kept the tokenizer assertion focused by using a profile-compatible semantic type and asserting the write succeeded before retrieval. |
+| Candidate confirmation fixture was shorter than the existing governance minimum | First Candidate Store test | Changed the fixture to a complete durable statement; retained production governance instead of weakening it for tests. |
+| Narrowing per-message extraction removed a hint table still used by write governance | Combined focused regression | Restored the governance-only table while keeping automatic classification restricted to explicit remember intent. |
+| Pin/expiry fixture hit mory's quality threshold before exercising retention | First T7 end-to-end run | Made the test memories explicit high-confidence event records so the test isolates pin/expiry behavior. |
+
+---
 
 # Memory improvement batch 1 — T2 + T6a (2026-07-11)
 

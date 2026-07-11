@@ -1,6 +1,6 @@
 // Memory settings — state + orchestration.
 import { loadDesktopMemory, loadDesktopMemoryRejections, runDesktopMemoryAction } from "../api";
-import type { DesktopMemoryItem, DesktopMemoryRejection, DesktopMemorySummary } from "@molibot/desktop-contract";
+import type { DesktopMemoryCandidate, DesktopMemoryItem, DesktopMemoryRejection, DesktopMemorySummary } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 
 export const memoryStore = $state({
@@ -8,7 +8,11 @@ export const memoryStore = $state({
   loading: false,
   endpoint: "",
   items: [] as DesktopMemoryItem[],
+  candidates: [] as DesktopMemoryCandidate[],
+  candidateEdit: null as DesktopMemoryCandidate | null,
   memoryEdit: null as DesktopMemoryItem | null,
+  memoryVersions: [] as DesktopMemoryItem[],
+  sourcePreview: null as null | { sessionId: string; messages: Array<{ id: string; role: string; content: string; createdAt: string; selected: boolean }> },
   rejections: [] as DesktopMemoryRejection[],
   channel: "",
   userId: "",
@@ -24,13 +28,15 @@ export async function loadMemory(endpoint: string): Promise<void> {
   memoryStore.loading = true;
   session.error = "";
   try {
-    const [summary, records, rejections] = await Promise.all([
+    const [summary, records, candidates, rejections] = await Promise.all([
       loadDesktopMemory(endpoint),
       runDesktopMemoryAction(endpoint, { action: "list", allScopes: true, limit: 200 }),
+      runDesktopMemoryAction(endpoint, { action: "list-candidates", limit: 200 }),
       loadDesktopMemoryRejections(endpoint)
     ]);
     memoryStore.memory = summary;
     memoryStore.items = records.items ?? [];
+    memoryStore.candidates = candidates.candidates ?? [];
     memoryStore.rejections = rejections.items;
   } catch (cause) {
     memoryStore.endpoint = "";
@@ -38,6 +44,44 @@ export async function loadMemory(endpoint: string): Promise<void> {
   } finally {
     memoryStore.loading = false;
   }
+}
+
+export async function openMemorySource(source: { sessionId: string; conversationMessageId: string }): Promise<void> {
+  if (!session.endpoint) return;
+  try {
+    const result = await runDesktopMemoryAction(session.endpoint, { action: "source", sessionId: source.sessionId, messageId: source.conversationMessageId });
+    memoryStore.sourcePreview = { sessionId: source.sessionId, messages: result.sourceMessages ?? [] };
+  } catch (cause) { setError(cause); }
+}
+
+export function beginCandidateEdit(candidate: DesktopMemoryCandidate): void {
+  memoryStore.candidateEdit = { ...candidate, sources: candidate.sources.map((source) => ({ ...source })) };
+}
+
+export async function confirmMemoryCandidate(candidate: DesktopMemoryCandidate): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || memoryStore.busyAction) return;
+  memoryStore.busyAction = candidate.id;
+  try {
+    await runDesktopMemoryAction(endpoint, { action: "confirm-candidate", id: candidate.id, content: candidate.value, namespace: candidate.namespace, domain: candidate.domain, type: candidate.type, subject: candidate.subject, confidence: candidate.confidence, reason: candidate.reason });
+    memoryStore.candidates = memoryStore.candidates.filter((item) => item.id !== candidate.id);
+    memoryStore.candidateEdit = null;
+    memoryStore.actionMessage = session.text.memoryCandidateConfirmed;
+    memoryStore.busyAction = "";
+    await refreshMemoryRecords();
+  } catch (cause) { setError(cause); } finally { memoryStore.busyAction = ""; }
+}
+
+export async function ignoreMemoryCandidate(candidate: DesktopMemoryCandidate): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || memoryStore.busyAction) return;
+  memoryStore.busyAction = candidate.id;
+  try {
+    await runDesktopMemoryAction(endpoint, { action: "ignore-candidate", id: candidate.id });
+    memoryStore.candidates = memoryStore.candidates.filter((item) => item.id !== candidate.id);
+    memoryStore.candidateEdit = null;
+    memoryStore.actionMessage = session.text.memoryCandidateIgnored;
+  } catch (cause) { setError(cause); } finally { memoryStore.busyAction = ""; }
 }
 
 export async function refreshMemoryRecords(): Promise<void> {
@@ -55,7 +99,7 @@ export async function refreshMemoryRecords(): Promise<void> {
   }
 }
 
-export async function runMemoryMaintenance(action: "sync" | "flush" | "compact"): Promise<void> {
+export async function runMemoryMaintenance(action: "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file"): Promise<void> {
   const endpoint = session.endpoint;
   if (!endpoint || memoryStore.busyAction) return;
   memoryStore.busyAction = action;
@@ -77,7 +121,7 @@ export async function saveMemoryItem(item: DesktopMemoryItem): Promise<void> {
   if (!endpoint || memoryStore.busyAction) return;
   memoryStore.busyAction = item.id;
   try {
-    const result = await runDesktopMemoryAction(endpoint, { action: "update", channel: item.channel, userId: item.externalUserId, id: item.id, content: item.content, tags: item.tags, expiresAt: item.expiresAt || null });
+    const result = await runDesktopMemoryAction(endpoint, { action: "update", channel: item.channel, userId: item.externalUserId, id: item.id, content: item.content, tags: item.tags, expiresAt: item.expiresAt || null, pinned: item.pinned });
     if (result.item) memoryStore.items = memoryStore.items.map((candidate) => candidate.id === item.id ? result.item! : candidate);
     memoryStore.memoryEdit = null;
     memoryStore.actionMessage = session.text.memoryUpdated;
@@ -88,9 +132,15 @@ export async function saveMemoryItem(item: DesktopMemoryItem): Promise<void> {
   }
 }
 
-export function beginMemoryEdit(item: DesktopMemoryItem): void {
+export async function beginMemoryEdit(item: DesktopMemoryItem): Promise<void> {
   memoryStore.memoryEdit = { ...item, tags: [...item.tags] };
+  memoryStore.memoryVersions = [];
   memoryStore.actionMessage = "";
+  if (!session.endpoint) return;
+  try {
+    const result = await runDesktopMemoryAction(session.endpoint, { action: "versions", channel: item.channel, userId: item.externalUserId, id: item.id });
+    memoryStore.memoryVersions = result.versions ?? [];
+  } catch (cause) { setError(cause); }
 }
 
 export async function deleteMemoryItem(item: DesktopMemoryItem): Promise<void> {

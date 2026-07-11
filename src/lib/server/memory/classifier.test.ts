@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { selectPromptMemoryRows } from "$lib/server/memory/classifier.js";
+import { classifyAutoMemoryCandidate, selectPromptMemoryRows } from "$lib/server/memory/classifier.js";
 import type { MemoryRecord } from "$lib/server/memory/types.js";
 
 function record(id: string, content: string, tags: string[] = ["class:general"]): MemoryRecord {
@@ -34,4 +34,9 @@ test("selectPromptMemoryRows: class weights still dominate over weak lexical hit
   ];
   const { longTerm } = selectPromptMemoryRows(rows, "随便聊聊", 2);
   assert.equal(longTerm[0]?.id, "pref");
+});
+
+test("per-message auto extraction only accepts explicit remember intent", () => {
+  assert.equal(classifyAutoMemoryCandidate("我偏好简短直接的回答方式"), null);
+  assert.ok(classifyAutoMemoryCandidate("请记住我偏好简短直接的回答方式"));
 });

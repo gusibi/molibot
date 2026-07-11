@@ -658,7 +658,7 @@ a:focus-visible {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: 32px 0 0;
+  padding: 0;
   background: var(--sidebar-bg);
   border-left: 1px solid var(--separator);
 }
@@ -666,7 +666,7 @@ a:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 48px;
+  height: 60px;
   flex: 0 0 auto;
   padding: 0 16px;
   border-bottom: 1px solid var(--separator);
@@ -2013,7 +2013,11 @@ a:focus-visible {
 .project-location-option strong { font-size: 13px; font-weight: 600; }
 .project-location-option small { color: var(--label-secondary); font-size: 12px; line-height: 1.4; }
 .project-location-option > .ph { color: var(--label-tertiary); font-size: 14px; }
-.project-location-actions { margin-top: 16px; }
+.project-selected-location { display: flex; align-items: center; gap: 10px; min-width: 0; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: var(--rounded-sm); background: var(--accent-soft); color: var(--accent); }
+.project-selected-location > span { display: grid; gap: 2px; min-width: 0; }
+.project-selected-location small { color: var(--label-secondary); font-size: 11px; }
+.project-selected-location strong { overflow: hidden; color: var(--label-primary); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.project-location-actions { flex-wrap: wrap; margin-top: 16px; }
 /* "New chat" affordance at the foot of an expanded project's session list. */
 .conv-new-session { display: flex; align-items: center; gap: 8px; height: 32px; margin: 1px 8px 2px 26px; padding: 0 8px 0 10px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); font-size: 12px; text-align: left; cursor: pointer; transition: background .15s ease, color .15s ease; }
 .conv-new-session:hover { background: var(--fill); color: var(--label-secondary); }

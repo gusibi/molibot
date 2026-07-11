@@ -101,6 +101,30 @@ export function cjkBigrams(text: string): string[] {
   return grams;
 }
 
+/** Shared token set for symmetric dedupe/conflict similarity. */
+export function tokenizeForSimilarity(text: string): string[] {
+  return [...new Set([...tokenizeWords(text), ...cjkBigrams(text)])];
+}
+
+export function jaccardLexicalSimilarity(a: string, b: string): number {
+  const setA = new Set(tokenizeForSimilarity(a));
+  const setB = new Set(tokenizeForSimilarity(b));
+  if (setA.size === 0 && setB.size === 0) return 1;
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let intersection = 0;
+  for (const token of setA) if (setB.has(token)) intersection += 1;
+  return intersection / (setA.size + setB.size - intersection);
+}
+
+export function overlapLexicalSimilarity(a: string, b: string): number {
+  const setA = new Set(tokenizeForSimilarity(a));
+  const setB = new Set(tokenizeForSimilarity(b));
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let intersection = 0;
+  for (const token of setA) if (setB.has(token)) intersection += 1;
+  return intersection / Math.min(setA.size, setB.size);
+}
+
 /**
  * Lexical relevance of `content` for `query`, normalized to 0..1.
  *

@@ -6,7 +6,7 @@
 
 import type { PersistedMemoryNode, StorageAdapter } from "./moryAdapter.js";
 import { buildRetrievalPlan, type PlannerOptions, type RetrievalPlan } from "./moryPlanner.js";
-import { jaccardSimilarity, overlapSimilarity } from "./moryWriteGate.js";
+import { scoreLexical } from "./moryTokenize.js";
 
 export interface RetrieveOptions {
   planner?: PlannerOptions;
@@ -14,6 +14,8 @@ export interface RetrieveOptions {
   l0Limit?: number;
   l1Limit?: number;
   l2Limit?: number;
+  namespaces?: string[];
+  domains?: string[];
 }
 
 export interface RerankedNode {
@@ -46,7 +48,7 @@ function clamp01(value: number): number {
 }
 
 function lexicalScore(query: string, text: string): number {
-  return Math.max(jaccardSimilarity(query, text), overlapSimilarity(query, text));
+  return scoreLexical(text, query);
 }
 
 function recencyScore(updatedAt: string): number {
@@ -97,24 +99,26 @@ export async function executeRetrieval(
 ): Promise<RetrievalResult> {
   const plan = buildRetrievalPlan(query, options.planner);
   const topK = options.topK ?? plan.topK;
+  const namespaces = [...new Set(options.namespaces?.length ? options.namespaces : [userId])];
+  const allowedDomains = options.domains?.length ? new Set(options.domains) : null;
 
   let semanticHits: Array<{ node: PersistedMemoryNode; similarity: number }> = [];
   if (deps.embedder) {
     const queryVec = await deps.embedder(query);
-    semanticHits = await deps.storage.vectorSearch(userId, {
-      vector: queryVec,
-      topK: Math.max(topK * 2, topK),
-      memoryTypes: plan.memoryTypes,
-      pathPrefixes: plan.pathPrefixes,
-    });
+    semanticHits = (await Promise.all(namespaces.map((namespace) => deps.storage.vectorSearch(namespace, {
+        vector: queryVec,
+        topK: Math.max(topK * 2, topK),
+        memoryTypes: plan.memoryTypes,
+        pathPrefixes: plan.pathPrefixes,
+      })))).flat().filter((hit) => !allowedDomains || (hit.node.domain && allowedDomains.has(hit.node.domain)));
   }
 
-  const pool = await deps.storage.list(userId, {
-    includeArchived: false,
-    memoryTypes: plan.memoryTypes,
-    pathPrefixes: plan.pathPrefixes,
-    limit: Math.max(topK * 6, 60),
-  });
+  const pool = (await Promise.all(namespaces.map((namespace) => deps.storage.list(namespace, {
+      includeArchived: false,
+      memoryTypes: plan.memoryTypes,
+      pathPrefixes: plan.pathPrefixes,
+      limit: Math.max(topK * 6, 60),
+    })))).flat().filter((node) => !allowedDomains || (node.domain && allowedDomains.has(node.domain)));
 
   const semanticById = new Map<string, number>();
   for (const hit of semanticHits) semanticById.set(hit.node.id, clamp01(hit.similarity));

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import { scoreLexical } from "../../../../package/mory/src/index.js";
+import { scoreLexical } from "#mory";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
 import type { Channel } from "$lib/shared/types/message.js";

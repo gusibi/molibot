@@ -22,6 +22,7 @@
   let adding = false;
   let createStep: "name" | "location" = "name";
   let name = "";
+  let selectedRootPath = "";
   let nameInput: HTMLInputElement;
 
   let rowLabels: {
@@ -63,6 +64,7 @@
     adding = true;
     createStep = "name";
     name = "";
+    selectedRootPath = "";
     projectsStore.error = "";
     await tick();
     nameInput?.focus();
@@ -73,6 +75,7 @@
     adding = false;
     createStep = "name";
     name = "";
+    selectedRootPath = "";
   }
 
   function continueToLocation(): void {
@@ -90,7 +93,7 @@
     try {
       const rootPath = await invoke<string | null>("pick_project_directory");
       if (!rootPath) return;
-      if (await addProject({ name: name.trim(), rootPath })) cancelAdding();
+      selectedRootPath = rootPath;
     } catch (cause) {
       projectsStore.error = cause instanceof Error ? cause.message : String(cause);
     }
@@ -190,9 +193,16 @@
             <i class="ph ph-arrow-right" aria-hidden="true"></i>
           </button>
         </div>
+        {#if selectedRootPath}
+          <div class="project-selected-location">
+            <i class="ph-fill ph-folder-open" aria-hidden="true"></i>
+            <span><small>{copy.projectSelectedLocation}</small><strong>{selectedRootPath}</strong></span>
+          </div>
+        {/if}
         <div class="project-form-actions project-location-actions">
           <button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={() => (createStep = "name")}>{copy.back}</button>
           <button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={cancelAdding}>{copy.cancel}</button>
+          <button class="primary-button" type="button" disabled={!selectedRootPath || projectsStore.busy === "add"} onclick={() => void addProject({ name: name.trim(), rootPath: selectedRootPath }).then((created) => created && cancelAdding())}>{copy.projectCreateAction}</button>
         </div>
       {/if}
     </div>

@@ -5,6 +5,8 @@
   export let onToggle: () => void;
   export let actionLabel = "";
   export let onAction: (() => void) | null = null;
+  export let menuLabel = "";
+  export let onMenu: (() => void) | null = null;
 </script>
 
 <div class="conv-group-head" class:open>
@@ -15,12 +17,24 @@
   {#if onAction}
     <button
       type="button"
-      class="conv-group-action"
+      class="conv-group-action conv-group-menu"
       aria-label={actionLabel}
       title={actionLabel}
       onclick={() => onAction?.()}
     >
       <i class="ph ph-plus" aria-hidden="true"></i>
+    </button>
+  {/if}
+  {#if onMenu}
+    <button
+      type="button"
+      class="conv-group-action"
+      aria-label={menuLabel}
+      aria-haspopup="menu"
+      title={menuLabel}
+      onclick={() => onMenu?.()}
+    >
+      <i class="ph-bold ph-dots-three" aria-hidden="true"></i>
     </button>
   {/if}
   <button class="conv-caret-button" type="button" aria-label={label} aria-expanded={open} onclick={onToggle}>

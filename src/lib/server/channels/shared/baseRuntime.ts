@@ -344,11 +344,12 @@ export abstract class BaseChannelRuntime {
     text: string,
     warningCode: string,
     meta: Record<string, unknown>,
-    origin?: "automation"
+    origin?: "automation",
+    platformMessageId?: string
   ): void {
     try {
       const conv = this.sessions.getOrCreateConversation(channel as Channel, conversationKey, undefined, origin ? { origin } : undefined);
-      this.sessions.appendMessage(conv.id, role, text);
+      this.sessions.appendMessage(conv.id, role, text, { platformMessageId });
     } catch (error) {
       momWarn(this.channelName, warningCode, {
         ...meta,
@@ -476,7 +477,8 @@ export abstract class BaseChannelRuntime {
       event.text,
       "session_user_append_failed",
       { chatId: event.chatId, scopeId },
-      event.isEvent ? "automation" : undefined
+      event.isEvent ? "automation" : undefined,
+      event.platformMessageId
     );
 
     const runner = this.runners.get(scopeId, activeSessionId);

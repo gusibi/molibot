@@ -6,9 +6,10 @@ import type { Channel } from "$lib/shared/types/message.js";
 import {
   MoryEngine,
   createSqliteStorageAdapter,
+  planForgetting,
   scoreLexical
-} from "../../../../package/mory/src/index.js";
-import type { PersistedMemoryNode, SqliteStorageAdapter } from "../../../../package/mory/src/index.js";
+} from "#mory";
+import type { PersistedMemoryNode, SqliteStorageAdapter } from "#mory";
 import type {
   MemoryAddInput,
   MemoryBackend,
@@ -46,6 +47,8 @@ interface MoryRecordMeta {
   domain?: MemoryDomain;
   lowConfidencePath?: boolean;
   reason?: string;
+  sources?: MemoryRecord["sources"];
+  pinned?: boolean;
 }
 
 export interface MoryWritePlan {
@@ -90,6 +93,7 @@ function defaultExpiresAt(layer: MemoryLayer, now = new Date()): string | undefi
 }
 
 function isExpired(item: MemoryRecord, nowMs: number): boolean {
+  if (item.pinned) return false;
   if (!item.expiresAt) return false;
   const ts = Date.parse(item.expiresAt);
   return Number.isFinite(ts) && ts <= nowMs;
@@ -173,7 +177,9 @@ function parseMeta(detail: string | undefined, fallback: MemoryScope, fallbackLa
         namespace: typeof parsed.namespace === "string" ? parsed.namespace as MemoryNamespace : undefined,
         domain: typeof parsed.domain === "string" ? parsed.domain as MemoryDomain : undefined,
         lowConfidencePath: parsed.lowConfidencePath === true,
-        reason: typeof parsed.reason === "string" ? parsed.reason : undefined
+        reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+        sources: Array.isArray(parsed.sources) ? parsed.sources : undefined,
+        pinned: parsed.pinned === true
       };
     } catch {
       // fall through
@@ -190,7 +196,9 @@ function parseMeta(detail: string | undefined, fallback: MemoryScope, fallbackLa
     namespace: undefined,
     domain: undefined,
     lowConfidencePath: undefined,
-    reason: undefined
+    reason: undefined,
+    sources: undefined,
+    pinned: undefined
   };
 }
 
@@ -212,6 +220,8 @@ function toRecord(row: PersistedMemoryNode, fallbackScope: MemoryScope): MemoryR
     lowConfidencePath: meta.lowConfidencePath,
     confidence: row.confidence,
     reason: meta.reason,
+    sources: meta.sources,
+    pinned: meta.pinned,
     factKey: meta.factKey,
     hasConflict: row.conflictFlag,
     sourceSessionId: meta.sourceSessionId,
@@ -226,28 +236,70 @@ export class MoryMemoryBackend implements MemoryBackend {
   private readonly indexPath: string;
   private readonly cursorPath: string;
   private readonly storage: SqliteStorageAdapter;
-  private readonly engine: MoryEngine;
+  private readonly lexicalEngine: MoryEngine;
+  private readonly embeddingFailureCooldownMs: number;
+  private engine: MoryEngine;
+  private embedder?: (text: string) => Promise<number[]>;
+  private embeddingModelVersion?: string;
+  private embeddingUnavailableUntil = 0;
   private initPromise: Promise<void> | null = null;
 
-  constructor(private readonly sessions: SessionStore) {
-    this.dbPath = storagePaths.moryDbFile;
-    this.indexPath = path.join(storagePaths.dataDir, "memory", "mory-scopes.json");
-    this.cursorPath = path.join(storagePaths.dataDir, "memory", "mory-cursors.json");
+  constructor(private readonly sessions: SessionStore, options?: { dbPath?: string; dataDir?: string; embeddingFailureCooldownMs?: number }) {
+    const dataDir = options?.dataDir ?? storagePaths.dataDir;
+    this.dbPath = options?.dbPath ?? storagePaths.moryDbFile;
+    this.indexPath = path.join(dataDir, "memory", "mory-scopes.json");
+    this.cursorPath = path.join(dataDir, "memory", "mory-cursors.json");
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
     this.storage = createSqliteStorageAdapter(this.dbPath);
-    this.engine = new MoryEngine({ storage: this.storage });
+    this.lexicalEngine = new MoryEngine({ storage: this.storage });
+    this.engine = this.lexicalEngine;
+    this.embeddingFailureCooldownMs = Math.max(1, options?.embeddingFailureCooldownMs ?? 60_000);
   }
 
   capabilities(): MemoryBackendCapabilities {
     return {
       supportsHybridSearch: true,
-      supportsVectorSearch: false,
+      supportsVectorSearch: Boolean(this.embedder),
       supportsIncrementalFlush: true,
       supportsLayeredMemory: true,
       supportsDomains: true,
       supportsVersioning: true,
       supportsCandidates: false
     };
+  }
+
+  configureEmbedder(embedder?: (text: string) => Promise<number[]>, modelVersion?: string): void {
+    this.embedder = embedder;
+    this.embeddingModelVersion = modelVersion;
+    this.embeddingUnavailableUntil = 0;
+    this.engine = embedder ? new MoryEngine({ storage: this.storage, embedder }) : this.lexicalEngine;
+  }
+
+  private embeddingAvailable(): boolean {
+    return Boolean(this.embedder) && Date.now() >= this.embeddingUnavailableUntil;
+  }
+
+  private recordEmbeddingFailure(): void {
+    this.embeddingUnavailableUntil = Date.now() + this.embeddingFailureCooldownMs;
+  }
+
+  async backfillEmbeddings(limit = 100): Promise<{ scannedCount: number; updatedCount: number; remainingCount: number }> {
+    await this.ensureInit();
+    if (!this.embedder) return { scannedCount: 0, updatedCount: 0, remainingCount: 0 };
+    const entries = Object.entries(this.loadScopeIndex().scopes);
+    const rows = (await Promise.all(entries.map(async ([namespace, scope]) =>
+      (await this.storage.list(namespace, { includeArchived: false, limit: 10_000 })).map((row) => ({ namespace, scope, row }))
+    ))).flat();
+    const missing = rows.filter(({ row }) => !row.embedding?.length || !row.detail?.includes(`\"embeddingModelVersion\":\"${this.embeddingModelVersion}\"`));
+    let updatedCount = 0;
+    for (const { namespace, scope, row } of missing.slice(0, Math.max(1, limit))) {
+      const embedding = await this.embedder(row.value);
+      const meta = parseMeta(row.detail, scope, row.memoryType === "event" ? "daily" : "long_term") as MoryRecordMeta & { embeddingModelVersion?: string };
+      meta.embeddingModelVersion = this.embeddingModelVersion;
+      await this.storage.update(namespace, row.id, { embedding, detail: JSON.stringify(meta) });
+      updatedCount += 1;
+    }
+    return { scannedCount: Math.min(missing.length, Math.max(1, limit)), updatedCount, remainingCount: Math.max(0, missing.length - updatedCount) };
   }
 
   private async ensureInit(): Promise<void> {
@@ -373,7 +425,9 @@ export class MoryMemoryBackend implements MemoryBackend {
         namespace,
         domain,
         lowConfidencePath: existing.lowConfidencePath ?? plan.lowConfidencePath,
-        reason: input.reason ?? existing.reason
+        reason: input.reason ?? existing.reason,
+        sources: input.sources ?? existing.sources,
+        pinned: input.pinned ?? existing.pinned
       };
       const updated = await this.storage.update(userId, existing.id, {
         detail: JSON.stringify(meta),
@@ -397,12 +451,15 @@ export class MoryMemoryBackend implements MemoryBackend {
       observedAt: nowIso
     };
 
-    const result = await this.engine.ingest({
-      userId,
-      memory,
-      source: input.sourceSessionId,
-      observedAt: nowIso
-    });
+    let result;
+    const useEmbedding = this.embeddingAvailable();
+    try {
+      result = await (useEmbedding ? this.engine : this.lexicalEngine).ingest({ userId, memory, source: input.sourceSessionId, observedAt: nowIso });
+    } catch (cause) {
+      if (!useEmbedding) throw cause;
+      this.recordEmbeddingFailure();
+      result = await this.lexicalEngine.ingest({ userId, memory, source: input.sourceSessionId, observedAt: nowIso });
+    }
 
     if (!result.id) {
       throw new Error(`Failed to create mory memory: ${result.reason}`);
@@ -422,7 +479,9 @@ export class MoryMemoryBackend implements MemoryBackend {
       namespace,
       domain,
       lowConfidencePath: plan.lowConfidencePath,
-      reason: input.reason
+      reason: input.reason,
+      sources: input.sources,
+      pinned: input.pinned
     };
 
     const updated = await this.storage.update(userId, row.id, {
@@ -442,8 +501,28 @@ export class MoryMemoryBackend implements MemoryBackend {
   }
 
   async search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]> {
-    const rows = await this.listPromptRecords(scope, Math.max(Number(input.limit ?? 50) * 4, 100));
-    return this.scoreAndSlice(rows, input);
+    await this.ensureInit();
+    const namespaces = [...new Set([...promptMemoryNamespaces(scope), legacyEncodeScope(scope)])];
+    return this.searchNamespaces(namespaces as MemoryNamespace[], scope, input);
+  }
+
+  async searchNamespaces(namespaces: MemoryNamespace[], scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]> {
+    await this.ensureInit();
+    const limit = Number.isFinite(input.limit) ? Math.max(1, Math.min(500, Number(input.limit))) : 50;
+    let result;
+    const useEmbedding = this.embeddingAvailable();
+    try {
+      result = await (useEmbedding ? this.engine : this.lexicalEngine).retrieve(namespaces[0], input.query, { namespaces, topK: Math.max(limit * 2, 20) });
+    } catch (cause) {
+      if (!useEmbedding) throw cause;
+      this.recordEmbeddingFailure();
+      result = await this.lexicalEngine.retrieve(namespaces[0], input.query, { namespaces, topK: Math.max(limit * 2, 20) });
+    }
+    return result.hits
+      .filter((hit) => !input.query.trim() || hit.lexicalScore > 0 || hit.semanticScore > 0)
+      .map((hit) => toRecord(hit.node, scope))
+      .filter((row) => !isExpired(row, Date.now()))
+      .slice(0, limit);
   }
 
   async searchAll(input: MemorySearchInput): Promise<MemoryRecord[]> {
@@ -468,6 +547,14 @@ export class MoryMemoryBackend implements MemoryBackend {
     return archived > 0;
   }
 
+  async versions(scope: MemoryScope, id: string): Promise<MemoryRecord[]> {
+    await this.ensureInit();
+    const found = await this.findRecord(scope, id);
+    if (!found) return [];
+    const rows = await this.storage.readByPath(found.userId, found.row.path, true);
+    return rows.map((row) => toRecord(row, scope)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
   async update(scope: MemoryScope, id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null> {
     await this.ensureInit();
     const located = await this.findRecord(scope, id);
@@ -482,6 +569,7 @@ export class MoryMemoryBackend implements MemoryBackend {
     const nextExpiresAt = typeof input.expiresAt !== "undefined" || input.expiresAt === null
       ? normalizeExpiresAt(input.expiresAt)
       : current.expiresAt;
+    const nextPinned = typeof input.pinned === "boolean" ? input.pinned : current.pinned;
     const siblingRows = await this.storage.list(userId, { includeArchived: false, limit: 2000 });
     const sibling = siblingRows.map((row) => toRecord(row, scope)).find((row) =>
       row.id !== id &&
@@ -503,7 +591,9 @@ export class MoryMemoryBackend implements MemoryBackend {
         namespace: sibling.namespace,
         domain: sibling.domain,
         lowConfidencePath: sibling.lowConfidencePath,
-        reason: sibling.reason
+        reason: sibling.reason,
+        sources: sibling.sources,
+        pinned: nextPinned ?? sibling.pinned
       };
       const updatedSibling = await this.storage.update(userId, sibling.id, {
         detail: JSON.stringify(siblingMeta),
@@ -525,7 +615,9 @@ export class MoryMemoryBackend implements MemoryBackend {
       namespace: current.namespace,
       domain: current.domain,
       lowConfidencePath: current.lowConfidencePath,
-      reason: current.reason
+      reason: current.reason,
+      sources: current.sources,
+      pinned: nextPinned
     };
 
     const updated = await this.storage.update(userId, id, {
@@ -603,8 +695,10 @@ export class MoryMemoryBackend implements MemoryBackend {
       const rows = await this.storage.list(userId, { includeArchived: false, limit: 10000 });
       const records = rows
         .map((row) => toRecord(row, currentScope))
-        .filter((row) => !isExpired(row, Date.now()))
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.createdAt.localeCompare(a.createdAt));
+        .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.updatedAt.localeCompare(a.updatedAt) || b.createdAt.localeCompare(a.createdAt));
+      const expiredIds = records.filter((record) => !record.pinned && isExpired(record, Date.now())).map((record) => record.id);
+      const expiredIdSet = new Set(expiredIds);
+      if (expiredIds.length > 0) removedCount += await this.storage.archive(userId, expiredIds);
 
       const seen = new Set<string>();
       const duplicateIds: string[] = [];
@@ -612,12 +706,13 @@ export class MoryMemoryBackend implements MemoryBackend {
       const survivorIdByKey = new Map<string, string>();
 
       for (const record of records) {
+        if (expiredIdSet.has(record.id)) continue;
         scannedCount += 1;
         const key = `${record.layer}:${normalizeContent(record.content).toLowerCase()}`;
         if (!tagsByKey.has(key)) tagsByKey.set(key, [...record.tags]);
         else tagsByKey.set(key, normalizeTags([...(tagsByKey.get(key) ?? []), ...record.tags]));
 
-        if (seen.has(key)) {
+        if (seen.has(key) && !record.pinned) {
           duplicateIds.push(record.id);
           continue;
         }
@@ -625,11 +720,11 @@ export class MoryMemoryBackend implements MemoryBackend {
         survivorIdByKey.set(key, record.id);
       }
 
-      if (duplicateIds.length === 0) continue;
-      scopesAffected += 1;
-      removedCount += await this.storage.archive(userId, duplicateIds);
+      if (expiredIds.length > 0 || duplicateIds.length > 0) scopesAffected += 1;
+      if (duplicateIds.length > 0) removedCount += await this.storage.archive(userId, duplicateIds);
+      const duplicateIdSet = new Set(duplicateIds);
 
-      for (const record of records) {
+      for (const record of duplicateIds.length > 0 ? records : []) {
         const key = `${record.layer}:${normalizeContent(record.content).toLowerCase()}`;
         if (survivorIdByKey.get(key) !== record.id) continue;
         const mergedTags = tagsByKey.get(key) ?? record.tags;
@@ -646,9 +741,22 @@ export class MoryMemoryBackend implements MemoryBackend {
             namespace: record.namespace,
             domain: record.domain,
             lowConfidencePath: record.lowConfidencePath,
-            reason: record.reason
+            reason: record.reason,
+            sources: record.sources,
+            pinned: record.pinned
           })
         });
+      }
+
+      const pinnedIds = new Set(records.filter((record) => record.pinned).map((record) => record.id));
+      const forgetting = planForgetting(rows.filter((row) => !pinnedIds.has(row.id) && !expiredIdSet.has(row.id) && !duplicateIdSet.has(row.id)), {
+        capacity: 500,
+        minRetentionScore: 0.25,
+        halfLifeDays: 21
+      });
+      if (forgetting.archivedIds.length > 0) {
+        if (expiredIds.length === 0 && duplicateIds.length === 0) scopesAffected += 1;
+        removedCount += await this.storage.archive(userId, forgetting.archivedIds);
       }
     }
 

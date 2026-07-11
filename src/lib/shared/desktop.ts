@@ -682,12 +682,17 @@ export interface DesktopMemoryCapabilities {
   vectorSearch: boolean;
   incrementalFlush: boolean;
   layeredMemory: boolean;
+  domains: boolean;
+  versioning: boolean;
+  candidates: boolean;
 }
 
 export interface DesktopMemorySummary {
   enabled: boolean;
   configEnabled: boolean;
   backend: string;
+  embeddingProviderId: string;
+  embeddingModel: string;
   capabilities: DesktopMemoryCapabilities;
 }
 
@@ -706,12 +711,35 @@ export interface DesktopMemoryItem {
   hasConflict?: boolean;
   expiresAt?: string;
   sourceSessionId?: string;
+  namespace?: string;
+  domain?: "owner" | "project" | "agent_self" | "content";
+  type?: string;
+  subject?: string;
+  path?: string;
+  reason?: string;
+  sources?: Array<{ channel: string; sessionId: string; conversationMessageId: string; platformMessageId?: string }>;
+  pinned?: boolean;
   updatedAt: string;
 }
 
-export type DesktopMemoryAction = "list" | "search" | "sync" | "flush" | "compact" | "update" | "delete";
-export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; channel?: string; userId?: string; allScopes?: boolean; query?: string; limit?: number; id?: string; content?: string; tags?: string[]; expiresAt?: string | null }
-export interface DesktopMemoryActionResponse { ok: true; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
+export interface DesktopMemoryCandidate {
+  id: string;
+  status: "pending" | "confirmed" | "ignored" | "edited-then-confirmed";
+  namespace: string;
+  domain: "owner" | "project" | "agent_self" | "content";
+  type: string;
+  subject: string;
+  value: string;
+  confidence: number;
+  reason: string;
+  sources: Array<{ channel: string; sessionId: string; conversationMessageId: string; platformMessageId?: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type DesktopMemoryAction = "list" | "search" | "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file" | "source" | "update" | "delete" | "versions" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
+export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; channel?: string; userId?: string; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean }
+export interface DesktopMemoryActionResponse { ok: true; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; versions?: DesktopMemoryItem[]; sourceMessages?: Array<{ id: string; role: string; content: string; createdAt: string; selected: boolean }>; candidates?: DesktopMemoryCandidate[]; candidate?: DesktopMemoryCandidate | null; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
 export interface DesktopMemoryRejection { createdAt: string; action: "add" | "update"; channel: string; externalUserId: string; reason: string; content: string; layer?: string; tags: string[] }
 export interface DesktopMemoryRejectionsResponse { ok: true; items: DesktopMemoryRejection[]; counts: { total: number; add: number; update: number } }
 
@@ -807,13 +835,18 @@ export interface DesktopPluginSettingField {
 export interface DesktopPluginsSummary {
   items: DesktopPluginItem[];
   counts: { total: number; active: number; external: number };
-  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }> };
+  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }>; embeddingProviderId: string; embeddingModel: string; embeddingProviders: Array<{ value: string; label: string }>; reflectionTime: string; reflectionNotifications: boolean; dailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean }; projects: Array<{ value: string; label: string }> };
   featureSettings: Array<{ pluginKey: string; name: string; description: string; fields: DesktopPluginSettingField[] }>;
 }
 
 export interface DesktopPluginsUpdateRequest {
   memoryEnabled: boolean;
   memoryBackend: string;
+  memoryEmbeddingProviderId: string;
+  memoryEmbeddingModel: string;
+  memoryReflectionTime: string;
+  memoryReflectionNotifications: boolean;
+  memoryDailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean };
   values: Record<string, Record<string, string | boolean>>;
   secretValues?: Record<string, Record<string, string>>;
   clearSecrets?: Record<string, string[]>;

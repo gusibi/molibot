@@ -139,6 +139,19 @@ test("sanitizeSettings only accepts supported runtime locales", () => {
   );
 });
 
+test("sanitizeSettings backfills and confines daily materials settings", () => {
+  const legacy = structuredClone(defaultRuntimeSettings);
+  delete (legacy.plugins.memory as Partial<typeof legacy.plugins.memory>).dailyMaterials;
+  const backfilled = sanitizeSettings({}, legacy);
+  assert.deepEqual(backfilled.plugins.memory.dailyMaterials, {
+    enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true
+  });
+  const sanitized = sanitizeSettings({ plugins: { ...defaultRuntimeSettings.plugins, memory: { ...defaultRuntimeSettings.plugins.memory, dailyMaterials: { enabled: true, time: "99:99", projectId: "momo-agent", dir: "../outside", promptPath: "/tmp/prompt.md", notifications: false } } } }, defaultRuntimeSettings);
+  assert.equal(sanitized.plugins.memory.dailyMaterials.time, "23:30");
+  assert.equal(sanitized.plugins.memory.dailyMaterials.dir, "content/daily-materials");
+  assert.equal(sanitized.plugins.memory.dailyMaterials.promptPath, "templates/daily-material-prompt.md");
+});
+
 test("sanitizeMcpServers infers http transport from url and keeps top-level headers", () => {
   const servers = sanitizeMcpServers({
     tdx: {

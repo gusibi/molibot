@@ -17,17 +17,22 @@ export function buildDesktopMemorySummary(
   settings: RuntimeSettings,
   runtime: DesktopMemoryRuntimeState
 ): DesktopMemorySummary {
-  const config = settings.plugins?.memory ?? { enabled: false, backend: "" };
+  const config = settings.plugins?.memory ?? { enabled: false, backend: "", embeddingProviderId: "", embeddingModel: "" };
   const caps = runtime.capabilities;
   return {
     enabled: runtime.enabled === true,
     configEnabled: config.enabled === true,
     backend: config.backend ?? "",
+    embeddingProviderId: config.embeddingProviderId ?? "",
+    embeddingModel: config.embeddingModel ?? "",
     capabilities: {
       hybridSearch: caps?.supportsHybridSearch === true,
       vectorSearch: caps?.supportsVectorSearch === true,
       incrementalFlush: caps?.supportsIncrementalFlush === true,
-      layeredMemory: caps?.supportsLayeredMemory === true
+      layeredMemory: caps?.supportsLayeredMemory === true,
+      domains: caps?.supportsDomains === true,
+      versioning: caps?.supportsVersioning === true,
+      candidates: caps?.supportsCandidates === true
     }
   };
 }

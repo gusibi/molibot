@@ -389,6 +389,16 @@ test("engine.retrieve: promptContext includes L0/L1 sections when hits exist", a
     }
 });
 
+test("engine.retrieve: CJK lexical channel matches ICU-oversplit terms", async () => {
+    const e = makeEngine();
+    await e.init();
+    const written = await e.ingest({ userId: "u1", memory: { path: "mory://user_fact/research", type: "user_fact", subject: "research", value: "主人让我调研一家有潜力的公司", confidence: 0.9, updatedPolicy: "overwrite" } });
+    assert.equal(written.action, "insert");
+    const result = await e.retrieve("u1", "调研偏好");
+    assert.equal(result.hits[0]?.node.subject, "research");
+    assert.ok((result.hits[0]?.lexicalScore ?? 0) > 0);
+});
+
 test("engine.retrieve: topK option limits result size", async () => {
     const e = makeEngine();
     await e.init();
@@ -413,6 +423,18 @@ test("engine.retrieve: hits are isolated by userId", async () => {
     // u1's hits should not include u2's data
     assert.ok(r1.hits.every((h) => h.node.userId === "u1"));
     assert.ok(r2.hits.every((h) => h.node.userId === "u2"));
+});
+
+test("engine.retrieve: explicit namespaces merge without leaking other namespaces", async () => {
+    const e = makeEngine();
+    await e.init();
+    await e.ingest({ userId: "owner:owner", memory: { path: "mory://user_preference/tone", domain: "owner", type: "user_preference", subject: "tone", value: "主人偏好简短回复", confidence: 0.9, updatedPolicy: "overwrite" } });
+    await e.ingest({ userId: "project:owner:a", memory: { path: "mory://user_preference/tone", domain: "project", type: "user_preference", subject: "tone", value: "项目 A 使用正式语气", confidence: 0.9, updatedPolicy: "overwrite" } });
+    await e.ingest({ userId: "content:momo", memory: { path: "mory://user_fact/tone", domain: "content", type: "user_fact", subject: "tone", value: "已发布内容使用冷笑话", confidence: 0.9, updatedPolicy: "overwrite" } });
+    const result = await e.retrieve("owner:owner", "语气偏好", { namespaces: ["owner:owner", "project:owner:a"] });
+    assert.ok(result.hits.some((hit) => hit.node.userId === "owner:owner"));
+    assert.ok(result.hits.some((hit) => hit.node.userId === "project:owner:a"));
+    assert.ok(result.hits.every((hit) => hit.node.userId !== "content:momo"));
 });
 
 test("engine.retrieve: each hit has score, semanticScore, lexicalScore, recencyScore", async () => {

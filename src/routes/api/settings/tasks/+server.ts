@@ -8,6 +8,7 @@ import { createEventTaskId, type MomEvent } from "$lib/server/agent/events";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore";
 import { TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/commands/taskChannels";
 import { buildDesktopTaskTargets } from "$lib/server/app/desktopTasks";
+import { dispatchTaskEvent } from "$lib/server/agent/taskScheduler";
 
 type TaskScope = "workspace" | "chat-scratch";
 type TaskType = "one-shot" | "periodic" | "immediate";
@@ -640,14 +641,17 @@ export const POST: RequestHandler = async ({ request }) => {
             status: { state: parsed.status?.state ?? "running", ...(parsed.status ?? {}), runId }
           };
           try {
-            await manager.triggerTask(eventForRun, item.filename);
+            if (eventForRun.execution === "internal") await dispatchTaskEvent(eventForRun, item.filename, manager, getRuntime().runInternalEvent);
+            else await manager.triggerTask(eventForRun, item.filename);
             store.markCompleted(lease.id, runId);
           } catch (error) {
             store.markFailed(lease.id, runId, error instanceof Error ? error.message : String(error));
             throw error;
           }
         } else {
-          await manager.triggerTask(parsed as MomEvent, item.filename);
+          const eventForRun = parsed as MomEvent;
+          if (eventForRun.execution === "internal") await dispatchTaskEvent(eventForRun, item.filename, manager, getRuntime().runInternalEvent);
+          else await manager.triggerTask(eventForRun, item.filename);
         }
         triggered.push(resolvedPath);
       } catch (error) {

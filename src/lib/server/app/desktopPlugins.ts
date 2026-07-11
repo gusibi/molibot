@@ -7,6 +7,8 @@ import type {
 } from "$lib/shared/desktop";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 import type { PluginCatalog, PluginSettingField } from "$lib/server/plugins/types";
+import { getProjectStore } from "$lib/server/projects/store";
+import { isAbsolute } from "node:path";
 
 const KNOWN_KINDS: readonly DesktopPluginKind[] = ["channel", "provider", "feature", "memory-backend"];
 const KNOWN_STATUSES: readonly DesktopPluginStatus[] = ["active", "error", "discovered"];
@@ -70,7 +72,7 @@ export function buildDesktopPluginItem(entry: SharedPluginEntry, kindHint: Deskt
   };
 }
 
-export function buildDesktopPluginsSummary(catalog: SharedPluginCatalog, settings?: RuntimeSettings): DesktopPluginsSummary {
+export function buildDesktopPluginsSummary(catalog: SharedPluginCatalog, settings?: RuntimeSettings, projects: Array<{ value: string; label: string }> = []): DesktopPluginsSummary {
   const groups: Array<[DesktopPluginKind, SharedPluginEntry[] | undefined]> = [
     ["channel", catalog.channels],
     ["provider", catalog.providers],
@@ -94,6 +96,13 @@ export function buildDesktopPluginsSummary(catalog: SharedPluginCatalog, setting
     memory: {
       enabled: settings?.plugins.memory.enabled ?? false,
       backend: settings?.plugins.memory.backend ?? "json-file",
+      embeddingProviderId: settings?.plugins.memory.embeddingProviderId ?? "",
+      embeddingModel: settings?.plugins.memory.embeddingModel ?? "",
+      reflectionTime: settings?.plugins.memory.reflectionTime ?? "03:00",
+      reflectionNotifications: settings?.plugins.memory.reflectionNotifications ?? true,
+      dailyMaterials: settings?.plugins.memory.dailyMaterials ?? { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true },
+      projects,
+      embeddingProviders: (settings?.customProviders ?? []).filter((provider) => provider.enabled).map((provider) => ({ value: provider.id, label: provider.name || provider.id })),
       backends: [
         { value: "json-file", label: "json-file" },
         ...((catalog.memoryBackends ?? []).filter((entry) => entry.key !== "json-file").map((entry) => ({ value: entry.key, label: entry.name || entry.key })))
@@ -125,11 +134,35 @@ export function buildDesktopPluginsSummary(catalog: SharedPluginCatalog, setting
   };
 }
 
-export function buildDesktopPluginsSettings(settings: RuntimeSettings, catalog: PluginCatalog, input: import("$lib/shared/desktop").DesktopPluginsUpdateRequest): RuntimeSettings["plugins"] {
+export function buildDesktopPluginsSettings(settings: RuntimeSettings, catalog: PluginCatalog, input: import("$lib/shared/desktop").DesktopPluginsUpdateRequest, projects = getProjectStore()): RuntimeSettings["plugins"] {
   const allowedBackends = new Set(["json-file", ...catalog.memoryBackends.map((entry) => entry.key)]);
   if (!allowedBackends.has(input.memoryBackend)) throw new Error("Unknown memory backend");
   const next = structuredClone(settings.plugins) as unknown as Record<string, unknown>;
-  next.memory = { enabled: input.memoryEnabled, backend: input.memoryBackend };
+  const dailyMaterials = input.memoryDailyMaterials ?? settings.plugins.memory.dailyMaterials ?? { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true };
+  const projectId = String(dailyMaterials?.projectId ?? "").trim();
+  if (projectId && !projects.get(projectId)) throw new Error("Unknown daily materials project");
+  const relativeSetting = (value: unknown, fallback: string): string => {
+    const normalized = String(value ?? "").trim();
+    if (!normalized) return fallback;
+    if (isAbsolute(normalized) || normalized.split(/[\\/]+/).includes("..")) throw new Error("Daily materials paths must stay relative to the project");
+    return normalized;
+  };
+  next.memory = {
+    enabled: input.memoryEnabled,
+    backend: input.memoryBackend,
+    embeddingProviderId: String(input.memoryEmbeddingProviderId ?? "").trim(),
+    embeddingModel: String(input.memoryEmbeddingModel ?? "").trim(),
+    reflectionTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(input.memoryReflectionTime) ? input.memoryReflectionTime : "03:00",
+    reflectionNotifications: Boolean(input.memoryReflectionNotifications),
+    dailyMaterials: {
+      enabled: Boolean(dailyMaterials?.enabled),
+      time: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(dailyMaterials?.time ?? "")) ? dailyMaterials.time : "23:30",
+      projectId,
+      dir: relativeSetting(dailyMaterials?.dir, "content/daily-materials"),
+      promptPath: relativeSetting(dailyMaterials?.promptPath, "templates/daily-material-prompt.md"),
+      notifications: Boolean(dailyMaterials?.notifications)
+    }
+  };
 
   for (const plugin of catalog.features) {
     if (!plugin.settingsKey || !plugin.settingsFields?.length) continue;

@@ -20,6 +20,7 @@ const sections = {
   tasks: read("./lib/settings/TasksSection.svelte"),
   skills: read("./lib/chat/InstalledSkillsPane.svelte"),
   memory: read("./lib/settings/MemorySection.svelte"),
+  plugins: read("./lib/settings/PluginsSection.svelte"),
   providers: read("./lib/settings/ProvidersSection.svelte"),
   sandbox: read("./lib/settings/SandboxSection.svelte"),
   usage: read("./lib/settings/UsageSection.svelte"),
@@ -289,10 +290,19 @@ test("settings uses the flat Geist layout", () => {
   assert.match(styles, /\.settings-footbar\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0/s);
   assert.match(sections.tts, /open=\{provider\.id === toolsStore\.ttsGenerateEdit\.defaultProvider\}/);
   assert.match(sections.image, /<option value="1024x1024">1024 × 1024<\/option>/);
+  assert.match(sections.plugins, /memoryDailyMaterials\.enabled/);
+  assert.match(sections.plugins, /memoryDailyMaterials\.projectId/);
+  assert.match(sections.plugins, /memoryDailyMaterials\.promptPath/);
 });
 
 test("project creation asks for a name before offering managed or existing directories", () => {
   const projectList = readFileSync(new URL("./lib/projects/ProjectList.svelte", import.meta.url), "utf8");
+  const projectTree = readFileSync(new URL("./lib/projects/ProjectTree.svelte", import.meta.url), "utf8");
+  for (const source of [projectList, projectTree]) {
+    assert.match(source, /selectedRootPath/);
+    assert.match(source, /copy\.projectCreateAction/);
+    assert.match(source, /(?:addProject|createProject)\(\{ name: name\.trim\(\), rootPath: selectedRootPath \}\)/);
+  }
   assert.match(projectList, /pick_project_directory/);
   assert.match(projectList, /project-create-dialog/);
   assert.match(projectList, /createDirectory:\s*true/);
@@ -375,6 +385,20 @@ test("project sessions support rename and delete from the session list", () => {
   assert.match(projectsStore, /removeProjectSession/);
   assert.match(projectsStore, /renameDesktopProjectSession/);
   assert.match(projectsStore, /deleteDesktopProjectSession/);
+});
+
+test("projects expose a guarded remove action without deleting the working directory", () => {
+  const projectTree = readFileSync(new URL("./lib/projects/ProjectTree.svelte", import.meta.url), "utf8");
+  const groupHeader = readFileSync(new URL("./lib/chat/GroupHeader.svelte", import.meta.url), "utf8");
+  const projectsStore = readFileSync(new URL("./lib/stores/projects.svelte.ts", import.meta.url), "utf8");
+  assert.match(groupHeader, /ph-dots-three/);
+  assert.match(projectTree, /copy\.renameProject/);
+  assert.match(projectTree, /renameProject\(renameProjectId, renameProjectName\)/);
+  assert.doesNotMatch(groupHeader, /conv-group-remove|ph-trash/);
+  assert.match(projectTree, /copy\.projectDeleteNotice/);
+  assert.match(projectTree, /copy\.projectDeleteSessions/);
+  assert.match(projectTree, /removeProject\(deleteProjectId, deleteProjectSessions\)/);
+  assert.match(projectsStore, /deleteDesktopProject\(projectsStore\.endpoint, projectId, removeSessions\)/);
 });
 
 test("project session delete uses Chat's shared row menu", () => {

@@ -1,5 +1,32 @@
 # Progress log
 
+## 2026-07-11 — Configurable reflection schedule and completion notice
+
+- Started tracing the existing internal watched-event path before changing
+  settings or channel delivery.
+- Added Memory settings, sanitizer/defaults, managed Cron rewrite with status
+  preservation, conditional internal-result notification, Desktop controls, and
+  bilingual copy.
+- Focused settings/scheduler/Desktop/API regressions pass 84/84; Desktop Svelte
+  check reports 0 errors and 0 warnings.
+- Production build and `git diff --check` pass; required product documentation
+  and the Memory plan status are synchronized.
+
+
+## 2026-07-11 — Memory remaining plan completion
+
+- Completed T1b, T3, T4, T5, T6b, and T7 without changing the approved C0
+  contracts. Memory now defaults to enabled+mory after Candidate Inbox landed.
+- Added internal daily reflection, source projection for Web/Project/external
+  contexts, per-conversation watermarking, retry fingerprints, abort safety, and
+  a provider-backed structured extractor that never persists its prompt.
+- Added independent candidates/suppressions, governed imports and migration,
+  embedding configuration/backfill/fallback, content and agent-self operations,
+  versions/sources/pin/expiry/forgetting, and the Desktop management flow.
+- Final verification: mory 184/184, focused host 19/19, product/audit suite
+  14/14, full Desktop/API regression 181/181, Desktop Svelte check 0/0,
+  production build pass, and `git diff --check` pass.
+
 ## 2026-07-11 — Memory batch 1 (T2 + T6a)
 
 - Closed the Project Session delivery and deferred runtime cleanup as decided.
@@ -156,3 +183,38 @@
 - Performed a final design consistency pass: clarified shared run admission,
   neutral cross-channel table names, safe session-deletion retention, and
   read-only Git execution constraints. Scoped `git diff --check` is clean.
+# Daily materials internal task (2026-07-11)
+
+- Implemented event schema, isolated reader identity, DailyMaterialsService,
+  runtime dispatch, managed scheduling, internal manual triggering, settings,
+  Desktop controls, bilingual copy, and momo-agent templates/contracts.
+- Core daily-material/reflection/scheduler suite passed 14/14; Desktop Svelte
+  check passed 0/0 and the root production build passed.
+- Initial Desktop plugin persistence test failed because its test catalog did
+  not include `mory`; corrected only the fixture and retained backend validation.
+- Final adversarial verification and documentation update are in progress.
+- Final verification passed: focused server/settings/runtime 32/32, Desktop
+  Svelte check 0/0, targeted UI test, root build, Desktop build, and both repos'
+  `git diff --check`.
+- Real runtime acceptance configured `daily-materials-default`, scanned 2
+  authorized Web messages, and created momo-agent
+  `content/daily-materials/2026-07-10.md` with the expected notification text.
+
+---
+
+# Memory review bug fixes — progress (2026-07-11)
+
+- Read the supplied review and confirmed all five findings against their owning
+  implementation seams.
+- Started a test-first repair pass; no production fix has been applied yet.
+- Added five regression tests and captured the expected red state: all five
+  failed for the exact reviewed symptoms.
+- Implemented the five focused fixes; the combined focused suite passes 10/10.
+- Adversarial review narrowed candidate isolation to typed validation failures,
+  preserving retry behavior for storage and other unexpected failures.
+- Added an explicit storage-failure/watermark regression. Scheduler/Desktop/API
+  regressions pass 71/71, production build passes, Desktop Svelte check reports
+  0 errors and 0 warnings, and `git diff --check` is clean.
+- Final Memory suite passes 24/24 after the safety regression.
+
+---

@@ -7,7 +7,7 @@ import type {
 } from "$lib/server/memory/types.js";
 
 export interface MemoryImportSink {
-  add(scope: MemoryScope, input: MemoryAddInput): Promise<MemoryRecord>;
+  add(scope: MemoryScope, input: MemoryAddInput): Promise<void>;
   search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]>;
 }
 

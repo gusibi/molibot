@@ -7,6 +7,30 @@
 ---
 ## 2026-07-11
 
+### macOS compliant desktop icon and avatar processing
+- Processed the raw square `momo-happy-icon.png` into a macOS-compliant squircle (corner radius 225px on a centered 824x824 body within 1024x1024 canvas) complete with custom dual drop shadows and a subtle border.
+- Replaced the default `molibot-icon.png` in the public directory and regenerated the Tauri PNG, ICNS, and ICO app icon bundles for macOS desktop build.
+
+### Daily materials internal automation
+- Added a managed `daily-materials` internal event that turns authorized read-only conversation projections into dated Markdown inside a registered Project using a Project-owned prompt template. It has an independent watermark, strict path/symlink and credential guards, no scratch fallback, and never enters ordinary Agent chat history.
+- Desktop Memory settings now configure schedule, Project, output directory, prompt path, and completion notices. Manual Automation triggers share the internal runtime dispatcher, and momo-agent includes the extraction/monthly-review templates and updated operating contract.
+
+### Desktop project file panel header alignment
+- Aligned the file panel header with the middle chat header by removing the top padding from the panel layout and adjusting the header height to 60px.
+
+### Desktop project creation confirmation
+- Fixed the existing-directory flow so selecting a folder shows the chosen path and an explicit Create Project button instead of leaving only Back and Cancel actions. Failed submissions preserve the selection for retry, with matching behavior across both Desktop project entry points.
+- Added an ellipsis menu to each Desktop project row with Rename and Delete actions. Removal never deletes the working directory; users may separately opt in to deleting that project's Molibot conversation history.
+
+### Configurable memory reflection schedule and notice
+- Added a bilingual Desktop Memory schedule control (`HH:mm`, default 03:00) and completion-notice switch; saving restarts the shared scheduler and safely updates managed reflection events while preserving their status.
+- Successful internal reflections notify the Bot's first allowed chat only when new candidates were created. Reflection execution itself continues to bypass the normal Agent Runner.
+
+### Memory reflection and embedding resilience
+- Fixed the daily 03:00 reflection window to process the previous complete local day, and isolated malformed extracted candidates without hiding storage failures.
+- Embedding API-key rotation now reconfigures the backend using a non-secret digest cache identity; provider failures open a 60-second lexical-fallback cooldown for add/search.
+- Replaced quadratic compaction ID membership scans with sets. Covered all five review findings plus infrastructure-failure safety; memory tests pass 24/24 and scheduler/Desktop/API regressions pass 71/71.
+
 ### Documentation Archiving
 - Implemented a quarterly archiving scheme for CHANGELOG.md and prd.md.
 - Moved historical entries from Q1 (Feb-Mar) and Q2 (Apr-Jun) 2026 to docs/archive/ to keep main files under 256KB for better agent readability.
@@ -17,6 +41,11 @@
 - Completed Memory Plan T2 + T6a with shared owner/chat/project/agent/content namespace encoding, domain-aware contracts, and an explicit prompt namespace plan that excludes content memory from ordinary chat injection.
 - Added additive legacy-safe domain persistence to mory and activated stable canonical paths for structured writes, while preserving unique low-confidence paths for unstructured text and legacy namespace reads.
 - Propagated bot/project scope through prompt snapshots and the Agent Memory tool, and made record management, global search, and compaction operate on the record's actual namespace. Verified with 181 mory tests, 23 focused host tests, and a production build.
+
+### Memory reflection, Candidate Inbox, and semantic retrieval
+- Completed the remaining Memory v2.2 plan: unified CJK tokenization across retrieval/write decisions, internal daily reflection with per-conversation watermarks, an independent candidate/suppression store, and the single validated confirmation path into mory.
+- Added governed importer/json-file migration, configurable embedding retrieval with model-version backfill and lexical fallback, explicit content/agent-self tools, and pin-aware expiry/forgetting.
+- Desktop Memory now includes a bilingual Candidate Inbox plus reason, source conversation, version, conflict, expiry, and pin inspection.
 
 ### Desktop Project File Panel - Inline Accordion + diff2html + .gitignore
 - Replaced the overlay "preview page" with a GitHub-style inline accordion: clicking a file/change row expands its content inline below; click again to collapse. Fixes the preview scrolling away with the list and the fixed-dark overlay not respecting light/dark theme.

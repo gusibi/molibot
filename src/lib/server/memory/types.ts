@@ -36,6 +36,7 @@ export interface MemoryRecord {
   confidence?: number;
   reason?: string;
   sources?: MemorySourceRef[];
+  pinned?: boolean;
   factKey?: string;
   hasConflict?: boolean;
   sourceSessionId?: string;
@@ -57,12 +58,41 @@ export interface MemoryAddInput {
   confidence?: number;
   reason?: string;
   sources?: MemorySourceRef[];
+  pinned?: boolean;
 }
+
+export type MemoryCandidateStatus = "pending" | "confirmed" | "ignored" | "edited-then-confirmed";
+
+export interface MemoryCandidate {
+  id: string;
+  fingerprint: string;
+  runKey?: string;
+  namespace: MemoryNamespace;
+  domain: MemoryDomain;
+  type: MemorySemanticType;
+  subject: string;
+  path: string;
+  value: string;
+  confidence: number;
+  reason: string;
+  sources: MemorySourceRef[];
+  layer: MemoryLayer;
+  expiresAt?: string;
+  pinned?: boolean;
+  status: MemoryCandidateStatus;
+  confirmedMemoryId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type MemoryCandidateCreateInput = Omit<MemoryCandidate, "id" | "fingerprint" | "status" | "confirmedMemoryId" | "createdAt" | "updatedAt"> & { fingerprint?: string };
+export type MemoryCandidateEdit = Partial<Pick<MemoryCandidate, "namespace" | "domain" | "type" | "subject" | "value" | "confidence" | "reason" | "sources" | "layer" | "expiresAt" | "pinned">>;
 
 export interface MemoryUpdateInput {
   content?: string;
   tags?: string[];
   expiresAt?: string | null;
+  pinned?: boolean;
 }
 
 export interface MemorySearchInput {
@@ -115,6 +145,10 @@ export interface MemoryBackend {
   get(scope: MemoryScope, id: string): Promise<MemoryRecord | null>;
   add(scope: MemoryScope, input: MemoryAddInput): Promise<MemoryRecord>;
   search(scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]>;
+  searchNamespaces?(namespaces: MemoryNamespace[], scope: MemoryScope, input: MemorySearchInput): Promise<MemoryRecord[]>;
+  versions?(scope: MemoryScope, id: string): Promise<MemoryRecord[]>;
+  configureEmbedder?(embedder?: (text: string) => Promise<number[]>, modelVersion?: string): void;
+  backfillEmbeddings?(limit?: number): Promise<{ scannedCount: number; updatedCount: number; remainingCount: number }>;
   searchAll(input: MemorySearchInput): Promise<MemoryRecord[]>;
   delete(scope: MemoryScope, id: string): Promise<boolean>;
   update(scope: MemoryScope, id: string, input: MemoryUpdateInput): Promise<MemoryRecord | null>;

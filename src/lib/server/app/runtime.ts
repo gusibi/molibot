@@ -6,7 +6,7 @@ import { config, liveServicesDisabled } from "$lib/server/app/env.js";
 import { type ChannelManager } from "$lib/server/channels/registry.js";
 import { TaskScheduler } from "$lib/server/agent/taskScheduler.js";
 import { MessageRouter } from "$lib/server/channels/shared/messageRouter.js";
-import { initDb } from "$lib/server/infra/db/storage.js";
+import { initDb, storagePaths } from "$lib/server/infra/db/storage.js";
 import { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { PluginCatalog, ProviderPlugin } from "$lib/server/plugins/types.js";
 import { AssistantService } from "$lib/server/providers/assistantService.js";
@@ -19,6 +19,9 @@ import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 import { getTurnOrchestrator, SqliteTurnCleanupStore } from "$lib/server/agent/core/turnOrchestrator.js";
 import { createDefaultHookManager, type HookManager } from "$lib/server/agent/hooks/index.js";
 import { ensureGlobalProfileDefaults } from "$lib/server/agent/prompts/profiles.js";
+import { MemoryReflectionService, ReflectionStateStore, SessionReflectionSourceReader, recommendedCandidateNamespace, type ReflectionExtractor, type ReflectionTarget } from "$lib/server/memory/reflection.js";
+import { DailyMaterialsService, dailyMaterialsTargetId, type DailyMaterialsInternal } from "$lib/server/memory/dailyMaterials.js";
+import type { MomEvent } from "$lib/server/agent/events.js";
 
 interface RuntimeState {
   sessions: SessionStore;
@@ -34,6 +37,10 @@ interface RuntimeState {
   usageTracker: AiUsageTracker;
   modelErrorTracker: ModelErrorTracker;
   taskScheduler: TaskScheduler;
+  reflectionState: ReflectionStateStore;
+  reflectionService: MemoryReflectionService;
+  dailyMaterialsService: DailyMaterialsService;
+  runInternalEvent: (event: MomEvent, filename: string) => Promise<{ notificationText?: string } | void>;
   hookManager: HookManager;
   getSettings: () => RuntimeSettings;
   updateSettings: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
@@ -150,7 +157,78 @@ export function getRuntime(): RuntimeState {
       return state.settings;
     };
 
-    const state: RuntimeState = {
+    const reflectionState = new ReflectionStateStore(storagePaths.moryDbFile);
+    const reflectionExtractor: ReflectionExtractor = {
+      extract: async ({ target, projection }) => {
+        const transcript = projection.messages.map((message) => `${message.role}: ${message.content}`).join("\n");
+        const prompt = [
+          "Extract durable memory candidates from this conversation.",
+          "Return JSON only: {\"memories\":[{\"domain\":\"owner|project|agent_self|content\",\"type\":\"user_preference|user_fact|skill|event|task|world_knowledge\",\"subject\":\"stable_snake_case\",\"value\":\"complete durable statement\",\"confidence\":0.0,\"reason\":\"why it matters\"}]}",
+          "Do not extract reminders, transient execution state, guesses, or the summary itself.",
+          projection.latestSummary ? `Recent summary (context only): ${projection.latestSummary}` : "",
+          transcript
+        ].filter(Boolean).join("\n\n");
+        const response = await assistant.reply([{
+          id: `reflection:${projection.conversationId}`,
+          conversationId: projection.conversationId,
+          role: "user",
+          content: prompt,
+          createdAt: new Date().toISOString()
+        }], prompt);
+        const raw = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? response;
+        const parsed = JSON.parse(raw) as { memories?: Array<Record<string, unknown>> };
+        if (!Array.isArray(parsed.memories)) throw new Error("Reflection extractor returned invalid JSON.");
+        return parsed.memories.map((item) => {
+          const domain = String(item.domain ?? "owner") as "owner" | "project" | "agent_self" | "content";
+          const type = String(item.type ?? "user_fact") as "user_preference" | "user_fact" | "skill" | "event" | "task" | "world_knowledge";
+          const subject = String(item.subject ?? "").trim();
+          return {
+            namespace: recommendedCandidateNamespace(target, projection.scope, domain),
+            domain,
+            type,
+            subject,
+            path: `mory://${type}/${subject}`,
+            value: String(item.value ?? ""),
+            confidence: Number(item.confidence ?? 0.7),
+            reason: String(item.reason ?? "reflection"),
+            layer: type === "event" ? "daily" as const : "long_term" as const
+          };
+        });
+      }
+    };
+    const reflectionService = new MemoryReflectionService(
+      memory,
+      new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir),
+      reflectionState,
+      reflectionExtractor
+    );
+    const dailyMaterialsService = new DailyMaterialsService(
+      new SessionReflectionSourceReader(sessions, reflectionState, undefined, config.dataDir, dailyMaterialsTargetId),
+      reflectionState,
+      (prompt) => assistant.reply([{
+        id: `daily-materials:${Date.now()}`,
+        conversationId: "daily-materials",
+        role: "user",
+        content: prompt,
+        createdAt: new Date().toISOString()
+      }], prompt)
+    );
+    const runInternalEvent = async (event: MomEvent, filename: string): Promise<{ notificationText?: string } | void> => {
+      if (event.internal?.kind === "memory-reflection") {
+        const result = await reflectionService.run(event.internal.target as ReflectionTarget);
+        console.log(`${memoryLabel("reflection")} completed file=${filename} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
+        return result.createdCandidates > 0 ? { notificationText: `记忆反思完成：新增 ${result.createdCandidates} 条待确认记忆。` } : undefined;
+      }
+      if (event.internal?.kind === "daily-materials") {
+        const result = await dailyMaterialsService.run(event.internal as DailyMaterialsInternal, { taskId: event.taskId });
+        console.log(`${memoryLabel("daily-materials")} completed file=${filename} output=${result.createdFile ?? "(none)"} messages=${result.scannedMessages}`);
+        return result.createdFile ? { notificationText: `今日素材已生成：${result.createdFile}` } : undefined;
+      }
+      throw new Error("Unsupported internal event.");
+    };
+    let state!: RuntimeState;
+    const taskScheduler = new TaskScheduler(runInternalEvent);
+    state = {
       sessions,
       router,
       channelManagers: new Map<string, Map<string, ChannelManager>>(),
@@ -163,7 +241,11 @@ export function getRuntime(): RuntimeState {
       settings,
       usageTracker,
       modelErrorTracker,
-      taskScheduler: new TaskScheduler(),
+      taskScheduler,
+      reflectionState,
+      reflectionService,
+      dailyMaterialsService,
+      runInternalEvent,
       hookManager,
       getSettings: () => state.settings,
       updateSettings: applySettingsPatch

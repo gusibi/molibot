@@ -5,6 +5,30 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.49 macOS Compliant Desktop Icon and Avatar Processing (2026-07-11)
+- [Done, P0] 处理原始方形头像 `momo-happy-icon.png` 满足 macOS app icon 视觉规范（824x824 圆角主体居中于 1024x1024 透明画布，225px corner radius），配合双层阴影和 1px 描边。
+- [Done, P0] 覆盖替换 public 下的 `molibot-icon.png` 并重新生成全套 Tauri 桌面应用编译所依赖的 PNG、ICNS、ICO 格式图标。
+
+## 2.48 Daily materials internal task (2026-07-11)
+- [Done, P0] internal watched event 从授权会话只读投影生成 Project 内每日素材文件，与 memory reflection watermark 隔离且不进入普通 Runner。
+- [Done, P0] 注册 Project、相对路径/软链接、凭据模式和 abort 使用 fail-closed 语义；失败不推进 watermark、不写 scratch。
+- [Done, P1] Desktop 完整配置与 Automation 手动触发接通，momo-agent 模板和运营契约同步交付。
+
+## 2.47 Desktop project directory confirmation (2026-07-11)
+- [Done, P0] 选择已有目录后显示路径与明确的创建按钮，提交失败时保留选择以便重试。
+- [Done, P1] 两个 Desktop 项目创建入口保持双语、主题与交互一致，并由回归测试锁定。
+- [Done, P0] 项目行提供 `…` 菜单，首批支持重命名与受确认保护的删除；默认不删除本地目录，可选清理 Molibot 项目对话。
+
+## 2.46 Configurable memory reflection and completion notice (2026-07-11)
+- [Done, P1] Memory reflection 支持 Desktop 配置每日本地时间，保存后即时更新各 Bot 的 managed watched event。
+- [Done, P1] 仅在产生新候选时向首个允许 Chat ID 发送独立完成通知；内部 reflection 仍不经过普通 Agent Runner。
+
+## 2.45 Memory review stability fixes (2026-07-11)
+- [Done, P0] 每日 03:00 reflection 读取上一个完整本地日，消除当天 03:00–24:00 永久漏扫窗口。
+- [Done, P0] 每个 extracted candidate 独立校验；坏候选不阻断同批有效候选，非校验类异常继续失败并保留重试能力。
+- [Done, P1] embedding API key 轮换会触发 backend 重配；provider 失败后 add/search 使用有界冷却和 lexical fallback。
+- [Done, P2] compact 的 expired/duplicate ID 查找改为 Set，保持 10k 上限扫描的线性 membership 成本。
+
 ## 2.44 Document Archiving Scheme (2026-07-11)
 - [Done] 解决 CHANGELOG.md 和 prd.md 文件体积过大（超过 256KB 读取上限）导致 Agent 检索和全量读取成本高的问题。
 - [Done] 实施按季度归档方案，将 2026 Q1（2月-3月）和 Q2（4月-6月）的历史条目移入 `docs/archive/` 目录中。
@@ -15,6 +39,8 @@
 - [Approved] Memory Plan C0.1–C0.6 已完成实现前评审，无未决产品契约。
 - [Done, P1] T2 + T6a 已同批交付：共享 namespace/domain 类型与 query plan、旧 SQLite 幂等迁移、canonical subject 稳定路径、版本链、低置信唯一兜底路径均已落地。
 - [Done] runtime scope 已贯通 prompt snapshot 与 Agent Memory 工具；普通会话读取 owner/chat/agent，Project 额外读取当前 project，content 不自动注入；跨 namespace 管理与全局搜索/compact 已按实际存储 namespace 工作，并兼容 legacy chat id。
+- [Done, P1] T1b、T3+T5 已交付：统一 tokenizer；internal 每日反思；独立 Candidate Inbox；唯一确认/编辑重校验/忽略抑制；importer 治理；mory 默认启用与 json-file 候选迁移。
+- [Done, P2] T4、T6b、T7 已交付：Provider embedding + 模型版本回填与 lexical 降级；content/agent_self 应用；版本/来源/pin/过期/遗忘审计；Desktop 双语 Inbox 与详情操作。
 
 ## 2.43 Support Files and Media Preview for External Sessions (2026-07-11)
 - [Done] 解决微信/飞书/Telegram等外部渠道会话在 macOS app 中点击时无法加载/刷新 scratch 生成文件、无法预览 inline 媒体（图片、音频、视频等）以及无法下载附件的问题。

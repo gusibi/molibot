@@ -35,6 +35,7 @@ import {
   sanitizeHostToolSettings,
   sanitizeToolSandboxSettings
 } from "$lib/server/settings/index.js";
+import { isAbsolute } from "node:path";
 
 const ROLE_SET: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool", "developer"]);
 const CAPABILITY_SET: ReadonlySet<string> = new Set(["text", "vision", "audio_input", "stt", "tts", "tool"]);
@@ -939,6 +940,12 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.telegramBotToken = next.telegramBots[0]?.token ?? "";
   next.telegramAllowedChatIds = next.telegramBots[0]?.allowedChatIds ?? [];
   const memoryPluginInput = next.plugins?.memory ?? current.plugins.memory;
+  const dailyMaterialsInput = memoryPluginInput?.dailyMaterials ?? current.plugins.memory.dailyMaterials ?? defaultRuntimeSettings.plugins.memory.dailyMaterials;
+  const safeRelativePath = (value: unknown, fallback: string): string => {
+    const normalized = String(value ?? "").trim();
+    if (!normalized || isAbsolute(normalized) || normalized.split(/[\\/]+/).includes("..")) return fallback;
+    return normalized;
+  };
   next.plugins = {
     memory: {
       enabled: memoryPluginInput?.enabled === undefined ? current.plugins.memory.enabled : Boolean(memoryPluginInput.enabled),
@@ -946,7 +953,23 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
         (memoryPluginInput as { backend?: string; core?: string } | undefined)?.backend ??
         (memoryPluginInput as { backend?: string; core?: string } | undefined)?.core ??
         ""
-      ).trim() || current.plugins.memory.backend || defaultRuntimeSettings.plugins.memory.backend
+      ).trim() || current.plugins.memory.backend || defaultRuntimeSettings.plugins.memory.backend,
+      embeddingProviderId: String(memoryPluginInput?.embeddingProviderId ?? current.plugins.memory.embeddingProviderId ?? "").trim(),
+      embeddingModel: String(memoryPluginInput?.embeddingModel ?? current.plugins.memory.embeddingModel ?? "").trim(),
+      reflectionTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(memoryPluginInput?.reflectionTime ?? ""))
+        ? String(memoryPluginInput.reflectionTime)
+        : (current.plugins.memory.reflectionTime || "03:00"),
+      reflectionNotifications: memoryPluginInput?.reflectionNotifications === undefined
+        ? (current.plugins.memory.reflectionNotifications ?? true)
+        : Boolean(memoryPluginInput.reflectionNotifications),
+      dailyMaterials: {
+        enabled: dailyMaterialsInput?.enabled === undefined ? false : Boolean(dailyMaterialsInput.enabled),
+        time: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(dailyMaterialsInput?.time ?? "")) ? String(dailyMaterialsInput.time) : "23:30",
+        projectId: String(dailyMaterialsInput?.projectId ?? "").trim(),
+        dir: safeRelativePath(dailyMaterialsInput?.dir, "content/daily-materials"),
+        promptPath: safeRelativePath(dailyMaterialsInput?.promptPath, "templates/daily-material-prompt.md"),
+        notifications: dailyMaterialsInput?.notifications === undefined ? true : Boolean(dailyMaterialsInput.notifications)
+      }
     },
     cloudflareHtml: sanitizeCloudflareHtmlPluginSettings(
       next.plugins?.cloudflareHtml ?? current.plugins.cloudflareHtml,

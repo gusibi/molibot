@@ -1045,9 +1045,13 @@ function sanitize(raw: RawSettings): RuntimeSettings {
   const memoryEnabledRaw = raw.plugins?.memory?.enabled;
   const memoryEnabled = typeof memoryEnabledRaw === "boolean"
     ? memoryEnabledRaw
-    : String(memoryEnabledRaw ?? "").toLowerCase() === "true";
+    : memoryEnabledRaw == null
+      ? defaultRuntimeSettings.plugins.memory.enabled
+      : String(memoryEnabledRaw).toLowerCase() === "true";
   const memoryBackend = String(raw.plugins?.memory?.backend ?? raw.plugins?.memory?.core ?? "").trim() ||
     defaultRuntimeSettings.plugins.memory.backend;
+  const memoryEmbeddingProviderId = String(raw.plugins?.memory?.embeddingProviderId ?? "").trim();
+  const memoryEmbeddingModel = String(raw.plugins?.memory?.embeddingModel ?? "").trim();
   const cloudflareHtml = sanitizeCloudflareHtmlPluginSettings(raw.plugins?.cloudflareHtml);
 
   const feishuBotsFromList = sanitizeFeishuBots(raw.feishuBots);
@@ -1179,7 +1183,9 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     plugins: {
       memory: {
         enabled: memoryEnabled,
-        backend: memoryBackend
+        backend: memoryBackend,
+        embeddingProviderId: memoryEmbeddingProviderId,
+        embeddingModel: memoryEmbeddingModel
       },
       cloudflareHtml
     },
@@ -1904,7 +1910,9 @@ export class SettingsStore {
       plugins: {
         memory: {
           enabled: settings.plugins.memory.enabled,
-          backend: settings.plugins.memory.backend
+          backend: settings.plugins.memory.backend,
+          embeddingProviderId: settings.plugins.memory.embeddingProviderId,
+          embeddingModel: settings.plugins.memory.embeddingModel
         },
         cloudflareHtml: {
           enabled: settings.plugins.cloudflareHtml.enabled,

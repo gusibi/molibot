@@ -14,6 +14,8 @@
     addProject,
     newProjectSession,
     projectsStore,
+    removeProject,
+    renameProject,
     selectProjectSession
   } from "../stores/projects.svelte";
 
@@ -43,6 +45,12 @@
   let adding = $state(false);
   let createStep = $state<"name" | "location">("name");
   let name = $state("");
+  let selectedRootPath = $state("");
+  let deleteProjectId = $state("");
+  let deleteProjectSessions = $state(false);
+  let menuProjectId = $state("");
+  let renameProjectId = $state("");
+  let renameProjectName = $state("");
   let nameInput = $state<HTMLInputElement>();
 
   const rowLabels = $derived({
@@ -56,6 +64,17 @@
     placeholder: copy.renamePlaceholder,
     deletePrompt: copy.deleteConversationPrompt,
     cancel: copy.cancelAction
+  });
+
+  $effect(() => {
+    if (!menuProjectId) return;
+    const closeMenu = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".project-row-menu") || target?.closest(".conv-group-menu")) return;
+      menuProjectId = "";
+    };
+    window.addEventListener("pointerdown", closeMenu, true);
+    return () => window.removeEventListener("pointerdown", closeMenu, true);
   });
 
   function readExpandedProjects(): Record<string, boolean> {
@@ -163,6 +182,7 @@
     adding = true;
     createStep = "name";
     name = "";
+    selectedRootPath = "";
     projectsStore.error = "";
     await tick();
     nameInput?.focus();
@@ -173,6 +193,7 @@
     adding = false;
     createStep = "name";
     name = "";
+    selectedRootPath = "";
   }
 
   async function createProject(input: { name: string; rootPath?: string; createDirectory?: boolean }): Promise<void> {
@@ -190,10 +211,51 @@
   async function useExistingProjectFolder(): Promise<void> {
     try {
       const rootPath = await invoke<string | null>("pick_project_directory");
-      if (rootPath) await createProject({ name: name.trim(), rootPath });
+      if (rootPath) selectedRootPath = rootPath;
     } catch (cause) {
       projectsStore.error = cause instanceof Error ? cause.message : String(cause);
     }
+  }
+
+  function askToRemoveProject(projectId: string): void {
+    menuProjectId = "";
+    deleteProjectId = projectId;
+    deleteProjectSessions = false;
+  }
+
+  function askToRenameProject(projectId: string, currentName: string): void {
+    menuProjectId = "";
+    renameProjectId = projectId;
+    renameProjectName = currentName;
+  }
+
+  function cancelRenameProject(): void {
+    if (projectsStore.busy === "rename-project") return;
+    renameProjectId = "";
+    renameProjectName = "";
+  }
+
+  async function confirmRenameProject(): Promise<void> {
+    if (!renameProjectId || !renameProjectName.trim()) return;
+    if (await renameProject(renameProjectId, renameProjectName)) cancelRenameProject();
+  }
+
+  function cancelRemoveProject(): void {
+    if (projectsStore.busy === "delete") return;
+    deleteProjectId = "";
+    deleteProjectSessions = false;
+  }
+
+  async function confirmRemoveProject(): Promise<void> {
+    if (!deleteProjectId) return;
+    const projectId = deleteProjectId;
+    if (!(await removeProject(deleteProjectId, deleteProjectSessions))) return;
+    const { [projectId]: _sessions, ...remainingSessions } = sessionsByProject;
+    const { [projectId]: _expanded, ...remainingExpanded } = expandedProjects;
+    sessionsByProject = remainingSessions;
+    expandedProjects = remainingExpanded;
+    persistExpandedProjects();
+    cancelRemoveProject();
   }
 </script>
 
@@ -208,7 +270,13 @@
     {#each projectsStore.projects as project (project.id)}
       {@const projectSessions = project.id === projectsStore.selectedProjectId ? projectsStore.sessions : (sessionsByProject[project.id] ?? [])}
       <div class="project-tree-group">
-        <GroupHeader label={project.name} icon="ph-fill ph-folder" open={Boolean(expandedProjects[project.id])} actionLabel={copy.newChat} onAction={() => void createSession(project.id)} onToggle={() => toggleProject(project.id)} />
+        <GroupHeader label={project.name} icon="ph-fill ph-folder" open={Boolean(expandedProjects[project.id])} actionLabel={copy.newChat} onAction={() => void createSession(project.id)} menuLabel={copy.conversationMenu} onMenu={() => (menuProjectId = menuProjectId === project.id ? "" : project.id)} onToggle={() => toggleProject(project.id)} />
+        {#if menuProjectId === project.id}
+          <div class="project-row-menu" role="menu">
+            <button type="button" role="menuitem" onclick={() => askToRenameProject(project.id, project.name)}><i class="ph ph-pencil-simple" aria-hidden="true"></i><span>{copy.renameProject}</span></button>
+            <button type="button" role="menuitem" class="danger-action" onclick={() => askToRemoveProject(project.id)}><i class="ph ph-trash" aria-hidden="true"></i><span>{copy.deleteProject}</span></button>
+          </div>
+        {/if}
         {#if expandedProjects[project.id]}
           {#if loadingProjects[project.id]}
             <p class="project-tree-state">…</p>
@@ -241,15 +309,51 @@
         <form onsubmit={(event) => { event.preventDefault(); if (name.trim()) createStep = "location"; }}><label class="project-name-field"><span>{copy.projectName}</span><input bind:this={nameInput} bind:value={name} autocomplete="off" required placeholder={copy.projectNamePlaceholder} /></label><div class="project-form-actions"><button class="secondary-button" type="button" onclick={cancelAdding}>{copy.cancel}</button><button class="primary-button" disabled={!name.trim()}>{copy.continueAction}</button></div></form>
       {:else}
         <div class="project-location-options" aria-label={copy.projectChooseLocation}><button type="button" class="project-location-option" disabled={projectsStore.busy === "add"} onclick={() => void createProject({ name: name.trim(), createDirectory: true })}><span class="project-location-icon"><i class="ph-fill ph-folder-simple-plus" aria-hidden="true"></i></span><span><strong>{copy.projectCreateFolder}</strong><small>{copy.projectCreateFolderHint}</small></span><i class="ph ph-arrow-right" aria-hidden="true"></i></button><button type="button" class="project-location-option" disabled={projectsStore.busy === "add"} onclick={() => void useExistingProjectFolder()}><span class="project-location-icon"><i class="ph-fill ph-folder-open" aria-hidden="true"></i></span><span><strong>{copy.projectUseExistingFolder}</strong><small>{copy.projectUseExistingFolderHint}</small></span><i class="ph ph-arrow-right" aria-hidden="true"></i></button></div>
-        <div class="project-form-actions project-location-actions"><button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={() => (createStep = "name")}>{copy.back}</button><button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={cancelAdding}>{copy.cancel}</button></div>
+        {#if selectedRootPath}<div class="project-selected-location"><i class="ph-fill ph-folder-open" aria-hidden="true"></i><span><small>{copy.projectSelectedLocation}</small><strong>{selectedRootPath}</strong></span></div>{/if}
+        <div class="project-form-actions project-location-actions"><button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={() => (createStep = "name")}>{copy.back}</button><button class="secondary-button" type="button" disabled={projectsStore.busy === "add"} onclick={cancelAdding}>{copy.cancel}</button><button class="primary-button" type="button" disabled={!selectedRootPath || projectsStore.busy === "add"} onclick={() => void createProject({ name: name.trim(), rootPath: selectedRootPath })}>{copy.projectCreateAction}</button></div>
       {/if}
+    </div>
+  </div>
+{/if}
+
+{#if renameProjectId}
+  <div class="project-dialog-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelRenameProject()}>
+    <div class="project-dialog" role="dialog" aria-modal="true" aria-labelledby="project-rename-title">
+      <form onsubmit={(event) => { event.preventDefault(); void confirmRenameProject(); }}>
+        <h2 id="project-rename-title">{copy.renameProject}</h2>
+        <label class="project-name-field"><span>{copy.projectName}</span><input bind:value={renameProjectName} autocomplete="off" required /></label>
+        <div class="project-form-actions">
+          <button class="secondary-button" type="button" disabled={projectsStore.busy === "rename-project"} onclick={cancelRenameProject}>{copy.cancel}</button>
+          <button class="primary-button" disabled={!renameProjectName.trim() || projectsStore.busy === "rename-project"}>{copy.save}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
+
+{#if deleteProjectId}
+  {@const deleteTarget = projectsStore.projects.find((item) => item.id === deleteProjectId)}
+  <div class="project-dialog-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelRemoveProject()}>
+    <div class="project-dialog" role="dialog" aria-modal="true" aria-labelledby="project-delete-title">
+      <h2 id="project-delete-title">{copy.projectDeleteTitle}</h2>
+      {#if deleteTarget}<p><strong>{deleteTarget.name}</strong></p>{/if}
+      <p>{copy.projectDeleteNotice}</p>
+      <label class="project-delete-option"><input type="checkbox" bind:checked={deleteProjectSessions} disabled={projectsStore.busy === "delete"} /><span>{copy.projectDeleteSessions}</span></label>
+      <div class="project-form-actions">
+        <button class="secondary-button" type="button" disabled={projectsStore.busy === "delete"} onclick={cancelRemoveProject}>{copy.cancel}</button>
+        <button class="error-button" type="button" disabled={projectsStore.busy === "delete"} onclick={() => void confirmRemoveProject()}>{copy.deleteProject}</button>
+      </div>
     </div>
   </div>
 {/if}
 
 <style>
   .project-tree { min-width: 0; padding: 0 0 8px; }
-  .project-tree-group { padding-left: 8px; }
+  .project-tree-group { position: relative; padding-left: 8px; }
+  .project-row-menu { position: absolute; z-index: 20; top: 32px; right: 8px; display: grid; width: 148px; padding: 4px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--card-bg); box-shadow: var(--popover-shadow); }
+  .project-row-menu button { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-primary); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+  .project-row-menu button:hover { background: var(--fill); }
+  .project-row-menu button.danger-action { color: var(--danger); }
   .project-tree-head { display: flex; align-items: center; min-height: 32px; padding: 0 4px; }
   .project-tree-toggle { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 32px; padding: 0 4px; border: 0; background: transparent; color: var(--label-secondary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
   .project-tree-toggle span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

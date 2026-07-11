@@ -16,6 +16,11 @@
  */
 
 import type { CanonicalMemory, UpdatePolicy } from "./morySchema.js";
+import {
+    jaccardLexicalSimilarity,
+    overlapLexicalSimilarity,
+    tokenizeForSimilarity,
+} from "./moryTokenize.js";
 
 // ---------------------------------------------------------------------------
 // Internal types (not exported by index — internal to write gate)
@@ -64,61 +69,6 @@ export type WriteDecision = InsertDecision | UpdateDecision | SkipDecision;
 // Similarity computation
 // ---------------------------------------------------------------------------
 
-const STOP_WORDS = new Set([
-    "the", "a", "an", "is", "are", "was", "were",
-    "and", "or", "of", "to", "in", "on", "at",
-    "user", "users", "i", "my", "me", "we",
-    "的", "了", "是", "在", "和", "我", "用户",
-]);
-
-/**
- * Tokenize a string into lowercased meaningful tokens.
- *
- * For Latin text: splits on whitespace/punctuation.
- * For CJK text: also splits each character individually (unigrams),
- * since CJK words are not space-delimited and character-level overlap
- * provides better Jaccard signals than whole-word matching.
- */
-function tokenize(text: string): string[] {
-    // Normalize punctuation
-    const normalized = text
-        .toLowerCase()
-        .replace(/[，。！？；：""''【】（）《》、]/g, " ");
-
-    const tokens: string[] = [];
-
-    // Split into chunks on whitespace + latin punctuation
-    const chunks = normalized
-        .replace(/[^a-z0-9\u4e00-\u9fff\s_.-]/g, " ")
-        .split(/\s+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-    for (const chunk of chunks) {
-        if (STOP_WORDS.has(chunk)) continue;
-        // Check if chunk contains CJK characters
-        if (/[\u4e00-\u9fff]/.test(chunk)) {
-            // Add the whole chunk AND each individual CJK character
-            // This improves overlap detection for semantically related sentences
-            for (const char of chunk) {
-                if (/[\u4e00-\u9fff]/.test(char) && !STOP_WORDS.has(char)) {
-                    tokens.push(char);
-                }
-            }
-            // Also add as a whole token if it's a meaningful word (2+ chars)
-            if (chunk.length >= 2 && !STOP_WORDS.has(chunk)) {
-                tokens.push(chunk);
-            }
-        } else {
-            // ASCII: require length >= 1
-            if (chunk.length >= 1 && !STOP_WORDS.has(chunk)) {
-                tokens.push(chunk);
-            }
-        }
-    }
-    return tokens;
-}
-
 /**
  * Jaccard similarity between the token-sets of two strings. Range: [0, 1].
  *
@@ -126,18 +76,7 @@ function tokenize(text: string): string[] {
  * 0.0 = completely disjoint
  */
 export function jaccardSimilarity(a: string, b: string): number {
-    const setA = new Set(tokenize(a));
-    const setB = new Set(tokenize(b));
-
-    if (setA.size === 0 && setB.size === 0) return 1;
-    if (setA.size === 0 || setB.size === 0) return 0;
-
-    let intersection = 0;
-    for (const token of setA) {
-        if (setB.has(token)) intersection++;
-    }
-    const union = setA.size + setB.size - intersection;
-    return union === 0 ? 0 : intersection / union;
+    return jaccardLexicalSimilarity(a, b);
 }
 
 
@@ -148,16 +87,7 @@ export function jaccardSimilarity(a: string, b: string): number {
  * overlap(A, B) = |A ∩ B| / min(|A|, |B|)
  */
 export function overlapSimilarity(a: string, b: string): number {
-    const setA = new Set(tokenize(a));
-    const setB = new Set(tokenize(b));
-
-    if (setA.size === 0 || setB.size === 0) return 0;
-
-    let intersection = 0;
-    for (const token of setA) {
-        if (setB.has(token)) intersection++;
-    }
-    return intersection / Math.min(setA.size, setB.size);
+    return overlapLexicalSimilarity(a, b);
 }
 
 /**
@@ -204,8 +134,8 @@ export function findSimilarNodes(
  * Avoids hard duplication of shared tokens.
  */
 function mergeValues(existing: string, incoming: string): string {
-    const existTokens = new Set(tokenize(existing));
-    const incomingTokens = tokenize(incoming);
+    const existTokens = new Set(tokenizeForSimilarity(existing));
+    const incomingTokens = tokenizeForSimilarity(incoming);
     const novel = incomingTokens.filter((t) => !existTokens.has(t));
 
     if (novel.length === 0) return existing; // Nothing to add
@@ -331,8 +261,37 @@ export function decideWrite(
         }
     }
 
-    // ── 3. No similar nodes above threshold → novel memory → insert ───────────
-    return { action: "insert" };
+    // All supplied nodes are already at the exact same stable path. A changed
+    // value must therefore follow the path policy even when its wording has no
+    // lexical overlap (for example language=中文 -> 英文).
+    const target = existing[0];
+    if (policy === "overwrite" || policy === "merge_append") {
+        return {
+            action: "update",
+            target,
+            patch: {
+                value: policy === "merge_append" ? mergeValues(target.value, incoming.value) : incoming.value,
+                confidence: policy === "merge_append" ? Math.max(target.confidence, incoming.confidence) : incoming.confidence,
+                updatedAt: now,
+            },
+            reason: `Policy=${policy}: reconciling changed value at the same stable path`,
+        };
+    }
+    if (policy === "highest_confidence" && incoming.confidence > target.confidence) {
+        return {
+            action: "update",
+            target,
+            patch: { value: incoming.value, confidence: incoming.confidence, updatedAt: now },
+            reason: "Policy=highest_confidence: stronger value at the same stable path",
+        };
+    }
+    return {
+        action: "skip",
+        reason: policy === "skip"
+            ? "Policy=skip: memory at this path is immutable"
+            : "Policy=highest_confidence: existing value is stronger",
+        duplicate: target,
+    };
 }
 
 // ---------------------------------------------------------------------------

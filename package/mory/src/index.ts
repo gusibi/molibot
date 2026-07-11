@@ -144,8 +144,11 @@ export {
 // ── Tokenizer (unified CJK-aware lexical matching) ────────────────────────
 export {
     cjkBigrams,
+    jaccardLexicalSimilarity,
     normalizeForMatch,
+    overlapLexicalSimilarity,
     scoreLexical,
+    tokenizeForSimilarity,
     tokenizeWords,
 } from "./moryTokenize.js";
 

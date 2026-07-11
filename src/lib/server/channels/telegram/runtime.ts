@@ -596,7 +596,7 @@ export class TelegramManager extends BaseChannelRuntime {
           "telegram",
           this.getSessionConversationKey(eventScopeId, activeSessionId)
         );
-        this.sessions.appendMessage(conv.id, event.isEvent ? "system" : "user", event.text);
+        this.sessions.appendMessage(conv.id, event.isEvent ? "system" : "user", event.text, { platformMessageId: event.platformMessageId });
         momLog("telegram", "session_user_appended", {
           runId,
           chatId,

@@ -1,5 +1,33 @@
 # Findings
 
+## Configurable reflection schedule and completion notice (2026-07-11)
+
+- Work started at the scheduler/settings/runtime boundary. The implementation
+  must keep model controls, human notifications, and persisted debug state as
+  three separate planes.
+- `applySettingsPatch` already restarts `TaskScheduler`, so a granular Plugins
+  save can update managed reflection JSON immediately without a new lifecycle.
+- Internal events carry an artificial chat id; notification routing must use an
+  explicit destination. The managed event now selects the first allowed chat to
+  avoid broadcasting candidate counts to every configured conversation.
+
+
+## Memory remaining delivery (2026-07-11)
+
+- A stable path is the identity seam: once records are fetched by exact path,
+  changed wording must obey update policy even when lexical similarity is zero.
+- Reflection can share the existing watched-event lease/retry machinery only if
+  dispatch checks `execution: internal` before any Channel trigger. The model
+  prompt is an ephemeral provider input and never a ConversationMessage write.
+- External-channel transcripts now live in Agent context JSONL rather than the
+  legacy SessionStore; ReflectionSourceReader therefore needs a read-only
+  projection over both stores to satisfy cross-channel reflection.
+- Candidate confirmation needs three defenses together: compare-and-set reserve,
+  edit revalidation including namespace/domain consistency, and stable mory
+  ingest so a crash/retry cannot duplicate the final version chain.
+- Embedding configuration belongs to the existing custom Provider seam. Missing
+  credentials or request failures must not block writes or lexical retrieval.
+
 ## Memory batch 1 kickoff (2026-07-11)
 
 - C0 is implementation-ready: all identity, schema, write-state, reflection,
@@ -213,3 +241,38 @@ rules, and contextual header format.
 - The frontend now separates page-level destructive busy state from per-task
   running and update sets. This keeps concurrent task controls responsive and
   provides a stable local spinner for the task whose request is pending.
+# Daily materials internal task (2026-07-11)
+
+- `SessionReflectionSourceReader` previously hard-coded `reflectionTargetId`, so
+  sharing it would have coupled daily-material and reflection watermarks. It now
+  accepts a target-id strategy with the reflection hash as the compatible default.
+- The manual task trigger API directly invoked `manager.triggerTask` in both
+  periodic and non-periodic branches. Internal events now go through the same
+  `dispatchTaskEvent` boundary as scheduled runs.
+- Project options are injected into the Desktop summary by the route; tests do
+  not enumerate or mutate the real Project store.
+- `momo-assets/` and `docs/asset-catalog.md` already agree on all documented
+  reference, avatar, pose, scene, and template paths; no catalog rewrite needed.
+- Adversarial path review found lexical containment alone allowed an existing
+  in-project symlink to point outside the Project. The service now checks the
+  deepest existing ancestor with `realpath`, covered by regression.
+- The real run exposed outer Markdown fences and missing per-message IDs. The
+  service now strips only a whole-output fence, includes message IDs, and the
+  Project prompt embeds the exact daily-material skeleton.
+
+---
+
+# Memory review bug-fix findings (2026-07-11)
+
+- `MemoryReflectionService.run()` currently derives the reader date directly
+  from `now`; at the 03:00 schedule this selects the incomplete current day.
+- Candidate validation exceptions escape the extracted-item loop, so a single
+  malformed LLM item aborts its projection and prevents watermark advancement.
+- `MemoryGateway.embeddingConfigKey` records only configured/missing state, so
+  a provider API-key rotation is invisible to backend reconfiguration.
+- `MoryMemoryBackend` retries its configured embedder on every add/search after
+  failures; lexical fallback exists but has no temporary failure state.
+- `compact()` builds ID arrays and repeatedly calls `includes()` while scanning
+  records, yielding quadratic membership work at large record counts.
+
+---

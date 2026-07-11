@@ -478,8 +478,20 @@ export const defaultRuntimeSettings: RuntimeSettings = {
   qqBots: defaultQQBots,
   plugins: {
     memory: {
-      enabled: String(process.env.MEMORY_ENABLED ?? "false").toLowerCase() === "true",
-      backend: (process.env.MEMORY_BACKEND ?? process.env.MEMORY_CORE ?? "json-file").trim() || "json-file"
+      enabled: String(process.env.MEMORY_ENABLED ?? "true").toLowerCase() === "true",
+      backend: (process.env.MEMORY_BACKEND ?? process.env.MEMORY_CORE ?? "mory").trim() || "mory",
+      embeddingProviderId: String(process.env.MEMORY_EMBEDDING_PROVIDER_ID ?? "").trim(),
+      embeddingModel: String(process.env.MEMORY_EMBEDDING_MODEL ?? "").trim(),
+      reflectionTime: String(process.env.MEMORY_REFLECTION_TIME ?? "03:00").trim() || "03:00",
+      reflectionNotifications: String(process.env.MEMORY_REFLECTION_NOTIFICATIONS ?? "true").toLowerCase() !== "false",
+      dailyMaterials: {
+        enabled: false,
+        time: "23:30",
+        projectId: "",
+        dir: "content/daily-materials",
+        promptPath: "templates/daily-material-prompt.md",
+        notifications: true
+      }
     },
     cloudflareHtml: {
       ...defaultCloudflareHtmlPluginSettings

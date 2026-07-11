@@ -793,7 +793,9 @@ export class FeishuManager extends BaseChannelRuntime {
             event.isEvent ? "system" : "user",
             event.text,
             "session_user_append_failed",
-            { chatId: scopeId, scopeId }
+            { chatId: scopeId, scopeId },
+            undefined,
+            event.platformMessageId
         );
 
         const runner = this.runners.get(scopeId, activeSessionId);

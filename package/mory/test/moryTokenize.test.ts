@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   cjkBigrams,
+  jaccardLexicalSimilarity,
   normalizeForMatch,
+  overlapLexicalSimilarity,
   scoreLexical,
   tokenizeWords,
 } from "../src/index.js";
@@ -67,4 +69,10 @@ test("cjkBigrams: skips pure function-char pairs and non-CJK runs", () => {
 
 test("normalizeForMatch: lowercases and collapses whitespace", () => {
   assert.equal(normalizeForMatch("  Hello   World  "), "hello world");
+});
+
+test("shared similarity uses the same CJK bigram channel", () => {
+  assert.ok(jaccardLexicalSimilarity("主人偏好短版回复", "短版回复") > 0);
+  assert.ok(overlapLexicalSimilarity("需要调研公司", "调研") > 0);
+  assert.equal(overlapLexicalSimilarity("今天天气", "短版回复"), 0);
 });

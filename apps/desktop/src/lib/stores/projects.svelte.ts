@@ -6,6 +6,7 @@ import {
   loadDesktopProjectSession,
   loadDesktopProjectSessions,
   loadDesktopProjects,
+  patchDesktopProject,
   renameDesktopProjectSession,
   type DesktopProject,
   type DesktopProjectMessage,
@@ -158,15 +159,40 @@ export async function removeProjectSession(conversationId: string): Promise<void
   }
 }
 
-export async function removeProject(removeSessions: boolean): Promise<void> {
-  if (!projectsStore.selectedProjectId || projectsStore.busy) return;
+export async function removeProject(projectId: string, removeSessions: boolean): Promise<boolean> {
+  if (!projectId || !projectsStore.endpoint || projectsStore.busy) return false;
   projectsStore.busy = "delete";
+  projectsStore.error = "";
   try {
-    await deleteDesktopProject(projectsStore.endpoint, projectsStore.selectedProjectId, removeSessions);
-    projectsStore.selectedProjectId = "";
-    await loadProjects(projectsStore.endpoint);
+    await deleteDesktopProject(projectsStore.endpoint, projectId, removeSessions);
+    projectsStore.projects = projectsStore.projects.filter((item) => item.id !== projectId);
+    if (projectsStore.selectedProjectId === projectId) {
+      projectsStore.selectedProjectId = "";
+      projectsStore.selectedSessionId = "";
+      projectsStore.sessions = [];
+      projectsStore.messages = [];
+    }
+    return true;
   } catch (cause) {
     projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+    return false;
+  } finally {
+    projectsStore.busy = "";
+  }
+}
+
+export async function renameProject(projectId: string, name: string): Promise<boolean> {
+  const trimmed = name.trim();
+  if (!projectId || !trimmed || !projectsStore.endpoint || projectsStore.busy) return false;
+  projectsStore.busy = "rename-project";
+  projectsStore.error = "";
+  try {
+    const updated = await patchDesktopProject(projectsStore.endpoint, projectId, { name: trimmed });
+    projectsStore.projects = projectsStore.projects.map((item) => item.id === projectId ? updated : item);
+    return true;
+  } catch (cause) {
+    projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+    return false;
   } finally {
     projectsStore.busy = "";
   }

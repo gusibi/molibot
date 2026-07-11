@@ -20,6 +20,15 @@ export interface EventStatus {
 }
 
 export type EventDeliveryMode = "text" | "agent";
+export type EventExecutionMode = "channel" | "internal";
+export type InternalEventKind = "memory-reflection" | "daily-materials";
+
+export interface InternalEventTarget {
+  ownerId: string;
+  botId: string;
+  timezone: string;
+  sourceScopes: Array<{ channel: string; externalUserId: string; projectId?: string; shareOwner?: boolean }>;
+}
 
 // fresh: run each trigger in a brand-new session (no accumulated chat history);
 // chat: append to the chat's active session (legacy behavior).
@@ -33,6 +42,14 @@ interface EventBase {
   text: string;
   // text: send text directly; agent: run through AI agent first, then send result.
   delivery?: EventDeliveryMode;
+  execution?: EventExecutionMode;
+  internal?: {
+    kind: InternalEventKind;
+    notificationChatId?: string;
+    target: InternalEventTarget;
+    promptPath?: string;
+    output?: { projectId: string; dir?: string };
+  };
   sessionMode?: EventSessionMode;
   status?: EventStatus;
 }

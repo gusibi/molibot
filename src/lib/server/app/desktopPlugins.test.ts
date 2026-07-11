@@ -99,3 +99,10 @@ test("plugin save preserves omitted passwords, replaces or clears explicitly", (
   const cleared = buildDesktopPluginsSettings(settings, catalog, { memoryEnabled: false, memoryBackend: "json-file", values: {}, clearSecrets: { publish: ["secretAccessKey"] } });
   assert.equal(cleared.cloudflareHtml.secretAccessKey, "");
 });
+
+test("plugin save validates and persists daily materials project settings", () => {
+  const settings = { plugins: { memory: { enabled: true, backend: "mory", dailyMaterials: { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true } }, cloudflareHtml: {}, hooks: [] } } as unknown as RuntimeSettings;
+  const input = { memoryEnabled: true, memoryBackend: "mory", memoryEmbeddingProviderId: "", memoryEmbeddingModel: "", memoryReflectionTime: "03:00", memoryReflectionNotifications: true, memoryDailyMaterials: { enabled: true, time: "22:45", projectId: "momo-agent", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: false }, values: {} };
+  const saved = buildDesktopPluginsSettings(settings, { channels: [], providers: [], features: [], memoryBackends: [{ key: "mory" }] } as PluginCatalog, input, { get: (id: string) => id === "momo-agent" ? { id } : null } as any);
+  assert.deepEqual(saved.memory.dailyMaterials, input.memoryDailyMaterials);
+});

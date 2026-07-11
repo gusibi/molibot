@@ -198,6 +198,7 @@
   let filePanelOpen = false;
   let previewFile: DesktopSessionFile | null = null;
   let previewUrl = "";
+  let copiedPath = "";
 
   let onboardingDismissed = localStorage.getItem(FIRST_LAUNCH_SEEN_KEY) === "1";
   let onboardingMode: FirstLaunchClassification = "new";
@@ -1008,6 +1009,14 @@
     }
   }
 
+  async function copyPath(path: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(path);
+      copiedPath = path;
+      setTimeout(() => { if (copiedPath === path) copiedPath = ""; }, 1200);
+    } catch { /* clipboard unavailable */ }
+  }
+
   function formatFileSize(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
     const units = ["B", "KB", "MB", "GB"];
@@ -1733,6 +1742,11 @@
                 </div>
               </div>
               <div class="file-actions">
+                {#if file.local}
+                  <button type="button" aria-label={copy.projectCopyPath} title={copy.projectCopyPath} onclick={() => void copyPath(file.local)}>
+                    <i class={`ph ph-${copiedPath === file.local ? "check" : "copy"}`} aria-hidden="true"></i>
+                  </button>
+                {/if}
                 {#if canPreview(file)}
                   <button type="button" aria-label={copy.preview} title={copy.preview} onclick={() => openPreview(file)}><i class="ph ph-eye" aria-hidden="true"></i></button>
                 {/if}

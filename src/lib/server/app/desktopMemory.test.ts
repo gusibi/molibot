@@ -16,7 +16,7 @@ function caps(overrides: Partial<MemoryBackendCapabilities> = {}): MemoryBackend
 
 test("buildDesktopMemorySummary maps config + runtime state + capabilities", () => {
   const summary = buildDesktopMemorySummary(
-    { plugins: { memory: { enabled: true, backend: "mory" } } } as RuntimeSettings,
+    { plugins: { memory: { enabled: true, backend: "mory", embeddingProviderId: "", embeddingModel: "" } } } as RuntimeSettings,
     { enabled: true, capabilities: caps() }
   );
 
@@ -27,7 +27,10 @@ test("buildDesktopMemorySummary maps config + runtime state + capabilities", () 
     hybridSearch: true,
     vectorSearch: false,
     incrementalFlush: true,
-    layeredMemory: false
+    layeredMemory: false,
+    domains: false,
+    versioning: false,
+    candidates: false
   });
 });
 

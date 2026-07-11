@@ -180,6 +180,18 @@ export type ChannelSettingsMap = Record<string, ChannelPluginSettings>;
 export interface MemoryBackendSettings {
   enabled: boolean;
   backend: string;
+  embeddingProviderId: string;
+  embeddingModel: string;
+  reflectionTime: string;
+  reflectionNotifications: boolean;
+  dailyMaterials: {
+    enabled: boolean;
+    time: string;
+    projectId: string;
+    dir: string;
+    promptPath: string;
+    notifications: boolean;
+  };
 }
 
 export interface CloudflareHtmlPluginSettings {

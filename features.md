@@ -7,6 +7,48 @@
 ---
 ## 2026-07-11
 
+### macOS 规范桌面图标与头像处理（已完成）
+- 使用 Python Pillow 对方形头像 `momo-happy-icon.png` 进行了符合 macOS app icon 指南（HIG）的裁剪和样式化：生成了居中于 1024x1024 透明画布的 824x824 圆角主体，配合 225px 拐角半径（corner radius）、双层柔和投影和 1px 细微描边。
+- 覆盖替换了 `apps/desktop/public/molibot-icon.png` 资源，并利用 `tauri icon` 生成工具重新构建了包含 ICNS、ICO、各尺寸 PNG 格式的桌面端全平台应用图标（输出至 `apps/desktop/src-tauri/icons/`）。
+- 验证：Tauri 图标生成脚本运行正常，Svelte 界面引用该头像时通过 `object-fit: cover` 结合 `border-radius: 50%` 自动隐藏透明外边距，在前端 UI 和系统 Dock 栏均呈现符合规范的完美比例。
+
+### Daily Materials 内置素材任务（已完成）
+- 新增 `daily-materials` internal watched event：复用授权会话只读投影，但使用独立 watermark，按项目内可编辑模板生成上一完整本地日的素材文件，不进入普通 Agent Runner 或会话历史。
+- 输出严格限定在已注册 Project 的相对目录；无效 Project、路径/软链接越界、疑似凭据、失败或 abort 均不推进 watermark，也不降级写 scratch。已有日期文件按“补充”段追加。
+- Desktop Memory 设置支持启用、时间、输出 Project、目录、模板和完成通知；managed event 随保存重建并保留状态，Automation 手动触发 internal 任务时走共享 runtime 分发。
+- momo-agent 已补齐每日提取提示词、月度复盘模板和自动化接入说明；素材目录与资产 catalog 核对一致。
+
+### Desktop 项目文件面板 Header 高度对齐（已完成）
+- 移除了项目文件面板（`.file-panel`）的 `padding-top: 32px`，并将其 Header（`.file-panel-head`）的 height 从 `48px` 调整为 `60px`。
+- 确保了右侧文件面板的 Header 与中间聊天区域的 Header（`.chat-header`）高度完全一致且顶边对齐，横向分割线完美连贯。
+
+### Desktop 项目创建目录确认修复（已完成）
+- 选择已有目录后会保留并展示所选路径，同时出现明确的“创建项目”主按钮；提交失败时路径不丢失，可直接重试，不再停在只有“返回 / 取消”的界面。
+- 两个 Desktop 项目创建入口保持一致，并补齐中英文、明暗主题 token 样式与回归测试；Svelte check 0 error / 0 warning。
+
+### Desktop 项目删除入口（已完成）
+- 项目标题 hover/focus 操作区新增 `…` 更多菜单，首批提供“重命名项目”和“删除项目”；重命名通过细粒度 Project API 即时更新侧栏。
+- 删除确认弹窗明确默认只移除 Molibot 项目登记，不触碰本地工作目录。
+- 可选同时删除该项目的 Molibot 对话记录；支持删除当前或非当前项目，并在成功后清理对应侧栏状态。
+
+### Memory 每日反思时间与完成通知（已完成）
+- Plugins 的 Memory 设置新增本地 `HH:mm` 每日反思时间和完成通知开关，默认 `03:00`；保存后 runtime 立即重启 scheduler，并只改写 Molibot 管理的 reflection event，保留既有执行状态。
+- 内部反思仍绕过普通 Runner；仅当新增候选时，向该 Bot 的首个允许 Chat ID 发送一条独立直达通知，零候选、失败或中止均不发送。
+- Desktop 控件使用既有设置表单、Switch、固定保存底栏和双语文案；验证聚焦设置/调度/Desktop/API 84/84、Svelte check 0/0。
+
+### Memory review 稳定性修复（已完成）
+- 每日 03:00 反思改为处理上一个完整本地日，避免当天 03:00–24:00 的消息永久漏扫；单个无效 LLM 候选只跳过自身，存储类异常仍中止以保留重试语义。
+- embedding 配置缓存现在用 API key 的 SHA-256 摘要识别轮换（不记录密钥）；首次 provider 失败后进入 60 秒冷却，期间 add/search 直接走 lexical，避免每次请求重复触网。
+- mory compact 的过期/重复 ID membership 改为 `Set`，10,000 条扫描不再退化为数组线性查找叠加的 O(n²)。
+- **验证**：五个 review 点先红后绿，并补充基础设施失败保护；Memory 全套 24/24、调度器/Desktop/API 71/71 通过。
+
+### Memory 改进计划 v2.2 剩余批次（已完成）
+- **T1b/T4 检索**：mory 写入门控、冲突、consolidation 与 retrieve 统一使用 CJK word+bigram tokenizer；retrieve 支持显式多 namespace/domain 合并。可在 Plugins 中配置 OpenAI-compatible embedding Provider/模型，向量不可用自动回退 lexical；存量向量按模型版本可中断回填。
+- **T3/T5 反思与 Inbox**：即时 flush 只处理显式“记住”；默认每日 03:00 创建 internal watched event，经只读 ReflectionSourceReader 扫描 Web/Project/外部 context，不写会话、不发渠道消息。候选使用独立 SQLite、watermark/fingerprint 幂等，confirm 是唯一正式写入入口，ignore 生成确定性 suppression；importer 与 json-file 迁移默认进候选治理。
+- **T6b/T7 应用与审计**：Memory 工具支持 content 防重检索、content/agent_self 结构化写入；Desktop Inbox 支持编辑确认/忽略，正式记忆展示 namespace/domain/type、reason、sources、来源对话、版本历史、冲突、过期与 pin。compact 会归档过期/重复/超容量低保留项，pin 全程豁免。
+- **默认值**：新安装默认启用 Memory 并选择 mory；旧配置仍由 sanitizer 保持显式值。
+- **验证**：mory 184/184；Memory/事件/桌面核心验收 19/19；产品/审计场景 14/14；Desktop/API 全量回归 181/181；Desktop Svelte check 0/0；production build 与 diff check 通过。
+
 ### 历史文档归档
 - 实施了 `CHANGELOG.md` 和 `prd.md` 的归档方案。为了防止文件无限追加超过 256KB 的 Agent 读取限制，将 2026 Q1（2-3月）和 Q2（4-6月）的历史记录搬移到 `docs/archive/` 目录中。
 - 生成了四个归档文件：`docs/archive/changelog-2026-Q1.md`、`docs/archive/changelog-2026-Q2.md`、`docs/archive/prd-archive-2026-Q1.md`、`docs/archive/prd-archive-2026-Q2.md`。

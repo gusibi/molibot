@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { config } from "$lib/server/app/env.js";
 import { EventsWatcher } from "$lib/server/agent/events.js";
@@ -6,6 +6,115 @@ import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
 import type { ChannelManager } from "$lib/server/channels/registry.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { MomEvent } from "$lib/server/agent/events.js";
+
+export async function dispatchTaskEvent(
+  event: MomEvent,
+  filename: string,
+  manager: ChannelManager,
+  runInternalEvent?: (event: MomEvent, filename: string) => Promise<{ notificationText?: string } | void>
+): Promise<void> {
+  if (event.execution === "internal") {
+    if (!runInternalEvent) throw new Error("Internal event handler is not configured.");
+    const result = await runInternalEvent(event, filename);
+    if (result?.notificationText && event.internal?.notificationChatId && manager.triggerTask) {
+      await manager.triggerTask({ type: "immediate", chatId: event.internal.notificationChatId, text: result.notificationText, delivery: "text" }, `${filename}:notification`);
+    }
+    return;
+  }
+  if (typeof manager.triggerTask !== "function") throw new Error("Channel manager does not support scheduled tasks.");
+  await manager.triggerTask(event, filename);
+}
+
+export function ensureMemoryReflectionEvent(eventsDir: string, channel: string, botId: string, settings?: RuntimeSettings): string | null {
+  if (!settings?.plugins.memory.enabled || settings.plugins.memory.backend !== "mory") return null;
+  const instance = settings.channels?.[channel]?.instances?.find((item) => item.id === botId);
+  const chatIds = channel === "web"
+    ? [`web:${botId}:web-anonymous`]
+    : (instance?.allowedChatIds ?? []);
+  if (chatIds.length === 0) return null;
+  const filePath = join(eventsDir, "memory-reflection.json");
+  const [hour, minute] = (settings.plugins.memory.reflectionTime || "03:00").split(":").map(Number);
+  const event: MomEvent = {
+    type: "periodic",
+    enabled: true,
+    taskId: `memory-reflection-${botId}`,
+    chatId: "internal-memory-reflection",
+    text: "",
+    schedule: `${minute} ${hour} * * *`,
+    timezone: settings.timezone,
+    execution: "internal",
+    internal: {
+      kind: "memory-reflection",
+      notificationChatId: settings.plugins.memory.reflectionNotifications ? chatIds[0] : undefined,
+      target: {
+        ownerId: "owner",
+        botId,
+        timezone: settings.timezone,
+        sourceScopes: chatIds.map((externalUserId) => ({ channel, externalUserId }))
+      }
+    }
+  };
+  if (existsSync(filePath)) {
+    try {
+      const current = JSON.parse(readFileSync(filePath, "utf8")) as typeof event;
+      if (current.taskId === event.taskId && current.schedule === event.schedule && current.internal?.notificationChatId === event.internal.notificationChatId) return filePath;
+      event.status = current.status;
+    } catch { /* replace malformed managed event */ }
+  }
+  writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+  return filePath;
+}
+
+export function ensureDailyMaterialsEvent(eventsDir: string, channel: string, botId: string, settings?: RuntimeSettings): string | null {
+  const filePath = join(eventsDir, "daily-materials.json");
+  const configured = settings?.plugins.memory.dailyMaterials;
+  if (!configured?.enabled || !configured.projectId.trim()) {
+    if (!existsSync(filePath)) return null;
+    try {
+      const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
+      if (current.enabled !== false) writeFileSync(filePath, `${JSON.stringify({ ...current, enabled: false }, null, 2)}\n`, "utf8");
+    } catch { /* leave malformed files for the watcher to report */ }
+    return null;
+  }
+  const instance = settings?.channels?.[channel]?.instances?.find((item) => item.id === botId);
+  const chatIds = channel === "web" ? [`web:${botId}:web-anonymous`] : (instance?.allowedChatIds ?? []);
+  if (chatIds.length === 0) return null;
+  const [hour, minute] = (configured.time || "23:30").split(":").map(Number);
+  const event: MomEvent = {
+    type: "periodic",
+    enabled: true,
+    taskId: `daily-materials-${botId}`,
+    chatId: "internal-daily-materials",
+    text: "",
+    schedule: `${minute} ${hour} * * *`,
+    timezone: settings.timezone,
+    execution: "internal",
+    internal: {
+      kind: "daily-materials",
+      notificationChatId: configured.notifications ? chatIds[0] : undefined,
+      target: {
+        ownerId: "owner",
+        botId,
+        timezone: settings.timezone,
+        sourceScopes: chatIds.map((externalUserId) => ({ channel, externalUserId }))
+      },
+      promptPath: configured.promptPath,
+      output: { projectId: configured.projectId, dir: configured.dir }
+    }
+  };
+  if (existsSync(filePath)) {
+    try {
+      const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
+      const currentComparable = { ...current, status: undefined };
+      const nextComparable = { ...event, status: undefined };
+      if (JSON.stringify(currentComparable) === JSON.stringify(nextComparable)) return filePath;
+      event.status = current.status;
+    } catch { /* replace malformed managed event */ }
+  }
+  writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+  return filePath;
+}
 
 /**
  * Desktop automations are watched by this shared scheduler at
@@ -45,6 +154,8 @@ export function migrateLegacyWebTaskEvents(botsRoot: string): string[] {
 
 export class TaskScheduler {
   private watchers: EventsWatcher[] = [];
+
+  constructor(private readonly runInternalEvent?: (event: import("$lib/server/agent/events.js").MomEvent, filename: string) => Promise<{ notificationText?: string } | void>) {}
 
   start(channelManagers: Map<string, Map<string, ChannelManager>>, settings?: RuntimeSettings): void {
     this.stop();
@@ -91,6 +202,8 @@ export class TaskScheduler {
           mkdirSync(eventsDir, { recursive: true });
           momLog("taskScheduler", "events_dir_created", { channel, botId, eventsDir });
         }
+        ensureMemoryReflectionEvent(eventsDir, channel, botId, settings);
+        ensureDailyMaterialsEvent(eventsDir, channel, botId, settings);
 
         const watcher = new EventsWatcher(
           eventsDir,
@@ -103,7 +216,7 @@ export class TaskScheduler {
               chatId: event.chatId,
               delivery: event.delivery
             });
-            return manager.triggerTask!(event, filename);
+            return dispatchTaskEvent(event, filename, manager, this.runInternalEvent);
           },
           {
             channel,
