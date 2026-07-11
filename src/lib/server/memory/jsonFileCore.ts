@@ -1,6 +1,7 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import { scoreLexical } from "../../../../package/mory/src/index.js";
 import type { SessionStore } from "$lib/server/sessions/store.js";
 import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/storage.js";
 import type { Channel } from "$lib/shared/types/message.js";
@@ -41,16 +42,10 @@ function normalizeContent(input: string): string {
   return input.replace(/\s+/g, " ").trim();
 }
 
+// CJK-aware lexical scoring (T1a): shared mory tokenizer replaces the old
+// whitespace-token substring loop, which could not segment Chinese queries.
 function scoreByQuery(content: string, query: string): number {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return 1;
-  const target = content.toLowerCase();
-  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  let score = 0;
-  for (const token of tokens) {
-    if (target.includes(token)) score += 1;
-  }
-  return score;
+  return scoreLexical(content, query);
 }
 
 function scoreByRecency(updatedAt: string): number {

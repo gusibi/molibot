@@ -1,6 +1,15 @@
 # Molibot ChangeLog
 
+## 2026-07-11
+
+### Desktop automation state auto-refresh and sidebar leak fix
+- Fixed an issue where scheduled task runs executed with `sessionMode: "chat"` would leak event conversations into the left sidebar's chat tree due to missing `origin: "automation"` flags on reused conversations.
+- Introduced an auto-refresh workflow for the Desktop automation workspace page (`TasksSection.svelte`). It integrates automatic reloading `onMount`, page-visible revalidation via the browser Page Visibility API, and a 30-second interval poll to ensure task statuses are dynamically updated when tasks fire background triggers.
+
 ## 2026-07-10
+
+### Memory search CJK tokenization (Memory Plan T1a)
+- Added a shared CJK-aware tokenizer to the mory SDK (`moryTokenize.ts`: Intl.Segmenter word segmentation + CJK character bigrams + stopword filtering + query-weight normalization) and switched all three host keyword-scoring sites to it (mory backend, json-file backend, prompt memory-row selection). Chinese queries previously collapsed into a single whitespace token, degrading memory search to whole-sentence substring matching.
 
 ### DuckDuckGo / Web Search UX polish
 - Polished the built-in search tool response summary to distinguish between successful queries with no search results and configuration errors. When a search engine successfully queries but returns 0 results, the system now returns "No search results found." instead of "No configured search engine returned results.".

@@ -412,6 +412,9 @@ export class SessionStore {
         const located = this.resolveSessionStorage(found.id);
         if (located) {
           located.file.conversation.updatedAt = now;
+          if (opts?.origin && !located.file.conversation.origin) {
+            located.file.conversation.origin = opts.origin;
+          }
           if (located.type === "web") {
             writeWebSession(located.externalUserId, located.file);
           } else if (located.type === "project") {
@@ -430,6 +433,9 @@ export class SessionStore {
       const located = this.resolveSessionStorage(latest.id);
       if (located) {
         located.file.conversation.updatedAt = now;
+        if (opts?.origin && !located.file.conversation.origin) {
+          located.file.conversation.origin = opts.origin;
+        }
         if (located.type === "web") {
           writeWebSession(located.externalUserId, located.file);
         } else if (located.type === "project") {

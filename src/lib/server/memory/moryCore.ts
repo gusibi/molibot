@@ -5,7 +5,8 @@ import { readJsonFile, storagePaths, writeJsonFile } from "$lib/server/infra/db/
 import type { Channel } from "$lib/shared/types/message.js";
 import {
   MoryEngine,
-  createSqliteStorageAdapter
+  createSqliteStorageAdapter,
+  scoreLexical
 } from "../../../../package/mory/src/index.js";
 import type { PersistedMemoryNode, SqliteStorageAdapter } from "../../../../package/mory/src/index.js";
 import type {
@@ -77,16 +78,11 @@ function isExpired(item: MemoryRecord, nowMs: number): boolean {
   return Number.isFinite(ts) && ts <= nowMs;
 }
 
+// CJK-aware lexical scoring (T1a): whitespace splitting turned Chinese
+// queries into one giant token; the shared mory tokenizer segments words and
+// backs them with character bigrams.
 function scoreByQuery(content: string, query: string): number {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return 1;
-  const target = content.toLowerCase();
-  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  let score = 0;
-  for (const token of tokens) {
-    if (target.includes(token)) score += 1;
-  }
-  return score;
+  return scoreLexical(content, query);
 }
 
 function scoreByRecency(updatedAt: string): number {

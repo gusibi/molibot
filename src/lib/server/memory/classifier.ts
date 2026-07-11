@@ -1,3 +1,4 @@
+import { scoreLexical } from "../../../../package/mory/src/index.js";
 import type { MemoryAddInput, MemoryLayer, MemoryRecord } from "$lib/server/memory/types.js";
 
 export interface MemoryWriteAssessment {
@@ -290,10 +291,9 @@ function memoryPriority(row: MemoryRecord, query: string): number {
   if (tags.has("class:lifestyle")) score += queryLifestyle ? 4 : -12;
 
   if (queryLower) {
-    const tokens = queryLower.split(/\s+/).filter(Boolean);
-    for (const token of tokens) {
-      if (row.content.toLowerCase().includes(token)) score += 1;
-    }
+    // CJK-aware lexical relevance (T1a), scaled to compete with the class
+    // weights above without drowning them out.
+    score += scoreLexical(row.content, queryLower) * 4;
   }
 
   return score;

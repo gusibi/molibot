@@ -1,5 +1,17 @@
 # Molibot PRD (V1)
 
+## 2.41 Desktop Automation State Refresh & Sidebar Leak Fix (2026-07-11)
+- [Done] 修复定时任务在 `sessionMode=chat` 下执行时，因复用已有会话导致 `origin: "automation"` 标记丢失，使 event 对话泄露到左侧 Sidebar 对话树中的问题。
+- [Done] 引入定时任务面板的自动更新机制：结合 `onMount` 初次强制刷新、浏览器 Page Visibility API（恢复焦点即刷新）与 30 秒定时轮询，确保页面在长期停滞后依然能呈现最新触发任务的运行状态。
+
+## 2.40 Project Session File Provenance and Inspection (2026-07-11)
+- [Decided] Project 文件与 Git 变更采用全局实时视角，不再按 Session/run 归因，也不建设 `TurnFileProvenance`、文件 baseline、manifest 或 SQLite effect ledger。任意 Project Session 打开文件面板，都看到同一份当前文件树和 Git 工作区状态。
+- [Planned, P1] Project Desktop 提供 Project-aware 的 **文件 / 变更 / 附件** 视图：文件树和 Git status/diff 属于 Project 全局；附件沿用现有会话消息和附件存储，只显示当前 Session。非 Git Project 不模拟变更历史。
+- [Planned, P1] 新增只读 ProjectInspection：仅在注册 Project root 下执行受限的目录/Git 查询，所有 API 返回相对路径；必须处理 Git 不可用、嵌套仓库、软链接逃逸、未跟踪文件、二进制、大目录/大 diff 截断，并隔离 Git config、pager、external diff 与 textconv。
+- [Planned, P0] Project 模式立即禁用 Bash 基于 mtime 的根文件自动搬家，并把 `.mom-tool-output` 移到 Project runtime，避免用户并发保存的正常项目文件被移动或 Molibot 元数据污染 Project root。
+- [Decided] Project 输出使用显式 `target: project | scratch`：文本 `write/edit` 默认写 Project，媒体/下载/转换默认写 runtime scratch 日期目录；工具返回结构化最终路径供卡片展示，但不把它当作完整修改历史。删除 Session 或 Project history 永不触碰用户 Project root。
+- 详细契约、数据模型、接口、安全边界、实施切片与验收矩阵见 `docs/requirements/project-session-provenance-and-inspection.md`。
+
 ## 2.39 DuckDuckGo Search UX Polish (2026-07-10)
 - [Done] 区分“未配置任何可用引擎”和“成功调用但无结果”，当有成功尝试但返回 0 条结果时，正确提示 `"No search results found."`。
 - [Done] 修复搜索引擎测试或调用中，若引擎正常工作但没有返回结果，错误地提示配置错误（"No configured search engine returned results."）的问题。
@@ -18,7 +30,7 @@
 ## 2.36 Memory System Improvement Plan v2.2 (2026-07-10)
 - 背景：定位收敛为「记忆优先、可审计、长期陪伴的个人 Agent」（魔魔计划）；审计发现 mory SDK 能力足够但宿主接线不足。经三轮外部 review 修订至 v2.2，详细契约、任务书与端到端验收见 `docs/requirements/memory-improvement-plan.md`。
 - [Decided] C0 统一契约：**mory 为唯一正式后端**（owner 决策 2026-07-10，`MemoryBackend` 插拔接口保留供未来接入其他记忆工具，json-file 转维护模式 + 迁移）；**namespace（owner/chat/project/agent/content 编码）是 mory 的检索隔离键，domain 只做审计与注入策略标签，注入由显式 query plan 合并 namespace，content 绝不自动注入普通聊天**（v2.1）；三入口写入状态机（显式记住直写 / 反思抽取进候选 / importer 收编治理），**候选确认唯一入口 `gateway.confirmCandidate`：reload → revalidate → 策略 → ingest → 原子确认，编辑后必须重校验，任何入口不得绕过（v2.2）**；**反思运行契约**：watched-event `execution:"internal"` → MemoryReflectionService（**不经聊天 Runner、不写会话消息、不向用户外泄过程，通知为成功后的独立步骤**，v2.2），幂等键 ReflectionTargetId(hash of owner+bot+timezone+scopes)+localDate + per-conversation watermark + 候选 fingerprint，重试幂等、中断不推进，输入经 ReflectionSourceReader 只读投影（messages + 可选 Summary，可降级）；溯源为多消息数组（conversationMessageId 必填 + platformMessageId 可选）；layer/retention 与 lowConfidencePath 入契约；Summary 定位为会话连续性输入而非长期记忆。
-- [Planned, P0] T1a 宿主中文分词止血：`package/mory/src/moryTokenize.ts`（Intl.Segmenter + CJK bigram + 停用词降权），替换三处按空格切词的打分，无依赖可立即做。
+- [Done] T1a 宿主中文分词止血：`package/mory/src/moryTokenize.ts`（Intl.Segmenter + CJK bigram + 停用词降权 + query 归一），替换三处按空格切词的打分（moryCore / jsonFileCore / classifier.memoryPriority）；mory 179 测试 + 宿主 classifier 中文单测通过。
 - [Planned, P1] T1b mory 全链路统一 tokenizer：宿主检索 / prompt 行选择 / moryRetrieval / writeGate 去重冲突四个消费点强制统一，防止 T4 接管后中文匹配回退。
 - [Planned, P1] T2 稳定路径与版本链激活：路径主来源为 extractor 完整输出（domain+type+subject+path），inferFactKey 仅低置信兜底且不落共享路径（防「喜欢简洁」覆盖「喜欢中文」）；与 T6a 同批做一次 schema 变更。
 - [Planned, P1] T3 双链路抽取：即时链路只处理显式「记住」（廉价）；每日反思走 watched-event `execution:"internal"` 内部执行（不经聊天 Runner、不污染会话、不外发过程，通知独立，v2.2），按 ReflectionTarget 经 SourceReader 批量读当天增量 + 可选 Summary + 既有记忆，产出结构化候选进 Inbox，**不再挂在 per-message flush 上**；同 RunKey 重试幂等、中断不推进 watermark。

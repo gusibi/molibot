@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, onDestroy } from "svelte";
   import { session } from "../stores/session.svelte";
   import type { DesktopTaskSummary } from "@molibot/desktop-contract";
   import { timezoneOptions } from "./timezones";
@@ -14,6 +15,7 @@
     isTaskUpdating,
     loadTaskHistoryPage,
     loadTasks,
+    refreshTasks,
     openTaskSession,
     saveTaskCreate,
     saveTaskEditor,
@@ -36,6 +38,44 @@
       void loadTasks(session.endpoint);
     }
   });
+
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  function onVisibilityChange(): void {
+    if (!document.hidden && session.serviceReady && session.endpoint) {
+      void refreshTasks();
+    }
+  }
+
+  function startTaskPolling(): void {
+    stopTaskPolling();
+    pollTimer = setInterval(() => {
+      if (!document.hidden && session.serviceReady && session.endpoint) {
+        void refreshTasks();
+      }
+    }, 30_000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+  }
+
+  function stopTaskPolling(): void {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  }
+
+  onMount(() => {
+    if (session.serviceReady && session.endpoint && tasksStore.endpoint) {
+      void refreshTasks();
+    }
+    startTaskPolling();
+  });
+
+  onDestroy(() => {
+    stopTaskPolling();
+  });
+
 
   const filteredTaskItems = $derived(
     tasksStore.tasks?.items.filter((item) => !tasksStore.query.trim() || [item.text, item.channel, item.botId, item.chatId, item.status, item.type].join("\n").toLowerCase().includes(tasksStore.query.trim().toLowerCase())) ?? []

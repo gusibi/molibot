@@ -102,6 +102,48 @@ rules, and contextual header format.
 - A task's `enabled: false` value now remains in its watched event JSON. The
   watcher cancels any existing schedule and skips dispatch for that file;
   the task API rejects manual triggers while paused as an additional guard.
+
+## Project session file provenance and change visibility (2026-07-11)
+
+- Current assistant attachments are explicit uploads only: the stream/chat routes
+  call `saveWebResponseAttachment` when a tool invokes `uploadFile`, then append
+  them to the assistant conversation message.
+- Tool activity persists labels and summaries, but no structured changed-path or
+  Git-diff facts. A project-session replay therefore cannot reconstruct which
+  project files a turn created, edited, deleted, or renamed.
+- Project runs use the external project root as tool cwd while their runtime
+  context lives under `projects/<projectId>/runtime`; this provides the correct
+  seam for storing provenance outside the user project root.
+- `/api/web/files` is an attachment browser, not a project-file browser: it
+  resolves only ordinary Web conversations and only attachment copies stored
+  inside that conversation workspace. It cannot list project-root files, nor
+  project-session attachments.
+- The Desktop Project header opens the same `filePanelOpen` state as normal
+  chat, but the backing file query is still scoped to the active ordinary Web
+  profile/session. Project files therefore have no working backing adapter.
+- No server module exposes a project tree, filesystem snapshot/diff, Git
+  status, or Git diff. `git` currently exists only as an agent bash command,
+  whose textual output is reduced to an activity summary.
+- `RunnerUiEvent.tool_execution_end` carries only a display summary and error
+  state. Tool results discard structured changed paths, so even a successful
+  write/edit/bash call cannot be attributed to a user turn after replay.
+- Generated output is only visible when a tool explicitly calls `uploadFile`.
+  That path copies bytes into the runtime attachment directory and attaches the
+  copy to an assistant message; it loses the source project's relative path and
+  does not cover ordinary write/edit/bash changes.
+- The existing `runId`, run-detail archive, and SQLite trace facts already give
+  each execution a stable identity, but neither the conversation messages nor
+  the archived run details expose a turn-to-file record. They are the natural
+  integration points; a second parallel session store is unnecessary.
+- Recommended design: retain `runId` as the provenance key; add a shared
+  turn-file ledger for every channel/session plus a Project-only read-only
+  inspection module for the live file tree and scoped Git view. The UI must
+  label filesystem results as "observed during this turn", because a user or
+  external process can change files concurrently.
+- The review-ready contract is recorded in
+  `docs/requirements/project-session-provenance-and-inspection.md`; it rejects
+  unbounded snapshots, generic filesystem browsing, and false Agent-authorship
+  claims while preserving durable session/run provenance.
 - The frontend now separates page-level destructive busy state from per-task
   running and update sets. This keeps concurrent task controls responsive and
   provides a stable local spinner for the task whose request is pending.

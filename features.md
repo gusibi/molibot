@@ -1,6 +1,19 @@
 # Molibot Features
 
+## 2026-07-11
+
+### 修复：自动任务执行 Session 泄漏与页面自动刷新
+- **修复 sidebar 泄漏**：在 `getOrCreateConversation` 查找或复用已有 conversation 时，如果传入 `origin: "automation"` 但已有会话没有此标记，现在会补写该 origin 标记。这解决了定时任务如果使用 `sessionMode: "chat"` 导致 event 对话泄露到左侧 Web 对话列表的问题。
+- **页面自动刷新与可见性监听**：给自动任务（`TasksSection.svelte`）增加了 `onMount` 挂载刷新、浏览器 Page Visibility API（切回标签页时立即更新）以及 30 秒定时轮询机制，让昨日打开的 app 数据在今日任务触发后能自动刷新，解决了页面停滞状态下数据不更新的问题。
+- **验证**：通过了 `svelte-check` 检查和桌面 app 全量 33 个单元测试（含 `TasksSection` 单元测试与 Rust 单元测试均 100% 绿灯）。
+
 ## 2026-07-10
+
+### 记忆检索中文分词（记忆改进计划 T1a）
+- 新增共享 tokenizer 模块 `package/mory/src/moryTokenize.ts`：`Intl.Segmenter("zh")` 词级切分 + CJK 字符 bigram 兜底（接住 ICU 把「调研」切成「调|研」的场景）+ 中英停用词过滤与单字降权 + 按 query 权重归一，输出 0..1 的 `scoreLexical`。零第三方依赖，不增加桌面打包负担。
+- 三处按空格切词的打分统一切换：`moryCore.ts` 与 `jsonFileCore.ts` 的 `scoreByQuery`（消除重复实现）、`classifier.ts` 的 `memoryPriority`（决定每轮 prompt 注入选哪些记忆）。此前中文查询整句成单 token，检索退化为整句子串匹配。
+- 纯虚词查询（如「的了吧」）不再可能命中全量记忆；空查询保持列表语义（match-all）不变。
+- **验证**：mory 包测试 179/179 通过（含新增 tokenizer 单测 11 项：「短版」命中、「调研」bigram 通道、虚词零分、中英混合、排序断言）；宿主新增 `src/lib/server/memory/classifier.test.ts` 2/2 通过；desktopMemory 与 sessions store 回归 7/7 通过。详见 `docs/requirements/memory-improvement-plan.md` T1a。
 
 ### 修复：DuckDuckGo 搜索零结果时的错误提示混淆
 - 修复了在搜索工具中，如果搜索引擎正常调用但没有任何结果返回，错误地显示为 "No configured search engine returned results."（未配置任何搜索引擎）的问题。

@@ -126,6 +126,51 @@ All planned phases are complete. The Desktop sidebar and project pane passed
 
 ---
 
+# Project session file provenance and change visibility analysis (2026-07-11)
+
+## Goal
+
+Define the smallest shared design that lets a user inspect, from a Project
+conversation, (1) files intentionally attached to that turn, (2) files created
+or changed by tools during that turn, and (3) the resulting project tree and
+Git diff. This is analysis only; no product code is changed in this phase.
+
+## Phases
+
+1. Map current attachment, tool-event, project-session, and Git integration paths — complete.
+2. Identify the gaps against turn-scoped provenance and project change visibility — complete.
+3. Propose the shared module/interface, data model, UI surfaces, migration, and verification plan — complete.
+
+## Decision constraints
+
+- Project roots remain the user's files. Never write Molibot metadata into them.
+- Scratch artifacts remain outside the project root and must retain session/run provenance.
+- Project tree and Git state are views of the real filesystem; do not cache them as the source of truth.
+- Cross-channel/runtime orchestration remains shared; Project UI only renders shared facts.
+
+## Proposed design
+
+- Add one shared `TurnFileProvenance` module. It records emitted artifacts for
+  every session/run and, for Project runs, compares a pre/post project manifest
+  to record observed created/modified/deleted paths. It stores durable facts by
+  `runId` and `sessionId` outside the project root.
+- Add a read-only `ProjectInspection` module. It lazily lists a bounded project
+  tree and returns Git status/diff scoped to the registered project root. It
+  never shells through the Agent and never exposes parent-repository paths.
+- Present two deliberately distinct views: `This turn` (run-scoped artifacts
+  and observed changes) and `Project changes` (live tree/Git working state).
+  This avoids falsely claiming that every current Git change was made by the
+  Agent.
+
+## Review-ready specification
+
+The complete review specification is now
+`docs/requirements/project-session-provenance-and-inspection.md`. It covers
+storage, privacy, concurrency, Git/non-Git behavior, lifecycle, UI, delivery
+slices, and verification. `prd.md` records the feature as planned P1.
+
+---
+
 # Automation workspace density refresh (2026-07-10)
 
 ## Goal

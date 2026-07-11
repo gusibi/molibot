@@ -1,0 +1,145 @@
+/**
+ * moryTokenize.ts
+ *
+ * Unified CJK-aware tokenizer and lexical scorer for memory search.
+ *
+ * Whitespace splitting cannot tokenize Chinese: a Chinese query becomes one
+ * giant token and matching degenerates to whole-sentence substring search.
+ * Word segmentation here uses the ICU dictionary via Intl.Segmenter; because
+ * ICU splits some domain words apart (调研 -> 调|研), a CJK character-bigram
+ * channel backs it up. Function words are filtered on both channels so a
+ * query like "的了" cannot match every record.
+ *
+ * This module is the single lexical-matching primitive for the memory stack
+ * (host keyword search, prompt row selection, and — per T1b — moryRetrieval
+ * and write-gate dedupe).
+ */
+
+const CJK_CHAR_RE = /[㐀-䶿一-鿿]/;
+
+const STOP_WORDS = new Set([
+  // zh function words
+  "的", "了", "是", "在", "有", "和", "与", "就", "都", "也", "很", "还",
+  "吗", "呢", "吧", "啊", "嘛", "呀", "哦", "嗯", "哈",
+  "这", "那", "这个", "那个", "这些", "那些", "一个", "一下", "一点",
+  "我", "你", "他", "她", "它", "我们", "你们", "他们", "她们", "它们",
+  "什么", "怎么", "怎样", "为什么", "因为", "所以", "但是", "不过", "而且",
+  "然后", "如果", "还是", "或者", "以及", "并且", "虽然", "可以", "可能",
+  "对", "把", "被", "给", "让", "从", "到", "会", "能", "要", "想", "说",
+  "来", "去", "又", "再", "只", "才", "等", "着", "过", "得", "地",
+  // en stopwords
+  "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+  "to", "of", "in", "on", "at", "for", "with", "and", "or", "not", "no",
+  "do", "does", "did", "have", "has", "had", "will", "would", "can",
+  "could", "should", "i", "you", "he", "she", "it", "we", "they", "me",
+  "my", "your", "his", "her", "its", "our", "their", "this", "that",
+  "these", "those", "what", "how", "why", "when", "where", "which",
+  "am", "so", "if", "as", "by", "from", "about", "into", "than", "then"
+]);
+
+// Single characters too weak to anchor a bigram: a bigram made of two of
+// these (e.g. 的了) carries no retrieval signal and would match everywhere.
+const STOP_CHARS = new Set(
+  "的了是在有和与就都也很还吗呢吧啊嘛呀哦嗯哈这那我你他她它对把被给让从到会能要想说来去又再只才等着过得地"
+);
+
+let cachedSegmenter: Intl.Segmenter | null | undefined;
+
+function getSegmenter(): Intl.Segmenter | null {
+  if (cachedSegmenter !== undefined) return cachedSegmenter;
+  try {
+    cachedSegmenter = new Intl.Segmenter("zh", { granularity: "word" });
+  } catch {
+    // ICU without segmentation data (small-icu builds); fall back to
+    // whitespace tokens + bigram channel.
+    cachedSegmenter = null;
+  }
+  return cachedSegmenter;
+}
+
+export function normalizeForMatch(input: string): string {
+  return String(input ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/** Dictionary word tokens (ICU), lowercased, stopwords removed. */
+export function tokenizeWords(text: string): string[] {
+  const normalized = normalizeForMatch(text);
+  if (!normalized) return [];
+  const segmenter = getSegmenter();
+  const raw = segmenter
+    ? Array.from(segmenter.segment(normalized))
+      .filter((part) => part.isWordLike)
+      .map((part) => part.segment)
+    : normalized.split(/\s+/);
+  return raw
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0 && !STOP_WORDS.has(token));
+}
+
+/** Character bigrams over contiguous CJK runs, skipping pure function-char pairs. */
+export function cjkBigrams(text: string): string[] {
+  const normalized = normalizeForMatch(text);
+  const grams: string[] = [];
+  let run = "";
+  const flush = (): void => {
+    for (let i = 0; i + 1 < run.length; i += 1) {
+      const a = run[i];
+      const b = run[i + 1];
+      if (STOP_CHARS.has(a) && STOP_CHARS.has(b)) continue;
+      grams.push(a + b);
+    }
+    run = "";
+  };
+  for (const ch of normalized) {
+    if (CJK_CHAR_RE.test(ch)) {
+      run += ch;
+    } else {
+      flush();
+    }
+  }
+  flush();
+  return grams;
+}
+
+/**
+ * Lexical relevance of `content` for `query`, normalized to 0..1.
+ *
+ * - Empty query returns 1 (listing mode: every record is eligible).
+ * - A query with no signal after stopword filtering returns 0 rather than
+ *   matching everything.
+ * - Word channel: ICU tokens matched by substring, single-char tokens
+ *   down-weighted (ICU over-splits domain words). Bigram channel: overlap
+ *   ratio of CJK bigrams, catching words the dictionary split apart.
+ */
+export function scoreLexical(content: string, query: string): number {
+  const normalizedQuery = normalizeForMatch(query);
+  if (!normalizedQuery) return 1;
+  const target = normalizeForMatch(content);
+  if (!target) return 0;
+
+  const words = tokenizeWords(normalizedQuery);
+  let wordWeightTotal = 0;
+  let wordWeightHit = 0;
+  for (const word of words) {
+    const weight = word.length >= 2 ? 1 : 0.3;
+    wordWeightTotal += weight;
+    if (target.includes(word)) wordWeightHit += weight;
+  }
+  const wordScore = wordWeightTotal > 0 ? wordWeightHit / wordWeightTotal : 0;
+
+  const queryGrams = new Set(cjkBigrams(normalizedQuery));
+  let gramScore = 0;
+  if (queryGrams.size > 0) {
+    const targetGrams = new Set(cjkBigrams(target));
+    let hit = 0;
+    for (const gram of queryGrams) {
+      if (targetGrams.has(gram)) hit += 1;
+    }
+    gramScore = hit / queryGrams.size;
+  }
+
+  if (wordWeightTotal === 0 && queryGrams.size === 0) return 0;
+  if (queryGrams.size === 0) return wordScore;
+  if (wordWeightTotal === 0) return gramScore;
+  return wordScore * 0.6 + gramScore * 0.4;
+}

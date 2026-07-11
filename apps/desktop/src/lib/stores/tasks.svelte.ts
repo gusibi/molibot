@@ -75,6 +75,20 @@ export async function loadTasks(endpoint: string): Promise<void> {
   }
 }
 
+export async function refreshTasks(): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || tasksStore.loading) return;
+  tasksStore.loading = true;
+  session.error = "";
+  try {
+    tasksStore.tasks = await loadDesktopTasks(endpoint);
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    tasksStore.loading = false;
+  }
+}
+
 export function toggleTaskSelection(id: string): void {
   const next = new Set(tasksStore.selected);
   next.has(id) ? next.delete(id) : next.add(id);

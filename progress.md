@@ -72,3 +72,25 @@
   worktree retains one unrelated trailing-blank-line warning in
   `webSearchTool.test.ts`, which was left untouched. Build emitted only its
   existing dynamic-import advisories.
+
+## 2026-07-11 — Project session file/change visibility analysis
+
+- Started a read-only design analysis after the user clarified the desired
+  experience: every Project turn should expose generated artifacts, filesystem
+  changes, a project tree, and Git diff without placing runtime metadata in the
+  project root.
+- Mapped the initial attachment and activity paths. No product code changed.
+- Confirmed the Desktop file pane is attachment-only and does not resolve
+  project sessions; current Runner UI events and persisted activities contain
+  no changed-path or Git facts. No product code changed.
+- Completed the current-state map. The remaining phase is to synthesize a
+  shared turn-provenance module and Project inspection design; no product code
+  changed.
+- Completed the read-only design. Recommended one shared provenance module,
+  one Project-only inspection module, two distinct UI views, and a staged
+  verification plan. No product code changed.
+- Wrote the expert-review specification and added the planned P1 requirement to
+  `prd.md`. No product code changed.
+- Performed a final design consistency pass: clarified shared run admission,
+  neutral cross-channel table names, safe session-deletion retention, and
+  read-only Git execution constraints. Scoped `git diff --check` is clean.
