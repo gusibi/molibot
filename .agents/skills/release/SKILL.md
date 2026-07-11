@@ -37,12 +37,18 @@ Find the current versions inside the following packages:
 - Root [package.json](file:///Users/gusi/Github/molipibot/package.json) (under `"version"`)
 - Desktop [package.json](file:///Users/gusi/Github/molipibot/apps/desktop/package.json) (under `"version"`)
 
-#### 2. Increment Patch Versions
-Unless specified otherwise by the user, increment the patch version (the third digit) by 1:
-- Root version (e.g., `2.3.9` -> `2.3.10`)
-- Desktop version (e.g., `0.3.6` -> `0.3.7`)
+#### 2. Increment Versions (Carry-over / Base-10 Rule)
+For both root and desktop apps, increment the version numbers. The segments are `major.minor.patch`. Each segment has a maximum value of `9` (no two-digit segments are allowed). When incrementing:
+- Add 1 to the `patch` version.
+- If `patch > 9`, reset `patch` to `0` and increment `minor` by 1.
+- If `minor > 9`, reset `minor` to `0` and increment `major` by 1.
 
-Write these changes to the respective files.
+Example mappings:
+- `2.3.9` -> `2.4.0`
+- `0.3.6` -> `0.3.7`
+- `2.9.9` -> `3.0.0`
+
+Write these updated versions back to their respective package files.
 
 #### 3. Sync Desktop Version
 Run the Svelte/Tauri/Cargo synchronization script from the workspace root:
