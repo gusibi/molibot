@@ -8,6 +8,7 @@ import {
   sanitizeDesktopTraceRange
 } from "./desktopTrace";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
+import { buildDesktopActiveRuns } from "./desktopActiveRuns";
 
 function fact(overrides: Partial<TraceFactRecord> = {}): TraceFactRecord {
   return {
@@ -122,4 +123,25 @@ test("buildDesktopAgentActivity drops orphaned started runs after the runtime ti
     fact({ id: "orphan", factType: "run", factId: "orphan", runId: "orphan", channel: "web", botId: "runtime", status: "started", startedAt: "2026-07-12T09:21:17.000Z", updatedAt: "2026-07-12T09:21:17.000Z" })
   ], now);
   assert.deepEqual(items, []);
+});
+
+test("active run controls distinguish running, stuck, and orphan records", () => {
+  const activeSettings = {
+    agents: [{ id: "smart", name: "Smart", enabled: true }],
+    channels: { feishu: { instances: [{ id: "bot-1", name: "Research Bot", enabled: true, agentId: "smart" }, { id: "global", name: "Global Bot", enabled: true }] } }
+  } as RuntimeSettings;
+  const activeFacts = [
+    fact({ id: "live", factType: "run", runId: "live", factId: "live", channel: "feishu", botId: "bot-1", chatId: "chat", sessionId: "session", status: "started", startedAt: "2026-07-12T12:00:00.000Z", payload: { taskPreview: "Analyze" } }),
+    fact({ id: "stuck", factType: "run", runId: "stuck", factId: "stuck", channel: "feishu", botId: "global", chatId: "old-chat", sessionId: "old-session", status: "started", startedAt: "2026-07-12T11:40:00.000Z" }),
+    fact({ id: "orphan-active", factType: "run", runId: "orphan-active", factId: "orphan-active", channel: "feishu", botId: "bot-1", chatId: "gone", sessionId: "gone", status: "started", startedAt: "2026-07-12T12:00:00.000Z" })
+  ];
+  const items = buildDesktopActiveRuns(activeSettings, activeFacts, [
+    { channel: "feishu", botId: "bot-1", chatId: "chat", sessionId: "session" },
+    { channel: "feishu", botId: "global", chatId: "old-chat", sessionId: "old-session" }
+  ], Date.parse("2026-07-12T12:01:00.000Z"));
+  assert.equal(items.find((item) => item.runId === "stuck")?.status, "stuck");
+  assert.equal(items.find((item) => item.runId === "orphan-active")?.status, "orphan");
+  assert.equal(items.find((item) => item.runId === "live")?.status, "running");
+  assert.equal(items.find((item) => item.runId === "live")?.agentName, "Smart");
+  assert.equal(items.find((item) => item.runId === "stuck")?.agentName, "Global");
 });

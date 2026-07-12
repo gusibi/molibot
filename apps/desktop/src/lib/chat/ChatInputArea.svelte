@@ -1,13 +1,18 @@
 <script lang="ts">
-  import type { DesktopModelOption, DesktopThinkingLevel } from "@molibot/desktop-contract";
+  import { tick } from "svelte";
+  import type { DesktopComposerSuggestion, DesktopModelOption, DesktopThinkingLevel } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
+  import { composerSuggestionsStore, ensureComposerSuggestions } from "./composerSuggestions.svelte";
   import ChatComposerShell from "./ChatComposerShell.svelte";
   import PendingFilesBar from "./PendingFilesBar.svelte";
   import QueuedMessagesBar from "./QueuedMessagesBar.svelte";
   import RecordingBar from "./RecordingBar.svelte";
+  import SlashSuggestionMenu from "./SlashSuggestionMenu.svelte";
 
   export let copy: Translation;
   export let value = "";
+  export let endpoint = "";
+  export let projectId = "";
   export let sending = false;
   export let disabled = false;
   export let canSend = false;
@@ -48,6 +53,46 @@
 
   $: modelPillLabel = activeModelLabel || copy.model;
   $: thinkingPillLabel = thinkingLevelLabel || copy.thinkingLevel;
+  let activeSuggestionIndex = 0;
+  let suggestionsDismissed = false;
+
+  $: if (endpoint) void ensureComposerSuggestions(endpoint, projectId);
+  $: suggestionQuery = value.match(/^\/([^\s]*)$/)?.[1]?.toLowerCase() ?? null;
+  $: filteredSuggestions = suggestionQuery === null || suggestionsDismissed ? [] : composerSuggestionsStore.items
+    .filter((item) => !suggestionQuery || item.label.slice(1).toLowerCase().includes(suggestionQuery) || item.aliases.some((alias) => alias.toLowerCase().includes(suggestionQuery)))
+    .slice(0, 10);
+  $: if (activeSuggestionIndex >= filteredSuggestions.length) activeSuggestionIndex = 0;
+
+  function handleComposerKeydown(event: KeyboardEvent): void {
+    if (filteredSuggestions.length > 0 && !event.isComposing) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const delta = event.key === "ArrowDown" ? 1 : -1;
+        activeSuggestionIndex = (activeSuggestionIndex + delta + filteredSuggestions.length) % filteredSuggestions.length;
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        suggestionsDismissed = true;
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        selectSuggestion(filteredSuggestions[activeSuggestionIndex]);
+        return;
+      }
+    }
+    if (event.key.length === 1 || event.key === "Backspace" || event.key === "Delete") suggestionsDismissed = false;
+    onKeydown(event);
+  }
+
+  function selectSuggestion(suggestion: DesktopComposerSuggestion | undefined): void {
+    if (!suggestion) return;
+    value = suggestion.insertText;
+    suggestionsDismissed = true;
+    activeSuggestionIndex = 0;
+    if (suggestion.submitOnSelect) void tick().then(onSend);
+  }
 </script>
 
 <footer class="composer-wrap">
@@ -91,8 +136,11 @@
     {placeholder}
     {onSend}
     {onStop}
-    {onKeydown}
+    onKeydown={handleComposerKeydown}
   >
+    {#if filteredSuggestions.length > 0}
+      <SlashSuggestionMenu suggestions={filteredSuggestions} activeIndex={activeSuggestionIndex} onSelect={selectSuggestion} />
+    {/if}
     <slot />
     {#if recording}
       <RecordingBar

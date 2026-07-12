@@ -197,3 +197,22 @@ export async function renameProject(projectId: string, name: string): Promise<bo
     projectsStore.busy = "";
   }
 }
+
+export async function saveProjectSettings(
+  projectId: string,
+  patch: { name: string; instructions: string; modelKey: string | null; thinkingLevel: DesktopProject["thinkingLevel"] | null; sandboxEnabled: boolean | null; toolProgress: DesktopProject["toolProgress"] | null; showReasoning: DesktopProject["showReasoning"] | null; runLogNotice: boolean | null }
+): Promise<boolean> {
+  if (!projectId || !projectsStore.endpoint || projectsStore.busy) return false;
+  projectsStore.busy = "project-settings";
+  projectsStore.error = "";
+  try {
+    const updated = await patchDesktopProject(projectsStore.endpoint, projectId, patch);
+    projectsStore.projects = projectsStore.projects.map((item) => item.id === projectId ? updated : item);
+    return true;
+  } catch (cause) {
+    projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+    return false;
+  } finally {
+    projectsStore.busy = "";
+  }
+}

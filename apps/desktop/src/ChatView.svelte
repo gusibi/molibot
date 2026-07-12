@@ -46,12 +46,13 @@
     resolveOnboardingAgentSelection,
     resolveOnboardingRepairTarget,
     resolveOnboardingStartStep,
+    saveDesktopAgentFiles,
     summarizeDesktopReadiness,
     summarizeOnboardingChannels,
     summarizeOnboardingDiagnostics,
-    saveDesktopAgentFiles,
     switchDesktopModel,
     testDesktopProvider,
+    truncateDesktopMessages,
     type OnboardingChannelsView,
     type OnboardingDiagnostics,
     type DesktopFileFilter,
@@ -63,7 +64,7 @@
   } from "./lib/api";
   import ChatWorkspacePane from "./lib/chat/ChatWorkspacePane.svelte";
   import ConversationTranscript from "./lib/chat/ConversationTranscript.svelte";
-  import type { TranscriptAttachmentActions } from "./lib/chat/transcript";
+  import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./lib/chat/transcript";
   import ApprovalCard from "./lib/chat/ApprovalCard.svelte";
   import ChatInputArea from "./lib/chat/ChatInputArea.svelte";
   import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
@@ -119,6 +120,15 @@
   let pendingFiles: File[] = [];
   let fileInput: HTMLInputElement;
   let thinkingLevel: DesktopThinkingLevel = "medium";
+
+  // Edit-and-resend state. `editingMessageId` is set when the user clicked the
+  // pencil on one of their own messages; the composer then shows an "editing"
+  // banner and `sendMessage` truncates the server transcript at that message
+  // before re-running the turn so the history stays coherent.
+  let editingMessageId = "";
+  let editingSessionId = "";
+  let copiedMessageId = "";
+  let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Sidebar expansion is separate from selection. Every group may be open and
   // the preference survives restarts.
@@ -1085,6 +1095,31 @@
     preview: (file) => void openPreview(file),
     download: (file) => void downloadFile(file)
   } satisfies TranscriptAttachmentActions;
+  $: messageActions = messages.length === 0
+    ? null
+    : {
+        copiedId: copiedMessageId,
+        onCopy: (m: TranscriptMessage) => void copyMessageContent(m),
+        onEditUser: viewMode === "external" || sending
+          ? undefined
+          : (m: TranscriptMessage) => startEditUserMessage(m),
+        editingId: editingMessageId
+      } satisfies TranscriptMessageActions;
+  // Read-only external transcript supports copy-only (no edit); bind its own
+  // actions so the clipboard still works there even when `messageActions`
+  // above is null (e.g. main transcript empty).
+  $: externalMessageActions = externalTranscript?.messages?.length
+    ? {
+        copiedId: copiedMessageId,
+        onCopy: (m: TranscriptMessage) => void copyMessageContent(m)
+      } satisfies TranscriptMessageActions
+    : null;
+  // Reset the editing banner when the active session changes underneath us;
+  // the edit is bound to a specific message id in a specific session.
+  $: if (editingMessageId && editingSessionId && activeSessionId !== editingSessionId) {
+    editingMessageId = "";
+    editingSessionId = "";
+  }
   let messageMediaSession = "";
   $: {
     const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
@@ -1136,9 +1171,80 @@
   async function sendMessage(): Promise<void> {
     const text = messageInput;
     const files = pendingFiles;
-    messageInput = "";
-    pendingFiles = [];
+    const editingId = editingMessageId;
+    const editingSession = editingSessionId;
+    if (editingId) {
+      // Edit-and-resend: drop the original user message and everything that
+      // followed it on the server before re-running the turn. If truncate fails,
+      // restore the composer so the user can retry instead of losing the edit.
+      if (!connectedEndpoint || !activeProfileId || !activeSessionId) {
+        error = copy.editMessageUnavailable;
+        return;
+      }
+      messageInput = "";
+      pendingFiles = [];
+      editingMessageId = "";
+      editingSessionId = "";
+      try {
+        await truncateDesktopMessages(connectedEndpoint, activeProfileId, activeSessionId, editingId);
+      } catch (cause) {
+        const status = (cause as Error & { status?: number }).status;
+        if (status === 422) {
+          // The server didn't find that message id in this session - the
+          // local transcript is stale (typically an optimistic `pending-...`
+          // id left over from a failed reload). Refresh from the server and
+          // ask the user to pick the message again.
+          await chatStore.reloadActive();
+          error = copy.editMessageStale;
+        } else {
+          error = cause instanceof Error ? cause.message : String(cause);
+        }
+        messageInput = text;
+        pendingFiles = files;
+        editingMessageId = editingId;
+        editingSessionId = editingSession;
+        return;
+      }
+    } else {
+      messageInput = "";
+      pendingFiles = [];
+    }
     await chatStore.send(text, files);
+  }
+
+  async function copyMessageContent(message: TranscriptMessage): Promise<void> {
+    if (!message.content) return;
+    try {
+      await navigator.clipboard.writeText(message.content);
+      copiedMessageId = message.id ?? "";
+      if (copiedMessageTimer) clearTimeout(copiedMessageTimer);
+      copiedMessageTimer = setTimeout(() => {
+        copiedMessageId = "";
+        copiedMessageTimer = null;
+      }, 1500);
+    } catch { /* clipboard unavailable */ }
+  }
+
+  function startEditUserMessage(message: TranscriptMessage): void {
+    if (!message.id || !activeSessionId) return;
+    if (sending) return;
+    editingMessageId = message.id;
+    editingSessionId = activeSessionId;
+    messageInput = message.content ?? "";
+    pendingFiles = [];
+    void tick().then(() => {
+      const textarea = messagesElement?.closest(".chat-content")?.querySelector("textarea");
+      textarea?.focus();
+      if (textarea instanceof HTMLTextAreaElement) {
+        const length = textarea.value.length;
+        textarea.setSelectionRange(length, length);
+      }
+    });
+  }
+
+  function cancelEditMessage(): void {
+    editingMessageId = "";
+    editingSessionId = "";
   }
 
   async function stopRun(): Promise<void> {
@@ -1595,7 +1701,7 @@
                 <span>{copy.externalSessionDivider.replace("{channel}", activeExternalChannel)}</span>
               </div>
             {/if}
-            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} attachmentActions={transcriptAttachmentActions} />
+            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} />
           {/if}
       </div>
       {#if externalTranscript}
@@ -1623,6 +1729,7 @@
         {activeMatchId}
         showReadReceipt={true}
         attachmentActions={transcriptAttachmentActions}
+        messageActions={messageActions}
       >
         {#if pendingApproval}
           <ApprovalCard
@@ -1646,6 +1753,7 @@
       <ChatInputArea
         bind:value={messageInput}
         bind:thinkingLevel
+        endpoint={connectedEndpoint}
         {copy}
         {sending}
         disabled={!modelReady || (!draftMode && !activeSessionId)}
@@ -1690,6 +1798,15 @@
             onSelect={(id) => chatStore.setDraftProfileId(id)}
             labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
           />
+        {/if}
+        {#if editingMessageId}
+          <div class="composer-edit-banner" role="status">
+            <i class="ph ph-pencil-simple-line" aria-hidden="true"></i>
+            <span>{copy.editingMessage}</span>
+            <button type="button" aria-label={copy.cancelEdit} title={copy.cancelEdit} onclick={cancelEditMessage}>
+              <i class="ph ph-x" aria-hidden="true"></i>{copy.cancelEdit}
+            </button>
+          </div>
         {/if}
       </ChatInputArea>
     {/if}

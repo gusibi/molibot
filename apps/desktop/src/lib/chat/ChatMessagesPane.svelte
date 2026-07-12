@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { DesktopActivityEntry } from "../api";
   import type { Translation } from "../i18n";
-  import type { TranscriptAttachmentActions, TranscriptMessage } from "./transcript";
+  import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./transcript";
   import ConversationLiveView from "./ConversationLiveView.svelte";
   import { stickToBottom } from "./stickToBottom";
 
@@ -22,6 +22,7 @@
   export let activeMatchId = "";
   export let showReadReceipt = false;
   export let attachmentActions: TranscriptAttachmentActions | null = null;
+  export let messageActions: TranscriptMessageActions | null = null;
   export let messagesElement: HTMLDivElement | undefined = undefined;
 </script>
 
@@ -46,6 +47,7 @@
       {activeMatchId}
       {showReadReceipt}
       {attachmentActions}
+      {messageActions}
     />
     <slot />
   {/if}

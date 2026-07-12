@@ -1052,8 +1052,8 @@ export class TelegramManager extends BaseChannelRuntime {
     const settings = this.getSettings();
     const telegramInstance = settings.channels?.telegram?.instances?.find((item) => item.id === this.instanceId);
     const displayConfig = {
-      toolProgress: telegramInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
-      showReasoning: telegramInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
+      toolProgress: this.runners.resolveTarget(scopeId, sessionId).project?.toolProgress ?? telegramInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
+      showReasoning: this.runners.resolveTarget(scopeId, sessionId).project?.showReasoning ?? telegramInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
       gatewayNotifyInterval: telegramInstance?.display?.gatewayNotifyInterval ?? settings.display?.gatewayNotifyInterval ?? 0
     };
 

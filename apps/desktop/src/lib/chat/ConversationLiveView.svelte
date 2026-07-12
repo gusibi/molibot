@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
   import type { DesktopActivityEntry } from "../api";
-  import type { TranscriptAttachmentActions, TranscriptMessage } from "./transcript";
+  import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions } from "./transcript";
   import { renderMarkdown } from "../markdown";
   import ConversationTranscript from "./ConversationTranscript.svelte";
   import RunActivity from "./RunActivity.svelte";
@@ -20,6 +20,7 @@
   export let activeMatchId = "";
   export let showReadReceipt = false;
   export let attachmentActions: TranscriptAttachmentActions | null = null;
+  export let messageActions: TranscriptMessageActions | null = null;
 </script>
 
 {#if messages.length === 0 && !streamingText && !sending}
@@ -29,7 +30,7 @@
     <p>{emptyHint}</p>
   </div>
 {/if}
-<ConversationTranscript {messages} {copy} {formatTime} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} />
+<ConversationTranscript {messages} {copy} {formatTime} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} />
 {#if sending}
   <article class="message-row assistant streaming-message">
     <div class="message-stack">

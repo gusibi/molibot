@@ -6,7 +6,8 @@
     "moduleResolution": "Bundler",
     "baseUrl": ".",
     "paths": {
-      "@molibot/desktop-contract": ["../../src/lib/shared/desktop.ts"]
+      "@molibot/desktop-contract": ["../../src/lib/shared/desktop.ts"],
+      "@molibot/shared/*": ["../../src/lib/shared/*"]
     },
     "allowJs": true,
     "checkJs": true,

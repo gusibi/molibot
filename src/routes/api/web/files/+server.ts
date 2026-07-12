@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync, readdirSync } from "node:fs";
+import { Readable } from "node:stream";
 import path from "node:path";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
@@ -236,17 +237,7 @@ export const GET: RequestHandler = async ({ url }) => {
       return json({ ok: false, error: "File not found on disk" }, { status: 404 });
     }
 
-    const buffer = readFileSync(fullPath);
-    return new Response(buffer, {
-      status: 200,
-      headers: {
-        "content-type": file.mimeType || "application/octet-stream",
-        "content-length": String(buffer.byteLength),
-        "content-disposition": `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(file.original)}`,
-        "cache-control": "no-store",
-        "x-content-type-options": "nosniff"
-      }
-    });
+    return streamFileResponse(fullPath, file.mimeType, file.original, download);
   }
 
   const resolved = resolveAuthorizedConversation({ profileId, userId, sessionId, projectId });
@@ -275,15 +266,28 @@ export const GET: RequestHandler = async ({ url }) => {
   }
 
   const fullPath = path.resolve(resolved.workspaceDir, local);
-  const buffer = readFileSync(fullPath);
-  return new Response(buffer, {
+  return streamFileResponse(fullPath, file.mimeType, file.original, download);
+};
+
+/**
+ * Streams a file from disk as the response body. We used to `readFileSync` the
+ * whole file into a Buffer and hand that to `new Response(buffer)`; that worked
+ * for small attachments but on large images (~1MB+) the Tauri plugin-http
+ * transport started dropping the response. Streaming lets the Node adapter
+ * chunk the file through the HTTP response without buffering it all in memory,
+ * and keeps `content-length` authoritative so the client knows the real size.
+ */
+function streamFileResponse(fullPath: string, mimeType: string | undefined, originalName: string, download: boolean): Response {
+  const stat = statSync(fullPath);
+  const stream = Readable.toWeb(createReadStream(fullPath)) as ReadableStream<Uint8Array>;
+  return new Response(stream, {
     status: 200,
     headers: {
-      "content-type": file.mimeType || "application/octet-stream",
-      "content-length": String(buffer.byteLength),
-      "content-disposition": `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(file.original)}`,
+      "content-type": mimeType || "application/octet-stream",
+      "content-length": String(stat.size),
+      "content-disposition": `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(originalName)}`,
       "cache-control": "no-store",
       "x-content-type-options": "nosniff"
     }
   });
-};
+}

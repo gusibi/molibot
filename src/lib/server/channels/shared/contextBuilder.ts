@@ -34,6 +34,11 @@ interface BuildTextChannelContextOptions<TSent extends ContextSentMessageRef> {
   sessions: SessionStore;
   instanceId: string;
   activeSessionId: string;
+  project?: MomContext["project"];
+  modelKeyOverride?: string;
+  thinkingLevelOverride?: MomContext["thinkingLevelOverride"];
+  /** Present when the scope is in Project mode: session messages must land in the project session store. */
+  projectConversation?: { projectId: string; conversationId: string };
   conversationKey: string;
   response: ChannelResponseHandle<TSent>;
   createBotMessageId: () => number;
@@ -68,7 +73,12 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
       isBot: true
     });
     try {
-      const conv = options.sessions.getOrCreateConversation(options.channel, options.conversationKey);
+      const conv = options.sessions.getOrCreateConversation(
+        options.channel,
+        options.conversationKey,
+        options.projectConversation?.conversationId,
+        options.projectConversation ? { projectId: options.projectConversation.projectId } : undefined
+      );
       options.sessions.appendMessage(conv.id, "assistant", text);
     } catch (error) {
       options.onSessionAppendWarning?.(error);
@@ -115,6 +125,9 @@ export function buildTextChannelContext<TSent extends ContextSentMessageRef>(
     message: options.event,
     workspaceDir: options.workspaceDir,
     chatDir: options.chatDir,
+    project: options.project,
+    modelKeyOverride: options.modelKeyOverride,
+    thinkingLevelOverride: options.thinkingLevelOverride,
     respond: async (text: string, shouldLog = true) => {
       const normalized = normalize(text);
       if (!normalized) return;

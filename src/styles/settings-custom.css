@@ -3364,4 +3364,11 @@
   align-items: center;
   gap: 0.25rem;
 }
-
+.trace-live-list { display: grid; gap: 0; }
+.trace-live-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.trace-live-row:last-child { border-bottom: 0; }
+.trace-live-copy { display: grid; gap: 5px; min-width: 0; }
+.trace-live-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.trace-live-copy > span, .trace-live-copy > p { margin: 0; color: var(--muted-foreground); font-size: 12px; }
+.trace-live-copy > p { max-width: 760px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) { .trace-live-row { align-items: stretch; flex-direction: column; }.trace-live-row > button { width: 100%; } }

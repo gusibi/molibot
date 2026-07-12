@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import type {
     DesktopApprovalDecision,
     DesktopModelOption,
+    DesktopSessionFile,
     DesktopThinkingLevel
   } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
@@ -12,10 +13,18 @@
   import ChatMessagesPane from "../chat/ChatMessagesPane.svelte";
   import { createConversationController } from "../chat/conversationController.svelte";
   import {
+    fetchDesktopFileBlob,
+    listDesktopSessionFiles,
     loadDesktopModels,
+    loadDesktopModelRouting,
     summarizeDesktopReadiness,
-    switchDesktopModel
+    truncateDesktopMessages
   } from "../api";
+  import type {
+    TranscriptAttachmentActions,
+    TranscriptMessage,
+    TranscriptMessageActions
+  } from "../chat/transcript";
   import { projectsStore, refreshProjectSessionList, selectProjectSession } from "../stores/projects.svelte";
 
   export let copy: Translation;
@@ -23,9 +32,22 @@
   let pendingFiles: File[] = [];
   let fileInput: HTMLInputElement;
   let thinkingLevel: DesktopThinkingLevel = "medium";
+
+  // Edit-and-resend state (mirrors ChatView): the composer shows an "editing"
+  // banner and sendMessage truncates the server transcript at the picked
+  // message before re-running the turn.
+  let editingMessageId = "";
+  let editingSessionId = "";
+  let copiedMessageId = "";
+  let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
   let modelOptions: DesktopModelOption[] = [];
   let activeModelKey = "";
+  let globalModelKey = "";
+  let globalThinkingLevel: DesktopThinkingLevel = "medium";
   let changingModel = false;
+  let appliedSessionId = "";
+  const sessionModelOverrides = new Map<string, string>();
+  const sessionThinkingOverrides = new Map<string, DesktopThinkingLevel>();
 
   const formatTime = (value: string) => new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 
@@ -45,11 +67,28 @@
   // Load model options for the project composer so it matches the chat surface.
   // Re-loads whenever the endpoint changes (e.g. service restart).
   $: if (projectsStore.endpoint) void loadModelOptions(projectsStore.endpoint);
+  $: currentProject = projectsStore.projects.find((item) => item.id === projectsStore.selectedProjectId);
+  $: projectToolProgress = currentProject?.toolProgress ?? "all";
+  $: projectShowReasoning = currentProject?.showReasoning ?? "on";
+  // Read `projectsStore.messages` directly in the template (not through a
+  // legacy `$:` derivation) so switching sessions updates the transcript.
+  // A legacy `$:` only runs once at init and would keep showing the first
+  // session's messages - same pitfall as the ProjectDetail "first-click does
+  // nothing" bug fixed in 3515ff3a. The filter mirrors the prior derivation.
+  $: if (projectsStore.selectedSessionId && projectsStore.selectedSessionId !== appliedSessionId && modelOptions.length > 0) {
+    appliedSessionId = projectsStore.selectedSessionId;
+    const requestedModel = sessionModelOverrides.get(appliedSessionId) ?? currentProject?.modelKey ?? globalModelKey;
+    activeModelKey = modelOptions.some((option) => option.key === requestedModel) ? requestedModel : globalModelKey;
+    thinkingLevel = sessionThinkingOverrides.get(appliedSessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;
+  }
+  $: if (appliedSessionId && projectsStore.selectedSessionId === appliedSessionId) sessionThinkingOverrides.set(appliedSessionId, thinkingLevel);
   async function loadModelOptions(endpoint: string): Promise<void> {
     try {
-      const state = await loadDesktopModels(endpoint);
+      const [state, routing] = await Promise.all([loadDesktopModels(endpoint), loadDesktopModelRouting(endpoint)]);
       modelOptions = state.options;
       activeModelKey = state.currentKey;
+      globalModelKey = state.currentKey;
+      globalThinkingLevel = routing.defaultThinkingLevel;
     } catch {
       // model selectors simply stay empty; sending is blocked until a model is configured
     }
@@ -60,9 +99,8 @@
     changingModel = true;
     projectsStore.error = "";
     try {
-      const state = await switchDesktopModel(projectsStore.endpoint, (event.currentTarget as HTMLSelectElement).value);
-      modelOptions = state.options;
-      activeModelKey = state.currentKey;
+      activeModelKey = (event.currentTarget as HTMLSelectElement).value;
+      if (projectsStore.selectedSessionId) sessionModelOverrides.set(projectsStore.selectedSessionId, activeModelKey);
     } catch (cause) {
       projectsStore.error = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -77,6 +115,7 @@
     profileId: () => "personal",
     sessionId: () => projectsStore.selectedSessionId,
     projectId: () => projectsStore.selectedProjectId,
+    modelKey: () => activeModelKey,
     thinkingLevel: () => thinkingLevel,
     canSend: () => Boolean(projectsStore.selectedSessionId) && modelReady,
     labels: () => ({
@@ -164,8 +203,80 @@
     return new Map(pendingAudioTracked);
   }
 
-  function sendMessage(): void {
-    void chat.send({ message, files: pendingFiles });
+  async function sendMessage(): Promise<void> {
+    const text = message;
+    const files = pendingFiles;
+    const editingId = editingMessageId;
+    const editingSession = editingSessionId;
+    if (editingId) {
+      if (!projectsStore.endpoint || !projectsStore.selectedSessionId) {
+        projectsStore.error = copy.editMessageUnavailable;
+        return;
+      }
+      message = "";
+      pendingFiles = [];
+      editingMessageId = "";
+      editingSessionId = "";
+      try {
+        await truncateDesktopMessages(
+          projectsStore.endpoint,
+          "personal",
+          projectsStore.selectedSessionId,
+          editingId
+        );
+      } catch (cause) {
+        const status = (cause as Error & { status?: number }).status;
+        if (status === 422) {
+          await selectProjectSession(projectsStore.selectedSessionId);
+          projectsStore.error = copy.editMessageStale;
+        } else {
+          projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+        }
+        message = text;
+        pendingFiles = files;
+        editingMessageId = editingId;
+        editingSessionId = editingSession;
+        return;
+      }
+    } else {
+      message = "";
+      pendingFiles = [];
+    }
+    void chat.send({ message: text, files });
+  }
+
+  async function copyMessageContent(msg: TranscriptMessage): Promise<void> {
+    if (!msg.content) return;
+    try {
+      await navigator.clipboard.writeText(msg.content);
+      copiedMessageId = msg.id ?? "";
+      if (copiedMessageTimer) clearTimeout(copiedMessageTimer);
+      copiedMessageTimer = setTimeout(() => {
+        copiedMessageId = "";
+        copiedMessageTimer = null;
+      }, 1500);
+    } catch { /* clipboard unavailable */ }
+  }
+
+  function startEditUserMessage(msg: TranscriptMessage): void {
+    if (!msg.id || !projectsStore.selectedSessionId || sending) return;
+    editingMessageId = msg.id;
+    editingSessionId = projectsStore.selectedSessionId;
+    message = msg.content ?? "";
+    pendingFiles = [];
+    void tick().then(() => {
+      const textarea = document.querySelector<HTMLTextAreaElement>(".project-chat textarea");
+      textarea?.focus();
+      if (textarea) {
+        const length = textarea.value.length;
+        textarea.setSelectionRange(length, length);
+      }
+    });
+  }
+
+  function cancelEditMessage(): void {
+    editingMessageId = "";
+    editingSessionId = "";
   }
 
   function stopRun(): void {
@@ -208,6 +319,158 @@
     id: option.id,
     label: approvalOptionLabel(option)
   })) ?? [];
+  $: messageActions = projectsStore.messages.length === 0
+    ? null
+    : {
+        copiedId: copiedMessageId,
+        onCopy: (m: TranscriptMessage) => void copyMessageContent(m),
+        onEditUser: sending ? undefined : (m: TranscriptMessage) => startEditUserMessage(m),
+        editingId: editingMessageId
+      } satisfies TranscriptMessageActions;
+  $: if (editingMessageId && editingSessionId && projectsStore.selectedSessionId !== editingSessionId) {
+    editingMessageId = "";
+    editingSessionId = "";
+  }
+
+  // --- Attachment previews (mirrors ChatView so project chat images,
+  // audio, and video render inline instead of just showing the filename) ---
+  let sessionFiles: DesktopSessionFile[] = [];
+  $: fileByLocal = new Map(sessionFiles.map((file) => [file.local, file]));
+  let messageMediaUrls = new Map<string, string>();
+  let messageMediaLoading = new Set<string>();
+  let messageMediaFailed = new Set<string>();
+  let messageMediaSession = "";
+  let previewFile: DesktopSessionFile | null = null;
+  let previewUrl = "";
+
+  $: if (projectsStore.endpoint && projectsStore.selectedSessionId) {
+    void refreshProjectSessionFiles(projectsStore.endpoint, projectsStore.selectedSessionId, projectsStore.selectedProjectId);
+  }
+  // Drop cached blob URLs and pending media state when the active session
+  // changes; otherwise the new session's attachments can briefly render the
+  // previous session's media (and leak object URLs).
+  $: if (projectsStore.selectedSessionId !== messageMediaSession) {
+    for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
+    messageMediaUrls = new Map();
+    messageMediaLoading = new Set();
+    messageMediaFailed = new Set();
+    messageMediaSession = projectsStore.selectedSessionId;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = "";
+    previewFile = null;
+  }
+  $: transcriptAttachmentActions = {
+    filesByLocal: fileByLocal,
+    mediaUrls: messageMediaUrls,
+    mediaLoading: messageMediaLoading,
+    mediaFailed: messageMediaFailed,
+    loadMedia: (file) => void loadProjectMessageMedia(file),
+    canPreview: canPreviewProjectFile,
+    preview: (file) => void openProjectPreview(file),
+    download: (file) => void downloadProjectFile(file)
+  } satisfies TranscriptAttachmentActions;
+
+  async function refreshProjectSessionFiles(endpoint: string, sessionId: string, projectId: string | undefined): Promise<void> {
+    try {
+      sessionFiles = await listDesktopSessionFiles(endpoint, "personal", sessionId, projectId);
+    } catch {
+      sessionFiles = [];
+    }
+  }
+
+  function canPreviewProjectFile(file: DesktopSessionFile): boolean {
+    return file.mediaType === "image" || file.mediaType === "audio" || file.mediaType === "video";
+  }
+
+  async function loadProjectMessageMedia(file: DesktopSessionFile): Promise<void> {
+    if (!projectsStore.endpoint || !projectsStore.selectedSessionId) return;
+    if (messageMediaUrls.has(file.local) || messageMediaLoading.has(file.local)) return;
+    const requestedSessionId = projectsStore.selectedSessionId;
+    const loading = new Set(messageMediaLoading);
+    loading.add(file.local);
+    messageMediaLoading = loading;
+    const retrying = new Set(messageMediaFailed);
+    retrying.delete(file.local);
+    messageMediaFailed = retrying;
+    try {
+      const blob = await fetchDesktopFileBlob(
+        projectsStore.endpoint,
+        "personal",
+        requestedSessionId,
+        file.id,
+        false,
+        projectsStore.selectedProjectId
+      );
+      const url = URL.createObjectURL(blob);
+      if (projectsStore.selectedSessionId !== requestedSessionId) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      const next = new Map(messageMediaUrls);
+      next.set(file.local, url);
+      messageMediaUrls = next;
+    } catch {
+      if (projectsStore.selectedSessionId !== requestedSessionId) return;
+      const failed = new Set(messageMediaFailed);
+      failed.add(file.local);
+      messageMediaFailed = failed;
+    } finally {
+      if (projectsStore.selectedSessionId === requestedSessionId) {
+        const done = new Set(messageMediaLoading);
+        done.delete(file.local);
+        messageMediaLoading = done;
+      }
+    }
+  }
+
+  async function openProjectPreview(file: DesktopSessionFile): Promise<void> {
+    if (!projectsStore.endpoint || !projectsStore.selectedSessionId) return;
+    try {
+      const blob = await fetchDesktopFileBlob(
+        projectsStore.endpoint,
+        "personal",
+        projectsStore.selectedSessionId,
+        file.id,
+        false,
+        projectsStore.selectedProjectId
+      );
+      closeProjectPreview();
+      previewFile = file;
+      previewUrl = URL.createObjectURL(blob);
+    } catch (cause) {
+      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  function closeProjectPreview(): void {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = "";
+    previewFile = null;
+  }
+
+  async function downloadProjectFile(file: DesktopSessionFile): Promise<void> {
+    if (!projectsStore.endpoint || !projectsStore.selectedSessionId) return;
+    try {
+      const blob = await fetchDesktopFileBlob(
+        projectsStore.endpoint,
+        "personal",
+        projectsStore.selectedSessionId,
+        file.id,
+        true,
+        projectsStore.selectedProjectId
+      );
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = file.original;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (cause) {
+      projectsStore.error = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
 
   // --- Voice recording (mirrors ChatView so project chat has parity) ---
   type NativeRecordingResult = {
@@ -357,12 +620,16 @@
     teardownRecordingStream();
     for (const url of pendingAudioTracked.values()) URL.revokeObjectURL(url);
     pendingAudioTracked.clear();
+    for (const url of messageMediaUrls.values()) URL.revokeObjectURL(url);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
   });
 </script>
 
 <section class="project-chat">
   <ChatMessagesPane
-    messages={projectsStore.messages}
+    messages={projectToolProgress === "off"
+      ? projectsStore.messages.map((item) => ({ ...item, activities: [] }))
+      : projectsStore.messages}
     {copy}
     {formatTime}
     stickKey={projectsStore.selectedSessionId}
@@ -370,11 +637,13 @@
     loadingLabel={copy.projectLoadingSession}
     {sending}
     {streamingText}
-    {streamingThinking}
+    streamingThinking={projectShowReasoning === "off" ? "" : streamingThinking}
     {activity}
-    activities={activityEntries}
+    activities={projectToolProgress === "off" ? [] : activityEntries}
     emptyTitle={copy.projectEmptyChat}
     emptyHint={copy.projectEmptyChatHint}
+    messageActions={messageActions}
+    attachmentActions={transcriptAttachmentActions}
   >
     {#if pendingApproval}
       <ApprovalCard
@@ -393,6 +662,8 @@
   <ChatInputArea
     bind:value={message}
     bind:thinkingLevel
+    endpoint={projectsStore.endpoint}
+    projectId={projectsStore.selectedProjectId}
     {copy}
     {sending}
     disabled={!projectsStore.selectedSessionId || !modelReady}
@@ -427,5 +698,36 @@
     onDismissRecordingError={() => (recordingError = "")}
     onOpenSettings={() => undefined}
     onChangeModel={changeModel}
-  />
+  >
+    {#if editingMessageId}
+      <div class="composer-edit-banner" role="status">
+        <i class="ph ph-pencil-simple-line" aria-hidden="true"></i>
+        <span>{copy.editingMessage}</span>
+        <button type="button" aria-label={copy.cancelEdit} title={copy.cancelEdit} onclick={cancelEditMessage}>
+          <i class="ph ph-x" aria-hidden="true"></i>{copy.cancelEdit}
+        </button>
+      </div>
+    {/if}
+  </ChatInputArea>
 </section>
+
+{#if previewFile && previewUrl}
+  <div class="preview-overlay" role="dialog" aria-modal="true" aria-label={previewFile.original}>
+    <div class="preview-card">
+      <header>
+        <strong title={previewFile.original}>{previewFile.original}</strong>
+        <button type="button" onclick={closeProjectPreview}>{copy.closePreview}</button>
+      </header>
+      <div class="preview-body">
+        {#if previewFile.mediaType === "image"}
+          <img src={previewUrl} alt={previewFile.original} />
+        {:else if previewFile.mediaType === "video"}
+          <!-- svelte-ignore a11y_media_has_caption -->
+          <video src={previewUrl} controls></video>
+        {:else if previewFile.mediaType === "audio"}
+          <audio src={previewUrl} controls></audio>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}

@@ -6,7 +6,7 @@ import type {
 import { createHash } from "node:crypto";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 
-const KNOWN_SCOPES: readonly DesktopSkillScope[] = ["global", "bot", "chat"];
+const KNOWN_SCOPES: readonly DesktopSkillScope[] = ["global", "bot", "chat", "project"];
 
 /**
  * The shape of a skill item produced by the shared skills route. Only the

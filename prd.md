@@ -5,6 +5,37 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.57 Desktop Project File Panel Large Image Preview (2026-07-12)
+- [Done, P0] 修复桌面端 Project 文件面板在预览大图时显示“超过预览上限”或“二进制文件不能预览”的问题。
+- [Done, P0] 后端在 `/api/settings/projects/[id]/inspection/file` 接口上支持 `raw=true` 选项，绕过大文本 256KB 预览限制，直接返回原始二进制响应并附带 correct MIME type 与 Cache-Control。
+- [Done, P0] 桌面端 `ProjectFilePanel.svelte` 新增对 `@molibot/shared/filePreview` 别名引用（同时配置 vite.config.ts 和 tsconfig.json），基于 `mediaTypeFromName` 判定文件是否是 image/audio/video，并使用 raw API 在前端直接预览大图和音视频。
+
+## 2.56 Volcengine reference-image generation (2026-07-12)
+- [Done, P0] `imageGenerate(images)` 使用 Volcengine 时必须把参考图 URL 按官方 API 的 `image` 数组发送，禁止工具 schema 接收后在 provider 层静默丢弃。
+- [Done, P1] 请求体测试必须覆盖多张参考图、模型与尺寸，保证角色一致性工作流真实使用图生图而非退化为文生图。
+
+## 2.55 Bot Project Mode (2026-07-12)
+- [Done, P0] 飞书等 Bot 会话支持 `/project` 列出、选择和退出 Project 模式，移动端无需安装 Desktop App。
+- [Done, P0] Project 选择按 channel + bot instance + conversation scope 持久化，切换只允许在当前 scope 空闲时执行。
+- [Done, P0] 后续消息进入既有 `MomContext.project` 路径，继承 Project root、instructions、Skills、模型与思考默认值；禁止在 Channel 层复制 Project 逻辑。
+- [Done, P1] Project 被删除时同步清理绑定；Telegram 提供原生命令菜单入口，飞书、QQ、微信共享相同命令。
+
+## 2.54 Desktop Composer Suggestions and Project Defaults (2026-07-12)
+- [Done, P0] Chat 与 Project Chat 输入 `/` 时从共享服务端目录提示命令和已启用 Skill，支持键盘、鼠标、IME 和窄窗口交互。
+- [Done, P0] 命令元数据与 `/help` 共用注册表；前端不得维护独立命令清单，禁用 Skill 不得出现在可执行建议中。
+- [Done, P1] 共享 transcript 区分已识别 Command、Skill 与未知斜杠文本，并同时使用标签、图标和颜色表达语义。
+- [Done, P0] Project 设置支持名称、instructions、默认模型和默认思考等级；继承优先级为 Session → Project → Global，Project 操作不得修改全局模型路由。
+- [Done, P1] Agent 选择不进入 Project 设置；项目行为继续由项目指令文件与现有 prompt 分层决定。
+- [Done, P0] Project Chat 加载 `<projectRoot>/.agents/skills/`，Project Skill 同时进入斜杠提示、显式调用、system prompt、skillSearch 与 `/skills`，并在同名时优先于其它 scope。
+- [Done, P0] Project A/B 的 Skill prompt 缓存必须按 rootPath 隔离；普通 Chat 不得看到 Project Skills。
+- [Done, P0] Project 设置提供 Sandbox、Tool Progress、Reasoning 和 Runlog 通知继承覆盖；Sandbox 必须复用现有开关语义，不另造 Project 安全策略。
+
+## 2.53 Web / Desktop Trace Active Run Controls (2026-07-12)
+- [Done, P0] Trace 当前运行列表必须把持久化 started fact 与真实 RunnerPool 快照交叉验证，不得仅凭 Trace 推断进程仍存活。
+- [Done, P0] 统一展示运行中、超过 10 分钟的疑似卡住 Runner 和无 Runner 的孤儿记录，并显示 Agent/Bot/渠道/任务/持续时间。
+- [Done, P0] 停止操作按 channel/Bot/chat/session 精确 abort；孤儿清理更新为 aborted 且保留审计记录，禁止直接删除 Trace。
+- [Done, P1] Web 与 Mac App Trace 页面同步交付，3 秒刷新、操作确认、中英/明暗/响应式一致。
+
 ## 2.52 Desktop Agent Studio (2026-07-12)
 - [Done, P1] Mac App 主导航在 Skills 下方新增 Agent/Agents 工作区，复用主窗口工作区切换，不增加独立 Tauri 窗口。
 - [Done, P1] 工作室展示 Global/default 与用户创建的 Agent；当 API 没有 `settings.agents.default` 实体时仅在展示层合成并去重，不写回设置；未显式绑定的 Bot 运行归属该工位。

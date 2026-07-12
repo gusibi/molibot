@@ -50,6 +50,7 @@ import {
   resolveModelSelection,
   resolveModel,
   applyAgentModelRoutingOverride,
+  applyTurnModelOverride,
   buildModelFallbackSelections,
   toModelAttemptFailure,
   formatModelAttemptFailure,
@@ -154,7 +155,8 @@ export class MomRunner implements RunnerLike {
       sessionId: this.sessionId,
       store: this.store,
       channel: this.channel,
-      botId
+      botId,
+      projectOverride: this.activeProject?.sandboxEnabled
     }).enabled;
   }
 
@@ -468,6 +470,10 @@ export class MomRunner implements RunnerLike {
     return this.running;
   }
 
+  snapshotActiveRun(): { chatId: string; sessionId: string } | null {
+    return this.running ? { chatId: this.chatId, sessionId: this.sessionId } : null;
+  }
+
   abort(): void {
     this.abortRequested = true;
     this.agent.clearAllQueues();
@@ -702,7 +708,7 @@ export class MomRunner implements RunnerLike {
       queueRunning = false;
     };
 
-    const settings = this.getSettings();
+    const settings = applyTurnModelOverride(this.getSettings(), ctx.modelKeyOverride);
     const settingsError = validateRuntimeSettings(settings);
     if (settingsError) {
       stopReason = "error";
@@ -822,7 +828,8 @@ export class MomRunner implements RunnerLike {
 
     const { skills } = loadSkillsFromWorkspace(this.store.getWorkspaceDir(), this.chatId, {
       disabledSkillPaths: settings.disabledSkillPaths,
-      workspaceId
+      workspaceId,
+      projectRoot: ctx.project?.rootPath
     });
     this.activeRunSkillManifest = new Map(
       skills.map((skill) => [pathCompareKey(skill.filePath), skill])

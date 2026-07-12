@@ -1,3 +1,134 @@
+# Project runtime and display overrides (2026-07-12)
+
+## Goal
+Add inherited Project settings for Sandbox, model, thinking, tool progress,
+reasoning display, and runlog notices. Sandbox-off must not auto-approve Host Bash.
+
+## Phases
+1. Persist and validate Project overrides — complete
+2. Apply Sandbox and Project Chat display overrides — complete
+3. Apply Project-bound channel runlog/display resolution — complete
+4. Verify, document, and adversarially review — complete
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Desktop Project PATCH intersection retained non-null source fields | 1 | Replaced it with an explicit nullable patch contract. |
+| New sandbox precedence test referenced an unimported full settings fixture | 1 | Replaced it with the minimal typed settings slice used by the resolver. |
+
+---
+
+# Bot Project mode (2026-07-12)
+
+## Goal
+
+Allow mobile/channel conversations to select a registered Project and run
+subsequent turns through the existing Project-aware Agent path without the app.
+
+## Phases
+
+1. Persist conversation binding with temp-DB tests — complete
+2. Add shared `/project` command and runtime injection — complete
+3. Verify shared/Feishu behavior and invariants — complete
+4. Update product docs and adversarial review — complete
+
+## Verification gates
+
+- Binding is isolated by channel + Bot instance + conversation scope.
+- Deleted Projects safely fall back to ordinary Chat mode.
+- Runner receives Project root/instructions/model/thinking defaults.
+- All Bot channels gain this only through shared layers.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Root `pnpm check` script does not exist | 1 | Use focused typed node tests and the repository production build gate. |
+
+---
+
+# Project-local Skill discovery fix (2026-07-12)
+
+## Goal
+
+Load `<projectRoot>/.agents/skills/` for Project conversations and Desktop slash
+suggestions, with project scope and project-first duplicate precedence, while
+keeping non-Project conversations unchanged.
+
+## Phases
+
+1. Build a deterministic red regression at the shared Skill-loader seam — complete
+2. Add project scope/root discovery and precedence — complete
+3. Thread projectRoot through Runner, prompt, skillSearch, and command surfaces — complete
+4. Make Desktop suggestions resolve `projectId` server-side — complete
+5. Update docs and run adversarial verification — complete
+
+## Verification gates
+
+- Project `.agents/skills/foo/SKILL.md` appears in runtime and slash suggestions.
+- Project `foo` wins over same-name Bot/global/chat Skill with diagnostics.
+- Non-Project conversations never see Project Skills.
+- Prompt cache keys isolate Project A from Project B.
+- Removing the directory safely falls back to existing scopes.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Desktop check found the installed-Skills scope label accepted only global/bot/chat | 1 | Added the Project scope label and bilingual copy. |
+
+---
+
+# Composer suggestions, command presentation, and Project defaults (2026-07-12)
+
+## Goal
+
+Implement shared slash-command/Skill suggestions for Chat and Project Chat,
+visually distinguish recognized command and Skill invocations in transcripts,
+and add a Project settings module with inherited model/thinking defaults.
+
+## Assumptions
+
+- Project defaults apply to new Project Sessions; a Session may temporarily
+  override them without mutating global model routing.
+- Resolution order is Session -> Project -> Global.
+- Agent selection is intentionally excluded; project instruction files remain
+  the source of project-specific Agent behavior.
+- Existing uncommitted work is user-owned and must be preserved.
+
+## Phases
+
+1. Audit command, Skill, model, Session, and Project persistence seams — complete
+2. Add shared composer suggestion catalog and focused tests — complete
+3. Add shared keyboard-accessible suggestion UI to both chat surfaces — complete
+4. Add recognized command/Skill transcript presentation — complete
+5. Add Project settings persistence, UI, and runtime inheritance — complete
+6. Update required product docs and run adversarial verification — complete
+
+## Verification gates
+
+- `/` suggestions come from runtime command/Skill data, not a duplicated UI list.
+- Disabled or unavailable Skills do not appear as executable suggestions.
+- IME composition, arrows, Enter/Tab, Escape, mouse selection, and Shift+Enter work.
+- Recognized commands, Skills, and unknown slash text render distinctly and safely.
+- Project A defaults never mutate global routing or Project B.
+- New Sessions inherit Project defaults; Session selection wins afterward.
+- Chat and Project reuse the same composer and transcript modules.
+- Desktop passes zh/en, light/dark, and narrow-width verification.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Combined model-override patch missed the exact `ConversationHost.projectId` type | 1 | Inspected the interface and reapplied the same change as smaller surgical patches. |
+| First Desktop check found a prop-name mismatch in `SlashSuggestionMenu` | 1 | Passed `activeSuggestionIndex` through the declared `activeIndex` prop. |
+| Desktop Geist regression rejected `backdrop-filter` in the new suggestion popover | 1 | Removed blur and used the existing opaque card surface plus popover shadow. |
+| Adversarial diff review found the model override applied to constructor initialization instead of the per-turn settings read | 1 | Restored constructor settings and moved the immutable override into `run(ctx)` before validation/candidate resolution. |
+| Repository-wide raw `tsc --noEmit` reports existing dependency/package/type failures across Anthropic SDK, QQ/OpenClaw, shadcn exports, memory/media tests, and channels | 1 | Confirmed none reference this feature; used the repository-supported production build, Desktop Svelte check, and focused typed tests as release gates. |
+| Desktop API node tests imported a Svelte runes catalog through `conversationTurn` and failed because `$state` is compiler-only | 1 | Split the pure invocation catalog/classifier from the reactive Svelte adapter; node code now imports only the pure module. |
+
+---
+
 # Daily materials internal task (2026-07-11)
 
 ## Goal
@@ -509,5 +640,36 @@ walking pug characters, backed by real Desktop Agent data.
 - Pug characters visibly walk/idle and respect reduced-motion preferences.
 - Existing New Task, Skills, Automations, Projects, and conversations still work.
 - Desktop type checks, UI tests, and production build pass.
+
+---
+# Trace active-run control for Web and Desktop (2026-07-12)
+
+## Goal
+
+Add a shared active-runs control surface to both Trace pages that distinguishes
+live runners from orphan Trace facts and supports exact stop or audit-preserving cleanup.
+
+## Phases
+
+1. Expose read-only RunnerPool snapshots and exact session abort — complete
+2. Build credential-safe active-run projection and action API — complete
+3. Add responsive Web and Desktop Trace controls — complete
+4. Verify live/stuck/orphan behavior and full builds — complete
+5. Update product documentation — complete
+
+## Verification gates
+
+- A live run is never inferred from Trace alone.
+- Stop targets the exact channel, Bot, chat, and session represented by the row.
+- Orphan cleanup marks the Trace run aborted; it does not delete audit data.
+- Web and Desktop show the same statuses and actions.
+- Persistent tests use only in-memory or temporary stores.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Equal-duration active-run fixtures had a brittle ordering assertion | 1 | Assert each run's classified status by ID; ordering is only guaranteed by duration. |
+| Root `pnpm check` does not exist | 1 | Use the repository's full `pnpm build` SvelteKit verification instead. |
 
 ---

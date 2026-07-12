@@ -49,6 +49,7 @@ export interface ConversationHost {
   profileId(): string;
   sessionId(): string;
   projectId?(): string | undefined;
+  modelKey?(): string | undefined;
   thinkingLevel(): DesktopThinkingLevel;
   /** Guard for readiness (e.g. a configured model); a turn is skipped when false. */
   canSend?(): boolean;
@@ -172,6 +173,7 @@ export class ConversationController {
         profileId: this.host.profileId(),
         sessionId,
         projectId: this.host.projectId?.(),
+        modelKey: this.host.modelKey?.(),
         message: content,
         thinkingLevel: this.host.thinkingLevel(),
         files: hasFiles ? files : undefined,

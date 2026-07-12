@@ -386,8 +386,11 @@ export class SessionStore {
 
     if (opts?.projectId) {
       if (conversationId) {
+        // Project sessions are owner-scoped: any surface (Desktop, channel bot)
+        // may continue any conversation of the project by id, so a chat started
+        // on Feishu can be picked up on the Mac app and vice versa.
         const file = readProjectSession(opts.projectId, conversationId);
-        if (file && file.conversation.externalUserId === externalUserId) {
+        if (file) {
           file.conversation.updatedAt = now;
           writeProjectSession(opts.projectId, file);
           return file.conversation;
@@ -567,6 +570,39 @@ export class SessionStore {
     return true;
   }
 
+  /**
+   * Edit-and-resend support: drop the message identified by `fromMessageId`
+   * together with every message that follows it in the conversation. Used by
+   * the desktop composer when the user edits a prior turn and resends - the
+   * caller will then append a fresh user message and let the agent run again.
+   * Returns the number of messages removed; throws `SessionNotFound` when the
+   * conversation file can't be located and `MessageNotFound` when the message
+   * id isn't part of the transcript, so the API layer can map them to distinct
+   * HTTP statuses instead of a generic 404.
+   */
+  truncateMessagesFrom(conversationId: string, fromMessageId: string): number {
+    const located = this.resolveSessionStorage(conversationId);
+    if (!located) {
+      const err = new Error("Session not found");
+      (err as Error & { code?: string }).code = "SESSION_NOT_FOUND";
+      throw err;
+    }
+    const messages = located.file.messages;
+    const index = messages.findIndex((message) => message.id === fromMessageId);
+    if (index < 0) {
+      const err = new Error(`Message not found (session has ${messages.length} message${messages.length === 1 ? "" : "s"})`);
+      (err as Error & { code?: string }).code = "MESSAGE_NOT_FOUND";
+      throw err;
+    }
+    const removed = messages.length - index;
+    messages.length = index;
+    located.file.conversation.updatedAt = new Date().toISOString();
+    if (located.type === "web") writeWebSession(located.externalUserId, located.file);
+    else if (located.type === "project") writeProjectSession(located.projectId, located.file);
+    else writeLegacySession(located.file);
+    return removed;
+  }
+
   listMessages(conversationId: string, limit?: number): ConversationMessage[] {
     const located = this.resolveSessionStorage(conversationId);
     if (!located) return [];
@@ -684,7 +720,9 @@ export class SessionStore {
   /** Same empty-session contract as Web, scoped to one project workspace. */
   getOrCreateEmptyProjectConversation(projectId: string, externalUserId: string): { conversation: Conversation; reused: boolean } {
     const existing = this.listProjectConversations(projectId)
-      .find((conversation) => this.listMessages(conversation.id).length === 0);
+      .find((conversation) =>
+        conversation.externalUserId === externalUserId && this.listMessages(conversation.id).length === 0
+      );
     if (existing) return { conversation: existing, reused: true };
     return { conversation: this.createProjectConversation(projectId, externalUserId), reused: false };
   }

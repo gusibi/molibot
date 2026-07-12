@@ -2,6 +2,7 @@
   import type { DesktopSessionFile } from "@molibot/desktop-contract";
   import { untrack } from "svelte";
   import type { Translation } from "../i18n";
+  import { mediaTypeFromName } from "@molibot/shared/filePreview";
   import {
     fetchDesktopFileBlob,
     listDesktopSessionFiles,
@@ -196,6 +197,11 @@
     finally { loading = false; }
   }
 
+  function buildRawFileUrl(filePath: string): string {
+    const query = new URLSearchParams({ path: filePath, raw: "true" });
+    return `${endpoint}/api/settings/projects/${encodeURIComponent(projectId)}/inspection/file?${query.toString()}`;
+  }
+
   async function openAttachment(file: DesktopSessionFile): Promise<void> {
     if (expandedPath === file.id) { collapseAll(); return; }
     collapseAll();
@@ -293,12 +299,22 @@
                   </button>
                 {/if}
                 {#if entry.kind === "file" && expandedPath === entry.path}
-                  <div class="project-inline-preview">
+                  <div class="project-inline-preview" class:project-inline-media={filePreview && filePreview.status !== "text" && ["image", "audio", "video"].includes(mediaTypeFromName(filePreview.path))}>
                     {#if loading}
                       <div class="project-panel-loading"><i class="ph ph-spinner-gap" aria-hidden="true"></i>{copy.loading}</div>
                     {:else if filePreview}
-                      {#if filePreview.status === "text"}<pre>{filePreview.content}</pre>
-                      {:else}<p>{filePreview.status === "binary" ? copy.projectBinaryFile : copy.projectOversizedFile} · {formatSize(filePreview.sizeBytes)}</p>{/if}
+                      {#if filePreview.status === "text"}
+                        <pre>{filePreview.content}</pre>
+                      {:else if mediaTypeFromName(filePreview.path) === "image"}
+                        <img src={buildRawFileUrl(filePreview.path)} alt={filePreview.path.split("/").pop()} />
+                      {:else if mediaTypeFromName(filePreview.path) === "audio"}
+                        <audio src={buildRawFileUrl(filePreview.path)} controls></audio>
+                      {:else if mediaTypeFromName(filePreview.path) === "video"}
+                        <!-- svelte-ignore a11y_media_has_caption -->
+                        <video src={buildRawFileUrl(filePreview.path)} controls></video>
+                      {:else}
+                        <p>{filePreview.status === "binary" ? copy.projectBinaryFile : copy.projectOversizedFile} · {formatSize(filePreview.sizeBytes)}</p>
+                      {/if}
                     {/if}
                   </div>
                 {/if}

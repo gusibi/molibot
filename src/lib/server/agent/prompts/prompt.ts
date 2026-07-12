@@ -584,6 +584,7 @@ function buildPromptRenderVariables(
   memory: string,
   timezone: string,
   settings?: RuntimeSettings,
+  projectRoot?: string,
 ): PromptRenderVars {
   const dataRoot = resolveDataRootFromWorkspacePath(workspaceDir);
   const memoryRoot = resolveMemoryRootFromWorkspacePath(workspaceDir);
@@ -603,7 +604,8 @@ function buildPromptRenderVariables(
   const availableSkills = loadFormattedSkillsCached(
     workspaceDir,
     chatId,
-    settings?.disabledSkillPaths ?? []
+    settings?.disabledSkillPaths ?? [],
+    projectRoot
   );
   const skillCreatorSkillFile = `${globalSkillsDir}/skill-creator/SKILL.md`;
   const skillCreatorAvailable = existsSync(skillCreatorSkillFile) ? "true" : "false";
@@ -740,18 +742,19 @@ function mergePromptSectionsByOrder(
 function loadFormattedSkillsCached(
   workspaceDir: string,
   chatId: string,
-  disabledSkillPaths: string[]
+  disabledSkillPaths: string[],
+  projectRoot?: string
 ): string {
   const disabled = [...disabledSkillPaths]
     .map((row) => String(row ?? "").trim())
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b));
-  const cacheKey = `${workspaceDir}::${chatId}::${disabled.join("|")}`;
+  const cacheKey = `${workspaceDir}::${chatId}::${projectRoot ?? ""}::${disabled.join("|")}`;
   const now = Date.now();
   const cached = skillsPromptCache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.formatted;
 
-  const { skills } = loadSkillsFromWorkspace(workspaceDir, chatId, { disabledSkillPaths });
+  const { skills } = loadSkillsFromWorkspace(workspaceDir, chatId, { disabledSkillPaths, projectRoot });
   const formatted = formatSkillsForPrompt(skills, {
     mode: "names_only"
   });
@@ -789,6 +792,7 @@ export function buildSystemPrompt(
     memory,
     timezone,
     options?.settings,
+    options?.project?.rootPath,
   );
   const projectContext = options?.project ? discoverProjectContext(options.project.rootPath) : discoverProjectContext(workspaceDir);
   const globalSections = buildPromptSectionsFromInstructionFiles(

@@ -147,6 +147,35 @@ test("project prompt discovers priority instructions and replaces Workspace dire
   }
 });
 
+test("project prompt Skill cache is isolated by Project root", () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-workspace-skills-"));
+  const projectA = mkdtempSync(join(tmpdir(), "molibot-project-a-"));
+  const projectB = mkdtempSync(join(tmpdir(), "molibot-project-b-"));
+  const writeSkill = (root: string, name: string) => {
+    const dir = join(root, ".agents", "skills", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: ${name} description\n---\n`, "utf8");
+  };
+  try {
+    writeSkill(projectA, "project-a-only");
+    writeSkill(projectB, "project-b-only");
+    const promptA = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
+      project: { id: "a", name: "A", rootPath: projectA, scratchDir: join(workspaceDir, "scratch-a") }
+    });
+    const promptB = buildSystemPromptPreview(workspaceDir, "chat-1", "session-1", "(none)", {
+      project: { id: "b", name: "B", rootPath: projectB, scratchDir: join(workspaceDir, "scratch-b") }
+    });
+    assert.match(promptA, /project-a-only/);
+    assert.doesNotMatch(promptA, /project-b-only/);
+    assert.match(promptB, /project-b-only/);
+    assert.doesNotMatch(promptB, /project-a-only/);
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(projectA, { recursive: true, force: true });
+    rmSync(projectB, { recursive: true, force: true });
+  }
+});
+
 test("project prompt blocks injected instructions and truncates oversized context", () => {
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-workspace-injection-"));
   const projectDir = mkdtempSync(join(tmpdir(), "molibot-project-injection-"));

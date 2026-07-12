@@ -19,15 +19,18 @@ import { momLog, momWarn } from "$lib/server/agent/common/log.js";
 import { SharedRuntimeCommandService, type SharedRuntimeCommandOptions } from "$lib/server/agent/commands/channelCommands.js";
 import { buildTextChannelContext, type ChannelResponseHandle, type ContextSentMessageRef } from "$lib/server/channels/shared/contextBuilder.js";
 import type { ChannelInboundMessage, RunnerUiEvent } from "$lib/server/agent/core/types.js";
-import { retryApprovalAutoResume } from "$lib/server/channels/shared/approvalAutoResume.js";
+import {
+  retryApprovalAutoResume,
+  APPROVAL_AUTO_RESUME_RETRY_DELAY_MS,
+  APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS
+} from "$lib/server/channels/shared/approvalAutoResume.js";
 import { ChannelQueue } from "$lib/server/channels/shared/queue.js";
 import type { PromptChannel } from "$lib/server/agent/prompts/prompt-channel.js";
 import type { Channel } from "$lib/shared/types/message.js";
+import { getProjectStore } from "$lib/server/projects/store.js";
+import { ProjectAwareRunnerPool } from "$lib/server/channels/shared/projectRunnerRouter.js";
 
 import type { HookManager } from "$lib/server/agent/hooks/index.js";
-
-const APPROVAL_AUTO_RESUME_RETRY_DELAY_MS = 1000;
-const APPROVAL_AUTO_RESUME_RETRY_MAX_ATTEMPTS = 60 * 60;
 
 interface BaseChannelRuntimeInit {
   channel: PromptChannel;
@@ -53,7 +56,7 @@ export abstract class BaseChannelRuntime {
   protected readonly workspaceDir: string;
   protected readonly store: MomRuntimeStore;
   protected readonly sessions: SessionStore;
-  protected readonly runners: RunnerPool;
+  protected readonly runners: ProjectAwareRunnerPool;
   protected readonly memory: MemoryGateway;
   protected readonly hookManager: HookManager;
   protected readonly instanceId: string;
@@ -83,7 +86,7 @@ export abstract class BaseChannelRuntime {
     }
     this.memory = runtimeOptions.memory;
     this.hookManager = runtimeOptions.hookManager;
-    this.runners = new RunnerPool(
+    const botRunners = new RunnerPool(
       this.channelName,
       this.store,
       this.getSettings,
@@ -93,6 +96,18 @@ export abstract class BaseChannelRuntime {
       runtimeOptions.memory,
       runtimeOptions.hookManager
     );
+    this.runners = new ProjectAwareRunnerPool(botRunners, {
+      channel: this.channelName,
+      instanceId: this.instanceId,
+      sessions: this.sessions,
+      botStore: this.store,
+      getSettings: this.getSettings,
+      updateSettings: this.updateSettings ?? ((patch) => ({ ...this.getSettings(), ...patch })),
+      usageTracker: runtimeOptions.usageTracker,
+      modelErrorTracker: runtimeOptions.modelErrorTracker,
+      memory: runtimeOptions.memory,
+      hookManager: runtimeOptions.hookManager
+    });
   }
 
   protected markInboundMessageSeen(chatId: string, rawMessageId: string): boolean {
@@ -183,6 +198,20 @@ export abstract class BaseChannelRuntime {
     }
 
     return { aborted: false };
+  }
+
+  public snapshotRuns(): Array<{ chatId: string; sessionId: string }> {
+    return this.runners.snapshotRunning();
+  }
+
+  public abortRun(chatId: string, sessionId: string, reason = "Stopped from Trace controls."): { aborted: boolean } {
+    const aborted = this.runners.abort(chatId, sessionId);
+    if (!aborted) return { aborted: false };
+    getTurnOrchestrator().abortRunningTurnsForSession(sessionId, reason);
+    this.runners.reset(chatId, sessionId);
+    this.running.delete(chatId);
+    momLog(this.channelName, "trace_stop_requested", { chatId, sessionId, reason });
+    return { aborted: true };
   }
 
   protected stopChatWork(scopeId: string): { aborted: boolean; clearedStale?: boolean } {
@@ -345,10 +374,16 @@ export abstract class BaseChannelRuntime {
     warningCode: string,
     meta: Record<string, unknown>,
     origin?: "automation",
-    platformMessageId?: string
+    platformMessageId?: string,
+    projectTarget?: { projectId: string; conversationId: string }
   ): void {
     try {
-      const conv = this.sessions.getOrCreateConversation(channel as Channel, conversationKey, undefined, origin ? { origin } : undefined);
+      const conv = this.sessions.getOrCreateConversation(
+        channel as Channel,
+        conversationKey,
+        projectTarget?.conversationId,
+        origin || projectTarget ? { origin, projectId: projectTarget?.projectId } : undefined
+      );
       this.sessions.appendMessage(conv.id, role, text, { platformMessageId });
     } catch (error) {
       momWarn(this.channelName, warningCode, {
@@ -372,6 +407,9 @@ export abstract class BaseChannelRuntime {
       runners: this.runners,
       getSettings: this.getSettings,
       updateSettings: this.updateSettings,
+      listProjects: () => getProjectStore().list(),
+      getActiveProject: (scopeId) => getProjectStore().getChannelBinding(this.channelName, this.instanceId, scopeId),
+      setActiveProject: (scopeId, projectId) => getProjectStore().setChannelBinding(this.channelName, this.instanceId, scopeId, projectId),
       executeApprovedHostBash: options.executeApprovedHostBash ?? (async (input, approved, request) => {
         if (!request.pendingAction) return;
         const executed = await executeHostBashApproval({
@@ -470,29 +508,51 @@ export abstract class BaseChannelRuntime {
 
     this.running.add(scopeId);
 
+    const target = this.runners.resolveTarget(scopeId, activeSessionId);
+    const selectedProject = target.project;
+
     this.appendConversationMessage(
       this.channelName,
-      `bot:${this.instanceId}:chat:${scopeId}:${activeSessionId}`,
+      target.conversationKey,
       options.role ?? "user",
       event.text,
       "session_user_append_failed",
       { chatId: event.chatId, scopeId },
       event.isEvent ? "automation" : undefined,
-      event.platformMessageId
+      event.platformMessageId,
+      selectedProject && target.conversationId
+        ? { projectId: selectedProject.id, conversationId: target.conversationId }
+        : undefined
     );
 
-    const runner = this.runners.get(scopeId, activeSessionId);
+    const runner = target.pool.get(target.chatId, target.sessionId);
     let threadEventCount = 0;
     const ctx = buildTextChannelContext({
       channel: this.channelName as Channel,
       event,
       workspaceDir: this.workspaceDir,
-      chatDir: this.store.getChatDir(scopeId),
+      chatDir: target.store.getChatDir(target.chatId),
       store: this.store,
       sessions: this.sessions,
       instanceId: this.instanceId,
       activeSessionId,
-      conversationKey: `bot:${this.instanceId}:chat:${scopeId}:${activeSessionId}`,
+      project: selectedProject ? {
+        id: selectedProject.id,
+        name: selectedProject.name,
+        rootPath: selectedProject.rootPath,
+        instructions: selectedProject.instructions,
+        sandboxEnabled: selectedProject.sandboxEnabled,
+        toolProgress: selectedProject.toolProgress,
+        showReasoning: selectedProject.showReasoning,
+        runLogNotice: selectedProject.runLogNotice,
+        scratchDir: target.store.getScratchDir(target.chatId)
+      } : undefined,
+      modelKeyOverride: selectedProject?.modelKey,
+      thinkingLevelOverride: selectedProject?.thinkingLevel,
+      projectConversation: selectedProject && target.conversationId
+        ? { projectId: selectedProject.id, conversationId: target.conversationId }
+        : undefined,
+      conversationKey: target.conversationKey,
       response: {
         ...options.response,
         respondInThread: options.response.respondInThread

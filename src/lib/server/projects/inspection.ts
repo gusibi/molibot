@@ -213,6 +213,11 @@ export async function listProjectTree(project: ProjectRecord, input: { path?: st
   };
 }
 
+export async function getProjectFilePath(project: ProjectRecord, filePath: string): Promise<string> {
+  const resolved = await resolveProjectPath(project, filePath, false, true);
+  return resolved.target;
+}
+
 export async function readProjectFile(project: ProjectRecord, input: { path: string; maxBytes?: number }): Promise<FilePreviewResult> {
   const resolved = await resolveProjectPath(project, input.path);
   const stat = await fs.stat(resolved.target);

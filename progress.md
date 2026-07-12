@@ -1,3 +1,54 @@
+# 2026-07-12 — Bot Project mode
+
+- Traced Feishu intake through shared commands, BaseChannelRuntime, RunnerPool,
+  and the existing `MomContext.project` execution path.
+- Selected a shared persisted binding plus shared context injection; no
+  Channel-specific Project runtime will be added.
+- Added `/project` list/select/off behavior and Telegram mobile command-menu
+  discovery. Initial focused suite passes 32/32 tests.
+- Final focused suite passes 33/33; full SvelteKit production build passes.
+- Updated required product docs and completed adversarial boundary review.
+
+---
+
+# 2026-07-12 — Project runtime and display overrides
+
+- Added inherited Sandbox, tool-progress, reasoning, and runlog-notice fields to Project persistence and Desktop settings.
+- Project Sandbox resolves below Session and above Bot/Agent/global by passing the same boolean into the existing resolver; no new Sandbox or approval semantics were introduced.
+- Applied Project display overrides to Desktop and Project-bound Telegram/Feishu/QQ/Weixin paths; runlog notice resolution includes Project scope.
+
+---
+
+# 2026-07-12 — Project-local Skill discovery fix
+
+- User reported Project Chat slash suggestions omit Skills under the registered
+  Project's `.agents/skills` directory.
+- Loaded the debugging workflow and the existing approved Project Skill contract.
+- Started a loader-level red regression before changing production discovery.
+- Red test reproduced `scope=bot` instead of `scope=project`; it now passes with project-first discovery and ordinary-session isolation.
+- Threaded projectRoot through Runner, prompt cache, skillSearch, Web `/skills`, and the server-owned Desktop suggestion endpoint.
+- Real `momo-agent` probe found 26 valid Project Skills with project scope and zero diagnostics.
+- Verification passed: focused Skill/Prompt/API tests 99/99, Desktop UI 39/39, Svelte 0/0, production build and diff check.
+
+---
+
+# 2026-07-12 — Composer suggestions and Project defaults
+
+- User approved the four-stage implementation.
+- Loaded planning, frontend design, and deep-module instructions.
+- Confirmed existing uncommitted changes are user-owned and will be preserved.
+- Started auditing shared composer/transcript seams and runtime persistence.
+- Added the server-owned command/Skill suggestion catalog and shared Desktop menu.
+- Added recognized Command/Skill transcript cards without styling unknown slash text.
+- Added Project model/thinking persistence, settings dialog, per-Session temporary overrides, and per-turn Runner model resolution.
+- First verification: focused server tests 5/5, Desktop UI 39/39, Desktop Svelte 0/0, production build pass.
+- Adversarial review moved the model override from constructor initialization to the actual per-turn settings seam and removed non-Geist backdrop blur.
+- Final focused verification passed: Desktop Svelte 0/0, Desktop UI 39/39, request/catalog/Project/model-routing tests 76/76, production build and diff check pass.
+- Raw repository-wide `tsc --noEmit` remains red on unrelated pre-existing dependency/package/type errors; no reported diagnostic points to the delivered files.
+- Final command-path review routed recognized Commands to the existing Web command executor and persisted both command and result; Skills retain streaming execution.
+
+---
+
 # Progress log
 
 ## 2026-07-11 — Configurable reflection schedule and completion notice
@@ -241,3 +292,11 @@
   with focused tests for active, recent terminal, and expired terminal states.
 - Agent Studio now polls activity every 2.5 seconds and renders a Boss station,
   working/completed/error labels, and animated file-transfer links.
+
+# Trace active-run controls (2026-07-12)
+
+- Added exact live Runner snapshots and channel/session abort delegation.
+- Added a shared credential-safe active-run projection and action endpoint.
+- Added bilingual responsive controls to Web and Desktop Trace pages.
+- Verified 7 active/trace cases, 37 Desktop UI cases, zero Desktop Svelte
+  diagnostics, and the full SvelteKit production build.

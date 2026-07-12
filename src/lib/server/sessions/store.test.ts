@@ -195,3 +195,53 @@ test("empty conversations are reused once per Web profile and project", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("truncateMessagesFrom drops the picked message and everything after it", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-truncate-"));
+  const original = {
+    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    sessionsDir: storagePaths.sessionsDir,
+    sessionsIndexFile: storagePaths.sessionsIndexFile
+  };
+
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+
+    const store = new SessionStore();
+    const externalUserId = "web:personal:web-anonymous";
+    const session = store.createWebConversation(externalUserId);
+    const user1 = store.appendMessage(session.id, "user", "first turn").id;
+    const assistant1 = store.appendMessage(session.id, "assistant", "first answer").id;
+    const user2 = store.appendMessage(session.id, "user", "second turn").id;
+    const assistant2 = store.appendMessage(session.id, "assistant", "second answer").id;
+    assert.equal(store.listMessages(session.id).length, 4);
+
+    const removed = store.truncateMessagesFrom(session.id, user2);
+    assert.equal(removed, 2);
+    const remaining = store.listMessages(session.id);
+    assert.deepEqual(remaining.map((m) => m.id), [user1, assistant1]);
+
+    // Unknown message id: throws MESSAGE_NOT_FOUND with a hint about the
+    // current message count so the client can show a useful error.
+    assert.throws(
+      () => store.truncateMessagesFrom(session.id, "does-not-exist"),
+      /Message not found \(session has 2 messages\)/
+    );
+    assert.equal(store.listMessages(session.id).length, 2);
+
+    // Re-truncating at the head drops everything.
+    assert.equal(store.truncateMessagesFrom(session.id, user1), 2);
+    assert.deepEqual(store.listMessages(session.id), []);
+
+    // No-op on a session that was never persisted: throws SESSION_NOT_FOUND.
+    assert.throws(
+      () => store.truncateMessagesFrom("never-existed", user1),
+      /Session not found/
+    );
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});

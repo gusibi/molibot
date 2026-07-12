@@ -787,23 +787,31 @@ export class FeishuManager extends BaseChannelRuntime {
         const runId = turn.runId;
 
         this.running.add(scopeId);
+
+        const target = this.runners.resolveTarget(scopeId, activeSessionId);
+        const selectedProject = target.project;
+        const projectConversation = selectedProject && target.conversationId
+            ? { projectId: selectedProject.id, conversationId: target.conversationId }
+            : undefined;
+
         this.appendConversationMessage(
             this.channelName,
-            `bot:${this.instanceId}:chat:${scopeId}:${activeSessionId}`,
+            target.conversationKey,
             event.isEvent ? "system" : "user",
             event.text,
             "session_user_append_failed",
             { chatId: scopeId, scopeId },
             undefined,
-            event.platformMessageId
+            event.platformMessageId,
+            projectConversation
         );
 
-        const runner = this.runners.get(scopeId, activeSessionId);
+        const runner = target.pool.get(target.chatId, target.sessionId);
         const settings = this.getSettings();
         const feishuInstance = settings.channels?.feishu?.instances?.find((item) => item.id === this.instanceId);
         const displayConfig = {
-            toolProgress: feishuInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
-            showReasoning: feishuInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
+            toolProgress: selectedProject?.toolProgress ?? feishuInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
+            showReasoning: selectedProject?.showReasoning ?? feishuInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
             gatewayNotifyInterval: feishuInstance?.display?.gatewayNotifyInterval ?? settings.display?.gatewayNotifyInterval ?? 0
         };
         const streaming = new FeishuStreamingSession({
@@ -824,7 +832,16 @@ export class FeishuManager extends BaseChannelRuntime {
             channel: "feishu",
             message: event,
             workspaceDir: this.workspaceDir,
-            chatDir: this.store.getChatDir(scopeId),
+            chatDir: target.store.getChatDir(target.chatId),
+            project: selectedProject ? {
+                id: selectedProject.id,
+                name: selectedProject.name,
+                rootPath: selectedProject.rootPath,
+                instructions: selectedProject.instructions,
+                scratchDir: target.store.getScratchDir(target.chatId)
+            } : undefined,
+            modelKeyOverride: selectedProject?.modelKey,
+            thinkingLevelOverride: selectedProject?.thinkingLevel,
             respond: async (text, shouldLog = true) => {
                 await streaming.respond(text, shouldLog);
             },
@@ -880,11 +897,14 @@ export class FeishuManager extends BaseChannelRuntime {
             this.store.logBotResponse(scopeId, finalText, Number.isFinite(numericMessageId) ? numericMessageId : Date.now());
             this.appendConversationMessage(
                 this.channelName,
-                `bot:${this.instanceId}:chat:${scopeId}:${activeSessionId}`,
+                target.conversationKey,
                 "assistant",
                 finalText,
                 "session_assistant_append_failed",
-                { chatId: scopeId, scopeId }
+                { chatId: scopeId, scopeId },
+                undefined,
+                undefined,
+                projectConversation
             );
         }
 

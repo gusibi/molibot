@@ -15,6 +15,8 @@ export interface ChannelManager {
   stop(): void;
   stopTask?(scopeId: string): { aborted: boolean; clearedStale?: boolean };
   abortTaskRun?(scopeId: string, reason?: string): { aborted: boolean; clearedStale?: boolean };
+  snapshotRuns?(): Array<{ chatId: string; sessionId: string }>;
+  abortRun?(chatId: string, sessionId: string, reason?: string): { aborted: boolean };
   triggerTask?(event: unknown, filename: string): Promise<void>;
 }
 

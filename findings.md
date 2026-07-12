@@ -1,3 +1,43 @@
+# Bot Project mode (2026-07-12)
+
+- `MomContext.project` already owns Project cwd, instructions, Skills, output
+  layout, and tool guards; Channels only lack binding resolution and injection.
+- `SharedRuntimeCommandService` and `BaseChannelRuntime` cover Feishu, Telegram,
+  QQ, and Weixin, so no Project orchestration belongs in Channel adapters.
+- Preserving the current channel session keeps queue/session/approval identity
+  stable while changing execution mode for subsequent turns.
+
+---
+
+# Project-local Skill discovery fix (2026-07-12)
+
+- The approved requirement already fixes the directory contract at
+  `<projectRoot>/.agents/skills/` and precedence at project > bot > global > chat.
+- The current `SkillScope`, Desktop scope projection, and loader roots only know
+  global/bot/chat; the missing suggestion is therefore a runtime discovery gap,
+  not just a Desktop filtering bug.
+- The Project root must be resolved from server-owned `projectId`; Desktop must
+  not receive or scan the absolute root path.
+
+---
+
+# Composer suggestions and Project defaults (2026-07-12)
+
+- `ChatInputArea` and `ChatComposerShell` are already shared by ordinary Chat
+  and Project Chat, so the suggestion interaction belongs at this seam.
+- `ConversationTranscript` is likewise shared; presentation classification can
+  be implemented once without Project-specific rendering.
+- Web command discovery is currently embedded in `tryHandleWebCommand`, while
+  channel runtime commands live in `SharedRuntimeCommandService`; UI must not
+  introduce a third handwritten command inventory.
+- `ProjectRecord` already persists instructions and reserves sandbox/approval
+  profile fields, but has no model/thinking overrides.
+- Project Chat currently loads and changes the global model route. Project
+  defaults require a separate resolution path so local selection cannot mutate
+  unrelated Chats or Projects.
+
+---
+
 # Findings
 
 ## Configurable reflection schedule and completion notice (2026-07-11)
@@ -286,3 +326,13 @@ rules, and contextual header format.
   logic so UI rendering and counts cannot drift.
 - The current worktree contains substantial unrelated user changes. All edits
   must be surgical and avoid formatting or replacing nearby work.
+# Trace active-run control (2026-07-12)
+
+- Existing Trace pages report persisted facts but cannot prove a Runner is
+  still alive. `started` facts can survive crashes and must be joined with a
+  live RunnerPool snapshot before offering Stop.
+- `BaseChannelRuntime.abortTaskRun(scopeId)` resolves the current active session,
+  which is unsafe for a historical Trace row. Trace controls need an exact
+  `chatId + sessionId` abort seam.
+- Orphan cleanup should upsert the existing run fact as aborted rather than
+  deleting it, preserving the audit trail while removing false active state.

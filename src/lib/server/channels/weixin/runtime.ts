@@ -17,6 +17,7 @@ import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
 import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
+import { getProjectStore } from "$lib/server/projects/store.js";
 import { extractWeixinAttachments, extractWeixinText, hasWeixinInlineVoiceTranscript } from "$lib/server/channels/weixin/media.js";
 import { hasWeixinImageReferenceText, sendWeixinFile, sendWeixinImageReferenceText } from "$lib/server/channels/weixin/outbound.js";
 import {
@@ -420,9 +421,10 @@ export class WeixinManager extends BaseChannelRuntime {
 
     const settings = this.getSettings();
     const weixinInstance = settings.channels?.weixin?.instances?.find((item) => item.id === this.instanceId);
+    const selectedProject = getProjectStore().getChannelBinding("weixin", this.instanceId, event.scopeId || chatId);
     const displayConfig = {
-      toolProgress: weixinInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
-      showReasoning: weixinInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
+      toolProgress: selectedProject?.toolProgress ?? weixinInstance?.display?.toolProgress ?? settings.display?.toolProgress ?? "all",
+      showReasoning: selectedProject?.showReasoning ?? weixinInstance?.display?.showReasoning ?? settings.display?.showReasoning ?? "off",
       gatewayNotifyInterval: weixinInstance?.display?.gatewayNotifyInterval ?? settings.display?.gatewayNotifyInterval ?? 0
     };
 

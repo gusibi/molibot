@@ -1,6 +1,7 @@
 # Project 级技能加载（`<projectRoot>/.agents/skills/`）
 
 > 日期：2026-07-10
+> 状态：已实现（2026-07-12）
 > 来源：从 `memory-improvement-plan.md` v2 拆出（原 T9）。平台任务，与记忆主线无代码耦合，可独立派发。
 
 ## 任务 [P1]

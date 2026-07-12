@@ -5,6 +5,7 @@ import type { RequestHandler } from "./$types";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { getProjectStore } from "$lib/server/projects/store.js";
 import { getRuntime } from "$lib/server/app/runtime.js";
+import { buildDesktopModelState } from "$lib/server/app/desktopModels.js";
 
 export const GET: RequestHandler = ({ params }) => {
   const project = getProjectStore().get(params.id);
@@ -15,7 +16,10 @@ export const GET: RequestHandler = ({ params }) => {
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
   try {
-    const body = await request.json() as { name?: string; rootPath?: string; instructions?: string };
+    const body = await request.json() as Parameters<ReturnType<typeof getProjectStore>["update"]>[1];
+    if (body.modelKey && !buildDesktopModelState(getRuntime().getSettings(), "text").options.some((option) => option.key === body.modelKey)) {
+      return json({ ok: false, error: "Unknown Project model." }, { status: 400 });
+    }
     const project = getProjectStore().update(params.id, body);
     if (!project) return json({ ok: false, error: "Unknown project" }, { status: 404 });
     return json({ ok: true, project });

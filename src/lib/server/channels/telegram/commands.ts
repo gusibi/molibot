@@ -6,6 +6,8 @@ export const TELEGRAM_SHARED_COMMANDS = [
   "queue",
   "hosttools",
   "host-tools",
+  "project",
+  "projects",
   "new",
   "clear",
   "sessions",
@@ -38,5 +40,6 @@ export const TELEGRAM_MENU_COMMANDS: ReadonlyArray<{
   { command: "status", en: "Show bot/session/runtime status", zh: "查看运行状态" },
   { command: "models", en: "Show or switch model", zh: "查看/切换模型" },
   { command: "skills", en: "List loaded skills", zh: "查看已加载技能" },
+  { command: "project", en: "Select or exit Project mode", zh: "选择/退出 Project 模式" },
   { command: "help", en: "Show all available commands", zh: "查看全部命令" }
 ] as const;

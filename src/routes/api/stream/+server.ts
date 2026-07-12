@@ -22,6 +22,7 @@ interface StreamBody {
   profileId?: string;
   thinkingLevel?: string;
   projectId?: string;
+  modelKey?: string;
 }
 
 function writeEvent(
@@ -112,7 +113,11 @@ export const POST: RequestHandler = async ({ request }) => {
   );
 
   const { store, pool } = resolveRuntimeContext({ profileId, projectId: project?.id });
-  const runner = pool.get(externalUserId, conversation.id);
+  // Project conversations may originate on a channel bot (e.g. Feishu); keying
+  // the runner by the conversation's own externalUserId reopens that exact
+  // agent context instead of forking a Web-keyed copy.
+  const runnerChatId = project ? conversation.externalUserId : externalUserId;
+  const runner = pool.get(runnerChatId, conversation.id);
   if (runner.isRunning()) {
     return new Response(
       JSON.stringify({ ok: false, error: "Already working. Please wait for current response to finish." }),
@@ -149,17 +154,22 @@ export const POST: RequestHandler = async ({ request }) => {
           const result = await runner.run({
             channel: "web",
             workspaceDir: store.getWorkspaceDir(),
-            chatDir: store.getChatDir(externalUserId),
+            chatDir: store.getChatDir(runnerChatId),
             thinkingLevelOverride: thinkingLevel,
+            modelKeyOverride: String(body.modelKey ?? project?.modelKey ?? "").trim() || undefined,
             project: project ? {
               id: project.id,
               name: project.name,
               rootPath: project.rootPath,
               instructions: project.instructions,
-              scratchDir: store.getScratchDir(externalUserId)
+              sandboxEnabled: project.sandboxEnabled,
+              toolProgress: project.toolProgress,
+              showReasoning: project.showReasoning,
+              runLogNotice: project.runLogNotice,
+              scratchDir: store.getScratchDir(runnerChatId)
             } : undefined,
             message: {
-              chatId: externalUserId,
+              chatId: runnerChatId,
               workspaceId,
               chatType: "private",
               messageId: Date.now(),
@@ -210,7 +220,7 @@ export const POST: RequestHandler = async ({ request }) => {
             uploadFile: async (filePath, title) => {
               const attachment = saveWebResponseAttachment({
                 store,
-                externalUserId,
+                externalUserId: runnerChatId,
                 filePath,
                 title,
                 ts

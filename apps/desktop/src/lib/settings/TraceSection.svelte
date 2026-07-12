@@ -1,13 +1,46 @@
 <script lang="ts">
-  import { formatDurationMs, formatTokenCount } from "../api";
-  import type { DesktopTraceRange } from "@molibot/desktop-contract";
+  import { onMount } from "svelte";
+  import { formatDurationMs, formatTokenCount, loadDesktopActiveRuns, stopDesktopActiveRun } from "../api";
+  import type { DesktopActiveRunItem, DesktopTraceRange } from "@molibot/desktop-contract";
   import { session } from "../stores/session.svelte";
   import { traceStore, TRACE_RANGES, changeTraceRange, loadTrace, traceRangeLabel } from "../stores/trace.svelte";
   import { DONUT_R, donutSegments, percentOf } from "./charts";
 
+  let activeRuns = $state<DesktopActiveRunItem[]>([]);
+  let activeRunsLoading = $state(false);
+  let activeRunBusy = $state("");
+  let activeRunMessage = $state("");
+
+  async function refreshActiveRuns(): Promise<void> {
+    if (!session.serviceReady || !session.endpoint) { activeRuns = []; return; }
+    activeRunsLoading = activeRuns.length === 0;
+    try { activeRuns = await loadDesktopActiveRuns(session.endpoint); }
+    catch { activeRuns = []; }
+    finally { activeRunsLoading = false; }
+  }
+
+  async function stopActiveRun(item: DesktopActiveRunItem): Promise<void> {
+    if (!session.endpoint || activeRunBusy || !window.confirm(item.status === "orphan" ? session.text.traceClearOrphanConfirm : session.text.traceStopRunConfirm)) return;
+    activeRunBusy = item.runId;
+    activeRunMessage = "";
+    try {
+      const result = await stopDesktopActiveRun(session.endpoint, item.runId);
+      activeRunMessage = result === "stopped" ? session.text.traceRunStopped : session.text.traceOrphanCleared;
+      await refreshActiveRuns();
+    } catch (cause) { activeRunMessage = cause instanceof Error ? cause.message : String(cause); }
+    finally { activeRunBusy = ""; }
+  }
+
+  onMount(() => {
+    void refreshActiveRuns();
+    const timer = setInterval(() => void refreshActiveRuns(), 3000);
+    return () => clearInterval(timer);
+  });
+
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== traceStore.endpoint) {
       void loadTrace(session.endpoint);
+      void refreshActiveRuns();
     }
   });
 
@@ -42,6 +75,18 @@
 </script>
 
 <p class="settings-section-hint">{session.text.traceHint}</p>
+<p class="settings-group-title">{session.text.traceActiveRuns}</p>
+<div class="settings-card trace-active-runs">
+  {#if activeRunsLoading}<div class="settings-row"><p>{session.text.loading}</p></div>
+  {:else if activeRuns.length === 0}<div class="settings-row"><div class="profile-info"><strong>{session.text.traceNoActiveRuns}</strong><p>{session.text.traceNoActiveRunsHint}</p></div></div>
+  {:else}{#each activeRuns as item (item.runId)}
+    <div class="settings-row trace-active-run-row">
+      <div class="profile-info"><div class="trace-active-run-title"><strong>{item.agentName} · {item.botName}</strong><span class="status-badge" data-state={item.status === "running" ? "ready" : "error"}>{item.status === "running" ? session.text.traceRunRunning : item.status === "stuck" ? session.text.traceRunStuck : session.text.traceRunOrphan}</span></div><p>{item.channel} · {formatDurationMs(item.durationMs)} · {item.startedAt.replace("T", " ").slice(0, 19)}</p><p class="trace-active-run-task">{item.taskPreview || session.text.traceTaskUnavailable}</p></div>
+      <button class="secondary-button danger-action" type="button" disabled={Boolean(activeRunBusy)} onclick={() => void stopActiveRun(item)}>{item.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun}</button>
+    </div>
+  {/each}{/if}
+</div>
+{#if activeRunMessage}<p class="settings-section-hint">{activeRunMessage}</p>{/if}
 <div class="settings-card">
   <div class="settings-row">
     <div>

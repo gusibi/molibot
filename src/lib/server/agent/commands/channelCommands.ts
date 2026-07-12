@@ -26,12 +26,13 @@ import {
   formatSkillsSummaryText,
   loadSkillsFromWorkspace
 } from "$lib/server/agent/skills/skills.js";
-import type { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
+import type { ChannelRunnerPoolLike } from "$lib/server/agent/core/runnerPool.js";
 import type { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { resolveThinkingLevel } from "$lib/server/providers/customThinking.js";
 import { resolveGlobalSkillsDirFromWorkspacePath } from "$lib/server/agent/session/workspace.js";
 import { formatRunLogText } from "$lib/server/agent/session/runDetail.js";
 import { commandLocaleFromSettings, commandText, isChineseLocale } from "$lib/server/agent/commands/i18n.js";
+import type { ProjectRecord } from "$lib/server/projects/store.js";
 
 const ACP_DISABLED_MESSAGE = "ACP has been removed from the active runtime path. Use the normal Agent workflow instead.";
 
@@ -48,7 +49,7 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   workspaceDir: string;
   authScopePrefix: string;
   store: MomRuntimeStore;
-  runners: RunnerPool;
+  runners: ChannelRunnerPoolLike;
   getSettings: () => RuntimeSettings;
   updateSettings?: (patch: Partial<RuntimeSettings>) => RuntimeSettings;
   hostBashStore?: HostBashStore;
@@ -76,6 +77,9 @@ export interface SharedRuntimeCommandOptions<TTarget> {
   enqueueFront?: (input: SharedRuntimeCommandContext<TTarget>, text: string) => Promise<number | null>;
   getStatusExtras?: (scopeId: string, target: TTarget) => string[];
   helpLines?: readonly string[];
+  listProjects?: () => ProjectRecord[];
+  getActiveProject?: (scopeId: string) => ProjectRecord | null;
+  setActiveProject?: (scopeId: string, projectId: string | null) => ProjectRecord | null;
 }
 
 interface CommandTableRow {
@@ -503,6 +507,52 @@ export class SharedRuntimeCommandService<TTarget> {
 
     if (cmd === "/hosttools" || cmd === "/host-tools") {
       await this.handleHostToolsCommand(input, rawArg);
+      return true;
+    }
+
+    if (cmd === "/project" || cmd === "/projects") {
+      if (!this.options.listProjects || !this.options.getActiveProject || !this.options.setActiveProject) {
+        await this.options.sendText(input.target, this.text("Project mode is unavailable in current runtime.", "当前运行时不支持 Project 模式。"));
+        return true;
+      }
+      const projects = this.options.listProjects();
+      const active = this.options.getActiveProject(input.scopeId);
+      const selector = rawArg.trim();
+      if (!selector || selector.toLowerCase() === "list" || selector.toLowerCase() === "status") {
+        const rows: CommandTableRow[] = [
+          { label: this.text("Current mode", "当前模式"), value: active ? `Project · ${active.name} (${active.id})` : this.text("Chat", "普通聊天") },
+          ...projects.map((project, index) => ({ label: String(index + 1), value: `${project.name} (${project.id})` }))
+        ];
+        await this.options.sendText(input.target, [
+          this.renderMarkdownBulletList(this.text("Project mode", "Project 模式"), rows),
+          this.renderMarkdownCommandList(this.text("Usage", "用法"), ["/project <index|id|name>", "/project off"])
+        ].join("\n\n"));
+        return true;
+      }
+      if (this.options.isRunning(input.scopeId)) {
+        await this.options.sendText(input.target, this.text("Already working. Send /stop before switching Project mode.", "已有任务正在运行，请先发送 /stop，再切换 Project 模式。"));
+        return true;
+      }
+      if (["off", "chat", "exit", "none", "关闭", "退出"].includes(selector.toLowerCase())) {
+        this.options.setActiveProject(input.scopeId, null);
+        await this.options.sendText(input.target, this.text("Switched to normal Chat mode.", "已切换到普通聊天模式。"));
+        return true;
+      }
+      const index = Number.parseInt(selector, 10);
+      const normalized = selector.toLowerCase();
+      const selected = Number.isInteger(index) && index > 0
+        ? projects[index - 1]
+        : projects.find((project) => project.id.toLowerCase() === normalized)
+          ?? projects.find((project) => project.name.toLowerCase() === normalized);
+      if (!selected) {
+        await this.options.sendText(input.target, this.text(`Project not found: ${selector}. Send /project to list available Projects.`, `未找到 Project：${selector}。发送 /project 查看可用项目。`));
+        return true;
+      }
+      const project = this.options.setActiveProject(input.scopeId, selected.id);
+      await this.options.sendText(input.target, this.text(
+        `Switched to Project mode: ${project?.name ?? selected.name}. Subsequent messages will work in this Project.`,
+        `已切换到 Project 模式：${project?.name ?? selected.name}。后续消息会在该项目中执行。`
+      ));
       return true;
     }
 
@@ -1865,6 +1915,7 @@ export class SharedRuntimeCommandService<TTarget> {
     const sessionOverride = this.options.store.getSessionRunLogNoticeOverride(scopeId, activeSessionId);
     const instance = settings.channels[this.options.channel]?.instances.find((inst) => inst.id === this.options.instanceId);
     const botOverride = instance?.display?.runLogNotice;
+    const projectOverride = this.options.getActiveProject?.(scopeId)?.runLogNotice;
     const globalDefault = settings.display?.runLogNotice ?? false;
 
     if (sessionOverride !== null) {
@@ -1875,6 +1926,9 @@ export class SharedRuntimeCommandService<TTarget> {
         botOverride,
         sessionOverride
       };
+    }
+    if (projectOverride !== undefined) {
+      return { enabled: projectOverride, source: `project:${this.options.getActiveProject?.(scopeId)?.id}`, globalDefault, botOverride, sessionOverride };
     }
     if (botOverride !== undefined) {
       return {
@@ -2096,6 +2150,7 @@ export class SharedRuntimeCommandService<TTarget> {
       { label: "/status", value: d("show current bot/session/runtime status", "查看当前机器人、会话和运行时状态") },
       { label: "/models", value: d("show or switch model (/models <index|key>)", "查看或切换模型（/models <编号|key>）") },
       { label: "/skills", value: d("list loaded skill names and file paths", "查看已加载技能名称和文件路径") },
+      { label: "/project", value: d("list, select, or exit Project mode", "查看、选择或退出 Project 模式") },
       { label: "/help", value: d("show this help", "显示此帮助") }
     ];
 

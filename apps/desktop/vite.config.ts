@@ -11,6 +11,9 @@ export default defineConfig({
     alias: {
       "@molibot/desktop-contract": fileURLToPath(
         new URL("../../src/lib/shared/desktop.ts", import.meta.url)
+      ),
+      "@molibot/shared": fileURLToPath(
+        new URL("../../src/lib/shared", import.meta.url)
       )
     }
   },

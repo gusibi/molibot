@@ -181,3 +181,29 @@ signal skill
 
   rmSync(workspaceDir, { recursive: true, force: true });
 });
+
+test("Project Skills load first, override same-name Bot Skills, and stay out of non-Project sessions", () => {
+  const root = "./.tmp/test-project-skills";
+  const workspaceDir = join(root, "workspace");
+  const projectRoot = join(root, "project");
+  const botSkillDir = join(workspaceDir, "skills/shared");
+  const projectSkillDir = join(projectRoot, ".agents/skills/shared");
+  mkdirSync(botSkillDir, { recursive: true });
+  mkdirSync(projectSkillDir, { recursive: true });
+  writeFileSync(join(botSkillDir, "SKILL.md"), `---\nname: shared\ndescription: bot version\n---\n`);
+  writeFileSync(join(projectSkillDir, "SKILL.md"), `---\nname: shared\ndescription: project version\n---\n`);
+
+  try {
+    const projectResult = loadSkillsFromWorkspace(workspaceDir, undefined, { projectRoot } as never);
+    assert.equal(projectResult.skills.length, 1);
+    assert.equal(projectResult.skills[0]?.scope, "project");
+    assert.equal(projectResult.skills[0]?.description, "project version");
+    assert.match(projectResult.diagnostics.join("\n"), /Duplicate skill name "shared" ignored/);
+
+    const ordinaryResult = loadSkillsFromWorkspace(workspaceDir);
+    assert.equal(ordinaryResult.skills[0]?.scope, "bot");
+    assert.equal(ordinaryResult.skills[0]?.description, "bot version");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

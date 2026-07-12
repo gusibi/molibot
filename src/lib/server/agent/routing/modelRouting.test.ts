@@ -3,7 +3,7 @@ import test from "node:test";
 import { defaultRuntimeSettings, type RuntimeSettings } from "$lib/server/settings/index.js";
 import { resolveSttTarget } from "$lib/server/agent/routing/stt.js";
 import { resolveVisionFallbackTarget } from "$lib/server/agent/routing/vision-fallback.js";
-import { applyAgentModelRoutingOverride } from "$lib/server/agent/routing/modelRouting.js";
+import { applyAgentModelRoutingOverride, applyTurnModelOverride } from "$lib/server/agent/routing/modelRouting.js";
 
 function settingsWithProviders(patch: Partial<RuntimeSettings>): RuntimeSettings {
   return {
@@ -102,6 +102,15 @@ test("agent override replaces only the routes it sets, leaving others on global"
   assert.equal(merged.modelRouting.subagentModelKey, "pi|anthropic|global-subagent");
   // global settings object is not mutated
   assert.equal(settings.modelRouting.textModelKey, "pi|anthropic|global-text");
+});
+
+test("turn model override changes only text routing without mutating shared settings", () => {
+  const settings = settingsWithProviders({ modelRouting: { ...defaultRuntimeSettings.modelRouting, textModelKey: "pi|anthropic|global" } });
+  const overridden = applyTurnModelOverride(settings, "custom|project|local");
+  assert.equal(overridden.modelRouting.textModelKey, "custom|project|local");
+  assert.equal(settings.modelRouting.textModelKey, "pi|anthropic|global");
+  assert.equal(overridden.modelRouting.visionModelKey, settings.modelRouting.visionModelKey);
+  assert.equal(applyTurnModelOverride(settings, ""), settings);
 });
 
 test("agent override is a pass-through when bot is unmapped or agent has no override", () => {

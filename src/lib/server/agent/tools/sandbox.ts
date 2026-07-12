@@ -498,6 +498,7 @@ export function resolveEffectiveSandboxSettings(options: {
   channel?: string;
   botId?: string;
   agentId?: string;
+  projectOverride?: boolean;
 }): ToolSandboxSettings {
   const settings = options.getSettings();
   const baseSettings = settings.toolSandbox;
@@ -508,6 +509,11 @@ export function resolveEffectiveSandboxSettings(options: {
     if (sessionOverride !== null) {
       return { ...baseSettings, enabled: sessionOverride };
     }
+  }
+
+  // Project-wide override reuses the existing Sandbox enabled/disabled behavior.
+  if (options.projectOverride !== undefined) {
+    return { ...baseSettings, enabled: options.projectOverride };
   }
 
   // 2. Bot Instance Override

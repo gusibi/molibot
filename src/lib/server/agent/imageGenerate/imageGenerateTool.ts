@@ -146,6 +146,32 @@ function redactText(value: string, secrets: string[]): string {
   );
 }
 
+function normalizeImageUrls(value: unknown): string[] | undefined {
+  if (!value) return undefined;
+  if (Array.isArray(value)) {
+    const urls = value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter((s): s is string => Boolean(s));
+    return urls.length ? urls : undefined;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const fromParsed = normalizeImageUrls(parsed);
+        if (fromParsed?.length) return fromParsed;
+      } catch {
+        // fall through to plain-string handling
+      }
+    }
+    const urls = trimmed.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    return urls.length ? urls : undefined;
+  }
+  return undefined;
+}
+
 export function createImageGenerateTool(options: {
   getSettings: () => RuntimeSettings;
   cwd: string;
@@ -224,7 +250,7 @@ export function createImageGenerateTool(options: {
         providerEnabled: engineEnabled,
         size: params.size,
         seed: params.seed,
-        images: params.images,
+        images: normalizeImageUrls(params.images),
         outputName: outName
       };
 
@@ -244,7 +270,7 @@ export function createImageGenerateTool(options: {
           model: params.model || currentSettings.imageGenerate.engines[engine]?.model,
           size: params.size,
           seed: params.seed,
-          images: params.images,
+          images: requestParams.images,
           outputName: outName
         };
 

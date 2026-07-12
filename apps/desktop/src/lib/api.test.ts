@@ -44,6 +44,7 @@ import {
   loadDesktopMemoryRejections,
   loadDesktopTasks,
   loadDesktopProjects,
+  loadDesktopComposerSuggestions,
   createDesktopProject,
   deleteDesktopProject,
   loadDesktopProjectSessions,
@@ -58,6 +59,7 @@ import {
   saveDesktopWebSearch,
   saveDesktopImageGenerate,
   saveDesktopVideoGenerate,
+  truncateDesktopMessages,
   saveDesktopTts,
   testDesktopWebSearchSettings,
   testDesktopImageGenerateSettings,
@@ -1172,6 +1174,21 @@ test("desktop project API uses granular project routes and preserves delete-sess
   }
 });
 
+test("Project composer suggestions include the server-owned project context", async () => {
+  const original = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ ok: true, suggestions: [] }));
+  }) as typeof globalThis.fetch;
+  try {
+    await loadDesktopComposerSuggestions("http://localhost:3000", "momo-agent");
+    assert.match(requestedUrl, /\/api\/desktop\/composer-suggestions\?projectId=momo-agent&profileId=personal$/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 // Helper for expect-style assertions in node:test
 function expect<T>(actual: T) {
   return {
@@ -1183,3 +1200,35 @@ function expect<T>(actual: T) {
     }
   };
 }
+
+test("truncateDesktopMessages DELETEs the session's transcript tail with profileId in the body", async () => {
+  const original = globalThis.fetch;
+  let capturedUrl: unknown = null;
+  let capturedInit: RequestInit | undefined;
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    capturedUrl = url;
+    capturedInit = init;
+    return new Response(JSON.stringify({ ok: true, removed: 3 }), {
+      headers: { "content-type": "application/json" }
+    });
+  }) as typeof globalThis.fetch;
+
+  try {
+    const result = await truncateDesktopMessages(
+      "http://127.0.0.1:3210",
+      "personal",
+      "session-1",
+      "msg-1"
+    );
+    assert.deepEqual(result, { removed: 3 });
+    assert.equal(
+      capturedUrl,
+      "http://127.0.0.1:3210/api/sessions/session-1/messages?fromMessageId=msg-1"
+    );
+    const init = capturedInit as RequestInit;
+    assert.equal(init.method, "DELETE");
+    assert.equal(init.body, JSON.stringify({ profileId: "personal" }));
+  } finally {
+    globalThis.fetch = original;
+  }
+});

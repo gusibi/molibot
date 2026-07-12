@@ -3,6 +3,9 @@ import type {
   DesktopAgentsResponse,
   DesktopAgentActivityResponse,
   DesktopAgentActivityItem,
+  DesktopActiveRunActionResponse,
+  DesktopActiveRunItem,
+  DesktopActiveRunsResponse,
   DesktopAgentsSummary,
   DesktopAgentItem,
   DesktopAgentSaveRequest,
@@ -56,6 +59,7 @@ import type {
   DesktopSkillsResponse,
   DesktopSkillsSummary,
   DesktopSkillsUpdateRequest,
+  DesktopComposerSuggestion,
   DesktopApprovalDecision,
   DesktopApprovalOption,
   DesktopApprovalPrompt,
@@ -145,6 +149,12 @@ export interface DesktopProject {
   name: string;
   rootPath: string;
   instructions?: string;
+  modelKey?: string;
+  thinkingLevel?: DesktopThinkingLevel;
+  sandboxEnabled?: boolean;
+  toolProgress?: "off" | "new" | "all" | "verbose";
+  showReasoning?: "off" | "on" | "stream" | "new";
+  runLogNotice?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -218,7 +228,7 @@ export async function createDesktopProject(endpoint: string, input: { name: stri
   })).project;
 }
 
-export async function patchDesktopProject(endpoint: string, id: string, patch: { name?: string; rootPath?: string; instructions?: string }): Promise<DesktopProject> {
+export async function patchDesktopProject(endpoint: string, id: string, patch: { name?: string; rootPath?: string; instructions?: string; modelKey?: string | null; thinkingLevel?: DesktopThinkingLevel | null; sandboxEnabled?: boolean | null; toolProgress?: DesktopProject["toolProgress"] | null; showReasoning?: DesktopProject["showReasoning"] | null; runLogNotice?: boolean | null }): Promise<DesktopProject> {
   return (await requestJson<{ ok: true; project: DesktopProject }>(endpoint, `/api/settings/projects/${encodeURIComponent(id)}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch)
   })).project;
@@ -651,6 +661,16 @@ export async function loadDesktopAgentActivity(endpoint: string): Promise<Deskto
   return payload.items;
 }
 
+export async function loadDesktopActiveRuns(endpoint: string): Promise<DesktopActiveRunItem[]> {
+  const payload = await requestJson<DesktopActiveRunsResponse>(endpoint, "/api/desktop/active-runs");
+  return payload.items;
+}
+
+export async function stopDesktopActiveRun(endpoint: string, runId: string): Promise<DesktopActiveRunActionResponse["result"]> {
+  const payload = await requestJson<DesktopActiveRunActionResponse>(endpoint, "/api/desktop/active-runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ runId }) });
+  return payload.result;
+}
+
 export async function saveDesktopAgent(endpoint: string, agent: DesktopAgentSaveRequest): Promise<DesktopAgentsSummary> {
   const payload = await requestJson<DesktopAgentsResponse>(endpoint, "/api/desktop/agents", {
     method: "PUT",
@@ -698,6 +718,12 @@ export async function deleteDesktopMcp(endpoint: string, id: string): Promise<De
 export async function loadDesktopSkills(endpoint: string): Promise<DesktopSkillsSummary> {
   const payload = await requestJson<DesktopSkillsResponse>(endpoint, "/api/desktop/skills");
   return payload.summary;
+}
+
+export async function loadDesktopComposerSuggestions(endpoint: string, projectId = ""): Promise<DesktopComposerSuggestion[]> {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}&profileId=personal` : "";
+  const payload = await requestJson<{ ok: true; suggestions: DesktopComposerSuggestion[] }>(endpoint, `/api/desktop/composer-suggestions${query}`);
+  return payload.suggestions;
 }
 
 export async function updateDesktopSkills(endpoint: string, input: DesktopSkillsUpdateRequest): Promise<DesktopSkillsSummary> {
@@ -1353,6 +1379,47 @@ export async function deleteDesktopConversation(endpoint: string, sessionId: str
   );
 }
 
+/**
+ * Edit-and-resend: truncate a session's transcript at `fromMessageId`,
+ * dropping that message and everything after it so the caller can append a
+ * fresh, edited user message and re-run the turn. Web-only; project sessions
+ * share the same endpoint because they live in the same sessions store.
+ *
+ * Errors carry a `status` field so callers can distinguish a structurally
+ * valid request that referenced a stale message id (HTTP 422) from a missing
+ * session (404) or a running session (409) - the client reloads the session
+ * and asks the user to retry on 422.
+ */
+export async function truncateDesktopMessages(
+  endpoint: string,
+  profileId: string,
+  sessionId: string,
+  fromMessageId: string
+): Promise<{ removed: number }> {
+  const search = new URLSearchParams({ fromMessageId });
+  const response = await fetchFromDesktop(
+    serviceUrl(endpoint, `/api/sessions/${encodeURIComponent(sessionId)}/messages?${search.toString()}`),
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profileId })
+    }
+  );
+  let payload: { ok?: boolean; removed?: number; error?: string } = {};
+  try {
+    payload = response.status === 204 ? {} : await response.json();
+  } catch {
+    payload = {};
+  }
+  if (!response.ok || payload.ok === false) {
+    const message = String(payload.error ?? `Request failed (${response.status})`);
+    const err = new Error(message) as Error & { status?: number };
+    err.status = response.status;
+    throw err;
+  }
+  return { removed: payload.removed ?? 0 };
+}
+
 export async function listDesktopConversationGroups(
   endpoint: string,
   params: { channel: DesktopConversationChannel; query?: string }
@@ -1485,7 +1552,32 @@ export async function fetchDesktopFileBlob(
   if (!response.ok) {
     throw new Error(`Failed to load file (${response.status})`);
   }
-  return await response.blob();
+  // Read the body stream manually rather than `response.blob()`. Under the
+  // Tauri plugin-http transport `response.blob()` can truncate silently on
+  // larger responses (1MB+ images stopped rendering). Concatenating chunks
+  // ourselves surfaces any mid-stream error as a thrown exception instead.
+  const body = response.body;
+  if (!body) {
+    return await response.blob();
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    chunks.push(value);
+    total += value.byteLength;
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const mime = response.headers.get("content-type") || undefined;
+  return new Blob([merged], { type: mime });
 }
 
 export function filterDesktopFiles(
@@ -1691,6 +1783,7 @@ export async function streamDesktopChat(
     message: string;
     thinkingLevel: DesktopThinkingLevel;
     projectId?: string;
+    modelKey?: string;
   },
   onEvent: SseHandler,
   signal?: AbortSignal
@@ -1703,7 +1796,8 @@ export async function streamDesktopChat(
       conversationId: input.sessionId,
       message: input.message,
       thinkingLevel: input.thinkingLevel,
-      projectId: input.projectId
+      projectId: input.projectId,
+      modelKey: input.modelKey
     }),
     signal
   });
@@ -1770,6 +1864,7 @@ export async function sendDesktopChatWithFiles(
     thinkingLevel: DesktopThinkingLevel;
     files: File[];
     projectId?: string;
+    modelKey?: string;
   },
   signal?: AbortSignal
 ): Promise<DesktopChatResult> {
@@ -1779,6 +1874,7 @@ export async function sendDesktopChatWithFiles(
   form.set("message", input.message);
   form.set("thinkingLevel", input.thinkingLevel);
   if (input.projectId) form.set("projectId", input.projectId);
+  if (input.modelKey) form.set("modelKey", input.modelKey);
   for (const file of input.files) form.append("files", file);
 
   const payload = await requestJson<{

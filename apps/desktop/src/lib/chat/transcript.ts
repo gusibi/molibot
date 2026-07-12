@@ -29,6 +29,19 @@ export type TranscriptAttachmentActions = {
   download: (file: DesktopSessionFile) => void;
 };
 
+/**
+ * Hover actions for a transcript message. `onCopy` is always available; the
+ * edit button is only surfaced for the user's own messages on surfaces that
+ * opt in (the main chat and project chat - never on the read-only external
+ * transcript view). `copiedId` lets the button flash a check mark.
+ */
+export type TranscriptMessageActions = {
+  copiedId: string;
+  onCopy: (message: TranscriptMessage) => void;
+  onEditUser?: (message: TranscriptMessage) => void;
+  editingId?: string;
+};
+
 export function transcriptDisplayContent(message: TranscriptMessage, assistantErrorText = ""): string {
   const content = message.content.trim();
   if (message.attachments?.length && ["(attachment)", "(empty response)"].includes(content.toLowerCase())) {

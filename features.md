@@ -7,6 +7,85 @@
 ---
 ## 2026-07-12
 
+### Project 本地文件面板大图与媒体文件内联预览（已完成）
+- 解决在 Project 右侧文件面板中浏览项目本地文件时，对于图片、音频、视频等文件无法预览的问题（小于 256KB 会提示“二进制文件不能预览”，大于 256KB 会提示“文件超过预览上限”）。
+- 后端 `/api/settings/projects/[id]/inspection/file` 接口新增 `raw=true` 参数支持，解析并定位项目文件的绝对路径后，直接以带有正确 MIME 类型和 Cache-Control 缓存头的原生二进制 `Response` 返回。
+- 前端 `ProjectFilePanel.svelte` 新增对 `@molibot/shared/filePreview` 模块别名的依赖引入（修改了桌面端的 `vite.config.ts` 和 `tsconfig.json`），使用 `mediaTypeFromName` 对文件类型进行研判，遇到 image、audio、video 文件时不再回退到文本无法预览逻辑，而是利用 `raw=true` URL 在前端以 `<img />` / `<audio />` / `<video />` 容器进行原生内联预览，彻底突破了 256KB 的文本预览大小上限，实现了大型图片和媒体文件的秒开预览。
+- 验证：`svelte-check` 0 错误 0 警告、根目录 `pnpm run build` 成功通过。
+
+### Project Chat 附件只显示文件名问题修复（已完成）
+- Project Chat 之前没有把 `attachmentActions` 传给 `ChatMessagesPane`，导致共享 transcript 渲染器走 fallback 分支，图片/音频/视频附件只能显示为文件名 chip，没有内联预览。
+- `ProjectChat` 现在按 ChatView 同样模式接入：通过 `listDesktopSessionFiles` 拉取当前会话的文件列表（带 `projectId`），维护 `fileByLocal` Map 和 `messageMediaUrls`/`mediaLoading`/`mediaFailed` 状态，提供 `loadProjectMessageMedia`/`openProjectPreview`/`downloadProjectFile` 三个 hook（内部用 `fetchDesktopFileBlob` 并传 `projectId`），切换会话时撤销缓存的 blob URL 并清掉媒体状态；模板末尾追加与 ChatView 一致的 preview-overlay。
+- 验证：`svelte-check` 0 错误 0 警告、`vite build` 通过、Desktop UI 39/39。
+
+### Volcengine 图片参考图透传（已完成）
+- `imageGenerate` 的 Volcengine provider 现在把工具层 `images` 参数按火山方舟官方 ImageGenerations 契约映射为请求体 `image` 数组，Seedream 角色参考、多图组合与图像迁移不再退化成纯文生图。
+- 新增请求体回归测试，锁定参考图 URL 数组、模型和尺寸都会真实发送；原有 Agnes、OpenAI、Google、ModelScope 与自动路由路径保持不变。
+- 验证：`imageGenerateTool.test.ts` 11/11 通过。
+
+### Desktop 文件面板关闭按钮与大图预览修复（已完成）
+- 修复 Project 右侧文件面板右上角关闭按钮点不动的问题：`.file-panel-head` 被 52px 高、z-index 30 的 `.window-drag-mask`（窗口拖拽热区）覆盖，按钮 mousedown 被吞掉。给 `.file-panel-head` 加 `position: relative; z-index: 31`，与 `.header-actions` 一致，按钮恢复响应。
+- 修复大图（1MB+）预览失败：服务端 `GET /api/web/files` 改为流式响应（`createReadStream` + `Readable.toWeb`，附带权威 `content-length`），不再 `readFileSync` 整文件入内存；前端 `fetchDesktopFileBlob` 改为手动按 chunk 读取 body stream 拼接 `Blob`，绕开 `response.blob()` 在 Tauri plugin-http 流式响应上的截断问题，传输中任何错误会显式抛出而不是变成被截断的图片。
+- 验证：`svelte-check` 0 错误 0 警告、`vite build` 通过；Desktop UI 39/39、Desktop API 74/74。
+
+### Desktop Chat 消息复制与编辑后重发（已完成）
+- 共享 transcript 每条消息悬停显示操作按钮：复制（写入 `message.content` 原始 Markdown 到剪贴板）对用户/AI 消息都可用；编辑按钮仅出现在用户自己的消息上，外部只读会话只显示复制。
+- 编辑按钮把消息内容填入 composer 并进入“正在编辑”模式：输入区上方显示 banner + 取消按钮，当前编辑的消息在 transcript 中以蓝色描边高亮；点击发送后前端先调用 `truncateDesktopMessages` 在服务端删除该用户消息及其后所有消息，再以编辑后的内容正常发送一轮，避免历史重复。
+- 后端在 `SessionStore` 新增 `truncateMessagesFrom(conversationId, fromMessageId)`：以 messageId 为锚点删除该消息及其后所有消息，写入对应 Web/Project session 文件；新增 `DELETE /api/sessions/:id/messages?fromMessageId=...` 端点，body 携带 `profileId`，通过 `getRuntimeContextForConversation` 自动路由到 Web 或 Project runtime；运行中的会话拒绝编辑（409），找不到消息返回 404。
+- 切换会话时编辑态自动清空；truncate 失败时 composer 内容与编辑态原样恢复，用户可重试；发送期间禁用编辑按钮。
+- 验证：`svelte-check` 0 错误 0 警告、`vite build` 通过；sessions store 测试 6/6（含新增 `truncateMessagesFrom` 单测）、desktop API 测试 68/68、desktop UI 测试 39/39。
+
+### Bot Project 模式：与 Desktop 共享同一份 Agent 上下文（已完成）
+- 修复飞书流式路径完全忽略 `/project` 绑定的问题：绑定后消息仍在 bot scratch 目录执行、拿不到项目目录；现在流式与非流式两条路径都会解析绑定并注入项目上下文（rootPath、instructions、模型/思考默认）。
+- 新增 `ProjectAwareRunnerPool` 路由器包裹渠道 RunnerPool：scope 绑定 Project 后，消息、/stop、steer、追问、reset、/compact 全部路由到项目 runtime（`projects/<id>/runtime`），以会话 key + 项目会话 uuid 作为 runner 键；`task-*` 自动化会话始终留在 bot 池，不污染项目会话列表。
+- 项目 runtime 的 {store, pool} 抽到进程级共享缓存（`projects/runtimeCache.ts`），Desktop 与渠道两侧解析到同一个 `MomRunner`：在飞书里以 Project 模式聊天，回到 Mac App 打开同一会话可以无缝继续（同一份 contexts 文件），反向亦然。
+- Project 模式下渠道消息落库到项目会话存储（`projects/<id>/sessions/`），Desktop 项目会话列表可直接看到 Bot 会话；项目会话按 id 打开不再要求 externalUserId 匹配（项目为 owner 私有），Desktop 的 runner 键、附件、host-bash、compact、stop 均改用会话自身的 externalUserId，支持跨端接续。
+- 验证：涉及文件 `tsc` 无错误；sessions/commands/contextBuilder/router/feishu/telegram/weixin 测试 48/48；desktop-chat 套件 187/187。
+
+### Desktop 插件设置页折叠卡片重构（已完成）
+- macOS App 的“插件”设置页改为手风琴式折叠卡片：每个插件（记忆后端设置、每日素材、Cloudflare HTML Publish 及其他 feature 插件）默认只显示一行，包含名称、描述、状态徽章、启用开关和“编辑”按钮；点击“编辑”才展开完整表单，同时只允许一张卡片展开。
+- 移除该页底部的“全部插件”列表以及“总数/活跃/外部”统计卡片：渠道（web/telegram/feishu/qq/weixin）、provider 和 memory backend 不是面向用户的产品插件，已在各自专属设置页中管理，不再出现在插件页。
+- 把“每日素材”从记忆后端表单中拆为独立折叠卡片，保留独立启用开关和历史回填按钮；每个插件可独立编辑。
+- 验证：`svelte-check` 0 错误 0 警告、Desktop UI 39/39 通过、`vite build` 通过。
+
+### Bot Project 模式（已完成）
+- 飞书、Telegram、QQ、微信 Bot 会话可用 `/project` 查看与选择已注册 Project，使用 `/project off` 返回普通聊天；Telegram `/` 菜单同步提供入口。
+- 选择按渠道、Bot 实例和会话 scope 持久化；后续消息复用现有 Project Runner 逻辑，包括项目目录、instructions、项目本地 Skills、默认模型/思考级别和工具输出规则。
+- 实现位于共享命令、ProjectStore 和 BaseChannelRuntime 层；Channel 只保留消息收发，不复制 Project 编排。
+- 验证：共享命令/上下文/ProjectStore 聚焦测试 33/33，SvelteKit 生产构建通过。
+
+### Desktop 斜杠命令、Skill 自动提示与 Project 独立默认设置（已完成）
+- Chat 与 Project Chat 的共享输入区在输入 `/` 时展示服务端生成的命令与已启用 Skill，支持模糊筛选、方向键、Enter/Tab、Esc、鼠标选择和中文输入法组合态保护。
+- 命令元数据由共享注册表同时驱动 Desktop 建议与 Web `/help`；Skill 来自真实 Desktop Skills 投影，禁用项不会进入可执行建议，前端不维护第二份清单。
+- 共享 transcript 会把已识别命令显示为蓝色 `COMMAND` 卡片，把 Skill 调用显示为独立 `SKILL` 卡片；未知 `/文本` 保持普通消息，展示不参与执行判断。
+- Desktop 已识别 Command 走 Web 命令执行端点并把命令/结果保存到当前 Session；Skill 继续走流式 Agent 执行路径。
+- Project 头部新增独立设置入口，可保存名称、附加说明、默认模型和默认思考等级；空值继承全局设置，Agent 继续由项目 `AGENTS.md` / `CLAUDE.md` 管理。
+- Project Session 的模型选择改为逐轮 `modelKeyOverride`，不再修改全局模型路由；每个 Session 保留自己的临时模型/思考选择，解析顺序为 Session → Project → Global。
+- `projects` SQLite 表通过幂等列迁移增加 `model_key` / `thinking_level`，设置保存继续走细粒度 Project PATCH；服务端拒绝未知模型。
+- 验证：Composer/Project 存储测试 5/5、Desktop UI 39/39、Desktop Svelte 0 错误 0 警告、生产构建与 diff check 通过。
+
+### Project 本地 Skills 全链路加载（已完成）
+- Project 会话额外发现 `<projectRoot>/.agents/skills/**/SKILL.md`，标记为 `project` scope，并按 project → bot → global → chat 的根顺序优先加载；同名低优先级 Skill 写入 duplicate diagnostics。
+- Project root 已穿透 Runner 显式 Skill 匹配、最终系统提示词、skillSearch 工具、Web `/skills` 命令和 Desktop 斜杠建议，不再只修 UI 列表。
+- Desktop 建议只发送 `projectId`，服务端从 ProjectStore 解析真实 rootPath；前端不会扫描或持有额外的本机绝对路径。
+- Skill prompt 缓存 key 包含 projectRoot，避免同一运行时在 Project A/B 之间串 Skill；普通 Chat 不传 Project root，保持原有隔离。
+- 用真实 `/Users/gusi/Github/momo-agent/.agents/skills` 只读验证识别 26 个 Project Skills，全部为 project scope、无 diagnostics。
+- 验证：Skill/Prompt/Desktop API 聚焦测试 99/99、Desktop UI 39/39、Svelte 0/0、生产构建与 diff check 通过。
+
+### Project 运行与展示覆盖设置（已完成）
+- Project 设置新增 Sandbox、Tool Progress、Reasoning 展示和 Runlog 自动通知，连同已有模型/思考默认值全部支持继承。
+- Sandbox 优先级为 Session → Project → Bot → Agent → Global；Project 开关完全复用现有 Sandbox 行为，不引入 Project 专属安全语义。
+- Project 绑定的 Desktop/Telegram/Feishu/QQ/Weixin 会话按 Project 覆盖工具进度与思考展示；Runlog 通知按 Session → Project → Bot → Global 解析。
+- `projects` 表通过幂等迁移增加四个 nullable override 字段，细粒度 Project PATCH 可恢复为继承状态。
+
+### Web / Desktop Trace 当前运行控制（已完成）
+- Web `settings/ai/trace` 与 Mac App Trace 页新增“当前运行”区域，每 3 秒联合真实 RunnerPool 快照与持久化 run fact，区分“运行中 / 疑似卡住 / 孤儿记录”。
+- 列表展示 Agent、Bot、渠道、开始时间、持续时长和 160 字任务摘要；真实 Runner 持续 10 分钟后标记为疑似卡住，但不会自动终止。
+- “停止运行”按 `channel + botId + chatId + sessionId` 精确中止真实 Runner；“清理记录”只把不存在 Runner 的孤儿 fact 标记为 aborted，保留完整审计数据。
+- RunnerPool 新增只读运行快照和精确 session abort 共享能力，BaseChannelRuntime 仅做代理，跨渠道控制逻辑仍位于共享 app/API 层。
+- Web 使用既有 shadcn Card/Badge/Button 体系，Desktop 复用 Geist 设置卡片；两端均支持中英、明暗主题、移动宽度和操作确认。
+- 验证：活动分类测试 7/7、Desktop UI 37/37、Desktop Svelte 0 错误 0 警告、完整 SvelteKit 生产构建通过。
+
 ### Desktop Agent 工作室（已完成）
 - Mac App 主导航在「技能」下方新增 `Agent` 工作区，不打开独立窗口，保留现有对话与项目侧栏上下文。
 - 页面使用真实 Desktop Agent 配置并每 2.5 秒轻量刷新；当配置中没有 `default` 实体时，展示层会从 Global 语义合成唯一的全局默认工位，未显式绑定 Agent 的 Bot 运行统一归属该工位。

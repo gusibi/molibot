@@ -39,6 +39,8 @@ const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
 const chatWorkspace = read("./lib/chat/ChatWorkspacePane.svelte");
 const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
 const chatInputArea = read("./lib/chat/ChatInputArea.svelte");
+const slashSuggestionMenu = read("./lib/chat/SlashSuggestionMenu.svelte");
+const projectSettingsDialog = read("./lib/projects/ProjectSettingsDialog.svelte");
 const chatMessagesPane = read("./lib/chat/ChatMessagesPane.svelte");
 const chatHeader = read("./lib/chat/ChatHeader.svelte");
 const recordingBar = read("./lib/chat/RecordingBar.svelte");
@@ -56,6 +58,23 @@ test("chat composer keeps keyboard guidance in the textarea placeholder", () => 
   assert.match(chatComposerShell, /<textarea[^>]*rows="2"/);
   assert.match(chatComposerShell, /scrollHeight/);
   assert.doesNotMatch(view, /class="composer-hint"/);
+});
+
+test("shared composer provides keyboard slash suggestions and transcript invocation styling", () => {
+  assert.match(chatInputArea, /ensureComposerSuggestions/);
+  assert.match(chatInputArea, /ArrowDown/);
+  assert.match(chatInputArea, /event\.isComposing/);
+  assert.match(chatInputArea, /event\.key === "Tab"/);
+  assert.match(slashSuggestionMenu, /role="listbox"/);
+  assert.match(transcript, /classifyComposerInvocation/);
+  assert.match(styles, /\.invocation-message\[data-kind="skill"\]/);
+});
+
+test("Project settings exposes inherited model and thinking defaults in a fixed footbar", () => {
+  assert.match(projectSettingsDialog, /projectDefaultModel/);
+  assert.match(projectSettingsDialog, /projectFollowGlobal/);
+  assert.match(projectSettingsDialog, /class="settings-footbar"/);
+  assert.match(projectChat, /modelKey: \(\) => activeModelKey/);
 });
 
 test("microphone control starts recording and exposes a timer bar", () => {
@@ -479,6 +498,15 @@ test("usage and trace pages render chart dashboards instead of plain rows", () =
   assert.match(charts, /function donutSegments\(/);
   assert.match(styles, /--chart-blue:/);
   assert.match(styles, /\.donut-seg\s*\{/);
+});
+
+test("Desktop Trace exposes live, stuck, and orphan run controls", () => {
+  const traceSection = read("./lib/settings/TraceSection.svelte");
+  assert.match(traceSection, /loadDesktopActiveRuns/);
+  assert.match(traceSection, /stopDesktopActiveRun/);
+  assert.match(traceSection, /traceRunStuck/);
+  assert.match(traceSection, /traceClearOrphan/);
+  assert.match(traceSection, /setInterval\(\(\) => void refreshActiveRuns\(\), 3000\)/);
 });
 
 test("settings navigation matches the web taxonomy and entity editors open as dialogs", () => {

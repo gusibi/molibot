@@ -931,6 +931,42 @@ test("shared commands use the configured runtime locale", async () => {
   assert.equal(sent[1], "当前没有运行中的任务。");
 });
 
+test("project command lists, switches, and exits shared Bot Project mode", async () => {
+  const sent: string[] = [];
+  const projects = [
+    { id: "mobile-project", name: "Mobile Project", rootPath: "/tmp/mobile-project", createdAt: "", updatedAt: "" }
+  ];
+  let activeProjectId: string | null = null;
+  const service = new SharedRuntimeCommandService<string>({
+    channel: "feishu",
+    instanceId: "bot-test",
+    workspaceDir: process.cwd(),
+    authScopePrefix: "feishu",
+    store: minimalStore() as any,
+    runners: {} as any,
+    getSettings: () => defaultRuntimeSettings,
+    isRunning: () => false,
+    stopRun: () => ({ aborted: false }),
+    listProjects: () => projects,
+    getActiveProject: () => projects.find((project) => project.id === activeProjectId) ?? null,
+    setActiveProject: (_scopeId, projectId) => {
+      activeProjectId = projectId;
+      return projects.find((project) => project.id === projectId) ?? null;
+    },
+    sendText: async (_target, text) => { sent.push(text); }
+  });
+
+  const run = (text: string) => service.handle({ chatId: "chat-1", scopeId: "chat-1", text, target: "chat-1" });
+  assert.equal(await run("/project"), true);
+  assert.match(sent.at(-1) ?? "", /Mobile Project \(mobile-project\)/);
+  await run("/project 1");
+  assert.equal(activeProjectId, "mobile-project");
+  assert.match(sent.at(-1) ?? "", /Switched to Project mode: Mobile Project/);
+  await run("/project off");
+  assert.equal(activeProjectId, null);
+  assert.match(sent.at(-1) ?? "", /normal Chat mode/);
+});
+
 test("skills commands split summary and detail output", async () => {
   const sent: string[] = [];
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-skills-"));

@@ -128,7 +128,7 @@ export function createMomTools(options: {
   workspaceId?: string;
   timezone: string;
   messageTimestamp?: string | number | Date;
-  project?: { id?: string; rootPath: string; scratchDir: string };
+  project?: { id?: string; rootPath: string; scratchDir: string; sandboxEnabled?: boolean };
   store: MomRuntimeStore;
   memory: MemoryGateway;
   getSettings: () => RuntimeSettings;
@@ -163,7 +163,8 @@ export function createMomTools(options: {
     sessionId: options.sessionId,
     store: options.store,
     channel: options.channel,
-    botId
+    botId,
+    projectOverride: options.project?.sandboxEnabled
   });
   const loadedDeferredToolNames = new Set<string>();
   const createEventRuntimeTool = wrapSerializedTool(createEventTool({
@@ -602,6 +603,7 @@ export function createMomTools(options: {
     createSkillSearchTool({
       workspaceDir: options.workspaceDir,
       chatId: options.chatId,
+      projectRoot: options.project?.rootPath,
       getSettings: options.getSettings
     }),
     createToolSearchTool({

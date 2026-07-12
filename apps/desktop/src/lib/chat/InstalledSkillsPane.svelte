@@ -14,7 +14,8 @@
     void loadSkills(serviceEndpoint);
   }
 
-  function scopeLabel(scope: "global" | "bot" | "chat"): string {
+  function scopeLabel(scope: "global" | "bot" | "chat" | "project"): string {
+    if (scope === "project") return copy.skillScopeProject;
     if (scope === "bot") return copy.skillScopeBot;
     if (scope === "chat") return copy.skillScopeChat;
     return copy.skillScopeGlobal;

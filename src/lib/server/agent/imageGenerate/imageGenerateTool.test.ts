@@ -484,6 +484,113 @@ test("imageGenerate tool resolves auto engine correctly based on priority", asyn
   }
 });
 
+test("imageGenerate sends reference image URL to Volcengine as a string, not an array", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestPayload: any = null;
+
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const cleanUrl = String(url);
+    if (cleanUrl.includes("ark.cn-beijing.volces.com")) {
+      requestPayload = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(JSON.stringify({
+        data: [{ url: "https://example.com/volc-reference.png" }]
+      }), { status: 200 });
+    }
+    if (cleanUrl.includes("volc-reference.png")) {
+      return new Response(Buffer.from("volc-reference-bytes"));
+    }
+    return new Response("Not found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    await fs.mkdir(mockCwd, { recursive: true });
+    const ctx = getTestContext({
+      engines: {
+        ...defaultTestSettings.imageGenerate.engines,
+        agnes: { enabled: false, apiKey: "" },
+        volcengine: {
+          enabled: true,
+          apiKey: "volc-key",
+          model: "doubao-seedream-5-0-lite"
+        }
+      }
+    });
+
+    const tool = createImageGenerateTool(ctx);
+    await tool.execute("call-volc-reference", {
+      prompt: "Keep the same Momo character in a clean office scene",
+      engine: "volcengine",
+      images: [
+        "https://assets.example.com/momo-model-sheet.png",
+        "https://assets.example.com/momo-expression-sheet.png"
+      ],
+      size: "1920x2560",
+      outputName: "volc_reference.png"
+    });
+
+    assert.ok(requestPayload);
+    assert.equal(requestPayload.image, "https://assets.example.com/momo-model-sheet.png");
+    assert.equal(requestPayload.model, "doubao-seedream-5-0-lite");
+    assert.equal(requestPayload.size, "1920x2560");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(mockCwd, { recursive: true, force: true });
+  }
+});
+
+test("imageGenerate normalizes JSON-stringified images array from LLM before sending to Volcengine", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestPayload: any = null;
+
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const cleanUrl = String(url);
+    if (cleanUrl.includes("ark.cn-beijing.volces.com")) {
+      requestPayload = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(JSON.stringify({
+        data: [{ url: "https://example.com/volc-json-string.png" }]
+      }), { status: 200 });
+    }
+    if (cleanUrl.includes("volc-json-string.png")) {
+      return new Response(Buffer.from("volc-json-string-bytes"));
+    }
+    return new Response("Not found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    await fs.mkdir(mockCwd, { recursive: true });
+    const ctx = getTestContext({
+      engines: {
+        ...defaultTestSettings.imageGenerate.engines,
+        agnes: { enabled: false, apiKey: "" },
+        volcengine: {
+          enabled: true,
+          apiKey: "volc-key",
+          model: "doubao-seedream-5-0-lite"
+        }
+      }
+    });
+
+    const tool = createImageGenerateTool(ctx);
+    await tool.execute("call-volc-json-string", {
+      prompt: "Keep Momo character",
+      engine: "volcengine",
+      // LLM sometimes passes arrays as JSON strings instead of real arrays
+      images: "[\"https://molibot-r2.eztoolab.com/momo-agent/02-avatars/happy.png\"]",
+      size: "1024x1280",
+      outputName: "volc_json_string.png"
+    });
+
+    assert.ok(requestPayload);
+    assert.equal(
+      requestPayload.image,
+      "https://molibot-r2.eztoolab.com/momo-agent/02-avatars/happy.png"
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(mockCwd, { recursive: true, force: true });
+  }
+});
+
 test("imageGenerate tool prefers configured default engine before auto priority order", async () => {
   const originalFetch = globalThis.fetch;
   let resolvedEngine: string | null = null;

@@ -7,6 +7,71 @@
 ---
 ## 2026-07-12
 
+### Desktop: inline image and media preview for local project files
+- Fixed local project files in the right-hand file panel showing "Binary files cannot be previewed" (for files under 256KB) or "File exceeds the preview limit" (for files over 256KB) instead of showing the actual image/media content.
+- Added support for the `raw=true` query parameter on the `/api/settings/projects/[id]/inspection/file` endpoint, allowing it to bypass the 256KB text preview limit and stream the raw file content directly in a native Response with correct MIME types and Cache-Control headers.
+- Updated `ProjectFilePanel.svelte` to resolve the `@molibot/shared/filePreview` alias (configured in the desktop Vite and TSConfig paths) and use `mediaTypeFromName` to identify image, audio, or video files. If matched, it dynamically renders the media natively via `<img />` / `<audio />` / `<video />` elements powered by the raw endpoint, enabling large image previews (e.g. 647KB) to render smoothly.
+- Verification: `svelte-check` passes with 0 errors / 0 warnings, `vite build` succeeds, desktop UI tests pass.
+
+### Fix: Volcengine reference images were silently ignored
+- The Volcengine image provider now forwards `imageGenerate.images` as the official Ark ImageGenerations `image` array. Seedream requests that declare character/reference images are now actual image-conditioned requests instead of silent text-to-image fallbacks.
+- Added a provider request regression test covering two reference URLs, model selection, and output size; the image tool suite passes 11/11.
+
+### Fix: Project chat attachments showed only the filename
+- Project chat never wired `attachmentActions` into `ChatMessagesPane`, so `TranscriptAttachments` fell back to the bare `attachment-chip` branch and rendered image/audio/video attachments as a name + download button with no preview. The shared transcript renderer needs `filesByLocal` + `loadMedia`/`preview`/`download` hooks to fetch blob URLs and show inline media.
+- `ProjectChat` now loads its session file list via `listDesktopSessionFiles` (with `projectId`), keeps a `fileByLocal` map, owns `messageMediaUrls`/`mediaLoading`/`mediaFailed` state, and provides `loadProjectMessageMedia`/`openProjectPreview`/`downloadProjectFile` that call `fetchDesktopFileBlob` with the project id. Switching sessions revokes the cached blob URLs and clears the media state; a preview overlay mirrors ChatView's. `ChatMessagesPane` now receives `attachmentActions={transcriptAttachmentActions}`.
+- Verification: `svelte-check` 0 errors / 0 warnings, `vite build` succeeds, desktop UI tests 39/39.
+
+### Desktop: fix project file-panel close button + large image preview
+- The Project file panel's top-right close button was unclickable: `.file-panel-head` sat under the 52px-tall `.window-drag-mask` (z-index 30) that overlays the window title bar, so mousedown events were swallowed by the drag region before they reached the button. Lifted the head to `position: relative; z-index: 31` (same trick `.header-actions` already used) so the close/refresh buttons are reachable.
+- Large (~1MB+) image previews failed silently because the desktop client used `response.blob()` on a Tauri `plugin-http` streaming `Response`, which truncates on larger transfers; and the server `GET /api/web/files` `readFileSync`-into-`Buffer`-into-`Response` path put the whole file in memory at once. The server now streams the file via `createReadStream` + `Readable.toWeb` with an authoritative `content-length`, and the client reads the body stream chunk-by-chunk into a single `Blob`, so mid-stream errors throw instead of producing a truncated image.
+- Verification: `svelte-check` 0 errors / 0 warnings, `vite build` succeeds, desktop UI tests 39/39, desktop API tests 74/74.
+
+### Desktop chat: per-message copy + edit-and-resend
+- Added hover-revealed action buttons on every chat message: a copy button that writes the raw Markdown (`message.content`) to the clipboard on both user and assistant messages, and an edit button on the user's own messages. External read-only transcripts surface copy only.
+- Edit-and-resend truncates the server transcript at the picked message before re-running the turn, so the history stays coherent instead of accumulating duplicate user/assistant pairs. The composer shows an "editing" banner with a cancel button and the active edited message is highlighted in the transcript.
+- New `DELETE /api/sessions/:id/messages?fromMessageId=...` endpoint + `SessionStore.truncateMessagesFrom(conversationId, fromMessageId)` drop the message and everything that follows it; works for both Web and Project sessions via `resolveSessionStorage`. Running sessions reject the edit (409); unknown message ids return 404.
+- Front-end client `truncateDesktopMessages` + a per-session edit state in `ChatView` / `ProjectChat`; truncate failures restore the composer so the user can retry.
+- Verification: `svelte-check` 0 errors / 0 warnings; `vite build` succeeds; sessions store tests 6/6 (incl. new `truncateMessagesFrom` case); desktop API tests 68/68; desktop UI tests 39/39.
+
+### Fix: Web Host Bash approval auto-resume crashed the sidecar (503 + lost turn data)
+- The Web `/hosttools approve` path resumed the session with a bare fire-and-forget `runner.run(...)`. When the approving turn still held the session lock, `prepareTurn` threw `ACTIVE_TURN_CONFLICT` as an unhandled promise rejection, which killed the whole sidecar process — the desktop app surfaced it as a 503 and the in-flight run's tool output was lost. It now reuses the shared `retryApprovalAutoResume` helper (same 1s × 3600 retry policy as channel runtimes), with a busy notice appended to the session if retries are exhausted.
+- Hoisted the retry constants into `channels/shared/approvalAutoResume.ts` so Web and channel runtimes share one policy instead of forked copies.
+- Added a process-level `unhandledRejection` guard in `hooks.server.ts`: log and keep serving instead of Node's default process kill, so one leaked rejection can no longer take down every in-flight run.
+- Verification: `tsc` clean on touched files; approvalAutoResume 3/3, contextBuilder 6/6, turnOrchestrator 15/15 tests pass.
+
+### Bot Project mode: shared agent context with Desktop
+- Fixed the Feishu streaming path ignoring the `/project` binding entirely: `processEvent` hand-built its `MomContext` without `project`/model/thinking overrides, so bound chats still ran in the bot scratch directory. Both Feishu paths now resolve the binding.
+- Introduced `ProjectAwareRunnerPool`, a project-aware router wrapped around every channel's `RunnerPool`: when a scope has an active Project binding, `get`/`abort`/`steer`/`followUp`/`reset`/`compact` all reroute to the project runtime pool (`<dataRoot>/projects/<id>/runtime`) keyed by the channel conversation key and a real project conversation uuid. Automation `task-*` sessions always stay on the bot pool so scheduled runs never leak into project session lists.
+- Project runtime {store, pool} handles now live in a process-wide cache (`projects/runtimeCache.ts`) shared by the Web/Desktop router and the channel router, guaranteeing one `MomRunner` per project conversation across surfaces — a chat started in Feishu Project mode continues on the Mac app with the exact same agent context, and vice versa.
+- Channel session messages in Project mode are persisted into the project session store (`projects/<id>/sessions/`), so bound-channel conversations appear in the Desktop project session list. Project conversations opened by id are no longer gated on matching `externalUserId` (projects are owner-scoped), and Desktop runner keys/attachments/host-bash/compact/stop now follow the conversation's own `externalUserId` for cross-surface continuation.
+- Verification: `tsc` clean on all touched files; sessions/commands/contextBuilder/router/feishu/telegram/weixin suites 48/48; desktop-chat suite 187/187.
+
+### Desktop plugin settings page collapsed-card refactor
+- Reworked the macOS app Plugins section into accordion-style collapsible cards: each plugin (Memory backend settings, Daily materials, Cloudflare HTML Publish, and any other feature plugin) defaults to a single row showing name, description, status badge, enabled toggle, and an Edit button. The full form is revealed only when Edit is clicked; only one card is expanded at a time.
+- Removed the bottom “all plugins” list and the total/active/external counts card from this page. Channels (web/telegram/feishu/qq/weixin), providers, and memory backends are not product plugins from the user’s perspective and are surfaced in their own dedicated settings sections, so they no longer pollute the plugin page.
+- Split the daily-materials config out of the memory-backend form into its own collapsible card (with its own enabled toggle and the existing backfill action) so each plugin is independently editable.
+- Verification: `svelte-check` 0 errors / 0 warnings, all 39 desktop UI tests pass, `vite build` succeeds.
+
+### Bot Project mode
+- Added shared `/project` list/select/off commands for Feishu, Telegram, QQ, and Weixin so mobile conversations can enter registered Projects without the macOS app.
+- Persisted selection per channel/Bot/conversation and routed following turns through the existing Project-aware Runner context, including Project instructions, Skills, cwd, model, and thinking defaults.
+- Added idle-only switching, binding cleanup on Project deletion, and Telegram command-menu discovery.
+
+### Desktop slash suggestions and Project defaults
+- Added shared slash-command and enabled-Skill suggestions to Chat and Project Chat, including keyboard, mouse, IME, and accessible listbox interaction.
+- Added distinct command and Skill invocation presentation in the shared transcript renderer.
+- Added Project settings for instructions, inherited model, and thinking defaults without mutating global model routing.
+- Added per-turn model overrides and Session → Project → Global resolution for Project conversations.
+- Added end-to-end Project-local Skill discovery from `.agents/skills`, including slash suggestions, explicit invocation, prompt manifests, skillSearch, `/skills`, project-first precedence, and per-Project cache isolation.
+- Added inherited Project overrides for Sandbox, tool progress, reasoning display, and automatic runlog notices across Desktop and Project-bound channels; Sandbox reuses the existing runtime semantics unchanged.
+
+### Web and Desktop Trace active-run controls
+- Added a shared Active Runs section to both Trace surfaces, refreshed every three seconds and backed by a join between persisted run facts and actual RunnerPool snapshots.
+- Distinguishes running, possibly stuck (live beyond ten minutes), and orphaned started records while showing Agent, Bot, channel, task preview, start time, and elapsed duration.
+- Stop targets the exact channel/Bot/chat/session runner. Orphan cleanup marks the existing run fact aborted instead of deleting audit history.
+- Added narrow shared runtime seams for read-only Runner snapshots and exact-session abort; Channel implementations remain transport-only delegates.
+
 ### Desktop Agent Studio
 - Added an Agents workspace directly below Skills in the macOS app sidebar, keeping the existing main-window navigation context.
 - Displays a single Global/default workstation even when no `settings.agents.default` entity exists, without writing a synthetic Agent back to settings; Bots without an explicit Agent binding report activity there.

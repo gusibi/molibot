@@ -23,9 +23,15 @@ test("ProjectStore creates stable slugs, rejects duplicate roots, updates, and r
     assert.throws(() => store.create({ name: "Duplicate", rootPath: firstRoot }), /already registered/);
 
     assert.throws(() => store.update(first.id, { name: "Renamed", rootPath: secondRoot }), /already registered/);
-    const updated = store.update(first.id, { name: "Renamed", instructions: "Keep it small." });
+    const updated = store.update(first.id, { name: "Renamed", instructions: "Keep it small.", modelKey: "custom|p1|m1", thinkingLevel: "high", sandboxEnabled: false, toolProgress: "new", showReasoning: "off", runLogNotice: false });
     assert.equal(updated?.id, "my-wiki");
     assert.equal(updated?.name, "Renamed");
+    assert.equal(store.get(first.id)?.modelKey, "custom|p1|m1");
+    assert.equal(store.get(first.id)?.thinkingLevel, "high");
+    assert.equal(store.get(first.id)?.sandboxEnabled, false);
+    assert.equal(store.get(first.id)?.toolProgress, "new");
+    assert.equal(store.get(first.id)?.showReasoning, "off");
+    assert.equal(store.get(first.id)?.runLogNotice, false);
     assert.equal(store.remove(first.id), true);
     assert.equal(store.get(first.id), null);
   } finally {
@@ -70,6 +76,29 @@ test("ProjectStore can create a unique managed directory and register it atomica
     assert.equal(path.dirname(first.rootPath), fs.realpathSync(managedRoot));
     assert.notEqual(first.rootPath, second.rootPath);
     assert.deepEqual(fs.readdirSync(first.rootPath), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ProjectStore persists and isolates channel conversation bindings", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "molibot-project-binding-"));
+  const dbFile = path.join(root, "settings.sqlite");
+  const projectRoot = path.join(root, "project");
+  fs.mkdirSync(projectRoot);
+  try {
+    const store = new ProjectStore(dbFile);
+    const project = store.create({ name: "Mobile Project", rootPath: projectRoot });
+    assert.equal(store.setChannelBinding("feishu", "work", "chat-1", project.id)?.id, project.id);
+    assert.equal(new ProjectStore(dbFile).getChannelBinding("feishu", "work", "chat-1")?.id, project.id);
+    assert.equal(store.getChannelBinding("feishu", "other", "chat-1"), null);
+    assert.equal(store.getChannelBinding("telegram", "work", "chat-1"), null);
+    assert.equal(store.setChannelBinding("feishu", "work", "chat-1", null), null);
+    assert.equal(store.getChannelBinding("feishu", "work", "chat-1"), null);
+    assert.throws(() => store.setChannelBinding("feishu", "work", "chat-1", "missing"), /Unknown Project/);
+    store.setChannelBinding("feishu", "work", "chat-1", project.id);
+    store.remove(project.id);
+    assert.equal(store.getChannelBinding("feishu", "work", "chat-1"), null);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

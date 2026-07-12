@@ -125,8 +125,13 @@ export interface MomContext {
     rootPath: string;
     instructions?: string;
     scratchDir: string;
+    sandboxEnabled?: boolean;
+    toolProgress?: "off" | "new" | "all" | "verbose";
+    showReasoning?: "off" | "on" | "stream" | "new";
+    runLogNotice?: boolean;
   };
   thinkingLevelOverride?: RuntimeThinkingLevel;
+  modelKeyOverride?: string;
   respond: (text: string, shouldLog?: boolean) => Promise<void>;
   replaceMessage: (text: string) => Promise<void>;
   commitMainAnswer?: (text: string) => Promise<void>;

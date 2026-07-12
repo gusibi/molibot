@@ -181,6 +181,26 @@ export interface DesktopAgentActivityResponse {
   items: DesktopAgentActivityItem[];
 }
 
+export type DesktopActiveRunStatus = "running" | "stuck" | "orphan";
+
+export interface DesktopActiveRunItem {
+  runId: string;
+  agentId: string;
+  agentName: string;
+  channel: string;
+  botId: string;
+  botName: string;
+  chatId: string;
+  sessionId: string;
+  status: DesktopActiveRunStatus;
+  startedAt: string;
+  durationMs: number;
+  taskPreview: string;
+}
+
+export interface DesktopActiveRunsResponse { ok: true; generatedAt: string; items: DesktopActiveRunItem[]; }
+export interface DesktopActiveRunActionResponse { ok: true; result: "stopped" | "cleared"; }
+
 export interface DesktopSandboxSummary {
   enabled: boolean;
   initFailureMode: "warn-disable" | "block";
@@ -377,6 +397,25 @@ export interface DesktopModelOption {
 export interface DesktopModelState {
   currentKey: string;
   options: DesktopModelOption[];
+}
+
+export type DesktopComposerSuggestionKind = "command" | "skill";
+
+export interface DesktopComposerSuggestion {
+  id: string;
+  kind: DesktopComposerSuggestionKind;
+  label: string;
+  insertText: string;
+  description: string;
+  aliases: string[];
+  argumentHint?: string;
+  submitOnSelect: boolean;
+  scope?: DesktopSkillScope;
+}
+
+export interface DesktopComposerSuggestionsResponse {
+  ok: true;
+  suggestions: DesktopComposerSuggestion[];
 }
 
 export type DesktopModelFallbackMode = "off" | "same-provider" | "any-enabled";
@@ -666,7 +705,7 @@ export interface DesktopMcpResponse {
   summary: DesktopMcpSummary;
 }
 
-export type DesktopSkillScope = "global" | "bot" | "chat";
+export type DesktopSkillScope = "global" | "bot" | "chat" | "project";
 
 export interface DesktopSkillItem {
   id: string;

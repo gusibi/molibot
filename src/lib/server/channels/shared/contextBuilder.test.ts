@@ -38,6 +38,9 @@ test("buildTextChannelContext logs assistant replies and appends sessions", asyn
     } as never,
     instanceId: "bot-1",
     activeSessionId: "default",
+    project: { id: "mobile", name: "Mobile", rootPath: "/tmp/project", scratchDir: "/tmp/scratch", instructions: "Use pnpm." },
+    modelKeyOverride: "custom|provider|model",
+    thinkingLevelOverride: "high",
     conversationKey: "bot:bot-1:chat:chat-1:default",
     response: {
       sendText: async () => ({ messageId: "m-1" })
@@ -49,6 +52,9 @@ test("buildTextChannelContext logs assistant replies and appends sessions", asyn
 
   assert.deepEqual(logged, ["first"]);
   assert.deepEqual(appended, [{ role: "assistant", text: "first" }]);
+  assert.equal(ctx.project?.rootPath, "/tmp/project");
+  assert.equal(ctx.modelKeyOverride, "custom|provider|model");
+  assert.equal(ctx.thinkingLevelOverride, "high");
 });
 
 test("buildTextChannelContext falls back on replace when edit is unavailable", async () => {

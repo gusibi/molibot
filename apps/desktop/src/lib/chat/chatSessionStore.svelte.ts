@@ -209,6 +209,14 @@ export class ChatSessionStore {
     await this.registry.active?.controller.stop();
   }
 
+  /** Re-fetches the active session transcript; used to recover after a
+   *  state-divergent operation (e.g. edit-truncate reported the message id
+   *  wasn't on the server, usually because the local transcript still held
+   *  an optimistic `pending-...` id from a failed reload). */
+  async reloadActive(): Promise<void> {
+    await this.registry.active?.reloadFromServer();
+  }
+
   /** Clears the active session's turn-error banner (dismiss button). */
   clearActiveError(): void {
     this.registry.active?.clearError();
