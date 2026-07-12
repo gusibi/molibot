@@ -476,3 +476,38 @@ Desktop Svelte diagnostics, Desktop UI regression tests, production build, and
 the scoped `git diff --check` passed. The worktree has one pre-existing,
 unrelated trailing-blank-line warning in `webSearchTool.test.ts`; it was left
 untouched. Production build keeps only its existing dynamic-import advisories.
+# Agent workspace in Desktop main navigation (2026-07-12)
+
+## Goal
+
+Add an Agent workspace directly below Skills in the macOS app sidebar. It shows
+only user-created agents (never the built-in `default`) as a playful office of
+walking pug characters, backed by real Desktop Agent data.
+
+## Assumptions
+
+- The navigation label is `Agent` in Chinese and `Agents` in English; the page
+  can use the warmer `Agent 工作室` / `Agent Studio` title.
+- This is a main-app workspace, not a third Tauri window.
+- The first delivery uses existing Agent configuration data and implements a
+  polished, responsive animated scene; live run/subagent telemetry remains a
+  later slice unless the existing runtime exposes it without core-runner risk.
+
+## Phases
+
+1. **Map main navigation, workspace switching, Agent API, and test seams** — complete
+2. **Add red-capable navigation/data filtering tests** — complete
+3. **Implement Agent workspace and pug office animation** — complete
+4. **Verify bilingual/dark/mobile behavior and regressions** — complete
+5. **Adversarial review and required product documentation updates** — complete
+
+## Verification gates
+
+- Agent/Agents appears immediately below Skills and opens without leaving the main window.
+- The built-in `default` Agent never renders; each user-created Agent renders exactly once.
+- Empty state points users to Agent settings.
+- Pug characters visibly walk/idle and respect reduced-motion preferences.
+- Existing New Task, Skills, Automations, Projects, and conversations still work.
+- Desktop type checks, UI tests, and production build pass.
+
+---

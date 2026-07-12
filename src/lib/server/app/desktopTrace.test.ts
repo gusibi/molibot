@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 import {
+  buildDesktopAgentActivity,
   computeDesktopTraceTotals,
   resolveDesktopTraceWindow,
   sanitizeDesktopTraceRange
 } from "./desktopTrace";
+import type { RuntimeSettings } from "$lib/server/settings/schema";
 
 function fact(overrides: Partial<TraceFactRecord> = {}): TraceFactRecord {
   return {
@@ -74,4 +76,50 @@ test("computeDesktopTraceTotals counts tools, models, skills, and tokens without
   assert.equal(serialized.includes("secret arg"), false);
   assert.equal(serialized.includes("private-model"), false);
   assert.equal(serialized.includes("payload"), false);
+});
+
+test("buildDesktopAgentActivity maps Bot run facts to Agents and expires terminal states", () => {
+  const settings = {
+    channels: {
+      feishu: { instances: [{ id: "smart-momo", name: "Smart Momo", enabled: true, agentId: "agent-smart" }] }
+    }
+  } as RuntimeSettings;
+  const now = Date.parse("2026-07-12T12:00:20.000Z");
+  const items = buildDesktopAgentActivity(settings, [
+    fact({ id: "active", factType: "run", factId: "run-active", runId: "run-active", channel: "feishu", botId: "smart-momo", status: "started", startedAt: "2026-07-12T12:00:00.000Z", updatedAt: "2026-07-12T12:00:00.000Z", payload: { taskPreview: "分析这个项目" } }),
+    fact({ id: "old", factType: "run", factId: "run-old", runId: "run-old", channel: "feishu", botId: "smart-momo", status: "success", finishedAt: "2026-07-12T11:59:00.000Z", updatedAt: "2026-07-12T11:59:00.000Z" })
+  ], now);
+  assert.deepEqual(items.map((item) => [item.agentId, item.status, item.channel]), [["agent-smart", "working", "feishu"]]);
+  assert.equal(items[0]?.botName, "Smart Momo");
+  assert.equal(items[0]?.taskPreview, "分析这个项目");
+  assert.deepEqual(items[0]?.subagents, []);
+
+  const completed = buildDesktopAgentActivity(settings, [
+    fact({ id: "done", factType: "run", factId: "run-done", runId: "run-done", channel: "feishu", botId: "smart-momo", status: "success", startedAt: "2026-07-12T12:00:00.000Z", finishedAt: "2026-07-12T12:00:15.000Z", updatedAt: "2026-07-12T12:00:15.000Z" })
+  ], now);
+  assert.equal(completed[0]?.status, "completed");
+  assert.equal(JSON.stringify(completed).includes("payload"), false);
+});
+
+test("buildDesktopAgentActivity assigns unbound Bots to default and nests Subagents under the parent run", () => {
+  const settings = {
+    channels: { feishu: { instances: [{ id: "general", name: "General", enabled: true }] } }
+  } as RuntimeSettings;
+  const now = Date.parse("2026-07-12T12:00:05.000Z");
+  const items = buildDesktopAgentActivity(settings, [
+    fact({ id: "parent", factType: "run", factId: "run-parent", runId: "run-parent", channel: "feishu", botId: "general", status: "started", startedAt: "2026-07-12T12:00:00.000Z", updatedAt: "2026-07-12T12:00:00.000Z" }),
+    fact({ id: "sub", factType: "subagent_task", factId: "researcher:1", runId: "run-parent", channel: "feishu", botId: "general", name: "researcher", status: "started", startedAt: "2026-07-12T12:00:02.000Z", updatedAt: "2026-07-12T12:00:02.000Z", payload: { task: "sensitive task" } })
+  ], now);
+  assert.equal(items[0]?.agentId, "default");
+  assert.deepEqual(items[0]?.subagents.map((item) => [item.name, item.status]), [["researcher", "working"]]);
+  assert.equal(JSON.stringify(items).includes("sensitive task"), false);
+});
+
+test("buildDesktopAgentActivity drops orphaned started runs after the runtime timeout grace", () => {
+  const settings = { channels: { web: { instances: [{ id: "runtime", name: "runtime", enabled: true }] } } } as RuntimeSettings;
+  const now = Date.parse("2026-07-12T12:30:00.000Z");
+  const items = buildDesktopAgentActivity(settings, [
+    fact({ id: "orphan", factType: "run", factId: "orphan", runId: "orphan", channel: "web", botId: "runtime", status: "started", startedAt: "2026-07-12T09:21:17.000Z", updatedAt: "2026-07-12T09:21:17.000Z" })
+  ], now);
+  assert.deepEqual(items, []);
 });

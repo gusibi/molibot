@@ -51,8 +51,8 @@ export async function runDesktopConversationTurn(input: {
     if (event === "token") handlers.onToken?.(String(data.delta ?? ""));
     if (event === "replace") handlers.onReplace?.(String(data.text ?? ""));
     if (event === "thinking_delta") handlers.onThinking?.(String(data.delta ?? ""));
-    if (event === "status" || event === "runner_event") {
-      handlers.onStatus?.(String(data.text ?? data.diagnostic ?? ""));
+    if (event === "status") {
+      handlers.onStatus?.(String(data.text ?? ""));
     }
     const activity = parseDesktopActivity(event, data);
     if (activity) {

@@ -968,7 +968,13 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
         projectId: String(dailyMaterialsInput?.projectId ?? "").trim(),
         dir: safeRelativePath(dailyMaterialsInput?.dir, "content/daily-materials"),
         promptPath: safeRelativePath(dailyMaterialsInput?.promptPath, "templates/daily-material-prompt.md"),
-        notifications: dailyMaterialsInput?.notifications === undefined ? true : Boolean(dailyMaterialsInput.notifications)
+        notifications: dailyMaterialsInput?.notifications === undefined ? true : Boolean(dailyMaterialsInput.notifications),
+        scanTokenBudget: (() => {
+          const n = Number(dailyMaterialsInput?.scanTokenBudget);
+          if (!Number.isFinite(n) || n <= 0) return 120000;
+          return Math.min(900000, Math.max(8000, Math.round(n)));
+        })(),
+        scanModelKey: String(dailyMaterialsInput?.scanModelKey ?? "").trim()
       }
     },
     cloudflareHtml: sanitizeCloudflareHtmlPluginSettings(

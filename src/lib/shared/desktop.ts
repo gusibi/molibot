@@ -152,6 +152,35 @@ export interface DesktopTraceResponse {
   summary: DesktopTraceSummary;
 }
 
+export type DesktopAgentActivityStatus = "idle" | "working" | "completed" | "error";
+
+export interface DesktopSubagentActivityItem {
+  id: string;
+  name: string;
+  status: Exclude<DesktopAgentActivityStatus, "idle">;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface DesktopAgentActivityItem {
+  agentId: string;
+  status: DesktopAgentActivityStatus;
+  runId: string;
+  channel: string;
+  botId: string;
+  botName: string;
+  taskPreview: string;
+  startedAt: string;
+  finishedAt: string;
+  subagents: DesktopSubagentActivityItem[];
+}
+
+export interface DesktopAgentActivityResponse {
+  ok: true;
+  generatedAt: string;
+  items: DesktopAgentActivityItem[];
+}
+
 export interface DesktopSandboxSummary {
   enabled: boolean;
   initFailureMode: "warn-disable" | "block";
@@ -835,7 +864,7 @@ export interface DesktopPluginSettingField {
 export interface DesktopPluginsSummary {
   items: DesktopPluginItem[];
   counts: { total: number; active: number; external: number };
-  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }>; embeddingProviderId: string; embeddingModel: string; embeddingProviders: Array<{ value: string; label: string }>; reflectionTime: string; reflectionNotifications: boolean; dailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean }; projects: Array<{ value: string; label: string }> };
+  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }>; embeddingProviderId: string; embeddingModel: string; embeddingProviders: Array<{ value: string; label: string }>; reflectionTime: string; reflectionNotifications: boolean; dailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget: number; scanModelKey: string }; projects: Array<{ value: string; label: string }>; scanModels: Array<{ value: string; label: string }> };
   featureSettings: Array<{ pluginKey: string; name: string; description: string; fields: DesktopPluginSettingField[] }>;
 }
 
@@ -855,6 +884,27 @@ export interface DesktopPluginsUpdateRequest {
 export interface DesktopPluginsResponse {
   ok: true;
   summary: DesktopPluginsSummary;
+}
+
+// One-off "backfill all history" job for daily materials. Progress is polled.
+export interface DailyMaterialsBackfillStatus {
+  status: "idle" | "running" | "done" | "error";
+  startedAt?: string;
+  finishedAt?: string;
+  from?: string;
+  to?: string;
+  total: number;
+  processed: number;
+  daysWithData: number;
+  createdFiles: number;
+  scannedMessages: number;
+  currentDate?: string;
+  error?: string;
+}
+
+export interface DailyMaterialsBackfillResponse {
+  ok: true;
+  status: DailyMaterialsBackfillStatus;
 }
 
 export interface DesktopWebSearchEngine {

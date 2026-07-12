@@ -1,9 +1,12 @@
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 import type {
+  DesktopAgentActivityItem,
+  DesktopSubagentActivityItem,
   DesktopTraceRange,
   DesktopTraceSummary,
   DesktopTraceTotals
 } from "$lib/shared/desktop";
+import type { RuntimeSettings } from "$lib/server/settings/schema";
 
 const KNOWN_RANGES: readonly DesktopTraceRange[] = ["today", "yesterday", "last7Days", "last30Days"];
 
@@ -108,4 +111,81 @@ export function buildDesktopTraceSummary(
     window: resolveDesktopTraceWindow(range, timeZone),
     totals: computeDesktopTraceTotals(facts)
   };
+}
+
+const TERMINAL_ACTIVITY_WINDOW_MS = 10_000;
+// Runtime turns have a 10-minute ceiling. A started Trace with no fact updates
+// beyond this grace period is an orphan from a crash/restart, not live work.
+const ACTIVE_ACTIVITY_STALE_MS = 12 * 60_000;
+
+/**
+ * Projects credential-safe run facts into per-Agent office activity. Bot to
+ * Agent ownership comes from shared settings; no trace payload or chat content
+ * crosses this boundary.
+ */
+export function buildDesktopAgentActivity(
+  settings: RuntimeSettings,
+  facts: TraceFactRecord[],
+  nowMs = Date.now()
+): DesktopAgentActivityItem[] {
+  const botDetails = new Map<string, { agentId: string; name: string }>();
+  for (const [channel, group] of Object.entries(settings.channels ?? {})) {
+    for (const instance of group.instances ?? []) {
+      const agentId = String(instance.agentId ?? "").trim() || "default";
+      botDetails.set(`${channel}:${instance.id}`, { agentId, name: instance.name || instance.id });
+    }
+  }
+
+  const latestByAgent = new Map<string, DesktopAgentActivityItem>();
+  const runs = facts
+    .filter((fact) => fact.factType === "run" && fact.botId)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+
+  for (const fact of runs) {
+    const bot = botDetails.get(`${fact.channel}:${fact.botId}`);
+    const agentId = bot?.agentId ?? "default";
+    if (!agentId || latestByAgent.has(agentId)) continue;
+    const terminal = fact.status !== "started" && fact.status !== "waiting";
+    const finishedAt = fact.finishedAt ?? fact.updatedAt;
+    if (terminal && nowMs - Date.parse(finishedAt) > TERMINAL_ACTIVITY_WINDOW_MS) continue;
+    if (!terminal) {
+      const latestRunUpdate = facts.reduce((latest, candidate) => candidate.runId === fact.runId ? Math.max(latest, Date.parse(candidate.updatedAt)) : latest, Date.parse(fact.updatedAt));
+      if (!Number.isFinite(latestRunUpdate) || nowMs - latestRunUpdate > ACTIVE_ACTIVITY_STALE_MS) continue;
+    }
+    const subagents: DesktopSubagentActivityItem[] = facts
+      .filter((candidate) => candidate.factType === "subagent_task" && candidate.runId === fact.runId)
+      .flatMap((candidate) => {
+        const subagentTerminal = candidate.status !== "started" && candidate.status !== "waiting";
+        const subagentFinishedAt = candidate.finishedAt ?? candidate.updatedAt;
+        if (subagentTerminal && nowMs - Date.parse(subagentFinishedAt) > TERMINAL_ACTIVITY_WINDOW_MS) return [];
+        return [{
+          id: candidate.factId,
+          name: candidate.name || "subagent",
+          status: candidate.status === "started" || candidate.status === "waiting"
+            ? "working" as const
+            : candidate.status === "success"
+              ? "completed" as const
+              : "error" as const,
+          startedAt: candidate.startedAt ?? candidate.createdAt,
+          finishedAt: subagentTerminal ? subagentFinishedAt : ""
+        }];
+      });
+    latestByAgent.set(agentId, {
+      agentId,
+      status: fact.status === "started" || fact.status === "waiting"
+        ? "working"
+        : fact.status === "success"
+          ? "completed"
+          : "error",
+      runId: fact.runId,
+      channel: fact.channel,
+      botId: fact.botId ?? "",
+      botName: bot?.name || fact.botId || "",
+      taskPreview: typeof fact.payload.taskPreview === "string" ? fact.payload.taskPreview : "",
+      startedAt: fact.startedAt ?? fact.createdAt,
+      finishedAt: terminal ? finishedAt : "",
+      subagents
+    });
+  }
+  return [...latestByAgent.values()];
 }

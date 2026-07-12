@@ -1,6 +1,8 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type {
   DesktopAgentsResponse,
+  DesktopAgentActivityResponse,
+  DesktopAgentActivityItem,
   DesktopAgentsSummary,
   DesktopAgentItem,
   DesktopAgentSaveRequest,
@@ -34,6 +36,8 @@ import type {
   DesktopPluginsResponse,
   DesktopPluginsSummary,
   DesktopPluginsUpdateRequest,
+  DailyMaterialsBackfillResponse,
+  DailyMaterialsBackfillStatus,
   DesktopProfileFilesResponse,
   DesktopWebSearchResponse,
   DesktopWebSearchSummary,
@@ -642,6 +646,11 @@ export async function loadDesktopAgents(endpoint: string): Promise<DesktopAgents
   return payload.summary;
 }
 
+export async function loadDesktopAgentActivity(endpoint: string): Promise<DesktopAgentActivityItem[]> {
+  const payload = await requestJson<DesktopAgentActivityResponse>(endpoint, "/api/desktop/agent-activity");
+  return payload.items;
+}
+
 export async function saveDesktopAgent(endpoint: string, agent: DesktopAgentSaveRequest): Promise<DesktopAgentsSummary> {
   const payload = await requestJson<DesktopAgentsResponse>(endpoint, "/api/desktop/agents", {
     method: "PUT",
@@ -760,6 +769,16 @@ export async function loadDesktopPlugins(endpoint: string): Promise<DesktopPlugi
 export async function saveDesktopPlugins(endpoint: string, input: DesktopPluginsUpdateRequest): Promise<DesktopPluginsSummary> {
   const payload = await requestJson<DesktopPluginsResponse>(endpoint, "/api/desktop/plugins", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   return payload.summary;
+}
+
+export async function startDailyMaterialsBackfill(endpoint: string): Promise<DailyMaterialsBackfillStatus> {
+  const payload = await requestJson<DailyMaterialsBackfillResponse>(endpoint, "/api/desktop/plugins/daily-materials-backfill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start" }) });
+  return payload.status;
+}
+
+export async function loadDailyMaterialsBackfillStatus(endpoint: string): Promise<DailyMaterialsBackfillStatus> {
+  const payload = await requestJson<DailyMaterialsBackfillResponse>(endpoint, "/api/desktop/plugins/daily-materials-backfill");
+  return payload.status;
 }
 
 export async function loadDesktopWebSearch(endpoint: string): Promise<DesktopWebSearchSummary> {

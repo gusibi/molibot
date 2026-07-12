@@ -384,7 +384,6 @@
         command={pendingApproval.command}
         reason={pendingApproval.reason}
         options={approvalOptions}
-        disabled={sending}
         onResolve={resolveApprovalId}
       />
     {/if}

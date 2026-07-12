@@ -24,6 +24,7 @@
     onNewConversation,
     onOpenAutoTasks,
     onOpenSkills,
+    onOpenAgents,
     onOpenSettings,
     onToggleConversations,
     onToggleProjects,
@@ -38,7 +39,7 @@
     channels: ChannelDescriptor[];
     conversationsExpanded: boolean;
     projectsExpanded: boolean;
-    activeWorkspacePane?: "chat" | "automations" | "skills";
+    activeWorkspacePane?: "chat" | "automations" | "skills" | "agents";
     expandedChannels: Record<string, boolean>;
     channelItems: Record<string, DesktopConversationItem[]>;
     channelHasMore: Record<string, boolean>;
@@ -52,6 +53,7 @@
     onNewConversation: () => void;
     onOpenAutoTasks: () => void;
     onOpenSkills: () => void;
+    onOpenAgents: () => void;
     onOpenSettings: () => void;
     onToggleConversations: () => void;
     onToggleProjects: () => void;
@@ -96,6 +98,10 @@
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "skills"} aria-current={activeWorkspacePane === "skills" ? "page" : undefined} onclick={onOpenSkills}>
       <i class="ph-fill ph-sparkle" aria-hidden="true"></i>
       <span>{copy.skillsSquare}</span>
+    </button>
+    <button type="button" class="nav-item" class:active={activeWorkspacePane === "agents"} aria-current={activeWorkspacePane === "agents" ? "page" : undefined} onclick={onOpenAgents}>
+      <i class="ph-fill ph-dog" aria-hidden="true"></i>
+      <span>{copy.agentsNav}</span>
     </button>
   </nav>
 

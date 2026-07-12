@@ -5,6 +5,56 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-12
+
+### Desktop Agent Studio
+- Added an Agents workspace directly below Skills in the macOS app sidebar, keeping the existing main-window navigation context.
+- Displays a single Global/default workstation even when no `settings.agents.default` entity exists, without writing a synthetic Agent back to settings; Bots without an explicit Agent binding report activity there.
+- Introduced a responsive isometric office with one desk and animated walking pug per Agent, plus status, description, model-routing summaries, empty/error states, bilingual copy, dark-theme support, and reduced-motion behavior.
+- Compacted desks into a responsive 4-column layout that keeps up to eight Agents visible in the standard viewport, stepping down to 3/2/1 columns as width narrows and scrolling naturally beyond eight.
+- Added real-time Trace-backed Agent activity: recent run facts are mapped from channel Bot instances to their bound Agents every 2.5 seconds, showing working and short-lived completed/error states without exposing trace payloads or message content.
+- Added a “Boss · You” station above the office. Active Agents connect to it through animated dashed links carrying file packets, making live collaboration visible at a glance.
+- Reworked the Boss from a floating badge into a complete manager workstation below the windows, with its own rug, desk, chair, monitor, mug, character, and nameplate; the back wall was rebalanced so the station belongs to the office floor rather than overlapping the windows.
+- Split pug motion by Agent state: idle pugs lie on cushions and browse glowing phones, while working pugs stand at their computers, alternate both paws on the keyboard, bounce subtly, and pulse the monitor.
+- Replaced the static single-file connector with a continuously scrolling dashed data track carrying three staggered file packets; reduced-motion mode disables all loops.
+- Nested live Subagent stations under the Agent that delegated them by joining Trace `subagent_task` facts to the parent `runId`. Up to three temporary mini desks and typing pugs render directly, with overflow summarized as `+N` and terminal states expiring automatically.
+- Added compact Bot badges to active workstations. Hovering or keyboard-focusing a badge reveals the full Bot name, channel, start time, and a bounded current-task summary; run lifecycle facts persist only a whitespace-normalized 160-character preview for this purpose.
+- Prevented orphaned `started` Trace facts from leaving Global permanently busy: runs with no fact updates beyond the 10-minute runtime ceiling plus a 2-minute grace are ignored. Tooltips now state the activity status explicitly, distinguish legacy missing summaries, and raise the active card above neighboring desks.
+- Verified with zero Svelte diagnostics, all 36 Desktop UI tests passing, and a successful production build.
+
+### Model routing and AI provider UI optimizations
+- Removed the "tts" (Text-to-speech) routing select option from the global capability routing choices, focusing the Models setting page on text, vision, speech-to-text, and subagent core configurations.
+- Categorized custom provider models into "Built-in Models" and "Custom Models" tabs, reducing clutter when editing providers (such as OpenAI or Google) with preloaded lists.
+- Grouped the custom providers list on the main settings page into "Built-in Providers" and "Custom Providers" tabs, and integrated a search box (fuzzy search by provider ID or name) and an "Active First" sort toggle to simplify list navigation.
+- Integrated a search input for matching model IDs and a sorting toggle (Active First vs Default) in the model list. Active models are sorted to the top by default to improve readability.
+- Aligned these optimizations across both Svelte 5 Tauri desktop setting views and Svelte 4 web UI pages.
+- Fixed a bug where Svelte's reactive statement/effect reset the modelTab and modelSearch states upon any model details modification. State reset is now strictly guarded by changes to the provider ID.
+- Changed the newly introduced buttons in the Svelte Web App (+page.svelte) to use on:click instead of onclick, restoring proper Svelte legacy invalidation and redraw capability.
+- Verification: svelte-check reports 0 errors and 0 warnings, and all desktop unit/e2e tests pass.
+
+### Daily materials dedicated scan model
+- Added an optional per-feature scan model for daily materials: extraction and synthesis calls can run on a smaller/cheaper model, independent of the main chat model. Configured via `dailyMaterials.scanModelKey` (empty = follow main model) with a Desktop dropdown under Memory → Daily materials, populated from `buildModelOptions(settings, "text")`.
+- Implemented as a per-call override: `AssistantService.reply` now accepts `{ modelKey }` and `overrideSettingsForModelKey` derives a settings snapshot (pi or custom provider/model) for that one call without mutating global settings. Both the nightly task and the history backfill use it, including every batch/synthesis call.
+- Verification: `modelKeyOverride.test.ts` (3), `dailyMaterials.test.ts` (9), `sanitize.test.ts` (9), `desktopPlugins.test.ts` (7), `taskScheduler.test.ts` (5) pass; desktop `svelte-check` 0/0; production `vite build` succeeds.
+
+### Daily materials token-budget batching (replaces 60k-char truncation)
+- Replaced the hardcoded 60,000-character tail-truncation (which silently dropped older sessions on busy days) with a token-budget-aware hybrid: within budget → one model call; over budget → pack conversations into batches, extract each, then a synthesis call merges/dedups them into the day's file. No session is dropped; an individual over-budget conversation is tail-truncated in isolation.
+- Budget is estimated in tokens with a CJK-aware estimator (CJK≈1 token, else ≈¼) and is configurable via `dailyMaterials.scanTokenBudget` (default 120000, range 8000–900000) with a Desktop number input under Memory → Daily materials.
+- Documented what the scan actually sees: only final `content` for user/assistant roles — thinking and tool-call activity live in a separate `activities`/parts channel and never reach the model. New guide: `docs/guides/daily-materials.md`.
+- Verification: `dailyMaterials.test.ts` (9, +1 batching/synthesis), `taskScheduler.test.ts` (5), `sanitize.test.ts` (9), `desktopPlugins.test.ts` (7) pass; desktop `svelte-check` 0/0; production `vite build` succeeds.
+
+### Daily materials history backfill
+- Added a one-off "Backfill history" action for the daily-materials automation: it scans the full history of authorized sessions and produces one material file per past day, so a project that has already run for weeks starts with a complete corpus instead of only yesterday's file.
+- `DailyMaterialsService.run` was refactored into `runForDate` + `runBackfill`; backfill iterates days ascending so the isolated daily-materials watermark advances per day, making the pass idempotent and safely resumable after an interruption. The start date auto-scans the earliest authorized message (`SessionReflectionSourceReader.earliestLocalDate`).
+- Exposed as an in-memory background job (`DailyMaterialsBackfillJob`) with a polled progress endpoint (`/api/desktop/plugins/daily-materials-backfill`) and a Desktop button under Memory → Daily materials showing live progress. No CLI required.
+- Verification: `dailyMaterials.test.ts` (8, +2 backfill), `taskScheduler.test.ts` (5), `sanitize.test.ts` (9), `desktopPlugins.test.ts` (7) all pass; desktop `svelte-check` 0 errors/0 warnings; production `vite build` succeeds.
+
+### Desktop Chat reasoning, tool activity disclosure, and approval fixes
+- Expanded thinking by default across live and historical Desktop Chat messages, while keeping tool activity collapsed until explicitly opened.
+- Stopped structured runner diagnostics from also rendering as raw `tool_start=...` / `tool_end=...` message status text.
+- Fixed a bug where permission approval buttons (e.g. Host Bash authorization cards) were rendered disabled during active streaming turns due to conflict with the active `sending` flag.
+- Refactored `conversationController` to support inline decision submissions that seamlessly resume ongoing SSE streams without hitting process locks or requiring manual poll fallback.
+
 ## 2026-07-11
 
 ### macOS compliant desktop icon and avatar processing

@@ -593,12 +593,14 @@ export class MomRunner implements RunnerLike {
       actorId: ctx.message.userId,
       signal: undefined
     };
+    const taskPreview = ctx.message.text.replace(/\s+/g, " ").trim().slice(0, 160);
     this.hookManager.emit("run.beforeStart", this.activeHookContext, {
       messageId: ctx.message.messageId,
       textLength: ctx.message.text.length,
       attachmentCount: ctx.message.attachments.length,
       imageCount: ctx.message.imageContents.length,
-      isEvent: Boolean(ctx.message.isEvent)
+      isEvent: Boolean(ctx.message.isEvent),
+      taskPreview
     });
     let stopReason: "stop" | "aborted" | "error" | "waiting_for_approval" = "stop";
     let errorMessage: string | undefined;
@@ -612,7 +614,8 @@ export class MomRunner implements RunnerLike {
           status: stopReason === "stop" ? "success" : stopReason,
           stopReason,
           durationMs: Date.now() - runStartedAt,
-          errorMessage
+          errorMessage,
+          taskPreview
         });
       }
       await this.hookManager.flush({ timeoutMs: 2000, runId: hookContext.runId });
@@ -1035,7 +1038,8 @@ export class MomRunner implements RunnerLike {
           textLength: ctx.message.text.length,
           attachmentCount: ctx.message.attachments.length,
           imageCount: ctx.message.imageContents.length,
-          isEvent: Boolean(ctx.message.isEvent)
+          isEvent: Boolean(ctx.message.isEvent),
+          taskPreview
         });
         return;
       }

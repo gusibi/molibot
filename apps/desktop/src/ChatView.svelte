@@ -1459,6 +1459,7 @@
     onNewConversation={newConversation}
     onOpenAutoTasks={() => openWorkspacePane("automations")}
     onOpenSkills={() => openWorkspacePane("skills")}
+    onOpenAgents={() => openWorkspacePane("agents")}
     onOpenSettings={() => openSettings()}
     onToggleConversations={toggleConversations}
     onToggleProjects={toggleProjects}
@@ -1498,7 +1499,7 @@
   {:else}
   <section class="chat-content">
     {#if workspacePane !== "chat"}
-      <ChatWorkspacePane pane={workspacePane} {copy} serviceEndpoint={connectedEndpoint || serviceEndpoint} serviceReady={serviceState === "ready"} />
+      <ChatWorkspacePane pane={workspacePane} {copy} serviceEndpoint={connectedEndpoint || serviceEndpoint} serviceReady={serviceState === "ready"} onOpenAgentSettings={() => openSettings("agents")} />
     {:else}
     <header class="chat-header" data-tauri-drag-region>
       <div class="chat-title-block" data-tauri-drag-region>
@@ -1631,7 +1632,6 @@
             command={pendingApproval.command}
             reason={pendingApproval.reason}
             options={approvalOptions}
-            disabled={sending}
             onResolve={resolveApprovalId}
           />
         {/if}

@@ -21,6 +21,7 @@ import { createDefaultHookManager, type HookManager } from "$lib/server/agent/ho
 import { ensureGlobalProfileDefaults } from "$lib/server/agent/prompts/profiles.js";
 import { MemoryReflectionService, ReflectionStateStore, SessionReflectionSourceReader, recommendedCandidateNamespace, type ReflectionExtractor, type ReflectionTarget } from "$lib/server/memory/reflection.js";
 import { DailyMaterialsService, dailyMaterialsTargetId, type DailyMaterialsInternal } from "$lib/server/memory/dailyMaterials.js";
+import { DailyMaterialsBackfillJob } from "$lib/server/app/dailyMaterialsBackfill.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
 
 interface RuntimeState {
@@ -40,6 +41,7 @@ interface RuntimeState {
   reflectionState: ReflectionStateStore;
   reflectionService: MemoryReflectionService;
   dailyMaterialsService: DailyMaterialsService;
+  dailyMaterialsBackfill: DailyMaterialsBackfillJob;
   runInternalEvent: (event: MomEvent, filename: string) => Promise<{ notificationText?: string } | void>;
   hookManager: HookManager;
   getSettings: () => RuntimeSettings;
@@ -211,7 +213,7 @@ export function getRuntime(): RuntimeState {
         role: "user",
         content: prompt,
         createdAt: new Date().toISOString()
-      }], prompt)
+      }], prompt, "", { modelKey: currentSettings.value.plugins.memory.dailyMaterials.scanModelKey })
     );
     const runInternalEvent = async (event: MomEvent, filename: string): Promise<{ notificationText?: string } | void> => {
       if (event.internal?.kind === "memory-reflection") {
@@ -226,6 +228,7 @@ export function getRuntime(): RuntimeState {
       }
       throw new Error("Unsupported internal event.");
     };
+    const dailyMaterialsBackfill = new DailyMaterialsBackfillJob(dailyMaterialsService);
     let state!: RuntimeState;
     const taskScheduler = new TaskScheduler(runInternalEvent);
     state = {
@@ -245,6 +248,7 @@ export function getRuntime(): RuntimeState {
       reflectionState,
       reflectionService,
       dailyMaterialsService,
+      dailyMaterialsBackfill,
       runInternalEvent,
       hookManager,
       getSettings: () => state.settings,

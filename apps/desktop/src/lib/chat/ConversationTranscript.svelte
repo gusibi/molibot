@@ -36,12 +36,12 @@
         <TranscriptAttachments attachments={message.attachments} {copy} actions={attachmentActions} />
       {/if}
       {#if message.thinking}
-        <details class="thinking-card"><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
+        <details class="thinking-card" open><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
       {/if}
     {:else}
       <div class="message-stack">
         {#if message.thinking}
-          <details class="thinking-card"><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
+          <details class="thinking-card" open><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
         {/if}
         {#if message.activities?.length}<RunActivity activities={message.activities} {copy} />{/if}
         {#if displayContent}<div class="message-bubble markdown-body">{@html renderMarkdown(displayContent)}</div>{/if}

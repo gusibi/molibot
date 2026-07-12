@@ -12,7 +12,7 @@ import {
 import type { DesktopModelRoutingSettings, DesktopModelRoutingUpdateRequest, DesktopModelState } from "@molibot/desktop-contract";
 import { session, setError, notifySettingsChanged } from "./session.svelte";
 
-export const MODEL_ROUTES: DesktopModelRoute[] = ["text", "vision", "stt", "tts", "subagent"];
+export const MODEL_ROUTES: DesktopModelRoute[] = ["text", "vision", "stt", "subagent"];
 
 export const modelsStore = $state({
   modelStates: {} as Partial<Record<DesktopModelRoute, DesktopModelState>>,

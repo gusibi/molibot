@@ -66,10 +66,48 @@ export function ensureMemoryReflectionEvent(eventsDir: string, channel: string, 
   return filePath;
 }
 
+// Build the `internal` payload for a daily-materials event for one channel/bot,
+// or null when the feature is disabled/unconfigured or the bot has no chat ids.
+// Shared by the periodic scheduler and the one-off history backfill so both scan
+// exactly the same authorized scopes.
+export function buildDailyMaterialsInternal(channel: string, botId: string, settings?: RuntimeSettings): NonNullable<MomEvent["internal"]> | null {
+  const configured = settings?.plugins.memory.dailyMaterials;
+  if (!configured?.enabled || !configured.projectId.trim()) return null;
+  const instance = settings?.channels?.[channel]?.instances?.find((item) => item.id === botId);
+  const chatIds = channel === "web" ? [`web:${botId}:web-anonymous`] : (instance?.allowedChatIds ?? []);
+  if (chatIds.length === 0) return null;
+  return {
+    kind: "daily-materials",
+    notificationChatId: configured.notifications ? chatIds[0] : undefined,
+    target: {
+      ownerId: "owner",
+      botId,
+      timezone: settings!.timezone,
+      sourceScopes: chatIds.map((externalUserId) => ({ channel, externalUserId }))
+    },
+    promptPath: configured.promptPath,
+    output: { projectId: configured.projectId, dir: configured.dir },
+    scanTokenBudget: configured.scanTokenBudget
+  };
+}
+
+// Every daily-materials scope the scheduler would target, across all channels
+// and bot instances. The history backfill runs each of these once.
+export function collectDailyMaterialsBackfillInternals(settings?: RuntimeSettings): Array<NonNullable<MomEvent["internal"]>> {
+  const internals: Array<NonNullable<MomEvent["internal"]>> = [];
+  for (const { channel } of TASK_CHANNEL_ROOTS) {
+    for (const instance of settings?.channels?.[channel]?.instances ?? []) {
+      const internal = buildDailyMaterialsInternal(channel, instance.id, settings);
+      if (internal) internals.push(internal);
+    }
+  }
+  return internals;
+}
+
 export function ensureDailyMaterialsEvent(eventsDir: string, channel: string, botId: string, settings?: RuntimeSettings): string | null {
   const filePath = join(eventsDir, "daily-materials.json");
-  const configured = settings?.plugins.memory.dailyMaterials;
-  if (!configured?.enabled || !configured.projectId.trim()) {
+  const internal = buildDailyMaterialsInternal(channel, botId, settings);
+  if (!internal) {
     if (!existsSync(filePath)) return null;
     try {
       const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
@@ -77,9 +115,7 @@ export function ensureDailyMaterialsEvent(eventsDir: string, channel: string, bo
     } catch { /* leave malformed files for the watcher to report */ }
     return null;
   }
-  const instance = settings?.channels?.[channel]?.instances?.find((item) => item.id === botId);
-  const chatIds = channel === "web" ? [`web:${botId}:web-anonymous`] : (instance?.allowedChatIds ?? []);
-  if (chatIds.length === 0) return null;
+  const configured = settings!.plugins.memory.dailyMaterials;
   const [hour, minute] = (configured.time || "23:30").split(":").map(Number);
   const event: MomEvent = {
     type: "periodic",
@@ -88,20 +124,9 @@ export function ensureDailyMaterialsEvent(eventsDir: string, channel: string, bo
     chatId: "internal-daily-materials",
     text: "",
     schedule: `${minute} ${hour} * * *`,
-    timezone: settings.timezone,
+    timezone: settings!.timezone,
     execution: "internal",
-    internal: {
-      kind: "daily-materials",
-      notificationChatId: configured.notifications ? chatIds[0] : undefined,
-      target: {
-        ownerId: "owner",
-        botId,
-        timezone: settings.timezone,
-        sourceScopes: chatIds.map((externalUserId) => ({ channel, externalUserId }))
-      },
-      promptPath: configured.promptPath,
-      output: { projectId: configured.projectId, dir: configured.dir }
-    }
+    internal
   };
   if (existsSync(filePath)) {
     try {

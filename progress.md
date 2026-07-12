@@ -218,3 +218,26 @@
 - Final Memory suite passes 24/24 after the safety regression.
 
 ---
+# Agent workspace (2026-07-12)
+
+- Read the approved workbench concept, frontend-design guidance, planning skill,
+  and repository design system.
+- Confirmed the revised product direction is a main-app workspace directly below
+  Skills, named Agent/Agents, with user-created agents represented as pugs.
+- Began mapping navigation, Agent API, and existing Desktop verification seams.
+- Added the `agents` main workspace directly below Skills, wired it to the
+  existing safe Desktop Agent endpoint, and filtered the built-in `default`.
+- Built a responsive, theme-aware office scene with per-Agent desks and walking
+  CSS pug characters, plus empty/loading/error states and reduced-motion rules.
+- Added source-level UI regression coverage for placement, data filtering,
+  Agent loading, animation, and accessibility preferences.
+- Verification passed: Svelte diagnostics 0/0, all 36 Desktop UI tests passed,
+  and the Vite production build succeeded (only the pre-existing chunk warning).
+- Adversarial review confirmed `default` filtering, background polling pause,
+  active navigation isolation, narrow layout, and reduced-motion fallback.
+- Updated features, PRD, changelog, and README with the delivered slice and the
+  explicitly deferred live run/subagent telemetry milestone.
+- Added a credential-safe Trace run projection keyed by channel Bot binding,
+  with focused tests for active, recent terminal, and expired terminal states.
+- Agent Studio now polls activity every 2.5 seconds and renders a Boss station,
+  working/completed/error labels, and animated file-transfer links.

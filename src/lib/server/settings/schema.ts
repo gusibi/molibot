@@ -191,6 +191,10 @@ export interface MemoryBackendSettings {
     dir: string;
     promptPath: string;
     notifications: boolean;
+    scanTokenBudget: number;
+    // Model key (`pi|provider|model` / `custom|id|model`) for the scan+synthesis
+    // calls. Empty = follow the main text model. Lets a cheaper model do the scan.
+    scanModelKey: string;
   };
 }
 

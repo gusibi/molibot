@@ -276,3 +276,13 @@ rules, and contextual header format.
   records, yielding quadratic membership work at large record counts.
 
 ---
+# Agent workspace kickoff (2026-07-12)
+
+- The supplied plan assumes a separate Tauri workbench window, but the user's
+  current requirement supersedes that: this belongs in the main sidebar below
+  Skills and should reuse the existing workspace switching seam.
+- `DesktopAgentItem` already exposes the safe display fields needed for the
+  first slice. Filtering `id === "default"` belongs in shared Desktop view
+  logic so UI rendering and counts cannot drift.
+- The current worktree contains substantial unrelated user changes. All edits
+  must be surgical and avoid formatting or replacing nearby work.

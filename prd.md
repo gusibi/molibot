@@ -5,6 +5,38 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.52 Desktop Agent Studio (2026-07-12)
+- [Done, P1] Mac App 主导航在 Skills 下方新增 Agent/Agents 工作区，复用主窗口工作区切换，不增加独立 Tauri 窗口。
+- [Done, P1] 工作室展示 Global/default 与用户创建的 Agent；当 API 没有 `settings.agents.default` 实体时仅在展示层合成并去重，不写回设置；未显式绑定的 Bot 运行归属该工位。
+- [Done, P1] 以等距办公室工位和走动巴哥犬拟人化呈现 Agent，支持启停状态、描述、模型路由摘要、空状态与设置入口。
+- [Done, P1] 保持中英双语、明暗主题、窄窗口和低动效偏好可用。
+- [Done, P1] 标准窗口采用 4×2 首屏密度，最多同时看清 8 个 Agent；更窄窗口响应式降列，超过 8 个后向下滚动。
+- [Done, P1] 从 Trace run fact 实时投影 Bot 绑定 Agent 的 working/completed/error 状态，2.5 秒轮询并在 terminal 状态展示 10 秒后恢复待命。
+- [Done, P1] 工作室顶部增加“老板/发起人”，工作中的 Agent 与老板之间显示流动虚线和文件传输动画。
+- [Done, P1] 老板使用窗下独立管理工位而非悬浮头像，场景道具与员工工位保持同一空间语言。
+- [Done, P1] 待命与工作状态使用不同角色动画：趴卧刷手机 vs 站立双爪敲电脑。
+- [Done, P1] 工作连线使用流动虚线和多个错峰文件包形成不间断传输，并兼容 reduced-motion。
+- [Done, P1] Sub-agent 通过父 `runId` 关联派活的主 Agent，在其卡片底部以临时迷你工位展示；最多直接展示三个，更多任务折叠为 `+N`，完成/失败后自动淡出。
+- [Done, P1] 活动工位常驻截断 Bot 徽标，hover/focus 展示完整 Bot、渠道、开始时间和最多 160 字任务摘要；详情同时满足鼠标与键盘访问。
+- [Done, P0] 孤儿 started Trace 在 12 分钟无任何 Run fact 更新后失效，避免永久 busy；活动详情显式显示状态，并保证浮层 stacking 高于相邻工位。
+- [Done, P0] Trace 活动投影保持凭据与内容安全，只返回身份、状态和时间字段，不回传 payload/preview。
+- [Planned, P2] 后续按 `docs/requirements/agent-workbench-plan.md` 接入 Sub-agent 与更细粒度的任务派发事件动画；共享运行状态仍归 Agent/app 上层，不下沉 Channel。
+
+## 2.51 Model routing and AI provider UI optimizations (2026-07-12)
+- [Done, P0] 从全局模型路由选择中移除 "tts" (语音合成) 选项。
+- [Done, P0] AI 服务商页面底部的模型注册表按 "内置模型" (Built-in Models) 与 "自建模型" (Custom Models) 进行 Tab 分组展示。
+- [Done, P0] AI 服务商主页面底部的服务商列表按 "内置服务商" (Built-in Providers) 与 "自建服务商" (Custom Providers) 进行 Tab 分组展示，并提供搜索框与已启用优先排序切换。
+- [Done, P0] 模型注册表中支持搜索框搜索模型 ID，并默认支持 "已启用优先" 排序和默认排序切换。
+- [Done, P0] 修复：限制仅在提供商 ID 变化时才执行模型 Tab 与搜索词重置，避免编辑模型选项或改变任何输入导致状态被自动恢复。
+- [Done, P0] 修复：将 Web App 的新按钮 `onclick` 事件改为 `on:click`，确保在 Svelte 5 的 legacy 模式中能正确触发状态变化和重绘。
+
+## 2.50 Desktop Chat reasoning, tool activity disclosure, and approval fixes (2026-07-12)
+- [Done, P0] 思考过程在流式与历史消息中默认展开，并保留手动收起能力。
+- [Done, P0] 工具调用进度默认收起，仅由用户手动展开。
+- [Done, P0] `runner_event` 仅进入结构化工具进度，不再污染正文状态或重复显示原始 diagnostic。
+- [Done, P0] 修复权限审批卡片按钮在流式响应仍在进行时因 `sending` 状态被禁用且控制器决议被拦截的冲突问题。
+- [Done, P0] 在控制器中分离流式/离线审批路径，并去掉模板对按钮 disabled 的误杀。
+
 ## 2.49 macOS Compliant Desktop Icon and Avatar Processing (2026-07-11)
 - [Done, P0] 处理原始方形头像 `momo-happy-icon.png` 满足 macOS app icon 视觉规范（824x824 圆角主体居中于 1024x1024 透明画布，225px corner radius），配合双层阴影和 1px 描边。
 - [Done, P0] 覆盖替换 public 下的 `molibot-icon.png` 并重新生成全套 Tauri 桌面应用编译所依赖的 PNG、ICNS、ICO 格式图标。

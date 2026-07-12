@@ -43,6 +43,89 @@
     )
   );
   let canDiscoverModels = $derived(hasEditBaseUrl && hasEditApiKey && !providersStore.discovering);
+
+  let providerSearch = $state("");
+  let providerTab = $state<"builtin" | "custom">("builtin");
+  let providerSortActive = $state(true);
+
+  let visibleProvidersList = $derived.by(() => {
+    if (!providersStore.providers) return [];
+    let list = providersStore.providers.customProviders.map((provider, index) => ({ provider, index }));
+
+    const builtinProviderIds = providersStore.providers.builtinProviders.map((p) => p.id);
+
+    // 1. Filter by Tab
+    list = list.filter((item) => {
+      const isBuiltin = builtinProviderIds.includes(item.provider.id);
+      return providerTab === "builtin" ? isBuiltin : !isBuiltin;
+    });
+
+    // 2. Filter by search query
+    const query = providerSearch.trim().toLowerCase();
+    if (query) {
+      list = list.filter((item) => item.provider.name.toLowerCase().includes(query) || item.provider.id.toLowerCase().includes(query));
+    }
+
+    // 3. Sort active first if toggled
+    if (providerSortActive) {
+      list = [...list].sort((a, b) => {
+        const aVal = a.provider.enabled ? 1 : 0;
+        const bVal = b.provider.enabled ? 1 : 0;
+        if (aVal !== bVal) return bVal - aVal;
+        return a.index - b.index;
+      });
+    }
+
+    return list;
+  });
+
+  let modelSearch = $state("");
+  let modelTab = $state<"builtin" | "custom">("builtin");
+  let sortActiveFirst = $state(true);
+
+  let lastEditProviderId = "";
+  $effect(() => {
+    const editProviderId = providersStore.providerEdit?.id ?? "";
+    if (editProviderId !== lastEditProviderId) {
+      lastEditProviderId = editProviderId;
+      if (providersStore.providerEdit) {
+        const hasBuiltin = providersStore.providers?.builtinProviders.some((p) => p.id === editProviderId) ?? false;
+        modelTab = hasBuiltin ? "builtin" : "custom";
+        modelSearch = "";
+      }
+    }
+  });
+
+  let visibleModelsList = $derived.by(() => {
+    if (!providersStore.providerEdit) return [];
+    const editProviderId = providersStore.providerEdit.id;
+    const builtinModels = providersStore.providers?.builtinProviders.find((p) => p.id === editProviderId)?.models ?? [];
+
+    let list = providersStore.providerEdit.models.map((model, index) => ({ model, index }));
+
+    // 1. Filter by Tab
+    list = list.filter((item) => {
+      const isBuiltin = builtinModels.includes(item.model.id);
+      return modelTab === "builtin" ? isBuiltin : !isBuiltin;
+    });
+
+    // 2. Filter by search query
+    const query = modelSearch.trim().toLowerCase();
+    if (query) {
+      list = list.filter((item) => item.model.id.toLowerCase().includes(query));
+    }
+
+    // 3. Sort active/enabled first if enabled
+    if (sortActiveFirst) {
+      list = [...list].sort((a, b) => {
+        const aVal = a.model.enabled ? 1 : 0;
+        const bVal = b.model.enabled ? 1 : 0;
+        if (aVal !== bVal) return bVal - aVal;
+        return a.index - b.index;
+      });
+    }
+    return list;
+  });
 </script>
 
         <p class="settings-section-hint">{session.text.providersHint}</p>
@@ -79,12 +162,54 @@
                 {/each}
               </select>
             </label>
+            <label class="settings-row">
+              <strong>{session.text.providersFilterTitle}</strong>
+              <input
+                type="text"
+                class="row-input"
+                placeholder={session.text.modelSearchPlaceholder}
+                bind:value={providerSearch}
+              />
+            </label>
+            <div class="settings-row">
+              <strong>{session.text.providersCategoryTitle}</strong>
+              <div class="model-tabs-wrap">
+                <button
+                  type="button"
+                  class="model-tab-button"
+                  class:active={providerTab === "builtin"}
+                  onclick={() => (providerTab = "builtin")}
+                >
+                  {session.text.providerBuiltinTitle}
+                </button>
+                <button
+                  type="button"
+                  class="model-tab-button"
+                  class:active={providerTab === "custom"}
+                  onclick={() => (providerTab = "custom")}
+                >
+                  {session.text.providerSelfHostedTitle}
+                </button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <strong>{session.text.modelSortActive}</strong>
+              <button
+                type="button"
+                class="secondary-button sort-toggle-button"
+                class:active={providerSortActive}
+                onclick={() => (providerSortActive = !providerSortActive)}
+              >
+                {providerSortActive ? session.text.modelSortActive : session.text.modelSortDefault}
+              </button>
+            </div>
           </div>
-          {#if providersStore.providers.customProviders.length === 0}
+          {#if visibleProvidersList.length === 0}
             <div class="settings-card"><div class="settings-row"><p>{session.text.providersEmpty}</p></div></div>
           {:else}
             <div class="settings-card">
-              {#each providersStore.providers.customProviders as provider (provider.id)}
+              {#each visibleProvidersList as item (item.provider.id)}
+                {@const provider = item.provider}
                 <div class="settings-row">
                   <div class="profile-info">
                     <strong>{provider.name}{provider.isDefault ? ` · ${session.text.providersDefault}` : ""}</strong>
@@ -94,7 +219,7 @@
                   </div>
                   <div class="settings-row-actions">
                     <span class="status-badge" data-state={provider.enabled ? "ready" : "disconnected"}>{provider.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span>
-                    <button class="secondary-button" type="button" onclick={() => beginProviderEdit(provider.id)}>{session.text.providerEdit}</button>
+                    <button class="secondary-button" type="button" disabled={providersStore.providerEdit !== null} onclick={() => beginProviderEdit(provider.id)}>{session.text.providerEdit}</button>
                     <button class="secondary-button" type="button" disabled={provider.isDefault || providersStore.saving} onclick={() => void setProviderAsDefault(provider.id)}>{session.text.providersSetDefault}</button>
                     <button class="secondary-button" type="button" disabled={providersStore.testingId !== null || !provider.hasApiKey} onclick={() => void verifyProvider(provider.id)}>
                       {providersStore.testingId === provider.id ? session.text.onboardingProviderTesting : session.text.onboardingProviderTest}
@@ -148,8 +273,46 @@
                   {/each}
                 </div>
               {/if}
+              <div class="provider-model-controls">
+                <div class="model-controls-left">
+                  <input
+                    type="text"
+                    class="row-input model-search-input"
+                    placeholder={session.text.modelSearchPlaceholder}
+                    bind:value={modelSearch}
+                  />
+                  <div class="model-tabs-wrap">
+                    <button
+                      type="button"
+                      class="model-tab-button"
+                      class:active={modelTab === "builtin"}
+                      onclick={() => (modelTab = "builtin")}
+                    >
+                      {session.text.modelTabBuiltin}
+                    </button>
+                    <button
+                      type="button"
+                      class="model-tab-button"
+                      class:active={modelTab === "custom"}
+                      onclick={() => (modelTab = "custom")}
+                    >
+                      {session.text.modelTabCustom}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="secondary-button sort-toggle-button"
+                  class:active={sortActiveFirst}
+                  onclick={() => (sortActiveFirst = !sortActiveFirst)}
+                >
+                  {sortActiveFirst ? session.text.modelSortActive : session.text.modelSortDefault}
+                </button>
+              </div>
               <div class="provider-model-list">
-                {#each providersStore.providerEdit.models as model, index (`${index}:${model.id}`)}
+                {#each visibleModelsList as item (item.index)}
+                  {@const model = item.model}
+                  {@const index = item.index}
                   <div class="provider-model-card">
                     <div class="provider-model-head">
                       <input class="row-input" value={model.id} placeholder={session.text.providerModelId} oninput={(event) => updateProviderModel(index, { id: (event.currentTarget as HTMLInputElement).value })} />

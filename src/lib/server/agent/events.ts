@@ -49,6 +49,8 @@ interface EventBase {
     target: InternalEventTarget;
     promptPath?: string;
     output?: { projectId: string; dir?: string };
+    // daily-materials: token budget for the assembled transcript before batching.
+    scanTokenBudget?: number;
   };
   sessionMode?: EventSessionMode;
   status?: EventStatus;

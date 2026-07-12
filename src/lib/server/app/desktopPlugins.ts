@@ -8,6 +8,7 @@ import type {
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 import type { PluginCatalog, PluginSettingField } from "$lib/server/plugins/types";
 import { getProjectStore } from "$lib/server/projects/store";
+import { buildModelOptions } from "$lib/server/settings/modelSwitch";
 import { isAbsolute } from "node:path";
 
 const KNOWN_KINDS: readonly DesktopPluginKind[] = ["channel", "provider", "feature", "memory-backend"];
@@ -72,6 +73,17 @@ export function buildDesktopPluginItem(entry: SharedPluginEntry, kindHint: Deskt
   };
 }
 
+// Text-model options for the daily-materials scan-model picker. Tolerant of a
+// partial settings object (buildModelOptions can throw on incomplete input).
+function scanModelOptions(settings?: RuntimeSettings): Array<{ value: string; label: string }> {
+  if (!settings) return [];
+  try {
+    return buildModelOptions(settings, "text").map((option) => ({ value: option.key, label: option.label }));
+  } catch {
+    return [];
+  }
+}
+
 export function buildDesktopPluginsSummary(catalog: SharedPluginCatalog, settings?: RuntimeSettings, projects: Array<{ value: string; label: string }> = []): DesktopPluginsSummary {
   const groups: Array<[DesktopPluginKind, SharedPluginEntry[] | undefined]> = [
     ["channel", catalog.channels],
@@ -100,8 +112,9 @@ export function buildDesktopPluginsSummary(catalog: SharedPluginCatalog, setting
       embeddingModel: settings?.plugins.memory.embeddingModel ?? "",
       reflectionTime: settings?.plugins.memory.reflectionTime ?? "03:00",
       reflectionNotifications: settings?.plugins.memory.reflectionNotifications ?? true,
-      dailyMaterials: settings?.plugins.memory.dailyMaterials ?? { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true },
+      dailyMaterials: settings?.plugins.memory.dailyMaterials ?? { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true, scanTokenBudget: 120000, scanModelKey: "" },
       projects,
+      scanModels: scanModelOptions(settings),
       embeddingProviders: (settings?.customProviders ?? []).filter((provider) => provider.enabled).map((provider) => ({ value: provider.id, label: provider.name || provider.id })),
       backends: [
         { value: "json-file", label: "json-file" },
@@ -138,7 +151,7 @@ export function buildDesktopPluginsSettings(settings: RuntimeSettings, catalog: 
   const allowedBackends = new Set(["json-file", ...catalog.memoryBackends.map((entry) => entry.key)]);
   if (!allowedBackends.has(input.memoryBackend)) throw new Error("Unknown memory backend");
   const next = structuredClone(settings.plugins) as unknown as Record<string, unknown>;
-  const dailyMaterials = input.memoryDailyMaterials ?? settings.plugins.memory.dailyMaterials ?? { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true };
+  const dailyMaterials = input.memoryDailyMaterials ?? settings.plugins.memory.dailyMaterials ?? { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true, scanTokenBudget: 120000, scanModelKey: "" };
   const projectId = String(dailyMaterials?.projectId ?? "").trim();
   if (projectId && !projects.get(projectId)) throw new Error("Unknown daily materials project");
   const relativeSetting = (value: unknown, fallback: string): string => {
@@ -160,7 +173,13 @@ export function buildDesktopPluginsSettings(settings: RuntimeSettings, catalog: 
       projectId,
       dir: relativeSetting(dailyMaterials?.dir, "content/daily-materials"),
       promptPath: relativeSetting(dailyMaterials?.promptPath, "templates/daily-material-prompt.md"),
-      notifications: Boolean(dailyMaterials?.notifications)
+      notifications: Boolean(dailyMaterials?.notifications),
+      scanTokenBudget: (() => {
+        const n = Number(dailyMaterials?.scanTokenBudget);
+        if (!Number.isFinite(n) || n <= 0) return 120000;
+        return Math.min(900000, Math.max(8000, Math.round(n)));
+      })(),
+      scanModelKey: String(dailyMaterials?.scanModelKey ?? "").trim()
     }
   };
 

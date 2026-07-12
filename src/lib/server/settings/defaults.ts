@@ -490,7 +490,9 @@ export const defaultRuntimeSettings: RuntimeSettings = {
         projectId: "",
         dir: "content/daily-materials",
         promptPath: "templates/daily-material-prompt.md",
-        notifications: true
+        notifications: true,
+        scanTokenBudget: 120000,
+        scanModelKey: ""
       }
     },
     cloudflareHtml: {

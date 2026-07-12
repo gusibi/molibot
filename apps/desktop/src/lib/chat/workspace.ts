@@ -1,4 +1,4 @@
-export type ChatWorkspacePane = "chat" | "automations" | "skills";
+export type ChatWorkspacePane = "chat" | "automations" | "skills" | "agents";
 
 export function shouldReuseFreshSession(input: {
   activeSessionId: string;
@@ -11,4 +11,3 @@ export function shouldReuseFreshSession(input: {
     && !input.sending
     && !input.hasStreamingContent;
 }
-

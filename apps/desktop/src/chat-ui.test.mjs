@@ -34,6 +34,9 @@ const transcript = read("./lib/chat/ConversationTranscript.svelte");
 const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
 const runActivity = read("./lib/chat/RunActivity.svelte");
 const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
+const agentStudio = read("./lib/chat/AgentStudioPane.svelte");
+const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
+const chatWorkspace = read("./lib/chat/ChatWorkspacePane.svelte");
 const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
 const chatInputArea = read("./lib/chat/ChatInputArea.svelte");
 const chatMessagesPane = read("./lib/chat/ChatMessagesPane.svelte");
@@ -78,11 +81,9 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(view, /let expandedChannels: Record<DesktopConversationChannel, boolean>/);
   assert.match(view, /const open = !expandedChannels\[channel\]/);
   assert.match(view, /SIDEBAR_TREE_KEY/);
-  const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
   const projectTree = read("./lib/projects/ProjectTree.svelte");
   assert.match(chatSidebar, /<ProjectTree/);
   assert.match(chatSidebar, /overflow-x: hidden/);
-  assert.match(chatSidebar, /ph-chats-circle/);
   assert.match(projectTree, /project-tree-head/);
   assert.doesNotMatch(projectTree, /project-tree-actions/);
   assert.match(projectTree, /opacity: 0; pointer-events: none/);
@@ -93,6 +94,38 @@ test("sidebar channel groups are independently collapsible with balanced list de
   // Project and Chat share the same collapsible group rhythm and 40px Session row.
   assert.match(styles, /\.conv-group-head\s*\{[^}]*height:\s*34px/s);
   assert.match(row, /\.conversation-row\s*\{[^}]*min-height:\s*40px/s);
+});
+
+test("Agent Studio sits below Skills and nests animated Subagents under their parent Agent", () => {
+  const skillsPosition = chatSidebar.indexOf('activeWorkspacePane === "skills"');
+  const agentsPosition = chatSidebar.indexOf('activeWorkspacePane === "agents"');
+  assert.ok(skillsPosition >= 0 && agentsPosition > skillsPosition);
+  assert.match(view, /onOpenAgents=\{\(\) => openWorkspacePane\("agents"\)\}/);
+  assert.match(chatWorkspace, /<AgentStudioPane/);
+  assert.match(agentStudio, /id: "default"/);
+  assert.match(agentStudio, /agents\.some\(\(agent\) => agent\.id === "default"\) \? agents : \[globalAgent, \.\.\.agents\]/);
+  assert.match(agentStudio, /loadDesktopAgents\(serviceEndpoint\)/);
+  assert.match(agentStudio, /loadDesktopAgentActivity\(serviceEndpoint\)/);
+  assert.match(agentStudio, /setInterval\(\(\) => void refresh\(\), 2500\)/);
+  assert.match(agentStudio, /class="pug pug--typing"/);
+  assert.match(agentStudio, /class="pug pug--phone"/);
+  assert.match(agentStudio, /class="pug-phone"/);
+  assert.match(agentStudio, /class="agent-link"/);
+  assert.match(agentStudio, /activity\.subagents\.slice\(0, 3\)/);
+  assert.match(agentStudio, /class="subagent-pug"/);
+  assert.match(agentStudio, /class="agent-bot-badge"/);
+  assert.match(agentStudio, /class="agent-work-tooltip"/);
+  assert.match(agentStudio, /activity\.taskPreview/);
+  assert.match(agentStudio, /copy\.agentStudioActivityStatus/);
+  assert.match(styles, /\.agent-desk--active-context:hover[^}]*z-index:\s*40/s);
+  assert.match(agentStudio, /ph-file-text[\s\S]*ph-file-text[\s\S]*ph-file-text/);
+  assert.match(agentStudio, /copy\.agentStudioOwner/);
+  assert.match(agentStudio, /visibilitychange/);
+  assert.match(styles, /@keyframes pug-type/);
+  assert.match(styles, /@keyframes pug-phone-glow/);
+  assert.match(styles, /prefers-reduced-motion:[\s\S]*\.pug--typing/);
+  assert.match(styles, /\.agent-desks\s*\{[^}]*grid-template-columns:\s*repeat\(4,/s);
+  assert.match(styles, /\.agent-desk\s*\{[^}]*min-height:\s*190px/s);
 });
 
 test("sidebar conversation rows expose a rename/delete menu", () => {
@@ -248,6 +281,18 @@ test("shared transcript renders media inline and delegates tool activity", () =>
   assert.match(transcriptHelpers, /\["\(attachment\)", "\(empty response\)"\]/);
   assert.match(transcriptHelpers, /content === "Sorry, something went wrong\."/);
   assert.match(runActivity, /hasError \? copy\.runFailed : copy\.runCompleted/);
+});
+
+test("thinking starts expanded while tool activity stays opt-in", () => {
+  assert.match(transcript, /<details class="thinking-card" open>/);
+  assert.match(conversationLiveView, /<details class="thinking-card" open>/);
+  assert.doesNotMatch(runActivity, /<details class="run-activity" open=/);
+});
+
+test("structured runner events do not leak into the live answer status", () => {
+  const conversationTurn = read("./lib/chat/conversationTurn.ts");
+  assert.match(conversationTurn, /if \(event === "status"\) \{/);
+  assert.doesNotMatch(conversationTurn, /event === "status" \|\| event === "runner_event"/);
 });
 
 test("local Chat and Project Chat share the live conversation, composer, and turn controller", () => {

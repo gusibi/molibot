@@ -3,7 +3,7 @@ import { loadDesktopPlugins, saveDesktopPlugins } from "../api";
 import type { DesktopPluginsSummary } from "@molibot/desktop-contract";
 import { session, setError } from "./session.svelte";
 
-export type PluginsEditor = { memoryEnabled: boolean; memoryBackend: string; memoryEmbeddingProviderId: string; memoryEmbeddingModel: string; memoryReflectionTime: string; memoryReflectionNotifications: boolean; memoryDailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean }; values: Record<string, Record<string, string | boolean>>; secretValues: Record<string, Record<string, string>>; clearSecrets: Record<string, string[]> };
+export type PluginsEditor = { memoryEnabled: boolean; memoryBackend: string; memoryEmbeddingProviderId: string; memoryEmbeddingModel: string; memoryReflectionTime: string; memoryReflectionNotifications: boolean; memoryDailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget: number; scanModelKey: string }; values: Record<string, Record<string, string | boolean>>; secretValues: Record<string, Record<string, string>>; clearSecrets: Record<string, string[]> };
 
 export const pluginsStore = $state({
   plugins: null as DesktopPluginsSummary | null,

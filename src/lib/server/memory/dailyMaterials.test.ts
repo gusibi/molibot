@@ -86,3 +86,89 @@ test("output containment rejects an existing symlink that leaves the project", a
     assert.equal(h.state.get(h.targetId, "session-1"), undefined);
   } finally { h.cleanup(); }
 });
+
+// A reader with a message on each of three consecutive local days, honoring the
+// isolated daily-materials watermark exactly like the real session reader.
+function backfillReader(h: ReturnType<typeof harness>) {
+  const days: Record<string, { id: string; createdAt: string; content: string }> = {
+    "2026-07-09": { id: "m-9", createdAt: "2026-07-09T02:00:00.000Z", content: "第九天素材" },
+    "2026-07-10": { id: "m-10", createdAt: "2026-07-10T02:00:00.000Z", content: "第十天素材" },
+    "2026-07-11": { id: "m-11", createdAt: "2026-07-11T02:00:00.000Z", content: "第十一天素材" }
+  };
+  return {
+    earliestLocalDate: () => "2026-07-09",
+    read: async (_target: ReflectionTarget, localDate: string): Promise<ReflectionSourceProjection[]> => {
+      const message = days[localDate];
+      if (!message) return [];
+      const watermark = h.state.get(h.targetId, "session-1");
+      const key = `${message.createdAt}:${message.id}`;
+      if (watermark && key <= watermark) return [];
+      return [{
+        scope: h.target.sourceScopes[0],
+        conversationId: "session-1",
+        messages: [{ ...message, conversationId: "session-1", sessionId: "session-1", channel: "web", role: "user" as const }]
+      }];
+    }
+  };
+}
+
+test("backfill auto-scans from the earliest day, writes one file per day, then reruns empty", async () => {
+  const h = harness();
+  try {
+    const service = new DailyMaterialsService(backfillReader(h), h.state, async () => "# 今日素材\n\n历史回填。", h.projects);
+    const result = await service.runBackfill(h.internal, { now: new Date("2026-07-12T12:00:00.000Z") });
+    assert.equal(result.from, "2026-07-09");
+    assert.equal(result.to, "2026-07-11");
+    assert.equal(result.totalDays, 3);
+    assert.equal(result.daysWithData, 3);
+    for (const date of ["2026-07-09", "2026-07-10", "2026-07-11"]) {
+      assert.ok(existsSync(join(h.projectRoot, `content/daily-materials/${date}.md`)), `missing ${date}`);
+    }
+    const rerun = await service.runBackfill(h.internal, { now: new Date("2026-07-12T12:00:00.000Z") });
+    assert.equal(rerun.daysWithData, 0);
+  } finally { h.cleanup(); }
+});
+
+test("a busy day over budget splits into batches and synthesizes one file", async () => {
+  const h = harness();
+  try {
+    const big = "内容".repeat(3000); // ~6000 CJK chars ≈ 6000 tokens per conversation
+    const projections: ReflectionSourceProjection[] = [0, 1, 2].map((i) => ({
+      scope: h.target.sourceScopes[0],
+      conversationId: `session-${i}`,
+      messages: [{ id: `m-${i}`, conversationId: `session-${i}`, sessionId: `session-${i}`, channel: "web", role: "user" as const, content: big, createdAt: `2026-07-11T0${i}:00:00.000Z` }]
+    }));
+    const prompts: string[] = [];
+    const service = new DailyMaterialsService(
+      { read: async () => projections },
+      h.state,
+      async (prompt: string) => { prompts.push(prompt); return prompt.includes("分批提取的素材笔记") ? "# 今日素材\n\n汇总结果" : "批次素材"; },
+      h.projects
+    );
+    // Budget 10000 tokens: three ~6000-token conversations force multiple batches.
+    const result = await service.run({ ...h.internal, scanTokenBudget: 10000 }, { now: new Date("2026-07-12T12:00:00.000Z") });
+    assert.ok(result.batches >= 2, `expected multiple batches, got ${result.batches}`);
+    // one reply per batch + one synthesis pass
+    assert.equal(prompts.length, result.batches + 1);
+    assert.equal(readFileSync(join(h.projectRoot, result.createdFile!), "utf8"), "# 今日素材\n\n汇总结果\n");
+    for (const i of [0, 1, 2]) assert.ok(h.state.get(h.targetId, `session-${i}`), `watermark ${i}`);
+  } finally { h.cleanup(); }
+});
+
+test("backfill honors an explicit range and reports ascending progress", async () => {
+  const h = harness();
+  try {
+    const progress: number[] = [];
+    const service = new DailyMaterialsService(backfillReader(h), h.state, async () => "# 素材", h.projects);
+    const result = await service.runBackfill(h.internal, {
+      from: "2026-07-10",
+      to: "2026-07-11",
+      now: new Date("2026-07-12T12:00:00.000Z"),
+      onProgress: (p) => progress.push(p.index)
+    });
+    assert.equal(result.totalDays, 2);
+    assert.deepEqual(progress, [1, 2]);
+    assert.equal(existsSync(join(h.projectRoot, "content/daily-materials/2026-07-09.md")), false);
+    assert.ok(existsSync(join(h.projectRoot, "content/daily-materials/2026-07-10.md")));
+  } finally { h.cleanup(); }
+});

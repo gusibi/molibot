@@ -9,6 +9,8 @@
     updatePluginSecret,
     updatePluginValue
   } from "../stores/plugins.svelte";
+  import { startDailyMaterialsBackfill, loadDailyMaterialsBackfillStatus } from "../api";
+  import type { DailyMaterialsBackfillStatus } from "@molibot/desktop-contract";
 
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== pluginsStore.endpoint) {
@@ -17,6 +19,55 @@
   });
 
   const pluginsDirty = $derived(pluginsStore.pluginsEdit !== null && JSON.stringify(pluginsStore.pluginsEdit) !== pluginsStore.pristine);
+
+  // The backfill runs against the SAVED daily-materials config, so it is only
+  // offered once the feature is enabled and a project is selected server-side.
+  const dailyMaterialsSaved = $derived(pluginsStore.plugins?.memory.dailyMaterials);
+  const backfillAvailable = $derived(Boolean(dailyMaterialsSaved?.enabled && dailyMaterialsSaved?.projectId));
+
+  let backfillStatus = $state<DailyMaterialsBackfillStatus | null>(null);
+  let backfillPolling = $state(false);
+  const backfillRunning = $derived(backfillStatus?.status === "running" || backfillPolling);
+
+  const backfillMessage = $derived.by(() => {
+    const status = backfillStatus;
+    if (!status || status.status === "idle") return "";
+    if (status.status === "running") {
+      return `${session.text.memoryDailyMaterialsBackfillProgress} ${status.processed}/${status.total || "…"} · ${session.text.memoryDailyMaterialsBackfillDays} ${status.daysWithData}`;
+    }
+    if (status.status === "done") {
+      const range = status.from && status.to ? `（${status.from} ~ ${status.to}）` : "";
+      return `${session.text.memoryDailyMaterialsBackfillDone} ${status.daysWithData}${range}`;
+    }
+    return `${session.text.memoryDailyMaterialsBackfillError}${status.error ? `：${status.error}` : ""}`;
+  });
+
+  async function pollBackfill(): Promise<void> {
+    if (!session.endpoint) return;
+    backfillPolling = true;
+    try {
+      while (session.endpoint) {
+        const status = await loadDailyMaterialsBackfillStatus(session.endpoint);
+        backfillStatus = status;
+        if (status.status !== "running") break;
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    } catch (cause) {
+      backfillStatus = { status: "error", total: 0, processed: 0, daysWithData: 0, createdFiles: 0, scannedMessages: 0, error: cause instanceof Error ? cause.message : String(cause) };
+    } finally {
+      backfillPolling = false;
+    }
+  }
+
+  async function startBackfill(): Promise<void> {
+    if (!session.endpoint || backfillRunning) return;
+    try {
+      backfillStatus = await startDailyMaterialsBackfill(session.endpoint);
+      void pollBackfill();
+    } catch (cause) {
+      backfillStatus = { status: "error", total: 0, processed: 0, daysWithData: 0, createdFiles: 0, scannedMessages: 0, error: cause instanceof Error ? cause.message : String(cause) };
+    }
+  }
 </script>
 
 <p class="settings-section-hint">{session.text.pluginsHint}</p>
@@ -39,7 +90,19 @@
       <div class="settings-row"><strong>{session.text.memoryDailyMaterialsEnabled}</strong><button class:active={pluginsStore.pluginsEdit.memoryDailyMaterials.enabled} class="switch" type="button" role="switch" aria-label={session.text.memoryDailyMaterialsEnabled} aria-checked={pluginsStore.pluginsEdit.memoryDailyMaterials.enabled} onclick={() => { if (pluginsStore.pluginsEdit) pluginsStore.pluginsEdit = { ...pluginsStore.pluginsEdit, memoryDailyMaterials: { ...pluginsStore.pluginsEdit.memoryDailyMaterials, enabled: !pluginsStore.pluginsEdit.memoryDailyMaterials.enabled } }; }}><span></span></button></div>
       <div class="settings-form"><label class="settings-field"><span>{session.text.memoryDailyMaterialsTime}</span><input type="time" bind:value={pluginsStore.pluginsEdit.memoryDailyMaterials.time} /></label><label class="settings-field"><span>{session.text.memoryDailyMaterialsProject}</span><select bind:value={pluginsStore.pluginsEdit.memoryDailyMaterials.projectId}><option value="">{session.text.memoryDailyMaterialsProjectEmpty}</option>{#each pluginsStore.plugins.memory.projects as project (project.value)}<option value={project.value}>{project.label}</option>{/each}</select></label></div>
       <div class="settings-form"><label class="settings-field"><span>{session.text.memoryDailyMaterialsDir}</span><input bind:value={pluginsStore.pluginsEdit.memoryDailyMaterials.dir} /></label><label class="settings-field"><span>{session.text.memoryDailyMaterialsPrompt}</span><input bind:value={pluginsStore.pluginsEdit.memoryDailyMaterials.promptPath} /></label></div>
+      <div class="settings-form"><label class="settings-field"><span>{session.text.memoryDailyMaterialsBudget}</span><input type="number" min="8000" max="900000" step="1000" bind:value={pluginsStore.pluginsEdit.memoryDailyMaterials.scanTokenBudget} /><small class="settings-field-hint">{session.text.memoryDailyMaterialsBudgetHint}</small></label><label class="settings-field"><span>{session.text.memoryDailyMaterialsModel}</span><select bind:value={pluginsStore.pluginsEdit.memoryDailyMaterials.scanModelKey}><option value="">{session.text.memoryDailyMaterialsModelDefault}</option>{#each pluginsStore.plugins.memory.scanModels as model (model.value)}<option value={model.value}>{model.label}</option>{/each}</select><small class="settings-field-hint">{session.text.memoryDailyMaterialsModelHint}</small></label></div>
       <div class="settings-row"><div><strong>{session.text.memoryDailyMaterialsNotifications}</strong><p>{session.text.memoryDailyMaterialsNotificationsHint}</p></div><button class:active={pluginsStore.pluginsEdit.memoryDailyMaterials.notifications} class="switch" type="button" role="switch" aria-label={session.text.memoryDailyMaterialsNotifications} aria-checked={pluginsStore.pluginsEdit.memoryDailyMaterials.notifications} onclick={() => { if (pluginsStore.pluginsEdit) pluginsStore.pluginsEdit = { ...pluginsStore.pluginsEdit, memoryDailyMaterials: { ...pluginsStore.pluginsEdit.memoryDailyMaterials, notifications: !pluginsStore.pluginsEdit.memoryDailyMaterials.notifications } }; }}><span></span></button></div>
+      {#if backfillAvailable}
+        <div class="settings-row daily-backfill-row">
+          <div>
+            <strong>{session.text.memoryDailyMaterialsBackfill}</strong>
+            <p>{session.text.memoryDailyMaterialsBackfillHint}</p>
+            {#if backfillMessage}<p class="daily-backfill-status" class:is-error={backfillStatus?.status === "error"}>{backfillMessage}</p>{/if}
+            {#if pluginsDirty}<p class="daily-backfill-status">{session.text.memoryDailyMaterialsBackfillDirty}</p>{/if}
+          </div>
+          <button class="secondary-button" type="button" disabled={backfillRunning} onclick={() => void startBackfill()}>{backfillRunning ? session.text.memoryDailyMaterialsBackfillRunning : session.text.memoryDailyMaterialsBackfillStart}</button>
+        </div>
+      {/if}
       {#each pluginsStore.plugins.featureSettings as plugin (plugin.pluginKey)}
         <div class="provider-editor-toolbar"><div><strong>{plugin.name}</strong>{#if plugin.description}<p class="settings-section-hint">{plugin.description}</p>{/if}</div></div>
         <div class="settings-form">
@@ -82,3 +145,21 @@
     </div>
   </footer>
 {/if}
+
+<style>
+  .daily-backfill-status {
+    margin-top: 6px;
+    color: var(--label-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .daily-backfill-status.is-error {
+    color: var(--danger);
+  }
+  .settings-field-hint {
+    margin-top: 4px;
+    color: var(--label-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+</style>

@@ -5,6 +5,63 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-07-12
+
+### Desktop Agent 工作室（已完成）
+- Mac App 主导航在「技能」下方新增 `Agent` 工作区，不打开独立窗口，保留现有对话与项目侧栏上下文。
+- 页面使用真实 Desktop Agent 配置并每 2.5 秒轻量刷新；当配置中没有 `default` 实体时，展示层会从 Global 语义合成唯一的全局默认工位，未显式绑定 Agent 的 Bot 运行统一归属该工位。
+- 每位 Agent 以独立工位和走动的巴哥犬角色展示，同时呈现启停状态、说明和模型路由摘要；补齐空状态、服务不可用与错误状态。
+- 页面支持中英双语、明暗主题、窄窗口响应式布局及 `prefers-reduced-motion` 动效降级。
+- 工位改为响应式紧凑密度：标准窗口每行 4 个、首屏容纳 8 个；中等/窄窗口自动降为 3/2/1 列，第 9 个起自然向下滚动。
+- 接入 Trace `run` 生命周期：通过 `channel + botId` 在共享 app 层解析绑定的 `agentId`，每 2.5 秒将 started/waiting 投影为“工作中”，结束后短暂显示“已完成/未完成”，再回到待命。
+- 办公室顶部新增“老板 · 你”席位；Agent 工作时从工位向老板显示流动虚线与文件数据包动画，表达发起人与员工之间的实时协作。
+- 老板席位由悬浮头像重构为窗下独立管理工位，包含地毯、桌椅、显示器、咖啡杯、人物和名牌；后墙窗户上移缩短，空间层级与员工工位统一。
+- Agent 角色动画按真实状态分离：待命巴哥趴在软垫上刷发光手机；工作巴哥站在电脑前双爪交替敲键盘，并带动身体弹跳和显示器光效。
+- 工作连线改为持续滚动的虚线数据轨道，三个错峰文件包循环向老板工位传输，避免单文件静态停留；低动效偏好下统一停止循环动画。
+- Trace `subagent_task` 通过父 `runId` 归属派活的主 Agent，在主工位底部临时弹出最多三个迷你桌和敲电脑的小号巴哥；更多并行任务显示 `+N`，结束状态短暂反馈后自动收起。
+- 活动工位增加截断 Bot 名徽标；悬浮或键盘聚焦后显示完整 Bot 名、渠道、开始时间和当前任务摘要。Run 生命周期仅持久化压平后的 160 字摘要，不向办公室暴露完整问题、工具参数或其他 Trace payload。
+- 修复孤儿 `started` Trace 导致 Global 永久显示工作中：超过运行时 10 分钟上限并加 2 分钟宽限、且同 Run 没有任何新 fact 的记录不再视为活动；悬浮层增加显式状态并区分旧运行无摘要，当前卡片提升 stacking level 避免被相邻工位遮挡。
+- 活动接口只返回 Agent/Run/Channel/Bot ID、状态和时间，不向页面暴露 Trace payload、聊天内容、工具参数或错误详情。
+- 验证：`svelte-check` 0 错误 0 警告；36 项 Desktop UI 测试通过；Vite 生产构建通过。
+
+### 模型路由与 AI 服务商 UI 优化（已完成）
+- 在「模型」设置页面中，从全局模型能力路由选择列表中移除「语音合成」(TTS) 选项，使页面只专注于文本、视觉、语音转写和智能体等核心模型的配置。
+- 在「AI 服务商」的自定义提供商配置页中，将模型注册表列表改造为「内置模型」与「自建模型」两个左右切换的 Tab 选项卡（如果是非内置提供商，则自动默认选中「自建模型」）。
+- 在「AI 服务商」的主设置页面底部的服务商列表上，同样添加「内置服务商」与「自建服务商」两个左右切换的 Tab 选项卡，并新增搜索框（支持模糊搜索服务商 ID 或名称）与「已启用优先」排序按钮，方便在大列表中快速查找和管理服务商。
+- 在模型列表中新增搜索框（支持模糊搜索模型 ID），并且支持「已启用优先」与「默认排序」的排序切换，默认开启已启用优先，方便用户在大列表（如 OpenRouter / SiliconFlow）中快速查找及管理模型。
+- 同步更新桌面应用（Tauri/Svelte 5）与网页版（SvelteKit/Svelte 4）的提供商管理页面。
+- 修复：解决当对模型状态或提供商配置做出修改时，selectedProviderDetail 或 providerEdit 变化导致 Svelte effect/reactive 监听被重新触发，从而强制将模型 Tab 重置为 "内置模型" 并清空搜索词的 bug。现限制为仅在提供商 ID 真实变更时才执行重置。
+- 修复：网页版（+page.svelte）中新增的 Tab 和排序按钮由于使用 Svelte 5 的 `onclick`，在旧版 legacy 编译模式下无法触发 `$$invalidate` 使 `let` 变量重绘的问题。现统一改回 legacy Svelte 4 的 `on:click` 事件，恢复其正常的响应式变化。
+- 验证：运行 `npm run desktop:check` 取得 0 错误 0 警告；运行 `npm run desktop:test` 38 项测试及 Rust 单元测试全部通过。
+
+### 每日素材独立扫描模型（已完成）
+- 新增可选的「扫描模型」：素材提取与汇总调用可跑在更小更便宜的模型上，与聊天主模型解耦。配置项 `dailyMaterials.scanModelKey`（留空=跟随主模型），Desktop「记忆 → 每日素材」下拉选择，选项来自 `buildModelOptions(settings, "text")`。
+- 以「单次调用覆盖」实现：`AssistantService.reply` 新增 `{ modelKey }` 参数，`overrideSettingsForModelKey` 据此派生一份临时设置（pi 或 custom provider/model）仅对该次调用生效，不改全局。每日定时任务与历史回填都用它，包括多批/汇总的每一次调用。
+- 验证：`modelKeyOverride.test.ts`（3）、`dailyMaterials.test.ts`（9）、`sanitize.test.ts`（9）、`desktopPlugins.test.ts`（7）、`taskScheduler.test.ts`（5）通过；桌面 `svelte-check` 0/0；生产 `vite build` 通过。
+
+### 每日素材 token 预算与分批扫描（已完成）
+- 用「按 token 预算 + 混合分批」取代原来写死的 6 万字符尾部截断（会话一多会静默丢弃较早会话）：总量不超预算走一次调用；超预算则按会话打包多批、逐批提取，再一次汇总合并去重成当日文件，不丢任何 session；个别超长会话单独尾部截断。
+- 预算按 CJK-aware token 估算（CJK 字≈1 token，其余≈¼），可配置 `dailyMaterials.scanTokenBudget`（默认 120000，范围 8000–900000），Desktop「记忆 → 每日素材」新增数字输入框。
+- 明确扫描内容边界：只读 user/assistant 的最终 `content`，思考过程与工具调用在独立 `activities`/part 通道、不会进入模型。新增指南 `docs/guides/daily-materials.md`（运行流程、模型选择、watermark 隔离、预算/分批、代码地图）。
+- 验证：`dailyMaterials.test.ts`（9，新增 1 条分批/汇总）、`taskScheduler.test.ts`（5）、`sanitize.test.ts`（9）、`desktopPlugins.test.ts`（7）通过；桌面 `svelte-check` 0/0；生产 `vite build` 通过。
+
+### 每日素材历史回填（已完成）
+- 为每日素材自动化新增一次性「回填历史」能力：扫描已授权会话的全部历史，为过去每一天生成一个素材文件，让已运行数周的项目一开始就有充足素材，而不只是昨天一天。
+- `DailyMaterialsService.run` 拆分为 `runForDate` + `runBackfill`；回填按日期升序逐天处理，让隔离的每日素材 watermark 逐天推进，从而保证幂等、可中断续跑。起始日期通过 `SessionReflectionSourceReader.earliestLocalDate` 自动扫描最早一条授权消息。
+- 以内存后台任务（`DailyMaterialsBackfillJob`）实现，提供轮询进度接口（`/api/desktop/plugins/daily-materials-backfill`），并在 Desktop「记忆 → 每日素材」下新增按钮显示实时进度，无需命令行。
+- 验证：`dailyMaterials.test.ts`（8，新增 2 条回填）、`taskScheduler.test.ts`（5）、`sanitize.test.ts`（9）、`desktopPlugins.test.ts`（7）全部通过；桌面 `svelte-check` 0 错误 0 警告；生产 `vite build` 通过。
+
+### Desktop Chat 思考与工具进度展示修复（已完成）
+- Chat 与 Project Chat 的流式及历史“思考过程”默认展开，用户仍可手动收起。
+- 工具运行进度默认收起，仅在用户手动点击后展开；结构化 `runner_event` 不再同时作为消息正文状态显示，消除 `tool_start=...` / `tool_end=...` 原始文本重复。
+- 新增桌面 UI 回归断言，覆盖展开策略与工具事件/正文分流。
+
+### Desktop Chat 权限审批按钮无法点击修复（已完成）
+- 修复了在 Chat 和 Project Chat 中，由于 SSE 流尚未结束导致 `sending` 状态一直为 `true`，进而使得权限审批卡片按钮处于 `disabled` 状态且控制器 `resolveApproval` 中置守卫拒绝执行的 Bug。
+- 在 `conversationController` 中区分流式 SSE 运行中与已结束两种路径：SSE 流运行时直接下发审批决定让后台流继续推送；流已结束时则继续走轮询同步机制。
+- 移除了 Svelte 模板中审批卡片的 `disabled={sending}` 限制，实现了卡片触发即关闭并提交，防止多次连击的流畅交互。
+- 补齐了自动化回归测试覆盖。
+
 ## 2026-07-11
 
 ### macOS 规范桌面图标与头像处理（已完成）

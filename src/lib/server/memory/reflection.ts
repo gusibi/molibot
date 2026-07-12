@@ -155,6 +155,37 @@ export class SessionReflectionSourceReader implements ReflectionSourceReader {
     }
     return projections;
   }
+
+  // Earliest local calendar day with any activity across the target's scopes.
+  // Used by the daily-materials backfill to pick a start date that covers the
+  // full history. Ignores watermarks — this is a raw scan of stored messages.
+  earliestLocalDate(target: ReflectionTarget): string | undefined {
+    let earliest: string | undefined;
+    const consider = (createdAt: string) => {
+      const day = dateInTimezone(createdAt, target.timezone);
+      if (!earliest || day < earliest) earliest = day;
+    };
+    for (const scope of target.sourceScopes) {
+      if (!scope.projectId && scope.channel !== "web" && this.externalDataRoot) {
+        const entries = listExternalSessionsFromContexts(this.externalDataRoot).filter((entry) => {
+          const ref = decodeExternalSessionId(entry.conversation.id);
+          return ref?.channel === scope.channel && ref.botId === target.botId && ref.chatId === scope.externalUserId;
+        });
+        for (const entry of entries) {
+          const transcript = readExternalTranscriptFromContexts(this.externalDataRoot, entry.conversation.id);
+          for (const message of transcript?.messages ?? []) consider(message.createdAt);
+        }
+        continue;
+      }
+      const conversations = scope.projectId
+        ? this.sessions.listProjectConversations(scope.projectId)
+        : this.sessions.listConversations(scope.channel as Channel, scope.externalUserId);
+      for (const conversation of conversations) {
+        for (const message of this.sessions.listMessages(conversation.id)) consider(message.createdAt);
+      }
+    }
+    return earliest;
+  }
 }
 
 export interface ReflectionRunResult {

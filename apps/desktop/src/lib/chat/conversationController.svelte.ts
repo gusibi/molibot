@@ -223,14 +223,29 @@ export class ConversationController {
 
   async resolveApproval(decision: DesktopApprovalDecision): Promise<void> {
     const endpoint = this.host.endpoint();
-    if (!endpoint || !this.pendingApproval || this.sending) return;
+    if (!endpoint || !this.pendingApproval) return;
     const labels = this.host.labels();
     const requestId = this.pendingApproval.requestId;
     const sessionId = this.host.sessionId();
     this.pendingApproval = null;
-    this.sending = true;
     this.host.clearError();
     this.activity = labels.resuming;
+
+    if (this.sending) {
+      // The SSE stream from send() is still active. Just send the decision so
+      // the server can continue the run; the live stream will pick up the
+      // resumed output and send() will handle reload/cleanup when it ends.
+      try {
+        await resolveDesktopHostBash(endpoint, this.host.profileId(), sessionId, requestId, decision);
+      } catch (cause) {
+        this.host.setError(cause instanceof Error ? cause.message : String(cause));
+      }
+      return;
+    }
+
+    // Offline path: the SSE stream already ended before the user acted.
+    // Drive the approval → poll cycle ourselves.
+    this.sending = true;
     try {
       await resolveDesktopHostBash(endpoint, this.host.profileId(), sessionId, requestId, decision);
       // The approved command runs and the original turn resumes in the background,
