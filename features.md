@@ -5,7 +5,13 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
-## 2026-07-12
+## 2026-07-13
+
+### 模型重试与持久化上下文锁步回滚（已完成）
+- 修复 runner 模型重试循环只回滚内存上下文、不回滚 store 导致的持久化重复步骤问题：`message_end` 订阅器已把失败尝试的 assistant/toolResult 步骤 `appendContextMessage` 写入会话日志，而重试只做 `this.agent.state.messages = beforeAttempt`，`finally` 又会把持久化日志重新载入内存，于是每次重试都在会话里堆叠重复步骤并被下一轮继承。
+- `MomRuntimeStore` 新增会话级检查点：`createContextCheckpoint` 在尝试开始时记录持久化日志长度，`restoreContextCheckpoint` 把追加式 entries 日志和 context 快照一起截断回该检查点（返回丢弃条数）。runner 在 `beforeAttempt` 旁捕获检查点，并用单一 `rollbackAttempt()` helper 在所有重试/放弃路径（可重试错误、空响应重试、上下文溢出压缩重试、抛出的模型错误、最终空响应耗尽）同步回滚内存与 store，丢弃步骤时重置 `assistantMessagePersisted`。store 调用用可选链，保证不带该方法的 runner 测试替身仍可用。
+- 防止非幂等工具被重复执行：完整重跑会再次触发失败尝试里已完成的工具步骤（发消息、写文件）。`resolvePromptAttemptDecision` 新增 `attemptExecutedTools` 入参，失败尝试若已产生 `toolResult`，则把本可重试的错误降级为 `terminal_error`，直接把错误抛给用户而不是静默重复副作用。（checkpoint-continue 从最后一个完整 toolResult 续跑也能解决，但需要 SDK 级别的回合续跑能力；锁步 store 回滚是收敛的修复。）
+- 验证：`tsc -p tsconfig.json` 在改动文件上无新增错误（`hostBash/store.ts`、`settings/store.ts` 的既有错误与本次无关）；`runnerRetryState.test.ts` 8/8、新增 `storeContextCheckpoint.test.ts` 3/3、`runner.test.ts` 24/24 全部通过。
 
 ### Project 本地文件面板大图与媒体文件内联预览（已完成）
 - 解决在 Project 右侧文件面板中浏览项目本地文件时，对于图片、音频、视频等文件无法预览的问题（小于 256KB 会提示“二进制文件不能预览”，大于 256KB 会提示“文件超过预览上限”）。
