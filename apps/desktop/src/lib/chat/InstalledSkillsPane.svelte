@@ -33,7 +33,11 @@
 
 {#if !serviceReady}
   <div class="workspace-empty"><p>{copy.skillsUnavailable}</p></div>
-{:else if skillsStore.loading || !skillsStore.skills}
+{:else if skillsStore.loading}
+  <div class="workspace-empty"><p>{copy.loading}</p></div>
+{:else if skillsStore.error && !skillsStore.skills}
+  <div class="workspace-empty" role="alert"><p>{copy.workspaceLoadFailed}</p><small>{skillsStore.error}</small><button class="secondary-button" type="button" onclick={() => serviceEndpoint && void loadSkills(serviceEndpoint)}>{copy.retryLoading}</button></div>
+{:else if !skillsStore.skills}
   <div class="workspace-empty"><p>{copy.loading}</p></div>
 {:else if skillsStore.skills.items.length === 0}
   <div class="workspace-empty"><p>{copy.skillsEmpty}</p></div>

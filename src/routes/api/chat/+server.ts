@@ -818,7 +818,7 @@ export const POST: RequestHandler = async ({ request }) => {
   if (result.stopReason !== "waiting_for_approval") {
     runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
       attachments: responseAttachments,
-      activities: activityCollector.snapshot()
+      activities: activityCollector.finalSnapshot()
     });
   }
 

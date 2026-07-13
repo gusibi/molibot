@@ -27,3 +27,34 @@ test("merges a tool start and end into one persisted activity", () => {
     summary: "Loaded 42 lines"
   }]);
 });
+
+test("finalSnapshot closes still-running activities as errors", () => {
+  const collector = new ConversationActivityCollector();
+  collector.record({
+    type: "tool_execution_start",
+    toolName: "bash",
+    displayName: "Bash",
+    label: "Running script"
+  });
+  collector.record({
+    type: "tool_execution_end",
+    toolName: "bash",
+    displayName: "Bash",
+    isError: false,
+    summary: "ok"
+  });
+  collector.record({
+    type: "tool_execution_start",
+    toolName: "web_search",
+    displayName: "Web search",
+    label: "Searching"
+  });
+  // No end event for web_search: the run aborted/crashed mid-tool.
+
+  assert.equal(collector.snapshot()[1].state, "running");
+
+  const final = collector.finalSnapshot();
+  assert.equal(final[0].state, "success");
+  assert.equal(final[1].state, "error");
+  assert.ok(final[1].summary);
+});

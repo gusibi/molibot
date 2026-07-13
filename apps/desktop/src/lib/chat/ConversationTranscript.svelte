@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Translation } from "../i18n";
   import { renderMarkdown } from "../markdown";
-  import { transcriptDisplayContent, type TranscriptAttachmentActions, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
+  import { finalizeTranscriptActivities, transcriptDisplayContent, type TranscriptAttachmentActions, type TranscriptMessage, type TranscriptMessageActions } from "./transcript";
   import TranscriptAttachments from "./TranscriptAttachments.svelte";
   import RunActivity from "./RunActivity.svelte";
   import { classifyComposerInvocation } from "./composerSuggestions.svelte";
@@ -81,7 +81,7 @@
         {#if message.thinking}
           <details class="thinking-card" open><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
         {/if}
-        {#if message.activities?.length}<RunActivity activities={message.activities} {copy} />{/if}
+        {#if message.activities?.length}<RunActivity activities={finalizeTranscriptActivities(message.activities) ?? []} {copy} />{/if}
         {#if displayContent}<div class="message-bubble markdown-body">{@html renderMarkdown(displayContent)}</div>{/if}
         {#if canShowActions && messageActions}
           <div class="message-actions">

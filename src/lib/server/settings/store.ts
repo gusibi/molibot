@@ -31,6 +31,8 @@ import { sanitizeHostToolSettings } from "$lib/server/settings/hostTools.js";
 import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js";
 import {
   sanitizeChannelInstanceDisplaySettings,
+  sanitizeHookPluginEntries,
+  sanitizeMemoryPluginSettings,
   sanitizeTtsGenerateSettings
 } from "$lib/server/settings/sanitize.js";
 import {
@@ -100,7 +102,13 @@ interface RawSettings {
       enabled?: boolean | string;
       backend?: string;
       core?: string;
+      embeddingProviderId?: string;
+      embeddingModel?: string;
+      reflectionTime?: string;
+      reflectionNotifications?: boolean;
+      dailyMaterials?: Record<string, unknown>;
     };
+    hooks?: unknown;
     cloudflareHtml?: {
       enabled?: boolean | string;
       accessMode?: string;
@@ -1048,11 +1056,21 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     : memoryEnabledRaw == null
       ? defaultRuntimeSettings.plugins.memory.enabled
       : String(memoryEnabledRaw).toLowerCase() === "true";
-  const memoryBackend = String(raw.plugins?.memory?.backend ?? raw.plugins?.memory?.core ?? "").trim() ||
-    defaultRuntimeSettings.plugins.memory.backend;
-  const memoryEmbeddingProviderId = String(raw.plugins?.memory?.embeddingProviderId ?? "").trim();
-  const memoryEmbeddingModel = String(raw.plugins?.memory?.embeddingModel ?? "").trim();
+  // Full memory plugin block (reflection + daily materials included) so a
+  // restart never resets fields the save path persisted.
+  const memoryPlugin = sanitizeMemoryPluginSettings(
+    { ...(raw.plugins?.memory ?? {}), enabled: memoryEnabled },
+    defaultRuntimeSettings.plugins.memory
+  );
   const cloudflareHtml = sanitizeCloudflareHtmlPluginSettings(raw.plugins?.cloudflareHtml);
+  const hookPlugins = sanitizeHookPluginEntries(raw.plugins?.hooks);
+  // Feature-plugin settings blobs (keyed by settingsKey) round-trip untouched.
+  const pluginExtras = raw.plugins && typeof raw.plugins === "object"
+    ? Object.fromEntries(
+        Object.entries(raw.plugins as Record<string, unknown>)
+          .filter(([key, value]) => !["memory", "cloudflareHtml", "hooks"].includes(key) && value && typeof value === "object")
+      )
+    : {};
 
   const feishuBotsFromList = sanitizeFeishuBots(raw.feishuBots);
   const feishuBots = feishuBotsFromList.length > 0 ? feishuBotsFromList : [];
@@ -1181,14 +1199,11 @@ function sanitize(raw: RawSettings): RuntimeSettings {
     telegramBots: effectiveTelegramBots,
     qqBots: effectiveQQBots,
     plugins: {
-      memory: {
-        enabled: memoryEnabled,
-        backend: memoryBackend,
-        embeddingProviderId: memoryEmbeddingProviderId,
-        embeddingModel: memoryEmbeddingModel
-      },
-      cloudflareHtml
-    },
+      ...pluginExtras,
+      memory: memoryPlugin,
+      cloudflareHtml,
+      hooks: hookPlugins
+    } as RuntimeSettings["plugins"],
     timezone: normalizeTimeZone(
       String(raw.timezone ?? ""),
       Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -1907,26 +1922,10 @@ export class SettingsStore {
       systemPrompt: settings.systemPrompt,
       locale: settings.locale,
       serverPort: settings.serverPort,
-      plugins: {
-        memory: {
-          enabled: settings.plugins.memory.enabled,
-          backend: settings.plugins.memory.backend,
-          embeddingProviderId: settings.plugins.memory.embeddingProviderId,
-          embeddingModel: settings.plugins.memory.embeddingModel
-        },
-        cloudflareHtml: {
-          enabled: settings.plugins.cloudflareHtml.enabled,
-          accessMode: settings.plugins.cloudflareHtml.accessMode,
-          workerBaseHost: settings.plugins.cloudflareHtml.workerBaseHost,
-          publicBaseHost: settings.plugins.cloudflareHtml.publicBaseHost,
-          routePrefix: settings.plugins.cloudflareHtml.routePrefix,
-          bucketName: settings.plugins.cloudflareHtml.bucketName,
-          accountId: settings.plugins.cloudflareHtml.accountId,
-          accessKeyId: settings.plugins.cloudflareHtml.accessKeyId,
-          secretAccessKey: settings.plugins.cloudflareHtml.secretAccessKey,
-          objectPrefix: settings.plugins.cloudflareHtml.objectPrefix
-        }
-      },
+      // Serialize the whole plugins block (memory reflection/daily-materials,
+      // hooks, and dynamic feature-plugin settings) — a narrow field list here
+      // silently reset those settings on every restart.
+      plugins: settings.plugins,
       timezone: settings.timezone,
       mcpServers: settings.mcpServers,
       skillSearch: settings.skillSearch,

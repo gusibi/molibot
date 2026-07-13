@@ -31,7 +31,15 @@ function writeEvent(
   event: string,
   data: unknown
 ): void {
-  controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+  // The client may have gone away mid-run (stop button, window close, network
+  // drop). enqueue() then throws — swallowing it keeps the run loop alive so
+  // the final transcript persistence below still happens; losing the live
+  // event is harmless because the client reloads the transcript anyway.
+  try {
+    controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+  } catch {
+    // stream already closed/cancelled
+  }
 }
 
 function buildRunnerDiagnostic(event: RunnerUiEvent): string | null {
@@ -149,6 +157,10 @@ export const POST: RequestHandler = async ({ request }) => {
         const responseAttachments: ConversationAttachment[] = [];
         const activityCollector = new ConversationActivityCollector();
         const ts = `${Date.now() / 1000}`;
+        // Guards the transcript against a double assistant message: the catch
+        // block's partial-persistence must not fire once the success path has
+        // already appended.
+        let assistantPersisted = false;
 
         try {
           const result = await runner.run({
@@ -286,8 +298,9 @@ export const POST: RequestHandler = async ({ request }) => {
           if (result.stopReason !== "waiting_for_approval") {
             runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
               attachments: responseAttachments,
-              activities: activityCollector.snapshot()
+              activities: activityCollector.finalSnapshot()
             });
+            assistantPersisted = true;
           }
           writeEvent(controller, encoder, "done", {
             ok: true,
@@ -300,9 +313,31 @@ export const POST: RequestHandler = async ({ request }) => {
           });
         } catch (error) {
           const messageText = error instanceof Error ? error.message : String(error);
+          // Never drop what the run already produced: persist the partial
+          // answer + tool timeline so the transcript survives the failure and
+          // a follow-up "继续" has visible anchors.
+          try {
+            const partial = finalText.trim() || threadNotes.at(-1) || "";
+            const activities = activityCollector.finalSnapshot();
+            if (!assistantPersisted && (partial || activities.length > 0 || responseAttachments.length > 0)) {
+              const notice = `⚠️ 本次回复在生成过程中中断，上面是已生成的部分。错误：${messageText}`;
+              runtime.sessions.appendMessage(
+                conversation.id,
+                "assistant",
+                partial ? `${partial}\n\n${notice}` : notice,
+                { attachments: responseAttachments, activities }
+              );
+            }
+          } catch {
+            // best-effort persistence; the SSE error below still reaches the client
+          }
           writeEvent(controller, encoder, "error", { ok: false, error: messageText });
         } finally {
-          controller.close();
+          try {
+            controller.close();
+          } catch {
+            // already closed/cancelled
+          }
         }
       })();
     }

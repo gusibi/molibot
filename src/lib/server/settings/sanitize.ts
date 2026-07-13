@@ -326,6 +326,55 @@ export function sanitizeHookPluginEntries(input: unknown): RuntimeSettings["plug
   return entries;
 }
 
+/**
+ * Sanitizes the full plugins.memory block (backend, embedding, reflection, and
+ * daily-materials). Shared by sanitizeSettings and the SettingsStore load path
+ * so every field survives a save → restart round-trip.
+ */
+export function sanitizeMemoryPluginSettings(
+  input: unknown,
+  current: RuntimeSettings["plugins"]["memory"]
+): RuntimeSettings["plugins"]["memory"] {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const dailyInput = source.dailyMaterials && typeof source.dailyMaterials === "object"
+    ? source.dailyMaterials as Record<string, unknown>
+    : current.dailyMaterials as unknown as Record<string, unknown> | undefined;
+  const safeRelativePath = (value: unknown, fallback: string): string => {
+    const normalized = String(value ?? "").trim();
+    if (!normalized || isAbsolute(normalized) || normalized.split(/[\\/]+/).includes("..")) return fallback;
+    return normalized;
+  };
+  const validTime = (value: unknown): value is string => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value ?? ""));
+  return {
+    enabled: source.enabled === undefined ? current.enabled : Boolean(source.enabled),
+    backend: String((source as { backend?: string; core?: string }).backend ?? (source as { backend?: string; core?: string }).core ?? "").trim()
+      || current.backend
+      || defaultRuntimeSettings.plugins.memory.backend,
+    embeddingProviderId: String(source.embeddingProviderId ?? current.embeddingProviderId ?? "").trim(),
+    embeddingModel: String(source.embeddingModel ?? current.embeddingModel ?? "").trim(),
+    reflectionTime: validTime(source.reflectionTime)
+      ? String(source.reflectionTime)
+      : (current.reflectionTime || "03:00"),
+    reflectionNotifications: source.reflectionNotifications === undefined
+      ? (current.reflectionNotifications ?? true)
+      : Boolean(source.reflectionNotifications),
+    dailyMaterials: {
+      enabled: dailyInput?.enabled === undefined ? false : Boolean(dailyInput.enabled),
+      time: validTime(dailyInput?.time) ? String(dailyInput?.time) : "23:30",
+      projectId: String(dailyInput?.projectId ?? "").trim(),
+      dir: safeRelativePath(dailyInput?.dir, "content/daily-materials"),
+      promptPath: safeRelativePath(dailyInput?.promptPath, "templates/daily-material-prompt.md"),
+      notifications: dailyInput?.notifications === undefined ? true : Boolean(dailyInput.notifications),
+      scanTokenBudget: (() => {
+        const n = Number(dailyInput?.scanTokenBudget);
+        if (!Number.isFinite(n) || n <= 0) return 120000;
+        return Math.min(900000, Math.max(8000, Math.round(n)));
+      })(),
+      scanModelKey: String(dailyInput?.scanModelKey ?? "").trim()
+    }
+  };
+}
+
 export function sanitizeCloudflareHtmlPluginSettings(
   input: unknown,
   fallback: RuntimeSettings["plugins"]["cloudflareHtml"]
@@ -940,49 +989,28 @@ export function sanitizeSettings(input: Partial<RuntimeSettings>, current: Runti
   next.telegramBotToken = next.telegramBots[0]?.token ?? "";
   next.telegramAllowedChatIds = next.telegramBots[0]?.allowedChatIds ?? [];
   const memoryPluginInput = next.plugins?.memory ?? current.plugins.memory;
-  const dailyMaterialsInput = memoryPluginInput?.dailyMaterials ?? current.plugins.memory.dailyMaterials ?? defaultRuntimeSettings.plugins.memory.dailyMaterials;
-  const safeRelativePath = (value: unknown, fallback: string): string => {
-    const normalized = String(value ?? "").trim();
-    if (!normalized || isAbsolute(normalized) || normalized.split(/[\\/]+/).includes("..")) return fallback;
-    return normalized;
-  };
+  // Dynamic feature-plugin settings live as extra keys on plugins (keyed by
+  // each plugin's settingsKey); carry them through so a save never drops them.
+  const currentPluginExtras = Object.fromEntries(
+    Object.entries(current.plugins as unknown as Record<string, unknown>)
+      .filter(([key]) => !["memory", "cloudflareHtml", "hooks"].includes(key))
+  );
+  const nextPluginExtras = next.plugins
+    ? Object.fromEntries(
+        Object.entries(next.plugins as unknown as Record<string, unknown>)
+          .filter(([key]) => !["memory", "cloudflareHtml", "hooks"].includes(key))
+      )
+    : {};
   next.plugins = {
-    memory: {
-      enabled: memoryPluginInput?.enabled === undefined ? current.plugins.memory.enabled : Boolean(memoryPluginInput.enabled),
-      backend: String(
-        (memoryPluginInput as { backend?: string; core?: string } | undefined)?.backend ??
-        (memoryPluginInput as { backend?: string; core?: string } | undefined)?.core ??
-        ""
-      ).trim() || current.plugins.memory.backend || defaultRuntimeSettings.plugins.memory.backend,
-      embeddingProviderId: String(memoryPluginInput?.embeddingProviderId ?? current.plugins.memory.embeddingProviderId ?? "").trim(),
-      embeddingModel: String(memoryPluginInput?.embeddingModel ?? current.plugins.memory.embeddingModel ?? "").trim(),
-      reflectionTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(memoryPluginInput?.reflectionTime ?? ""))
-        ? String(memoryPluginInput.reflectionTime)
-        : (current.plugins.memory.reflectionTime || "03:00"),
-      reflectionNotifications: memoryPluginInput?.reflectionNotifications === undefined
-        ? (current.plugins.memory.reflectionNotifications ?? true)
-        : Boolean(memoryPluginInput.reflectionNotifications),
-      dailyMaterials: {
-        enabled: dailyMaterialsInput?.enabled === undefined ? false : Boolean(dailyMaterialsInput.enabled),
-        time: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(dailyMaterialsInput?.time ?? "")) ? String(dailyMaterialsInput.time) : "23:30",
-        projectId: String(dailyMaterialsInput?.projectId ?? "").trim(),
-        dir: safeRelativePath(dailyMaterialsInput?.dir, "content/daily-materials"),
-        promptPath: safeRelativePath(dailyMaterialsInput?.promptPath, "templates/daily-material-prompt.md"),
-        notifications: dailyMaterialsInput?.notifications === undefined ? true : Boolean(dailyMaterialsInput.notifications),
-        scanTokenBudget: (() => {
-          const n = Number(dailyMaterialsInput?.scanTokenBudget);
-          if (!Number.isFinite(n) || n <= 0) return 120000;
-          return Math.min(900000, Math.max(8000, Math.round(n)));
-        })(),
-        scanModelKey: String(dailyMaterialsInput?.scanModelKey ?? "").trim()
-      }
-    },
+    ...currentPluginExtras,
+    ...nextPluginExtras,
+    memory: sanitizeMemoryPluginSettings(memoryPluginInput, current.plugins.memory),
     cloudflareHtml: sanitizeCloudflareHtmlPluginSettings(
       next.plugins?.cloudflareHtml ?? current.plugins.cloudflareHtml,
       current.plugins.cloudflareHtml
     ),
     hooks: sanitizeHookPluginEntries(next.plugins?.hooks ?? current.plugins.hooks)
-  };
+  } as RuntimeSettings["plugins"];
 
   next.budget = sanitizeBudgetSettings(next.budget ?? current.budget, current.budget);
   next.events = sanitizeEventExecutionSettings(next.events ?? current.events, current.events);

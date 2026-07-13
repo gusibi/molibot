@@ -134,7 +134,11 @@
 
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.tasksUnavailable}</p></div></div>
-{:else if tasksStore.loading || !tasksStore.tasks}
+{:else if tasksStore.loading}
+  <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
+{:else if tasksStore.error && !tasksStore.tasks}
+  <div class="settings-card" role="alert"><div class="settings-row"><div><p>{session.text.workspaceLoadFailed}</p><small>{tasksStore.error}</small></div><button class="secondary-button" type="button" onclick={() => session.endpoint && void loadTasks(session.endpoint)}>{session.text.retryLoading}</button></div></div>
+{:else if !tasksStore.tasks}
   <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
 {:else}
   {#if presentation === "workspace"}

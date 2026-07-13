@@ -42,6 +42,22 @@ export type TranscriptMessageActions = {
   editingId?: string;
 };
 
+/**
+ * A persisted message's run is over, so a "running" activity can never finish
+ * (it was interrupted before its end event, or written by an older build).
+ * Close such entries out as errors so the transcript never shows an eternal
+ * spinner. Live (in-turn) activity lists must NOT go through this.
+ */
+export function finalizeTranscriptActivities(
+  activities: DesktopConversationActivity[] | undefined
+): DesktopConversationActivity[] | undefined {
+  if (!activities?.length) return activities;
+  if (!activities.some((activity) => activity.state === "running")) return activities;
+  return activities.map((activity) =>
+    activity.state === "running" ? { ...activity, state: "error" } : activity
+  );
+}
+
 export function transcriptDisplayContent(message: TranscriptMessage, assistantErrorText = ""): string {
   const content = message.content.trim();
   if (message.attachments?.length && ["(attachment)", "(empty response)"].includes(content.toLowerCase())) {

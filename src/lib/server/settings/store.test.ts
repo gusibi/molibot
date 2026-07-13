@@ -112,3 +112,39 @@ test("settings store persists ttsGenerate dynamic settings", () => {
   assert.equal(reloaded.providers.xiaomi.apiKey, "persisted-key");
   assert.equal(reloaded.providers.xiaomi.voice, "default_en");
 });
+
+test("settings serialization keeps full plugins block (reflection, daily materials, hooks, feature settings)", () => {
+  const store = new SettingsStore();
+  const settings = {
+    ...defaultRuntimeSettings,
+    plugins: {
+      ...defaultRuntimeSettings.plugins,
+      memory: {
+        ...defaultRuntimeSettings.plugins.memory,
+        enabled: true,
+        reflectionTime: "05:15",
+        reflectionNotifications: false,
+        dailyMaterials: {
+          ...defaultRuntimeSettings.plugins.memory.dailyMaterials,
+          enabled: true,
+          time: "22:45",
+          projectId: "proj-1"
+        }
+      },
+      hooks: [{ id: "daily-review", enabled: true }],
+      // Dynamic feature-plugin settings keyed by the plugin's settingsKey.
+      myFeature: { apiKey: "k", mode: "fast" }
+    } as typeof defaultRuntimeSettings.plugins
+  };
+
+  const raw = store["toStaticSettings"](settings) as unknown as { plugins: Record<string, unknown> };
+  const memory = raw.plugins.memory as Record<string, unknown>;
+  assert.equal(memory.reflectionTime, "05:15");
+  assert.equal(memory.reflectionNotifications, false);
+  const daily = memory.dailyMaterials as Record<string, unknown>;
+  assert.equal(daily.enabled, true);
+  assert.equal(daily.time, "22:45");
+  assert.equal(daily.projectId, "proj-1");
+  assert.deepEqual(raw.plugins.hooks, [{ id: "daily-review", enabled: true }]);
+  assert.deepEqual(raw.plugins.myFeature, { apiKey: "k", mode: "fast" });
+});

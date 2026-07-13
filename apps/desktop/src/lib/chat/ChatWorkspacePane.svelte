@@ -9,6 +9,8 @@
   export let copy: Translation;
   export let serviceEndpoint: string | null;
   export let serviceReady: boolean;
+  export let serviceError: string;
+  export let onRetryService: () => void;
   export let onOpenAgentSettings: () => void;
 </script>
 
@@ -17,7 +19,12 @@
 </header>
 
 <div class="workspace-scroll" data-workspace-pane={pane}>
-  {#if pane === "automations"}
+  {#if !serviceReady}
+    <div class="workspace-empty" role={serviceError ? "alert" : undefined}>
+      <p>{serviceError ? copy.workspaceLoadFailed : copy.loading}</p>
+      {#if serviceError}<small>{serviceError}</small><button class="secondary-button" type="button" onclick={onRetryService}>{copy.retryLoading}</button>{/if}
+    </div>
+  {:else if pane === "automations"}
     <TasksSection presentation="workspace" />
   {:else if pane === "skills"}
     <InstalledSkillsPane {copy} {serviceEndpoint} {serviceReady} />

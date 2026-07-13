@@ -27,6 +27,13 @@ export interface ConversationView {
   activities: DesktopActivityEntry[];
   pendingApproval: DesktopApprovalPrompt | null;
   queue: string[];
+  /**
+   * The session that owns the current/last turn. Hosts whose sessionId is
+   * mutable (e.g. project chat, where one controller follows the selection)
+   * must gate the live streaming UI on `turnSessionId === selectedSessionId`,
+   * otherwise a background turn bleeds into every session the user opens.
+   */
+  turnSessionId: string;
 }
 
 /** Localized status strings surfaced by the controller as a turn progresses. */
@@ -84,6 +91,7 @@ export class ConversationController {
   activities = $state<DesktopActivityEntry[]>([]);
   pendingApproval = $state<DesktopApprovalPrompt | null>(null);
   queue = $state<string[]>([]);
+  turnSessionId = $state("");
 
   /**
    * A store snapshot of the live turn state. Host surfaces run in legacy mode
@@ -101,10 +109,26 @@ export class ConversationController {
     activity: this.activity,
     activities: this.activities,
     pendingApproval: this.pendingApproval,
-    queue: this.queue
+    queue: this.queue,
+    turnSessionId: this.turnSessionId
   }));
 
   private abort: AbortController | null = null;
+
+  /**
+   * Full turn context pinned at send() start. A queued follow-up (drainQueue
+   * passes a sessionId override) reuses this snapshot instead of re-reading the
+   * host, so switching project / session / model before the queue drains can't
+   * submit the pinned session under a different project or model. On surfaces
+   * whose host is already pinned per session (the main chat registry) this is a
+   * no-op — the host returns the same values either way.
+   */
+  private turnContext: {
+    profileId: string;
+    projectId: string | undefined;
+    modelKey: string | undefined;
+    thinkingLevel: DesktopThinkingLevel;
+  } | null = null;
 
   constructor(private readonly host: ConversationHost) {}
 
@@ -142,20 +166,37 @@ export class ConversationController {
     if (this.sending || this.queue.length === 0) return;
     const { next, rest } = nextFollowUp(this.queue);
     this.queue = rest;
-    if (next) void this.send({ message: next });
+    // Queued follow-ups belong to the turn they were queued behind, not to
+    // whatever session the host points at once the turn ends.
+    if (next) void this.send({ message: next, sessionId: this.turnSessionId || undefined });
   }
 
-  async send({ message, files = [] }: { message: string; files?: File[] }): Promise<void> {
+  async send({ message, files = [], sessionId: sessionIdOverride }: { message: string; files?: File[]; sessionId?: string }): Promise<void> {
     const content = message.trim();
     const hasFiles = files.length > 0;
     const endpoint = this.host.endpoint();
-    const sessionId = this.host.sessionId();
+    const sessionId = sessionIdOverride ?? this.host.sessionId();
     if (!endpoint || !sessionId || this.sending) return;
     if (this.host.canSend && !this.host.canSend()) return;
     if (!content && !hasFiles) return;
 
+    // Pin the whole turn context. A queued follow-up (sessionIdOverride set)
+    // lands on the SAME project/session/model as the turn it was queued behind,
+    // even if the user has since navigated to another project or session; a
+    // fresh user send snapshots the current host context.
+    const context = sessionIdOverride && this.turnContext
+      ? this.turnContext
+      : {
+          profileId: this.host.profileId(),
+          projectId: this.host.projectId?.(),
+          modelKey: this.host.modelKey?.(),
+          thinkingLevel: this.host.thinkingLevel()
+        };
+    this.turnContext = context;
+
     const labels = this.host.labels();
     this.sending = true;
+    this.turnSessionId = sessionId;
     this.host.clearError();
     this.activity = hasFiles ? labels.uploading : labels.working;
     this.streamingText = "";
@@ -170,12 +211,12 @@ export class ConversationController {
     try {
       await runDesktopConversationTurn({
         endpoint,
-        profileId: this.host.profileId(),
+        profileId: context.profileId,
         sessionId,
-        projectId: this.host.projectId?.(),
-        modelKey: this.host.modelKey?.(),
+        projectId: context.projectId,
+        modelKey: context.modelKey,
         message: content,
-        thinkingLevel: this.host.thinkingLevel(),
+        thinkingLevel: context.thinkingLevel,
         files: hasFiles ? files : undefined,
         signal: this.abort.signal
       }, hasFiles ? {} : {
@@ -210,13 +251,16 @@ export class ConversationController {
 
   async stop(): Promise<void> {
     const endpoint = this.host.endpoint();
-    const sessionId = this.host.sessionId();
+    // Stop targets the session that owns the running turn, even if the host's
+    // selection moved elsewhere in the meantime.
+    const sessionId = this.turnSessionId || this.host.sessionId();
     if (!endpoint || !sessionId || !this.sending) return;
+    const profileId = this.turnContext?.profileId ?? this.host.profileId();
     const labels = this.host.labels();
     this.queue = [];
     this.abort?.abort();
     try {
-      const stopped = await stopDesktopChat(endpoint, this.host.profileId(), sessionId);
+      const stopped = await stopDesktopChat(endpoint, profileId, sessionId);
       this.activity = stopped ? labels.stopped : labels.idle;
     } catch (cause) {
       this.host.setError(cause instanceof Error ? cause.message : String(cause));
@@ -228,7 +272,8 @@ export class ConversationController {
     if (!endpoint || !this.pendingApproval) return;
     const labels = this.host.labels();
     const requestId = this.pendingApproval.requestId;
-    const sessionId = this.host.sessionId();
+    const sessionId = this.turnSessionId || this.host.sessionId();
+    const profileId = this.turnContext?.profileId ?? this.host.profileId();
     this.pendingApproval = null;
     this.host.clearError();
     this.activity = labels.resuming;
@@ -238,7 +283,7 @@ export class ConversationController {
       // the server can continue the run; the live stream will pick up the
       // resumed output and send() will handle reload/cleanup when it ends.
       try {
-        await resolveDesktopHostBash(endpoint, this.host.profileId(), sessionId, requestId, decision);
+        await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision);
       } catch (cause) {
         this.host.setError(cause instanceof Error ? cause.message : String(cause));
       }
@@ -249,7 +294,7 @@ export class ConversationController {
     // Drive the approval → poll cycle ourselves.
     this.sending = true;
     try {
-      await resolveDesktopHostBash(endpoint, this.host.profileId(), sessionId, requestId, decision);
+      await resolveDesktopHostBash(endpoint, profileId, sessionId, requestId, decision);
       // The approved command runs and the original turn resumes in the background,
       // appending its answer asynchronously; poll the transcript until it lands.
       const before = this.host.getMessages().filter((message) => message.role === "assistant").length;

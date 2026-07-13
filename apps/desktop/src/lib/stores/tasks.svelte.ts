@@ -22,6 +22,7 @@ export type TaskCreateDraft = DesktopTaskTarget & {
 export const tasksStore = $state({
   tasks: null as DesktopTaskSummary | null,
   loading: false,
+  error: "",
   endpoint: "",
   selected: new Set<string>(),
   taskEdit: null as TaskEditor | null,
@@ -65,11 +66,13 @@ export function taskStatusLabel(status: "pending" | "running" | "completed" | "s
 export async function loadTasks(endpoint: string): Promise<void> {
   tasksStore.endpoint = endpoint;
   tasksStore.loading = true;
+  tasksStore.error = "";
   session.error = "";
   try {
     tasksStore.tasks = await loadDesktopTasks(endpoint);
   } catch (cause) {
     setError(cause);
+    tasksStore.error = session.error;
   } finally {
     tasksStore.loading = false;
   }
@@ -79,11 +82,13 @@ export async function refreshTasks(): Promise<void> {
   const endpoint = session.endpoint;
   if (!endpoint || tasksStore.loading) return;
   tasksStore.loading = true;
+  tasksStore.error = "";
   session.error = "";
   try {
     tasksStore.tasks = await loadDesktopTasks(endpoint);
   } catch (cause) {
     setError(cause);
+    tasksStore.error = session.error;
   } finally {
     tasksStore.loading = false;
   }

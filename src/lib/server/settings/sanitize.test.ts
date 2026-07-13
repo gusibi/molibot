@@ -152,6 +152,18 @@ test("sanitizeSettings backfills and confines daily materials settings", () => {
   assert.equal(sanitized.plugins.memory.dailyMaterials.promptPath, "templates/daily-material-prompt.md");
 });
 
+test("sanitizeSettings preserves dynamic feature-plugin settings keys", () => {
+  const withExtras = sanitizeSettings(
+    { plugins: { ...defaultRuntimeSettings.plugins, myFeature: { token: "abc" } } as typeof defaultRuntimeSettings.plugins },
+    defaultRuntimeSettings
+  );
+  assert.deepEqual((withExtras.plugins as unknown as Record<string, unknown>).myFeature, { token: "abc" });
+  // A later unrelated patch must not drop the stored feature settings.
+  const keptExtras = sanitizeSettings({ locale: "zh-CN" }, withExtras);
+  assert.deepEqual((keptExtras.plugins as unknown as Record<string, unknown>).myFeature, { token: "abc" });
+  assert.equal(keptExtras.plugins.memory.reflectionTime, defaultRuntimeSettings.plugins.memory.reflectionTime);
+});
+
 test("sanitizeMcpServers infers http transport from url and keeps top-level headers", () => {
   const servers = sanitizeMcpServers({
     tdx: {
