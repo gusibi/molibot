@@ -51,6 +51,9 @@ const taskStore = read("./lib/stores/tasks.svelte.ts");
 const skillsStoreSource = read("./lib/stores/skills.svelte.ts");
 const conversationController = read("./lib/chat/conversationController.svelte.ts");
 const transcriptHelpers = read("./lib/chat/transcript.ts");
+const markdown = read("./lib/markdown.ts");
+const queuedMessagesBar = read("./lib/chat/QueuedMessagesBar.svelte");
+const logsSection = read("./lib/settings/LogsSection.svelte");
 
 test("workspace navigation waits for bootstrap and can retry failed loads", () => {
   assert.match(view, /let connectionReady = false/);
@@ -89,6 +92,20 @@ test("shared composer provides keyboard slash suggestions and transcript invocat
   assert.match(slashSuggestionMenu, /role="listbox"/);
   assert.match(transcript, /classifyComposerInvocation/);
   assert.match(styles, /\.invocation-message\[data-kind="skill"\]/);
+});
+
+test("issue 8 chat polish stays wired across shared Chat and Project surfaces", () => {
+  assert.match(view, /openWorkspacePaneState\(pane\)/);
+  assert.match(view, /service-starting-spinner/);
+  assert.match(transcript, /class="message-meta"/);
+  assert.match(transcript, /message\.model/);
+  assert.match(transcript, /split\(\/\\r\?\\n\/\)\.length > 20/);
+  assert.match(transcript, /copy\.expandMessage/);
+  assert.match(markdown, /highlightAuto/);
+  assert.match(markdown, /data-copy-code/);
+  assert.match(queuedMessagesBar, /class="queued-message-row"/);
+  assert.match(projectChat, /event\.key === "Enter" && event\.shiftKey/);
+  assert.match(logsSection, /desktop_logs/);
 });
 
 test("Project settings exposes inherited model and thinking defaults in a fixed footbar", () => {
@@ -251,7 +268,7 @@ test("automation session detail renders a chat-style transcript", () => {
   assert.doesNotMatch(transcript, /class="message-avatar"/);
   assert.match(transcript, /class="message-stack"/);
   assert.match(transcript, /class="message-bubble markdown-body"/);
-  assert.match(transcript, /renderMarkdown\(displayContent\)/);
+  assert.match(transcript, /renderMarkdown\(displayContent, copy\.copyCode\)/);
   assert.match(styles, /\.message-row\.assistant \.message-bubble \{[^}]*background: transparent/s);
   assert.match(styles, /\.message-row\.mine \.message-bubble \{[^}]*background: var\(--gray-100\)/s);
   assert.match(styles, /\.run-activity \{[^}]*border: 0;[^}]*background: transparent/s);
@@ -551,7 +568,7 @@ test("settings navigation matches the web taxonomy and entity editors open as di
   assert.match(app, /id: "general", sections: \["general"\]/);
   assert.match(app, /id: "ai", sections: \["models", "providers", "usage", "trace", "mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"\]/);
   assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
-  assert.match(app, /id: "data", sections: \["agents", "memory", "skills", "runHistory", "tasks", "hostBash"\]/);
+  assert.match(app, /id: "data", sections: \["agents", "memory", "skills", "runHistory", "logs", "tasks", "hostBash"\]/);
   assert.match(app, /id: "system", sections: \["runtimeEnv", "sandbox", "plugins", "diagnostics"\]/);
   for (const [formId, key] of Object.entries(formSectionKey)) {
     assert.match(sections[key], new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));

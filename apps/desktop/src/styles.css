@@ -865,6 +865,9 @@ a:focus-visible {
 .empty-state h2 { margin: 18px 0 8px; font-size: 22px; }
 .empty-state p { margin: 0; color: var(--label-secondary); line-height: 1.55; }
 .empty-state .secondary-button { margin-top: 18px; }
+.service-starting-spinner { position: relative; display: grid; place-items: center; width: 64px; height: 64px; margin: auto; }
+.service-starting-spinner img { width: 42px; height: 42px; border-radius: 50%; }
+.service-starting-spinner span { position: absolute; inset: 0; border: 2px solid var(--separator); border-top-color: var(--accent); border-radius: 50%; animation: activity-spin .9s linear infinite; }
 .messages { flex: 1; min-height: 0; overflow: auto; padding: 24px clamp(20px, 5vw, 56px); scroll-behavior: smooth; }
 .conversation-empty { max-width: 440px; margin: 16vh auto 0; color: var(--label-secondary); text-align: center; animation: conversation-empty-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 .conversation-empty .empty-icon { width: 64px; height: 64px; }
@@ -878,6 +881,15 @@ a:focus-visible {
 .message-row.assistant .message-stack { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; }
 .message-row.assistant .message-bubble { max-width: 100%; }
 .message-time { font-size: 11px; color: var(--label-tertiary); padding: 0 2px; display: inline-flex; align-items: center; gap: 3px; }
+.message-meta { display: flex; align-items: center; gap: 7px; min-height: 24px; color: var(--label-tertiary); }
+.message-row.mine .message-meta { justify-self: end; }
+.message-row.assistant .message-meta { padding: 0 2px; }
+.message-model { display: inline-flex; align-items: center; gap: 4px; min-width: 0; font-size: 10px; }
+.message-model .ph { flex: none; font-size: 11px; }
+.user-message-shell { display: grid; justify-items: end; max-width: 100%; }
+.user-message-content.collapsed { position: relative; max-height: 30em; overflow: hidden; mask-image: linear-gradient(to bottom, #000 calc(100% - 3em), transparent); }
+.message-expand { margin-top: 4px; padding: 3px 8px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--accent); font-size: 11px; font-weight: 600; cursor: pointer; }
+.message-expand:hover { background: var(--accent-soft); }
 .message-read { font-size: 13px; color: var(--accent); }
 .transcript-divider {
   align-self: center;
@@ -1029,6 +1041,17 @@ a:focus-visible {
   line-height: 1.5;
 }
 .markdown-body pre code { display: block; max-width: 100%; padding: 0; background: transparent; color: inherit; font-size: inherit; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.code-block { max-width: 100%; margin: 0 0 10px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--code-text) 14%, transparent); border-radius: var(--rounded-md); background: var(--code-bg); }
+.code-block-head { display: flex; align-items: center; min-height: 32px; padding: 0 8px 0 12px; border-bottom: 1px solid color-mix(in srgb, var(--code-text) 12%, transparent); color: color-mix(in srgb, var(--code-text) 68%, transparent); font: 10px/1 "Geist Mono", ui-monospace, monospace; }
+.code-block-head span { margin-right: auto; text-transform: lowercase; }
+.code-block-head button { padding: 4px 7px; border: 0; border-radius: var(--rounded-sm); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.code-block-head button:hover { background: color-mix(in srgb, var(--code-text) 10%, transparent); color: var(--code-text); }
+.markdown-body .code-block pre { margin: 0; border-radius: 0; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link { color: #ff7ab2; }
+.hljs-string, .hljs-title, .hljs-name, .hljs-type, .hljs-attribute, .hljs-symbol, .hljs-bullet, .hljs-addition { color: #7ee787; }
+.hljs-number, .hljs-meta, .hljs-built_in, .hljs-builtin-name { color: #79c0ff; }
+.hljs-comment, .hljs-quote, .hljs-deletion { color: #8b949e; }
+.hljs-variable, .hljs-template-variable, .hljs-regexp { color: #ffa657; }
 .markdown-body a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .markdown-body blockquote { padding: 4px 10px; border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0; background: var(--fill); color: var(--label-secondary); }
 .markdown-body table { width: 100%; margin: 0 0 10px; border-collapse: collapse; table-layout: fixed; font-size: .92em; }
@@ -1178,8 +1201,16 @@ a:focus-visible {
 .composer-tool:hover:not(:disabled) { color: inherit; background: var(--fill); }
 .composer-tool.recording { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .composer-tool:disabled { cursor: default; opacity: .45; }
-.queued-messages { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 4px 8px; }
-.queued-badge { padding: 3px 9px; border-radius: var(--rounded-full); background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; }
+.queued-messages { display: grid; gap: 1px; margin: 0 4px 8px; overflow: hidden; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: var(--card-bg); }
+.queued-messages-head { display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 0 10px; border-bottom: 1px solid var(--separator); color: var(--label-secondary); font-size: 10px; }
+.queued-messages-head strong { margin-right: auto; color: var(--label-primary); font-size: 11px; }
+.queued-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.queued-message-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 28px; align-items: center; min-height: 36px; padding: 0 4px 0 8px; }
+.queued-message-row + .queued-message-row { border-top: 1px solid var(--separator); }
+.queued-position { color: var(--label-tertiary); font: 10px/1 "Geist Mono", ui-monospace, monospace; }
+.queued-message-text { overflow: hidden; color: var(--label-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.queued-message-row button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--label-tertiary); cursor: pointer; }
+.queued-message-row button:hover { background: var(--fill); color: var(--label-primary); }
 .pending-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 4px 8px; }
 .pending-chip {
   display: flex;
@@ -1774,6 +1805,9 @@ a:focus-visible {
 /* Sticky "unsaved changes" save bar — shown only when a page-level draft is
    dirty. Left: a plain-language status label; right: Discard + Save. */
 .settings-footbar { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 28px; border-top: 1px solid var(--separator); background: var(--footbar-bg); z-index: 10; margin-top: 24px; }
+.logs-section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-right: 28px; }
+.logs-card { margin-bottom: 28px; overflow: hidden; }
+.logs-card pre { max-height: calc(100vh - 190px); margin: 0; padding: 16px; overflow: auto; background: var(--code-bg); color: var(--code-text); font: 11px/1.55 "Geist Mono", ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .settings-footbar-label { font-size: 13px; font-weight: 500; color: var(--label-secondary); }
 .settings-footbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .settings-footbar-notice { justify-content: flex-end; }
@@ -2137,7 +2171,7 @@ a:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
-  .recording-indicator, .run-activity .spin, .transcript-media-loading .ph { animation: none; }
+  .recording-indicator, .run-activity .spin, .transcript-media-loading .ph, .service-starting-spinner span { animation: none; }
   .pug--typing, .pug--typing .pug-paw, .pug--phone, .pug-phone i, .pug-tail, .subagent-pug, .subagent-pug em, .agent-studio-spinner, .agent-link, .agent-link .ph { animation: none !important; }
 }
 
@@ -2229,6 +2263,7 @@ a:focus-visible {
 }
 
 @media (max-width: 620px) {
+  .logs-section-head { align-items: stretch; flex-direction: column; padding-right: 18px; }
   .agent-desks { grid-template-columns: 1fr; padding-inline: 14px; }
 }
 

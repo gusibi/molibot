@@ -7,12 +7,13 @@
 
 {#if queued.length > 0}
   <div class="queued-messages">
-    <span class="queued-badge">{label} · {queued.length}</span>
+    <div class="queued-messages-head"><span class="queued-status-dot" aria-hidden="true"></span><strong>{label}</strong><span>{queued.length}</span></div>
     {#each queued as item, index (index)}
-      <span class="pending-chip">
-        <span class="pending-name" title={item}>{item}</span>
-        <button type="button" aria-label={removeLabel} onclick={() => onRemove(index)}>×</button>
-      </span>
+      <div class="queued-message-row">
+        <span class="queued-position">{index + 1}</span>
+        <span class="queued-message-text" title={item}>{item}</span>
+        <button type="button" aria-label={removeLabel} title={removeLabel} onclick={() => onRemove(index)}><i class="ph ph-x" aria-hidden="true"></i></button>
+      </div>
     {/each}
   </div>
 {/if}

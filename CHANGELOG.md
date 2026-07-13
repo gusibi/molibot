@@ -7,6 +7,11 @@
 ---
 ## 2026-07-14
 
+### Fix: running Project sessions no longer block workspace navigation
+- Skill、Agent 和任务菜单现在会明确退出 Project 详情并显示目标工作区；正在运行的 Session 继续由原有 per-Session runtime 在后台执行，输出、队列、停止与审批不会串台。
+- 完成 GitHub Issue #8 的剩余桌面体验项：启动阶段反馈、回复模型标识、消息元数据布局、代码高亮/复制、长消息折叠、Project Enter 行为、Agent `@` 展示、纵向待发队列和只读服务日志页。首条消息自动命名与 Skill 标识此前已交付，未重复实现。
+- Verification: navigation/store/bootstrap regressions 13/13, Desktop UI 45/45, Desktop chat suite 192/192, Svelte diagnostics 0/0, Rust tests 11/11, and both production builds pass.
+
 ### Feature: selectable Feishu/Telegram destination for daily reflection notices
 - Desktop Plugins → Memory now lists authorized chats from enabled Feishu and Telegram Bot instances and persists one selected destination for the Owner-level daily memory reflection task.
 - Each Owner reflection run sends exactly one aggregate human notice to that destination after success, including zero-output runs; terminal failures send one failure summary before the task is marked failed. Per-Bot scanning and watermarks remain unchanged, and notices stay outside model/session context.

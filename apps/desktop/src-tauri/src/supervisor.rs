@@ -4,7 +4,7 @@ use crate::service::{
 use serde::Deserialize;
 use std::env;
 use std::fs::{create_dir_all, read_to_string, remove_dir_all, rename, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -84,6 +84,27 @@ fn data_dir() -> Result<PathBuf, String> {
     }
     let home = env::var_os("HOME").ok_or("HOME is not available")?;
     Ok(PathBuf::from(home).join(".molibot"))
+}
+
+pub fn read_service_log(max_bytes: usize) -> Result<String, String> {
+    let path = data_dir()?.join("runtime/desktop-sidecar.log");
+    read_log_tail(&path, max_bytes)
+}
+
+fn read_log_tail(path: &Path, max_bytes: usize) -> Result<String, String> {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let length = file.metadata().map_err(|error| error.to_string())?.len();
+    let keep = max_bytes.clamp(1, 512 * 1024) as u64;
+    if length > keep {
+        file.seek(SeekFrom::Start(length - keep)).map_err(|error| error.to_string())?;
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|error| error.to_string())?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn materialize_bundled_runtime(resource_dir: &Path, data_dir: &Path) -> Result<PathBuf, String> {
@@ -636,6 +657,14 @@ mod tests {
         assert_eq!(backoff_delay(1), Duration::from_secs(1));
         assert_eq!(backoff_delay(4), Duration::from_secs(8));
         assert_eq!(backoff_delay(8), Duration::from_secs(16));
+    }
+
+    #[test]
+    fn log_reader_returns_only_the_requested_tail() {
+        let path = env::temp_dir().join(format!("molibot-log-tail-{}", Uuid::new_v4()));
+        write(&path, "0123456789").expect("write log fixture");
+        assert_eq!(read_log_tail(&path, 4).expect("read log tail"), "6789");
+        std::fs::remove_file(path).expect("remove log fixture");
     }
 
     #[test]

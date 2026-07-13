@@ -28,6 +28,8 @@ test("deleting a Web conversation removes its file and index entry", () => {
     assert.deepEqual(store.listMessages(session.id)[0]?.activities, [
       { key: "read-1", kind: "tool", label: "Read file", state: "success", summary: "done" }
     ]);
+    store.appendMessage(session.id, "assistant", "hello back", { model: "openai/gpt-5" });
+    assert.equal(store.listMessages(session.id)[1]?.model, "openai/gpt-5");
 
     const sessionFile = path.join(
       root,

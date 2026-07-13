@@ -1,6 +1,6 @@
 {
   "name": "@molibot/desktop",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -23,6 +23,7 @@
     "@tauri-apps/plugin-http": "^2.5.9",
     "diff2html": "^3.4.56",
     "dompurify": "^3.4.11",
+    "highlight.js": "^11.11.1",
     "marked": "^18.0.5",
     "qrcode": "^1.5.4",
     "svelte": "^5.38.10"

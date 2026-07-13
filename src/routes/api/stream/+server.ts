@@ -152,6 +152,7 @@ export const POST: RequestHandler = async ({ request }) => {
       void (async () => {
         let finalText = "";
         let thinkingText = "";
+        let responseModel = "";
         const threadNotes: string[] = [];
         const diagnostics: string[] = [];
         const responseAttachments: ConversationAttachment[] = [];
@@ -245,10 +246,12 @@ export const POST: RequestHandler = async ({ request }) => {
               if (diagnostic) diagnostics.push(diagnostic);
 
               if (event.type === "thinking_config") {
+                responseModel = [event.provider, event.model].filter(Boolean).join("/");
                 writeEvent(controller, encoder, "thinking_config", event);
                 return;
               }
               if (event.type === "payload") {
+                if (!responseModel) responseModel = [event.provider, event.model].filter(Boolean).join("/");
                 writeEvent(controller, encoder, "payload", event);
                 return;
               }
@@ -298,7 +301,8 @@ export const POST: RequestHandler = async ({ request }) => {
           if (result.stopReason !== "waiting_for_approval") {
             runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
               attachments: responseAttachments,
-              activities: activityCollector.finalSnapshot()
+              activities: activityCollector.finalSnapshot(),
+              model: responseModel || undefined
             });
             assistantPersisted = true;
           }
@@ -325,7 +329,7 @@ export const POST: RequestHandler = async ({ request }) => {
                 conversation.id,
                 "assistant",
                 partial ? `${partial}\n\n${notice}` : notice,
-                { attachments: responseAttachments, activities }
+                { attachments: responseAttachments, activities, model: responseModel || undefined }
               );
             }
           } catch {

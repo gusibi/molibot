@@ -700,11 +700,13 @@ export const POST: RequestHandler = async ({ request }) => {
   let finalText = "";
   const threadNotes: string[] = [];
   const runnerDiagnostics: string[] = [];
+  let responseModel = "";
   const responseAttachments: ConversationAttachment[] = [];
   const activityCollector = new ConversationActivityCollector();
 
   const appendRunnerDiagnostic = (event: RunnerUiEvent): void => {
     if (event.type === "thinking_config") {
+      responseModel = [event.provider, event.model].filter(Boolean).join("/");
       runnerDiagnostics.push(
         [
           `thinking_requested=${event.requestedThinkingLevel}`,
@@ -717,6 +719,7 @@ export const POST: RequestHandler = async ({ request }) => {
       return;
     }
     if (event.type === "payload") {
+      if (!responseModel) responseModel = [event.provider, event.model].filter(Boolean).join("/");
       runnerDiagnostics.push(
         [
           `payload_provider=${event.provider}`,
@@ -818,7 +821,8 @@ export const POST: RequestHandler = async ({ request }) => {
   if (result.stopReason !== "waiting_for_approval") {
     runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
       attachments: responseAttachments,
-      activities: activityCollector.finalSnapshot()
+      activities: activityCollector.finalSnapshot(),
+      model: responseModel || undefined
     });
   }
 

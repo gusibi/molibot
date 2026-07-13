@@ -4,6 +4,7 @@ import { resolveDesktopProfiles } from "./desktopBootstrap";
 
 test("desktop bootstrap exposes only enabled Web Profile summaries", () => {
   assert.deepEqual(resolveDesktopProfiles({
+    agents: [{ id: "agent-1", name: "Research Agent" }],
     channels: {
       web: {
         instances: [
@@ -12,7 +13,7 @@ test("desktop bootstrap exposes only enabled Web Profile summaries", () => {
         ]
       }
     }
-  }), [{ id: "personal", name: "Personal" }]);
+  }), [{ id: "personal", name: "Personal", agentId: "agent-1", agentName: "Research Agent" }]);
 });
 
 test("desktop bootstrap falls back only when no Web Profile list exists", () => {

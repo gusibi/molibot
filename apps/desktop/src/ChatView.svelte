@@ -80,7 +80,7 @@
   import { projectChatStore } from "./lib/projects/projectChatStore.svelte";
   import type { ConversationLabels, UiMessage } from "./lib/chat/conversationController.svelte";
   import { stickToBottom } from "./lib/chat/stickToBottom";
-  import type { ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
+  import { openWorkspacePaneState, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
 
   export let copy: Translation;
   export let serviceEndpoint: string | null;
@@ -327,7 +327,11 @@
   $: showOnboarding = serviceState === "ready" && !onboardingDismissed;
   $: filteredFiles = filterDesktopFiles(sessionFiles, fileFilter);
   $: fileByLocal = new Map(sessionFiles.map((file) => [file.local, file]));
-  $: botOptions = profiles.map((profile) => ({ id: profile.id, name: profile.name }));
+  $: botOptions = profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.agentName || copy.agentStudioGlobalName,
+    subtitle: profile.name
+  }));
   $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? copy.model;
   // The pill only shows the bare model name (last "/"-segment); the provider
   // prefix like "[Custom] CliProxyAPI /" is kept for the dropdown + tooltip.
@@ -1336,9 +1340,11 @@
   }
 
   function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">): void {
-    workspacePane = pane;
-    searchOpen = false;
-    filePanelOpen = false;
+    const next = openWorkspacePaneState(pane);
+    workspacePane = next.workspacePane;
+    projectPaneActive = next.projectPaneActive;
+    searchOpen = next.searchOpen;
+    filePanelOpen = next.filePanelOpen;
     if (!connectionReady && !loading && serviceState === "ready" && serviceEndpoint) {
       void connect(serviceEndpoint);
     }
@@ -1680,9 +1686,9 @@
 
     {#if serviceState !== "ready"}
       <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true"><img src="/molibot-icon.png" alt="" /></div>
+        <div class="service-starting-spinner" aria-hidden="true"><img src="/molibot-icon.png" alt="" /><span></span></div>
         <h2>{copy.serviceStarting}</h2>
-        <p>{copy.disconnectedHint}</p>
+        <p>{serviceEndpoint ? copy.serviceLaunching : copy.serviceChecking}</p>
       </div>
     {:else if loading}
       <div class="empty-state"><p>{copy.loadingChat}</p></div>

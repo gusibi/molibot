@@ -13,6 +13,7 @@ export type TranscriptMessage = {
   role: string;
   content: string;
   createdAt?: string;
+  model?: string;
   thinking?: string;
   attachments?: TranscriptAttachment[];
   activities?: DesktopConversationActivity[];

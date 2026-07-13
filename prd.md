@@ -5,6 +5,12 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.65 Running-Session Workspace Navigation and Issue #8 Polish (2026-07-14)
+- [Done, P0] Project Session 运行中打开 Skill、Agent 或任务时必须立即显示目标工作区；后台 turn 不得被取消、迁移或错误渲染到当前面板。
+- [Done, P0] Assistant 消息需持久化并展示实际响应模型；代码块支持安全高亮与独立复制，长用户消息默认折叠且可恢复全文。
+- [Done, P1] 启动页显示当前阶段，消息操作与时间同排，待发消息使用可扫描的纵向队列；Project Chat 统一为 `Shift+Enter` 发送、Enter 换行。
+- [Done, P1] `@` 选择器面向用户展示 Agent 名称但继续使用 Profile ID 路由；Desktop Settings 提供只读、限量的本地服务日志页。全部 UI 支持中英、明暗主题和窄屏。
+
 ## 2.64 Selectable Owner Reflection Notification Target (2026-07-14)
 - [Done, P0] 每日记忆反思允许从已启用飞书/Telegram Bot 的授权会话中选择一个统一通知目标；不得接受未授权或其它渠道的伪造目标。
 - [Done, P0] Owner 任务无论扫描/产出是否为 0，成功结束后都必须发送且只发送一条汇总通知；终态失败发送一条失败摘要。

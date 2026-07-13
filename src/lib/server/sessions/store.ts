@@ -557,7 +557,7 @@ export class SessionStore {
     conversationId: string,
     role: Role,
     content: string,
-    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; platformMessageId?: string }
+    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; platformMessageId?: string; model?: string }
   ): ConversationMessage {
     const createdAt = new Date().toISOString();
     const message: ConversationMessage = {
@@ -566,6 +566,7 @@ export class SessionStore {
       role,
       content,
       createdAt,
+      model: options?.model,
       platformMessageId: options?.platformMessageId,
       attachments: options?.attachments?.length ? options.attachments : undefined,
       activities: options?.activities?.length ? options.activities : undefined

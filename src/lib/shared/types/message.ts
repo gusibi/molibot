@@ -49,6 +49,7 @@ export interface ConversationMessage {
   role: Role;
   content: string;
   createdAt: string;
+  model?: string;
   platformMessageId?: string;
   attachments?: ConversationAttachment[];
   activities?: ConversationActivity[];

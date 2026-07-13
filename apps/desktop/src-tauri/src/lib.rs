@@ -111,6 +111,11 @@ fn restart_service(state: tauri::State<'_, Mutex<DesktopState>>) -> Result<(), S
     Ok(())
 }
 
+#[tauri::command]
+fn desktop_logs() -> Result<String, String> {
+    supervisor::read_service_log(256 * 1024)
+}
+
 fn install_tray(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItemBuilder::with_id("open", "打开 Molibot / Open Molibot").build(app)?;
     let open_web = MenuItemBuilder::with_id("open_web", "打开 Web / Open Web").build(app)?;
@@ -196,6 +201,7 @@ pub fn run() {
             desktop_status,
             set_login_start,
             restart_service,
+            desktop_logs,
             audio::start_recording,
             audio::stop_recording,
             audio::cancel_recording

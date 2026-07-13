@@ -18,6 +18,7 @@
   import ProvidersSection from "./lib/settings/ProvidersSection.svelte";
   import UsageSection from "./lib/settings/UsageSection.svelte";
   import RunHistorySection from "./lib/settings/RunHistorySection.svelte";
+  import LogsSection from "./lib/settings/LogsSection.svelte";
   import TraceSection from "./lib/settings/TraceSection.svelte";
   import WebSearchSection from "./lib/settings/WebSearchSection.svelte";
   import ImageGenerateSection from "./lib/settings/ImageGenerateSection.svelte";
@@ -48,7 +49,7 @@
     launchAtLogin: boolean;
   };
 
-  type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "skills" | "memory" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "trace" | "sandbox" | "hostBash" | "tasks" | "diagnostics" | "runtimeEnv";
+  type SettingsSection = "general" | "models" | "providers" | "agents" | "mcp" | "skills" | "memory" | "channels" | "plugins" | "webSearch" | "imageGenerate" | "videoGenerate" | "ttsGenerate" | "profiles" | "usage" | "runHistory" | "logs" | "trace" | "sandbox" | "hostBash" | "tasks" | "diagnostics" | "runtimeEnv";
   let locale: Locale =((stored) => stored ? normalizeLocale(stored) : initialLocale())(localStorage.getItem("molibot-desktop-locale"));
   let text = translator(locale);
   let status: DesktopStatus | null = null;
@@ -105,6 +106,7 @@
     { id: "profiles", icon: "identification-card" },
     { id: "usage", icon: "chart-bar" },
     { id: "runHistory", icon: "clock-counter-clockwise" },
+    { id: "logs", icon: "terminal-window" },
     { id: "trace", icon: "list-magnifying-glass" },
     { id: "sandbox", icon: "shield-check" },
     { id: "hostBash", icon: "terminal-window" },
@@ -117,7 +119,7 @@
     { id: "general", sections: ["general"] },
     { id: "ai", sections: ["models", "providers", "usage", "trace", "mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"] },
     { id: "channels", sections: ["profiles", "channels"] },
-    { id: "data", sections: ["agents", "memory", "skills", "runHistory", "tasks", "hostBash"] },
+    { id: "data", sections: ["agents", "memory", "skills", "runHistory", "logs", "tasks", "hostBash"] },
     { id: "system", sections: ["runtimeEnv", "sandbox", "plugins", "diagnostics"] }
   ];
 
@@ -163,6 +165,7 @@
       case "profiles": return copy.profiles;
       case "usage": return copy.usage;
       case "runHistory": return copy.runHistory;
+      case "logs": return copy.logs;
       case "trace": return copy.trace;
       case "sandbox": return copy.sandbox;
       case "hostBash": return copy.hostBash;
@@ -554,6 +557,8 @@
         <UsageSection />
       {:else if activeSection === "runHistory"}
         <RunHistorySection />
+      {:else if activeSection === "logs"}
+        <LogsSection />
       {:else if activeSection === "trace"}
         <TraceSection />
       {:else if activeSection === "sandbox"}

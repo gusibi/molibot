@@ -1,6 +1,8 @@
 export interface DesktopProfileSummary {
   id: string;
   name: string;
+  agentId?: string;
+  agentName?: string;
 }
 
 export interface DesktopBootstrapResponse {
@@ -472,6 +474,7 @@ export interface DesktopConversationMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+  model?: string;
   thinking?: string;
   attachments?: DesktopMessageAttachment[];
   activities?: DesktopConversationActivity[];
