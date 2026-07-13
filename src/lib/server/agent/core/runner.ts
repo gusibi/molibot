@@ -1530,6 +1530,34 @@ export class MomRunner implements RunnerLike {
         });
 
         const beforeAttempt = [...(this.agent.state.messages as AgentMessage[])];
+        // Snapshot the persisted session log alongside the in-memory context so a
+        // failed attempt can be rolled back in lockstep. Without this, message_end
+        // has already appended this attempt's assistant/toolResult steps to the
+        // store; resetting only in-memory state leaves those duplicates behind,
+        // and the finally block reloads them into the next turn's context.
+        const attemptCheckpoint = this.store.createContextCheckpoint?.(this.chatId, this.sessionId);
+        // Roll both the in-memory context and the persisted log back to the start
+        // of this attempt. Used on every retry/give-up path so a dead attempt
+        // leaves no residue in either place.
+        const rollbackAttempt = () => {
+          this.agent.state.messages = beforeAttempt;
+          if (!attemptCheckpoint) return;
+          try {
+            const dropped = this.store.restoreContextCheckpoint?.(
+              this.chatId,
+              attemptCheckpoint,
+              this.sessionId
+            ) ?? 0;
+            if (dropped > 0) {
+              // The persisted assistant message (if any) was just discarded, so a
+              // later terminal error must be free to append its own error entry.
+              assistantMessagePersisted = false;
+            }
+          } catch {
+            // A rollback failure must never abort the run; the finally reload will
+            // still fall back to whatever the store holds.
+          }
+        };
         let attemptCount = 0;
         let candidateFinalText = "";
         let overflowRetryUsed = false;
@@ -1756,12 +1784,21 @@ export class MomRunner implements RunnerLike {
               }
             }
 
+            // A retryable error re-runs the whole attempt from scratch. If the
+            // failed attempt already executed tool steps, re-running would fire
+            // them again — dangerous for non-idempotent tools (sending messages,
+            // writing files). Signal that so the decision is downgraded to
+            // terminal rather than silently double-executing side effects.
+            const attemptExecutedTools = attemptMessages.some(
+              (item) => (item as { role?: string }).role === "toolResult"
+            );
             const decision = resolvePromptAttemptDecision({
               stopReason,
               errorMessage,
               finalText: candidateFinalText,
               attemptCount,
-              maxEmptyRetries: MAX_EMPTY_RETRIES
+              maxEmptyRetries: MAX_EMPTY_RETRIES,
+              attemptExecutedTools
             });
             if (decision.kind === "aborted") {
               runAborted = true;
@@ -1780,9 +1817,13 @@ export class MomRunner implements RunnerLike {
                 model: selectedModel.id,
                 candidateIndex,
                 attempt: attemptCount,
+                attemptExecutedTools,
                 error: decision.message
               });
-              this.agent.state.messages = beforeAttempt;
+              // Discard the failed attempt from both memory and the store before
+              // retrying or giving up, so the next attempt (or the next turn)
+              // never sees the dead attempt's persisted steps.
+              rollbackAttempt();
               if (decision.kind === "retryable_error") {
                 attemptCount += 1;
                 continue;
@@ -1808,7 +1849,7 @@ export class MomRunner implements RunnerLike {
               });
               break;
             }
-            this.agent.state.messages = beforeAttempt;
+            rollbackAttempt();
             attemptCount += 1;
           }
         } catch (error) {
@@ -1823,7 +1864,7 @@ export class MomRunner implements RunnerLike {
               candidateIndex,
               error: message
             });
-            this.agent.state.messages = beforeAttempt;
+            rollbackAttempt();
             try {
               const compacted = await this.compact({
                 reason: "threshold",
@@ -1865,7 +1906,7 @@ export class MomRunner implements RunnerLike {
             candidateIndex,
             error: message
           });
-          this.agent.state.messages = beforeAttempt;
+          rollbackAttempt();
           if (candidateIndex < modelCandidates.length - 1 && isRetryableModelError(message)) {
             continue;
           }
@@ -1917,7 +1958,7 @@ export class MomRunner implements RunnerLike {
             candidateIndex
           });
         }
-        this.agent.state.messages = beforeAttempt;
+        rollbackAttempt();
       }
 
       if (successfulCandidateIndex >= 0 && pendingModelErrorEvents.length > 0) {

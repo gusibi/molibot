@@ -5,6 +5,15 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-13
+
+### Fix: model-attempt retries duplicated persisted steps and could re-run non-idempotent tools
+- The runner's model-attempt retry loop (`src/lib/server/agent/core/runner.ts`) rolled the in-memory agent context back to `beforeAttempt` on retryable errors but never rolled back the *store*. Because the `message_end` subscriber had already `appendContextMessage`'d the failed attempt's assistant/toolResult steps, and the `finally` block reloads the persisted session log into memory, every retry left duplicated steps in the session and the next turn inherited them.
+- Added session-scoped checkpoints to `MomRuntimeStore`: `createContextCheckpoint` snapshots the persisted log length at attempt start, and `restoreContextCheckpoint` truncates the append-only entries log **and** the context snapshot back to it (returns the number of dropped entries). The runner now captures a checkpoint alongside `beforeAttempt` and, on every retry/give-up path (retryable error, empty-response retry, context-overflow compact retry, thrown model error, final-empty exhaustion), rolls back memory and store together via a single `rollbackAttempt()` helper, resetting `assistantMessagePersisted` when steps are dropped. The store call is optional-chained so runner test doubles without the method still work.
+- Guarded non-idempotent re-execution: a full re-run would re-fire tool steps already completed in the failed attempt (sending messages, writing files). `resolvePromptAttemptDecision` now takes `attemptExecutedTools`; an otherwise-retryable error is downgraded to `terminal_error` when the failed attempt already produced a `toolResult`, so the run surfaces the error instead of silently repeating side effects. A checkpoint-continue that resumes from the last complete toolResult would also solve this but requires SDK-level turn resumption; the lockstep store rollback is the contained fix.
+- Verification: `tsc -p tsconfig.json` reports no new errors in the touched files (pre-existing `hostBash/store.ts` + `settings/store.ts` errors are unrelated); `runnerRetryState.test.ts` 8/8, new `storeContextCheckpoint.test.ts` 3/3, `runner.test.ts` 24/24 all pass.
+
+---
 ## 2026-07-12
 
 ### Desktop: inline image and media preview for local project files
