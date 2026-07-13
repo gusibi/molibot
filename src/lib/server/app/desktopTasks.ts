@@ -70,6 +70,7 @@ export function buildDesktopTaskSessionMessages(messages: unknown[]): DesktopTas
  */
 interface SharedTaskItem {
   taskId?: string;
+  managed?: { by?: string; scope?: string; kind?: string; ownerId?: string };
   channel: string;
   botId: string;
   chatId: string;
@@ -153,9 +154,15 @@ export function buildDesktopTaskTargets(settings: RuntimeSettings): DesktopTaskT
 export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: DesktopTaskExecutionLoader = () => ({ items: [], total: 0 })): DesktopTaskItem {
   const taskId = String(item.taskId ?? "").trim() || desktopTaskId(item.filePath);
   const executions = loadExecutions(taskId);
+  const systemKind = item.managed?.by === "molibot" && item.managed.scope === "owner"
+    && (item.managed.kind === "memory-reflection" || item.managed.kind === "daily-materials")
+    ? item.managed.kind
+    : "";
   return {
     id: desktopTaskId(item.filePath),
     taskId,
+    category: systemKind ? "system" : "user",
+    systemKind,
     channel: item.channel,
     botId: item.botId,
     chatId: item.chatId,

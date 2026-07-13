@@ -5,15 +5,49 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-07-14
+
+### 每日记忆反思可选飞书/Telegram 通知目标（已完成）
+- Desktop“插件 → 记忆后端设置”新增统一通知目标选择器，只列出已启用飞书/Telegram Bot 的授权会话，并把选择以结构化 channel/bot/chat 配置持久化。
+- Owner 级每日反思仍动态扫描全部启用 Bot 的授权 Session，但结束后只向选中目标发送一条汇总；扫描 0 条、产生 0 条新记忆也会明确通知“已执行”，终态失败发送一条失败摘要。
+- 通知使用现有渠道投递接口，不写入模型上下文或普通 Session；已选会话失去授权时安全回退到仍可用的第一个飞书/Telegram 会话。
+
+### 每日回顾/每日素材设置重启持久化回归（已完成）
+- 为已交付的插件设置重启修复补充真实持久化测试：使用临时 `settings.json` 与临时 SQLite 保存记忆开关、后端、每日回顾时间/通知、每日素材启用状态/时间/项目，再创建全新 `SettingsStore` 模拟重启并逐项核对。
+- 测试不读取或写入用户真实 `settings.sqlite`，后续若保存器再次漏掉 `plugins.memory` 子字段会直接失败。
+
+### Project Session 切换同步正文 runtime（已完成）
+- 修复项目 Session 列表只更新左侧 `selectedSessionId`、聊天正文仍停留在旧 `projectChatStore.registry.active` 的问题；不同 Session 不再显示同一份聊天内容。
+- Session 选择与对应 runtime 激活现在由共享 `selectProjectSession` 动作同步完成；`ProjectChat` 挂载时只恢复一次既有选择，不再依赖 legacy `$:` 监听导入 rune store 的属性变化。
+- 后端真实 API 抽查确认同一项目 4 个 Session 返回不同 transcript；新增行为测试覆盖 A → B 切换时 active runtime 与消息正文同时变化。验证：精确回归测试通过、Desktop UI 42/42、Svelte 0 错误 0 警告。
+
 ## 2026-07-13
+
+### 运行中生产构建不再破坏模型路由（已完成）
+- 修复自定义 Svelte adapter 在构建开始时直接删除 `build/`，导致仍在运行的服务按需加载设置页 `/api/desktop/model-routing` 时找不到旧 manifest 引用的 `_server.ts-*.js` chunk、连续返回 500 的问题。
+- 新构建现在先写入隔离 staging 目录；构建成功后先发布全部新 chunk，同时保留运行中进程仍可能依赖的旧哈希 chunk，最后原子替换 manifest。失败或中断的构建不会再破坏当前可用服务。
+- 验证：adapter 回归测试 2/2；生产构建通过；构建期间连续请求模型路由 150 次，HTTP/JSON 失败 0 次。
+
+### Owner 级记忆自动任务与系统任务分栏（已完成）
+- “每日记忆反思”和“每日素材整理”从每渠道、每 Bot 各一份改为各自唯一的 Molibot Owner 级 watched event；执行时读取最新设置并动态发现全部启用 Bot，因此后续新增 Bot 会在下一次运行自动纳入，不会新增重复任务。
+- 启动迁移只清理能够确认身份的旧版 per-Bot 记忆任务文件，保留用户自建任务和无法确认的文件；每个目标继续保有独立 watermark，单个目标失败不会阻止其他目标执行，最终仍进入统一重试语义。
+- Desktop 自动任务页增加“用户任务 / 系统任务”中英双语分栏并适配明暗主题和窄屏。系统任务显示稳定的本地化名称和 Owner 归属，可手动运行，但启停、时间和功能开关统一由对应插件设置管理，API 同步拒绝编辑和删除。
+- 托管事件的幂等判断使用忽略 JSON 对象 key 顺序的深比较；旧版或手工排序不同但语义相同的事件文件不会被无效重写，运行状态仍保留。
 
 ### GitHub Bug 修复批次：文件预览、会话隔离、首次导航与失败收敛（已完成）
 - Project 文件 raw 预览增加路由级回归测试，真实调用 `/api/settings/projects/[id]/inspection/file?raw=true` 并验证返回媒体字节与 MIME，不再把 Svelte HTML 404 当作文件内容。
 - Web/Profile 与 Project 的“新建会话”继续由共享 Session Store 按作用域复用唯一空会话；临时存储测试覆盖连续点击不会生成多个空 Session。
 - 主 Chat 与 Project Chat 均使用按 Session 固定的运行时 controller；Project 运行时在组件重挂载后读取最新依赖，后台 A 会话的输出、队列、停止和审批不会落到正在浏览的 B 会话。
 - 修复 Agents、Skills、Automations 首次点击看似无响应：实测点击事件第一次已触发，根因是启动 bootstrap 请求失败后同一 endpoint 不再重试，子页面又把失败空数据永久显示为 Loading。工作区现在等待 bootstrap 成功后才发子请求；再次点击或错误态按钮可重试，并提供中英双语错误说明。
+- 修复 Skills 首次异步加载后“总数有值但卡片为 0”的响应式缺口：列表过滤从读取外部 rune store 的 legacy `$:` 迁移到 Svelte 5 `$derived`，加载 26 条时会立即渲染 26 张卡片，搜索输入仍即时过滤。
 - 工具活动在服务端持久化和客户端读取历史记录时都会把遗留 `running` 收敛为 `error`；流中断会保留已生成文本、附件和工具时间线，不再永久转圈或丢失可继续的上下文。
 - 验证包括真实浏览器点击与断服恢复故障注入、Desktop Svelte 诊断 0/0、Desktop UI 40/40，以及 Project raw route、Session Store、activity/transcript 共 11 项聚焦测试。
+
+### Web UI Session 存储命名与删除生命周期（已完成）
+- Web 界面使用的会话投影从含义模糊的 `users/<scope>/sessions` 改为 `ui-sessions/<scope>`，索引同步收进 `ui-sessions/index.json`；首次读取会按原顺序自动迁移旧索引和文件，确认新文件落盘后才删除旧空目录。
+- 明确区分 UI Session（标题、附件、activity 与界面展示状态）和 Agent Context（模型、工具、压缩与续写状态）。Telegram、飞书、QQ、微信等外部渠道继续只使用 Agent Context，不新增 UI Session 副本。
+- Web 与 Desktop 删除入口现在共用上层生命周期：运行中拒绝删除；静止会话会同步删除 UI Session 及对应 Agent `.json`、`.jsonl`、`.meta.json`，即使它是最后一个 context 也不会留下孤儿记录。
+- 当前 UI Session 仍保留兼容 transcript；把它收敛为纯 UI 元数据、让 Agent entries 成为唯一消息正文权威属于下一阶段独立迁移。
 
 ### Project Chat 迁移到按会话运行时注册表（支持并发项目会话，已完成）
 - Project 聊天此前用**单个** `ConversationController`，host 的 `sessionId`/`modelKey`/`thinkingLevel` 跟随当前选中会话，导致同一时刻只能跑一个项目会话，`stop`/`resolveApproval`/队列会串到正在浏览的会话。2026-07-12 的修复用固定 `turnSessionId` + `liveTurnVisible` 门控 + 不切换选中态的 `refreshProjectSessionMessages` 打了补丁；本次改动把 Project 聊天迁到主聊天已在用的架构，彻底去掉补丁。

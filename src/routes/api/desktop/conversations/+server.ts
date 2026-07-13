@@ -80,8 +80,11 @@ export const DELETE: RequestHandler = async ({ url }) => {
   if (!sessionId) {
     return json({ ok: false, error: "sessionId is required" }, { status: 400 });
   }
-  const ok = deleteDesktopConversation(sessionId);
-  if (!ok) {
+  const result = deleteDesktopConversation(sessionId);
+  if (result === "running") {
+    return json({ ok: false, error: "conversation is running" }, { status: 409 });
+  }
+  if (result === "not_found") {
     return json({ ok: false, error: "conversation not found" }, { status: 404 });
   }
   return json({ ok: true }, { headers: { "Cache-Control": "no-store" } });

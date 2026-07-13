@@ -1,5 +1,16 @@
 # 2026-07-12 — Bot Project mode
 
+## 2026-07-14 — Owner memory notification target
+
+- User selected a single authorized Feishu or Telegram chat as the desired destination and requested a notice for zero-output success, nonzero success, and failure.
+- Audited the current Owner scheduler/runtime path and recorded the cross-layer plan; no production implementation has been changed yet.
+- Added structured target persistence, authorized Feishu/Telegram target projection, one aggregate success/failure executor, and a bilingual Desktop selector using existing settings form/footbar semantics.
+- Verification passed so far: focused server tests 33/33, Desktop UI 42/42, Svelte diagnostics 0/0, and production build.
+- Restarted the managed service and verified the live Desktop plugins API exposes both authorized Telegram and Feishu chats, with a valid Telegram target selected in the settings projection.
+- Final adversarial review confirmed one aggregate notification is emitted outside model/session context for zero-output success, nonzero success, or terminal failure; `git diff --check` passes.
+
+---
+
 - Traced Feishu intake through shared commands, BaseChannelRuntime, RunnerPool,
   and the existing `MomContext.project` execution path.
 - Selected a shared persisted binding plus shared context injection; no
@@ -269,6 +280,44 @@
 - Final Memory suite passes 24/24 after the safety regression.
 
 ---
+# Owner-level memory automations and task tabs (2026-07-13)
+
+- Confirmed product semantics with the user: one owner-level scheduler entry,
+  dynamic discovery of future Bots, and separate User/System automation tabs.
+- Read runtime-debug, frontend-design, planning, and repository design guidance.
+- Completed read-only root-cause validation against source, local event layout,
+  and the existing 10-test scheduler/reflection suite. No runtime data changed.
+- Chose a shared owner watched-events directory rather than anchoring the event
+  to a "first" Bot, so Bot additions/removals cannot orphan the automation.
+- Confirmed daily-material execution must aggregate current scopes before the
+  service call; moving the loop alone would retain duplicate file appends.
+- Added red regressions for one owner event, dynamic future-Bot discovery,
+  legacy managed-file migration, explicit system classification, and accessible
+  User/System tabs. The focused run failed only on the intentionally absent
+  implementation seams.
+- Owner scheduler/migration and Desktop projection tests now pass 15/15. The
+  first UI/type pass found one class-contract mismatch and one narrowed-union
+  error; both received localized fixes.
+- Desktop UI regressions pass 42/42 and Svelte diagnostics report 0 errors and
+  0 warnings. Root TypeScript remains red on broad pre-existing dependency and
+  package errors; touched-file filtering exposed three new local typing issues,
+  which were corrected.
+- Implemented the shared system owner watcher, dynamic per-run target
+  collection, target-isolated reflection/material orchestration, direct
+  per-target notifications, and idempotent legacy managed-file removal.
+- Added explicit managed metadata through the task API/Desktop contract and a
+  responsive bilingual User Tasks/System Tasks segmented navigation. System
+  entries use localized titles and cannot be edited or deleted as custom tasks.
+- Adversarial review moved legacy cleanup ahead of channel-manager lookup and
+  confirmed system edit/delete protection exists in both UI and API. The
+  remaining daily-material content aggregation question is explicitly out of
+  scope; scheduler duplication is removed without changing its watermark model.
+- Final verification passed 32 focused scheduler/event/reflection/material/task
+  tests, 44 Desktop UI/HTTP-scope tests, Desktop Svelte diagnostics with 0 errors and 0
+  warnings, Desktop Vite production build, root SvelteKit production build,
+  and `git diff --check`. Updated features, PRD, changelog, and README.
+
+---
 # Agent workspace (2026-07-12)
 
 - Read the approved workbench concept, frontend-design guidance, planning skill,
@@ -300,3 +349,59 @@
 - Added bilingual responsive controls to Web and Desktop Trace pages.
 - Verified 7 active/trace cases, 37 Desktop UI cases, zero Desktop Svelte
   diagnostics, and the full SvelteKit production build.
+# 2026-07-13 — GitHub bug repair #1-#6
+
+- User chose to prioritize the six issues labeled bug and defer #7-#9.
+- Loaded the grilling, diagnosis, runtime-review, and file-planning workflows.
+- Read every issue body, current PRD claims, branch state, and overlapping
+  uncommitted diff. No product code has been changed in this pass yet.
+- Started Phase 1: establish one fast red-capable feedback loop per issue before
+  selecting or editing production seams.
+- Confirmed #3's server-side empty-Session reuse seam and temp-storage regression
+  test. Mapped #1's route/raw URL/Tauri permission path and #6's two distinct
+  persistence consumers.
+- One read-only shell inspection partially aborted because zsh treated `[id]` as
+  a glob; reran with the filename quoted and recorded the error in the plan.
+- Existing focused feedback loops pass: Session/workspace/activity 11/11,
+  Desktop UI/HTTP contracts 41/41, Project inspection 8/8.
+- Checked the official Tauri v2 configuration reference: `acceptFirstMouse`
+  addresses the exact inactive-window first-click symptom but requires enabling
+  macOS private API support, so this is a product/distribution decision before
+  editing #4.
+- User challenged the click-through diagnosis. Confirmed the config experiment
+  alone was not causal proof; Cargo also rejected it without the matching
+  feature. Reverted the experiment and returned #4 to diagnosis.
+- Audited all three workspace loaders. No common permanent request latch was
+  found. Kept #4 open pending a real UI/request discriminator.
+- Detected new concurrent/untracked Project per-session registry work in the
+  shared worktree; preserved it and switched #2 review to that stronger design.
+- Instrumented the real Desktop page through Chrome DevTools: all three first clicks were delivered and switched panes; request failures, not click-through, caused the apparent no-op.
+- Added a red-first Desktop UI contract, then gated workspace requests on successful bootstrap, added same-endpoint retry, and added localized actionable errors for bootstrap, Skills, and Automations failures.
+- Ran stop-service/reload/restart fault injection: the UI showed an error instead of eternal Loading while offline, then the next navigation click reconnected and loaded Auto tasks, Skills, and Agents.
+- Adversarially tightened Project Chat's registry singleton so existing session entries resolve the latest mounted project/model/thinking dependencies rather than stale component closures.
+- Added/verified the Project raw-file route test and persisted-activity transcript tests; confirmed scoped empty-Session reuse.
+- Updated features, PRD, changelog, and README. #6 is recorded as decision-pending because its two stores preserve different required data.
+- Final verification passed: Desktop Svelte diagnostics 0/0, Desktop UI 40/40, transcript 2/2, conversation activity + Session Store 8/8, Project raw route 1/1, settings sanitize/store 13/13, and both root and Desktop production builds. Only existing Vite chunk/dynamic-import warnings remain.
+- Reproduced the reported Skills state in a real browser (26 total, 0 cards), added a failing component contract, and migrated `InstalledSkillsPane` from stale legacy `$:` derivations to Svelte 5 runes.
+- Browser recheck passed with 26/26 cards and exact-name search narrowing to one card; Desktop UI 41/41 and Svelte diagnostics 0/0 pass.
+- Desktop production build passed; adversarial review confirmed endpoint changes still reload once, request failures remain recoverable through the existing retry action, search and description expansion remain reactive, and no debug harness/process was left behind.
+
+---
+
+# 2026-07-13 — Issue #6 UI Session storage
+
+- User approved renaming the misleading Web `users` persistence directory to
+  `ui-sessions` and synchronizing UI Session deletion with Agent context deletion.
+- Recorded the UI Session / Agent Context boundary in `CONTEXT.md`.
+- Added red-first temporary-directory regressions for new-layout writes, legacy
+  layout migration, and deleting the last UI-linked Agent context.
+- Implemented lazy order-preserving migration to `ui-sessions`, with cleanup
+  retry semantics that retain the legacy index whenever an old file cannot yet
+  be removed.
+- Routed both Web and Desktop deletion through one shared lifecycle that checks
+  live runners and removes Agent context before the retryable UI cleanup.
+- Adversarial review fixed two partial-failure gaps: a failed old-file unlink no
+  longer drops the migration index, and an already-missing context still clears
+  a stale active-session pointer.
+- Verification passed 31 focused temp-store/query/lifecycle tests, the full
+  SvelteKit production build, and `git diff --check`.

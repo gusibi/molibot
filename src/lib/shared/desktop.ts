@@ -287,10 +287,13 @@ export interface DesktopHostBashToggleResponse {
 
 export type DesktopTaskType = "one-shot" | "periodic" | "immediate";
 export type DesktopTaskState = "pending" | "running" | "completed" | "skipped" | "error";
+export type DesktopTaskCategory = "user" | "system";
 
 export interface DesktopTaskItem {
   id: string;
   taskId: string;
+  category: DesktopTaskCategory;
+  systemKind: "memory-reflection" | "daily-materials" | "";
   channel: string;
   botId: string;
   chatId: string;
@@ -903,7 +906,7 @@ export interface DesktopPluginSettingField {
 export interface DesktopPluginsSummary {
   items: DesktopPluginItem[];
   counts: { total: number; active: number; external: number };
-  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }>; embeddingProviderId: string; embeddingModel: string; embeddingProviders: Array<{ value: string; label: string }>; reflectionTime: string; reflectionNotifications: boolean; dailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget: number; scanModelKey: string }; projects: Array<{ value: string; label: string }>; scanModels: Array<{ value: string; label: string }> };
+  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }>; embeddingProviderId: string; embeddingModel: string; embeddingProviders: Array<{ value: string; label: string }>; reflectionTime: string; reflectionNotifications: boolean; reflectionNotificationTarget: string; reflectionNotificationTargets: Array<{ value: string; label: string }>; dailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget: number; scanModelKey: string }; projects: Array<{ value: string; label: string }>; scanModels: Array<{ value: string; label: string }> };
   featureSettings: Array<{ pluginKey: string; name: string; description: string; fields: DesktopPluginSettingField[] }>;
 }
 
@@ -914,6 +917,7 @@ export interface DesktopPluginsUpdateRequest {
   memoryEmbeddingModel: string;
   memoryReflectionTime: string;
   memoryReflectionNotifications: boolean;
+  memoryReflectionNotificationTarget: string;
   memoryDailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean };
   values: Record<string, Record<string, string | boolean>>;
   secretValues?: Record<string, Record<string, string>>;

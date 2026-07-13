@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -32,16 +32,71 @@ test("deleting a Web conversation removes its file and index entry", () => {
     const sessionFile = path.join(
       root,
       "web",
-      "users",
+      "ui-sessions",
       "web_personal_web-anonymous",
-      "sessions",
       `${session.id}.json`
     );
     assert.equal(existsSync(sessionFile), true);
+    assert.equal(existsSync(path.join(root, "web", "ui-sessions", "index.json")), true);
+    assert.equal(existsSync(path.join(root, "web", "users")), false);
+    assert.equal(existsSync(path.join(root, "web", "sessions-index.json")), false);
     assert.equal(store.deleteConversation(session.id, "web", externalUserId), true);
     assert.equal(existsSync(sessionFile), false);
     assert.deepEqual(store.listConversations("web", externalUserId), []);
     assert.equal(store.deleteConversation(session.id, "web", externalUserId), false);
+  } finally {
+    storagePaths.webWorkspaceDir = original.webWorkspaceDir;
+    storagePaths.sessionsDir = original.sessionsDir;
+    storagePaths.sessionsIndexFile = original.sessionsIndexFile;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy Web users layout migrates to ui-sessions without losing ordering", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-ui-session-migration-"));
+  const original = {
+    webWorkspaceDir: storagePaths.webWorkspaceDir,
+    sessionsDir: storagePaths.sessionsDir,
+    sessionsIndexFile: storagePaths.sessionsIndexFile
+  };
+
+  try {
+    const webRoot = path.join(root, "web");
+    const externalUserId = "web:personal:web-anonymous";
+    const conversationIds = ["legacy-first", "legacy-second"];
+    const legacySessionDir = path.join(webRoot, "users", "web_personal_web-anonymous", "sessions");
+    mkdirSync(legacySessionDir, { recursive: true });
+    for (const conversationId of conversationIds) {
+      writeFileSync(path.join(legacySessionDir, `${conversationId}.json`), JSON.stringify({
+        conversation: {
+          id: conversationId,
+          channel: "web",
+          externalUserId,
+          title: `Legacy ${conversationId}`,
+          createdAt: "2026-07-13T00:00:00.000Z",
+          updatedAt: "2026-07-13T00:00:00.000Z"
+        },
+        messages: []
+      }));
+    }
+    writeFileSync(path.join(webRoot, "sessions-index.json"), JSON.stringify({
+      byUserId: { [externalUserId]: conversationIds },
+      byConversationId: Object.fromEntries(conversationIds.map((id) => [id, { externalUserId }]))
+    }));
+    storagePaths.webWorkspaceDir = webRoot;
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+
+    const store = new SessionStore();
+    assert.deepEqual(store.listConversations("web", externalUserId).map((item) => item.id), conversationIds);
+    for (const conversationId of conversationIds) {
+      assert.equal(existsSync(path.join(webRoot, "ui-sessions", "web_personal_web-anonymous", `${conversationId}.json`)), true);
+    }
+    assert.equal(existsSync(path.join(webRoot, "ui-sessions", "index.json")), true);
+    const migratedIndex = JSON.parse(readFileSync(path.join(webRoot, "ui-sessions", "index.json"), "utf8"));
+    assert.deepEqual(migratedIndex.byUserId[externalUserId], conversationIds);
+    assert.equal(existsSync(path.join(webRoot, "sessions-index.json")), false);
+    assert.equal(existsSync(path.join(webRoot, "users")), false);
   } finally {
     storagePaths.webWorkspaceDir = original.webWorkspaceDir;
     storagePaths.sessionsDir = original.sessionsDir;

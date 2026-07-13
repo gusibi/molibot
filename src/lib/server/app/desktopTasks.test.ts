@@ -92,6 +92,13 @@ test("buildDesktopTaskItem exposes the persisted pause state", () => {
   assert.equal(buildDesktopTaskItem(item()).enabled, true);
 });
 
+test("buildDesktopTaskItem classifies explicit Molibot managed events as system tasks", () => {
+  const system = buildDesktopTaskItem(item({ managed: { by: "molibot", scope: "owner", kind: "memory-reflection", ownerId: "owner" } }));
+  assert.equal(system.category, "system");
+  assert.equal(system.systemKind, "memory-reflection");
+  assert.equal(buildDesktopTaskItem(item()).category, "user");
+});
+
 test("buildDesktopTaskSummary exposes only periodic automations", () => {
   const summary = buildDesktopTaskSummary([
     item({ type: "periodic", status: "pending", scope: "workspace", channel: "telegram" }),
@@ -124,7 +131,7 @@ test("task targets include enabled Web profiles and external Bot allowed chat id
         { id: "default", name: "Default Web", enabled: true, allowedChatIds: ["web-chat"] }
       ] }
     }
-  } as Parameters<typeof buildDesktopTaskTargets>[0];
+  } as unknown as Parameters<typeof buildDesktopTaskTargets>[0];
 
   const targets = buildDesktopTaskTargets(settings);
 

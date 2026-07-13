@@ -484,6 +484,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
       embeddingModel: String(process.env.MEMORY_EMBEDDING_MODEL ?? "").trim(),
       reflectionTime: String(process.env.MEMORY_REFLECTION_TIME ?? "03:00").trim() || "03:00",
       reflectionNotifications: String(process.env.MEMORY_REFLECTION_NOTIFICATIONS ?? "true").toLowerCase() !== "false",
+      reflectionNotificationTarget: null,
       dailyMaterials: {
         enabled: false,
         time: "23:30",

@@ -177,6 +177,12 @@ export interface ChannelPluginSettings {
 
 export type ChannelSettingsMap = Record<string, ChannelPluginSettings>;
 
+export interface MemoryReflectionNotificationTarget {
+  channel: "telegram" | "feishu";
+  botId: string;
+  chatId: string;
+}
+
 export interface MemoryBackendSettings {
   enabled: boolean;
   backend: string;
@@ -184,6 +190,7 @@ export interface MemoryBackendSettings {
   embeddingModel: string;
   reflectionTime: string;
   reflectionNotifications: boolean;
+  reflectionNotificationTarget: MemoryReflectionNotificationTarget | null;
   dailyMaterials: {
     enabled: boolean;
     time: string;

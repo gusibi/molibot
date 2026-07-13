@@ -136,6 +136,9 @@
     resolveModel: resolveSessionModel,
     resolveThinking: resolveSessionThinking
   });
+  if (projectsStore.selectedSessionId && projectsStore.endpoint) {
+    projectChatStore.selectSession(projectsStore.selectedSessionId, projectsStore.selectedProjectId);
+  }
 
   // Legacy `$:` can't track the store's runes `$state`; subscribe to its single
   // `state` store so the active session's transcript + streaming stay reactive.
@@ -152,15 +155,6 @@
   $: pendingApproval = chatState.pendingApproval;
   $: queuedMessages = chatState.queue;
   $: turnError = chatState.error;
-
-  // Pin the selected session's runtime as soon as it (and the endpoint) exist,
-  // independent of model loading so the transcript always shows. A latch avoids
-  // re-selecting the same session and the onMount/$: double-fetch race.
-  let pinnedSessionId = "";
-  $: if (projectsStore.selectedSessionId && projectsStore.endpoint && projectsStore.selectedSessionId !== pinnedSessionId) {
-    pinnedSessionId = projectsStore.selectedSessionId;
-    projectChatStore.selectSession(projectsStore.selectedSessionId, projectsStore.selectedProjectId);
-  }
 
   function inferAttachmentKind(file: File): "image" | "audio" | "video" | "file" {
     const type = file.type.toLowerCase();

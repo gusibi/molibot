@@ -8,6 +8,7 @@ import { buildDesktopChannelsSummary } from "$lib/server/app/desktopChannels.js"
 import { listExternalSessionsFromContexts } from "$lib/server/app/externalSessionsFromContexts.js";
 import { parseBotInstanceId, type ExternalSessionEntry } from "$lib/server/app/desktopExternalSessions.js";
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
+import { deleteWebSession, type WebSessionDeletionResult } from "$lib/server/web/sessionLifecycle.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type {
   DesktopConversationBotGroup,
@@ -347,14 +348,11 @@ export function renameDesktopConversation(sessionId: string, title: string): { t
 
 /**
  * Deletes a Web conversation from the desktop sidebar (Web-only, same
- * ownership resolution as {@link renameDesktopConversation}). Returns `false`
- * when the session is not a known Web conversation.
+ * ownership resolution as {@link renameDesktopConversation}). The shared
+ * lifecycle also rejects running sessions and removes their Agent context.
  */
-export function deleteDesktopConversation(sessionId: string): boolean {
-  const sessions = getRuntime().sessions;
-  const owner = sessions.getWebConversationOwner(sessionId);
-  if (!owner) return false;
-  return sessions.deleteConversation(sessionId, "web", owner);
+export function deleteDesktopConversation(sessionId: string): WebSessionDeletionResult {
+  return deleteWebSession({ conversationId: sessionId });
 }
 
 function normalizeRunStatus(status: string): DesktopSessionRunStatus {

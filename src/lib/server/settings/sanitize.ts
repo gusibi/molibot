@@ -345,6 +345,16 @@ export function sanitizeMemoryPluginSettings(
     return normalized;
   };
   const validTime = (value: unknown): value is string => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value ?? ""));
+  const notificationTarget = (() => {
+    if (source.reflectionNotificationTarget === undefined) return current.reflectionNotificationTarget ?? null;
+    if (!source.reflectionNotificationTarget || typeof source.reflectionNotificationTarget !== "object") return null;
+    const candidate = source.reflectionNotificationTarget as Record<string, unknown>;
+    const channel = String(candidate.channel ?? "").trim();
+    const botId = String(candidate.botId ?? "").trim();
+    const chatId = String(candidate.chatId ?? "").trim();
+    if ((channel !== "telegram" && channel !== "feishu") || !botId || !chatId) return null;
+    return { channel, botId, chatId } as RuntimeSettings["plugins"]["memory"]["reflectionNotificationTarget"];
+  })();
   return {
     enabled: source.enabled === undefined ? current.enabled : Boolean(source.enabled),
     backend: String((source as { backend?: string; core?: string }).backend ?? (source as { backend?: string; core?: string }).core ?? "").trim()
@@ -358,6 +368,7 @@ export function sanitizeMemoryPluginSettings(
     reflectionNotifications: source.reflectionNotifications === undefined
       ? (current.reflectionNotifications ?? true)
       : Boolean(source.reflectionNotifications),
+    reflectionNotificationTarget: notificationTarget,
     dailyMaterials: {
       enabled: dailyInput?.enabled === undefined ? false : Boolean(dailyInput.enabled),
       time: validTime(dailyInput?.time) ? String(dailyInput?.time) : "23:30",

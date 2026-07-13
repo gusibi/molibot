@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { rollup } from "rollup";
 import { nodeResolve } from "@rollup/plugin-node-resolve";
 import commonjs from "@rollup/plugin-commonjs";
@@ -21,6 +22,38 @@ export function handlerReplacements(builder, envPrefix, precompress) {
   };
 }
 
+function replaceFile(source, destination) {
+  if (!existsSync(source)) return;
+  const temporary = `${destination}.tmp-${process.pid}-${Date.now()}`;
+  copyFileSync(source, temporary);
+  renameSync(temporary, destination);
+}
+
+export function publishBuild(stagedOut, out) {
+  mkdirSync(out, { recursive: true });
+
+  // A running server can lazy-load route chunks from its already-imported
+  // manifest, so hashed chunks from the previous build must remain available.
+  const stagedChunks = path.join(stagedOut, "server/chunks");
+  if (existsSync(stagedChunks)) {
+    cpSync(stagedChunks, path.join(out, "server/chunks"), { recursive: true });
+  }
+
+  const stagedManifest = path.resolve(stagedOut, "server/manifest.js");
+  const stagedManifestMap = `${stagedManifest}.map`;
+  cpSync(stagedOut, out, {
+    recursive: true,
+    filter: (source) => {
+      const resolved = path.resolve(source);
+      return resolved !== stagedManifest && resolved !== stagedManifestMap;
+    }
+  });
+
+  replaceFile(stagedManifestMap, path.join(out, "server/manifest.js.map"));
+  replaceFile(stagedManifest, path.join(out, "server/manifest.js"));
+  rmSync(stagedOut, { recursive: true, force: true });
+}
+
 export default function adapter(opts = {}) {
   const { out = "build", precompress = true, envPrefix = "" } = opts;
 
@@ -28,20 +61,22 @@ export default function adapter(opts = {}) {
     name: "@sveltejs/adapter-node",
     async adapt(builder) {
       const tmp = builder.getBuildDirectory("adapter-node");
+      const stagedOut = builder.getBuildDirectory("adapter-node-output");
 
-      builder.rimraf(out);
       builder.rimraf(tmp);
+      builder.rimraf(stagedOut);
       builder.mkdirp(tmp);
+      builder.mkdirp(stagedOut);
 
       builder.log.minor("Copying assets");
-      builder.writeClient(`${out}/client${builder.config.kit.paths.base}`);
-      builder.writePrerendered(`${out}/prerendered${builder.config.kit.paths.base}`);
+      builder.writeClient(`${stagedOut}/client${builder.config.kit.paths.base}`);
+      builder.writePrerendered(`${stagedOut}/prerendered${builder.config.kit.paths.base}`);
 
       if (precompress) {
         builder.log.minor("Compressing assets");
         await Promise.all([
-          builder.compress(`${out}/client`),
-          builder.compress(`${out}/prerendered`)
+          builder.compress(`${stagedOut}/client`),
+          builder.compress(`${stagedOut}/prerendered`)
         ]);
       }
 
@@ -86,25 +121,27 @@ export default function adapter(opts = {}) {
       });
 
       await bundle.write({
-        dir: `${out}/server`,
+        dir: `${stagedOut}/server`,
         format: "esm",
         sourcemap: true,
         chunkFileNames: "chunks/[name]-[hash].js"
       });
 
-      builder.copy(files, out, {
+      builder.copy(files, stagedOut, {
         replace: handlerReplacements(builder, envPrefix, precompress)
       });
 
       if (builder.hasServerInstrumentationFile?.()) {
         builder.instrument?.({
-          entrypoint: `${out}/index.js`,
-          instrumentation: `${out}/server/instrumentation.server.js`,
+          entrypoint: `${stagedOut}/index.js`,
+          instrumentation: `${stagedOut}/server/instrumentation.server.js`,
           module: {
             exports: ["path", "host", "port", "server"]
           }
         });
       }
+
+      publishBuild(stagedOut, out);
     },
     supports: {
       read: () => true,

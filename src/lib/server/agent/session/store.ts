@@ -561,6 +561,32 @@ export class MomRuntimeStore {
     this.writeSessionFileEntries(chatId, id, [header]);
   }
 
+  /**
+   * Removes the persisted Agent context linked to a UI Session. Unlike the
+   * interactive session command, lifecycle deletion may remove the last
+   * context and is idempotent so a partially completed UI cleanup can retry.
+   */
+  deleteSessionArtifacts(chatId: string, sessionId: string): boolean {
+    const id = this.sanitizeSessionId(sessionId);
+    const files = [
+      this.getSessionContextFile(chatId, id),
+      this.getSessionEntriesFile(chatId, id),
+      this.getSessionMetadataFile(chatId, id)
+    ];
+    const existed = files.some((file) => existsSync(file));
+
+    for (const file of files) {
+      if (existsSync(file)) unlinkSync(file);
+    }
+
+    const activeFile = this.getActiveSessionFile(chatId);
+    if (existsSync(activeFile)) {
+      const active = this.sanitizeSessionId(readFileSync(activeFile, "utf8"));
+      if (active === id) unlinkSync(activeFile);
+    }
+    return existed;
+  }
+
   deleteSession(chatId: string, sessionId: string): { deleted: string; active: string; remaining: string[] } {
     const id = this.sanitizeSessionId(sessionId);
     const sessions = this.listSessions(chatId);

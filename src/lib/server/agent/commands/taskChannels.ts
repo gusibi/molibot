@@ -12,3 +12,7 @@ export const TASK_CHANNEL_ROOTS: TaskChannelRoot[] = [
   { channel: "qq", dir: "moli-q" },
   { channel: "weixin", dir: "moli-wx" },
 ];
+
+export const SYSTEM_TASK_CHANNEL = "system" as const;
+export const SYSTEM_TASK_OWNER_ID = "owner";
+export const SYSTEM_TASK_BOTS_DIR = "system/bots";

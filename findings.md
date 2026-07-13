@@ -1,5 +1,14 @@
 # Bot Project mode (2026-07-12)
 
+## Owner memory notification target (2026-07-14)
+
+- Current Owner events intentionally have no fixed `internal.target`; runtime expands live settings into per-Bot scan targets at trigger time.
+- Existing completion delivery selects the first authorized chat independently for every Bot and stays silent on zero output or failure.
+- The smallest stable seam is one persisted Feishu/Telegram destination on the memory plugin, validated against enabled instances and `allowedChatIds`, with aggregate delivery after the Owner loop finishes.
+- Human notification must remain separate from reflection prompts, Session transcript persistence, and structured execution history.
+
+---
+
 - `MomContext.project` already owns Project cwd, instructions, Skills, output
   layout, and tool guards; Channels only lack binding resolution and injection.
 - `SharedRuntimeCommandService` and `BaseChannelRuntime` cover Feishu, Telegram,
@@ -336,3 +345,120 @@ rules, and contextual header format.
   `chatId + sessionId` abort seam.
 - Orphan cleanup should upsert the existing run fact as aborted rather than
   deleting it, preserving the audit trail while removing false active state.
+# GitHub bug repair #1-#6 (2026-07-13)
+
+- GitHub currently has six open issues labeled `bug` (#1-#6); #7-#9 are a
+  behavior proposal, enhancement bundle, and new search-provider request.
+- The worktree is already dirty and overlaps #2 and #5: per-turn Session
+  ownership, Project reload isolation, terminal activity snapshots, and stream
+  failure persistence are partially implemented and require verification.
+- `prd.md` already claims one-empty-Session-per-scope and Project large-media
+  preview are done, so #1 and #3 are regressions or incomplete acceptance paths,
+  not greenfield features.
+- Branch `master` is two commits ahead of `origin/master`; no history rewrite or
+  unrelated cleanup is in scope.
+- #3 already has a shared server invariant in `SessionStore`: Web and Project
+  creation return the newest empty conversation with `reused: true`. Its tests
+  use temporary storage paths. Desktop calls the idempotent API directly.
+- #1's current source includes the Project inspection route, raw-media response,
+  wildcard Tauri HTTP permission, and a raw URL builder. The open report may
+  describe a released-build mismatch or a previously fixed path; route-level
+  and packaged-capability checks are still required before closure.
+- #6's two files are not byte-for-byte equivalent stores: `users/.../sessions`
+  is the canonical Web UI conversation (titles, attachments, activity timeline),
+  while `bots/.../contexts` is the Agent/model context log (tool/model entries,
+  compaction and retry semantics). Ordinary Web runs currently append to both.
+  Removing either without a projection/migration contract would lose behavior.
+- #4 sidebar callbacks are direct, but the workspace is hosted inside a large
+  legacy-mode `ChatView`; an actual first-click DOM feedback loop is needed to
+  distinguish event wiring from first-load/service-ready state.
+- #4 matches the macOS inactive-window click-through contract exactly. Tauri's
+  `acceptFirstMouse` window option makes a click on an inactive window reach the
+  WebView, but the official config reference says it requires the
+  `macOSPrivateApi` feature/config. The current app sets `macOSPrivateApi:false`
+  and has no `acceptFirstMouse` on either window.
+- `acceptFirstMouse` remains only a hypothesis: enabling the config requires a
+  matching Cargo private-API feature and does not prove whether the reported
+  first click was swallowed or whether the destination page failed to load.
+  The experimental config/test were reverted pending a UI-level discriminator.
+- Project inspection's focused filesystem suite passes 8/8, including bounded
+  tree reads, large/binary states, Git isolation, and symlink escape rejection.
+  A route-level raw-response test is still missing.
+- During diagnosis, the worktree changed further outside this task's own edits:
+  a new untracked `projectChatStore.svelte.ts` and matching ProjectChat/ChatView
+  edits appeared. They migrate Project Chat from one mutable controller to the
+  existing per-session registry, which is a stronger #2 boundary than the
+  earlier `turnSessionId` UI gate. Treat these as user/concurrent work: preserve,
+  review, and verify without reverting or silently rewriting them.
+- #4 request-path audit found no shared one-shot failure latch: Skills clears
+  its endpoint on failure, Agent polls every 2.5 seconds, and Automations reacts
+  to shared service readiness. This weakens (but does not disprove) the theory
+  that all three fail because their HTTP request never retries.
+
+---
+## Confirmed findings
+
+- #4 is not click-through: CDP instrumentation showed the first click changed the active nav item and workspace pane and emitted API requests. Failed requests were rendered forever as Loading, while `connectedEndpoint` was latched before bootstrap success and blocked same-endpoint retry.
+- #4 recovery now gates workspace children on a successful bootstrap, retries on repeated navigation/retry action, and renders localized actionable errors. Browser fault injection passed with backend available, unavailable, and restored.
+- #1's raw Project file route exists and returns bytes/MIME; a route-level temp-store test now prevents an HTML 404 regression.
+- #2 is owned by per-session runtime registries in both main Chat and Project Chat. Project registry dependencies resolve through the latest mounted host to avoid stale cross-project/model closures.
+- #3's shared Session Store reuses one empty conversation per Web Profile or Project; the temp-store regression passes.
+- #5 now terminalizes persisted running activities and preserves partial stream output on failure; server and client regressions pass.
+- #6 contains two semantically different stores: Agent context owns tool/model/compaction/retry history; UI Session owns title/attachments/activity presentation. Removing either without a migration loses required data, so this remains a product architecture decision rather than a surgical bug deletion.
+
+## Skills first-load card reactivity
+
+- CDP reproduced the screenshot exactly against the real Desktop/API path: `{total:26,cards:0,empty:"No matching skills"}` with an empty search box.
+- The summary reads `skillsStore.skills.counts` directly and updated correctly; `filteredSkills` was a legacy `$:` reading an imported `$state` store and remained at its initial empty value.
+- Converting the component to `$props`/`$state`/`$effect`/`$derived` produced `{total:26,cards:26}`; entering the first exact Skill name produced one card.
+
+---
+# Owner-level memory automations (2026-07-13)
+
+- Current scheduler creation is nested under channel and Bot directory loops,
+  producing one reflection and one daily-materials JSON per runnable Bot.
+- Cross-session behavior exists only inside a target: the reader enumerates all
+  conversations for that target's source scopes, while the target identity
+  still contains one `botId`.
+- The local runtime currently has 18 active 03:00 reflection files and 18
+  paused 23:30 daily-material files, confirming physical task fan-out rather
+  than a Desktop rendering duplicate.
+- Managed events have empty `text`, and Desktop uses `text` as their title;
+  system metadata must provide a stable localized display identity.
+- Daily-material disable preserves every per-Bot JSON as paused; reflection
+  disable returns early and can leave an existing managed event enabled.
+- A true owner event cannot be hosted inside an arbitrary Bot directory: Bot
+  deletion would remove its scheduler/watch boundary. It needs a shared owner
+  watched-events directory and a watcher that does not depend on one channel
+  manager.
+- Daily materials still processes each target with its existing independent
+  watermark and may append supplements to the same dated output. Consolidating
+  its content-generation algorithm is separate from removing duplicate
+  scheduler entries and is intentionally outside this task.
+- System/user task classification needs explicit persisted metadata. File-name
+  inference would misclassify migrated or manually copied events and would not
+  give the UI a localized display name.
+- Hosting the owner event under `system/bots/owner/events` lets the existing
+  watcher, lease, task-list, and manual-trigger machinery keep one storage
+  contract without pretending the task belongs to a delivery channel.
+- System task edits/deletes cannot be durable because scheduler reconciliation
+  owns their payload. The UI exposes inspection and manual Run only; plugin
+  settings remain the source of truth for enablement and schedules.
+- Adversarial review found migration originally sat after the no-manager early
+  exit. It now runs first, so disabled or temporarily unavailable channels do
+  not retain stale managed task rows.
+
+---
+# Issue #6 UI Session storage
+
+- `users/<scope>/sessions` contains Web UI presentation data, not a user-domain
+  aggregate. The agreed canonical term is **UI Session**, with filesystem root
+  `ui-sessions`.
+- Web and Desktop expose separate delete entrypoints, and both currently delete
+  only the UI Session. `RunnerPool.reset` clears memory but leaves the Agent
+  `.json`, `.jsonl`, and `.meta.json` context artifacts on disk.
+- External channels are intentionally context-only and do not write this UI
+  Session layout, so the rename/migration must remain Web-specific.
+- Agent Store's ordinary `deleteSession` rejects deletion of the last context;
+  UI lifecycle deletion needs a distinct idempotent artifact-removal operation
+  that may remove the last UI-linked context and clear its active pointer.

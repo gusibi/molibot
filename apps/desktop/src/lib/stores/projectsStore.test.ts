@@ -69,3 +69,52 @@ test("the latest project selection owns the session list and transcript", async 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("selecting a project session repins the Project Chat transcript", async () => {
+  (globalThis as any).$state = <T>(value: T): T => value;
+  const { projectsStore, selectProjectSession } = await import("./projects.svelte.js");
+  const { projectChatStore } = await import("../projects/projectChatStore.svelte.js");
+  projectChatStore.disposeAll();
+  projectChatStore.init({
+    endpoint: () => projectsStore.endpoint,
+    modelReady: () => true,
+    labels: () => ({ working: "Working", uploading: "Uploading", stopped: "Stopped", idle: "Idle", resuming: "Resuming" }),
+    resolveModel: () => "model",
+    resolveThinking: () => "medium"
+  });
+  Object.assign(projectsStore, {
+    endpoint: "http://desktop.test",
+    selectedProjectId: "project",
+    selectedSessionId: "",
+    messages: [],
+    messagesLoading: false,
+    error: ""
+  });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.endsWith("/projects/project/sessions/session-a")) {
+      return jsonResponse({ ok: true, messages: [{ id: "m-a", conversationId: "session-a", role: "assistant", content: "Session A", createdAt: "2026-07-14T00:00:00.000Z" }] });
+    }
+    if (url.endsWith("/projects/project/sessions/session-b")) {
+      return jsonResponse({ ok: true, messages: [{ id: "m-b", conversationId: "session-b", role: "assistant", content: "Session B", createdAt: "2026-07-14T00:01:00.000Z" }] });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    await selectProjectSession("session-a", "project");
+    await projectChatStore.reloadActive();
+    assert.equal(projectChatStore.registry.active?.sessionId, "session-a");
+    assert.equal(projectChatStore.registry.active?.messages[0]?.content, "Session A");
+
+    await selectProjectSession("session-b", "project");
+    await projectChatStore.reloadActive();
+    assert.equal(projectChatStore.registry.active?.sessionId, "session-b");
+    assert.equal(projectChatStore.registry.active?.messages[0]?.content, "Session B");
+  } finally {
+    globalThis.fetch = originalFetch;
+    projectChatStore.disposeAll();
+  }
+});

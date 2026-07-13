@@ -58,16 +58,32 @@ function legacySessionFilePath(conversationId: string): string {
   return path.join(storagePaths.sessionsDir, `${conversationId}.json`);
 }
 
-function webIndexFilePath(): string {
-  return path.join(storagePaths.webWorkspaceDir, "sessions-index.json");
+function webUiSessionsDir(): string {
+  return path.join(storagePaths.webWorkspaceDir, "ui-sessions");
 }
 
-function webUserSessionsDir(externalUserId: string): string {
-  return path.join(storagePaths.webWorkspaceDir, "users", sanitizeUserDirPart(externalUserId), "sessions");
+function webIndexFilePath(): string {
+  return path.join(webUiSessionsDir(), "index.json");
+}
+
+function webUiSessionScopeDir(externalUserId: string): string {
+  return path.join(webUiSessionsDir(), sanitizeUserDirPart(externalUserId));
 }
 
 function webSessionFilePath(externalUserId: string, conversationId: string): string {
-  return path.join(webUserSessionsDir(externalUserId), `${conversationId}.json`);
+  return path.join(webUiSessionScopeDir(externalUserId), `${conversationId}.json`);
+}
+
+function legacyWebIndexFilePath(): string {
+  return path.join(storagePaths.webWorkspaceDir, "sessions-index.json");
+}
+
+function legacyWebUserSessionsDir(externalUserId: string): string {
+  return path.join(storagePaths.webWorkspaceDir, "users", sanitizeUserDirPart(externalUserId), "sessions");
+}
+
+function legacyWebSessionFilePath(externalUserId: string, conversationId: string): string {
+  return path.join(legacyWebUserSessionsDir(externalUserId), `${conversationId}.json`);
 }
 
 function projectDir(projectId: string): string {
@@ -114,8 +130,8 @@ function writeLegacyIndex(index: SessionsIndex): void {
   writeJsonFile(storagePaths.sessionsIndexFile, index);
 }
 
-function readWebIndex(): WebSessionsIndex {
-  const raw = readJsonFile<Record<string, unknown>>(webIndexFilePath(), {});
+function readWebIndexFile(filePath: string): WebSessionsIndex {
+  const raw = readJsonFile<Record<string, unknown>>(filePath, {});
   const byUserIdRaw =
     raw && typeof raw.byUserId === "object" && raw.byUserId
       ? (raw.byUserId as Record<string, unknown>)
@@ -139,6 +155,90 @@ function readWebIndex(): WebSessionsIndex {
   }
 
   return { byUserId, byConversationId };
+}
+
+function removeDirectoryIfEmpty(dir: string): void {
+  try {
+    fs.rmdirSync(dir);
+  } catch {
+    // Keep non-empty or inaccessible legacy directories for a later retry.
+  }
+}
+
+function migrateLegacyWebUiSessionsLayout(): void {
+  const legacyIndexPath = legacyWebIndexFilePath();
+  if (!fs.existsSync(legacyIndexPath)) return;
+
+  const legacyIndex = readWebIndexFile(legacyIndexPath);
+  const nextIndex = readWebIndexFile(webIndexFilePath());
+  const migrated: Array<{ externalUserId: string; conversationId: string }> = [];
+  let changed = false;
+
+  for (const [conversationId, owner] of Object.entries(legacyIndex.byConversationId)) {
+    const externalUserId = owner.externalUserId;
+    if (!externalUserId) continue;
+    const from = legacyWebSessionFilePath(externalUserId, conversationId);
+    const to = webSessionFilePath(externalUserId, conversationId);
+    if (!fs.existsSync(from) && !fs.existsSync(to)) continue;
+
+    if (!fs.existsSync(to)) {
+      const file = readSessionFromFile(from);
+      if (!file) continue;
+      writeJsonFile(to, file);
+    }
+    ensureWebIndexEntry(nextIndex, externalUserId, conversationId);
+    migrated.push({ externalUserId, conversationId });
+    changed = true;
+  }
+
+  for (const [externalUserId, legacyOrder] of Object.entries(legacyIndex.byUserId)) {
+    const migratedOrder = legacyOrder.filter((conversationId) =>
+      nextIndex.byConversationId[conversationId]?.externalUserId === externalUserId
+      && fs.existsSync(webSessionFilePath(externalUserId, conversationId))
+    );
+    if (migratedOrder.length === 0) continue;
+    const migratedIds = new Set(migratedOrder);
+    nextIndex.byUserId[externalUserId] = [
+      ...migratedOrder,
+      ...(nextIndex.byUserId[externalUserId] ?? []).filter((id) => !migratedIds.has(id))
+    ];
+  }
+
+  if (changed) writeJsonFile(webIndexFilePath(), nextIndex);
+
+  for (const item of migrated) {
+    const from = legacyWebSessionFilePath(item.externalUserId, item.conversationId);
+    if (fs.existsSync(from) && fs.existsSync(webSessionFilePath(item.externalUserId, item.conversationId))) {
+      try {
+        fs.unlinkSync(from);
+      } catch {
+        // Keep the legacy index so cleanup can retry after the new copy is in use.
+      }
+    }
+    removeDirectoryIfEmpty(legacyWebUserSessionsDir(item.externalUserId));
+    removeDirectoryIfEmpty(path.dirname(legacyWebUserSessionsDir(item.externalUserId)));
+  }
+
+  const fullyMigrated = Object.entries(legacyIndex.byConversationId).every(([conversationId, owner]) =>
+    Boolean(
+      owner.externalUserId
+      && fs.existsSync(webSessionFilePath(owner.externalUserId, conversationId))
+      && !fs.existsSync(legacyWebSessionFilePath(owner.externalUserId, conversationId))
+    )
+  );
+  if (fullyMigrated) {
+    try {
+      fs.unlinkSync(legacyIndexPath);
+    } catch {
+      return;
+    }
+    removeDirectoryIfEmpty(path.join(storagePaths.webWorkspaceDir, "users"));
+  }
+}
+
+function readWebIndex(): WebSessionsIndex {
+  migrateLegacyWebUiSessionsLayout();
+  return readWebIndexFile(webIndexFilePath());
 }
 
 function writeWebIndex(index: WebSessionsIndex): void {

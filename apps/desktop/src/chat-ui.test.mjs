@@ -65,6 +65,12 @@ test("workspace navigation waits for bootstrap and can retry failed loads", () =
   assert.match(taskStore, /error: ""/);
 });
 
+test("installed Skills recomputes its card list when async store data arrives", () => {
+  assert.match(sections.skills, /let normalizedQuery = \$derived\(query\.trim\(\)\.toLowerCase\(\)\)/);
+  assert.match(sections.skills, /let filteredSkills = \$derived\(/);
+  assert.doesNotMatch(sections.skills, /\$: filteredSkills/);
+});
+
 const formSectionKey = { agent: "agents", mcp: "mcp", channel: "channels", profile: "profiles", task: "tasks", memory: "memory" };
 
 test("chat composer keeps keyboard guidance in the textarea placeholder", () => {
@@ -272,6 +278,15 @@ test("automation workspace uses a dense list with a selected task detail pane", 
   assert.match(styles, /\.automation-task-row\.active\s*\{[^}]*background: var\(--fill\)/s);
 });
 
+test("automation workspace separates user and system tasks with accessible tabs", () => {
+  assert.match(sections.tasks, /role="tablist"/);
+  assert.match(sections.tasks, /session\.text\.tasksUserTab/);
+  assert.match(sections.tasks, /session\.text\.tasksSystemTab/);
+  assert.match(sections.tasks, /item\.category === activeTaskCategory/);
+  assert.match(styles, /\.automation-category-tabs\s*\{/s);
+  assert.match(styles, /\.automation-category-tab\.active\s*\{/s);
+});
+
 test("automation details are opt-in and execution state stays task-scoped", () => {
   assert.match(sections.tasks, /selectedTaskId \? filteredTaskItems\.find/);
   assert.match(sections.tasks, /onclick=\{\(\) => \(selectedTaskId = ""\)\}/);
@@ -378,6 +393,8 @@ test("settings uses the flat Geist layout", () => {
   assert.match(sections.plugins, /memoryDailyMaterials\.enabled/);
   assert.match(sections.plugins, /memoryDailyMaterials\.projectId/);
   assert.match(sections.plugins, /memoryDailyMaterials\.promptPath/);
+  assert.match(sections.plugins, /memoryReflectionNotificationTarget/);
+  assert.match(sections.plugins, /reflectionNotificationTargets/);
 });
 
 test("project creation asks for a name before offering managed or existing directories", () => {

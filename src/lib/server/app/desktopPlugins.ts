@@ -10,6 +10,7 @@ import type { PluginCatalog, PluginSettingField } from "$lib/server/plugins/type
 import { getProjectStore } from "$lib/server/projects/store";
 import { buildModelOptions } from "$lib/server/settings/modelSwitch";
 import { isAbsolute } from "node:path";
+import { listMemoryReflectionNotificationTargets, memoryReflectionNotificationTargetValue, resolveMemoryReflectionNotificationTarget } from "$lib/server/agent/taskScheduler";
 
 const KNOWN_KINDS: readonly DesktopPluginKind[] = ["channel", "provider", "feature", "memory-backend"];
 const KNOWN_STATUSES: readonly DesktopPluginStatus[] = ["active", "error", "discovered"];
@@ -97,6 +98,8 @@ export function buildDesktopPluginsSummary(catalog: SharedPluginCatalog, setting
     if (!Array.isArray(entries)) continue;
     for (const entry of entries) items.push(buildDesktopPluginItem(entry, kind));
   }
+  const reflectionNotificationTargets = listMemoryReflectionNotificationTargets(settings);
+  const reflectionNotificationTarget = resolveMemoryReflectionNotificationTarget(settings);
 
   return {
     items,
@@ -112,6 +115,8 @@ export function buildDesktopPluginsSummary(catalog: SharedPluginCatalog, setting
       embeddingModel: settings?.plugins.memory.embeddingModel ?? "",
       reflectionTime: settings?.plugins.memory.reflectionTime ?? "03:00",
       reflectionNotifications: settings?.plugins.memory.reflectionNotifications ?? true,
+      reflectionNotificationTarget: reflectionNotificationTarget ? memoryReflectionNotificationTargetValue(reflectionNotificationTarget) : "",
+      reflectionNotificationTargets: reflectionNotificationTargets.map(({ value, label }) => ({ value, label })),
       dailyMaterials: settings?.plugins.memory.dailyMaterials ?? { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true, scanTokenBudget: 120000, scanModelKey: "" },
       projects,
       scanModels: scanModelOptions(settings),
@@ -154,6 +159,12 @@ export function buildDesktopPluginsSettings(settings: RuntimeSettings, catalog: 
   const dailyMaterials = input.memoryDailyMaterials ?? settings.plugins.memory.dailyMaterials ?? { enabled: false, time: "23:30", projectId: "", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: true, scanTokenBudget: 120000, scanModelKey: "" };
   const projectId = String(dailyMaterials?.projectId ?? "").trim();
   if (projectId && !projects.get(projectId)) throw new Error("Unknown daily materials project");
+  const notificationOptions = listMemoryReflectionNotificationTargets(settings);
+  const requestedNotificationTarget = String(input.memoryReflectionNotificationTarget ?? "").trim();
+  const reflectionNotificationTarget = requestedNotificationTarget
+    ? notificationOptions.find((option) => option.value === requestedNotificationTarget)?.target
+    : settings.plugins.memory.reflectionNotificationTarget;
+  if (requestedNotificationTarget && !reflectionNotificationTarget) throw new Error("Unknown or unauthorized reflection notification target");
   const relativeSetting = (value: unknown, fallback: string): string => {
     const normalized = String(value ?? "").trim();
     if (!normalized) return fallback;
@@ -167,6 +178,7 @@ export function buildDesktopPluginsSettings(settings: RuntimeSettings, catalog: 
     embeddingModel: String(input.memoryEmbeddingModel ?? "").trim(),
     reflectionTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(input.memoryReflectionTime) ? input.memoryReflectionTime : "03:00",
     reflectionNotifications: Boolean(input.memoryReflectionNotifications),
+    reflectionNotificationTarget: reflectionNotificationTarget ?? null,
     dailyMaterials: {
       enabled: Boolean(dailyMaterials?.enabled),
       time: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(dailyMaterials?.time ?? "")) ? dailyMaterials.time : "23:30",

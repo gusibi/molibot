@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { SettingsStore } from "$lib/server/settings/store.js";
 
 test("SettingsStore legacy table migration works and drops old tables", () => {
@@ -147,4 +151,50 @@ test("settings serialization keeps full plugins block (reflection, daily materia
   assert.equal(daily.projectId, "proj-1");
   assert.deepEqual(raw.plugins.hooks, [{ id: "daily-review", enabled: true }]);
   assert.deepEqual(raw.plugins.myFeature, { apiKey: "k", mode: "fast" });
+});
+
+test("memory reflection and daily materials survive a settings store restart", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-plugin-settings-"));
+  const originalSettingsFile = storagePaths.settingsFile;
+  const originalSettingsDbFile = storagePaths.settingsDbFile;
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    const firstStore = new SettingsStore();
+    firstStore.save({
+      ...defaultRuntimeSettings,
+      plugins: {
+        ...defaultRuntimeSettings.plugins,
+        memory: {
+          ...defaultRuntimeSettings.plugins.memory,
+          enabled: true,
+          backend: "mory",
+          reflectionTime: "05:15",
+          reflectionNotifications: false,
+          reflectionNotificationTarget: { channel: "feishu", botId: "momo", chatId: "oc_daily" },
+          dailyMaterials: {
+            ...defaultRuntimeSettings.plugins.memory.dailyMaterials,
+            enabled: true,
+            time: "22:45",
+            projectId: "project-1"
+          }
+        }
+      }
+    });
+
+    const restarted = new SettingsStore().load();
+    assert.equal(restarted.plugins.memory.enabled, true);
+    assert.equal(restarted.plugins.memory.backend, "mory");
+    assert.equal(restarted.plugins.memory.reflectionTime, "05:15");
+    assert.equal(restarted.plugins.memory.reflectionNotifications, false);
+    assert.deepEqual(restarted.plugins.memory.reflectionNotificationTarget, { channel: "feishu", botId: "momo", chatId: "oc_daily" });
+    assert.equal(restarted.plugins.memory.dailyMaterials.enabled, true);
+    assert.equal(restarted.plugins.memory.dailyMaterials.time, "22:45");
+    assert.equal(restarted.plugins.memory.dailyMaterials.projectId, "project-1");
+  } finally {
+    storagePaths.settingsFile = originalSettingsFile;
+    storagePaths.settingsDbFile = originalSettingsDbFile;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

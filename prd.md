@@ -5,13 +5,50 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.64 Selectable Owner Reflection Notification Target (2026-07-14)
+- [Done, P0] 每日记忆反思允许从已启用飞书/Telegram Bot 的授权会话中选择一个统一通知目标；不得接受未授权或其它渠道的伪造目标。
+- [Done, P0] Owner 任务无论扫描/产出是否为 0，成功结束后都必须发送且只发送一条汇总通知；终态失败发送一条失败摘要。
+- [Done, P0] 多 Bot 扫描、逐 Session watermark 与失败隔离保持在共享 Agent 上层；Channel 只负责最终消息投递，通知不得进入模型上下文或普通 Session。
+- [Done, P1] 设置必须支持中英、明暗主题、窄屏和固定保存底栏，并在目标授权失效时安全回退。
+
+## 2.63 Plugin Memory Settings Restart Persistence (2026-07-14)
+- [Done, P0] 记忆后端、每日回顾与每日素材的完整 `plugins.memory` 配置必须在保存和服务重启后保持不变，不得回退到默认关闭状态。
+- [Done, P0] 回归测试必须使用临时设置文件和临时 SQLite，经过真实 `save → 新 SettingsStore → load` 验证，不得读写用户真实运行数据，也不能只测试内存序列化对象。
+
+## 2.62 Project Session Selection Owns the Active Transcript (2026-07-14)
+- [Done, P0] 点击项目下任意 Session 时，左侧选中态、标题、composer 上下文与 `projectChatStore` active runtime 必须指向同一个 Session；聊天正文不得继续显示前一个 Session。
+- [Done, P0] Session 选择与 runtime 激活必须在共享选择动作中同步，不得依赖组件通过 legacy `$:` 观察导入 rune store 的属性变化。
+- [Done, P0] 回归测试必须使用两个返回不同消息的 Session，验证 A → B 后 active runtime 和 transcript 同时切换，并保留各 Session 独立 controller 的后台运行语义。
+
+## 2.61 Live-Safe Production Build Publishing (2026-07-13)
+- [Done, P0] 生产构建不得在生成完整替代产物前删除运行中服务依赖的 `build/`；构建失败或中断时，当前服务必须继续可用。
+- [Done, P0] 发布新 manifest 前必须先发布其引用的全部 server chunk，并保留仍在运行的旧 manifest 可能按需加载的哈希 chunk，避免设置页模型路由等未加载端点返回 `ERR_MODULE_NOT_FOUND`。
+- [Done, P0] 回归验证必须覆盖运行中服务与生产构建重叠的真实窗口，并持续请求 `/api/desktop/model-routing` 断言无 500。
+
+## 2.60 Three.js Pug Agent City (2026-07-13)
+- [Planned, P1] 将 Desktop Agent Studio 从 CSS 拼装办公室升级为 Three.js 高级桌面微缩城市；完整 PRD 与验收口径见 [GitHub Issue #10](https://github.com/gusibi/molibot/issues/10)。
+- [Planned, P1] 城市固定保留 10 个普通 Agent 地块、独立 Global 总部和中央主人调度中心；普通 Agent 从 1–10 栋一层工作室逐层增长到最多 10 栋 × 10 层，超过 100 个时只显示未展示数量。
+- [Planned, P1] 每层对应一个 Agent，并以玩偶屋剖面展示巴哥犬的真实 idle/working/completed/error 状态；任务通过道路光流与建筑数据井抵达准确楼层，Sub-agent 在父 Agent 楼层的临时协作舱中展示。
+- [Planned, P1] Three.js 只负责场景、角色、灯光和动画，现有 Svelte/Agent Activity 继续负责数据、悬浮详情、国际化与无障碍；共享 Agent City 投影作为唯一新业务 seam，禁止将可视化编排下沉 Channel 或根据任务文本伪造工具动作。
+- [Planned, P1] 第一阶段使用程序化城市与代理角色验证 1/10/11/40/41/100/101 Agent 布局、稳定槽位、明暗主题、低动效和性能；随后以 Blender GLB 替换完整模型、骨骼、动画与材质，并提供完整 3D、低画质 3D、精致 2D 自动降级。
+
+## 2.59 Owner-Level Memory Automations (2026-07-13)
+- [Done, P0] “每日记忆反思”和“每日素材整理”分别只能存在一个 Molibot Owner 级系统任务；不得按渠道或 Bot 复制 watched event。
+- [Done, P0] Owner 任务每次执行必须从最新设置动态发现启用的 Bot/授权会话，使新增 Bot 无需重建任务即可在下一轮被识别；各目标 watermark 和失败隔离保持不变。
+- [Done, P0] 自动任务页必须以明确的 managed metadata 区分“用户任务 / 系统任务”，支持中英、明暗主题和移动宽度；系统任务只能查看和手动运行，配置变更回到对应插件设置。
+- [Done, P0] 启动迁移只移除可确认的旧版 per-Bot managed memory 文件，禁止按标题或模糊文件名删除用户任务。
+- [Done, P1] 托管事件的幂等比较必须忽略 JSON 对象 key 顺序和运行时 `status`，语义未变时不得重写 watched event 文件。
+
 ## 2.58 GitHub Bug Stabilization Pass (2026-07-13)
 - [Done, P0] Project raw 文件预览必须返回真实媒体字节与正确 MIME；路由级测试必须拒绝 HTML 404 回退。
 - [Done, P0] Web Profile 与 Project 范围内连续新建会话必须复用各自唯一空 Session。
 - [Done, P0] Chat 与 Project Chat 的运行输出、队列、停止和审批必须由发起 Session 持有；切换 Session 不得串台。
 - [Done, P0] Agents、Skills、Automations 必须等 Desktop bootstrap 完成后再加载；首次请求失败必须显示可操作错误并允许对同一 endpoint 重试，不能永久停在 Loading。
+- [Done, P0] Skills 异步数据到达后，计数与卡片列表必须来自同一响应式状态；空搜索渲染全部卡片，输入搜索即时过滤。
 - [Done, P0] 中断或缺失结束事件的工具活动必须在持久化边界收敛为终态，并保留已产生的部分输出。
-- [Decision pending, P1] Web UI Session 与 Agent context 的单一权威存储需要独立迁移方案：模型上下文的工具/压缩/重试信息与 UI 的标题/附件/activity 元数据必须在迁移前都找到无损归属；本批次不直接删除任一存储。
+- [Done, P0] Web 展示投影统一命名为 UI Session，并迁移到 `ui-sessions/<scope>`；旧 `users/<scope>/sessions` 必须幂等迁移且保留顺序，外部渠道不得创建该副本。
+- [Done, P0] 删除 Web UI Session 必须由 Web/Desktop 共用上层生命周期同步删除 Agent context；运行中拒绝删除，最后一个 context 也必须允许清理。
+- [Planned, P1] UI Session 后续收敛为纯展示元数据，Agent entries 成为消息正文、模型与工具历史的唯一权威；实施前必须补齐附件/activity 投影与编辑重发的无损映射。
 
 ## 2.57 Desktop Project File Panel Large Image Preview (2026-07-12)
 - [Done, P0] 修复桌面端 Project 文件面板在预览大图时显示“超过预览上限”或“二进制文件不能预览”的问题。

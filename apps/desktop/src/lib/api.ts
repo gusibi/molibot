@@ -565,6 +565,8 @@ export async function loadDesktopTasks(endpoint: string): Promise<DesktopTaskSum
     .filter((item) => item.type === "periodic")
     .map((item) => ({
       ...item,
+      category: item.category === "system" ? "system" as const : "user" as const,
+      systemKind: (item.systemKind === "memory-reflection" || item.systemKind === "daily-materials" ? item.systemKind : "") as DesktopTaskSummary["items"][number]["systemKind"],
       enabled: item.enabled !== false,
       executions: Array.isArray(item.executions) ? item.executions : [],
       executionCount: Number(item.executionCount ?? item.executions?.length ?? 0)

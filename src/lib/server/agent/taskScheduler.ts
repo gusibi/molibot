@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { config } from "$lib/server/app/env.js";
 import { EventsWatcher } from "$lib/server/agent/events.js";
 import { momLog, momWarn } from "$lib/server/agent/common/log.js";
-import { TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
+import { SYSTEM_TASK_BOTS_DIR, SYSTEM_TASK_CHANNEL, SYSTEM_TASK_OWNER_ID, TASK_CHANNEL_ROOTS } from "$lib/server/agent/commands/taskChannels.js";
 import type { ChannelManager } from "$lib/server/channels/registry.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
+import type { MemoryReflectionNotificationTarget } from "$lib/server/settings/schema.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
 
 export async function dispatchTaskEvent(
@@ -26,39 +28,107 @@ export async function dispatchTaskEvent(
   await manager.triggerTask(event, filename);
 }
 
-export function ensureMemoryReflectionEvent(eventsDir: string, channel: string, botId: string, settings?: RuntimeSettings): string | null {
-  if (!settings?.plugins.memory.enabled || settings.plugins.memory.backend !== "mory") return null;
-  const instance = settings.channels?.[channel]?.instances?.find((item) => item.id === botId);
-  const chatIds = channel === "web"
-    ? [`web:${botId}:web-anonymous`]
-    : (instance?.allowedChatIds ?? []);
-  if (chatIds.length === 0) return null;
+function allowedChatIds(channel: string, botId: string, allowed: string[] = []): string[] {
+  if (channel === "web") return [`web:${botId}:web-anonymous`];
+  return Array.from(new Set(allowed.map(String).map((value) => value.trim()).filter(Boolean)));
+}
+
+export interface MemoryReflectionNotificationOption {
+  value: string;
+  label: string;
+  target: MemoryReflectionNotificationTarget;
+}
+
+export function memoryReflectionNotificationTargetValue(target: MemoryReflectionNotificationTarget): string {
+  return JSON.stringify(target);
+}
+
+export function listMemoryReflectionNotificationTargets(settings?: RuntimeSettings): MemoryReflectionNotificationOption[] {
+  const options: MemoryReflectionNotificationOption[] = [];
+  for (const channel of ["telegram", "feishu"] as const) {
+    for (const instance of settings?.channels?.[channel]?.instances ?? []) {
+      if (instance.enabled === false) continue;
+      for (const chatId of allowedChatIds(channel, instance.id, instance.allowedChatIds)) {
+        const target = { channel, botId: instance.id, chatId } satisfies MemoryReflectionNotificationTarget;
+        options.push({
+          value: memoryReflectionNotificationTargetValue(target),
+          label: `${channel === "telegram" ? "Telegram" : "Feishu"} · ${instance.name || instance.id} · ${chatId}`,
+          target
+        });
+      }
+    }
+  }
+  return options;
+}
+
+export function resolveMemoryReflectionNotificationTarget(settings?: RuntimeSettings): MemoryReflectionNotificationTarget | null {
+  const options = listMemoryReflectionNotificationTargets(settings);
+  const saved = settings?.plugins.memory.reflectionNotificationTarget;
+  if (saved) {
+    const match = options.find((option) => option.value === memoryReflectionNotificationTargetValue(saved));
+    if (match) return match.target;
+  }
+  return options[0]?.target ?? null;
+}
+
+export function collectMemoryReflectionInternals(settings?: RuntimeSettings): Array<NonNullable<MomEvent["internal"]>> {
+  if (!settings?.plugins.memory.enabled || settings.plugins.memory.backend !== "mory") return [];
+  const internals: Array<NonNullable<MomEvent["internal"]>> = [];
+  for (const { channel } of TASK_CHANNEL_ROOTS) {
+    for (const instance of settings.channels?.[channel]?.instances ?? []) {
+      if (instance.enabled === false) continue;
+      const chatIds = allowedChatIds(channel, instance.id, instance.allowedChatIds);
+      if (chatIds.length === 0) continue;
+      internals.push({
+        kind: "memory-reflection",
+        notificationChatId: settings.plugins.memory.reflectionNotifications ? chatIds[0] : undefined,
+        target: {
+          ownerId: SYSTEM_TASK_OWNER_ID,
+          botId: instance.id,
+          timezone: settings.timezone,
+          sourceScopes: chatIds.map((externalUserId) => ({ channel, externalUserId }))
+        }
+      });
+    }
+  }
+  return internals;
+}
+
+function disableManagedEvent(filePath: string): null {
+  if (!existsSync(filePath)) return null;
+  try {
+    const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
+    if (current.enabled !== false) writeFileSync(filePath, `${JSON.stringify({ ...current, enabled: false }, null, 2)}\n`, "utf8");
+  } catch { /* leave malformed files for the watcher to report */ }
+  return null;
+}
+
+function managedEventMatches(current: MomEvent, expected: MomEvent): boolean {
+  const { status: _currentStatus, ...currentComparable } = current;
+  const { status: _expectedStatus, ...expectedComparable } = expected;
+  return isDeepStrictEqual(currentComparable, expectedComparable);
+}
+
+export function ensureOwnerMemoryReflectionEvent(eventsDir: string, settings?: RuntimeSettings): string | null {
   const filePath = join(eventsDir, "memory-reflection.json");
+  if (!settings?.plugins.memory.enabled || settings.plugins.memory.backend !== "mory") return disableManagedEvent(filePath);
   const [hour, minute] = (settings.plugins.memory.reflectionTime || "03:00").split(":").map(Number);
   const event: MomEvent = {
     type: "periodic",
     enabled: true,
-    taskId: `memory-reflection-${botId}`,
+    taskId: "memory-reflection-owner",
+    managed: { by: "molibot", scope: "owner", kind: "memory-reflection", ownerId: SYSTEM_TASK_OWNER_ID },
     chatId: "internal-memory-reflection",
-    text: "",
+    text: "Daily memory reflection",
     schedule: `${minute} ${hour} * * *`,
     timezone: settings.timezone,
     execution: "internal",
-    internal: {
-      kind: "memory-reflection",
-      notificationChatId: settings.plugins.memory.reflectionNotifications ? chatIds[0] : undefined,
-      target: {
-        ownerId: "owner",
-        botId,
-        timezone: settings.timezone,
-        sourceScopes: chatIds.map((externalUserId) => ({ channel, externalUserId }))
-      }
-    }
+    internal: { kind: "memory-reflection" }
   };
   if (existsSync(filePath)) {
     try {
       const current = JSON.parse(readFileSync(filePath, "utf8")) as typeof event;
-      if (current.taskId === event.taskId && current.schedule === event.schedule && current.internal?.notificationChatId === event.internal.notificationChatId) return filePath;
+      if (managedEventMatches(current, event)) return filePath;
       event.status = current.status;
     } catch { /* replace malformed managed event */ }
   }
@@ -74,7 +144,8 @@ export function buildDailyMaterialsInternal(channel: string, botId: string, sett
   const configured = settings?.plugins.memory.dailyMaterials;
   if (!configured?.enabled || !configured.projectId.trim()) return null;
   const instance = settings?.channels?.[channel]?.instances?.find((item) => item.id === botId);
-  const chatIds = channel === "web" ? [`web:${botId}:web-anonymous`] : (instance?.allowedChatIds ?? []);
+  if (instance?.enabled === false) return null;
+  const chatIds = allowedChatIds(channel, botId, instance?.allowedChatIds);
   if (chatIds.length === 0) return null;
   return {
     kind: "daily-materials",
@@ -104,41 +175,52 @@ export function collectDailyMaterialsBackfillInternals(settings?: RuntimeSetting
   return internals;
 }
 
-export function ensureDailyMaterialsEvent(eventsDir: string, channel: string, botId: string, settings?: RuntimeSettings): string | null {
+export function ensureOwnerDailyMaterialsEvent(eventsDir: string, settings?: RuntimeSettings): string | null {
   const filePath = join(eventsDir, "daily-materials.json");
-  const internal = buildDailyMaterialsInternal(channel, botId, settings);
-  if (!internal) {
-    if (!existsSync(filePath)) return null;
-    try {
-      const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
-      if (current.enabled !== false) writeFileSync(filePath, `${JSON.stringify({ ...current, enabled: false }, null, 2)}\n`, "utf8");
-    } catch { /* leave malformed files for the watcher to report */ }
-    return null;
-  }
-  const configured = settings!.plugins.memory.dailyMaterials;
+  const configured = settings?.plugins.memory.dailyMaterials;
+  if (!configured?.enabled || !configured.projectId.trim()) return disableManagedEvent(filePath);
   const [hour, minute] = (configured.time || "23:30").split(":").map(Number);
   const event: MomEvent = {
     type: "periodic",
     enabled: true,
-    taskId: `daily-materials-${botId}`,
+    taskId: "daily-materials-owner",
+    managed: { by: "molibot", scope: "owner", kind: "daily-materials", ownerId: SYSTEM_TASK_OWNER_ID },
     chatId: "internal-daily-materials",
-    text: "",
+    text: "Daily materials",
     schedule: `${minute} ${hour} * * *`,
     timezone: settings!.timezone,
     execution: "internal",
-    internal
+    internal: { kind: "daily-materials" }
   };
   if (existsSync(filePath)) {
     try {
       const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
-      const currentComparable = { ...current, status: undefined };
-      const nextComparable = { ...event, status: undefined };
-      if (JSON.stringify(currentComparable) === JSON.stringify(nextComparable)) return filePath;
+      if (managedEventMatches(current, event)) return filePath;
       event.status = current.status;
     } catch { /* replace malformed managed event */ }
   }
   writeFileSync(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
   return filePath;
+}
+
+export function migrateLegacyManagedMemoryEvents(botsRoot: string): string[] {
+  if (!existsSync(botsRoot)) return [];
+  const removed: string[] = [];
+  for (const botEntry of readdirSync(botsRoot, { withFileTypes: true })) {
+    if (!botEntry.isDirectory()) continue;
+    const eventsDir = join(botsRoot, botEntry.name, "events");
+    for (const [filename, kind] of [["memory-reflection.json", "memory-reflection"], ["daily-materials.json", "daily-materials"]] as const) {
+      const filePath = join(eventsDir, filename);
+      if (!existsSync(filePath)) continue;
+      try {
+        const event = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
+        if (event.internal?.kind !== kind) continue;
+        unlinkSync(filePath);
+        removed.push(filePath);
+      } catch { /* keep malformed or user-repurposed files */ }
+    }
+  }
+  return removed;
 }
 
 /**
@@ -188,13 +270,27 @@ export class TaskScheduler {
     const dataRoot = resolve(config.dataDir);
     const started: string[] = [];
 
-    for (const { channel, dir } of TASK_CHANNEL_ROOTS) {
-      const managers = channelManagers.get(channel);
-      if (!managers) {
-        momLog("taskScheduler", "channel_skipped_no_managers", { channel });
-        continue;
+    const ownerEventsDir = join(dataRoot, SYSTEM_TASK_BOTS_DIR, SYSTEM_TASK_OWNER_ID, "events");
+    mkdirSync(ownerEventsDir, { recursive: true });
+    ensureOwnerMemoryReflectionEvent(ownerEventsDir, settings);
+    ensureOwnerDailyMaterialsEvent(ownerEventsDir, settings);
+    const ownerWatcher = new EventsWatcher(
+      ownerEventsDir,
+      async (event, filename) => {
+        if (event.execution !== "internal" || !this.runInternalEvent) throw new Error("Owner task must use the internal runtime.");
+        await this.runInternalEvent(event, filename);
+      },
+      {
+        channel: SYSTEM_TASK_CHANNEL,
+        leaseScope: `${SYSTEM_TASK_CHANNEL}:${SYSTEM_TASK_OWNER_ID}`,
+        getExecutionSettings: () => settings?.events ?? { executionTimeoutMs: 600_000, maxAttempts: 3, retryDelayMs: 5000 }
       }
+    );
+    ownerWatcher.start();
+    this.watchers.push(ownerWatcher);
+    started.push(`${SYSTEM_TASK_CHANNEL}/${SYSTEM_TASK_OWNER_ID}`);
 
+    for (const { channel, dir } of TASK_CHANNEL_ROOTS) {
       const botsRoot = channel === "web"
         ? join(resolve(config.webWorkspaceDir), "bots")
         : join(dataRoot, dir, "bots");
@@ -206,6 +302,13 @@ export class TaskScheduler {
       }
       if (!existsSync(botsRoot)) {
         momLog("taskScheduler", "bots_root_missing", { channel, botsRoot });
+        continue;
+      }
+      const removedManaged = migrateLegacyManagedMemoryEvents(botsRoot);
+      if (removedManaged.length > 0) momLog("taskScheduler", "legacy_managed_events_removed", { channel, count: removedManaged.length });
+      const managers = channelManagers.get(channel);
+      if (!managers) {
+        momLog("taskScheduler", "channel_skipped_no_managers", { channel });
         continue;
       }
 
@@ -227,9 +330,6 @@ export class TaskScheduler {
           mkdirSync(eventsDir, { recursive: true });
           momLog("taskScheduler", "events_dir_created", { channel, botId, eventsDir });
         }
-        ensureMemoryReflectionEvent(eventsDir, channel, botId, settings);
-        ensureDailyMaterialsEvent(eventsDir, channel, botId, settings);
-
         const watcher = new EventsWatcher(
           eventsDir,
           (event, filename) => {

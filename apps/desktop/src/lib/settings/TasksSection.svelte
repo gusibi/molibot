@@ -32,6 +32,7 @@
   let { presentation = "settings" }: { presentation?: "settings" | "workspace" } = $props();
 
   let selectedTaskId = $state("");
+  let activeTaskCategory = $state<"user" | "system">("user");
 
   $effect(() => {
     if (session.serviceReady && session.endpoint && session.endpoint !== tasksStore.endpoint) {
@@ -78,8 +79,13 @@
 
 
   const filteredTaskItems = $derived(
-    tasksStore.tasks?.items.filter((item) => !tasksStore.query.trim() || [item.text, item.channel, item.botId, item.chatId, item.status, item.type].join("\n").toLowerCase().includes(tasksStore.query.trim().toLowerCase())) ?? []
+    tasksStore.tasks?.items.filter((item) => item.category === activeTaskCategory && (!tasksStore.query.trim() || [taskTitle(item), item.text, item.channel, item.botId, item.chatId, item.status, item.type].join("\n").toLowerCase().includes(tasksStore.query.trim().toLowerCase()))) ?? []
   );
+
+  const taskCategoryCounts = $derived({
+    user: tasksStore.tasks?.items.filter((item) => item.category === "user").length ?? 0,
+    system: tasksStore.tasks?.items.filter((item) => item.category === "system").length ?? 0
+  });
 
   const selectedTask = $derived(selectedTaskId ? filteredTaskItems.find((task) => task.id === selectedTaskId) ?? null : null);
   const executionTotals = $derived(tasksStore.tasks?.counts.executions ?? { total: 0, completed: 0, failed: 0 });
@@ -119,6 +125,18 @@
     return task.enabled ? taskStatusLabel(task.status, session.text) : session.text.tasksPaused;
   }
 
+  function taskTitle(task: DesktopTaskSummary["items"][number]): string {
+    if (task.systemKind === "memory-reflection") return session.text.tasksSystemMemoryReflection;
+    if (task.systemKind === "daily-materials") return session.text.tasksSystemDailyMaterials;
+    return task.text.split(/\r?\n/)[0] || task.text;
+  }
+
+  function selectTaskCategory(category: "user" | "system"): void {
+    activeTaskCategory = category;
+    selectedTaskId = "";
+    tasksStore.selected = new Set();
+  }
+
   function pageSummary(page: number, pageSize: number, total: number): string {
     return session.text.tasksPageSummary.replace("{page}", String(page)).replace("{pages}", String(Math.max(1, Math.ceil(total / pageSize)))).replace("{total}", String(total));
   }
@@ -141,14 +159,18 @@
 {:else if !tasksStore.tasks}
   <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
 {:else}
+  <div class:workspace={presentation === "workspace"} class="automation-category-tabs" role="tablist" aria-label={session.text.tasksCategories}>
+    <button class:active={activeTaskCategory === "user"} class="automation-category-tab" type="button" role="tab" aria-selected={activeTaskCategory === "user"} onclick={() => selectTaskCategory("user")}><i class="ph ph-user" aria-hidden="true"></i><span>{session.text.tasksUserTab}</span><small>{taskCategoryCounts.user}</small></button>
+    <button class:active={activeTaskCategory === "system"} class="automation-category-tab" type="button" role="tab" aria-selected={activeTaskCategory === "system"} onclick={() => selectTaskCategory("system")}><i class="ph ph-cpu" aria-hidden="true"></i><span>{session.text.tasksSystemTab}</span><small>{taskCategoryCounts.system}</small></button>
+  </div>
   {#if presentation === "workspace"}
     <section class="automation-workspace" aria-label={session.text.tasks}>
       <div class="automation-workspace-toolbar">
         <label class="automation-workspace-search"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input bind:value={tasksStore.query} aria-label={session.text.tasksFilter} placeholder={session.text.tasksFilterHint} /></label>
-        <button class="primary-button automation-workspace-create" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.tasks.targets.length === 0} onclick={beginTaskCreate}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>
+        {#if activeTaskCategory === "user"}<button class="primary-button automation-workspace-create" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.tasks.targets.length === 0} onclick={beginTaskCreate}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>{/if}
       </div>
       <div class="automation-workspace-summary" aria-label={session.text.tasksTotal}>
-        <span><strong>{tasksStore.tasks.counts.total}</strong>{session.text.tasksTotal}</span>
+        <span><strong>{taskCategoryCounts[activeTaskCategory]}</strong>{session.text.tasksTotal}</span>
         <span><strong>{executionTotals.total}</strong>{session.text.tasksRunCount}</span>
         <span><strong>{executionTotals.completed}</strong>{session.text.tasksSuccessful}</span>
         <span><strong>{executionTotals.failed}</strong>{session.text.tasksFailed}</span>
@@ -161,7 +183,7 @@
             {#each filteredTaskItems as task (task.id)}
               <button class:active={selectedTask?.id === task.id} class:running={isTaskRunning(task.id)} class:paused={!task.enabled} class="automation-task-row" data-status={task.status} type="button" role="option" aria-selected={selectedTask?.id === task.id} onclick={() => (selectedTaskId = task.id)}>
                 <span class="automation-task-row-mark" aria-hidden="true">{#if isTaskRunning(task.id)}<i class="ph ph-spinner-gap automation-spinner"></i>{:else}<i></i>{/if}</span>
-                <span class="automation-task-row-copy"><strong>{task.text.split(/\r?\n/)[0] || task.text}</strong><span>{task.scheduleText} · {taskStatusText(task)}</span><small><span>{session.text.tasksRunCount} {task.runCount}</span><span>{session.text.tasksLastTriggered} {formatTaskTime(task.lastTriggeredAt || task.executions[0]?.startedAt || "")}</span></small></span>
+                <span class="automation-task-row-copy"><strong>{taskTitle(task)}</strong><span>{task.scheduleText} · {taskStatusText(task)}</span><small><span>{session.text.tasksRunCount} {task.runCount}</span><span>{session.text.tasksLastTriggered} {formatTaskTime(task.lastTriggeredAt || task.executions[0]?.startedAt || "")}</span></small></span>
                 <i class="ph ph-caret-right" aria-hidden="true"></i>
               </button>
             {/each}
@@ -174,14 +196,14 @@
                   <span class:active={isTaskRunning(selectedTask.id)} class:error={selectedTask.status === "error"} class:paused={!selectedTask.enabled} class="automation-status"><i></i>{taskStatusText(selectedTask)}</span>
                   <div class="automation-task-detail-actions">
                     <button class="automation-run-button" type="button" disabled={!selectedTask.enabled || isTaskRunning(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void executeTaskAction("trigger", [selectedTask.id])}>{#if isTaskRunning(selectedTask.id)}<i class="ph ph-spinner-gap automation-spinner" aria-hidden="true"></i>{:else}<i class="ph-fill ph-play" aria-hidden="true"></i>{/if}{isTaskRunning(selectedTask.id) ? session.text.taskStatus_running : session.text.tasksTrigger}</button>
-                    <button class="row-icon-btn" type="button" title={selectedTask.enabled ? session.text.tasksPause : session.text.tasksResume} aria-label={selectedTask.enabled ? session.text.tasksPause : session.text.tasksResume} disabled={isTaskRunning(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void setTaskEnabled(selectedTask.id, !selectedTask.enabled)}><i class={`ph ${selectedTask.enabled ? "ph-pause" : "ph-play"}`} aria-hidden="true"></i></button>
+                    {#if selectedTask.category === "user"}<button class="row-icon-btn" type="button" title={selectedTask.enabled ? session.text.tasksPause : session.text.tasksResume} aria-label={selectedTask.enabled ? session.text.tasksPause : session.text.tasksResume} disabled={isTaskRunning(selectedTask.id) || isTaskUpdating(selectedTask.id)} onclick={() => void setTaskEnabled(selectedTask.id, !selectedTask.enabled)}><i class={`ph ${selectedTask.enabled ? "ph-pause" : "ph-play"}`} aria-hidden="true"></i></button>
                     <button class="row-icon-btn" type="button" title={session.text.channelEdit} aria-label={session.text.channelEdit} disabled={Boolean(tasksStore.busy) || tasksStore.taskEdit !== null} onclick={() => beginTaskEdit(selectedTask)}><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
-                    <button class="row-icon-btn danger-action" type="button" title={session.text.channelDelete} aria-label={session.text.channelDelete} disabled={Boolean(tasksStore.busy)} onclick={() => requestDeleteTask([selectedTask.id])}><i class="ph ph-trash" aria-hidden="true"></i></button>
+                    <button class="row-icon-btn danger-action" type="button" title={session.text.channelDelete} aria-label={session.text.channelDelete} disabled={Boolean(tasksStore.busy)} onclick={() => requestDeleteTask([selectedTask.id])}><i class="ph ph-trash" aria-hidden="true"></i></button>{/if}
                   </div>
                 </div>
                 <div>
-                  <h2 id={`automation-task-${selectedTask.id}`}>{selectedTask.text.split(/\r?\n/)[0] || selectedTask.text}</h2>
-                  <p>{selectedTask.channel} / {selectedTask.botId}{selectedTask.chatId ? ` / ${selectedTask.chatId}` : ""}</p>
+                  <h2 id={`automation-task-${selectedTask.id}`}>{taskTitle(selectedTask)}</h2>
+                  <p>{selectedTask.category === "system" ? session.text.tasksSystemOwner : `${selectedTask.channel} / ${selectedTask.botId}${selectedTask.chatId ? ` / ${selectedTask.chatId}` : ""}`}</p>
                 </div>
               </header>
               <section class="automation-task-detail-copy" aria-label={session.text.tasksText}><span>{session.text.tasksText}</span><p>{selectedTask.text}</p></section>
@@ -216,7 +238,7 @@
   <section class="automation-command-deck" aria-label={session.text.tasksByStatus}>
     <div class="automation-command-summary">
       <div class="automation-command-mark" aria-hidden="true"><i class="ph-fill ph-clock-countdown"></i><span></span></div>
-      <div><span class="automation-eyebrow">{session.text.tasksTotal}</span><strong>{tasksStore.tasks.counts.total}</strong><small>{session.text.tasksHint}</small></div>
+      <div><span class="automation-eyebrow">{session.text.tasksTotal}</span><strong>{taskCategoryCounts[activeTaskCategory]}</strong><small>{session.text.tasksHint}</small></div>
     </div>
     <div class="automation-command-stats">
       <div><span class="stat-signal running"></span><small>{session.text.taskStatusRunning}</small><strong>{tasksStore.tasks.counts.byStatus.running}</strong></div>
@@ -225,7 +247,7 @@
     </div>
     <div class="automation-toolbar">
       <label class="automation-search"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input bind:value={tasksStore.query} aria-label={session.text.tasksFilter} placeholder={session.text.tasksFilterHint} /></label>
-      <button class="primary-button automation-create-button" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.tasks.targets.length === 0} onclick={beginTaskCreate}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>
+      {#if activeTaskCategory === "user"}<button class="primary-button automation-create-button" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.tasks.targets.length === 0} onclick={beginTaskCreate}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>{/if}
     </div>
   </section>
   {#if tasksStore.selected.size > 0}
@@ -244,14 +266,14 @@
     <div class="automation-list">
       {#each filteredTaskItems as task (task.id)}
         <article class="automation-card" data-status={task.status}>
-          <label class="inline-check task-select"><input type="checkbox" checked={tasksStore.selected.has(task.id)} onchange={() => toggleTaskSelection(task.id)} /><span class="sr-only">{session.text.tasksSelect}</span></label>
+          {#if task.category === "user"}<label class="inline-check task-select"><input type="checkbox" checked={tasksStore.selected.has(task.id)} onchange={() => toggleTaskSelection(task.id)} /><span class="sr-only">{session.text.tasksSelect}</span></label>{:else}<span class="task-select system-task-mark" aria-hidden="true"><i class="ph ph-cpu"></i></span>{/if}
           <div class="automation-card-main">
             <div class="automation-card-head">
-              <div class="automation-title-block"><div><span class:active={task.status === "running"} class:error={task.status === "error"} class="automation-status"><i></i>{taskStatusLabel(task.status, session.text)}</span><span class="automation-target"><i class="ph ph-robot"></i>{task.channel} / {task.botId}{task.chatId ? ` / ${task.chatId}` : ""}</span></div><strong>{task.text.split(/\r?\n/)[0] || task.text}</strong></div>
+              <div class="automation-title-block"><div><span class:active={task.status === "running"} class:error={task.status === "error"} class="automation-status"><i></i>{taskStatusLabel(task.status, session.text)}</span><span class="automation-target"><i class="ph ph-robot"></i>{task.category === "system" ? session.text.tasksSystemOwner : `${task.channel} / ${task.botId}${task.chatId ? ` / ${task.chatId}` : ""}`}</span></div><strong>{taskTitle(task)}</strong></div>
               <div class="automation-card-actions">
                 <button class="automation-run-button" type="button" disabled={Boolean(tasksStore.busy)} onclick={() => void executeTaskAction("trigger", [task.id])}><i class="ph-fill ph-play" aria-hidden="true"></i>{session.text.tasksTrigger}</button>
-                <button class="row-icon-btn" type="button" title={session.text.channelEdit} aria-label={session.text.channelEdit} disabled={Boolean(tasksStore.busy) || tasksStore.taskEdit !== null} onclick={() => beginTaskEdit(task)}><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
-                <button class="row-icon-btn danger-action" type="button" title={session.text.channelDelete} aria-label={session.text.channelDelete} disabled={Boolean(tasksStore.busy)} onclick={() => requestDeleteTask([task.id])}><i class="ph ph-trash" aria-hidden="true"></i></button>
+                {#if task.category === "user"}<button class="row-icon-btn" type="button" title={session.text.channelEdit} aria-label={session.text.channelEdit} disabled={Boolean(tasksStore.busy) || tasksStore.taskEdit !== null} onclick={() => beginTaskEdit(task)}><i class="ph ph-pencil-simple" aria-hidden="true"></i></button>
+                <button class="row-icon-btn danger-action" type="button" title={session.text.channelDelete} aria-label={session.text.channelDelete} disabled={Boolean(tasksStore.busy)} onclick={() => requestDeleteTask([task.id])}><i class="ph ph-trash" aria-hidden="true"></i></button>{/if}
               </div>
             </div>
             <div class:single={!taskBody(task.text)} class="automation-card-body">

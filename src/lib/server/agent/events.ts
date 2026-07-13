@@ -23,6 +23,13 @@ export type EventDeliveryMode = "text" | "agent";
 export type EventExecutionMode = "channel" | "internal";
 export type InternalEventKind = "memory-reflection" | "daily-materials";
 
+export interface ManagedEventMetadata {
+  by: "molibot";
+  scope: "owner";
+  kind: InternalEventKind;
+  ownerId: string;
+}
+
 export interface InternalEventTarget {
   ownerId: string;
   botId: string;
@@ -36,6 +43,7 @@ export type EventSessionMode = "fresh" | "chat";
 
 interface EventBase {
   taskId?: string;
+  managed?: ManagedEventMetadata;
   // Missing keeps historical event files enabled.
   enabled?: boolean;
   chatId: string;
@@ -46,7 +54,9 @@ interface EventBase {
   internal?: {
     kind: InternalEventKind;
     notificationChatId?: string;
-    target: InternalEventTarget;
+    // Owner-managed events resolve current targets at execution time. Legacy
+    // per-Bot events retain an embedded target for migration compatibility.
+    target?: InternalEventTarget;
     promptPath?: string;
     output?: { projectId: string; dir?: string };
     // daily-materials: token budget for the assembled transcript before batching.

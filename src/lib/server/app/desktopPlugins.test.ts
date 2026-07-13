@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildDesktopPluginItem, buildDesktopPluginsSettings, buildDesktopPluginsSummary } from "./desktopPlugins";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
+import { defaultRuntimeSettings } from "$lib/server/settings/defaults";
 import type { PluginCatalog } from "$lib/server/plugins/types";
 
 test("buildDesktopPluginItem projects identity/version/status and drops on-disk paths", () => {
@@ -105,4 +106,44 @@ test("plugin save validates and persists daily materials project settings", () =
   const input = { memoryEnabled: true, memoryBackend: "mory", memoryEmbeddingProviderId: "", memoryEmbeddingModel: "", memoryReflectionTime: "03:00", memoryReflectionNotifications: true, memoryDailyMaterials: { enabled: true, time: "22:45", projectId: "momo-agent", dir: "content/daily-materials", promptPath: "templates/daily-material-prompt.md", notifications: false, scanTokenBudget: 120000, scanModelKey: "" }, values: {} };
   const saved = buildDesktopPluginsSettings(settings, { channels: [], providers: [], features: [], memoryBackends: [{ key: "mory" }] } as PluginCatalog, input, { get: (id: string) => id === "momo-agent" ? { id } : null } as any);
   assert.deepEqual(saved.memory.dailyMaterials, input.memoryDailyMaterials);
+});
+
+test("plugin summary and save expose only authorized reflection notification targets", () => {
+  const settings = {
+    plugins: {
+      memory: { ...defaultRuntimeSettings.plugins.memory, reflectionNotificationTarget: { channel: "feishu", botId: "momo", chatId: "oc_daily" } },
+      cloudflareHtml: {}, hooks: []
+    },
+    channels: {
+      telegram: { instances: [{ id: "news", name: "News", enabled: true, allowedChatIds: ["-1001"], credentials: {} }] },
+      feishu: { instances: [{ id: "momo", name: "Momo", enabled: true, allowedChatIds: ["oc_daily"], credentials: {} }] },
+      qq: { instances: [{ id: "qq", name: "QQ", enabled: true, allowedChatIds: ["qq-chat"], credentials: {} }] }
+    }
+  } as unknown as RuntimeSettings;
+  const catalog = { channels: [], providers: [], features: [], memoryBackends: [{ key: "mory" }] } as PluginCatalog;
+  const summary = buildDesktopPluginsSummary(catalog, settings);
+  assert.equal(summary.memory.reflectionNotificationTargets.length, 2);
+  assert.match(summary.memory.reflectionNotificationTargets[0].label, /Telegram/);
+  assert.match(summary.memory.reflectionNotificationTargets[1].label, /Feishu/);
+  assert.equal(summary.memory.reflectionNotificationTarget, summary.memory.reflectionNotificationTargets[1].value);
+
+  const saved = buildDesktopPluginsSettings(settings, catalog, {
+    memoryEnabled: true,
+    memoryBackend: "mory",
+    memoryEmbeddingProviderId: "",
+    memoryEmbeddingModel: "",
+    memoryReflectionTime: "03:00",
+    memoryReflectionNotifications: true,
+    memoryReflectionNotificationTarget: summary.memory.reflectionNotificationTargets[0].value,
+    memoryDailyMaterials: settings.plugins.memory.dailyMaterials,
+    values: {}
+  });
+  assert.deepEqual(saved.memory.reflectionNotificationTarget, { channel: "telegram", botId: "news", chatId: "-1001" });
+  assert.throws(() => buildDesktopPluginsSettings(settings, catalog, {
+    memoryEnabled: true,
+    memoryBackend: "mory",
+    memoryReflectionNotifications: true,
+    memoryReflectionNotificationTarget: JSON.stringify({ channel: "telegram", botId: "news", chatId: "not-authorized" }),
+    values: {}
+  } as any), /unauthorized/);
 });

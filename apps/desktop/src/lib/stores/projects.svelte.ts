@@ -91,6 +91,7 @@ async function createAndSelectProjectSession(projectId: string, projectGeneratio
 export async function selectProjectSession(id: string, projectId = projectsStore.selectedProjectId): Promise<void> {
   const generation = ++sessionSelectionGeneration;
   projectsStore.selectedSessionId = id;
+  projectChatStore.selectSession(id, projectId);
   projectsStore.messages = [];
   projectsStore.messagesLoading = true;
   projectsStore.error = "";

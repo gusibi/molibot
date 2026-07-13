@@ -596,6 +596,15 @@ a:focus-visible {
 .installed-skill-meta { display: flex; flex-wrap: wrap; gap: 5px 9px; color: var(--label-tertiary); font-size: 11px; }
 .installed-skill-expand { display: inline-flex; align-items: center; gap: 4px; width: fit-content; min-height: 32px; padding: 0; border: 0; background: transparent; color: var(--accent); font-size: 11px; font-weight: 500; cursor: pointer; }
 .workspace-empty.compact { margin-top: 12vh; }
+.automation-category-tabs { display: flex; align-items: center; width: fit-content; gap: 3px; margin: 0 24px 14px; padding: 3px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: var(--fill); }
+.automation-category-tabs.workspace { width: min(1240px, calc(100% - 48px)); margin: 0 auto 14px; }
+.automation-category-tabs button { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; gap: 6px; padding: 0 12px; border: 0; border-radius: calc(var(--rounded-sm) - 3px); background: transparent; color: var(--label-secondary); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.automation-category-tabs button:hover { color: var(--label-primary); }
+.automation-category-tabs button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--fill), 0 0 0 4px var(--accent); }
+.automation-category-tabs button small { min-width: 18px; padding: 1px 5px; border-radius: var(--rounded-full); background: var(--gray-alpha-200); color: var(--label-tertiary); font: 10px var(--font-mono); }
+.automation-category-tab.active { background: var(--card-bg); color: var(--label-primary); box-shadow: 0 1px 3px var(--gray-alpha-200); }
+.automation-category-tabs button.active small { background: var(--accent-soft); color: var(--accent); }
+.system-task-mark { display: grid; place-items: center; color: var(--label-tertiary); font-size: 14px; }
 .automation-workspace { width: min(1240px, calc(100% - 48px)); min-height: 0; margin: 0 auto; }
 .automation-workspace-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 .automation-workspace-summary { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0 0 14px; color: var(--label-secondary); font-size: 11px; }
@@ -1744,6 +1753,8 @@ a:focus-visible {
 .task-session-detail > p { color: var(--label-secondary); }
 .task-session-detail .message-row { flex: 0 0 auto; width: auto; }
 @media (max-width: 760px) {
+  .automation-category-tabs, .automation-category-tabs.workspace { width: calc(100% - 32px); margin-inline: 16px; }
+  .automation-category-tabs button { flex: 1; min-width: 0; }
   .automation-workspace { width: calc(100% - 32px); }
   .automation-workspace-toolbar { align-items: stretch; flex-direction: column; }
   .automation-workspace-create { width: 100%; }

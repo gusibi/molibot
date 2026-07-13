@@ -5,11 +5,44 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-14
+
+### Feature: selectable Feishu/Telegram destination for daily reflection notices
+- Desktop Plugins → Memory now lists authorized chats from enabled Feishu and Telegram Bot instances and persists one selected destination for the Owner-level daily memory reflection task.
+- Each Owner reflection run sends exactly one aggregate human notice to that destination after success, including zero-output runs; terminal failures send one failure summary before the task is marked failed. Per-Bot scanning and watermarks remain unchanged, and notices stay outside model/session context.
+- Verification: focused settings/plugin/scheduler tests 33/33, Desktop UI 42/42, Svelte diagnostics 0/0, and the production build pass.
+
+### Test: plugin memory settings now have a real restart regression
+- Replaced serialization-only confidence with a temporary-file/temporary-SQLite round-trip that saves memory reflection and daily-material settings, creates a fresh `SettingsStore`, and verifies every value after reload.
+- This locks in the 2026-07-12 fix for `dailyMaterials.enabled` and related memory sub-settings being reset to defaults after a Desktop service restart without reading or writing the user's real settings database.
+
+### Fix: Project Session selection now switches the visible transcript
+- Fixed Project Chat updating the selected sidebar row while leaving the detail pane bound to the previous `projectChatStore` runtime entry, which made every Session appear to contain the same conversation.
+- The shared `selectProjectSession` action now activates the matching per-Session runtime directly. `ProjectChat` only restores an existing selection on mount and no longer relies on a legacy reactive statement observing imported rune-store mutations.
+- Verification: real API responses for 4 Sessions were distinct; the new A → B runtime/transcript regression passes; Desktop UI tests 42/42 and `svelte-check` reports 0 errors and 0 warnings.
+
 ## 2026-07-13
+
+### Fix: production rebuilds no longer break lazy-loaded settings routes
+- The custom Svelte adapter now builds into an isolated staging directory instead of deleting the live `build/` tree at build start. Completed output publishes server chunks before atomically replacing the manifest and retains hashed chunks still needed by a running process.
+- This prevents `/api/desktop/model-routing` and other not-yet-loaded routes from failing with `ERR_MODULE_NOT_FOUND` while a production rebuild is in progress; failed or interrupted builds leave the current runtime intact.
+- Verification: adapter tests 2/2, production build succeeds, and 150 model-routing requests completed with zero failures during a concurrent full build.
+
+### Fix: explicit UI Session storage and synchronized deletion
+- Renamed the Web presentation store from `users/<scope>/sessions` to `ui-sessions/<scope>` with its index at `ui-sessions/index.json`. Existing layouts migrate lazily and idempotently, preserve ordering, and are removed only after the replacement files exist.
+- Web and Desktop deletion now share one lifecycle that rejects live runs and removes both the UI Session and its Agent context artifacts, including the last context. External channels remain context-only.
+- This change establishes the UI Session / Agent Context boundary; removing the remaining compatible transcript copy is intentionally deferred until attachments, activity presentation, and edit-resend can be projected losslessly.
+
+### Fix: owner-level memory automations and separated system tasks
+- Replaced per-channel/per-Bot memory reflection and daily-material watched events with one Molibot-managed owner event for each feature. Every run resolves the current enabled Bot scopes from live settings, so adding a Bot does not create another automation and the new Bot participates on the next run.
+- Scheduler startup removes only recognized legacy managed memory-event files and retains user-created events. Desktop Automations now separates User Tasks and System Tasks; owner tasks have localized names, remain manually runnable, and are protected from edit/delete because plugin settings own their schedules and enabled state.
+- Verification covers stable owner identity, future-Bot discovery, idempotent migration, task classification, responsive bilingual tabs, focused runtime tests, Desktop diagnostics/tests, and production builds.
+- Hardened managed-event idempotency checks to ignore JSON object key order while still excluding runtime status, preventing semantically unchanged legacy or manually reordered event files from being rewritten. Verification: scheduler tests 7/7, Desktop UI tests 44/44, `svelte-check` 0 errors / 0 warnings, and production `vite build` succeeds.
 
 ### Fix: Desktop first-click loading failures and GitHub bug regression coverage
 - Live browser instrumentation confirmed the first Agents/Skills/Automations click was delivered and switched panes; the apparent no-op came from failed bootstrap/API requests being rendered forever as `Loading`, while an attempted endpoint was latched before bootstrap succeeded and therefore never retried.
 - Workspace children now mount only after bootstrap succeeds. A repeated navigation click or the localized retry action reconnects the same endpoint; failed Skills/Automations requests render an actionable error instead of an eternal loading state. No macOS private click-through API is enabled.
+- Fixed a second Skills first-load failure where the summary updated to 26 but the card grid stayed at 0: the imported rune store was read through legacy `$:` derivations that never recomputed after async data arrived. The pane now uses Svelte 5 `$state`/`$derived`/`$effect`; live browser verification renders all 26 cards and filters to one matching card on search.
 - Hardened the same bug pass with a real Project raw-file route test (media bytes/MIME, not HTML 404), scoped empty-Session reuse coverage, per-Session Project runtime ownership, and terminalization of interrupted persisted tool activities.
 - Verification: browser first-click checks passed for all three panes; a stop-service/reload/restart fault injection showed an explicit error followed by successful recovery on the next click; Desktop UI 40/40, Svelte diagnostics 0/0, and 24 focused route/session/activity/settings tests passed.
 

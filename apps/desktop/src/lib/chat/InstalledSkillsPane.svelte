@@ -2,17 +2,22 @@
   import type { Translation } from "../i18n";
   import { skillsStore, loadSkills } from "../stores/skills.svelte";
 
-  export let copy: Translation;
-  export let serviceEndpoint: string | null;
-  export let serviceReady: boolean;
+  let { copy, serviceEndpoint, serviceReady }: {
+    copy: Translation;
+    serviceEndpoint: string | null;
+    serviceReady: boolean;
+  } = $props();
 
-  let loadedEndpoint = "";
-  let query = "";
-  let expandedIds = new Set<string>();
-  $: if (serviceReady && serviceEndpoint && serviceEndpoint !== loadedEndpoint) {
-    loadedEndpoint = serviceEndpoint;
-    void loadSkills(serviceEndpoint);
-  }
+  let loadedEndpoint = $state("");
+  let query = $state("");
+  let expandedIds = $state(new Set<string>());
+
+  $effect(() => {
+    if (serviceReady && serviceEndpoint && serviceEndpoint !== loadedEndpoint) {
+      loadedEndpoint = serviceEndpoint;
+      void loadSkills(serviceEndpoint);
+    }
+  });
 
   function scopeLabel(scope: "global" | "bot" | "chat" | "project"): string {
     if (scope === "project") return copy.skillScopeProject;
@@ -21,8 +26,8 @@
     return copy.skillScopeGlobal;
   }
 
-  $: normalizedQuery = query.trim().toLowerCase();
-  $: filteredSkills = skillsStore.skills?.items.filter((skill) => !normalizedQuery || [skill.name, skill.description, skill.scope, skill.botId, skill.chatId].join("\n").toLowerCase().includes(normalizedQuery)) ?? [];
+  let normalizedQuery = $derived(query.trim().toLowerCase());
+  let filteredSkills = $derived(skillsStore.skills?.items.filter((skill) => !normalizedQuery || [skill.name, skill.description, skill.scope, skill.botId, skill.chatId].join("\n").toLowerCase().includes(normalizedQuery)) ?? []);
 
   function toggleDescription(id: string): void {
     const next = new Set(expandedIds);

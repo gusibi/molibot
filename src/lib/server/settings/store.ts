@@ -106,6 +106,7 @@ interface RawSettings {
       embeddingModel?: string;
       reflectionTime?: string;
       reflectionNotifications?: boolean;
+      reflectionNotificationTarget?: unknown;
       dailyMaterials?: Record<string, unknown>;
     };
     hooks?: unknown;

@@ -1,5 +1,30 @@
 # Project runtime and display overrides (2026-07-12)
 
+## Owner memory task notification target (2026-07-14)
+
+### Goal
+Allow the user to choose one authorized Feishu or Telegram chat as the single
+Owner memory-task notification destination, and always report success with
+zero/nonzero output or terminal failure.
+
+### Phases
+1. Add red settings/routing/runtime regressions — complete
+2. Persist and validate the selected notification target — complete
+3. Send one aggregate success/failure notice per Owner task — complete
+4. Add bilingual responsive Desktop selector — complete
+5. Verify, document, and adversarially review — complete
+
+### Verification gates
+- Only enabled Feishu/Telegram Bot authorized chats are selectable.
+- The selected target survives save/restart; removed authorization degrades safely.
+- Zero-output success, nonzero success, and terminal failure each send exactly one human notice.
+- Notification delivery never enters model/session context.
+
+### Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Combined planning-file patch missed the current `findings.md` context | 1 | Re-read each file header and applied separate current-context patches; no product code was touched. |
+
 ## Goal
 Add inherited Project settings for Sandbox, model, thinking, tool progress,
 reasoning display, and runlog notices. Sandbox-off must not auto-approve Host Bash.
@@ -13,10 +38,35 @@ reasoning display, and runlog notices. Sandbox-off must not auto-approve Host Ba
 ## Errors encountered
 | Error | Attempt | Resolution |
 | --- | --- | --- |
+| New owner scheduler exports and task category were absent | 1 | Expected red state; implement the owning scheduler and Desktop projection seams next. |
+| UI Tab class assertion and narrowed `systemKind` contract failed | 1 | Added a stable semantic Tab class and narrowed the compatibility fallback to the contract union. |
+| Root `tsc --noEmit` reports broad pre-existing dependency/package errors | 1 | Filtered diagnostics to touched files; fixed the new watcher callback and test typing errors, and retain focused Svelte/build verification. |
+| Combined lifecycle/UI patch missed the exact delete-route context | 1 | Split the change into precise file-local hunks after re-reading the affected blocks. |
 | Desktop Project PATCH intersection retained non-null source fields | 1 | Replaced it with an explicit nullable patch contract. |
 | New sandbox precedence test referenced an unimported full settings fixture | 1 | Replaced it with the minimal typed settings slice used by the resolver. |
 
 ---
+
+# Skills first-load card reactivity (2026-07-13)
+
+## Goal
+
+When the Skills API asynchronously returns items, render every card immediately
+and keep search filtering reactive; never show a nonzero total beside an empty grid.
+
+## Phases
+
+1. Reproduce the exact 26-total/0-card DOM state — completed
+2. Add a red regression contract at the component seam — completed
+3. Replace stale legacy derivation with Svelte 5 runes — completed
+4. Verify initial render, search, diagnostics, and production build — completed
+
+## Verification gates
+
+- First visit with 26 API items renders 26 cards.
+- Typing an exact Skill name narrows the grid to the matching card.
+- Desktop UI tests and Svelte diagnostics pass.
+
 
 # Bot Project mode (2026-07-12)
 
@@ -43,6 +93,8 @@ subsequent turns through the existing Project-aware Agent path without the app.
 
 | Error | Attempt | Resolution |
 | --- | --- | --- |
+| zsh expanded `[id]` in a route filename and aborted the tail of one read-only inspection command | 1 | Quoted the SvelteKit route path on the next inspection; no mutation occurred. |
+| Experimental `acceptFirstMouse` config made Cargo reject a missing `macos-private-api` feature | 1 | Reverted the unproven experiment; require a UI-level discriminator before choosing the native-click branch. |
 | Root `pnpm check` script does not exist | 1 | Use focused typed node tests and the repository production build gate. |
 
 ---
@@ -671,5 +723,138 @@ live runners from orphan Trace facts and supports exact stop or audit-preserving
 | --- | --- | --- |
 | Equal-duration active-run fixtures had a brittle ordering assertion | 1 | Assert each run's classified status by ID; ordering is only guaranteed by duration. |
 | Root `pnpm check` does not exist | 1 | Use the repository's full `pnpm build` SvelteKit verification instead. |
+
+---
+# GitHub bug repair #1-#6 (2026-07-13)
+
+## Goal
+
+Reproduce, repair, and verify GitHub issues #1 through #6 without expanding
+scope into enhancements #7-#9 or overwriting pre-existing worktree changes.
+
+## Assumptions
+
+- The six issues labeled `bug` are the scope for this pass.
+- Existing uncommitted edits are user-owned and must be preserved; overlapping
+  edits will be reviewed and completed rather than reverted.
+- Issue closure/commenting is deferred until each issue has a verified fix.
+
+## Phases
+
+1. Build a red-capable feedback loop for each issue — completed for #1-#5; #6 requires a storage decision
+2. Rank and test root-cause hypotheses — completed
+3. Apply the smallest owning-layer fixes and regression tests — completed for #1-#5
+4. Run focused, type/build, UI, and adversarial verification — completed for #1-#5
+5. Update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md` — completed
+
+## Verification gates
+
+- #1 Project file panel requests a valid Project inspection/raw route, never a
+  Svelte HTML 404 response.
+- #2 Session A live output/queue/approval never appears in Session B.
+- #3 Repeated New Chat actions reuse the one empty Session per scope.
+- #4 First navigation to Agents, Skills, or Automations renders immediately.
+- #5 failed/interrupted tool activities reach a terminal state and persisted
+  transcripts never show an eternal running spinner.
+- #6 each conversation has one canonical persisted history; any compatibility
+  index/projection is clearly non-duplicative and migration-safe.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| zsh expanded the `[id]` route segment as a glob | 1 | Quoted the full route filename for direct test execution. |
+| Experimental Tauri `acceptFirstMouse` config failed Cargo feature validation and had no causal evidence | 1 | Reverted the experiment completely; browser instrumentation proved clicks were delivered and API/bootstrap failure was the real cause. |
+| Initial Desktop proxy targeted IPv4 while the isolated backend listened on IPv6 localhost | 1 | Restarted the proxy with `http://localhost:3000` and reran the browser discriminator. |
+| A duplicate isolated backend start hit `ServiceLeaseConflictError` | 1 | Reused the existing lease-owning backend, then deliberately stopped/restarted it for fault injection. |
+| zsh loop variable `path` shadowed `PATH`, hiding `curl`/`head` | 1 | Renamed the loop variable and used direct endpoint checks. |
+| zsh kept a newline-delimited changed-file scalar as one `rg` path | 1 | Switched to NUL-delimited `git ... -z | xargs -0 rg`; no machine path/private macOS config was introduced by this pass. |
+
+---
+# Owner-level memory automations and task tabs (2026-07-13)
+
+## Goal
+
+Replace per-channel/per-Bot managed memory automations with one owner-level
+scheduler entry that dynamically discovers current targets at run time, and
+separate user-created and system-managed automations in Desktop.
+
+## Assumptions
+
+- System tasks are runtime-managed events with an explicit persisted marker;
+  ordinary events created from the Automations UI remain user tasks.
+- One owner-level event may fan out internally across current Bot/channel
+  targets while retaining per-target/per-conversation watermarks and failure
+  isolation.
+- Existing legacy managed files must be migrated safely without touching user
+  events or real runtime databases in tests.
+
+## Phases
+
+1. Define owner event identity, dynamic target collection, and migration — complete
+2. Implement owner-level dispatch and target-isolated execution — complete
+3. Add bilingual responsive user/system task tabs — complete
+4. Add regression coverage and run type/build checks — complete
+5. Adversarial review and required documentation updates — complete
+
+## Verification gates
+
+- Exactly one managed reflection event and at most one managed daily-materials
+  event exist for the owner, regardless of Bot count.
+- A Bot added after scheduler startup configuration is included on the next run
+  without creating another watched-event file.
+- Legacy per-Bot managed files are removed or disabled idempotently; user task
+  files are never modified.
+- User/System tabs classify tasks by explicit metadata, not filenames or empty
+  text, and work in Chinese, English, light, dark, and narrow layouts.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Root `tsc --noEmit` reports broad pre-existing dependency/package errors | 1 | Filtered diagnostics to touched files, fixed all local issues, and used focused typed tests plus both supported production builds as the release gates. |
+| First adversarial pass found legacy cleanup occurred after the missing-manager early exit | 1 | Moved recognized managed-file migration before manager lookup, so stale tasks are removed even for currently inactive channels. |
+
+---
+# Issue #6 UI Session storage naming and lifecycle (2026-07-13)
+
+## Goal
+
+Rename the misleading Web `users` persistence layout to `ui-sessions`, migrate
+existing data safely, and make Web conversation deletion remove both the UI
+Session and its Agent context without changing external-channel persistence.
+
+## Assumptions
+
+- `UI Session` is the canonical name for the Web-facing title, ordering,
+  activities, attachments, and currently compatible transcript projection.
+- This slice renames and migrates that projection; converting it to
+  metadata-only storage is a separate migration because current UI activities
+  and attachment state are not yet fully reconstructable from Agent context.
+- All persistence verification uses temporary directories only.
+
+## Phases
+
+1. Add failing layout-migration and synchronized-deletion tests — completed
+2. Implement idempotent `users` to `ui-sessions` migration — completed
+3. Implement shared Web Session lifecycle deletion — completed
+4. Run focused/full verification and adversarial review — completed
+5. Update domain and product documentation — completed
+
+## Verification gates
+
+- New Web conversations never create a `users` directory or root
+  `sessions-index.json`.
+- Existing indexed Web conversations migrate to `ui-sessions` without data or
+  ordering loss, and obsolete empty directories are removed only afterward.
+- Deleting a Web conversation removes its UI file/index entry and Agent
+  `.json`, `.jsonl`, and metadata files, including when it is the last context.
+- Feishu, Telegram, QQ, Weixin, and other external channels remain context-only.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Looked for `CONTEXT-FORMAT.md` beside the skills root | 1 | Resolved the reference relative to the `domain-modeling` skill directory. |
 
 ---

@@ -152,7 +152,7 @@ export class ProjectChatStore {
    *  controller, marks it active (clearing any terminal unread dot), and reloads
    *  its transcript. Switching never touches another entry's in-flight turn. */
   selectSession(sessionId: string, projectId: string): void {
-    if (!sessionId) return;
+    if (!sessionId || !this.deps) return;
     this.sessionProjectIds.set(sessionId, projectId);
     const entry = this.registry.getOrCreate(PROJECT_PROFILE_ID, sessionId);
     this.registry.setActive(PROJECT_PROFILE_ID, sessionId);
