@@ -15,7 +15,7 @@ import {
   type SessionRuntimeKey,
   type SessionStatusDot
 } from "./sessionStatusDot";
-import type { DesktopMessageAttachment } from "@molibot/desktop-contract";
+import type { DesktopMessageAttachment, DesktopThinkingLevel } from "@molibot/desktop-contract";
 
 /**
  * Per-session runtime registry (plan §7.3 / §13). Replaces the old single
@@ -39,6 +39,16 @@ export interface SessionRuntimeDeps {
   loadTranscript(profileId: string, sessionId: string): Promise<UiMessage[]>;
   refreshSessions?(): Promise<void>;
   afterMutate?(profileId: string, sessionId: string): void;
+  /**
+   * Optional per-entry resolvers injected by surfaces that pin extra turn
+   * context to a session (project chat: a working directory + per-session
+   * model/thinking overrides). The main chat leaves these unset, so its pinned
+   * host keeps `projectId`/`modelKey` undefined and reads thinking from the
+   * draft store exactly as before (callers inject differences, no fork).
+   */
+  projectId?(profileId: string, sessionId: string): string | undefined;
+  modelKey?(profileId: string, sessionId: string): string | undefined;
+  thinkingLevel?(profileId: string, sessionId: string): DesktopThinkingLevel;
 }
 
 export interface SessionRuntimeEntry {
@@ -103,7 +113,11 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
       endpoint: () => deps.endpoint(),
       profileId: () => profileId,
       sessionId: () => sessionId,
-      thinkingLevel: () => draftStore.get(sessionDraftKey(profileId, sessionId)).thinkingLevel,
+      projectId: deps.projectId ? () => deps.projectId!(profileId, sessionId) : undefined,
+      modelKey: deps.modelKey ? () => deps.modelKey!(profileId, sessionId) : undefined,
+      thinkingLevel: () =>
+        deps.thinkingLevel?.(profileId, sessionId) ??
+        draftStore.get(sessionDraftKey(profileId, sessionId)).thinkingLevel,
       canSend: () => Boolean(profileId) && Boolean(sessionId) && deps.modelReady(),
       labels: () => deps.labels(),
       getMessages: () => self.messages,

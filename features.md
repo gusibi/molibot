@@ -7,11 +7,38 @@
 ---
 ## 2026-07-13
 
+### GitHub Bug 修复批次：文件预览、会话隔离、首次导航与失败收敛（已完成）
+- Project 文件 raw 预览增加路由级回归测试，真实调用 `/api/settings/projects/[id]/inspection/file?raw=true` 并验证返回媒体字节与 MIME，不再把 Svelte HTML 404 当作文件内容。
+- Web/Profile 与 Project 的“新建会话”继续由共享 Session Store 按作用域复用唯一空会话；临时存储测试覆盖连续点击不会生成多个空 Session。
+- 主 Chat 与 Project Chat 均使用按 Session 固定的运行时 controller；Project 运行时在组件重挂载后读取最新依赖，后台 A 会话的输出、队列、停止和审批不会落到正在浏览的 B 会话。
+- 修复 Agents、Skills、Automations 首次点击看似无响应：实测点击事件第一次已触发，根因是启动 bootstrap 请求失败后同一 endpoint 不再重试，子页面又把失败空数据永久显示为 Loading。工作区现在等待 bootstrap 成功后才发子请求；再次点击或错误态按钮可重试，并提供中英双语错误说明。
+- 工具活动在服务端持久化和客户端读取历史记录时都会把遗留 `running` 收敛为 `error`；流中断会保留已生成文本、附件和工具时间线，不再永久转圈或丢失可继续的上下文。
+- 验证包括真实浏览器点击与断服恢复故障注入、Desktop Svelte 诊断 0/0、Desktop UI 40/40，以及 Project raw route、Session Store、activity/transcript 共 11 项聚焦测试。
+
+### Project Chat 迁移到按会话运行时注册表（支持并发项目会话，已完成）
+- Project 聊天此前用**单个** `ConversationController`，host 的 `sessionId`/`modelKey`/`thinkingLevel` 跟随当前选中会话，导致同一时刻只能跑一个项目会话，`stop`/`resolveApproval`/队列会串到正在浏览的会话。2026-07-12 的修复用固定 `turnSessionId` + `liveTurnVisible` 门控 + 不切换选中态的 `refreshProjectSessionMessages` 打了补丁；本次改动把 Project 聊天迁到主聊天已在用的架构，彻底去掉补丁。
+- 泛化共享的 `SessionRuntimeRegistry`（`sessionRuntimeRegistry.svelte.ts`），新增三个**可选**的按会话解析器 `projectId`/`modelKey`/`thinkingLevel`（按 `(profileId, sessionId)` 键），注入到每个固定 host。主聊天的 `ChatSessionStore` 不传这些，因此其 host 的 `projectId`/`modelKey` 仍为 undefined、thinking 仍从 draft store 读取，行为完全不变。
+- 新增 `projectChatStore`（`lib/projects/projectChatStore.svelte.ts`），一个对齐 `ChatSessionStore` 的**模块单例**：每个项目会话拥有自己固定的 controller（固定 `personal` profile + sessionId + 工作目录），后台 turn 会持续把输出流入自己的 transcript，而用户可以同时浏览另一个会话；stop/审批/队列始终作用于 turn 自己的会话。作为单例，项目 turn 能在 ProjectChat 卸载/重挂（切面板/切项目）后继续存活；仅由宿主（`ChatView` 断连重置 + `onDestroy`）整体销毁，删除会话时按会话销毁（`removeProjectSession` → `disposeSession`）。
+- 重写 `ProjectChat.svelte` 改为驱动 `projectChatStore`（订阅其单一 `state` store、固定选中会话、send/stop/队列/审批/编辑重发都走 store）；transcript 现在来自注册表 entry 而非 `projectsStore.messages`。删除了已成死代码的补丁函数 `refreshProjectSessionMessages` 与 `liveTurnVisible` 门控。附件/媒体预览、语音录制、编辑重发保持不变。
+- 验证：`svelte-check` 0 错误 0 警告；`vite build` 通过；Desktop UI 测试 41/41（`chat-ui.test.mjs` + `http-scope.test.mjs`）、cargo 测试 10/10 通过。`chat-ui.test.mjs` 里两处结构断言从旧单 controller 设计（`createConversationController`/`chat.send`/`modelKey: () => activeModelKey`）改为注册表架构（`projectChatStore.state`/`projectChatStore.send`/`resolveSessionModel`）。行为推演：项目会话 A 与会话 B 的 turn 现在各自并发流入自己的 transcript；在 B 点 Stop 只停 B；A 的审批在浏览过 B 后仍作用于 A。
+
+### 加固：队列续发钉住完整 turn 上下文（已完成）
+- `ConversationController.send()` 对队列续发（`drainQueue`）只钉住了 `sessionId`，而 `profileId`/`projectId`/`modelKey`/`thinkingLevel` 仍在 drain 时实时从 host 读取。当 host 可变（迁移前的单项目 controller）时，队列 drain 前切换项目/会话/模型会把被钉住的会话提交到错误的项目或模型上——跨项目/跨模型串台。上面的按会话注册表迁移已从根本上修掉了上报的场景（每个固定 host 现在返回固定值），所以本条是 defense-in-depth：controller 现在在 `send()` 起始对整个 turn 上下文拍快照，队列续发复用该快照，队列正确性不再依赖"调用方恰好把 host 钉死"。`stop()`/`resolveApproval()` 也从同一快照解析 `profileId` 以保持一致。
+- 对当前所有调用方无行为变化：现有 host（主聊天注册表、项目注册表）均已固定，快照值等于实时值。验证：`svelte-check` 0 错误 0 警告、`vite build` 通过、Desktop 测试 42/42（`chat-ui.test.mjs` + `http-scope.test.mjs`）。
+
 ### 模型重试与持久化上下文锁步回滚（已完成）
 - 修复 runner 模型重试循环只回滚内存上下文、不回滚 store 导致的持久化重复步骤问题：`message_end` 订阅器已把失败尝试的 assistant/toolResult 步骤 `appendContextMessage` 写入会话日志，而重试只做 `this.agent.state.messages = beforeAttempt`，`finally` 又会把持久化日志重新载入内存，于是每次重试都在会话里堆叠重复步骤并被下一轮继承。
 - `MomRuntimeStore` 新增会话级检查点：`createContextCheckpoint` 在尝试开始时记录持久化日志长度，`restoreContextCheckpoint` 把追加式 entries 日志和 context 快照一起截断回该检查点（返回丢弃条数）。runner 在 `beforeAttempt` 旁捕获检查点，并用单一 `rollbackAttempt()` helper 在所有重试/放弃路径（可重试错误、空响应重试、上下文溢出压缩重试、抛出的模型错误、最终空响应耗尽）同步回滚内存与 store，丢弃步骤时重置 `assistantMessagePersisted`。store 调用用可选链，保证不带该方法的 runner 测试替身仍可用。
 - 防止非幂等工具被重复执行：完整重跑会再次触发失败尝试里已完成的工具步骤（发消息、写文件）。`resolvePromptAttemptDecision` 新增 `attemptExecutedTools` 入参，失败尝试若已产生 `toolResult`，则把本可重试的错误降级为 `terminal_error`，直接把错误抛给用户而不是静默重复副作用。（checkpoint-continue 从最后一个完整 toolResult 续跑也能解决，但需要 SDK 级别的回合续跑能力；锁步 store 回滚是收敛的修复。）
 - 验证：`tsc -p tsconfig.json` 在改动文件上无新增错误（`hostBash/store.ts`、`settings/store.ts` 的既有错误与本次无关）；`runnerRetryState.test.ts` 8/8、新增 `storeContextCheckpoint.test.ts` 3/3、`runner.test.ts` 24/24 全部通过。
+
+### 聊天四项稳定性修复：会话串台 / 工具转圈 / 插件设置回滚 / 失败丢内容（已完成）
+- **Project Chat 会话串台**：Project 聊天仍在用单 `ConversationController` 且 host `sessionId` 跟随选中会话，turn 结束时 `reload` 走 `selectProjectSession` 会把用户强行拉回正在运行的会话，且流式输出/审批卡片会在任何会话上渲染。现在 controller 新增 `turnSessionId`（随 turn 固定），`stop`/`resolveApproval`/队列 drain 都固定到该会话；Project Chat 的 live 输出（streaming/activities/approval/sending 气泡）按 `turnSessionId === selectedSessionId` 门控；新增 `refreshProjectSessionMessages`（只刷新、不改选中态）替代 turn 收尾时的 `selectProjectSession`。
+- **工具调用永久转圈**：run 被中断（abort、崩溃、工具没有发出 end 事件）时，持久化的 activities 里会留下 `running` 状态条目，transcript 永远转圈。服务端 `ConversationActivityCollector` 新增 `finalSnapshot()`（把仍在 running 的条目收敛为 error），`/api/stream` 与 `/api/chat` 持久化时使用；客户端 `finalizeTranscriptActivities` 对已持久化消息（含历史数据）做同样收敛，live 流式列表不受影响。
+- **插件设置重启回滚**：`SettingsStore` 的 save/load 只序列化 `plugins.memory` 的 4 个字段，`reflectionTime`/`reflectionNotifications`/`dailyMaterials`（每日反思、每日素材）、`plugins.hooks` 及动态 feature 插件 settingsKey 数据每次重启都被重置。现在 save 序列化完整 `plugins` 块；load 通过新抽出的共享 `sanitizeMemoryPluginSettings` 还原完整 memory 配置，并透传 hooks 与动态插件键；`sanitizeSettings` 同步保留动态插件键。
+- **聊天失败丢中间内容**：`/api/stream` 中客户端断连/停止后 `controller.enqueue` 抛错会炸掉整个持久化路径，导致前面所有输出（含 9/10 步的工具过程）全部丢失。`writeEvent` 改为对已关闭流静默容错，run 收尾的 transcript 持久化不再被断连打断；catch 分支新增兜底：把已生成的部分文本 + finalized activities + 附件持久化成带“已中断”提示的 assistant 消息，并用 `assistantPersisted` 标志防止与成功分支重复入库。runner 侧原有的 partial 保留与 finally 从 store 重载上下文逻辑保持不变，"继续" 可以基于已持久化的步骤接着走。（渠道不受影响：`MomRunner.run` 失败时返回 `stopReason:"error"` 而非抛异常，各渠道运行时仍会持久化累积文本。）
+- **补充健壮性排查**：ProjectChat 输入侧同样存在串台——`handleComposerKeydown`/`queuedMessages` 读的是共享单 controller 的原始 `sending`/`queue`，在浏览空闲会话时敲回车会把后续消息塞进正在后台运行的会话，且该会话的待发队列会渲染到当前会话；两者都改为按 `liveTurnVisible` 门控。主 ChatView 已用按会话固定的 `SessionRuntimeRegistry`，天然免疫 bug 1 这类问题；ProjectChat 仍是单 controller（同一时刻只能跑一个项目会话），已记录为后续迁移到 registry 的方向。
+- 验证：`svelte-check` 0 错误 0 警告、`vite build` 通过、Desktop UI 39/39；服务端 settings/sanitize/store、conversationActivity、sessions store、desktop api 共 89/89 通过（含 desktopPlugins 早前 103/103）；`tsc` 对触碰文件无新增错误。
 
 ### Project 本地文件面板大图与媒体文件内联预览（已完成）
 - 解决在 Project 右侧文件面板中浏览项目本地文件时，对于图片、音频、视频等文件无法预览的问题（小于 256KB 会提示“二进制文件不能预览”，大于 256KB 会提示“文件超过预览上限”）。

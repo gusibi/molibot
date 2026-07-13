@@ -5,6 +5,14 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.58 GitHub Bug Stabilization Pass (2026-07-13)
+- [Done, P0] Project raw 文件预览必须返回真实媒体字节与正确 MIME；路由级测试必须拒绝 HTML 404 回退。
+- [Done, P0] Web Profile 与 Project 范围内连续新建会话必须复用各自唯一空 Session。
+- [Done, P0] Chat 与 Project Chat 的运行输出、队列、停止和审批必须由发起 Session 持有；切换 Session 不得串台。
+- [Done, P0] Agents、Skills、Automations 必须等 Desktop bootstrap 完成后再加载；首次请求失败必须显示可操作错误并允许对同一 endpoint 重试，不能永久停在 Loading。
+- [Done, P0] 中断或缺失结束事件的工具活动必须在持久化边界收敛为终态，并保留已产生的部分输出。
+- [Decision pending, P1] Web UI Session 与 Agent context 的单一权威存储需要独立迁移方案：模型上下文的工具/压缩/重试信息与 UI 的标题/附件/activity 元数据必须在迁移前都找到无损归属；本批次不直接删除任一存储。
+
 ## 2.57 Desktop Project File Panel Large Image Preview (2026-07-12)
 - [Done, P0] 修复桌面端 Project 文件面板在预览大图时显示“超过预览上限”或“二进制文件不能预览”的问题。
 - [Done, P0] 后端在 `/api/settings/projects/[id]/inspection/file` 接口上支持 `raw=true` 选项，绕过大文本 256KB 预览限制，直接返回原始二进制响应并附带 correct MIME type 与 Cache-Control。

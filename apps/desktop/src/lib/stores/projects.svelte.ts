@@ -12,6 +12,7 @@ import {
   type DesktopProjectMessage,
   type DesktopProjectSession
 } from "../api";
+import { projectChatStore } from "../projects/projectChatStore.svelte";
 
 export const projectsStore = $state({
   endpoint: "",
@@ -144,6 +145,9 @@ export async function removeProjectSession(conversationId: string): Promise<void
   if (!projectsStore.endpoint || !projectsStore.selectedProjectId) return;
   try {
     await deleteDesktopProjectSession(projectsStore.endpoint, projectsStore.selectedProjectId, conversationId);
+    // Tear down the deleted session's pinned runtime so its controller/state is
+    // not left orphaned (parity with the main chat's delete → disposeSession).
+    projectChatStore.disposeSession(conversationId);
     const remaining = projectsStore.sessions.filter((item) => item.conversationId !== conversationId);
     projectsStore.sessions = remaining;
     if (projectsStore.selectedSessionId === conversationId) {

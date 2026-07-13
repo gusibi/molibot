@@ -11,7 +11,7 @@
   import ApprovalCard from "../chat/ApprovalCard.svelte";
   import ChatInputArea from "../chat/ChatInputArea.svelte";
   import ChatMessagesPane from "../chat/ChatMessagesPane.svelte";
-  import { createConversationController } from "../chat/conversationController.svelte";
+  import { projectChatStore } from "./projectChatStore.svelte";
   import {
     fetchDesktopFileBlob,
     listDesktopSessionFiles,
@@ -25,7 +25,7 @@
     TranscriptMessage,
     TranscriptMessageActions
   } from "../chat/transcript";
-  import { projectsStore, refreshProjectSessionList, selectProjectSession } from "../stores/projects.svelte";
+  import { projectsStore, refreshProjectSessionList } from "../stores/projects.svelte";
 
   export let copy: Translation;
   let message = "";
@@ -70,11 +70,10 @@
   $: currentProject = projectsStore.projects.find((item) => item.id === projectsStore.selectedProjectId);
   $: projectToolProgress = currentProject?.toolProgress ?? "all";
   $: projectShowReasoning = currentProject?.showReasoning ?? "on";
-  // Read `projectsStore.messages` directly in the template (not through a
-  // legacy `$:` derivation) so switching sessions updates the transcript.
-  // A legacy `$:` only runs once at init and would keep showing the first
-  // session's messages - same pitfall as the ProjectDetail "first-click does
-  // nothing" bug fixed in 3515ff3a. The filter mirrors the prior derivation.
+  // Resolve the composer's model/thinking UI for the newly-selected session
+  // (per-session override → project default → global). Gated on loaded models
+  // so the selector reflects a valid option; transcript pinning is a separate
+  // `$:` below that does NOT wait on models.
   $: if (projectsStore.selectedSessionId && projectsStore.selectedSessionId !== appliedSessionId && modelOptions.length > 0) {
     appliedSessionId = projectsStore.selectedSessionId;
     const requestedModel = sessionModelOverrides.get(appliedSessionId) ?? currentProject?.modelKey ?? globalModelKey;
@@ -108,16 +107,24 @@
     }
   }
 
-  // The project surface shares the main chat's turn engine; it only supplies its
-  // own transcript store, composer, and "personal / medium" defaults.
-  const chat = createConversationController({
+  // Per-session resolvers the pinned controllers read at send time. Model /
+  // thinking overrides plus project/global defaults live here; the store injects
+  // these into each session's runtime so a background turn keeps its own model.
+  function resolveSessionModel(sessionId: string): string {
+    return sessionModelOverrides.get(sessionId) ?? currentProject?.modelKey ?? globalModelKey;
+  }
+  function resolveSessionThinking(sessionId: string): DesktopThinkingLevel {
+    return sessionThinkingOverrides.get(sessionId) ?? currentProject?.thinkingLevel ?? globalThinkingLevel;
+  }
+
+  // The project surface shares the main chat's per-session runtime registry
+  // (a module singleton), so every project session gets its OWN pinned
+  // controller: background turns keep streaming while the user views another
+  // session, and stop/approval/queue always target the turn's own session.
+  // init is re-callable on each mount; it only refreshes these host closures.
+  projectChatStore.init({
     endpoint: () => projectsStore.endpoint,
-    profileId: () => "personal",
-    sessionId: () => projectsStore.selectedSessionId,
-    projectId: () => projectsStore.selectedProjectId,
-    modelKey: () => activeModelKey,
-    thinkingLevel: () => thinkingLevel,
-    canSend: () => Boolean(projectsStore.selectedSessionId) && modelReady,
+    modelReady: () => modelReady,
     labels: () => ({
       working: copy.working,
       uploading: copy.uploading,
@@ -125,42 +132,35 @@
       idle: copy.idle,
       resuming: copy.resuming
     }),
-    getMessages: () => projectsStore.messages,
-    appendUserMessage: (content, files) => {
-      projectsStore.messages = [...projectsStore.messages, {
-        id: `pending-${Date.now()}`,
-        conversationId: projectsStore.selectedSessionId,
-        role: "user",
-        content,
-        createdAt: new Date().toISOString(),
-        attachments: files.length > 0
-          ? files.map((file) => ({
-              original: file.name,
-              local: "",
-              mediaType: inferAttachmentKind(file),
-              mimeType: file.type || undefined,
-              size: file.size
-            }))
-          : undefined
-      }];
-    },
-    reload: (sessionId) => selectProjectSession(sessionId),
     refreshSessions: () => refreshProjectSessionList(projectsStore.selectedProjectId),
-    clearComposer: () => { message = ""; pendingFiles = []; },
-    setError: (msg) => (projectsStore.error = msg),
-    clearError: () => (projectsStore.error = "")
+    resolveModel: resolveSessionModel,
+    resolveThinking: resolveSessionThinking
   });
 
-  // Legacy `$:` can't track the controller's runes `$state`; subscribe to its
-  // `view` store so streaming/turn state stays reactive here.
-  const conversationView = chat.view;
-  $: sending = $conversationView.sending;
-  $: activity = $conversationView.activity;
-  $: streamingText = $conversationView.streamingText;
-  $: streamingThinking = $conversationView.streamingThinking;
-  $: activityEntries = $conversationView.activities;
-  $: pendingApproval = $conversationView.pendingApproval;
-  $: queuedMessages = $conversationView.queue;
+  // Legacy `$:` can't track the store's runes `$state`; subscribe to its single
+  // `state` store so the active session's transcript + streaming stay reactive.
+  // The active entry IS the viewed session (pinned controllers), so no per-turn
+  // session gating is needed — its live state is exactly this session's.
+  const chatStateStore = projectChatStore.state;
+  $: chatState = $chatStateStore;
+  $: sending = chatState.sending;
+  $: messages = chatState.messages;
+  $: activity = chatState.activity;
+  $: streamingText = chatState.streamingText;
+  $: streamingThinking = chatState.streamingThinking;
+  $: activityEntries = chatState.activities;
+  $: pendingApproval = chatState.pendingApproval;
+  $: queuedMessages = chatState.queue;
+  $: turnError = chatState.error;
+
+  // Pin the selected session's runtime as soon as it (and the endpoint) exist,
+  // independent of model loading so the transcript always shows. A latch avoids
+  // re-selecting the same session and the onMount/$: double-fetch race.
+  let pinnedSessionId = "";
+  $: if (projectsStore.selectedSessionId && projectsStore.endpoint && projectsStore.selectedSessionId !== pinnedSessionId) {
+    pinnedSessionId = projectsStore.selectedSessionId;
+    projectChatStore.selectSession(projectsStore.selectedSessionId, projectsStore.selectedProjectId);
+  }
 
   function inferAttachmentKind(file: File): "image" | "audio" | "video" | "file" {
     const type = file.type.toLowerCase();
@@ -227,7 +227,7 @@
       } catch (cause) {
         const status = (cause as Error & { status?: number }).status;
         if (status === 422) {
-          await selectProjectSession(projectsStore.selectedSessionId);
+          await projectChatStore.reloadActive();
           projectsStore.error = copy.editMessageStale;
         } else {
           projectsStore.error = cause instanceof Error ? cause.message : String(cause);
@@ -242,7 +242,7 @@
       message = "";
       pendingFiles = [];
     }
-    void chat.send({ message: text, files });
+    void projectChatStore.send(projectsStore.selectedSessionId, text, files);
   }
 
   async function copyMessageContent(msg: TranscriptMessage): Promise<void> {
@@ -280,23 +280,26 @@
   }
 
   function stopRun(): void {
-    void chat.stop();
+    void projectChatStore.stopActive();
   }
 
   function queueFollowUp(): void {
-    if (chat.enqueue(message)) message = "";
+    if (projectChatStore.enqueueFollowUp(message)) message = "";
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
+      // `sending` reflects the VIEWED session's pinned controller, so enqueuing
+      // a follow-up while it runs always targets the right session; a background
+      // turn on another session never leaks into this composer.
       if (sending) queueFollowUp();
       else sendMessage();
     }
   }
 
   function removeQueued(index: number): void {
-    chat.removeQueued(index);
+    projectChatStore.removeQueued(index);
   }
 
   function approvalOptionLabel(option: { id: string; label: string }): string {
@@ -308,7 +311,7 @@
   }
 
   function resolveApproval(decision: DesktopApprovalDecision): void {
-    void chat.resolveApproval(decision);
+    void projectChatStore.resolveApproval(decision);
   }
 
   function resolveApprovalId(decision: string): void {
@@ -319,7 +322,7 @@
     id: option.id,
     label: approvalOptionLabel(option)
   })) ?? [];
-  $: messageActions = projectsStore.messages.length === 0
+  $: messageActions = messages.length === 0
     ? null
     : {
         copiedId: copiedMessageId,
@@ -612,7 +615,9 @@
   }
 
   onDestroy(() => {
-    chat.dispose();
+    // The project runtime store is a module singleton: do NOT dispose it here,
+    // or a background project turn would be aborted on pane/project switch. It
+    // is torn down only by the host (ChatView) on disconnect / teardown.
     stopRecordingTimer();
     if (recording && isTauriRuntime()) {
       void invoke("cancel_recording").catch(() => { /* ignore */ });
@@ -628,12 +633,12 @@
 <section class="project-chat">
   <ChatMessagesPane
     messages={projectToolProgress === "off"
-      ? projectsStore.messages.map((item) => ({ ...item, activities: [] }))
-      : projectsStore.messages}
+      ? messages.map((item) => ({ ...item, activities: [] }))
+      : messages}
     {copy}
     {formatTime}
     stickKey={projectsStore.selectedSessionId}
-    loading={projectsStore.messagesLoading}
+    loading={projectsStore.messagesLoading && messages.length === 0}
     loadingLabel={copy.projectLoadingSession}
     {sending}
     {streamingText}
@@ -676,7 +681,7 @@
     activeModelTitle={activeModelFullLabel}
     thinkingLevelLabel={thinkingLabel}
     {changingModel}
-    error={projectsStore.error}
+    error={turnError || projectsStore.error}
     {recordingError}
     {queuedMessages}
     {pendingFiles}
@@ -694,7 +699,7 @@
     onFinishRecording={(send) => void finishRecording(send)}
     onRemoveQueued={removeQueued}
     onRemoveFile={removePendingFile}
-    onDismissError={() => (projectsStore.error = "")}
+    onDismissError={() => { projectsStore.error = ""; projectChatStore.clearActiveError(); }}
     onDismissRecordingError={() => (recordingError = "")}
     onOpenSettings={() => undefined}
     onChangeModel={changeModel}

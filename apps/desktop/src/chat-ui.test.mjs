@@ -45,10 +45,25 @@ const chatMessagesPane = read("./lib/chat/ChatMessagesPane.svelte");
 const chatHeader = read("./lib/chat/ChatHeader.svelte");
 const recordingBar = read("./lib/chat/RecordingBar.svelte");
 const projectChat = read("./lib/projects/ProjectChat.svelte");
+const projectChatStoreSource = read("./lib/projects/projectChatStore.svelte.ts");
 const projectFilePanel = read("./lib/projects/ProjectFilePanel.svelte");
 const taskStore = read("./lib/stores/tasks.svelte.ts");
+const skillsStoreSource = read("./lib/stores/skills.svelte.ts");
 const conversationController = read("./lib/chat/conversationController.svelte.ts");
 const transcriptHelpers = read("./lib/chat/transcript.ts");
+
+test("workspace navigation waits for bootstrap and can retry failed loads", () => {
+  assert.match(view, /let connectionReady = false/);
+  assert.match(view, /if \(!connectionReady && !loading && serviceState === "ready" && serviceEndpoint\)/);
+  assert.match(view, /serviceReady=\{connectionReady\}/);
+  assert.match(chatWorkspace, /onRetryService/);
+  assert.match(sections.skills, /skillsStore\.error/);
+  assert.match(sections.skills, /copy\.retryLoading/);
+  assert.match(sections.tasks, /tasksStore\.error/);
+  assert.match(sections.tasks, /session\.text\.retryLoading/);
+  assert.match(skillsStoreSource, /error: ""/);
+  assert.match(taskStore, /error: ""/);
+});
 
 const formSectionKey = { agent: "agents", mcp: "mcp", channel: "channels", profile: "profiles", task: "tasks", memory: "memory" };
 
@@ -74,7 +89,10 @@ test("Project settings exposes inherited model and thinking defaults in a fixed 
   assert.match(projectSettingsDialog, /projectDefaultModel/);
   assert.match(projectSettingsDialog, /projectFollowGlobal/);
   assert.match(projectSettingsDialog, /class="settings-footbar"/);
-  assert.match(projectChat, /modelKey: \(\) => activeModelKey/);
+  // Project chat resolves each session's model per-session (override → project →
+  // global) and feeds it to the pinned controller via the runtime store.
+  assert.match(projectChat, /function resolveSessionModel/);
+  assert.match(projectChat, /resolveModel: resolveSessionModel/);
 });
 
 test("microphone control starts recording and exposes a timer bar", () => {
@@ -329,11 +347,14 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
   assert.match(projectChat, /activeModelTitle=\{activeModelFullLabel\}/);
   assert.doesNotMatch(projectChat, /<BotMention/);
   assert.doesNotMatch(projectChat, /project-context-token|defaultWeb|Default Web/);
-  // Project chat drives its own controller directly; main chat drives the
-  // per-session registry store (which owns the pinned controllers).
+  // Both chat surfaces drive a per-session runtime store (each owns the pinned
+  // controllers); neither reimplements the turn loop. Main chat uses
+  // ChatSessionStore, project chat uses projectChatStore.
   assert.match(view, /ChatSessionStore/);
-  assert.match(projectChat, /createConversationController/);
-  assert.match(projectChat, /chat\.send\(/);
+  assert.match(projectChat, /projectChatStore/);
+  assert.match(projectChat, /projectChatStore\.send\(/);
+  assert.match(projectChat, /projectChatStore\.state/);
+  assert.match(projectChatStoreSource, /modelKey: \(_profileId, sessionId\) => this\.deps\?\.resolveModel\(sessionId\)/);
   // Only the controller talks to the turn runtime; the views never do.
   assert.match(conversationController, /runDesktopConversationTurn/);
   assert.doesNotMatch(view, /runDesktopConversationTurn/);

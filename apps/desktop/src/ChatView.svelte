@@ -77,6 +77,7 @@
   import ConversationBrowserDialog from "./lib/chat/ConversationBrowserDialog.svelte";
   import BotMention from "./lib/chat/BotMention.svelte";
   import { ChatSessionStore } from "./lib/chat/chatSessionStore.svelte";
+  import { projectChatStore } from "./lib/projects/projectChatStore.svelte";
   import type { ConversationLabels, UiMessage } from "./lib/chat/conversationController.svelte";
   import { stickToBottom } from "./lib/chat/stickToBottom";
   import type { ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
@@ -109,6 +110,7 @@
   let activeModelKey = "";
   let changingModel = false;
   let connectedEndpoint = "";
+  let connectionReady = false;
   let loading = false;
   let error = "";
   let connectionGeneration = 0;
@@ -372,6 +374,7 @@
   $: if (serviceState !== "ready" && connectedEndpoint) {
     connectionGeneration += 1;
     connectedEndpoint = "";
+    connectionReady = false;
     stopReconnectPoll();
     profiles = [];
     onboardingProfiles = [];
@@ -408,6 +411,7 @@
     externalTranscript = null;
     sessionFiles = [];
     chatStore.disposeAll();
+    projectChatStore.disposeAll();
     closePreview();
   }
 
@@ -514,6 +518,7 @@
   async function connect(endpoint: string): Promise<void> {
     const generation = ++connectionGeneration;
     connectedEndpoint = endpoint;
+    connectionReady = false;
     loading = true;
     error = "";
     try {
@@ -563,12 +568,14 @@
         }
       });
 
+      connectionReady = true;
       loading = false;
       void selectDefaultSession(generation);
       void chatStore.reconnect();
       startReconnectPoll();
     } catch (cause) {
       if (generation === connectionGeneration) {
+        connectionReady = false;
         error = cause instanceof Error ? cause.message : String(cause);
       }
     } finally {
@@ -1332,6 +1339,9 @@
     workspacePane = pane;
     searchOpen = false;
     filePanelOpen = false;
+    if (!connectionReady && !loading && serviceState === "ready" && serviceEndpoint) {
+      void connect(serviceEndpoint);
+    }
   }
 
   function formatTime(value: string): string {
@@ -1526,6 +1536,7 @@
     stopSidebarResize();
     stopReconnectPoll();
     chatStore.disposeAll();
+    projectChatStore.disposeAll();
     stopRecordingTimer();
     if (recording && isTauriRuntime()) {
       void invoke("cancel_recording").catch(() => { /* ignore */ });
@@ -1605,7 +1616,15 @@
   {:else}
   <section class="chat-content">
     {#if workspacePane !== "chat"}
-      <ChatWorkspacePane pane={workspacePane} {copy} serviceEndpoint={connectedEndpoint || serviceEndpoint} serviceReady={serviceState === "ready"} onOpenAgentSettings={() => openSettings("agents")} />
+      <ChatWorkspacePane
+        pane={workspacePane}
+        {copy}
+        serviceEndpoint={connectionReady ? connectedEndpoint : null}
+        serviceReady={connectionReady}
+        serviceError={error}
+        onRetryService={() => serviceEndpoint && void connect(serviceEndpoint)}
+        onOpenAgentSettings={() => openSettings("agents")}
+      />
     {:else}
     <header class="chat-header" data-tauri-drag-region>
       <div class="chat-title-block" data-tauri-drag-region>
