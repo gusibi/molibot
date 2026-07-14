@@ -135,7 +135,7 @@ export const POST: RequestHandler = async ({ request }) => {
       }
     );
   }
-  runtime.sessions.appendMessage(conversation.id, "user", message);
+  runtime.sessions.appendMessage(conversation.id, "user", message, { contextBacked: true });
 
   request.signal.addEventListener(
     "abort",
@@ -302,7 +302,8 @@ export const POST: RequestHandler = async ({ request }) => {
             runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
               attachments: responseAttachments,
               activities: activityCollector.finalSnapshot(),
-              model: responseModel || undefined
+              model: responseModel || undefined,
+              contextBacked: true
             });
             assistantPersisted = true;
           }
@@ -329,7 +330,7 @@ export const POST: RequestHandler = async ({ request }) => {
                 conversation.id,
                 "assistant",
                 partial ? `${partial}\n\n${notice}` : notice,
-                { attachments: responseAttachments, activities, model: responseModel || undefined }
+                { attachments: responseAttachments, activities, model: responseModel || undefined, contextBacked: true }
               );
             }
           } catch {

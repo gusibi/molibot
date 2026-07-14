@@ -54,6 +54,8 @@ const transcriptHelpers = read("./lib/chat/transcript.ts");
 const markdown = read("./lib/markdown.ts");
 const queuedMessagesBar = read("./lib/chat/QueuedMessagesBar.svelte");
 const logsSection = read("./lib/settings/LogsSection.svelte");
+const activeRunsRoute = read("../../../src/routes/api/desktop/active-runs/+server.ts");
+const streamStopRoute = read("../../../src/routes/api/stream/stop/+server.ts");
 
 test("workspace navigation waits for bootstrap and can retry failed loads", () => {
   assert.match(view, /let connectionReady = false/);
@@ -562,6 +564,17 @@ test("Desktop Trace exposes live, stuck, and orphan run controls", () => {
   assert.match(traceSection, /traceRunStuck/);
   assert.match(traceSection, /traceClearOrphan/);
   assert.match(traceSection, /setInterval\(\(\) => void refreshActiveRuns\(\), 3000\)/);
+  assert.match(activeRunsRoute, /snapshotAllRuntimeRuns\(\)/);
+  assert.match(activeRunsRoute, /abortRuntimeRun/);
+});
+
+test("Desktop Stop waits for server finalization and reloads preserved output", () => {
+  assert.match(streamStopRoute, /await waitForWebRunnerIdle/);
+  const stopRequest = conversationController.indexOf("const stopped = await stopDesktopChat");
+  const detach = conversationController.indexOf("if (this.sending) this.abort?.abort()", stopRequest);
+  const reload = conversationController.indexOf("await this.host.reload(sessionId)", detach);
+  assert.ok(stopRequest >= 0 && detach > stopRequest && reload > detach);
+  assert.doesNotMatch(conversationController, /this\.abort\?\.abort\(\);\s*try \{\s*const stopped = await stopDesktopChat/);
 });
 
 test("settings navigation matches the web taxonomy and entity editors open as dialogs", () => {

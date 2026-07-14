@@ -7,6 +7,13 @@
 ---
 ## 2026-07-14
 
+### GitHub Issues #6 / #11 / #12：会话单一权威、停止保留输出与 Trace 控制（已完成）
+- UI Session 文件改为 `messageMetadata` 投影：普通用户/助手正文只由 Agent append-only entries 持有，UI 侧仅保存标题、顺序、附件、activity、模型与平台消息等展示元数据；旧 transcript 逐条验证可重建后清空正文，无法匹配的旧命令消息安全保留为 display-only。
+- Web、Desktop 与 Project transcript 统一经过共享投影 module，将 Agent 的 user/assistant/tool 链收敛为界面消息并保留 reasoning、附件、activity、模型；编辑重发同时截断 UI metadata 与 Agent entries/context snapshot。
+- Desktop Stop 先保持 SSE 连接，让服务端 abort 后完成部分输出持久化，再在有界等待后 reload；已生成内容不再因客户端抢先断流而消失。
+- Trace 当前运行列表纳入普通 Web 与 Desktop Project 的 RunnerPool 快照；停止操作可精确终止这些此前被误判为 orphan 的运行，真正的 orphan 仍只清理审计状态。
+- 验证：会话/投影/Trace 聚焦测试 22/22，Runner 25/25（临时 SQLite），Desktop UI 44/44，Svelte 0 错误 0 警告，生产构建通过。
+
 ### AnySearch 与 Desktop 媒体测试一致性（已完成）
 - Web 与 Desktop 搜索设置新增 AnySearch；共享 Agent 搜索层按官方 `/v1/search` 协议支持匿名额度和可选 Bearer API key，并纳入自动路由与来源归一化。
 - Desktop 搜索、图片、视频测试不再用凭据安全视图中的空字符串覆盖服务端已保存 key；图片与视频测试均提供独立引擎选择，行为与 Web 一致。
@@ -57,7 +64,7 @@
 - Web 界面使用的会话投影从含义模糊的 `users/<scope>/sessions` 改为 `ui-sessions/<scope>`，索引同步收进 `ui-sessions/index.json`；首次读取会按原顺序自动迁移旧索引和文件，确认新文件落盘后才删除旧空目录。
 - 明确区分 UI Session（标题、附件、activity 与界面展示状态）和 Agent Context（模型、工具、压缩与续写状态）。Telegram、飞书、QQ、微信等外部渠道继续只使用 Agent Context，不新增 UI Session 副本。
 - Web 与 Desktop 删除入口现在共用上层生命周期：运行中拒绝删除；静止会话会同步删除 UI Session 及对应 Agent `.json`、`.jsonl`、`.meta.json`，即使它是最后一个 context 也不会留下孤儿记录。
-- 当前 UI Session 仍保留兼容 transcript；把它收敛为纯 UI 元数据、让 Agent entries 成为唯一消息正文权威属于下一阶段独立迁移。
+- 兼容 transcript 的第二阶段收敛已于 2026-07-14 完成：UI Session 现为 metadata-only，Agent entries 是普通消息正文的唯一权威；旧 display-only 命令消息按无损迁移策略保留。
 
 ### Project Chat 迁移到按会话运行时注册表（支持并发项目会话，已完成）
 - Project 聊天此前用**单个** `ConversationController`，host 的 `sessionId`/`modelKey`/`thinkingLevel` 跟随当前选中会话，导致同一时刻只能跑一个项目会话，`stop`/`resolveApproval`/队列会串到正在浏览的会话。2026-07-12 的修复用固定 `turnSessionId` + `liveTurnVisible` 门控 + 不切换选中态的 `refreshProjectSessionMessages` 打了补丁；本次改动把 Project 聊天迁到主聊天已在用的架构，彻底去掉补丁。

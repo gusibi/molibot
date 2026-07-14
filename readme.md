@@ -52,6 +52,7 @@ Molibot 是一个面向个人和小团队的本地优先 AI 助手。
 
 - **AnySearch and credential-safe tool tests**: Built-in web search supports AnySearch's documented anonymous or Bearer-authenticated `/v1/search` API across Web and Desktop. Desktop search/image/video tests reuse saved server-side credentials without exposing them to the WebView, and image/video tests can select an engine independently from the saved default.
 - **Trace Active-Run Control**: Web and macOS Trace pages join persisted run facts with real RunnerPool snapshots every three seconds, distinguishing live, possibly stuck, and orphan records. Operators can stop the exact channel/Bot/chat/session runner or mark an orphan fact aborted without deleting audit history.
+- **Single-Source Conversation History**: Web and Project UI Session files store presentation metadata only. Normal message content, model/tool history, and continuation state come from append-only Agent entries through one shared projection that preserves reasoning, attachments, activity, model labels, and edit-and-resend. Desktop Stop waits for server finalization before detaching the stream, so already generated output remains visible.
 - **Playful Agent Studio**: The macOS app adds an Agents workspace directly below Skills. It gives the default and user-created Agents compact responsive desks with state-specific pug animation; unbound Bots report to the default workstation. Trace run facts update working/completed states every 2.5 seconds, active Agents exchange animated file packets with “Boss · You”, and temporary Subagent mini desks appear beneath the Agent that delegated them. Standard windows fit up to eight Agents in a 4×2 view, with localized status details, dark-theme support, and reduced-motion fallback.
 - **Focused Desktop Chat disclosure**: Live and historical thinking is expanded by default, tool activity stays collapsed until manually opened, and structured tool diagnostics no longer repeat as raw status text. Permission approval buttons (e.g. Host Bash authorization) are fully clickable and interactive during active SSE streaming turns instead of being blocked by process state, with clean inline stream resumption.
 - **Governed daily-material pipeline**: An internal watched event turns explicitly authorized conversation projections into a redacted, dated Markdown file inside a registered Project. It uses an independent watermark and Project-owned prompt template, never enters ordinary chat history, and fails closed on invalid paths, credentials, aborts, or disconnected Projects.
@@ -466,7 +467,7 @@ The macOS bundle icon is generated from `apps/desktop/public/molibot-icon.png` (
             events/      # Chat-local watched event files
   moli-f/                # Feishu workspace (similar structure)
   moli-w/                # Web workspace
-    ui-sessions/         # UI Session projection (title, presentation state, compatible transcript)
+    ui-sessions/         # UI Session projection (title and presentation metadata only)
       index.json         # UI Session ownership and ordering
       <profile-scope>/   # One directory per sanitized Web identity
         <sessionId>.json

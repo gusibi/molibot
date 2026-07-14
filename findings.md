@@ -1,5 +1,81 @@
 # Bot Project mode (2026-07-12)
 
+## Release v2.4.7 / Desktop v0.4.4 (2026-07-14)
+
+- Base-10 patch increment resolves root 2.4.6 to 2.4.7 and Desktop 0.4.3 to 0.4.4.
+- Tag v2.4.7 does not exist locally; v2.4.6 is the newest matching local tag.
+- The release should make Agent entries the durable transcript owner, preserve
+  partial output on Stop, and make shared RunnerPool activity stoppable from Trace.
+- HEAD, origin/master, and tag v2.4.6 initially resolve to the same commit;
+  a fresh remote fetch is still required immediately before commit/push.
+- Release notes must use the CHANGELOG delta from v2.4.6, not every entry under
+  the shared 2026-07-14 date heading.
+
+
+## GitHub issues #8, #6, #12, #11 audit (2026-07-14)
+
+- Audit started from the issue tracker before selecting any implementation.
+- The user authorized closing issues that are already complete and implementing
+  missing behavior for those that are not.
+- Issue #8 is open and contains eleven concrete Desktop/Web UX requests:
+  startup progress, first-reply session rename, compact message metadata/actions,
+  assistant model display, code copy/highlighting, long-user-message folding,
+  Project Enter behavior, Agent rather than Profile mentions, queued-message
+  presentation, Skill invocation presentation, and a log page.
+- Direct anonymous GitHub reads for #6, #12, and #11 returned cache-miss errors;
+  use the authenticated GitHub CLI/API next to gather their full bodies/comments.
+- Planning-file update attempt 1 missed a stale template table context; the
+  retry is split into exact top-of-file hunks and did not touch product code.
+- Authenticated issue context confirms #6 is intentionally still open after a
+  v2.4.4 first stage: UI Sessions still retain a compatibility transcript and
+  must become UI-metadata-only without losing attachments, activities, or edit/resend.
+- Issue #11 requires Stop to preserve already streamed assistant content.
+- Issue #12 reports that the Trace page's running orphan-process kill action is inert.
+- `prd.md` section 2.65 already marks every stated #8 item as delivered, including
+  model metadata, code UX, folding, queue presentation, Agent-facing mention UI,
+  Shift+Enter Project send behavior, startup progress, and a bounded log page.
+- No `.out-of-scope/*.md` file was found, so none of the four requests matches a
+  recorded prior rejection.
+- Runtime-review invariants require #11/#12 to be traced end-to-end through the
+  shared app/runtime layer; UI-only patches are insufficient evidence.
+- Current HEAD already contains the full #8 implementation set in v2.4.5 and
+  the matching PRD/feature/release documentation; executable regressions still
+  need to be run before closing.
+- The Trace UI polls active runs and POSTs the selected `runId`; the server joins
+  persisted Trace facts with live `RunnerPool` snapshots. Live runs call the
+  exact manager's `abortRun(chatId, sessionId)`, while non-live rows only mark
+  the audit fact aborted. There is no focused POST-route regression, so #12's
+  inert-click report is not disproved by the current structural code.
+- Desktop Stop aborts the client SSE, calls the shared `/api/stream/stop`, then
+  reloads the transcript in the send catch path. The Runner has partial-output
+  persistence tests, but there is no Desktop controller regression proving an
+  abort reload preserves the visible partial answer; #11 remains unverified.
+- #6 remains structurally incomplete: `src/lib/server/sessions/store.ts` still
+  persists `messages` arrays in `ui-sessions`, so UI and Agent context retain
+  duplicate transcript ownership despite the directory migration.
+- #12 root cause: the Trace route enumerated only `runtime.channelManagers`.
+  Ordinary Web profiles and Desktop-created Project pools live outside that map,
+  so a real live run was labeled `orphan` and the button only updated its audit fact.
+- #11 root cause: Desktop aborted its SSE before requesting the shared runner
+  stop, while the send catch reloaded immediately. That reload could win the race
+  against server-side partial-answer persistence and then hide the live bubble.
+- #6 is now implemented through one shared projection module. Agent JSONL entry
+  IDs own normal content and edit truncation; UI files store `messageMetadata`.
+  Legacy rows are blanked only when role/content mapping proves Agent recovery;
+  unmatched display-only command rows remain intact.
+- The Session Store projector is configured once at runtime, so memory,
+  reflection, file lists, Web, Desktop, and Project callers keep one transcript
+  interface rather than reimplementing Agent-entry reads.
+- Final Trace coverage is a shared RunnerPool registry, not a Web special case;
+  snapshots use the active hook's real channel/Bot identity and therefore also
+  cover channel-bound Project runs.
+- UI Session files no longer persist a last-message text preview. Sidebar
+  previews are derived through the Agent projection, so ordinary content has a
+  single durable owner. Legacy content is migrated only on a role/text match
+  within five minutes, preventing old display-only commands from being consumed
+  by unrelated later Agent messages.
+
+
 ## Owner memory notification target (2026-07-14)
 
 - Current Owner events intentionally have no fixed `internal.target`; runtime expands live settings into per-Bot scan targets at trigger time.

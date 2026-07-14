@@ -3,17 +3,11 @@ import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
 import { SqliteTraceStore } from "$lib/server/agent/hooks/traceStore.js";
 import { buildDesktopActiveRuns, type ActiveRunnerSnapshot } from "$lib/server/app/desktopActiveRuns";
+import { abortRuntimeRun, snapshotAllRuntimeRuns } from "$lib/server/agent/core/runnerPool.js";
 import type { DesktopActiveRunActionResponse, DesktopActiveRunsResponse } from "$lib/shared/desktop";
 
 function snapshots(): ActiveRunnerSnapshot[] {
-  const runtime = getRuntime();
-  const rows: ActiveRunnerSnapshot[] = [];
-  for (const [channel, managers] of runtime.channelManagers) {
-    for (const [botId, manager] of managers) {
-      for (const run of manager.snapshotRuns?.() ?? []) rows.push({ channel, botId, ...run });
-    }
-  }
-  return rows;
+  return snapshotAllRuntimeRuns();
 }
 
 export const GET: RequestHandler = async () => {
@@ -35,9 +29,18 @@ export const POST: RequestHandler = async ({ request }) => {
     const fact = store.listFactsByRunId(runId).find((item) => item.factType === "run" && (item.status === "started" || item.status === "waiting"));
     if (!fact) return json({ ok: false, error: "Active Trace run not found" }, { status: 404 });
     const manager = fact.botId ? runtime.channelManagers.get(fact.channel)?.get(fact.botId) : undefined;
-    const isLive = Boolean(manager?.snapshotRuns?.().some((item) => item.chatId === fact.chatId && item.sessionId === fact.sessionId));
+    const runtimeRun = snapshotAllRuntimeRuns().find((item) => (
+      item.channel === fact.channel
+      && item.botId === fact.botId
+      && item.chatId === fact.chatId
+      && item.sessionId === fact.sessionId
+    ));
+    const isManagedLive = Boolean(manager?.snapshotRuns?.().some((item) => item.chatId === fact.chatId && item.sessionId === fact.sessionId));
+    const isLive = Boolean(runtimeRun);
     if (isLive) {
-      const stopped = manager?.abortRun?.(fact.chatId, fact.sessionId, "Stopped manually from Trace controls.").aborted;
+      const stopped = isManagedLive
+        ? manager?.abortRun?.(fact.chatId, fact.sessionId, "Stopped manually from Trace controls.").aborted
+        : abortRuntimeRun(runtimeRun!);
       if (!stopped) return json({ ok: false, error: "Runner could not be stopped" }, { status: 409 });
       const payload: DesktopActiveRunActionResponse = { ok: true, result: "stopped" };
       return json(payload);

@@ -258,10 +258,16 @@ export class ConversationController {
     const profileId = this.turnContext?.profileId ?? this.host.profileId();
     const labels = this.host.labels();
     this.queue = [];
-    this.abort?.abort();
     try {
       const stopped = await stopDesktopChat(endpoint, profileId, sessionId);
+      // Keep SSE attached while the server aborts/finalizes so its persisted
+      // partial answer can reach the normal done/reload path. Only detach a
+      // stream that is still stuck after the bounded server-side wait.
+      if (this.sending) this.abort?.abort();
       this.activity = stopped ? labels.stopped : labels.idle;
+      await this.host.reload(sessionId);
+      await this.host.refreshSessions?.();
+      this.host.afterMutate?.();
     } catch (cause) {
       this.host.setError(cause instanceof Error ? cause.message : String(cause));
     }

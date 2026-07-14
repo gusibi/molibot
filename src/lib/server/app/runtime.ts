@@ -24,6 +24,10 @@ import { MemoryReflectionService, ReflectionStateStore, SessionReflectionSourceR
 import { DailyMaterialsService, dailyMaterialsTargetId, type DailyMaterialsInternal } from "$lib/server/memory/dailyMaterials.js";
 import { DailyMaterialsBackfillJob } from "$lib/server/app/dailyMaterialsBackfill.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
+import {
+  configureConversationProjectionRuntime,
+  loadStoredConversationMessages
+} from "$lib/server/web/conversationProjection.js";
 
 interface RuntimeState {
   sessions: SessionStore;
@@ -335,6 +339,8 @@ export function getRuntime(): RuntimeState {
     }
 
     globalThis.__molibotRuntime = state;
+    configureConversationProjectionRuntime(() => state);
+    sessions.setMessageProjector((conversationId) => loadStoredConversationMessages(conversationId));
   }
 
   return globalThis.__molibotRuntime;

@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { sanitizeWebProfileId, sanitizeWebUserId } from "$lib/server/web/identity";
-import { stopWebRunner } from "$lib/server/web/runtimeContext";
+import { stopWebRunner, waitForWebRunnerIdle } from "$lib/server/web/runtimeContext";
 
 interface StopBody {
   profileId?: string;
@@ -25,5 +25,8 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const result = stopWebRunner({ profileId, userId, conversationId });
+  if (result.stopped) {
+    await waitForWebRunnerIdle({ profileId, userId, conversationId });
+  }
   return json({ ok: true, stopped: result.stopped });
 };

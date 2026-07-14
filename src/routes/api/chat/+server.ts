@@ -694,7 +694,8 @@ export const POST: RequestHandler = async ({ request }) => {
     );
   }
   runtime.sessions.appendMessage(conversation.id, "user", inboundText, {
-    attachments: sessionAttachments
+    attachments: sessionAttachments,
+    contextBacked: true
   });
 
   let finalText = "";
@@ -822,7 +823,8 @@ export const POST: RequestHandler = async ({ request }) => {
     runtime.sessions.appendMessage(conversation.id, "assistant", assistantText, {
       attachments: responseAttachments,
       activities: activityCollector.finalSnapshot(),
-      model: responseModel || undefined
+      model: responseModel || undefined,
+      contextBacked: true
     });
   }
 

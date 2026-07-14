@@ -5,6 +5,12 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.67 GitHub Issues #6 / #11 / #12 Runtime and Session Completion (2026-07-14)
+- [Done, P0] UI Session 必须收敛为展示元数据；普通消息正文、模型与工具历史只由 Agent entries 持有，旧 transcript 仅在确认可无损投影后清理，命令类 display-only 消息不得丢失。
+- [Done, P0] 附件、activity、reasoning、模型标识与消息顺序必须通过共享投影保留；编辑重发同时截断 UI metadata 与 Agent append-only entries/context snapshot。
+- [Done, P0] Desktop Stop 必须在断开 SSE 前等待服务端完成 abort/finalization，并 reload 已持久化的部分输出。
+- [Done, P0] Trace 活跃运行控制必须覆盖 Channel、普通 Web 与 Desktop Project RunnerPool；不得把真实 Web 运行误判为只能清理记录的 orphan。
+
 ## 2.66 AnySearch and Desktop Tool-Test Parity (2026-07-14)
 - [Done, P0] GitHub Issue #9：Web 与 Desktop 搜索设置支持 AnySearch `/v1/search`，API key 可选，匿名模式不得被“缺少 key”逻辑跳过。
 - [Done, P0] Desktop 搜索、图片、视频测试必须在不向 WebView 回传密钥的前提下复用已保存 key；空草稿不得覆盖服务端凭据。
@@ -59,7 +65,7 @@
 - [Done, P0] 中断或缺失结束事件的工具活动必须在持久化边界收敛为终态，并保留已产生的部分输出。
 - [Done, P0] Web 展示投影统一命名为 UI Session，并迁移到 `ui-sessions/<scope>`；旧 `users/<scope>/sessions` 必须幂等迁移且保留顺序，外部渠道不得创建该副本。
 - [Done, P0] 删除 Web UI Session 必须由 Web/Desktop 共用上层生命周期同步删除 Agent context；运行中拒绝删除，最后一个 context 也必须允许清理。
-- [Planned, P1] UI Session 后续收敛为纯展示元数据，Agent entries 成为消息正文、模型与工具历史的唯一权威；实施前必须补齐附件/activity 投影与编辑重发的无损映射。
+- [Done, P1] UI Session 已收敛为纯展示元数据，Agent entries 成为普通消息正文、模型与工具历史的唯一权威；附件/activity/reasoning/模型投影与编辑重发的双存储截断已补齐（2026-07-14）。
 
 ## 2.57 Desktop Project File Panel Large Image Preview (2026-07-12)
 - [Done, P0] 修复桌面端 Project 文件面板在预览大图时显示“超过预览上限”或“二进制文件不能预览”的问题。

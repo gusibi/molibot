@@ -7,6 +7,12 @@
 ---
 ## 2026-07-14
 
+### Fix: complete issues #6, #11, and #12 across Session and runtime layers
+- UI Session files now persist `messageMetadata` instead of a second normal transcript. A shared projection reconstructs Web/Desktop/Project messages from append-only Agent entries and merges UI-only attachments, activity, model, platform IDs, and reasoning. Matching legacy rows migrate to metadata-only storage; unmatched display-only command history remains intact.
+- Edit-and-resend truncates the selected UI projection and the corresponding Agent entry log, then rebuilds the model context snapshot so display and continuation state cannot diverge.
+- Desktop Stop keeps SSE attached while the server aborts and finalizes, waits for Runner quiescence, then reloads the persisted partial answer. Trace controls now enumerate and abort ordinary Web and Desktop Project RunnerPools in addition to channel managers, instead of misclassifying them as orphan records.
+- Verification: focused projection/session/Trace tests 22/22, Runner tests 25/25 against temporary SQLite, Desktop UI tests 44/44, `svelte-check` 0 errors / 0 warnings, and the production build passes.
+
 ### Feature: AnySearch and reliable Desktop search/media tests
 - Added AnySearch to shared Agent search routing and both Web/Desktop settings using the documented `/v1/search` protocol, optional Bearer authentication, anonymous quota support, normalized results, and request IDs.
 - Desktop search, image, and video tests now preserve server-side saved credentials when the credential-safe UI draft contains no replacement key. Image and video tests also expose an explicit engine selector matching Web behavior.
@@ -41,7 +47,7 @@
 ### Fix: explicit UI Session storage and synchronized deletion
 - Renamed the Web presentation store from `users/<scope>/sessions` to `ui-sessions/<scope>` with its index at `ui-sessions/index.json`. Existing layouts migrate lazily and idempotently, preserve ordering, and are removed only after the replacement files exist.
 - Web and Desktop deletion now share one lifecycle that rejects live runs and removes both the UI Session and its Agent context artifacts, including the last context. External channels remain context-only.
-- This change establishes the UI Session / Agent Context boundary; removing the remaining compatible transcript copy is intentionally deferred until attachments, activity presentation, and edit-resend can be projected losslessly.
+- This change established the UI Session / Agent Context boundary; the remaining transcript-copy removal and lossless projection were completed on 2026-07-14.
 
 ### Fix: owner-level memory automations and separated system tasks
 - Replaced per-channel/per-Bot memory reflection and daily-material watched events with one Molibot-managed owner event for each feature. Every run resolves the current enabled Bot scopes from live settings, so adding a Bot does not create another automation and the new Bot participates on the next run.

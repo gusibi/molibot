@@ -9,6 +9,7 @@ import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 import { MomRunner, resolveSessionWorkingDir } from "$lib/server/agent/core/runner.js";
 import { resolveModelSelection } from "$lib/server/agent/routing/modelRouting.js";
 import { decideVisionRouting } from "$lib/server/agent/routing/mediaFallback.js";
+import { RunnerPool, snapshotAllRuntimeRuns } from "$lib/server/agent/core/runnerPool.js";
 
 function createRunnerTestSettings(): RuntimeSettings {
   return {
@@ -154,6 +155,41 @@ function setActiveSkill(runner: MomRunner, filePath: string): void {
     }
   ]);
 }
+
+test("shared runner registry exposes the active channel and Bot identity", async () => {
+  const { MomRuntimeStore } = await import("$lib/server/agent/session/store.js");
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runner-registry-"));
+  const pool = new RunnerPool(
+    "web",
+    new MomRuntimeStore(workspaceDir),
+    createRunnerTestSettings,
+    (patch) => ({ ...createRunnerTestSettings(), ...patch }),
+    { record: () => {} } as any,
+    { record: () => {} } as any,
+    createRunnerTestMemory() as any,
+    createRunnerHookManager([])
+  );
+  const runner = pool.get("chat-registry", "session-registry");
+  (runner as any).running = true;
+  (runner as any).activeHookContext = {
+    channel: "web",
+    botId: "runtime",
+    chatId: "chat-registry",
+    sessionId: "session-registry"
+  };
+  try {
+    assert.deepEqual(snapshotAllRuntimeRuns().find((item) => item.chatId === "chat-registry"), {
+      channel: "web",
+      botId: "runtime",
+      chatId: "chat-registry",
+      sessionId: "session-registry"
+    });
+  } finally {
+    (runner as any).running = false;
+    pool.reset("chat-registry", "session-registry");
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
 
 function readToolCall(id: string, path: string) {
   return {

@@ -470,8 +470,14 @@ export class MomRunner implements RunnerLike {
     return this.running;
   }
 
-  snapshotActiveRun(): { chatId: string; sessionId: string } | null {
-    return this.running ? { chatId: this.chatId, sessionId: this.sessionId } : null;
+  snapshotActiveRun(): { channel: string; botId: string; chatId: string; sessionId: string } | null {
+    if (!this.running) return null;
+    return {
+      channel: this.activeHookContext?.channel ?? this.channel,
+      botId: this.activeHookContext?.botId ?? (basename(this.store.getWorkspaceDir()) || "unknown"),
+      chatId: this.chatId,
+      sessionId: this.sessionId
+    };
   }
 
   abort(): void {

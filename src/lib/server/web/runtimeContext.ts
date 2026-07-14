@@ -105,6 +105,29 @@ export function stopWebRunner(input: {
   return { ok: true, stopped: true };
 }
 
+/** Wait until the aborted runner has finalized its persisted partial answer. */
+export async function waitForWebRunnerIdle(input: {
+  profileId: string;
+  conversationId: string;
+  userId?: string;
+  timeoutMs?: number;
+}): Promise<void> {
+  const profileId = sanitizeWebProfileId(input.profileId);
+  const userId = sanitizeWebUserId(input.userId);
+  const { pool } = getRuntimeContextForConversation(profileId, input.conversationId);
+  const runner = pool.get(
+    resolveRunnerChatId(input.conversationId, toWebExternalUserId(userId, profileId)),
+    input.conversationId
+  );
+  const deadline = Date.now() + Math.max(0, input.timeoutMs ?? 2_000);
+  while (runner.isRunning() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  // Let the awaiting stream route project the finalized Runner result into the
+  // UI transcript before the Stop request tells Desktop to reload it.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /**
  * Runner pool key for a conversation. Project conversations are keyed by the
  * conversation's own externalUserId (it may have originated on a channel bot,

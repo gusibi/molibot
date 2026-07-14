@@ -6,6 +6,7 @@ import {
   getRuntimeContextForConversation,
   resolveRunnerChatId
 } from "$lib/server/web/runtimeContext";
+import { truncateConversationProjection } from "$lib/server/web/conversationProjection.js";
 
 /**
  * Edit-and-resend: drops the message identified by `fromMessageId` and every
@@ -45,7 +46,7 @@ export const DELETE: RequestHandler = async ({ params, url, request }) => {
 
   let removed: number;
   try {
-    removed = sessions.truncateMessagesFrom(id, fromMessageId);
+    removed = truncateConversationProjection({ profileId, conversationId: id, fromMessageId });
   } catch (cause) {
     const code = (cause as Error & { code?: string }).code;
     const message = cause instanceof Error ? cause.message : String(cause);

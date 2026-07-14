@@ -1,5 +1,80 @@
 # Project runtime and display overrides (2026-07-12)
 
+## Release v2.4.7 / Desktop v0.4.4 (2026-07-14)
+
+### Goal
+Publish the verified issue #6/#11/#12 fixes as a synchronized Molibot release,
+then close the issues once the commit and tag are present on GitHub.
+
+### Phases
+1. Verify dirty-worktree scope, current versions, branch, remote, and tag availability — complete
+2. Bump root 2.4.6 → 2.4.7 and Desktop 0.4.3 → 0.4.4; sync Tauri/Cargo — complete
+3. Re-run release verification and adversarial diff review — complete
+4. Commit all release changes and create release boundary tag v2.4.7 — in progress
+5. Push commit/tag, publish GitHub Release, verify remote state — pending
+6. Close shipped issues #6/#11/#12 with release evidence — pending
+
+### Verification gates
+- Root, Desktop, Tauri, Cargo manifest, and lockfile versions are synchronized.
+- No file outside the audited issue fixes, required docs, planning logs, or version metadata enters the commit.
+- Relevant tests, Desktop diagnostics, production build, and diff checks pass before tagging.
+- GitHub Release notes come from the current 2026-07-14 CHANGELOG entry.
+- Issues close only after v2.4.7 is visible remotely.
+
+### Decisions
+| Decision | Rationale |
+| --- | --- |
+| Release root v2.4.7 and Desktop v0.4.4 | Both current patch segments are below 9, so the skill's base-10 carry rule increments each by one. |
+| Include the full current worktree in one release commit | The worktree was clean before this issue batch; every current change belongs to the audited fixes, tests, required docs, or planning evidence. |
+| Use only the CHANGELOG delta since v2.4.6 as release notes | Existing 2026-07-14 entries shipped in v2.4.6; the new issue #6/#11/#12 section is the complete unreleased delta. |
+
+### Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+
+
+## GitHub issues #8, #6, #12, #11 completion audit (2026-07-14)
+
+### Goal
+Verify each issue against its full acceptance criteria and current behavior;
+close completed issues, and implement plus verify the smallest missing pieces
+before closing incomplete issues.
+
+### Phases
+1. Read issue bodies/comments/labels and map acceptance criteria — complete
+2. Audit implementation, tests, redundancy, and prior rejections — complete
+3. Add focused regressions and implement only confirmed gaps — complete
+4. Run focused and proportional regression checks — complete
+5. Update required product docs, adversarially review, and close verified issues — complete
+
+### Verification gates
+- Every issue conclusion cites concrete code and executable verification.
+- No issue is closed while any acceptance criterion remains unverified.
+- Runtime orchestration stays in shared layers rather than Channel adapters.
+- Tests use temporary/injectable persistence and do not touch live user data.
+
+### Decisions
+| Decision | Rationale |
+| --- | --- |
+| Close #8 only after running its existing focused UI/server regressions | Delivery docs and code exist, but executable evidence is required. |
+| Register every shared RunnerPool for Trace snapshot/abort | The existing Trace route only saw channel-manager pools; a shared registry also covers ordinary Web, Project, and channel-bound Project runs without Channel-specific orchestration. |
+| Make Desktop Stop reload only after the server reports runner quiescence | The current client abort/reload races the server's partial-output persistence. |
+| Deepen transcript ownership at one shared projection seam | UI Session should retain conversation/presentation metadata while Agent entries own normal message content; callers should not reimplement mapping. |
+
+### Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Anonymous GitHub page fetch returned cache misses for #6, #12, and #11 | 1 | Use authenticated GitHub CLI/API for complete issue context. |
+| Combined planning-file patch used a stale template table context | 1 | Re-read current headers and split the update into exact hunks. |
+| Sandboxed GitHub CLI could not reach api.github.com | 1 | Re-ran the same read with approved network access; all issue JSON loaded. |
+| Local service probe on port 8000 found no running service | 1 | Used temp-store tests and build verification; did not mutate or start the user's service. |
+| Root `node_modules` has no `svelte-check` binary | 1 | Use the Desktop app's installed `apps/desktop/node_modules/.bin/svelte-check`. |
+| First Stop source-order assertion capped the match at 240 characters | 1 | Assert explicit source indices so comments do not make the behavioral check brittle. |
+| Direct Runner test execution could not load bundled Markdown | 1 | Re-ran with the repository Markdown loader. |
+| Full Runner tests initially opened the real read-only settings database | 1 | Set `SETTINGS_DB_FILE` to a temporary SQLite path; all 25 tests passed without touching user data. |
+| Registry regression initially created a workspace fixture in the repository | 1 | Moved it to `mkdtemp`, added cleanup, and removed the generated artifact. |
+
+
 ## Owner memory task notification target (2026-07-14)
 
 ### Goal

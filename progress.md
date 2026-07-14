@@ -1,5 +1,57 @@
 # 2026-07-12 — Bot Project mode
 
+## 2026-07-14 — Release v2.4.7 / Desktop v0.4.4
+
+- Loaded the explicit release workflow and file-based planning workflow.
+- Confirmed branch `master`, origin `gusibi/molibot`, root v2.4.6,
+  Desktop v0.4.3, and latest tag v2.4.6.
+- Confirmed the dirty worktree contains the just-verified issue batch and its
+  tests/docs; no pre-existing user changes were present when that batch began.
+- Bumped root to v2.4.7 and Desktop to v0.4.4, then ran the official sync script.
+  Cargo.toml, Cargo.lock, and tauri.conf.json all report Desktop v0.4.4;
+  `git diff --check` passes.
+- Release verification passed: server/Runner tests 47/47 using temporary SQLite,
+  Desktop UI 44/44, Desktop Svelte diagnostics 0/0, and production build.
+- Adversarial file review found no out-of-scope file, machine-specific absolute
+  path, private-key marker, or suspicious added credential. The CHANGELOG delta
+  from v2.4.6 contains only the issue #6/#11/#12 release section and its updated
+  historical deferral note.
+- Fresh fetch confirms local HEAD equals `origin/master` and v2.4.7 is not
+  present locally; the release can advance without overwriting remote work.
+
+
+## 2026-07-14 — GitHub issues #8, #6, #12, #11 audit
+
+- Loaded the persistent planning and issue-triage workflows.
+- Established evidence gates: full issue context, code-path mapping, focused
+  executable verification, proportional regression checks, and adversarial review.
+- Product code has not been changed yet.
+- Read issue #8 successfully; anonymous reads for #6/#12/#11 failed with
+  cache misses, recorded the error, and changed the next approach to the
+  authenticated GitHub CLI/API.
+- Approved GitHub API read succeeded for all four issues; loaded the Agent
+  runtime review procedure and project design/PRD constraints.
+- Mapped #11 through Desktop controller → stream stop → shared runner persistence
+  and #12 through Trace UI → active-runs API → channel manager abort.
+- Confirmed #6's duplicate transcript remains in the UI Session schema.
+- Completed discovery/audit. Selected shared runtime fixes for #11/#12 and a
+  single Agent-entry → UI transcript projection seam for #6.
+- Focused server tests passed and the root production build passed.
+- First combined verification found only a brittle Stop source-order assertion
+  and a wrong root path for `svelte-check`; both verification issues were
+  recorded and corrected without changing product behavior.
+- Final focused verification passes: projection/session/Trace tests 22/22,
+  Runner tests 25/25 against temporary SQLite, Desktop UI 44/44, Svelte
+  diagnostics 0/0, root production build, and `git diff --check`.
+- Updated `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md` with the
+  delivered #6/#11/#12 behavior and replaced the superseded #6 deferral text.
+- Adversarial review replaced the Web-only Trace fallback with one registry for
+  every shared RunnerPool, removed the last-message preview copy from persisted
+  UI Sessions, and constrained legacy text migration to nearby matching entries.
+- Closed GitHub issue #8 as completed. Kept #6/#11/#12 open because their fixes
+  are verified locally but have not yet been committed or pushed to GitHub.
+
+
 ## 2026-07-14 — Owner memory notification target
 
 - User selected a single authorized Feishu or Telegram chat as the desired destination and requested a notice for zero-output success, nonzero success, and failure.

@@ -145,3 +145,25 @@ test("active run controls distinguish running, stuck, and orphan records", () =>
   assert.equal(items.find((item) => item.runId === "live")?.agentName, "Smart");
   assert.equal(items.find((item) => item.runId === "stuck")?.agentName, "Global");
 });
+
+test("active run controls treat a Web runtime snapshot as live", () => {
+  const webFact = fact({
+    id: "web-live",
+    factType: "run",
+    runId: "web-live",
+    factId: "web-live",
+    channel: "web",
+    botId: "default",
+    chatId: "web:default:web-anonymous",
+    sessionId: "session-web",
+    status: "started",
+    startedAt: "2026-07-14T12:00:00.000Z"
+  });
+  const items = buildDesktopActiveRuns({} as RuntimeSettings, [webFact], [{
+    channel: "web",
+    botId: "default",
+    chatId: "web:default:web-anonymous",
+    sessionId: "session-web"
+  }], Date.parse("2026-07-14T12:01:00.000Z"));
+  assert.equal(items[0]?.status, "running");
+});

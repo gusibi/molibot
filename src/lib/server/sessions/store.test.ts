@@ -54,6 +54,37 @@ test("deleting a Web conversation removes its file and index entry", () => {
   }
 });
 
+test("context-backed UI messages persist metadata without transcript content", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-ui-metadata-"));
+  const original = { ...storagePaths };
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    const store = new SessionStore();
+    const session = store.createWebConversation("web:default:web-anonymous");
+    const message = store.appendMessage(session.id, "user", "only Agent entries own this text", {
+      contextBacked: true,
+      attachments: [{ original: "note.txt", local: "attachments/note.txt", mediaType: "file" }]
+    });
+    const file = JSON.parse(readFileSync(path.join(
+      root,
+      "web",
+      "ui-sessions",
+      "web_default_web-anonymous",
+      `${session.id}.json`
+    ), "utf8"));
+    assert.equal("messages" in file, false);
+    assert.equal("lastMessageText" in file, false);
+    assert.equal(file.messageMetadata[0].id, message.id);
+    assert.equal("content" in file.messageMetadata[0], false);
+    assert.equal(file.messageMetadata[0].attachments[0].original, "note.txt");
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("legacy Web users layout migrates to ui-sessions without losing ordering", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-ui-session-migration-"));
   const original = {

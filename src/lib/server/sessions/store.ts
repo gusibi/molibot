@@ -26,9 +26,16 @@ interface ProjectSessionsIndex {
   byConversationId: Record<string, { origin: string }>;
 }
 
+export interface UiMessageMetadata extends Omit<ConversationMessage, "content"> {
+  /** Normal chat content comes from Agent entries; only display-only messages keep content here. */
+  content?: string;
+  contextBacked: boolean;
+}
+
 interface SessionFile {
   conversation: Conversation;
-  messages: ConversationMessage[];
+  messageMetadata: UiMessageMetadata[];
+  messageCount: number;
 }
 
 const DEFAULT_SESSION_TITLE = "New Session";
@@ -271,12 +278,20 @@ function writeProjectSession(projectId: string, data: SessionFile): void {
 }
 
 function readSessionFromFile(filePath: string): SessionFile | null {
-  const data = readJsonFile<SessionFile | null>(filePath, null);
-  if (!data || !data.conversation || !Array.isArray(data.messages)) return null;
+  const data = readJsonFile<(Partial<SessionFile> & { conversation?: Conversation; messages?: ConversationMessage[] }) | null>(filePath, null);
+  if (!data || !data.conversation) return null;
   if (!data.conversation.title) {
     data.conversation.title = DEFAULT_SESSION_TITLE;
   }
-  return data;
+  const legacyMessages = Array.isArray(data.messages) ? data.messages : [];
+  const messageMetadata = Array.isArray(data.messageMetadata)
+    ? data.messageMetadata.map((item) => ({ ...item, contextBacked: item.contextBacked === true }))
+    : legacyMessages.map((message) => ({ ...message, contextBacked: false }));
+  return {
+    conversation: data.conversation,
+    messageMetadata,
+    messageCount: Number.isFinite(data.messageCount) ? Math.max(0, Number(data.messageCount)) : messageMetadata.length
+  };
 }
 
 function readLegacySession(conversationId: string): SessionFile | null {
@@ -307,6 +322,12 @@ function ensureWebIndexEntry(index: WebSessionsIndex, externalUserId: string, co
 }
 
 export class SessionStore {
+  private messageProjector?: (conversationId: string) => ConversationMessage[];
+
+  setMessageProjector(projector: (conversationId: string) => ConversationMessage[]): void {
+    this.messageProjector = projector;
+  }
+
   private createConversation(channel: Channel, externalUserId: string, projectId?: string, origin?: string): Conversation {
     const now = new Date().toISOString();
     const id = uuidv4();
@@ -326,14 +347,14 @@ export class SessionStore {
       const index = readProjectIndex(projectId);
       index.order = [...index.order.filter((item) => item !== id), id];
       index.byConversationId[id] = { origin: externalUserId };
-      writeProjectSession(projectId, { conversation, messages: [] });
+      writeProjectSession(projectId, { conversation, messageMetadata: [], messageCount: 0 });
       writeProjectIndex(projectId, index);
       return conversation;
     }
 
     if (channel === "web") {
       const webIndex = readWebIndex();
-      writeWebSession(externalUserId, { conversation, messages: [] });
+      writeWebSession(externalUserId, { conversation, messageMetadata: [], messageCount: 0 });
       ensureWebIndexEntry(webIndex, externalUserId, id);
       writeWebIndex(webIndex);
       return conversation;
@@ -557,7 +578,7 @@ export class SessionStore {
     conversationId: string,
     role: Role,
     content: string,
-    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; platformMessageId?: string; model?: string }
+    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; platformMessageId?: string; model?: string; contextBacked?: boolean }
   ): ConversationMessage {
     const createdAt = new Date().toISOString();
     const message: ConversationMessage = {
@@ -584,10 +605,23 @@ export class SessionStore {
           createdAt,
           updatedAt: createdAt
         },
-        messages: []
+        messageMetadata: [],
+        messageCount: 0
       } satisfies SessionFile);
 
-    file.messages.push(message);
+    file.messageMetadata.push({
+      id: message.id,
+      conversationId,
+      role,
+      createdAt,
+      model: message.model,
+      platformMessageId: message.platformMessageId,
+      attachments: message.attachments,
+      activities: message.activities,
+      contextBacked: options?.contextBacked === true,
+      content: options?.contextBacked === true ? undefined : content
+    });
+    file.messageCount = file.messageMetadata.length;
     if (role === "user" && file.conversation.title === DEFAULT_SESSION_TITLE) {
       file.conversation.title = summarizeTitle(content);
     }
@@ -688,7 +722,7 @@ export class SessionStore {
       (err as Error & { code?: string }).code = "SESSION_NOT_FOUND";
       throw err;
     }
-    const messages = located.file.messages;
+    const messages = located.file.messageMetadata;
     const index = messages.findIndex((message) => message.id === fromMessageId);
     if (index < 0) {
       const err = new Error(`Message not found (session has ${messages.length} message${messages.length === 1 ? "" : "s"})`);
@@ -697,6 +731,7 @@ export class SessionStore {
     }
     const removed = messages.length - index;
     messages.length = index;
+    located.file.messageCount = messages.length;
     located.file.conversation.updatedAt = new Date().toISOString();
     if (located.type === "web") writeWebSession(located.externalUserId, located.file);
     else if (located.type === "project") writeProjectSession(located.projectId, located.file);
@@ -705,11 +740,43 @@ export class SessionStore {
   }
 
   listMessages(conversationId: string, limit?: number): ConversationMessage[] {
+    if (this.messageProjector) {
+      const projected = this.messageProjector(conversationId);
+      if (limit == null) return projected;
+      if (limit <= 0) return [];
+      return projected.slice(-limit);
+    }
+    return this.listMessageMetadata(conversationId, limit).map((item) => ({
+      ...item,
+      content: item.content ?? ""
+    }));
+  }
+
+  listMessageMetadata(conversationId: string, limit?: number): UiMessageMetadata[] {
     const located = this.resolveSessionStorage(conversationId);
     if (!located) return [];
-    if (limit == null) return [...located.file.messages];
+    const messages = located.file.messageMetadata.map((item) => ({ ...item }));
+    if (limit == null) return messages;
     if (limit <= 0) return [];
-    return located.file.messages.slice(-limit);
+    return messages.slice(-limit);
+  }
+
+  markMessagesContextBacked(conversationId: string, messageIds: string[]): void {
+    if (messageIds.length === 0) return;
+    const located = this.resolveSessionStorage(conversationId);
+    if (!located) return;
+    const ids = new Set(messageIds);
+    let changed = false;
+    for (const message of located.file.messageMetadata) {
+      if (!ids.has(message.id) || message.contextBacked) continue;
+      message.contextBacked = true;
+      delete message.content;
+      changed = true;
+    }
+    if (!changed) return;
+    if (located.type === "web") writeWebSession(located.externalUserId, located.file);
+    else if (located.type === "project") writeProjectSession(located.projectId, located.file);
+    else writeLegacySession(located.file);
   }
 
   listConversations(channel: Channel, externalUserId: string): Conversation[] {
@@ -782,11 +849,9 @@ export class SessionStore {
     for (const [id, owner] of Object.entries(webIndex.byConversationId)) {
       const file = readWebSession(owner.externalUserId, id);
       if (!file) continue;
-      const last = file.messages[file.messages.length - 1];
-      const text = last
-        ? String(last.content ?? "").replace(/\s+/g, " ").trim().slice(0, 300)
-        : "";
-      out.push({ conversation: file.conversation, externalUserId: owner.externalUserId, lastMessageText: text });
+      const messages = this.listMessages(id);
+      const lastMessageText = String(messages[messages.length - 1]?.content ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
+      out.push({ conversation: file.conversation, externalUserId: owner.externalUserId, lastMessageText });
     }
     return out;
   }

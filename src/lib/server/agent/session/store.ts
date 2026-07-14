@@ -735,6 +735,33 @@ export class MomRuntimeStore {
     }
   }
 
+  /** Raw append-only message entries used by the UI projection; compaction does not erase them. */
+  listSessionMessageEntries(chatId: string, sessionId?: string): SessionMessageEntry[] {
+    const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    return this.readSessionFileEntries(chatId, id)
+      .filter((entry): entry is SessionMessageEntry => entry.type === "message")
+      .map((entry) => ({ ...entry }));
+  }
+
+  /**
+   * Edit-and-resend counterpart for Agent entries. Drops the selected raw
+   * message entry and every later log entry, then rebuilds the model snapshot.
+   */
+  truncateSessionFromEntry(chatId: string, sessionId: string, entryId: string): number {
+    const id = this.sanitizeSessionId(sessionId);
+    const entries = this.readSessionFileEntries(chatId, id);
+    const header = entries.find((entry): entry is SessionHeaderEntry => entry.type === "session")
+      ?? createSessionHeader(id);
+    const body = entries.filter((entry): entry is SessionEntry => entry.type !== "session");
+    const index = body.findIndex((entry) => entry.type === "message" && entry.id === entryId);
+    if (index < 0) return 0;
+    const kept: SessionFileEntry[] = [header, ...body.slice(0, index)];
+    this.writeSessionFileEntries(chatId, id, kept);
+    const snapshot = buildMessagesFromSessionEntries(kept).messages;
+    writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+    return body.length - index;
+  }
+
   saveContext(chatId: string, messages: AgentMessage[], sessionId?: string): void {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
     const current = this.loadContext(chatId, id);
