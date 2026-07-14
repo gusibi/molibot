@@ -13,6 +13,7 @@ const settings: WebSearchSettings = {
   retryTimeoutMs: 2000,
   engines: {
     duckduckgo: { enabled: true, apiKey: "" },
+    anysearch: { enabled: true, apiKey: "" },
     brave: { enabled: true, apiKey: "brave-key" },
     tavily: { enabled: false, apiKey: "" },
     exa: { enabled: false, apiKey: "" },
@@ -25,6 +26,39 @@ const settings: WebSearchSettings = {
     bocha: { enabled: false, apiKey: "" }
   }
 };
+
+test("runWebSearch follows the AnySearch REST protocol with optional authentication", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response(JSON.stringify({
+      code: 0,
+      message: "success",
+      data: {
+        results: [{ title: "Go 1.22", url: "https://go.dev/doc/go1.22", snippet: "Release notes" }],
+        metadata: { request_id: "req-anysearch-1" }
+      }
+    }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const anonymous = await runWebSearch({ query: "Go 1.22 release notes", engine: "anysearch" }, settings);
+    assert.equal(calls[0].url, "https://api.anysearch.com/v1/search");
+    assert.equal(new Headers(calls[0].init?.headers).has("Authorization"), false);
+    assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { query: "Go 1.22 release notes", max_results: 2 });
+    assert.equal(anonymous.metadata.providerRequestId, "req-anysearch-1");
+    assert.equal(anonymous.results[0].source, "anysearch");
+
+    await runWebSearch({ query: "authenticated", engine: "anysearch" }, {
+      ...settings,
+      engines: { ...settings.engines, anysearch: { enabled: true, apiKey: "secret-key" } }
+    });
+    assert.equal(new Headers(calls[1].init?.headers).get("Authorization"), "Bearer secret-key");
+    assert.equal(anonymous.diagnostics.attempts[0].request?.headers?.Authorization, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("runWebSearch returns normalized provider results", async () => {
   const originalFetch = globalThis.fetch;
@@ -327,4 +361,3 @@ test("runWebSearch returns 'No configured search engine returned results.' if al
 test("runWebSearch rejects empty queries", async () => {
   await assert.rejects(() => runWebSearch({ query: " " }, settings), /Search query is required/);
 });
-

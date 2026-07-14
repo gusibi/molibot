@@ -11,6 +11,7 @@
 
   type EngineId =
     | "duckduckgo"
+    | "anysearch"
     | "brave"
     | "tavily"
     | "exa"
@@ -69,6 +70,7 @@
       engines: {
         auto: "自动路由顺序",
         duckduckgo: "DuckDuckGo",
+        anysearch: "AnySearch",
         brave: "Brave Search",
         tavily: "Tavily",
         exa: "Exa",
@@ -87,6 +89,7 @@
       },
       engineHints: {
         duckduckgo: "不需要 API key。适合简单查询的轻量级备用方案。",
+        anysearch: "支持匿名免费额度；配置 API key 后可获得更高额度和并发。",
         brave: "全球网页和最新资讯的最佳首选。",
         tavily: "适合学术研究类查询和生成网页片段摘要。",
         exa: "适合技术文档、博客和开发者资料。",
@@ -140,6 +143,7 @@
       engines: {
         auto: "Auto route order",
         duckduckgo: "DuckDuckGo",
+        anysearch: "AnySearch",
         brave: "Brave Search",
         tavily: "Tavily",
         exa: "Exa",
@@ -158,6 +162,7 @@
       },
       engineHints: {
         duckduckgo: "No API key. Lightweight fallback for simple lookups.",
+        anysearch: "Supports an anonymous free quota; add an API key for higher quotas and concurrency.",
         brave: "Best first choice for global web and current sources.",
         tavily: "Good for research-style queries and summarized web snippets.",
         exa: "Useful for technical documents, blogs, and developer material.",
@@ -188,6 +193,7 @@
 
   const enginesList: Array<{ id: EngineId; name: string; keyLabel: string }> = [
     { id: "duckduckgo", name: "DuckDuckGo", keyLabel: "No key required" },
+    { id: "anysearch", name: "AnySearch", keyLabel: "ANYSEARCH_API_KEY (optional)" },
     { id: "brave", name: "Brave Search", keyLabel: "BRAVE_API_KEY" },
     { id: "tavily", name: "Tavily", keyLabel: "TAVILY_API_KEY" },
     { id: "exa", name: "Exa", keyLabel: "EXA_API_KEY" },
@@ -240,6 +246,7 @@
     retryTimeoutMs: 120000,
     engines: {
       duckduckgo: { enabled: true, apiKey: "" },
+      anysearch: { enabled: true, apiKey: "" },
       brave: { enabled: false, apiKey: "" },
       tavily: { enabled: false, apiKey: "" },
       exa: { enabled: false, apiKey: "" },

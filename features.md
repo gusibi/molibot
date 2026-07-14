@@ -7,6 +7,11 @@
 ---
 ## 2026-07-14
 
+### AnySearch 与 Desktop 媒体测试一致性（已完成）
+- Web 与 Desktop 搜索设置新增 AnySearch；共享 Agent 搜索层按官方 `/v1/search` 协议支持匿名额度和可选 Bearer API key，并纳入自动路由与来源归一化。
+- Desktop 搜索、图片、视频测试不再用凭据安全视图中的空字符串覆盖服务端已保存 key；图片与视频测试均提供独立引擎选择，行为与 Web 一致。
+- 回归覆盖 AnySearch 请求/响应协议、匿名与鉴权模式、业务错误码，以及三类 Desktop 测试保留已保存凭据。
+
 ### 运行中 Session 工作区导航与 Issue #8 体验优化（已完成）
 - 修复 Project Session 运行时点击 Skill、Agent 或任务没有视觉响应的问题：打开工作区面板会明确退出 Project 详情显示，原 Session 的独立 runtime 继续在后台运行，输出、队列、停止和审批仍归属原 Session。
 - 补齐 Issue #8 中尚未交付的桌面体验：启动阶段动画与当前动作、回复模型标识、消息操作与时间同排、代码高亮/复制、长消息折叠、Project `Shift+Enter` 发送、`@` 展示 Agent、纵向待发队列，以及中英/明暗主题适配的只读服务日志页。

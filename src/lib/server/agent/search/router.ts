@@ -7,11 +7,11 @@ const GLOBAL_RE = /\b(global|international|overseas|foreign|worldwide|openai|git
 const roundRobinCursors = new Map<WebSearchRouteMode, number>();
 
 export const WEB_SEARCH_ROUTE_ORDERS: Record<WebSearchRouteMode, WebSearchEngine[]> = {
-  auto: ["baidu_fast", "brave", "serper", "tavily", "exa", "duckduckgo"],
-  china: ["baidu_web", "baidu_fast", "baidu", "bocha", "ark", "duckduckgo"],
-  global: ["tavily", "brave", "serper", "exa", "grok", "duckduckgo"],
-  official_docs: ["brave", "exa", "serper", "duckduckgo"],
-  research: ["tavily", "exa", "brave", "serper", "grok", "duckduckgo"]
+  auto: ["anysearch", "baidu_fast", "brave", "serper", "tavily", "exa", "duckduckgo"],
+  china: ["anysearch", "baidu_web", "baidu_fast", "baidu", "bocha", "ark", "duckduckgo"],
+  global: ["anysearch", "tavily", "brave", "serper", "exa", "grok", "duckduckgo"],
+  official_docs: ["anysearch", "brave", "exa", "serper", "duckduckgo"],
+  research: ["anysearch", "tavily", "exa", "brave", "serper", "grok", "duckduckgo"]
 };
 
 export function inferWebSearchRoute(input: WebSearchInput, settings: WebSearchSettings): WebSearchRouteMode {
@@ -35,7 +35,7 @@ export function resolveWebSearchEngines(
   const routeOrder = WEB_SEARCH_ROUTE_ORDERS[route] ?? WEB_SEARCH_ROUTE_ORDERS.global;
   const engines = routeOrder.filter((engine) => {
     const engineSettings = settings.engines[engine];
-    return Boolean(engineSettings?.enabled && (engine === "duckduckgo" || engineSettings.apiKey.trim()));
+    return Boolean(engineSettings?.enabled && (engine === "duckduckgo" || engine === "anysearch" || engineSettings.apiKey.trim()));
   });
   if (engines.length <= 1 || settings.engineSelectionStrategy === "priority") return engines;
   if (settings.engineSelectionStrategy === "random") return rotateEngines(engines, Math.floor(Math.random() * engines.length));

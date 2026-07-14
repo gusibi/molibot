@@ -289,6 +289,7 @@ const defaultWebSearchSettings: WebSearchSettings = {
       enabled: String(process.env.MOLIBOT_WEB_SEARCH_DUCKDUCKGO_ENABLED ?? "true").toLowerCase() !== "false",
       apiKey: ""
     },
+    anysearch: webSearchEngineFromEnv("anysearch", "ANYSEARCH_API_KEY", true),
     brave: webSearchEngineFromEnv("brave", "BRAVE_API_KEY"),
     tavily: webSearchEngineFromEnv("tavily", "TAVILY_API_KEY"),
     exa: webSearchEngineFromEnv("exa", "EXA_API_KEY"),

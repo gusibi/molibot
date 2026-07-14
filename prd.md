@@ -5,6 +5,11 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.66 AnySearch and Desktop Tool-Test Parity (2026-07-14)
+- [Done, P0] GitHub Issue #9：Web 与 Desktop 搜索设置支持 AnySearch `/v1/search`，API key 可选，匿名模式不得被“缺少 key”逻辑跳过。
+- [Done, P0] Desktop 搜索、图片、视频测试必须在不向 WebView 回传密钥的前提下复用已保存 key；空草稿不得覆盖服务端凭据。
+- [Done, P1] Desktop 图片与视频测试提供与 Web 一致的独立引擎选择，并保持中英、明暗主题、窄屏和现有固定保存底栏。
+
 ## 2.65 Running-Session Workspace Navigation and Issue #8 Polish (2026-07-14)
 - [Done, P0] Project Session 运行中打开 Skill、Agent 或任务时必须立即显示目标工作区；后台 turn 不得被取消、迁移或错误渲染到当前面板。
 - [Done, P0] Assistant 消息需持久化并展示实际响应模型；代码块支持安全高亮与独立复制，长用户消息默认折叠且可恢复全文。

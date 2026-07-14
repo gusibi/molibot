@@ -1022,6 +1022,8 @@ test("desktop tool settings use narrow PATCH, test, and media-task endpoints", a
   }) as typeof globalThis.fetch;
   const search = { enabled: true, defaultRoute: "auto", defaultEngine: "auto", engineSelectionStrategy: "priority", maxResults: 5, timeoutMs: 5000, retryTimeoutMs: 2000, engines: [{ id: "tavily", enabled: true, baseUrl: "", apiKey: "fresh-key" }] };
   const media = { enabled: true, defaultEngine: "auto", engines: [{ id: "agnes", enabled: true, baseUrl: "", model: "agnes", apiKey: "fresh-key" }] };
+  const persistedSearch = { ...search, engines: [{ id: "tavily", enabled: true, baseUrl: "", apiKey: "" }] };
+  const persistedMedia = { ...media, engines: [{ id: "agnes", enabled: true, baseUrl: "", model: "agnes", apiKey: "" }] };
   const tts = { enabled: true, defaultProvider: "macos", providers: [{ id: "macos", enabled: true, voice: "Samantha", format: "m4a", baseUrl: "", model: "" }] };
   try {
     await saveDesktopWebSearch("http://127.0.0.1:3000", search);
@@ -1031,13 +1033,19 @@ test("desktop tool settings use narrow PATCH, test, and media-task endpoints", a
     await testDesktopWebSearchSettings("http://127.0.0.1:3000", search, "query", "auto");
     await testDesktopImageGenerateSettings("http://127.0.0.1:3000", media, "prompt", "auto", "1024x1024");
     await testDesktopVideoGenerateSettings("http://127.0.0.1:3000", media, "prompt", "auto");
+    await testDesktopWebSearchSettings("http://127.0.0.1:3000", persistedSearch, "query", "tavily");
+    await testDesktopImageGenerateSettings("http://127.0.0.1:3000", persistedMedia, "prompt", "agnes");
+    await testDesktopVideoGenerateSettings("http://127.0.0.1:3000", persistedMedia, "prompt", "agnes");
     await testDesktopTtsSettings("http://127.0.0.1:3000", tts, "hello", "macos");
     await loadDesktopMediaTasks("http://127.0.0.1:3000", "image");
     await deleteDesktopMediaTask("http://127.0.0.1:3000", "image", "opaque-task-id");
     assert.deepEqual(calls.slice(0, 4).map((call) => call.method), ["PATCH", "PATCH", "PATCH", "PATCH"]);
     assert.equal(calls.slice(4, 8).every((call) => call.method === "POST" && call.url.includes("/api/settings/")), true);
-    assert.deepEqual(calls.slice(8).map((call) => call.method), ["GET", "DELETE"]);
-    assert.equal(calls[9].url.includes("taskId=opaque-task-id"), true);
+    assert.equal("apiKey" in calls[7].body.webSearch.engines.tavily, false);
+    assert.equal("apiKey" in calls[8].body.imageGenerate.engines.agnes, false);
+    assert.equal("apiKey" in calls[9].body.videoGenerate.engines.agnes, false);
+    assert.deepEqual(calls.slice(11).map((call) => call.method), ["GET", "DELETE"]);
+    assert.equal(calls[12].url.includes("taskId=opaque-task-id"), true);
   } finally {
     globalThis.fetch = original;
   }

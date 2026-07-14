@@ -858,7 +858,11 @@ export async function saveDesktopTts(endpoint: string, input: DesktopTtsUpdateRe
 }
 
 function keyedConfig<T extends { id: string }>(items: T[]): Record<string, Omit<T, "id">> {
-  return Object.fromEntries(items.map(({ id, ...item }) => [id, item]));
+  return Object.fromEntries(items.map(({ id, ...item }) => {
+    const draft = { ...item } as Omit<T, "id"> & { apiKey?: string; clearApiKey?: boolean };
+    if (!draft.clearApiKey && !draft.apiKey?.trim()) delete draft.apiKey;
+    return [id, draft];
+  }));
 }
 
 export async function testDesktopWebSearchSettings(endpoint: string, input: DesktopWebSearchUpdateRequest, query: string, engine: string): Promise<DesktopSettingsTestResponse> {

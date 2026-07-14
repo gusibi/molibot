@@ -56,6 +56,7 @@ export const XIAOMI_VOICES: Array<{ id: string; label: string; locale?: string; 
 
 const WEB_SEARCH_ENGINE_LABELS: Record<string, keyof typeof session.text> = {
   duckduckgo: "searchEngineDuckDuckGo",
+  anysearch: "searchEngineAnySearch",
   brave: "searchEngineBrave",
   tavily: "searchEngineTavily",
   exa: "searchEngineExa",
@@ -129,8 +130,10 @@ export const toolsStore = $state({
   testQuery: "latest AI news",
   testEngine: "auto",
   imageTestPrompt: "A calm futuristic workspace in soft morning light",
+  imageTestEngine: "auto",
   imageTestSize: "1024x1024",
   videoTestPrompt: "A slow cinematic pan across a quiet coastal city at dawn",
+  videoTestEngine: "auto",
   ttsTestText: "你好，这是 Molibot 的语音合成测试。",
   ttsTestAudioUrl: "",
   revealedSecrets: new Set<string>()
@@ -190,6 +193,7 @@ export async function loadImageGenerate(endpoint: string): Promise<void> {
     toolsStore.imageGenerate = summary;
     toolsStore.imageTasks = tasks;
     toolsStore.imageGenerateEdit = { enabled: summary.enabled, defaultEngine: summary.defaultEngine, engines: summary.engines.map((engine) => ({ ...engine, apiKey: "", clearApiKey: false })) };
+    toolsStore.imageTestEngine = summary.defaultEngine;
   } catch (cause) {
     toolsStore.imageGenerateEndpoint = "";
     setError(cause);
@@ -207,6 +211,7 @@ export async function loadVideoGenerate(endpoint: string): Promise<void> {
     toolsStore.videoGenerate = summary;
     toolsStore.videoTasks = tasks;
     toolsStore.videoGenerateEdit = { enabled: summary.enabled, defaultEngine: summary.defaultEngine, engines: summary.engines.map((engine) => ({ ...engine, apiKey: "", clearApiKey: false })) };
+    toolsStore.videoTestEngine = summary.defaultEngine;
   } catch (cause) {
     toolsStore.videoGenerateEndpoint = "";
     setError(cause);
@@ -288,11 +293,11 @@ export async function testToolSettings(sectionKind: ToolSettingsSection): Promis
       if (request) toolsStore.testResult = await testDesktopWebSearchSettings(endpoint, request, toolsStore.testQuery, toolsStore.testEngine);
     } else if (sectionKind === "imageGenerate") {
       const request = mediaRequest(toolsStore.imageGenerateEdit);
-      if (request) toolsStore.testResult = await testDesktopImageGenerateSettings(endpoint, request, toolsStore.imageTestPrompt, request.defaultEngine, toolsStore.imageTestSize);
+      if (request) toolsStore.testResult = await testDesktopImageGenerateSettings(endpoint, request, toolsStore.imageTestPrompt, toolsStore.imageTestEngine, toolsStore.imageTestSize);
       toolsStore.imageTasks = await loadDesktopMediaTasks(endpoint, "image").catch(() => toolsStore.imageTasks);
     } else if (sectionKind === "videoGenerate") {
       const request = mediaRequest(toolsStore.videoGenerateEdit);
-      if (request) toolsStore.testResult = await testDesktopVideoGenerateSettings(endpoint, request, toolsStore.videoTestPrompt, request.defaultEngine);
+      if (request) toolsStore.testResult = await testDesktopVideoGenerateSettings(endpoint, request, toolsStore.videoTestPrompt, toolsStore.videoTestEngine);
       toolsStore.videoTasks = await loadDesktopMediaTasks(endpoint, "video").catch(() => toolsStore.videoTasks);
     } else {
       const request = ttsRequest();

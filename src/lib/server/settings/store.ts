@@ -171,6 +171,7 @@ const CAPABILITY_VERIFICATION_SET: ReadonlySet<string> = new Set(["untested", "p
 const DEFAULT_MODEL_TAGS: ModelCapabilityTag[] = ["text"];
 const WEB_SEARCH_ENGINES: WebSearchEngineId[] = [
   "duckduckgo",
+  "anysearch",
   "brave",
   "tavily",
   "exa",

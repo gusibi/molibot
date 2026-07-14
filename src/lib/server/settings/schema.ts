@@ -303,6 +303,7 @@ export interface SkillDraftSettings {
 
 export type WebSearchEngineId =
   | "duckduckgo"
+  | "anysearch"
   | "brave"
   | "tavily"
   | "exa"

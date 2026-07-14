@@ -26,6 +26,7 @@ const webSearchSchema = Type.Object({
   engine: Type.Optional(Type.Union([
     Type.Literal("auto"),
     Type.Literal("duckduckgo"),
+    Type.Literal("anysearch"),
     Type.Literal("brave"),
     Type.Literal("tavily"),
     Type.Literal("exa"),
@@ -225,7 +226,7 @@ export async function runWebSearch(
       attempts.push({ engine, route, ok: false, skipped: true, error: "engine_disabled" });
       continue;
     }
-    if (engine !== "duckduckgo" && !engineSettings.apiKey.trim()) {
+    if (engine !== "duckduckgo" && engine !== "anysearch" && !engineSettings.apiKey.trim()) {
       attempts.push({ engine, route, ok: false, skipped: true, error: "missing_api_key" });
       continue;
     }

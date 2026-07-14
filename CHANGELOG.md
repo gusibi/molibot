@@ -7,6 +7,11 @@
 ---
 ## 2026-07-14
 
+### Feature: AnySearch and reliable Desktop search/media tests
+- Added AnySearch to shared Agent search routing and both Web/Desktop settings using the documented `/v1/search` protocol, optional Bearer authentication, anonymous quota support, normalized results, and request IDs.
+- Desktop search, image, and video tests now preserve server-side saved credentials when the credential-safe UI draft contains no replacement key. Image and video tests also expose an explicit engine selector matching Web behavior.
+- Verification covers AnySearch anonymous/authenticated protocol calls and credential-preserving Desktop payloads, plus focused server/Desktop tests and UI diagnostics.
+
 ### Fix: running Project sessions no longer block workspace navigation
 - Skill、Agent 和任务菜单现在会明确退出 Project 详情并显示目标工作区；正在运行的 Session 继续由原有 per-Session runtime 在后台执行，输出、队列、停止与审批不会串台。
 - 完成 GitHub Issue #8 的剩余桌面体验项：启动阶段反馈、回复模型标识、消息元数据布局、代码高亮/复制、长消息折叠、Project Enter 行为、Agent `@` 展示、纵向待发队列和只读服务日志页。首条消息自动命名与 Skill 标识此前已交付，未重复实现。
