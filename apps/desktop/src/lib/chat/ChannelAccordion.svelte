@@ -132,12 +132,12 @@
     font-size: 12px;
     font-weight: 500;
     letter-spacing: 0;
-    transition: background 0.12s ease;
+    transition: background var(--duration-instant) var(--ease-standard);
   }
   .channel-accordion-header:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .channel-accordion-header i:first-child { font-size: 15px; opacity: 0.7; }
   .channel-accordion-name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chevron { opacity: 0; font-size: 11px; color: var(--label-tertiary, #8f8f8f); transition: opacity .12s ease, transform 0.12s ease; flex: 0 0 auto; }
+  .chevron { opacity: 0; font-size: 11px; color: var(--label-tertiary, #8f8f8f); transition: opacity var(--duration-instant) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); flex: 0 0 auto; }
   .channel-accordion-header:hover .chevron, .channel-accordion-header:focus-visible .chevron { opacity: 1; }
   .chevron.open { transform: rotate(90deg); }
   .channel-accordion-body { padding: 1px 0 4px; }

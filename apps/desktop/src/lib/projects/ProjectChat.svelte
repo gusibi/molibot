@@ -282,7 +282,7 @@
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
-    if (event.key === "Enter" && event.shiftKey && !event.isComposing) {
+    if (event.key === "Enter" && (event.shiftKey || event.metaKey || event.ctrlKey) && !event.isComposing) {
       event.preventDefault();
       // `sending` reflects the VIEWED session's pinned controller, so enqueuing
       // a follow-up while it runs always targets the right session; a background

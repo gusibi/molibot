@@ -81,6 +81,7 @@
   import type { ConversationLabels, UiMessage } from "./lib/chat/conversationController.svelte";
   import { stickToBottom } from "./lib/chat/stickToBottom";
   import { openWorkspacePaneState, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
+  import { humanizeModelOption } from "./lib/presentation";
 
   export let copy: Translation;
   export let serviceEndpoint: string | null;
@@ -163,7 +164,7 @@
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
   const SIDEBAR_MIN = 220;
   const SIDEBAR_MAX = 420;
-  let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || 280);
+  let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || 260);
   let resizingSidebar = false;
   function clampSidebarWidth(value: number): number {
     return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(value)));
@@ -201,8 +202,12 @@
   }
 
   let searchOpen = false;
+  let commandOpen = false;
+  let commandElement: HTMLElement | null = null;
+  let commandReturnFocus: HTMLElement | null = null;
   let searchQuery = "";
   let searchIndex = 0;
+  let searchInputElement: HTMLInputElement;
   let messagesElement: HTMLDivElement;
   let sessionFiles: DesktopSessionFile[] = [];
   let fileFilter: DesktopFileFilter = "all";
@@ -335,10 +340,7 @@
   $: activeModelFullLabel = modelOptions.find((model) => model.key === activeModelKey)?.label ?? copy.model;
   // The pill only shows the bare model name (last "/"-segment); the provider
   // prefix like "[Custom] CliProxyAPI /" is kept for the dropdown + tooltip.
-  $: activeModelLabel = (() => {
-    const slash = activeModelFullLabel.lastIndexOf("/");
-    return (slash >= 0 ? activeModelFullLabel.slice(slash + 1) : activeModelFullLabel).trim();
-  })();
+  $: activeModelLabel = humanizeModelOption(activeModelFullLabel, activeModelKey).label.split(" · ").at(-1) ?? copy.model;
   $: thinkingLabel = {
     off: copy.thinkingOff,
     low: copy.thinkingLow,
@@ -350,6 +352,7 @@
     workspacePane = requestedWorkspacePane;
   }
   $: activeBotName = profiles.find((profile) => profile.id === (draftMode ? draftProfileId : activeProfileId))?.name ?? copy.bot;
+  $: activeAgentName = profiles.find((profile) => profile.id === (draftMode ? draftProfileId : activeProfileId))?.agentName || copy.agentStudioGlobalName;
   $: activeHeaderBotName = viewMode === "external" ? (activeExternalBotName || copy.bot) : activeBotName;
   $: activeHeaderAvatar = activeHeaderBotName.trim().charAt(0).toUpperCase() || "M";
   $: activeSessionItem = Object.values(channelItems).flat().find((item) => item.sessionId === activeSessionId);
@@ -1297,8 +1300,9 @@
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
-    // Shift+Enter sends; a bare Enter inserts a newline (avoids accidental sends).
-    if (event.key === "Enter" && event.shiftKey && !event.isComposing) {
+    // Command/Ctrl+Return is the product-wide send shortcut. Shift+Enter remains
+    // supported for existing users; a bare Enter inserts a newline.
+    if (event.key === "Enter" && (event.shiftKey || event.metaKey || event.ctrlKey) && !event.isComposing) {
       event.preventDefault();
       if (sending) queueFollowUp();
       else void sendMessage();
@@ -1313,11 +1317,70 @@
     chatStore.removeQueued(index);
   }
 
-  function toggleSearch(): void {
+  async function toggleSearch(): Promise<void> {
     searchOpen = !searchOpen;
     if (!searchOpen) {
       searchQuery = "";
       searchIndex = 0;
+    } else {
+      await tick();
+      searchInputElement?.focus();
+    }
+  }
+
+  async function toggleCommandPalette(): Promise<void> {
+    if (commandOpen) {
+      commandOpen = false;
+      commandReturnFocus?.focus();
+      return;
+    }
+    commandReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    commandOpen = !commandOpen;
+    await tick();
+    commandElement?.querySelector<HTMLButtonElement>("button")?.focus();
+  }
+
+  function closeCommandPalette(): void {
+    commandOpen = false;
+    commandReturnFocus?.focus();
+  }
+
+  function runCommand(action: () => void | Promise<void>): void {
+    commandOpen = false;
+    void action();
+  }
+
+  function onCommandKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeCommandPalette();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const buttons = Array.from(commandElement?.querySelectorAll<HTMLButtonElement>("button") ?? []);
+    const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (current < 0) return;
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    buttons[(current + delta + buttons.length) % buttons.length]?.focus();
+  }
+
+  function onChatShortcut(event: KeyboardEvent): void {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      void toggleCommandPalette();
+    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && workspacePane === "chat" && !projectPaneActive) {
+      event.preventDefault();
+      if (!searchOpen) void toggleSearch();
+    } else if ((event.metaKey || event.ctrlKey) && event.key === ",") {
+      event.preventDefault();
+      openSettings();
+    } else if (event.key === "Escape" && commandOpen) {
+      event.preventDefault();
+      closeCommandPalette();
+    } else if (event.key === "Escape" && searchOpen) {
+      event.preventDefault();
+      void toggleSearch();
     }
   }
 
@@ -1556,6 +1619,8 @@
   });
 </script>
 
+<svelte:window onkeydown={onChatShortcut} />
+
 <main
   class="chat-layout"
   class:with-files={filePanelOpen && serviceState === "ready" && (projectPaneActive || profiles.length > 0)}
@@ -1563,6 +1628,17 @@
   style={`--sidebar-w:${sidebarWidth}px`}
 >
   <WindowDragMask />
+  {#if commandOpen}
+    <div class="command-palette-layer" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) closeCommandPalette(); }}>
+      <div class="command-palette" role="dialog" aria-modal="false" aria-label={copy.commandPalette} tabindex="-1" bind:this={commandElement} onkeydown={onCommandKeydown}>
+        <header><strong>{copy.commandPalette}</strong><kbd>⌘K</kbd></header>
+        <button type="button" onclick={() => runCommand(newConversation)}><i class="ph ph-plus-circle" aria-hidden="true"></i>{copy.newChat}</button>
+        <button type="button" onclick={() => runCommand(() => openWorkspacePane("automations"))}><i class="ph ph-list-checks" aria-hidden="true"></i>{copy.tasks}</button>
+        <button type="button" onclick={() => runCommand(() => openWorkspacePane("skills"))}><i class="ph ph-magic-wand" aria-hidden="true"></i>{copy.skills}</button>
+        <button type="button" onclick={() => runCommand(() => openSettings())}><i class="ph ph-gear-six" aria-hidden="true"></i>{copy.openSettings}</button>
+      </div>
+    </div>
+  {/if}
   <ChatSidebar
     {copy}
     channels={sidebarChannels}
@@ -1666,9 +1742,10 @@
       </div>
     </header>
 
-    {#if searchOpen && serviceState === "ready" && profiles.length > 0}
-      <div class="search-bar">
+    {#if serviceState === "ready" && profiles.length > 0}
+      <div class:open={searchOpen} class="search-bar" aria-hidden={!searchOpen} inert={!searchOpen}>
         <input
+          bind:this={searchInputElement}
           type="search"
           bind:value={searchQuery}
           placeholder={copy.searchPlaceholder}
@@ -1726,7 +1803,7 @@
                 <span>{copy.externalSessionDivider.replace("{channel}", activeExternalChannel)}</span>
               </div>
             {/if}
-            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} />
+            <ConversationTranscript messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} />
           {/if}
       </div>
       {#if externalTranscript}
@@ -1742,6 +1819,7 @@
         {messages}
         {copy}
         formatTime={formatSessionTime}
+        assistantName={activeAgentName}
         stickKey={activeSessionId}
         {sending}
         {streamingText}

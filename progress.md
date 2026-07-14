@@ -1,3 +1,103 @@
+# 2026-07-14 — GitHub issue #13 completion re-audit
+
+- Reopened completion status after the user reported that Settings dropdowns still
+  look oversized and typographically inconsistent.
+- Started a screenshot-first product audit and recorded that the previous “all done”
+  wording was not supported by full PRD evidence.
+- The catalogued Browser skill path had rotated; found the current installed version
+  without using old screenshots or cached visual conclusions.
+- Completed Product Design preflight: no saved context was found. Began checking the
+  live Desktop/service entry points; one quoted-URL probe will replace the failed zsh glob.
+- Confirmed the real Desktop dev surface at port 1420 and connected the required
+  in-app audit browser. Browser guidance was loaded completely before page interaction.
+- Opened a fresh Chinese Settings tab and captured its current accessible structure.
+  Loaded the viewport control needed for the PRD's 860×620 breakpoint check.
+- Saved and inspected `01-general-settings-860x620.png`. The screenshot already
+  contradicts the previous blanket-completion claim on polish and control fidelity.
+- Captured the light General state and started an isolated real-data preview on port
+  1421 so Models/Providers can be audited with populated controls rather than empty shells.
+- Connected the proxy-backed page to real data and navigated to Models. A combined
+  screenshot/measurement call timed out during screenshot capture; the next attempt is
+  split into a fresh state snapshot followed by bounded measurement and capture.
+- Captured the populated Models DOM and confirmed engineering-first labels remain.
+  A standalone screenshot also timed out; the final visual attempt will use an explicit clip.
+- Measured all 12 populated Model controls and ended screenshot retries after the third
+  timeout. Continued audit will use exact DOM/style evidence for Models and screenshots
+  from other target pages.
+- Audited populated Providers: documented raw engineering-first names, unequal select
+  widths, and the 30-row/119-button main surface. The original “Providers complete” claim
+  is not supportable.
+- Provider screenshot capture timed out once and was not retried. Navigated to Trace and
+  found checklist-level improvements embedded in an unresolved, unbounded raw-data list.
+- Trace capture also timed out once. The live Automatic Tasks DOM then exposed the largest
+  gap so far: users still receive expanded admin cards rather than the promised list/detail UI.
+- Traced the task split: only Chat passes the workspace presentation; Settings retains the
+  old command-deck/cards. Audited P2/interaction keywords and confirmed multiple explicit
+  PRD enhancements have no implementation evidence.
+- Diagnosed the saved screenshot rendering mismatch as JPEG bytes under PNG names; queued
+  a lossless format conversion before final evidence inspection.
+- Converted both General captures to real PNG and accepted the light image after visual
+  inspection. The existing controlled tab then became stale before Chat navigation; recovery
+  will obtain a fresh tab without reselecting the browser.
+- Recovered with a fresh tab and opened the main Chat shell. A preview-origin first-launch
+  modal is covering the workspace; the next audit step dismisses only that local preview state.
+- Dismissed the preview-only modal and audited Chat Auto Tasks. The intended workspace exists,
+  but raw cron remains primary and the same feature still has two incompatible presentations.
+- Selected a real task at 860px and verified the right-side inspector plus separated status
+  fields. Recorded the remaining raw technical content as a partial-completion gap.
+- Audited the real Chat transcript and shared design-system source. Chat retains generic
+  Agent/model metadata, most Settings routes lack descriptions, the proposed shared page
+  primitives were not extracted, and radius/motion tokens are not globally enforced.
+- Reset the temporary browser viewport, finalized all audit tabs, and stopped the isolated
+  port-1421 audit server. The user's existing Desktop/service processes were not changed.
+- Completed the re-audit with an explicit not-complete verdict. No product code or product
+  documentation was edited in this audit pass; the current completion claims must be
+  corrected when implementation resumes.
+
+---
+
+# 2026-07-14 — GitHub issue #13 PRD implementation
+
+- Loaded the file-based planning workflow and established requirement, architecture,
+  test, documentation, and adversarial-review gates before touching product code.
+- Started Phase 1 discovery. No product implementation has been changed yet.
+- Anonymous GitHub fetch failed with a cache miss; recorded it and changed the
+  next approach to authenticated GitHub CLI/API access.
+- Authenticated Issue read succeeded and confirmed an app-wide frontend redesign;
+  the first output was truncated mid-body, so discovery continues in bounded sections.
+- Loaded `frontend-design` and the complete current `DESIGN.md`. The chosen direction
+  is a restrained, dense, native macOS Agent tool—not decorative visual novelty.
+- Loaded the Issue heading map and the previously truncated sections 12–18,
+  completing the requirements inventory for layouts, task status, icons, copy,
+  responsiveness, shared primitives, and CSS tokens.
+- Audited the Desktop file map, dependencies, shared UI sources, package scripts,
+  and top-level settings/Chat shells. No pre-existing user changes were found.
+- Inspected Tasks/Trace/Models/Providers markup and the relevant semantic CSS map.
+  The audit shows substantial existing foundations plus focused PRD gaps, so the
+  implementation can stay inside shared Desktop presentation seams.
+- Audited the settings shell, shared tokens/theme/accessibility CSS, Models and Trace,
+  and Chat transcript/composer primitives. Mapped the remaining P0 gaps to shared seams.
+- Completed Phase 1 and selected five surgical implementation slices covering the shared
+  foundation and Issue target pages without changing runtime/business contracts.
+- Added Issue #13 structural and exact duration regressions. The UI suite is red on
+  6 new contracts as expected; the API test was not reached because the command used
+  fail-fast chaining. Product implementation begins from this reproducible baseline.
+- Implemented the shared token/header/sidebar footer foundation and the five target-page
+  presentation changes. Updated two superseded structural assertions after the first run.
+- Focused verification is green: Desktop UI 49/49 and Desktop API 69/69.
+- App-local Svelte diagnostics pass with 0 errors and 0 warnings. The package-manager
+  wrapper itself could not open its cache SQLite database, so verification used the
+  installed binary directly rather than changing package state.
+- Browser QA covered minimum-window 860×620 plus a wider view, Chinese/English,
+  light/dark, Models, and Trace. Shared header alignment and fixed-height English
+  button wrapping were found and corrected; the duplicate Usage hint was removed.
+- Final adversarial pass corrected model empty-selection semantics and propagated
+  real Agent/Bot identity through persisted and streaming Message Units. Desktop
+  build passes; Svelte diagnostics are 0/0; UI/HTTP tests are 51/51 and API tests
+  are 69/69. `git diff --check` and machine-path/credential scans are clean.
+
+---
+
 # 2026-07-12 — Bot Project mode
 
 ## 2026-07-14 — Release v2.4.7 / Desktop v0.4.4
@@ -464,3 +564,91 @@
   a stale active-session pointer.
 - Verification passed 31 focused temp-store/query/lifecycle tests, the full
   SvelteKit production build, and `git diff --check`.
+
+---
+
+# 2026-07-14 — Desktop Trace delete feedback
+
+- Read the project design system and the diagnosis/runtime-review workflows.
+- Traced the action from Desktop Trace through `stopDesktopActiveRun` to the
+  shared active-runs endpoint and SQLite Trace fact update.
+- Preserved the existing dirty worktree and limited the planned patch to the
+  Trace confirmation/action seam plus focused tests and required docs.
+- Added and ran the focused Desktop UI action contract red; it failed because
+  `TraceSection` still called `window.confirm()` and had no visible dialog state.
+- Replaced that native confirmation with the shared modal pattern while keeping
+  the existing run-scoped API and audit-preserving behavior unchanged.
+- Focused verification passed: Desktop UI action contract 50/50, API/Trace tests
+  79/79 using in-memory SQLite, and Svelte diagnostics 0 errors / 0 warnings.
+- Updated features, PRD, changelog, and README with the delivered behavior.
+- Full release checks passed: 52 Desktop UI/HTTP contracts, Svelte diagnostics
+  0/0, and the Desktop production build. The build emitted only the existing
+  dynamic-import and chunk-size warnings.
+- Adversarial review covered double-submit, focus/Escape, refresh races, error
+  visibility, and audit retention; no further production change was required.
+# 2026-07-14 — GitHub issue #13 full completion execution
+
+- User requested an uninterrupted goal-by-goal completion pass for all gaps found by the
+  re-audit. Created an active goal and a nine-goal execution matrix from shared foundation
+  through page implementations, cross-app accessibility, and final adversarial verification.
+- Loaded the file-planning and frontend implementation procedures. Chose the existing
+  Molibot macOS product layer over the frontend skill's generic aesthetic suggestions.
+- Reloaded the live open Issue #13 and began reading the authoritative `DESIGN.md` to EOF.
+  The first combined read was truncated and is recorded; bounded reads will complete it.
+- Completed `DESIGN.md` and inventoried the Desktop source tree plus the current Issue #13
+  diff. Confirmed that the next safe seam is a small shared UI primitive layer adopted
+  sequentially by the target pages, while preserving the existing stores and APIs.
+- Inspected Models, Providers, Automations, Trace, transcript, live-message, and composer
+  implementations. Recorded the smallest page seams and shared projection need before
+  adding tests or editing production behavior.
+- Added `docs/designs/issue-13-completion-plan.md`, listing every known missing or weakly
+  verified acceptance item under G0–G9.
+- Established a green migration baseline: Desktop structural UI/HTTP 53/53, API 70/70,
+  Svelte diagnostics 0 errors and 0 warnings, and clean diff whitespace checks.
+- Mapped the exact model/provider contracts, existing task schedule parser, and global CSS
+  tokens. Selected presentation-only helpers as the safe seam for human labels and schedules.
+- Added red-first presentation tests, implemented shared model/provider humanization and
+  natural schedule formatting, and passed the focused suite 3/3.
+- Created and styled the G1 shared UI primitives. Fixed one Svelte-local type declaration
+  error; diagnostics now pass 0/0 and presentation tests remain 3/3.
+- Migrated the Settings shell and General page to the shared primitives, added descriptions
+  for every Settings route and scroll-edge state, then updated superseded source contracts.
+  Desktop UI/HTTP tests pass 53/53 and Svelte diagnostics remain 0/0.
+- Browser-verified G2 at 860×620 and 1280×800. Fixed a real 48px select-collapse bug,
+  humanized the readiness model label, and accepted Chinese/light plus English/dark screenshots.
+  Wide layout has no horizontal overflow and the sticky header edge responds to scroll.
+- Completed G3 Models: migrated the page to shared primitives, humanized populated values,
+  collapsed technical IDs, renamed task tiers, added advanced disclosure and optimistic
+  rollback. Accepted zh/light and en/dark 860px screenshots; selectors measure 260×30px.
+  Verification passes UI/HTTP 53/53, API/presentation 73/73, and Svelte diagnostics 0/0.
+- Completed G4 Providers after confirming the earlier large patch had not landed. Replaced
+  the expanded provider rows with a bounded master-detail browser, shared 260×30px selects,
+  human names, collapsed IDs/protocol/URL details, anchored overflow actions, and an in-app
+  destructive confirmation. Verified populated zh/light and en/dark at 860×620 plus wide
+  width with no horizontal overflow; UI/HTTP 53/53, API/presentation 73/73, diagnostics 0/0.
+- Completed G5 Trace: normalized the range control and product wording, localized active-run
+  timestamps, bounded the live list, moved task summaries/run IDs behind technical disclosure,
+  and adopted shared Empty/Skeleton/Status/Overflow components without changing stop/orphan
+  API behavior. Verified zh/light and en/dark at 860×620 plus 1280×800 with no overflow;
+  UI/HTTP 53/53, API/presentation 74/74, diagnostics 0/0.
+- Completed G6 Automations: both Settings and Chat now render the same list/detail workspace;
+  schedules are localized natural language, wide/narrow inspector behavior matches the PRD,
+  execution state distinguishes Starting/Running and can Stop through the existing active-run
+  API, reversible enable changes are optimistic with Undo, and IDs/cron/targets/session IDs are
+  secondary technical data. Verified populated user/system lists, history modal, zh/light wide,
+  zh/light and en/dark 860px overlay states with no overflow; tests 53/53 + 74/74, diagnostics 0/0.
+- Completed G7 Chat: assistant units use actual Agent identity, thinking/tool detail is opt-in,
+  message models are humanized with raw keys collapsed, search persists for reversible leftward
+  expansion and gains Command+F/Escape handling, and the shared Composer is a stable 50px single
+  row at rest. Verified populated zh/light and en/dark at 860×620 and 1280×800: content/composer
+  cap at 720px, no horizontal overflow, zero thinking panels open; tests 53/53 + 74/74, 0/0.
+- Completed G8 and G9. Added persistent and automatic low-performance degradation,
+  Command+F/K/comma/Return behavior, a keyboard-navigable quick-action palette, arrow/Escape
+  overflow menus that unmount while closed, and reliable focus/Escape handling for Provider
+  and Automation dialogs. Browser checks confirmed the 260×30px General select, 38×22px
+  Switch, low-performance root state, command-palette focus cycling, menu unmounting, and
+  keyboard sidebar resizing. The adversarial pass fixed background-focus Escape failures and
+  the still-mounted closed-menu content before acceptance. Final verification is UI/HTTP 53/53,
+  API/presentation 74/74, Svelte 0/0, production build green, and clean diff whitespace.
+
+---

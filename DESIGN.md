@@ -404,6 +404,53 @@ components:
     height: 48px
 ---
 
+# Molibot macOS product layer
+
+This section defines the product-level rules for the Molibot Desktop app. It
+overrides the generic Geist guidance below whenever the two conflict.
+
+## Foundations
+
+- Use the macOS system UI stack first (`-apple-system`, `BlinkMacSystemFont`,
+  `SF Pro Text`, `PingFang SC`). Use the display stack only for large titles and
+  the monospace stack only for IDs, paths, code, and raw schedules.
+- Standard corner radii are 6px for compact controls, 8px for controls and small
+  cards, 12px for primary cards and inspectors, and fully rounded for status dots,
+  avatars, and segmented pills. Do not invent intermediate radii.
+- The desktop toolbar/drag region is 52px high. Setting content is at most 576px;
+  data and chart content is 640–720px; messages and the composer are at most 720px.
+- Prefer quiet, opaque surfaces and separators. Translucency may reinforce hierarchy
+  but must preserve legibility with reduced transparency, increased contrast, dark
+  mode, and inactive windows. Shadows are reserved for floating overlays.
+- Status never relies on color alone. Pair color with readable text and, where useful,
+  a dot, icon, or shape. Reserve red for terminal failure or destructive actions.
+
+## Application templates
+
+- Settings use a stable sidebar, one shared PageHeader with title and description,
+  centered SettingGroups, and a fixed `.settings-footbar` whenever changes can be saved.
+- Data pages use the same shell with a wider content column, compact metric cards,
+  semantic charts, and human-readable labels before technical identifiers.
+- List/detail workspaces use Global Sidebar → 300–320px list pane → flexible detail
+  inspector. Below 1100px the inspector becomes a right-side overlay; the minimum
+  supported desktop window is 860×620.
+- Chat uses a 260px default resizable sidebar, flat assistant messages with Agent
+  identity, hover/focus actions, and one compact auto-growing composer.
+
+## Components and interaction
+
+- Reuse shared semantic components for PageHeader, SettingGroup, search, select,
+  switch, badge, cards, overflow menus, empty states, MessageItem, and composer.
+  Page-local copies of these controls are not permitted.
+- Primary actions remain visible. Rare and destructive actions belong in an overflow
+  menu and require confirmation when irreversible. A persistent outlined button is
+  not a substitute for a switch, segmented control, or disclosure menu.
+- Motion communicates state only: use 120–180ms control transitions and 180–240ms
+  panel transitions. Respect `prefers-reduced-motion`; never animate layout merely
+  for decoration. Every interactive element needs keyboard access and a visible focus.
+- Copy leads with the user's task and uses localized, human-readable time and status.
+  Raw model keys, provider protocols, trace IDs, cron, and paths are secondary details.
+
 # Geist
 
 ## Overview

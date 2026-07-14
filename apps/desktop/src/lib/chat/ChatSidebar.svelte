@@ -141,7 +141,7 @@
     <span class="sidebar-footer-logo-wrap" data-state={serviceState} aria-hidden="true">
       <img class="sidebar-footer-logo" src="/molibot-icon.png" alt="" />
     </span>
-    <span class="sidebar-footer-name">{copy.appName}</span>
+    <span class="sidebar-footer-copy"><strong>{copy.appName}</strong><small>{serviceState === "ready" ? copy.statusOnline : copy.statusOffline}</small></span>
     <i class="ph ph-gear-six sidebar-footer-gear" aria-hidden="true"></i>
   </button>
 </aside>
@@ -174,7 +174,7 @@
     color: var(--label-primary, #171717);
     text-align: left;
     font-size: 13px;
-    transition: background 0.12s ease;
+    transition: background var(--duration-instant) var(--ease-standard);
   }
   .nav-item:hover { background: var(--fill, rgba(0, 0, 0, 0.05)); }
   .nav-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); font-weight: 600; }
@@ -184,24 +184,29 @@
     flex: 1 1 auto;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 0;
+    /* Bleed the scroll container to the sidebar's inner right edge so the
+       scrollbar sits flush against the divider; padding keeps content aligned. */
+    margin-right: -12px;
+    padding: 0 12px 0 0;
     min-height: 0;
   }
   .sidebar-tree-section { min-width: 0; padding: 0 0 8px; }
   .sidebar-tree-title { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 8px; border: 0; background: transparent; color: var(--label-secondary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
   .sidebar-tree-title:hover { color: var(--label-primary); }
   .sidebar-tree-title span { flex: 1; }
-  .sidebar-tree-caret { opacity: 0; font-size: 11px; color: var(--label-tertiary); transition: opacity .12s ease, transform .12s ease; }
+  .sidebar-tree-caret { opacity: 0; font-size: 11px; color: var(--label-tertiary); transition: opacity var(--duration-instant) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); }
   .sidebar-tree-title:hover .sidebar-tree-caret, .sidebar-tree-title:focus-visible .sidebar-tree-caret { opacity: 1; }
   .sidebar-tree-caret.open { transform: rotate(90deg); }
   .sidebar-footer {
     display: flex;
     align-items: center;
     gap: 8px;
-    width: 100%;
+    width: auto;
     height: 48px;
-    margin: auto 0 -8px;
-    padding: 0 8px;
+    /* Bleed to the sidebar's inner edges so the hover background and top border
+       span full width; padding restores the content's original inset. */
+    margin: auto -12px -8px;
+    padding: 0 20px;
     border: none;
     border-top: 1px solid var(--separator, rgba(0, 0, 0, 0.06));
     background: transparent;
@@ -238,6 +243,8 @@
     border-radius: 50%;
     object-fit: cover;
   }
-  .sidebar-footer-name { flex: 1 1 auto; font-weight: 600; font-size: 13px; }
+  .sidebar-footer-copy { display: grid; flex: 1 1 auto; gap: 1px; min-width: 0; }
+  .sidebar-footer-copy strong { overflow: hidden; font-weight: 600; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+  .sidebar-footer-copy small { color: var(--label-secondary, #666); font-size: 11px; }
   .sidebar-footer-gear { opacity: 0.6; font-size: 16px; }
 </style>

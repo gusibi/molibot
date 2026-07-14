@@ -8,6 +8,7 @@
   export let messages: TranscriptMessage[];
   export let copy: Translation;
   export let formatTime: (value: string) => string;
+  export let assistantName: string = copy.appName;
   export let stickKey = "";
   export let loading = false;
   export let loadingLabel = "";
@@ -36,6 +37,7 @@
       {messages}
       {copy}
       {formatTime}
+      {assistantName}
       {sending}
       {streamingText}
       {streamingThinking}

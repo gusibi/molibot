@@ -230,7 +230,7 @@ export async function saveProviderEdit(): Promise<void> {
 
 export async function removeProvider(providerId: string): Promise<void> {
   const endpoint = session.endpoint;
-  if (!endpoint || providersStore.saving || !window.confirm(session.text.providerDeleteConfirm)) return;
+  if (!endpoint || providersStore.saving) return;
   providersStore.saving = true;
   try {
     providersStore.providers = await deleteDesktopProvider(endpoint, providerId);

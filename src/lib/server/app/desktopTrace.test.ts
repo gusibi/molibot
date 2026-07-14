@@ -9,6 +9,7 @@ import {
 } from "./desktopTrace";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 import { buildDesktopActiveRuns } from "./desktopActiveRuns";
+import { SqliteTraceStore } from "$lib/server/agent/hooks/traceStore.js";
 
 function fact(overrides: Partial<TraceFactRecord> = {}): TraceFactRecord {
   return {
@@ -166,4 +167,35 @@ test("active run controls treat a Web runtime snapshot as live", () => {
     sessionId: "session-web"
   }], Date.parse("2026-07-14T12:01:00.000Z"));
   assert.equal(items[0]?.status, "running");
+});
+
+test("clearing an orphan preserves its audit fact but removes it from active runs", () => {
+  const store = new SqliteTraceStore(":memory:");
+  const started = fact({
+    id: "orphan",
+    factType: "run",
+    runId: "orphan",
+    factId: "orphan",
+    status: "started",
+    startedAt: "2026-07-14T12:00:00.000Z"
+  });
+  try {
+    store.upsertFact(started);
+    assert.equal(buildDesktopActiveRuns({} as RuntimeSettings, store.listRecentFacts(), [], Date.parse("2026-07-14T12:01:00.000Z")).length, 1);
+
+    store.upsertFact({
+      ...started,
+      status: "aborted",
+      finishedAt: "2026-07-14T12:01:00.000Z",
+      updatedAt: "2026-07-14T12:01:00.000Z",
+      payload: { clearedFromTrace: true }
+    });
+
+    const facts = store.listFactsByRunId("orphan");
+    assert.equal(facts.length, 1);
+    assert.equal(facts[0]?.status, "aborted");
+    assert.deepEqual(buildDesktopActiveRuns({} as RuntimeSettings, facts, [], Date.parse("2026-07-14T12:01:00.000Z")), []);
+  } finally {
+    store.close();
+  }
 });

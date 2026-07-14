@@ -237,7 +237,7 @@
     cursor: pointer;
     text-align: left;
     color: inherit;
-    transition: background 0.12s ease;
+    transition: background var(--duration-instant) var(--ease-standard);
   }
   .conversation-row:hover,
   .conversation-row:focus-visible,
@@ -352,7 +352,7 @@
     background: transparent;
     color: var(--label-secondary, #666);
     cursor: pointer;
-    transition: background 0.12s ease;
+    transition: background var(--duration-instant) var(--ease-standard);
   }
   .row-menu-btn i { font-size: 16px; }
   .conversation-row:hover .row-menu-btn,

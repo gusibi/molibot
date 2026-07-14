@@ -9,6 +9,7 @@
   export let messages: TranscriptMessage[];
   export let copy: Translation;
   export let formatTime: (value: string) => string;
+  export let assistantName: string = copy.appName;
   export let sending = false;
   export let streamingText = "";
   export let streamingThinking = "";
@@ -42,15 +43,19 @@
     <p>{emptyHint}</p>
   </div>
 {/if}
-<ConversationTranscript {messages} {copy} {formatTime} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} />
+<ConversationTranscript {messages} {copy} {formatTime} {assistantName} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} />
 {#if sending}
   <article class="message-row assistant streaming-message">
-    <div class="message-stack">
-      <div class="message-status"><span>{activity || copy.working}</span></div>
-      {#if streamingThinking}<details class="thinking-card" open><summary>{copy.thinking}</summary><pre>{streamingThinking}</pre></details>{/if}
-      {#if activities.length > 0}<RunActivity {activities} {copy} />{/if}
-      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-      <div class="message-bubble markdown-body" onclick={copyCode}>{@html renderMarkdown(streamingText || activity || copy.working, copy.copyCode)}</div>
+    <div class="assistant-layout">
+      <img class="assistant-avatar" src="/molibot-icon.png" alt="" />
+      <div class="message-stack">
+        <div class="assistant-identity"><strong>{assistantName}</strong><span>{copy.agents}</span></div>
+        <div class="message-status"><span>{activity || copy.working}</span></div>
+        {#if streamingThinking}<details class="thinking-card"><summary>{copy.thinking}</summary><pre>{streamingThinking}</pre></details>{/if}
+        {#if activities.length > 0}<RunActivity {activities} {copy} />{/if}
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div class="message-bubble markdown-body" onclick={copyCode}>{@html renderMarkdown(streamingText || activity || copy.working, copy.copyCode)}</div>
+      </div>
     </div>
   </article>
 {/if}

@@ -25,6 +25,12 @@
   import VideoGenerateSection from "./lib/settings/VideoGenerateSection.svelte";
   import TtsGenerateSection from "./lib/settings/TtsGenerateSection.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
+  import PageHeader from "./lib/components/ui/PageHeader.svelte";
+  import SelectControl from "./lib/components/ui/SelectControl.svelte";
+  import SettingGroup from "./lib/components/ui/SettingGroup.svelte";
+  import SettingRow from "./lib/components/ui/SettingRow.svelte";
+  import StatusBadge from "./lib/components/ui/StatusBadge.svelte";
+  import { humanizeModelOption } from "./lib/presentation";
   import { session } from "./lib/stores/session.svelte";
   import { initialLocale, normalizeLocale, translator, type Locale } from "./lib/i18n";
   import {
@@ -65,8 +71,11 @@
   let servicePortLoadedFrom = "";
   let servicePortBusy = false;
   const THEME_STORAGE_KEY = "molibot-desktop-theme";
+  const LOW_PERFORMANCE_STORAGE_KEY = "molibot-desktop-low-performance";
   let theme: DesktopTheme = normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY));
+  let lowPerformance = localStorage.getItem(LOW_PERFORMANCE_STORAGE_KEY) === "true";
   let requestedChatPane: "chat" | "automations" | "skills" = "chat";
+  let settingsScrolled = false;
 
   function applyTheme(value: DesktopTheme): void {
     const root = document.documentElement;
@@ -78,6 +87,18 @@
     theme = value;
     localStorage.setItem(THEME_STORAGE_KEY, value);
     applyTheme(value);
+  }
+
+  function applyPerformanceMode(value: boolean): void {
+    const automaticallyReduced = window.matchMedia("(prefers-reduced-motion: reduce), (prefers-reduced-transparency: reduce)").matches
+      || (navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 4);
+    document.documentElement.dataset.performance = value || automaticallyReduced ? "low" : "standard";
+  }
+
+  function changePerformanceMode(value: boolean): void {
+    lowPerformance = value;
+    localStorage.setItem(LOW_PERFORMANCE_STORAGE_KEY, String(value));
+    applyPerformanceMode(value);
   }
 
   // Geist owns a single accent (blue-700), defined as --accent / --accent-soft
@@ -174,6 +195,39 @@
       case "runtimeEnv": return copy.runtimeEnv;
       default: return copy.general;
     }
+  }
+
+  function sectionDescription(section: SettingsSection, copy: typeof text): string {
+    switch (section) {
+      case "models": return copy.modelsHint;
+      case "providers": return copy.providersHint;
+      case "agents": return copy.agentsHint;
+      case "mcp": return copy.mcpHint;
+      case "skills": return copy.skillsHint;
+      case "memory": return copy.memoryHint;
+      case "channels": return copy.channelsHint;
+      case "plugins": return copy.pluginsHint;
+      case "webSearch": return copy.webSearchHint;
+      case "imageGenerate": return copy.imageGenerateHint;
+      case "videoGenerate": return copy.videoGenerateHint;
+      case "ttsGenerate": return copy.ttsGenerateHint;
+      case "profiles": return copy.profilesHint;
+      case "usage": return copy.usageHint;
+      case "runHistory": return copy.runHistoryHint;
+      case "logs": return copy.logsHint;
+      case "trace": return copy.traceHint;
+      case "sandbox": return copy.sandboxHint;
+      case "hostBash": return copy.hostBashHint;
+      case "tasks": return copy.tasksHint;
+      case "diagnostics": return copy.diagnosticsHint;
+      case "runtimeEnv": return copy.runtimeEnvHint;
+      default: return copy.generalHint;
+    }
+  }
+
+  function selectSettingsSection(section: SettingsSection): void {
+    activeSection = section;
+    settingsScrolled = false;
   }
 
   const LOCALE_STORAGE_KEY = "molibot-desktop-locale";
@@ -365,6 +419,7 @@
 
   onMount(() => {
     applyTheme(theme);
+    applyPerformanceMode(lowPerformance);
     window.addEventListener("storage", onThemeStorage);
     void refreshStatus();
     const timer = window.setInterval(() => void refreshStatus(), 1000);
@@ -402,7 +457,7 @@
         {#each localizedSettingsGroups as group (group.id)}
           <p class="settings-nav-group-label">{group.label}</p>
           {#each group.items as item (item.id)}
-            <button class:active={activeSection === item.id} class="settings-nav" type="button" onclick={() => (activeSection = item.id)}>
+            <button class:active={activeSection === item.id} class="settings-nav" type="button" onclick={() => selectSettingsSection(item.id)}>
               <span class="nav-tile" aria-hidden="true"><i class={`ph-fill ph-${item.icon}`}></i></span>
               <span class="nav-label">{item.label}</span>
             </button>
@@ -412,32 +467,22 @@
         {/each}
       </nav>
       <div class="settings-sidebar-footer">
-        <div class="brand-mark" aria-hidden="true">M</div>
-        <div class="settings-sidebar-footer-copy"><strong>{text.appName}</strong><small>{text.settings}</small></div>
+        <img class="settings-footer-avatar" src="/molibot-icon.png" alt="" />
+        <div class="settings-sidebar-footer-copy"><strong>{text.appName}</strong><small>{serviceStateLabel(status?.service.state, text)}</small></div>
         <span class="status-dot" data-state={status?.service.state ?? "disconnected"} aria-hidden="true"></span>
       </div>
     </aside>
     <section class="settings-content">
-      <header class="page-header settings-page-header" data-tauri-drag-region>
-        <h2 data-tauri-drag-region>{sectionLabel(activeSection, text)}</h2>
-      </header>
+      <PageHeader title={sectionLabel(activeSection, text)} description={sectionDescription(activeSection, text)} dataPage={activeSection === "trace" || activeSection === "usage"} scrolled={settingsScrolled} />
 
-      <div class="settings-scroll">
+      <div class="settings-scroll" data-section={activeSection} onscroll={(event) => (settingsScrolled = event.currentTarget.scrollTop > 2)}>
 
       {#if activeSection === "general"}
-        <div class="settings-card">
-          <div class="settings-row">
-            <strong>{text.uiLanguage}</strong>
-            <select class="row-select" value={locale} aria-label={text.uiLanguage} onchange={(event) => changeLocale((event.currentTarget as HTMLSelectElement).value)}>
-              <option value="zh-CN">简体中文</option>
-              <option value="en">English</option>
-            </select>
-          </div>
-          <div class="settings-row">
-            <div>
-              <strong>{text.launchAtLogin}</strong>
-              <p>{text.launchAtLoginDescription}</p>
-            </div>
+        <SettingGroup ariaLabel={text.general}>
+          <SettingRow title={text.uiLanguage}>
+            <SelectControl value={locale} ariaLabel={text.uiLanguage} options={[{ value: "zh-CN", label: "简体中文" }, { value: "en", label: "English" }]} onChange={changeLocale} />
+          </SettingRow>
+          <SettingRow title={text.launchAtLogin} description={text.launchAtLoginDescription}>
             <button
               class:active={status?.launchAtLogin}
               class="switch"
@@ -450,13 +495,24 @@
             >
               <span></span>
             </button>
-          </div>
-        </div>
+          </SettingRow>
+          <SettingRow title={text.lowPerformanceMode} description={text.lowPerformanceModeDescription}>
+            <button
+              class:active={lowPerformance}
+              class="switch"
+              type="button"
+              role="switch"
+              aria-label={text.lowPerformanceMode}
+              aria-checked={lowPerformance}
+              onclick={() => changePerformanceMode(!lowPerformance)}
+            >
+              <span></span>
+            </button>
+          </SettingRow>
+        </SettingGroup>
 
-        <p class="settings-group-title">{text.theme}</p>
-        <div class="settings-card appearance-card">
+        <SettingGroup title={text.theme} contentClass="appearance-card">
           <div class="appearance-block">
-            <p class="appearance-label">{text.theme}</p>
             <div class="theme-grid">
               {#each THEME_PREVIEWS as preview (preview.value)}
                 <button
@@ -473,59 +529,31 @@
               {/each}
             </div>
           </div>
-        </div>
+        </SettingGroup>
 
-        <p class="settings-group-title">{text.service}</p>
-        <div class="settings-card">
-          <div class="settings-row service-row">
-            <div>
-              <strong>{text.service}</strong>
-              <p>{serviceEndpointText}</p>
-            </div>
-            <span class="status-badge" data-state={status?.service.state ?? "disconnected"}>
-              {ownershipText}
-            </span>
-          </div>
-          <div class="settings-row">
-            <div>
-              <strong>{text.servicePort}</strong>
-              <p>{text.servicePortDescription}</p>
-            </div>
+        <SettingGroup title={text.service}>
+          <SettingRow title={text.service} description={serviceEndpointText}>
+            <StatusBadge label={ownershipText} state={status?.service.state ?? "disconnected"} />
+          </SettingRow>
+          <SettingRow title={text.servicePort} description={text.servicePortDescription}>
             <input class="row-input" type="number" min="1024" max="65535" step="1" bind:value={servicePort} disabled={!serviceReady || servicePortBusy} />
-          </div>
-          <div class="settings-row">
-            <div>
-              <strong>{text.restartService}</strong>
-              <p>{text.restartServiceDescription}</p>
-            </div>
+          </SettingRow>
+          <SettingRow title={text.restartService} description={text.restartServiceDescription}>
             <button class="secondary-button" type="button" onclick={restartManagedService} disabled={!serviceReady || status?.service.ownership !== "managed" || servicePortBusy}>
               {servicePortBusy ? text.restartingService : text.saveAndRestart}
             </button>
-          </div>
-        </div>
+          </SettingRow>
+        </SettingGroup>
 
         {#if serviceReady && readiness}
-          <p class="settings-group-title">{text.readiness}</p>
-          <div class="settings-card">
-            <div class="settings-row">
-              <div>
-                <strong>{text.readinessModel}</strong>
-                {#if !readiness.hasModel}<p>{text.readinessModelMissingHint}</p>{/if}
-              </div>
-              <span class="status-badge" data-state={readiness.hasModel ? "ready" : "error"}>
-                {readiness.hasModel ? readiness.modelLabel || text.readinessReady : text.readinessMissing}
-              </span>
-            </div>
-            <div class="settings-row">
-              <div>
-                <strong>{text.readinessProfile}</strong>
-                {#if !readiness.hasProfile}<p>{text.readinessProfileMissingHint}</p>{/if}
-              </div>
-              <span class="status-badge" data-state={readiness.hasProfile ? "ready" : "error"}>
-                {readiness.hasProfile ? `${readiness.profileCount} ${text.profilesUnit}`.trim() : text.readinessMissing}
-              </span>
-            </div>
-          </div>
+          <SettingGroup title={text.readiness}>
+            <SettingRow title={text.readinessModel} description={readiness.hasModel ? "" : text.readinessModelMissingHint}>
+              <StatusBadge label={readiness.hasModel ? (readiness.modelLabel ? humanizeModelOption(readiness.modelLabel, readiness.modelLabel).label : text.readinessReady) : text.readinessMissing} state={readiness.hasModel ? "ready" : "error"} />
+            </SettingRow>
+            <SettingRow title={text.readinessProfile} description={readiness.hasProfile ? "" : text.readinessProfileMissingHint}>
+              <StatusBadge label={readiness.hasProfile ? `${readiness.profileCount} ${text.profilesUnit}`.trim() : text.readinessMissing} state={readiness.hasProfile ? "ready" : "error"} />
+            </SettingRow>
+          </SettingGroup>
         {/if}
       {:else if activeSection === "models"}
         <ModelsSection />
@@ -566,7 +594,7 @@
       {:else if activeSection === "hostBash"}
         <HostBashSection />
       {:else if activeSection === "tasks"}
-        <TasksSection />
+        <TasksSection presentation="workspace" />
       {:else if activeSection === "runtimeEnv"}
         <RuntimeEnvSection />
       {:else}

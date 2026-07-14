@@ -425,6 +425,25 @@ export function formatDurationMs(valueMs: number): string {
   return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 }
 
+/** Formats long-running Trace durations without leaking unbounded raw minutes. */
+export function formatLongDurationMs(valueMs: number, locale: "zh-CN" | "en"): string {
+  const ms = Number.isFinite(valueMs) ? Math.max(0, Math.round(valueMs)) : 0;
+  if (ms < 1000) return locale === "zh-CN" ? "少于 1 秒" : "<1s";
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor(totalSeconds % 86_400 / 3_600);
+  const minutes = Math.floor(totalSeconds % 3_600 / 60);
+  const seconds = totalSeconds % 60;
+  const parts = locale === "zh-CN"
+    ? [[days, " 天"], [hours, " 小时"], [minutes, " 分钟"], [seconds, " 秒"]] as const
+    : [[days, "d"], [hours, "h"], [minutes, "m"], [seconds, "s"]] as const;
+  const first = parts.findIndex(([value]) => value > 0);
+  return parts.slice(first < 0 ? parts.length - 1 : first, Math.min(parts.length, (first < 0 ? parts.length - 1 : first) + 3))
+    .filter(([value], index) => value > 0 || index === 0)
+    .map(([value, unit]) => `${value}${unit}`)
+    .join(" ");
+}
+
 export async function loadDesktopRunHistory(endpoint: string, limit = 200): Promise<DesktopRunHistoryItem[]> {
   const query = new URLSearchParams({ limit: String(limit) });
   const payload = await requestJson<DesktopRunHistoryResponse>(

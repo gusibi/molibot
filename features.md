@@ -7,6 +7,38 @@
 ---
 ## 2026-07-14
 
+### Agent 头像移到消息左侧，聊天区改为居中定宽阅读列（已完成）
+- Agent 头像从"名字上方堆叠"改为"消息左侧"：新增 `.assistant-layout` 弹性布局，左侧 28px `.assistant-avatar`，右侧为消息栈；身份行只保留名称 + 角色。持久记录和实时流式行同步改造，保持一致。
+- 所有消息行改为共享一个居中的阅读列，最大宽度 `--message-content-width`（720px，与输入框同宽），用 `margin-inline: auto` 居中，不再在宽窗口下铺满整个面板。用户气泡在列内右对齐（最多 88%），Agent 内容占满该列。
+- 纯 markup/CSS 改动；消息正文、操作、附件渲染逻辑不变。图片内联说明：附件媒体链路（消息 `attachments` →`/api/web/files` 会话文件列表 → `filesByLocal`）已端到端验证正确（接口返回的图片 `local` 键与附件匹配），此前"图片只显示文件名胶囊"是上面投影错配 bug 的连带表现，并非媒体链路本身的问题。
+- 验证（Desktop UI 改动）：`svelte-check` 0 错误 0 警告、`vite build` 通过、Desktop UI 测试 53/53（将 issue-13 断言更新为"居中定宽列 + 左侧头像"布局）。
+
+### 修复：混合历史会话的聊天记录不再错乱回复顺序（已完成）
+- 问题：Web/桌面会话投影把每条 UI metadata 按“同角色第一个未用过的 Agent 消息”配对。一旦会话里残留一条迁移前的 display-only assistant（`contextBacked:false` 且自带正文），1:1 对齐被打破，后面每条回复整体错位一格——末尾表现为 用户、用户、AI、AI 且正文串台；配不上的 context-backed 行还会被静默丢弃。
+- 修复：改为按 Agent `sourceEntryId` 锚定匹配。`UiMessageMetadata` 新增 `sourceEntryId`，由投影解析后持久化（`SessionStore.recordMessageSourceEntries`，仿照 `markMessagesContextBacked`），此后按稳定 id 配对而非列表位置。尚无存储 id 的旧行走“保持顺序”的回退扫描（用游标禁止后面的行抢占更早的 Agent 行）；配不上的 context-backed 行改为保留空占位而不是消失。
+- 存量会话下次打开即自动迁移，无需手动操作；Agent 日志若被重写/压缩，id 会自愈重配。
+- 验证（agent/runtime 改动）：`conversationProjection` 5/5（新增混合会话回归 + 存储 id 配对测试）、`sessions/store` 8/8 通过；三处改动的服务端文件 `tsc` 0 错误（仓库既有 154 处无关错误不变）；用真实上报会话回放修复后的投影，恢复出正确的 开始生成图片 → 回复 → 帮我返回文案 → 回复 顺序。
+
+### Desktop 侧栏底部设置项与会话列表贴合分隔线（已完成）
+- 底部“设置/服务状态”按钮的悬浮高亮与顶部分隔线改为满宽显示；此前受侧栏 12px 水平内边距影响，高亮两端留白，只有中间一段显示选中态。
+- 会话列表滚动区域延伸到侧栏内侧右缘，滚动条紧贴右侧竖向分隔线，不再与分隔线之间留出 12px 空白。
+- 侧栏与消息面板之间的拖拽分隔条，悬浮/拖拽时的高亮由过深的蓝色（`--accent`）改为柔和灰色（`--gray-600`），与中性色界面更协调，且明暗主题均适配。
+- 均为纯 CSS 调整（满宽用负水平外边距 + 内边距补偿，另加一次颜色 token 替换），内容对齐位置不变。验证：`svelte-check` 0 错误 0 警告、`vite build` 通过、Desktop UI 测试 51/51。
+
+### Desktop Trace 删除记录恢复可用（已完成）
+- Trace 页面先展示时间范围、KPI 与活动/结果/覆盖范围/耗时图表，“当前运行”操作记录统一放在看板下方，避免运行明细挤占首屏。
+- “删除记录/停止运行”不再依赖桌面 WebView 的浏览器原生确认框；溢出菜单会打开应用内确认对话框，支持取消、点击遮罩和 Escape 退出，确认后仍调用现有 run-scoped API。
+- orphan Trace 继续采用审计安全语义：只将 run fact 标记为 `aborted` 并从当前运行列表移除，不物理删除历史 Trace facts。
+- 回归覆盖可见确认、单个 `runId` POST，以及临时内存 SQLite 中的 `started → aborted → active list filtered` 链路。
+
+### GitHub Issue #13：Molibot macOS App 界面改造（已完成）
+- Desktop 统一为 Molibot macOS 产品层：系统字体优先、52px 工具栏、6/8/12/full 圆角、576px 设置内容与 720px 数据/消息内容宽度，并补齐低动效、低透明度和高对比度适配。
+- Settings 统一使用“标题 + 一句说明”的 PageHeader、Molibot 服务状态侧栏底部和居中 SettingGroup；Models 展示用途说明与次级技术 ID，Providers 使用真实 Switch 并把删除移入溢出菜单，Trace 使用“未关联会话”、长时长和非驻留危险操作。
+- Automatic Tasks 在宽窗口使用 320px 列表 + 弹性详情，窄于 1100px 时详情改为右侧覆盖；启用状态、调度状态、当前执行和最近结果分别表达。Chat 使用 260px 默认侧栏、720px 消息/输入区、单行紧凑输入和 Assistant 身份行。
+- 共享 PageHeader、SettingGroup、SettingRow、Select、Search、Status、OverflowMenu、Empty 与 Skeleton 组件已经由目标页面真实采用；Models/Providers/Chat 共用人类可读名称投影，技术 key 保留在折叠详情。
+- 通用设置新增低性能模式；系统减少动态/透明度或低资源硬件也会自动降级。Chat 支持 Command+F、Command+K、Command+, 与统一 Command+Return，菜单支持上下键/Escape 并在关闭后卸载，删除与任务弹层打开后主动接收焦点。
+- `DESIGN.md` 新增 Desktop 产品层并明确覆盖通用 Geist 规则；所有变更保留现有 API、运行时和持久化边界。验证：Desktop UI/HTTP 53/53、API/展示 74/74、Svelte 0 错误 0 警告、production build 通过，并完成中英、明暗主题、860×620 与宽窗口的真实页面巡检。
+
 ### GitHub Issues #6 / #11 / #12：会话单一权威、停止保留输出与 Trace 控制（已完成）
 - UI Session 文件改为 `messageMetadata` 投影：普通用户/助手正文只由 Agent append-only entries 持有，UI 侧仅保存标题、顺序、附件、activity、模型与平台消息等展示元数据；旧 transcript 逐条验证可重建后清空正文，无法匹配的旧命令消息安全保留为 display-only。
 - Web、Desktop 与 Project transcript 统一经过共享投影 module，将 Agent 的 user/assistant/tool 链收敛为界面消息并保留 reasoning、附件、activity、模型；编辑重发同时截断 UI metadata 与 Agent entries/context snapshot。

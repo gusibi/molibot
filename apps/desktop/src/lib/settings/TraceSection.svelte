@@ -1,8 +1,14 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { formatDurationMs, formatTokenCount, loadDesktopActiveRuns, stopDesktopActiveRun } from "../api";
+  import { onMount, tick } from "svelte";
+  import { formatDurationMs, formatLongDurationMs, formatTokenCount, loadDesktopActiveRuns, stopDesktopActiveRun } from "../api";
   import type { DesktopActiveRunItem, DesktopTraceRange } from "@molibot/desktop-contract";
   import { session } from "../stores/session.svelte";
+  import EmptyState from "../components/ui/EmptyState.svelte";
+  import OverflowMenu from "../components/ui/OverflowMenu.svelte";
+  import SelectControl from "../components/ui/SelectControl.svelte";
+  import SkeletonRows from "../components/ui/SkeletonRows.svelte";
+  import StatusBadge from "../components/ui/StatusBadge.svelte";
+  import { formatNaturalDateTime } from "../presentation";
   import { traceStore, TRACE_RANGES, changeTraceRange, loadTrace, traceRangeLabel } from "../stores/trace.svelte";
   import { DONUT_R, donutSegments, percentOf } from "./charts";
 
@@ -10,6 +16,8 @@
   let activeRunsLoading = $state(false);
   let activeRunBusy = $state("");
   let activeRunMessage = $state("");
+  let pendingActiveRun = $state<DesktopActiveRunItem | null>(null);
+  let activeRunDialog = $state<HTMLDivElement>();
 
   async function refreshActiveRuns(): Promise<void> {
     if (!session.serviceReady || !session.endpoint) { activeRuns = []; return; }
@@ -19,12 +27,25 @@
     finally { activeRunsLoading = false; }
   }
 
-  async function stopActiveRun(item: DesktopActiveRunItem): Promise<void> {
-    if (!session.endpoint || activeRunBusy || !window.confirm(item.status === "orphan" ? session.text.traceClearOrphanConfirm : session.text.traceStopRunConfirm)) return;
-    activeRunBusy = item.runId;
+  async function requestActiveRunAction(item: DesktopActiveRunItem): Promise<void> {
+    if (activeRunBusy) return;
+    pendingActiveRun = item;
+    await tick();
+    activeRunDialog?.focus();
+  }
+
+  function cancelActiveRunAction(): void {
+    if (!activeRunBusy) pendingActiveRun = null;
+  }
+
+  async function stopActiveRun(): Promise<void> {
+    if (!session.endpoint || activeRunBusy || !pendingActiveRun) return;
+    const runId = pendingActiveRun.runId;
+    pendingActiveRun = null;
+    activeRunBusy = runId;
     activeRunMessage = "";
     try {
-      const result = await stopDesktopActiveRun(session.endpoint, item.runId);
+      const result = await stopDesktopActiveRun(session.endpoint, runId);
       activeRunMessage = result === "stopped" ? session.text.traceRunStopped : session.text.traceOrphanCleared;
       await refreshActiveRuns();
     } catch (cause) { activeRunMessage = cause instanceof Error ? cause.message : String(cause); }
@@ -74,38 +95,27 @@
     : []);
 </script>
 
-<p class="settings-section-hint">{session.text.traceHint}</p>
-<p class="settings-group-title">{session.text.traceActiveRuns}</p>
-<div class="settings-card trace-active-runs">
-  {#if activeRunsLoading}<div class="settings-row"><p>{session.text.loading}</p></div>
-  {:else if activeRuns.length === 0}<div class="settings-row"><div class="profile-info"><strong>{session.text.traceNoActiveRuns}</strong><p>{session.text.traceNoActiveRunsHint}</p></div></div>
-  {:else}{#each activeRuns as item (item.runId)}
-    <div class="settings-row trace-active-run-row">
-      <div class="profile-info"><div class="trace-active-run-title"><strong>{item.agentName} · {item.botName}</strong><span class="status-badge" data-state={item.status === "running" ? "ready" : "error"}>{item.status === "running" ? session.text.traceRunRunning : item.status === "stuck" ? session.text.traceRunStuck : session.text.traceRunOrphan}</span></div><p>{item.channel} · {formatDurationMs(item.durationMs)} · {item.startedAt.replace("T", " ").slice(0, 19)}</p><p class="trace-active-run-task">{item.taskPreview || session.text.traceTaskUnavailable}</p></div>
-      <button class="secondary-button danger-action" type="button" disabled={Boolean(activeRunBusy)} onclick={() => void stopActiveRun(item)}>{item.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun}</button>
-    </div>
-  {/each}{/if}
-</div>
-{#if activeRunMessage}<p class="settings-section-hint">{activeRunMessage}</p>{/if}
 <div class="settings-card">
   <div class="settings-row">
     <div>
       <strong>{session.text.traceRange}</strong>
       <p>{trace ? `${trace.window.startDate} → ${trace.window.endDate} · ${trace.timezone}` : ""}</p>
     </div>
-    <select value={traceStore.range} disabled={traceStore.loading} aria-label={session.text.traceRange} onchange={(event) => void changeTraceRange((event.currentTarget as HTMLSelectElement).value as DesktopTraceRange)}>
-      {#each TRACE_RANGES as range (range)}
-        <option value={range}>{traceRangeLabel(range, session.text)}</option>
-      {/each}
-    </select>
+    <SelectControl
+      value={traceStore.range}
+      disabled={traceStore.loading}
+      ariaLabel={session.text.traceRange}
+      options={TRACE_RANGES.map((range) => ({ value: range, label: traceRangeLabel(range, session.text) }))}
+      onChange={(value) => void changeTraceRange(value as DesktopTraceRange)}
+    />
   </div>
 </div>
 {#if !session.serviceReady}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.traceUnavailable}</p></div></div>
+  <div class="settings-card"><EmptyState title={session.text.traceUnavailable} icon="pulse" /></div>
 {:else if traceStore.loading}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
+  <div class="settings-card"><SkeletonRows count={4} label={session.text.loading} /></div>
 {:else if !trace}
-  <div class="settings-card"><div class="settings-row"><p>{session.text.traceEmpty}</p></div></div>
+  <div class="settings-card"><EmptyState title={session.text.traceEmpty} icon="chart-line" /></div>
 {:else}
   <div class="chart-kpi-grid">
     <div class="chart-kpi" style="--kpi-accent:var(--chart-indigo)">
@@ -198,6 +208,51 @@
         <div class="hbar-track"><span class="hbar-fill" style="width:{Math.max(2, percentOf(trace.totals.avgModelDurationMs, traceDurationMax))}%; background:var(--chart-purple)"></span></div>
         <span class="hbar-value">{formatDurationMs(trace.totals.avgModelDurationMs)}</span>
       </div>
+    </div>
+  </div>
+{/if}
+
+<p class="settings-group-title">{session.text.traceActiveRuns}</p>
+<div class="settings-card trace-active-runs">
+  {#if activeRunsLoading}
+    <SkeletonRows count={3} label={session.text.loading} />
+  {:else if activeRuns.length === 0}
+    <EmptyState title={session.text.traceNoActiveRuns} description={session.text.traceNoActiveRunsHint} icon="activity" />
+  {:else}
+    {#each activeRuns as item (item.runId)}
+      <div class="settings-row trace-active-run-row">
+        <div class="profile-info">
+          <div class="trace-active-run-title">
+            <strong>{item.agentName} · {item.botName}</strong>
+            <StatusBadge
+              label={item.status === "running" ? session.text.traceRunRunning : item.status === "stuck" ? session.text.traceRunStuck : session.text.traceRunOrphan}
+              state={item.status === "running" ? "ready" : item.status === "stuck" ? "warning" : "disconnected"}
+            />
+          </div>
+          <p>{item.channel} · {formatLongDurationMs(item.durationMs, session.locale)} · {formatNaturalDateTime(item.startedAt, session.locale)}</p>
+          <details class="trace-run-technical technical-detail">
+            <summary>{session.text.technicalDetails}</summary>
+            <dl>
+              <div><dt>{session.text.traceTask}</dt><dd>{item.taskPreview || session.text.traceTaskUnavailable}</dd></div>
+              <div><dt>{session.text.traceRunId}</dt><dd><code>{item.runId}</code></dd></div>
+            </dl>
+          </details>
+        </div>
+        <OverflowMenu label={session.text.more}>
+          <button role="menuitem" class="danger-action" type="button" disabled={Boolean(activeRunBusy)} onclick={() => void requestActiveRunAction(item)}>
+            <i class="ph ph-{item.status === "orphan" ? "trash" : "stop-circle"}" aria-hidden="true"></i>{item.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun}
+          </button>
+        </OverflowMenu>
+      </div>
+    {/each}
+  {/if}
+</div>
+{#if activeRunMessage}<p class="settings-section-hint">{activeRunMessage}</p>{/if}
+{#if pendingActiveRun}
+  <div bind:this={activeRunDialog} class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" aria-label={pendingActiveRun.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun} onclick={cancelActiveRunAction} onkeydown={(event) => { if (event.key === "Escape") cancelActiveRunAction(); }}>
+    <div class="modal-card task-delete-confirm-modal" role="presentation" onclick={(event) => event.stopPropagation()}>
+      <header class="modal-head"><div><strong>{pendingActiveRun.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun}</strong><p>{pendingActiveRun.status === "orphan" ? session.text.traceClearOrphanConfirm : session.text.traceStopRunConfirm}</p></div></header>
+      <footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={cancelActiveRunAction}>{session.text.cancel}</button><button class="primary-button danger-action" type="button" onclick={() => void stopActiveRun()}>{pendingActiveRun.status === "orphan" ? session.text.traceClearOrphan : session.text.traceStopRun}</button></footer>
     </div>
   </div>
 {/if}

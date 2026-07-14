@@ -1,3 +1,263 @@
+# GitHub issue #13 completion re-audit (2026-07-14)
+
+- The prior delivery statement conflated green structural tests for the selected
+  P0 + coupled P1 slice with verification of all 33 PRD sections. The user correctly
+  challenged that conclusion, specifically citing oversized/mismatched Settings selects.
+- The re-audit must use screenshots captured in this run; old preview screenshots and
+  prior narrative cannot serve as audit evidence.
+- Product-design audit routing requires current Browser capture, saved/inspected images,
+  step-specific findings, accessibility limits, and an explicit health rating per step.
+- No saved Product Design context exists, so the current PRD, `DESIGN.md`, code, and
+  newly captured Molibot pages are the only valid grounding sources for this audit.
+- A Molibot service is responding on port 3000, although `/api/status` itself is not
+  the valid status route. Vite is configured to proxy `/molibot-api` to that service,
+  so a current Desktop dev page can exercise real settings data instead of fake preview HTML.
+- Port 1420 is the active Tauri/Vite Desktop development surface, started with the
+  real desktop host and Node service. It returned the current app HTML successfully.
+- The current audit browser is the in-app surface required by the Product Design
+  workflow. It has no prior controlled tab, so the audit will open a fresh local
+  Settings tab and leave no browser state behind after evidence capture.
+- Fresh Settings DOM evidence confirms the current General screen uses a native
+  combobox for locale and retains every existing Settings navigation group. In the
+  browser surface, the service is shown as disconnected because Tauri ownership/status
+  APIs are not present; screenshot evidence for loaded model/provider data needs either
+  a proxy-backed preview or the native Tauri window.
+- The audit will explicitly use the PRD's 860×620 minimum viewport through the browser's
+  supported viewport capability and reset it before cleanup.
+- Screenshot 01 (General, Chinese, dark/system appearance, 860×620) is valid and shows
+  the setting column fitting the minimum width. It also exposes visual mismatches that
+  the prior audit missed: the page uses extremely small/dim sidebar and secondary copy,
+  the title/content relationship is sparse rather than native-dense, and the select is
+  visually a Web-style bordered capsule rather than a macOS popup control.
+- The screenshot file was saved and reopened at original resolution. Dark rendering is
+  readable in the browser capture but very low-contrast in the standalone image viewer,
+  which itself reinforces a contrast risk and makes a light-theme evidence capture useful.
+- The first light-theme capture makes the control problem clearer: General's select is
+  32px-high by shared CSS and uses 13px text, but its native popup styling remains visually
+  mismatched with other Settings controls; card rows and navigation text also read much
+  smaller than the PRD's intended 13–14px hierarchy at 860px.
+- Source inspection confirmed a plain browser at port 1420 intentionally reports the
+  service disconnected. A separate proxy-backed audit server on port 1421 can use the
+  real port-3000 data through the app's documented preview path, without changing product code.
+- The proxy-backed Settings page reports Ready and loaded real configuration: text model
+  `[Custom] CliProxyAPI / tencent/hy3` and two Web Profiles. This is the correct evidence
+  surface for populated Models/Providers controls.
+- The live Models DOM directly disproves a central PRD acceptance item: visible selected
+  options still use engineering-first labels such as `[Custom] CliProxyAPI / tencent/hy3`,
+  `[Custom] Moli-qiniu / doubao-seed-2.0-lite`, and raw provider/model paths. Adding the
+  same raw key below the select made the technical exposure more prominent, not secondary.
+- The page still contains long native selects with 16+ engineering-labelled options and
+  a very large timezone select. Two screenshot calls timed out on this populated page;
+  DOM evidence is valid, but a clipped capture is still required for visual audit evidence.
+- Exact live measurements for all 12 Models selects: model selects are 260×32px,
+  font 13px/400 using the system stack, padding `0 28px 0 11px`, radius 8px.
+  The PRD specifies 260×30px and 13px, so the user's “large” perception is not mainly
+  a raw height/font-token error. It is driven by long engineering-first labels, repeated
+  raw IDs beneath controls, full-width 576px row framing, and inconsistent auto-width
+  selects (67px/132px) alongside 260px selects. Therefore the visible complaint is valid,
+  while the precise root cause differs from “all dropdowns have a huge font.”
+- The third clipped Model screenshot also timed out. This page has a named screenshot
+  blocker; its current DOM and computed styles remain usable evidence, but not a visual
+  accessibility-compliance claim.
+- Providers is also materially incomplete against the PRD. The live page still exposes
+  raw primary names such as `[Built-in] amazon-bedrock`, protocol URLs, raw default model
+  IDs, and dozens of disabled built-ins in the main scan path. The PRD requires human names
+  first and technical IDs/details in a secondary layer.
+- Provider controls are inconsistent even within the same page: four selects measure
+  106×32, 190×32, 156×32, and 160×32, all at 13px. This directly fails “同组 Select 等宽”
+  and explains why the overall control rhythm feels wrong even though each height is near spec.
+- The populated Provider screen renders 30 setting rows and 119 buttons in one DOM,
+  producing a high-density admin list rather than the intended constrained Settings template.
+  Switching the sort action to a Switch and moving Delete to overflow fixed two individual
+  controls but did not complete the page-level information architecture.
+- Provider screenshot capture also timed out because of the populated long list. This is
+  a named evidence limit, not grounds to infer visual completion.
+- Trace completed several isolated checklist items (human long duration, “未关联会话”,
+  metric-dot treatment, overflow actions), but the live page remains an unbounded dashboard:
+  it renders dozens of “current” rows, most marked unlinked, with raw user prompts, event
+  payloads, absolute machine paths, and long URLs directly in the primary Settings scroll.
+  This contradicts the PRD's restrained data template and “technical/raw detail secondary” rule.
+- The Trace copy says it excludes raw fact content while the current-run list exposes raw
+  task previews. Even if technically not a stored fact body, this is a user-facing trust and
+  information-hierarchy mismatch that the prior structural test could not detect.
+- Trace screenshot capture timed out once on the unbounded live list and was not retried.
+- The live Settings → Automatic Tasks page is a decisive inconsistency against the PRD: at 860×620 it renders
+  eight fully expanded `<article>` cards, each with checkbox, always-visible Run/Edit/Delete,
+  raw task body, raw cron, channel/Bot/chat technical IDs, and three execution rows. It is not
+  the specified 300–320px task list + selected Detail Inspector presentation.
+- The task DOM shows raw absolute paths and internal skill invocation payloads in primary
+  content, contradicting both technical-detail hierarchy and the project rule against
+  leaking machine-specific absolute paths into UI examples/presentation.
+- The earlier regression only asserted that `.automation-workspace-layout` CSS and an
+  alternate list/detail markup fragment existed in source. It did not prove that the real
+  user-task branch at runtime used that layout—this is exactly why 49/49 structural tests
+  were insufficient evidence for completion.
+- Source clarifies the split: Chat's Automations workspace passes `presentation="workspace"`
+  and gets the new list/detail branch, while Settings renders `<TasksSection />` with the
+  legacy expanded-card branch. Thus the three-column code exists, but the product still
+  exposes two incompatible Automatic Tasks designs. A “unified App” acceptance claim fails
+  until the duplicate Settings entry is removed, redirected, or migrated.
+- Source-wide P2/Apple-interaction scan found reduced motion/transparency and some focus/
+  Escape handling, but no global Command+F/Command+, undo deletion, scroll-edge state,
+  gesture-close inspector, low-performance mode, or complete screen-reader verification.
+  These PRD enhancements were not implemented or verified and must not be marked Done.
+- The Browser backend returned JPEG screenshot bytes even though the internal evidence
+  files were initially named `.png`; this caused the standalone inspector's black/missing
+  rendering. The accepted General captures will be converted to true PNG before handoff.
+- The converted light General screenshot was inspected successfully and accepted as the
+  audit's visual evidence. It shows the compact control metrics but also the unfinished
+  hierarchy: very small secondary copy, low-density empty space, Web-card framing, and a
+  native select that does not visually belong to a unified macOS control set.
+- A fresh Chat preview tab loads the main shell and Auto Tasks entry, but the browser-only
+  origin shows the first-launch modal despite the Settings preview having real model/profile
+  data. This is preview-state divergence, so the modal must be dismissed before the Chat
+  Automations workspace can be audited; it is not evidence about the native app's onboarding.
+- Chat → Auto Tasks does use the new workspace branch and is healthier than the Settings
+  duplicate: tabs, search, summary, and a listbox are present, with separated “待触发/已暂停”
+  and last-trigger text. However, every task row still shows raw cron (`0 8,20 * * *`,
+  `10 19 * * *`) instead of the PRD's human schedule (“每天 03:00” style).
+- At the 860px breakpoint the unselected list correctly occupies the available content and
+  a selected inspector should overlay from the right. That behavior still needs one selected
+  task check; the Settings/Chat design duplication remains regardless.
+- Selecting a Chat task confirms the 860px right-side inspector behavior and the four
+  separated dimensions (enabled, current execution, schedule state, latest result). Those
+  are genuine completed requirements. The detail still promotes channel/Bot/chat IDs,
+  raw cron, `agent`, raw session IDs, full task payload, and absolute paths, so its content
+  hierarchy remains only partially migrated.
+- The inspector retains the correct overlay close affordance at the narrow breakpoint;
+  source CSS hides it for fixed wide mode. This acceptance item is complete.
+- The Chat Message Unit is only partially complete: flat assistant presentation and
+  compact composer widths exist, but identity falls back to generic `Molibot` and the
+  raw model key remains primary metadata instead of a human-readable model name.
+- Shared Settings coverage is incomplete. `sectionDescription()` returns descriptions
+  for only Models, Providers, Trace, Tasks, and Usage; most Settings routes still have
+  a title without the PRD's consistent explanatory hierarchy.
+- The proposed shared `AppShell`, `PageHeader`, `SettingGroup`, and `SettingRow`
+  primitives do not exist as source components. The implementation relies mostly on
+  one large semantic stylesheet; eight Svelte files still contain local style blocks.
+- The radius system is not globally converged to the PRD tokens: product CSS still
+  contains 9px, 10px, 15px, and 18px radii, plus many decorative one-offs. It also
+  contains 50 hard-coded transition declarations rather than a fully tokenized motion
+  system. These facts disprove an app-wide design-system completion claim.
+- Final health: General Settings partial; Models fail; Providers fail; Trace partial;
+  Automatic Tasks partial in Chat and fail in Settings; Chat partial; P2/Apple interaction
+  mostly missing or unverified. Therefore Issue #13 is not complete and the product docs
+  that currently mark it delivered overstate the implementation status.
+
+---
+
+# GitHub issue #13 PRD implementation (2026-07-14)
+
+- The source of truth is GitHub issue #13 plus its comments; implementation
+  decisions remain open until that context is loaded and reconciled with `prd.md`.
+- Project rules require the minimum surgical change, red regressions for confirmed
+  gaps, shared-layer ownership for cross-channel behavior, and synchronized docs.
+- Resource: https://github.com/gusibi/molibot/issues/13
+- Anonymous web open returned a cache miss; authenticated repository API access is
+  the next distinct read path.
+- Authenticated Issue #13 is open, has no comments, and defines a comprehensive
+  macOS App redesign: shared shell/sidebar/tokens/components; Chat, Models,
+  Providers, Trace, and Automation page changes; consistent status/copy/time;
+  interaction, material, accessibility, keyboard, and performance requirements.
+- The issue explicitly rejects a rewrite of business logic or technology. Its
+  implementation order starts with shared design foundations, then page templates,
+  then complex pages and detail consistency.
+- `frontend-design` is being applied as restrained native-tool refinement. Its
+  generic preference for distinctive fonts/decoration is subordinate to Issue #13
+  and `DESIGN.md`, which require system Chinese typography, restraint, accessibility,
+  tokenized CSS, responsive behavior, and semantic rather than decorative motion.
+- Current `DESIGN.md` is a 498-line Geist light-theme specification. Issue #13
+  proposes upgrading it to a Molibot macOS product spec while retaining Geist as
+  a local component/content reference; existing focus, contrast, responsive,
+  semantic-state, low-shadow, and reduced-motion rules remain compatible.
+- The full Issue has 33 sections. Automatic Tasks is explicitly a three-column
+  Global Sidebar + 300–320px Task List + flexible Detail layout; tabs/search/stats
+  belong only to the list, cron is humanized, and enabled/schedule/execution/latest
+  result/history are separate presentation dimensions.
+- Shared-component requirements prohibit page-local copies of search, select,
+  badge, setting row, page title, sidebar item, card, and icon button. Suggested
+  primitives include AppShell/PageHeader/SettingGroup/ListPane/DetailInspector,
+  MetricCard, OverflowMenu, Composer, MessageItem, and EmptyState.
+- Desktop responsiveness is window-oriented: minimum 860×620, three-column task
+  layout preferred above 1100px, inspector overlays below the threshold, settings
+  content 576px, data 640–720px, message/composer 720px, inspector at least 420px.
+- Statuses must combine readable text/icon/shape with color; technical IDs and raw
+  cron remain secondary detail/tooltip content, never the primary visible label.
+- The Desktop is Svelte 5 with one 2,303-line shared `styles.css`, a 619-line
+  settings shell, and a 2,177-line Chat shell. Existing shadcn-svelte sources live
+  in root `src/lib/components/ui`, including Button/Select/Switch/Tabs/Badge/Card,
+  but Desktop sections mostly use shared semantic class names rather than imports.
+- Current shared seams already exist for Chat sidebar/composer/transcript, while
+  Models, Providers, Trace, and Tasks are extracted sections. This makes a shared
+  token/primitives + targeted markup migration viable without touching business logic.
+- The worktree was clean before this task; only the three planning files are now
+  modified, all by this implementation session.
+- Chat already has a continuously resizable 220–420px sidebar with keyboard arrows,
+  persisted width, and shared `ChatSidebar`; this satisfies part of the interaction
+  model and should be normalized to the Issue's 260px default rather than replaced.
+- Existing Desktop scripts support Svelte diagnostics, structural UI tests, Tauri
+  tests, and production build. Root also has a focused `test:desktop-chat` API suite.
+- Automatic Tasks already has a Workspace presentation with category tabs, search,
+  summary, list/detail layout, 30-second visible polling, and separate `enabled`,
+  runtime status, execution history fields. Confirmed gaps: the detail still has a
+  close button in fixed mode; list/detail widths are fluid rather than 300–320px +
+  flexible; row copy combines schedule/status; destructive actions are always visible;
+  narrow mode stacks detail rather than using a right-side overlay.
+- Chat already renders assistant content without a bubble, hover-only message actions,
+  model/time metadata, and a sidebar resize interaction. Current assistant content can
+  grow to 820px, exceeding Issue #13's 720px target; identity must be checked in markup.
+- Shared settings CSS already provides 260px-ish sidebars, 576–640px sections, 260px
+  selects, 50px rows, low-shadow cards, dark theme, reduced transparency/motion, and
+  sticky save footbars. This is an evolutionary token/semantics alignment, not a fresh UI.
+- Provider filtering currently uses handwritten tab buttons and an outlined button as
+  a persistent sort toggle—the exact control misuse identified by the PRD. Provider
+  delete actions are also visibly inline rather than overflow-menu actions.
+- Settings shell already uses the prescribed 228px sidebar and sticky scroll content,
+  but its PageHeader contains only a title; every section separately emits hints.
+  A shared section description map in `App.svelte` can produce one consistent title +
+  description header without rewriting section business logic.
+- The root font stack currently prefers Geist before Apple/system fonts, directly
+  conflicting with the PRD's Chinese-first system UI stack. Tokens use 6/12/16 radii,
+  while the PRD requires 6/8/12/full. Existing accessibility includes focus-visible,
+  dark/system themes, reduced motion, and reduced transparency; increased contrast is missing.
+- Models routes can show human-readable `option.label`, but rows lack route descriptions,
+  empty options, and technical secondary text. Task-strength labels are currently
+  Haiku/Sonnet/Opus-first and need user-facing light/balanced/powerful/deep labels.
+- Trace uses a product hint and semantic chart colors already, but orphan wording remains,
+  stop/delete is a persistent danger button, and KPI styling must be checked for the strong
+  top accent. `formatDurationMs` is shared and is the right seam for human-readable duration.
+- Assistant messages still lack an explicit identity header. Their content is flat rather
+  than bubble-styled and actions are hover-revealed, so adding an Agent identity line plus
+  narrowing the shared message width completes the Message Unit without changing transcripts.
+- Composer is a shared auto-growing shell with separated tools/selectors/action slots; its
+  textarea starts at two rows and must be normalized to a ≤64px compact default via shared CSS.
+- Task and Trace contracts already expose enough data for the PRD presentation without
+  persistence or runtime changes. `DesktopTaskItem` has enabled, scheduling text/timezone,
+  task status, executions, count, and last error; active Trace runs have running/stuck/orphan,
+  start time and duration.
+- `formatDurationMs` currently emits unbounded minutes (`6927m 53s`). A separate locale-aware
+  long-duration presentation helper is safer than changing compact durations used elsewhere.
+- Existing structural `chat-ui.test.mjs` is the established regression seam for shared markup
+  and CSS contracts; `api.test.ts` is appropriate for exact duration behavior.
+- Live preview checks at 860×620 and a wider desktop width confirmed that Models,
+  Trace, Chinese/English copy, and light/dark themes retain readable hierarchy and
+  usable controls. The model selector remains legible at the minimum target width.
+- Visual QA found two shared-shell defects: wide PageHeader content did not align with
+  centered setting/data cards, and the English “Save and restart” label could wrap in
+  a fixed-height button. Both belong in shared shell/button CSS, not page overrides.
+- The preview flag intentionally points API requests at a fake `/molibot-api` endpoint;
+  the large General-page error body observed in the browser is Vite's HTML fallback,
+  not a runtime/API regression. Other inspected pages render independently of that body.
+- Usage still emitted its own hint after the shared PageHeader gained descriptions;
+  removing the duplicate keeps one stable information hierarchy.
+- Adversarial review found that an unconfigured route with available model options
+  could still select the browser's first option visually, and that the first Message
+  Unit pass labeled every assistant as Molibot. The empty route option now follows
+  `currentKey`, and Chat passes the active Agent/Bot name through the shared live and
+  persisted transcript components (including streaming messages).
+
+---
+
 # Bot Project mode (2026-07-12)
 
 ## Release v2.4.7 / Desktop v0.4.4 (2026-07-14)
@@ -537,6 +797,146 @@ rules, and contextual header format.
   `.json`, `.jsonl`, and `.meta.json` context artifacts on disk.
 - External channels are intentionally context-only and do not write this UI
   Session layout, so the rename/migration must remain Web-specific.
+
+---
+
+# Desktop Trace delete feedback (2026-07-14)
+
+- The screenshot maps to `apps/desktop/src/lib/settings/TraceSection.svelte`.
+- The server already exposes a run-scoped POST action and updates orphan run
+  facts from `started`/`waiting` to `aborted`; refresh filters terminal facts.
+- The Trace action is the only Desktop Svelte action using `window.confirm()`;
+  other destructive settings flows use a visible application modal.
+- The smallest UI fix is therefore confirmation-state ownership inside
+  `TraceSection`, without changing Channel code, the runtime API, or Trace
+  persistence semantics.
+- The final dialog explicitly receives focus after Svelte renders it; without
+  this, focus would remain on the covered overflow-menu button and Escape would
+  not reach the modal overlay.
+- Focused client and in-memory persistence tests confirm the remaining API and
+  terminal-state filtering path already behaved correctly.
 - Agent Store's ordinary `deleteSession` rejects deletion of the last context;
   UI lifecycle deletion needs a distinct idempotent artifact-removal operation
   that may remove the last UI-linked context and clear its active pointer.
+# GitHub issue #13 full completion execution (2026-07-14)
+
+- The user explicitly authorized uninterrupted sequential implementation of every
+  missing requirement; completion must be tracked as goals rather than one blanket status.
+- The existing audit establishes the starting gaps: shared primitives and global tokens,
+  Settings hierarchy, Models/Providers human labels and select rhythm, Trace bounded detail,
+  duplicate Automations presentations, Chat identity/metadata, and most Apple/P2 interactions.
+- `DESIGN.md` is authoritative over generic frontend aesthetics: this product must use a
+  restrained macOS system stack, compact 6/8/12/full geometry, opaque content hierarchy,
+  and technical identifiers only as secondary information.
+- Issue #13 remains open and has no comments. Its sections 1–33 make P2 and the Apple
+  interaction additions explicit acceptance work, not optional future suggestions for this run.
+- Completed the authoritative 546-line `DESIGN.md` read. Its Molibot layer explicitly
+  requires shared semantic components, system-first typography, 6/8/12/full radii,
+  120–240ms state/panel motion, human labels first, fixed save footbars, and the
+  860×620 minimum window; these are implementation contracts for G1–G8.
+- The current source has domain-level Settings sections and shared Chat pieces but no
+  shared UI component directory. The prior patch adds semantic CSS and branch-specific
+  markup inside existing pages, which explains why visual rules exist without consistent
+  runtime usage. G1 should create small reusable primitives rather than another broad CSS-only pass.
+- Existing uncommitted Issue #13 work must be treated as the baseline and refined in
+  place. No destructive reset or unrelated formatting is allowed.
+- Models currently renders raw option labels directly and then repeats the full key in
+  a visible `<small>`; fixing this requires one shared model display projection used by
+  Models, Providers, Automations, and Chat rather than page-specific string cleanup.
+- Providers mixes global configuration, filtering, a 30-row provider list, and a large
+  edit overlay in one component. Its existing store/API can remain; the presentation
+  needs a constrained list/detail hierarchy and reusable controls.
+- Automations already contains a healthier `presentation="workspace"` branch while the
+  Settings branch still renders legacy expanded cards. The simplest consistent product
+  seam is to make the workspace presentation canonical and remove the duplicate legacy UI,
+  not maintain two full task interfaces.
+- Chat's assistant identity prop exists, but the UI labels it generically as “Agents”,
+  displays raw `message.model`, and expands thinking by default. G7 must fix the content
+  hierarchy without changing transcript persistence.
+- Trace's KPI semantics improved, but active runs and trace details remain an unbounded
+  primary scroll. G5 needs disclosure/pagination or virtualization plus raw-detail
+  containment, not cosmetic card changes.
+- Baseline verification is green (53 structural UI/HTTP tests, 70 API tests, Svelte
+  diagnostics 0/0), but the UI suite explicitly encodes obsolete behavior such as
+  “thinking starts expanded” and the legacy Automation command deck. These passing tests
+  are a migration baseline, not Issue #13 completion evidence; G0/G1 must replace the
+  contradictory contracts with behavior-level acceptance tests.
+- The current worktree contains only the in-progress Issue #13 implementation/audit and
+  required documentation files from this task chain. `git diff --check` is clean.
+- Model API options expose only `key`, `label`, and optional context window. Humanization
+  therefore belongs in a credential-safe presentation helper that strips source prefixes
+  and separates provider/model identifiers without changing the shared server contract.
+- Provider items already contain a real user-facing `name`; their `id`, protocol, base URL,
+  path, and model IDs can move to secondary disclosure without API work.
+- Task schedule parsing already recognizes daily, weekly, and monthly cron patterns. G1 can
+  add localized natural-language formatting on top of the existing parser and preserve
+  unsupported expressions as technical fallback.
+- Core motion and accessibility tokens exist at the top of `styles.css`, but 50 scattered
+  hard-coded transitions and unsupported radii remain. G1 is a convergence/migration task,
+  not a brand-new token system.
+- A pure presentation seam now produces human model/provider names while retaining opaque
+  identifiers separately, and localizes common daily/weekly/monthly cron schedules including
+  multiple daily times. This lets every page share the same product language without changing APIs.
+- Added the shared UI source layer under `lib/components/ui`: PageHeader, SettingGroup,
+  SettingRow, SelectControl, SearchField, StatusBadge, OverflowMenu, EmptyState, and
+  SkeletonRows. They contain no page-local styles and compile cleanly with Svelte 5.
+- Shared control CSS now uses a 30px compact select height, system font, tokenized transitions,
+  unified focus rings, accessible status symbols, and reusable empty/skeleton semantics.
+- Every Settings route now resolves a localized description from existing domain copy;
+  General adds explicit local/shared scope language. The shared PageHeader owns the scroll
+  edge and General now uses shared SettingGroup/SettingRow/Select/Status primitives.
+- G2 runtime verification passed. At 860×620 the language select measures 240×30px with
+  full visible text, there is no horizontal overflow, Chinese/light and English/dark are
+  legible, and the first service group remains visible. At 1280×800 the content remains
+  bounded and the toolbar edge changes from hidden to opacity 1 after scrolling.
+- The first G2 capture exposed the select collapsing to 48px because its parent used
+  intrinsic sizing and a later max-width rule. A shared width/cascade fix corrected it;
+  the second screenshot confirms the full 240px control.
+- G3 is complete. Models now shows four compact 260×30px capability selectors in the
+  first 860×620 viewport, with humanized values and collapsed technical IDs. Speech
+  transcription has an explicit selected value, task tiers no longer lead with Anthropic
+  names, and advanced runtime settings are opt-in.
+- Real populated screenshots passed in Chinese/light and English/dark. Humanization was
+  tightened after the first view to remove redundant vendor path segments and duplicate
+  brand names while preserving the full opaque key under technical details.
+- The model route switch now applies an immediate optimistic selection and restores the
+  previous route on request failure; advanced edits continue to use the fixed save footbar.
+- The original Providers surface was still materially unfinished: its four selects had no
+  shared sizing and its 30-row list exposed protocol, URL, key state, and four actions per
+  row. The completed master-detail surface bounds the list at 360px, measures every primary
+  select at 260×30px/13px, and moves identifiers, protocol, and URL behind technical detail.
+- Provider deletion no longer invokes a native browser confirmation from the store. The
+  page owns an accessible in-app alert dialog, while the fine-grained provider delete API
+  and store behavior remain unchanged.
+- Trace already had the correct dashboard-before-active-runs information hierarchy and a
+  tested in-app stop/orphan confirmation. Its remaining gaps were presentation seams: raw
+  task/run details, an unbounded live list, engineering-first labels, non-localized start
+  times, and page-private loading/status/menu UI. Those are now resolved without API changes.
+- Automations really had two product surfaces: the Settings route still rendered a large
+  card deck while the Chat workspace rendered the intended 320px list/detail layout. Both
+  live entry points now use the latter. Existing watched-event JSON and task APIs remain the
+  source of truth; Stop reuses the active run's runId and the existing active-runs abort API.
+- Polling was shortened to 3 seconds for execution state, but the refresh path no longer sets
+  the initial-loading flag. This avoids a full-page skeleton flash every polling interval.
+- Chat's shared transcript and composer seams were sufficient. The actual Agent name was already
+  passed for configured profiles, but the fallback and generic plural role were wrong; raw model
+  values and default-open Thinking were also presentation bugs. The corrected populated DOM shows
+  `Global · Agent`, human model names, collapsed details, and a 50px one-row Composer.
+- The first compact Composer grid exposed a real regression: its 480px control rail left only 94px
+  for the textarea, so the placeholder expanded the row to 110px. Hiding the redundant locked Bot
+  mention in established conversations, shortening the model pill, and resetting empty textarea
+  height produces a 287px input and 50px total height at 860px.
+- Cross-app review found that writing `onkeydown` on an overlay is insufficient when focus stays
+  on the covered trigger: Escape bubbles through the focused element's ancestor chain, not a
+  visually covering sibling. Provider and Automation overlays now take focus after rendering.
+- Native `<details>` hides a menu visually but keeps its slot mounted. The shared OverflowMenu now
+  renders the menu only while open; browser verification observed one menu after ArrowDown and
+  zero after Escape, with focus restored to the summary trigger.
+- The final General runtime measurement is 260×30px for the language select and 38×22px for the
+  low-performance Switch, with no horizontal overflow. This directly addresses the user's report
+  that Settings dropdowns remained oversized.
+- The OS-level VoiceOver speech-output pass cannot be represented by the browser tree alone, so
+  the release smoke sequence is documented in the completion plan. Names, roles, focus order,
+  dialog focus, live regions, and non-color status alternatives were verified in the browser tree.
+
+---

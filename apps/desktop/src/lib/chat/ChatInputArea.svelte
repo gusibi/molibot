@@ -141,7 +141,7 @@
     {#if filteredSuggestions.length > 0}
       <SlashSuggestionMenu suggestions={filteredSuggestions} activeIndex={activeSuggestionIndex} onSelect={selectSuggestion} />
     {/if}
-    <slot />
+    <svelte:fragment slot="context"><slot /></svelte:fragment>
     {#if recording}
       <RecordingBar
         label={copy.recording}

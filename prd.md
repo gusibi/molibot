@@ -5,6 +5,19 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.69 Desktop Trace Action Feedback (2026-07-14)
+- [Done, P0] Trace 页面首屏优先展示时间范围、KPI 和分析图表；当前运行及 orphan 操作记录必须位于完整看板之后。
+- [Done, P0] Trace 的“删除记录/停止运行”必须使用应用内可见确认对话框，不得依赖桌面 WebView 的浏览器原生确认行为；取消、遮罩和 Escape 均不得提交请求。
+- [Done, P0] 确认后只向细粒度 active-runs API 提交所选 `runId` 一次；orphan 记录标记为 `aborted` 后从当前运行列表移除，同时保留审计 facts。
+
+## 2.68 Molibot macOS App Interface Redesign (2026-07-14)
+- [Done, P0] GitHub Issue #13：Desktop 必须统一系统字体、52px 工具栏、6/8/12/full 圆角、语义状态、共享 PageHeader/SettingGroup/OverflowMenu，以及 576px 设置与 720px 数据/消息内容宽度。
+- [Done, P0] Models、Providers、Trace 与 Automatic Tasks 必须优先显示用户语言，技术 ID/raw cron 只作次级信息；危险操作进入溢出菜单，开关不得用普通描边按钮伪装。
+- [Done, P0] Tasks 在宽窗口使用 Global Sidebar + 320px List + flexible Detail，窄于 1100px 使用右侧 inspector overlay，并分别表达启用、调度、执行和最近结果。
+- [Done, P1] Chat 使用 260px 默认可调侧栏、720px Message Unit/Composer、Assistant 身份行和单行起始的自动增长输入框；设置与数据页标题和内容起点保持一致。
+- [Done, P1] 所有改造支持中英、明暗主题、860×620 最小窗口、reduced motion/transparency 与 increased contrast；不得改写业务 API、运行时或持久化合同。长期规范写入 `DESIGN.md`。
+- [Done, P2] 全局交互补齐 Command+F / Command+, / Command+K / Command+Return、菜单上下键和 Escape；关闭的 Popover 卸载内容，危险弹层主动接收焦点。通用设置提供可持久化低性能模式，并在系统减少动态/透明度或低资源硬件上自动关闭阴影、模糊和非必要动效。
+
 ## 2.67 GitHub Issues #6 / #11 / #12 Runtime and Session Completion (2026-07-14)
 - [Done, P0] UI Session 必须收敛为展示元数据；普通消息正文、模型与工具历史只由 Agent entries 持有，旧 transcript 仅在确认可无损投影后清理，命令类 display-only 消息不得丢失。
 - [Done, P0] 附件、activity、reasoning、模型标识与消息顺序必须通过共享投影保留；编辑重发同时截断 UI metadata 与 Agent append-only entries/context snapshot。

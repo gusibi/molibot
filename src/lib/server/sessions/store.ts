@@ -30,6 +30,8 @@ export interface UiMessageMetadata extends Omit<ConversationMessage, "content"> 
   /** Normal chat content comes from Agent entries; only display-only messages keep content here. */
   content?: string;
   contextBacked: boolean;
+  /** Stable id of the Agent session entry this row renders, so projection pairs by id, not list position. */
+  sourceEntryId?: string;
 }
 
 interface SessionFile {
@@ -771,6 +773,29 @@ export class SessionStore {
       if (!ids.has(message.id) || message.contextBacked) continue;
       message.contextBacked = true;
       delete message.content;
+      changed = true;
+    }
+    if (!changed) return;
+    if (located.type === "web") writeWebSession(located.externalUserId, located.file);
+    else if (located.type === "project") writeProjectSession(located.projectId, located.file);
+    else writeLegacySession(located.file);
+  }
+
+  /**
+   * Persist the Agent `sourceEntryId` the projection resolved for each metadata
+   * row, so subsequent loads pair by id instead of list position. Idempotent:
+   * only writes when at least one row's stored id actually changes.
+   */
+  recordMessageSourceEntries(conversationId: string, entries: ReadonlyArray<{ id: string; sourceEntryId: string }>): void {
+    if (entries.length === 0) return;
+    const located = this.resolveSessionStorage(conversationId);
+    if (!located) return;
+    const byId = new Map(entries.map((entry) => [entry.id, entry.sourceEntryId]));
+    let changed = false;
+    for (const message of located.file.messageMetadata) {
+      const next = byId.get(message.id);
+      if (!next || message.sourceEntryId === next) continue;
+      message.sourceEntryId = next;
       changed = true;
     }
     if (!changed) return;

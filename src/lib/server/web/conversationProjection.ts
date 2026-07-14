@@ -52,6 +52,7 @@ export function loadConversationProjection(input: {
     metadata: runtime.sessions.listMessageMetadata(input.conversationId)
   });
   runtime.sessions.markMessagesContextBacked(input.conversationId, result.migratedMetadataIds);
+  runtime.sessions.recordMessageSourceEntries(input.conversationId, result.resolvedSourceEntries);
   return result;
 }
 

@@ -34,6 +34,13 @@ export function routeLabel(route: DesktopModelRoute, copy: typeof session.text):
   return copy.routeSubagent;
 }
 
+export function routeDescription(route: DesktopModelRoute, copy: typeof session.text): string {
+  if (route === "text") return copy.routeTextHint;
+  if (route === "vision") return copy.routeVisionHint;
+  if (route === "stt") return copy.routeSttHint;
+  return copy.routeSubagentHint;
+}
+
 export async function loadModels(endpoint: string): Promise<void> {
   modelsStore.loadedEndpoint = endpoint;
   modelsStore.loading = true;
@@ -57,14 +64,17 @@ export async function loadModels(endpoint: string): Promise<void> {
   }
 }
 
-export async function changeModel(route: DesktopModelRoute, event: Event): Promise<void> {
+export async function changeModel(route: DesktopModelRoute, value: string): Promise<void> {
   const endpoint = session.endpoint;
   if (!endpoint || modelsStore.switchingRoute) return;
+  const previous = modelsStore.modelStates[route];
   modelsStore.switchingRoute = route;
+  if (previous) modelsStore.modelStates = { ...modelsStore.modelStates, [route]: { ...previous, currentKey: value } };
   session.error = "";
   try {
-    modelsStore.modelStates = { ...modelsStore.modelStates, [route]: await switchDesktopModel(endpoint, (event.currentTarget as HTMLSelectElement).value, route) };
+    modelsStore.modelStates = { ...modelsStore.modelStates, [route]: await switchDesktopModel(endpoint, value, route) };
   } catch (cause) {
+    if (previous) modelsStore.modelStates = { ...modelsStore.modelStates, [route]: previous };
     setError(cause);
   } finally {
     modelsStore.switchingRoute = null;

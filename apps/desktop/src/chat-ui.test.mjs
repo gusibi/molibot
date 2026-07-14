@@ -43,6 +43,9 @@ const slashSuggestionMenu = read("./lib/chat/SlashSuggestionMenu.svelte");
 const projectSettingsDialog = read("./lib/projects/ProjectSettingsDialog.svelte");
 const chatMessagesPane = read("./lib/chat/ChatMessagesPane.svelte");
 const chatHeader = read("./lib/chat/ChatHeader.svelte");
+const pageHeader = read("./lib/components/ui/PageHeader.svelte");
+const overflowMenu = read("./lib/components/ui/OverflowMenu.svelte");
+const settingGroup = read("./lib/components/ui/SettingGroup.svelte");
 const recordingBar = read("./lib/chat/RecordingBar.svelte");
 const projectChat = read("./lib/projects/ProjectChat.svelte");
 const projectChatStoreSource = read("./lib/projects/projectChatStore.svelte.ts");
@@ -86,6 +89,73 @@ test("chat composer keeps keyboard guidance in the textarea placeholder", () => 
   assert.doesNotMatch(view, /class="composer-hint"/);
 });
 
+test("issue 13 macOS product tokens and accessibility preferences are shared", () => {
+  assert.match(styles, /font-family:\s*-apple-system, BlinkMacSystemFont/);
+  assert.match(styles, /--font-ui:/);
+  assert.match(styles, /--radius-control:\s*8px/);
+  assert.match(styles, /--toolbar-height:\s*52px/);
+  assert.match(styles, /--settings-content-width:\s*576px/);
+  assert.match(styles, /--message-content-width:\s*720px/);
+  assert.match(styles, /@media \(prefers-contrast: more\)/);
+  assert.match(styles, /:root\[data-performance="low"\]/);
+  assert.match(app, /lowPerformanceMode/);
+  assert.match(styles, /button:active:not\(:disabled\)/);
+});
+
+test("issue 13 settings pages share a title and product description header", () => {
+  assert.match(app, /function sectionDescription\(/);
+  assert.match(pageHeader, /class="page-header-description"/);
+  assert.match(app, /sectionDescription\(activeSection, text\)/);
+  assert.match(app, /<PageHeader[^>]*description=\{sectionDescription\(activeSection, text\)\}/);
+  assert.match(pageHeader, /class="toolbar-edge"/);
+  assert.match(app, /settings-sidebar-footer-copy[\s\S]*serviceStateLabel/);
+});
+
+test("issue 13 target pages expose user-facing controls and secondary technical detail", () => {
+  const models = read("./lib/settings/ModelsSection.svelte");
+  assert.match(models, /routeDescription\(route, session\.text\)/);
+  assert.match(models, /humanizeModelOption/);
+  assert.match(models, /technicalId=\{state\.currentKey\}/);
+  assert.match(sections.providers, /humanizeProviderName/);
+  assert.match(sections.providers, /aria-pressed=\{providerSortActive\}/);
+  assert.match(sections.providers, /class="provider-browser-list" role="listbox"/);
+  assert.match(sections.providers, /class="provider-technical-details technical-detail"/);
+  assert.doesNotMatch(read("./lib/stores/providers.svelte.ts"), /window\.confirm/);
+  assert.match(sections.trace, /formatLongDurationMs\(item\.durationMs, session\.locale\)/);
+  assert.match(sections.trace, /<OverflowMenu label=\{session\.text\.more\}>/);
+  assert.match(sections.trace, /class="trace-run-technical technical-detail"/);
+  assert.match(sections.trace, /formatNaturalDateTime\(item\.startedAt, session\.locale\)/);
+  assert.doesNotMatch(sections.trace, /secondary-button danger-action/);
+});
+
+test("issue 13 automation uses a fixed list-detail template with separated status semantics", () => {
+  assert.match(sections.tasks, /taskScheduleStatusText/);
+  assert.match(sections.tasks, /taskExecutionStatusText/);
+  assert.match(sections.tasks, /taskLatestResultText/);
+  assert.match(sections.tasks, /<OverflowMenu label=\{session\.text\.more\}>/);
+  assert.match(sections.tasks, /formatNaturalSchedule\(task\.scheduleText, session\.locale\)/);
+  assert.match(sections.tasks, /stopTaskRun\(selectedTask\.id/);
+  assert.match(app, /<TasksSection presentation="workspace" \/>/);
+  assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:\s*320px minmax\(420px, 1fr\)/s);
+  assert.match(styles, /@media \(max-width: 1099px\)[\s\S]*\.automation-task-detail\s*\{[^}]*position:\s*absolute/s);
+});
+
+test("issue 13 Chat renders an Agent message unit and a compact 720px composer", () => {
+  assert.match(transcript, /class="assistant-identity"/);
+  assert.match(transcript, /copy\.appName/);
+  // All rows share one centered reading column matching the composer width.
+  assert.match(styles, /\.message-row\s*\{[^}]*max-width:\s*var\(--message-content-width\)[^}]*margin:[^}]*auto/s);
+  // The Agent avatar sits to the LEFT of the message, not stacked above it.
+  assert.match(transcript, /class="assistant-avatar"/);
+  assert.match(styles, /\.assistant-layout\s*\{[^}]*display:\s*flex/s);
+  assert.match(styles, /\.composer-wrap\s*\{[^}]*max-width:\s*var\(--message-content-width\)/s);
+  assert.match(styles, /\.composer textarea\s*\{[^}]*min-height:\s*42px;[^}]*max-height:\s*180px/s);
+  assert.match(transcript, /humanizeModelOption\(message\.model, message\.model\)\.label/);
+  assert.match(view, /activeAgentName[\s\S]*copy\.agentStudioGlobalName/);
+  assert.match(view, /class:open=\{searchOpen\} class="search-bar"/);
+  assert.match(styles, /\.composer\s*\{[^}]*flex-direction:\s*column/s);
+});
+
 test("shared composer provides keyboard slash suggestions and transcript invocation styling", () => {
   assert.match(chatInputArea, /ensureComposerSuggestions/);
   assert.match(chatInputArea, /ArrowDown/);
@@ -106,7 +176,12 @@ test("issue 8 chat polish stays wired across shared Chat and Project surfaces", 
   assert.match(markdown, /highlightAuto/);
   assert.match(markdown, /data-copy-code/);
   assert.match(queuedMessagesBar, /class="queued-message-row"/);
-  assert.match(projectChat, /event\.key === "Enter" && event\.shiftKey/);
+  assert.match(projectChat, /event\.key === "Enter" && \(event\.shiftKey \|\| event\.metaKey \|\| event\.ctrlKey\)/);
+  assert.match(view, /event\.key === ","[\s\S]*openSettings\(\)/);
+  assert.match(view, /event\.key\.toLowerCase\(\) === "k"[\s\S]*toggleCommandPalette/);
+  assert.match(view, /class="command-palette"[\s\S]*copy\.newChat/);
+  assert.match(overflowMenu, /event\.key !== "ArrowDown" && event\.key !== "ArrowUp"/);
+  assert.match(overflowMenu, /event\.key === "Escape"/);
   assert.match(logsSection, /desktop_logs/);
 });
 
@@ -242,7 +317,7 @@ test("desktop top chrome exposes draggable Tauri regions without covering contro
   assert.match(view, /<WindowDragMask \/>/);
   assert.match(app, /<WindowDragMask \/>/);
   assert.match(windowDragMask, /getCurrentWindow\(\)\.startDragging\(\)/);
-  assert.match(styles, /\.window-drag-mask\s*\{[^}]*position:\s*absolute;[^}]*height:\s*52px;[^}]*z-index:\s*30;/s);
+  assert.match(styles, /\.window-drag-mask\s*\{[^}]*position:\s*absolute;[^}]*height:\s*var\(--toolbar-height\);[^}]*z-index:\s*30;/s);
   assert.match(chatSidebar, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
   assert.match(sidebarShell, /class="sidebar-titlebar-drag" data-tauri-drag-region/);
   assert.match(styles, /\.sidebar-titlebar-drag\s*\{[^}]*position:\s*absolute;[^}]*height:\s*30px;/s);
@@ -308,9 +383,9 @@ test("automation workspace separates user and system tasks with accessible tabs"
 
 test("automation details are opt-in and execution state stays task-scoped", () => {
   assert.match(sections.tasks, /selectedTaskId \? filteredTaskItems\.find/);
-  assert.match(sections.tasks, /onclick=\{\(\) => \(selectedTaskId = ""\)\}/);
+  assert.match(sections.tasks, /class="automation-detail-close"/);
   assert.match(sections.tasks, /class:detail-open=\{Boolean\(selectedTask\)\}/);
-  assert.match(sections.tasks, /session\.text\.tasksRunCount\} \{task\.runCount\}/);
+  assert.match(sections.tasks, /session\.text\.tasksLatestResult/);
   assert.match(sections.tasks, /session\.text\.tasksLastTriggered\} \{formatTaskTime/);
   assert.match(sections.tasks, /setTaskEnabled\(selectedTask\.id, !selectedTask\.enabled\)/);
   assert.match(sections.tasks, /isTaskRunning\(selectedTask\.id\)/);
@@ -354,9 +429,11 @@ test("shared transcript renders media inline and delegates tool activity", () =>
   assert.match(runActivity, /hasError \? copy\.runFailed : copy\.runCompleted/);
 });
 
-test("thinking starts expanded while tool activity stays opt-in", () => {
-  assert.match(transcript, /<details class="thinking-card" open>/);
-  assert.match(conversationLiveView, /<details class="thinking-card" open>/);
+test("thinking and tool activity stay opt-in", () => {
+  assert.match(transcript, /<details class="thinking-card">/);
+  assert.doesNotMatch(transcript, /<details class="thinking-card" open>/);
+  assert.match(conversationLiveView, /<details class="thinking-card">/);
+  assert.doesNotMatch(conversationLiveView, /<details class="thinking-card" open>/);
   assert.doesNotMatch(runActivity, /<details class="run-activity" open=/);
 });
 
@@ -400,10 +477,12 @@ test("local Chat and Project Chat share the live conversation, composer, and tur
 
 test("settings uses the flat Geist layout", () => {
   assert.match(app, /class="settings-search"/);
-  assert.match(app, /class="page-header settings-page-header"[\s\S]*class="settings-scroll"/);
+  assert.match(pageHeader, /class="page-header settings-page-header"/);
+  assert.match(app, /<PageHeader[\s\S]*class="settings-scroll"/);
   assert.match(styles, /\.settings-row\s*\{[^}]*min-height:\s*50px/s);
-  // Geist cards are flat: solid surface + subtle shadow, no glass blur.
-  assert.doesNotMatch(styles, /backdrop-filter/);
+  // Ordinary Settings groups stay flat even when shell/overlays use material.
+  assert.match(settingGroup, /class=\{`settings-card setting-group/);
+  assert.match(styles, /\.settings-card\s*\{[^}]*box-shadow:\s*none/s);
   assert.match(styles, /\.settings-card\s*\{[^}]*background:\s*var\(--card-bg\)/s);
   assert.match(styles, /\.settings-card \+ \.settings-card\s*\{[^}]*margin-top:\s*16px/s);
   assert.match(styles, /\.settings-footbar\s*\{[^}]*position:\s*sticky;[^}]*bottom:\s*0/s);
@@ -568,6 +647,23 @@ test("Desktop Trace exposes live, stuck, and orphan run controls", () => {
   assert.match(activeRunsRoute, /abortRuntimeRun/);
 });
 
+test("Desktop Trace delete opens an in-app confirmation before submitting", () => {
+  const traceSection = read("./lib/settings/TraceSection.svelte");
+  assert.match(traceSection, /let pendingActiveRun = \$state<DesktopActiveRunItem \| null>\(null\)/);
+  assert.match(traceSection, /pendingActiveRun = item/);
+  assert.match(traceSection, /role="dialog"/);
+  assert.match(traceSection, /activeRunDialog\?\.focus\(\)/);
+  assert.match(traceSection, /stopDesktopActiveRun\(session\.endpoint, runId\)/);
+  assert.doesNotMatch(traceSection, /window\.confirm\(/);
+});
+
+test("Desktop Trace keeps the dashboard above active-run records", () => {
+  const traceSection = read("./lib/settings/TraceSection.svelte");
+  const dashboard = traceSection.indexOf('class="chart-kpi-grid"');
+  const activeRuns = traceSection.indexOf('<p class="settings-group-title">{session.text.traceActiveRuns}</p>');
+  assert.ok(dashboard >= 0 && activeRuns > dashboard);
+});
+
 test("Desktop Stop waits for server finalization and reloads preserved output", () => {
   assert.match(streamStopRoute, /await waitForWebRunnerIdle/);
   const stopRequest = conversationController.indexOf("const stopped = await stopDesktopChat");
@@ -591,7 +687,7 @@ test("settings navigation matches the web taxonomy and entity editors open as di
   assert.match(sections.agents, /class="entity-editor-foot"/);
   assert.match(styles, /\.entity-editor-foot\s*\{[^}]*bottom:\s*0/s);
   assert.match(app, /label: sectionLabel\(item\.id, text\)/);
-  assert.match(app, /<h2[^>]*>\{sectionLabel\(activeSection, text\)\}<\/h2>/);
+  assert.match(app, /<PageHeader title=\{sectionLabel\(activeSection, text\)\}/);
   assert.match(app, /\{text\[preview\.labelKey\]\}/);
 });
 

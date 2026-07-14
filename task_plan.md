@@ -1,3 +1,87 @@
+# GitHub issue #13 completion re-audit (2026-07-14)
+
+## Goal
+Reconcile the implemented Desktop UI against every requirement and acceptance item
+in GitHub issue #13, using current-page screenshots and source evidence, and correct
+the prior overstatement that the entire PRD had been verified.
+
+## Current phase
+Complete — audit only; implementation remains open
+
+## Phases
+1. Load the audit/browser procedures and current Issue #13 acceptance criteria — complete
+2. Capture and inspect the real Settings flow at target window sizes/themes/locales — complete with named screenshot limits on populated long-list pages
+3. Map all PRD items to complete / partial / missing with code and screenshot evidence — complete
+4. Report the honest gap list and propose the smallest completion plan — complete
+
+## Verification gates
+- No “complete” claim without a direct screenshot, executable behavior check, or exact source evidence.
+- Dropdown typography, dimensions, visible value, and responsive behavior are measured, not inferred from CSS names.
+- P0, P1, P2, and Apple-interaction additions are reported separately.
+- This turn is an audit; no product fixes are applied until the user asks to continue implementation.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| The browser skill cache path from the session catalog no longer existed | 1 | Located the current installed cache version `26.707.72221`; load that exact skill before browser work. |
+| Unquoted `?window=settings` was expanded by zsh as a filename pattern | 1 | Quote URLs in subsequent local probes; do not repeat the unquoted command. |
+| Model-page screenshot capture timed out after the navigation and metric read | 1 | Do not retry the same composite action; take a fresh DOM snapshot, then capture and measure in smaller calls. |
+| Model screenshot timed out again as a standalone viewport capture | 2 | The page contains very large native option lists; refresh state, measure separately, then try an explicit 860×620 clip as the third and final screenshot method. |
+| Explicit 860×620 clipped Model screenshot also timed out | 3 | Stop retrying Browser screenshots for this populated page. Keep DOM/computed-style evidence and name the visual-capture blocker; continue with Providers/Trace/Tasks where screenshots may succeed. |
+| Provider viewport screenshot timed out on the first attempt | 1 | Do not spend more screenshot retries on another huge populated list; record DOM/style evidence and continue to smaller surfaces. |
+| Trace viewport screenshot timed out on the first attempt | 1 | Record the populated Trace DOM as evidence and continue; no repeated capture on the unbounded list. |
+| Saved browser screenshots had JPEG bytes under `.png` names, so the image viewer rendered them incorrectly | 1 | Convert accepted captures to real PNG files with the system image converter and inspect the converted files. |
+| The controlled tab became stale before the Chat workspace audit | 1 | Keep the existing browser binding, discard the stale tab, and obtain a fresh tab as required by the Browser recovery procedure. |
+
+---
+
+# GitHub issue #13 PRD implementation (2026-07-14)
+
+## Goal
+Implement every accepted requirement in GitHub issue #13 as a production-ready,
+verified Molibot change while preserving shared-layer architecture boundaries.
+
+## Current phase
+Complete
+
+## Phases
+1. Read the full issue, comments, project PRD/design constraints, and map acceptance criteria — complete
+2. Audit current implementation and select the smallest architecture seam — complete
+3. Add focused failing regressions and implement the PRD incrementally — complete
+4. Run focused and proportional verification, then adversarially review likely failure points — complete
+5. Update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`; deliver evidence — complete
+
+## Verification gates
+- Every issue #13 requirement maps to code and executable evidence.
+- Shared orchestration remains above Channel adapters; transient runtime controls never enter persisted model context.
+- Persistence tests use temporary/injectable stores and do not touch live user data.
+- Any UI change follows `DESIGN.md`, uses existing shadcn/shared semantics, and passes bilingual/theme/responsive checks.
+- `git diff --check` and relevant tests/builds pass; adversarial review findings are fixed before delivery.
+
+## Decisions
+| Decision | Rationale |
+| --- | --- |
+| Defer implementation choices until the full issue and current seams are inspected | The user supplied the PRD by reference; silently guessing its scope would risk building the wrong behavior. |
+| Evolve the existing shared Desktop semantic CSS and extracted sections | Most foundations already exist; replacing the UI stack would violate the PRD non-goals and create needless regression risk. |
+| Treat the Issue P0 plus directly coupled P1 consistency items as the first complete implementation boundary | P0 establishes the shared shell/templates; orphan wording, duration, destructive menus, and semantic colors are inseparable acceptance details on the same target pages. |
+| Reuse existing native controls and semantic classes; add only shared primitives needed by multiple pages | This keeps the change surgical and honors the existing shadcn/shared-component policy without duplicating page-local widgets. |
+| Preserve business contracts and derive presentation status from existing task fields | The PRD explicitly excludes business-logic rewrites; current task data already exposes enabled, execution, result, and history dimensions. |
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Anonymous GitHub page read for issue #13 returned a cache miss | 1 | Switch to the authenticated GitHub CLI/API and load the body plus comments. |
+| Issue #13 regression suite failed 6 new assertions before implementation | 1 | Expected red state; implement the shared tokens/header, target-page semantics, task template, Message Unit, and duration helper next. |
+| First green UI run retained 2 stale pre-PRD structural assertions | 1 | Updated the toolbar assertion to its shared token and replaced obsolete task-row run-count wording with the new separated latest-result contract. |
+| One broad CSS patch missed an exact automation selector despite the selector being present | 1 | Split the patch into small token/chat/settings/automation hunks and applied each against freshly inspected context. |
+| `corepack pnpm --dir apps/desktop run check` could not open pnpm's cache SQLite database | 1 | Used the app-local `svelte-check` binary with the same project tsconfig; diagnostics run without package-manager cache access. |
+| First direct Svelte check rejected an `{@const}` nested below a settings branch | 1 | Moved the declaration to the immediate child of its `{#each}` block; rerun passed with 0 errors and 0 warnings. |
+| Sandboxed Vite could not bind a local preview port; the default preview port was already occupied | 1 | Started the same local-only preview with approved bind access on port 1421 and kept it isolated from the existing process. |
+| Shared assistant-name props inferred the literal type `"Molibot"` from localized defaults | 1 | Annotated the three shared component props as `string`; no caller or rendering behavior changed. |
+| Final parallel API test could not create tsx's temporary IPC socket | 1 | The same test had already passed 69/69; rerun it alone after diagnostics to avoid parallel IPC contention. |
+
+---
+
 # Project runtime and display overrides (2026-07-12)
 
 ## Release v2.4.7 / Desktop v0.4.4 (2026-07-14)
@@ -932,5 +1016,105 @@ Session and its Agent context without changing external-channel persistence.
 | Error | Attempt | Resolution |
 | --- | --- | --- |
 | Looked for `CONTEXT-FORMAT.md` beside the skills root | 1 | Resolved the reference relative to the `domain-modeling` skill directory. |
+
+---
+
+# Desktop Trace delete feedback (2026-07-14)
+
+## Goal
+
+Make the Desktop Trace “Delete record” action visibly confirm, submit the
+existing per-run action, and remove the orphan row after refresh.
+
+## Assumptions
+
+- “Delete record” keeps the existing audit-preserving behavior: the run fact is
+  marked aborted instead of physically deleting all Trace facts.
+- The current `TraceSection.svelte` and shared UI changes are user work and must
+  be preserved; this fix stays inside the Trace action seam.
+- Persistence verification uses an in-memory Trace store only.
+
+## Phases
+
+1. Add a red-capable Desktop UI action contract — complete
+2. Replace the browser-native confirmation with an in-app dialog — complete
+3. Verify client request, server transition, refresh, and types — complete
+4. Run adversarial review and update required product docs — complete
+
+## Verification gates
+
+- Clicking the menu action always opens visible in-app confirmation UI.
+- Confirming calls the existing action API exactly once for the selected run.
+- A cleared orphan no longer appears in the active-runs projection.
+- Chinese/English copy, dark theme tokens, keyboard dismissal, and narrow layout
+  reuse the existing shared modal system.
+
+## Adversarial review
+
+- Duplicate submission: confirmation clears synchronously and `activeRunBusy`
+  disables every row action before the request starts.
+- Keyboard dismissal: the dialog receives focus after rendering, so Escape is
+  handled by the overlay rather than the now-covered overflow-menu trigger.
+- Refresh race: orphan persistence changes synchronously before the awaited
+  refresh; the 3-second poll remains a fallback if a later refresh is needed.
+- Failure visibility: request failures still surface through the existing
+  `activeRunMessage` and do not silently mutate the local list.
+- Audit safety: no DELETE endpoint or physical Trace-fact removal was added.
+
+---
+# GitHub issue #13 full completion execution (2026-07-14)
+
+## Goal
+Finish every missing or unverified requirement in Issue #13 sequentially. A goal is
+complete only after implementation, focused regression coverage, real-page interaction,
+and screenshot review at the required viewport/theme/locale states.
+
+## Current phase
+Complete — G0 through G9 accepted
+
+## Execution goals
+
+| Goal | Scope | Status | Completion evidence |
+| --- | --- | --- | --- |
+| G0 | Full PRD matrix, current branch/diff, reusable preview harness | complete | Every section 1–33 mapped to code/test/visual evidence |
+| G1 | Shared foundation: tokens, radii, motion, typography, AppShell/PageHeader/SettingGroup/SettingRow/Select/Search/Badge/Empty/Skeleton/Overflow primitives | complete | Product-surface geometry and interactive durations use shared tokens; target pages use shared components |
+| G2 | Settings shell and General: header/description, sidebar/footer, scroll edge, fixed save footbar, scope copy | complete | 860×620 + wide, zh/en, light/dark screenshots and keyboard checks |
+| G3 | Models | complete | Human-readable primary values, technical secondary details, equal compact selects, complete first viewport |
+| G4 | Providers | complete | Human-readable names, constrained list/detail, correct filters/sort/actions, equal controls |
+| G5 | Trace | complete | Bounded data presentation, semantic metrics, secondary raw details, human labels/actions |
+| G6 | Automations | complete | One canonical list/detail workspace, natural schedules, separated states, history, refresh/stop/undo, overlay behavior |
+| G7 | Chat | complete | Agent identity, human model metadata, Message Unit actions/details, compact composer, search/keyboard behavior |
+| G8 | Cross-app interaction/accessibility | complete | immediate/interruptible feedback, shortcuts, anchored overlays, reduced preferences, focus, screen-reader semantics, low-performance behavior |
+| G9 | Adversarial audit and documentation correction | complete | Tests/build/checks green; real screenshots accepted; PRD/features/changelog/readme truthful |
+
+## Non-negotiable verification gates
+
+- No goal becomes complete from source-string assertions alone.
+- Every target page is exercised with real populated data when available.
+- UI checks cover 860×620 and a wide window, Chinese/English, light/dark, keyboard,
+  reduced motion, reduced transparency, and increased contrast as applicable.
+- Tests must not read or write the user's real settings, task, Trace, queue, or runtime stores.
+- Existing user/concurrent work is preserved; every changed line traces to Issue #13.
+- The final adversarial review lists and fixes the 3–5 likeliest failure modes.
+
+## Assumptions
+
+- Issue #13 is the source of truth; its P0, P1, P2, Apple interaction additions,
+  and acceptance checklists are all in scope because the user explicitly requested all gaps.
+- The project-specific Molibot macOS layer in `DESIGN.md` overrides generic frontend
+  styling advice. The direction is restrained, dense, system-native, and functional.
+- Shared components may be added where the same semantic control occurs on multiple pages;
+  business APIs and Channel/runtime architecture are not redesigned unless required by an
+  explicit interaction acceptance item.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Combined DESIGN/Issue read exceeded direct output limit | 1 | Preserve the issue inventory already captured and read `DESIGN.md` in bounded chunks to EOF before editing UI. |
+| Presentation helper test could not import the not-yet-created module | 1 | Expected red-first state; added the presentation module and reran the focused suite green. |
+| Svelte rejected an exported interface inside an instance script | 1 | Made the component-local option interface non-exported; no public type export is needed. |
+| Three source-contract tests still expected PageHeader and General markup inside App.svelte | 1 | Updated the tests to follow the new shared components and assert the intended flat SettingGroup behavior. |
+| Direct assignment to `scrollTop` was blocked by the controlled DOM proxy | 1 | Used the element's `scrollTo()` method instead; the real scrolled header state and edge opacity were verified. |
 
 ---

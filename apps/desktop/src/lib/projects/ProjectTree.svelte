@@ -357,7 +357,7 @@
   .project-tree-head { display: flex; align-items: center; min-height: 32px; padding: 0 4px; }
   .project-tree-toggle { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 32px; padding: 0 4px; border: 0; background: transparent; color: var(--label-secondary); font: inherit; font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
   .project-tree-toggle span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .project-tree-caret, .project-add { opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; }
+  .project-tree-caret, .project-add { opacity: 0; pointer-events: none; transition: opacity var(--duration-instant) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); }
   .project-tree-head:hover .project-tree-caret, .project-tree-head:hover .project-add, .project-tree-head:focus-within .project-tree-caret, .project-tree-head:focus-within .project-add { opacity: 1; pointer-events: auto; }
   .project-tree-caret { font-size: 11px; color: var(--label-tertiary); }
   .project-tree-caret.open { transform: rotate(90deg); }

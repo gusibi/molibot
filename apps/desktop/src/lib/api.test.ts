@@ -18,6 +18,7 @@ import {
   filterSessionsByTitle,
   findTranscriptMatches,
   formatDurationMs,
+  formatLongDurationMs,
   formatTokenCount,
   formatExternalSessionPreview,
   groupExternalSessionsForView,
@@ -61,6 +62,7 @@ import {
   saveDesktopVideoGenerate,
   truncateDesktopMessages,
   saveDesktopTts,
+  stopDesktopActiveRun,
   testDesktopWebSearchSettings,
   testDesktopImageGenerateSettings,
   testDesktopVideoGenerateSettings,
@@ -76,6 +78,25 @@ import {
   updateDesktopProviderGlobals,
   ONBOARDING_STEPS
 } from "./api";
+
+test("Desktop Trace action posts the selected run id", async () => {
+  const original = globalThis.fetch;
+  let captured: { url: string; method: string; body: unknown } | null = null;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    captured = { url: String(url), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null };
+    return new Response(JSON.stringify({ ok: true, result: "cleared" }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    assert.equal(await stopDesktopActiveRun("http://127.0.0.1:3000", "run/orphan"), "cleared");
+    assert.deepEqual(captured, {
+      url: "http://127.0.0.1:3000/api/desktop/active-runs",
+      method: "POST",
+      body: { runId: "run/orphan" }
+    });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
 
 test("shared transcript localizes the generic assistant failure without changing user text", () => {
   assert.equal(transcriptDisplayContent({ role: "assistant", content: "Sorry, something went wrong." }, "回复失败，请重试。"), "回复失败，请重试。");
@@ -512,6 +533,13 @@ test("formatDurationMs renders sub-second, seconds, and minute durations compact
   assert.equal(formatDurationMs(120_000), "2m");
   assert.equal(formatDurationMs(Number.NaN), "<1s");
   assert.equal(formatDurationMs(-500), "<1s");
+});
+
+test("formatLongDurationMs renders multi-day Trace runs in human units", () => {
+  const duration = (((4 * 24 + 19) * 60 + 27) * 60 + 53) * 1000;
+  assert.equal(formatLongDurationMs(duration, "zh-CN"), "4 天 19 小时 27 分钟");
+  assert.equal(formatLongDurationMs(duration, "en"), "4d 19h 27m");
+  assert.equal(formatLongDurationMs(83_000, "zh-CN"), "1 分钟 23 秒");
 });
 
 test("groupExternalSessionsForView flattens groups in order and carries display fields", () => {

@@ -252,7 +252,7 @@
     gap: 6px;
   }
   .plugin-collapsible-toggle i {
-    transition: transform 0.18s ease;
+    transition: transform var(--duration-fast) var(--ease-standard);
     font-size: 12px;
   }
   .plugin-collapsible.is-open .plugin-collapsible-toggle i {

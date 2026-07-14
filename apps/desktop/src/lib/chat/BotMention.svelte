@@ -130,7 +130,7 @@
     font-weight: 500;
     line-height: 1;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
   }
   .mention-token:hover,
   .mention-token.active {
@@ -207,7 +207,7 @@
     font-size: 13px;
     text-align: left;
     cursor: pointer;
-    transition: background 0.12s ease;
+    transition: background var(--duration-instant) var(--ease-standard);
   }
   .mention-option:hover {
     background: var(--fill);

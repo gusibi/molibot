@@ -7,6 +7,38 @@
 ---
 ## 2026-07-14
 
+### Feature: Agent avatar moves left of the message and the transcript gains a centered reading column
+- The Agent avatar now sits to the left of each assistant message (a dedicated `.assistant-layout` flex column with a 28px `.assistant-avatar`) instead of stacked above the name; the identity row keeps just name + role. Applied to both the persisted transcript and the live streaming row so they match.
+- All message rows now share one centered reading column capped at `--message-content-width` (720px, the same width as the composer) via `margin-inline: auto`, instead of sprawling to the full pane width on wide windows. User bubbles right-align within the column (max 88%), assistant content fills it.
+- Pure markup/CSS; message content, actions, and attachment rendering are unchanged. Note on inline images: the attachment media path (message `attachments` → `/api/web/files` session listing → `filesByLocal`) was verified end-to-end (endpoint returns the images with matching `local` keys); the earlier "images show as filename chips" report was a downstream symptom of the projection mismatch fixed above, not a media-path bug.
+- Verification (desktop UI change): `svelte-check` 0 errors / 0 warnings, `vite build` passes, Desktop UI tests 53/53 (updated the issue-13 assertion to the centered-column + left-avatar layout).
+
+### Fix: Chat transcript no longer scrambles replies in hybrid legacy sessions
+- The Web/Desktop conversation projection paired each UI metadata row to an Agent message by "first unused of the same role," so a single pre-migration display-only assistant row (`contextBacked:false` with its own content) broke 1:1 alignment and shifted every later reply by one. Symptom: the last turns rendered as user, user, AI, AI with stale bodies, and a context-backed row that found no match was silently dropped.
+- Matching is now anchored on the Agent `sourceEntryId`: a new `sourceEntryId` field on `UiMessageMetadata` is resolved by the projection and persisted (`SessionStore.recordMessageSourceEntries`, mirroring `markMessagesContextBacked`), so subsequent loads pair by stable id, not list position. Rows without a stored id yet fall back to an order-respecting scan (a cursor forbids a later row from stealing an earlier Agent row), and an unmatched context-backed row now keeps an empty placeholder instead of vanishing.
+- Existing sessions self-migrate on their next open (no manual step); ids re-resolve gracefully if the Agent log is ever rewritten/compacted.
+- Verification (agent/runtime change): `conversationProjection` 5/5 (added hybrid-session regression + stored-id pairing tests) and `sessions/store` 8/8 pass; `tsc` on the three touched server files reports 0 errors (repo baseline of 154 unrelated errors unchanged); replaying the real reported session through the fixed projection restores the correct 开始生成图片 → reply → 帮我返回文案 → reply order.
+
+### Fix: Desktop sidebar footer and session list now bleed to the divider
+- The settings footer's hover highlight and top border now span the full sidebar width. Previously the sidebar's 12px horizontal padding left both ends of the highlight bare, so only the middle segment appeared selected on hover.
+- The conversation/session scroll region now extends to the sidebar's inner right edge, so its scrollbar sits flush against the vertical divider instead of leaving a 12px gap.
+- The sidebar resizer handle now highlights in a soft gray (`--gray-600`) on hover/drag instead of the deep `--accent` blue, which read as jarring against the neutral chrome; it still adapts for light and dark.
+- All three are pure CSS adjustments (full-bleed via negative horizontal margins compensated by padding, plus a token swap); content alignment is unchanged. Verification: `svelte-check` 0 errors / 0 warnings, `vite build` passes, Desktop UI tests 51/51.
+
+### Fix: Desktop Trace delete action now responds visibly
+- Reordered the Desktop Trace page so the range control, KPI cards, and analytical charts remain the primary dashboard; active and orphan run records now appear beneath the dashboard.
+- Replaced the Desktop Trace action's browser-native confirmation with the shared in-app confirmation dialog, so Delete record and Stop run always provide immediate visible feedback and support cancel, backdrop, and Escape dismissal.
+- Confirming still posts only the selected run ID. Orphan runs are marked aborted and disappear from the active list while their audit facts remain available.
+- Verification covers the UI action contract, client POST payload, in-memory SQLite transition, and active-list filtering.
+
+### Feature: implement GitHub Issue #13 macOS interface redesign
+- Unified the Desktop shell around a native macOS product layer: system-first typography, 52px toolbars, consistent 6/8/12/full radii, aligned 576px settings and 720px data/message columns, semantic status treatment, and accessibility fallbacks.
+- Models, Providers, Trace, and Automations now lead with human language, separate technical details, use the correct switch/menu controls, and keep destructive actions out of persistent primary chrome. Tasks use a 320px list plus flexible inspector with a right-side overlay below 1100px.
+- Chat now defaults to a 260px sidebar, a compact single-line composer, 720px message width, and visible assistant identity. The product rules are recorded in `DESIGN.md`; API, runtime, and persistence contracts are unchanged.
+- Added shared semantic UI primitives and human-readable model/provider/schedule projections, then migrated the target pages to them. General Settings now includes a persistent low-performance mode with automatic reduced-effects fallback.
+- Completed keyboard and accessibility behavior: Command+F, Command+K, Command+comma, consistent Command+Return, arrow-key/Escape menus that unmount when closed, focused destructive dialogs, semantic live regions, and non-color-only statuses.
+- Verification: Desktop UI/HTTP 53/53, API/presentation 74/74, Svelte diagnostics 0/0, production build, and populated bilingual light/dark browser checks at 860×620 and wide widths.
+
 ### Fix: complete issues #6, #11, and #12 across Session and runtime layers
 - UI Session files now persist `messageMetadata` instead of a second normal transcript. A shared projection reconstructs Web/Desktop/Project messages from append-only Agent entries and merges UI-only attachments, activity, model, platform IDs, and reasoning. Matching legacy rows migrate to metadata-only storage; unmatched display-only command history remains intact.
 - Edit-and-resend truncates the selected UI projection and the corresponding Agent entry log, then rebuilds the model context snapshot so display and continuation state cannot diverge.

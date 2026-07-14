@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { Translation } from "../i18n";
   export let copy: Translation;
   export let value = "";
@@ -14,12 +15,19 @@
 
   function resizeTextarea(): void {
     if (!textarea) return;
+    if (!value) {
+      textarea.style.height = "";
+      return;
+    }
     textarea.style.height = "auto";
     textarea.style.height = `${textarea.scrollHeight}px`;
   }
+
+  $: value, tick().then(resizeTextarea);
 </script>
 
 <div class="composer">
+  <slot name="context" />
   <slot />
   <textarea bind:this={textarea} bind:value rows="2" {placeholder} {disabled} onkeydown={onKeydown} oninput={resizeTextarea}></textarea>
   <div class="composer-bar">

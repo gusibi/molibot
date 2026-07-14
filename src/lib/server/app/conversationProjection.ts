@@ -14,6 +14,8 @@ interface AgentDisplayMessage extends ProjectedConversationMessage {
 export interface ConversationProjection {
   messages: ProjectedConversationMessage[];
   migratedMetadataIds: string[];
+  /** Metadata rows whose resolved Agent `sourceEntryId` should be persisted (id-based matching from now on). */
+  resolvedSourceEntries: Array<{ id: string; sourceEntryId: string }>;
   sourceEntryByMessageId: Map<string, string>;
 }
 
@@ -114,6 +116,13 @@ function isNearbyLegacyMessage(candidate: ProjectedConversationMessage, metadata
 /**
  * Deep projection seam: callers provide Agent entries plus UI-only metadata;
  * normal message content is returned from Agent entries exactly once.
+ *
+ * Matching is anchored on the Agent `sourceEntryId` (persisted onto metadata via
+ * `resolvedSourceEntries`) so a stable id, not list position, decides the pairing.
+ * Rows without a stored id yet fall back to an order-respecting scan: a `cursor`
+ * forbids a later metadata row from stealing an earlier unused Agent row, which is
+ * what scrambled hybrid sessions that predate this migration (a legacy display-only
+ * row breaks 1:1 alignment and every later reply shifts by one).
  */
 export function projectConversationMessages(input: {
   conversationId: string;
@@ -121,26 +130,57 @@ export function projectConversationMessages(input: {
   metadata: UiMessageMetadata[];
 }): ConversationProjection {
   const agentMessages = agentDisplayMessages(input.entries, input.conversationId);
+  const indexByEntryId = new Map<string, number>();
+  agentMessages.forEach((message, index) => indexByEntryId.set(message.sourceEntryId, index));
+
   const used = new Set<number>();
   const migratedMetadataIds: string[] = [];
+  const resolvedSourceEntries: Array<{ id: string; sourceEntryId: string }> = [];
   const sourceEntryByMessageId = new Map<string, string>();
   const messages: ProjectedConversationMessage[] = [];
 
+  let cursor = 0;
+  const scanFromCursor = (predicate: (candidate: AgentDisplayMessage) => boolean): number => {
+    for (let index = cursor; index < agentMessages.length; index += 1) {
+      if (!used.has(index) && predicate(agentMessages[index])) return index;
+    }
+    return -1;
+  };
+
   for (const metadata of input.metadata) {
-    const matchIndex = agentMessages.findIndex((candidate, index) => {
-      if (used.has(index) || candidate.role !== metadata.role) return false;
-      return metadata.contextBacked || (
-        isNearbyLegacyMessage(candidate, metadata)
-        && normalized(candidate.content) === normalized(metadata.content)
-      );
-    });
+    let matchIndex = -1;
+    // Phase 1: authoritative id match — order-independent, survives reordering.
+    if (metadata.sourceEntryId) {
+      const byId = indexByEntryId.get(metadata.sourceEntryId);
+      if (byId != null && !used.has(byId) && agentMessages[byId].role === metadata.role) matchIndex = byId;
+    }
+    // Phase 2: context-backed rows carry no content of their own — bind to the
+    // next in-order Agent row of the same role.
+    if (matchIndex < 0 && (metadata.contextBacked || metadata.content == null)) {
+      matchIndex = scanFromCursor((candidate) => candidate.role === metadata.role);
+    }
+    // Phase 3: legacy display-only rows migrate only onto a nearby identical Agent row.
+    if (matchIndex < 0 && metadata.content != null) {
+      matchIndex = scanFromCursor((candidate) =>
+        candidate.role === metadata.role
+        && isNearbyLegacyMessage(candidate, metadata)
+        && normalized(candidate.content) === normalized(metadata.content));
+    }
+
     if (matchIndex < 0) {
-      if (metadata.content != null) messages.push({ ...metadata, content: metadata.content });
+      // Never silently drop a row: keep display-only content, or an empty
+      // placeholder for a context-backed row whose Agent source has rotated away.
+      messages.push({ ...metadata, content: metadata.content ?? "" });
       continue;
     }
+
     used.add(matchIndex);
+    cursor = Math.max(cursor, matchIndex + 1);
     const source = agentMessages[matchIndex];
     sourceEntryByMessageId.set(metadata.id, source.sourceEntryId);
+    if (metadata.sourceEntryId !== source.sourceEntryId) {
+      resolvedSourceEntries.push({ id: metadata.id, sourceEntryId: source.sourceEntryId });
+    }
     if (!metadata.contextBacked) migratedMetadataIds.push(metadata.id);
     messages.push({
       ...source,
@@ -159,5 +199,5 @@ export function projectConversationMessages(input: {
     messages.push(message);
   });
   messages.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  return { messages, migratedMetadataIds, sourceEntryByMessageId };
+  return { messages, migratedMetadataIds, resolvedSourceEntries, sourceEntryByMessageId };
 }

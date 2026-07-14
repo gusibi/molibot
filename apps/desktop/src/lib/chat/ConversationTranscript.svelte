@@ -5,10 +5,12 @@
   import TranscriptAttachments from "./TranscriptAttachments.svelte";
   import RunActivity from "./RunActivity.svelte";
   import { classifyComposerInvocation } from "./composerSuggestions.svelte";
+  import { humanizeModelOption } from "../presentation";
 
   export let messages: TranscriptMessage[];
   export let copy: Translation;
   export let formatTime: (value: string) => string;
+  export let assistantName: string = copy.appName;
   export let searchMatchIds: string[] = [];
   export let activeMatchId = "";
   export let showReadReceipt = false;
@@ -112,12 +114,18 @@
         <TranscriptAttachments attachments={message.attachments} {copy} actions={attachmentActions} />
       {/if}
       {#if message.thinking}
-        <details class="thinking-card" open><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
+        <details class="thinking-card"><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
       {/if}
     {:else}
-      <div class="message-stack">
+      <div class="assistant-layout">
+        <img class="assistant-avatar" src="/molibot-icon.png" alt="" />
+        <div class="message-stack">
+        <div class="assistant-identity">
+          <strong>{assistantName}</strong>
+          <span>{copy.agentRole}</span>
+        </div>
         {#if message.thinking}
-          <details class="thinking-card" open><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
+          <details class="thinking-card"><summary>{copy.thinking}</summary><pre>{message.thinking}</pre></details>
         {/if}
         {#if message.activities?.length}<RunActivity activities={finalizeTranscriptActivities(message.activities) ?? []} {copy} />{/if}
         {#if displayContent}<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions --><div class="message-bubble markdown-body" onclick={copyCode}>{@html renderMarkdown(displayContent, copy.copyCode)}</div>{/if}
@@ -134,13 +142,14 @@
                 ><i class={`ph ${isCopied ? "ph-check" : "ph-copy"}`} aria-hidden="true"></i></button>
               </div>
             {/if}
-            {#if message.model}<span class="message-model"><i class="ph ph-cpu" aria-hidden="true"></i>{message.model}</span>{/if}
+            {#if message.model}<details class="message-model technical-detail"><summary><i class="ph ph-cpu" aria-hidden="true"></i>{humanizeModelOption(message.model, message.model).label}</summary><code>{message.model}</code></details>{/if}
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
           </div>
         {/if}
         {#if message.attachments?.length}
           <TranscriptAttachments attachments={message.attachments} {copy} actions={attachmentActions} />
         {/if}
+        </div>
       </div>
     {/if}
   </article>
