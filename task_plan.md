@@ -10,9 +10,9 @@ then close the issues once the commit and tag are present on GitHub.
 1. Verify dirty-worktree scope, current versions, branch, remote, and tag availability — complete
 2. Bump root 2.4.6 → 2.4.7 and Desktop 0.4.3 → 0.4.4; sync Tauri/Cargo — complete
 3. Re-run release verification and adversarial diff review — complete
-4. Commit all release changes and create release boundary tag v2.4.7 — in progress
-5. Push commit/tag, publish GitHub Release, verify remote state — pending
-6. Close shipped issues #6/#11/#12 with release evidence — pending
+4. Commit all release changes and create release boundary tag v2.4.7 — complete
+5. Push commit/tag, publish GitHub Release, verify remote state — complete
+6. Close shipped issues #6/#11/#12 with release evidence — complete
 
 ### Verification gates
 - Root, Desktop, Tauri, Cargo manifest, and lockfile versions are synchronized.
@@ -31,6 +31,7 @@ then close the issues once the commit and tag are present on GitHub.
 ### Errors encountered
 | Error | Attempt | Resolution |
 | --- | --- | --- |
+| Broad `git push origin --tags` was rejected as unnecessarily risky | 1 | Push only the intended `v2.4.7` tag explicitly. |
 
 
 ## GitHub issues #8, #6, #12, #11 completion audit (2026-07-14)

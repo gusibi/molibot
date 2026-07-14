@@ -10,6 +10,8 @@
   a fresh remote fetch is still required immediately before commit/push.
 - Release notes must use the CHANGELOG delta from v2.4.6, not every entry under
   the shared 2026-07-14 date heading.
+- GitHub reports v2.4.7 as published, non-draft, and non-prerelease on master at
+  2026-07-14T12:43:00Z. Issues #6, #11, and #12 are closed against that release.
 
 
 ## GitHub issues #8, #6, #12, #11 audit (2026-07-14)

@@ -18,6 +18,13 @@
   historical deferral note.
 - Fresh fetch confirms local HEAD equals `origin/master` and v2.4.7 is not
   present locally; the release can advance without overwriting remote work.
+- Created release commit `8b983725`, tagged it `v2.4.7`, and pushed the commit
+  to `origin/master`. The broad all-tags push was correctly rejected; retry is
+  scoped to the single new tag.
+- Pushed only tag `v2.4.7` and published the non-draft, non-prerelease GitHub
+  Release at `https://github.com/gusibi/molibot/releases/tag/v2.4.7`.
+- Closed issues #6, #11, and #12 with v2.4.7 implementation and verification
+  evidence. Issue #8 had already been closed after its existing delivery audit.
 
 
 ## 2026-07-14 — GitHub issues #8, #6, #12, #11 audit
