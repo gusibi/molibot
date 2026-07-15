@@ -1165,12 +1165,27 @@
   }
 
   async function fetchRuntimeSettings(): Promise<RuntimeSettings> {
-    const response = await fetch("/api/settings");
-    const payload = await response.json();
-    if (!response.ok || !payload?.ok || !payload?.settings) {
-      throw new Error(payload?.error || t("failedLoadRuntimeSettings"));
-    }
-    return payload.settings as RuntimeSettings;
+    const [providersRes, routingRes, webRes] = await Promise.all([
+      fetch("/api/settings/custom-providers"),
+      fetch("/api/settings/ai-routing"),
+      fetch("/api/settings/channel-instance?channel=web")
+    ]);
+    const [providers, routing, web] = await Promise.all([providersRes.json(), routingRes.json(), webRes.json()]);
+    if (!providers?.ok) throw new Error(providers?.error || t("failedLoadRuntimeSettings"));
+    if (!routing?.ok) throw new Error(routing?.error || t("failedLoadRuntimeSettings"));
+    if (!web?.ok) throw new Error(web?.error || t("failedLoadRuntimeSettings"));
+    return {
+      providerMode: providers.providerMode,
+      piModelProvider: providers.piModelProvider,
+      piModelName: providers.piModelName,
+      defaultCustomProviderId: providers.defaultCustomProviderId,
+      customProviders: providers.customProviders ?? [],
+      defaultThinkingLevel: routing.defaultThinkingLevel,
+      modelRouting: routing.modelRouting,
+      modelFallback: routing.modelFallback,
+      compaction: routing.compaction,
+      channels: { web: { instances: web.instances ?? [] } }
+    } as unknown as RuntimeSettings;
   }
 
   function buildModelOptions(settings: RuntimeSettings): Array<{ key: string; label: string }> {
@@ -1211,41 +1226,17 @@
     if (!runtimeSettings) return;
     changingModel = true;
     try {
-      let payload: Record<string, unknown>;
-      if (key.startsWith("custom|")) {
-        const [, customId, customModel = ""] = key.split("|");
-        payload = {
-          providerMode: "custom",
-          defaultCustomProviderId: customId,
-          customProviders: runtimeSettings.customProviders.map((p) =>
-            p.id === customId
-              ? {
-                  ...p,
-                  defaultModel:
-                    customModel || p.defaultModel || (typeof p.models[0] === "string" ? p.models[0] : p.models[0]?.id) || ""
-                }
-              : p
-          )
-        };
-      } else {
-        const [, piProvider, ...rest] = key.split("|");
-        payload = {
-          providerMode: "pi",
-          piModelProvider: piProvider,
-          piModelName: rest.join("|")
-        };
-      }
-
-      const response = await fetch("/api/settings", {
-        method: "PUT",
+      const response = await fetch("/api/settings/model-switch", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ route: "text", selector: key })
       });
       const data = await response.json();
       if (!response.ok || !data?.ok) {
         throw new Error(data?.error || t("failedUpdateModelSelection"));
       }
-      runtimeSettings = data.settings as RuntimeSettings;
+      runtimeSettings = await fetchRuntimeSettings();
+      applyWebProfilesFromSettings(runtimeSettings);
       modelOptions = buildModelOptions(runtimeSettings);
       activeModelKey = computeActiveModelKey(runtimeSettings);
       thinkingLevel = runtimeSettings.defaultThinkingLevel ?? thinkingLevel;

@@ -8,6 +8,7 @@ import { deleteSkillDraftFile, overwriteSkillDraft, readSkillDrafts } from "$lib
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter";
 import { promoteDraftToLiveSkill } from "$lib/server/agent/skills/skillDraft";
 import type { SkillScope } from "$lib/server/agent/skills/skills";
+import { readSkillDraftConfig, updateSkillDraftConfig } from "$lib/server/settings/handlers/skillDrafts";
 
 type SkillDraftAction = "save" | "delete" | "promote";
 
@@ -124,13 +125,13 @@ function isAllowedWorkspaceDir(dataRoot: string, workspaceDir: string): boolean 
 
 export const GET: RequestHandler = async () => {
   const dataRoot = resolve(config.dataDir);
-  const settings = getRuntime().getSettings();
+  const runtime = getRuntime();
   const { items, diagnostics } = readSkillDrafts(dataRoot);
 
   return json({
     ok: true,
     dataRoot,
-    skillDrafts: settings.skillDrafts,
+    skillDrafts: readSkillDraftConfig(runtime),
     templateSkills: readTemplateSkillOptions(dataRoot),
     items,
     diagnostics,
@@ -140,6 +141,22 @@ export const GET: RequestHandler = async () => {
       chatCount: new Set(items.map((item) => `${item.botId}:${item.chatId}`)).size
     }
   });
+};
+
+export const PUT: RequestHandler = async ({ request }) => {
+  let body: { skillDrafts?: unknown };
+  try {
+    body = (await request.json()) as { skillDrafts?: unknown };
+  } catch {
+    return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  try {
+    const skillDrafts = updateSkillDraftConfig(getRuntime(), body.skillDrafts);
+    return json({ ok: true, skillDrafts });
+  } catch (error: any) {
+    return json({ ok: false, error: error.message || String(error) }, { status: 400 });
+  }
 };
 
 export const POST: RequestHandler = async ({ request }) => {

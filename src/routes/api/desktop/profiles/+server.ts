@@ -7,6 +7,7 @@ import {
   resolveDesktopWebProfiles,
   saveDesktopWebProfile
 } from "$lib/server/app/desktopProfiles";
+import { replaceChannelInstances } from "$lib/server/settings/handlers/channels";
 import type {
   DesktopWebProfileSaveRequest,
   DesktopWebProfilePatch,
@@ -50,9 +51,13 @@ export const PATCH: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: error instanceof Error ? error.message : "Invalid profile" }, { status: 400 });
   }
 
-  const updated = runtime.updateSettings({
-    channels: { web: { instances } }
-  });
+  try {
+    replaceChannelInstances(runtime, "web", instances);
+  } catch (error) {
+    return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+  }
+
+  const updated = runtime.getSettings();
   const profile = resolveDesktopWebProfiles(updated).find((item) => item.id === id);
   if (!profile) {
     return json({ ok: false, error: "Web profile not found after update" }, { status: 500 });
@@ -69,7 +74,8 @@ export const PUT: RequestHandler = async ({ request }) => {
   try {
     const runtime = getRuntime();
     const instances = saveDesktopWebProfile(runtime.getSettings(), body);
-    const updated = runtime.updateSettings({ channels: { web: { instances } } });
+    replaceChannelInstances(runtime, "web", instances);
+    const updated = runtime.getSettings();
     const profile = resolveDesktopWebProfiles(updated).find((item) => item.id === body.id);
     if (!profile) throw new Error("Web profile not found after save");
     return json({ ok: true, profile } satisfies DesktopWebProfileUpdateResponse, { headers: { "Cache-Control": "no-store" } });
@@ -80,10 +86,13 @@ export const PUT: RequestHandler = async ({ request }) => {
 
 export const DELETE: RequestHandler = async ({ url }) => {
   const id = String(url.searchParams.get("id") ?? "").trim();
+  if (!id) {
+    return json({ ok: false, error: "id is required" }, { status: 400 });
+  }
   try {
     const runtime = getRuntime();
     const instances = deleteDesktopWebProfile(runtime.getSettings(), id);
-    runtime.updateSettings({ channels: { web: { instances } } });
+    replaceChannelInstances(runtime, "web", instances);
     return json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 400 });

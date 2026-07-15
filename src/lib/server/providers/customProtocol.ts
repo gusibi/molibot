@@ -432,3 +432,53 @@ export async function testCustomProvider(payload: ProviderTestPayload): Promise<
     verification
   };
 }
+
+export function parseProviderModelIdsResponse(rawBody: unknown): string[] {
+  const body = rawBody as { data?: unknown[]; models?: unknown[] };
+  const rows = Array.isArray(body.data) ? body.data : Array.isArray(body.models) ? body.models : [];
+  return Array.from(
+    new Set(
+      rows
+        .map((row) => String((row as { id?: unknown })?.id ?? "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+}
+
+export interface ListProviderModelsInput {
+  protocol: CustomProviderProtocol;
+  baseUrl: string;
+  apiKey: string;
+  path?: string | undefined;
+}
+
+export class ProviderModelsError extends Error {
+  readonly status: number;
+  constructor(message: string, status = 400) {
+    super(message);
+    this.name = "ProviderModelsError";
+    this.status = status;
+  }
+}
+
+export async function listProviderModels(input: ListProviderModelsInput): Promise<string[]> {
+  const protocol = resolveCustomProviderProtocol(input.protocol);
+  const endpoint = protocol === "anthropic"
+    ? `${buildAnthropicBaseUrl(input.baseUrl, input.path)}/v1/models`
+    : `${buildOpenAIBaseUrl(input.baseUrl, input.path)}/models`;
+  const headers = protocol === "anthropic"
+    ? buildAnthropicCompatibleHeaders(input)
+    : buildOpenAICompatibleHeaders(input);
+  const response = await fetch(endpoint, { method: "GET", headers });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new ProviderModelsError(`HTTP ${response.status}: ${text.slice(0, 500)}`, 400);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new ProviderModelsError("Provider /models response is not valid JSON", 400);
+  }
+  return parseProviderModelIdsResponse(parsed);
+}

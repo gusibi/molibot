@@ -120,12 +120,12 @@
   $: copy = COPY[$locale] ?? COPY["en-US"];
 
   async function loadRuntimeMemorySettings(): Promise<void> {
-    const res = await fetch("/api/settings");
+    const res = await fetch("/api/settings/plugins");
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || copy.failedLoadSettings);
-    memoryEnabled = Boolean(data.settings?.plugins?.memory?.enabled);
+    memoryEnabled = Boolean(data.plugins?.memory?.enabled);
     activeBackend = String(
-      (data.settings?.plugins?.memory as any)?.backend ?? (data.settings?.plugins?.memory as any)?.core ?? "json-file",
+      (data.plugins?.memory as any)?.backend ?? (data.plugins?.memory as any)?.core ?? "json-file",
     );
   }
 

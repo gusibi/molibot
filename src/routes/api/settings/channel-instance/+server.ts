@@ -1,55 +1,25 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { deleteChannelInstance, listChannelInstances, upsertChannelInstance } from "$lib/server/settings/handlers/channels";
 
-interface ChannelInstancePayload {
-  id: string;
-  name?: string;
-  enabled?: boolean;
-  agentId?: string;
-  credentials?: Record<string, string>;
-  allowedChatIds?: string[];
-  sandboxEnabled?: boolean;
-}
-
-function sanitizeInstance(input: ChannelInstancePayload): {
-  id: string;
-  name: string;
-  enabled: boolean;
-  agentId: string;
-  credentials: Record<string, string>;
-  allowedChatIds: string[];
-  sandboxEnabled?: boolean;
-} {
-  const id = String(input.id ?? "").trim();
-  if (!id) {
-    throw new Error("instance.id is required");
+export const GET: RequestHandler = async ({ url }) => {
+  const channel = url.searchParams.get("channel") ?? "";
+  if (!channel) {
+    return json({ ok: false, error: "channel query param is required" }, { status: 400 });
   }
-
-  const credentialsSource = input.credentials && typeof input.credentials === "object" ? input.credentials : {};
-  const credentials = Object.fromEntries(
-    Object.entries(credentialsSource)
-      .map(([k, v]) => [String(k).trim(), String(v ?? "").trim()])
-      .filter(([k, v]) => Boolean(k) && Boolean(v))
-  );
-
-  return {
-    id,
-    name: String(input.name ?? "").trim() || id,
-    enabled: input.enabled === undefined ? true : Boolean(input.enabled),
-    agentId: String(input.agentId ?? "").trim(),
-    credentials,
-    allowedChatIds: Array.isArray(input.allowedChatIds)
-      ? input.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
-      : [],
-    sandboxEnabled: input.sandboxEnabled === undefined ? undefined : Boolean(input.sandboxEnabled)
-  };
-}
+  try {
+    const instances = listChannelInstances(getRuntime(), channel);
+    return json({ ok: true, channel, instances });
+  } catch (error: any) {
+    return json({ ok: false, error: error.message || String(error) }, { status: 500 });
+  }
+};
 
 export const PUT: RequestHandler = async ({ request }) => {
-  let body: { channel?: string; previousId?: string; instance?: ChannelInstancePayload };
+  let body: { channel?: string; previousId?: string; instance?: unknown };
   try {
-    body = (await request.json()) as { channel?: string; previousId?: string; instance?: ChannelInstancePayload };
+    body = (await request.json()) as { channel?: string; previousId?: string; instance?: unknown };
   } catch {
     return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
@@ -58,36 +28,16 @@ export const PUT: RequestHandler = async ({ request }) => {
   if (!channel) {
     return json({ ok: false, error: "channel is required" }, { status: 400 });
   }
-
-  if (!body.instance) {
+  if (!body.instance || typeof body.instance !== "object") {
     return json({ ok: false, error: "instance is required" }, { status: 400 });
   }
 
-  let nextInstance: ReturnType<typeof sanitizeInstance>;
   try {
-    nextInstance = sanitizeInstance(body.instance);
-  } catch (error) {
-    return json({ ok: false, error: error instanceof Error ? error.message : "Invalid instance" }, { status: 400 });
+    const instance = upsertChannelInstance(getRuntime(), channel, body.instance, body.previousId);
+    return json({ ok: true, instance });
+  } catch (error: any) {
+    return json({ ok: false, error: error.message || String(error) }, { status: 400 });
   }
-
-  const runtime = getRuntime();
-  const current = runtime.getSettings();
-  const currentChannel = current.channels[channel] ?? { instances: [] };
-  const previousId = String(body.previousId ?? "").trim();
-
-  const nextInstances = currentChannel.instances
-    .filter((item) => item.id !== nextInstance.id && (!previousId || item.id !== previousId));
-  nextInstances.push(nextInstance);
-
-  const updated = runtime.updateSettings({
-    channels: {
-      [channel]: {
-        instances: nextInstances
-      }
-    }
-  });
-
-  return json({ ok: true, instance: updated.channels[channel]?.instances?.find((it) => it.id === nextInstance.id) });
 };
 
 export const DELETE: RequestHandler = async ({ request }) => {
@@ -104,18 +54,10 @@ export const DELETE: RequestHandler = async ({ request }) => {
     return json({ ok: false, error: "channel and id are required" }, { status: 400 });
   }
 
-  const runtime = getRuntime();
-  const current = runtime.getSettings();
-  const currentChannel = current.channels[channel] ?? { instances: [] };
-  const nextInstances = currentChannel.instances.filter((item) => item.id !== id);
-
-  runtime.updateSettings({
-    channels: {
-      [channel]: {
-        instances: nextInstances
-      }
-    }
-  });
-
-  return json({ ok: true });
+  try {
+    deleteChannelInstance(getRuntime(), channel, id);
+    return json({ ok: true });
+  } catch (error: any) {
+    return json({ ok: false, error: error.message || String(error) }, { status: 400 });
+  }
 };

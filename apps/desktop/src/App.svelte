@@ -332,10 +332,10 @@
       status = await invoke<DesktopStatus>("desktop_status");
       const endpoint = status.service.endpoint;
       if (endpoint && status.service.state === "ready" && servicePortLoadedFrom !== endpoint) {
-        const response = await tauriFetch(`${endpoint}/api/settings`);
+        const response = await tauriFetch(`${endpoint}/api/settings/system`);
         const payload = await response.json();
         if (response.ok && payload?.ok) {
-          servicePort = Number(payload.settings?.serverPort) || 3000;
+          servicePort = Number(payload.serverPort) || 3000;
           servicePortLoadedFrom = endpoint;
         }
       }
@@ -350,7 +350,7 @@
     servicePortBusy = true;
     error = "";
     try {
-      const response = await tauriFetch(`${endpoint}/api/settings`, {
+      const response = await tauriFetch(`${endpoint}/api/settings/system`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ serverPort: Number(servicePort) })

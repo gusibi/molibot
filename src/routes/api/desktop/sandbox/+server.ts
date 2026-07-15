@@ -5,6 +5,7 @@ import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
 import { getToolSandboxDiagnostics } from "$lib/server/agent/tools/sandbox";
 import { buildDesktopSandboxSummary, buildDesktopSandboxUpdate } from "$lib/server/app/desktopSandbox";
+import { updateSystemConfig } from "$lib/server/settings/handlers/system";
 import type {
   DesktopSandboxPatchResponse,
   DesktopSandboxResponse,
@@ -43,7 +44,8 @@ export const PATCH: RequestHandler = async ({ request }) => {
   try {
     const runtime = getRuntime();
     const current = runtime.getSettings().toolSandbox;
-    runtime.updateSettings({ toolSandbox: buildDesktopSandboxUpdate(current, body) });
+    const nextSandbox = buildDesktopSandboxUpdate(current, body);
+    await updateSystemConfig(runtime, { toolSandbox: nextSandbox });
     const sandbox = await buildSummary();
     const payload: DesktopSandboxPatchResponse = { ok: true, sandbox };
     return json(payload, { headers: { "Cache-Control": "no-store" } });

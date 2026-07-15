@@ -219,13 +219,18 @@
     error = "";
     message = "";
     try {
-      const res = await fetch("/api/settings");
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || copy.failedLoad);
+      const [agentsRes, instancesRes] = await Promise.all([
+        fetch("/api/settings/agent"),
+        fetch("/api/settings/channel-instance?channel=weixin")
+      ]);
+      const agentsData = await agentsRes.json();
+      const instancesData = await instancesRes.json();
+      if (!agentsData.ok) throw new Error(agentsData.error || copy.failedLoad);
+      if (!instancesData.ok) throw new Error(instancesData.error || copy.failedLoad);
 
-      agents = Array.isArray(data.settings?.agents) ? data.settings.agents : [];
-      const fromList = Array.isArray(data.settings?.channels?.weixin?.instances)
-        ? data.settings.channels.weixin.instances
+      agents = Array.isArray(agentsData.agents) ? agentsData.agents : [];
+      const fromList = Array.isArray(instancesData.instances)
+        ? instancesData.instances
         : [];
 
       const mapped = fromList.length > 0

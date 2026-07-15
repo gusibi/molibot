@@ -6,6 +6,7 @@ import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
 import { parseSkillFrontmatter } from "$lib/server/agent/skills/skillFrontmatter.js";
 import { isKnownProvider } from "$lib/server/settings";
+import { updateSkillsConfig } from "$lib/server/settings/handlers/skills";
 
 type SkillScope = "global" | "chat" | "bot";
 
@@ -176,4 +177,20 @@ export const GET: RequestHandler = async () => {
     count,
     diagnostics
   });
+};
+
+export const PUT: RequestHandler = async ({ request }) => {
+  let body: { disabledSkillPaths?: unknown; skillSearch?: unknown };
+  try {
+    body = (await request.json()) as { disabledSkillPaths?: unknown; skillSearch?: unknown };
+  } catch {
+    return json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  try {
+    const result = updateSkillsConfig(getRuntime(), body);
+    return json({ ok: true, ...result });
+  } catch (error: any) {
+    return json({ ok: false, error: error.message || String(error) }, { status: 400 });
+  }
 };

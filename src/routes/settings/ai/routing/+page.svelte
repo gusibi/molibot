@@ -452,10 +452,16 @@
   async function loadAll(): Promise<void> {
     loading = true; error = ""; message = "";
     try {
-      const [settingsRes, metaRes] = await Promise.all([fetch("/api/settings"), fetch("/api/settings/ai-meta")]);
-      const settingsData = await settingsRes.json();
+      const [routingRes, providersRes, metaRes] = await Promise.all([
+        fetch("/api/settings/ai-routing"),
+        fetch("/api/settings/custom-providers"),
+        fetch("/api/settings/ai-meta")
+      ]);
+      const routingData = await routingRes.json();
+      const providersData = await providersRes.json();
       const metaData = (await metaRes.json()) as MetaResponse & { ok: boolean; error?: string };
-      if (!settingsData.ok) throw new Error(settingsData.error || copy.failedLoadSettings);
+      if (!routingData.ok) throw new Error(routingData.error || copy.failedLoadSettings);
+      if (!providersData.ok) throw new Error(providersData.error || copy.failedLoadSettings);
       if (!metaData.ok) throw new Error(metaData.error || copy.failedLoadMeta);
 
       const modelSwitchRes = await fetch("/api/settings/model-switch");
@@ -471,8 +477,8 @@
       providerModels = metaData.providerModels ?? {};
       capabilityTags = metaData.capabilityTags ?? capabilityTags;
 
-      const s = settingsData.settings;
-      const loadedProviders = (s.customProviders ?? []) as Array<CustomProviderForm & { supportedRoles?: ModelRole[] }>;
+      const s = routingData;
+      const loadedProviders = (providersData.customProviders ?? []) as Array<CustomProviderForm & { supportedRoles?: ModelRole[] }>;
       form = {
         providerMode: s.providerMode, piModelProvider: s.piModelProvider, piModelName: s.piModelName,
         defaultThinkingLevel: s.defaultThinkingLevel ?? "off", defaultCustomProviderId: s.defaultCustomProviderId ?? "",
@@ -511,7 +517,9 @@
     saving = true; error = ""; message = "";
     try {
       ensureRoutingDefaults();
-      const res = await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      const { customProviders: _providers, ...payload } = form;
+      void _providers;
+      const res = await fetch("/api/settings/ai-routing", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || copy.failedSave);
       message = copy.savedSuccess;

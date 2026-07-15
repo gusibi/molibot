@@ -294,7 +294,7 @@
     message = "";
     try {
       const [res, subagentsRes, modelSwitchRes, templatesRes] = await Promise.all([
-        fetch("/api/settings"),
+        fetch("/api/settings/agent"),
         fetch("/api/settings/subagents"),
         fetch("/api/settings/model-switch"),
         fetch("/api/settings/agent-templates")
@@ -333,7 +333,7 @@
       subagentModelLevels = subagentData.modelLevels && typeof subagentData.modelLevels === "object"
         ? subagentData.modelLevels
         : {};
-      const rawAgents = Array.isArray(data.settings?.agents) ? data.settings.agents : [];
+      const rawAgents = Array.isArray(data.agents) ? data.agents : [];
       agents = await Promise.all(
         rawAgents.map(async (agent: AgentItem) => ({
           id: agent.id,
