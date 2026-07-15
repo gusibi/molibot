@@ -13,7 +13,7 @@
 - Kept names/statuses and hover/focus details in semantic Svelte DOM. Automatic full→low→2D quality handling, context-loss fallback, reduced motion, offscreen pause, dark/light scenes, responsive vertical growth, and GPU/listener cleanup keep the page usable across devices.
 - The polished 2D fallback now preserves Bot, channel, start time, task summary, model routing, and Sub-agent details instead of degrading to name/status only. Performance downgrade happens in place so forcing the old WebGL context closed cannot black-screen the replacement renderer.
 - Current delivery uses procedural buildings and proxy pug models; formal Blender GLB models, rigging, animations, and materials remain a later asset milestone.
-- Verification: Agent City projection/scene tests 9/9, Desktop UI/HTTP 54/54, server Agent data-contract tests 6/6, Svelte diagnostics 0/0, production build, and a real 1280×800 Agent page check with Global + 4 regular Agents visible and no horizontal overflow.
+- Verification: Agent City projection/scene tests 9/9, server Agent Activity/Trace tests 9/9, Desktop UI/HTTP 54/54, Svelte diagnostics 0/0, production build, and a real 1280×800 Agent page check with Global + 4 regular Agents visible and no horizontal overflow.
 
 ## 2026-07-14
 

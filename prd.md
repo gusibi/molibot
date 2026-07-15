@@ -55,7 +55,7 @@
 - [Done, P0] 发布新 manifest 前必须先发布其引用的全部 server chunk，并保留仍在运行的旧 manifest 可能按需加载的哈希 chunk，避免设置页模型路由等未加载端点返回 `ERR_MODULE_NOT_FOUND`。
 - [Done, P0] 回归验证必须覆盖运行中服务与生产构建重叠的真实窗口，并持续请求 `/api/desktop/model-routing` 断言无 500。
 
-## 2.60 Three.js Pug Agent City (2026-07-13)
+## 2.60 Three.js Pug Agent City (2026-07-13, released in v2.4.9)
 - [Done, P1] 将 Desktop Agent Studio 从 CSS 拼装办公室升级为 Three.js 固定等距微缩城市；完整 PRD 与验收口径见 [GitHub Issue #10](https://github.com/gusibi/molibot/issues/10)。
 - [Done, P1] 城市固定保留 10 个普通 Agent 地块、独立 Global 总部和中央主人调度中心；普通 Agent 从 1–10 栋一层工作室逐层增长到最多 10 栋 × 10 层，超过 100 个时只显示未展示数量。
 - [Done, P1] 每层对应一个 Agent，并以玩偶屋剖面展示巴哥犬的真实 disabled/idle/working/completed/error 状态；任务路线抵达准确楼层，Sub-agent 在父 Agent 楼层的临时协作舱中展示。

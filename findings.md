@@ -145,6 +145,11 @@
   that currently mark it delivered overstate the implementation status.
 
 ---
+- Release request explicitly authorizes the normal version bump, tag, remote push, and GitHub Release creation sequence. Current versions and remote tag availability still require inspection before mutation.
+- Root is `2.4.8`, Desktop is `0.4.5`, so the base-10 patch targets are `2.4.9` and `0.4.6`. Remote `master` is still `194a5629` (`v2.4.8`); no `v2.4.9` tag or GitHub Release exists.
+- The top Agent City release note incorrectly called an unrelated 6/6 Agent-settings suite the server data contract. The actual Activity/Trace projection suite is 9/9 and will be named accurately before release.
+- The release candidate compiles across both frontend and Tauri boundaries. Existing Vite chunk-size/dynamic-import warnings are unchanged and non-blocking; no new diagnostic, test, or Rust compilation failure was found.
+
 
 # GitHub issue #13 PRD implementation (2026-07-14)
 

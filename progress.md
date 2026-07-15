@@ -55,6 +55,11 @@
   corrected when implementation resumes.
 
 ---
+- Started the post-Issue-#10 release workflow at the user's explicit request. Loaded the repository release instructions and established version, sync, verification, tag, push, and GitHub Release gates.
+- Confirmed GitHub authentication, remote/tag availability, and selected root `2.4.9` plus Desktop `0.4.6`. Began version edits and corrected the Activity verification label/count in release-facing docs.
+- Version synchronization completed across root package, Desktop package, Tauri config, Cargo manifest, and Cargo lock. Diff whitespace and identifier checks are clean.
+- Release-candidate verification passed: Agent City 9/9, Agent Activity/Trace 9/9, Desktop UI/HTTP 54/54, Svelte diagnostics 0/0, Vite production build, and Tauri `cargo check` for Desktop 0.4.6. Only the existing bundle-size/dynamic-import advisory remains.
+
 
 # 2026-07-14 — GitHub issue #13 PRD implementation
 

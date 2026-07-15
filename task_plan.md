@@ -35,6 +35,29 @@ Complete — audit only; implementation remains open
 
 ---
 
+# Release after Issue #10 Agent City (2026-07-15)
+
+## Goal
+Increment root and Desktop patch versions using the project's base-10 rule, synchronize all Desktop/Tauri/Cargo identifiers, verify the release build, push `master` and the version tag, and publish a GitHub Release so the Agent City build can be inspected.
+
+## Current phase
+Phase 4 — commit and tag release candidate
+
+## Phases
+1. Confirm clean repository, current versions, tags, remote, and release notes — complete
+2. Increment root/Desktop versions and synchronize Tauri/Cargo — complete
+3. Verify version consistency, focused tests, diagnostics, and production build — complete
+4. Commit the release, create the version tag, and confirm clean state — in progress
+5. Push `master` and tags, then publish the GitHub Release — pending
+
+## Release gates
+- Use patch +1 with decimal carry; no two-digit semantic-version segment.
+- Do not tag a dirty or unverified tree.
+- Release notes come from the current top `CHANGELOG.md` entry.
+- Do not overwrite an existing local or remote tag/release.
+
+---
+
 # GitHub issue #13 PRD implementation (2026-07-14)
 
 ## Goal
