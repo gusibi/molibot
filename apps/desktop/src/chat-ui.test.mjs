@@ -35,6 +35,9 @@ const transcriptAttachments = read("./lib/chat/TranscriptAttachments.svelte");
 const runActivity = read("./lib/chat/RunActivity.svelte");
 const conversationLiveView = read("./lib/chat/ConversationLiveView.svelte");
 const agentStudio = read("./lib/chat/AgentStudioPane.svelte");
+const agentCityCanvas = read("./lib/chat/AgentCityCanvas.svelte");
+const agentCityFallback = read("./lib/chat/AgentCityFallback.svelte");
+const agentCityScene = read("./lib/chat/agentCityScene.ts");
 const chatSidebar = read("./lib/chat/ChatSidebar.svelte");
 const chatWorkspace = read("./lib/chat/ChatWorkspacePane.svelte");
 const chatComposerShell = read("./lib/chat/ChatComposerShell.svelte");
@@ -233,36 +236,48 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(row, /\.conversation-row\s*\{[^}]*min-height:\s*40px/s);
 });
 
-test("Agent Studio sits below Skills and nests animated Subagents under their parent Agent", () => {
+test("Agent Studio projects real activity into an accessible Three.js city", () => {
   const skillsPosition = chatSidebar.indexOf('activeWorkspacePane === "skills"');
   const agentsPosition = chatSidebar.indexOf('activeWorkspacePane === "agents"');
   assert.ok(skillsPosition >= 0 && agentsPosition > skillsPosition);
   assert.match(view, /onOpenAgents=\{\(\) => openWorkspacePane\("agents"\)\}/);
-  assert.match(chatWorkspace, /<AgentStudioPane/);
+  assert.match(app, /requestedChatPane: "chat" \| "automations" \| "skills" \| "agents"/);
+  assert.match(app, /searchParams\.get\("pane"\)/);
+  assert.ok(app.indexOf('const runningInTauri = "__TAURI_INTERNALS__" in window') < app.indexOf('searchParams.get("pane")'));
+  assert.match(chatWorkspace, /import\("\.\/AgentStudioPane\.svelte"\)/);
+  assert.match(chatWorkspace, /<AgentStudioComponent/);
   assert.match(agentStudio, /id: "default"/);
-  assert.match(agentStudio, /agents\.some\(\(agent\) => agent\.id === "default"\) \? agents : \[globalAgent, \.\.\.agents\]/);
-  assert.match(agentStudio, /loadDesktopAgents\(serviceEndpoint\)/);
-  assert.match(agentStudio, /loadDesktopAgentActivity\(serviceEndpoint\)/);
+  assert.match(agentStudio, /loadDesktopAgents\(endpoint\)/);
+  assert.match(agentStudio, /loadDesktopAgentActivity\(endpoint\)/);
   assert.match(agentStudio, /setInterval\(\(\) => void refresh\(\), 2500\)/);
-  assert.match(agentStudio, /class="pug pug--typing"/);
-  assert.match(agentStudio, /class="pug pug--phone"/);
-  assert.match(agentStudio, /class="pug-phone"/);
-  assert.match(agentStudio, /class="agent-link"/);
-  assert.match(agentStudio, /activity\.subagents\.slice\(0, 3\)/);
-  assert.match(agentStudio, /class="subagent-pug"/);
-  assert.match(agentStudio, /class="agent-bot-badge"/);
-  assert.match(agentStudio, /class="agent-work-tooltip"/);
-  assert.match(agentStudio, /activity\.taskPreview/);
-  assert.match(agentStudio, /copy\.agentStudioActivityStatus/);
-  assert.match(styles, /\.agent-desk--active-context:hover[^}]*z-index:\s*40/s);
-  assert.match(agentStudio, /ph-file-text[\s\S]*ph-file-text[\s\S]*ph-file-text/);
-  assert.match(agentStudio, /copy\.agentStudioOwner/);
+  assert.match(agentStudio, /generation !== refreshGeneration/);
+  assert.match(agentStudio, /SLOT_STORAGE_KEY = "molibot-agent-city-slots-v1"/);
+  assert.match(agentStudio, /projectAgentCity/);
+  assert.match(agentStudio, /<AgentCityCanvas/);
+  assert.match(agentStudio, /<AgentCityFallback/);
+  assert.match(agentStudio, /class="agent-city-agent-label"/);
+  assert.match(agentStudio, /role="tooltip"/);
+  assert.match(agentStudio, /floor\.activity\.taskPreview/);
+  assert.match(agentStudio, /floor\.subagents\.visible/);
+  assert.match(agentStudio, /projection\.hiddenAgentCount/);
   assert.match(agentStudio, /visibilitychange/);
-  assert.match(styles, /@keyframes pug-type/);
-  assert.match(styles, /@keyframes pug-phone-glow/);
-  assert.match(styles, /prefers-reduced-motion:[\s\S]*\.pug--typing/);
-  assert.match(styles, /\.agent-desks\s*\{[^}]*grid-template-columns:\s*repeat\(4,/s);
-  assert.match(styles, /\.agent-desk\s*\{[^}]*min-height:\s*190px/s);
+  assert.match(agentCityFallback, /agent-city-fallback-building/);
+});
+
+test("Agent City owns WebGL lifecycle, quality fallback, and GPU cleanup", () => {
+  assert.match(agentCityCanvas, /supportsAgentCityWebGL2\(\)/);
+  assert.match(agentCityCanvas, /new ResizeObserver/);
+  assert.match(agentCityCanvas, /new IntersectionObserver/);
+  assert.match(agentCityCanvas, /function stopAnchorUpdates/);
+  assert.match(agentCityCanvas, /!controller \|\| !visible \|\| document\.hidden/);
+  assert.match(agentCityCanvas, /prefers-reduced-motion: reduce/);
+  assert.match(agentCityCanvas, /controller\?\.dispose\(\)/);
+  assert.match(agentCityScene, /new THREE\.OrthographicCamera/);
+  assert.match(agentCityScene, /webglcontextlost/);
+  assert.match(agentCityScene, /renderer\.renderLists\.dispose\(\)/);
+  assert.match(agentCityScene, /renderer\.dispose\(\)/);
+  assert.match(agentCityScene, /renderer\.forceContextLoss\(\)/);
+  assert.doesNotMatch(agentCityScene, /OrbitControls|TrackballControls|MapControls/);
 });
 
 test("sidebar conversation rows expose a rename/delete menu", () => {

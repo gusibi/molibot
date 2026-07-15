@@ -72,9 +72,13 @@
   let servicePortBusy = false;
   const THEME_STORAGE_KEY = "molibot-desktop-theme";
   const LOW_PERFORMANCE_STORAGE_KEY = "molibot-desktop-low-performance";
+  const runningInTauri = "__TAURI_INTERNALS__" in window;
   let theme: DesktopTheme = normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY));
   let lowPerformance = localStorage.getItem(LOW_PERFORMANCE_STORAGE_KEY) === "true";
-  let requestedChatPane: "chat" | "automations" | "skills" = "chat";
+  const previewPane = new URL(window.location.href).searchParams.get("pane");
+  let requestedChatPane: "chat" | "automations" | "skills" | "agents" = !runningInTauri && ["automations", "skills", "agents"].includes(previewPane ?? "")
+    ? previewPane as "automations" | "skills" | "agents"
+    : "chat";
   let settingsScrolled = false;
 
   function applyTheme(value: DesktopTheme): void {
@@ -237,7 +241,6 @@
     localStorage.setItem(LOCALE_STORAGE_KEY, locale);
   }
   const isSettings = new URLSearchParams(window.location.search).get("window") === "settings";
-  const runningInTauri = "__TAURI_INTERNALS__" in window;
 
   function serviceStateLabel(state: "disconnected" | "ready" | "incompatible" | "error" | undefined, copy: typeof text): string {
     if (state === "ready") return copy.diagStateReady;

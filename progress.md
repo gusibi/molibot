@@ -651,4 +651,20 @@
   the still-mounted closed-menu content before acceptance. Final verification is UI/HTTP 53/53,
   API/presentation 74/74, Svelte 0/0, production build green, and clean diff whitespace.
 
+# 2026-07-15 — GitHub issue #10 audit and merge
+
+- Loaded the full issue through authenticated GitHub access after anonymous and sandboxed reads failed.
+- Located the exact issue worktree and confirmed its implementation is uncommitted and based one commit behind `master`.
+- Loaded the required file-planning and frontend-design workflows plus the complete `DESIGN.md` product rules.
+- Established explicit audit, merge, implementation, documentation, and adversarial verification gates. No product code has been changed in this session yet.
+- The first focused-test invocation did not start because the orchestration object was malformed; recorded it and corrected the invocation without changing the test command or repository.
+- The corrected focused test reached `tsx` but the sandbox denied its temporary IPC socket; the next attempt uses scoped host execution as required.
+- Baseline verification passed: projection/scene 8/8, Desktop UI/HTTP 47/47, Svelte diagnostics 0/0, and production build. The build reports only existing-style chunk-size/dynamic-import warnings.
+- Concluded the issue is incomplete but the current implementation slice is safe to preserve and merge. Began Phase 2 as the user explicitly requested.
+- The first add/commit attempt was blocked before staging because the sandbox cannot write `.git/worktrees/.../index.lock`; product files remain unchanged and the same scoped operation will be retried with approval.
+- Saved the pre-existing issue implementation as branch commit `7d37f272`.
+- Began the merge into `master`. Resolved 5 conflicts surgically: App keeps v2.4.8 low-performance/settings state plus the Agent preview route; CSS replaces only the superseded office block with Agent City; planning logs retain both histories. Conflict markers and whitespace checks are clean.
+- First post-merge run passed projection/scene 8/8 and Desktop UI/HTTP 54/54. The parallel diagnostic started before pnpm finished linking the newly merged Three.js dependency, and the sandboxed pnpm build hit its cache SQLite restriction; both are environment/order failures, so verification will rerun sequentially with the installed binaries.
+- Sequential rerun passed Svelte diagnostics 0/0 and the direct Vite production build. The merge result is green and ready to commit before remaining implementation work continues on `master`.
+
 ---

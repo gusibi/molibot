@@ -1117,4 +1117,45 @@ Complete — G0 through G9 accepted
 | Three source-contract tests still expected PageHeader and General markup inside App.svelte | 1 | Updated the tests to follow the new shared components and assert the intended flat SettingGroup behavior. |
 | Direct assignment to `scrollTop` was blocked by the controlled DOM proxy | 1 | Used the element's `scrollTo()` method instead; the real scrolled header state and edge opacity were verified. |
 
+# GitHub issue #10 completion, merge, and delivery (2026-07-15)
+
+## Goal
+Audit the existing issue #10 worktree against the full PRD, preserve and merge its work into `master`, then complete and verify every remaining first-version acceptance requirement.
+
+## Current phase
+Phase 3 — implement confirmed gaps on `master`
+
+## Phases
+1. Map the issue requirements to current branch code, tests, and visual evidence — complete (implementation is incomplete)
+2. Commit the preserved worktree changes and merge the branch into current `master` — complete
+3. Implement only confirmed gaps on `master`, with focused regressions — in progress
+4. Verify projection, UI behavior, diagnostics, build, themes/locales/responsiveness, and visual quality — pending
+5. Update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`; adversarially review and deliver — pending
+
+## Verification gates
+- No completion claim without requirement-by-requirement source/test evidence and current visual QA.
+- Preserve all existing issue-worktree changes; do not discard uncommitted work.
+- Three.js remains a rendering boundary; shared projection owns layout and Activity semantics, with no Channel changes.
+- UI supports Chinese/English, light/dark themes, reduced motion, narrow windows, DOM semantics, and automatic 2D fallback.
+- `git diff --check`, focused tests, Desktop diagnostics, and production build pass.
+
+## Decisions
+| Decision | Rationale |
+| --- | --- |
+| Audit before committing or merging | The worktree contains substantial uncommitted implementation, while its branch commit is one release behind `master`; completion must be based on content and verification rather than branch/issue status. |
+| Preserve the work by committing it on the issue branch before merge | Git cannot merge uncommitted work, and the user explicitly asked to merge it even if incomplete. |
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Anonymous web open of issue #10 returned a cache miss | 1 | Used authenticated `gh issue view` with approved network access. |
+| Sandboxed `gh issue view` could not reach `api.github.com` | 1 | Re-ran with the required scoped network approval and loaded the full issue. |
+| First focused-test tool call had malformed orchestration syntax | 1 | Correct the tool-call object and run the unchanged test command once. |
+| Sandboxed `tsx` could not create its temporary IPC socket (`EPERM`) | 1 | Re-run the focused test with scoped host execution; do not alter package state. |
+| Sandboxed Git could not create the linked-worktree `index.lock` | 1 | Re-run the same scoped add/commit with repository metadata write approval. |
+| Initial merge metadata write was blocked by the sandbox | 1 | Re-ran the scoped merge with Git metadata approval. |
+| Merge found conflicts in App state, Agent Studio CSS, and three planning logs | 1 | Combined v2.4.8 low-performance/settings state with the Agent preview pane, selected the new city CSS that intentionally supersedes the old office, and appended both sides of historical logs. |
+| First parallel post-merge diagnostics ran before Three.js installation completed | 1 | The focused pnpm test installed the already-locked dependency; rerun diagnostics after installation rather than changing source. |
+| Sandboxed pnpm build could not open its cache SQLite database | 1 | Run the installed Vite binary directly, avoiding package-manager cache mutation. |
+
 ---
