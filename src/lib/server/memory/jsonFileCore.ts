@@ -234,6 +234,7 @@ export class JsonFileMemoryBackend implements MemoryBackend {
       content,
       tags: normalizeTags(input.tags),
       layer,
+      allowInjection: input.allowInjection,
       factKey: inferFactKey(content) ?? undefined,
       hasConflict: false,
       sourceSessionId: input.sourceSessionId,
@@ -298,6 +299,9 @@ export class JsonFileMemoryBackend implements MemoryBackend {
       if (typeof input.expiresAt !== "undefined" || input.expiresAt === null) {
         duplicate.expiresAt = normalizeExpiresAt(input.expiresAt) ?? duplicate.expiresAt;
       }
+      if (typeof input.allowInjection === "boolean") {
+        duplicate.allowInjection = input.allowInjection;
+      }
       duplicate.updatedAt = new Date().toISOString();
       data.items = data.items.filter((item) => item.id !== id);
       this.reconcileConflicts(data);
@@ -312,6 +316,9 @@ export class JsonFileMemoryBackend implements MemoryBackend {
     }
     if (typeof input.expiresAt !== "undefined" || input.expiresAt === null) {
       found.expiresAt = normalizeExpiresAt(input.expiresAt);
+    }
+    if (typeof input.allowInjection === "boolean") {
+      found.allowInjection = input.allowInjection;
     }
     found.factKey = inferFactKey(found.content) ?? undefined;
     found.updatedAt = new Date().toISOString();

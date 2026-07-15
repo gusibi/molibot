@@ -34,6 +34,7 @@ export interface EventExecutionLease {
   lastError?: string;
   retryScheduledAt?: string;
   eventPayloadJson: string;
+  result?: unknown;
 }
 
 export interface AcquireEventLeaseInput {
@@ -74,6 +75,7 @@ interface LeaseRow {
   last_error: string | null;
   retry_scheduled_at: string | null;
   event_payload_json: string;
+  result_json: string | null;
 }
 
 const ACTIVE_STATUSES = ["running", "retry_wait"] as const;
@@ -100,8 +102,18 @@ function rowToLease(row: LeaseRow): EventExecutionLease {
     stopReason: row.stop_reason ?? undefined,
     lastError: row.last_error ?? undefined,
     retryScheduledAt: row.retry_scheduled_at ?? undefined,
-    eventPayloadJson: row.event_payload_json
+    eventPayloadJson: row.event_payload_json,
+    result: parseResultJson(row.result_json)
   };
+}
+
+function parseResultJson(value: string | null): unknown {
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
 }
 
 export class EventExecutionLeaseStore {
@@ -190,6 +202,7 @@ export class EventExecutionLeaseStore {
               stop_reason = NULL,
               last_error = NULL,
               retry_scheduled_at = NULL,
+              result_json = NULL,
               task_id = ?,
               event_payload_json = ?,
               updated_at = ?
@@ -241,18 +254,20 @@ export class EventExecutionLeaseStore {
     }
   }
 
-  markCompleted(id: string, runId: string, now = new Date()): boolean {
+  markCompleted(id: string, runId: string, result?: unknown, now = new Date()): boolean {
     const nowIso = now.toISOString();
-    const result = this.db.prepare(`
+    const resultJson = result === undefined ? null : JSON.stringify(result);
+    const writeResult = this.db.prepare(`
       UPDATE event_execution_leases
       SET status = 'completed',
           finished_at = ?,
           stop_reason = 'completed',
           retry_scheduled_at = NULL,
+          result_json = ?,
           updated_at = ?
       WHERE id = ? AND run_id = ? AND status = 'running'
-    `).run(nowIso, nowIso, id, runId);
-    return Number(result.changes ?? 0) > 0;
+    `).run(nowIso, resultJson, nowIso, id, runId);
+    return Number(writeResult.changes ?? 0) > 0;
   }
 
   recordSkipped(input: AcquireEventLeaseInput & { reason: string }): EventExecutionLease {
@@ -546,6 +561,7 @@ export class EventExecutionLeaseStore {
         last_error TEXT,
         retry_scheduled_at TEXT,
         event_payload_json TEXT NOT NULL,
+        result_json TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -560,6 +576,9 @@ export class EventExecutionLeaseStore {
     }
     if (!columns.some((column) => column.name === "task_id")) {
       this.db.exec("ALTER TABLE event_execution_leases ADD COLUMN task_id TEXT;");
+    }
+    if (!columns.some((column) => column.name === "result_json")) {
+      this.db.exec("ALTER TABLE event_execution_leases ADD COLUMN result_json TEXT;");
     }
     this.db.exec(`
       DROP INDEX IF EXISTS idx_event_leases_one_active;

@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { EventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore.js";
 
 function acquireInput(overrides: Partial<Parameters<EventExecutionLeaseStore["acquire"]>[0]> = {}) {
@@ -201,5 +205,47 @@ test("task execution history supports newest-first offset pagination and totals"
   assert.deepEqual(store.listForTask("task-paged", 5, 5).map((item) => item.runId), [
     "run-6", "run-5", "run-4", "run-3", "run-2"
   ]);
+  store.close();
+});
+
+test("completed event lease retains its structured execution result", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const lease = store.acquire(acquireInput({ taskId: "memory-reflection-owner" }));
+  assert.ok(lease);
+
+  const result = {
+    kind: "memory-reflection",
+    completedTargets: 2,
+    scannedMessages: 18,
+    createdCandidates: 3
+  };
+  assert.equal(store.markCompleted(lease.id, lease.runId, result), true);
+  assert.deepEqual(store.getById(lease.id)?.result, result);
+  store.close();
+});
+
+test("existing event lease databases migrate result storage without losing history", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "molibot-event-lease-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const dbFile = join(dir, "settings.sqlite");
+  const legacy = new DatabaseSync(dbFile);
+  legacy.exec(`
+    CREATE TABLE event_execution_leases (
+      id TEXT PRIMARY KEY, lease_scope TEXT NOT NULL DEFAULT 'default', event_file TEXT NOT NULL,
+      event_type TEXT NOT NULL, trigger_slot TEXT NOT NULL, chat_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      channel TEXT NOT NULL, task_id TEXT, run_id TEXT NOT NULL, status TEXT NOT NULL, attempt INTEGER NOT NULL,
+      max_attempts INTEGER NOT NULL, timeout_ms INTEGER NOT NULL, started_at TEXT NOT NULL,
+      last_heartbeat_at TEXT NOT NULL, finished_at TEXT, stop_reason TEXT, last_error TEXT,
+      retry_scheduled_at TEXT, event_payload_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+  `);
+  legacy.close();
+
+  const store = new EventExecutionLeaseStore(dbFile);
+  const lease = store.acquire(acquireInput({ taskId: "daily-materials-owner" }));
+  assert.ok(lease);
+  const result = { kind: "daily-materials", completedTargets: 1, scannedMessages: 4, createdFiles: ["素材/2026-07-14.md"] };
+  assert.equal(store.markCompleted(lease.id, lease.runId, result), true);
+  assert.deepEqual(store.getById(lease.id)?.result, result);
   store.close();
 });

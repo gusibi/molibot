@@ -4,7 +4,12 @@ import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
-import { resolveEventSessionMode, taskSessionRetentionMs, type MomEvent } from "$lib/server/agent/events.js";
+import {
+  resolveEventSessionMode,
+  resolveEventTargetSessionId,
+  taskSessionRetentionMs,
+  type MomEvent
+} from "$lib/server/agent/events.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -130,6 +135,18 @@ test("resolveEventSessionMode defaults periodic to fresh, others to chat", () =>
     "chat"
   );
   assert.equal(resolveEventSessionMode({ ...base, type: "immediate", sessionMode: "fresh" } as MomEvent), "fresh");
+});
+
+test("one-shot reminders return to their persisted source Session", () => {
+  assert.equal(
+    resolveEventTargetSessionId({ sessionId: "session-source" }, "session-active-later"),
+    "session-source"
+  );
+  assert.equal(
+    resolveEventTargetSessionId({}, "session-active-later"),
+    "session-active-later",
+    "legacy Event files without sessionId keep the compatible active-Session fallback"
+  );
 });
 
 test("taskSessionRetentionMs converts days and disables on 0", () => {

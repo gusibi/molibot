@@ -36,6 +36,28 @@ test("createEvent assigns a readable, name-based, globally-unique taskId", async
   }
 });
 
+test("one-shot reminders persist the Session they were created from", async () => {
+  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-eventtool-session-"));
+  try {
+    const tool = createEventTool({
+      workspaceDir,
+      chatId: "chat-1",
+      sessionId: "session-source",
+      timezone: "Asia/Shanghai"
+    });
+    await tool.execute("t-session", {
+      type: "one-shot",
+      at: "2999-01-01T09:00:00+08:00",
+      text: "return to source"
+    });
+    const [event] = readEvents(join(workspaceDir, "events"));
+    assert.equal(event.sessionId, "session-source");
+    assert.equal(event.sessionMode, undefined);
+  } finally {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
+});
+
 test("createEvent never reuses a taskId already present in the events dir", async () => {
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-eventtool-"));
   const eventsDir = join(workspaceDir, "events");

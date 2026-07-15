@@ -6,6 +6,7 @@ import {
 } from "$lib/server/app/conversationProjection.js";
 import { sanitizeWebProfileId, sanitizeWebUserId, toWebExternalUserId } from "$lib/server/web/identity.js";
 import { getRuntimeContextForConversation, resolveRunnerChatId } from "$lib/server/web/runtimeContext.js";
+import { getMemoryTraceStore } from "$lib/server/memory/traceStore.js";
 
 interface ProjectionRuntime {
   sessions: SessionStore;
@@ -53,6 +54,19 @@ export function loadConversationProjection(input: {
   });
   runtime.sessions.markMessagesContextBacked(input.conversationId, result.migratedMetadataIds);
   runtime.sessions.recordMessageSourceEntries(input.conversationId, result.resolvedSourceEntries);
+  try {
+    const sourceEntryIds = result.messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => result.sourceEntryByMessageId.get(message.id))
+      .filter((value): value is string => Boolean(value));
+    const traceMeta = getMemoryTraceStore().getMetaBySourceEntryIds(sourceEntryIds);
+    for (const message of result.messages) {
+      const sourceEntryId = result.sourceEntryByMessageId.get(message.id);
+      if (sourceEntryId && traceMeta[sourceEntryId]) message.memoryTrace = traceMeta[sourceEntryId];
+    }
+  } catch {
+    // Memory observability must never prevent conversation history from loading.
+  }
   return result;
 }
 

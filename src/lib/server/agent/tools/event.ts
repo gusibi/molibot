@@ -98,6 +98,7 @@ function formatScheduledTime(atIso: string, tz: string): { display: string; rela
 export function createEventTool(options: {
     workspaceDir: string;
     chatId: string;
+    sessionId?: string;
     timezone: string;
     name?: string;
     label?: string;
@@ -202,6 +203,7 @@ export function createEventTool(options: {
                     type: "one-shot",
                     taskId,
                     chatId: options.chatId,
+                    sessionId: options.sessionId,
                     text: params.text,
                     delivery,
                     sessionMode,
@@ -212,6 +214,7 @@ export function createEventTool(options: {
                     type: "periodic",
                     taskId,
                     chatId: options.chatId,
+                    sessionId: options.sessionId,
                     text: params.text,
                     delivery,
                     sessionMode,
@@ -223,6 +226,7 @@ export function createEventTool(options: {
                     type: "immediate",
                     taskId,
                     chatId: options.chatId,
+                    sessionId: options.sessionId,
                     text: params.text,
                     delivery,
                     sessionMode

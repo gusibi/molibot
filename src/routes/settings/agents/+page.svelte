@@ -34,6 +34,15 @@
 
   type AgentFiles = Record<string, string>;
 
+  interface BuiltInAgentTemplateItem {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    source: string;
+    installed: boolean;
+  }
+
   interface BuiltInSubagentItem {
     name: string;
     description: string;
@@ -46,6 +55,7 @@
   }
 
   const subagentsNavId = "__built_in_subagents__";
+  const templatesNavId = "__built_in_templates__";
 
   const fileNames = ["AGENTS.md", "SOUL.md", "IDENTITY.md", "SONG.md"];
 
@@ -58,7 +68,16 @@
       loading: "正在加载智能体设置...",
       listTitle: "Agent 列表",
       listDesc: "个已配置",
-      addBtn: "添加",
+      addBtn: "添加空白 Agent",
+      templatesLabel: "内置模板",
+      templatesDesc: "个可安装角色",
+      templatesTitle: "内置 Agent 模板",
+      templatesHelp: "模板来自应用目录。安装会复制到 workspace/agents，之后可独立编辑，升级不会静默覆盖。",
+      installBtn: "安装",
+      installedBtn: "已安装",
+      installingBtn: "安装中...",
+      installSuccess: "已安装 Agent：",
+      installFailed: "安装模板失败",
       subagentsLabel: "内置 Subagent",
       subagentsDesc: "个内置委派角色",
       builtInTag: "内置",
@@ -114,7 +133,16 @@
       loading: "Loading agent settings...",
       listTitle: "Agent List",
       listDesc: "configured",
-      addBtn: "Add",
+      addBtn: "Add Blank Agent",
+      templatesLabel: "Built-in Templates",
+      templatesDesc: "installable roles",
+      templatesTitle: "Built-in Agent Templates",
+      templatesHelp: "Templates are discovered from the application directory. Installing copies one into workspace/agents; future upgrades never silently overwrite your edited copy.",
+      installBtn: "Install",
+      installedBtn: "Installed",
+      installingBtn: "Installing...",
+      installSuccess: "Installed Agent: ",
+      installFailed: "Failed to install template",
       subagentsLabel: "Subagents",
       subagentsDesc: "built-in delegation roles",
       builtInTag: "BUILT-IN",
@@ -170,6 +198,8 @@
   let message = "";
 
   let agents: AgentItem[] = [];
+  let builtInTemplates: BuiltInAgentTemplateItem[] = [];
+  let installingTemplateId = "";
   let modelRouteOptions: Record<AgentModelRoute, ModelRouteOption[]> = { text: [], vision: [], stt: [] };
   let builtInSubagents: BuiltInSubagentItem[] = [];
   let subagentConfiguredModelLabel = "";
@@ -263,13 +293,17 @@
     error = "";
     message = "";
     try {
-      const [res, subagentsRes, modelSwitchRes] = await Promise.all([
+      const [res, subagentsRes, modelSwitchRes, templatesRes] = await Promise.all([
         fetch("/api/settings"),
         fetch("/api/settings/subagents"),
-        fetch("/api/settings/model-switch")
+        fetch("/api/settings/model-switch"),
+        fetch("/api/settings/agent-templates")
       ]);
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || copy.failedLoad);
+      const templatesData = await templatesRes.json();
+      if (!templatesData.ok) throw new Error(templatesData.error || copy.failedLoad);
+      builtInTemplates = Array.isArray(templatesData.templates) ? templatesData.templates : [];
       const modelSwitchData = await modelSwitchRes.json();
       if (modelSwitchData?.ok && modelSwitchData.routes) {
         const pick = (route: AgentModelRoute): ModelRouteOption[] =>
@@ -343,11 +377,41 @@
     selectedAgentId = agentId;
   }
 
+  async function selectTemplates(): Promise<void> {
+    if (selectedAgentId === templatesNavId) return;
+    const ok = await ensureCurrentSavedBeforeSwitch();
+    if (!ok) return;
+    selectedAgentId = templatesNavId;
+  }
+
   async function selectSubagents(): Promise<void> {
     if (selectedAgentId === subagentsNavId) return;
     const ok = await ensureCurrentSavedBeforeSwitch();
     if (!ok) return;
     selectedAgentId = subagentsNavId;
+  }
+
+  async function installTemplate(templateId: string): Promise<void> {
+    if (installingTemplateId) return;
+    installingTemplateId = templateId;
+    error = "";
+    message = "";
+    try {
+      const res = await fetch("/api/settings/agent-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || copy.installFailed);
+      await loadSettings();
+      selectedAgentId = String(data.agentId ?? templateId);
+      message = `${copy.installSuccess}${selectedAgentId}`;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      installingTemplateId = "";
+    }
   }
 
   async function addAgent(): Promise<void> {
@@ -448,6 +512,7 @@
 
   $: selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   $: selectedFiles = selectedAgent?.profileFiles ?? emptyFiles();
+  $: showingTemplates = selectedAgentId === templatesNavId;
   $: showingSubagents = selectedAgentId === subagentsNavId;
   $: selectedAgentDirty = selectedAgent
     ? agentSnapshot(selectedAgent) !== (savedSnapshots[selectedAgent.id] ?? "")
@@ -480,6 +545,18 @@
         </div>
         <div class="channel-card-body">
           <button
+            class="channel-sidebar-btn {showingTemplates ? 'channel-sidebar-btn--active' : ''}"
+            type="button"
+            onclick={selectTemplates}
+          >
+            <span>
+              <span class="channel-sidebar-btn-name">{copy.templatesLabel}</span>
+              <span class="channel-sidebar-btn-id">{builtInTemplates.length} {copy.templatesDesc}</span>
+            </span>
+            <span class="channel-sidebar-badge">{copy.builtInTag}</span>
+          </button>
+
+          <button
             class="channel-sidebar-btn {showingSubagents ? 'channel-sidebar-btn--active' : ''}"
             type="button"
             onclick={selectSubagents}
@@ -509,7 +586,45 @@
         </div>
       </div>
 
-      {#if showingSubagents}
+      {#if showingTemplates}
+        <div class="channel-form">
+          <div class="channel-card">
+            <div class="channel-card-header">
+              <div>
+                <h2 class="channel-card-title">{copy.templatesTitle}</h2>
+                <p class="channel-card-desc">{copy.templatesHelp}</p>
+              </div>
+            </div>
+          </div>
+          <div class="channel-field-row" style="grid-template-columns: 1fr 1fr;">
+            {#each builtInTemplates as template (template.id)}
+              <div class="channel-card">
+                <div class="channel-card-header">
+                  <div>
+                    <h3 class="channel-card-title">{template.name}</h3>
+                    <p class="channel-card-desc">{template.description}</p>
+                  </div>
+                  <span class="channel-sidebar-badge">{template.category}</span>
+                </div>
+                <div class="channel-card-body">
+                  <div class="channel-field">
+                    <span class="channel-sidebar-btn-id">{template.id} · {template.source}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    type="button"
+                    disabled={template.installed || Boolean(installingTemplateId)}
+                    onclick={() => installTemplate(template.id)}
+                  >
+                    {template.installed ? copy.installedBtn : installingTemplateId === template.id ? copy.installingBtn : copy.installBtn}
+                  </Button>
+                </div>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {:else if showingSubagents}
         <div class="channel-form">
           <div class="channel-card">
             <div class="channel-card-header">
@@ -689,7 +804,7 @@
   {/if}
 </div>
 
-{#if selectedAgent && !showingSubagents}
+{#if selectedAgent && !showingSubagents && !showingTemplates}
   <footer class="settings-footbar">
     <div class="settings-footbar-status">
       {#if saving}

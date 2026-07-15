@@ -5,7 +5,76 @@
 - [2026 Q1 Archive (Feb - Mar)](docs/archive/changelog-2026-Q1.md)
 
 ---
+## 2026-07-16
+
+### Fix: Desktop Usage and Trace no longer loop on first load
+- Fixed both observability pages remaining on loading skeletons because their Svelte effects accidentally tracked request-generation/loading/query state that the request itself mutated, continuously superseding every response.
+- The initial-load effects now track only service readiness and endpoint while reading request-store state through `untrack`. Trace also has one active-run initialization path instead of firing from both `onMount` and the endpoint effect; its three-second polling remains unchanged.
+- Added regression assertions for the dependency boundary. Verified with observability/API tests 88/88, Desktop UI 53/53, Svelte diagnostics 0 errors/0 warnings, and a production Desktop build.
+
+### Feature: Desktop Usage and Trace are complete observability dashboards
+- Usage now supports today/yesterday/7-day/30-day ranges, model/Bot/channel filters, filtered KPI and request/token/cache trends, model/API/Bot/channel rankings, refresh controls, and paginated request metadata.
+- Trace now supports fact-type, Bot, channel, Chat, Session, Run, and source-limit filters plus tool/skill/model/Bot/Chat/Session/Run rankings and paginated facts. Existing running/stuck/orphan controls remain below the analytics dashboard.
+- Filtering, aggregation, and pagination happen behind Desktop-specific APIs, with stale-response generations on the client. Usage exposes only local diagnostic identifiers; Trace strips payloads, tool argument/result/error previews, blocked-by data, and all message or command content before it reaches the WebView.
+- The bilingual Geist UI adapts tables into compact records at narrow widths and retains light/dark theme support. Verified with Desktop Chat aggregate tests 206/206, Desktop JS/UI 55/55, Rust 12/12, Svelte diagnostics 0 errors/0 warnings, and production Server/Desktop builds. Interactive visual inspection was unavailable in the current environment.
+
+### Fix + Polish: Service log tail is 2000 clean lines, scrolls to newest, opens the full file
+- The Logs page now shows the last **2000 lines** (was a raw 256 KB byte tail). The byte-tail seek that could slice a multi-byte UTF-8 character now drops the first partial line, and **ANSI colour/control escapes are stripped** server-side (`strip_ansi`), so CJK text and coloured `[mom-t] telegram …` lines render as plain readable text instead of `^[[33m…` garble.
+- Added an **Open log file** button that opens `~/.molibot/runtime/desktop-sidecar.log` in the system default viewer (new Rust commands `open_desktop_log` / `desktop_log_path`, called directly through the opener plugin like the tray's Open Web — no new WebView capability), so the full, live log is one click away.
+- The log pane auto-scrolls to the newest lines after every load/refresh.
+- Verified: new Rust unit tests for line-tailing and ANSI stripping, full desktop test suite (13 + 55 JS, 12 Rust), `svelte-check` 0/0, and a production Desktop build.
+
+### Polish: Settings sidebar regrouped by function
+- The Settings left-nav groups were a grab-bag (e.g. "AI Engine" mixed core model config, tool capabilities, and observability). Regrouped by actual function into: **General** (general), **Models** (models, providers), **Assistant** (agents, skills, memory), **Tools** (mcp, webSearch, imageGenerate, videoGenerate, ttsGenerate, hostBash), **Channels** (profiles, channels), **Activity** (tasks, runHistory, usage, trace, logs), **System** (runtimeEnv, sandbox, plugins, diagnostics).
+- Pure nav-taxonomy change in `App.svelte` (`SETTINGS_GROUPS` + `settingsGroupLabel`); no sections added/removed and section routing is unchanged. Verified with `svelte-check` (0 errors/0 warnings) and a production Desktop build.
+
+---
 ## 2026-07-15
+
+### Polish: Image/Video record delete is an icon; test-result type on-scale
+- The per-record delete is now a low-emphasis trash icon (`row-icon-btn danger-action`) instead of a heavy red text button, matching the destructive-action treatment used elsewhere and lightening each row (Geist: destructive actions shouldn't dominate a list).
+- `.tool-test-result` no longer sets an off-scale `11px` size with an ad-hoc mono stack; it uses `var(--font-mono)` at 12px (a Geist type-scale step). Verified with 53 Desktop UI tests and clean Svelte diagnostics on the touched files.
+
+### Fix: Image/Video record detail shows the result and parameters; dead "View result" button removed
+- Removed the non-functional "查看结果" button from every Image/Video record row — the detail modal already carries the result.
+- The detail modal now renders the actual image/video: it fetches the completed result from the local service by taskId (the same file the web settings page serves) and shows it via a blob URL, so it renders inside the WebView CSP. Raw provider result URLs — which are blocked by `img-src` and expire — are no longer used for display. Added a loading/failed state with retry.
+- Added a sanitized **request parameters** block (model, size, seed, aspect ratio, etc.) plus a readable full-width prompt. Params are projected through a primitive allow-list so secrets (apiKey), host paths, session ids, and poll tokens can never reach the WebView (pitfall §5).
+- Download now targets the served local file. Added the two serving endpoints to the Tauri HTTP capability allow-list (image-generate/image, video-generate/video).
+- Verified with the desktop-media-tasks projection test (safe params kept, secrets/paths/ids stripped), 53 Desktop UI tests, clean Svelte diagnostics, a production Desktop build, and a live render of the rebuilt detail modal (preview frame, params panel, prompt block).
+
+### Fix: internal approvals and reminders no longer create stray Chat sessions
+- Desktop Host Bash approvals now use a dedicated structured endpoint instead of submitting `/hosttools...` through Chat. Watched one-shot Events retain their source Session and deliver back to it, while recurring `fresh` task behavior remains unchanged.
+- Historical `/hosttools...` and `[EVENT:...]` Web sessions are safely tagged as internal and omitted from ordinary Chat without deleting any session or message data. Resizable sidebar titles now grow with the available width instead of stopping at 30 characters.
+- Added regressions for the dedicated approval request, internal-session filtering with data preservation, source-Session reminder routing, and flexible sidebar titles.
+
+### Fix: Image/Video generation records collapse to one dense line
+- Each record in the Image and Video settings pages now renders as a single scannable row — a status badge, the prompt truncated to one line with an ellipsis, and muted `engine · time` (video keeps inline `%` only while processing) — instead of stacking engine/status, prompt, timestamp, and error across three or four lines. Full detail (prompt, timestamps, error, preview, download) stays one click away in the existing task detail modal via 查看.
+- Verified with a live browser render of completed/processing/failed rows (single line, prompt ellipsis, all actions inline), 53 Desktop UI tests, clean Svelte diagnostics, and a production Desktop build.
+
+### Fix: Settings pages align every block to one centered column
+- All Settings content — page title, product description, section heads, action rows, status messages, and cards — now shares a single centered column and width, instead of mixing full-width `28px`-margin blocks with centered cards. The shared width is exposed as `--settings-col`; the regular column was widened to match the data pages (720px).
+- The page header was mis-centering because `.settings-page-header > div` also matched the (empty) `.page-header-actions` div, so the two split the row and pushed the title to the left; the rule is now scoped to the text column and the header gap is removed. The scroll area uses `scrollbar-gutter: stable both-edges` so cards stay symmetric with the gutter-less header.
+- Each section no longer re-renders its header hint as a duplicate in-page paragraph (the `PageHeader` description is the single source). Removed from 15 section components.
+- Verified with 53 Desktop UI tests, clean Svelte diagnostics on touched files, a production Desktop build, and a live browser check confirming title/description/cards center at the same pixel.
+
+### Fix: system task execution details no longer open nonexistent sessions
+- Owner memory-reflection and daily-material runs now retain structured execution results and open a localized execution-record view; legacy runs show available lease metadata instead of a misleading cleaned-session message.
+
+### Feature: one-shot reminders have a dedicated inbox and unread badge
+- Desktop Automations now has separate Automations, One-time Tasks, and System Tasks tabs. One-time reminders use a compact todo list with localized trigger times and clear Reminder / Reminded states; delivery failures remain visibly distinct.
+- Newly completed one-shot watched events set an explicit unread flag and increment the Chat sidebar badge. Opening One-time Tasks marks those reminders read through a one-shot-only API and clears the badge immediately.
+- Legacy completed reminders default to read, preventing upgrade-time notification floods. Recurring and immediate diagnostic tasks never participate in the unread mechanism.
+- Verified with 86 focused runtime/projection/Desktop API tests, 53 Desktop UI tests, clean Svelte diagnostics, and production Server/Desktop builds.
+
+### Fix: Project Chat history no longer opens blank
+- Project Session selection now performs one authoritative transcript request and hydrates the pinned Project runtime from that response, instead of racing two independent requests and rendering only the second result.
+- A successful Project transcript response can no longer be discarded because a duplicate request hit a transient service restart; external Feishu/Telegram transcript paths are unchanged. Verified against the reported session with 13 rendered messages plus a focused regression test.
+
+### Memory Trace and a user-facing Memory Center
+- Assistant messages now disclose the exact long-term memories placed in that turn's model context, separately from memories added or updated during the turn. Full immutable snapshots load on demand in a responsive drawer with retrieval feedback.
+- Trace persistence is bound to the final Agent source entry and is non-blocking: an observability failure never interrupts the answer. Conversation lists carry only lightweight counts.
+- Desktop Memory now has three separate product tabs: Overview for the user profile and pending review, Topics for grouped summaries and related facts, and All memories for search and record management. Advanced backend operations live in a secondary dialog rather than a fourth tab.
+- Overview and Topics are deterministic projections of stored memory fields; records remain editable and can be excluded from future answer injection. Verified with 4 projection tests, 55 Desktop UI tests, 72 Desktop API tests, clean Svelte diagnostics, and Server/Desktop production builds.
 
 ### Desktop Agent Studio upgraded to a Three.js pug micro-city
 - Replaced the CSS office with a fixed-isometric Three.js city containing 10 stable ordinary-Agent plots, a separate Global headquarters, and an owner dispatch center. Ordinary Agents grow round-robin from 1 floor to 10×10 floors; Agent 101+ is reported without extending the scene.

@@ -5,6 +5,7 @@
 import {
   deleteDesktopMediaTask,
   desktopTtsAudioUrl,
+  fetchDesktopMediaTaskBlob,
   loadDesktopImageGenerate,
   loadDesktopMediaTasks,
   loadDesktopTts,
@@ -121,6 +122,9 @@ export const toolsStore = $state({
   ttsVoices: [] as Array<{ id: string; label?: string; locale?: string; gender?: string }>,
   ttsTestProvider: "macos",
   mediaTaskDetail: null as DesktopMediaTask | null,
+  mediaTaskDetailUrl: null as string | null,
+  mediaTaskDetailLoading: false,
+  mediaTaskDetailFailed: false,
   mediaTaskBusy: "",
   dirty: new Set<ToolSettingsSection>(),
   saving: false,
@@ -140,6 +144,9 @@ export const toolsStore = $state({
 });
 
 let mediaPollTimer: ReturnType<typeof setInterval> | null = null;
+// Bumped on every detail open/close so a slow blob fetch for a previously
+// selected task can't overwrite the currently shown preview.
+let mediaDetailGen = 0;
 
 export function secretRevealed(key: string): boolean {
   return toolsStore.revealedSecrets.has(key);
@@ -322,7 +329,10 @@ export async function removeMediaTask(kind: DesktopMediaTaskKind, taskId: string
     await deleteDesktopMediaTask(endpoint, kind, taskId);
     if (kind === "image") toolsStore.imageTasks = toolsStore.imageTasks.filter((task) => task.id !== taskId);
     else toolsStore.videoTasks = toolsStore.videoTasks.filter((task) => task.id !== taskId);
-    if (toolsStore.mediaTaskDetail?.id === taskId) toolsStore.mediaTaskDetail = null;
+    if (toolsStore.mediaTaskDetail?.id === taskId) {
+      revokeMediaDetailUrl();
+      toolsStore.mediaTaskDetail = null;
+    }
   } catch (cause) {
     setError(cause);
   } finally {
@@ -336,8 +346,14 @@ function mediaTaskList(kind: "image" | "video"): DesktopMediaTask[] {
 
 function refreshMediaTaskDetail(kind: "image" | "video"): void {
   if (!toolsStore.mediaTaskDetail) return;
-  const current = mediaTaskList(kind).find((task) => task.id === toolsStore.mediaTaskDetail!.id);
-  toolsStore.mediaTaskDetail = current ?? null;
+  const wasIncomplete = toolsStore.mediaTaskDetail.status !== "completed";
+  const current = mediaTaskList(kind).find((task) => task.id === toolsStore.mediaTaskDetail!.id) ?? null;
+  toolsStore.mediaTaskDetail = current;
+  // If the open task just finished, load its preview without a manual reopen.
+  if (current && wasIncomplete && current.status === "completed"
+    && !toolsStore.mediaTaskDetailUrl && !toolsStore.mediaTaskDetailLoading) {
+    loadMediaTaskDetailPreview(current);
+  }
 }
 
 async function pollMediaTasks(kind: "image" | "video"): Promise<void> {
@@ -365,11 +381,46 @@ export function ensureMediaPolling(kind: "image" | "video"): void {
 }
 
 export function openMediaTaskDetail(task: DesktopMediaTask): void {
+  revokeMediaDetailUrl();
   toolsStore.mediaTaskDetail = task;
+  toolsStore.mediaTaskDetailFailed = false;
+  toolsStore.mediaTaskDetailLoading = false;
+  loadMediaTaskDetailPreview(task);
+}
+
+// Fetch the completed result as a blob URL so it renders inside the WebView CSP
+// (raw provider/result URLs are blocked and expire). No-op while processing.
+function loadMediaTaskDetailPreview(task: DesktopMediaTask): void {
+  const endpoint = session.endpoint;
+  if (task.status !== "completed" || !endpoint) return;
+  const gen = ++mediaDetailGen;
+  toolsStore.mediaTaskDetailLoading = true;
+  void fetchDesktopMediaTaskBlob(endpoint, task.kind, task.id)
+    .then((blob) => {
+      if (gen !== mediaDetailGen) return;
+      toolsStore.mediaTaskDetailUrl = URL.createObjectURL(blob);
+      toolsStore.mediaTaskDetailLoading = false;
+    })
+    .catch(() => {
+      if (gen !== mediaDetailGen) return;
+      toolsStore.mediaTaskDetailFailed = true;
+      toolsStore.mediaTaskDetailLoading = false;
+    });
+}
+
+function revokeMediaDetailUrl(): void {
+  mediaDetailGen++;
+  if (toolsStore.mediaTaskDetailUrl) {
+    URL.revokeObjectURL(toolsStore.mediaTaskDetailUrl);
+    toolsStore.mediaTaskDetailUrl = null;
+  }
 }
 
 export function closeMediaTaskDetail(): void {
+  revokeMediaDetailUrl();
   toolsStore.mediaTaskDetail = null;
+  toolsStore.mediaTaskDetailLoading = false;
+  toolsStore.mediaTaskDetailFailed = false;
 }
 
 export function onMediaTaskOverlayKeydown(event: KeyboardEvent): void {

@@ -26,7 +26,6 @@
   });
 </script>
 
-<p class="settings-section-hint">{session.text.profilesHint}</p>
 {#if session.serviceReady && !profilesStore.profileEdit}
   <div class="settings-section-actions"><button class="secondary-button" type="button" onclick={beginNewProfile}>{session.text.profileAdd}</button></div>
 {/if}

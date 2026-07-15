@@ -170,6 +170,7 @@ export function createMomTools(options: {
   const createEventRuntimeTool = wrapSerializedTool(createEventTool({
     workspaceDir: options.workspaceDir,
     chatId: options.chatId,
+    sessionId: options.sessionId,
     timezone: options.timezone
   }));
   const switchModelRuntimeTool = wrapSerializedTool(createSwitchModelTool({

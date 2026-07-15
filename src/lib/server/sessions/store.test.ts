@@ -168,6 +168,35 @@ test("automation Web conversations persist their origin for the shared sidebar f
   }
 });
 
+test("historical internal Web sessions are classified without deleting their data", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-internal-session-backfill-"));
+  const original = { ...storagePaths };
+  try {
+    storagePaths.webWorkspaceDir = path.join(root, "web");
+    storagePaths.sessionsDir = path.join(root, "legacy");
+    storagePaths.sessionsIndexFile = path.join(root, "legacy-index.json");
+    const store = new SessionStore();
+    const owner = "web:default:web-anonymous";
+    const approval = store.createWebConversation(owner);
+    const event = store.createWebConversation(owner);
+    const ordinary = store.createWebConversation(owner);
+    store.appendMessage(approval.id, "user", "/hosttools approve-session approval-1");
+    store.appendMessage(event.id, "user", "[EVENT:event-123:one-shot:2030-01-01] remind me");
+    store.appendMessage(ordinary.id, "user", "请解释 /hosttools 命令和 [EVENT:...] 的区别");
+
+    const listed = store.listAllWebConversations();
+    const byId = new Map(listed.map((item) => [item.conversation.id, item.conversation]));
+    assert.equal(byId.get(approval.id)?.origin, "internal:approval");
+    assert.equal(byId.get(event.id)?.origin, "internal:event");
+    assert.equal(byId.get(ordinary.id)?.origin, undefined);
+    assert.equal(store.listMessages(approval.id)[0]?.content, "/hosttools approve-session approval-1");
+    assert.equal(store.listMessages(event.id)[0]?.content, "[EVENT:event-123:one-shot:2030-01-01] remind me");
+  } finally {
+    Object.assign(storagePaths, original);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("external-channel conversations no longer persist to the legacy sessions store", () => {
   const root = mkdtempSync(path.join(tmpdir(), "molibot-external-noop-"));
   const original = {

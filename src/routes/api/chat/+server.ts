@@ -185,7 +185,7 @@ function buildLoginScope(profileId: string, externalUserId?: string): string {
   return `web:${profileId}:${externalUserId || "anonymous"}`;
 }
 
-async function handleWebHostToolsCommand(
+export async function _handleWebHostToolsCommand(
   rawArg: string,
   profileId: string,
   conversationId: string | undefined,
@@ -545,7 +545,7 @@ async function tryHandleWebCommand(
   }
 
   if (cmd === "/hosttools" || cmd === "/host-tools") {
-    return handleWebHostToolsCommand(rawArg, profileId, conversationId, externalUserId);
+    return _handleWebHostToolsCommand(rawArg, profileId, conversationId, externalUserId);
   }
 
   return null;
@@ -824,7 +824,8 @@ export const POST: RequestHandler = async ({ request }) => {
       attachments: responseAttachments,
       activities: activityCollector.finalSnapshot(),
       model: responseModel || undefined,
-      contextBacked: true
+      contextBacked: true,
+      sourceEntryId: result.assistantSourceEntryId
     });
   }
 

@@ -18,7 +18,6 @@
   });
 </script>
 
-<p class="settings-section-hint">{session.text.webSearchHint}</p>
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.webSearchUnavailable}</p></div></div>
 {:else if toolsStore.webSearchLoading || !toolsStore.webSearchEdit}

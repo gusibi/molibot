@@ -3,8 +3,10 @@ import test from "node:test";
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 import {
   buildDesktopAgentActivity,
+  buildDesktopTraceSummary,
   computeDesktopTraceTotals,
   resolveDesktopTraceWindow,
+  sanitizeDesktopTraceQuery,
   sanitizeDesktopTraceRange
 } from "./desktopTrace";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
@@ -78,6 +80,45 @@ test("computeDesktopTraceTotals counts tools, models, skills, and tokens without
   assert.equal(serialized.includes("secret arg"), false);
   assert.equal(serialized.includes("private-model"), false);
   assert.equal(serialized.includes("payload"), false);
+});
+
+test("sanitizeDesktopTraceQuery validates fact type and clamps fetch pagination", () => {
+  assert.deepEqual(sanitizeDesktopTraceQuery({ factType: "unknown", sourceLimit: 99, page: -1, pageSize: 999, botId: " bot " }), {
+    range: "today",
+    factType: "all",
+    botId: "bot",
+    channel: "",
+    chatId: "",
+    sessionId: "",
+    runId: "",
+    sourceLimit: 1000,
+    page: 1,
+    pageSize: 100
+  });
+});
+
+test("buildDesktopTraceSummary filters, ranks, paginates, and strips all preview content", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const facts = [
+    fact({ id: "1", factId: "tool-1", name: "search", channel: "web", botId: "alpha", status: "success", durationMs: 100, argsPreview: "secret argument", resultPreview: "private result", payload: { command: "sensitive" }, createdAt: `${today}T08:00:00.000Z`, updatedAt: `${today}T08:00:00.000Z` }),
+    fact({ id: "2", factId: "tool-2", name: "search", channel: "web", botId: "alpha", status: "error", durationMs: 300, errorPreview: "private error", createdAt: `${today}T09:00:00.000Z`, updatedAt: `${today}T09:00:00.000Z` }),
+    fact({ id: "3", factId: "model-1", factType: "model_call", provider: "anthropic", model: "claude-a", api: "messages", channel: "web", botId: "alpha", totalTokens: 500, inputTokens: 400, outputTokens: 100, durationMs: 800, createdAt: `${today}T09:10:00.000Z`, updatedAt: `${today}T09:10:00.000Z` }),
+    fact({ id: "4", factId: "other", name: "bash", channel: "feishu", botId: "beta", createdAt: `${today}T10:00:00.000Z`, updatedAt: `${today}T10:00:00.000Z` })
+  ];
+  const summary = buildDesktopTraceSummary("UTC", { range: "today", factType: "all", botId: "alpha", page: 1, pageSize: 10 }, facts);
+
+  assert.equal(summary.totals.facts, 3);
+  assert.equal(summary.rankings.tools[0]?.calls, 2);
+  assert.equal(summary.rankings.models[0]?.model, "claude-a");
+  assert.equal(summary.rankings.bots[0]?.label, "alpha");
+  assert.equal(summary.facts.total, 3);
+  assert.equal(summary.facts.items[0]?.factType, "model_call");
+  assert.deepEqual(summary.options.bots, ["alpha", "beta"]);
+
+  const serialized = JSON.stringify(summary);
+  for (const forbidden of ["secret argument", "private result", "private error", "sensitive", "argsPreview", "resultPreview", "errorPreview", '"payload"', "blockedBy"]) {
+    assert.equal(serialized.includes(forbidden), false, forbidden);
+  }
 });
 
 test("buildDesktopAgentActivity maps Bot run facts to Agents and expires terminal states", () => {

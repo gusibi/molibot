@@ -1,4 +1,4 @@
-import type { DesktopConversationActivity, DesktopFileMediaType, DesktopSessionFile } from "@molibot/desktop-contract";
+import type { DesktopConversationActivity, DesktopFileMediaType, DesktopMessageMemoryTraceMeta, DesktopSessionFile } from "@molibot/desktop-contract";
 
 export type TranscriptAttachment = {
   original: string;
@@ -17,6 +17,7 @@ export type TranscriptMessage = {
   thinking?: string;
   attachments?: TranscriptAttachment[];
   activities?: DesktopConversationActivity[];
+  memoryTrace?: DesktopMessageMemoryTraceMeta;
 };
 
 export type TranscriptAttachmentActions = {
@@ -41,6 +42,7 @@ export type TranscriptMessageActions = {
   onCopy: (message: TranscriptMessage) => void;
   onEditUser?: (message: TranscriptMessage) => void;
   editingId?: string;
+  onOpenMemoryTrace?: (traceId: string) => void;
 };
 
 /**

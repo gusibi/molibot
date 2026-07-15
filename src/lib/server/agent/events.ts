@@ -17,6 +17,9 @@ export interface EventStatus {
   runId?: string;
   runningSlotKey?: string;
   lastSlotKey?: string;
+  // Missing means legacy/already-read so an upgrade never turns historical
+  // one-shot events into unread Desktop reminders.
+  reminderUnread?: boolean;
 }
 
 export type EventDeliveryMode = "text" | "agent";
@@ -47,6 +50,10 @@ interface EventBase {
   // Missing keeps historical event files enabled.
   enabled?: boolean;
   chatId: string;
+  // The concrete Session that created this event. Keeping this separately from
+  // chatId prevents one-shot reminders from drifting when another Session later
+  // becomes active in the same chat.
+  sessionId?: string;
   text: string;
   // text: send text directly; agent: run through AI agent first, then send result.
   delivery?: EventDeliveryMode;
@@ -82,6 +89,13 @@ export interface PeriodicEvent {
 }
 
 export type MomEvent = (ImmediateEvent | OneShotEvent | PeriodicEvent) & EventBase;
+
+export function markOneShotReminderReadFile(filePath: string): void {
+  const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
+  if (current.type !== "one-shot") throw new Error("not_one_shot");
+  current.status = { ...(current.status ?? {}), state: current.status?.state ?? "pending", reminderUnread: false };
+  writeFileSync(filePath, `${JSON.stringify(current, null, 2)}\n`, "utf8");
+}
 
 const TASK_ID_SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -125,6 +139,13 @@ export function resolveEventSessionMode(event: MomEvent): EventSessionMode {
   if (raw === "fresh") return "fresh";
   if (raw === "chat") return "chat";
   return event.type === "periodic" ? "fresh" : "chat";
+}
+
+export function resolveEventTargetSessionId(
+  event: Pick<EventBase, "sessionId">,
+  activeSessionId: string
+): string {
+  return String(event.sessionId ?? "").trim() || activeSessionId;
 }
 
 interface CronFieldRule {
@@ -260,7 +281,7 @@ export class EventsWatcher {
 
   constructor(
     private readonly eventsDir: string,
-    private readonly onEvent: (event: MomEvent, filename: string) => Promise<void> | void,
+    private readonly onEvent: (event: MomEvent, filename: string) => Promise<unknown> | unknown,
     private readonly options: EventsWatcherOptions = {}
   ) {
     const rawRunningTtlMs = Number.parseInt(
@@ -503,7 +524,7 @@ export class EventsWatcher {
         eventType: event.type,
         triggerSlot,
         chatId: event.chatId,
-        sessionId: event.chatId,
+        sessionId: event.sessionId ?? event.chatId,
         channel: this.options.channel,
         taskId,
         runId: currentRunId,
@@ -526,7 +547,7 @@ export class EventsWatcher {
         eventType: event.type,
         triggerSlot,
         chatId: event.chatId,
-        sessionId: event.chatId,
+        sessionId: event.sessionId ?? event.chatId,
         channel: this.options.channel,
         taskId,
         runId: currentRunId,
@@ -540,7 +561,7 @@ export class EventsWatcher {
       this.markRunning(filename, eventForAttempt, triggerSlot, currentRunId);
       const outcome = await this.runAttemptWithTimeout(eventForAttempt, filename, lease);
       if (outcome.status === "success") {
-        if (store.markCompleted(lease.id, lease.runId)) {
+        if (store.markCompleted(lease.id, lease.runId, outcome.result)) {
           this.markDone(filename, eventForAttempt, "executed", triggerSlot, currentRunId);
         }
         return;
@@ -566,12 +587,12 @@ export class EventsWatcher {
     event: MomEvent,
     filename: string,
     lease: EventExecutionLease
-  ): Promise<{ status: "success" } | { status: "timeout" } | { status: "error"; error: unknown }> {
+  ): Promise<{ status: "success"; result?: unknown } | { status: "timeout" } | { status: "error"; error: unknown }> {
     let timeout: NodeJS.Timeout | null = null;
     let settled = false;
     const runPromise = Promise.resolve()
       .then(() => this.onEvent(event, filename))
-      .then(() => ({ status: "success" as const }))
+      .then((result) => result === undefined ? { status: "success" as const } : { status: "success" as const, result })
       .catch((error) => ({ status: "error" as const, error }));
 
     const timeoutPromise = new Promise<{ status: "timeout" }>((resolve) => {
@@ -773,7 +794,8 @@ export class EventsWatcher {
         completedAt: triggeredAt,
         lastTriggeredAt: triggeredAt,
         runCount: (current.status?.runCount ?? event.status?.runCount ?? 0) + 1,
-        reason
+        reason,
+        reminderUnread: current.type === "one-shot" ? true : current.status?.reminderUnread
       }
     }));
     this.cancel(filename);

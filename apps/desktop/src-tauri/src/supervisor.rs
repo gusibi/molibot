@@ -86,25 +86,87 @@ fn data_dir() -> Result<PathBuf, String> {
     Ok(PathBuf::from(home).join(".molibot"))
 }
 
-pub fn read_service_log(max_bytes: usize) -> Result<String, String> {
-    let path = data_dir()?.join("runtime/desktop-sidecar.log");
-    read_log_tail(&path, max_bytes)
+/// Upper bound on how many bytes we pull from the tail of the log before
+/// slicing it down to `max_lines`. Comfortably holds a few thousand log lines
+/// while keeping the read cheap even when the file has grown to tens of MB.
+const LOG_TAIL_BYTES: u64 = 4 * 1024 * 1024;
+
+pub fn service_log_path() -> Result<PathBuf, String> {
+    Ok(data_dir()?.join("runtime/desktop-sidecar.log"))
 }
 
-fn read_log_tail(path: &Path, max_bytes: usize) -> Result<String, String> {
+pub fn read_service_log(max_lines: usize) -> Result<String, String> {
+    read_log_tail(&service_log_path()?, max_lines)
+}
+
+fn read_log_tail(path: &Path, max_lines: usize) -> Result<String, String> {
     let mut file = match File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
         Err(error) => return Err(error.to_string()),
     };
     let length = file.metadata().map_err(|error| error.to_string())?.len();
-    let keep = max_bytes.clamp(1, 512 * 1024) as u64;
-    if length > keep {
-        file.seek(SeekFrom::Start(length - keep)).map_err(|error| error.to_string())?;
+    let truncated = length > LOG_TAIL_BYTES;
+    if truncated {
+        file.seek(SeekFrom::Start(length - LOG_TAIL_BYTES)).map_err(|error| error.to_string())?;
     }
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes).map_err(|error| error.to_string())?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    // `from_utf8_lossy` only produces a replacement char at the very start when
+    // the byte-tail seek lands mid-character; that partial line is dropped below.
+    let text = String::from_utf8_lossy(&bytes);
+    let mut lines: Vec<&str> = text.lines().collect();
+    if truncated && !lines.is_empty() {
+        lines.remove(0);
+    }
+    let max_lines = max_lines.max(1);
+    if lines.len() > max_lines {
+        lines = lines.split_off(lines.len() - max_lines);
+    }
+    Ok(strip_ansi(&lines.join("\n")))
+}
+
+/// Removes terminal control sequences (ANSI CSI/OSC colour codes, stray C0
+/// control bytes) so the log renders as plain readable text in the WebView.
+fn strip_ansi(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\u{1b}' => match chars.peek() {
+                // CSI sequence: ESC [ ... final byte in 0x40..=0x7E (e.g. colours "…m").
+                Some('[') => {
+                    chars.next();
+                    while let Some(&next) = chars.peek() {
+                        chars.next();
+                        if ('\u{40}'..='\u{7e}').contains(&next) {
+                            break;
+                        }
+                    }
+                }
+                // OSC sequence: ESC ] ... terminated by BEL or ST (ESC \).
+                Some(']') => {
+                    chars.next();
+                    while let Some(next) = chars.next() {
+                        if next == '\u{07}' {
+                            break;
+                        }
+                        if next == '\u{1b}' {
+                            chars.next();
+                            break;
+                        }
+                    }
+                }
+                // Any other escape: drop the lone ESC.
+                _ => {}
+            },
+            // Keep tab and newline; drop other non-printable C0 control bytes.
+            '\t' | '\n' => out.push(c),
+            _ if (c as u32) < 0x20 => {}
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 fn materialize_bundled_runtime(resource_dir: &Path, data_dir: &Path) -> Result<PathBuf, String> {
@@ -660,10 +722,26 @@ mod tests {
     }
 
     #[test]
-    fn log_reader_returns_only_the_requested_tail() {
+    fn log_reader_returns_only_the_last_requested_lines() {
         let path = env::temp_dir().join(format!("molibot-log-tail-{}", Uuid::new_v4()));
-        write(&path, "0123456789").expect("write log fixture");
-        assert_eq!(read_log_tail(&path, 4).expect("read log tail"), "6789");
+        write(&path, "line1\nline2\nline3\nline4\n").expect("write log fixture");
+        assert_eq!(read_log_tail(&path, 2).expect("read log tail"), "line3\nline4");
+        std::fs::remove_file(path).expect("remove log fixture");
+    }
+
+    #[test]
+    fn log_reader_strips_ansi_and_control_sequences() {
+        let path = env::temp_dir().join(format!("molibot-log-ansi-{}", Uuid::new_v4()));
+        // Bold + colour codes, an OSC title sequence, and a stray BEL around CJK text.
+        write(
+            &path,
+            "\u{1b}[1m[mom-t]\u{1b}[0m \u{1b}[33mtelegram\u{1b}[0m \u{07}环境诊断\u{1b}]0;title\u{07}done\n",
+        )
+        .expect("write log fixture");
+        assert_eq!(
+            read_log_tail(&path, 10).expect("read log tail"),
+            "[mom-t] telegram 环境诊断done"
+        );
         std::fs::remove_file(path).expect("remove log fixture");
     }
 

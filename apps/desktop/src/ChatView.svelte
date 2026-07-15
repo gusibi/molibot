@@ -10,6 +10,7 @@
     DesktopConversationMessage,
     DesktopExternalTranscript,
     DesktopMessageAttachment,
+    DesktopMemoryTraceResponse,
     DesktopModelOption,
     DesktopProfileSummary,
     DesktopProviderCreateRequest,
@@ -38,6 +39,8 @@
     loadDesktopChannels,
     loadDesktopExternalTranscript,
     loadDesktopModels,
+    loadDesktopMemoryTrace,
+    loadDesktopTaskUnreadCount,
     loadDesktopRuntimeEnv,
     loadDesktopSession,
     loadDesktopWebProfiles,
@@ -51,6 +54,7 @@
     summarizeOnboardingChannels,
     summarizeOnboardingDiagnostics,
     switchDesktopModel,
+    submitDesktopMemoryTraceFeedback,
     testDesktopProvider,
     truncateDesktopMessages,
     type OnboardingChannelsView,
@@ -82,6 +86,7 @@
   import { stickToBottom } from "./lib/chat/stickToBottom";
   import { openWorkspacePaneState, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
   import { humanizeModelOption } from "./lib/presentation";
+  import MemoryTraceDrawer from "./lib/chat/MemoryTraceDrawer.svelte";
 
   export let copy: Translation;
   export let serviceEndpoint: string | null;
@@ -132,6 +137,47 @@
   let editingSessionId = "";
   let copiedMessageId = "";
   let copiedMessageTimer: ReturnType<typeof setTimeout> | null = null;
+  let memoryTraceId = "";
+  let memoryTrace: DesktopMemoryTraceResponse["trace"] | null = null;
+  let memoryTraceLoading = false;
+  let memoryTraceError = "";
+  let memoryTraceFeedback = new Set<string>();
+  let memoryTraceReturnFocus: HTMLElement | null = null;
+
+  async function openMemoryTrace(traceId: string): Promise<void> {
+    memoryTraceReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    memoryTraceId = traceId;
+    memoryTrace = null;
+    memoryTraceError = "";
+    memoryTraceLoading = true;
+    try {
+      memoryTrace = await loadDesktopMemoryTrace(connectedEndpoint, traceId);
+    } catch (error) {
+      memoryTraceError = error instanceof Error ? error.message : String(error);
+    } finally {
+      memoryTraceLoading = false;
+    }
+  }
+
+  function closeMemoryTrace(): void {
+    memoryTraceId = "";
+    memoryTrace = null;
+    memoryTraceError = "";
+    memoryTraceFeedback = new Set();
+    const target = memoryTraceReturnFocus;
+    memoryTraceReturnFocus = null;
+    void tick().then(() => target?.focus());
+  }
+
+  async function submitMemoryTraceFeedback(memoryId: string, value: "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private"): Promise<void> {
+    if (!memoryTraceId) return;
+    try {
+      await submitDesktopMemoryTraceFeedback(connectedEndpoint, memoryTraceId, memoryId, value);
+      memoryTraceFeedback = new Set(memoryTraceFeedback).add(memoryId);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
 
   // Sidebar expansion is separate from selection. Every group may be open and
   // the preference survives restarts.
@@ -160,6 +206,19 @@
   let activeProjectSessionId = "";
   let workspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
   let appliedRequestedWorkspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
+  let automationUnreadCount = 0;
+
+  async function refreshAutomationUnread(): Promise<void> {
+    if (!connectionReady || !connectedEndpoint || document.hidden) return;
+    try {
+      automationUnreadCount = await loadDesktopTaskUnreadCount(connectedEndpoint);
+    } catch {
+      // The Automations workspace owns visible loading errors; a stale badge is
+      // less disruptive than surfacing a second global error for the same API.
+    }
+  }
+
+  const automationUnreadTimer = setInterval(() => void refreshAutomationUnread(), 15_000);
 
   const SIDEBAR_WIDTH_KEY = "molibot-desktop-sidebar-width";
   const SIDEBAR_MIN = 220;
@@ -577,6 +636,7 @@
 
       connectionReady = true;
       loading = false;
+      void refreshAutomationUnread();
       void selectDefaultSession(generation);
       void chatStore.reconnect();
       startReconnectPoll();
@@ -1117,7 +1177,8 @@
         onEditUser: viewMode === "external" || sending
           ? undefined
           : (m: TranscriptMessage) => startEditUserMessage(m),
-        editingId: editingMessageId
+        editingId: editingMessageId,
+        onOpenMemoryTrace: (traceId: string) => void openMemoryTrace(traceId)
       } satisfies TranscriptMessageActions;
   // Read-only external transcript supports copy-only (no edit); bind its own
   // actions so the clipboard still works there even when `messageActions`
@@ -1411,6 +1472,7 @@
     if (!connectionReady && !loading && serviceState === "ready" && serviceEndpoint) {
       void connect(serviceEndpoint);
     }
+    if (pane === "automations") void refreshAutomationUnread();
   }
 
   function formatTime(value: string): string {
@@ -1604,6 +1666,7 @@
     connectionGeneration += 1;
     stopSidebarResize();
     stopReconnectPoll();
+    clearInterval(automationUnreadTimer);
     chatStore.disposeAll();
     projectChatStore.disposeAll();
     stopRecordingTimer();
@@ -1645,6 +1708,7 @@
     {conversationsExpanded}
     {projectsExpanded}
     activeWorkspacePane={workspacePane}
+    {automationUnreadCount}
     {expandedChannels}
     {channelItems}
     {channelHasMore}
@@ -1706,6 +1770,7 @@
         serviceError={error}
         onRetryService={() => serviceEndpoint && void connect(serviceEndpoint)}
         onOpenAgentSettings={() => openSettings("agents")}
+        onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
       />
     {:else}
     <header class="chat-header" data-tauri-drag-region>
@@ -2252,4 +2317,18 @@
       </div>
     </div>
   </div>
+{/if}
+
+{#if memoryTraceId}
+  <MemoryTraceDrawer
+    trace={memoryTrace}
+    loading={memoryTraceLoading}
+    error={memoryTraceError}
+    copy={copy}
+    recordedMemoryIds={memoryTraceFeedback}
+    onClose={closeMemoryTrace}
+    onRetry={() => void openMemoryTrace(memoryTraceId)}
+    onFeedback={(memoryId, value) => void submitMemoryTraceFeedback(memoryId, value)}
+    onManageMemory={(memoryId) => { localStorage.setItem("molibot-desktop-memory-focus", memoryId); closeMemoryTrace(); openSettings("memory"); }}
+  />
 {/if}

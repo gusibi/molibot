@@ -91,7 +91,10 @@ async function createAndSelectProjectSession(projectId: string, projectGeneratio
 export async function selectProjectSession(id: string, projectId = projectsStore.selectedProjectId): Promise<void> {
   const generation = ++sessionSelectionGeneration;
   projectsStore.selectedSessionId = id;
-  projectChatStore.selectSession(id, projectId);
+  // The project store owns transcript loading. Activate an empty pinned runtime
+  // immediately, then hydrate that same runtime from the successful response so
+  // the UI cannot diverge from this authoritative request.
+  projectChatStore.selectSession(id, projectId, []);
   projectsStore.messages = [];
   projectsStore.messagesLoading = true;
   projectsStore.error = "";
@@ -99,6 +102,7 @@ export async function selectProjectSession(id: string, projectId = projectsStore
     const messages = await loadDesktopProjectSession(projectsStore.endpoint, projectId, id);
     if (generation !== sessionSelectionGeneration || projectsStore.selectedProjectId !== projectId || projectsStore.selectedSessionId !== id) return;
     projectsStore.messages = messages;
+    projectChatStore.selectSession(id, projectId, messages as Parameters<typeof projectChatStore.selectSession>[2]);
   } catch (cause) {
     if (generation !== sessionSelectionGeneration || projectsStore.selectedProjectId !== projectId || projectsStore.selectedSessionId !== id) return;
     projectsStore.error = cause instanceof Error ? cause.message : String(cause);

@@ -9,7 +9,6 @@
   });
 </script>
 
-<p class="settings-section-hint">{session.text.hostBashHint}</p>
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.hostBashUnavailable}</p></div></div>
 {:else if hostBashStore.loading || !hostBashStore.hostBash}

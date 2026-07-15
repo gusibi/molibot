@@ -11,6 +11,7 @@
     conversationsExpanded,
     projectsExpanded,
     activeWorkspacePane = "chat",
+    automationUnreadCount = 0,
     expandedChannels,
     channelItems,
     channelHasMore,
@@ -40,6 +41,7 @@
     conversationsExpanded: boolean;
     projectsExpanded: boolean;
     activeWorkspacePane?: "chat" | "automations" | "skills" | "agents";
+    automationUnreadCount?: number;
     expandedChannels: Record<string, boolean>;
     channelItems: Record<string, DesktopConversationItem[]>;
     channelHasMore: Record<string, boolean>;
@@ -94,6 +96,7 @@
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "automations"} aria-current={activeWorkspacePane === "automations" ? "page" : undefined} onclick={onOpenAutoTasks}>
       <i class="ph-fill ph-clock-countdown" aria-hidden="true"></i>
       <span>{copy.autoTasks}</span>
+      {#if automationUnreadCount > 0}<span class="nav-notification" aria-label={`${automationUnreadCount} ${copy.tasksReminderUnread}`}>{automationUnreadCount > 99 ? "99+" : automationUnreadCount}</span>{/if}
     </button>
     <button type="button" class="nav-item" class:active={activeWorkspacePane === "skills"} aria-current={activeWorkspacePane === "skills" ? "page" : undefined} onclick={onOpenSkills}>
       <i class="ph-fill ph-sparkle" aria-hidden="true"></i>
@@ -180,6 +183,7 @@
   .nav-item.active { background: var(--fill, rgba(0, 0, 0, 0.05)); color: var(--label-primary, #171717); font-weight: 600; }
   .nav-item.active i { color: var(--accent, #006bff); }
   .nav-item i { font-size: 16px; color: var(--label-secondary, #666); }
+  .nav-notification { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; border-radius: 9999px; background: var(--accent, #006bff); color: #fff; font-size: 10px; font-weight: 650; font-variant-numeric: tabular-nums; }
   .sidebar-channels {
     flex: 1 1 auto;
     overflow-y: auto;

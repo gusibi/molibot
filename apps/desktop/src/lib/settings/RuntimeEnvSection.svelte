@@ -9,7 +9,6 @@
   });
 </script>
 
-<p class="settings-section-hint">{session.text.runtimeEnvHint}</p>
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.unavailable}</p></div></div>
 {:else if runtimeEnvStore.loading || !runtimeEnvStore.runtimeEnv}

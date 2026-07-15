@@ -56,6 +56,20 @@ test("pinned memory survives expiry and compaction", () => withMemory(async (gat
   assert.equal((await gateway.search(scope, { query: "临时工作状态", mode: "hybrid", limit: 10 })).some((row) => row.id === expired.id), false);
 }));
 
+test("disabled memory remains searchable but is excluded from prompt injection", () => withMemory(async (gateway, backend) => {
+  const scope = { channel: "web", externalUserId: "chat", botId: "momo" };
+  const memory = await backend.add(scope, {
+    content: "用户明确偏好 macOS 原生界面风格",
+    type: "user_preference",
+    subject: "ui_style",
+    confidence: 0.98
+  });
+  const disabled = await gateway.update(scope, memory.id, { allowInjection: false });
+  assert.equal(disabled?.allowInjection, false);
+  assert.equal((await gateway.search(scope, { query: "macOS 原生界面", mode: "hybrid", limit: 10 })).some((row) => row.id === memory.id), true);
+  assert.equal((await gateway.createPromptSnapshot(scope, "macOS 原生界面", 5)).selected.some((row) => row.id === memory.id), false);
+}));
+
 test("embedding failure opens a cooldown and avoids repeated attempts", () => withMemory(async (_gateway, backend) => {
   let attempts = 0;
   backend.configureEmbedder(async () => { attempts += 1; throw new Error("provider unavailable"); }, "test-model");

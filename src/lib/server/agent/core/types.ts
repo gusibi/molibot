@@ -60,6 +60,7 @@ export interface LoggedMessage {
 export interface RunResult {
   runId?: string;
   workspaceId?: string;
+  assistantSourceEntryId?: string;
   stopReason: "stop" | "aborted" | "error" | "waiting_for_approval";
   errorMessage?: string;
 }

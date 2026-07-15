@@ -75,6 +75,7 @@ export class WebManager extends BaseChannelRuntime {
       imageContents: [],
       isEvent: true,
       taskId: event.taskId,
+      sessionId: event.sessionId,
       sessionMode: resolveEventSessionMode(event),
       runId
     });
@@ -129,6 +130,7 @@ export class WebManager extends BaseChannelRuntime {
         imageContents: [],
         isEvent: true,
         taskId: task.taskId,
+        sessionId: task.sessionId,
         sessionMode: resolveEventSessionMode(task),
         runId
       };

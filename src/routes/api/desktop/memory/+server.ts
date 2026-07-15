@@ -76,7 +76,7 @@ export const POST: RequestHandler = async ({ request }) => {
       payload = { ok: true, deleted: await memory.delete(scope, body.id.trim()) };
     } else if (body.action === "update") {
       if (!body.id?.trim()) throw new Error("id is required");
-      const item = await memory.update(scope, body.id.trim(), { content: body.content, tags: body.tags, expiresAt: body.expiresAt === null ? null : body.expiresAt, pinned: body.pinned });
+      const item = await memory.update(scope, body.id.trim(), { content: body.content, tags: body.tags, expiresAt: body.expiresAt === null ? null : body.expiresAt, pinned: body.pinned, allowInjection: body.allowInjection });
       payload = { ok: true, item };
     } else throw new Error("Unsupported memory action");
     return json(payload);

@@ -816,11 +816,12 @@ export class MomRuntimeStore {
     this.writeSessionFileEntries(chatId, id, entries);
   }
 
-  appendContextMessage(chatId: string, message: AgentMessage, sessionId?: string): void {
+  appendContextMessage(chatId: string, message: AgentMessage, sessionId?: string): string {
     const id = sessionId ? this.sanitizeSessionId(sessionId) : this.getActiveSession(chatId);
+    const entryId = createEntryId();
     this.appendSessionEntry(chatId, id, {
       type: "message",
-      id: createEntryId(),
+      id: entryId,
       parentId: null,
       timestamp: new Date(
         typeof (message as { timestamp?: number }).timestamp === "number"
@@ -831,6 +832,7 @@ export class MomRuntimeStore {
     });
     const snapshot = this.loadContext(chatId, id);
     writeFileSync(this.getSessionContextFile(chatId, id), JSON.stringify(snapshot, null, 2), "utf8");
+    return entryId;
   }
 
   /**

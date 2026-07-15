@@ -25,7 +25,6 @@
   }));
 </script>
 
-<p class="settings-section-hint">{session.text.runHistoryHint}</p>
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.runHistoryUnavailable}</p></div></div>
 {:else if runHistoryStore.loading}

@@ -88,7 +88,6 @@
   }
 </script>
 
-<p class="settings-section-hint">{session.text.pluginsHint}</p>
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.pluginsUnavailable}</p></div></div>
 {:else if pluginsStore.loading || !pluginsStore.plugins}

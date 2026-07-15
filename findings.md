@@ -1,3 +1,38 @@
+# PR #15 merge and release (2026-07-15)
+
+- The user confirmed Desktop and server are bundled and upgraded together, so mixed old-client/new-server compatibility is outside the supported deployment model.
+- A verified local merge candidate exists in the isolated scratch worktree; the primary worktree contains unrelated user changes and must not be used as the release staging area.
+- Release discovery is in progress; remote PR/branch/tag state and the unfinished older release plan must be reconciled before any push.
+- Primary `master` is already clean at the commit boundary `bc698627` / tag `v2.4.9`; only user-owned documentation and planning files are dirty.
+- Current versions are root `2.4.9` and Desktop/Tauri `0.4.6`. The required base-10 increments are root `2.5.0` and Desktop `0.4.7`.
+- The isolated PR candidate is merge commit `45adc560` with parents PR head `9736414b` and current master `bc698627`; its product tree is ready, while planning files and dependency directories remain out of release scope.
+- PR #15 was merged by GitHub at `cb3e6175b300d90a14009a7ac084fd54b2a72ae0`; remote `master` now points to that commit and no `v2.5.0` tag exists.
+- The isolated release worktree is clean at `cb3e6175` and tracks `origin/master`.
+- Release source versions are confirmed as root `2.4.9` and Desktop/Tauri `0.4.6`; release edits are limited initially to the two package manifests before the official sync script.
+- The top CHANGELOG date is 2026-07-15. Release notes must use only the delta after tag `v2.4.9`, not repeat the already-published Agent City section.
+- Version sync changed exactly five identifiers: root package `2.5.0`, Desktop package/Cargo manifest/Cargo lock/Tauri config `0.4.7`; `git diff --check` is clean.
+- The `v2.4.9..master` documentation delta contains the Settings API per-module split, shared Web/Desktop handlers, sanitizer/validator hardening, provider-model sharing, plugin-memory preservation, model-route isolation, and service-port migration. That delta is the release-note source.
+- Final release verification passed: focused Settings 23/23, Desktop/server API 197/197, Desktop UI/HTTP 54/54, Svelte diagnostics 0/0, production build, and Tauri `cargo check` for Desktop 0.4.7.
+- Adversarial scan found only the five intended version-file modifications, no whitespace errors, no added machine-specific absolute path/private-key marker, and no production caller of the retired exact `/api/settings` root.
+- Release commit and tag are both `50b2a8e2217491d7eebb6fd18291d713d6fda526`; remote `master` and `refs/tags/v2.5.0` resolve to that exact OID.
+- GitHub Release `v2.5.0` is published, non-draft, and non-prerelease at `https://github.com/gusibi/molibot/releases/tag/v2.5.0`; PR #15 is merged at `cb3e6175`.
+
+---
+
+# 2026-07-15 — Memory Center three-tab redesign
+
+- The selected visual truth is two independent states: generated Option 1 is the Overview tab and generated Option 2 is the Topics tab. They must not be merged into one composition.
+- The third top-level tab is All Memories and should preserve the existing real management surface rather than inventing a new mock.
+- Pending confirmation belongs in Overview content; Advanced Management remains a quiet secondary entry rather than a fourth peer tab.
+- The worktree already contains uncommitted memory trace, feedback, candidate, source/version, and allow-injection changes. All implementation must be incremental and preserve them.
+- Formal stored memories are not automatically “user confirmed”. Current truthful state fields include pending candidates, conflicts, expiry, pinning, injection eligibility, sources, versions, domain/type/subject/tags, and update time.
+- The browser preview must set both `VITE_MOLIBOT_PREVIEW=1` and `MOLIBOT_DESKTOP_PREVIEW_TARGET=http://127.0.0.1:3000`; otherwise the shell reports ready while `/molibot-api` is not proxied and Memory remains loading.
+- `class:lifestyle` exposed a substring-classification trap: matching `style` inside arbitrary tags falsely classified workout records as stable preferences. Preference tags now require exact semantic prefixes, while explicit preference language remains supported.
+- A useful profile summary must not select the three highest-scoring records from one theme. The Overview summary now takes at most one retained record per topic, keeping the real-data result multidimensional without generating new facts.
+- Generated visual truth and real Desktop screenshots were compared side by side. The final app intentionally preserves the product's wider existing Settings sidebar, while matching the reference hierarchy inside the Memory content area.
+
+---
+
 # GitHub issue #13 completion re-audit (2026-07-14)
 
 - The prior delivery statement conflated green structural tests for the selected
@@ -972,3 +1007,100 @@ rules, and contextual header format.
 - Final acceptance evidence is green for deterministic capacity boundaries, real Activity projection, safe in-place quality degradation, 2D detail parity, lifecycle cleanup contracts, diagnostics, server projection, and build. Formal Blender GLB art remains the issue's explicit P2 milestone rather than a blocker for the completed procedural first phase.
 
 ---
+# Memory Center and per-turn Memory Trace findings (2026-07-15)
+
+- The current memory pipeline selects up to 12 records in `MemoryGateway.createPromptSnapshot`, but `compactPromptMemory` later trims the serialized prompt to at most 5 lines and 220 characters. Therefore `MemoryPromptSnapshot.selected` is not the answer-reference source of truth.
+- The final materialization seam is `buildPromptInputEnvelope`: it currently receives only a string. The implementation needs a structured injection snapshot whose `promptText` and item list are generated together.
+- `MomRuntimeStore.appendContextMessage` currently creates but does not return its context entry ID. Returning it allows `RunResult` and UI metadata to bind a trace to the exact final visible Assistant entry without heuristic text matching.
+- Conversation projection already retains `sourceEntryId`, and UI message metadata already accepts it as a field; the missing work is carrying the ID through Runner result and message persistence.
+- Memory tool `afterToolCall` receives structured `args` and raw `result`, while generic activity hooks store only a preview. Write receipts must be captured at this structured shared seam, not reconstructed from visible text.
+- The existing Memory Settings page already contains record editing, source/version/rejection tools. The safest UI change is to reorganize and reuse those capabilities rather than replace the underlying APIs.
+- The memory tool returns written records under `result.details.item` for `add`, `update`, `add_content`, and `set_agent_self`; `flush` returns `details.result.memories`. These shapes allow exact write receipts without changing tool output text.
+- Existing operational traces share `settings.sqlite`. Memory Trace can use the same database with dedicated tables and an injectable constructor, avoiding another lifecycle/configuration surface while keeping tests on `:memory:` or temp files.
+- `RunResult` currently returns only run/workspace/stop/error. It is the narrowest shared place to add `assistantSourceEntryId` and lightweight memory outcome data for the caller that persists visible UI metadata.
+- The existing Desktop session detail endpoint already consumes shared conversation projection. Enriching that projection with batched trace metadata makes every Desktop chat load receive only `traceId`, `injectedCount`, and `writeCount`; full snapshots remain lazy-loaded.
+- `allowInjection` fits the existing memory metadata/versioning path: Mory stores it in record detail, JSON fallback stores it on the row, and prompt selection filters only at injection time so disabled memories remain visible/searchable.
+- The Memory page's existing technical tools remain useful, but their prior top-level ordering made them the primary experience. A three-view structure reuses all existing operations while making saved memories and pending confirmation the default user concepts.
+- Browser verification exposed a duplicated Memory-page description because both the Settings shell and section rendered the hint. The inner duplicate was removed and the offline copy was normalized from “内存” to “记忆”.
+- At an actual 600px viewport, the Chinese and English/Dark Memory settings routes had zero document-level horizontal overflow. The populated tabs/cards and Chat trace drawer could not be live-rendered without connecting the preview to user runtime data, so their data states are covered by contracts, diagnostics, and responsive CSS rather than a fabricated fixture.
+
+# Project Chat blank transcript findings (2026-07-15)
+
+- The reported Project Session exists and its API returns 13 messages; the data was never deleted.
+- The same session renders all 13 messages in a stable browser preview, excluding Memory Trace markup and message-role filtering as causes.
+- Project selection previously issued the same transcript request twice: `projectsStore` retained one result, while the visible `projectChatStore` Runtime depended on the other. Runtime reload failures were swallowed, allowing a successful Store response and an empty visible transcript to coexist.
+- The fix makes the Store request authoritative and hydrates the pinned Runtime directly. Component remounts reuse cached Runtime messages so a background/live transcript is not overwritten by stale Store data.
+- External Feishu/Telegram transcript APIs and render paths are untouched.
+# 一次性提醒任务收件箱：调查记录（2026-07-15）
+
+- 共享任务类型已经包含 `one-shot | periodic | immediate`，无需创造第二套提醒模型。
+- 当前 Desktop 自动任务产品列表有意只展示 `periodic`；`one-shot` 仍存在于 watched event JSON 和运行时状态中，因此应扩展产品投影而不是迁移存储。
+- 现有 PRD/功能记录明确写过“一次性任务不展示”，本需求会只推翻 `one-shot` 的排除规则，`immediate` 仍保留为诊断/内部类型。
+- 未读若仅用“completed 且没有 readAt”推导，会把所有历史提醒误算成未读；实现应在未来成功触发时显式写入未读标记，旧记录默认已读。
+- 侧边栏角标需要在未进入自动任务工作区时也能加载，不能只依赖该页面挂载后的本地状态。
+- 一次性任务成功完成的统一落盘点是 `EventsWatcher.markDone`；只在这里给 `one-shot` 写 `reminderUnread: true`，可以覆盖 Web、Telegram、飞书等所有渠道且不会影响周期任务。
+- Desktop API 与 Desktop 客户端目前各自过滤了一次 `periodic`；两处都必须放开 `one-shot`，但继续排除 `immediate`。
+- 页面现有两类 Tab 实际是“用户周期任务 / 系统周期任务”。第三个视图应按 `type` 与 `category` 双重筛选，避免系统内部事件混入提醒列表。
+- 侧边栏需要独立的轻量未读刷新；自动任务页面已有 3 秒轮询，侧边栏可用更低频的摘要轮询并由页面回调即时清零。
+- 对抗检查发现角标轮询曾被 `startReconnectPoll` 误清理；已改为只在 `onDestroy` 清理，连接建立后保持 15 秒轻量刷新。
+- 对抗检查发现已读写回失败若直接恢复 unread，Svelte effect 会立即再次提交；已用 unread ID 集合做单次尝试门控，避免失败风暴，离开再进入 Tab 可人工重试。
+- 未读汇总必须同时限定 `type === one-shot` 与 `category === user`；否则未来系统 one-shot 可能制造用户看不到也无法清除的角标。
+- 失败或 skipped 的 one-shot 不显示“已提醒”，保留失败文字和非纯颜色状态；只有 completed 使用“已提醒”。
+
+---
+# 系统任务执行会话不可打开：调查记录（2026-07-15）
+
+- 截图证据：系统任务最近执行记录存在、执行次数为 1，点击“打开会话”后详情 API/界面返回“会话可能已清理”；问题不是“没有 execution row”，而是 execution → session transcript 的解析失败。
+- 系统任务属于 Molibot Owner 级内部 watched event；需要验证它与普通 channel/bot watched event 是否使用不同 workspace/session 存储边界。
+- 当前运行服务 `127.0.0.1:3000` 可稳定复现数据前提：`daily-materials-owner` 有 1 条 completed execution，`sessionId=internal-daily-materials`；`memory-reflection-owner` 有 2 条 completed execution，`sessionId=internal-memory-reflection`。
+- 两个系统任务的投影均为 `channel=system, botId=owner, scope=workspace`。这与普通渠道任务的 workspace 推导很可能不同，可直接用 `/api/desktop/tasks` 的 session action 构造原始症状反馈循环。
+- 红色反馈循环已建立并连续运行两次：读取真实系统任务及最新 execution，再 POST `{action:"session"}`，要求 `session.messages.length > 0`。两次均稳定得到 HTTP 200 但 messages=0，精确复现“记录存在、会话详情为空”。
+- 反馈命令是秒级、确定性、无人值守且会以 exit 1 表示原始症状，满足诊断 Phase 1/2。
+- 仓库存在 `CONTEXT.md`，下一步需先读取其模块边界；未发现独立 ADR 路径命中。
+- Owner 系统任务的执行入口是 `runtime.runInternalEvent`，由 `TaskScheduler`/settings task trigger 直接调用；事件 `chatId` 固定为 `internal-memory-reflection` 或 `internal-daily-materials`，但这还不能证明它们是实际持久化的 Agent session ID。
+
+---
+## 2026-07-15：系统任务执行详情为空（继续）
+
+- 已建立稳定红灯：对所有已有执行记录的系统任务调用 `POST /api/desktop/tasks { action: "session" }`，接口均为 HTTP 200，但 `session.messages.length === 0`。
+- Desktop 当前假设每条执行租约都对应一个 `MomRuntimeStore` context，并按事件文件所在 workspace + `chatId/sessionId` 加载。
+- Owner 内部任务并不经过普通会话入口：`runInternalEvent` 直接调用 memory reflection / daily materials service；daily materials 的模型调用直接走 `assistant.reply(...)`，未见会话存储写入。
+- 因此“会话可能已清理”很可能是误导性兜底文案：该次内部执行从一开始就没有可加载的对话 context。
+- 下一步核对内部 service 返回值、execution lease 可持久化字段及 watcher 对返回结果的处理，再决定最小修复边界。
+- 已确认 service 本身有结构化结果：记忆反思返回扫描会话/消息数与新增候选数；每日素材返回扫描数、输出文件等。
+- `EventsWatcher` 的 `onEvent` 目前声明为 `Promise<void> | void`，`runAttemptWithTimeout` 在成功时主动丢弃返回值；`EventExecutionLeaseStore.markCompleted` 也只写状态和时间。
+- 当前根因排序：① 执行结果未被 watcher/lease 持久化（已证实）；② Desktop 对系统任务错误复用普通会话读取（已证实）；③ 历史记录已清理（不是这批记录为空的主因）。
+- 最小产品修复方向：为 execution lease 增加可选、结构化且面向人的执行详情；系统任务详情直接投影该记录，普通用户任务仍读取真实 Agent Context。
+- 兼容策略：新执行保存 service 汇总；旧执行无法补回已丢弃的业务指标，但可用租约元数据生成真实的状态、起止时间、尝试次数与“旧版本未保存详细输出”说明，避免继续误报“会话已清理”。
+- 事件结果应是共享上层的可选结构，而不是写进某个 Channel；普通任务返回 `void` 不受影响。
+- 红灯证据：lease 测试把结构化 result 传给现有 `markCompleted` 时被当成 Date 并抛错；Desktop projection 测试因 `buildDesktopSystemTaskExecution` 尚不存在而加载失败。
+- 实现采用可选 `result_json` 数据库迁移，旧库启动时自动加列；重试会清空上次 attempt 的 result，避免串用陈旧结果。
+- Desktop API 只允许两种已知系统结果并将数字归一化；每日素材只暴露 service 已返回的项目相对路径，不暴露机器绝对路径。
+- 对抗式复查的主要风险与处理：旧库缺列→自动迁移测试；retry 串结果→重新进入 running 时清空；历史无业务结果→lease 元数据 fallback；失败详情缺错误→投影并展示 `lastError`；未知/损坏 result→安全降级为 legacy fallback。
+- 当前 live API 复测仍返回旧的 `messages=0` 且无 `execution`，原因是 3000 端口服务进程尚未重启加载新 build；隔离测试和构建均已验证新链路，未擅自中断用户正在运行的服务。
+## 2026-07-15：内部审批 / Event Session 归属与侧栏标题修复
+
+- 用户指定固定实施顺序，当前先只处理审批链路。
+- 待建立三条核心红灯：审批命令是否进入普通 Session；Event 是否保留来源 Session；侧栏标题宽度是否被固定上限截断。
+- 历史兼容必须采用元数据分类/投影隐藏，不允许删除 `/hosttools...` 或 `[EVENT:...]` 原始数据。
+- 第 1 项初步边界：Desktop `resolveDesktopHostBashApproval` 当前仍 POST `/api/chat`，消息正文是 `/hosttools <decision> <requestId>`；现有注释声称不持久化，但用户数据已证明该假设不成立。
+- 服务端 `/api/chat` 内部确有 `/hosttools` 解析逻辑，说明审批尚未拥有 Desktop 专用细粒度 endpoint。
+- 最小修复 seam：复用现有 `/api/desktop/host-bash`，新增 `resolve_approval` action；客户端只提交 profile/session/request/decision 结构，不再构造聊天 message。
+- `/api/chat` 的 legacy `/hosttools` 命令仍可保留给用户主动输入，但 Desktop 审批按钮必须绕开它。
+- 已证实 `/api/chat` 命令分支会显式 `getOrCreateConversation` 并 append 用户命令与 Assistant 响应；“命令不持久化”的客户端注释与真实实现相反，这正是授权 Session 的直接原因。
+- 专用 endpoint 可用现有 `profileId + sessionId` 找到 runtime；SessionStore 已维护 conversation→externalUserId 所有权索引，可在服务端自行恢复 scope，无需客户端传 userId 或聊天文本。
+- Plain Web Session 可通过 `getWebConversationOwner(sessionId)` 恢复 externalUserId；Project Session 则由 `resolveRunnerChatId` 根据项目 Session 元数据恢复原渠道 scope，owner 缺失时可使用 Web profile 默认 identity 作为 fallback。
+- 最小共享方式：导出已有的 Web HostTools resolver 给专用 endpoint 调用；专用 endpoint 不触碰 `getOrCreateConversation/appendMessage`，legacy 用户命令仍走 `/api/chat` 并保留原行为。
+- 第 1 项已修复：Desktop 不再包含 hosttools subcommand mapper；专用 API 根据 Session owner 恢复 scope 并复用审批执行逻辑，不创建或追加 UI Session 消息。
+- 第 2 项当前链路：`MomEvent` 只有 `chatId/sessionMode`，没有来源 `sessionId`；Watcher 创建 execution lease 时也把 `sessionId` 错填成 `event.chatId`。
+- 触发侧 `BaseChannelRuntime.resolveInboundSessionId` 对非 fresh Event 直接读取“触发当时的 active session”，因此创建提醒后用户一旦切换 Session，提醒就会落入错误 Session；Web/Channel UI 还可能据此生成 `[EVENT:...]` 内部记录。
+- `createEventTool` 构造时只接收 workspace/chat/timezone；工具注册处其实已有当前 `options.sessionId`，但没有传入 Event 工具，这是来源 Session 丢失的创建点。
+- 各 Channel 会把 MomEvent 转成 synthetic inbound message；共享 `BaseChannelRuntime` 当前让 inbound `event.sessionId` 无条件优先，需调整为：fresh 仍新建 task Session，chat 才使用持久化来源 Session，legacy 缺字段再回退 active。
+- `delivery=text` 的直接提醒可能绕过共享 runner，Web 需要单独确认 append 目标；其余 agent Event 可由 shared runtime 统一保证。
+- 第 2 项红灯连续两次复现：新建 one-shot Event JSON 的 `sessionId` 均为 `undefined`。
+- 修复覆盖完整链路：工具注册传入当前 Session、Event JSON 持久化、execution lease 记录目标 Session、各渠道 synthetic Event 继续携带、shared runtime 对 chat Event 优先使用来源 Session；旧 Event 缺字段时仍回退当前 active Session。
+- `fresh` 周期任务仍由共享 runtime 新建独立 task Session，不会被持久化来源 Session 覆盖。
+- 构建验证发现并立即修复 SvelteKit endpoint 普通命名导出限制；辅助导出改为 `_handleWebHostToolsCommand` 后 Server production build 通过。
+- 第 3 项采用惰性、幂等、可逆回填：只有无 project/origin 且标题从开头严格匹配 `/hosttools` 或 `[EVENT:` 的 Web Session 才写入内部 origin；普通对话中间提到这些字符串不会命中，原消息和索引均保留。
+- 第 4 项根因是 `.row-title { max-width: min(30ch, 100%) }`；移除上限并让时间成为 `flex: 0 0 auto` 后，标题随侧栏宽度增长且不会与时间争抢布局计算。
+- 对抗式复查：Project 优先级高于内部分类；periodic fresh 分支先于来源 Session 解析；legacy Event 缺 sessionId 回退 active；hover 菜单仍使用原右侧固定槽且时间在 hover 时让位。

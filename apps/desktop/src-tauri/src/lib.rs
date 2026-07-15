@@ -113,7 +113,20 @@ fn restart_service(state: tauri::State<'_, Mutex<DesktopState>>) -> Result<(), S
 
 #[tauri::command]
 fn desktop_logs() -> Result<String, String> {
-    supervisor::read_service_log(256 * 1024)
+    supervisor::read_service_log(2000)
+}
+
+#[tauri::command]
+fn desktop_log_path() -> Result<String, String> {
+    supervisor::service_log_path().map(|path| path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn open_desktop_log(app: AppHandle) -> Result<(), String> {
+    let path = supervisor::service_log_path()?;
+    app.opener()
+        .open_path(path.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|error| error.to_string())
 }
 
 fn install_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -202,6 +215,8 @@ pub fn run() {
             set_login_start,
             restart_service,
             desktop_logs,
+            desktop_log_path,
+            open_desktop_log,
             audio::start_recording,
             audio::stop_recording,
             audio::cancel_recording

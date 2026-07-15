@@ -59,29 +59,66 @@ export interface DesktopUsageTotals {
   totalTokens: number;
 }
 
+export type DesktopUsageRange = "today" | "yesterday" | "last7Days" | "last30Days";
+
 export interface DesktopUsageWindow extends DesktopUsageTotals {
-  label: "today" | "yesterday" | "last7Days" | "last30Days";
+  label: DesktopUsageRange;
   startDate: string;
   endDate: string;
 }
 
-/**
- * One day of aggregate token/request usage. Carries only the date key and
- * credential-safe totals — the per-model and per-bot breakdowns from the shared
- * daily buckets are dropped so the Desktop trend chart never receives provider
- * names or bot ids.
- */
 export interface DesktopUsageDailyPoint extends DesktopUsageTotals {
   date: string;
+}
+
+export interface DesktopUsageTrendPoint extends DesktopUsageTotals {
+  key: string;
+  label: string;
+}
+
+export interface DesktopUsageModelRow extends DesktopUsageTotals {
+  id: string;
+  provider: string;
+  model: string;
+  api: string;
+}
+
+export interface DesktopUsageDimensionRow extends DesktopUsageTotals {
+  id: string;
+  label: string;
+}
+
+export interface DesktopUsageRecord extends DesktopUsageTotals {
+  ts: string;
+  channel: string;
+  botId: string;
+  provider: string;
+  model: string;
+  api: string;
 }
 
 export interface DesktopUsageSummary {
   timezone: string;
   generatedAt: string;
+  range: DesktopUsageRange;
+  window: { startDate: string; endDate: string };
+  filters: { modelId: string; botId: string; channel: string };
+  options: {
+    models: { id: string; label: string }[];
+    bots: string[];
+    channels: string[];
+  };
   totals: DesktopUsageTotals;
   windows: DesktopUsageWindow[];
-  /** Last-30-day daily series, oldest → newest, for the usage trend chart. */
   daily: DesktopUsageDailyPoint[];
+  trend: DesktopUsageTrendPoint[];
+  rankings: {
+    models: DesktopUsageModelRow[];
+    apis: DesktopUsageDimensionRow[];
+    bots: DesktopUsageDimensionRow[];
+    channels: DesktopUsageDimensionRow[];
+  };
+  records: { items: DesktopUsageRecord[]; total: number; page: number; pageSize: number };
 }
 
 export interface DesktopUsageResponse {
@@ -119,6 +156,8 @@ export interface DesktopRunHistoryResponse {
 }
 
 export type DesktopTraceRange = "today" | "yesterday" | "last7Days" | "last30Days";
+export type DesktopTraceFactType = "all" | "run" | "model_call" | "tool_call" | "skill_usage" | "subagent_task" | "runtime_notice" | "approval" | "input_enrichment";
+export type DesktopTraceStatus = "started" | "success" | "error" | "blocked" | "waiting" | "aborted" | "info" | "warning";
 
 export interface DesktopTraceTotals {
   facts: number;
@@ -141,12 +180,96 @@ export interface DesktopTraceTotals {
   avgModelDurationMs: number;
 }
 
+export interface DesktopTraceToolRow {
+  name: string;
+  calls: number;
+  executedCalls: number;
+  success: number;
+  error: number;
+  blocked: number;
+  avgDurationMs: number;
+}
+
+export interface DesktopTraceSkillRow {
+  name: string;
+  scope: string;
+  calls: number;
+  triggered: number;
+  loaded: number;
+  executed: number;
+  runs: number;
+  avgDurationMs: number;
+  lastAt: string;
+}
+
+export interface DesktopTraceModelRow extends DesktopUsageTotals {
+  id: string;
+  provider: string;
+  model: string;
+  api: string;
+  avgDurationMs: number;
+}
+
+export interface DesktopTraceEntityRow {
+  id: string;
+  label: string;
+  secondary: string;
+  runs: number;
+  toolCalls: number;
+  modelCalls: number;
+  distinctTools: number;
+  totalTokens: number;
+  lastAt: string;
+}
+
+export interface DesktopTraceFact {
+  id: string;
+  factType: Exclude<DesktopTraceFactType, "all">;
+  runId: string;
+  channel: string;
+  botId: string;
+  chatId: string;
+  sessionId: string;
+  name: string;
+  provider: string;
+  model: string;
+  api: string;
+  status: DesktopTraceStatus;
+  durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  updatedAt: string;
+}
+
 export interface DesktopTraceSummary {
   timezone: string;
   generatedAt: string;
   range: DesktopTraceRange;
   window: { startDate: string; endDate: string };
+  filters: {
+    factType: DesktopTraceFactType;
+    botId: string;
+    channel: string;
+    chatId: string;
+    sessionId: string;
+    runId: string;
+    sourceLimit: number;
+  };
+  options: { bots: string[]; channels: string[] };
   totals: DesktopTraceTotals;
+  rankings: {
+    tools: DesktopTraceToolRow[];
+    skills: DesktopTraceSkillRow[];
+    models: DesktopTraceModelRow[];
+    bots: DesktopTraceEntityRow[];
+    chats: DesktopTraceEntityRow[];
+    sessions: DesktopTraceEntityRow[];
+    runs: DesktopTraceEntityRow[];
+  };
+  facts: { items: DesktopTraceFact[]; total: number; page: number; pageSize: number };
 }
 
 export interface DesktopTraceResponse {
@@ -312,6 +435,7 @@ export interface DesktopTaskItem {
   runCount: number;
   completedAt: string;
   lastTriggeredAt: string;
+  reminderUnread: boolean;
   sessionMode: string;
   updatedAt: string;
   createdAt: string;
@@ -348,10 +472,26 @@ export interface DesktopTaskSessionMessage {
   createdAt: string;
 }
 
+export type DesktopSystemTaskExecutionResult =
+  | { kind: "memory-reflection"; completedTargets: number; scannedConversations: number; scannedMessages: number; createdCandidates: number }
+  | { kind: "daily-materials"; completedTargets: number; scannedConversations: number; scannedMessages: number; createdFiles: string[] };
+
+export interface DesktopSystemTaskExecution {
+  status: DesktopTaskExecutionStatus;
+  startedAt: string;
+  finishedAt?: string;
+  attempt: number;
+  maxAttempts: number;
+  lastError?: string;
+  result?: DesktopSystemTaskExecutionResult;
+  detailAvailable: boolean;
+}
+
 export interface DesktopTaskSession {
   taskId: string;
   sessionId: string;
   messages: DesktopTaskSessionMessage[];
+  execution?: DesktopSystemTaskExecution;
 }
 
 export interface DesktopTaskSummary {
@@ -363,6 +503,7 @@ export interface DesktopTaskSummary {
     byStatus: Record<DesktopTaskState, number>;
     byScope: { workspace: number; chatScratch: number };
     byChannel: Record<string, number>;
+    unreadOneShot: number;
     executions?: { total: number; completed: number; failed: number };
   };
 }
@@ -376,6 +517,7 @@ export type DesktopTaskActionRequest =
   | { action: "create"; task: DesktopTaskTarget & { text: string; delivery: string; schedule: string; timezone: string; sessionMode: string } }
   | { action: "update"; id: string; patch: { enabled?: boolean; text?: string; delivery?: string; at?: string; schedule?: string; timezone?: string; sessionMode?: string } }
   | { action: "delete" | "trigger"; ids: string[] }
+  | { action: "mark_one_shot_read"; ids: string[] }
   | { action: "session"; id: string; executionId: string }
   | { action: "history"; id: string; page: number; pageSize: number };
 
@@ -478,6 +620,46 @@ export interface DesktopConversationMessage {
   thinking?: string;
   attachments?: DesktopMessageAttachment[];
   activities?: DesktopConversationActivity[];
+  memoryTrace?: DesktopMessageMemoryTraceMeta;
+}
+
+export interface DesktopMessageMemoryTraceMeta {
+  traceId: string;
+  injectedCount: number;
+  writeCount: number;
+}
+
+export interface DesktopMemoryTraceItem {
+  memoryId: string;
+  order: number;
+  promptText: string;
+  snapshot: {
+    displayText: string;
+    content: string;
+    layer: string;
+    type?: string;
+    confidence?: number;
+    reason?: string;
+    tags: string[];
+    updatedAt: string;
+  };
+}
+
+export interface DesktopMemoryWriteReceipt {
+  memoryId: string;
+  operation: "added" | "updated";
+  snapshot: DesktopMemoryTraceItem["snapshot"];
+}
+
+export interface DesktopMemoryTraceResponse {
+  ok: true;
+  trace: {
+    id: string;
+    query: string;
+    injectedItems: DesktopMemoryTraceItem[];
+    writeReceipts: DesktopMemoryWriteReceipt[];
+    createdAt: string;
+  };
 }
 
 export interface DesktopConversationActivity {
@@ -791,8 +973,11 @@ export interface DesktopMemoryItem {
   subject?: string;
   path?: string;
   reason?: string;
+  confidence?: number;
   sources?: Array<{ channel: string; sessionId: string; conversationMessageId: string; platformMessageId?: string }>;
   pinned?: boolean;
+  allowInjection?: boolean;
+  createdAt?: string;
   updatedAt: string;
 }
 
@@ -812,7 +997,7 @@ export interface DesktopMemoryCandidate {
 }
 
 export type DesktopMemoryAction = "list" | "search" | "sync" | "flush" | "compact" | "backfill-embeddings" | "migrate-json-file" | "source" | "update" | "delete" | "versions" | "list-candidates" | "confirm-candidate" | "ignore-candidate";
-export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; channel?: string; userId?: string; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean }
+export interface DesktopMemoryActionRequest { action: DesktopMemoryAction; channel?: string; userId?: string; allScopes?: boolean; query?: string; limit?: number; id?: string; sessionId?: string; messageId?: string; content?: string; tags?: string[]; expiresAt?: string | null; namespace?: string; domain?: "owner" | "project" | "agent_self" | "content"; type?: string; subject?: string; confidence?: number; reason?: string; pinned?: boolean; allowInjection?: boolean }
 export interface DesktopMemoryActionResponse { ok: true; items?: DesktopMemoryItem[]; item?: DesktopMemoryItem; versions?: DesktopMemoryItem[]; sourceMessages?: Array<{ id: string; role: string; content: string; createdAt: string; selected: boolean }>; candidates?: DesktopMemoryCandidate[]; candidate?: DesktopMemoryCandidate | null; deleted?: boolean; result?: Record<string, number>; sync?: Record<string, number> }
 export interface DesktopMemoryRejection { createdAt: string; action: "add" | "update"; channel: string; externalUserId: string; reason: string; content: string; layer?: string; tags: string[] }
 export interface DesktopMemoryRejectionsResponse { ok: true; items: DesktopMemoryRejection[]; counts: { total: number; add: number; update: number } }
@@ -1066,6 +1251,8 @@ export interface DesktopMediaTask {
   progress?: number;
   prompt: string;
   resultUrl?: string;
+  /** Sanitized primitive display params only — never secrets or host paths. */
+  requestParams?: Record<string, unknown>;
   errorMessage?: string;
   createdAt: string;
   updatedAt: string;

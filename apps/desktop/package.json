@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "corepack pnpm exec tsx --test src/lib/chat/agentCityProjection.test.ts src/lib/chat/agentCityScene.test.ts && node --test src/chat-ui.test.mjs src/http-scope.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test": "corepack pnpm exec tsx --test src/lib/chat/agentCityProjection.test.ts src/lib/chat/agentCityScene.test.ts src/lib/settings/memoryCenter.test.ts && node --test src/chat-ui.test.mjs src/http-scope.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
     "sync:version": "node ../../scripts/sync-desktop-version.mjs",
     "prepare:runtime": "node ../../scripts/prepare-desktop-runtime.mjs",
     "tauri": "tauri",

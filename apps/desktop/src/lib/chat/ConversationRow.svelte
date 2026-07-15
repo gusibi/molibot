@@ -268,7 +268,6 @@
   .row-title {
     flex: 1 1 auto;
     min-width: 0;
-    max-width: min(30ch, 100%);
     font-size: 13px;
     line-height: 1.35;
     color: var(--label-primary, #171717);
@@ -277,13 +276,7 @@
     text-overflow: ellipsis;
   }
   .row-time {
-    position: absolute;
-    right: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    padding-left: 8px;
-    background: var(--conversation-row-overlay);
-    box-shadow: -7px 0 8px var(--conversation-row-overlay);
+    flex: 0 0 auto;
     font-size: 11px;
     color: var(--label-tertiary, #8f8f8f);
     white-space: nowrap;

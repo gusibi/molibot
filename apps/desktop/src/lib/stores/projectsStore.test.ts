@@ -118,3 +118,46 @@ test("selecting a project session repins the Project Chat transcript", async () 
     projectChatStore.disposeAll();
   }
 });
+
+test("a successful project transcript load hydrates the Project Chat runtime", async () => {
+  (globalThis as any).$state = <T>(value: T): T => value;
+  const { projectsStore, selectProjectSession } = await import("./projects.svelte.js");
+  const { projectChatStore } = await import("../projects/projectChatStore.svelte.js");
+  projectChatStore.disposeAll();
+  projectChatStore.init({
+    endpoint: () => projectsStore.endpoint,
+    modelReady: () => true,
+    labels: () => ({ working: "Working", uploading: "Uploading", stopped: "Stopped", idle: "Idle", resuming: "Resuming" }),
+    resolveModel: () => "model",
+    resolveThinking: () => "medium"
+  });
+  Object.assign(projectsStore, {
+    endpoint: "http://desktop.test",
+    selectedProjectId: "project",
+    selectedSessionId: "",
+    messages: [],
+    messagesLoading: false,
+    error: ""
+  });
+
+  let transcriptRequests = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (!url.endsWith("/projects/project/sessions/session-a")) {
+      throw new Error(`Unexpected request: ${url}`);
+    }
+    transcriptRequests += 1;
+    return jsonResponse({ ok: true, messages: [{ id: "m-a", conversationId: "session-a", role: "assistant", content: "Recovered transcript", createdAt: "2026-07-15T00:00:00.000Z" }] });
+  }) as typeof fetch;
+
+  try {
+    await selectProjectSession("session-a", "project");
+    assert.equal(transcriptRequests, 1);
+    assert.equal(projectsStore.messages[0]?.content, "Recovered transcript");
+    assert.equal(projectChatStore.registry.active?.messages[0]?.content, "Recovered transcript");
+  } finally {
+    globalThis.fetch = originalFetch;
+    projectChatStore.disposeAll();
+  }
+});

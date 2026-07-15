@@ -24,7 +24,6 @@
   const sandboxDirty = $derived(sandboxStore.sandboxEdit !== null && JSON.stringify(sandboxStore.sandboxEdit) !== sandboxStore.pristine);
 </script>
 
-<p class="settings-section-hint">{session.text.sandboxHint}</p>
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.sandboxUnavailable}</p></div></div>
 {:else if sandboxStore.loading || !sandboxStore.sandbox || !sandboxStore.sandboxEdit}

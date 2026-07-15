@@ -143,6 +143,18 @@
               </div>
             {/if}
             {#if message.model}<details class="message-model technical-detail"><summary><i class="ph ph-cpu" aria-hidden="true"></i>{humanizeModelOption(message.model, message.model).label}</summary><code>{message.model}</code></details>{/if}
+            {#if message.memoryTrace && messageActions?.onOpenMemoryTrace}
+              <button
+                type="button"
+                class="message-memory-trace"
+                onclick={() => messageActions.onOpenMemoryTrace!(message.memoryTrace!.traceId)}
+              >
+                <i class="ph ph-brain" aria-hidden="true"></i>
+                {#if message.memoryTrace.injectedCount > 0}{copy.memoryTraceReferenced.replace("{count}", String(message.memoryTrace.injectedCount))}{/if}
+                {#if message.memoryTrace.injectedCount > 0 && message.memoryTrace.writeCount > 0}<span aria-hidden="true">·</span>{/if}
+                {#if message.memoryTrace.writeCount > 0}{copy.memoryTraceStored.replace("{count}", String(message.memoryTrace.writeCount))}{/if}
+              </button>
+            {/if}
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
           </div>
         {/if}

@@ -1,6 +1,6 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
-import { buildDesktopTaskSessionMessages, buildDesktopTaskSummary, desktopTaskId, resolveDesktopTaskPaths, type DesktopTaskExecutionLoader } from "$lib/server/app/desktopTasks";
+import { buildDesktopSystemTaskExecution, buildDesktopTaskSessionMessages, buildDesktopTaskSummary, desktopTaskId, resolveDesktopOneShotTaskPaths, resolveDesktopTaskPaths, type DesktopTaskExecutionLoader } from "$lib/server/app/desktopTasks";
 import type { DesktopTaskActionRequest, DesktopTaskActionResponse, DesktopTaskResponse } from "$lib/shared/desktop";
 import { resolve } from "node:path";
 import { MomRuntimeStore } from "$lib/server/agent/session/store";
@@ -45,14 +45,16 @@ function buildSummary(payload: SharedTaskListResponse) {
   return buildDesktopTaskSummary(items, loadTaskExecutions, payload.targets ?? [], getEventExecutionLeaseStore().summarizeTasks(taskIds));
 }
 
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async ({ url }) => {
   const result = await listTasks(undefined as never);
   const payload = (await result.json()) as SharedTaskListResponse;
   if (!payload.ok) {
     return json({ ok: false, error: "Failed to list tasks" }, { status: 500 });
   }
 
-  const summary = buildSummary(payload);
+  const summary = url.searchParams.get("view") === "badge"
+    ? buildDesktopTaskSummary(payload.items as Parameters<typeof buildDesktopTaskSummary>[0])
+    : buildSummary(payload);
   const response: DesktopTaskResponse = { ok: true, summary };
   return json(response, { headers: { "Cache-Control": "no-store" } });
 };
@@ -74,6 +76,25 @@ export const POST: RequestHandler = async ({ request }) => {
       const after = await rawTaskList();
       const createdId = desktopTaskId(managed.created);
       return json({ ok: true, summary: buildSummary(after), affected: [createdId], failed: [] } satisfies DesktopTaskActionResponse);
+    }
+    if (body.action === "mark_one_shot_read") {
+      if (!Array.isArray(body.ids) || body.ids.length === 0) throw new Error("Task ids are required");
+      const paths = resolveDesktopOneShotTaskPaths(rawItems, body.ids);
+      const pathToId = new Map([...paths].map(([id, path]) => [path, id]));
+      const result = await manageTasks({ request: new Request("http://localhost/api/settings/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "mark_read", filePaths: body.ids.map((id) => paths.get(id)) })
+      }) } as never);
+      const managed = await result.json() as { ok?: boolean; updated?: string[]; failed?: Array<{ filePath: string; reason: string }>; error?: string };
+      if (!managed.ok && !managed.updated?.length) throw new Error(managed.error || "Failed to mark reminders read");
+      const after = await rawTaskList();
+      return json({
+        ok: true,
+        summary: buildSummary(after),
+        affected: (managed.updated ?? []).map((path) => pathToId.get(path)).filter((id): id is string => Boolean(id)),
+        failed: (managed.failed ?? []).map((item) => ({ id: pathToId.get(item.filePath) ?? "", reason: item.reason }))
+      } satisfies DesktopTaskActionResponse);
     }
     const ids = body.action === "update" || body.action === "session" || body.action === "history" ? [body.id] : body.ids;
     if (!Array.isArray(ids) || ids.length === 0) throw new Error("Task ids are required");
@@ -98,6 +119,22 @@ export const POST: RequestHandler = async ({ request }) => {
       if (!item) throw new Error("Task not found");
       const execution = getEventExecutionLeaseStore().getById(body.executionId);
       if (!execution || execution.taskId !== item.taskId) throw new Error("Execution not found");
+      const isSystemTask = item.managed?.by === "molibot" && item.managed.scope === "owner";
+      if (isSystemTask) {
+        const response: DesktopTaskActionResponse = {
+          ok: true,
+          summary: buildSummary(before),
+          affected: [],
+          failed: [],
+          session: {
+            taskId: item.taskId ?? "",
+            sessionId: execution.sessionId,
+            messages: [],
+            execution: buildDesktopSystemTaskExecution(execution)
+          }
+        };
+        return json(response);
+      }
       const marker = item.scope === "workspace" ? "/events/" : `/${item.chatId}/scratch/events/`;
       const markerIndex = resolve(item.filePath).indexOf(marker);
       if (markerIndex < 0) throw new Error("Unsupported task path");

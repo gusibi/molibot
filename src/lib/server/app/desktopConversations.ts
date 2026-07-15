@@ -119,6 +119,7 @@ export function buildWebItems(
 
 export function classifyWebPurpose(conversation: { id: string; projectId?: string; origin?: string }): DesktopConversationPurpose {
   if (conversation.projectId) return "project";
+  if (conversation.origin?.startsWith("internal:")) return "diagnostic";
   if (conversation.origin === "automation") return "automation";
   if (conversation.id.startsWith("task-")) return "automation";
   return "conversation";

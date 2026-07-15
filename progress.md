@@ -1,3 +1,37 @@
+# 2026-07-15 — Memory Center three-tab redesign
+
+- Corrected the visual implementation brief after user clarification: Overview = generated Option 1, Topics = generated Option 2, All Memories = existing management view.
+- Loaded the Product Design image-to-code/design-QA workflows, frontend design guidance, file-based planning workflow, and the Molibot macOS product-layer rules.
+- Established projection, behavior-preservation, responsive/i18n/theme, build, screenshot, and final visual-QA gates before touching product code.
+- Implemented separate Overview, Topics, and All Memories tabs; Pending remains inside Overview and Advanced opens as a secondary dialog.
+- Added deterministic memory projections, topic grouping, cross-topic profile summaries, strict stable-preference detection, and storage-tag filtering for related entities.
+- Preserved candidate confirmation, record edit/delete, source/version, injection eligibility, search, rejection, and maintenance behavior.
+- Completed real-data browser QA in Chinese/English, light/dark, 1440×1024, and 860×620 states; final reference/implementation comparison is recorded in `design-qa.md` with Passed status.
+- Final verification: projection 4/4, Desktop UI/HTTP 55/55, Desktop API 72/72, Svelte 0/0, `git diff --check`, and Desktop production build pass. Existing bundle-size/dynamic-import advisories remain unchanged.
+
+---
+
+# 2026-07-15 — PR #15 merge and release
+
+- Loaded the explicitly requested release workflow and the required file-based planning workflow.
+- Established a separate release boundary for PR #15 so unrelated primary-worktree changes and the older unfinished release plan are not silently included.
+- Confirmed `master` and `origin/master` point to the already released `v2.4.9`; selected the next versions `2.5.0` and Desktop `0.4.7` under the skill's decimal carry rule.
+- Confirmed the verified PR candidate is isolated at merge commit `45adc560`; no primary-worktree documentation change will enter the release.
+- Pushed `45adc560` to `split_setting_api`, confirmed the PR became clean/mergeable, and merged PR #15. GitHub reports merge commit `cb3e6175`; remote `master` matches it.
+- First release-worktree creation attempt failed because the new GitHub merge commit had not yet been fetched into the local object database; next action is a scoped `origin/master` fetch, not a repeated add.
+- Fetched only `origin/master` and created clean branch/worktree `release-v2.5.0` at the PR merge commit.
+- Applied root `2.5.0` and Desktop `0.4.7`, ran `scripts/sync-desktop-version.mjs`, and confirmed all five release identifiers plus a clean whitespace diff.
+- Confirmed GitHub's merge commit and the locally verified conflict-resolution commit have the exact same product tree `291041d9`; prior 107/107, 197/197, 54/54, Svelte 0/0, and production-build evidence applies to the merged product tree.
+- Offline dependency setup was blocked only by sandbox access to pnpm's cache SQLite database; retrying with scoped approval is required before a fresh release-worktree build.
+- Offline frozen dependency installation completed without downloads or lockfile changes. Desktop UI/HTTP passed 54/54.
+- The first API run passed 122 assertions but 12 test files could not start because the fresh worktree lacked generated SvelteKit `$lib` alias metadata; this is a setup failure, so the next run follows `svelte-kit sync`.
+- Generated SvelteKit aliases and reran successfully: API 197/197, Settings 23/23, UI/HTTP 54/54, Svelte 0/0, root production build, and Tauri `cargo check` all pass.
+- Completed the final five-file release diff and secret/machine-path/retired-caller review; candidate is ready to commit and tag.
+- Created release commit `50b2a8e2`, tagged `v2.5.0`, pushed the commit to `origin/master`, and pushed only the intended tag.
+- Published the final GitHub Release and removed the temporary release-notes file. Remote master/tag verification both resolve to `50b2a8e2`; PR #15 remains merged.
+
+---
+
 # 2026-07-14 — GitHub issue #13 completion re-audit
 
 - Reopened completion status after the user reported that Settings dropdowns still
@@ -693,3 +727,83 @@
 - The adversarial pass checked stable 0/1/100/101 projection, Canvas-safe full→low→2D downgrade, fallback information parity, rendering lifecycle cleanup, and theme/viewport evidence. It added explicit tooltip relationships for keyboard/screen-reader users and retained the honest limitation that live narrow-viewport and composed WebGL screenshot acceptance were unavailable in this browser run.
 
 ---
+# 2026-07-15 — Memory Center and per-turn Memory Trace
+
+- Started implementation from the approved PRD scope with explicit gates for exact final-injection accounting, immutable history, non-blocking tracing, and separate reference/write semantics.
+- Loaded the required file-planning and frontend-design workflows. Molibot's `DESIGN.md` remains the controlling visual system; no generic redesign is being introduced.
+- Confirmed the critical correctness gap: selected memory metadata can overstate what the prompt compactor actually injects. Phase 1 begins at this final serialization seam with focused tests.
+- Mapped the implementation seams end to end: final prompt envelope, Runner raw tool results, Agent context entry persistence, UI metadata projection, and Desktop lazy-loading contracts.
+- Final-injection, SQLite trace, write-receipt, and context-entry focused tests are green (9/9). The Runner now records only successful-turn traces and catches trace-store failures without changing the answer path.
+- Completed the Chat path: lightweight per-message counts, lazy trace API, reference/write sections, feedback submission, immutable snapshots, and responsive keyboard-dismissible drawer.
+- Completed the Memory center path: Saved/Pending/Advanced views, content-first saved cards, search, existing edit/source/version/delete tools, fixed save footers, and an `allowInjection` control enforced by shared prompt selection.
+- Current focused verification is green: memory/injection suites 14/14 and Desktop Svelte diagnostics 0 errors/0 warnings.
+- Broader projection/session coverage passed 13/13. Six unrelated Runner cases attempted to initialize the real read-only approval/settings database; the run was stopped as invalid evidence and will not be retried against user data.
+- Full Desktop service/API regression passed 197/197; the updated API client file passes 71/71 including lazy Trace load and feedback request paths. Final focused server/projection/session coverage passes 27/27.
+- Browser QA verified one non-duplicated Memory heading/description in Chinese and English, Dark theme, a 600px viewport with `scrollWidth === clientWidth`, and corrected the duplicate hint discovered in the first real render.
+- Adversarial review fixed five likely failures: selected-vs-injected count drift, trace failures blocking answers, disabled-memory loss on duplicate merge, feedback errors hiding loaded trace content, and dialog focus escaping/not returning to the trigger.
+- Final gates: Svelte diagnostics 0/0, Server production build green, Desktop production build green, and documentation synchronized across `features.md`, `prd.md`, `CHANGELOG.md`, `readme.md`, and the detailed PRD.
+
+---
+# 2026-07-15 — Project Chat blank transcript fix
+
+- Reproduced the reported session from live data: Project API returned 13 messages for `momo-agent / 当前这是一个什么项目`.
+- Identified two independent transcript requests and one visible Runtime authority as the failure mechanism.
+- Added a focused regression requiring one request and matching Store/Runtime content; it passes 2/2 with the existing Project Session switching regression.
+- Real browser verification renders 13 Project Chat articles, the expected header, and no empty state.
+- Desktop API tests pass 71/71, Svelte diagnostics report 0 errors/0 warnings, production build passes, and `git diff --check` is clean.
+# 一次性提醒任务收件箱：进度（2026-07-15）
+
+- 已读取并采用 `planning-with-files` 与 `frontend-design` skill；视觉方案服从项目既有 Geist、语义 token 与 shadcn 组件体系。
+- 已建立独立实施计划和验收标准。
+- 已确认当前工作区存在大量无关未提交修改，本次将只做外科式增量修改。
+- 当前：核对 `DESIGN.md`、PRD、任务投影、触发落盘和 Desktop 页面结构。
+- 已完成数据与 UI 链路核对；开始实现共享契约、事件未读落盘和已读 API。
+- 已完成共享契约、one-shot 未读落盘、已读 API、第三个 Tab、todo 列表、侧边栏角标、双语和响应式样式。
+- 验证通过：聚焦运行时/投影/Desktop API 86/86，Desktop UI 53/53，Svelte 0 错误 0 警告，Server 与 Desktop production build，`git diff --check`。
+- 对抗式复查完成并修正：轮询生命周期、失败重试风暴、隐藏系统未读计数；历史未读洪水、周期任务误标和失败误报均有明确防线。
+- 状态：完成，未提交且未触碰用户现有的记忆中心等其它改动。
+
+---
+# 系统任务执行会话不可打开：进度（2026-07-15）
+
+- 已读取并采用 `diagnosing-bugs` 与 `planning-with-files` skill。
+- 当前阶段：优先建立可捕获用户原始症状的红色反馈循环，尚未修改业务代码。
+- 已确认本机运行服务健康，并从真实 Desktop tasks API 捕获两个存在 completed execution 的系统任务夹具。
+- Phase 1/2 完成：真实 API 反馈循环连续两次红灯；最小必要元素为 system task + completed lease + session action，两个不同系统任务均复现。
+- Phase 3 开始：已向用户展示 5 个可证伪假设，开始检查内部 runtime 与存储边界。
+
+---
+## 2026-07-15：系统任务执行详情为空（继续）
+
+- [x] 用真实 Desktop API 复现：两个系统任务详情均返回空消息，退出码为 1。
+- [x] 排除单纯前端弹窗故障：空数据来自后端 session projection。
+- [x] 初步确认内部任务绕过普通会话/context 写入链路。
+- [ ] 核对内部任务实际返回结果与租约存储能力。
+- [x] 核对内部任务实际返回结果与租约存储能力：service 有结果，但 watcher 丢弃、lease 无字段。
+- [ ] 先补失败回归测试，再实现持久化与详情展示修复。
+- [x] 确定兼容边界：新记录保存业务结果；旧记录展示真实租约摘要，不伪造已丢失内容。
+- [x] 添加两条失败回归测试：租约结构化结果持久化失败；系统任务执行详情 projection 尚不存在。
+- [x] 实现 lease `result_json` 迁移、执行结果透传、Owner 系统任务指标聚合与 Desktop 安全 projection。
+- [x] 系统任务 UI 改为“查看执行记录”，弹窗展示状态、时间、尝试次数与业务指标；中英文均已补齐。
+- [x] 定向回归 108 项中 107 项通过；剩余 1 项仅为新增测试期望漏写 `scannedConversations: 0`，实现结果正确，已修正测试。
+- [x] 修正后定向服务端测试 36/36 通过。
+- [x] Desktop `svelte-check`：0 errors，0 warnings。
+- [x] 对抗式复查补齐失败执行错误文本、旧记录 fallback 与旧 SQLite `result_json` 自动迁移测试。
+- [x] 最终定向测试 38/38、Server production build、Desktop production build、Desktop Svelte check 全部通过。
+- [ ] 当前 3000 端口仍是构建前旧进程；避免中断用户会话，本轮不擅自重启，需在交付后重启一次 Molibot 服务加载新代码。
+## 2026-07-15：内部审批 / Event Session 归属与侧栏标题修复
+
+- [x] 读取 debugging 与文件化计划 skill，登记严格修复顺序和不可删除约束。
+- [x] 第 1 项：Desktop 审批改为 `/api/desktop/host-bash { action: resolve_approval }`；客户端 `/hosttools` mapper 已删除，红灯转绿。
+- [x] 第 1 项反馈循环：Desktop API 单测断言审批必须请求专用 endpoint 且 body 不含聊天 `message`。
+- [x] 第 1 项已找到正确测试 seam：Desktop client request contract。
+- [x] 第 1 项红灯连续两次稳定复现：实际请求 `/api/chat` 且 body 含 `/hosttools approve-session ...`。
+- [x] 第 1 项服务端 scope 恢复方式确认，不需要扩大客户端请求字段。
+- [x] 第 2 项：Event 来源 Session 红灯连续两次稳定失败，修复后持久化与目标解析两条回归均通过。
+- [x] 第 2 项根因入口确认：Event JSON 未持久化来源 Session，运行时只能退化到 active session。
+- [x] 第 2 项创建点与执行点确认：工具注册已有 sessionId；fresh/chat 优先级需在共享 runtime 修正。
+- [x] Event 来源 Session 已贯穿 Web/Telegram/飞书/QQ/微信 synthetic event；legacy 文件保持兼容回退。
+- [x] 用户报告的 SvelteKit 非法 endpoint export 已立即修复；Server production build 已通过。
+- [x] 第 3 项：历史内部记录高置信度回填为 `internal:approval` / `internal:event`，普通 Chat 隐藏；测试确认原消息仍逐字可读。
+- [x] 第 4 项：移除标题 `30ch` 固定上限并让时间进入独立 flex 列；宽度回归红灯转绿。
+- [x] 第 5 项完成：核心验收 5/5、相关完整测试 111/111、Desktop UI 53/53、Svelte 0/0、Server 与 Desktop production build、`git diff --check` 全部通过。

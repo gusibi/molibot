@@ -21,6 +21,7 @@
     isTaskUpdating,
     loadTaskHistoryPage,
     loadTasks,
+    markOneShotTasksRead,
     refreshTasks,
     openTaskSession,
     saveTaskCreate,
@@ -37,14 +38,15 @@
     cancelDeleteTask
   } from "../stores/tasks.svelte";
 
-  let { presentation = "settings" }: { presentation?: "settings" | "workspace" } = $props();
+  let { presentation = "settings", onUnreadChange = () => {} }: { presentation?: "settings" | "workspace"; onUnreadChange?: (count: number) => void } = $props();
 
   let selectedTaskId = $state("");
-  let activeTaskCategory = $state<"user" | "system">("user");
+  let activeTaskView = $state<"user" | "one-shot" | "system">("user");
   let detailDragStartX = $state(0);
   let detailDragOffset = $state(0);
   let detailDragging = $state(false);
   let taskDialogElement = $state<HTMLElement | null>(null);
+  let oneShotReadAttemptKey = $state("");
 
   $effect(() => {
     const dialogOpen = Boolean(tasksStore.taskCreate || tasksStore.historyTaskId || tasksStore.taskEdit || tasksStore.taskSession || tasksStore.pendingDeleteIds);
@@ -67,6 +69,10 @@
     detailDragging = false;
     if (detailDragOffset > 96) selectedTaskId = "";
     detailDragOffset = 0;
+  }
+
+  function isSystemTask(id: string): boolean {
+    return tasksStore.tasks?.items.some((task) => task.id === id && task.category === "system") === true;
   }
 
   $effect(() => {
@@ -113,13 +119,32 @@
   });
 
 
+  function matchesTaskView(item: DesktopTaskSummary["items"][number]): boolean {
+    if (activeTaskView === "one-shot") return item.category === "user" && item.type === "one-shot";
+    return item.category === activeTaskView && item.type === "periodic";
+  }
+
   const filteredTaskItems = $derived(
-    tasksStore.tasks?.items.filter((item) => item.category === activeTaskCategory && (!tasksStore.query.trim() || [taskTitle(item), item.text, item.channel, item.botId, item.chatId, item.status, item.type].join("\n").toLowerCase().includes(tasksStore.query.trim().toLowerCase()))) ?? []
+    tasksStore.tasks?.items.filter((item) => matchesTaskView(item) && (!tasksStore.query.trim() || [taskTitle(item), item.text, item.channel, item.botId, item.chatId, item.status, item.type].join("\n").toLowerCase().includes(tasksStore.query.trim().toLowerCase()))) ?? []
   );
 
+  const oneShotTaskItems = $derived([...filteredTaskItems].sort((a, b) => {
+    if (a.reminderUnread !== b.reminderUnread) return a.reminderUnread ? -1 : 1;
+    if (a.status === "completed" && b.status !== "completed") return 1;
+    if (a.status !== "completed" && b.status === "completed") return -1;
+    return (a.status === "completed" ? b.completedAt.localeCompare(a.completedAt) : a.scheduleText.localeCompare(b.scheduleText));
+  }));
+
   const taskCategoryCounts = $derived({
-    user: tasksStore.tasks?.items.filter((item) => item.category === "user").length ?? 0,
-    system: tasksStore.tasks?.items.filter((item) => item.category === "system").length ?? 0
+    user: tasksStore.tasks?.items.filter((item) => item.category === "user" && item.type === "periodic").length ?? 0,
+    "one-shot": tasksStore.tasks?.items.filter((item) => item.category === "user" && item.type === "one-shot").length ?? 0,
+    system: tasksStore.tasks?.items.filter((item) => item.category === "system" && item.type === "periodic").length ?? 0
+  });
+
+  const oneShotCounts = $derived({
+    pending: oneShotTaskItems.filter((task) => task.status !== "completed" && task.status !== "error" && task.status !== "skipped").length,
+    reminded: oneShotTaskItems.filter((task) => task.status === "completed").length,
+    unread: oneShotTaskItems.filter((task) => task.reminderUnread).length
   });
 
   const selectedTask = $derived(selectedTaskId ? filteredTaskItems.find((task) => task.id === selectedTaskId) ?? null : null);
@@ -182,11 +207,33 @@
     return task.text.split(/\r?\n/)[0] || task.text;
   }
 
-  function selectTaskCategory(category: "user" | "system"): void {
-    activeTaskCategory = category;
+  function selectTaskCategory(category: "user" | "one-shot" | "system"): void {
+    activeTaskView = category;
     selectedTaskId = "";
     tasksStore.selected = new Set();
   }
+
+  function oneShotStatusText(task: DesktopTaskSummary["items"][number]): string {
+    if (task.status === "completed") return session.text.tasksReminderReminded;
+    if (task.status === "error" || task.status === "skipped") return taskStatusLabel(task.status, session.text);
+    return session.text.tasksReminderPending;
+  }
+
+  $effect(() => {
+    onUnreadChange(tasksStore.tasks?.counts.unreadOneShot ?? 0);
+  });
+
+  $effect(() => {
+    if (activeTaskView !== "one-shot") {
+      oneShotReadAttemptKey = "";
+      return;
+    }
+    const unreadIds = tasksStore.tasks?.items.filter((item) => item.type === "one-shot" && item.category === "user" && item.reminderUnread).map((item) => item.id) ?? [];
+    const attemptKey = [...unreadIds].sort().join("\n");
+    if (!attemptKey || attemptKey === oneShotReadAttemptKey) return;
+    oneShotReadAttemptKey = attemptKey;
+    void markOneShotTasksRead(unreadIds);
+  });
 
   function pageSummary(page: number, pageSize: number, total: number): string {
     return session.text.tasksPageSummary.replace("{page}", String(page)).replace("{pages}", String(Math.max(1, Math.ceil(total / pageSize)))).replace("{total}", String(total));
@@ -223,17 +270,43 @@
   <div class="settings-card"><div class="settings-row"><p>{session.text.loading}</p></div></div>
 {:else}
   <div class:workspace={presentation === "workspace"} class="automation-category-tabs" role="tablist" aria-label={session.text.tasksCategories}>
-    <button class:active={activeTaskCategory === "user"} class="automation-category-tab" type="button" role="tab" aria-selected={activeTaskCategory === "user"} onclick={() => selectTaskCategory("user")}><i class="ph ph-user" aria-hidden="true"></i><span>{session.text.tasksUserTab}</span><small>{taskCategoryCounts.user}</small></button>
-    <button class:active={activeTaskCategory === "system"} class="automation-category-tab" type="button" role="tab" aria-selected={activeTaskCategory === "system"} onclick={() => selectTaskCategory("system")}><i class="ph ph-cpu" aria-hidden="true"></i><span>{session.text.tasksSystemTab}</span><small>{taskCategoryCounts.system}</small></button>
+    <button class:active={activeTaskView === "user"} class="automation-category-tab" type="button" role="tab" aria-selected={activeTaskView === "user"} onclick={() => selectTaskCategory("user")}><i class="ph ph-arrows-clockwise" aria-hidden="true"></i><span>{session.text.tasksUserTab}</span><small>{taskCategoryCounts.user}</small></button>
+    <button class:active={activeTaskView === "one-shot"} class="automation-category-tab" type="button" role="tab" aria-selected={activeTaskView === "one-shot"} onclick={() => selectTaskCategory("one-shot")}><i class="ph ph-bell" aria-hidden="true"></i><span>{session.text.tasksOneShotTab}</span><small>{taskCategoryCounts["one-shot"]}</small></button>
+    <button class:active={activeTaskView === "system"} class="automation-category-tab" type="button" role="tab" aria-selected={activeTaskView === "system"} onclick={() => selectTaskCategory("system")}><i class="ph ph-cpu" aria-hidden="true"></i><span>{session.text.tasksSystemTab}</span><small>{taskCategoryCounts.system}</small></button>
   </div>
-  {#if presentation === "workspace"}
+  {#if activeTaskView === "one-shot"}
+    <section class="automation-workspace one-shot-workspace" aria-label={session.text.tasksOneShotTab}>
+      <div class="automation-workspace-toolbar">
+        <SearchField value={tasksStore.query} label={session.text.tasksFilter} placeholder={session.text.tasksReminderFilterHint} onInput={(value) => (tasksStore.query = value)} />
+      </div>
+      <div class="automation-workspace-summary" aria-label={session.text.tasksReminderSummary}>
+        <span><strong>{taskCategoryCounts["one-shot"]}</strong>{session.text.tasksTotal}</span>
+        <span><strong>{oneShotCounts.pending}</strong>{session.text.tasksReminderPending}</span>
+        <span><strong>{oneShotCounts.reminded}</strong>{session.text.tasksReminderReminded}</span>
+        <span><strong>{oneShotCounts.unread}</strong>{session.text.tasksReminderUnread}</span>
+      </div>
+      {#if oneShotTaskItems.length === 0}
+        <div class="workspace-empty compact"><EmptyState title={session.text.tasksReminderEmpty} icon="bell" /></div>
+      {:else}
+        <ul class="one-shot-list" aria-label={session.text.tasksOneShotTab}>
+          {#each oneShotTaskItems as task (task.id)}
+            <li class:unread={task.reminderUnread} class:reminded={task.status === "completed"} class:error={task.status === "error" || task.status === "skipped"} class="one-shot-row">
+              <span class="one-shot-check" aria-hidden="true"><i class={`ph ${task.status === "completed" ? "ph-check" : task.status === "error" || task.status === "skipped" ? "ph-warning" : "ph-bell"}`}></i></span>
+              <span class="one-shot-copy"><strong>{taskTitle(task)}</strong>{#if taskBody(task.text)}<span>{taskBody(task.text)}</span>{/if}<small><i class="ph ph-clock" aria-hidden="true"></i>{taskScheduleText(task)}</small></span>
+              <span class="one-shot-state" data-status={task.status}>{#if task.reminderUnread}<i aria-hidden="true"></i>{/if}{oneShotStatusText(task)}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {:else if presentation === "workspace"}
     <section class="automation-workspace" aria-label={session.text.tasks}>
       <div class="automation-workspace-toolbar">
         <SearchField value={tasksStore.query} label={session.text.tasksFilter} placeholder={session.text.tasksFilterHint} onInput={(value) => (tasksStore.query = value)} />
-        {#if activeTaskCategory === "user"}<button class="primary-button automation-workspace-create" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.tasks.targets.length === 0} onclick={beginTaskCreate}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>{/if}
+        {#if activeTaskView === "user"}<button class="primary-button automation-workspace-create" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.tasks.targets.length === 0} onclick={beginTaskCreate}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>{/if}
       </div>
       <div class="automation-workspace-summary" aria-label={session.text.tasksTotal}>
-        <span><strong>{taskCategoryCounts[activeTaskCategory]}</strong>{session.text.tasksTotal}</span>
+        <span><strong>{taskCategoryCounts[activeTaskView]}</strong>{session.text.tasksTotal}</span>
         <span><strong>{executionTotals.total}</strong>{session.text.tasksRunCount}</span>
         <span><strong>{executionTotals.completed}</strong>{session.text.tasksSuccessful}</span>
         <span><strong>{executionTotals.failed}</strong>{session.text.tasksFailed}</span>
@@ -301,7 +374,7 @@
                     <div class="automation-task-run-row">
                       <span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span>
                       <span>{formatTaskTime(execution.startedAt)}</span>
-                      <button class="task-session-link" type="button" title={execution.sessionId} disabled={Boolean(tasksStore.busy) || !execution.sessionId} onclick={() => void openTaskSession(selectedTask.id, execution.id)}>{execution.sessionId ? session.text.tasksOpenSession : session.text.tasksSessionCleaned}</button>
+                      <button class="task-session-link" type="button" title={execution.sessionId} disabled={Boolean(tasksStore.busy) || !execution.sessionId} onclick={() => void openTaskSession(selectedTask.id, execution.id)}>{execution.sessionId ? (selectedTask.category === "system" ? session.text.tasksOpenExecution : session.text.tasksOpenSession) : session.text.tasksSessionCleaned}</button>
                     </div>
                   {/each}
                 {/if}
@@ -316,7 +389,7 @@
   <section class="automation-command-deck" aria-label={session.text.tasksByStatus}>
     <div class="automation-command-summary">
       <div class="automation-command-mark" aria-hidden="true"><i class="ph-fill ph-clock-countdown"></i><span></span></div>
-      <div><span class="automation-eyebrow">{session.text.tasksTotal}</span><strong>{taskCategoryCounts[activeTaskCategory]}</strong><small>{session.text.tasksHint}</small></div>
+      <div><span class="automation-eyebrow">{session.text.tasksTotal}</span><strong>{taskCategoryCounts[activeTaskView]}</strong><small>{session.text.tasksHint}</small></div>
     </div>
     <div class="automation-command-stats">
       <div><span class="stat-signal running"></span><small>{session.text.taskStatusRunning}</small><strong>{tasksStore.tasks.counts.byStatus.running}</strong></div>
@@ -325,7 +398,7 @@
     </div>
     <div class="automation-toolbar">
       <label class="automation-search"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input bind:value={tasksStore.query} aria-label={session.text.tasksFilter} placeholder={session.text.tasksFilterHint} /></label>
-      {#if activeTaskCategory === "user"}<button class="primary-button automation-create-button" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.tasks.targets.length === 0} onclick={beginTaskCreate}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>{/if}
+      {#if activeTaskView === "user"}<button class="primary-button automation-create-button" type="button" disabled={Boolean(tasksStore.busy) || tasksStore.tasks.targets.length === 0} onclick={beginTaskCreate}><i class="ph ph-plus" aria-hidden="true"></i>{session.text.tasksCreate}</button>{/if}
     </div>
   </section>
   {#if tasksStore.selected.size > 0}
@@ -418,7 +491,7 @@
           {#if !history}<p class="task-history-loading">{session.text.loading}</p>{:else if history.items.length === 0}<p class="task-history-loading">{session.text.tasksNoExecutions}</p>{:else}
             <div class="task-history-table-head"><span>{session.text.tasksByStatus}</span><span>{session.text.tasksLastTriggered}</span><span>{session.text.tasksSession}</span></div>
             {#each history.items as execution (execution.id)}
-              <div class="task-execution-row history-row"><span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span><span>{formatTaskTime(execution.startedAt)}</span><button class="task-session-link" type="button" title={execution.sessionId} disabled={!execution.sessionId || Boolean(tasksStore.busy)} onclick={() => void openTaskSession(tasksStore.historyTaskId, execution.id)}>{execution.sessionId ? session.text.tasksOpenSession : session.text.tasksSessionCleaned}</button></div>
+              <div class="task-execution-row history-row"><span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span><span>{formatTaskTime(execution.startedAt)}</span><button class="task-session-link" type="button" title={execution.sessionId} disabled={!execution.sessionId || Boolean(tasksStore.busy)} onclick={() => void openTaskSession(tasksStore.historyTaskId, execution.id)}>{execution.sessionId ? (isSystemTask(tasksStore.historyTaskId) ? session.text.tasksOpenExecution : session.text.tasksOpenSession) : session.text.tasksSessionCleaned}</button></div>
             {/each}
           {/if}
         </div>
@@ -441,15 +514,35 @@
     <div class="settings-action-toast" role="status"><span>{tasksStore.actionMessage}</span>{#if tasksStore.undoEnabledChange}<button type="button" onclick={() => void undoTaskEnabledChange()}>{session.text.undo}</button>{/if}</div>
   {/if}
   {#if tasksStore.taskSession}
-    <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" bind:this={taskDialogElement} aria-label={session.text.tasksSession} onclick={() => (tasksStore.taskSession = null)} onkeydown={(event) => { if (event.key === "Escape") tasksStore.taskSession = null; }}>
+    <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" bind:this={taskDialogElement} aria-label={tasksStore.taskSession.execution ? session.text.tasksExecutionDetail : session.text.tasksSession} onclick={() => (tasksStore.taskSession = null)} onkeydown={(event) => { if (event.key === "Escape") tasksStore.taskSession = null; }}>
       <div class="modal-card task-session-modal" tabindex="-1" role="presentation" onclick={(event) => event.stopPropagation()}>
         <header class="modal-head">
-          <strong>{session.text.tasksSession}</strong>
+          <strong>{tasksStore.taskSession.execution ? session.text.tasksExecutionDetail : session.text.tasksSession}</strong>
           <button class="modal-close" type="button" aria-label={session.text.cancel} onclick={() => (tasksStore.taskSession = null)}><i class="ph ph-x"></i></button>
         </header>
         <div class="modal-body messages task-session-detail" aria-live="polite">
           <details class="technical-detail task-session-technical"><summary>{session.text.technicalDetails}</summary><code>{tasksStore.taskSession.sessionId}</code></details>
-          {#if tasksStore.taskSession.messages.length === 0}
+          {#if tasksStore.taskSession.execution}
+            {@const execution = tasksStore.taskSession.execution}
+            <dl class="automation-task-facts">
+              <div><dt>{session.text.tasksByStatus}</dt><dd><span class={`execution-state state-${execution.status}`}><i></i>{executionStatusLabel(execution.status)}</span></dd></div>
+              <div><dt>{session.text.tasksExecutionStarted}</dt><dd>{formatTaskTime(execution.startedAt)}</dd></div>
+              <div><dt>{session.text.tasksExecutionFinished}</dt><dd>{formatTaskTime(execution.finishedAt ?? "")}</dd></div>
+              <div><dt>{session.text.tasksExecutionAttempt}</dt><dd>{execution.attempt} / {execution.maxAttempts}</dd></div>
+              {#if execution.lastError}<div><dt>{session.text.tasksFailed}</dt><dd>{execution.lastError}</dd></div>{/if}
+              {#if execution.result}
+                <div><dt>{session.text.tasksExecutionTargets}</dt><dd>{execution.result.completedTargets}</dd></div>
+                <div><dt>{session.text.tasksExecutionScannedConversations}</dt><dd>{execution.result.scannedConversations}</dd></div>
+                <div><dt>{session.text.tasksExecutionScannedMessages}</dt><dd>{execution.result.scannedMessages}</dd></div>
+                {#if execution.result.kind === "memory-reflection"}
+                  <div><dt>{session.text.tasksExecutionCreatedCandidates}</dt><dd>{execution.result.createdCandidates}</dd></div>
+                {:else}
+                  <div><dt>{session.text.tasksExecutionCreatedFiles}</dt><dd>{execution.result.createdFiles.length > 0 ? execution.result.createdFiles.join("、") : session.text.tasksExecutionNoFiles}</dd></div>
+                {/if}
+              {/if}
+            </dl>
+            {#if !execution.detailAvailable}<p>{session.text.tasksExecutionLegacy}</p>{/if}
+          {:else if tasksStore.taskSession.messages.length === 0}
             <p>{session.text.tasksSessionCleaned}</p>
           {:else}
             <ConversationTranscript messages={tasksStore.taskSession.messages} copy={session.text} formatTime={formatSessionTime} />

@@ -97,7 +97,7 @@ test("issue 13 macOS product tokens and accessibility preferences are shared", (
   assert.match(styles, /--font-ui:/);
   assert.match(styles, /--radius-control:\s*8px/);
   assert.match(styles, /--toolbar-height:\s*52px/);
-  assert.match(styles, /--settings-content-width:\s*576px/);
+  assert.match(styles, /--settings-content-width:\s*720px/);
   assert.match(styles, /--message-content-width:\s*720px/);
   assert.match(styles, /@media \(prefers-contrast: more\)/);
   assert.match(styles, /:root\[data-performance="low"\]/);
@@ -138,7 +138,7 @@ test("issue 13 automation uses a fixed list-detail template with separated statu
   assert.match(sections.tasks, /<OverflowMenu label=\{session\.text\.more\}>/);
   assert.match(sections.tasks, /formatNaturalSchedule\(task\.scheduleText, session\.locale\)/);
   assert.match(sections.tasks, /stopTaskRun\(selectedTask\.id/);
-  assert.match(app, /<TasksSection presentation="workspace" \/>/);
+  assert.match(app, /<TasksSection presentation="workspace"/);
   assert.match(styles, /\.automation-workspace-layout\.detail-open\s*\{[^}]*grid-template-columns:\s*320px minmax\(420px, 1fr\)/s);
   assert.match(styles, /@media \(max-width: 1099px\)[\s\S]*\.automation-task-detail\s*\{[^}]*position:\s*absolute/s);
 });
@@ -227,8 +227,9 @@ test("sidebar channel groups are independently collapsible with balanced list de
   assert.match(projectTree, /project-tree-head/);
   assert.doesNotMatch(projectTree, /project-tree-actions/);
   assert.match(projectTree, /opacity: 0; pointer-events: none/);
-  assert.match(row, /max-width: min\(30ch, 100%\)/);
-  assert.match(row, /right: 12px/);
+  assert.match(row, /\.row-title\s*\{[^}]*flex:\s*1 1 auto[^}]*min-width:\s*0/s);
+  assert.doesNotMatch(row, /\.row-title\s*\{[^}]*max-width:/s, "the title must grow with the resized sidebar");
+  assert.match(row, /\.row-time\s*\{[^}]*flex:\s*0 0 auto/s);
   assert.match(row, /right: 10px/);
   assert.doesNotMatch(view, /const firstBot = externalNav/);
   // Project and Chat share the same collapsible group rhythm and 40px Session row.
@@ -329,7 +330,7 @@ test("chat header is single-line and service status lives on the sidebar logo", 
 
 test("chat shell does not stay click-blocked during startup or sidebar resize", () => {
   assert.doesNotMatch(view, /await selectDefaultSession\(generation\)/);
-  assert.match(view, /loading = false;\s*void selectDefaultSession\(generation\)/);
+  assert.match(view, /loading = false;[\s\S]*void selectDefaultSession\(generation\)/);
   assert.match(view, /window\.addEventListener\("blur", stopSidebarResize\)/);
   assert.match(view, /document\.addEventListener\("mouseleave", stopSidebarResize\)/);
   assert.match(view, /onDestroy\(\(\) => \{[\s\S]*stopSidebarResize\(\)/);
@@ -389,7 +390,7 @@ test("automation management uses a command deck and opens full history in a moda
 
 test("automation workspace uses a dense list with a selected task detail pane", () => {
   const workspacePane = read("./lib/chat/ChatWorkspacePane.svelte");
-  assert.match(workspacePane, /<TasksSection presentation="workspace" \/>/);
+  assert.match(workspacePane, /<TasksSection presentation="workspace"/);
   assert.match(sections.tasks, /presentation\?: "settings" \| "workspace"/);
   assert.match(sections.tasks, /class="automation-workspace-layout"/);
   assert.match(sections.tasks, /class="automation-task-row"/);
@@ -401,8 +402,10 @@ test("automation workspace uses a dense list with a selected task detail pane", 
 test("automation workspace separates user and system tasks with accessible tabs", () => {
   assert.match(sections.tasks, /role="tablist"/);
   assert.match(sections.tasks, /session\.text\.tasksUserTab/);
+  assert.match(sections.tasks, /session\.text\.tasksOneShotTab/);
+  assert.match(sections.tasks, /markOneShotTasksRead/);
   assert.match(sections.tasks, /session\.text\.tasksSystemTab/);
-  assert.match(sections.tasks, /item\.category === activeTaskCategory/);
+  assert.match(sections.tasks, /item\.category === activeTaskView/);
   assert.match(styles, /\.automation-category-tabs\s*\{/s);
   assert.match(styles, /\.automation-category-tab\.active\s*\{/s);
 });
@@ -644,22 +647,29 @@ test("ProjectsView loads project state from a single reactive trigger", () => {
   assert.doesNotMatch(projectsView, /import\s*\{[^}]*onMount/);
 });
 
-test("usage and trace pages render chart dashboards instead of plain rows", () => {
-  // Usage: KPI tiles, the daily token trend area chart, distribution donut, window bars.
-  assert.match(sections.usage, /class="chart-kpi-grid"/);
-  assert.match(sections.usage, /class="trend-svg"[\s\S]*d=\{usageTokenArea\}/);
-  assert.match(sections.usage, /class="trend-line trend-line-token" d=\{usageTokenLine\}/);
-  assert.match(sections.usage, /class="donut-seg"[\s\S]*stroke-dasharray="\{seg\.len\}/);
+test("usage and trace pages provide full observability dashboards", () => {
+  assert.match(sections.usage, /untrack\(\(\) => \{[\s\S]*endpoint !== usageStore\.endpoint[\s\S]*loadUsage\(endpoint\)/);
+  assert.match(sections.trace, /untrack\(\(\) => \{[\s\S]*endpoint !== traceStore\.endpoint[\s\S]*loadTrace\(endpoint\)/);
+  assert.doesNotMatch(sections.usage, /session\.endpoint !== usageStore\.endpoint/);
+  assert.doesNotMatch(sections.trace, /session\.endpoint !== traceStore\.endpoint/);
+  assert.match(sections.usage, /class="observatory-filter-grid usage-filter-grid"/);
+  assert.match(sections.usage, /usageStore\.query\.modelId/);
+  assert.match(sections.usage, /usage\.rankings\[rankingView\]/);
+  assert.match(sections.usage, /class="observatory-table"/);
+  assert.match(sections.usage, /updateUsageQuery\(\{ page:/);
+  assert.match(sections.usage, /class="trend-line trend-line-token" d=\{tokenLine\}/);
+  assert.match(sections.usage, /class="donut-seg"/);
   assert.match(sections.usage, /class="window-bar-track"/);
-  // Trace: activity bars, the tool-outcome donut, coverage tiles, duration bars.
-  assert.match(sections.trace, /class="hbar-fill"[\s\S]*percentOf\(item\.value, traceActivityMax\)/);
-  assert.match(sections.trace, /each traceOutcomeSegments as seg/);
-  assert.match(sections.trace, /class="coverage-grid"/);
-  // Chart geometry + palette are present.
+  assert.match(sections.trace, /class="observatory-filter-grid trace-filter-grid"/);
+  assert.match(sections.trace, /trace\.rankings\[rankingView\]/);
+  assert.match(sections.trace, /trace\.facts\.items/);
+  assert.match(sections.trace, /class="hbar-fill"[\s\S]*percentOf\(item\.value, activityMax\)/);
+  assert.match(sections.trace, /each outcomeSegments as segment/);
   assert.match(charts, /function trendLinePath\(/);
   assert.match(charts, /function donutSegments\(/);
   assert.match(styles, /--chart-blue:/);
-  assert.match(styles, /\.donut-seg\s*\{/);
+  assert.match(styles, /\.observatory-table\s*\{/);
+  assert.match(styles, /\.observatory-mobile-list\s*\{/);
 });
 
 test("Desktop Trace exposes live, stuck, and orphan run controls", () => {
@@ -669,6 +679,7 @@ test("Desktop Trace exposes live, stuck, and orphan run controls", () => {
   assert.match(traceSection, /traceRunStuck/);
   assert.match(traceSection, /traceClearOrphan/);
   assert.match(traceSection, /setInterval\(\(\) => void refreshActiveRuns\(\), 3000\)/);
+  assert.doesNotMatch(traceSection, /onMount\(\(\) => \{\s*void refreshActiveRuns\(\)/);
   assert.match(activeRunsRoute, /snapshotAllRuntimeRuns\(\)/);
   assert.match(activeRunsRoute, /abortRuntimeRun/);
 });
@@ -679,7 +690,7 @@ test("Desktop Trace delete opens an in-app confirmation before submitting", () =
   assert.match(traceSection, /pendingActiveRun = item/);
   assert.match(traceSection, /role="dialog"/);
   assert.match(traceSection, /activeRunDialog\?\.focus\(\)/);
-  assert.match(traceSection, /stopDesktopActiveRun\(session\.endpoint, runId\)/);
+  assert.match(traceSection, /stopDesktopActiveRun\(session\.endpoint, selected\.runId\)/);
   assert.doesNotMatch(traceSection, /window\.confirm\(/);
 });
 
@@ -699,11 +710,13 @@ test("Desktop Stop waits for server finalization and reloads preserved output", 
   assert.doesNotMatch(conversationController, /this\.abort\?\.abort\(\);\s*try \{\s*const stopped = await stopDesktopChat/);
 });
 
-test("settings navigation matches the web taxonomy and entity editors open as dialogs", () => {
+test("settings navigation keeps the current product taxonomy and entity editors open as dialogs", () => {
   assert.match(app, /id: "general", sections: \["general"\]/);
-  assert.match(app, /id: "ai", sections: \["models", "providers", "usage", "trace", "mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"\]/);
+  assert.match(app, /id: "models", sections: \["models", "providers"\]/);
+  assert.match(app, /id: "assistant", sections: \["agents", "skills", "memory"\]/);
+  assert.match(app, /id: "tools", sections: \["mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "hostBash"\]/);
   assert.match(app, /id: "channels", sections: \["profiles", "channels"\]/);
-  assert.match(app, /id: "data", sections: \["agents", "memory", "skills", "runHistory", "logs", "tasks", "hostBash"\]/);
+  assert.match(app, /id: "activity", sections: \["tasks", "runHistory", "usage", "trace", "logs"\]/);
   assert.match(app, /id: "system", sections: \["runtimeEnv", "sandbox", "plugins", "diagnostics"\]/);
   for (const [formId, key] of Object.entries(formSectionKey)) {
     assert.match(sections[key], new RegExp(`id="desktop-${formId}-form"[^>]*aria-label=`));
@@ -715,6 +728,17 @@ test("settings navigation matches the web taxonomy and entity editors open as di
   assert.match(app, /label: sectionLabel\(item\.id, text\)/);
   assert.match(app, /<PageHeader title=\{sectionLabel\(activeSection, text\)\}/);
   assert.match(app, /\{text\[preview\.labelKey\]\}/);
+});
+
+test("Memory Center keeps overview, topics, and all memories as separate product tabs", () => {
+  assert.match(sections.memory, /type MemoryCenterTab = "overview" \| "topics" \| "all"/);
+  assert.match(sections.memory, /data-memory-view="overview"/);
+  assert.match(sections.memory, /data-memory-view="topics"/);
+  assert.match(sections.memory, /data-memory-view="all"/);
+  assert.match(sections.memory, /session\.text\.memoryUnderstandingTitle/);
+  assert.match(sections.memory, /class="memory-topic-workspace"/);
+  assert.match(sections.memory, /class="memory-all-view"/);
+  assert.doesNotMatch(sections.memory, /activeTab === "advanced"/);
 });
 
 test("AI provider editing uses a dedicated modal and separates provider and model concepts", () => {

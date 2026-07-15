@@ -8,7 +8,7 @@ import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { getTurnOrchestrator } from "$lib/server/agent/core/turnOrchestrator.js";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore.js";
-import { taskSessionRetentionMs } from "$lib/server/agent/events.js";
+import { resolveEventTargetSessionId, taskSessionRetentionMs } from "$lib/server/agent/events.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
@@ -169,7 +169,7 @@ export abstract class BaseChannelRuntime {
       momLog(this.channelName, "event_fresh_session_created", { chatId: scopeId, sessionId });
       return sessionId;
     }
-    const sessionId = this.store.getActiveSession(scopeId);
+    const sessionId = resolveEventTargetSessionId(event, this.store.getActiveSession(scopeId));
     if (event.isEvent && event.runId) {
       getEventExecutionLeaseStore().attachSessionByRunId(event.runId, sessionId);
     }
@@ -497,7 +497,9 @@ export abstract class BaseChannelRuntime {
     }
   ): Promise<void> {
     event.workspaceId = event.workspaceId || this.workspaceId;
-    const activeSessionId = event.sessionId || this.resolveInboundSessionId(scopeId, event);
+    const activeSessionId = event.isEvent
+      ? this.resolveInboundSessionId(scopeId, event)
+      : event.sessionId || this.resolveInboundSessionId(scopeId, event);
 
     // Prepare turn metadata via TurnOrchestrator
     getTurnOrchestrator().prepareTurn({

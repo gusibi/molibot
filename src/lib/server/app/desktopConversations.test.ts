@@ -220,6 +220,28 @@ test("classifyWebPurpose keeps project above automation fallbacks", () => {
   assert.equal(classifyWebPurpose({ id: "s-normal" }), "conversation");
 });
 
+test("historical approval and Event Sessions never enter ordinary Chat", () => {
+  const items = buildWebItems([
+    {
+      conversation: { id: "s-approval", title: "/hosttools approve-session x", updatedAt: "2026-07-09T00:00:00Z", origin: "internal:approval" },
+      externalUserId: "web:personal:web-anonymous",
+      lastMessageText: "approved"
+    },
+    {
+      conversation: { id: "s-event", title: "[EVENT:event-123", updatedAt: "2026-07-09T00:01:00Z", origin: "internal:event" },
+      externalUserId: "web:personal:web-anonymous",
+      lastMessageText: "reminder"
+    },
+    {
+      conversation: { id: "s-chat", title: "Normal chat", updatedAt: "2026-07-09T00:02:00Z" },
+      externalUserId: "web:personal:web-anonymous",
+      lastMessageText: "hello"
+    }
+  ], fakeResolver);
+
+  assert.deepEqual(items.filter((item) => item.purpose === "conversation").map((item) => item.sessionId), ["s-chat"]);
+});
+
 test("buildExternalItems marks external sessions read-only and recovers bot id", () => {
   const entries: ExternalSessionEntry[] = [
     {

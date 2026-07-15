@@ -2,11 +2,61 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildDesktopTaskSessionMessages,
+  buildDesktopSystemTaskExecution,
   buildDesktopTaskItem,
   buildDesktopTaskSummary,
   buildDesktopTaskTargets,
+  resolveDesktopOneShotTaskPaths,
   resolveDesktopTaskPaths
 } from "./desktopTasks";
+
+test("system task details project the execution record without requiring a chat context", () => {
+  assert.deepEqual(buildDesktopSystemTaskExecution({
+    id: "lease-1",
+    status: "completed",
+    sessionId: "internal-memory-reflection",
+    runId: "run-1",
+    attempt: 1,
+    maxAttempts: 3,
+    startedAt: "2026-07-15T01:00:00.000Z",
+    finishedAt: "2026-07-15T01:00:02.000Z",
+    result: {
+      kind: "memory-reflection",
+      completedTargets: 2,
+      scannedConversations: 0,
+      scannedMessages: 18,
+      createdCandidates: 3
+    }
+  }), {
+    status: "completed",
+    startedAt: "2026-07-15T01:00:00.000Z",
+    finishedAt: "2026-07-15T01:00:02.000Z",
+    attempt: 1,
+    maxAttempts: 3,
+    result: {
+      kind: "memory-reflection",
+      completedTargets: 2,
+      scannedConversations: 0,
+      scannedMessages: 18,
+      createdCandidates: 3
+    },
+    detailAvailable: true
+  });
+});
+
+test("legacy system task details keep lease metadata when no business result was retained", () => {
+  const detail = buildDesktopSystemTaskExecution({
+    status: "failed",
+    attempt: 2,
+    maxAttempts: 3,
+    startedAt: "2026-07-14T01:00:00.000Z",
+    finishedAt: "2026-07-14T01:00:02.000Z",
+    lastError: "Provider unavailable"
+  });
+  assert.equal(detail.detailAvailable, false);
+  assert.equal(detail.lastError, "Provider unavailable");
+  assert.equal(detail.result, undefined);
+});
 
 test("task session projection extracts chat text instead of serializing content blocks", () => {
   assert.deepEqual(buildDesktopTaskSessionMessages([
@@ -52,6 +102,7 @@ function item(overrides: Record<string, unknown> = {}) {
     runCount: 0,
     completedAt: "",
     lastTriggeredAt: "",
+    reminderUnread: false,
     sessionMode: "default",
     updatedAt: "2026-06-28T00:00:00.000Z",
     createdAt: "2026-06-28T00:00:00.000Z",
@@ -99,20 +150,21 @@ test("buildDesktopTaskItem classifies explicit Molibot managed events as system 
   assert.equal(buildDesktopTaskItem(item()).category, "user");
 });
 
-test("buildDesktopTaskSummary exposes only periodic automations", () => {
+test("buildDesktopTaskSummary exposes periodic and one-shot tasks but excludes immediate diagnostics", () => {
   const summary = buildDesktopTaskSummary([
     item({ type: "periodic", status: "pending", scope: "workspace", channel: "telegram" }),
-    item({ type: "one-shot", status: "completed", scope: "chat-scratch", channel: "feishu", chatId: "c2" }),
+    item({ type: "one-shot", status: "completed", scope: "chat-scratch", channel: "feishu", chatId: "c2", reminderUnread: true }),
     item({ type: "immediate", status: "error", scope: "workspace", channel: "telegram", chatId: "c3" })
   ]);
 
-  assert.equal(summary.counts.total, 1);
+  assert.equal(summary.counts.total, 2);
   assert.deepEqual(summary.targets, []);
-  assert.deepEqual(summary.counts.byType, { "one-shot": 0, periodic: 1, immediate: 0 });
-  assert.deepEqual(summary.counts.byStatus, { pending: 1, running: 0, completed: 0, skipped: 0, error: 0 });
-  assert.deepEqual(summary.counts.byScope, { workspace: 1, chatScratch: 0 });
+  assert.deepEqual(summary.counts.byType, { "one-shot": 1, periodic: 1, immediate: 0 });
+  assert.deepEqual(summary.counts.byStatus, { pending: 1, running: 0, completed: 1, skipped: 0, error: 0 });
+  assert.deepEqual(summary.counts.byScope, { workspace: 1, chatScratch: 1 });
   assert.equal(summary.counts.byChannel.telegram, 1);
-  assert.equal(summary.counts.byChannel.feishu, undefined);
+  assert.equal(summary.counts.byChannel.feishu, 1);
+  assert.equal(summary.counts.unreadOneShot, 1);
   assert.equal(summary.items[0].text.includes("API key"), true);
   assert.deepEqual(summary.counts.executions, { total: 0, completed: 0, failed: 0 });
 });
@@ -151,4 +203,9 @@ test("task ids resolve to server-side paths and reject unknown ids", () => {
   const id = buildDesktopTaskItem(source).id;
   assert.equal(resolveDesktopTaskPaths([source], [id]).get(id), source.filePath);
   assert.throws(() => resolveDesktopTaskPaths([source], ["missing"]), /Unknown task/);
+
+  const reminder = item({ type: "one-shot" });
+  const reminderId = buildDesktopTaskItem(reminder).id;
+  assert.equal(resolveDesktopOneShotTaskPaths([source, reminder], [reminderId]).get(reminderId), reminder.filePath);
+  assert.throws(() => resolveDesktopOneShotTaskPaths([source], [id]), /Unknown one-shot task/);
 });

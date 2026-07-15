@@ -149,14 +149,16 @@ export class ProjectChatStore {
   });
 
   /** Opens a project session: pins its working directory, ensures its
-   *  controller, marks it active (clearing any terminal unread dot), and reloads
-   *  its transcript. Switching never touches another entry's in-flight turn. */
-  selectSession(sessionId: string, projectId: string): void {
+   *  controller, and marks it active. Callers may provide an already-loaded
+   *  transcript so selection has one request authority; otherwise the runtime
+   *  reloads it. Switching never touches another entry's in-flight turn. */
+  selectSession(sessionId: string, projectId: string, messages?: UiMessage[]): void {
     if (!sessionId || !this.deps) return;
     this.sessionProjectIds.set(sessionId, projectId);
     const entry = this.registry.getOrCreate(PROJECT_PROFILE_ID, sessionId);
     this.registry.setActive(PROJECT_PROFILE_ID, sessionId);
-    void entry.reloadFromServer();
+    if (messages) entry.replaceMessages(messages);
+    else void entry.reloadFromServer();
   }
 
   /** Sends a turn on a specific session through its pinned controller. */

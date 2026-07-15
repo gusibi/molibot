@@ -121,7 +121,7 @@ export async function saveMemoryItem(item: DesktopMemoryItem): Promise<void> {
   if (!endpoint || memoryStore.busyAction) return;
   memoryStore.busyAction = item.id;
   try {
-    const result = await runDesktopMemoryAction(endpoint, { action: "update", channel: item.channel, userId: item.externalUserId, id: item.id, content: item.content, tags: item.tags, expiresAt: item.expiresAt || null, pinned: item.pinned });
+    const result = await runDesktopMemoryAction(endpoint, { action: "update", channel: item.channel, userId: item.externalUserId, id: item.id, content: item.content, tags: item.tags, expiresAt: item.expiresAt || null, pinned: item.pinned, allowInjection: item.allowInjection !== false });
     if (result.item) memoryStore.items = memoryStore.items.map((candidate) => candidate.id === item.id ? result.item! : candidate);
     memoryStore.memoryEdit = null;
     memoryStore.actionMessage = session.text.memoryUpdated;

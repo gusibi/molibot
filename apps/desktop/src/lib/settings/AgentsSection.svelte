@@ -7,6 +7,7 @@
     AGENT_FILE_NAMES,
     beginAgentEdit,
     beginNewAgent,
+    installAgentFromTemplate,
     loadAgents,
     removeAgent,
     saveAgentEditor,
@@ -26,8 +27,29 @@
   });
 </script>
 
-<p class="settings-section-hint">{session.text.agentsHint}</p>
 {#if session.serviceReady && !agentsStore.agentEdit}<div class="settings-section-actions"><button class="secondary-button" type="button" onclick={beginNewAgent}>{session.text.agentAdd}</button></div>{/if}
+{#if session.serviceReady && !agentsStore.agentEdit && agentsStore.templates.length > 0}
+  <div class="settings-card">
+    <div class="settings-row"><div class="profile-info"><strong>{session.text.agentTemplates}</strong><p>{session.text.agentTemplatesHint}</p></div></div>
+    {#each agentsStore.templates as template (template.id)}
+      <div class="settings-row">
+        <div class="profile-info">
+          <strong>{template.name}</strong>
+          <p>{template.description}</p>
+          <p>{template.category} · {template.id} · {template.source}</p>
+        </div>
+        <button
+          class="secondary-button"
+          type="button"
+          disabled={template.installed || Boolean(agentsStore.installingTemplateId)}
+          onclick={() => void installAgentFromTemplate(template.id)}
+        >
+          {template.installed ? session.text.agentTemplateInstalled : agentsStore.installingTemplateId === template.id ? session.text.agentTemplateInstalling : session.text.agentTemplateInstall}
+        </button>
+      </div>
+    {/each}
+  </div>
+{/if}
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.agentsUnavailable}</p></div></div>
 {:else if agentsStore.loading || !agentsStore.agents}

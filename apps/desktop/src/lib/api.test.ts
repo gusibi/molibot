@@ -26,7 +26,6 @@ import {
   externalSessionsForBot,
   groupExternalTranscriptByRole,
   hasEnabledWebProfile,
-  hostBashApprovalSubcommand,
   missingRuntimeDependencies,
   nextFollowUp,
   advanceOnboardingStep,
@@ -40,10 +39,16 @@ import {
   resolveOnboardingAgentSelection,
   resolveOnboardingRepairTarget,
   resolveOnboardingStartStep,
+  resolveDesktopHostBash,
   runDesktopMemoryAction,
   runDesktopTaskAction,
+  loadDesktopTrace,
+  loadDesktopUsage,
   loadDesktopMemoryRejections,
+  loadDesktopMemoryTrace,
+  submitDesktopMemoryTraceFeedback,
   loadDesktopTasks,
+  loadDesktopTaskUnreadCount,
   loadDesktopProjects,
   loadDesktopComposerSuggestions,
   createDesktopProject,
@@ -78,6 +83,35 @@ import {
   updateDesktopProviderGlobals,
   ONBOARDING_STEPS
 } from "./api";
+
+test("Desktop observability queries encode filters and clamp pagination", async () => {
+  const original = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    urls.push(String(url));
+    const summary = String(url).includes("/usage")
+      ? { timezone: "UTC", generatedAt: "", range: "today", window: { startDate: "", endDate: "" }, filters: { modelId: "all", botId: "all", channel: "all" }, options: { models: [], bots: [], channels: [] }, totals: {}, windows: [], daily: [], trend: [], rankings: { models: [], apis: [], bots: [], channels: [] }, records: { items: [], total: 0, page: 1, pageSize: 100 } }
+      : { timezone: "UTC", generatedAt: "", range: "today", window: { startDate: "", endDate: "" }, filters: { factType: "all", botId: "", channel: "", chatId: "", sessionId: "", runId: "", sourceLimit: 10000 }, options: { bots: [], channels: [] }, totals: {}, rankings: { tools: [], skills: [], models: [], bots: [], chats: [], sessions: [], runs: [] }, facts: { items: [], total: 0, page: 1, pageSize: 10 } };
+    return new Response(JSON.stringify({ ok: true, summary }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    await loadDesktopUsage("http://127.0.0.1:3000", { range: "today", modelId: "anthropic::claude/a", botId: "bot + 1", channel: "web", page: 0, pageSize: 999 });
+    await loadDesktopTrace("http://127.0.0.1:3000", { range: "last7Days", factType: "tool_call", botId: "bot + 1", channel: "feishu", chatId: "chat@id", sessionId: "session:1", runId: "run/1", sourceLimit: 99999, page: 0, pageSize: 1 });
+  } finally {
+    globalThis.fetch = original;
+  }
+  assert.match(urls[0], /range=today/);
+  assert.match(urls[0], /modelId=anthropic%3A%3Aclaude%2Fa/);
+  assert.match(urls[0], /botId=bot%2B%2B1|botId=bot\+%2B\+1/);
+  assert.match(urls[0], /page=1/);
+  assert.match(urls[0], /pageSize=100/);
+  assert.match(urls[1], /factType=tool_call/);
+  assert.match(urls[1], /chatId=chat%40id/);
+  assert.match(urls[1], /sessionId=session%3A1/);
+  assert.match(urls[1], /runId=run%2F1/);
+  assert.match(urls[1], /sourceLimit=10000/);
+  assert.match(urls[1], /pageSize=10/);
+});
 
 test("Desktop Trace action posts the selected run id", async () => {
   const original = globalThis.fetch;
@@ -366,11 +400,29 @@ test("parseDesktopApproval returns null without a request id", () => {
   assert.equal(parseDesktopApproval({ options: [] }), null);
 });
 
-test("hostBashApprovalSubcommand maps decisions to /hosttools subcommands", () => {
-  assert.equal(hostBashApprovalSubcommand("approve_once"), "approve-once");
-  assert.equal(hostBashApprovalSubcommand("approve_session"), "approve-session");
-  assert.equal(hostBashApprovalSubcommand("approve_persistent"), "approve");
-  assert.equal(hostBashApprovalSubcommand("reject"), "reject");
+test("Desktop Host Bash approval uses the dedicated API and never submits a chat command", async () => {
+  const original = globalThis.fetch;
+  const captured: Array<{ url: string; body: Record<string, unknown> }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    captured.push({ url: String(url), body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown> });
+    return new Response(JSON.stringify({ ok: true, response: "Approved" }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    assert.equal(await resolveDesktopHostBash("http://127.0.0.1:3000", "default", "session-1", "approval-1", "approve_session"), "Approved");
+    assert.deepEqual(captured[0], {
+      url: "http://127.0.0.1:3000/api/desktop/host-bash",
+      body: {
+        action: "resolve_approval",
+        profileId: "default",
+        sessionId: "session-1",
+        requestId: "approval-1",
+        decision: "approve_session"
+      }
+    });
+    assert.equal("message" in captured[0].body, false);
+  } finally {
+    globalThis.fetch = original;
+  }
 });
 
 test("filterSessionsByTitle matches case-insensitively and returns all when empty", () => {
@@ -1120,6 +1172,27 @@ test("desktop memory actions and rejections use the narrow memory endpoint", asy
   }
 });
 
+test("desktop memory trace loads lazily and submits scoped feedback", async () => {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; method: string; body: unknown }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+    return new Response(JSON.stringify(init?.method === "POST"
+      ? { ok: true }
+      : { ok: true, trace: { id: "trace/1", query: "macOS", injectedItems: [], writeReceipts: [], createdAt: "now" } }));
+  }) as typeof globalThis.fetch;
+  try {
+    assert.equal((await loadDesktopMemoryTrace("http://127.0.0.1:3000", "trace/1")).id, "trace/1");
+    await submitDesktopMemoryTraceFeedback("http://127.0.0.1:3000", "trace/1", "memory-1", "irrelevant");
+    assert.deepEqual(calls, [
+      { url: "http://127.0.0.1:3000/api/desktop/memory-trace/trace%2F1", method: "GET", body: null },
+      { url: "http://127.0.0.1:3000/api/desktop/memory-trace/trace%2F1", method: "POST", body: { memoryId: "memory-1", value: "irrelevant" } }
+    ]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 test("desktop task actions submit opaque ids to the narrow tasks endpoint", async () => {
   const original = globalThis.fetch;
   let captured: { url: string; method: string; body: unknown } | null = null;
@@ -1130,6 +1203,27 @@ test("desktop task actions submit opaque ids to the narrow tasks endpoint", asyn
   try {
     await runDesktopTaskAction("http://127.0.0.1:3000", { action: "trigger", ids: ["opaque-id"] });
     assert.deepEqual(captured, { url: "http://127.0.0.1:3000/api/desktop/tasks", method: "POST", body: { action: "trigger", ids: ["opaque-id"] } });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("desktop reminder badge uses the lightweight task summary and mark-read action stays one-shot scoped", async () => {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; method: string; body: unknown }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+    return new Response(JSON.stringify(init?.method === "POST"
+      ? { ok: true, summary: { items: [], targets: [], counts: { total: 0, byType: { "one-shot": 0, periodic: 0, immediate: 0 }, byStatus: { pending: 0, running: 0, completed: 0, skipped: 0, error: 0 }, byScope: { workspace: 0, chatScratch: 0 }, byChannel: {}, unreadOneShot: 0 } }, affected: ["reminder-id"], failed: [] }
+      : { ok: true, summary: { items: [], targets: [], counts: { total: 1, byType: { "one-shot": 1, periodic: 0, immediate: 0 }, byStatus: { pending: 0, running: 0, completed: 1, skipped: 0, error: 0 }, byScope: { workspace: 1, chatScratch: 0 }, byChannel: { web: 1 }, unreadOneShot: 1 } } }));
+  }) as typeof globalThis.fetch;
+  try {
+    assert.equal(await loadDesktopTaskUnreadCount("http://127.0.0.1:3000"), 1);
+    await runDesktopTaskAction("http://127.0.0.1:3000", { action: "mark_one_shot_read", ids: ["reminder-id"] });
+    assert.deepEqual(calls, [
+      { url: "http://127.0.0.1:3000/api/desktop/tasks?view=badge", method: "GET", body: null },
+      { url: "http://127.0.0.1:3000/api/desktop/tasks", method: "POST", body: { action: "mark_one_shot_read", ids: ["reminder-id"] } }
+    ]);
   } finally {
     globalThis.fetch = original;
   }
@@ -1158,7 +1252,7 @@ test("desktop task loading tolerates an older runtime response without execution
     ok: true,
     summary: {
       items: [
-        { id: "once", type: "one-shot", status: "completed", scope: "workspace", channel: "telegram" },
+        { id: "once", type: "one-shot", status: "completed", scope: "workspace", channel: "telegram", reminderUnread: true },
         { id: "cron", type: "periodic", status: "pending", scope: "workspace", channel: "telegram" }
       ],
       counts: {
@@ -1172,12 +1266,13 @@ test("desktop task loading tolerates an older runtime response without execution
   }), { status: 200 })) as typeof globalThis.fetch;
   try {
     const summary = await loadDesktopTasks("http://127.0.0.1:3000");
-    assert.deepEqual(summary.items.map((item) => item.id), ["cron"]);
+    assert.deepEqual(summary.items.map((item) => item.id), ["once", "cron"]);
     assert.equal(summary.items[0].enabled, true);
     assert.deepEqual(summary.items[0].executions, []);
-    assert.equal(summary.counts.total, 1);
+    assert.equal(summary.counts.total, 2);
     assert.equal(summary.counts.byType.periodic, 1);
-    assert.equal(summary.counts.byType["one-shot"], 0);
+    assert.equal(summary.counts.byType["one-shot"], 1);
+    assert.equal(summary.counts.unreadOneShot, 1);
     assert.deepEqual(summary.counts.executions, { total: 0, completed: 0, failed: 0 });
   } finally {
     globalThis.fetch = original;

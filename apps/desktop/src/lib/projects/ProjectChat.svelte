@@ -137,7 +137,12 @@
     resolveThinking: resolveSessionThinking
   });
   if (projectsStore.selectedSessionId && projectsStore.endpoint) {
-    projectChatStore.selectSession(projectsStore.selectedSessionId, projectsStore.selectedProjectId);
+    const cachedMessages = projectChatStore.registry.get("personal", projectsStore.selectedSessionId)?.messages;
+    projectChatStore.selectSession(
+      projectsStore.selectedSessionId,
+      projectsStore.selectedProjectId,
+      cachedMessages ?? projectsStore.messages as Parameters<typeof projectChatStore.selectSession>[2]
+    );
   }
 
   // Legacy `$:` can't track the store's runes `$state`; subscribe to its single

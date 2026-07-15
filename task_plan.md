@@ -1,3 +1,67 @@
+# Memory Center three-tab redesign (2026-07-15)
+
+## Goal
+Implement the selected Memory Center visuals as three separate product views: Option 1 as Overview, Option 2 as Topics, and the existing management surface as All Memories, while preserving the in-progress memory trace work and showing only facts derived from real memory data.
+
+## Current phase
+Complete
+
+## Phases
+1. Audit the current memory contract, UI changes, and projection seams — complete
+2. Add tested Overview/Topic projections without fabricated confidence or summaries — complete
+3. Implement independent Overview / Topics / All Memories tabs and interactions — complete
+4. Verify i18n, light/dark themes, 860×620 responsive behavior, tests, and production build — complete
+5. Capture both selected states, run visual design QA, update product docs, and adversarially review — complete
+
+## Verification gates
+- Overview and Topics remain separate tabs and match their separately selected visual targets.
+- Overview, topic facts, recent changes, and counts come from real memory/candidate fields; no mock profile facts ship.
+- Existing trace, candidate confirmation, source/version, edit/delete, allow-injection, and advanced maintenance behavior remains available.
+- UI supports Chinese/English, light/dark themes, keyboard access, and the 860×620 minimum window.
+- `design-qa.md` ends with `final result: passed` for both Overview and Topics before handoff.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| “1 + 2” was initially interpreted as a single merged page | 1 | User clarified that Option 1 is Overview and Option 2 is Topics; implementation now treats them as independent tabs. |
+| `rg` treated a search pattern beginning with `--` as a command flag | 1 | Re-ran with `rg -e` and the same literal alternatives; source inspection completed. |
+| Root `node_modules/.bin` does not expose `svelte-check` | 1 | Run the package-scoped `pnpm exec svelte-check` command instead of repeating the missing root binary path. |
+| Existing dialog structure test required `aria-label` on the memory form itself | 1 | Restored the form label while keeping the enclosing semantic dialog; no product behavior changed. |
+| New projection regression test initially called the fixture helper by the wrong name | 1 | Replaced `item(...)` with the existing `memory(...)` fixture and reran the unchanged assertion; 4/4 projection tests pass. |
+
+---
+
+# PR #15 merge and release (2026-07-15)
+
+## Goal
+Publish the verified PR #15 settings-API split as a synchronized Molibot release without including unrelated dirty-worktree changes.
+
+## Current phase
+Complete
+
+## Phases
+1. Confirm PR/remote state, current versions/tags, and isolate unrelated local changes — complete
+2. Put the verified PR #15 merge result on `master` — complete
+3. Increment root/Desktop patch versions and synchronize Tauri/Cargo identifiers — complete
+4. Verify version consistency, focused regressions, production build, and release diff — complete
+5. Commit, tag, push, publish GitHub Release, and verify remote state — complete
+
+## Release gates
+- Client and bundled service ship together; no mixed-version compatibility requirement.
+- Do not include unrelated changes from the user's primary worktree.
+- Use the release skill's base-10 patch carry rule and synchronize all five version files.
+- Do not overwrite an existing tag or GitHub Release.
+- Release notes must describe the actual PR #15 delta and verified compatibility fixes.
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| `git worktree add` could not resolve the newly merged remote commit | 1 | Fetch only `origin/master`, verify the fetched OID, then create the isolated release worktree from that local ref. |
+| Offline pnpm install could not open pnpm's cache SQLite database inside the sandbox | 1 | Retry the same offline, frozen-lockfile install with approved cache access; no network dependency resolution or lockfile mutation is requested. |
+| Fresh release worktree API test could not resolve `$lib` in 12 test files | 1 | Generate SvelteKit aliases with `svelte-kit sync`, then rerun the unchanged API suite; 122 assertions had already passed and no product assertion failed. |
+
+---
+
 # GitHub issue #13 completion re-audit (2026-07-14)
 
 ## Goal
@@ -1192,3 +1256,139 @@ Phase 5 — complete
 | In-app browser viewport override reported success but remained 1280×800 on two checks | 1–2 | Stop repeating the unsupported override in this browser; correct the evidence record and retain source/responsive tests for narrow behavior without claiming live 860×620 validation. |
 
 ---
+# Memory Center and per-turn Memory Trace implementation (2026-07-15)
+
+## Goal
+Ship the first real Molibot memory-observability slice: the Memory page clearly separates saved and pending memories, Chat lists the exact memories injected into each answer, and the same turn separately reports memories newly stored or updated.
+
+## Current phase
+Complete
+
+## Phases
+1. Freeze exact final-injection, trace, write-receipt, and message-binding contracts; add focused red tests — complete
+2. Implement shared final-injection snapshot, persistent trace store, and stable Assistant source-entry binding — complete
+3. Capture structured memory write receipts and expose lazy Desktop/API contracts — complete
+4. Implement Chat memory trigger/drawer and reorganize the Memory center with bilingual, responsive, themed UI — complete
+5. Run focused/full verification, adversarial review, and update product documentation — complete
+
+## Verification gates
+- The reference count equals the final memories actually serialized into the LLM context, never retrieved or merely selected counts.
+- Historical traces render immutable snapshots even after a memory is edited or deleted.
+- “Answer references” and “stored this turn” remain separate facts and UI sections.
+- Trace/write-receipt failure cannot block or alter the Agent answer.
+- Trace tests use temporary/injectable SQLite stores and never touch the user runtime database.
+- Desktop UI is verified in Chinese/English, light/dark, wide/narrow layouts, keyboard flow, and Svelte diagnostics.
+- `git diff --check`, focused tests, relevant full suites, and production build pass before completion.
+
+## Decisions
+| Decision | Rationale |
+| --- | --- |
+| Materialize prompt text and injected items in one shared step | The existing prompt compactor trims a selected set again; deriving UI metadata earlier would produce a false count and false history. |
+| Bind traces to the final visible Assistant context entry via `sourceEntryId` | Message IDs can be reprojected while the context entry is the stable persisted answer produced by the run. |
+| Capture write receipts from structured tool results in the shared Runner | Text previews are lossy and Channels must not own cross-channel Agent behavior. |
+| Keep reference trace and write receipt as separate sections | A memory provided to the model and a memory persisted by the turn are different lifecycle events. |
+| Preserve the current technical memory tools behind an advanced surface | Existing debugging power remains available while the default page becomes understandable to normal users. |
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| zsh expanded the bracketed SvelteKit route path as a glob | 1 | Quote bracketed route paths in inspection commands; no repository state changed. |
+| Root package has no `npm run check` script | 1 | Inspect the declared scripts and use the repository's actual diagnostics command; no package state changed. |
+| Direct `tsx` Runner test could not load imported Markdown templates | 1 | Re-run Runner coverage with the repository's `scripts/register-loader.js` invocation used by package tests. |
+| Runner suite reached the real read-only settings/approval database and 6 tests failed before exercising this change | 1 | Do not retry against user data; use an isolated temporary data/config environment for any further Runner run, and rely on focused pure/injectable tests meanwhile. |
+| Combined verification's `tsx` CLI could not bind its sandbox IPC socket | 1 | Keep the already-green Svelte result and rerun tests through `node --import tsx --test`, which does not need the CLI IPC server. |
+| Sandboxed Desktop preview could not bind localhost | 1 | Start the same local-only preview with scoped bind approval; no external network exposure. |
+
+---
+
+# Project Chat blank transcript fix (2026-07-15)
+
+## Goal
+Restore existing Project Session messages without changing external Feishu/Telegram transcript behavior.
+
+## Current phase
+Complete
+
+## Phases
+1. Reproduce against the reported Project Session and verify persistence/API data — complete
+2. Trace Project selection through Store, Runtime, and renderer — complete
+3. Add a focused regression and remove duplicate transcript loading — complete
+4. Verify the real DOM, Svelte diagnostics, production build, docs, and diff — complete
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Initial browser target used port 5173, while the Desktop Vite server was on 1420 | 1 | Inspect the existing process listener, then use an isolated preview on 4179 without disturbing the user's app. |
+| The broad Project Store file includes an unrelated stale first test | 1 | Use the two exact Project Session regression names as the valid bug-fix seam; separately run Svelte diagnostics, API tests, production build, and real-page DOM verification. |
+| The installed planning skill package has no `scripts/check-complete.sh` at its documented root | 1 | Record the packaging mismatch and use the explicit completed phase list plus clean `git diff --check` as the completion gate. |
+# 一次性提醒任务收件箱（2026-07-15）
+
+## 目标
+
+在 Desktop“自动任务”工作区增加“一次性任务”Tab：只展示一次性提醒，触发前显示“提醒”，成功触发后显示“已提醒”；新触发的提醒产生未读角标，进入该 Tab 后标记已读；周期任务行为保持不变。
+
+## 成功标准
+
+- [x] 一次性提醒与周期任务、系统任务分 Tab 展示，历史诊断任务不混入产品列表。
+- [x] 未触发/已触发状态由 watched event JSON 的运行时状态可靠派生。
+- [x] 只有功能上线后新触发的一次性提醒产生未读，旧历史记录不会形成未读洪水。
+- [x] 进入“一次性任务”Tab 后持久化已读，并同步清除侧边栏“自动任务”角标。
+- [x] 周期任务不参与提醒未读机制。
+- [x] 中英文、明暗主题和窄屏布局沿用现有设计体系。
+- [x] 服务端测试、Desktop UI 测试、类型检查/构建通过。
+
+## 阶段
+
+1. **已完成** — 核对设计规范、数据模型、API 与触发落盘路径。
+2. **已完成** — 实现提醒未读状态和已读写回，并覆盖测试。
+3. **已完成** — 实现第三个 Tab、todo 列表和侧边栏角标。
+4. **已完成** — 更新中英文文案及产品文档。
+5. **已完成** — 完成测试、构建和对抗式回归检查。
+
+## 约束与决定
+
+- 提醒继续以 watched event JSON 和运行时事件系统为唯一事实源。
+- 已读动作定义为用户进入“一次性任务”Tab；这样角标不会在用户尚未看到提醒时消失。
+- 未读标志只在新的一次性提醒成功触发时写入，缺少该标志的历史记录视为已读。
+- 保留工作区中所有与本功能无关的未提交修改。
+
+---
+# 系统任务执行会话不可打开（2026-07-15）
+
+## 目标
+
+修复 Desktop 自动任务中系统任务已执行但打开执行会话显示“会话可能已清理”的问题，确保真实存在的内部任务执行记录可以读取，同时继续正确处理确实已被 retention 清理的会话。
+
+## 成功标准
+
+- [ ] 建立可重复、秒级、能捕获“执行存在但 session 返回空”的反馈循环。
+- [ ] 确认系统任务 execution lease 的 session/workspace 存储位置与 Desktop 详情解析路径。
+- [ ] 写出先失败后通过的回归测试，使用临时目录/SQLite。
+- [ ] 系统任务会话能显示真实 user/assistant 内容；普通渠道任务与真实已清理会话行为不回归。
+- [ ] 更新 features / prd / CHANGELOG / readme，并通过聚焦测试、Svelte 检查和构建。
+
+## 阶段
+
+1. **进行中** — 用当前运行服务或最小夹具建立红色反馈循环。
+2. **待处理** — 排名并验证 3–5 个可证伪假设。
+3. **待处理** — 写回归测试并实施最小修复。
+4. **待处理** — 更新文档并完成对抗式验证。
+
+---
+## 2026-07-15：内部审批 / Event Session 归属与侧栏标题修复
+
+### 目标
+严格按用户指定顺序完成五项修复：审批专用 API → Event 原始 Session → 历史内部记录安全回填/隐藏 → 侧栏标题自适应 → 完整回归。
+
+### 验收顺序
+1. [complete] 审批只走专用 API，`/hosttools approve-session ...` 不再作为普通消息创建 Session。
+2. [complete] watched Event 持久化原始来源 Session，并在提醒触发时回到该 Session。
+3. [complete] 对历史 `/hosttools...` 与 `[EVENT:...]` 做可逆分类回填/普通 Chat 隐藏，不删除用户数据。
+4. [complete] 侧栏标题可使用随侧栏增大的可用宽度，同时保留时间与操作区。
+5. [complete] 回归断言覆盖内部 Session 隔离、提醒来源 Session、标题宽度增长；更新产品文档并完成构建。
+
+### 约束
+- 修改顺序不可交换；每项先红灯后修复并验证。
+- 分类与隐藏必须可逆，原始 Session/消息不得删除。
+- 审批、Event 归属和历史分类属于共享上层，不下沉 Channel。
+- UI 遵循 DESIGN.md，中英、明暗主题与窄窗口保持兼容。

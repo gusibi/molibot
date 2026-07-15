@@ -2,11 +2,14 @@ import type {
   DesktopTaskExecution,
   DesktopTaskItem,
   DesktopTaskSessionMessage,
+  DesktopSystemTaskExecution,
+  DesktopSystemTaskExecutionResult,
   DesktopTaskState,
   DesktopTaskSummary,
   DesktopTaskTarget,
   DesktopTaskType
 } from "$lib/shared/desktop";
+import type { EventExecutionLease } from "$lib/server/agent/eventsLeaseStore";
 import { createHash } from "node:crypto";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 import { toWebExternalUserId } from "$lib/server/web/identity";
@@ -63,6 +66,53 @@ export function buildDesktopTaskSessionMessages(messages: unknown[]): DesktopTas
   });
 }
 
+function executionCount(value: unknown): number {
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
+}
+
+function projectSystemTaskResult(value: unknown): DesktopSystemTaskExecutionResult | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const result = value as Record<string, unknown>;
+  if (result.kind === "memory-reflection") {
+    return {
+      kind: "memory-reflection",
+      completedTargets: executionCount(result.completedTargets),
+      scannedConversations: executionCount(result.scannedConversations),
+      scannedMessages: executionCount(result.scannedMessages),
+      createdCandidates: executionCount(result.createdCandidates)
+    };
+  }
+  if (result.kind === "daily-materials") {
+    return {
+      kind: "daily-materials",
+      completedTargets: executionCount(result.completedTargets),
+      scannedConversations: executionCount(result.scannedConversations),
+      scannedMessages: executionCount(result.scannedMessages),
+      createdFiles: Array.isArray(result.createdFiles)
+        ? result.createdFiles.map(String).map((item) => item.trim()).filter(Boolean)
+        : []
+    };
+  }
+  return undefined;
+}
+
+export function buildDesktopSystemTaskExecution(
+  execution: Pick<EventExecutionLease, "status" | "startedAt" | "finishedAt" | "attempt" | "maxAttempts" | "lastError" | "result">
+): DesktopSystemTaskExecution {
+  const result = projectSystemTaskResult(execution.result);
+  return {
+    status: execution.status,
+    startedAt: execution.startedAt,
+    finishedAt: execution.finishedAt,
+    attempt: execution.attempt,
+    maxAttempts: execution.maxAttempts,
+    ...(execution.lastError ? { lastError: execution.lastError } : {}),
+    result,
+    detailAvailable: Boolean(result)
+  };
+}
+
 /**
  * The shape of a task item produced by the shared tasks route. Task text is
  * intentionally editable in Desktop, while the absolute file path is reduced
@@ -88,6 +138,7 @@ interface SharedTaskItem {
   runCount: number;
   completedAt: string;
   lastTriggeredAt: string;
+  reminderUnread?: boolean;
   sessionMode: string;
   updatedAt: string;
   createdAt: string;
@@ -179,6 +230,7 @@ export function buildDesktopTaskItem(item: SharedTaskItem, loadExecutions: Deskt
     runCount: item.runCount,
     completedAt: item.completedAt,
     lastTriggeredAt: item.lastTriggeredAt,
+    reminderUnread: item.type === "one-shot" && item.reminderUnread === true,
     sessionMode: item.sessionMode,
     updatedAt: item.updatedAt,
     createdAt: item.createdAt,
@@ -198,13 +250,24 @@ export function resolveDesktopTaskPaths(items: SharedTaskItem[], ids: string[]):
   return result;
 }
 
+export function resolveDesktopOneShotTaskPaths(items: SharedTaskItem[], ids: string[]): Map<string, string> {
+  const requested = new Set(ids);
+  const result = new Map<string, string>();
+  for (const item of items.filter((entry) => entry.type === "one-shot")) {
+    const id = desktopTaskId(item.filePath);
+    if (requested.has(id)) result.set(id, item.filePath);
+  }
+  if (result.size !== requested.size) throw new Error("Unknown one-shot task");
+  return result;
+}
+
 export function buildDesktopTaskSummary(
   items: SharedTaskItem[],
   loadExecutions: DesktopTaskExecutionLoader = () => ({ items: [], total: 0 }),
   targets: DesktopTaskTarget[] = [],
   executionTotals: { total: number; completed: number; failed: number } = { total: 0, completed: 0, failed: 0 }
 ): DesktopTaskSummary {
-  const desktopItems = items.filter((item) => item.type === "periodic").map((item) => buildDesktopTaskItem(item, loadExecutions));
+  const desktopItems = items.filter((item) => item.type === "periodic" || item.type === "one-shot").map((item) => buildDesktopTaskItem(item, loadExecutions));
   const byType: Record<DesktopTaskType, number> = { "one-shot": 0, periodic: 0, immediate: 0 };
   const byStatus: Record<DesktopTaskState, number> = {
     pending: 0,
@@ -227,6 +290,14 @@ export function buildDesktopTaskSummary(
   return {
     items: desktopItems,
     targets,
-    counts: { total: desktopItems.length, byType, byStatus, byScope, byChannel, executions: executionTotals }
+    counts: {
+      total: desktopItems.length,
+      byType,
+      byStatus,
+      byScope,
+      byChannel,
+      unreadOneShot: desktopItems.filter((item) => item.type === "one-shot" && item.category === "user" && item.reminderUnread).length,
+      executions: executionTotals
+    }
   };
 }

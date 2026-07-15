@@ -19,7 +19,6 @@
   });
 </script>
 
-<p class="settings-section-hint">{session.text.ttsGenerateHint}</p>
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.ttsGenerateUnavailable}</p></div></div>
 {:else if toolsStore.ttsGenerateLoading || !toolsStore.ttsGenerateEdit}

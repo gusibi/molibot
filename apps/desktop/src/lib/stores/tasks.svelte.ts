@@ -156,6 +156,26 @@ export async function executeTaskAction(action: "trigger" | "delete", ids: strin
   }
 }
 
+export async function markOneShotTasksRead(ids: string[]): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || ids.length === 0) return;
+  const before = tasksStore.tasks;
+  if (before) {
+    tasksStore.tasks = {
+      ...before,
+      items: before.items.map((task) => ids.includes(task.id) ? { ...task, reminderUnread: false } : task),
+      counts: { ...before.counts, unreadOneShot: Math.max(0, before.counts.unreadOneShot - ids.length) }
+    };
+  }
+  try {
+    const result = await runDesktopTaskAction(endpoint, { action: "mark_one_shot_read", ids });
+    tasksStore.tasks = result.summary;
+  } catch (cause) {
+    tasksStore.tasks = before;
+    setError(cause);
+  }
+}
+
 export async function setTaskEnabled(id: string, enabled: boolean, recordUndo = true): Promise<void> {
   const endpoint = session.endpoint;
   if (!endpoint || tasksStore.busy || isTaskRunning(id) || isTaskUpdating(id)) return;

@@ -390,7 +390,8 @@ export class MemoryGateway {
         selected: []
       };
     }
-    const rows = dedupeMemoryRows(await this.search(scope, { query, limit: Math.max(limit * 4, 20), mode: "hybrid" }));
+    const rows = dedupeMemoryRows(await this.search(scope, { query, limit: Math.max(limit * 4, 20), mode: "hybrid" }))
+      .filter((row) => row.allowInjection !== false);
     if (rows.length === 0) {
       return {
         createdAt: new Date().toISOString(),

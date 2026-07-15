@@ -12,6 +12,7 @@
   export let serviceError: string;
   export let onRetryService: () => void;
   export let onOpenAgentSettings: () => void;
+  export let onAutomationUnreadChange: (count: number) => void = () => {};
 
   interface AgentStudioProps {
     copy: Translation;
@@ -44,7 +45,7 @@
       {#if serviceError}<small>{serviceError}</small><button class="secondary-button" type="button" onclick={onRetryService}>{copy.retryLoading}</button>{/if}
     </div>
   {:else if pane === "automations"}
-    <TasksSection presentation="workspace" />
+    <TasksSection presentation="workspace" onUnreadChange={onAutomationUnreadChange} />
   {:else if pane === "skills"}
     <InstalledSkillsPane {copy} {serviceEndpoint} {serviceReady} />
   {:else if AgentStudioComponent}

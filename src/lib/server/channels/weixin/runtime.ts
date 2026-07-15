@@ -632,6 +632,7 @@ export class WeixinManager extends BaseChannelRuntime {
         sourceMessage: syntheticMessage,
         isEvent: true,
         taskId: task.taskId,
+        sessionId: task.sessionId,
         sessionMode: resolveEventSessionMode(task)
       };
       (syntheticEvent as WeixinInboundEvent & { runId?: string }).runId = task.status?.runId;

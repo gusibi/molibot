@@ -48,6 +48,14 @@ function summarizeTitle(text: string): string {
   return clean.length > 40 ? `${clean.slice(0, 40)}...` : clean;
 }
 
+function inferHistoricalInternalOrigin(conversation: Conversation): "internal:approval" | "internal:event" | undefined {
+  if (conversation.projectId || conversation.origin) return undefined;
+  const title = String(conversation.title ?? "").trim();
+  if (/^\/hosttools(?:\s|$)/i.test(title)) return "internal:approval";
+  if (/^\[EVENT:/i.test(title)) return "internal:event";
+  return undefined;
+}
+
 function sanitizeConversationTitle(input: string): string {
   const normalized = String(input ?? "").replace(/\s+/g, " ").trim();
   if (!normalized) return DEFAULT_SESSION_TITLE;
@@ -580,7 +588,7 @@ export class SessionStore {
     conversationId: string,
     role: Role,
     content: string,
-    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; platformMessageId?: string; model?: string; contextBacked?: boolean }
+    options?: { attachments?: ConversationAttachment[]; activities?: ConversationActivity[]; platformMessageId?: string; model?: string; contextBacked?: boolean; sourceEntryId?: string }
   ): ConversationMessage {
     const createdAt = new Date().toISOString();
     const message: ConversationMessage = {
@@ -621,6 +629,7 @@ export class SessionStore {
       attachments: message.attachments,
       activities: message.activities,
       contextBacked: options?.contextBacked === true,
+      sourceEntryId: options?.sourceEntryId,
       content: options?.contextBacked === true ? undefined : content
     });
     file.messageCount = file.messageMetadata.length;
@@ -874,6 +883,11 @@ export class SessionStore {
     for (const [id, owner] of Object.entries(webIndex.byConversationId)) {
       const file = readWebSession(owner.externalUserId, id);
       if (!file) continue;
+      const internalOrigin = inferHistoricalInternalOrigin(file.conversation);
+      if (internalOrigin) {
+        file.conversation.origin = internalOrigin;
+        writeWebSession(owner.externalUserId, file);
+      }
       const messages = this.listMessages(id);
       const lastMessageText = String(messages[messages.length - 1]?.content ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
       out.push({ conversation: file.conversation, externalUserId: owner.externalUserId, lastMessageText });

@@ -71,6 +71,8 @@ import {
   resolveCustomProviderProtocol
 } from "$lib/server/providers/customProtocol.js";
 import { stripImagePartsForTextOnlyModel } from "$lib/server/agent/routing/mediaFallback.js";
+import { getMemoryTraceStore, type MemoryWriteReceipt } from "$lib/server/memory/traceStore.js";
+import { memoryWriteReceiptsFromToolCall } from "$lib/server/memory/writeReceipt.js";
 
 // Imported helpers from extracted runnerHelpers.ts and runnerInputEnricher.ts
 import {
@@ -188,6 +190,7 @@ export class MomRunner implements RunnerLike {
   // submission succeeds in this run, further submissions are blocked at the
   // tool gate (progress checks with a taskId stay allowed).
   private submittedVideoTaskId: string | undefined;
+  private activeMemoryWriteReceipts: MemoryWriteReceipt[] = [];
 
   private readonly hookManager: HookManager;
 
@@ -367,6 +370,14 @@ export class MomRunner implements RunnerLike {
         this.emitSkillSearchMatches(context);
         this.emitSkillExecutedForToolSignals(context);
         this.trackVideoSubmission(context);
+        if (!context.isError && context.toolCall.name === "memory") {
+          const receipts = memoryWriteReceiptsFromToolCall(context.args, context.result);
+          for (const receipt of receipts) {
+            const index = this.activeMemoryWriteReceipts.findIndex((item) => item.memoryId === receipt.memoryId);
+            if (index >= 0) this.activeMemoryWriteReceipts[index] = receipt;
+            else this.activeMemoryWriteReceipts.push(receipt);
+          }
+        }
         return undefined;
       },
       streamFn: (selectedModel, context, opts) => {
@@ -904,6 +915,8 @@ export class MomRunner implements RunnerLike {
     let currentPersistedPromptMessage = "";
     let promptUserPersisted = false;
     let assistantMessagePersisted = false;
+    let assistantSourceEntryId: string | undefined;
+    this.activeMemoryWriteReceipts = [];
     const emittedHostBashApprovalIds = new Set<string>();
     const shouldForwardHostBashApproval = (approval: HostBashApprovalPrompt | undefined): boolean => {
       if (!approval) return true;
@@ -1222,8 +1235,11 @@ export class MomRunner implements RunnerLike {
             this.store.appendContextMessage(this.chatId, persisted, this.sessionId);
           }
         } else if (message.role === "assistant" || message.role === "toolResult") {
-          this.store.appendContextMessage(this.chatId, message, this.sessionId);
-          if (message.role === "assistant") assistantMessagePersisted = true;
+          const sourceEntryId = this.store.appendContextMessage(this.chatId, message, this.sessionId);
+          if (message.role === "assistant") {
+            assistantMessagePersisted = true;
+            if (getMessageText(message).trim()) assistantSourceEntryId = sourceEntryId;
+          }
         }
       }
 
@@ -1336,7 +1352,7 @@ export class MomRunner implements RunnerLike {
         attachmentPaths: nonImage,
         messageTimestamp: ctx.message.ts,
         timezone: settings.timezone,
-        memorySnapshotText: memorySnapshot.promptText
+        memorySnapshot
       });
       const userMessage = promptInput.modelMessage;
       currentModelPromptMessage = userMessage;
@@ -2197,7 +2213,29 @@ export class MomRunner implements RunnerLike {
       if (!finalText.startsWith("[SILENT]") && Boolean(savedSkillDraft)) {
         await respondInThread(formatRunClosingNote(runSummary));
       }
-      return { runId, workspaceId, stopReason, errorMessage };
+      if (stopReason === "stop" && assistantSourceEntryId && (promptInput.memoryInjection.items.length > 0 || this.activeMemoryWriteReceipts.length > 0)) {
+        try {
+          getMemoryTraceStore().save({
+            runId,
+            sessionId: this.sessionId,
+            chatId: this.chatId,
+            assistantSourceEntryId,
+            query: memorySnapshot.query,
+            retrievedCount: memorySnapshot.selected.length,
+            selectedCount: memorySnapshot.selected.length,
+            injectedItems: promptInput.memoryInjection.items,
+            writeReceipts: [...this.activeMemoryWriteReceipts],
+            createdAt: new Date().toISOString()
+          });
+        } catch (traceError) {
+          momWarn("runner", "memory_trace_save_failed", {
+            runId,
+            chatId: this.chatId,
+            error: traceError instanceof Error ? traceError.message : String(traceError)
+          });
+        }
+      }
+      return { runId, workspaceId, assistantSourceEntryId, stopReason, errorMessage };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const partialText = streamedAssistantText.trim();
@@ -2265,6 +2303,7 @@ export class MomRunner implements RunnerLike {
       this.activeHookContext = undefined;
       this.activeModelPromptContext = undefined;
       this.activeModelCallContext = undefined;
+      this.activeMemoryWriteReceipts = [];
       try {
         const saved = this.store.loadContext(this.chatId, this.sessionId);
         this.agent.state.messages = prepareMessagesForModelContext(saved);

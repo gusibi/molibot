@@ -4,20 +4,30 @@ import { getRuntime } from "$lib/server/app/runtime";
 import { SqliteTraceStore } from "$lib/server/agent/hooks/traceStore.js";
 import {
   buildDesktopTraceSummary,
-  sanitizeDesktopTraceRange
+  sanitizeDesktopTraceQuery
 } from "$lib/server/app/desktopTrace";
 import type { DesktopTraceResponse } from "$lib/shared/desktop";
 
 export const GET: RequestHandler = async ({ url }) => {
   const runtime = getRuntime();
   const timeZone = runtime.getSettings().timezone;
-  const range = sanitizeDesktopTraceRange(url.searchParams.get("range"));
-  const limit = Math.max(1, Math.min(10000, Number(url.searchParams.get("limit") ?? 5000) || 5000));
+  const query = sanitizeDesktopTraceQuery({
+    range: url.searchParams.get("range"),
+    factType: url.searchParams.get("factType"),
+    botId: url.searchParams.get("botId"),
+    channel: url.searchParams.get("channel"),
+    chatId: url.searchParams.get("chatId"),
+    sessionId: url.searchParams.get("sessionId"),
+    runId: url.searchParams.get("runId"),
+    sourceLimit: url.searchParams.get("sourceLimit"),
+    page: url.searchParams.get("page"),
+    pageSize: url.searchParams.get("pageSize")
+  });
 
   const store = new SqliteTraceStore();
   try {
-    const facts = store.listRecentFacts(limit);
-    const summary = buildDesktopTraceSummary(timeZone, range, facts);
+    const facts = store.listRecentFacts(query.sourceLimit);
+    const summary = buildDesktopTraceSummary(timeZone, query, facts);
     const payload: DesktopTraceResponse = { ok: true, summary };
     return json(payload, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

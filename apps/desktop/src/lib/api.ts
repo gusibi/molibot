@@ -36,6 +36,7 @@ import type {
   DesktopMemoryActionRequest,
   DesktopMemoryActionResponse,
   DesktopMemoryRejectionsResponse,
+  DesktopMemoryTraceResponse,
   DesktopPluginsResponse,
   DesktopPluginsSummary,
   DesktopPluginsUpdateRequest,
@@ -100,9 +101,11 @@ import type {
   DesktopTaskActionRequest,
   DesktopTaskActionResponse,
   DesktopThinkingLevel,
+  DesktopTraceFactType,
   DesktopTraceRange,
   DesktopTraceResponse,
   DesktopTraceSummary,
+  DesktopUsageRange,
   DesktopUsageResponse,
   DesktopUsageSummary,
   DesktopWebProfile,
@@ -403,8 +406,25 @@ export function sanitizeWebProfileName(name: string, fallbackId: string): string
   return trimmed || fallbackId;
 }
 
-export async function loadDesktopUsage(endpoint: string): Promise<DesktopUsageSummary> {
-  const payload = await requestJson<DesktopUsageResponse>(endpoint, "/api/desktop/usage");
+export interface DesktopUsageQuery {
+  range: DesktopUsageRange;
+  modelId: string;
+  botId: string;
+  channel: string;
+  page: number;
+  pageSize: number;
+}
+
+export async function loadDesktopUsage(endpoint: string, query: DesktopUsageQuery): Promise<DesktopUsageSummary> {
+  const params = new URLSearchParams({
+    range: query.range,
+    modelId: query.modelId,
+    botId: query.botId,
+    channel: query.channel,
+    page: String(Math.max(1, query.page)),
+    pageSize: String(Math.max(10, Math.min(100, query.pageSize)))
+  });
+  const payload = await requestJson<DesktopUsageResponse>(endpoint, `/api/desktop/usage?${params.toString()}`);
   return payload.summary;
 }
 
@@ -453,9 +473,33 @@ export async function loadDesktopRunHistory(endpoint: string, limit = 200): Prom
   return payload.items;
 }
 
-export async function loadDesktopTrace(endpoint: string, range: DesktopTraceRange): Promise<DesktopTraceSummary> {
-  const query = new URLSearchParams({ range });
-  const payload = await requestJson<DesktopTraceResponse>(endpoint, `/api/desktop/trace?${query.toString()}`);
+export interface DesktopTraceQuery {
+  range: DesktopTraceRange;
+  factType: DesktopTraceFactType;
+  botId: string;
+  channel: string;
+  chatId: string;
+  sessionId: string;
+  runId: string;
+  sourceLimit: number;
+  page: number;
+  pageSize: number;
+}
+
+export async function loadDesktopTrace(endpoint: string, query: DesktopTraceQuery): Promise<DesktopTraceSummary> {
+  const params = new URLSearchParams({
+    range: query.range,
+    factType: query.factType,
+    botId: query.botId,
+    channel: query.channel,
+    chatId: query.chatId,
+    sessionId: query.sessionId,
+    runId: query.runId,
+    sourceLimit: String(Math.max(1000, Math.min(10000, query.sourceLimit))),
+    page: String(Math.max(1, query.page)),
+    pageSize: String(Math.max(10, Math.min(100, query.pageSize)))
+  });
+  const payload = await requestJson<DesktopTraceResponse>(endpoint, `/api/desktop/trace?${params.toString()}`);
   return payload.summary;
 }
 
@@ -581,29 +625,39 @@ export async function toggleDesktopHostBashWhitelist(
 export async function loadDesktopTasks(endpoint: string): Promise<DesktopTaskSummary> {
   const payload = await requestJson<DesktopTaskResponse>(endpoint, "/api/desktop/tasks");
   const items = payload.summary.items
-    .filter((item) => item.type === "periodic")
+    .filter((item) => item.type === "periodic" || item.type === "one-shot")
     .map((item) => ({
       ...item,
       category: item.category === "system" ? "system" as const : "user" as const,
       systemKind: (item.systemKind === "memory-reflection" || item.systemKind === "daily-materials" ? item.systemKind : "") as DesktopTaskSummary["items"][number]["systemKind"],
       enabled: item.enabled !== false,
+      reminderUnread: item.type === "one-shot" && item.reminderUnread === true,
       executions: Array.isArray(item.executions) ? item.executions : [],
       executionCount: Number(item.executionCount ?? item.executions?.length ?? 0)
     }));
   const counts: DesktopTaskSummary["counts"] = {
     total: items.length,
-    byType: { "one-shot": 0, periodic: items.length, immediate: 0 },
+    byType: { "one-shot": 0, periodic: 0, immediate: 0 },
     byStatus: { pending: 0, running: 0, completed: 0, skipped: 0, error: 0 },
     byScope: { workspace: 0, chatScratch: 0 },
     byChannel: {},
+    unreadOneShot: 0,
     executions: payload.summary.counts.executions ?? { total: 0, completed: 0, failed: 0 }
   };
   for (const item of items) {
+    counts.byType[item.type] += 1;
     counts.byStatus[item.status] += 1;
     item.scope === "workspace" ? counts.byScope.workspace += 1 : counts.byScope.chatScratch += 1;
     counts.byChannel[item.channel] = (counts.byChannel[item.channel] ?? 0) + 1;
+    if (item.type === "one-shot" && item.category === "user" && item.reminderUnread) counts.unreadOneShot += 1;
   }
   return { items, counts, targets: Array.isArray(payload.summary.targets) ? payload.summary.targets : [] };
+}
+
+export async function loadDesktopTaskUnreadCount(endpoint: string): Promise<number> {
+  const payload = await requestJson<DesktopTaskResponse>(endpoint, "/api/desktop/tasks?view=badge");
+  if (Number.isFinite(payload.summary.counts.unreadOneShot)) return payload.summary.counts.unreadOneShot;
+  return payload.summary.items.filter((item) => item.type === "one-shot" && item.category !== "system" && item.reminderUnread === true).length;
 }
 
 export async function runDesktopTaskAction(endpoint: string, input: DesktopTaskActionRequest): Promise<DesktopTaskActionResponse> {
@@ -670,6 +724,34 @@ export function normalizeDesktopTaskSession(session: {
 export async function loadDesktopProviders(endpoint: string): Promise<DesktopProvidersSummary> {
   const payload = await requestJson<DesktopProvidersResponse>(endpoint, "/api/desktop/providers");
   return payload.summary;
+}
+
+export interface DesktopAgentTemplateSummary {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  source: string;
+  installed: boolean;
+}
+
+export interface DesktopAgentTemplateInstallResult {
+  templateId: string;
+  agentId: string;
+}
+
+export async function loadDesktopAgentTemplates(endpoint: string): Promise<DesktopAgentTemplateSummary[]> {
+  const payload = await requestJson<{ ok: true; templates: DesktopAgentTemplateSummary[] }>(endpoint, "/api/desktop/agent-templates");
+  return payload.templates;
+}
+
+export async function installDesktopAgentTemplate(endpoint: string, templateId: string): Promise<DesktopAgentTemplateInstallResult> {
+  const payload = await requestJson<{ ok: true; templateId: string; agentId: string }>(endpoint, "/api/desktop/agent-templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ templateId })
+  });
+  return { templateId: payload.templateId, agentId: payload.agentId };
 }
 
 export async function loadDesktopAgents(endpoint: string): Promise<DesktopAgentsSummary> {
@@ -1502,6 +1584,34 @@ export async function loadDesktopSession(
   return payload.session;
 }
 
+export async function loadDesktopMemoryTrace(
+  endpoint: string,
+  traceId: string
+): Promise<DesktopMemoryTraceResponse["trace"]> {
+  const payload = await requestJson<DesktopMemoryTraceResponse>(
+    endpoint,
+    `/api/desktop/memory-trace/${encodeURIComponent(traceId)}`
+  );
+  return payload.trace;
+}
+
+export async function submitDesktopMemoryTraceFeedback(
+  endpoint: string,
+  traceId: string,
+  memoryId: string,
+  value: "helpful" | "irrelevant" | "incorrect" | "expired" | "too_private"
+): Promise<void> {
+  await requestJson(
+    endpoint,
+    `/api/desktop/memory-trace/${encodeURIComponent(traceId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memoryId, value })
+    }
+  );
+}
+
 export async function renameDesktopSession(
   endpoint: string,
   profileId: string,
@@ -1563,24 +1673,11 @@ export function desktopFileContentUrl(
   return serviceUrl(endpoint, `/api/web/files?${query.toString()}`);
 }
 
-export async function fetchDesktopFileBlob(
-  endpoint: string,
-  profileId: string,
-  sessionId: string,
-  fileId: string,
-  download = false,
-  projectId?: string
-): Promise<Blob> {
-  const response = await fetchFromDesktop(
-    desktopFileContentUrl(endpoint, profileId, sessionId, fileId, download, projectId)
-  );
-  if (!response.ok) {
-    throw new Error(`Failed to load file (${response.status})`);
-  }
-  // Read the body stream manually rather than `response.blob()`. Under the
-  // Tauri plugin-http transport `response.blob()` can truncate silently on
-  // larger responses (1MB+ images stopped rendering). Concatenating chunks
-  // ourselves surfaces any mid-stream error as a thrown exception instead.
+// Read the body stream manually rather than `response.blob()`. Under the
+// Tauri plugin-http transport `response.blob()` can truncate silently on
+// larger responses (1MB+ images stopped rendering). Concatenating chunks
+// ourselves surfaces any mid-stream error as a thrown exception instead.
+async function responseToBlob(response: Response): Promise<Blob> {
   const body = response.body;
   if (!body) {
     return await response.blob();
@@ -1603,6 +1700,42 @@ export async function fetchDesktopFileBlob(
   }
   const mime = response.headers.get("content-type") || undefined;
   return new Blob([merged], { type: mime });
+}
+
+export async function fetchDesktopFileBlob(
+  endpoint: string,
+  profileId: string,
+  sessionId: string,
+  fileId: string,
+  download = false,
+  projectId?: string
+): Promise<Blob> {
+  const response = await fetchFromDesktop(
+    desktopFileContentUrl(endpoint, profileId, sessionId, fileId, download, projectId)
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to load file (${response.status})`);
+  }
+  return await responseToBlob(response);
+}
+
+// Fetch a completed media task's result (image/video) from the local service
+// as a blob. The saved-on-disk file is served by taskId; loading via blob URL
+// keeps rendering inside the WebView CSP (raw provider URLs are blocked and
+// often expire). Mirrors how the web settings page serves the same file.
+export async function fetchDesktopMediaTaskBlob(
+  endpoint: string,
+  kind: DesktopMediaTaskKind,
+  taskId: string
+): Promise<Blob> {
+  const route = kind === "image"
+    ? `/api/settings/image-generate/image?taskId=${encodeURIComponent(taskId)}`
+    : `/api/settings/video-generate/video?taskId=${encodeURIComponent(taskId)}`;
+  const response = await fetchFromDesktop(serviceUrl(endpoint, route));
+  if (!response.ok) {
+    throw new Error(`Failed to load media (${response.status})`);
+  }
+  return await responseToBlob(response);
 }
 
 export function filterDesktopFiles(
@@ -1947,24 +2080,7 @@ export function parseDesktopApproval(data: Record<string, unknown>): DesktopAppr
   };
 }
 
-export function hostBashApprovalSubcommand(decision: DesktopApprovalDecision): string {
-  switch (decision) {
-    case "approve_once":
-      return "approve-once";
-    case "approve_session":
-      return "approve-session";
-    case "approve_persistent":
-      return "approve";
-    case "reject":
-      return "reject";
-  }
-}
-
-/**
- * Resolves a pending Host Bash approval through the shared `/api/chat`
- * `/hosttools` command path. The command itself is not persisted as a session
- * message; the server executes the decision and resumes the original run.
- */
+/** Resolve a pending Host Bash approval without creating a chat message. */
 export async function resolveDesktopHostBash(
   endpoint: string,
   profileId: string,
@@ -1972,13 +2088,15 @@ export async function resolveDesktopHostBash(
   requestId: string,
   decision: DesktopApprovalDecision
 ): Promise<string> {
-  const payload = await requestJson<{ ok: true; response: string }>(endpoint, "/api/chat", {
+  const payload = await requestJson<{ ok: true; response: string }>(endpoint, "/api/desktop/host-bash", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      action: "resolve_approval",
       profileId,
-      conversationId: sessionId,
-      message: `/hosttools ${hostBashApprovalSubcommand(decision)} ${requestId}`
+      sessionId,
+      requestId,
+      decision
     })
   });
   return payload.response;

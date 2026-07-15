@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { EventsWatcher, type MomEvent } from "$lib/server/agent/events.js";
+import { EventsWatcher, markOneShotReminderReadFile, type MomEvent } from "$lib/server/agent/events.js";
 import { EventExecutionLeaseStore, type EventExecutionLease } from "$lib/server/agent/eventsLeaseStore.js";
 
 function createPeriodicEvent(): MomEvent {
@@ -162,5 +162,43 @@ test("disabled periodic events never enter the scheduler dispatch loop", async (
     watcher.stop();
     rmSync(eventsDir, { recursive: true, force: true });
     store.close();
+  }
+});
+
+test("successful one-shot completion becomes unread", () => {
+  const store = new EventExecutionLeaseStore(":memory:");
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-reminder-"));
+  const watcher = new EventsWatcher(eventsDir, async () => {}, { leaseStore: store }) as unknown as {
+    markDone: (filename: string, event: MomEvent, reason: string) => void;
+    stop: () => void;
+  };
+  const event: MomEvent = { type: "one-shot", chatId: "chat-1", text: "Drink water", at: "2026-07-15T10:00:00.000Z" };
+  writeFileSync(join(eventsDir, "reminder.json"), `${JSON.stringify(event)}\n`, "utf8");
+
+  try {
+    watcher.markDone("reminder.json", event, "completed");
+    const completed = JSON.parse(readFileSync(join(eventsDir, "reminder.json"), "utf8"));
+    assert.equal(completed.status.state, "completed");
+    assert.equal(completed.status.reminderUnread, true);
+  } finally {
+    watcher.stop();
+    rmSync(eventsDir, { recursive: true, force: true });
+    store.close();
+  }
+});
+
+test("markOneShotReminderReadFile persists read state and rejects periodic tasks", () => {
+  const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-read-"));
+  const reminderPath = join(eventsDir, "reminder.json");
+  const periodicPath = join(eventsDir, "periodic.json");
+  writeFileSync(reminderPath, JSON.stringify({ type: "one-shot", at: "2026-07-15T10:00:00.000Z", chatId: "chat-1", text: "Drink water", status: { state: "completed", reminderUnread: true } }), "utf8");
+  writeFileSync(periodicPath, JSON.stringify(createPeriodicEvent()), "utf8");
+
+  try {
+    markOneShotReminderReadFile(reminderPath);
+    assert.equal(JSON.parse(readFileSync(reminderPath, "utf8")).status.reminderUnread, false);
+    assert.throws(() => markOneShotReminderReadFile(periodicPath), /not_one_shot/);
+  } finally {
+    rmSync(eventsDir, { recursive: true, force: true });
   }
 });

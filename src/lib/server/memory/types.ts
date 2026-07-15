@@ -37,6 +37,7 @@ export interface MemoryRecord {
   reason?: string;
   sources?: MemorySourceRef[];
   pinned?: boolean;
+  allowInjection?: boolean;
   factKey?: string;
   hasConflict?: boolean;
   sourceSessionId?: string;
@@ -59,6 +60,7 @@ export interface MemoryAddInput {
   reason?: string;
   sources?: MemorySourceRef[];
   pinned?: boolean;
+  allowInjection?: boolean;
 }
 
 export type MemoryCandidateStatus = "pending" | "confirmed" | "ignored" | "edited-then-confirmed";
@@ -93,6 +95,7 @@ export interface MemoryUpdateInput {
   tags?: string[];
   expiresAt?: string | null;
   pinned?: boolean;
+  allowInjection?: boolean;
 }
 
 export interface MemorySearchInput {
@@ -110,6 +113,32 @@ export interface MemoryPromptSnapshot {
   longTerm: MemoryRecord[];
   daily: MemoryRecord[];
   selected: MemoryRecord[];
+}
+
+export interface MemoryInjectionItem {
+  memoryId: string;
+  order: number;
+  /** Exact numbered line serialized into the model context. */
+  promptText: string;
+  snapshot: {
+    displayText: string;
+    content: string;
+    layer: MemoryRecord["layer"];
+    type?: string;
+    confidence?: number;
+    reason?: string;
+    tags: string[];
+    updatedAt: string;
+  };
+}
+
+export interface MemoryInjectionSnapshot {
+  createdAt: string;
+  query: string;
+  fingerprint: string;
+  /** Exact memory block placed between the current-memory tags. */
+  promptText: string;
+  items: MemoryInjectionItem[];
 }
 
 export interface MemoryFlushResult {

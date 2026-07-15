@@ -63,6 +63,7 @@ export interface SessionRuntimeEntry {
   readonly isActive: boolean;
   readonly statusDot: SessionStatusDot | null;
   appendUser(content: string, files: File[]): void;
+  replaceMessages(messages: UiMessage[]): void;
   reloadFromServer(): Promise<void>;
   setError(message: string): void;
   clearError(): void;
@@ -172,6 +173,10 @@ class SessionRuntimeEntryImpl implements SessionRuntimeEntry {
             : undefined
       }
     ];
+  }
+
+  replaceMessages(messages: UiMessage[]): void {
+    this.messages = messages;
   }
 
   async reloadFromServer(): Promise<void> {

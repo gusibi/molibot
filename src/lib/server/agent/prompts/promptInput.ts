@@ -1,12 +1,73 @@
 import { formatIsoInTimeZone, localDateKeyInTimeZone, normalizeTimeZone } from "$lib/server/time.js";
 import { resolveScratchArtifactDir } from "$lib/server/agent/session/scratchArtifacts.js";
+import type {
+  MemoryInjectionSnapshot,
+  MemoryPromptSnapshot,
+  MemoryRecord
+} from "$lib/server/memory/types.js";
 
 interface PromptInputEnvelopeOptions {
   messageText: string;
   attachmentPaths?: string[];
   messageTimestamp?: string | number | Date;
   timezone: string;
-  memorySnapshotText?: string;
+  memorySnapshot?: MemoryPromptSnapshot;
+}
+
+const MAX_INJECTED_MEMORIES = 5;
+const MAX_INJECTED_MEMORY_LINE_LENGTH = 220;
+
+function compactMemoryLine(index: number, record: MemoryRecord): string {
+  const line = `${index}. ${record.content}`.replace(/\s+/g, " ").trim();
+  return line.length > MAX_INJECTED_MEMORY_LINE_LENGTH
+    ? `${line.slice(0, MAX_INJECTED_MEMORY_LINE_LENGTH - 1).trimEnd()}…`
+    : line;
+}
+
+export function materializeMemoryInjection(snapshot?: MemoryPromptSnapshot): MemoryInjectionSnapshot {
+  if (!snapshot || snapshot.selected.length === 0) {
+    return {
+      createdAt: snapshot?.createdAt ?? new Date(0).toISOString(),
+      query: snapshot?.query ?? "",
+      fingerprint: snapshot?.fingerprint ?? "empty",
+      promptText: "",
+      items: []
+    };
+  }
+
+  const selected = snapshot.selected.slice(0, MAX_INJECTED_MEMORIES);
+  let longTermIndex = 0;
+  let dailyIndex = 0;
+  const items = selected.map((record, order) => {
+    const index = record.layer === "daily" ? ++dailyIndex : ++longTermIndex;
+    const promptText = compactMemoryLine(index, record);
+    return {
+      memoryId: record.id,
+      order,
+      promptText,
+      snapshot: {
+        displayText: record.content,
+        content: record.content,
+        layer: record.layer,
+        type: record.type,
+        confidence: record.confidence,
+        reason: record.reason,
+        tags: [...record.tags],
+        updatedAt: record.updatedAt
+      }
+    };
+  });
+  const hasLongTerm = selected.some((record) => record.layer !== "daily");
+  const promptText = [hasLongTerm ? "Long-term memory (trimmed):" : "", ...items.map((item) => item.promptText)]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    createdAt: snapshot.createdAt,
+    query: snapshot.query,
+    fingerprint: snapshot.fingerprint,
+    promptText,
+    items
+  };
 }
 
 // Working-memory snapshots ride inside the per-turn envelope (model message
@@ -82,6 +143,7 @@ function appendAttachmentBlock(baseText: string, attachmentPaths: string[]): str
 export function buildPromptInputEnvelope(options: PromptInputEnvelopeOptions): {
   modelMessage: string;
   persistedMessage: string;
+  memoryInjection: MemoryInjectionSnapshot;
 } {
   const timeZone = normalizeTimeZone(options.timezone);
   const messageDate = resolveMessageTimestamp(options.messageTimestamp);
@@ -90,9 +152,10 @@ export function buildPromptInputEnvelope(options: PromptInputEnvelopeOptions): {
   const today = localDateKeyInTimeZone(messageDate, timeZone);
   const scratchArtifactDir = resolveScratchArtifactDir(timeZone, messageDate);
   const persistedMessage = appendAttachmentBlock(options.messageText, attachmentPaths);
-  const memoryText = String(options.memorySnapshotText ?? "").trim();
+  const memoryInjection = materializeMemoryInjection(options.memorySnapshot);
+  const memoryText = memoryInjection.promptText;
   const memoryBlock = memoryText
-    ? ["<current-memory>", compactPromptMemory(memoryText), "</current-memory>", ""]
+    ? ["<current-memory>", memoryText, "</current-memory>", ""]
     : [];
   const modelMessage = appendAttachmentBlock(
     [
@@ -113,6 +176,7 @@ export function buildPromptInputEnvelope(options: PromptInputEnvelopeOptions): {
 
   return {
     modelMessage,
-    persistedMessage
+    persistedMessage,
+    memoryInjection
   };
 }

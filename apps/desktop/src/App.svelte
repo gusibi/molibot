@@ -140,11 +140,13 @@
     { id: "runtimeEnv", icon: "package" }
   ];
 
-  const SETTINGS_GROUPS: { id: "general" | "ai" | "channels" | "data" | "system"; sections: SettingsSection[] }[] = [
+  const SETTINGS_GROUPS: { id: "general" | "models" | "assistant" | "tools" | "channels" | "activity" | "system"; sections: SettingsSection[] }[] = [
     { id: "general", sections: ["general"] },
-    { id: "ai", sections: ["models", "providers", "usage", "trace", "mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate"] },
+    { id: "models", sections: ["models", "providers"] },
+    { id: "assistant", sections: ["agents", "skills", "memory"] },
+    { id: "tools", sections: ["mcp", "webSearch", "imageGenerate", "videoGenerate", "ttsGenerate", "hostBash"] },
     { id: "channels", sections: ["profiles", "channels"] },
-    { id: "data", sections: ["agents", "memory", "skills", "runHistory", "logs", "tasks", "hostBash"] },
+    { id: "activity", sections: ["tasks", "runHistory", "usage", "trace", "logs"] },
     { id: "system", sections: ["runtimeEnv", "sandbox", "plugins", "diagnostics"] }
   ];
 
@@ -166,9 +168,11 @@
 
   function settingsGroupLabel(group: (typeof SETTINGS_GROUPS)[number]["id"], currentLocale: Locale): string {
     const zh = currentLocale === "zh-CN";
-    if (group === "ai") return zh ? "AI 引擎" : "AI Engine";
+    if (group === "models") return zh ? "模型" : "Models";
+    if (group === "assistant") return zh ? "助手" : "Assistant";
+    if (group === "tools") return zh ? "工具" : "Tools";
     if (group === "channels") return zh ? "渠道" : "Channels";
-    if (group === "data") return zh ? "助手数据" : "Agent Data";
+    if (group === "activity") return zh ? "活动" : "Activity";
     if (group === "system") return zh ? "系统" : "System";
     return zh ? "总览" : "General";
   }
@@ -476,7 +480,7 @@
       </div>
     </aside>
     <section class="settings-content">
-      <PageHeader title={sectionLabel(activeSection, text)} description={sectionDescription(activeSection, text)} dataPage={activeSection === "trace" || activeSection === "usage"} scrolled={settingsScrolled} />
+      <PageHeader title={sectionLabel(activeSection, text)} description={sectionDescription(activeSection, text)} dataPage={activeSection === "trace" || activeSection === "usage" || activeSection === "memory"} scrolled={settingsScrolled} />
 
       <div class="settings-scroll" data-section={activeSection} onscroll={(event) => (settingsScrolled = event.currentTarget.scrollTop > 2)}>
 

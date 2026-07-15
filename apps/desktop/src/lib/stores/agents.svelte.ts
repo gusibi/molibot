@@ -1,5 +1,6 @@
 // Agent definitions settings — state + orchestration.
-import { deleteDesktopAgent, loadDesktopAgentFiles, loadDesktopAgents, saveDesktopAgent, saveDesktopAgentFiles } from "../api";
+import { deleteDesktopAgent, installDesktopAgentTemplate, loadDesktopAgentFiles, loadDesktopAgents, loadDesktopAgentTemplates, saveDesktopAgent, saveDesktopAgentFiles } from "../api";
+import type { DesktopAgentTemplateSummary } from "../api";
 import type { DesktopAgentSaveRequest, DesktopAgentsSummary } from "@molibot/desktop-contract";
 import { session, setError, notifySettingsChanged } from "./session.svelte";
 
@@ -9,10 +10,12 @@ export type AgentEditor = DesktopAgentSaveRequest & { isNew: boolean; files: Rec
 
 export const agentsStore = $state({
   agents: null as DesktopAgentsSummary | null,
+  templates: [] as DesktopAgentTemplateSummary[],
   loading: false,
   endpoint: "",
   agentEdit: null as AgentEditor | null,
   saving: false,
+  installingTemplateId: "",
   editorLoading: false,
   actionMessage: ""
 });
@@ -26,12 +29,39 @@ export async function loadAgents(endpoint: string): Promise<void> {
   agentsStore.loading = true;
   session.error = "";
   try {
-    agentsStore.agents = await loadDesktopAgents(endpoint);
+    const [agents, templates] = await Promise.all([
+      loadDesktopAgents(endpoint),
+      loadDesktopAgentTemplates(endpoint)
+    ]);
+    agentsStore.agents = agents;
+    agentsStore.templates = templates;
   } catch (cause) {
     agentsStore.endpoint = "";
     setError(cause);
   } finally {
     agentsStore.loading = false;
+  }
+}
+
+export async function installAgentFromTemplate(templateId: string): Promise<void> {
+  const endpoint = session.endpoint;
+  if (!endpoint || agentsStore.installingTemplateId) return;
+  agentsStore.installingTemplateId = templateId;
+  session.error = "";
+  try {
+    const result = await installDesktopAgentTemplate(endpoint, templateId);
+    const [agents, templates] = await Promise.all([
+      loadDesktopAgents(endpoint),
+      loadDesktopAgentTemplates(endpoint)
+    ]);
+    agentsStore.agents = agents;
+    agentsStore.templates = templates;
+    agentsStore.actionMessage = `${session.text.agentTemplateInstalled}: ${result.agentId}`;
+    notifySettingsChanged();
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    agentsStore.installingTemplateId = "";
   }
 }
 

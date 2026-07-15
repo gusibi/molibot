@@ -4,7 +4,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { config } from "$lib/server/app/env";
 import { getRuntime } from "$lib/server/app/runtime";
-import { createEventTaskId, type MomEvent } from "$lib/server/agent/events";
+import { createEventTaskId, markOneShotReminderReadFile, type MomEvent } from "$lib/server/agent/events";
 import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore";
 import { SYSTEM_TASK_BOTS_DIR, SYSTEM_TASK_CHANNEL, TASK_CHANNEL_ROOTS, type TaskChannel } from "$lib/server/agent/commands/taskChannels";
 import { buildDesktopTaskTargets } from "$lib/server/app/desktopTasks";
@@ -31,6 +31,7 @@ interface EventStatus {
   runCount?: number;
   reason?: string;
   lastError?: string;
+  reminderUnread?: boolean;
 }
 
 interface RawEventTask {
@@ -71,6 +72,7 @@ interface TaskItem {
   runCount: number;
   completedAt: string;
   lastTriggeredAt: string;
+  reminderUnread: boolean;
   sessionMode: string;
   updatedAt: string;
   createdAt: string;
@@ -82,7 +84,7 @@ interface TaskDeleteBody {
 }
 
 interface TaskTriggerBody {
-  action?: "trigger";
+  action?: "trigger" | "mark_read";
   filePaths?: string[];
 }
 
@@ -170,6 +172,7 @@ function toTaskItem(
     runCount: Number(raw.status?.runCount ?? 0),
     completedAt: String(raw.status?.completedAt ?? "").trim(),
     lastTriggeredAt: String(raw.status?.lastTriggeredAt ?? "").trim(),
+    reminderUnread: raw.type === "one-shot" && raw.status?.reminderUnread === true,
     updatedAt,
     createdAt: inferCreatedAt(filename, updatedAt)
   };
@@ -520,6 +523,31 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const taskRoots = resolveTasksRoots();
+
+  if (body.action === "mark_read") {
+    const updated: string[] = [];
+    const failed: Array<{ filePath: string; reason: string }> = [];
+
+    for (const filePath of requestedPaths) {
+      const resolvedPath = resolve(filePath);
+      if (!isTaskFilePath(resolvedPath, taskRoots)) {
+        failed.push({ filePath: resolvedPath, reason: "path_not_allowed" });
+        continue;
+      }
+      if (!existsSync(resolvedPath)) {
+        failed.push({ filePath: resolvedPath, reason: "not_found" });
+        continue;
+      }
+      try {
+        markOneShotReminderReadFile(resolvedPath);
+        updated.push(resolvedPath);
+      } catch (error) {
+        failed.push({ filePath: resolvedPath, reason: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
+    return json({ ok: failed.length === 0, updated, failed, requested: requestedPaths.length }, { status: failed.length > 0 ? 207 : 200 });
+  }
 
   if (body.action === "delete") {
     const deleted: string[] = [];

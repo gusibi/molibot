@@ -53,6 +53,11 @@ export interface ConversationMessage {
   platformMessageId?: string;
   attachments?: ConversationAttachment[];
   activities?: ConversationActivity[];
+  memoryTrace?: {
+    traceId: string;
+    injectedCount: number;
+    writeCount: number;
+  };
 }
 
 export interface Conversation {

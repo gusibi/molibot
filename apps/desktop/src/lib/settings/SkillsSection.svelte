@@ -11,7 +11,6 @@
   const skillsSearchDirty = $derived(skillsStore.searchDraft !== null && JSON.stringify(skillsStore.searchDraft) !== skillsStore.searchPristine);
 </script>
 
-<p class="settings-section-hint">{session.text.skillsHint}</p>
 {#if !session.serviceReady}
   <div class="settings-card"><div class="settings-row"><p>{session.text.skillsUnavailable}</p></div></div>
 {:else if skillsStore.loading || !skillsStore.skills}

@@ -5,6 +5,46 @@
 - [2026 Q1 PRD Archive (Feb - Mar)](docs/archive/prd-archive-2026-Q1.md)
 
 ---
+## 2.75 Desktop Usage and Trace Observability Parity (2026-07-16)
+- [Done, P0] Desktop Usage 必须支持 today / yesterday / 7 天 / 30 天范围与模型、Bot、渠道组合筛选，并提供筛选后的 KPI、趋势、模型/API/Bot/渠道排行和分页请求明细。
+- [Done, P0] Desktop Trace 必须支持 fact 类型、Bot、渠道、Chat、Session、Run 与读取上限筛选，并提供工具/技能/模型/Bot/Chat/Session/Run 排行和分页 facts；active run 控制继续位于完整分析看板之后。
+- [Done, P0] Usage/Trace 的筛选、聚合与分页必须位于 Desktop 专用服务边界；客户端必须拒绝提交过期请求响应。Trace 不得向 WebView 返回 payload、参数/结果/错误预览、blockedBy 或消息/命令内容。
+- [Done, P1] 两页必须支持中英、明暗主题、860×620 最小窗口和窄宽度表格转记录卡片；不得引入页面级横向溢出。
+- [Done, P0] 页面首次进入只能由跟踪 service readiness/endpoint 的单一 effect 发起数据加载；请求 generation、loading、query 等 store 状态不得成为该 effect 的依赖，Trace active-run 首开不得同时从 onMount 与 effect 重复请求。
+
+## 2.74 Desktop Internal Session Isolation and Reminder Routing (2026-07-15)
+- [Done, P0] Desktop Host Bash 审批必须调用专用结构化 API，不得把 `/hosttools...` 审批指令作为普通 Chat 消息持久化或创建新 Session。
+- [Done, P0] one-shot / immediate Event 必须在 watched event JSON 中保留来源 Session，并在触发时优先投递回该 Session；`fresh` 周期任务与历史缺字段 Event 保持兼容。
+- [Done, P0] 历史 `/hosttools...`、`[EVENT:...]` 内部 Web Session 只能做可逆分类回填和普通 Chat 隐藏，不得删除原始消息、Session 文件或索引。
+- [Done, P1] 可调 Chat 侧栏变宽时，Session 标题可用宽度必须同步增长，时间与操作区不得挤压或覆盖标题。
+- [Done, P0] 回归测试必须锁定专用审批 API、内部 Session 不进入普通 Chat、提醒返回来源 Session，以及标题不再受固定字符宽度限制。
+
+## 2.73 System Task Execution Records (2026-07-15)
+- [Done, P0] Molibot Owner 系统任务不得把内部关联 ID 当作普通聊天 Session 打开；执行详情必须展示独立、可读取的 execution record。
+- [Done, P0] 新的记忆反思与每日素材执行要在共享 event lease 中保存结构化结果，包括处理目标、扫描会话/消息，以及新增候选或生成文件；Channel 层不得承担该逻辑。
+- [Done, P1] 旧执行无法恢复已丢弃的业务结果时，仍需展示真实状态、起止时间与尝试次数，并明确说明历史版本未保存明细，不得误报“会话已清理”。
+- [Done, P1] Desktop 中英文界面使用“查看执行记录 / Execution record”；普通用户自动化的真实会话详情行为保持不变。
+
+## 2.72 Desktop One-Shot Reminder Inbox (2026-07-15)
+- [Done, P0] Desktop“自动任务”增加“一次性任务”Tab；用户 one-shot watched events 与周期自动化、Molibot 系统任务分开，以 todo 列表展示提醒内容、触发时间和“提醒 / 已提醒”状态。
+- [Done, P0] 只有一次性提醒成功触发才写入显式未读标志并增加 Chat 侧栏角标；进入“一次性任务”Tab 后持久化已读并即时清零。失败不得显示为已提醒。
+- [Done, P0] 缺少未读字段的历史 one-shot 默认已读；周期任务和 immediate 诊断任务不参与未读机制。本条仅取代 2.23/2.29 对 one-shot 产品入口的排除约定，immediate 仍不进入产品列表。
+- [Done, P1] 提醒状态与已读状态继续存放在 watched event JSON，经共享事件运行时和 one-shot 限定 Desktop API 读写；不得迁移到 memory、OS scheduler 或 Channel 专属实现。
+- [Done, P1] 页面支持中英、明暗主题、键盘可读状态和窄窗口；角标使用低频轻量摘要轮询，打开页面后的变化即时回传，不为轮询加载执行历史。
+
+## 2.71 Project Chat Transcript Hydration Reliability (2026-07-15)
+- [Done, P0] Project Session 选择必须只有一个 transcript 加载权威；成功响应同时更新选择状态与固定 Session Runtime，不能因重复请求之一失败而把已有会话显示为空。
+- [Done, P0] 修复不得改变 Feishu/Telegram 外部 transcript 的只读加载路径，也不得影响普通 Web Chat。
+
+## 2.70 Memory Center and Per-Turn Memory Disclosure (2026-07-15)
+- [Done, P0] Desktop「内存」已重组为面向用户的「记忆」中心，并提供三个独立 Tab：“概览”承载综合画像与待确认候选，“主题”承载主题导航、Agent 摘要、关键事实和相关实体，“全部记忆”承载底层记录搜索与管理；高级管理降为次级弹窗。画像与主题必须由真实记忆字段确定性投影，正式记忆可关闭自动注入。
+- [Done, P0] 成功的 Assistant 消息按两条独立事实链展示「参考了 N 条记忆」和「保存了 N 条记忆」；完整详情懒加载，参考项与新增/更新项分别呈现。
+- [Done, P0] `MemoryInjectionSnapshot` 在最终 Prompt 封装阶段同时生成精确文本与 items，回答参考数量不再使用可能被二次裁剪的 `MemoryPromptSnapshot.selected`。
+- [Done, P0] 结构化 Memory 工具结果生成写入回执，Trace 通过 `runId + assistantSourceEntryId` 持久化不可变快照；Trace 异常不阻塞回答，反馈支持 helpful / irrelevant / incorrect / expired / too_private。
+- [Done, P0] Trace、反馈、消息关联与 `allowInjection` 过滤均位于共享 Agent/app 层，Channel 未增加分支；列表只返回轻量计数，测试使用内存或临时 SQLite。
+- [Planned, P1] 展示回答时版本与当前版本差异、来源对话跳转和 retrieved/selected/injected 漏斗。
+- [Spec] 完整产品、数据、API、生命周期、测试和验收契约见 [`docs/requirements/memory-trace-and-memory-center-prd.md`](docs/requirements/memory-trace-and-memory-center-prd.md)。
+
 ## 2.69 Desktop Trace Action Feedback (2026-07-14)
 - [Done, P0] Trace 页面首屏优先展示时间范围、KPI 和分析图表；当前运行及 orphan 操作记录必须位于完整看板之后。
 - [Done, P0] Trace 的“删除记录/停止运行”必须使用应用内可见确认对话框，不得依赖桌面 WebView 的浏览器原生确认行为；取消、遮罩和 Escape 均不得提交请求。

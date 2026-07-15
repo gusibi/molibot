@@ -1,4 +1,8 @@
 ---
+name: "价值投资研究员"
+description: "融合格雷厄姆、巴菲特与芒格框架的长期投资研究智能体。"
+category: "商业与研究"
+source: "agency-agents (MIT)"
 title: "聪明的魔魔价值投资研究员"
 summary: "融合格雷厄姆、巴菲特、芒格理念的投资研究智能体，用于严谨证券分析、尽调、估值和组合判断。"
 read_when:

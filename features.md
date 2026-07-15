@@ -5,6 +5,81 @@
 - [2026 Q1 Features Archive (Feb - Mar)](docs/archive/features-archive-2026-Q1.md)
 
 ---
+## 2026-07-16
+
+### 修复 Desktop Usage / Trace 首开无限加载（已完成）
+- 修复两个页面打开后一直停在 Skeleton 的问题：加载 `$effect` 之前会同步读取并修改 store 的 generation/loading/query，导致 effect 自触发、连续发起请求，且每个响应在落地前都被下一代请求判为过期。
+- 加载 effect 现在只追踪服务 readiness 与 endpoint，store 请求状态在 `untrack` 中读取；Trace 首开也移除 `onMount` 与 effect 的重复 active-run 请求，保留单一初始化和 3 秒轮询。
+- 新增结构回归断言，禁止把 store endpoint 比较重新放回受追踪 effect。验证：观测数据/API 测试 88/88、Desktop UI 53/53、Svelte 0 错误 0 警告、Desktop production build 通过。
+
+### Desktop Usage / Trace 完整观测台（已完成）
+- Usage 从固定聚合图表补齐为可操作的本地 AI 用量台：支持 today / yesterday / 7 天 / 30 天范围、模型/Bot/渠道组合筛选、请求与 token/cache 趋势、模型/API/Bot/渠道排行，以及分页请求明细。
+- Trace 增加 fact 类型、Bot、渠道、Chat、Session、Run 和读取上限筛选，提供工具/技能/模型/Bot/Chat/Session/Run 排行与分页 fact 明细；现有 running/stuck/orphan 控制继续位于分析看板之后。
+- 两页均使用服务端筛选、聚合和分页，客户端以 request generation 防止旧响应覆盖当前筛选。Usage 只投影诊断所需本地标识；Trace 严格剥离 payload、工具参数/结果/错误预览、blockedBy 和消息/命令内容。
+- 中英、明暗主题与窄窗口使用共享 Geist 语义样式，明细表在窄宽度转为记录卡片。验证：Desktop Chat 聚合测试 206/206、Desktop JS/UI 55/55、Rust 12/12、Svelte 0 错误 0 警告、Server 与 Desktop production build 通过；当前环境无可交互桌面浏览器，未执行人工视觉巡检。
+
+### Desktop 服务日志：2000 行清爽输出、滚动到最新、可打开完整文件（已完成）
+- 日志页现在只展示最近 **2000 行**（原来是 256 KB 原始字节尾巴）。修复了字节尾巴 seek 可能切断多字节 UTF-8 字符的问题（丢弃首个残缺行），并在服务端 **剥离 ANSI 颜色/控制转义**（`strip_ansi`），中文与带色的 `[mom-t] telegram …` 行现在显示为纯文本，不再是 `^[[33m…` 乱码。
+- 新增 **打开日志文件** 按钮，用系统默认查看器打开 `~/.molibot/runtime/desktop-sidecar.log`（新增 Rust 命令 `open_desktop_log` / `desktop_log_path`，与托盘“打开 Web”一样直接走 opener 插件，无需新增 WebView 能力），可实时查看完整日志。
+- 每次加载/刷新后日志面板自动滚动到最新内容。
+- 验证：新增行尾裁剪与 ANSI 剥离的 Rust 单测、完整桌面测试套件（JS 13+55、Rust 12）、`svelte-check` 0/0、Desktop production build。
+
+### Desktop 设置侧栏按功能重新分组（已完成）
+- 原设置左侧分组是大杂烩（例如“AI 引擎”把核心模型配置、工具能力、可观测性混在一起）。按实际功能重新分组为：**总览**（general）、**模型**（models、providers）、**助手**（agents、skills、memory）、**工具**（mcp、webSearch、imageGenerate、videoGenerate、ttsGenerate、hostBash）、**渠道**（profiles、channels）、**活动**（tasks、runHistory、usage、trace、logs）、**系统**（runtimeEnv、sandbox、plugins、diagnostics）。
+- 纯导航分类调整，改动仅在 `App.svelte`（`SETTINGS_GROUPS` 与 `settingsGroupLabel`）；未增删任何设置项，section 路由不变。验证：`svelte-check` 0 错误 0 警告、Desktop production build。
+
+---
+## 2026-07-15
+
+### Desktop 图片/视频记录删除改为图标 + 测试结果字号归一（已完成）
+- 每条记录的删除改为低强度垃圾桶图标（`row-icon-btn danger-action`），替换原来醒目的红色文字按钮，与其它页面的破坏性操作一致，也让每行更轻。
+- `.tool-test-result` 不再用非 Geist 的 `11px` 硬编码等宽字体，改为 `var(--font-mono)` 12px（Geist 字号刻度上的一档）。验证：Desktop UI 53/53、涉及文件 Svelte 0 错误 0 警告。
+
+### Desktop 图片/视频记录详情展示结果图与参数（已完成）
+- 移除记录行里点击无反应的“查看结果”按钮（详情弹窗已包含结果）。
+- 详情弹窗现在真正展示结果图/视频：按 taskId 从本地服务拉取已完成文件（与 web 设置页同一来源），以 blob URL 渲染，从而符合 WebView CSP；不再用会被 `img-src` 拦截且会过期的原始 provider URL 展示。新增加载中/失败重试态。
+- 新增“请求参数”区块（模型、尺寸、种子、比例等）与整行可读的提示词。参数经原始类型白名单投影，密钥（apiKey）、主机路径、session id、轮询 token 不会进入 WebView（pitfall §5）。
+- 下载改为指向本地文件；Tauri HTTP 能力白名单新增两个取件端点（image-generate/image、video-generate/video）。
+- 验证：desktop-media-tasks 投影测试（保留安全参数、剥离密钥/路径/id）、Desktop UI 53/53、Svelte 0 错误 0 警告、Desktop production build，以及重建后详情弹窗的真实渲染（预览框、参数面板、提示词区块）。
+
+### Desktop Chat 内部 Session 隔离与提醒归属修复（已完成）
+- Host Bash 审批按钮改走 `/api/desktop/host-bash` 的结构化 `resolve_approval` action，不再把 `/hosttools...` 当普通 Chat 消息提交，因此不会继续生成授权 Session；用户主动输入 legacy 命令仍保留原行为。
+- one-shot / immediate watched Event 会持久化创建它的来源 Session，触发时回到该 Session；周期任务的 `fresh` Session 语义不变，历史 Event 缺字段时兼容回退当前活跃 Session。
+- 历史 `/hosttools...` 与 `[EVENT:...]` Web Session 在读取时只回填可逆的 `internal:approval` / `internal:event` 元数据，并从普通 Chat 投影隐藏；原 Session、索引和消息均不删除。
+- 侧栏 Session 标题移除 `30ch` 固定上限，宽度会随可调侧栏增长，时间仍保留独立空间。验证：核心回归 5/5、相关服务端/客户端测试 111/111、Desktop UI 53/53、Svelte 0 错误 0 警告、Server 与 Desktop production build 通过。
+
+### Desktop 图片/视频生成记录压缩为单行（已完成）
+- 图片、视频设置页的“生成记录”每条改为单行展示：状态徽章 + 单行截断（省略号）的提示词 + 弱化的 `引擎 · 时间`（视频仅在处理中内联显示 `%`），不再把引擎/状态、提示词、时间、错误堆成三四行；完整信息（提示词、时间、错误、预览、下载）仍通过“查看”在原有任务详情弹窗中查看。
+- 验证：真实浏览器渲染已完成/处理中/失败三种记录（均为单行、提示词省略号、操作按钮同排），Desktop UI 测试 53/53、Svelte 0 错误 0 警告、Desktop production build 通过。
+
+### Desktop 设置页统一为居中单列布局（已完成）
+- 设置页所有内容（页标题、产品描述、分区标题栏、操作按钮行、状态消息、卡片）统一到同一个居中列与同一宽度，不再出现“描述居中、分区栏 100% 宽、卡片又居中”的混排；共享宽度以 `--settings-col` 暴露，常规列宽加宽到与数据页一致的 720px。
+- 修复页头标题偏左：`.settings-page-header > div` 之前同时命中了空的 `.page-header-actions`，导致两个 div 平分表头把标题挤到左侧；现将规则限定到文本列并移除表头 gap，滚动区改用 `scrollbar-gutter: stable both-edges`，使卡片与无滚动条的表头对称居中。
+- 各分区不再把页头描述重复渲染成页面内居中段落（`PageHeader` 描述为唯一来源），共 15 个分区组件移除重复 hint。
+- 验证：Desktop UI 测试 53/53、涉及文件 Svelte 0 错误 0 警告、Desktop production build 通过，并在真实浏览器中确认标题/描述/卡片在同一像素居中。
+
+### Desktop 系统任务执行记录可查看（已完成）
+- 修复系统任务“已执行”但详情误读 `internal-*` 占位 Session、最终显示“会话可能已清理”的问题；系统任务现在打开独立的“执行记录”详情，普通自动化仍读取真实 Agent Context。
+- 新执行会把记忆反思/每日素材的处理目标数、扫描会话数、扫描消息数、新增记忆候选或生成文件写入 execution lease；旧执行展示真实状态、起止时间和尝试次数，并明确说明旧版本未保存业务明细。
+- 结果持久化和聚合位于共享事件运行时，不进入 Channel；SQLite 自动迁移 `result_json`，重试会清理旧 attempt 的结果。Desktop API 只投影已知结构与项目相对文件路径。
+- 验证：定向事件/租约/任务测试 38/38（含旧 SQLite 自动迁移），Desktop Svelte 0 错误 0 警告，Server 与 Desktop production build 通过。
+
+### Desktop 一次性提醒收件箱与未读角标（已完成）
+- “自动任务”工作区新增“一次性任务”Tab，与周期“自动化任务”和 Molibot“系统任务”分开；提醒以紧凑 todo 列表展示内容、自然语言时间和“提醒 / 已提醒”状态，失败仍明确显示而不伪装成已送达。
+- 新的一次性提醒成功触发后在 watched event JSON 写入显式未读状态，Chat 侧栏“自动任务”显示计数角标；进入“一次性任务”Tab 后通过 one-shot 限定 API 批量标记已读并即时清零。
+- 历史一次性任务缺少未读标志时默认已读，升级不会产生历史未读洪水；`periodic` 周期任务和 `immediate` 内部诊断任务均不参与提醒未读机制。
+- 中英、明暗主题和窄窗口沿用现有 Automations 语义样式。验证：提醒/投影/Desktop API 聚焦测试 86/86、Desktop UI 53/53、Svelte 0 错误 0 警告、Server 与 Desktop production build 通过。
+
+### Project Chat 历史消息空白修复（已完成）
+- Project Session 选择不再由 `projectsStore` 与 `projectChatStore` 并行请求同一 transcript；成功响应会直接灌入当前固定 Runtime，避免其中一次瞬时失败后侧栏有标题、正文却显示空会话。
+- Feishu/Telegram 等外部只读会话链路未改动。回归测试锁定单次请求与 Runtime hydration；真实项目会话验证恢复 13 条历史消息。
+
+### 回答记忆追踪与用户化记忆中心（已完成）
+- 每条成功的 Assistant 回答现在记录最终实际序列化进模型上下文的记忆快照；聊天消息分别显示“参考了 N 条记忆”和“保存了 N 条记忆”，点击后懒加载右侧抽屉，明确区分回答参考与本轮新增/更新。
+- Trace 使用最终注入项而不是检索/选中数量，绑定稳定的 Agent `sourceEntryId`，历史快照不受原记忆后续修改影响；Trace 保存失败只记录告警，不阻塞回答。用户可提交有帮助、无关、错误、过时或过于私人的反馈。
+- Desktop 记忆中心使用三个独立产品 Tab：“概览”展示综合画像、当前主线、近期新增、稳定偏好和待确认候选；“主题”按产品项目、技术开发、设计偏好、健康训练、内容创作和日常习惯组织摘要、关键事实与相关实体；“全部记忆”保留搜索、来源、版本、编辑、删除和标签管理。高级管理作为次级弹窗承载同步、去重、迁移与拒绝记录，不再与用户视图竞争主导航。
+- 画像和主题均由现有正式记忆确定性投影，不伪造额外置信度或实体；单条记忆仍可关闭“允许自动用于回答”。中英、明暗主题与 860×620 窄窗口已覆盖；验证包含投影单测 4/4、Desktop UI 55/55、API 72/72、Svelte 0 错误 0 警告和 Desktop production build。
+
 ## 2026-07-14
 
 ### Agent 头像移到消息左侧，聊天区改为居中定宽阅读列（已完成）

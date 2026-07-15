@@ -1,14 +1,22 @@
 import type { MomEvent } from "$lib/server/agent/events.js";
 
 type ReflectionInternal = NonNullable<MomEvent["internal"]>;
-type ReflectionResult = { scannedMessages: number; createdCandidates: number };
+type ReflectionResult = { scannedConversations?: number; scannedMessages: number; createdCandidates: number };
+
+export interface OwnerMemoryReflectionResult {
+  completedTargets: number;
+  scannedConversations: number;
+  scannedMessages: number;
+  createdCandidates: number;
+}
 
 export async function executeOwnerMemoryReflection(
   internals: ReflectionInternal[],
   run: (internal: ReflectionInternal) => Promise<ReflectionResult>,
   notify?: (text: string) => Promise<void>
-): Promise<void> {
+): Promise<OwnerMemoryReflectionResult> {
   let completedBots = 0;
+  let scannedConversations = 0;
   let scannedMessages = 0;
   let createdCandidates = 0;
   const failures: unknown[] = [];
@@ -17,6 +25,7 @@ export async function executeOwnerMemoryReflection(
     try {
       const result = await run(internal);
       completedBots += 1;
+      scannedConversations += result.scannedConversations ?? 0;
       scannedMessages += result.scannedMessages;
       createdCandidates += result.createdCandidates;
     } catch (cause) {
@@ -34,4 +43,5 @@ export async function executeOwnerMemoryReflection(
   if (notify) {
     await notify(`每日记忆反思已执行：${completedBots} 个 Bot，扫描 ${scannedMessages} 条消息，新增 ${createdCandidates} 条待确认记忆。`);
   }
+  return { completedTargets: completedBots, scannedConversations, scannedMessages, createdCandidates };
 }

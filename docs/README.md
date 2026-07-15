@@ -22,6 +22,7 @@ This directory is organized by document purpose first, then by topic.
 ## Common Entrypoints
 
 - Requirements: `requirements/acp-multi-provider-mvp.md`
+- Memory Center and per-turn memory disclosure PRD: `requirements/memory-trace-and-memory-center-prd.md`
 - Architecture: `designs/architecture/v1-architecture.md`
 - Agent redesign: `designs/architecture/agent-redesign-v2.2.md`
 - Prompt designs: `designs/prompt/`

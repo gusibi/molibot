@@ -49,6 +49,7 @@ interface MoryRecordMeta {
   reason?: string;
   sources?: MemoryRecord["sources"];
   pinned?: boolean;
+  allowInjection?: boolean;
 }
 
 export interface MoryWritePlan {
@@ -179,7 +180,8 @@ function parseMeta(detail: string | undefined, fallback: MemoryScope, fallbackLa
         lowConfidencePath: parsed.lowConfidencePath === true,
         reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
         sources: Array.isArray(parsed.sources) ? parsed.sources : undefined,
-        pinned: parsed.pinned === true
+        pinned: parsed.pinned === true,
+        allowInjection: parsed.allowInjection !== false
       };
     } catch {
       // fall through
@@ -198,7 +200,8 @@ function parseMeta(detail: string | undefined, fallback: MemoryScope, fallbackLa
     lowConfidencePath: undefined,
     reason: undefined,
     sources: undefined,
-    pinned: undefined
+    pinned: undefined,
+    allowInjection: true
   };
 }
 
@@ -222,6 +225,7 @@ function toRecord(row: PersistedMemoryNode, fallbackScope: MemoryScope): MemoryR
     reason: meta.reason,
     sources: meta.sources,
     pinned: meta.pinned,
+    allowInjection: meta.allowInjection,
     factKey: meta.factKey,
     hasConflict: row.conflictFlag,
     sourceSessionId: meta.sourceSessionId,
@@ -427,7 +431,8 @@ export class MoryMemoryBackend implements MemoryBackend {
         lowConfidencePath: existing.lowConfidencePath ?? plan.lowConfidencePath,
         reason: input.reason ?? existing.reason,
         sources: input.sources ?? existing.sources,
-        pinned: input.pinned ?? existing.pinned
+        pinned: input.pinned ?? existing.pinned,
+        allowInjection: input.allowInjection ?? existing.allowInjection
       };
       const updated = await this.storage.update(userId, existing.id, {
         detail: JSON.stringify(meta),
@@ -481,7 +486,8 @@ export class MoryMemoryBackend implements MemoryBackend {
       lowConfidencePath: plan.lowConfidencePath,
       reason: input.reason,
       sources: input.sources,
-      pinned: input.pinned
+      pinned: input.pinned,
+      allowInjection: input.allowInjection
     };
 
     const updated = await this.storage.update(userId, row.id, {
@@ -570,6 +576,7 @@ export class MoryMemoryBackend implements MemoryBackend {
       ? normalizeExpiresAt(input.expiresAt)
       : current.expiresAt;
     const nextPinned = typeof input.pinned === "boolean" ? input.pinned : current.pinned;
+    const nextAllowInjection = typeof input.allowInjection === "boolean" ? input.allowInjection : current.allowInjection;
     const siblingRows = await this.storage.list(userId, { includeArchived: false, limit: 2000 });
     const sibling = siblingRows.map((row) => toRecord(row, scope)).find((row) =>
       row.id !== id &&
@@ -593,7 +600,8 @@ export class MoryMemoryBackend implements MemoryBackend {
         lowConfidencePath: sibling.lowConfidencePath,
         reason: sibling.reason,
         sources: sibling.sources,
-        pinned: nextPinned ?? sibling.pinned
+        pinned: nextPinned ?? sibling.pinned,
+        allowInjection: nextAllowInjection ?? sibling.allowInjection
       };
       const updatedSibling = await this.storage.update(userId, sibling.id, {
         detail: JSON.stringify(siblingMeta),
@@ -617,7 +625,8 @@ export class MoryMemoryBackend implements MemoryBackend {
       lowConfidencePath: current.lowConfidencePath,
       reason: current.reason,
       sources: current.sources,
-      pinned: nextPinned
+      pinned: nextPinned,
+      allowInjection: nextAllowInjection
     };
 
     const updated = await this.storage.update(userId, id, {

@@ -4,7 +4,7 @@ import { applyChannelPlugins } from "$lib/server/plugins/loader.js";
 import { getToolSandboxEnvStartupReport } from "$lib/server/agent/tools/sandbox.js";
 import { config, liveServicesDisabled } from "$lib/server/app/env.js";
 import { type ChannelManager } from "$lib/server/channels/registry.js";
-import { collectDailyMaterialsBackfillInternals, collectMemoryReflectionInternals, resolveMemoryReflectionNotificationTarget, TaskScheduler } from "$lib/server/agent/taskScheduler.js";
+import { collectDailyMaterialsBackfillInternals, collectMemoryReflectionInternals, resolveMemoryReflectionNotificationTarget, TaskScheduler, type InternalTaskExecutionResult } from "$lib/server/agent/taskScheduler.js";
 import { executeOwnerMemoryReflection } from "$lib/server/agent/ownerMemoryReflection.js";
 import { MessageRouter } from "$lib/server/channels/shared/messageRouter.js";
 import { initDb, storagePaths } from "$lib/server/infra/db/storage.js";
@@ -235,14 +235,21 @@ export function getRuntime(): RuntimeState {
       if (!manager?.triggerTask) throw new Error(`Reflection notification target is unavailable: ${target.channel}/${target.botId}`);
       await manager.triggerTask({ type: "immediate", chatId: target.chatId, text, delivery: "text" }, `${filename}:owner-notification`);
     };
-    const runInternalEvent = async (event: MomEvent, filename: string): Promise<{ notificationText?: string } | void> => {
+    const runInternalEvent = async (event: MomEvent, filename: string): Promise<InternalTaskExecutionResult | void> => {
       if (event.internal?.kind === "memory-reflection") {
         if (event.internal.target) {
           const result = await reflectionService.run(event.internal.target as ReflectionTarget);
           console.log(`${memoryLabel("reflection")} completed file=${filename} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
-          return result.createdCandidates > 0 ? { notificationText: `记忆反思完成：新增 ${result.createdCandidates} 条待确认记忆。` } : undefined;
+          return {
+            kind: "memory-reflection",
+            completedTargets: 1,
+            scannedConversations: result.scannedConversations,
+            scannedMessages: result.scannedMessages,
+            createdCandidates: result.createdCandidates,
+            notificationText: result.createdCandidates > 0 ? `记忆反思完成：新增 ${result.createdCandidates} 条待确认记忆。` : undefined
+          };
         }
-        await executeOwnerMemoryReflection(
+        const result = await executeOwnerMemoryReflection(
           collectMemoryReflectionInternals(currentSettings.value),
           async (internal) => {
             const result = await reflectionService.run(internal.target as ReflectionTarget);
@@ -253,18 +260,33 @@ export function getRuntime(): RuntimeState {
             ? (text) => sendOwnerReflectionNotice(text, filename)
             : undefined
         );
-        return;
+        return { kind: "memory-reflection", ...result };
       }
       if (event.internal?.kind === "daily-materials") {
         if (event.internal.target) {
           const result = await dailyMaterialsService.run(event.internal as DailyMaterialsInternal, { taskId: event.taskId });
           console.log(`${memoryLabel("daily-materials")} completed file=${filename} output=${result.createdFile ?? "(none)"} messages=${result.scannedMessages}`);
-          return result.createdFile ? { notificationText: `今日素材已生成：${result.createdFile}` } : undefined;
+          return {
+            kind: "daily-materials",
+            completedTargets: 1,
+            scannedConversations: result.scannedConversations,
+            scannedMessages: result.scannedMessages,
+            createdFiles: result.createdFile ? [result.createdFile] : [],
+            notificationText: result.createdFile ? `今日素材已生成：${result.createdFile}` : undefined
+          };
         }
         const failures: unknown[] = [];
+        let completedTargets = 0;
+        let scannedConversations = 0;
+        let scannedMessages = 0;
+        const createdFiles: string[] = [];
         for (const [index, internal] of collectDailyMaterialsBackfillInternals(currentSettings.value).entries()) {
           try {
             const result = await dailyMaterialsService.run(internal as DailyMaterialsInternal, { taskId: event.taskId });
+            completedTargets += 1;
+            scannedConversations += result.scannedConversations;
+            scannedMessages += result.scannedMessages;
+            if (result.createdFile) createdFiles.push(result.createdFile);
             console.log(`${memoryLabel("daily-materials")} completed file=${filename} target=${internal.target?.botId} output=${result.createdFile ?? "(none)"} messages=${result.scannedMessages}`);
             if (result.createdFile) await sendInternalNotice(internal, `今日素材已生成：${result.createdFile}`, filename, index);
           } catch (cause) {
@@ -272,7 +294,7 @@ export function getRuntime(): RuntimeState {
           }
         }
         if (failures.length > 0) throw new AggregateError(failures, `${failures.length} daily materials target(s) failed.`);
-        return;
+        return { kind: "daily-materials", completedTargets, scannedConversations, scannedMessages, createdFiles };
       }
       throw new Error("Unsupported internal event.");
     };

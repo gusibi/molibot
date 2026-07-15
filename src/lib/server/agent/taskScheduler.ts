@@ -10,19 +10,29 @@ import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import type { MemoryReflectionNotificationTarget } from "$lib/server/settings/schema.js";
 import type { MomEvent } from "$lib/server/agent/events.js";
 
+export interface InternalTaskExecutionResult {
+  notificationText?: string;
+  kind?: "memory-reflection" | "daily-materials";
+  completedTargets?: number;
+  scannedConversations?: number;
+  scannedMessages?: number;
+  createdCandidates?: number;
+  createdFiles?: string[];
+}
+
 export async function dispatchTaskEvent(
   event: MomEvent,
   filename: string,
   manager: ChannelManager,
-  runInternalEvent?: (event: MomEvent, filename: string) => Promise<{ notificationText?: string } | void>
-): Promise<void> {
+  runInternalEvent?: (event: MomEvent, filename: string) => Promise<InternalTaskExecutionResult | void>
+): Promise<InternalTaskExecutionResult | void> {
   if (event.execution === "internal") {
     if (!runInternalEvent) throw new Error("Internal event handler is not configured.");
     const result = await runInternalEvent(event, filename);
     if (result?.notificationText && event.internal?.notificationChatId && manager.triggerTask) {
       await manager.triggerTask({ type: "immediate", chatId: event.internal.notificationChatId, text: result.notificationText, delivery: "text" }, `${filename}:notification`);
     }
-    return;
+    return result;
   }
   if (typeof manager.triggerTask !== "function") throw new Error("Channel manager does not support scheduled tasks.");
   await manager.triggerTask(event, filename);
@@ -262,7 +272,7 @@ export function migrateLegacyWebTaskEvents(botsRoot: string): string[] {
 export class TaskScheduler {
   private watchers: EventsWatcher[] = [];
 
-  constructor(private readonly runInternalEvent?: (event: import("$lib/server/agent/events.js").MomEvent, filename: string) => Promise<{ notificationText?: string } | void>) {}
+  constructor(private readonly runInternalEvent?: (event: import("$lib/server/agent/events.js").MomEvent, filename: string) => Promise<InternalTaskExecutionResult | void>) {}
 
   start(channelManagers: Map<string, Map<string, ChannelManager>>, settings?: RuntimeSettings): void {
     this.stop();
@@ -278,7 +288,7 @@ export class TaskScheduler {
       ownerEventsDir,
       async (event, filename) => {
         if (event.execution !== "internal" || !this.runInternalEvent) throw new Error("Owner task must use the internal runtime.");
-        await this.runInternalEvent(event, filename);
+        return this.runInternalEvent(event, filename);
       },
       {
         channel: SYSTEM_TASK_CHANNEL,
