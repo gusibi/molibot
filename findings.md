@@ -540,3 +540,14 @@ rules, and contextual header format.
 - Agent Store's ordinary `deleteSession` rejects deletion of the last context;
   UI lifecycle deletion needs a distinct idempotent artifact-removal operation
   that may remove the last UI-linked context and clear its active pointer.
+# GitHub issue #10 completion audit (2026-07-15)
+
+- Issue #10 is OPEN and specifies a Three.js fixed-isometric Agent City with 10 stable ordinary-Agent plots, an independent Global HQ, an owner dispatch center, 1–100 deterministic floors, overflow disclosure, real Activity semantics, Sub-agent collaboration pods, automatic quality/fallback behavior, DOM accessibility, bilingual themes, resource cleanup, and visual/performance verification.
+- The matching worktree is `.claude/worktrees/issue-10-agent-page` on branch `worktree-issue-10-agent-page`.
+- The branch commit `28a98bea` is the exact parent of current `master` (`194a5629`); all issue implementation is currently uncommitted in the worktree.
+- Modified/new files cover the Desktop Agent Studio shell, a Three.js canvas and scene, a 2D fallback, projection/scene tests, i18n/CSS, dependencies, and an implementation plan. Completion is not yet established.
+- The visual direction is a refined, playful desktop miniature city constrained by Molibot's native macOS product layer: fixed camera, quiet materials/motion, semantic HTML overlays, theme tokens, and no game controls.
+- Baseline implementation checks are green: projection/scene tests 8/8, Desktop structural/HTTP tests 47/47, Svelte diagnostics 0 errors/0 warnings, and Vite production build. This proves the current slice is mergeable, not that the full PRD or visual quality is complete.
+- Confirmed delivery gaps before merge: no required `features.md`/`prd.md`/`CHANGELOG.md`/`README.md` updates; no current screenshot-based visual QA; no full requirement matrix; and no evidence yet for real hover details, sustained-fps fallback behavior, mount/unmount leak checks, or representative 1/10/40/100 rendered scenes.
+
+---

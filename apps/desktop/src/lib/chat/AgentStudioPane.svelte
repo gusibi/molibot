@@ -3,17 +3,59 @@
   import type { DesktopAgentActivityItem, DesktopAgentItem } from "@molibot/desktop-contract";
   import { loadDesktopAgentActivity, loadDesktopAgents } from "../api";
   import type { Translation } from "../i18n";
+  import AgentCityCanvas from "./AgentCityCanvas.svelte";
+  import AgentCityFallback from "./AgentCityFallback.svelte";
+  import {
+    agentCityViewportHeight,
+    type AgentCityAnchor,
+    type AgentCityQuality,
+    type AgentCityTheme
+  } from "./agentCityScene";
+  import {
+    projectAgentCity,
+    reconcileAgentCitySlots,
+    type AgentCityFloor,
+    type AgentCityProjection,
+    type AgentCityStatus
+  } from "./agentCityProjection";
 
   export let copy: Translation;
   export let serviceEndpoint: string | null;
   export let serviceReady: boolean;
   export let onOpenAgentSettings: () => void;
 
+  const SLOT_STORAGE_KEY = "molibot-agent-city-slots-v1";
   let agents: DesktopAgentItem[] = [];
   let activities: DesktopAgentActivityItem[] = [];
+  let slotMap: Record<string, number> = readStoredSlots();
+  let anchors: Record<string, AgentCityAnchor> = {};
   let loading = false;
   let error = "";
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
+  let refreshGeneration = 0;
+  let quality: AgentCityQuality = "full";
+  let fallback = false;
+  let cityWidth = 1000;
+  let cityShell: HTMLDivElement;
+  let shellObserver: ResizeObserver | null = null;
+  let themeObserver: MutationObserver | null = null;
+  let theme: AgentCityTheme = currentTheme();
+
+  function readStoredSlots(): Record<string, number> {
+    try {
+      const value = JSON.parse(localStorage.getItem(SLOT_STORAGE_KEY) || "{}");
+      return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, number> : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function currentTheme(): AgentCityTheme {
+    const explicit = document.documentElement.getAttribute("data-theme");
+    if (explicit === "dark") return "dark";
+    if (explicit === "light") return "light";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
 
   $: globalAgent = {
     id: "default",
@@ -25,25 +67,34 @@
     modelRouting: { textModelKey: "", visionModelKey: "", sttModelKey: "" }
   } satisfies DesktopAgentItem;
   $: visibleAgents = agents.some((agent) => agent.id === "default") ? agents : [globalAgent, ...agents];
+  $: projection = projectAgentCity({ agents: visibleAgents, activities, slots: slotMap });
   $: enabledCount = visibleAgents.filter((agent) => agent.enabled).length;
-  $: activityByAgent = new Map(activities.map((activity) => [activity.agentId, activity]));
-  $: workingCount = activities.filter((activity) => activity.status === "working").length;
+  $: cityHeight = agentCityViewportHeight(projection.sceneFloors, cityWidth);
 
   async function refresh(): Promise<void> {
     if (!serviceReady || !serviceEndpoint || document.hidden) return;
+    const endpoint = serviceEndpoint;
+    const generation = ++refreshGeneration;
     loading = agents.length === 0;
     try {
       const [agentSummary, nextActivities] = await Promise.all([
-        loadDesktopAgents(serviceEndpoint),
-        loadDesktopAgentActivity(serviceEndpoint)
+        loadDesktopAgents(endpoint),
+        loadDesktopAgentActivity(endpoint)
       ]);
+      if (generation !== refreshGeneration || endpoint !== serviceEndpoint || !serviceReady) return;
       agents = agentSummary.items;
       activities = nextActivities;
+      const nextSlots = reconcileAgentCitySlots(agents.filter((agent) => agent.id !== "default").map((agent) => agent.id), slotMap).slots;
+      if (JSON.stringify(slotMap) !== JSON.stringify(nextSlots)) {
+        slotMap = nextSlots;
+        localStorage.setItem(SLOT_STORAGE_KEY, JSON.stringify(slotMap));
+      }
       error = "";
     } catch (cause) {
+      if (generation !== refreshGeneration || endpoint !== serviceEndpoint) return;
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
-      loading = false;
+      if (generation === refreshGeneration) loading = false;
     }
   }
 
@@ -53,7 +104,7 @@
 
   function shortBotName(name: string): string {
     const value = name.trim();
-    return value.length > 12 ? `${value.slice(0, 11)}…` : value;
+    return value.length > 16 ? `${value.slice(0, 15)}…` : value;
   }
 
   function channelLabel(channel: string): string {
@@ -70,15 +121,60 @@
     return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date);
   }
 
+  function statusLabel(status: AgentCityStatus): string {
+    if (status === "working") return copy.agentStudioWorking;
+    if (status === "completed") return copy.agentStudioCompleted;
+    if (status === "error") return copy.agentStudioFailed;
+    if (status === "disabled") return copy.agentStudioOffDuty;
+    return copy.agentStudioAvailable;
+  }
+
+  function floorLabel(floor: AgentCityFloor): string {
+    return copy.agentCityFloorLabel.replace("{floor}", String(floor.floorIndex + 1));
+  }
+
+  function anchorStyle(key: string): string {
+    const anchor = anchors[key];
+    if (!anchor?.visible) return "display:none";
+    return `left:${anchor.x}px;top:${anchor.y}px`;
+  }
+
+  function allFloors(city: AgentCityProjection): AgentCityFloor[] {
+    return [city.globalFloor, ...city.buildings.flatMap((building) => building.floors)];
+  }
+
+  function handleFallback(): void {
+    fallback = true;
+    quality = "fallback";
+  }
+
   onMount(() => {
     void refresh();
     refreshTimer = setInterval(() => void refresh(), 2500);
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    shellObserver = new ResizeObserver(([entry]) => {
+      if (entry) cityWidth = entry.contentRect.width;
+    });
+    shellObserver.observe(cityShell);
+    themeObserver = new MutationObserver(() => theme = currentTheme());
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleSystemTheme = (): void => {
+      theme = currentTheme();
+    };
+    systemTheme.addEventListener("change", handleSystemTheme);
+    cleanupSystemTheme = () => systemTheme.removeEventListener("change", handleSystemTheme);
   });
 
+  let cleanupSystemTheme = (): void => {};
+
   onDestroy(() => {
+    refreshGeneration += 1;
     if (refreshTimer) clearInterval(refreshTimer);
     document.removeEventListener("visibilitychange", handleVisibilityChange);
+    shellObserver?.disconnect();
+    themeObserver?.disconnect();
+    cleanupSystemTheme();
   });
 </script>
 
@@ -92,7 +188,7 @@
     <div class="agent-studio-summary" aria-label={copy.agentStudioSummary}>
       <span><strong>{visibleAgents.length}</strong>{copy.agentStudioResidents}</span>
       <span><strong>{enabledCount}</strong>{copy.agentStudioOnDuty}</span>
-      <span><strong>{workingCount}</strong>{copy.agentStudioWorkingCount}</span>
+      <span><strong>{projection.workingCount}</strong>{copy.agentStudioWorkingCount}</span>
     </div>
   </div>
 
@@ -100,75 +196,53 @@
     <div class="agent-studio-state"><i class="ph ph-plugs" aria-hidden="true"></i><p>{copy.agentStudioUnavailable}</p></div>
   {:else if loading}
     <div class="agent-studio-state"><i class="ph ph-circle-notch agent-studio-spinner" aria-hidden="true"></i><p>{copy.loadingChat}</p></div>
-  {:else if visibleAgents.length === 0}
-    <div class="agent-studio-empty">
-      <div class="pug pug--waiting" aria-hidden="true"><span class="pug-ear pug-ear--left"></span><span class="pug-ear pug-ear--right"></span><span class="pug-head"><i></i><b></b><em></em></span><span class="pug-body"></span><span class="pug-leg pug-leg--left"></span><span class="pug-leg pug-leg--right"></span><span class="pug-tail"></span></div>
-      <h3>{copy.agentStudioEmpty}</h3>
-      <p>{copy.agentStudioEmptyHint}</p>
-      <button class="secondary-button" type="button" onclick={onOpenAgentSettings}>{copy.agentStudioCreate}</button>
-    </div>
   {:else}
-    <div class="agent-office" style={`--agent-count:${visibleAgents.length}`}>
-      <div class="agent-office-wall" aria-hidden="true"><span></span><span></span><span></span></div>
-      <div class="agent-office-floor" aria-hidden="true"></div>
-      <div class="agent-office-plants" aria-hidden="true"><i></i><i></i></div>
-      <div class:agent-owner--connected={workingCount > 0} class="agent-owner">
-        <div class="agent-owner-scene" aria-hidden="true">
-          <span class="agent-owner-rug"></span>
-          <span class="agent-owner-chair"></span>
-          <span class="agent-owner-avatar"><i></i><b></b></span>
-          <span class="agent-owner-desk"></span>
-          <span class="agent-owner-monitor"><i></i></span>
-          <span class="agent-owner-mug"></span>
+    <div class="agent-city-shell" class:agent-city-shell--fallback={fallback} bind:this={cityShell} style={`--agent-city-height:${cityHeight}px`}>
+      <div class="agent-city-toolbar">
+        <span><i class="ph ph-map-trifold" aria-hidden="true"></i>{copy.agentCityDispatchCenter}</span>
+        <small>{fallback ? copy.agentCityFallbackNotice : quality === "low" ? copy.agentCityLowQuality : copy.agentCityFullQuality}</small>
+      </div>
+
+      {#if fallback}
+        <AgentCityFallback {projection} {copy} {statusLabel} {onOpenAgentSettings} />
+      {:else}
+        <AgentCityCanvas {projection} {theme} onAnchors={(value) => { anchors = value; }} onQuality={(value) => { quality = value; }} onFallback={handleFallback} />
+        <div class="agent-city-label-layer">
+          <div class="agent-city-landmark-label" style={anchorStyle("owner")}>
+            <strong>{copy.agentStudioOwner}</strong><span>{projection.owner.active ? copy.agentStudioCollaborating : copy.agentStudioOwnerIdle}</span>
+          </div>
+          {#each allFloors(projection) as floor (floor.key)}
+            <button class="agent-city-agent-label" data-status={floor.state} style={anchorStyle(floor.key)} type="button" aria-label={`${floor.agent.name}, ${statusLabel(floor.state)}`}>
+              <span class="agent-city-status-dot" aria-hidden="true"></span>
+              <span class="agent-city-agent-copy"><strong>{floor.agent.name}</strong><small>{floor.kind === "global" ? copy.agentCityHeadquarters : `${floorLabel(floor)} · ${statusLabel(floor.state)}`}</small></span>
+              <span class="agent-city-tooltip" role="tooltip">
+                <span class="agent-city-tooltip-head"><strong>{floor.agent.name}</strong><em>{statusLabel(floor.state)}</em></span>
+                <p>{floor.agent.description || copy.agentStudioNoDescription}</p>
+                {#if floor.activity}
+                  <dl>
+                    <div><dt>{copy.agentStudioWorkingFor}</dt><dd>{shortBotName(floor.activity.botName)}</dd></div>
+                    <div><dt>{copy.agentStudioChannel}</dt><dd>{channelLabel(floor.activity.channel)}</dd></div>
+                    <div><dt>{copy.agentStudioStartedAt}</dt><dd>{activityTime(floor.activity.startedAt)}</dd></div>
+                  </dl>
+                  <span>{copy.agentStudioCurrentTask}</span><p>{floor.activity.taskPreview || copy.agentStudioTaskUnavailable}</p>
+                {/if}
+                <small>{floor.agent.modelOverrides > 0 ? `${floor.agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</small>
+                {#if floor.subagents.visible.length || floor.subagents.overflowCount}
+                  <div class="agent-city-subagents">
+                    <span>{copy.agentCityTeamStudio}</span>
+                    {#each floor.subagents.visible as subagent (subagent.id)}<b>{subagent.name} · {statusLabel(subagent.status)}</b>{/each}
+                    {#if floor.subagents.overflowCount}<b>+{floor.subagents.overflowCount}</b>{/if}
+                  </div>
+                {/if}
+              </span>
+            </button>
+          {/each}
         </div>
-        <div class="agent-owner-nameplate"><strong>{copy.agentStudioOwner}</strong><small>{workingCount > 0 ? copy.agentStudioCollaborating : copy.agentStudioOwnerIdle}</small></div>
-      </div>
-      <div class="agent-desks">
-        {#each visibleAgents as agent, index (agent.id)}
-          {@const activity = activityByAgent.get(agent.id)}
-          {@const status = !agent.enabled ? "disabled" : activity?.status ?? "idle"}
-          <article class:agent-desk--disabled={status === "disabled"} class:agent-desk--working={status === "working"} class:agent-desk--completed={status === "completed"} class:agent-desk--error={status === "error"} class:agent-desk--active-context={Boolean(activity)} class="agent-desk" style={`--agent-index:${index};--walk-delay:${index * -0.7}s`}>
-            {#if status === "working"}<span class="agent-link" aria-hidden="true"><i class="ph-fill ph-file-text"></i><i class="ph-fill ph-file-text"></i><i class="ph-fill ph-file-text"></i></span>{/if}
-            <div class="agent-desk-scene" aria-hidden="true">
-              <span class="agent-monitor"><i></i></span><span class="agent-table"></span><span class="agent-chair"></span>
-              {#if status === "working"}
-                <div class="pug pug--typing"><span class="pug-ear pug-ear--left"></span><span class="pug-ear pug-ear--right"></span><span class="pug-head"><i></i><b></b><em></em></span><span class="pug-body"></span><span class="pug-leg pug-leg--left"></span><span class="pug-leg pug-leg--right"></span><span class="pug-paw pug-paw--left"></span><span class="pug-paw pug-paw--right"></span><span class="pug-tail"></span></div>
-              {:else}
-                <div class="pug-rest"><span class="pug-cushion"></span><div class="pug pug--phone"><span class="pug-ear pug-ear--left"></span><span class="pug-ear pug-ear--right"></span><span class="pug-head"><i></i><b></b><em></em></span><span class="pug-body"></span><span class="pug-leg pug-leg--left"></span><span class="pug-leg pug-leg--right"></span><span class="pug-tail"></span><span class="pug-phone"><i></i></span></div></div>
-              {/if}
-            </div>
-            <div class="agent-desk-copy">
-              <span class:agent-status--disabled={status === "disabled"} class:agent-status--working={status === "working"} class:agent-status--completed={status === "completed"} class:agent-status--error={status === "error"} class="agent-status"><i></i>{status === "working" ? copy.agentStudioWorking : status === "completed" ? copy.agentStudioCompleted : status === "error" ? copy.agentStudioFailed : status === "disabled" ? copy.agentStudioOffDuty : copy.agentStudioAvailable}</span>
-              {#if activity}
-                <button class="agent-work-context" type="button" aria-label={`${copy.agentStudioWorkingFor} ${activity.botName}`}>
-                  <span class="agent-bot-badge"><i class="ph-fill ph-robot" aria-hidden="true"></i>{shortBotName(activity.botName)}</span>
-                  <div class="agent-work-tooltip" role="tooltip">
-                    <span>{copy.agentStudioWorkingFor}</span><strong>{activity.botName}</strong>
-                    <dl><div><dt>{copy.agentStudioActivityStatus}</dt><dd>{status === "working" ? copy.agentStudioWorking : status === "completed" ? copy.agentStudioCompleted : copy.agentStudioFailed}</dd></div><div><dt>{copy.agentStudioChannel}</dt><dd>{channelLabel(activity.channel)}</dd></div><div><dt>{copy.agentStudioStartedAt}</dt><dd>{activityTime(activity.startedAt)}</dd></div></dl>
-                    <span>{copy.agentStudioCurrentTask}</span><p>{activity.taskPreview || copy.agentStudioTaskUnavailable}</p>
-                  </div>
-                </button>
-              {/if}
-              <h3>{agent.name}</h3>
-              <p>{agent.description || copy.agentStudioNoDescription}</p>
-              <small>{agent.modelOverrides > 0 ? `${agent.modelOverrides} ${copy.agentStudioModelRoutes}` : copy.agentStudioDefaultRoute}</small>
-            </div>
-            {#if activity?.subagents.length}
-              <div class="subagent-bay" aria-label={copy.agentStudioSubagents}>
-                {#each activity.subagents.slice(0, 3) as subagent (subagent.id)}
-                  <div class:subagent-station--completed={subagent.status === "completed"} class:subagent-station--error={subagent.status === "error"} class="subagent-station">
-                    <span class="subagent-link" aria-hidden="true"></span>
-                    <span class="subagent-desk" aria-hidden="true"><i></i></span>
-                    <span class="subagent-pug" aria-hidden="true"><i></i><b></b><em></em></span>
-                    <span>{subagent.name}<small>{subagent.status === "working" ? copy.agentStudioWorking : subagent.status === "completed" ? copy.agentStudioCompleted : copy.agentStudioFailed}</small></span>
-                  </div>
-                {/each}
-                {#if activity.subagents.length > 3}<span class="subagent-more">+{activity.subagents.length - 3}</span>{/if}
-              </div>
-            {/if}
-          </article>
-        {/each}
-      </div>
+      {/if}
+
+      {#if projection.hiddenAgentCount > 0}
+        <p class="agent-city-overflow"><strong>+{projection.hiddenAgentCount}</strong> {copy.agentCityOverflow}</p>
+      {/if}
     </div>
   {/if}
 

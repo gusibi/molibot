@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --test src/chat-ui.test.mjs src/http-scope.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test": "corepack pnpm exec tsx --test src/lib/chat/agentCityProjection.test.ts src/lib/chat/agentCityScene.test.ts && node --test src/chat-ui.test.mjs src/http-scope.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml",
     "sync:version": "node ../../scripts/sync-desktop-version.mjs",
     "prepare:runtime": "node ../../scripts/prepare-desktop-runtime.mjs",
     "tauri": "tauri",
@@ -26,12 +26,14 @@
     "highlight.js": "^11.11.1",
     "marked": "^18.0.5",
     "qrcode": "^1.5.4",
-    "svelte": "^5.38.10"
+    "svelte": "^5.38.10",
+    "three": "0.185.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@tauri-apps/cli": "^2.11.3",
     "@types/qrcode": "^1.5.6",
+    "@types/three": "0.185.1",
     "svelte-check": "^4.3.2",
     "typescript": "^5.7.2",
     "vite": "^7.1.6"

@@ -934,3 +934,41 @@ Session and its Agent context without changing external-channel persistence.
 | Looked for `CONTEXT-FORMAT.md` beside the skills root | 1 | Resolved the reference relative to the `domain-modeling` skill directory. |
 
 ---
+# GitHub issue #10 completion, merge, and delivery (2026-07-15)
+
+## Goal
+Audit the existing issue #10 worktree against the full PRD, preserve and merge its work into `master`, then complete and verify every remaining first-version acceptance requirement.
+
+## Current phase
+Phase 2 — preserve and merge the existing worktree
+
+## Phases
+1. Map the issue requirements to current branch code, tests, and visual evidence — complete (implementation is incomplete)
+2. Commit the preserved worktree changes and merge the branch into current `master` — in progress
+3. Implement only confirmed gaps on `master`, with focused regressions — pending
+4. Verify projection, UI behavior, diagnostics, build, themes/locales/responsiveness, and visual quality — pending
+5. Update `features.md`, `prd.md`, `CHANGELOG.md`, and `README.md`; adversarially review and deliver — pending
+
+## Verification gates
+- No completion claim without requirement-by-requirement source/test evidence and current visual QA.
+- Preserve all existing issue-worktree changes; do not discard uncommitted work.
+- Three.js remains a rendering boundary; shared projection owns layout and Activity semantics, with no Channel changes.
+- UI supports Chinese/English, light/dark themes, reduced motion, narrow windows, DOM semantics, and automatic 2D fallback.
+- `git diff --check`, focused tests, Desktop diagnostics, and production build pass.
+
+## Decisions
+| Decision | Rationale |
+| --- | --- |
+| Audit before committing or merging | The worktree contains substantial uncommitted implementation, while its branch commit is one release behind `master`; completion must be based on content and verification rather than branch/issue status. |
+| Preserve the work by committing it on the issue branch before merge | Git cannot merge uncommitted work, and the user explicitly asked to merge it even if incomplete. |
+
+## Errors encountered
+| Error | Attempt | Resolution |
+| --- | --- | --- |
+| Anonymous web open of issue #10 returned a cache miss | 1 | Used authenticated `gh issue view` with approved network access. |
+| Sandboxed `gh issue view` could not reach `api.github.com` | 1 | Re-ran with the required scoped network approval and loaded the full issue. |
+| First focused-test tool call had malformed orchestration syntax | 1 | Correct the tool-call object and run the unchanged test command once. |
+| Sandboxed `tsx` could not create its temporary IPC socket (`EPERM`) | 1 | Re-run the focused test with scoped host execution; do not alter package state. |
+| Sandboxed Git could not create the linked-worktree `index.lock` | 1 | Re-run the same scoped add/commit with repository metadata write approval. |
+
+---
